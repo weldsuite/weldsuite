@@ -52,7 +52,7 @@ use crate::respondent::{
 };
 use crate::sessions::{
     MIN_FILL_MS, RespondentSession, drop_seed, expired, issue_verification, keyed_hash, read_seed,
-    require_session, session_secret,
+    require_session, session_secret, time_on_form,
 };
 use crate::submit::{Identity, Seed, SubmitArgs, submit_response};
 
@@ -593,11 +593,14 @@ async fn submit(portal: Portal, headers: HeaderMap, body: Bytes) -> Response {
             let existing = response_row(&ctx, &session.resp).await?;
             let seed = read_seed(&ctx.svc, &session.resp).await?;
 
-            // Too quick to be a person: less than a moment between start and submit.
+            // Too quick to be a person: less than a moment on the form between start and submit.
             let started_at = match &existing {
                 Some(e) => parse_ms(text(e, "startedAt")),
                 None => seed.as_ref().map(|s| s.started_at),
             };
+            let saved_timings = existing
+                .as_ref()
+                .map_or(&Value::Null, |e| &e["metadata"]["timings"]);
             let min_fill = ctx
                 .env()
                 .get("FORMS_MIN_FILL_MS")
@@ -607,9 +610,10 @@ async fn submit(portal: Portal, headers: HeaderMap, body: Bytes) -> Response {
             let completed = existing
                 .as_ref()
                 .is_some_and(|e| text(e, "status") == "completed");
-            #[allow(clippy::cast_precision_loss)]
-            let too_quick =
-                started_at.is_some_and(|started| ((ctx.now_ms() - started) as f64) < min_fill);
+            let too_quick = started_at.is_some_and(|started| {
+                time_on_form(started, saved_timings, input.timings.as_ref(), ctx.now_ms())
+                    < min_fill
+            });
             if !completed && too_quick {
                 return Err(rejected());
             }

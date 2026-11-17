@@ -9,6 +9,11 @@ describe('palette result types', () => {
     expect(RESULT_TYPE_ICON.merge_pull_request).toBeTruthy();
   });
 
+  it('labels WeldKnow pages instead of showing the raw type key', () => {
+    expect(RESULT_TYPE_LABEL.knowledge_page).toBe('Pages');
+    expect(RESULT_TYPE_ICON.knowledge_page).toBeTruthy();
+  });
+
   it('has an icon for every label', () => {
     expect(Object.keys(RESULT_TYPE_ICON).sort()).toEqual(Object.keys(RESULT_TYPE_LABEL).sort());
   });

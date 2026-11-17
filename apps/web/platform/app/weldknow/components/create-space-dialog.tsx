@@ -91,7 +91,9 @@ export function CreateSpaceDialog({ open, onOpenChange, space }: Readonly<Create
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{isEdit ? t.space.editTitle : t.space.createTitle}</DialogTitle>
-          <DialogDescription className="sr-only">{t.space.descriptionLabel}</DialogDescription>
+          <DialogDescription className="sr-only">
+            {isEdit ? t.space.editDescription : t.space.createDescription}
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">

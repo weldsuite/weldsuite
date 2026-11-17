@@ -3,10 +3,10 @@
  * Calls POST /api/search via app-api.
  *
  * Types deliberately stay on the core-api schema: the app-api schema is
- * structurally identical but adds `knowledge_page` to the entity-type union,
- * which the platform's search UI maps (RESULT_TYPE_LABEL / RESULT_TYPE_ICON,
- * recents) don't cover yet. The UI degrades gracefully at runtime for unknown
- * types (`?? Search` / `?? group.type` fallbacks).
+ * structurally identical but adds `knowledge_page` to the entity-type union.
+ * The palette maps (RESULT_TYPE_LABEL / RESULT_TYPE_ICON) name it through
+ * `PaletteEntityType`; other unknown types fall back at runtime
+ * (`?? Search` / `?? group.type`).
  */
 
 import { useQuery, keepPreviousData } from '@tanstack/react-query';

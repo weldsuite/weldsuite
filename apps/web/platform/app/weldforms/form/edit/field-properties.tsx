@@ -6,7 +6,7 @@
 
 import { useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
-import { newBlockId, type FieldBlock } from '@weldsuite/forms-engine';
+import { newBlockId, type FieldBlock, type FormChoice } from '@weldsuite/forms-engine';
 import { Button } from '@weldsuite/ui/components/button';
 import { FormField } from '@weldsuite/ui/components/form-field';
 import { Input } from '@weldsuite/ui/components/input';
@@ -22,11 +22,32 @@ interface Props {
   setProps: (patch: Record<string, unknown>, key?: string) => void;
 }
 
+/** A choice without its quiz points and right-answer mark. */
+function withoutScoring(choice: FormChoice): FormChoice {
+  const copy = { ...choice };
+  delete copy.score;
+  delete copy.correct;
+  return copy;
+}
+
 export function FieldProperties({ field, disabled, setProps }: Readonly<Props>) {
   const { t } = useI18n();
   const tp = t.weldforms.properties;
   const [scoring, setScoring] = useState(false);
   const id = field.id;
+  /** Quiz on or off for a choice question; off drops the points and right answers it had (one undo step). */
+  const quizToggle = (choices: FormChoice[], on: boolean) => (
+    <ToggleRow
+      id={`${id}-quiz`}
+      label={tp.enableScoring}
+      checked={on}
+      disabled={disabled}
+      onCheckedChange={(next) => {
+        setScoring(next);
+        if (!next) setProps({ choices: choices.map(withoutScoring) });
+      }}
+    />
+  );
 
   switch (field.type) {
     case 'short_text':
@@ -34,10 +55,10 @@ export function FieldProperties({ field, disabled, setProps }: Readonly<Props>) 
       const p = field.properties;
       return (
         <PropSection title={tp.options}>
-          <FormField label={tp.placeholder}>
-            <Input value={p.placeholder ?? ''} onChange={(e) => setProps({ placeholder: e.target.value || undefined }, 'placeholder')} maxLength={200} disabled={disabled} />
+          <FormField label={tp.placeholder} htmlFor={`${id}-placeholder`}>
+            <Input id={`${id}-placeholder`} value={p.placeholder ?? ''} onChange={(e) => setProps({ placeholder: e.target.value || undefined }, 'placeholder')} maxLength={200} disabled={disabled} />
           </FormField>
-          <NumberField label={tp.maxLength} value={p.maxLength} min={1} max={field.type === 'short_text' ? 1000 : 10000} disabled={disabled} onChange={(maxLength) => setProps({ maxLength }, 'maxLength')} />
+          <NumberField label={tp.maxLength} value={p.maxLength} integer min={1} max={field.type === 'short_text' ? 1000 : 10000} disabled={disabled} onChange={(maxLength) => setProps({ maxLength }, 'maxLength')} />
         </PropSection>
       );
     }
@@ -45,16 +66,17 @@ export function FieldProperties({ field, disabled, setProps }: Readonly<Props>) 
     case 'website':
       return (
         <PropSection title={tp.options}>
-          <FormField label={tp.placeholder}>
-            <Input value={field.properties.placeholder ?? ''} onChange={(e) => setProps({ placeholder: e.target.value || undefined }, 'placeholder')} maxLength={200} disabled={disabled} />
+          <FormField label={tp.placeholder} htmlFor={`${id}-placeholder`}>
+            <Input id={`${id}-placeholder`} value={field.properties.placeholder ?? ''} onChange={(e) => setProps({ placeholder: e.target.value || undefined }, 'placeholder')} maxLength={200} disabled={disabled} />
           </FormField>
         </PropSection>
       );
     case 'phone':
       return (
         <PropSection title={tp.options}>
-          <FormField label={tp.defaultCountry} helpText={tp.defaultCountryHelp}>
+          <FormField label={tp.defaultCountry} helpText={tp.defaultCountryHelp} htmlFor={`${id}-country`}>
             <Input
+              id={`${id}-country`}
               key={field.id}
               defaultValue={field.properties.defaultCountry ?? ''}
               onChange={(e) => {
@@ -78,7 +100,7 @@ export function FieldProperties({ field, disabled, setProps }: Readonly<Props>) 
             <NumberField label={tp.min} value={p.min} disabled={disabled} onChange={(min) => setProps({ min }, 'min')} />
             <NumberField label={tp.max} value={p.max} disabled={disabled} onChange={(max) => setProps({ max }, 'max')} />
           </div>
-          <NumberField label={tp.decimals} value={p.decimals} min={0} max={6} disabled={disabled} onChange={(decimals) => setProps({ decimals: decimals ?? 0 }, 'decimals')} helpText={tp.decimalsHelp} />
+          <NumberField label={tp.decimals} value={p.decimals} integer min={0} max={6} disabled={disabled} onChange={(decimals) => setProps({ decimals: decimals ?? 0 }, 'decimals')} helpText={tp.decimalsHelp} />
         </PropSection>
       );
     }
@@ -98,11 +120,11 @@ export function FieldProperties({ field, disabled, setProps }: Readonly<Props>) 
             onChange={(format) => setProps({ format })}
           />
           <div className="grid grid-cols-2 gap-2">
-            <FormField label={tp.earliest}>
-              <Input type="date" value={p.min ?? ''} onChange={(e) => setProps({ min: e.target.value || undefined }, 'min')} disabled={disabled} />
+            <FormField label={tp.earliest} htmlFor={`${id}-earliest`}>
+              <Input id={`${id}-earliest`} type="date" value={p.min ?? ''} onChange={(e) => setProps({ min: e.target.value || undefined }, 'min')} disabled={disabled} />
             </FormField>
-            <FormField label={tp.latest}>
-              <Input type="date" value={p.max ?? ''} onChange={(e) => setProps({ max: e.target.value || undefined }, 'max')} disabled={disabled} />
+            <FormField label={tp.latest} htmlFor={`${id}-latest`}>
+              <Input id={`${id}-latest`} type="date" value={p.max ?? ''} onChange={(e) => setProps({ max: e.target.value || undefined }, 'max')} disabled={disabled} />
             </FormField>
           </div>
         </PropSection>
@@ -117,18 +139,14 @@ export function FieldProperties({ field, disabled, setProps }: Readonly<Props>) 
         <>
           <PropSection title={tp.choices}>
             <ChoicesEditor choices={p.choices} max={picture ? 50 : 200} pictures={picture} scoring={showScoring} disabled={disabled} onChange={(choices, key) => setProps({ choices }, key)} />
-            {!showScoring && (
-              <Button type="button" variant="link" size="sm" className="h-auto p-0" onClick={() => setScoring(true)} disabled={disabled}>
-                {tp.enableScoring}
-              </Button>
-            )}
+            {quizToggle(p.choices, showScoring)}
           </PropSection>
           <PropSection title={tp.options}>
             <ToggleRow id={`${id}-multiple`} label={tp.multiple} checked={p.multiple} disabled={disabled} onCheckedChange={(multiple) => setProps({ multiple, ...(multiple ? {} : { minSelections: undefined, maxSelections: undefined }) })} />
             {p.multiple && (
               <div className="grid grid-cols-2 gap-2">
-                <NumberField label={tp.minSelections} value={p.minSelections} min={1} disabled={disabled} onChange={(minSelections) => setProps({ minSelections }, 'minSel')} />
-                <NumberField label={tp.maxSelections} value={p.maxSelections} min={1} disabled={disabled} onChange={(maxSelections) => setProps({ maxSelections }, 'maxSel')} />
+                <NumberField label={tp.minSelections} value={p.minSelections} integer min={1} disabled={disabled} onChange={(minSelections) => setProps({ minSelections }, 'minSel')} />
+                <NumberField label={tp.maxSelections} value={p.maxSelections} integer min={1} disabled={disabled} onChange={(maxSelections) => setProps({ maxSelections }, 'maxSel')} />
               </div>
             )}
             <ToggleRow id={`${id}-other`} label={tp.allowOther} checked={p.allowOther} disabled={disabled} onCheckedChange={(allowOther) => setProps({ allowOther })} />
@@ -147,11 +165,7 @@ export function FieldProperties({ field, disabled, setProps }: Readonly<Props>) 
         <>
           <PropSection title={tp.choices}>
             <ChoicesEditor choices={p.choices} max={5000} scoring={showScoring} disabled={disabled} onChange={(choices, key) => setProps({ choices }, key)} />
-            {!showScoring && (
-              <Button type="button" variant="link" size="sm" className="h-auto p-0" onClick={() => setScoring(true)} disabled={disabled}>
-                {tp.enableScoring}
-              </Button>
-            )}
+            {quizToggle(p.choices, showScoring)}
           </PropSection>
           <PropSection title={tp.options}>
             <ToggleRow id={`${id}-random`} label={tp.randomize} checked={p.randomize} disabled={disabled} onCheckedChange={(randomize) => setProps({ randomize, ...(randomize ? { alphabetical: false } : {}) })} />
@@ -177,7 +191,7 @@ export function FieldProperties({ field, disabled, setProps }: Readonly<Props>) 
       const p = field.properties;
       return (
         <PropSection title={tp.options}>
-          <NumberField label={tp.steps} value={p.steps} min={3} max={10} disabled={disabled} onChange={(steps) => setProps({ steps: Math.max(3, Math.min(10, steps ?? 5)) }, 'steps')} />
+          <NumberField label={tp.steps} value={p.steps} integer min={3} max={10} disabled={disabled} onChange={(steps) => setProps({ steps: Math.max(3, Math.min(10, steps ?? 5)) }, 'steps')} />
           <OptionSelect
             label={tp.shape}
             value={p.shape}
@@ -195,11 +209,11 @@ export function FieldProperties({ field, disabled, setProps }: Readonly<Props>) 
         <PropSection title={tp.options}>
           <div className="grid grid-cols-2 gap-2">
             <OptionSelect label={tp.scaleStart} value={String(p.start) as '0' | '1'} disabled={disabled} options={[{ value: '0', label: '0' }, { value: '1', label: '1' }]} onChange={(v) => setProps({ start: Number(v) })} />
-            <NumberField label={tp.scaleEnd} value={p.end} min={5} max={10} disabled={disabled} onChange={(end) => setProps({ end: Math.max(5, Math.min(10, end ?? 10)) }, 'end')} />
+            <NumberField label={tp.scaleEnd} value={p.end} integer min={5} max={10} disabled={disabled} onChange={(end) => setProps({ end: Math.max(5, Math.min(10, end ?? 10)) }, 'end')} />
           </div>
           {(['left', 'center', 'right'] as const).map((key) => (
-            <FormField key={key} label={tp.scaleLabels[key]}>
-              <Input value={p.labels[key] ?? ''} onChange={(e) => setLabel(key, e.target.value)} maxLength={100} disabled={disabled} />
+            <FormField key={key} label={tp.scaleLabels[key]} htmlFor={`${id}-label-${key}`}>
+              <Input id={`${id}-label-${key}`} value={p.labels[key] ?? ''} onChange={(e) => setLabel(key, e.target.value)} maxLength={100} disabled={disabled} />
             </FormField>
           ))}
         </PropSection>
@@ -210,8 +224,8 @@ export function FieldProperties({ field, disabled, setProps }: Readonly<Props>) 
       return (
         <PropSection title={tp.options}>
           {(['left', 'right'] as const).map((key) => (
-            <FormField key={key} label={tp.scaleLabels[key]}>
-              <Input value={p.labels[key] ?? ''} onChange={(e) => setProps({ labels: { ...p.labels, [key]: e.target.value || undefined } }, `label:${key}`)} maxLength={100} disabled={disabled} />
+            <FormField key={key} label={tp.scaleLabels[key]} htmlFor={`${id}-label-${key}`}>
+              <Input id={`${id}-label-${key}`} value={p.labels[key] ?? ''} onChange={(e) => setProps({ labels: { ...p.labels, [key]: e.target.value || undefined } }, `label:${key}`)} maxLength={100} disabled={disabled} />
             </FormField>
           ))}
         </PropSection>
@@ -269,8 +283,8 @@ export function FieldProperties({ field, disabled, setProps }: Readonly<Props>) 
       return (
         <PropSection title={tp.options}>
           <div className="grid grid-cols-2 gap-2">
-            <NumberField label={tp.maxFiles} value={p.maxFiles} min={1} max={10} disabled={disabled} onChange={(maxFiles) => setProps({ maxFiles: Math.max(1, Math.min(10, maxFiles ?? 1)) }, 'maxFiles')} />
-            <NumberField label={tp.maxSizeMb} value={p.maxSizeMb} min={1} max={25} disabled={disabled} onChange={(maxSizeMb) => setProps({ maxSizeMb: Math.max(1, Math.min(25, maxSizeMb ?? 10)) }, 'maxSizeMb')} />
+            <NumberField label={tp.maxFiles} value={p.maxFiles} integer min={1} max={10} disabled={disabled} onChange={(maxFiles) => setProps({ maxFiles: Math.max(1, Math.min(10, maxFiles ?? 1)) }, 'maxFiles')} />
+            <NumberField label={tp.maxSizeMb} value={p.maxSizeMb} integer min={1} max={25} disabled={disabled} onChange={(maxSizeMb) => setProps({ maxSizeMb: Math.max(1, Math.min(25, maxSizeMb ?? 10)) }, 'maxSizeMb')} />
           </div>
           <OptionSelect
             label={tp.accept}

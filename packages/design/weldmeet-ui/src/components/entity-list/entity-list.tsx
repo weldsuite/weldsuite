@@ -385,6 +385,7 @@ export function EntityList<T extends { id: string }>({
             <input
               type="text"
               placeholder={searchPlaceholder}
+              aria-label={searchPlaceholder}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="h-8 w-full pl-8 pr-3 text-sm border border-border rounded-md bg-background focus:outline-none"
@@ -410,6 +411,7 @@ export function EntityList<T extends { id: string }>({
                     searchVisible && "opacity-0 pointer-events-none absolute"
                   )}
                   onClick={() => setSearchOpen(true)}
+                  aria-label={searchPlaceholder}
                 >
                   <Search className="h-4 w-4" />
                 </Button>
@@ -422,6 +424,7 @@ export function EntityList<T extends { id: string }>({
                     ref={searchInputRef}
                     type="text"
                     placeholder={searchPlaceholder}
+                    aria-label={searchPlaceholder}
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     onBlur={() => !searchQuery && setSearchOpen(false)}
@@ -440,6 +443,8 @@ export function EntityList<T extends { id: string }>({
               size="sm"
               className="h-8 bg-primary text-primary-foreground hover:bg-primary/90 relative z-10"
               onClick={createButton.onClick}
+              // The label is hidden below md, where the button is just a "+".
+              aria-label={createButton.label}
             >
               <Plus className="h-4 w-4 md:mr-0.5" />
               <span className="hidden md:inline">{createButton.label}</span>

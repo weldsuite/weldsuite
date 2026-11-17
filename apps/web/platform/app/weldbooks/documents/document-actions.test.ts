@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { ApiError } from '@weldsuite/api-client';
-import { RESCANNABLE_STATUSES, documentFileUrl, processErrorMessage } from './document-actions';
+import {
+  RESCANNABLE_STATUSES,
+  canOpenDocument,
+  documentFileUrl,
+  documentState,
+  isImageDocument,
+  processErrorMessage,
+} from './document-actions';
 
 const messages = { insufficientCredits: 'Not enough AI credits', fallback: 'Unknown error' };
 
@@ -33,5 +40,34 @@ describe('RESCANNABLE_STATUSES', () => {
   it('offers a scan only for documents without an OCR result', () => {
     expect([...RESCANNABLE_STATUSES].sort()).toEqual(['failed', 'pending']);
     expect(RESCANNABLE_STATUSES.has('processed')).toBe(false);
+  });
+});
+
+describe('documentState', () => {
+  it('shows the OCR result when there is one', () => {
+    expect(documentState({ status: 'processed', ocrResult: { total: 10 } }, true)).toBe('ocr');
+  });
+
+  it('says a failed scan failed', () => {
+    expect(documentState({ status: 'failed' }, true)).toBe('failed');
+  });
+
+  it('says documents are entered by hand where there is no OCR, and offers the scan where there is', () => {
+    expect(documentState({ status: 'pending' }, false)).toBe('noOcr');
+    expect(documentState({ status: 'pending' }, true)).toBe('notScanned');
+  });
+});
+
+describe('canOpenDocument and isImageDocument', () => {
+  it('opens every document but one being scanned', () => {
+    expect(canOpenDocument({ status: 'pending' })).toBe(true);
+    expect(canOpenDocument({ status: 'processing' })).toBe(false);
+  });
+
+  it('previews images, by type or by name', () => {
+    expect(isImageDocument({ mimeType: 'image/png' })).toBe(true);
+    expect(isImageDocument({ mimeType: 'application/pdf', fileName: 'a.png' })).toBe(false);
+    expect(isImageDocument({ fileName: 'Bon.JPG' })).toBe(true);
+    expect(isImageDocument({ fileName: 'E2E A4 bon.pdf' })).toBe(false);
   });
 });

@@ -266,7 +266,8 @@ export const sweep = {
       "categoryLabel": "Post to ledger account",
       "categoryHint": "Optional. Use this for money that is not a customer invoice, such as a PayPal fee refund or settlement.",
       "categoryNone": "Don’t post yet — reconcile later",
-      "categoryPlaceholder": "Select account (optional)"
+      "categoryPlaceholder": "Select account (optional)",
+      "created": "Bank transaction added"
     },
     "entitySwitcher": {
       "createEntity": "Create entity",
@@ -314,7 +315,12 @@ export const sweep = {
       "actionsEmptyHint": "Set at least one action — category, tax rate, contact, or description.",
       "activeLabel": "Active (apply during auto-reconcile)",
       "saveRule": "Save rule",
-      "createRule": "Create rule"
+      "createRule": "Create rule",
+      "conditionFieldLabel": "Condition {n}: field",
+      "conditionOperatorLabel": "Condition {n}: operator",
+      "conditionValueLabel": "Condition {n}: value",
+      "conditionValue2Label": "Condition {n}: upper value",
+      "removeCondition": "Remove condition {n}"
     },
     "bankTransactionsTable": {
       "emptyMessage": "No transactions yet.",
@@ -326,7 +332,10 @@ export const sweep = {
     },
     "accountForm": {
       "codeRequired": "Code is required",
-      "nameRequired": "Name is required"
+      "nameRequired": "Name is required",
+      "typeRequired": "Choose a type",
+      "normalSideRequired": "Choose the normal side",
+      "checkFields": "Check the highlighted fields"
     },
     "billForm": {
       "descriptionRequired": "Description is required",
@@ -1549,6 +1558,7 @@ export const sweep = {
     "comingSoonToast": "{label} — coming soon",
     "companyDeleted": "Company deleted",
     "companyDeleteConfirm": "Delete this company?",
+    "companyDeleteDescription": "The company will be deleted. You cannot undo this.",
     "companyDeleteOpenDealsOne": "This company has 1 open deal. The deal stays on the pipeline board without a company. Delete the company anyway?",
     "companyDeleteOpenDealsOther": "This company has {count} open deals. The deals stay on the pipeline board without a company. Delete the company anyway?",
     "companyDeleteBulkOpenDeals": "{count} of the selected companies have open deals ({deals} in total). The deals stay on the pipeline board without a company. Delete the companies anyway?",
@@ -1594,6 +1604,7 @@ export const sweep = {
     "deleteTask": "Delete task",
     "deleteTaskFailed": "Failed to delete task",
     "deleteTaskConfirmDescription": "This task will be deleted. This can't be undone.",
+    "deleteTaskConfirmNamed": "\"{name}\" will be deleted. This can't be undone.",
     "deletedCompany": "(deleted company)",
     "deletedFile": "Deleted {fileName}",
     "deletedPerson": "(deleted person)",
@@ -2049,6 +2060,17 @@ export const sweep = {
     "recordChangedByOther": "This record was changed by someone else. Reload to see the latest version.",
     "updateFailed": "Failed to update",
     "updateFieldFailed": "Failed to update field",
+    "invalidPhone": "Enter a valid phone number",
+    "numberBetween": "Enter a number from {min} to {max}",
+    "numberAtLeast": "Enter a number of at least {min}",
+    "numberAtMost": "Enter a number of at most {max}",
+    "personArchivedBanner": "This person is archived.",
+    "companyArchivedBanner": "This company is archived.",
+    "deleteAttribute": "Delete attribute",
+    "deleteAttributeTitle": "Delete the attribute “{name}”?",
+    "deleteAttributeDescription": "Its value is removed from every record. This can’t be undone.",
+    "attributeDeleted": "Attribute deleted",
+    "attributeDeleteFailed": "Couldn’t delete the attribute",
     "updatePersonFailed": "Failed to update person",
     "updateTaskFailed": "Failed to update task",
     "upload": "Upload",
@@ -2392,6 +2414,12 @@ export const sweep = {
       "saveFailed": "Failed to save role",
       "back": "Back",
       "summary": "{memberCount} member(s) · {permissionCount} permissions · {appCount} apps",
+      "membersOne": "1 member",
+      "membersOther": "{count} members",
+      "permissionsOne": "1 permission",
+      "permissionsOther": "{count} permissions",
+      "appsOne": "1 app assigned",
+      "appsOther": "{count} apps assigned",
       "saveChanges": "Save Changes",
       "nameLabel": "Name",
       "descriptionLabel": "Description",
@@ -2519,7 +2547,8 @@ export const sweep = {
     },
     "pendingInvitations": {
       "thisMember": "this member",
-      "count": "{count} pending invitation(s)",
+      "count": "{count} pending invitations",
+      "countOne": "1 pending invitation",
       "invited": "Invited",
       "actions": "Actions"
     },
@@ -3558,6 +3587,7 @@ export const sweep = {
       "keypad": "Keypad",
       "noPhoneNumberConnected": "No phone number connected",
       "noPhoneNumberDescription": "You need to configure a phone number before you can make calls.",
+      "noPhoneNumberPurchaseUnavailable": "Numbers can't be bought or ported on this edition yet, so there is no number to call from.",
       "configureNumber": "Configure Number",
       "selectANumber": "Select a number",
       "default": "Default",
@@ -4076,6 +4106,8 @@ export const sweep = {
       "dealCreated": "Deal created",
       "dealCreateFailed": "Failed to create deal",
       "newDeal": "New deal",
+      "pipelineRequired": "Create a pipeline first",
+      "pipelineRequiredDescription": "Deals live in a pipeline. Add one under Deals in the CRM sidebar.",
       "openPipeline": "Open Pipeline",
       "won": "Won",
       "totalValue": "Total Value",

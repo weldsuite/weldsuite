@@ -200,6 +200,7 @@ export const settings = {
       addressLine2: 'Adresregel 2',
       postalCode: 'Postcode',
       addressLine2Placeholder: '2e verdieping',
+      examplePlaceholder: 'bijv. {example}',
       city: 'Stad',
       provinceState: 'Provincie / Staat',
       country: 'Land',
@@ -216,6 +217,7 @@ export const settings = {
         companyNameRequired: 'Bedrijfsnaam is verplicht',
         vatInvalid: 'Geen geldig btw-nummer voor {country}. Voorbeeld: {example}',
         taxIdInvalid: 'Geen geldig btw-nummer / fiscaal nummer. Gebruik alleen letters en cijfers.',
+        checkFields: 'Niet opgeslagen: controleer de gemarkeerde velden.',
       },
       workspaceName: {
         title: 'Werkruimtenaam',
@@ -1030,6 +1032,13 @@ export const settings = {
       updateField: 'Veld bijwerken',
       duplicate: 'Dupliceren',
       rowsSelected: '{count} van {total} rij(en) geselecteerd.',
+      object: 'Object',
+      objectFilterLabel: 'Toon de velden van',
+      allObjects: 'Alle objecten',
+      deleteDialog: {
+        title: 'Aangepast veld verwijderen?',
+        description: '"{name}" verwijderen uit {object}? De waarde in dit veld wordt bij elk record verwijderd. Dit kan niet ongedaan worden gemaakt.',
+      },
       validation: {
         nameRequired: 'Naam is verplicht',
         slugRequired: 'Slug is verplicht',
@@ -1082,6 +1091,8 @@ export const settings = {
       lastUpdatedValue: 'december 2024',
       list: {
         categoriesHeading: 'Categorieën',
+        noneOfferedTitle: 'Nog geen integraties in deze editie',
+        noneOfferedDescription: 'Integraties met andere diensten hebben services nodig die deze editie nog niet draait.',
         connected: 'Verbonden',
         categories: {
           crm: 'CRM',
@@ -2216,6 +2227,7 @@ export const settings = {
         displayName: 'Weergavenaam',
         displayNamePlaceholder: 'bijv. Ondersteuningsteam',
         displayNameDescription: 'Wordt weergegeven als de afzendernaam bij uitgaande e-mails.',
+        displayNameRequired: 'Vul een weergavenaam in',
         cancel: 'Annuleren',
         save: 'Opslaan',
         messages: {
@@ -2229,7 +2241,7 @@ export const settings = {
         sharedAccount: 'Gedeeld account',
         sharedAccountDescription: 'Zichtbaar voor alle werkruimteleden',
         assignedUsers: 'Toegewezen gebruikers',
-        assignedUsersDescription: 'Alleen deze gebruikers kunnen deze mailbox openen. Admins kunnen de mailbox beheren, maar de e-mail niet lezen. Is er niemand toegewezen, dan hebben alleen admins toegang.',
+        assignedUsersDescription: 'Alleen de toegewezen gebruikers kunnen de e-mail in deze mailbox lezen. Admins kunnen de mailbox altijd beheren, en lezen de e-mail alleen zolang er niemand is toegewezen.',
         selectUsers: 'Gebruikers selecteren...',
         usersSelected: '{count} gebruiker geselecteerd',
         usersSelectedPlural: '{count} gebruikers geselecteerd',
@@ -2274,6 +2286,7 @@ export const settings = {
       noNumbers: 'Nog geen telefoonnummers',
       noNumbersConfigured: 'Koop een telefoonnummer om te beginnen met bellen',
       noNumbersUnconfigured: 'Telefoonservice moet eerst worden geactiveerd',
+      noNumbersPurchaseUnavailable: 'In deze editie kun je nog geen nummers kopen of porteren',
       pendingPorts: 'Lopende overdrachten',
       pendingPortsDescription: 'Nummers die worden overgezet naar WeldSuite van een andere provider.',
       pendingDocuments: 'Documenten nodig',

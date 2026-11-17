@@ -10,6 +10,7 @@ import {
   type CommerceOrder,
 } from '@/hooks/queries/use-commerce-queries';
 import { getTranslations } from '@/lib/i18n';
+import { useConfirmDelete } from '../../lib/use-confirm-delete';
 import { buildOrderColumns } from '../config/order-columns';
 import { OrderDialog } from './order-dialog';
 
@@ -50,15 +51,18 @@ export function OrdersList({
 
   const columns = useMemo(() => buildOrderColumns(customerNames), [customerNames]);
 
-  const handleDelete = async (order: CommerceOrder) => {
-    if (!confirm(t.orders.confirmDelete)) return;
-    try {
-      await deleteMut.mutateAsync(order.id);
-      toast.success(t.orders.toastDeleted);
-    } catch (err) {
-      toast.error((err as Error).message || t.common.deleteFailed);
-    }
-  };
+  const confirmDelete = useConfirmDelete<CommerceOrder>({
+    title: t.orders.confirmDelete,
+    name: (order) => order.orderNumber || t.orders.untitled,
+    onDelete: async (order) => {
+      try {
+        await deleteMut.mutateAsync(order.id);
+        toast.success(t.orders.toastDeleted);
+      } catch (err) {
+        toast.error((err as Error).message || t.common.deleteFailed);
+      }
+    },
+  });
 
   return (
     <>
@@ -69,7 +73,7 @@ export function OrdersList({
         onRowClick={(o) => openObjectPanel({ type: 'order', id: o.id })}
         objectPanel={{ type: 'order' }}
         onEdit={setEditing}
-        onDelete={handleDelete}
+        onDelete={confirmDelete.request}
         searchQuery={search}
         onSearchChange={onSearchChange}
         searchPlaceholder={t.orders.searchPlaceholder}
@@ -84,10 +88,12 @@ export function OrdersList({
             </EmptyStateIllustration>
           ),
           title: t.orders.empty,
-          description: t.orders.searchPlaceholder,
+          description: t.orders.emptyDescription,
           action: { label: t.orders.newButton, onClick: () => setCreateOpen(true) },
         }}
+        noResultsState={{ title: t.orders.noResults, description: t.common.noResultsHint }}
       />
+      {confirmDelete.dialog}
 
       {createOpen && <OrderDialog open={createOpen} onOpenChange={setCreateOpen} />}
       {editing && (

@@ -89,24 +89,49 @@ describe('/api/social-campaigns', () => {
   });
 
   it('creates, reads, updates and deletes a campaign', async () => {
+    // The dialog's body: the creator comes from auth, whatever the body says,
+    // a `yyyy-mm-dd` date is midnight UTC and an empty one is no date.
     const created = await api().post({
       name: 'Winter',
-      createdByUserId: 'user_test_default',
+      createdByUserId: 'user_someone_else',
       description: 'Cold',
+      color: '#6366f1',
+      status: 'draft',
+      startDate: '2026-12-01',
+      endDate: '',
       tags: ['x'],
       notAColumn: true,
     });
     expect(created.status).toBe(201);
     const { data } = await json<{ data: { id: string } }>(created);
     const row = await json<{ data: Record<string, unknown> }>(await api().get(`/${data.id}`));
-    expect(row.data).toMatchObject({ name: 'Winter', status: 'draft', description: 'Cold', tags: ['x'] });
+    expect(row.data).toMatchObject({
+      name: 'Winter',
+      status: 'draft',
+      description: 'Cold',
+      tags: ['x'],
+      createdByUserId: 'user_test_default',
+      startDate: '2026-12-01T00:00:00.000Z',
+      endDate: null,
+    });
 
-    const updated = await api().patch(`/${data.id}`, { status: 'paused', color: '#fff' });
+    // A name alone is enough.
+    const minimal = await api().post({ name: 'Minimal' });
+    expect(minimal.status).toBe(201);
+
+    const updated = await api().patch(`/${data.id}`, {
+      status: 'paused',
+      color: '#fff',
+      startDate: '',
+      endDate: '2027-01-31T12:30:00.000Z',
+    });
     expect(updated.status).toBe(200);
     expect(await updated.json()).toEqual({ data: { id: data.id } });
     expect((await json<{ data: Record<string, unknown> }>(await api().get(`/${data.id}`))).data).toMatchObject({
       status: 'paused',
       color: '#fff',
+      startDate: null,
+      endDate: '2027-01-31T12:30:00.000Z',
     });
 
     expect((await api().remove(`/${data.id}`)).status).toBe(204);
@@ -118,16 +143,17 @@ describe('/api/social-campaigns', () => {
     for (const body of [{}, { name: '' }, { name: 'x', budget: true }, { name: 'x', status: 'y'.repeat(31) }]) {
       expect((await api().post(body)).status).toBe(400);
     }
-    // created_by_user_id is NOT NULL and the route leaves it to the body.
-    const missingCreator = await api().post({ name: 'No creator' });
-    expect(missingCreator.status).toBe(500);
-    expect(await missingCreator.json()).toEqual({
+    // A date string that isn't a date is an Invalid Date, which Drizzle can't write.
+    const badDate = await api().post({ name: 'Dated', startDate: 'not a date' });
+    expect(badDate.status).toBe(500);
+    expect(await badDate.json()).toEqual({
       error: { code: 'INTERNAL_ERROR', message: 'Failed to create social campaign' },
     });
-    // A timestamp from the body is a string, which Drizzle can't write.
-    const badDate = await api().post({ name: 'Dated', createdByUserId: 'u', startDate: '2026-01-01' });
-    expect(badDate.status).toBe(500);
-    const badPatch = await api().patch('/scm_a', { endDate: '2026-02-01' });
+    // So is a timestamp that isn't a string.
+    expect((await api().post({ name: 'Dated', endDate: 20260101 })).status).toBe(500);
+    // A status the enum doesn't know.
+    expect((await api().post({ name: 'Odd', status: 'bogus' })).status).toBe(500);
+    const badPatch = await api().patch('/scm_a', { endDate: 'not a date' });
     expect(badPatch.status).toBe(500);
     expect(await badPatch.json()).toEqual({
       error: { code: 'INTERNAL_ERROR', message: 'Failed to update social campaign' },

@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { FormRenderer, themeStyle, type FormRendererProps, type ProgressEvent, type SubmitFieldErrors, type SubmitPayload, type SubmitResult } from '@weldsuite/forms-renderer'
+import { FormRenderer, themeStyle, type FormRendererProps, type ProgressEvent, type SubmitFieldErrors, type SubmitPayload, type SubmitRefused, type SubmitResult } from '@weldsuite/forms-renderer'
 import { postToHost, type EmbedMode } from '@weldsuite/forms-embed/protocol'
 import type { AnswerError, Answers, FileAnswerItem, FormDefinition } from '@weldsuite/forms-engine'
 import type { PublicForm, StartSessionInput, StartSessionResult } from '@weldsuite/app-api-client/schemas/weldforms'
 import { ApiError, formsApi, uploadFile } from '@/lib/client/api'
-import { collectMetadata, hiddenFromSearch, isSafeUrl } from '@/lib/client/environment'
+import { collectMetadata, hiddenFromSearch, isSafeUrl, prefillFromSearch } from '@/lib/client/environment'
 import { browserKey, clearStoredSession, loadStoredSession, saveStoredSession, viewKey } from '@/lib/client/storage'
+import { submitRefusal } from '@/lib/client/submit-errors'
 import { Footer } from './footer'
 import { MessageScreen } from './message-screen'
 import { usePortal } from './portal-context'
@@ -70,11 +71,14 @@ function openErrorPhase(err: unknown): Phase {
   return 'error'
 }
 
-/** Where the renderer starts after a resumed session or for an edit: the earlier answers, and the block the respondent was on. */
-function rendererStart(start: StartState | null): Pick<FormRendererProps, 'initialAnswers' | 'skipWelcome' | 'startAtBlockId'> {
-  if (!start) return {}
+/**
+ * Where the renderer starts: the answers prefilled from the link, or after a resumed session or for an
+ * edit the earlier answers (over the prefilled ones, unless editing) and the block the respondent was on.
+ */
+function rendererStart(start: StartState | null, prefilled: Answers): Pick<FormRendererProps, 'initialAnswers' | 'skipWelcome' | 'startAtBlockId'> {
+  if (!start) return Object.keys(prefilled).length > 0 ? { initialAnswers: prefilled } : {}
   return {
-    initialAnswers: start.answers,
+    initialAnswers: start.editing ? start.answers : { ...prefilled, ...start.answers },
     ...(start.editing ? { skipWelcome: true } : {}),
     ...(start.lastBlockId && !start.editing ? { startAtBlockId: start.lastBlockId } : {}),
   }
@@ -99,6 +103,7 @@ export function FormPage({ form, seed, invitationToken, embed, search }: Readonl
 
   const declared = useMemo(() => (definition?.hidden ?? []).map((h) => h.name), [definition])
   const queryHidden = useMemo(() => hiddenFromSearch(search, declared), [search, declared])
+  const prefilled = useMemo(() => (definition ? prefillFromSearch(search, definition) : {}), [search, definition])
   const source = useMemo(() => {
     if (invitationToken) return 'invitation'
     if (embed) return embed
@@ -241,11 +246,14 @@ export function FormPage({ form, seed, invitationToken, embed, search }: Readonl
 
   const onProgress = useCallback(
     (e: ProgressEvent) => {
+      // The session starts at the first step answered, not when progress is first saved (which waits
+      // for a pause): forms-api refuses a submit that comes moments after its session started.
+      if (!session.current) void ensureSession().catch(() => undefined)
       pending.current = { lastBlockId: e.lastBlockId, answers: e.answers, timings: sumTimings(pending.current?.timings, e.timings) }
       if (timer.current) clearTimeout(timer.current)
       timer.current = setTimeout(() => void flushProgress(), PROGRESS_DEBOUNCE_MS)
     },
-    [flushProgress],
+    [ensureSession, flushProgress],
   )
 
   const onUpload = useCallback(
@@ -266,7 +274,7 @@ export function FormPage({ form, seed, invitationToken, embed, search }: Readonl
   )
 
   const onSubmit = useCallback(
-    async ({ answers, timings }: SubmitPayload): Promise<SubmitResult | SubmitFieldErrors> => {
+    async ({ answers, timings }: SubmitPayload): Promise<SubmitResult | SubmitFieldErrors | SubmitRefused> => {
       if (timer.current) clearTimeout(timer.current)
       const carried = pending.current?.timings
       pending.current = null
@@ -287,20 +295,30 @@ export function FormPage({ form, seed, invitationToken, embed, search }: Readonl
           throw err
         }
       }
+      const send = async (): Promise<SubmitResult | SubmitFieldErrors> => {
+        try {
+          return await attempt()
+        } catch (err) {
+          // The session ran out (or was never valid): start a new one and send once more.
+          if (!(err instanceof ApiError && err.status === 401)) throw err
+          session.current = null
+          clearStoredSession(publicId)
+          return attempt()
+        }
+      }
       let outcome: SubmitResult | SubmitFieldErrors
       try {
-        outcome = await attempt()
+        outcome = await send()
       } catch (err) {
-        // The session ran out (or was never valid): start a new one and send once more.
-        if (!(err instanceof ApiError && err.status === 401)) throw err
-        session.current = null
-        clearStoredSession(publicId)
-        outcome = await attempt()
+        // forms-api answered with a reason: show it rather than the connection message.
+        const refused = submitRefusal(err, t)
+        if (refused === null) throw err
+        return { refused }
       }
       if (!('fieldErrors' in outcome)) clearStoredSession(publicId)
       return outcome
     },
-    [ensureSession, publicId],
+    [ensureSession, publicId, t],
   )
 
   // Best effort: what is still waiting when the visitor leaves.
@@ -328,6 +346,18 @@ export function FormPage({ form, seed, invitationToken, embed, search }: Readonl
     },
     [embed, publicId],
   )
+
+  // A frame taller than the form (a fixed embed height, the Share tab's live preview) shows the page
+  // below it: give that the form's background rather than the page's white.
+  const background = form.theme.colors.background
+  useEffect(() => {
+    if (!embed) return
+    const previous = document.body.style.backgroundColor
+    document.body.style.backgroundColor = background
+    return () => {
+      document.body.style.backgroundColor = previous
+    }
+  }, [embed, background])
 
   useEffect(() => {
     if (!embed) return
@@ -412,7 +442,7 @@ export function FormPage({ form, seed, invitationToken, embed, search }: Readonl
           mode="live"
           hidden={{ ...queryHidden, ...(start?.hidden ?? {}) }}
           labels={t.renderer}
-          {...rendererStart(start)}
+          {...rendererStart(start, prefilled)}
           onProgress={onProgress}
           onUpload={onUpload}
           onSubmit={onSubmit}

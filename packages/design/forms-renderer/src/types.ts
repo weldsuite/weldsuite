@@ -146,6 +146,15 @@ export interface SubmitFieldErrors {
   fieldErrors: Record<string, AnswerError>;
 }
 
+/**
+ * Returned by `onSubmit` when the server refused the submission for a reason
+ * other than the answers (the form closed, too many requests, ...): `refused`
+ * is shown in place of `labels.submitFailed`, which is about the connection.
+ */
+export interface SubmitRefused {
+  refused: string;
+}
+
 export interface FormTimings {
   [blockId: string]: number;
 }
@@ -192,7 +201,7 @@ export interface FormRendererProps {
   skipWelcome?: boolean;
   onProgress?: (event: ProgressEvent) => void;
   onUpload?: UploadHandler;
-  onSubmit?: (payload: SubmitPayload) => Promise<SubmitResult | SubmitFieldErrors>;
+  onSubmit?: (payload: SubmitPayload) => Promise<SubmitResult | SubmitFieldErrors | SubmitRefused>;
   onEnding?: (result: SubmitResult) => void;
   /** Called for an ending's redirect; default `window.location.assign`. Never called in preview. */
   onRedirect?: (url: string) => void;

@@ -330,7 +330,11 @@ function ConditionRow({ ctx, condition, onChange, onRemove, canRemove }: Readonl
 }
 
 function newCondition(ctx: Ctx): Condition {
-  const first = readableFields(ctx.def, ctx.sourceIndex)[0];
+  const readable = readableFields(ctx.def, ctx.sourceIndex);
+  // A block's own question first: "when this answer is …" is what a jump from it usually asks.
+  const source = ctx.sourceIndex === null ? undefined : ctx.def.blocks[ctx.sourceIndex];
+  const own = source ? readable.find((f) => f.id === source.id || (source.type === 'group' && source.children.some((c) => c.id === f.id))) : undefined;
+  const first = own ?? readable[0];
   if (first) return conditionForField(first);
   const hidden = ctx.def.hidden[0];
   if (hidden) return conditionFor({ type: 'hidden', name: hidden.name }, 'text');

@@ -3,7 +3,7 @@
  * a nullable number field and a select with plain options.
  */
 
-import type { ReactNode } from 'react';
+import { useId, type ReactNode } from 'react';
 import { FormField } from '@weldsuite/ui/components/form-field';
 import { Label } from '@weldsuite/ui/components/label';
 import { NumberInput } from '@weldsuite/ui/components/number-input';
@@ -53,12 +53,37 @@ interface NumberFieldProps {
   placeholder?: string;
   helpText?: string;
   disabled?: boolean;
+  /** Whole numbers only: a typed fraction is rounded. */
+  integer?: boolean;
 }
 
-export function NumberField({ label, value, onChange, min, max, step, placeholder, helpText, disabled }: Readonly<NumberFieldProps>) {
+/**
+ * A typed number kept within the field's range (and whole when asked), so a
+ * value the definition schema refuses never reaches the draft: one would make
+ * every later autosave of the form fail.
+ */
+export function clampNumber(value: number | undefined, range: Readonly<{ min?: number; max?: number; integer?: boolean }>): number | undefined {
+  if (value === undefined || !Number.isFinite(value)) return undefined;
+  let next = range.integer ? Math.round(value) : value;
+  if (range.min !== undefined) next = Math.max(range.min, next);
+  if (range.max !== undefined) next = Math.min(range.max, next);
+  return next;
+}
+
+export function NumberField({ label, value, onChange, min, max, step, placeholder, helpText, disabled, integer }: Readonly<NumberFieldProps>) {
+  const id = useId();
   return (
-    <FormField label={label} helpText={helpText}>
-      <NumberInput value={value} onValueChange={onChange} min={min} max={max} step={step} placeholder={placeholder} disabled={disabled} />
+    <FormField label={label} helpText={helpText} htmlFor={id}>
+      <NumberInput
+        id={id}
+        value={value}
+        onValueChange={(next) => onChange(clampNumber(next, { min, max, integer }))}
+        min={min}
+        max={max}
+        step={step}
+        placeholder={placeholder}
+        disabled={disabled}
+      />
     </FormField>
   );
 }
@@ -73,10 +98,11 @@ interface OptionSelectProps<T extends string> {
 }
 
 export function OptionSelect<T extends string>({ label, value, options, onChange, disabled, helpText }: Readonly<OptionSelectProps<T>>) {
+  const id = useId();
   return (
-    <FormField label={label} helpText={helpText}>
+    <FormField label={label} helpText={helpText} htmlFor={id}>
       <Select value={value} onValueChange={(v) => onChange(v as T)} disabled={disabled}>
-        <SelectTrigger className="w-full">
+        <SelectTrigger id={id} className="w-full">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>

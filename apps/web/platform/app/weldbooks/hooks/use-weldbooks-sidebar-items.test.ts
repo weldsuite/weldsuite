@@ -3,7 +3,7 @@ import { renderHook } from '@testing-library/react';
 import type { MenuGroupProps } from '@/components/app-sidebar-layout';
 import type { CurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';
 import { DEFAULT_TERMINOLOGY, NO_JURISDICTION_FEATURES } from '@/lib/weldbooks/jurisdiction';
-import { useWeldbooksSidebarItems } from './use-weldbooks-sidebar-items';
+import { isSupplierContactForm, useWeldbooksSidebarItems } from './use-weldbooks-sidebar-items';
 
 let jurisdiction: Partial<CurrentJurisdiction>;
 
@@ -27,6 +27,12 @@ vi.mock('@/lib/weldbooks/use-jurisdiction', () => ({
   useCurrentJurisdiction: () => jurisdiction,
 }));
 
+const route = vi.hoisted(() => ({ pathname: '/weldbooks', search: '' }));
+vi.mock('@/lib/router', () => ({
+  usePathname: () => route.pathname,
+  useSearchParams: () => new URLSearchParams(route.search),
+}));
+
 const icon = () => null;
 const item = (href: string) => ({ title: href, href, icon });
 
@@ -48,6 +54,8 @@ function adjust() {
 
 describe('useWeldbooksSidebarItems', () => {
   beforeEach(() => {
+    route.pathname = '/weldbooks';
+    route.search = '';
     jurisdiction = { features: NO_JURISDICTION_FEATURES, terminology: DEFAULT_TERMINOLOGY, isResolved: false, isError: false };
   });
 
@@ -127,5 +135,24 @@ describe('useWeldbooksSidebarItems', () => {
   it('keeps gated items hidden when the jurisdictions fail to load', () => {
     jurisdiction = { features: NO_JURISDICTION_FEATURES, terminology: DEFAULT_TERMINOLOGY, isResolved: false, isError: true };
     expect(hrefs(adjust())).not.toContain('/weldbooks/sales-tax');
+  });
+});
+
+describe('the new-supplier form', () => {
+  it('opens on the customers route, so Suppliers is the active item there and Customers is not', () => {
+    route.pathname = '/weldbooks/customers/add';
+    route.search = 'role=supplier';
+    jurisdiction = { features: NO_JURISDICTION_FEATURES, terminology: DEFAULT_TERMINOLOGY, isResolved: true, isError: false };
+    const menu = [{ group: 'Contacts', items: [item('/weldbooks/customers'), item('/weldbooks/suppliers')] }] as unknown as MenuGroupProps[];
+    const { result } = renderHook(() => useWeldbooksSidebarItems(true));
+    const [customers, suppliers] = result.current.adjust(menu)[0]!.items;
+    expect(customers).toMatchObject({ href: '/weldbooks/customers', isActive: false });
+    expect(suppliers).toMatchObject({ href: '/weldbooks/suppliers', isActive: true });
+  });
+
+  it('leaves the items alone on the new-customer form', () => {
+    expect(isSupplierContactForm('/weldbooks/customers/add', null)).toBe(false);
+    expect(isSupplierContactForm('/weldbooks/customers/add', 'supplier')).toBe(true);
+    expect(isSupplierContactForm('/weldbooks/customers', 'supplier')).toBe(false);
   });
 });

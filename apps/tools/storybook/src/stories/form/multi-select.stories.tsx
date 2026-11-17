@@ -147,6 +147,29 @@ export const OverflowCount: Story = {
   },
 };
 
+const PEOPLE: MultiSelectOption[] = [
+  { value: "user_1", label: "Sam Jansen", description: "sam@example.com" },
+  { value: "user_2", label: "Sam Jansen", description: "sam.jansen@example.org" },
+  { value: "user_3", label: "Alex de Vries", description: "alex@example.com" },
+];
+
+/** Two options share a label: the description tells them apart, and search matches it. */
+export const WithDescriptions: Story = {
+  args: {
+    options: PEOPLE,
+    placeholder: "Select people…",
+    searchPlaceholder: "Search by name or email…",
+  },
+  render: (args) => {
+    const [value, setValue] = useState<string[]>([]);
+    return (
+      <div className="w-[320px]">
+        <MultiSelect {...args} value={value} onChange={setValue} />
+      </div>
+    );
+  },
+};
+
 export const NotSearchable: Story = {
   args: {
     options: APPS,

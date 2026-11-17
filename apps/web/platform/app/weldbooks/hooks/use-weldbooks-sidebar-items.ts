@@ -1,12 +1,19 @@
 import { useCallback } from 'react';
 import type { MenuGroupProps } from '@/components/app-sidebar-layout';
 import { useI18n } from '@/lib/i18n/provider';
+import { usePathname, useSearchParams } from '@/lib/router';
 import { isWeldbooksHrefVisible, WELDBOOKS_TAX_HREF } from '@/lib/weldbooks/jurisdiction-menu';
 import { useCurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';
 
 const TAX_HREF = WELDBOOKS_TAX_HREF;
 const SUPPLIERS_HREF = '/weldbooks/suppliers';
 const CREDIT_NOTES_HREF = '/weldbooks/credit-notes';
+const CUSTOMERS_HREF = '/weldbooks/customers';
+
+/** The contact form is one route for both roles: `?role=supplier` makes it the new-supplier form. */
+export function isSupplierContactForm(pathname: string, role: string | null): boolean {
+  return pathname.startsWith(`${CUSTOMERS_HREF}/add`) && role === 'supplier';
+}
 
 /**
  * Adjusts the static WeldBooks menu (MODULE_CONFIGS.weldbooks) to the selected
@@ -30,6 +37,10 @@ export function useWeldbooksSidebarItems(enabled: boolean) {
   const { t } = useI18n();
   const { features, terminology, isResolved, isError } = useCurrentJurisdiction({ enabled });
   const nav = t.navigation.moduleSidebar.weldbooks;
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  // A new supplier is filled in on the customers route: Suppliers is the item that is open.
+  const supplierForm = isSupplierContactForm(pathname, searchParams.get('role'));
 
   const adjust = useCallback(
     (groups: MenuGroupProps[]): MenuGroupProps[] => {
@@ -43,8 +54,10 @@ export function useWeldbooksSidebarItems(enabled: boolean) {
             .filter((item) => visible(item.href))
             .map((item) => {
               if (item.href === TAX_HREF) return { ...item, title: nav.taxNav[terminology.tax] };
-              if (item.href === SUPPLIERS_HREF && terminology.supplier === 'vendor') {
-                return { ...item, title: nav.vendors };
+              if (supplierForm && item.href === CUSTOMERS_HREF) return { ...item, isActive: false };
+              if (item.href === SUPPLIERS_HREF) {
+                const supplierItem = supplierForm ? { ...item, isActive: true } : item;
+                return terminology.supplier === 'vendor' ? { ...supplierItem, title: nav.vendors } : supplierItem;
               }
               if (item.href === CREDIT_NOTES_HREF && terminology.creditNote === 'credit_memo') {
                 return { ...item, title: nav.creditMemos };
@@ -61,6 +74,7 @@ export function useWeldbooksSidebarItems(enabled: boolean) {
       features,
       terminology,
       nav,
+      supplierForm,
     ],
   );
 

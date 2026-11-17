@@ -2298,6 +2298,7 @@ export const projects = {
       projects: 'Projecten',
       title: 'Taken',
       task: 'Taak',
+      rowActions: 'Acties voor {name}',
       newTask: 'Nieuwe Taak',
       createTask: 'Taak Aanmaken',
       taskName: 'Taaknaam',
@@ -2478,6 +2479,7 @@ export const projects = {
       // actions
       actionOpen: 'Openen',
       actionDelete: 'Verwijderen',
+      rowActions: 'Acties voor {name}',
       // toolbar
       searchPlaceholder: 'Projecten zoeken...',
       newProject: 'Nieuw project',

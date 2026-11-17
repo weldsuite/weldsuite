@@ -27,7 +27,7 @@ export default function InvoicesPage() {
   const router = useRouter();
   // A new invoice is written on its own page, next to a live preview of the PDF.
   const newInvoice = () => router.push('/weldbooks/invoices/add');
-  // Credit notes have a list of their own.
+  // Credit notes have a list of their own: `type=invoice` is every invoice that is not a credit note.
   const { data, isLoading } = useAccountingInvoices({ type: 'invoice', search });
   // Each invoice opens in the shared object panel (type 'invoice'), the same
   // panel/fullscreen shell as WeldCRM companies, synced to `?stack=`.

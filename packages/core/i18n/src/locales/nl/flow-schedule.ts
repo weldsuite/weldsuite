@@ -46,7 +46,7 @@ export const flowSchedule = {
       floatNone: 'Geen go-livedatum',
       floatNoneDetail: 'Stel een baseline of een einddatum in voor het project',
       conflicts: 'Conflicten',
-      conflictsValue: '{count} taken',
+      conflictsValue: { one: '{count} taak', other: '{count} taken' },
       conflictsNone: 'Geen',
       conflictsNoneDetail: 'Elke taak start na waar ze op wacht',
       conflictsDetail: '#{task} start eerder dan #{predecessor} toelaat',
@@ -146,7 +146,8 @@ export const flowSchedule = {
   phases: {
     title: 'Fases en stage gates',
     lifecycle: 'Levenscyclus',
-    lifecycleSummary: '{phases} fases, {gates} gates',
+    // Elke fase eindigt in een gate: één aantal voor beide.
+    lifecycleSummary: { one: '{count} fase, {count} gate', other: '{count} fases, {count} gates' },
     editPhases: 'Fases bewerken',
     stepperLabel: 'Projectfases',
     stateDone: 'Afgerond',
@@ -182,6 +183,8 @@ export const flowSchedule = {
       requested: 'Goedkeuring aangevraagd',
       requestFailed: 'De goedkeuring kon niet worden aangevraagd',
       waitingForApproval: 'Wacht op de goedkeurders hieronder.',
+      /** `blocked.criteria_open` voor één open criterium. */
+      criteriaOpenOne: '{count} criterium staat nog open. U kunt goedkeuring aanvragen zodra het gehaald is, of zodra de sponsor het kwijtscheldt.',
       blocked: {
         phase_passed: 'Deze gate is al gepasseerd.',
         phase_not_active: 'Alleen de actieve fase kan haar gate aanvragen.',
@@ -274,6 +277,8 @@ export const flowSchedule = {
       confirmRemoveDescription: 'De fase en de gatecriteria worden verwijderd. Verder verandert er niets.',
       saveFailed: 'De fase kon niet worden opgeslagen',
       newPhaseName: 'Nieuwe fase',
+      endBeforeStart: 'Het geplande einde ligt voor de geplande start.',
+      nameRequired: 'Geef de fase een naam.',
       criterionKeys: {
         deliverable_tasks_done: 'Alle taken van een deliverable afgerond',
         deliverable_accepted: 'Deliverable geaccepteerd',

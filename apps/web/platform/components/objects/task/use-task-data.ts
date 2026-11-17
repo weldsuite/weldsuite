@@ -258,6 +258,10 @@ export function useDeleteTask(taskId: string) {
     },
     onSuccess: () => {
       window.dispatchEvent(new CustomEvent(TASK_DELETED_EVENT, { detail: { id: taskId } }));
+      // The deleted task's own queries go, rather than being refetched into a 404.
+      qc.removeQueries({ queryKey: taskPanelKeys.task(taskId) });
+      qc.removeQueries({ queryKey: taskPanelKeys.comments(taskId) });
+      qc.removeQueries({ queryKey: taskPanelKeys.subtasks(taskId) });
       qc.invalidateQueries({ queryKey: taskPanelKeys.all });
       invalidateAllTaskLists(qc);
     },

@@ -24,6 +24,8 @@ export interface UiLabels {
   confirm: string
   cancel: string
   save: string
+  /** An icon-only × that takes something away (`FilterPillRemove`). */
+  remove: string
   presence: {
     online: string
     busy: string
@@ -53,6 +55,7 @@ export const DEFAULT_UI_LABELS: UiLabels = {
   confirm: "Confirm",
   cancel: "Cancel",
   save: "Save",
+  remove: "Remove",
   presence: {
     online: "Available",
     busy: "Busy",

@@ -46,6 +46,7 @@ import {
 } from '../lib/row-display';
 import { AddMailTaskDialog, type MailTaskDraft } from './add-mail-task-dialog';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
+import { useCancelScheduledEmail } from './cancel-scheduled-dialog';
 import type { Mail as MailTypes } from '@/lib/api/types/apps/mail.types';
 import type { ThreadSummary } from '../lib/thread-utils';
 import { ConversationList, type ConversationItem } from '@/components/shared/conversation-list';
@@ -404,7 +405,7 @@ export function MessageList({
   onThreadLabelUpdate,
   onServerFilterChange,
 }: Readonly<MessageListProps>) {
-  const { t } = useI18n();
+  const { t, plural } = useI18n();
   const displayMode = threads ? 'threads' : 'messages';
   const params = useParams();
   const router = useRouter();
@@ -421,6 +422,8 @@ export function MessageList({
   const markMailRead = useMarkMailRead();
   const markFolderAsRead = useMarkFolderAsRead();
   const [markAllReadOpen, setMarkAllReadOpen] = useState(false);
+  // Cancelling a scheduled mail asks first and puts it back in Drafts.
+  const cancelScheduled = useCancelScheduledEmail();
   const markAsSpam = useMarkAsSpam();
   const snoozeEmail = useSnoozeEmail();
   const unsnoozeEmail = useUnsnoozeEmail();
@@ -724,7 +727,7 @@ export function MessageList({
         {/* Archive / Delete / Mark read / Snooze / Add to Tasks */}
         <ContextMenuItem onClick={() => {
           archiveThread.mutate({ accountId: threadAccountId, threadId: thread.threadId }, {
-            onSuccess: (result) => toast.success(t.mail.messageList.archivedMessages.replace('{n}', String(result.archivedCount || 0))),
+            onSuccess: (result) => toast.success(plural(result.archivedCount || 0, t.mail.messageList.archivedMessages)),
             onError: () => toast.error(t.mail.messageList.failedToArchive),
           });
         }}>
@@ -733,7 +736,7 @@ export function MessageList({
         </ContextMenuItem>
         <ContextMenuItem onClick={() => {
           trashThread.mutate({ accountId: threadAccountId, threadId: thread.threadId }, {
-            onSuccess: (result) => toast.success(t.mail.messageList.movedToTrash.replace('{n}', String(result.trashedCount || 0))),
+            onSuccess: (result) => toast.success(plural(result.trashedCount || 0, t.mail.messageList.movedToTrash)),
             onError: () => toast.error(t.mail.messageList.failedToDelete),
           });
         }}>
@@ -848,19 +851,7 @@ export function MessageList({
           <>
             <ContextMenuSeparator />
             <ContextMenuItem
-              onClick={async () => {
-                try {
-                  const result = await mailApi.scheduled.cancel(thread.latestMessageId);
-                  if (result.success) {
-                    toast.success(t.mail.messageList.scheduledEmailCancelled);
-                    window.dispatchEvent(new Event('mail:refresh'));
-                  } else {
-                    toast.error(result.error || t.mail.messageList.failedToCancel);
-                  }
-                } catch {
-                  toast.error(t.mail.messageList.failedToCancel);
-                }
-              }}
+              onClick={() => cancelScheduled.requestCancel(threadAccountId, thread.latestMessageId)}
               className="text-orange-600 focus:text-orange-600 focus:bg-orange-50 hover:bg-orange-50"
             >
               <X className="h-4 w-4 mr-0.5 text-orange-600" />
@@ -1146,7 +1137,7 @@ export function MessageList({
             <span className={filterLabelClass}>{t.mail.messageList.filterSize}</span>
             <div className="flex items-center gap-2">
               <Select value={draftFilter.sizeOp ?? 'gt'} onValueChange={(v) => updateDraft({ sizeOp: v as MailFilterSizeOp })}>
-                <SelectTrigger className="h-8 text-sm flex-1"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="h-8 text-sm flex-1" aria-label={t.mail.a11y.sizeComparison}><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="gt">{t.mail.messageList.filterSizeGreater}</SelectItem>
                   <SelectItem value="lt">{t.mail.messageList.filterSizeLess}</SelectItem>
@@ -1161,7 +1152,7 @@ export function MessageList({
                 className="h-8 text-sm w-20"
               />
               <Select value={draftFilter.sizeUnit ?? 'mb'} onValueChange={(v) => updateDraft({ sizeUnit: v as MailFilterSizeUnit })}>
-                <SelectTrigger className="h-8 text-sm w-[88px]"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="h-8 text-sm w-[88px]" aria-label={t.mail.a11y.sizeUnit}><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="mb">{t.mail.messageList.filterSizeMB}</SelectItem>
                   <SelectItem value="kb">{t.mail.messageList.filterSizeKB}</SelectItem>
@@ -1176,7 +1167,7 @@ export function MessageList({
             <span className={filterLabelClass}>{t.mail.messageList.filterDateWithin}</span>
             <div className="flex items-center gap-2">
               <Select value={draftFilter.dateWithin ?? '1d'} onValueChange={(v) => updateDraft({ dateWithin: v as MailFilterDateWithin })}>
-                <SelectTrigger className="h-8 text-sm flex-1"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="h-8 text-sm flex-1" aria-label={t.mail.messageList.filterDateWithin}><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="1d">{t.mail.messageList.filterWithin1Day}</SelectItem>
                   <SelectItem value="3d">{t.mail.messageList.filterWithin3Days}</SelectItem>
@@ -1408,6 +1399,7 @@ export function MessageList({
       emptyMessage={displayMode === 'threads' ? t.mail.messageList.noConversationsFound : t.mail.messageList.noMessagesFound}
     />
     <AddMailTaskDialog draft={taskDraft} onClose={() => setTaskDraft(null)} />
+    {cancelScheduled.dialog}
     <ConfirmDialog
       open={markAllReadOpen}
       onOpenChange={setMarkAllReadOpen}

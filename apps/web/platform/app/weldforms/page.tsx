@@ -27,6 +27,7 @@ import { useDeleteForm, useDuplicateForm, useFormFolders, useForms, useFormsUsag
 import { FolderRail, ALL_FOLDERS, NO_FOLDER } from './components/folder-rail';
 import { NewFormDialog } from './components/new-form-dialog';
 import { FormStatusBadge } from './components/status-badge';
+import { useAiAvailable } from './lib/ai-availability';
 
 type ViewMode = 'grid' | 'list';
 const VIEW_KEY = 'weldforms:home-view';
@@ -58,6 +59,7 @@ export default function WeldFormsHome() {
   const canCreate = useCan('forms:create');
   const canUpdate = useCan('forms:update');
   const canDelete = useCan('forms:delete');
+  const aiAvailable = useAiAvailable();
 
   const [folder, setFolder] = useState<string>(ALL_FOLDERS);
   const [search, setSearch] = useState('');
@@ -179,11 +181,20 @@ export default function WeldFormsHome() {
   if (query.isLoading) body = <PageLoader fullScreen={false} />;
   else if (query.error) body = <ErrorState message={t.weldforms.loadFailed} onRetry={() => void query.refetch()} retryLabel={t.common.actions.retry} />;
   else if (query.forms.length === 0) {
+    let emptyTitle = th.emptyTitle;
+    let emptyDescription = aiAvailable ? th.emptyDescription : th.emptyDescriptionNoAi;
+    if (filtered) {
+      emptyTitle = th.noResultsTitle;
+      emptyDescription = th.noResultsDescription;
+    } else if (folder !== ALL_FOLDERS) {
+      emptyTitle = th.folderEmptyTitle;
+      emptyDescription = th.folderEmptyDescription;
+    }
     body = (
       <EmptyState
         icon={ClipboardList}
-        title={filtered ? th.noResultsTitle : th.emptyTitle}
-        description={filtered ? th.noResultsDescription : th.emptyDescription}
+        title={emptyTitle}
+        description={emptyDescription}
         action={
           !filtered && canCreate ? (
             <Button onClick={() => setCreating(true)}>
@@ -219,7 +230,7 @@ export default function WeldFormsHome() {
             <button type="button" onClick={() => open(form)} className="min-w-0 flex-1 text-left">
               <span className="block truncate text-sm font-medium">{form.title || t.weldforms.untitled}</span>
               <span className="block text-xs text-muted-foreground">
-                {format(th.responsesCount, { count: form.responseCount })} · {form.lastResponseAt ? dateFormat.format(new Date(form.lastResponseAt)) : th.never}
+                {format(form.responseCount === 1 ? th.responsesCountOne : th.responsesCount, { count: form.responseCount })} · {form.lastResponseAt ? dateFormat.format(new Date(form.lastResponseAt)) : th.never}
               </span>
             </button>
             <FormStatusBadge status={form.status} hasUnpublishedChanges={form.hasUnpublishedChanges} />

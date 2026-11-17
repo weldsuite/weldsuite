@@ -306,6 +306,7 @@ export const weldforms = {
     pasteDescription: 'One option per line. Bullets and numbers at the start of a line are dropped.',
     replace: 'Replace all',
     append: 'Add to list',
+    duplicateLabels: 'More than one option is called {labels}. Respondents cannot tell them apart.',
   },
 
   media: {
@@ -526,6 +527,7 @@ export const weldforms = {
     collectPartialHelp: 'Keep the answers of people who did not finish. They show up labelled as unfinished.',
     opensAt: 'Opens at',
     closesAt: 'Closes at',
+    closesBeforeOpens: 'Pick a closing time after the opening time. Until then the dates are not saved.',
     responseLimit: 'Response limit',
     responseLimitHelp: 'The form closes by itself after this many completed responses.',
     noLimit: 'No limit',
@@ -572,10 +574,14 @@ export const weldforms = {
     viewList: 'List',
     emptyTitle: 'No forms yet',
     emptyDescription: 'Build your first form from scratch, start from a template or let AI draft it.',
+    emptyDescriptionNoAi: 'Build your first form from scratch or start from a template.',
+    folderEmptyTitle: 'This folder is empty',
+    folderEmptyDescription: 'Move forms here, or create a new form in this folder.',
     noResultsTitle: 'No forms match',
     noResultsDescription: 'Try another search or clear the filters.',
     responses: 'Responses',
     responsesCount: '{count} responses',
+    responsesCountOne: '{count} response',
     lastResponse: 'Last response',
     never: 'None yet',
     open: 'Open',
@@ -592,6 +598,7 @@ export const weldforms = {
   newForm: {
     title: 'New form',
     description: 'Start blank, from a template, or describe what you need.',
+    descriptionNoAi: 'Start blank or from a template.',
     name: 'Name',
     namePlaceholder: 'Customer feedback',
     untitled: 'Untitled form',

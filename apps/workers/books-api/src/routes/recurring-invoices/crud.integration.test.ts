@@ -180,6 +180,41 @@ describe('/api/recurring-invoices', () => {
     expect((await recurring(`/${created.data.id}/generate`, { method: 'POST' })).status).toBe(201);
   });
 
+  it('refuses an end date before the next issue date, and generates nothing once the end date has passed', async () => {
+    const schedule = (nextIssueDate: string, endDate: string) => ({
+      contactId: 'pty_rec',
+      frequency: 'quarterly',
+      nextIssueDate,
+      endDate,
+      autoFinalize: false,
+      templateData: { items: [{ description: 'Support', quantity: 1, unitPrice: 50, taxRateId: hoog }] },
+    });
+    const refused = await recurring('', { method: 'POST', body: schedule('2026-12-01', '2026-11-01') });
+    expect(refused.status).toBe(400);
+    expect(refused.error?.message).toBe('The end date can not be before the next issue date.');
+
+    const created = await recurring('', { method: 'POST', body: schedule('2099-12-01', '2099-12-31') });
+    expect(created.status).toBe(201);
+    const id = created.data.id as string;
+    const patched = await recurring(`/${id}`, { method: 'PATCH', body: { endDate: '2099-10-01' } });
+    expect(patched.status).toBe(400);
+    expect(patched.error?.message).toBe('The end date can not be before the next issue date.');
+
+    // A schedule saved before the check, its end date already before its next issue date, ends instead.
+    await db
+      .update(schema.recurringInvoices)
+      .set({ nextIssueDate: new Date('2026-12-01'), endDate: new Date('2026-11-01') })
+      .where(eq(schema.recurringInvoices.id, id));
+    const generated = await recurring(`/${id}/generate`, { method: 'POST' });
+    expect(generated.status).toBe(400);
+    expect(generated.error?.message).toBe('This recurring invoice ended on 2026-11-01.');
+    const [row] = await db.select().from(schema.recurringInvoices).where(eq(schema.recurringInvoices.id, id));
+    expect(row.status).toBe('completed');
+    expect(row.generatedCount).toBe(0);
+    const invoices = await db.select().from(schema.invoices).where(eq(schema.invoices.recurringInvoiceId, id));
+    expect(invoices).toHaveLength(0);
+  });
+
   it('refuses a bad body, no entity and an unknown schedule', async () => {
     expect((await recurring('', { method: 'POST', body: { contactId: 'pty_rec', frequency: 'daily', nextIssueDate: '2026-08-01' } })).status).toBe(400);
     expect((await recurring('', { method: 'POST', entityId: null, body: { contactId: 'pty_rec', frequency: 'monthly', nextIssueDate: '2026-08-01' } })).status).toBe(400);

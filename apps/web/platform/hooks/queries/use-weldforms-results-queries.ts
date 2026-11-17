@@ -130,7 +130,15 @@ export function useDeleteFormResponse(id: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (responseId: string) => weldforms.deleteResponse(id, responseId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: weldformsKeys.form(id) }),
+    onSuccess: (_res, responseId) => {
+      // Everything of the form but the deleted response: its drawer is still open and would refetch it into a 404.
+      // Not awaited, so the drawer closes as soon as the delete is done.
+      const deleted = weldformsKeys.response(id, responseId);
+      void queryClient.invalidateQueries({
+        queryKey: weldformsKeys.form(id),
+        predicate: (query) => query.queryKey.length !== deleted.length || query.queryKey.some((part, i) => part !== deleted[i]),
+      });
+    },
   });
 }
 

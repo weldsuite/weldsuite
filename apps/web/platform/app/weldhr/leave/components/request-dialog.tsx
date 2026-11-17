@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
 import {
   Dialog,
   DialogContent,
@@ -68,6 +69,7 @@ export function LeaveRequestDialog({
         days: daysOverride ? Number(daysOverride) : undefined,
         reason: reason.trim() || null,
       });
+      toast.success(t('weldhr.leave.requests.form.submittedToast'));
       onClose();
     } catch (err) {
       const message = errorMessage(err, t('weldhr.leave.requests.form.failed'));

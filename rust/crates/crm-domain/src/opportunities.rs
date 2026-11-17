@@ -419,6 +419,20 @@ pub async fn sync_status_with_stage(
                 {
                     update.insert("probability".into(), json!(probability));
                 }
+            } else if !was_closed
+                && !update.contains_key("probability")
+                && let Some(probability) = target.probability
+            {
+                // Between open stages the probability follows the stage,
+                // unless it was set by hand (TASK-1462).
+                let current = existing.get("probability").and_then(Value::as_i64);
+                let follows = current.is_none()
+                    || previous
+                        .as_ref()
+                        .is_none_or(|stage| stage.probability.map(i64::from) == current);
+                if follows {
+                    update.insert("probability".into(), json!(probability));
+                }
             }
         }
         return Ok(());

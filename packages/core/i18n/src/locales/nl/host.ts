@@ -697,6 +697,8 @@ export const host = {
       copyFailed: 'Kopiëren naar klembord mislukt',
       enabled: 'Ingeschakeld',
       disabled: 'Uitgeschakeld',
+      // A setting an external domain keeps at its own registrar (auto-renew, transfer lock).
+      notApplicable: 'Niet van toepassing',
       recordName: 'Naam',
       recordNamePlaceholder: '@ of subdomein',
       ttlSeconds: 'TTL (seconden)',
@@ -834,6 +836,8 @@ export const host = {
       disableAutoRenew: 'Automatisch verlengen uitschakelen',
       emptyTitle: 'Geen domeinen gevonden',
       emptyDescription: 'Registreer uw eerste domein om te beginnen',
+      // Editions without domain purchase (EU): a domain registered elsewhere is the way in.
+      emptyDescriptionExternal: 'Voeg een domein toe dat u elders hebt geregistreerd om de DNS hier te beheren',
       noResultsTitle: 'Geen domeinen gevonden',
       noResultsDescription: 'We konden geen domeinen vinden die overeenkomen met uw filter.',
     },

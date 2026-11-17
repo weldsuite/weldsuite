@@ -11,7 +11,7 @@ use sqlx::{Postgres, QueryBuilder};
 use crate::access::{Grants, Relation, form_permissions};
 use crate::common::{
     Ctx, Env, FormsResult, all, forms_error, forms_error_with, int, iso, js_slice, not_found, one,
-    opt_text, public_form_url, text,
+    opt_text, parse_ms, public_form_url, text,
 };
 use crate::members::{bare_ref, member_ref, member_refs};
 use crate::model::{FormSettings, blank_definition, parsed_definition, template_definition};
@@ -420,11 +420,28 @@ pub(crate) async fn update_form(
             return Err(not_found("Theme"));
         }
     }
-    let settings = input.settings.as_ref().map(|patch| {
-        FormSettings::parse(&form["settings"])
-            .merged(patch)
-            .to_json()
-    });
+    let merged = input
+        .settings
+        .as_ref()
+        .map(|patch| (patch, FormSettings::parse(&form["settings"]).merged(patch)));
+    // `checkOpenWindow`: a save of the dates may not close the form before
+    // (or as) it opens, so that it could never take a response.
+    if let Some((patch, settings)) = &merged
+        && (patch.contains_key("opensAt") || patch.contains_key("closesAt"))
+        && let (Some(opens), Some(closes)) = (
+            settings.opens_at.as_deref().and_then(parse_ms),
+            settings.closes_at.as_deref().and_then(parse_ms),
+        )
+        && closes <= opens
+    {
+        return Err(forms_error_with(
+            400,
+            "BAD_REQUEST",
+            "The closing date must be after the opening date.",
+            json!({ "field": "closesAt" }),
+        ));
+    }
+    let settings = merged.map(|(_, settings)| settings.to_json());
     let changes_content = input.definition.is_some() || input.theme_id.is_some();
     let id = text(form, "id").to_owned();
 

@@ -150,7 +150,8 @@ export function FormActions() {
     <>
       <Button variant="outline" size="sm" onClick={() => setPreviewing(true)}>
         <Eye className="size-4" />
-        <span className="hidden sm:inline">{tf.preview}</span>
+        {/* Read out on a phone too, where only the eye shows. */}
+        <span className="sr-only sm:not-sr-only">{tf.preview}</span>
       </Button>
 
       {form.status === 'closed' ? (

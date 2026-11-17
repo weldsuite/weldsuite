@@ -52,6 +52,27 @@ pub fn is_valid_iban(raw: &str) -> bool {
     iban_problem(raw).is_none()
 }
 
+/// `invalidIbanMessage(raw)`: the 400 message for an IBAN that is not valid,
+/// or `None` for a valid (or empty) one. Contacts and bank accounts answer
+/// with it.
+pub fn invalid_iban_message(raw: &str) -> Option<String> {
+    let iban = crate::jurisdictions::js_trim(raw);
+    if iban.is_empty() {
+        return None;
+    }
+    let problem = iban_problem(iban)?;
+    let country: String = normalize_iban(iban).chars().take(2).collect();
+    let reason = match problem {
+        "country_length" => format!(
+            "an IBAN from {country} has {} characters",
+            iban_length(&country).map_or_else(|| "undefined".to_owned(), |n| n.to_string())
+        ),
+        "checksum" => "the check digits do not match".to_owned(),
+        _ => "it should be two letters, two digits and the account number".to_owned(),
+    };
+    Some(format!("\"{iban}\" is not a valid IBAN: {reason}"))
+}
+
 /// The national part of a VAT number per VAT prefix (what VIES documents),
 /// without the prefix: `VAT_PATTERNS`, and `VAT_EXAMPLES` for messages.
 const VAT_FORMATS: [(&str, &str, &str); 29] = [
@@ -214,6 +235,26 @@ mod tests {
         assert!(is_valid_iban("NL91 ABNA 0417 1643 00"));
         assert_eq!(iban_problem("NL91ABNA0417164301"), Some("checksum"));
         assert_eq!(iban_problem("NL91ABNA041716430"), Some("country_length"));
+    }
+
+    #[test]
+    fn invalid_iban_messages() {
+        assert_eq!(invalid_iban_message(" NL91 ABNA 0417 1643 00 "), None);
+        assert_eq!(invalid_iban_message("  "), None);
+        assert_eq!(
+            invalid_iban_message("NL12INVALID").as_deref(),
+            Some(
+                "\"NL12INVALID\" is not a valid IBAN: it should be two letters, two digits and the account number"
+            )
+        );
+        assert_eq!(
+            invalid_iban_message("NL91ABNA041716430").as_deref(),
+            Some("\"NL91ABNA041716430\" is not a valid IBAN: an IBAN from NL has 18 characters")
+        );
+        assert_eq!(
+            invalid_iban_message("NL91ABNA0417164301").as_deref(),
+            Some("\"NL91ABNA0417164301\" is not a valid IBAN: the check digits do not match")
+        );
     }
 
     #[test]

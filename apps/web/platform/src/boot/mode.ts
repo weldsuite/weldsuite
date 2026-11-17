@@ -28,3 +28,14 @@ export function isRuntimeConfigOn(value: string | undefined | null): boolean {
 export function bootMode(value: string | undefined | null): BootMode {
   return isRuntimeConfigOn(value) ? 'runtime' : 'global';
 }
+
+/**
+ * `index.html` without its Google Fonts stylesheet and preconnects, for the
+ * Kubernetes builds (`vite.config.ts`): loading them sends every visitor's IP
+ * address to Google, which the EU and self-hosted editions must not do. The
+ * app then falls back to the system font stack (`app/globals.css`) until
+ * Inter and Outfit are self-hosted.
+ */
+export function withoutGoogleFonts(html: string): string {
+  return html.replace(/^[ \t]*<link\b[^>]*\bfonts\.(?:googleapis|gstatic)\.com\b[^>]*>[ \t]*\r?\n/gm, '');
+}

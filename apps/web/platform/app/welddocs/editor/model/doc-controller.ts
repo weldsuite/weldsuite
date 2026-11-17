@@ -218,6 +218,21 @@ export class DocController {
 
   getVersion = (): number => this.version;
 
+  /** How the page view puts typing back in the document (it owns the input). */
+  private focusTarget: (() => void) | null = null;
+
+  setFocusTarget(fn: (() => void) | null): void {
+    this.focusTarget = fn;
+  }
+
+  /**
+   * After a toolbar or menu command: typing goes on in the document, not in
+   * the menu that is still fading out (its typeahead would swallow the keys).
+   */
+  returnFocus = (): void => {
+    this.focusTarget?.();
+  };
+
   private emit(): void {
     this.version++;
     for (const fn of this.listeners) fn();

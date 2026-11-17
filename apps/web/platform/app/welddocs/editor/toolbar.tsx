@@ -37,7 +37,7 @@ import { useI18n } from '@/lib/i18n/provider';
 import type { DocController, EditMode } from './model/doc-controller';
 import { MOD_LABEL } from './model/keyboard';
 import { TableButton } from './table-picker';
-import { ColorButton, Divider, IconButton, Menu, Toggle } from './ui';
+import { ColorButton, Divider, IconButton, Menu, Toggle, useCloseAutoFocus } from './ui';
 
 export const FONTS = ['Arial', 'Calibri', 'Cambria', 'Comic Sans MS', 'Courier New', 'Georgia', 'Garamond', 'Helvetica', 'Tahoma', 'Times New Roman', 'Trebuchet MS', 'Verdana'];
 const SIZES = [8, 9, 10, 11, 12, 14, 18, 24, 30, 36, 48, 60, 72, 96];
@@ -61,135 +61,137 @@ export function Toolbar({ controller, end }: { controller: DocController; end?: 
   const align = para.align ?? 'left';
 
   return (
-    <div className="flex h-12 shrink-0 items-center gap-0.5 overflow-x-auto border-b bg-muted/30 px-2" role="toolbar" aria-label={t.welddocs.title}>
-      <IconButton label={tt.undo} onClick={() => controller.undo()} disabled={ro || !controller.canUndo}>
-        <Undo2 />
-      </IconButton>
-      <IconButton label={tt.redo} onClick={() => controller.redo()} disabled={ro || !controller.canRedo}>
-        <Redo2 />
-      </IconButton>
-      <IconButton label={tt.print} onClick={() => controller.setPrinting(true)}>
-        <Printer />
-      </IconButton>
-      <Menu
-        label={tt.zoom}
-        trigger={<span className="w-9 text-center text-xs">{Math.round(controller.zoom * 100)}%</span>}
-        items={ZOOMS.map((z) => ({ key: String(z), label: `${Math.round(z * 100)}%`, checked: controller.zoom === z, onSelect: () => controller.setZoom(z) }))}
-      />
-      <Divider />
-      <Menu
-        label={tt.styles}
-        disabled={ro}
-        trigger={<span className="w-24 truncate text-left text-xs">{paragraphStyle ? (ts[paragraphStyle as keyof typeof ts] ?? controller.doc.styles.get(paragraphStyle)?.name) : ''}</span>}
-        items={PARAGRAPH_STYLES.map((id) => ({
-          key: id,
-          label: <StylePreview controller={controller} id={id} label={ts[id]} />,
-          checked: paragraphStyle === id,
-          onSelect: () => controller.setParagraphStyle(id),
-        }))}
-      />
-      <Divider />
-      <Menu
-        label={tt.font}
-        disabled={ro}
-        trigger={<span className="w-24 truncate text-left text-xs" style={{ fontFamily: style.font }}>{style.font}</span>}
-        items={FONTS.map((font) => ({ key: font, label: <span style={{ fontFamily: font }}>{font}</span>, checked: style.font === font, onSelect: () => controller.setTextStyle({ font }) }))}
-      />
-      <Divider />
-      <IconButton label={tt.decreaseSize} onClick={() => controller.setTextStyle({ size: stepSize(style.size, -1) })} disabled={ro}>
-        <Minus />
-      </IconButton>
-      <SizeInput controller={controller} size={style.size} label={tt.fontSize} disabled={ro} />
-      <IconButton label={tt.increaseSize} onClick={() => controller.setTextStyle({ size: stepSize(style.size, 1) })} disabled={ro}>
-        <Plus />
-      </IconButton>
-      <Divider />
-      <Toggle label={tt.bold} active={controller.isActive('bold')} onClick={() => controller.toggle('bold')} disabled={ro}>
-        <Bold />
-      </Toggle>
-      <Toggle label={tt.italic} active={controller.isActive('italic')} onClick={() => controller.toggle('italic')} disabled={ro}>
-        <Italic />
-      </Toggle>
-      <Toggle label={tt.underline} active={controller.isActive('underline')} onClick={() => controller.toggle('underline')} disabled={ro}>
-        <Underline />
-      </Toggle>
-      <Toggle label={tt.strikethrough} active={controller.isActive('strike')} onClick={() => controller.toggle('strike')} disabled={ro}>
-        <Strikethrough />
-      </Toggle>
-      <ColorButton label={tt.textColor} reset={tt.resetColor} value={style.color} onPick={(color) => controller.setTextStyle({ color })} disabled={ro}>
-        <Baseline />
-      </ColorButton>
-      <ColorButton label={tt.highlightColor} reset={tt.none} value={style.highlight} onPick={(highlight) => controller.setTextStyle({ highlight })} disabled={ro}>
-        <Highlighter />
-      </ColorButton>
-      <Divider />
-      <IconButton label={tt.link} onClick={() => controller.openDialog('link')} disabled={ro}>
-        <Link2 />
-      </IconButton>
-      <IconButton label={tt.image} onClick={() => controller.openDialog('image')} disabled={ro}>
-        <ImagePlus />
-      </IconButton>
-      <TableButton controller={controller} label={tt.table} disabled={ro} />
-      <IconButton label={`${tr.addComment} (${MOD_LABEL}+Alt+M)`} onClick={() => controller.startComment()} disabled={!controller.commentsAvailable || (ro && !controller.canComment)}>
-        <MessageSquarePlus />
-      </IconButton>
-      <Divider />
-      <Menu
-        label={tt.align}
-        disabled={ro}
-        trigger={alignIcon(align)}
-        items={[
-          { key: 'left', label: tt.alignLeft, checked: align === 'left', onSelect: () => controller.setParagraph({ align: null }) },
-          { key: 'center', label: tt.alignCenter, checked: align === 'center', onSelect: () => controller.setParagraph({ align: 'center' }) },
-          { key: 'right', label: tt.alignRight, checked: align === 'right', onSelect: () => controller.setParagraph({ align: 'right' }) },
-          { key: 'justify', label: tt.justify, checked: align === 'justify', onSelect: () => controller.setParagraph({ align: 'justify' }) },
-        ]}
-      />
-      <Menu
-        label={tt.lineSpacing}
-        disabled={ro}
-        trigger={<UnfoldVertical />}
-        sections={[
-          {
-            items: LINE_HEIGHTS.map((h) => ({
-              key: String(h),
-              label: h === 1 ? tt.single : String(h),
-              checked: Math.abs((para.lineHeight ?? 1) - h) < 0.01 && !para.lineHeightExact,
-              onSelect: () => controller.setParagraph({ lineHeight: h, lineHeightExact: null }),
-            })),
-          },
-          {
-            items: [
-              (para.spaceBefore ?? 0) > 0
-                ? { key: 'rb', label: tt.spacingRemoveBefore, onSelect: () => controller.setParagraph({ spaceBefore: 0 }) }
-                : { key: 'ab', label: tt.spacingAddBefore, onSelect: () => controller.setParagraph({ spaceBefore: 10 }) },
-              (para.spaceAfter ?? 0) > 0
-                ? { key: 'ra', label: tt.spacingRemoveAfter, onSelect: () => controller.setParagraph({ spaceAfter: 0 }) }
-                : { key: 'aa', label: tt.spacingAddAfter, onSelect: () => controller.setParagraph({ spaceAfter: 10 }) },
-            ],
-          },
-        ]}
-      />
-      <Toggle label={tt.checklist} active={listKind(controller) === 'check'} onClick={() => controller.toggleList('check')} disabled={ro}>
-        <ListChecks />
-      </Toggle>
-      <Toggle label={tt.bulleted} active={listKind(controller) === 'bullet'} onClick={() => controller.toggleList('bullet')} disabled={ro}>
-        <List />
-      </Toggle>
-      <Toggle label={tt.numbered} active={listKind(controller) === 'numbered'} onClick={() => controller.toggleList('numbered')} disabled={ro}>
-        <ListOrdered />
-      </Toggle>
-      <IconButton label={tt.decreaseIndent} onClick={() => controller.indent(-1)} disabled={ro}>
-        <IndentDecrease />
-      </IconButton>
-      <IconButton label={tt.increaseIndent} onClick={() => controller.indent(1)} disabled={ro}>
-        <IndentIncrease />
-      </IconButton>
-      <IconButton label={tt.clearFormatting} onClick={() => controller.clearFormatting()} disabled={ro}>
-        <RemoveFormatting />
-      </IconButton>
-      <div className="min-w-2 flex-1" />
-      {end}
+    <div className="flex h-12 shrink-0 items-center border-b bg-muted/30" role="toolbar" aria-label={t.welddocs.title}>
+      {/* The controls scroll; the menus at the end stay in view on a narrow window. */}
+      <div className="flex h-full min-w-0 flex-1 items-center gap-0.5 overflow-x-auto px-2">
+        <IconButton label={tt.undo} onClick={() => controller.undo()} disabled={ro || !controller.canUndo}>
+          <Undo2 />
+        </IconButton>
+        <IconButton label={tt.redo} onClick={() => controller.redo()} disabled={ro || !controller.canRedo}>
+          <Redo2 />
+        </IconButton>
+        <IconButton label={tt.print} onClick={() => controller.setPrinting(true)}>
+          <Printer />
+        </IconButton>
+        <Menu
+          label={tt.zoom}
+          trigger={<span className="w-9 text-center text-xs">{Math.round(controller.zoom * 100)}%</span>}
+          items={ZOOMS.map((z) => ({ key: String(z), label: `${Math.round(z * 100)}%`, checked: controller.zoom === z, onSelect: () => controller.setZoom(z) }))}
+        />
+        <Divider />
+        <Menu
+          label={tt.styles}
+          disabled={ro}
+          trigger={<span className="w-24 truncate text-left text-xs">{paragraphStyle ? (ts[paragraphStyle as keyof typeof ts] ?? controller.doc.styles.get(paragraphStyle)?.name) : ''}</span>}
+          items={PARAGRAPH_STYLES.map((id) => ({
+            key: id,
+            label: <StylePreview controller={controller} id={id} label={ts[id]} />,
+            checked: paragraphStyle === id,
+            onSelect: () => controller.setParagraphStyle(id),
+          }))}
+        />
+        <Divider />
+        <Menu
+          label={tt.font}
+          disabled={ro}
+          trigger={<span className="w-24 truncate text-left text-xs" style={{ fontFamily: style.font }}>{style.font}</span>}
+          items={FONTS.map((font) => ({ key: font, label: <span style={{ fontFamily: font }}>{font}</span>, checked: style.font === font, onSelect: () => controller.setTextStyle({ font }) }))}
+        />
+        <Divider />
+        <IconButton label={tt.decreaseSize} onClick={() => controller.setTextStyle({ size: stepSize(style.size, -1) })} disabled={ro}>
+          <Minus />
+        </IconButton>
+        <SizeInput controller={controller} size={style.size} label={tt.fontSize} disabled={ro} />
+        <IconButton label={tt.increaseSize} onClick={() => controller.setTextStyle({ size: stepSize(style.size, 1) })} disabled={ro}>
+          <Plus />
+        </IconButton>
+        <Divider />
+        <Toggle label={tt.bold} active={controller.isActive('bold')} onClick={() => controller.toggle('bold')} disabled={ro}>
+          <Bold />
+        </Toggle>
+        <Toggle label={tt.italic} active={controller.isActive('italic')} onClick={() => controller.toggle('italic')} disabled={ro}>
+          <Italic />
+        </Toggle>
+        <Toggle label={tt.underline} active={controller.isActive('underline')} onClick={() => controller.toggle('underline')} disabled={ro}>
+          <Underline />
+        </Toggle>
+        <Toggle label={tt.strikethrough} active={controller.isActive('strike')} onClick={() => controller.toggle('strike')} disabled={ro}>
+          <Strikethrough />
+        </Toggle>
+        <ColorButton label={tt.textColor} reset={tt.resetColor} value={style.color} onPick={(color) => controller.setTextStyle({ color })} disabled={ro}>
+          <Baseline />
+        </ColorButton>
+        <ColorButton label={tt.highlightColor} reset={tt.none} value={style.highlight} onPick={(highlight) => controller.setTextStyle({ highlight })} disabled={ro}>
+          <Highlighter />
+        </ColorButton>
+        <Divider />
+        <IconButton label={tt.link} onClick={() => controller.openDialog('link')} disabled={ro}>
+          <Link2 />
+        </IconButton>
+        <IconButton label={tt.image} onClick={() => controller.openDialog('image')} disabled={ro}>
+          <ImagePlus />
+        </IconButton>
+        <TableButton controller={controller} label={tt.table} disabled={ro} />
+        <IconButton label={`${tr.addComment} (${MOD_LABEL}+Alt+M)`} onClick={() => controller.startComment()} disabled={!controller.commentsAvailable || (ro && !controller.canComment)}>
+          <MessageSquarePlus />
+        </IconButton>
+        <Divider />
+        <Menu
+          label={tt.align}
+          disabled={ro}
+          trigger={alignIcon(align)}
+          items={[
+            { key: 'left', label: tt.alignLeft, checked: align === 'left', onSelect: () => controller.setParagraph({ align: null }) },
+            { key: 'center', label: tt.alignCenter, checked: align === 'center', onSelect: () => controller.setParagraph({ align: 'center' }) },
+            { key: 'right', label: tt.alignRight, checked: align === 'right', onSelect: () => controller.setParagraph({ align: 'right' }) },
+            { key: 'justify', label: tt.justify, checked: align === 'justify', onSelect: () => controller.setParagraph({ align: 'justify' }) },
+          ]}
+        />
+        <Menu
+          label={tt.lineSpacing}
+          disabled={ro}
+          trigger={<UnfoldVertical />}
+          sections={[
+            {
+              items: LINE_HEIGHTS.map((h) => ({
+                key: String(h),
+                label: h === 1 ? tt.single : String(h),
+                checked: Math.abs((para.lineHeight ?? 1) - h) < 0.01 && !para.lineHeightExact,
+                onSelect: () => controller.setParagraph({ lineHeight: h, lineHeightExact: null }),
+              })),
+            },
+            {
+              items: [
+                (para.spaceBefore ?? 0) > 0
+                  ? { key: 'rb', label: tt.spacingRemoveBefore, onSelect: () => controller.setParagraph({ spaceBefore: 0 }) }
+                  : { key: 'ab', label: tt.spacingAddBefore, onSelect: () => controller.setParagraph({ spaceBefore: 10 }) },
+                (para.spaceAfter ?? 0) > 0
+                  ? { key: 'ra', label: tt.spacingRemoveAfter, onSelect: () => controller.setParagraph({ spaceAfter: 0 }) }
+                  : { key: 'aa', label: tt.spacingAddAfter, onSelect: () => controller.setParagraph({ spaceAfter: 10 }) },
+              ],
+            },
+          ]}
+        />
+        <Toggle label={tt.checklist} active={listKind(controller) === 'check'} onClick={() => controller.toggleList('check')} disabled={ro}>
+          <ListChecks />
+        </Toggle>
+        <Toggle label={tt.bulleted} active={listKind(controller) === 'bullet'} onClick={() => controller.toggleList('bullet')} disabled={ro}>
+          <List />
+        </Toggle>
+        <Toggle label={tt.numbered} active={listKind(controller) === 'numbered'} onClick={() => controller.toggleList('numbered')} disabled={ro}>
+          <ListOrdered />
+        </Toggle>
+        <IconButton label={tt.decreaseIndent} onClick={() => controller.indent(-1)} disabled={ro}>
+          <IndentDecrease />
+        </IconButton>
+        <IconButton label={tt.increaseIndent} onClick={() => controller.indent(1)} disabled={ro}>
+          <IndentIncrease />
+        </IconButton>
+        <IconButton label={tt.clearFormatting} onClick={() => controller.clearFormatting()} disabled={ro}>
+          <RemoveFormatting />
+        </IconButton>
+      </div>
+      {end && <div className="flex h-full shrink-0 items-center pr-2 pl-1">{end}</div>}
     </div>
   );
 }
@@ -198,6 +200,7 @@ export function Toolbar({ controller, end }: { controller: DocController; end?: 
 export function ModeMenu({ controller }: { controller: DocController }) {
   const { t } = useI18n();
   const tr = t.welddocs.review;
+  const onCloseAutoFocus = useCloseAutoFocus();
   return (
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
@@ -206,7 +209,7 @@ export function ModeMenu({ controller }: { controller: DocController }) {
           <ChevronDown className="opacity-60" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-44" onCloseAutoFocus={(e) => e.preventDefault()}>
+      <DropdownMenuContent align="end" className="w-44" onCloseAutoFocus={onCloseAutoFocus}>
         {MODES.map((mode) => (
           // Someone who may not edit stays in viewing.
           <DropdownMenuItem

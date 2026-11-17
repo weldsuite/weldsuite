@@ -265,8 +265,11 @@ export function DriveFileCard({ file, isSelected, onClick, onDoubleClick, onTogg
   const typeConfig = fileTypeIcons[file.fileType] || fileTypeIcons.file;
   const Icon = typeConfig.icon;
   const isImage = file.fileType === 'image' && (file.thumbnailUrl || file.url);
+  // A file from another module (Social, Mail, …) is starred, renamed, moved
+  // and deleted there, not in Drive.
+  const isDriveFile = file.source === 'drive';
   // A viewer opens and downloads; changing the file is for its owner and editors.
-  const canChange = file.accessRole !== 'viewer';
+  const canChange = isDriveFile && file.accessRole !== 'viewer';
   const openInSheets = useOpenInWeldSheets();
   const openInDocs = useOpenInWeldDocs();
   const openInBoard = useOpenInWeldBoard();
@@ -309,9 +312,9 @@ export function DriveFileCard({ file, isSelected, onClick, onDoubleClick, onTogg
         <div className="shrink-0 ml-auto opacity-0 group-hover:opacity-100 transition-opacity">
           <DropdownMenu>
             <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-              <div className="p-0.5 rounded-md hover:bg-muted cursor-pointer">
+              <button type="button" className="p-0.5 rounded-md hover:bg-muted cursor-pointer" aria-label={t.common.actions.openMenu}>
                 <MoreVertical className="h-4 w-4 text-muted-foreground" />
-              </div>
+              </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-52" sideOffset={4} onClick={(e) => e.stopPropagation()}>
               {file.url && (
@@ -358,10 +361,12 @@ export function DriveFileCard({ file, isSelected, onClick, onDoubleClick, onTogg
               )}
               <SendFileForSignatureItem file={file} iconClassName="h-4 w-4 mr-0.5" />
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => onToggleStar?.(file)}>
-                <Star className={cn("h-4 w-4 mr-0.5", file.isStarred && "fill-yellow-400 text-yellow-400")} />
-                {file.isStarred ? t.welddrive.page.actions.removeFromStarred : t.welddrive.page.actions.addToStarred}
-              </DropdownMenuItem>
+              {isDriveFile && (
+                <DropdownMenuItem onClick={() => onToggleStar?.(file)}>
+                  <Star className={cn("h-4 w-4 mr-0.5", file.isStarred && "fill-yellow-400 text-yellow-400")} />
+                  {file.isStarred ? t.welddrive.page.actions.removeFromStarred : t.welddrive.page.actions.addToStarred}
+                </DropdownMenuItem>
+              )}
               {canChange && (
                 <DropdownMenuItem onClick={() => onRename?.(file)}>
                   <Pencil className="h-4 w-4 mr-0.5" />

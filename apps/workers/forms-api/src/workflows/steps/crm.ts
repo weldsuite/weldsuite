@@ -272,7 +272,7 @@ async function logActivity(
     .where(sql`${crmActivities.customFields}->>'formResponse' = ${key}`)
     .limit(1);
   if (existing) return;
-  const url = responseUrl(ctx.env, ctx.form.id, ctx.response.id);
+  const url = responseUrl(ctx.env, ctx.params.clerkOrgId, ctx.form.id, ctx.response.id);
   const subject = (mode === 'update' ? `Updated response to ${ctx.form.title}` : `Submitted ${ctx.form.title}`).slice(0, 255);
   const { id, eventData } = await createActivity(
     ctx.db,

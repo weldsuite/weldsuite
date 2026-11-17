@@ -2298,6 +2298,7 @@ export const projects = {
       projects: 'Projects',
       title: 'Tasks',
       task: 'Task',
+      rowActions: 'Actions for {name}',
       newTask: 'New Task',
       createTask: 'Create Task',
       taskName: 'Task Name',
@@ -2478,6 +2479,7 @@ export const projects = {
       // actions
       actionOpen: 'Open',
       actionDelete: 'Delete',
+      rowActions: 'Actions for {name}',
       // toolbar
       searchPlaceholder: 'Search projects...',
       newProject: 'New Project',

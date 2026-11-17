@@ -88,6 +88,32 @@ export class RecurringAlreadyGeneratedError extends Error {
   }
 }
 
+/** The schedule's next issue date is past its end date: it makes no more invoices (a 400). */
+class RecurringEndedError extends PostingError {
+  constructor(endDay: string) {
+    super(`This recurring invoice ended on ${endDay}.`);
+    this.name = 'RecurringEndedError';
+  }
+}
+
+/** The calendar day of a date, `YYYY-MM-DD` (UTC), or null for none or an invalid one. */
+function dayOf(value: Date | string | null | undefined): string | null {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 10);
+}
+
+/**
+ * Why a schedule's dates can not be saved: an end date before the next issue
+ * date would end the schedule before its first invoice. Null when they fit.
+ */
+export function recurringDatesError(nextIssueDate: Date | string | null | undefined, endDate: Date | string | null | undefined): string | null {
+  const next = dayOf(nextIssueDate);
+  const end = dayOf(endDate);
+  if (!next || !end || end >= next) return null;
+  return 'The end date can not be before the next issue date.';
+}
+
 /** Adds calendar months in UTC, clamping to the last day of the target month (31 Jan + 1 month = 28/29 Feb, not 3 Mar). */
 function addMonthsClamped(from: Date, months: number): Date {
   const next = new Date(from);
@@ -201,6 +227,18 @@ export async function generateRecurringInvoice(
   if (rec.status !== 'active') throw new PostingError('Recurring invoice is not active');
   const now = opts.now ?? new Date();
   const entityId = rec.entityId;
+
+  // A next issue date past the end date leaves no period to invoice, "Generate now" included:
+  // the schedule is completed (as it is after its last period) and nothing is made.
+  const endDay = dayOf(rec.endDate);
+  const nextDay = dayOf(rec.nextIssueDate);
+  if (endDay && nextDay && nextDay > endDay) {
+    await db
+      .update(schema.recurringInvoices)
+      .set({ status: 'completed', updatedAt: now })
+      .where(and(eq(schema.recurringInvoices.id, rec.id), eq(schema.recurringInvoices.status, 'active')));
+    throw new RecurringEndedError(endDay);
+  }
 
   // A period is due once its date is today or past: it is consumed. "Generate now" on a schedule
   // whose next date is still ahead makes an extra invoice and leaves the schedule alone. Either

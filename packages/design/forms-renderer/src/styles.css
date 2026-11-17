@@ -824,11 +824,11 @@
   text-decoration: underline;
   cursor: pointer;
 }
-/* Bottom left: the progress bar and its label sit at the top. */
+/* Bottom right: the progress bar and its label sit at the top, the Back button bottom left. */
 .wf-preview-badge {
   position: absolute;
   bottom: 10px;
-  left: 12px;
+  right: 12px;
   z-index: 6;
   pointer-events: none;
   padding: 2px 8px;

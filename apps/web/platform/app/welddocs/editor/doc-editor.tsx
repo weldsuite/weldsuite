@@ -10,6 +10,7 @@ import { Outline } from './outline';
 import { PrintView } from './print-view';
 import { Ruler } from './ruler';
 import { ModeMenu, Toolbar } from './toolbar';
+import { ReturnFocusContext } from './ui';
 import { PageView } from './view/page-view';
 import { DocScrollContext, type DocScroll } from './view/scroll-context';
 
@@ -50,31 +51,33 @@ export function DocEditor({
 
   return (
     <DocScrollContext.Provider value={scroll}>
-      <TooltipProvider delayDuration={400}>
-        <div className="flex h-full min-h-0 flex-col bg-background">
-          <DocHeader name={name} canRename={canRename} onRename={onRename} status={status}>
-            {headerExtra}
-            <ModeMenu controller={controller} />
-            {share}
-          </DocHeader>
-          <Toolbar controller={controller} end={<Menubar controller={controller} name={name} />} />
-          {controller.showRuler && !controller.doc.props.pageless && <Ruler controller={controller} scrollRef={scrollRef} />}
-          <div className="flex min-h-0 flex-1">
-            {controller.showOutline && <Outline controller={controller} />}
-            <div className="relative min-w-0 flex-1">
-              <div ref={scrollRef} className="absolute inset-0 overflow-auto bg-muted/60">
-                <PageView controller={controller} scrollRef={scrollRef} />
-                {roomBelow > 0 && <div aria-hidden style={{ height: roomBelow }} />}
+      <ReturnFocusContext.Provider value={controller.returnFocus}>
+        <TooltipProvider delayDuration={400}>
+          <div className="flex h-full min-h-0 flex-col bg-background">
+            <DocHeader name={name} canRename={canRename} onRename={onRename} status={status}>
+              {headerExtra}
+              <ModeMenu controller={controller} />
+              {share}
+            </DocHeader>
+            <Toolbar controller={controller} end={<Menubar controller={controller} name={name} />} />
+            {controller.showRuler && !controller.doc.props.pageless && <Ruler controller={controller} scrollRef={scrollRef} />}
+            <div className="flex min-h-0 flex-1">
+              {controller.showOutline && <Outline controller={controller} />}
+              <div className="relative min-w-0 flex-1">
+                <div ref={scrollRef} className="absolute inset-0 overflow-auto bg-muted/60">
+                  <PageView controller={controller} scrollRef={scrollRef} />
+                  {roomBelow > 0 && <div aria-hidden style={{ height: roomBelow }} />}
+                </div>
+                {controller.find && <FindBar controller={controller} />}
               </div>
-              {controller.find && <FindBar controller={controller} />}
+              {controller.showVersions && versionsPanel}
+              {!controller.showVersions && controller.showComments && (controller.draft || controller.threads().length > 0) && (commentsPanel ?? <SuggestionsPanel controller={controller} />)}
             </div>
-            {controller.showVersions && versionsPanel}
-            {!controller.showVersions && controller.showComments && (controller.draft || controller.threads().length > 0) && (commentsPanel ?? <SuggestionsPanel controller={controller} />)}
           </div>
-        </div>
-        <DocDialogs controller={controller} />
-        {controller.printing && <PrintView controller={controller} />}
-      </TooltipProvider>
+          <DocDialogs controller={controller} />
+          {controller.printing && <PrintView controller={controller} />}
+        </TooltipProvider>
+      </ReturnFocusContext.Provider>
     </DocScrollContext.Provider>
   );
 }

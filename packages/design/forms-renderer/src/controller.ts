@@ -73,6 +73,8 @@ export interface FormCore {
   reportProgress: (lastBlockId: string) => void;
   submitting: boolean;
   submitFailed: boolean;
+  /** Why the server refused the last submit, when it said (shown instead of the connection message). */
+  refusal: string | null;
   ending: EndingState | null;
   /** Runs the submit (or its local preview); resolves to the first wrong field id when the server refused answers. */
   submit: () => Promise<string | null>;
@@ -121,6 +123,7 @@ export function useFormCore(props: FormRendererProps): FormCore {
   const [errors, setErrorsState] = useState<Record<string, AnswerError>>({});
   const [submitting, setSubmitting] = useState(false);
   const [submitFailed, setSubmitFailed] = useState(false);
+  const [refusal, setRefusal] = useState<string | null>(null);
   const [ending, setEnding] = useState<EndingState | null>(null);
   const uploads = useRef(new Set<Promise<unknown>>());
   const timings = useRef<FormTimings>({});
@@ -207,6 +210,7 @@ export function useFormCore(props: FormRendererProps): FormCore {
     const finalPath = computePath(def, { answers: current, hidden });
     const sent = onPathAnswers(def, current, finalPath.path);
     setSubmitFailed(false);
+    setRefusal(null);
 
     if (preview || !onSubmit) {
       setEnding({ result: localEnding(def, current, hidden), answers: sent });
@@ -215,6 +219,11 @@ export function useFormCore(props: FormRendererProps): FormCore {
     setSubmitting(true);
     try {
       const result = await onSubmit({ answers: sent, timings: takeTimings() });
+      if ('refused' in result) {
+        setRefusal(result.refused);
+        setSubmitFailed(true);
+        return null;
+      }
       if ('fieldErrors' in result) {
         setErrorsState(result.fieldErrors);
         const order = fieldsOf(def).map((f) => f.id);
@@ -250,6 +259,7 @@ export function useFormCore(props: FormRendererProps): FormCore {
     reportProgress,
     submitting,
     submitFailed,
+    refusal,
     ending,
     submit,
     preview,

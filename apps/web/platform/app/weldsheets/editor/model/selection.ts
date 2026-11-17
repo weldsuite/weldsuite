@@ -60,6 +60,24 @@ export function selectionContains(sel: Selection, row: number, col: number): boo
 }
 
 /**
+ * What a right-click selects before its menu opens, or null to keep the
+ * selection: a cell outside it, or the whole row or column under a header
+ * that is not selected as a whole yet (so "Insert row above" acts on that row).
+ */
+export function contextMenuSelection(sel: Selection, hit: { area: string; row: number; col: number }): Selection | null {
+  if (hit.area === 'cell') return selectionContains(sel, hit.row, hit.col) ? null : cellSelection(hit.row, hit.col);
+  if (hit.area === 'rowHeader') {
+    if (sel.ranges.some((r) => isWholeRows(r) && hit.row >= r.r1 && hit.row <= r.r2)) return null;
+    return { ranges: [wholeRows(hit.row, hit.row)], active: { row: hit.row, col: 0 }, anchor: { row: hit.row, col: 0 } };
+  }
+  if (hit.area === 'colHeader') {
+    if (sel.ranges.some((r) => isWholeColumns(r) && hit.col >= r.c1 && hit.col <= r.c2)) return null;
+    return { ranges: [wholeColumns(hit.col, hit.col)], active: { row: 0, col: hit.col }, anchor: { row: 0, col: hit.col } };
+  }
+  return null;
+}
+
+/**
  * Clamps whole-row/column ranges to the sheet's grid so loops over a
  * selection never walk a million rows.
  */

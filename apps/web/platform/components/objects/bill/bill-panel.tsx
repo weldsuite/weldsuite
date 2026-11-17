@@ -17,15 +17,18 @@
 
 import { useMemo, useState } from 'react';
 import { Link } from '@tanstack/react-router';
-import { Banknote, EllipsisVertical, Link as LinkIcon, Pencil } from 'lucide-react';
+import { Banknote, EllipsisVertical, Link as LinkIcon, Pencil, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { EntityDetailView } from '@weldsuite/ui/components/entity-detail-view';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import { useObjectPanelShell, type ObjectPanelComponentProps } from '@/components/object-panel';
@@ -34,7 +37,7 @@ import { EntityAuditPanel } from '@/components/entity-audit-panel';
 import { StatusChip } from '@/components/accounting/weldbooks-row-cells';
 import { ConfigurablePanelTabs } from '@/components/objects/_shared/configurable-panel-tabs';
 import { useCopyPanelLink } from '@/components/objects/_shared/record-panel-parts';
-import { useAccountingBill } from '@/hooks/queries/use-accounting-queries';
+import { useAccountingBill, useDeleteBill } from '@/hooks/queries/use-accounting-queries';
 import type { BillWithTax } from '@/lib/api/domains/weldbooks-sales-tax-preview';
 import { useI18n } from '@/lib/i18n/provider';
 import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
@@ -70,7 +73,14 @@ function BillActions({
   bill,
   canEdit,
   onRecordPayment,
-}: Readonly<{ bill?: BillWithTax; canEdit: boolean; onRecordPayment?: () => void }>) {
+  onDelete,
+}: Readonly<{
+  bill?: BillWithTax;
+  canEdit: boolean;
+  onRecordPayment?: () => void;
+  /** Asks to delete the draft; undefined when the bill is no draft or bills:delete is missing. */
+  onDelete?: () => void;
+}>) {
   const { t } = useI18n();
   const st = useTranslations();
   const copyLink = useCopyPanelLink('/weldbooks/bills', 'bill', bill?.id ?? '');
@@ -114,6 +124,15 @@ function BillActions({
               {st('sweep.weldbooks.records.recordPayment')}
             </DropdownMenuItem>
           ) : null}
+          {onDelete ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" onClick={onDelete}>
+                <Trash2 />
+                {t.accounting.billDetail.deleteDraft}
+              </DropdownMenuItem>
+            </>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
     </div>
@@ -121,7 +140,7 @@ function BillActions({
 }
 
 export function BillPanel(props: Readonly<ObjectPanelComponentProps>) {
-  const { id, initialTab } = props;
+  const { id, onClose, initialTab } = props;
   const { t } = useI18n();
   const st = useTranslations();
   const { can } = usePermissions();
@@ -138,6 +157,20 @@ export function BillPanel(props: Readonly<ObjectPanelComponentProps>) {
   const approval = useBillApproval(id);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const canPay = !!bill && can('banking:create') && canRecordBillPayment(bill);
+  const deleteBill = useDeleteBill();
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const removeDraft = async () => {
+    try {
+      await deleteBill.mutateAsync(id);
+    } catch (err) {
+      toast.error(tb.deleteDraftFailed, { description: err instanceof Error ? err.message : undefined });
+      return;
+    }
+    toast.success(tb.draftDeleted);
+    setConfirmDelete(false);
+    onClose();
+  };
 
   const shell = useObjectPanelShell({
     ...props,
@@ -180,6 +213,7 @@ export function BillPanel(props: Readonly<ObjectPanelComponentProps>) {
             bill={bill}
             canEdit={isDraft && canUpdate}
             onRecordPayment={canPay ? () => setPaymentOpen(true) : undefined}
+            onDelete={isDraft && can('bills:delete') ? () => setConfirmDelete(true) : undefined}
           />
         }
         subheader={
@@ -234,6 +268,18 @@ export function BillPanel(props: Readonly<ObjectPanelComponentProps>) {
       ) : null}
       <ApproveBillDialog approval={approval} />
       <RejectBillDialog approval={approval} />
+      {bill ? (
+        <ConfirmDialog
+          open={confirmDelete}
+          onOpenChange={setConfirmDelete}
+          title={tb.deleteDraftTitle.replace('{number}', bill.billNumber ?? '')}
+          description={tb.deleteDraftDescription}
+          confirmLabel={tb.deleteDraft}
+          cancelLabel={tb.keep}
+          variant="destructive"
+          onConfirm={removeDraft}
+        />
+      ) : null}
     </>
   );
 }

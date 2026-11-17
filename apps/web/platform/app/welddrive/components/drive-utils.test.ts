@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import type { DriveFolder, UnifiedFile } from '@/lib/api/domains/welddrive';
 import {
   driveItemLink,
+  driveListParams,
   driveSourceLabel,
   fileKindLabel,
   isDriveUpload,
   isTextPreviewable,
+  recentDateFrom,
   splitExtension,
 } from './drive-utils';
 import { resolveDriveRename } from './drive-rename-dialog';
@@ -67,6 +69,28 @@ describe('splitExtension', () => {
     expect(splitExtension('README')).toEqual(['README', '']);
     expect(splitExtension('.env')).toEqual(['.env', '']);
     expect(splitExtension('trailing.')).toEqual(['trailing.', '']);
+  });
+});
+
+describe('driveListParams', () => {
+  it('gives the Recent view the same params all day, so its query key holds still', () => {
+    // A key that changed every millisecond refetched /api/drive/all on every render (TASK-1431).
+    const morning = driveListParams('recent', { page: 1 }, new Date(2026, 10, 17, 9, 0, 0, 123));
+    const later = driveListParams('recent', { page: 1 }, new Date(2026, 10, 17, 23, 59, 59, 999));
+    expect(later).toEqual(morning);
+    expect(morning.dateFrom).toBe(new Date(2026, 9, 18).toISOString());
+    expect(recentDateFrom(new Date(2026, 10, 17, 12))).toBe(morning.dateFrom);
+  });
+
+  it('only limits the Recent view by date, and passes the filters through', () => {
+    expect(driveListParams('all-files', { page: 2, type: 'image', source: 'all' })).toEqual({
+      page: 2,
+      pageSize: 50,
+      sortBy: 'createdAt',
+      sortOrder: 'desc',
+      type: 'image',
+    });
+    expect(driveListParams('my-drive', { page: 1, source: 'social' }).source).toBe('social');
   });
 });
 

@@ -78,7 +78,9 @@ export function PendingInvitationsSection({
       <div>
         <h2 className="text-lg font-semibold tracking-tight">{ts.pendingInvitations}</h2>
         <p className="text-sm text-muted-foreground">
-          {st('sweep.settings.pendingInvitations.count', { count: members.length })}
+          {members.length === 1
+            ? st('sweep.settings.pendingInvitations.countOne')
+            : st('sweep.settings.pendingInvitations.count', { count: members.length })}
         </p>
       </div>
 
@@ -151,7 +153,7 @@ export function PendingInvitationsSection({
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-8 w-8 rounded-lg opacity-0 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100 transition-opacity"
+                          className="h-8 w-8 rounded-lg opacity-0 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity"
                         >
                           <MoreVertical className="h-4 w-4" />
                           <span className="sr-only">{st('sweep.settings.pendingInvitations.actions')}</span>

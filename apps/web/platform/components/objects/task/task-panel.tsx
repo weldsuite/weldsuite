@@ -818,7 +818,11 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
         open={confirmDeleteOpen}
         onOpenChange={setConfirmDeleteOpen}
         title={t('sweep.entities.deleteTask')}
-        description={t('sweep.entities.deleteTaskConfirmDescription')}
+        description={
+          task?.title
+            ? t('sweep.entities.deleteTaskConfirmNamed', { name: task.title })
+            : t('sweep.entities.deleteTaskConfirmDescription')
+        }
         confirmLabel={t('sweep.entities.deleteTask')}
         cancelLabel={t('common.actions.cancel')}
         variant="destructive"

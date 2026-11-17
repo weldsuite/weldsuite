@@ -65,6 +65,15 @@ export interface CustomFieldsToColumnsOptions<TEntity> {
   getCustomFields: (entity: TEntity) => Record<string, unknown> | null | undefined;
   /** Build the patch sent to onUpdateEntity. Default: `{ customFields: next }`. */
   buildPatch?: (entity: TEntity, next: Record<string, unknown>) => Record<string, unknown>;
+  /** Offer "Delete attribute" in the column menu (the caller confirms and deletes). */
+  onDeleteField?: (def: CustomFieldDefinition) => void;
+}
+
+/** A Number field's configured Min / Max (Settings › Custom fields), when set. */
+export function numberRangeOf(def: Pick<CustomFieldDefinition, 'fieldType' | 'config'>): { min?: number; max?: number } {
+  if (def.fieldType !== 'number') return {};
+  const finite = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+  return { min: finite(def.config?.min), max: finite(def.config?.max) };
 }
 
 export function customFieldsToGridColumns<TEntity>(
@@ -105,6 +114,8 @@ export function customFieldsToGridColumns<TEntity>(
       isCustom: true,
       options,
       selectConfig,
+      ...numberRangeOf(def),
+      onDelete: opts.onDeleteField ? () => opts.onDeleteField?.(def) : undefined,
       getValue: (entity) => {
         const cf = opts.getCustomFields(entity);
         const raw = cf ? cf[def.slug] : undefined;

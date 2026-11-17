@@ -93,6 +93,7 @@ static ACCOUNTS: Crud = Crud {
     updated: ev::SOCIAL_ACCOUNT_UPDATED,
     updated_event: account_updated,
     guard: None,
+    edit: None,
     deleted: ev::SOCIAL_ACCOUNT_DELETED,
 };
 

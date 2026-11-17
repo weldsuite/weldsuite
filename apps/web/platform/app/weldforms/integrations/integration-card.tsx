@@ -71,12 +71,15 @@ export function IntegrationCard({
             <CardDescription>{description}</CardDescription>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Label htmlFor={switchId} className="text-sm">
-            {ti.enabled}
-          </Label>
-          <Switch id={switchId} checked={enabled} onCheckedChange={onEnabledChange} />
-        </div>
+        {/* Only a saved integration can be switched off and on; one being set up is created switched on. */}
+        {integration && (
+          <div className="flex items-center gap-2">
+            <Label htmlFor={switchId} className="text-sm">
+              {ti.enabled}
+            </Label>
+            <Switch id={switchId} checked={enabled} onCheckedChange={onEnabledChange} />
+          </div>
+        )}
       </CardHeader>
       <CardContent className="space-y-5">
         {integration?.lastError && (

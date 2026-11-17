@@ -21,6 +21,7 @@ import {
 } from '@weldsuite/ui/components/dialog';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { toast } from 'sonner';
 import { useCreateAnalyticsReport, useDeleteAnalyticsReport, useDuplicateAnalyticsReport, type AnalyticsReport } from '@/hooks/queries/use-helpdesk-queries';
 import { EntityList, EmptyStateIllustration, type HeaderColumn, type RowHandlers } from '@/components/entity-list';
@@ -37,6 +38,7 @@ export function AnalyticsListClient({ initialReports }: Readonly<AnalyticsListCl
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [newReportTitle, setNewReportTitle] = useState('');
   const [newReportDescription, setNewReportDescription] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<AnalyticsReport | null>(null);
 
   const createReportMutation = useCreateAnalyticsReport();
   const deleteReportMutation = useDeleteAnalyticsReport();
@@ -81,16 +83,25 @@ export function AnalyticsListClient({ initialReports }: Readonly<AnalyticsListCl
     );
   };
 
-  const handleDeleteReport = (reportId: string) => {
+  // The row menu only asks; the report goes once the dialog is confirmed.
+  const askDeleteReport = (reportId: string) => {
+    setDeleteTarget(reports.find((r) => r.id === reportId) ?? null);
+  };
+
+  const handleDeleteReport = () => {
+    if (!deleteTarget) return;
+    const reportId = deleteTarget.id;
     deleteReportMutation.mutate(reportId, {
       onSuccess: (result) => {
         if (result.success) {
           setReports((prev) => prev.filter((r) => r.id !== reportId));
+          setDeleteTarget(null);
           toast.success(t.helpdesk.analyticsReports.reportDeleted);
         } else {
           toast.error(t.helpdesk.analyticsReports.failedToDeleteReport);
         }
       },
+      onError: () => toast.error(t.helpdesk.analyticsReports.failedToDeleteReport),
     });
   };
 
@@ -145,7 +156,9 @@ export function AnalyticsListClient({ initialReports }: Readonly<AnalyticsListCl
 
         {/* Charts */}
         <div className="w-[120px]">
-          <span className="text-sm text-muted-foreground">{report.chartCount} {t.helpdesk.analyticsReports.charts}</span>
+          <span className="text-sm text-muted-foreground">
+            {report.chartCount} {report.chartCount === 1 ? t.helpdesk.analyticsReports.chart : t.helpdesk.analyticsReports.charts}
+          </span>
         </div>
 
         {/* Created */}
@@ -203,7 +216,7 @@ export function AnalyticsListClient({ initialReports }: Readonly<AnalyticsListCl
         renderRow={renderRow}
         searchPlaceholder={t.helpdesk.analyticsReports.searchReports}
         searchFields={['title', 'description']}
-        onDeleteItem={handleDeleteReport}
+        onDeleteItem={askDeleteReport}
         onDuplicateItem={handleDuplicateReport}
         createButton={{
           label: t.helpdesk.analyticsReports.newReport,
@@ -276,6 +289,17 @@ export function AnalyticsListClient({ initialReports }: Readonly<AnalyticsListCl
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(next) => !next && setDeleteTarget(null)}
+        title={t.helpdesk.analyticsReports.deleteReportTitle}
+        description={t.helpdesk.analyticsReports.deleteReportDescription.replace('{title}', deleteTarget?.title ?? '')}
+        confirmLabel={t.helpdesk.analyticsReports.delete}
+        variant="destructive"
+        loading={deleteReportMutation.isPending}
+        onConfirm={handleDeleteReport}
+      />
     </>
   );
 }

@@ -57,9 +57,10 @@ function Cell({ children, className }: Readonly<{ children: ReactNode; className
   return <span className={cn('flex-shrink-0 text-right text-sm tabular-nums', className)}>{children}</span>;
 }
 
-function ColumnHeaders() {
+function ColumnHeaders({ withTax }: Readonly<{ withTax: boolean }>) {
   const { t } = useI18n();
   const tb = t.accounting.billDetail;
+  const td = useDocumentTexts();
   return (
     // The secondary columns (and so their headers) show from 560px of list width.
     <div className="hidden items-center gap-4 border-b border-gray-200/70 px-4 py-2 text-xs text-muted-foreground dark:border-border @min-[560px]:flex">
@@ -68,7 +69,7 @@ function ColumnHeaders() {
       <Cell className="w-[96px]">{tb.unitPrice}</Cell>
       <Cell className="w-[64px]">{tb.discountPercent}</Cell>
       <Cell className="w-[88px]">{tb.tax}</Cell>
-      <Cell className="w-[104px]">{tb.lineTotal}</Cell>
+      <Cell className="w-[104px]">{withTax ? td.bill.lineCostWithTax : tb.lineTotal}</Cell>
       <span className="w-[40px] flex-shrink-0" />
     </div>
   );
@@ -79,10 +80,13 @@ function LineItemRow({
   currency,
   canCreateFixedAsset,
   defaultAccount,
+  withTax,
 }: Readonly<{
   item: BillItemRow;
   currency: string | null;
   canCreateFixedAsset: boolean;
+  /** Sales tax is part of a line's cost (US); with VAT the line is shown before tax, as the bill form does. */
+  withTax: boolean;
   /** What a line with no account of its own is booked to. */
   defaultAccount?: { code: string; name: string } | null;
 }>) {
@@ -121,7 +125,9 @@ function LineItemRow({
         {item.discountPercent ? `${formatNumber(item.discountPercent)}%` : '-'}
       </Cell>
       <Cell className="w-[88px] @max-[559px]:hidden">{formatMoney(item.taxAmount, currency)}</Cell>
-      <Cell className="w-[104px] font-medium">{formatMoney(item.lineTotalWithTax ?? item.lineTotal, currency)}</Cell>
+      <Cell className="w-[104px] font-medium">
+        {formatMoney(withTax ? (item.lineTotalWithTax ?? item.lineTotal) : item.lineTotal, currency)}
+      </Cell>
     </TabListRow>
   );
 }
@@ -199,13 +205,14 @@ export function BillLineItemsTab({ bill }: Readonly<{ bill: BillWithTax }>) {
   return (
     <div>
       <TabListScope>
-        <ColumnHeaders />
+        <ColumnHeaders withTax={features.salesTax} />
         {items.map((item) => (
           <LineItemRow
             key={item.id}
             item={item}
             currency={bill.currency}
             canCreateFixedAsset={features.salesTax && isPosted}
+            withTax={features.salesTax}
             defaultAccount={bill.defaultExpenseAccount}
           />
         ))}

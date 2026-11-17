@@ -92,6 +92,14 @@ impl RootKeyring {
         Err(EnvelopeError::new("WELDPASS_ROOT_KEY is not configured"))
     }
 
+    /// Whether the newest key present is usable (set, 64 hex characters):
+    /// what every vault and project route needs. Checked at start, so a
+    /// missing or malformed key shows up in the logs before anyone gets a
+    /// `CRYPTO_ERROR`.
+    pub fn check(&self) -> Result<(), EnvelopeError> {
+        self.require(self.current_version()?).map(|_| ())
+    }
+
     fn require(&self, version: &str) -> Result<Key, EnvelopeError> {
         let hex = match version {
             "v2" => self.v2.as_deref(),
@@ -612,6 +620,26 @@ pub(crate) mod tests {
         assert_eq!(ring(Some(KEY_A), None).current_version(), Ok("v1"));
         assert!(ring(None, None).current_version().is_err());
         assert!(create_vault_key(&ring(Some("abc"), None), "prj_1").is_err());
+    }
+
+    #[test]
+    fn check_names_a_missing_or_malformed_key() {
+        assert_eq!(ring(Some(KEY_A), None).check(), Ok(()));
+        assert_eq!(ring(Some(KEY_A), Some(KEY_B)).check(), Ok(()));
+        assert_eq!(
+            ring(None, None).check(),
+            Err(EnvelopeError::new("WELDPASS_ROOT_KEY is not configured"))
+        );
+        assert_eq!(
+            ring(Some(""), None).check(),
+            Err(EnvelopeError::new("WELDPASS_ROOT_KEY is not configured"))
+        );
+        assert_eq!(
+            ring(Some("abc"), None).check(),
+            Err(EnvelopeError::new(
+                "Root key \"v1\" must be 64 hex characters (32 bytes)"
+            ))
+        );
     }
 
     #[test]

@@ -96,7 +96,7 @@ export function NewFormDialog({ open, onOpenChange, folderId }: Readonly<Props>)
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{tn.title}</DialogTitle>
-          <DialogDescription>{tn.description}</DialogDescription>
+          <DialogDescription>{aiAvailable ? tn.description : tn.descriptionNoAi}</DialogDescription>
         </DialogHeader>
 
         <FormField label={tn.name}>

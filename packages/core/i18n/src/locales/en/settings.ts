@@ -200,6 +200,7 @@ export const settings = {
       addressLine2: 'Address Line 2',
       postalCode: 'Postal Code',
       addressLine2Placeholder: '2nd floor',
+      examplePlaceholder: 'e.g. {example}',
       city: 'City',
       provinceState: 'Province / State',
       country: 'Country',
@@ -216,6 +217,7 @@ export const settings = {
         companyNameRequired: 'Company name is required',
         vatInvalid: 'Not a valid VAT number for {country}. Example: {example}',
         taxIdInvalid: 'Not a valid VAT / tax ID. Use letters and digits only.',
+        checkFields: 'Not saved: check the highlighted fields.',
       },
       workspaceName: {
         title: 'Workspace name',
@@ -1035,6 +1037,13 @@ export const settings = {
       updateField: 'Update Field',
       duplicate: 'Duplicate',
       rowsSelected: '{count} of {total} row(s) selected.',
+      object: 'Object',
+      objectFilterLabel: 'Show the fields of',
+      allObjects: 'All objects',
+      deleteDialog: {
+        title: 'Delete custom field?',
+        description: 'Delete "{name}" from {object}? The value stored in this field is removed from every record. This cannot be undone.',
+      },
       validation: {
         nameRequired: 'Name is required',
         slugRequired: 'Slug is required',
@@ -1087,6 +1096,8 @@ export const settings = {
       lastUpdatedValue: 'December 2024',
       list: {
         categoriesHeading: 'Categories',
+        noneOfferedTitle: 'No integrations on this edition yet',
+        noneOfferedDescription: "Third-party integrations need services this edition doesn't run yet.",
         connected: 'Connected',
         categories: {
           crm: 'CRM',
@@ -2220,6 +2231,7 @@ export const settings = {
         displayName: 'Display name',
         displayNamePlaceholder: 'e.g. Support Team',
         displayNameDescription: 'Shown as the sender name on outgoing email.',
+        displayNameRequired: 'Enter a display name',
         cancel: 'Cancel',
         save: 'Save',
         messages: {
@@ -2233,7 +2245,7 @@ export const settings = {
         sharedAccount: 'Shared account',
         sharedAccountDescription: 'Visible to all workspace members',
         assignedUsers: 'Assigned users',
-        assignedUsersDescription: "Only these users can open this mailbox. Admins can manage it but can't read its mail. If no one is assigned, only admins have access.",
+        assignedUsersDescription: 'Only the assigned users can read the mail in this mailbox. Admins can always manage it, and read its mail only while no one is assigned.',
         selectUsers: 'Select users...',
         usersSelected: '{count} user selected',
         usersSelectedPlural: '{count} users selected',
@@ -2278,6 +2290,7 @@ export const settings = {
       noNumbers: 'No phone numbers yet',
       noNumbersConfigured: 'Get a new phone number to start making calls',
       noNumbersUnconfigured: 'Phone service needs to be activated first',
+      noNumbersPurchaseUnavailable: "Numbers can't be bought or ported on this edition yet",
         pendingPorts: 'Pending ports',
         pendingPortsDescription: 'Numbers being moved into WeldSuite from another carrier.',
         pendingDocuments: 'Documents needed',

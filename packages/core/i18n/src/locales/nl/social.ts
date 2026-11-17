@@ -131,6 +131,7 @@ export const social = {
       platformComparison: 'Platformvergelijking',
       dateRange: 'Datumbereik',
       exportReport: 'Rapport Exporteren',
+      syncMetrics: 'Statistieken synchroniseren',
     },
 
     accounts: {
@@ -249,5 +250,23 @@ export const social = {
       invalidScheduleTime: 'Deze planningstijd kon niet worden gelezen — controleer de datum en tijdzone',
       instagramNeedsMedia:
         'Instagram staat geen berichten met alleen tekst toe. Voeg een afbeelding of video toe, of verwijder {accounts}.',
+      draftSaveFailed: 'Het concept kon niet worden opgeslagen',
+      scheduleFailed: 'Het bericht kon niet worden gepland',
+      approvalFailed: 'Het bericht kon niet ter goedkeuring worden ingediend',
+      publishFailed: 'Het bericht kon niet worden gepubliceerd',
+      deleteFailed: 'Het bericht kon niet worden verwijderd',
+      uploadFailed: '{name} kon niet worden geüpload',
+      mediaAddFailed: 'De afbeelding kon niet worden toegevoegd',
+      invalidMediaUrl: 'Voer een volledige afbeeldingslink in die begint met https://',
+      campaignSaveFailed: 'De campagne kon niet worden opgeslagen',
+      teamMemberSaveFailed: 'Het teamlid kon niet worden opgeslagen',
+      settingsSaved: 'Instellingen opgeslagen',
+      settingsSaveFailed: 'De instellingen konden niet worden opgeslagen',
+      accountConnectFailed: 'Het account kon niet worden verbonden',
+      accountsSynced: 'Accounts gesynchroniseerd',
+      accountsSyncFailed: 'De accounts konden niet worden gesynchroniseerd',
+      deleteDraftTitle: 'Dit concept verwijderen?',
+      deleteDraftDescription: 'Het concept wordt definitief verwijderd. Dit kan niet ongedaan worden gemaakt.',
+      revisionRequested: 'Aanpassing gevraagd',
     },
   };

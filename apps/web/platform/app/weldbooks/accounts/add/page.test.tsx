@@ -130,6 +130,16 @@ describe('AddAccountPage tax reporting', () => {
     expect(mocks.createAccount.mock.calls[0][0]).toMatchObject({ taxLine: null, form1099Box: null });
   });
 
+  it('sends the opening balance as the decimal string the API takes', async () => {
+    const user = userEvent.setup();
+    render(<AddAccountPage />);
+    await fillBasics(user);
+    await user.click(screen.getByRole('button', { name: /Create Account/i }));
+
+    await waitFor(() => expect(mocks.createAccount).toHaveBeenCalledTimes(1));
+    expect(mocks.createAccount.mock.calls[0][0]).toMatchObject({ openingBalance: '0.00', type: 'asset', normalSide: 'debit' });
+  });
+
   it('leaves out the 1099 box where the jurisdiction files no 1099s', async () => {
     mocks.jurisdiction.form1099 = false;
     const user = userEvent.setup();

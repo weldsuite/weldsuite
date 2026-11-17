@@ -170,3 +170,34 @@ describe('AddJournalEntryPage: create outcome and accessibility', { timeout: 30_
     expect(env.toastError).not.toHaveBeenCalled();
   });
 });
+
+describe('AddJournalEntryPage: lines checked before sending', { timeout: 30_000 }, () => {
+  beforeAll(polyfillRadixSelect);
+  beforeEach(() => {
+    env.create.mockReset().mockResolvedValue({});
+    env.navigate.mockReset();
+    env.dimensions = [];
+  });
+
+  it('asks for two lines instead of sending an untouched entry', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<AddJournalEntryPage />);
+    await user.click(screen.getByRole('button', { name: /Create/ }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Add at least two lines with an account and an amount.');
+    expect(env.create).not.toHaveBeenCalled();
+  });
+
+  it('asks for the account of a line that has an amount', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<AddJournalEntryPage />);
+    await user.click(screen.getByRole('combobox', { name: 'Account, line 1' }));
+    await user.click(await screen.findByRole('option', { name: /Cash/ }));
+    await user.type(screen.getByRole('spinbutton', { name: 'Debit, line 1' }), '100');
+    await user.type(screen.getByRole('spinbutton', { name: 'Credit, line 2' }), '100');
+    await user.click(screen.getByRole('button', { name: /Create/ }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Choose an account on every line with an amount.');
+    expect(env.create).not.toHaveBeenCalled();
+  });
+});

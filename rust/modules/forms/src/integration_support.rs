@@ -14,7 +14,7 @@ use sqlx::PgPool;
 use weldsuite_events::{EntityEvent, EventContext, EventSource, EventType};
 use weldsuite_kit::validation::js_trim;
 
-use crate::common::{Ctx, Env, Fail, FormsResult, text};
+use crate::common::{Ctx, Env, Fail, FormsResult, text, workspace_app_url};
 use crate::creator_access::CreatorForbidden;
 use crate::engine::{
     FormDefinition, PreparedAnswer, RecallContext, display_answer, fields_of, find_field,
@@ -52,14 +52,23 @@ impl From<sqlx::Error> for StepFail {
     }
 }
 
-/// `responseUrl(env, formId, responseId)`: the member-side page of one
-/// response (`<PLATFORM_URL>/weldforms/<formId>/results?...`).
-pub(crate) fn response_url(env: &Env, form_id: &str, response_id: &str) -> String {
+/// `responseUrl(env, clerkOrgId, formId, responseId)`: the member-side page
+/// of one response, in its workspace
+/// (`<PLATFORM_URL>/w/<clerkOrgId>/weldforms/<formId>/results?...`).
+pub(crate) fn response_url(
+    env: &Env,
+    clerk_org_id: &str,
+    form_id: &str,
+    response_id: &str,
+) -> String {
     let base = env
         .non_empty("PLATFORM_URL")
         .unwrap_or_else(|| "https://app.weldsuite.org".to_owned());
-    let base = base.strip_suffix('/').unwrap_or(&base);
-    format!("{base}/weldforms/{form_id}/results?tab=responses&response={response_id}")
+    workspace_app_url(
+        &base,
+        clerk_org_id,
+        &format!("/weldforms/{form_id}/results?tab=responses&response={response_id}"),
+    )
 }
 
 /// What a template can recall (`TemplateContext`): the engine's tokens over
@@ -67,6 +76,8 @@ pub(crate) fn response_url(env: &Env, form_id: &str, response_id: &str) -> Strin
 /// `{{response:url}}`.
 pub(crate) struct TemplateContext<'a> {
     pub(crate) env: &'a Env,
+    /// The workspace's Clerk org id, for `{{response:url}}`.
+    pub(crate) clerk_org_id: &'a str,
     /// The `forms` row.
     pub(crate) form: &'a Value,
     /// The `form_responses` row.
@@ -103,7 +114,12 @@ pub(crate) fn render_template(template: &str, ctx: &TemplateContext<'_>) -> Stri
         EXTRA_TOKEN_RE.replace_all(template, |captures: &Captures<'_>| match &captures[1] {
             "form:title" => text(ctx.form, "title").to_owned(),
             "response:number" => number_text(ctx.response),
-            _ => response_url(ctx.env, text(ctx.form, "id"), text(ctx.response, "id")),
+            _ => response_url(
+                ctx.env,
+                ctx.clerk_org_id,
+                text(ctx.form, "id"),
+                text(ctx.response, "id"),
+            ),
         });
     recall(
         &with_extras,
@@ -348,6 +364,7 @@ mod tests {
         let response = json!({ "id": "frs_1", "number": 7, "answers": { "b_name": "Ada" }, "hidden": {}, "variables": {} });
         let ctx = TemplateContext {
             env: &env,
+            clerk_org_id: "org_1",
             form: &form,
             response: &response,
             definition: &definition,
@@ -361,7 +378,7 @@ mod tests {
         );
         assert_eq!(
             render_template("{{response:url}}", &ctx),
-            "https://app.weldsuite.org/weldforms/frm_1/results?tab=responses&response=frs_1"
+            "https://app.weldsuite.org/w/org_1/weldforms/frm_1/results?tab=responses&response=frs_1"
         );
         assert_eq!(answer_lines(&definition, &response["answers"]), "Name: Ada");
     }

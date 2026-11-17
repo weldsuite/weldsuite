@@ -104,6 +104,20 @@ function sameOriginPath(value: string | undefined): string {
   return value?.startsWith('/') && !value.startsWith('//') ? value : '/';
 }
 
+/**
+ * Where a person manages their password, 2FA and passkeys when the config
+ * names no `accountUrl`: Zitadel's self-service page under the issuer, like
+ * the other Zitadel defaults here. An empty `accountUrl` turns the link off
+ * (TASK-1427: Settings › Security had no way to reach it).
+ */
+export function defaultAccountUrl(issuer: string): string | undefined {
+  try {
+    return new URL('/ui/console/users/me', issuer).toString();
+  } catch {
+    return undefined;
+  }
+}
+
 function currentPath(): string {
   return typeof window === 'undefined' ? '/' : window.location.pathname + window.location.search;
 }
@@ -144,7 +158,7 @@ export class OidcSession {
     const scopes = [...(config.scopes ?? DEFAULT_OIDC_SCOPES)];
     if (config.audience && audienceScope) scopes.push(scopeFor(audienceScope, { audience: config.audience }));
     this.baseScope = scopes.join(' ');
-    this.accountUrl = config.accountUrl;
+    this.accountUrl = config.accountUrl ?? defaultAccountUrl(config.issuer);
     this.platformSignIn = config.signIn === 'platform';
     this.manager = new UserManager({
       authority: config.issuer,

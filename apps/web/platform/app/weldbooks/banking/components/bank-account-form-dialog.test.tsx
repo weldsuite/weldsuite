@@ -64,6 +64,19 @@ describe('BankAccountFormDialog', () => {
     expect(screen.queryByLabelText('Next check number')).not.toBeInTheDocument();
   });
 
+  it('refuses an IBAN that does not check out and creates nothing', async () => {
+    jurisdiction.code = 'NL';
+    const user = userEvent.setup();
+    renderWithProviders(<BankAccountFormDialog open onOpenChange={vi.fn()} />);
+
+    await user.type(screen.getByLabelText('Name'), 'Spaarrekening');
+    await user.type(screen.getByLabelText(/IBAN/), 'NL12INVALID');
+    await user.click(screen.getByRole('button', { name: 'Create bank account' }));
+
+    expect(await screen.findByText('Not a valid IBAN. Check the country code, the length and the check digits.')).toBeInTheDocument();
+    expect(createMutate).not.toHaveBeenCalled();
+  });
+
   it('refuses a routing number that fails the ABA check and creates nothing', async () => {
     const user = userEvent.setup();
     renderWithProviders(<BankAccountFormDialog open onOpenChange={vi.fn()} />);

@@ -897,10 +897,12 @@ async fn external(
         let tld = if tld.is_empty() { "com".to_owned() } else { tld };
         let id = generate_id("dom");
         let token = random_uuid_hex();
+        // Renewal stays with the outside registrar: WeldSuite never renews it.
         sqlx::query(
             "insert into domains (id, name, tld, full_domain, status, registrar, custom_nameservers,
-               nameserver_verified, nameserver_verification_pending, nameserver_verification_token)
-             values ($1, $2, $3, $4, 'pending', $5, false, false, true, $6)",
+               nameserver_verified, nameserver_verification_pending, nameserver_verification_token,
+               auto_renew)
+             values ($1, $2, $3, $4, 'pending', $5, false, false, true, $6, false)",
         )
         .bind(&id)
         .bind(name)

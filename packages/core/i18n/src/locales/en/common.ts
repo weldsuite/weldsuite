@@ -279,6 +279,12 @@ export const common = {
       addToGroup: 'Add {group}',
       unreadInGroup: '{count} unread',
       mentionsInGroup: '{count} mentions',
+      moreActionsFor: 'More actions for {name}',
+      dragInstructions: 'Drag with the mouse to reorder.',
+      dragStart: 'Picked up {item}.',
+      dragOver: '{item} is over {target}.',
+      dragEnd: '{item} was dropped on {target}.',
+      dragCancel: '{item} was put back.',
     },
     /** Display names for the colour and icon pickers (keys are the lowercase identifiers). */
     coloredSquare: {

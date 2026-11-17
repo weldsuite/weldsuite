@@ -56,6 +56,9 @@ import { TeamMemberDetailsPanel, type TeamMemberDetail } from "@/components/team
 
 type TableStatus = "on-track" | "at-risk" | "off-track" | "on-hold" | "completed";
 
+/** The longest project name the API takes (`createProjectSchema`). */
+const PROJECT_NAME_MAX = 255;
+
 interface Project {
   id: string;
   name: string;
@@ -167,6 +170,7 @@ export function AllProjectsClient({
   onSortChange,
 }: Readonly<AllProjectsClientProps>) {
   const t = useI18n().t.projects;
+  const { format } = useI18n();
   const squareLabels = useI18n().t.common.coloredSquare;
   const { formatShort } = useDateLocale();
 
@@ -500,7 +504,9 @@ export function AllProjectsClient({
     return (
       <div
         key={project.id}
-        className="relative flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group"
+        // Phones: the columns wrap under the name instead of running past the
+        // list's clipped right edge (owner, due date and the menu were unreachable).
+        className="relative flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group max-md:flex-wrap max-md:gap-x-3 max-md:gap-y-1.5"
       >
         {/* Row click target: stretched button; links and controls sit above it */}
         <button
@@ -510,7 +516,7 @@ export function AllProjectsClient({
           className="absolute inset-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         />
         {/* Project Name */}
-        <div className="min-w-[200px] flex-1 flex items-center gap-2.5">
+        <div className="min-w-[200px] flex-1 flex items-center gap-2.5 max-md:min-w-0 max-md:basis-full">
           <div className={cn("w-6 h-6 rounded-[8px] flex items-center justify-center flex-shrink-0", project.color || 'bg-muted')}>
             {(() => {
               const IconComp = project.icon
@@ -529,14 +535,14 @@ export function AllProjectsClient({
         </div>
 
         {/* Status (auto-derived from tasks + due date) */}
-        <div className="w-[120px]">
+        <div className="w-[120px] max-md:w-auto">
           <span className={cn("inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none", status.color, status.bg)}>
             {status.label}
           </span>
         </div>
 
         {/* Priority */}
-        <div className="relative z-[1] w-[100px]">
+        <div className="relative z-[1] w-[100px] max-md:w-auto">
           <Popover>
             <PopoverTrigger asChild>
               <Button
@@ -566,7 +572,7 @@ export function AllProjectsClient({
         </div>
 
         {/* Progress */}
-        <div className="w-[200px] flex items-center gap-3 pr-8">
+        <div className="w-[200px] flex items-center gap-3 pr-8 max-md:w-[120px] max-md:pr-0">
           <div className="flex-1 bg-muted rounded-full h-[5px]">
             <div className="h-[5px] rounded-full bg-foreground" style={{ width: `${project.progress}%` }} />
           </div>
@@ -574,7 +580,7 @@ export function AllProjectsClient({
         </div>
 
         {/* Owner */}
-        <div className="relative z-[1] w-[130px] min-w-0">
+        <div className="relative z-[1] w-[130px] min-w-0 max-md:w-auto max-md:max-w-[130px]">
           <Button
             variant="ghost"
             className="group/owner h-auto flex items-center gap-1.5 max-w-full min-w-0 rounded px-1 py-0.5 -mx-1 cursor-pointer"
@@ -608,7 +614,7 @@ export function AllProjectsClient({
         </div>
 
         {/* Due Date */}
-        <div className="relative z-[1] w-[100px]">
+        <div className="relative z-[1] w-[100px] max-md:w-auto">
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className="h-auto text-sm cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 rounded px-1 py-0.5 transition-shadow">
@@ -650,10 +656,16 @@ export function AllProjectsClient({
         </div>
 
         {/* Actions */}
-        <div className="relative z-[1] w-[40px] flex justify-end">
+        <div className="relative z-[1] w-[40px] flex justify-end max-md:ml-auto">
+          {/* The menu button is always shown on phones, which have no hover. */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent">
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label={format(t.allProjects.rowActions, { name: project.name })}
+                className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent max-md:opacity-100"
+              >
                 <EllipsisVertical className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
@@ -677,7 +689,7 @@ export function AllProjectsClient({
         </div>
       </div>
     );
-  }, [deleteProject, setSelectedMember, router, updateProjectInline, priorityConfig, statusConfig, t.allProjects.actionDelete, t.allProjects.actionOpen, t.allProjects.clearDate, formatDateShort]);
+  }, [deleteProject, setSelectedMember, router, updateProjectInline, priorityConfig, statusConfig, t.allProjects.actionDelete, t.allProjects.actionOpen, t.allProjects.clearDate, t.allProjects.rowActions, format, formatDateShort]);
 
   return (
     <div className="-mx-3 md:-mx-4 -mt-3 md:-mt-4">
@@ -875,6 +887,8 @@ export function AllProjectsClient({
                 <Input
                   id="project-name"
                   placeholder={t.allProjects.namePlaceholder}
+                  // The API takes a name of up to 255 characters (createProjectSchema).
+                  maxLength={PROJECT_NAME_MAX}
                   value={newProjectName}
                   onChange={(e) => setNewProjectName(e.target.value)}
                   onKeyDown={(e) => {

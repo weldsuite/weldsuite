@@ -195,7 +195,7 @@ export function AssetForm({
             <div className="space-y-1.5">
               <Label htmlFor="asset-cost">{tf.fields.cost}</Label>
               <Input id="asset-cost" inputMode="decimal" autoComplete="off" placeholder={costPlaceholder} {...form.register('cost')} />
-              <p className="text-xs text-muted-foreground">{tf.fields.costHelp}</p>
+              <p className="text-xs text-muted-foreground">{isUs ? tf.fields.costHelp : tf.fields.costHelpVat}</p>
               <FieldError message={errors.cost?.message} />
             </div>
             <div className="space-y-1.5">
@@ -208,7 +208,7 @@ export function AssetForm({
               <div className="space-y-1.5">
                 <Label htmlFor="asset-life">{tf.fields.usefulLife}</Label>
                 <Input id="asset-life" inputMode="decimal" autoComplete="off" disabled={values.customizeBooks} {...form.register('usefulLifeYears')} />
-                <p className="text-xs text-muted-foreground">{tf.fields.usefulLifeHelp}</p>
+                <p className="text-xs text-muted-foreground">{isUs ? tf.fields.usefulLifeHelp : tf.fields.usefulLifeHelpLedger}</p>
                 <FieldError message={errors.usefulLifeYears?.message} />
               </div>
             ) : null}
@@ -351,17 +351,17 @@ export function AssetForm({
       <Card>
         <CardHeader>
           <CardTitle className="text-base">{tf.sections.books}</CardTitle>
-          <CardDescription>{fa.books.intro}</CardDescription>
+          <CardDescription>{isUs ? fa.books.intro : fa.books.introLedger}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {!isEdit && !values.customizeBooks ? (
             <>
-              <BookDefaultsPreview books={preview} />
+              <BookDefaultsPreview books={preview} isUs={isUs} />
               <div>
                 <Button type="button" variant="outline" size="sm" onClick={() => setCustomize(true)}>
                   {fa.books.customize}
                 </Button>
-                <p className="mt-1 text-xs text-muted-foreground">{fa.books.customizeHelp}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{isUs ? fa.books.customizeHelp : fa.books.customizeHelpLedger}</p>
               </div>
             </>
           ) : (

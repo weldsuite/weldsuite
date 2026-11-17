@@ -211,7 +211,7 @@ export default function PayrollImportsPage() {
             </EmptyStateIllustration>
           ),
           title: tl.emptyTitle,
-          description: tl.emptyDescription,
+          description: gustoAvailable ? tl.emptyDescription : tl.emptyDescriptionCsv,
           action: canCreate ? { label: tl.importCsv, onClick: importCsv } : undefined,
         }}
         noResultsState={{ title: tl.emptyFiltered, description: '' }}

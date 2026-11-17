@@ -51,7 +51,9 @@ import {
   DropdownMenuSubTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import { Calendar } from '@weldsuite/ui/components/calendar';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { cn } from '@/lib/utils';
+import { formatLocalized } from '@/lib/i18n/date-locale';
 import { format, isThisYear, isToday } from 'date-fns';
 import { attachmentIcon } from '@/app/weldmail/lib/attachment-icon';
 import { useUser } from '@/lib/auth';
@@ -92,7 +94,7 @@ import {
   useUnsnoozeEmail,
 } from '@/hooks/queries/use-mail-queries';
 import { isSystemLabel } from '../lib/label-config';
-import { hasLabel, withLabel, withoutLabel } from '../lib/message-labels';
+import { hasLabel, userLabelsOf, withLabel, withoutLabel } from '../lib/message-labels';
 import { SNOOZE_PRESETS } from '../lib/snooze-presets';
 import { buildComposeBodies } from '../lib/compose-body';
 import { appendQuotedOriginal, quoteSender } from '../lib/reply-quote';
@@ -111,6 +113,7 @@ import { saveMailAttachment } from '../lib/download-attachment';
 import type { Mail as MailTypes } from '@/lib/api/types/apps/mail.types';
 import { CustomerDetailPanel } from './customer-detail-panel';
 import { CalendarInviteCard } from './calendar-invite-card';
+import { useCancelScheduledEmail } from './cancel-scheduled-dialog';
 import { TaskDialog } from '@/app/weldcrm/task-dialog';
 import { useI18n } from '@/lib/i18n/provider';
 import { isFeatureAvailable } from '@/lib/edition';
@@ -295,29 +298,12 @@ function ScheduledBanner({ messageId, scheduledFor, accountId, folder }: Readonl
 }>) {
   const { t } = useI18n();
   const router = useRouter();
-  const [isCancelling, setIsCancelling] = useState(false);
   const [isRescheduling, setIsRescheduling] = useState(false);
   const [showReschedule, setShowReschedule] = useState(false);
   const [newDate, setNewDate] = useState<Date | undefined>(new Date(scheduledFor));
   const [newTime, setNewTime] = useState(() => format(new Date(scheduledFor), 'HH:mm'));
-
-  const handleCancel = async () => {
-    setIsCancelling(true);
-    try {
-      const result = await mailApi.scheduled.cancel(messageId);
-      if (result.success) {
-        toast.success(t.mail.messageDetail.scheduledEmailCancelled);
-        window.dispatchEvent(new Event('mail:refresh'));
-        router.push(`/weldmail/${accountId}/${folder}`);
-      } else {
-        toast.error(result.error || t.mail.messageDetail.cancelScheduledFailed);
-      }
-    } catch {
-      toast.error(t.mail.messageDetail.failedToCancelScheduled);
-    } finally {
-      setIsCancelling(false);
-    }
-  };
+  // Cancelling asks first and puts the mail back in Drafts; the pane then closes.
+  const cancelScheduled = useCancelScheduledEmail(() => router.push(`/weldmail/${accountId}/${folder}`));
 
   const handleReschedule = async () => {
     if (!newDate) return;
@@ -405,17 +391,13 @@ function ScheduledBanner({ messageId, scheduledFor, accountId, folder }: Readonl
           variant="outline"
           size="sm"
           className="h-7 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
-          onClick={handleCancel}
-          disabled={isCancelling}
+          onClick={() => cancelScheduled.requestCancel(accountId, messageId)}
         >
-          {isCancelling ? (
-            <Loader2 className="h-3 w-3 animate-spin mr-1" />
-          ) : (
-            <X className="h-3 w-3 mr-1" />
-          )}
+          <X className="h-3 w-3 mr-1" />
           {t.mail.messageDetail.cancel}
         </Button>
       </div>
+      {cancelScheduled.dialog}
     </div>
   );
 }
@@ -537,7 +519,7 @@ function LabelBadge({ labelName, color, onRemove }: Readonly<{
   const removeLabel = t.mail.messageDetail.removeLabelNamed.replace('{label}', labelName);
   return (
     <span
-      className="relative px-2 py-0.5 rounded text-[12px] font-medium cursor-default group"
+      className="relative shrink-0 whitespace-nowrap px-2 py-0.5 rounded text-[12px] font-medium cursor-default group"
       style={{
         backgroundColor: `${color}15`,
         color: color,
@@ -558,11 +540,14 @@ function LabelBadge({ labelName, color, onRemove }: Readonly<{
   );
 }
 
-function LabelBadges({ messageLabels, availableLabels, onRemove }: Readonly<{
+function LabelBadges({ messageLabels: allLabels, availableLabels, onRemove }: Readonly<{
   messageLabels: string[];
   availableLabels: MailTypes.Label[];
   onRemove: (labelName: string) => void;
 }>) {
+  // Folder, star, pin and the other system labels show as icons and folders, not chips.
+  const messageLabels = userLabelsOf(allLabels);
+  if (messageLabels.length === 0) return null;
   const renderBadge = (labelName: string) => {
     const labelData = availableLabels.find((l) => l.name === labelName);
     return (
@@ -576,7 +561,7 @@ function LabelBadges({ messageLabels, availableLabels, onRemove }: Readonly<{
   };
 
   return (
-    <div className="hidden md:flex gap-1.5 ml-2">
+    <div className="hidden md:flex gap-1.5 ml-2 min-w-0 overflow-x-clip">
       {messageLabels.slice(0, 8).map((label) => renderBadge(label))}
       {messageLabels.length > 8 && (
         <Popover>
@@ -694,12 +679,13 @@ function SenderAvatar({ avatarUrl, sender, fallbackChar, fallbackClassName }: Re
  */
 function MessageDate({ date }: Readonly<{ date: Date | undefined }>) {
   const value = date ?? new Date(0);
-  let pattern = 'd MMM yyyy, HH:mm';
-  if (isToday(value)) pattern = 'HH:mm';
-  else if (isThisYear(value)) pattern = 'd MMM, HH:mm';
+  // The time in the UI language's own clock, as the message list shows it.
+  let pattern = 'd MMM yyyy, p';
+  if (isToday(value)) pattern = 'p';
+  else if (isThisYear(value)) pattern = 'd MMM, p';
   return (
-    <span className="whitespace-nowrap text-xs text-muted-foreground" title={format(value, 'PPpp')}>
-      {format(value, pattern)}
+    <span className="whitespace-nowrap text-xs text-muted-foreground" title={formatLocalized(value, 'PPpp')}>
+      {formatLocalized(value, pattern)}
     </span>
   );
 }
@@ -929,7 +915,7 @@ function ThreadMessageCard({
                 e.stopPropagation();
                 onOpenContact(senderEmail, extractName(sender));
               }}
-              className="pointer-events-auto relative z-[1] h-auto p-0 text-sm font-semibold text-foreground min-w-0 max-w-full"
+              className="pointer-events-auto relative z-[1] h-auto p-0 text-sm font-semibold text-foreground min-w-0 max-w-[60%] shrink-0"
               title={t.mail.messageDetail.viewContactDetails}
             >
               <span className="truncate">{extractName(sender)}</span>
@@ -1159,7 +1145,7 @@ function messageActionLabels(
 }
 
 export function MessageDetail({ message, thread = [], accountId, folder, availableLabels = [], onLabelsChange, threadId, drafts = [], onClose }: Readonly<MessageDetailProps>) {
-  const { t } = useI18n();
+  const { t, plural } = useI18n();
   const { user } = useUser();
   const notifySendError = useNotifySendError();
   const router = useRouter();
@@ -1644,23 +1630,41 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     );
   };
 
+  // Deleting from Trash removes every trashed message of the conversation, not
+  // only the open one, and asks first: it can't be undone.
+  const [confirmPermanentDelete, setConfirmPermanentDelete] = useState(false);
+  const trashedIdsInConversation = useMemo(() => {
+    const ids = allThreadMessages
+      .filter((m) => !m.id.startsWith(OPTIMISTIC_ID_PREFIX))
+      .filter((m) => m.id === message.id || hasLabel(m.labels, 'TRASH'))
+      .map((m) => m.id);
+    return [...new Set(ids)];
+  }, [allThreadMessages, message.id]);
+
+  const handlePermanentDelete = async () => {
+    const results = await Promise.allSettled(
+      trashedIdsInConversation.map((id) => mailApi.messages.delete(accountId, id)),
+    );
+    const failed = results.some((r) => r.status === 'rejected' || !r.value.success);
+    // Whatever went is gone: refresh either way.
+    window.dispatchEvent(new Event('mail:refresh'));
+    if (failed) {
+      toast.error(t.mail.messageDetail.failedToDeletePermanently);
+      return;
+    }
+    setConfirmPermanentDelete(false);
+    toast.success(plural(trashedIdsInConversation.length, t.mail.messageDetail.deletedPermanently));
+    handleBackToList();
+  };
+
   const handleDelete = async () => {
     if (isInTrashFolder) {
-      // Permanently delete
-      const result = await mailApi.messages.delete(accountId, message.id);
-      if (result.success) {
-        toast.success(t.mail.messageDetail.deletedPermanently);
-        // Refresh the list and leave the (now-gone) message view.
-        window.dispatchEvent(new Event('mail:refresh'));
-        handleBackToList();
-      } else {
-        toast.error(t.mail.messageDetail.failedToMoveToTrash);
-      }
+      setConfirmPermanentDelete(true);
     } else if (threadId) {
       // Thread-level: Trash all messages in the conversation
       trashThreadMutation.mutate({ accountId, threadId }, {
         onSuccess: (result) => {
-          toast.success(t.mail.messageDetail.movedToTrash.replace('{n}', String(result.trashedCount ?? 1)));
+          toast.success(plural(result.trashedCount ?? 1, t.mail.messageDetail.movedToTrash));
           // Refresh the list and leave the trashed conversation.
           window.dispatchEvent(new Event('mail:refresh'));
           handleBackToList();
@@ -1692,7 +1696,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     if (threadId) {
       try {
         const result = await archiveThreadMutation.mutateAsync({ accountId, threadId });
-        toast.success(t.mail.messageDetail.archivedMessages.replace('{n}', String(result.archivedCount ?? 1)));
+        toast.success(plural(result.archivedCount ?? 1, t.mail.messageDetail.archivedMessages));
         window.dispatchEvent(new Event('mail:refresh'));
         return true;
       } catch {
@@ -2346,7 +2350,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
               <Check className="h-3.5 w-3.5 text-gray-500 dark:text-muted-foreground" />
             </Button>
           </div>
-          <h1 className="text-sm md:text-lg font-semibold text-gray-900 dark:text-foreground md:ml-2 truncate">{message.subject}</h1>
+          <h1 className="text-sm md:text-lg font-semibold text-gray-900 dark:text-foreground md:ml-2 truncate min-w-24" title={message.subject}>{message.subject}</h1>
           {/* Label badges - hidden on mobile */}
           {messageLabels.length > 0 && (
             <LabelBadges messageLabels={messageLabels} availableLabels={availableLabels} onRemove={handleToggleLabel} />
@@ -2515,7 +2519,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                 <Button
                   variant="link"
                   onClick={() => customerPanel?.openPanel(newestMessage.fromEmail || extractEmail(fromDisplayString(newestMessage.from)), extractName(fromDisplayString(newestMessage.from)))}
-                  className="h-auto p-0 font-semibold text-foreground text-sm focus:outline-none max-w-full shrink min-w-0"
+                  className="h-auto p-0 font-semibold text-foreground text-sm focus:outline-none max-w-[60%] shrink-0 min-w-0"
                 >
                   <span className="truncate">{extractName(fromDisplayString(newestMessage.from))}</span>
                 </Button>
@@ -2785,6 +2789,16 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
         isPending={false}
       />
 
+      <ConfirmDialog
+        open={confirmPermanentDelete}
+        onOpenChange={setConfirmPermanentDelete}
+        title={t.mail.messageDetail.deletePermanentlyTitle}
+        description={plural(trashedIdsInConversation.length, t.mail.messageDetail.deletePermanentlyDescription)}
+        confirmLabel={t.mail.messageDetail.deletePermanently}
+        cancelLabel={t.common.actions.cancel}
+        variant="destructive"
+        onConfirm={handlePermanentDelete}
+      />
     </div>
   );
 }

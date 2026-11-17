@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { CommerceProduct } from '@/hooks/queries/use-commerce-queries';
 
@@ -9,6 +9,8 @@ vi.mock('@/hooks/queries/use-commerce-queries', () => ({
   useUpdateCommerceProduct: () => ({ mutateAsync: mutations.update }),
   useCommerceProduct: () => ({ data: undefined }),
 }));
+const defaults = vi.hoisted(() => ({ currency: 'EUR' as string | null, salesTax: true, isLoading: false }));
+vi.mock('../../lib/use-commerce-defaults', () => ({ useCommerceDefaults: () => defaults }));
 vi.mock('./product-images-field', () => ({ ProductImagesField: () => null }));
 vi.mock('./product-sales-channels-editor', () => ({ ProductSalesChannelsEditor: () => null }));
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
@@ -50,10 +52,7 @@ async function pickTaxCode(user: ReturnType<typeof userEvent.setup>, label: stri
   await user.click(await screen.findByRole('option', { name: label }));
 }
 
-/**
- * The product form's schema refuses an empty SKU and reads an empty number box
- * as NaN, so a create has to fill these before it can pass validation.
- */
+/** The optional fields, filled as a person typically would. */
 async function fillRequired(user: ReturnType<typeof userEvent.setup>) {
   await user.type(screen.getByLabelText('SKU'), 'SKU-1');
   await user.type(screen.getByLabelText('Cost price'), '10');
@@ -69,6 +68,8 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
+  defaults.currency = 'EUR';
+  defaults.salesTax = true;
   mutations.create.mockReset();
   mutations.update.mockReset();
   mutations.create.mockResolvedValue({ data: { id: 'prod_new' } });
@@ -224,6 +225,20 @@ describe('ProductDialog · sales tax', () => {
     expect(call.data).toHaveProperty('taxClass', null);
   });
 
+  it('hides the US sales tax fields when the workspace has no US entity, and sends none', async () => {
+    defaults.salesTax = false;
+    const user = userEvent.setup();
+    open();
+    expect(screen.queryByTestId('product-tax-fields')).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText('Name'), 'Stroopwafels');
+    await user.click(screen.getByRole('button', { name: 'Create' }));
+
+    await waitFor(() => expect(mutations.create).toHaveBeenCalledTimes(1));
+    const sent = mutations.create.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(sent).not.toHaveProperty('taxable');
+    expect(sent).not.toHaveProperty('taxClass');
+  });
+
   it('shows a legacy tax class as the default and leaves it alone on save', async () => {
     const user = userEvent.setup();
     open(product({ taxClass: 'standard' }));
@@ -233,5 +248,63 @@ describe('ProductDialog · sales tax', () => {
     await waitFor(() => expect(mutations.update).toHaveBeenCalledTimes(1));
     const call = mutations.update.mock.calls[0]?.[0] as { data: Record<string, unknown> };
     expect(call.data).not.toHaveProperty('taxClass');
+  });
+});
+
+describe('ProductDialog · optional fields and errors', () => {
+  it('creates a product from a name alone: a blank SKU, cost price and low stock are not given', async () => {
+    const user = userEvent.setup();
+    const onOpenChange = open();
+    await user.type(screen.getByLabelText('Name'), 'E2E Product A');
+    await user.click(screen.getByRole('button', { name: 'Create' }));
+
+    await waitFor(() => expect(mutations.create).toHaveBeenCalledTimes(1));
+    const sent = mutations.create.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(sent).toMatchObject({ name: 'E2E Product A', price: 0, currency: 'EUR' });
+    expect(sent.sku).toBeUndefined();
+    expect(sent.costPrice).toBeUndefined();
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it('prices a new product in the workspace currency, upper-casing a typed code', async () => {
+    const user = userEvent.setup();
+    open();
+    expect(screen.getByLabelText('Currency')).toHaveValue('EUR');
+    await user.type(screen.getByLabelText('Name'), 'Mug');
+    await user.clear(screen.getByLabelText('Currency'));
+    await user.type(screen.getByLabelText('Currency'), 'gbp');
+    await user.click(screen.getByRole('button', { name: 'Create' }));
+
+    await waitFor(() => expect(mutations.create).toHaveBeenCalledTimes(1));
+    expect(mutations.create.mock.calls[0]?.[0]).toMatchObject({ currency: 'GBP' });
+  });
+
+  it('says what is wrong instead of silently refusing to save', async () => {
+    const user = userEvent.setup();
+    open();
+    await user.click(screen.getByRole('button', { name: 'Create' }));
+    expect(await screen.findByText('Fill in this field.')).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText('Name'), 'Mug');
+    // Typed key by key, a number box drops the lone minus sign; set the value at once.
+    fireEvent.change(screen.getByLabelText('Price'), { target: { value: '-1' } });
+    await user.clear(screen.getByLabelText('Currency'));
+    await user.type(screen.getByLabelText('Currency'), 'EU');
+    await user.click(screen.getByRole('button', { name: 'Create' }));
+
+    expect(await screen.findByText('Enter 0 or more.')).toBeInTheDocument();
+    expect(screen.getByText('Use a three-letter currency code, such as EUR.')).toBeInTheDocument();
+    expect(mutations.create).not.toHaveBeenCalled();
+  });
+
+  it('clears a stored SKU on an edit with an empty string', async () => {
+    const user = userEvent.setup();
+    open(product());
+    await user.clear(screen.getByLabelText('SKU'));
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(mutations.update).toHaveBeenCalledTimes(1));
+    const call = mutations.update.mock.calls[0]?.[0] as { data: Record<string, unknown> };
+    expect(call.data).toHaveProperty('sku', '');
   });
 });

@@ -24,7 +24,7 @@
  */
 
 import { Hono } from 'hono';
-import { and, desc, eq, gte, isNull, lte, notInArray, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, isNull, lte, notInArray, or, sql } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
@@ -224,13 +224,14 @@ app.get('/', requirePermission('reports:read'), async (c) => {
       balanceDue: money(balanceInBase(Number(row.balanceDue ?? 0), { currency, exchangeRate }, baseCurrency)),
     }));
 
-    // Pending documents
+    // Documents to process: the entity's, and the ones that name no entity (an upload or an
+    // emailed document is not filed under one), as the documents inbox lists them.
     const [pendingDocs] = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(documents)
       .where(
         and(
-          eq(documents.entityId, entityId),
+          or(eq(documents.entityId, entityId), isNull(documents.entityId)),
           isNull(documents.deletedAt),
           sql`${documents.status} in ('pending', 'processing', 'processed')`,
         ),

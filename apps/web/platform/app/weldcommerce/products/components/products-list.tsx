@@ -9,6 +9,7 @@ import {
   type CommerceProduct,
 } from '@/hooks/queries/use-commerce-queries';
 import { getTranslations } from '@/lib/i18n';
+import { useConfirmDelete } from '../../lib/use-confirm-delete';
 import { buildProductColumns } from '../config/product-columns';
 import { ProductDialog } from './product-dialog';
 
@@ -41,15 +42,18 @@ export function ProductsList({
 
   const columns = useMemo(() => buildProductColumns(), []);
 
-  const handleDelete = async (product: CommerceProduct) => {
-    if (!confirm(t.products.confirmDelete)) return;
-    try {
-      await deleteMut.mutateAsync(product.id);
-      toast.success(t.products.toastDeleted);
-    } catch (err) {
-      toast.error((err as Error).message || t.common.deleteFailed);
-    }
-  };
+  const confirmDelete = useConfirmDelete<CommerceProduct>({
+    title: t.products.confirmDelete,
+    name: (product) => product.name,
+    onDelete: async (product) => {
+      try {
+        await deleteMut.mutateAsync(product.id);
+        toast.success(t.products.toastDeleted);
+      } catch (err) {
+        toast.error((err as Error).message || t.common.deleteFailed);
+      }
+    },
+  });
 
   return (
     <>
@@ -60,7 +64,7 @@ export function ProductsList({
         onRowClick={(p) => openObjectPanel({ type: 'product', id: p.id })}
         objectPanel={{ type: 'product' }}
         onEdit={setEditing}
-        onDelete={handleDelete}
+        onDelete={confirmDelete.request}
         searchQuery={search}
         onSearchChange={onSearchChange}
         searchPlaceholder={t.products.searchPlaceholder}
@@ -75,10 +79,12 @@ export function ProductsList({
             </EmptyStateIllustration>
           ),
           title: t.products.empty,
-          description: t.products.searchPlaceholder,
+          description: t.products.emptyDescription,
           action: { label: t.products.newButton, onClick: () => setCreateOpen(true) },
         }}
+        noResultsState={{ title: t.products.noResults, description: t.common.noResultsHint }}
       />
+      {confirmDelete.dialog}
 
       {createOpen && <ProductDialog open={createOpen} onOpenChange={setCreateOpen} />}
       {editing && (

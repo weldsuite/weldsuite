@@ -16,6 +16,7 @@ use crate::crud::{
     self, Crud, Filter, Gates, Messages, Partial, Standard, event, field, no_prepare, or_default,
     update_or_existing, update_or_existing_or,
 };
+use crate::js::js_date_iso;
 use crate::{Caller, SocialState, tables};
 
 pub(crate) const OPT: Presence = Presence::Optional;
@@ -80,6 +81,45 @@ fn campaign_schema(issues: &mut Issues, body: &Map<String, Value>, partial: Part
     issues.string_or_number(body, "budget", OPT);
 }
 
+/// What `POST /api/social-campaigns` writes beyond the body: the caller as
+/// the creator (NOT NULL and server-owned, whatever the body says) and the
+/// schedule as `Date`s.
+fn campaign_prepare(
+    caller: &Caller,
+    _id: &str,
+    data: &mut Map<String, Value>,
+) -> Result<Vec<&'static str>, ()> {
+    campaign_defaults(&caller.user_id, data)
+}
+
+fn campaign_defaults(
+    user_id: &str,
+    data: &mut Map<String, Value>,
+) -> Result<Vec<&'static str>, ()> {
+    data.insert("createdByUserId".to_owned(), json!(user_id));
+    schedule_dates(data)
+}
+
+/// `scheduleDates`: a date string (`yyyy-mm-dd`, or an ISO date-time) is
+/// `new Date(text)`, whose Invalid Date makes the write throw; an empty one
+/// clears the date.
+fn schedule_dates(data: &mut Map<String, Value>) -> Result<Vec<&'static str>, ()> {
+    let mut trusted = Vec::new();
+    for key in ["startDate", "endDate"] {
+        let Some(Value::String(text)) = data.get(key) else {
+            continue;
+        };
+        let value = if text.is_empty() {
+            Value::Null
+        } else {
+            json!(js_date_iso(text).ok_or(())?)
+        };
+        data.insert(key.to_owned(), value);
+        trusted.push(key);
+    }
+    Ok(trusted)
+}
+
 fn campaign_created(id: &str, data: &Map<String, Value>) -> Value {
     event(&[
         ("id", Some(json!(id))),
@@ -122,12 +162,13 @@ static CAMPAIGNS: Crud = Crud {
     count_sql: CAMPAIGN_LIST.1,
     slice_count: true,
     hidden: &[],
-    prepare: no_prepare,
+    prepare: campaign_prepare,
     created: ev::SOCIAL_CAMPAIGN_CREATED,
     created_event: campaign_created,
     updated: ev::SOCIAL_CAMPAIGN_UPDATED,
     updated_event: campaign_updated,
     guard: None,
+    edit: Some(schedule_dates),
     deleted: ev::SOCIAL_CAMPAIGN_DELETED,
 };
 
@@ -199,6 +240,7 @@ static TEAM_MEMBERS: Crud = Crud {
     updated: ev::SOCIAL_TEAM_MEMBER_UPDATED,
     updated_event: member_updated,
     guard: None,
+    edit: None,
     deleted: ev::SOCIAL_TEAM_MEMBER_REMOVED,
 };
 
@@ -398,6 +440,7 @@ static MEDIA: Crud = Crud {
     updated: ev::SOCIAL_MEDIA_UPDATED,
     updated_event: media_updated,
     guard: None,
+    edit: None,
     deleted: ev::SOCIAL_MEDIA_DELETED,
 };
 
@@ -412,4 +455,89 @@ pub(crate) fn media<Q: PermissionQueries + 'static>(
             remove: true,
         },
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn body(value: &Value) -> Map<String, Value> {
+        value.as_object().cloned().expect("an object")
+    }
+
+    /// The insert `POST /api/social-campaigns` sends for `data`, as the
+    /// route builds it, or why it would fail before reaching the database.
+    fn insert_values(data: &mut Map<String, Value>) -> Result<Map<String, Value>, &'static str> {
+        let trusted = campaign_defaults("user_1", data).map_err(|()| "Invalid time value")?;
+        let values = tables::SOCIAL_CAMPAIGNS.values(data);
+        tables::SOCIAL_CAMPAIGNS
+            .check_dates(&values, &trusted)
+            .map_err(|_| "not a Date")?;
+        Ok(values)
+    }
+
+    #[test]
+    fn a_name_alone_creates_a_campaign_by_the_caller() {
+        // created_by_user_id is NOT NULL without a default: left to the body,
+        // every create from the dialog failed.
+        let values = insert_values(&mut body(&json!({ "name": "Launch" }))).expect("insertable");
+        assert_eq!(values.get("created_by_user_id"), Some(&json!("user_1")));
+        assert_eq!(values.get("name"), Some(&json!("Launch")));
+    }
+
+    #[test]
+    fn the_dialog_body_creates_a_campaign() {
+        let mut data = body(&json!({
+            "name": "E2E Social Campaign",
+            "description": "",
+            "color": "#6366f1",
+            "status": "draft",
+            "startDate": "",
+            "endDate": "",
+            "createdByUserId": "user_someone_else",
+        }));
+        let values = insert_values(&mut data).expect("insertable");
+        assert_eq!(values.get("created_by_user_id"), Some(&json!("user_1")));
+        assert_eq!(values.get("start_date"), Some(&Value::Null));
+        assert_eq!(values.get("end_date"), Some(&Value::Null));
+
+        let mut dated = body(&json!({
+            "name": "Dated",
+            "startDate": "2026-12-01",
+            "endDate": "2027-01-31T12:30:00.000Z",
+        }));
+        let values = insert_values(&mut dated).expect("insertable");
+        assert_eq!(
+            values.get("start_date"),
+            Some(&json!("2026-12-01T00:00:00.000Z"))
+        );
+        assert_eq!(
+            values.get("end_date"),
+            Some(&json!("2027-01-31T12:30:00.000Z"))
+        );
+    }
+
+    #[test]
+    fn a_date_that_is_not_one_fails_the_create() {
+        let invalid = insert_values(&mut body(
+            &json!({ "name": "x", "startDate": "not a date" }),
+        ));
+        assert_eq!(invalid, Err("Invalid time value"));
+        let number = insert_values(&mut body(&json!({ "name": "x", "endDate": 20_260_101 })));
+        assert_eq!(number, Err("not a Date"));
+    }
+
+    #[test]
+    fn an_update_reads_the_schedule_the_same_way() {
+        let mut data = body(&json!({ "startDate": "", "endDate": "2026-02-01", "name": "x" }));
+        let trusted = schedule_dates(&mut data).expect("dates");
+        assert_eq!(trusted, vec!["startDate", "endDate"]);
+        assert_eq!(data.get("startDate"), Some(&Value::Null));
+        assert_eq!(
+            data.get("endDate"),
+            Some(&json!("2026-02-01T00:00:00.000Z"))
+        );
+        assert!(!data.contains_key("createdByUserId"));
+        assert!(schedule_dates(&mut body(&json!({ "endDate": "soon" }))).is_err());
+    }
 }

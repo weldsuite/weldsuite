@@ -742,7 +742,8 @@ export function DomainDnsTab({
         />
       )}
 
-      {isReadOnly && readOnlyReason && (
+      {/* With nothing listed, the empty state may already say the same thing. */}
+      {isReadOnly && readOnlyReason && !(filtered.length === 0 && readOnlyReason === emptyDescription) && (
         <p className="text-xs text-muted-foreground">{readOnlyReason}</p>
       )}
 

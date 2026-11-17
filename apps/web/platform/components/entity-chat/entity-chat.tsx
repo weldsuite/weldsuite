@@ -115,8 +115,16 @@ export function EntityChat({ entityType, entityId, fallbackName, hideCallButtons
   const channelQuery = useEntityChannel(entityType, entityId);
 
   const channel = channelQuery.data ?? null;
+  // The channel this composer created with its first message: only then does
+  // the live chat's composer take focus (it replaces the one being typed in).
+  // Otherwise the side chat never takes focus from the record next to it.
+  const [createdChannelId, setCreatedChannelId] = useState<string | null>(null);
+  // A failed channel lookup has no data, so each refetch is a fresh "loading":
+  // showing the loader again would remount the composer under the user.
+  const [settled, setSettled] = useState(false);
+  if (!settled && !channelQuery.isLoading) setSettled(true);
 
-  if (channelQuery.isLoading) {
+  if (channelQuery.isLoading && !settled) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
         {t('sweep.weldchat.entityChat.loadingChat')}
@@ -136,13 +144,14 @@ export function EntityChat({ entityType, entityId, fallbackName, hideCallButtons
         <RecordChatPanelBar entityType={entityType} entityId={entityId} channelId={channel?.id} />
         <div className="flex min-h-0 flex-1 flex-col">
           {channel ? (
-            <EmbeddedChannelChat channelId={channel.id} />
+            <EmbeddedChannelChat channelId={channel.id} autoFocus={channel.id === createdChannelId} />
           ) : (
             <FirstMessageComposer
               entityType={entityType}
               entityId={entityId}
               currentUser={user}
               onSent={(createdChannel, message) => {
+                setCreatedChannelId(createdChannel.id);
                 queryClient.setQueryData(channelQueryKey, createdChannel);
                 queryClient.setQueryData(weldchatKeys.messages(createdChannel.id), {
                   pages: [{ data: { messages: [message], hasMore: false, nextCursor: null } }],
@@ -207,6 +216,7 @@ function FirstMessageComposer({
       </div>
       <MessageInput
         channelId=""
+        autoFocus={false}
         agentsJoinOnSend
         placeholder={t('sweep.weldchat.entityChat.messagePlaceholder')}
         onSubmitOverride={async (payload) => {
@@ -247,7 +257,7 @@ function FirstMessageComposer({
 
 // ---------------------------------------------------------------------------
 
-function EmbeddedChannelChat({ channelId }: Readonly<{ channelId: string }>) {
+function EmbeddedChannelChat({ channelId, autoFocus }: Readonly<{ channelId: string; autoFocus: boolean }>) {
   const t = useTranslations();
   const queryClient = useQueryClient();
 
@@ -270,7 +280,12 @@ function EmbeddedChannelChat({ channelId }: Readonly<{ channelId: string }>) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <MessageList channelId={channelId} client={client} />
-      <MessageInput channelId={channelId} client={client} placeholder={t('sweep.weldchat.entityChat.messagePlaceholder')} />
+      <MessageInput
+        channelId={channelId}
+        client={client}
+        autoFocus={autoFocus}
+        placeholder={t('sweep.weldchat.entityChat.messagePlaceholder')}
+      />
     </div>
   );
 }

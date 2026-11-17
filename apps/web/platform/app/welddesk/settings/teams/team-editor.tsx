@@ -100,15 +100,24 @@ function TeamForm({
     team ? teamToValues(team, members) : emptyTeamValues(Math.max(0, ...teams.map((x) => x.sortOrder)) + 1),
   );
   const [error, setError] = useState<TeamFormError | null>(null);
-  const set = <K extends keyof TeamFormValues>(key: K, value: TeamFormValues[K]) =>
-    setValues((current) => ({ ...current, [key]: value }));
+  const set = <K extends keyof TeamFormValues>(key: K, value: TeamFormValues[K]) => {
+    const next = { ...values, [key]: value };
+    setValues(next);
+    // Once a save showed a problem, check again as it's fixed, so a fixed field loses its message.
+    if (error) setError(validateTeamValues(next));
+  };
   const setRule = (index: number, patch: Partial<EscalationRuleValues>) =>
     set(
       'escalationRules',
       values.escalationRules.map((rule, i) => (i === index ? { ...rule, ...patch } : rule)),
     );
 
-  const memberOptions = members.map((m) => ({ value: m.userId, label: m.name }));
+  // The email tells apart members who share a name, and the search matches it.
+  const memberOptions = members.map((m) => ({
+    value: m.userId,
+    label: m.name,
+    description: m.email && m.email !== m.name ? m.email : undefined,
+  }));
   const saving = createTeam.isPending || updateTeam.isPending;
 
   const submit = async () => {
@@ -130,7 +139,7 @@ function TeamForm({
     }
   };
 
-  const ruleError = (index: number, field: 'afterMinutes' | 'escalateToId') =>
+  const ruleError = (index: number, field: 'afterMinutes' | 'escalateToId' | 'manager') =>
     error?.field === field && 'index' in error && error.index === index;
 
   return (
@@ -185,7 +194,7 @@ function TeamForm({
                 <SelectItem value={NONE}>{t.editor.managerNone}</SelectItem>
                 {members.map((m) => (
                   <SelectItem key={m.memberId} value={m.memberId}>
-                    {m.name}
+                    <MemberLabel member={m} />
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -238,11 +247,14 @@ function TeamForm({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {ESCALATION_CONDITIONS.map((condition) => (
-                        <SelectItem key={condition} value={condition}>
-                          {te.conditions[condition]}
-                        </SelectItem>
-                      ))}
+                      {/* "Custom" never runs: it is listed only for a rule that already has it. */}
+                      {ESCALATION_CONDITIONS.filter((c) => c !== 'custom' || rule.condition === 'custom').map(
+                        (condition) => (
+                          <SelectItem key={condition} value={condition}>
+                            {te.conditions[condition]}
+                          </SelectItem>
+                        ),
+                      )}
                     </SelectContent>
                   </Select>
                 </Field>
@@ -284,7 +296,7 @@ function TeamForm({
                       <SelectContent>
                         {members.map((m) => (
                           <SelectItem key={m.userId} value={m.userId}>
-                            {m.name}
+                            <MemberLabel member={m} />
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -294,7 +306,13 @@ function TeamForm({
                 )}
               </div>
               {rule.escalateTo === 'manager' && !values.managerMemberId && (
-                <p className="text-sm text-amber-600 dark:text-amber-400">{te.managerMissing}</p>
+                <p
+                  className={
+                    ruleError(index, 'manager') ? 'text-sm text-destructive' : 'text-sm text-amber-600 dark:text-amber-400'
+                  }
+                >
+                  {te.managerMissing}
+                </p>
               )}
               <div className="flex items-center justify-between gap-4">
                 <div className="flex items-center gap-2">
@@ -328,6 +346,18 @@ function TeamForm({
         </Button>
       </SheetFooter>
     </form>
+  );
+}
+
+/** A member in a picker: the name, then the email, so two people with one name differ. */
+function MemberLabel({ member }: Readonly<{ member: DeskTeamMember }>) {
+  return (
+    <span className="truncate">
+      {member.name}
+      {member.email && member.email !== member.name && (
+        <span className="ml-1.5 text-muted-foreground">{member.email}</span>
+      )}
+    </span>
   );
 }
 

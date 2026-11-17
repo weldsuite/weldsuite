@@ -11,7 +11,9 @@ vi.mock('sonner', () => ({ toast }));
 const navigate = vi.hoisted(() => vi.fn());
 vi.mock('@tanstack/react-router', () => ({ useNavigate: () => navigate }));
 
+import { getDefaultStore } from 'jotai';
 import { QuickAddContactDialog } from './quick-add-contact-dialog';
+import { contactPrefillAtom } from './contact-prefill';
 
 function renderDialog(role: 'customer' | 'supplier' = 'customer') {
   const onCreated = vi.fn();
@@ -111,5 +113,15 @@ describe('QuickAddContactDialog: more details', () => {
     await user.click(screen.getByRole('button', { name: 'More details…' }));
 
     expect(navigate).toHaveBeenCalledWith({ to: '/weldbooks/customers/add', search: { role: 'supplier' } });
+  });
+
+  it('hands what was typed to the full form, so the name is not typed twice', async () => {
+    const user = userEvent.setup();
+    renderDialog('supplier');
+
+    await user.type(screen.getByLabelText('Company name *'), 'Acme BV');
+    await user.click(screen.getByRole('button', { name: 'More details…' }));
+
+    expect(getDefaultStore().get(contactPrefillAtom)).toEqual({ kind: 'company', companyName: 'Acme BV' });
   });
 });

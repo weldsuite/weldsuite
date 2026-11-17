@@ -44,6 +44,7 @@ import {
   TIMEZONES,
 } from '@/lib/timezones';
 import { accountsBlockedByMissingMedia } from '../lib/platform-constraints';
+import { isMediaUrl, toastError } from '../lib/feedback';
 
 interface SocialPost {
   id: string;
@@ -108,6 +109,9 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
       'video/quicktime',
     ],
     maxFileSize: 25 * 1024 * 1024,
+    // The upload says what went wrong (a refused type, the size, storage).
+    onError: (message, fileName) =>
+      toast.error(format(t.social.messages.uploadFailed, { name: fileName }), { description: message }),
   });
 
   // Memoised because the option list below derives from it — a fresh `[]` every
@@ -232,8 +236,8 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
       }
       toast.success(t.social.messages.postCreated);
       onOpenChange(false);
-    } catch {
-      toast.error(t.social.actions.save);
+    } catch (err) {
+      toastError(t.social.messages.draftSaveFailed, err);
     }
   };
 
@@ -270,8 +274,8 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
       }
       toast.success(t.social.messages.postScheduled);
       onOpenChange(false);
-    } catch {
-      toast.error(t.social.actions.schedule);
+    } catch (err) {
+      toastError(t.social.messages.scheduleFailed, err);
     }
   };
 
@@ -311,8 +315,8 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
       }
       toast.success(t.social.messages.approvalSubmitted);
       onOpenChange(false);
-    } catch {
-      toast.error(t.social.posts.submitForApproval);
+    } catch (err) {
+      toastError(t.social.messages.approvalFailed, err);
     }
   };
 
@@ -334,8 +338,8 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
       }
       toast.success(t.social.messages.postPublished);
       onOpenChange(false);
-    } catch {
-      toast.error(t.social.actions.publish);
+    } catch (err) {
+      toastError(t.social.messages.publishFailed, err);
     }
   };
 
@@ -362,34 +366,37 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
     if (!files?.length) return;
     try {
       for (const file of Array.from(files)) {
+        // A failed upload has been reported by the hook's onError.
         const uploaded = await uploadFile(file);
-        if (!uploaded) {
-          toast.error(t.social.media.upload);
-          continue;
-        }
-        await registerUploadedMedia(uploaded);
+        if (uploaded) await registerUploadedMedia(uploaded);
       }
-    } catch {
-      toast.error(t.social.media.upload);
+    } catch (err) {
+      toastError(t.social.messages.mediaAddFailed, err);
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
   const handleAddMediaUrl = async () => {
-    if (!mediaUrl) return;
+    const url = mediaUrl.trim();
+    if (!url) return;
+    // Only a real link: anything else would sit in the library as a broken image.
+    if (!isMediaUrl(url)) {
+      toast.error(t.social.messages.invalidMediaUrl);
+      return;
+    }
     try {
       const res = await createMedia.mutateAsync({
-        fileName: mediaUrl.split('/').pop() || 'image',
-        url: mediaUrl,
+        fileName: new URL(url).pathname.split('/').pop() || 'image',
+        url,
         mediaType: 'image',
         status: 'ready',
       });
       const newId = res.data?.id;
       if (newId) setSelectedMediaIds((prev) => [...prev, newId]);
       setMediaUrl('');
-    } catch {
-      toast.error(t.social.media.upload);
+    } catch (err) {
+      toastError(t.social.messages.mediaAddFailed, err);
     }
   };
 
@@ -532,7 +539,10 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
             {showUrlField && (
               <div className="flex gap-2">
                 <Input
+                  type="url"
+                  inputMode="url"
                   placeholder="https://..."
+                  aria-label={st('sweep.miscA.composerDialog.orPasteUrl')}
                   value={mediaUrl}
                   onChange={(e) => setMediaUrl(e.target.value)}
                   className="flex-1"

@@ -1,9 +1,12 @@
+import { useEffect, useState } from 'react';
 import { Link, useSearch } from '@tanstack/react-router';
+import { useAtom } from 'jotai';
 import { Button } from '@weldsuite/ui/components/button';
 import { ArrowLeft } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useRouter } from '@/lib/router';
 import { ContactForm, type ContactPayload } from '../components/contact-form';
+import { contactPrefillAtom } from '../components/contact-prefill';
 import { PersonEmailConflictDialog } from '../components/person-email-conflict-dialog';
 import { useCreateContact } from '../components/use-create-contact';
 
@@ -28,6 +31,13 @@ export default function AddContactPage() {
 
   const onSubmit = (payload: ContactPayload) => submit(payload);
 
+  // What the quick add dialog had typed, when "More details…" opened this form: taken once.
+  const [handedOver, setHandedOver] = useAtom(contactPrefillAtom);
+  const [prefill] = useState(handedOver);
+  useEffect(() => {
+    if (handedOver) setHandedOver(null);
+  }, [handedOver, setHandedOver]);
+
   return (
     <div className="p-4 sm:p-6 max-w-3xl space-y-6">
       <div className="flex items-center gap-4">
@@ -42,6 +52,7 @@ export default function AddContactPage() {
       <ContactForm
         mode="add"
         defaultRole={role}
+        prefill={prefill ?? undefined}
         isPending={isPending}
         onSubmit={onSubmit}
         onCancel={() => router.push(listPath)}

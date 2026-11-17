@@ -107,6 +107,8 @@ function MemberLimitNotices({ memberLimits, prepaidSeats, isPaidPlan }: Readonly
   const ti = t.common.inviteMember;
   const memberCount = (n: number) => plural(n, ti.memberCount);
   const seatCount = (n: number) => plural(n, ti.seatCount);
+  // Edition flags (4.F3): without billing there is no plan to upgrade to and no seat to buy.
+  const billingAvailable = isFeatureAvailable('billing');
   return (
     <>
       {/* Show member limit warning when at limit */}
@@ -116,8 +118,8 @@ function MemberLimitNotices({ memberLimits, prepaidSeats, isPaidPlan }: Readonly
           <AlertTitle>{ti.memberLimitReached}</AlertTitle>
           <AlertDescription>
             {format(ti.planAllowsUpTo, { plan: memberLimits.planName, limit: memberCount(memberLimits.limit ?? 0) })}{' '}
-            {format(ti.currentlyHave, { current: memberCount(memberLimits.current) })}{' '}
-            {ti.upgradeToAddMore}
+            {format(ti.currentlyHave, { current: memberCount(memberLimits.current) })}
+            {billingAvailable && <> {ti.upgradeToAddMore}</>}
           </AlertDescription>
         </Alert>
       )}
@@ -129,8 +131,8 @@ function MemberLimitNotices({ memberLimits, prepaidSeats, isPaidPlan }: Readonly
         </p>
       )}
 
-      {/* Show prepaid seats info for paid plans */}
-      {isPaidPlan && prepaidSeats && (
+      {/* Show prepaid seats info for paid plans; an unlimited workspace (nothing left to count, room for more) shows none */}
+      {isPaidPlan && prepaidSeats && (prepaidSeats.availableSeats > 0 ? billingAvailable : !prepaidSeats.canAddMore) && (
         <div className="mb-4">
           {prepaidSeats.availableSeats > 0 ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -145,8 +147,8 @@ function MemberLimitNotices({ memberLimits, prepaidSeats, isPaidPlan }: Readonly
               <AlertTriangle className="h-4 w-4" />
               <AlertTitle>{ti.noSeatsAvailable}</AlertTitle>
               <AlertDescription>
-                {format(ti.allSeatsInUse, { seats: seatCount(prepaidSeats.prepaidSeats) })}{' '}
-                {ti.purchaseMoreSeats}
+                {format(ti.allSeatsInUse, { seats: seatCount(prepaidSeats.prepaidSeats) })}
+                {billingAvailable && <> {ti.purchaseMoreSeats}</>}
               </AlertDescription>
             </Alert>
           )}

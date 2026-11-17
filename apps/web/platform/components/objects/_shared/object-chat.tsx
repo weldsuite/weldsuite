@@ -133,8 +133,15 @@ export function ObjectChatShell({
 
   const channel = channelQuery.data?.data ?? null;
   const ctx = useObjectChatContext(channel?.id ?? null);
+  // The channel this composer created with its first message: only then does
+  // the live chat's composer take focus (it replaces the one being typed in).
+  const [createdChannelId, setCreatedChannelId] = useState<string | null>(null);
+  // A failed channel lookup has no data, so each refetch is a fresh "loading":
+  // showing the loader again would remount the composer under the user.
+  const [settled, setSettled] = useState(false);
+  if (!settled && !channelQuery.isLoading) setSettled(true);
 
-  if (channelQuery.isLoading) {
+  if (channelQuery.isLoading && !settled) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
         {t('sweep.entities.loadingChat')}
@@ -161,12 +168,13 @@ export function ObjectChatShell({
         )}
         <div className="flex min-h-0 flex-1 flex-col">
           {channel ? (
-            <EmbeddedChannelChat channelId={channel.id} />
+            <EmbeddedChannelChat channelId={channel.id} autoFocus={channel.id === createdChannelId} />
           ) : (
             <FirstMessageComposer
               currentUser={user}
               onSendFirstMessage={onSendFirstMessage}
               onSent={(createdChannel, message) => {
+                setCreatedChannelId(createdChannel.id);
                 if (channelQueryKey) {
                   queryClient.setQueryData<ChannelEnvelope>(channelQueryKey, {
                     data: createdChannel,
@@ -220,6 +228,10 @@ function FirstMessageComposer({
       </div>
       <MessageInput
         channelId=""
+        autoFocus={false}
+        // No channel yet, so no draft: one keyed on "" would show in every
+        // record's composer that has no chat.
+        saveDraft={false}
         placeholder={t('sweep.entities.typeMessagePlaceholder')}
         onSubmitOverride={async (payload) => {
           const id = `opt_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
@@ -260,7 +272,7 @@ function FirstMessageComposer({
 
 // ---------------------------------------------------------------------------
 
-function EmbeddedChannelChat({ channelId }: Readonly<{ channelId: string }>) {
+function EmbeddedChannelChat({ channelId, autoFocus }: Readonly<{ channelId: string; autoFocus: boolean }>) {
   const t = useTranslations();
   const queryClient = useQueryClient();
 
@@ -286,6 +298,7 @@ function EmbeddedChannelChat({ channelId }: Readonly<{ channelId: string }>) {
       <MessageInput
         channelId={channelId}
         client={client}
+        autoFocus={autoFocus}
         placeholder={t('sweep.entities.typeMessagePlaceholder')}
       />
     </div>

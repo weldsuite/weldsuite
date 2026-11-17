@@ -51,16 +51,20 @@ export function CreateRoleDialog({
   const [copyFromRoleId, setCopyFromRoleId] = React.useState<string | undefined>(undefined);
   // Set by a rejected submit; cleared as soon as the name is edited.
   const [serverNameProblem, setServerNameProblem] = React.useState<RoleNameProblem | null>(null);
+  // Set by a submit without a name; shown on the field, not as a toast (TASK-1427).
+  const [nameMissing, setNameMissing] = React.useState(false);
   const { getClient } = useAppApiClient();
 
   const nameProblem = serverNameProblem ?? roleNameProblem(name, roles);
-  const nameError = nameProblem ? t(roleNameProblemKey(nameProblem), { name: name.trim() }) : null;
+  let nameError: string | null = null;
+  if (nameProblem) nameError = t(roleNameProblemKey(nameProblem), { name: name.trim() });
+  else if (nameMissing && !name.trim()) nameError = t('sweep.settings.createRole.nameRequired');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!name.trim()) {
-      toast.error(t('sweep.settings.createRole.nameRequired'));
+      setNameMissing(true);
       return;
     }
     if (nameProblem) return;
@@ -100,6 +104,7 @@ export function CreateRoleDialog({
         setDescription('');
         setCopyFromRoleId(undefined);
         setServerNameProblem(null);
+        setNameMissing(false);
       }
       onOpenChange(isOpen);
     }

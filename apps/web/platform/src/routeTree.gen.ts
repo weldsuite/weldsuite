@@ -46,6 +46,7 @@ import { Route as AppstoreRouteRouteImport } from './routes/appstore/route'
 import { Route as AgentsRouteRouteImport } from './routes/agents/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as WeldstashIndexRouteImport } from './routes/weldstash/index'
+import { Route as WeldsocialIndexRouteImport } from './routes/weldsocial/index'
 import { Route as WeldsignIndexRouteImport } from './routes/weldsign/index'
 import { Route as WeldsheetsIndexRouteImport } from './routes/weldsheets/index'
 import { Route as WeldreachIndexRouteImport } from './routes/weldreach/index'
@@ -79,6 +80,7 @@ import { Route as OnboardingIndexRouteImport } from './routes/onboarding/index'
 import { Route as InviteIndexRouteImport } from './routes/invite/index'
 import { Route as AppstoreIndexRouteImport } from './routes/appstore/index'
 import { Route as AgentsIndexRouteImport } from './routes/agents/index'
+import { Route as WeldsocialSplatRouteImport } from './routes/weldsocial/$'
 import { Route as WelddeskSplatRouteImport } from './routes/welddesk/$'
 import { Route as WeldchatDraftsRouteImport } from './routes/weldchat/drafts'
 import { Route as WeldchatDirectoriesRouteImport } from './routes/weldchat/directories'
@@ -821,6 +823,11 @@ const WeldstashIndexRoute = WeldstashIndexRouteImport.update({
   path: '/',
   getParentRoute: () => WeldstashRouteRoute,
 } as any)
+const WeldsocialIndexRoute = WeldsocialIndexRouteImport.update({
+  id: '/weldsocial/',
+  path: '/weldsocial/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const WeldsignIndexRoute = WeldsignIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -985,6 +992,11 @@ const AgentsIndexRoute = AgentsIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => AgentsRouteRoute,
+} as any)
+const WeldsocialSplatRoute = WeldsocialSplatRouteImport.update({
+  id: '/weldsocial/$',
+  path: '/weldsocial/$',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const WelddeskSplatRoute = WelddeskSplatRouteImport.update({
   id: '/$',
@@ -4145,6 +4157,7 @@ export interface FileRoutesByFullPath {
   '/weldchat/directories': typeof WeldchatDirectoriesRoute
   '/weldchat/drafts': typeof WeldchatDraftsRoute
   '/welddesk/$': typeof WelddeskSplatRoute
+  '/weldsocial/$': typeof WeldsocialSplatRoute
   '/agents/': typeof AgentsIndexRoute
   '/appstore/': typeof AppstoreIndexRoute
   '/invite/': typeof InviteIndexRoute
@@ -4178,6 +4191,7 @@ export interface FileRoutesByFullPath {
   '/weldreach/': typeof WeldreachIndexRoute
   '/weldsheets/': typeof WeldsheetsIndexRoute
   '/weldsign/': typeof WeldsignIndexRoute
+  '/weldsocial/': typeof WeldsocialIndexRoute
   '/weldstash/': typeof WeldstashIndexRoute
   '/preview/weldcrm/people': typeof PreviewWeldcrmPeopleRouteRouteWithChildren
   '/preview/weldforms/$formId': typeof PreviewWeldformsFormIdRouteRouteWithChildren
@@ -4726,6 +4740,7 @@ export interface FileRoutesByTo {
   '/weldchat/directories': typeof WeldchatDirectoriesRoute
   '/weldchat/drafts': typeof WeldchatDraftsRoute
   '/welddesk/$': typeof WelddeskSplatRoute
+  '/weldsocial/$': typeof WeldsocialSplatRoute
   '/agents': typeof AgentsIndexRoute
   '/appstore': typeof AppstoreIndexRoute
   '/invite': typeof InviteIndexRoute
@@ -4759,6 +4774,7 @@ export interface FileRoutesByTo {
   '/weldreach': typeof WeldreachIndexRoute
   '/weldsheets': typeof WeldsheetsIndexRoute
   '/weldsign': typeof WeldsignIndexRoute
+  '/weldsocial': typeof WeldsocialIndexRoute
   '/weldstash': typeof WeldstashIndexRoute
   '/preview/weldmail/$accountId': typeof PreviewWeldmailAccountIdRouteRouteWithChildren
   '/apps/$appCode/$': typeof AppsAppCodeSplatRoute
@@ -5342,6 +5358,7 @@ export interface FileRoutesById {
   '/weldchat/directories': typeof WeldchatDirectoriesRoute
   '/weldchat/drafts': typeof WeldchatDraftsRoute
   '/welddesk/$': typeof WelddeskSplatRoute
+  '/weldsocial/$': typeof WeldsocialSplatRoute
   '/agents/': typeof AgentsIndexRoute
   '/appstore/': typeof AppstoreIndexRoute
   '/invite/': typeof InviteIndexRoute
@@ -5375,6 +5392,7 @@ export interface FileRoutesById {
   '/weldreach/': typeof WeldreachIndexRoute
   '/weldsheets/': typeof WeldsheetsIndexRoute
   '/weldsign/': typeof WeldsignIndexRoute
+  '/weldsocial/': typeof WeldsocialIndexRoute
   '/weldstash/': typeof WeldstashIndexRoute
   '/preview/weldcrm/people': typeof PreviewWeldcrmPeopleRouteRouteWithChildren
   '/preview/weldforms/$formId': typeof PreviewWeldformsFormIdRouteRouteWithChildren
@@ -5972,6 +5990,7 @@ export interface FileRouteTypes {
     | '/weldchat/directories'
     | '/weldchat/drafts'
     | '/welddesk/$'
+    | '/weldsocial/$'
     | '/agents/'
     | '/appstore/'
     | '/invite/'
@@ -6005,6 +6024,7 @@ export interface FileRouteTypes {
     | '/weldreach/'
     | '/weldsheets/'
     | '/weldsign/'
+    | '/weldsocial/'
     | '/weldstash/'
     | '/preview/weldcrm/people'
     | '/preview/weldforms/$formId'
@@ -6553,6 +6573,7 @@ export interface FileRouteTypes {
     | '/weldchat/directories'
     | '/weldchat/drafts'
     | '/welddesk/$'
+    | '/weldsocial/$'
     | '/agents'
     | '/appstore'
     | '/invite'
@@ -6586,6 +6607,7 @@ export interface FileRouteTypes {
     | '/weldreach'
     | '/weldsheets'
     | '/weldsign'
+    | '/weldsocial'
     | '/weldstash'
     | '/preview/weldmail/$accountId'
     | '/apps/$appCode/$'
@@ -7168,6 +7190,7 @@ export interface FileRouteTypes {
     | '/weldchat/directories'
     | '/weldchat/drafts'
     | '/welddesk/$'
+    | '/weldsocial/$'
     | '/agents/'
     | '/appstore/'
     | '/invite/'
@@ -7201,6 +7224,7 @@ export interface FileRouteTypes {
     | '/weldreach/'
     | '/weldsheets/'
     | '/weldsign/'
+    | '/weldsocial/'
     | '/weldstash/'
     | '/preview/weldcrm/people'
     | '/preview/weldforms/$formId'
@@ -7786,9 +7810,11 @@ export interface RootRouteChildren {
   PreviewWeldsheetsRouteRoute: typeof PreviewWeldsheetsRouteRouteWithChildren
   DocumentsFileIdRoute: typeof DocumentsFileIdRoute
   W9TokenRoute: typeof W9TokenRoute
+  WeldsocialSplatRoute: typeof WeldsocialSplatRoute
   InviteIndexRoute: typeof InviteIndexRoute
   OnboardingIndexRoute: typeof OnboardingIndexRoute
   WelcomeIndexRoute: typeof WelcomeIndexRoute
+  WeldsocialIndexRoute: typeof WeldsocialIndexRoute
   ObjectsSlugRecordIdRoute: typeof ObjectsSlugRecordIdRoute
   AppsManageIndexRoute: typeof AppsManageIndexRoute
   InviteAcceptIndexRoute: typeof InviteAcceptIndexRoute
@@ -8057,6 +8083,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldstashIndexRouteImport
       parentRoute: typeof WeldstashRouteRoute
     }
+    '/weldsocial/': {
+      id: '/weldsocial/'
+      path: '/weldsocial'
+      fullPath: '/weldsocial/'
+      preLoaderRoute: typeof WeldsocialIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/weldsign/': {
       id: '/weldsign/'
       path: '/'
@@ -8287,6 +8320,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/agents/'
       preLoaderRoute: typeof AgentsIndexRouteImport
       parentRoute: typeof AgentsRouteRoute
+    }
+    '/weldsocial/$': {
+      id: '/weldsocial/$'
+      path: '/weldsocial/$'
+      fullPath: '/weldsocial/$'
+      preLoaderRoute: typeof WeldsocialSplatRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/welddesk/$': {
       id: '/welddesk/$'
@@ -14200,9 +14240,11 @@ const rootRouteChildren: RootRouteChildren = {
   PreviewWeldsheetsRouteRoute: PreviewWeldsheetsRouteRouteWithChildren,
   DocumentsFileIdRoute: DocumentsFileIdRoute,
   W9TokenRoute: W9TokenRoute,
+  WeldsocialSplatRoute: WeldsocialSplatRoute,
   InviteIndexRoute: InviteIndexRoute,
   OnboardingIndexRoute: OnboardingIndexRoute,
   WelcomeIndexRoute: WelcomeIndexRoute,
+  WeldsocialIndexRoute: WeldsocialIndexRoute,
   ObjectsSlugRecordIdRoute: ObjectsSlugRecordIdRoute,
   AppsManageIndexRoute: AppsManageIndexRoute,
   InviteAcceptIndexRoute: InviteAcceptIndexRoute,

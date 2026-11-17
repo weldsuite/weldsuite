@@ -249,7 +249,10 @@ async function findFirstOpenStage(
  *    (today, unless already set) and copies the stage's probability. Moving
  *    it back out to a plain open stage reopens it, clears `actualCloseDate`
  *    and, unless the request sets `probability` itself, takes the stage's
- *    probability (TASK-947: a reopened deal used to keep 0 / 100).
+ *    probability (TASK-947: a reopened deal used to keep 0 / 100). Between
+ *    two open stages the probability follows the stage too, unless it was
+ *    set by hand: one that is unset or still equals the stage it leaves
+ *    moves with the deal (TASK-1462), one changed by hand is kept.
  *  - Marking the deal won/lost directly (`status` in this PATCH, no
  *    `stageId`) moves it into the pipeline's matching isWon/isLost stage, if
  *    one exists, and stamps `actualCloseDate`. Reopening it directly
@@ -288,6 +291,10 @@ export async function syncStatusWithStage(
         if (update.probability === undefined && targetStage.probability !== null) {
           update.probability = targetStage.probability;
         }
+      } else if (!wasClosed && update.probability === undefined && targetStage.probability !== null) {
+        const followsStage =
+          existing.probability == null || !previousStage || previousStage.probability === existing.probability;
+        if (followsStage) update.probability = targetStage.probability;
       }
     }
     return;

@@ -24,7 +24,7 @@ import type {
 } from '@weldsuite/db/schema';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
-import { HrConflictError, HrNotFoundError, HrValidationError, assertDateOrder, companyNames, todayIso } from './shared';
+import { HrConflictError, HrNotFoundError, HrValidationError, assertBirthDate, assertDateOrder, companyNames, todayIso } from './shared';
 import { assertWorkLocations } from './work-locations';
 
 const t = schema.hrEmployees;
@@ -520,6 +520,8 @@ export async function createEmployee(
   opts: { createdBy: string; sensitive?: HrEmployeeSensitive; keyring?: EncryptionKeyring },
 ): Promise<HrEmployee> {
   assertDateOrder(input.startDate, input.endDate, 'Employment');
+  assertDateOrder(input.startDate, input.probationEndDate, 'Probation');
+  assertBirthDate(opts.sensitive?.dateOfBirth);
   await assertEmailFree(db, input.email);
   const userId = input.userId || (await memberForNewEmployee(db, input.email));
   if (userId) {
@@ -619,6 +621,14 @@ export async function updateEmployee(db: Database, id: string, input: EmployeeWr
     input.endDate !== undefined ? input.endDate : existing.endDate,
     'Employment',
   );
+  // Only when the save touches either date, so older rows stay editable (TASK-1471).
+  if (input.startDate !== undefined || input.probationEndDate !== undefined) {
+    assertDateOrder(
+      input.startDate !== undefined ? input.startDate : existing.startDate,
+      input.probationEndDate !== undefined ? input.probationEndDate : existing.probationEndDate,
+      'Probation',
+    );
+  }
   if (input.email && input.email.toLowerCase() !== existing.email.toLowerCase()) {
     await assertEmailFree(db, input.email, id);
   }
@@ -684,6 +694,7 @@ export async function writeSensitive(
   patch: HrEmployeeSensitive,
   keyring: EncryptionKeyring,
 ): Promise<{ changedFields: string[] }> {
+  assertBirthDate(patch.dateOfBirth);
   const current = await readSensitive(db, id, keyring);
   const next: HrEmployeeSensitive = { ...current };
   const changedFields: string[] = [];

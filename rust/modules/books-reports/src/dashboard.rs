@@ -319,10 +319,11 @@ async fn build_dashboard(caller: &Caller) -> Reply {
         })
         .collect();
 
-    // Pending documents.
+    // Documents to process: the entity's, and the ones that name no entity (an upload or an
+    // emailed document is not filed under one), as the documents inbox lists them.
     let pending_documents: i32 = sqlx::query_scalar(
-        "select count(*)::int from documents where entity_id = $1 and deleted_at is null \
-         and status in ('pending', 'processing', 'processed')",
+        "select count(*)::int from documents where (entity_id = $1 or entity_id is null) \
+         and deleted_at is null and status in ('pending', 'processing', 'processed')",
     )
     .bind(&entity_id)
     .fetch_one(db)

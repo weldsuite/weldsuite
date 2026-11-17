@@ -237,6 +237,9 @@ export default function HelpdeskAnalyticsBuilderPage() {
   const [selectedChart, setSelectedChart] = useState(chartTypes[0]);
   const [chartTitle, setChartTitle] = useState('');
   const [chartDescription, setChartDescription] = useState('');
+  // Picking a metric suggests a title and description, but never over text the user typed.
+  const [titleEdited, setTitleEdited] = useState(false);
+  const [descriptionEdited, setDescriptionEdited] = useState(false);
   const [selectedEntity, setSelectedEntity] = useState('');
   const [selectedMetric, setSelectedMetric] = useState('');
   const [timeRange, setTimeRange] = useState('last_30_days');
@@ -722,7 +725,10 @@ export default function HelpdeskAnalyticsBuilderPage() {
                   <Input
                     id="title"
                     value={chartTitle}
-                    onChange={(e) => setChartTitle(e.target.value)}
+                    onChange={(e) => {
+                      setChartTitle(e.target.value);
+                      setTitleEdited(e.target.value.trim() !== '');
+                    }}
                     placeholder={ta.chartTitlePlaceholder}
                     className="h-9 text-sm bg-white dark:bg-background border-gray-200 dark:border-border focus:border-gray-300 dark:focus:border-gray-700 transition-colors shadow-none"
                   />
@@ -735,7 +741,10 @@ export default function HelpdeskAnalyticsBuilderPage() {
                   <Textarea
                     id="description"
                     value={chartDescription}
-                    onChange={(e) => setChartDescription(e.target.value)}
+                    onChange={(e) => {
+                      setChartDescription(e.target.value);
+                      setDescriptionEdited(e.target.value.trim() !== '');
+                    }}
                     placeholder={ta.briefDescription}
                     className="min-h-[60px] text-sm resize-none bg-white dark:bg-background border-gray-200 dark:border-border focus:border-gray-300 dark:focus:border-gray-700 transition-colors shadow-none"
                   />
@@ -809,8 +818,8 @@ export default function HelpdeskAnalyticsBuilderPage() {
                             onClick={() => {
                               setSelectedMetric(metric.id);
                               const entity = entities.find(e => e.id === selectedEntity);
-                              setChartTitle(`${entity?.name} - ${metric.name}`);
-                              setChartDescription(metric.description);
+                              if (!titleEdited) setChartTitle(`${entity?.name} - ${metric.name}`);
+                              if (!descriptionEdited) setChartDescription(metric.description);
                             }}
                             className="flex flex-col items-start py-2"
                           >

@@ -5,6 +5,7 @@ import { useWeldChatCall } from '@/contexts/weldchat-call-context';
 import { useEntitySheet } from '@/components/entity-sheet/use-entity-sheet';
 import { useObjectPanel } from '@/components/object-panel';
 import { useRouter } from '@/lib/router';
+import { useUser } from '@/lib/auth';
 import { ActiveCallBanner } from './active-call-banner';
 import { weldchatKeys } from '@/hooks/queries/use-weldchat-queries';
 import type { ChatChannel, ChatChannelMember } from '@/hooks/queries/use-weldchat-queries';
@@ -42,6 +43,18 @@ function VideoCameraIcon({ className, strokeWidth = 1.5 }: Readonly<{ className?
 /** Channel row extended with the DM-specific `otherMembers` field `/chat-dm` projects. */
 interface ChannelHeaderChannel extends ChatChannel {
   otherMembers?: ChatChannelMember[];
+}
+
+type DmPerson = Pick<ChatChannelMember, 'name' | 'email' | 'picture'>;
+
+/**
+ * Who a DM is with: the other member, or yourself in a DM with yourself (the
+ * server leaves the caller out of `otherMembers`, so that list is empty).
+ */
+function dmCounterpart(channel: ChannelHeaderChannel, self: DmPerson): DmPerson | undefined {
+  const others = channel.otherMembers;
+  if (!others) return undefined;
+  return others[0] ?? self;
 }
 
 interface ChannelHeaderProps {
@@ -114,7 +127,13 @@ export function ChannelHeader({ channel, onOpenMemberPanel }: Readonly<ChannelHe
   const { open: openObjectPanel } = useObjectPanel();
   const isDm = channel.type === 'dm';
   const isRecordChat = channel.type === 'entity';
-  const dmOther = isDm ? channel.otherMembers?.[0] : null;
+  const { user } = useUser();
+  const self: DmPerson = {
+    name: user?.fullName ?? undefined,
+    email: user?.primaryEmailAddress?.emailAddress,
+    picture: user?.imageUrl,
+  };
+  const dmOther = isDm ? dmCounterpart(channel, self) : null;
 
   // Clicking the name in the header opens the side panel: the person's member
   // panel in a DM, the global ChannelPanel (People / Bookmarks / Filters tabs)
@@ -191,6 +210,15 @@ export function ChannelHeader({ channel, onOpenMemberPanel }: Readonly<ChannelHe
               )}
               <span data-testid="chat-channel-name" className="text-[15px] font-semibold truncate">{channel.name}</span>
             </button>
+          )}
+          {!isDm && !isRecordChat && channel.topic && (
+            <span
+              data-testid="chat-channel-topic"
+              className="hidden md:block min-w-0 truncate border-l pl-2 text-sm text-muted-foreground"
+              title={channel.topic}
+            >
+              {channel.topic}
+            </span>
           )}
         </div>
         <div className="flex items-center gap-0.5 md:gap-1 flex-shrink-0">

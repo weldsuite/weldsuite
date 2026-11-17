@@ -38,13 +38,15 @@ export function useReportExport(name: ReportName, query: ReportQuery, options: U
     setBusy('csv');
     try {
       const { blob, filename } = await accountingApi.downloadReportCsv(name, query);
-      downloadBlob(blob, filename ?? `${name}.csv`);
+      const file = filename ?? `${name}.csv`;
+      downloadBlob(blob, file);
+      toast.success(tr.exportDownloaded.replace('{file}', file));
     } catch (err) {
       fail(err);
     } finally {
       setBusy(null);
     }
-  }, [name, query, fail]);
+  }, [name, query, fail, tr.exportDownloaded]);
 
   const exportPdf = useCallback(async () => {
     setBusy('pdf');
@@ -85,7 +87,9 @@ export function useReportExport(name: ReportName, query: ReportQuery, options: U
         },
         countryName: (code) => countryName(code, language || 'en'),
       });
-      downloadPdf(bytes, `${name}-${doc.generatedAt.slice(0, 10)}.pdf`);
+      const file = `${name}-${doc.generatedAt.slice(0, 10)}.pdf`;
+      downloadPdf(bytes, file);
+      toast.success(tr.exportDownloaded.replace('{file}', file));
     } catch (err) {
       fail(err);
     } finally {

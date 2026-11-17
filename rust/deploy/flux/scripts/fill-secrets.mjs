@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Writes a cluster's secrets file from ../secrets/examples/secrets.example.yaml
 // with every value that isn't a provider's key generated: database passwords,
-// DATABASE_ENCRYPTION_KEY (64 hex), the Zitadel masterkey (32 characters) and
+// DATABASE_ENCRYPTION_KEY and WELDPASS_ROOT_KEY (64 hex), the Zitadel masterkey (32 characters) and
 // first admin password, the sign, storage and realtime secrets, the MTA's key
 // (base64 of 32 bytes) and passwords. Provider keys
 // come from these environment variables when set, and stay CHANGE_ME otherwise:
@@ -183,7 +183,7 @@ function writeNew(out) {
     console.log('(registry: delete that Secret instead when the images are public;');
     console.log(' marketing/ghcr: delete it on a cluster without the marketing site)');
   }
-  console.log('Keep DATABASE_ENCRYPTION_KEY and the Zitadel masterkey in the password');
+  console.log('Keep DATABASE_ENCRYPTION_KEY, WELDPASS_ROOT_KEY and the Zitadel masterkey in the password');
   console.log('manager too, then: sops --encrypt --in-place ' + out);
 }
 

@@ -25,6 +25,7 @@ export const weldsheets = {
     untitled: 'Naamloze spreadsheet',
     rename: 'Naam wijzigen',
     renamePrompt: 'Naam van de spreadsheet',
+    moreActions: 'Acties voor {name}',
     delete: 'Verwijderen',
     deleteTitle: 'Spreadsheet verwijderen?',
     deleteDescription: '"{name}" gaat naar de prullenbak van WeldDrive, waar je hem 30 dagen kunt terugzetten.',

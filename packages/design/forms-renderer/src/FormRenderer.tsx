@@ -233,7 +233,7 @@ function stageView(s: StageInput): ReactNode {
   }
   const failure = core.submitFailed ? (
     <p className="wf-error" role="alert">
-      {labels.submitFailed}
+      {core.refusal ?? labels.submitFailed}
     </p>
   ) : null;
   if (step.type === 'empty') {

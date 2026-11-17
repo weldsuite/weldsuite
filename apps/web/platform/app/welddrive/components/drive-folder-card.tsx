@@ -61,9 +61,9 @@ export function DriveFolderCard({ folder, isSelected, onClick, onDoubleClick, on
         <div className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
           <DropdownMenu>
             <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-              <div className="p-0.5 rounded-md hover:bg-muted cursor-pointer">
+              <button type="button" className="p-0.5 rounded-md hover:bg-muted cursor-pointer" aria-label={t.common.actions.openMenu}>
                 <MoreVertical className="h-4 w-4 text-muted-foreground" />
-              </div>
+              </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48" sideOffset={4} onClick={(e) => e.stopPropagation()}>
               {onShare && (

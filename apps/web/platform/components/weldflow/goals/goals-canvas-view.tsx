@@ -2259,6 +2259,10 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
                 const next: GoalCard = { ...g };
                 if (data.title !== undefined) next.title = data.title;
                 if (data.description !== undefined) next.description = data.description;
+                // A goal always has a due date (its period's end by default),
+                // so clearing it keeps the current one.
+                if (data.dueDate) next.dueDate = data.dueDate;
+                if (data.priority !== undefined) next.priority = data.priority;
                 return next;
               }));
             }}
@@ -2273,8 +2277,12 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
             onNavigateToTask={(id) => setSelectedGoal(id)}
             availableAssignees={[]}
             availableCompanies={[]}
-            hiddenFields={['labels', 'repeat', 'subtasks', 'assignee', 'duration']}
+            // A goal's status is its own (Not started, On track, …), shown on
+            // its card, not a task status; and a goal is no task, so it has
+            // no task chat (posting there is refused).
+            hiddenFields={['status', 'labels', 'repeat', 'subtasks', 'assignee', 'duration', 'company']}
             hideCompletionCheckbox
+            hideChat
           />,
           document.body
         );

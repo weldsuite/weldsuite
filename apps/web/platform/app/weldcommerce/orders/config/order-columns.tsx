@@ -48,12 +48,12 @@ export function buildOrderColumns(customerNames: Map<string, string>): ColumnDef
       id: 'orderNumber',
       header: t.fields.orderNumber,
       width: 'w-[180px]',
-      render: (o) => <span className="font-medium">{o.orderNumber ?? t.orders.untitled}</span>,
+      render: (o) => <span className="font-medium truncate block">{o.orderNumber || t.orders.untitled}</span>,
     },
     {
       id: 'customer',
       header: t.fields.customer,
-      width: 'flex-1',
+      width: 'hidden @xl/list:block flex-1 min-w-[120px]',
       render: (o) => (
         <span className="text-muted-foreground truncate block">
           {o.customerId ? customerNames.get(o.customerId) ?? o.customerId : t.orders.noCustomer}
@@ -69,7 +69,7 @@ export function buildOrderColumns(customerNames: Map<string, string>): ColumnDef
     {
       id: 'status',
       header: t.fields.status,
-      width: 'w-[160px]',
+      width: 'hidden @3xl/list:block w-[160px]',
       render: (o) => (
         <span className="inline-flex items-center gap-1.5">
           <Badge variant={statusVariant(o.status)}>{orderStatusLabel(o.status)}</Badge>
@@ -82,7 +82,7 @@ export function buildOrderColumns(customerNames: Map<string, string>): ColumnDef
     {
       id: 'createdAt',
       header: t.fields.created,
-      width: 'w-[130px]',
+      width: 'hidden @4xl/list:block w-[130px]',
       render: (o) => (
         <span className="tabular-nums">{new Date(o.createdAt).toLocaleDateString()}</span>
       ),

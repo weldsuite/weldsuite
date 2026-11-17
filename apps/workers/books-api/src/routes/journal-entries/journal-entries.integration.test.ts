@@ -154,6 +154,25 @@ describe('refusals', () => {
     expect((await call(`/${created.data.id}`)).status).toBe(404);
   });
 
+  it('a deactivated account, when creating and when posting', async () => {
+    await db.insert(schema.accounts).values({
+      id: 'acc_old', entityId: ENTITY, code: '4699', name: 'Old costs', type: 'expense', normalSide: 'debit',
+    });
+    const created = await call('', { method: 'POST', body: draft({ lines: [{ accountId: 'acc_old', debit: '5' }, { accountId: 'acc_bank', credit: '5' }] }) });
+    expect(created.status).toBe(201);
+    await db.update(schema.accounts).set({ isActive: false }).where(eq(schema.accounts.id, 'acc_old'));
+
+    const refused = await call('', { method: 'POST', body: draft({ lines: [{ accountId: 'acc_old', debit: '5' }, { accountId: 'acc_bank', credit: '5' }] }) });
+    expect(refused.status).toBe(400);
+    expect(refused.error?.message).toBe('Account 4699 Old costs is inactive and can not be booked to. Reactivate it first.');
+    const posted = await call(`/${created.data.id}/post`, { method: 'POST' });
+    expect(posted.status).toBe(400);
+    expect(posted.error?.message).toBe('Account 4699 Old costs is inactive and can not be booked to. Reactivate it first.');
+
+    await db.update(schema.accounts).set({ isActive: true }).where(eq(schema.accounts.id, 'acc_old'));
+    expect((await call(`/${created.data.id}`, { method: 'DELETE' })).status).toBe(204);
+  });
+
   it('no entity, unknown ids, a document entry, and missing permissions', async () => {
     expect((await call('', { entity: null })).status).toBe(400);
     expect((await call('', { method: 'POST', entity: null, body: draft() })).status).toBe(400);

@@ -130,7 +130,7 @@ export const weldformsResults = {
       snippetTitle: 'Code to paste',
       snippetCopy: 'Copy code',
       snippetCopied: 'Code copied',
-      domainsHint: 'Only sites listed under "Allowed embed domains" in the form settings can embed it; empty means any site.',
+      domainsHint: 'Only sites listed under "Allowed domains" in the form settings can embed it; empty means any site.',
     },
 
     email: {
@@ -389,6 +389,8 @@ export const weldformsResults = {
     drawer: {
       title: 'Response {number}',
       titleNoNumber: 'Response',
+      description: 'The answers, details and integration actions of one response.',
+      answeredBy: 'Answered by',
       answers: 'Answers',
       unanswered: 'Not answered',
       hidden: 'Hidden fields',

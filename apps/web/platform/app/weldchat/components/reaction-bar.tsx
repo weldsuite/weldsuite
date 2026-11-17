@@ -2,6 +2,7 @@ import { cn } from '@/lib/utils';
 import { Button } from '@weldsuite/ui/components/button';
 import { useAuth } from '@/lib/auth';
 import { useToggleReaction } from '@/hooks/queries/use-weldchat-queries';
+import { useI18n } from '@/lib/i18n/provider';
 
 interface ReactionBarProps {
   reactions: Record<string, string[]>;
@@ -15,6 +16,7 @@ export function ReactionBar({
   channelId,
 }: Readonly<ReactionBarProps>) {
   const { userId } = useAuth();
+  const { t, format } = useI18n();
   const { mutate: toggleReaction } = useToggleReaction();
 
   return (
@@ -26,6 +28,9 @@ export function ReactionBar({
             key={emoji}
             variant="ghost"
             data-testid="chat-reaction"
+            // An emoji and a bare number say little to a screen reader; pressed = you reacted.
+            aria-label={format(t.weldchat.messageActionsBar.reactionChip, { emoji, count: userIds.length })}
+            aria-pressed={hasReacted}
             onClick={() => {
               toggleReaction({ messageId, channelId, emoji, hasReacted });
               requestAnimationFrame(() =>

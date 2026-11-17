@@ -903,6 +903,23 @@ pub(crate) async fn trash(caller: Caller) -> Response {
             let files = files_db::list_trashed_files(&caller.db).await?;
             let folders = folders_db::list_trashed_folders(&caller.db).await?;
             let access = caller.drive_access().await?;
+            // What sits in a trashed folder is listed as that folder: it went
+            // to the trash with it and comes back when the folder is restored.
+            let trashed: HashSet<String> = folders
+                .iter()
+                .filter_map(|row| text(row, "id").map(str::to_owned))
+                .collect();
+            let outside = |row: &Value, parent: &str| {
+                text(row, parent).is_none_or(|id| !trashed.contains(id))
+            };
+            let files: Vec<Value> = files
+                .into_iter()
+                .filter(|r| outside(r, "folderId"))
+                .collect();
+            let folders: Vec<Value> = folders
+                .into_iter()
+                .filter(|r| outside(r, "parentId"))
+                .collect();
             ok(json!({
                 "files": with_file_access(&access, files),
                 "folders": with_folder_access(&access, folders),

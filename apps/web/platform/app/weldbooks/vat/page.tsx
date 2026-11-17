@@ -228,31 +228,32 @@ export default function VatReturnsPage() {
     {
       id: 'period',
       header: tv.colPeriod,
-      width: 'min-w-[200px] flex-1 gap-2',
+      // Narrow list (a record panel open, a phone): the period, the total and the status stay.
+      width: 'min-w-0 flex-1 gap-2 @2xl/list:min-w-[200px]',
       render: (vr) => <RowTitle>{vr.periodLabel || periodRange(vr.periodStart, vr.periodEnd)}</RowTitle>,
     },
     {
       id: 'type',
       header: tv.colType,
-      width: 'w-[120px]',
+      width: 'hidden shrink-0 @4xl/list:flex w-[120px]',
       render: (vr) => <RowText>{periodTypeLabel(vr.periodType)}</RowText>,
     },
     {
       id: 'r5a',
       header: tv.colR5a,
-      width: 'w-[130px]',
+      width: 'hidden shrink-0 @3xl/list:flex w-[130px]',
       render: (vr) => <RowAmount>{fmt(vr.rubrieken?.r5a)}</RowAmount>,
     },
     {
       id: 'r5b',
       header: tv.colR5b,
-      width: 'w-[130px]',
+      width: 'hidden shrink-0 @3xl/list:flex w-[130px]',
       render: (vr) => <RowAmount>{fmt(vr.rubrieken?.r5b)}</RowAmount>,
     },
     {
       id: 'r5g',
       header: tv.colR5g,
-      width: 'w-[130px]',
+      width: 'shrink-0 w-[130px]',
       render: (vr) => {
         const r5g = vr.rubrieken?.r5g ?? 0;
         return <RowAmount className={`font-medium ${vatTotalToneClass(r5g)}`}>{fmt(r5g)}</RowAmount>;
@@ -261,7 +262,7 @@ export default function VatReturnsPage() {
     {
       id: 'status',
       header: tv.colStatus,
-      width: 'w-[110px]',
+      width: 'shrink-0 w-[110px]',
       render: (vr) => statusChip(vr.status),
     },
   ];
@@ -270,25 +271,25 @@ export default function VatReturnsPage() {
     {
       id: 'period',
       header: tv.colPeriod,
-      width: 'min-w-[200px] flex-1 gap-2',
+      width: 'min-w-0 flex-1 gap-2 @2xl/list:min-w-[200px]',
       render: (d) => <RowTitle>{d.periodLabel || periodRange(d.periodStart, d.periodEnd)}</RowTitle>,
     },
     {
       id: 'total',
       header: tv.icpColTotal,
-      width: 'w-[150px]',
+      width: 'shrink-0 w-[130px]',
       render: (d) => <RowAmount>{fmt(d.totalAmount)}</RowAmount>,
     },
     {
       id: 'status',
       header: tv.colStatus,
-      width: 'w-[110px]',
+      width: 'shrink-0 w-[110px]',
       render: (d) => statusChip(d.status),
     },
     {
       id: 'actions',
       header: '',
-      width: 'w-[150px] justify-end gap-2',
+      width: 'shrink-0 w-[150px] justify-end gap-2',
       render: (d) =>
         d.status === 'calculated' || d.status === 'reviewed' ? (
           <>

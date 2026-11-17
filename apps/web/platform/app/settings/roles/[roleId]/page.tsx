@@ -364,11 +364,17 @@ export default function RoleDetailPage() {
             )}
           </div>
           <p className="text-sm text-muted-foreground">
-            {t('sweep.settings.roleDetail.summary', {
-              memberCount: role.memberCount,
-              permissionCount: grantedPermissions.size,
-              appCount: grantedApps.size,
-            })}
+            {[
+              role.memberCount === 1
+                ? t('sweep.settings.roleDetail.membersOne')
+                : t('sweep.settings.roleDetail.membersOther', { count: role.memberCount }),
+              grantedPermissions.size === 1
+                ? t('sweep.settings.roleDetail.permissionsOne')
+                : t('sweep.settings.roleDetail.permissionsOther', { count: grantedPermissions.size }),
+              grantedApps.size === 1
+                ? t('sweep.settings.roleDetail.appsOne')
+                : t('sweep.settings.roleDetail.appsOther', { count: grantedApps.size }),
+            ].join(' · ')}
           </p>
         </div>
         {editable && (

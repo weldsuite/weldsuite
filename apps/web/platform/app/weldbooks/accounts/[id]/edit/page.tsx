@@ -1,7 +1,6 @@
 import { useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
 import { useParams, useNavigate, Link } from '@tanstack/react-router';
 import { useTranslations } from '@weldsuite/i18n/client';
 import {
@@ -32,68 +31,62 @@ import { useDescribeError } from '@/app/weldbooks/invoices/components/sales-tax-
 import { useI18n } from '@/lib/i18n/provider';
 import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 import { useCurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';
+import type { Account } from '@/lib/api/domains/weldbooks';
 import { TaxReportingCard } from '../../components/tax-reporting-card';
-
-const subtypesByType: Record<string, { value: string; labelKey: string }[]> = {
-  asset: [
-    { value: 'current_asset', labelKey: 'currentAsset' },
-    { value: 'fixed_asset', labelKey: 'fixedAsset' },
-    { value: 'bank', labelKey: 'bank' },
-    { value: 'cash', labelKey: 'cash' },
-    { value: 'accounts_receivable', labelKey: 'accountsReceivable' },
-    { value: 'inventory', labelKey: 'inventory' },
-    { value: 'prepaid_expense', labelKey: 'prepaidExpense' },
-  ],
-  liability: [
-    { value: 'current_liability', labelKey: 'currentLiability' },
-    { value: 'long_term_liability', labelKey: 'longTermLiability' },
-    { value: 'accounts_payable', labelKey: 'accountsPayable' },
-    { value: 'tax_payable', labelKey: 'taxPayable' },
-    { value: 'credit_card', labelKey: 'creditCard' },
-  ],
-  equity: [
-    { value: 'owners_equity', labelKey: 'ownersEquity' },
-    { value: 'retained_earnings', labelKey: 'retainedEarnings' },
-    { value: 'share_capital', labelKey: 'shareCapital' },
-  ],
-  revenue: [
-    { value: 'sales', labelKey: 'sales' },
-    { value: 'other_income', labelKey: 'otherIncome' },
-    { value: 'interest_income', labelKey: 'interestIncome' },
-    { value: 'service_revenue', labelKey: 'serviceRevenue' },
-  ],
-  expense: [
-    { value: 'operating_expense', labelKey: 'operatingExpense' },
-    { value: 'cost_of_goods_sold', labelKey: 'costOfGoodsSold' },
-    { value: 'payroll', labelKey: 'payroll' },
-    { value: 'depreciation', labelKey: 'depreciation' },
-    { value: 'interest_expense', labelKey: 'interestExpense' },
-    { value: 'tax_expense', labelKey: 'taxExpense' },
-  ],
-};
-
-function createAccountSchema(st: (key: string) => string) {
-  return z.object({
-    code: z.string().min(1, st('sweep.weldbooks.accountForm.codeRequired')),
-    name: z.string().min(1, st('sweep.weldbooks.accountForm.nameRequired')),
-    description: z.string().optional(),
-    type: z.enum(['asset', 'liability', 'equity', 'revenue', 'expense']),
-    subtype: z.string().optional(),
-    normalSide: z.enum(['debit', 'credit']),
-    currency: z.string().optional(),
-    openingBalance: z.coerce.number().optional(),
-    isActive: z.boolean().optional(),
-    taxLine: z.string().optional(),
-    form1099Box: z.string().optional(),
-  });
-}
-
-type AccountFormValues = z.infer<ReturnType<typeof createAccountSchema>>;
+import {
+  ACCOUNT_TYPES,
+  createAccountSchema,
+  normalSideOf,
+  openingBalancePayload,
+  subtypesByType,
+  type AccountFormValues,
+} from '../../components/account-form-schema';
 
 export default function EditAccountPage() {
   const { id } = useParams({ strict: false }) as { id: string };
-  const navigate = useNavigate();
   const { data, isLoading } = useAccountingAccount(id);
+  const { t } = useI18n();
+
+  const account = data?.data;
+
+  if (isLoading) return <PageLoader fullScreen={false} />;
+
+  if (!account) {
+    return (
+      <div className="p-6">
+        <p className="text-muted-foreground">{t.accounting.accounts.notFound}</p>
+      </div>
+    );
+  }
+
+  // The form starts from the loaded account, so its selects are filled from the first render.
+  return <EditAccountForm key={account.id} id={id} account={account} />;
+}
+
+/** The form's values for a stored account. */
+function accountFormValues(account: Account, entityCurrency: string | null | undefined): AccountFormValues {
+  const type = (ACCOUNT_TYPES as readonly string[]).includes(account.type)
+    ? (account.type as AccountFormValues['type'])
+    : 'asset';
+  const normalSide =
+    account.normalSide === 'debit' || account.normalSide === 'credit' ? account.normalSide : normalSideOf(type);
+  return {
+    code: account.code ?? '',
+    name: account.name ?? '',
+    description: account.description ?? '',
+    type,
+    subtype: account.subtype ?? '',
+    normalSide,
+    currency: account.currency ?? entityCurrency ?? '',
+    openingBalance: Number(account.openingBalance ?? 0),
+    isActive: account.isActive ?? true,
+    taxLine: account.taxLine ?? '',
+    form1099Box: account.form1099Box ?? '',
+  };
+}
+
+function EditAccountForm({ id, account }: Readonly<{ id: string; account: Account }>) {
+  const navigate = useNavigate();
   const updateAccount = useUpdateAccount();
   const { t } = useI18n();
   const st = useTranslations();
@@ -104,49 +97,29 @@ export default function EditAccountPage() {
   const isUs = jurisdictionCode === 'US';
   const accountSchema = useMemo(() => createAccountSchema(st), [st]);
 
-  const account = data?.data;
-
   const form = useForm({
     resolver: zodResolver(accountSchema),
-    values: account
-      ? {
-          code: account.code ?? '',
-          name: account.name ?? '',
-          description: account.description ?? '',
-          type: (account.type as AccountFormValues['type']) ?? 'asset',
-          subtype: account.subtype ?? '',
-          normalSide: (account.normalSide as AccountFormValues['normalSide']) ?? 'debit',
-          currency: account.currency ?? entityCurrency ?? '',
-          openingBalance: Number(account.openingBalance ?? 0),
-          isActive: account.isActive ?? true,
-          taxLine: account.taxLine ?? '',
-          form1099Box: account.form1099Box ?? '',
-        }
-      : undefined,
+    defaultValues: accountFormValues(account, entityCurrency),
   });
 
   const selectedType = form.watch('type');
   const subtypes = subtypesByType[selectedType] ?? [];
-
-  if (isLoading) return <PageLoader fullScreen={false} />;
-
-  if (!account) {
-    return (
-      <div className="p-6">
-        <p className="text-muted-foreground">{ta.notFound}</p>
-      </div>
-    );
-  }
+  const errors = form.formState.errors;
 
   const onSubmit = async (values: AccountFormValues) => {
     // The tax line and the 1099 box exist for US entities only; an empty one clears the stored one.
-    const { taxLine, form1099Box, ...rest } = values;
+    const { taxLine, form1099Box, code, type, normalSide, ...rest } = values;
+    // Code, type and normal side go along only when they changed: a system account refuses them even unchanged.
     // An empty currency is left out so the stored one is kept.
     try {
       await updateAccount.mutateAsync({
         id,
         data: {
           ...rest,
+          ...(code === account.code ? {} : { code }),
+          ...(type === account.type ? {} : { type }),
+          ...(normalSide === account.normalSide ? {} : { normalSide }),
+          openingBalance: openingBalancePayload(values.openingBalance),
           currency: values.currency || undefined,
           ...(isUs ? { taxLine: taxLine || null, ...(features.form1099 ? { form1099Box: form1099Box || null } : {}) } : {}),
         } as Record<string, unknown>,
@@ -156,6 +129,11 @@ export default function EditAccountPage() {
       return;
     }
     navigate({ to: '/weldbooks/accounts/$id', params: { id } });
+  };
+
+  // A refused form says so; the fields show why.
+  const onInvalid = () => {
+    toast.error(ta.updateFailed, { description: st('sweep.weldbooks.accountForm.checkFields') });
   };
 
   return (
@@ -169,7 +147,7 @@ export default function EditAccountPage() {
         <h1 className="text-2xl font-semibold">{ta.editAccount}</h1>
       </div>
 
-      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+      <form onSubmit={form.handleSubmit(onSubmit, onInvalid)} className="space-y-6">
         <Card>
           <CardHeader>
             <CardTitle>{ta.accountDetails}</CardTitle>
@@ -178,15 +156,15 @@ export default function EditAccountPage() {
             <div>
               <Label htmlFor="code">{ta.summaryCode} *</Label>
               <Input id="code" placeholder={ta.codePlaceholder} {...form.register('code')} />
-              {form.formState.errors.code && (
-                <p className="text-sm text-destructive mt-1">{form.formState.errors.code.message}</p>
+              {errors.code && (
+                <p className="text-sm text-destructive mt-1">{errors.code.message}</p>
               )}
             </div>
             <div>
               <Label htmlFor="name">{ta.summaryName} *</Label>
               <Input id="name" {...form.register('name')} />
-              {form.formState.errors.name && (
-                <p className="text-sm text-destructive mt-1">{form.formState.errors.name.message}</p>
+              {errors.name && (
+                <p className="text-sm text-destructive mt-1">{errors.name.message}</p>
               )}
             </div>
             <div className="col-span-2">
@@ -206,16 +184,13 @@ export default function EditAccountPage() {
               <Select
                 value={form.watch('type')}
                 onValueChange={(v) => {
-                  form.setValue('type', v as AccountFormValues['type']);
+                  if (!v) return;
+                  form.setValue('type', v as AccountFormValues['type'], { shouldDirty: true, shouldValidate: true });
                   form.setValue('subtype', '');
-                  if (v === 'asset' || v === 'expense') {
-                    form.setValue('normalSide', 'debit');
-                  } else {
-                    form.setValue('normalSide', 'credit');
-                  }
+                  form.setValue('normalSide', normalSideOf(v), { shouldDirty: true, shouldValidate: true });
                 }}
               >
-                <SelectTrigger id="type">
+                <SelectTrigger id="type" aria-invalid={errors.type ? true : undefined}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -226,12 +201,15 @@ export default function EditAccountPage() {
                   <SelectItem value="expense">{ta.types.expense}</SelectItem>
                 </SelectContent>
               </Select>
+              {errors.type && (
+                <p className="text-sm text-destructive mt-1">{errors.type.message}</p>
+              )}
             </div>
             <div>
               <Label htmlFor="subtype">{ta.subtype}</Label>
               <Select
                 value={form.watch('subtype') ?? ''}
-                onValueChange={(v) => form.setValue('subtype', v)}
+                onValueChange={(v) => form.setValue('subtype', v, { shouldDirty: true })}
               >
                 <SelectTrigger id="subtype">
                   <SelectValue placeholder={ta.selectSubtype} />
@@ -249,9 +227,11 @@ export default function EditAccountPage() {
               <Label htmlFor="normalSide">{ta.normalSide} *</Label>
               <Select
                 value={form.watch('normalSide')}
-                onValueChange={(v) => form.setValue('normalSide', v as AccountFormValues['normalSide'])}
+                onValueChange={(v) => {
+                  if (v) form.setValue('normalSide', v as AccountFormValues['normalSide'], { shouldDirty: true, shouldValidate: true });
+                }}
               >
-                <SelectTrigger id="normalSide">
+                <SelectTrigger id="normalSide" aria-invalid={errors.normalSide ? true : undefined}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -259,6 +239,9 @@ export default function EditAccountPage() {
                   <SelectItem value="credit">{ta.credit}</SelectItem>
                 </SelectContent>
               </Select>
+              {errors.normalSide && (
+                <p className="text-sm text-destructive mt-1">{errors.normalSide.message}</p>
+              )}
             </div>
           </CardContent>
         </Card>

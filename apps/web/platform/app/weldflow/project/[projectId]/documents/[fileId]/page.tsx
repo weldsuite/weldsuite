@@ -6,6 +6,7 @@ import { PaginatedDocEditor } from '@/components/paginated-doc-editor/paginated-
 import { useHtmlDoc } from '@/lib/documents/use-html-doc';
 import { documentsApi } from '@/app/weldflow/lib/api-client';
 import { DocumentTitleBar } from '../document-title-bar';
+import { useOptionalBreadcrumbs } from '@/contexts/breadcrumb-context';
 
 export default function DocumentEditorPage() {
   const params = useParams();
@@ -27,6 +28,8 @@ export default function DocumentEditorPage() {
       cancelled = true;
     };
   }, [projectId, fileId]);
+  // The project header shows the document's name for the file id in the path.
+  useOptionalBreadcrumbs(name ? [{ label: name }] : []);
 
   if (html === null) return <PageLoader fullScreen={false} />;
 

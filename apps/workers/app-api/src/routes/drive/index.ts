@@ -159,9 +159,12 @@ app.get('/trash', requirePermission('files:read'), async (c) => {
       foldersService.listTrashedFolders(db),
       driveAccess(c),
     ]);
+    // What sits in a trashed folder is listed as that folder: it went to the
+    // trash with it and comes back when the folder is restored.
+    const trashedIds = new Set(trashedFolders.map((f) => f.id));
     return success(c, {
-      files: withFileAccess(access, trashedFiles),
-      folders: withFolderAccess(access, trashedFolders),
+      files: withFileAccess(access, trashedFiles.filter((f) => !f.folderId || !trashedIds.has(f.folderId))),
+      folders: withFolderAccess(access, trashedFolders.filter((f) => !f.parentId || !trashedIds.has(f.parentId))),
     });
   } catch (err) {
     console.error('[app-api/drive] /trash failed:', err);

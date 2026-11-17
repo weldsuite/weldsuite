@@ -8,6 +8,9 @@ use serde_json::Value;
 use weldsuite_db::{PgPool, js_row};
 use weldsuite_kit::generate_id;
 
+use crate::drive_access::{
+    DriveAccessIndex, DriveFileRef, DriveFolderRef, can_edit, file_role, folder_role,
+};
 use crate::files::Change;
 
 /// Ancestors walked before giving up; guards against a loop in the data.
@@ -214,19 +217,122 @@ pub async fn update_folder(
     row_by_id(db, id).await
 }
 
-/// Trash a live folder; the row as it was (`softDeleteFolder`).
+/// The live folders under `id` (itself included) and the live files in them,
+/// with what the Drive rules read (`listLiveFolderTree`).
+pub async fn live_folder_tree(
+    db: &PgPool,
+    id: &str,
+) -> Result<(Vec<Value>, Vec<Value>), sqlx::Error> {
+    let folders: Vec<Value> = sqlx::query_scalar(
+        "with recursive tree as (
+             select id from folders where id = $1 and deleted_at is null
+             union
+             select f.id from folders f join tree on f.parent_id = tree.id where f.deleted_at is null
+         )
+         select jsonb_build_object('id', f.id, 'parentId', f.parent_id,
+                'createdById', f.created_by_id, 'generalAccess', f.general_access)
+         from folders f where f.id in (select id from tree)",
+    )
+    .bind(id)
+    .fetch_all(db)
+    .await?;
+    let folder_ids: Vec<String> = folders
+        .iter()
+        .filter_map(|row| row["id"].as_str().map(str::to_owned))
+        .collect();
+    if folder_ids.is_empty() {
+        return Ok((folders, Vec::new()));
+    }
+    let files: Vec<Value> = sqlx::query_scalar(
+        "select jsonb_build_object('id', id, 'uploadedById', uploaded_by_id,
+                'folderId', folder_id, 'generalAccess', general_access, 'entityType', entity_type)
+         from files where folder_id = any($1) and deleted_at is null",
+    )
+    .bind(&folder_ids)
+    .fetch_all(db)
+    .await?;
+    Ok((folders, files))
+}
+
+/// What trashing a folder takes with it (`FolderTrashContents`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FolderTrashContents {
+    /// The folder itself first, then the folders under it that go too.
+    pub folder_ids: Vec<String>,
+    pub file_ids: Vec<String>,
+}
+
+/// What trashing `root_id` takes with it (`trashableContents`): the folders
+/// under it the caller may change (one they may not stays live, with
+/// everything in it), and the files in the folders taken that the caller may
+/// change. A restricted file the caller cannot see stays where it is: the
+/// same rule that refuses the purge.
+pub fn trashable_contents(
+    access: &DriveAccessIndex,
+    root_id: &str,
+    folders: &[Value],
+    files: &[Value],
+) -> FolderTrashContents {
+    let refs: Vec<DriveFolderRef> = folders.iter().map(DriveFolderRef::from_row).collect();
+    let mut folder_ids = vec![root_id.to_owned()];
+    let mut taken: HashSet<String> = folder_ids.iter().cloned().collect();
+    let mut next = 0;
+    while next < folder_ids.len() {
+        let parent = folder_ids[next].clone();
+        next += 1;
+        for child in refs
+            .iter()
+            .filter(|folder| folder.parent_id.as_deref() == Some(parent.as_str()))
+        {
+            if taken.contains(&child.id) || !can_edit(folder_role(access, child)) {
+                continue;
+            }
+            taken.insert(child.id.clone());
+            folder_ids.push(child.id.clone());
+        }
+    }
+    let file_ids = files
+        .iter()
+        .map(DriveFileRef::from_row)
+        .filter(|file| {
+            file.folder_id.as_ref().is_some_and(|id| taken.contains(id))
+                && can_edit(file_role(access, file))
+        })
+        .map(|file| file.id)
+        .collect();
+    FolderTrashContents {
+        folder_ids,
+        file_ids,
+    }
+}
+
+/// Trash a live folder with what `contents` says goes with it
+/// ([`trashable_contents`]), all with the same `deleted_at` and in one
+/// statement, so [`restore_folder`] brings back exactly what went with it.
+/// The row as it was (`softDeleteFolder`).
 pub async fn soft_delete_folder(
     db: &PgPool,
     id: &str,
+    contents: &FolderTrashContents,
     now: &str,
 ) -> Result<Option<Value>, sqlx::Error> {
     let Some(existing) = live_folder(db, id).await? else {
         return Ok(None);
     };
+    let mut folder_ids = contents.folder_ids.clone();
+    if !folder_ids.iter().any(|folder| folder == id) {
+        folder_ids.insert(0, id.to_owned());
+    }
     sqlx::query(
-        "update folders set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
+        "with trashed_files as (
+             update files set deleted_at = $3::timestamp, updated_at = $3::timestamp
+             where id = any($2) and deleted_at is null
+         )
+         update folders set deleted_at = $3::timestamp, updated_at = $3::timestamp
+         where id = any($1) and deleted_at is null",
     )
-    .bind(id)
+    .bind(&folder_ids)
+    .bind(&contents.file_ids)
     .bind(now)
     .execute(db)
     .await?;
@@ -256,7 +362,10 @@ pub async fn list_trashed_folders(db: &PgPool) -> Result<Vec<Value>, sqlx::Error
     Ok(rows.into_iter().map(js_row).collect())
 }
 
-/// Take a folder out of the trash; the row as it was (`restoreFolder`).
+/// Take a folder out of the trash with what went in with it: the folders
+/// under it and the files in them trashed at the same instant. Anything
+/// trashed on its own before stays in the trash. The row as it was
+/// (`restoreFolder`).
 pub async fn restore_folder(
     db: &PgPool,
     id: &str,
@@ -265,11 +374,25 @@ pub async fn restore_folder(
     let Some(existing) = trashed_folder(db, id).await? else {
         return Ok(None);
     };
-    sqlx::query("update folders set deleted_at = null, updated_at = $2::timestamp where id = $1")
-        .bind(id)
-        .bind(now)
-        .execute(db)
-        .await?;
+    sqlx::query(
+        "with recursive tree as (
+             select id, deleted_at from folders where id = $1
+             union
+             select f.id, f.deleted_at from folders f join tree on f.parent_id = tree.id
+             where f.deleted_at = tree.deleted_at
+         ),
+         restored_files as (
+             update files set deleted_at = null, updated_at = $2::timestamp
+             where folder_id in (select id from tree)
+               and deleted_at = (select deleted_at from folders where id = $1)
+         )
+         update folders set deleted_at = null, updated_at = $2::timestamp
+         where id in (select id from tree)",
+    )
+    .bind(id)
+    .bind(now)
+    .execute(db)
+    .await?;
     Ok(Some(existing))
 }
 

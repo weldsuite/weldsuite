@@ -19,6 +19,10 @@ data:
   FILES_S3_ENDPOINT: https://fsn1.your-objectstorage.com
   FILES_S3_REGION: fsn1
   FILES_BUCKET_PRIVATE: example-files
+  # Public uploads (avatars, product images, chat attachments), made next to
+  # the private one with the same keys; the server serves it, so it stays
+  # private at the store.
+  FILES_BUCKET_PUBLIC: example-public
   # WeldMail's inbound spool and raw messages (Haraka, mailInbound).
   FILES_BUCKET_MAIL: example-mail
   # Zitadel (auth.${DOMAIN}): the WeldSuite project's id (the tokens'

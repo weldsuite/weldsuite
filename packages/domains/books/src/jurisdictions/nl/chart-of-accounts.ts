@@ -8,7 +8,9 @@ import type { ChartOfAccountsTemplateRow } from '../types';
 export const nlChartOfAccounts: ChartOfAccountsTemplateRow[] = [
   // Assets
   { code: '0100', name: 'Immateriële vaste activa', type: 'asset', subtype: 'fixed_assets', normalSide: 'debit' },
-  { code: '0200', name: 'Materiële vaste activa', type: 'asset', subtype: 'fixed_assets', normalSide: 'debit' },
+  // The fixed asset register books on 0200 / 0290 / 4700 unless an asset names other accounts.
+  { code: '0200', name: 'Materiële vaste activa', type: 'asset', subtype: 'fixed_assets', normalSide: 'debit', systemRole: 'fixed_assets' },
+  { code: '0290', name: 'Cumulatieve afschrijvingen', type: 'asset', subtype: 'fixed_assets', normalSide: 'credit', systemRole: 'accumulated_depreciation' },
   { code: '0300', name: 'Financiële vaste activa', type: 'asset', subtype: 'fixed_assets', normalSide: 'debit' },
   { code: '1000', name: 'Liquide middelen', type: 'asset', subtype: 'bank', normalSide: 'debit' },
   { code: '1001', name: 'Kas', type: 'asset', subtype: 'cash', normalSide: 'debit' },
@@ -81,7 +83,7 @@ export const nlChartOfAccounts: ChartOfAccountsTemplateRow[] = [
   { code: '4640', name: 'Contributies en abonnementen', type: 'expense', subtype: 'operating_expense', normalSide: 'debit' },
   { code: '4650', name: 'Bankkosten', type: 'expense', subtype: 'operating_expense', normalSide: 'debit' },
   { code: '4690', name: 'Oninbare debiteuren', type: 'expense', subtype: 'operating_expense', normalSide: 'debit', systemRole: 'bad_debt_expense' },
-  { code: '4700', name: 'Afschrijvingen', type: 'expense', subtype: 'operating_expense', normalSide: 'debit' },
+  { code: '4700', name: 'Afschrijvingen', type: 'expense', subtype: 'operating_expense', normalSide: 'debit', systemRole: 'depreciation_expense' },
   { code: '4800', name: 'Financiële lasten', type: 'expense', subtype: 'other_expense', normalSide: 'debit' },
   { code: '4810', name: 'Rentelasten', type: 'expense', subtype: 'other_expense', normalSide: 'debit' },
   { code: '4900', name: 'Buitengewone lasten', type: 'expense', subtype: 'other_expense', normalSide: 'debit' },

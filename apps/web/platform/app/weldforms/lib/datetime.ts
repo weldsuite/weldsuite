@@ -20,3 +20,11 @@ export function localInputToIso(value: string): string | null {
   const abs = Math.abs(offset);
   return `${isoToLocalInput(date.toISOString().replace('Z', '+00:00'))}:00${sign}${pad(Math.floor(abs / 60))}:${pad(abs % 60)}`;
 }
+
+/** Whether a form would close before (or as) it opens, so it could never take a response. */
+export function closesBeforeOpens(opensAt: string | null, closesAt: string | null): boolean {
+  if (!opensAt || !closesAt) return false;
+  const opens = new Date(opensAt).getTime();
+  const closes = new Date(closesAt).getTime();
+  return Number.isFinite(opens) && Number.isFinite(closes) && closes <= opens;
+}

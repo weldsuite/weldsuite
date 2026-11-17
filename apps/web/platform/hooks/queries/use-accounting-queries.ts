@@ -710,6 +710,19 @@ export function useUpdateBill() {
   });
 }
 
+/** Deletes a draft bill (the server refuses one that was approved or posted). */
+export function useDeleteBill() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => accountingApi.deleteBill(id),
+    onSuccess: (_, id) => {
+      void qc.invalidateQueries({ queryKey: accountingKeys.bills.all });
+      qc.removeQueries({ queryKey: accountingKeys.bills.detail(id) });
+      void qc.invalidateQueries({ queryKey: accountingKeys.dashboard() });
+    },
+  });
+}
+
 export function useApproveBill() {
   const qc = useQueryClient();
   return useMutation({
@@ -764,6 +777,30 @@ export function usePostJournalEntry() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: accountingKeys.journalEntries.all });
       qc.invalidateQueries({ queryKey: accountingKeys.accounts.all });
+    },
+  });
+}
+
+/** Posts a counter-entry dated today; the entry is marked reversed (manual entries only, the server says why not). */
+export function useReverseJournalEntry() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => accountingApi.reverseJournalEntry(id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: accountingKeys.journalEntries.all });
+      void qc.invalidateQueries({ queryKey: accountingKeys.accounts.all });
+    },
+  });
+}
+
+/** Deletes a draft journal entry (the server refuses a posted one). */
+export function useDeleteJournalEntry() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => accountingApi.deleteJournalEntry(id),
+    onSuccess: (_, id) => {
+      void qc.invalidateQueries({ queryKey: accountingKeys.journalEntries.all });
+      qc.removeQueries({ queryKey: accountingKeys.journalEntries.detail(id) });
     },
   });
 }

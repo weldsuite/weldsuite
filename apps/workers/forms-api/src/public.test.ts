@@ -905,6 +905,19 @@ describe('POST /sessions/submit', () => {
     expect(await db.select().from(schema.formResponses).where(eq(schema.formResponses.status, 'completed'))).toHaveLength(0);
   });
 
+  it('takes a quick respondent whose session started late: the time measured on the form counts', async () => {
+    const w = newWorld({ FORMS_MIN_FILL_MS: '60000' });
+    const { publicId } = await publish(simpleDefinition(), {}, w);
+    const p = portal(w);
+    // The page starts the session lazily, so it can be younger than the answers.
+    const session = await start(p, publicId);
+    const tooLittle = await submit(p, session, { b_name: 'Ada' }, { timings: { b_name: 1_000 } });
+    expect([tooLittle.status, (await errorOf(tooLittle)).code]).toEqual([400, 'SUBMISSION_REJECTED']);
+    const res = await submit(p, session, { b_name: 'Ada' }, { timings: { b_name: 61_000 } });
+    expect(res.status).toBe(200);
+    expect(await db.select().from(schema.formResponses).where(eq(schema.formResponses.status, 'completed'))).toHaveLength(1);
+  });
+
   it('moves uploads to the form folder, refuses another response\'s file and drops unused ones', async () => {
     const { form, publicId } = await publish(uploadDefinition());
     const p = portal();

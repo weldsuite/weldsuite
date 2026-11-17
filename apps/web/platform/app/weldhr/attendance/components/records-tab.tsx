@@ -293,7 +293,8 @@ export function RecordsTab() {
           actionButtons={
             <div className="flex flex-wrap items-center gap-1.5">
               {summary && (
-                <div className="mr-1 hidden items-center gap-2 border-r pr-2 text-xs text-muted-foreground lg:flex">
+                // Only where the toolbar has room for it, on one line (TASK-1471: it overlapped the filters).
+                <div className="mr-1 hidden shrink-0 items-center gap-2 whitespace-nowrap border-r pr-2 text-xs text-muted-foreground 2xl:flex">
                   <span>
                     <strong className="font-medium text-foreground">
                       {summary.attendanceRate !== null && summary.attendanceRate !== undefined ? `${summary.attendanceRate}%` : '—'}
@@ -311,7 +312,7 @@ export function RecordsTab() {
                 </div>
               )}
               {canApprove && unapprovedVisible.length > 0 && (
-                <Button size="sm" variant="outline" className="h-8" onClick={() => setConfirmApproveAll(true)} disabled={approve.isPending}>
+                <Button size="sm" variant="outline" className="h-8 shrink-0" onClick={() => setConfirmApproveAll(true)} disabled={approve.isPending}>
                   <Check className="mr-1.5 h-4 w-4" />
                   {t('weldhr.attendance.records.approveAllPending', { count: unapprovedVisible.length })}
                 </Button>
@@ -345,7 +346,11 @@ export function RecordsTab() {
         open={Boolean(deleteTarget)}
         onOpenChange={(open) => !open && setDeleteTarget(null)}
         title={t('weldhr.attendance.records.deleteConfirmTitle')}
-        description={t('weldhr.attendance.records.deleteConfirmDescription')}
+        description={
+          deleteTarget
+            ? t('weldhr.attendance.records.deleteConfirmNamed', { name: deleteTarget.employeeName, date: formatDate(deleteTarget.date) })
+            : t('weldhr.attendance.records.deleteConfirmDescription')
+        }
         variant="destructive"
         onConfirm={async () => {
           if (!deleteTarget) return;

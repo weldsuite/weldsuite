@@ -8,6 +8,7 @@ import { useCan } from '@weldsuite/permissions/react';
 import { Skeleton } from '@weldsuite/ui/components/skeleton';
 import type { PanelProjectDto } from '@weldsuite/app-api-client/schemas/weldpanel';
 import { useWeldPanelInstall } from '@/hooks/queries/use-weldpanel-queries';
+import { isFeatureAvailable } from '@/lib/edition';
 import { useI18n } from '@/lib/i18n/provider';
 import { CopyBlock } from '../components/copy-block';
 import { InstallStatus } from '../components/install-status';
@@ -18,6 +19,9 @@ export function InstallTab({ project }: Readonly<{ project: PanelProjectDto }>) 
   const ti = t.weldpanel.install;
   const to = t.weldpanel.observe.install;
   const canManage = useCan('panel_projects:manage');
+  // Server-side ingest (secret keys, `/v1/track`) comes with the analytics store, which the
+  // Kubernetes editions don't have yet (`panel-analytics`): only the browser snippets work there.
+  const serverIngest = isFeatureAvailable('panel-analytics');
   // The same query as the status card's, so this costs no extra request.
   const { data: install, isLoading, isFetching } = useWeldPanelInstall(project.id);
   // After a token rotation the old snippet stays cached until the refetch lands: never show it.
@@ -42,8 +46,12 @@ export function InstallTab({ project }: Readonly<{ project: PanelProjectDto }>) 
               <CopyBlock title={ti.scriptTitle} description={ti.scriptDescription} value={current.scriptSnippet} />
               <CopyBlock title={ti.npmTitle} description={ti.npmDescription} value={current.npmSnippet} />
               <CopyBlock title={ti.tokenLabel} description={ti.tokenHint} value={current.token} />
-              <CopyBlock title={to.serverTitle} description={canManage ? `${to.serverDescription} ${to.manageKeys}` : to.serverDescription} value={serverSdkSnippet(current.collectorUrl)} />
-              <CopyBlock title={to.httpTitle} value={serverHttpSnippet(current.collectorUrl)} />
+              {serverIngest && (
+                <>
+                  <CopyBlock title={to.serverTitle} description={canManage ? `${to.serverDescription} ${to.manageKeys}` : to.serverDescription} value={serverSdkSnippet(current.collectorUrl)} />
+                  <CopyBlock title={to.httpTitle} value={serverHttpSnippet(current.collectorUrl)} />
+                </>
+              )}
             </>
           )}
         </div>
