@@ -217,7 +217,7 @@ importers:
         version: 6.4.5(@types/node@20.19.27)(jiti@2.7.0)(lightningcss@1.33.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1)
       vitest:
         specifier: ^4.1.12
-        version: 4.1.12(@opentelemetry/api@1.9.0)(@types/node@20.19.27)(@vitest/coverage-v8@4.1.12)(jsdom@25.0.1(bufferutil@4.1.0)(utf-8-validate@5.0.10))(vite@6.4.5(@types/node@20.19.27)(jiti@2.7.0)(lightningcss@1.33.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1))
+        version: 4.1.12(@opentelemetry/api@1.9.0)(@types/node@20.19.27)(@vitest/coverage-v8@4.1.12)(jsdom@25.0.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))(vite@6.4.5(@types/node@20.19.27)(jiti@2.7.0)(lightningcss@1.33.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1))
 
   apps/mobile/_shared:
     dependencies:
@@ -5987,6 +5987,9 @@ importers:
       '@types/node':
         specifier: ^20
         version: 20.19.27
+      '@vitest/coverage-v8':
+        specifier: ^4.1.12
+        version: 4.1.12(vitest@4.1.12)
       '@weldsuite/smtp':
         specifier: workspace:*
         version: link:../../../packages/core/smtp
@@ -6803,6 +6806,9 @@ importers:
       '@cloudflare/workers-types':
         specifier: ^4.20250110.0
         version: 4.20260113.0
+      '@vitest/coverage-v8':
+        specifier: ^4.1.12
+        version: 4.1.12(vitest@4.1.12)
       '@weldsuite/typescript-config':
         specifier: workspace:*
         version: link:../../../packages/config/typescript-config
@@ -7043,6 +7049,9 @@ importers:
       '@types/node':
         specifier: ^20
         version: 20.19.43
+      '@vitest/coverage-v8':
+        specifier: ^4.1.12
+        version: 4.1.12(vitest@4.1.12)
       typescript:
         specifier: ^5.7
         version: 5.9.2
@@ -7074,6 +7083,9 @@ importers:
       '@types/node':
         specifier: ^20
         version: 20.19.43
+      '@vitest/coverage-v8':
+        specifier: ^4.1.12
+        version: 4.1.12(vitest@4.1.12)
       '@weldsuite/worker-kit':
         specifier: workspace:*
         version: link:../../../packages/core/worker-kit
@@ -10067,6 +10079,9 @@ importers:
       '@types/node':
         specifier: ^20
         version: 20.19.43
+      '@vitest/coverage-v8':
+        specifier: ^4.1.12
+        version: 4.1.12(vitest@4.1.12)
       '@weldsuite/typescript-config':
         specifier: workspace:*
         version: link:../../config/typescript-config
@@ -10310,6 +10325,9 @@ importers:
       '@types/node':
         specifier: ^20
         version: 20.19.43
+      '@vitest/coverage-v8':
+        specifier: ^4.1.12
+        version: 4.1.12(vitest@4.1.12)
       react-native:
         specifier: 0.86.3
         version: 0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.7)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@5.0.10)
@@ -10332,6 +10350,9 @@ importers:
       '@types/node':
         specifier: ^20
         version: 20.19.43
+      '@vitest/coverage-v8':
+        specifier: ^4.1.12
+        version: 4.1.12(vitest@4.1.12)
       esbuild:
         specifier: ^0.28.1
         version: 0.28.2
@@ -30588,7 +30609,7 @@ snapshots:
       ws: 8.21.3(bufferutil@4.1.0)(utf-8-validate@5.0.10)
       zod: 3.25.76
     optionalDependencies:
-      expo-router: 57.0.19(9b0cdd12baa46ac852dd65be70d4be5f)
+      expo-router: 57.0.19(35a38442915eb16086a56824fda7fe7b)
       react-native: 0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.7)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@5.0.10)
     transitivePeerDependencies:
       - '@expo/dom-webview'
@@ -39226,7 +39247,7 @@ snapshots:
       obug: 2.2.1
       std-env: 4.3.0
       tinyrainbow: 3.2.0
-      vitest: 4.1.12(@opentelemetry/api@1.9.0)(@types/node@20.19.43)(@vitest/coverage-v8@4.1.12)(jsdom@25.0.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))(vite@8.3.5(@types/node@20.19.43)(esbuild@0.28.1)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1))
+      vitest: 4.1.12(@opentelemetry/api@1.9.0)(@types/node@20.19.27)(@vitest/coverage-v8@4.1.12)(jsdom@25.0.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))(vite@6.4.5(@types/node@20.19.27)(jiti@2.7.0)(lightningcss@1.33.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1))
 
   '@vitest/expect@2.0.5':
     dependencies:
@@ -52755,6 +52776,36 @@ snapshots:
       '@types/node': 20.19.27
       '@vitest/coverage-v8': 4.1.12(vitest@4.1.12)
       jsdom: 25.0.1(bufferutil@4.1.0)(utf-8-validate@5.0.10)
+    transitivePeerDependencies:
+      - msw
+
+  vitest@4.1.12(@opentelemetry/api@1.9.0)(@types/node@20.19.27)(@vitest/coverage-v8@4.1.12)(jsdom@25.0.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))(vite@6.4.5(@types/node@20.19.27)(jiti@2.7.0)(lightningcss@1.33.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1)):
+    dependencies:
+      '@vitest/expect': 4.1.12
+      '@vitest/mocker': 4.1.12(vite@6.4.5(@types/node@20.19.27)(jiti@2.7.0)(lightningcss@1.33.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1))
+      '@vitest/pretty-format': 4.1.12
+      '@vitest/runner': 4.1.12
+      '@vitest/snapshot': 4.1.12
+      '@vitest/spy': 4.1.12
+      '@vitest/utils': 4.1.12
+      es-module-lexer: 2.3.2
+      expect-type: 1.3.0
+      magic-string: 0.30.21
+      obug: 2.2.1
+      pathe: 2.0.3
+      picomatch: 4.0.7
+      std-env: 4.3.0
+      tinybench: 2.9.0
+      tinyexec: 1.3.1
+      tinyglobby: 0.2.17
+      tinyrainbow: 3.2.0
+      vite: 6.4.5(@types/node@20.19.27)(jiti@2.7.0)(lightningcss@1.33.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1)
+      why-is-node-running: 2.3.0
+    optionalDependencies:
+      '@opentelemetry/api': 1.9.0
+      '@types/node': 20.19.27
+      '@vitest/coverage-v8': 4.1.12(vitest@4.1.12)
+      jsdom: 25.0.1(bufferutil@4.1.0)(utf-8-validate@6.0.6)
     transitivePeerDependencies:
       - msw
 

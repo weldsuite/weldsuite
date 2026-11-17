@@ -35,6 +35,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250110.0",
     "@types/node": "^20",
+    "@vitest/coverage-v8": "^4.1.12",
     "@weldsuite/typescript-config": "workspace:*",
     "typescript": "^5.7",
     "vitest": "^4.1.12"
