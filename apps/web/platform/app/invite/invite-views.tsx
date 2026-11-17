@@ -277,6 +277,52 @@ export function AlreadyUsedView({ orgName, onDashboard }: Readonly<{ orgName?: s
   );
 }
 
+/** Signed in as someone the invitation isn't for: sign out to use the invited address. */
+export function WrongAccountView({
+  userEmail,
+  isLoading,
+  onSignOut,
+  onCancel,
+}: Readonly<{ userEmail?: string; isLoading: boolean; onSignOut: () => void; onCancel: () => void }>) {
+  const t = getTranslations('common');
+  const [before, after] = t.invite.wrongAccountDescription.split('{email}');
+  return (
+    <div className="min-h-screen bg-white flex relative">
+      <div className="flex-1 flex flex-col justify-center px-8 py-12 lg:px-16">
+        <div className="w-full max-w-[448px] mx-auto">
+          <div className="mb-[32px]">
+            <h1 className="text-[26px] font-semibold text-gray-900 mb-2">{t.invite.wrongAccountTitle}</h1>
+            <p className="text-gray-600">
+              {before}
+              <span className="font-medium">{userEmail}</span>
+              {after}
+            </p>
+          </div>
+
+          <div className="space-y-[10px]">
+            <Button
+              variant="ghost"
+              onClick={onSignOut}
+              disabled={isLoading}
+              className="w-full h-[42px] rounded-lg bg-black hover:bg-black/90 text-white text-[14px] font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              <LoadingLabel isLoading={isLoading} loadingLabel={t.invite.signingOut} label={t.invite.signOutAndUseOtherAccount} />
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={onCancel}
+              disabled={isLoading}
+              className="w-full h-[42px] rounded-lg border border-gray-200 text-gray-600 hover:text-gray-900 hover:bg-gray-50 text-[14px] transition-colors"
+            >
+              {t.invite.cancel}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function TicketErrorView({ error, onLogin }: Readonly<{ error: string | null; onLogin: () => void }>) {
   const t = getTranslations('common');
   return (

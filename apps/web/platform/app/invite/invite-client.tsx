@@ -18,6 +18,7 @@ import {
   PasswordRequiredView,
   SuccessView,
   TicketErrorView,
+  WrongAccountView,
 } from './invite-views';
 import { ProviderInviteClient } from './provider-invite';
 
@@ -179,41 +180,12 @@ function SignedInConflictView({
 
   // Wrong account - show Sign Out + Cancel
   return (
-    <div className="min-h-screen bg-white flex relative">
-      <div className="flex-1 flex flex-col justify-center px-8 py-12 lg:px-16">
-        <div className="w-full max-w-[448px] mx-auto">
-          <div className="mb-[32px]">
-            <h1 className="text-[26px] font-semibold text-gray-900 mb-2">
-              {t.invite.wrongAccountTitle}
-            </h1>
-            <p className="text-gray-600">
-              {t.invite.wrongAccountDescription.split('{email}')[0]}
-              <span className="font-medium">{userEmail}</span>
-              {t.invite.wrongAccountDescription.split('{email}')[1]}
-            </p>
-          </div>
-
-          <div className="space-y-[10px]">
-            <Button
-              variant="ghost"
-              onClick={() => onSignOut(currentUrl)}
-              disabled={isLoading}
-              className="w-full h-[42px] rounded-lg bg-black hover:bg-black/90 text-white text-[14px] font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-            >
-              <LoadingLabel isLoading={isLoading} loadingLabel={t.invite.signingOut} label={t.invite.signOutAndUseOtherAccount} />
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={onCancel}
-              disabled={isLoading}
-              className="w-full h-[42px] rounded-lg border border-gray-200 text-gray-600 hover:text-gray-900 hover:bg-gray-50 text-[14px] transition-colors"
-            >
-              {t.invite.cancel}
-            </Button>
-          </div>
-        </div>
-      </div>
-    </div>
+    <WrongAccountView
+      userEmail={userEmail}
+      isLoading={isLoading}
+      onSignOut={() => onSignOut(currentUrl)}
+      onCancel={onCancel}
+    />
   );
 }
 
@@ -746,6 +718,7 @@ export function InviteClient(props: Readonly<InviteClientProps>) {
           code={props.code}
           orgId={props.orgId}
           orgName={props.orgName}
+          invitationId={props.invitationId}
           email={props.email}
           isAuthenticated={props.isAuthenticated}
         />

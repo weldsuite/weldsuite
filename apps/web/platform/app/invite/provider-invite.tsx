@@ -21,7 +21,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
-import { redirectToSignIn, useAuth, usesPlatformSignIn } from '@/lib/auth';
+import { isApiError } from '@weldsuite/api-client';
+import { redirectToSignIn, useAuth, useUser, usesPlatformSignIn } from '@/lib/auth';
 import { acceptInvitation, loadPasswordPolicy } from '@/lib/auth/oidc/sign-in-api';
 import { useAcceptInvitation } from '@/hooks/queries/use-settings-queries';
 import { getTranslations } from '@/lib/i18n';
@@ -35,7 +36,14 @@ import {
   type PasswordPolicy,
 } from '../auth/components/password-requirements';
 import { signInErrorCode, signInErrorMessage } from '../auth/components/provider-sign-in';
-import { AlreadyUsedView, ExpiredView, PasswordRequiredView, SuccessView } from './invite-views';
+import {
+  AlreadyUsedView,
+  ExpiredView,
+  PasswordRequiredView,
+  SuccessView,
+  TicketErrorView,
+  WrongAccountView,
+} from './invite-views';
 
 /** Set on the way back from the sign-in this page starts: the invitee's account. */
 const JOINED_PARAM = 'joined';
@@ -48,12 +56,17 @@ export interface ProviderInviteClientProps {
   code?: string;
   orgId?: string;
   orgName?: string;
+  /** An invitation WeldSuite keeps (membership mode: WeldID). */
+  invitationId?: string;
   email?: string;
   isAuthenticated: boolean;
 }
 
 /** `/invite` when Clerk is not the provider. */
 export function ProviderInviteClient(props: Readonly<ProviderInviteClientProps>) {
+  if (props.invitationId) {
+    return <KeptInvitation invitationId={props.invitationId} orgId={props.orgId} orgName={props.orgName} />;
+  }
   const joined = new URLSearchParams(window.location.search).get(JOINED_PARAM);
   if (!usesPlatformSignIn()) return <ManagedByIdentityProvider topic="invitations" />;
   if (joined) return <JoinWorkspace orgId={props.orgId} orgName={props.orgName} account={joined} />;
@@ -73,6 +86,81 @@ export function ProviderInviteClient(props: Readonly<ProviderInviteClientProps>)
 function enterWorkspace(orgId: string | undefined) {
   if (orgId) setPendingOrganization(orgId);
   window.location.replace(orgId ? workspacePath(orgId, '/') : '/');
+}
+
+/** Why `POST /api/invitations/accept` refused an invitation WeldSuite keeps. */
+export type KeptRefusal = 'expired' | 'used' | 'wrong_account' | 'unverified' | 'failed';
+
+/**
+ * The refusal behind an acceptance error: 410 expired, 404 used (or revoked),
+ * 403 with `details.reason` another or an unverified address.
+ */
+export function keptRefusal(err: unknown): KeptRefusal {
+  if (!isApiError(err)) return 'failed';
+  const reason = (err.body as { error?: { details?: { reason?: unknown } } } | undefined)?.error?.details?.reason;
+  if (err.status === 410) return 'expired';
+  if (err.status === 404) return 'used';
+  if (err.status === 403 && reason === 'invitation_email_mismatch') return 'wrong_account';
+  if (err.status === 403 && reason === 'invitation_email_unverified') return 'unverified';
+  return 'failed';
+}
+
+/**
+ * `/invite?invitation_id=…&org_id=…&email=…` where WeldSuite keeps the
+ * invitation (membership mode: WeldID, ADR SEC-019). Signed out, the invitee
+ * signs up or in on the provider's pages and comes back here. Signed in, the
+ * invitation is accepted, which takes that account's verified address to be
+ * the invited one, and the workspace opens.
+ */
+function KeptInvitation({
+  invitationId,
+  orgId,
+  orgName,
+}: Readonly<{ invitationId: string; orgId?: string; orgName?: string }>) {
+  const t = getTranslations('common');
+  const router = useRouter();
+  const { isLoaded, isSignedIn, signOut } = useAuth();
+  const { user } = useUser();
+  const accept = useAcceptInvitation();
+  const started = useRef(false);
+  const [refusal, setRefusal] = useState<KeptRefusal | null>(null);
+  const [signingOut, setSigningOut] = useState(false);
+
+  useEffect(() => {
+    if (!isLoaded || started.current) return;
+    started.current = true;
+    if (!isSignedIn) {
+      void redirectToSignIn({ returnTo: `${window.location.pathname}${window.location.search}` });
+      return;
+    }
+    accept
+      .mutateAsync(invitationId)
+      .then((joined) => enterWorkspace(joined?.workspaceId || orgId))
+      .catch((err: unknown) => setRefusal(keptRefusal(err)));
+  }, [isLoaded, isSignedIn, accept, invitationId, orgId]);
+
+  const signOutAndReturn = () => {
+    setSigningOut(true);
+    void signOut({ redirectUrl: window.location.href });
+  };
+
+  if (refusal === 'expired') return <ExpiredView orgName={orgName} onHome={() => router.push('/')} />;
+  if (refusal === 'used') return <AlreadyUsedView orgName={orgName} onDashboard={() => router.push('/')} />;
+  if (refusal === 'wrong_account') {
+    return (
+      <WrongAccountView
+        userEmail={user?.primaryEmailAddress?.emailAddress}
+        isLoading={signingOut}
+        onSignOut={signOutAndReturn}
+        onCancel={() => router.push('/')}
+      />
+    );
+  }
+  if (refusal) {
+    const error = refusal === 'unverified' ? t.invite.errors.verifyEmailFirst : t.invite.errors.failedToAcceptInvitation;
+    return <TicketErrorView error={error} onLogin={() => router.push('/auth/login')} />;
+  }
+  return <PageLoader label={isSignedIn ? t.invite.joiningWorkspace : t.auth.identityProvider.redirecting} />;
 }
 
 function AcceptInvitationForm({

@@ -752,6 +752,7 @@ export const common = {
         failedToProcessInvitation: 'Failed to process invitation',
         failedToAcceptInvitation: 'Failed to accept invitation',
         failedToLoadDetails: 'Failed to load invitation details.',
+        verifyEmailFirst: 'Verify your email address, then open the invitation link again.',
       },
     },
     auth: {
