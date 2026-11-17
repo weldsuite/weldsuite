@@ -491,6 +491,13 @@
       "when": 1794690327238,
       "tag": "0069_admin_console_subject",
       "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1794922499404,
+      "tag": "0070_weldpanel_gaps",
+      "breakpoints": true
     }
   ]
 }
