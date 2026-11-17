@@ -611,20 +611,24 @@ export class OidcMobileSession {
     this.publish(true);
   }
 
+  /**
+   * The active workspace: in header mode (WeldID) the one chosen in the app,
+   * in claim mode the one the token was narrowed to.
+   */
+  private activeOrgId(signedIn: boolean): string | null {
+    if (!signedIn) return null;
+    if (this.workspaceSource === 'header') return this.activeWorkspaceId;
+    const active = this.stored?.active;
+    return active && active !== UNSCOPED ? active : null;
+  }
+
   private publish(loaded: boolean): void {
     const signedIn = Boolean(this.stored && this.profile);
-    const active = this.stored?.active;
-    const activeOrgId =
-      this.workspaceSource === 'header'
-        ? (signedIn ? this.activeWorkspaceId : null)
-        : signedIn && active && active !== UNSCOPED
-          ? active
-          : null;
     this.snapshot = {
       isLoaded: loaded,
       person: signedIn ? (this.profile?.person ?? null) : null,
       organizations: signedIn ? (this.profile?.organizations ?? []) : [],
-      activeOrgId,
+      activeOrgId: this.activeOrgId(signedIn),
     };
     for (const listener of this.listeners) listener();
   }

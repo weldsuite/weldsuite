@@ -94,6 +94,9 @@ interface SignInState {
   orgId?: string;
 }
 
+/** The workspace list and the active one, as `publish` puts them in the snapshot. */
+type PublishedWorkspaces = Pick<OidcSnapshot, 'activeOrgId'> & { organizations: OidcOrganization[] };
+
 interface StoredMemberships {
   sub: string;
   organizations: OidcOrganization[];
@@ -552,30 +555,43 @@ export class OidcSession {
     this.publish(loaded);
   }
 
+  /**
+   * Header mode (WeldID): the token names no workspace, so the list and the
+   * active choice are WeldSuite's own, never the claims.
+   */
+  private headerWorkspaces(sub: string, loaded: boolean): PublishedWorkspaces {
+    const organizations = this.storedDirectory(sub).map(({ id, name, slug }) => ({ id, name, slug }));
+    let activeOrgId = this.storedActiveWorkspace(sub);
+    // One workspace: nothing to choose, same as the claim mode's auto-narrow.
+    if (!activeOrgId && organizations.length === 1) activeOrgId = organizations[0]!.id;
+    if (loaded) this.readDirectory(sub, null);
+    return { organizations, activeOrgId };
+  }
+
+  /** Claim mode: the token names the active workspace and some of the list. */
+  private claimWorkspaces(sub: string, claims: Claims, loaded: boolean): PublishedWorkspaces {
+    const activeOrgId = activeOrganizationId(claims, this.orgClaim);
+    // The stored list, plus whatever this token names (a narrowed token names one).
+    const merged = new Map(this.storedMemberships(sub).map((o) => [o.id, o]));
+    for (const org of organizationsFromClaims(claims, this.orgClaim)) if (!merged.has(org.id)) merged.set(org.id, org);
+    // WeldSuite's name and slug over the provider's domain; workspaces the
+    // token can't name yet (created since it was issued) join the list.
+    for (const { id, name, slug } of this.storedDirectory(sub)) merged.set(id, { id, name, slug });
+    if (loaded) this.readDirectory(sub, activeOrgId);
+    return { organizations: [...merged.values()], activeOrgId };
+  }
+
   private publish(loaded: boolean): void {
     const claims = (this.user?.profile ?? {}) as Claims;
     const person = this.user ? personFromClaims(claims) : null;
-    let organizations: OidcOrganization[] = [];
-    let activeOrgId: string | null = null;
-    if (person && this.workspaceSource === 'header') {
-      // WeldID's token names no workspace: the list and the active choice
-      // are WeldSuite's own, never the claims.
-      organizations = this.storedDirectory(person.id).map(({ id, name, slug }) => ({ id, name, slug }));
-      activeOrgId = this.storedActiveWorkspace(person.id);
-      // One workspace: nothing to choose, same as the claim mode's auto-narrow.
-      if (!activeOrgId && organizations.length === 1) activeOrgId = organizations[0]!.id;
-      if (loaded) this.readDirectory(person.id, null);
-    } else if (person) {
-      activeOrgId = activeOrganizationId(claims, this.orgClaim);
-      // The stored list, plus whatever this token names (a narrowed token names one).
-      const merged = new Map(this.storedMemberships(person.id).map((o) => [o.id, o]));
-      for (const org of organizationsFromClaims(claims, this.orgClaim)) if (!merged.has(org.id)) merged.set(org.id, org);
-      // WeldSuite's name and slug over the provider's domain; workspaces the
-      // token can't name yet (created since it was issued) join the list.
-      for (const { id, name, slug } of this.storedDirectory(person.id)) merged.set(id, { id, name, slug });
-      organizations = [...merged.values()];
-      if (loaded) this.readDirectory(person.id, activeOrgId);
+    let workspaces: PublishedWorkspaces = { organizations: [], activeOrgId: null };
+    if (person) {
+      workspaces =
+        this.workspaceSource === 'header'
+          ? this.headerWorkspaces(person.id, loaded)
+          : this.claimWorkspaces(person.id, claims, loaded);
     }
+    const { organizations, activeOrgId } = workspaces;
     this.snapshot = {
       isLoaded: loaded,
       person,
