@@ -9,7 +9,6 @@ import { useI18n } from '@/lib/i18n/provider';
 import { Settings2 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { AppIcon } from '@/components/app-icon';
-import { APP_CATALOG } from '@/lib/apps/catalog';
 import { useUserPreferences } from '@/hooks/queries/use-settings-queries';
 import { HOME_WIDGETS, emptySlots, isWidgetEnabled, type NullableSlot } from '@/lib/home-widgets/registry';
 import type { HomeWidgetSlot, WidgetId } from '@/lib/home-widgets/types';
@@ -60,15 +59,18 @@ function HomeWidgetsArea() {
         if (!def) return null;
         const Render = def.HomeRender;
         const title = t.weldsuiteHome.widgets[slot.widgetId].title;
-        const app = APP_CATALOG[def.module];
+        // Every widget module but `analytics` is an app at `/<module>`. Not
+        // `lib/apps/catalog`: it imports the master database client, which
+        // can't be bundled for the browser.
+        const appPath = def.module === 'analytics' ? undefined : `/${def.module}`;
         return (
           <section key={`${i}-${slot.widgetId}`} aria-label={title} className="flex flex-col gap-2">
             <div className="flex items-center gap-2">
               <AppIcon icon={def.module} className="h-4 w-4 shrink-0" />
-              {app?.path ? (
+              {appPath ? (
                 <Link
-                  href={app.path}
-                  title={format(t.weldsuiteHome.page.openApp, { app: app.name })}
+                  href={appPath}
+                  title={format(t.weldsuiteHome.page.openApp, { app: t.weldsuiteHome.groups[def.module] })}
                   className="text-sm font-medium text-foreground hover:underline underline-offset-2"
                 >
                   {title}
