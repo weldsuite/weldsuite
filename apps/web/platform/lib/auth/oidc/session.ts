@@ -52,6 +52,7 @@ import { OidcClient, User, UserManager, WebStorageStateStore, type UserManagerSe
 import { getLocale } from '@weldsuite/i18n';
 import type { OidcAuthConfig } from '@/lib/runtime-config';
 import { parseWorkspacePath, workspacePath } from '@/lib/workspace-url';
+import { sameOriginPath } from '../same-origin-path';
 import { loadWorkspacesFromApi, type LoadWorkspaces, type WorkspaceDirectoryEntry } from './workspaces';
 import { endProviderSession } from './sign-in-api';
 import { BrowserSignInError, type BrowserSignIn } from './browser-sign-in';
@@ -151,11 +152,6 @@ function safeStorage(storage: Storage | undefined): Storage | undefined {
   } catch {
     return undefined;
   }
-}
-
-/** Only paths on this origin are valid places to return to after sign-in. */
-function sameOriginPath(value: string | undefined): string {
-  return value?.startsWith('/') && !value.startsWith('//') ? value : '/';
 }
 
 function currentPath(): string {

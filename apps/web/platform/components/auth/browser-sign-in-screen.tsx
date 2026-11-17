@@ -16,6 +16,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { BrowserSignInError, cancelBrowserSignIn, signInWithBrowser, useAuth } from '@/lib/auth';
+import { sameOriginPath } from '@/lib/auth/same-origin-path';
 import { getTranslations } from '@/lib/i18n';
 
 export interface BrowserSignInScreenProps {
@@ -31,9 +32,12 @@ export function BrowserSignInScreen({ intent = 'sign-in', returnTo }: Readonly<B
   const [waiting, setWaiting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Already signed in (another window, a stale link): straight on.
+  // Already signed in (another window, a stale link): straight on, and only
+  // ever to a path on this origin.
   useEffect(() => {
-    if (isLoaded && isSignedIn && !waiting) window.location.replace(returnTo);
+    if (isLoaded && isSignedIn && !waiting) {
+      window.location.replace(`${window.location.origin}${sameOriginPath(returnTo)}`);
+    }
   }, [isLoaded, isSignedIn, waiting, returnTo]);
 
   // Leaving the screen ends a sign-in still waiting in the browser.

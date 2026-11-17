@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Button } from '@weldsuite/ui/components/button';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { completeSignIn, getAccountUrl, redirectToSignIn, usesBrowserSignIn } from '@/lib/auth';
+import { sameOriginPath } from '@/lib/auth/same-origin-path';
 import { getTranslations } from '@/lib/i18n';
 import { useRouter } from '@/lib/router';
 import { BrowserSignInScreen } from './browser-sign-in-screen';
@@ -17,8 +18,7 @@ function returnPath(): string {
   if (typeof window === 'undefined') return '/';
   const params = new URLSearchParams(window.location.search);
   // `callbackUrl` is what the app shell sends a signed-out visitor with.
-  const value = params.get('callbackUrl') ?? params.get('redirect_url');
-  return value?.startsWith('/') && !value.startsWith('//') ? value : '/';
+  return sameOriginPath(params.get('callbackUrl') ?? params.get('redirect_url'));
 }
 
 /**

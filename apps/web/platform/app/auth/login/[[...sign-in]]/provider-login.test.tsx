@@ -411,7 +411,14 @@ describe('/auth/login inside the desktop shell', () => {
   it('goes straight on when already signed in', async () => {
     auth.state = { isLoaded: true, isSignedIn: true };
     render(<ProviderLoginPage />);
-    await waitFor(() => expect(replace).toHaveBeenCalledWith('/weldknow'));
+    await waitFor(() => expect(replace).toHaveBeenCalledWith(`${window.location.origin}/weldknow`));
     expect(auth.signInWithBrowser).not.toHaveBeenCalled();
+  });
+
+  it('never goes on to another host, even one a browser reads into a path', async () => {
+    auth.state = { isLoaded: true, isSignedIn: true };
+    router.search = `callbackUrl=${encodeURIComponent('/\\evil.example')}`;
+    render(<ProviderLoginPage />);
+    await waitFor(() => expect(replace).toHaveBeenCalledWith(`${window.location.origin}/`));
   });
 });
