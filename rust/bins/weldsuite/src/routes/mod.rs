@@ -271,7 +271,7 @@ fn crm(router: Router<AppState>, state: &AppState) -> Router<AppState> {
 /// request reaches with the session, tenant database and permissions it came
 /// with. None where chat isn't served, and in conformance builds, whose crm
 /// tests run without the binding (503, as crm-api answers without it).
-fn record_chat_binding(state: &AppState) -> Option<weldsuite_crm::ServiceBinding> {
+pub(crate) fn record_chat_binding(state: &AppState) -> Option<weldsuite_crm::ServiceBinding> {
     if cfg!(feature = "conformance") || !mounts("chat") {
         return None;
     }

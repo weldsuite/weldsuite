@@ -6,19 +6,20 @@
 //! In the workers that is the `CHAT_API` service binding. In this binary
 //! the chat module is served by the same process, so the binding is a
 //! [`ServiceBinding`]: the request, at its new path, run through the chat
-//! module's record-chat router. It carries the extensions this request came
-//! with (session, tenant database, permissions), which is what chat-api's
-//! own `apiAuth()` would establish again from the same headers. Where the
-//! chat module isn't served (and in conformance builds, whose crm tests run
-//! without `CHAT_API`) the binding is unset and the routes answer as crm-api
-//! does without it: 503 `SERVICE_UNAVAILABLE`.
+//! module's record-chat router. It carries what this request's session and
+//! tenant layers established ([`forwarded_extensions`]), which is what
+//! chat-api's own `apiAuth()` would establish again from the same headers,
+//! and nothing of this route's own routing. Where the chat module isn't
+//! served (and in conformance builds, whose crm tests run without
+//! `CHAT_API`) the binding is unset and the routes answer as crm-api does
+//! without it: 503 `SERVICE_UNAVAILABLE`.
 
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
 use axum::body::{Body, Bytes};
-use axum::extract::{MatchedPath, Path, State};
+use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use http::{Extensions, HeaderMap, HeaderValue, Method, Request, StatusCode};
 use weldsuite_kit::ApiError;
@@ -49,6 +50,42 @@ struct Incoming {
     body: Bytes,
 }
 
+/// The extensions the chat routes read: the session, the tenant database,
+/// the caller's permissions and app context, the request id, and the
+/// per-request overrides a test harness brings (`access.rs` in the chat
+/// module, and its permission gate). Only these go along, never the whole
+/// set: the rest belongs to this route's own routing, and axum adds a
+/// route's path params to any already on the request, so this route's
+/// `{id}` would reach the chat route's `Path<(entity_type, entity_id)>` as a
+/// third param and fail it.
+fn forwarded_extensions(incoming: &Extensions) -> Extensions {
+    let mut forwarded = Extensions::new();
+    macro_rules! carry {
+        ($($kind:ty),* $(,)?) => {
+            $(
+                if let Some(value) = incoming.get::<$kind>() {
+                    forwarded.insert(value.clone());
+                }
+            )*
+        };
+    }
+    carry!(
+        weldsuite_auth::AuthContext,
+        weldsuite_db::Tenant,
+        weldsuite_permissions::Permissions,
+        weldsuite_permissions::PresetPermissions,
+        weldsuite_permissions::AppContext,
+        weldsuite_kit::RequestEnv,
+        weldsuite_kit::RequestId,
+        weldsuite_ports::RequestCache,
+        weldsuite_ports::FileStores,
+        weldsuite_ports::StorageBuckets,
+        weldsuite_ports::OutboundHttp,
+        weldsuite_ports::PresenceReader,
+    );
+    forwarded
+}
+
 /// `forwardToChatApi(c, entityType, action)`.
 async fn forward(
     state: &CrmState,
@@ -60,7 +97,7 @@ async fn forward(
 ) -> Response {
     let Incoming {
         headers,
-        mut extensions,
+        extensions,
         body,
     } = incoming;
     if id.is_empty() {
@@ -75,10 +112,9 @@ async fn forward(
         weldsuite_kit::cursor::encode_uri_component(id)
     );
     let mut request = Request::builder().method(method.clone()).uri(path);
-    // Routed once already, to this route: the chat router matches its own.
-    extensions.remove::<MatchedPath>();
+    // Routed afresh: the chat router matches its own path and params.
     if let Some(target) = request.extensions_mut() {
-        *target = extensions;
+        *target = forwarded_extensions(&extensions);
     }
     if let Some(target) = request.headers_mut() {
         *target = headers;
@@ -198,12 +234,13 @@ mod tests {
         }
     }
 
-    /// Something the session layer put on the request.
+    /// Something of the CRM route's own routing (as axum's path params are).
     #[derive(Clone)]
-    struct Session(&'static str);
+    struct Routing;
 
-    /// What the binding was handed: method, path, the session, `x-forwarded-by`.
-    type Seen = (Method, String, Option<&'static str>, Option<HeaderValue>);
+    /// What the binding was handed: method, path, the session's user, whether
+    /// the CRM route's routing came along, `x-forwarded-by`.
+    type Seen = (Method, String, Option<String>, bool, Option<HeaderValue>);
 
     fn state(chat_api: Option<ServiceBinding>) -> CrmState {
         CrmState {
@@ -224,7 +261,13 @@ mod tests {
 
     fn incoming() -> Incoming {
         let mut extensions = Extensions::new();
-        extensions.insert(Session("user_1"));
+        extensions.insert(weldsuite_auth::AuthContext {
+            user_id: "user_1".to_owned(),
+            org_id: Some("org_1".to_owned()),
+            session_id: String::new(),
+            factor_verification_age: None,
+        });
+        extensions.insert(Routing);
         Incoming {
             headers: HeaderMap::new(),
             extensions,
@@ -242,8 +285,9 @@ mod tests {
                 request.uri().to_string(),
                 request
                     .extensions()
-                    .get::<Session>()
-                    .map(|session| session.0),
+                    .get::<weldsuite_auth::AuthContext>()
+                    .map(|auth| auth.user_id.clone()),
+                request.extensions().get::<Routing>().is_some(),
                 request.headers().get(FORWARDED_BY).cloned(),
             ));
             Box::pin(std::future::ready(StatusCode::CREATED.into_response()))
@@ -257,10 +301,12 @@ mod tests {
             incoming(),
         ));
         assert_eq!(response.status(), StatusCode::CREATED);
-        let (method, path, session, by) = seen.lock().expect("lock").clone().expect("forwarded");
+        let (method, path, user, routing, by) =
+            seen.lock().expect("lock").clone().expect("forwarded");
         assert_eq!(method, Method::POST);
         assert_eq!(path, "/api/chat-entity-channels/company/co%201/messages");
-        assert_eq!(session, Some("user_1"));
+        assert_eq!(user.as_deref(), Some("user_1"));
+        assert!(!routing, "the CRM route's own routing stays behind");
         assert_eq!(by, Some(HeaderValue::from_static("crm-api")));
     }
 

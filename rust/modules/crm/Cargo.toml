@@ -19,7 +19,7 @@ weldsuite-kit = { workspace = true }
 weldsuite-mail-domain = { workspace = true }
 weldsuite-permissions = { workspace = true }
 weldsuite-ports = { workspace = true }
-axum = { workspace = true, features = ["json", "matched-path", "query"] }
+axum = { workspace = true, features = ["json", "query"] }
 futures-util = { workspace = true, features = ["alloc"] }
 http = { workspace = true }
 serde_json = { workspace = true }
