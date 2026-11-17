@@ -20,13 +20,26 @@ import {
   FormLabel,
   FormMessage,
 } from '@weldsuite/ui/components/form';
-import type { SsoConfigView, SsoOidcView } from '@weldsuite/app-api-client/schemas/sso';
+import type { SsoConfigView, SsoOidcView, SsoProtocol } from '@weldsuite/app-api-client/schemas/sso';
 import { useI18n } from '@/lib/i18n/provider';
 import { useRemoveSsoConnection, useSaveSsoOidcConnection } from '@/hooks/queries/use-sso-queries';
 import { CopyField } from './copy-field';
 import { ssoErrorMessage } from './sso-errors';
 import { InlineError, StepCard } from './sso-parts';
-import { oidcFormValues, oidcInputFrom, oidcIssues, type OidcFormValues, type OidcIssueCode } from './sso-view';
+import {
+  SsoProtocolChoice,
+  SsoSamlConnectionForm,
+  SsoSamlConnectionSummary,
+  SsoSamlRegisterPanel,
+} from './sso-saml-connection';
+import {
+  isSamlConnection,
+  oidcFormValues,
+  oidcInputFrom,
+  oidcIssues,
+  type OidcFormValues,
+  type OidcIssueCode,
+} from './sso-view';
 
 interface SsoOidcConnectionStepProps {
   config: SsoConfigView;
@@ -35,9 +48,12 @@ interface SsoOidcConnectionStepProps {
 }
 
 /**
- * WeldID mode, step 1: the OpenID Connect connection at WeldID. The first
- * save creates it and brings back the redirect URI to register at the
- * identity provider; the client secret is write-only.
+ * WeldID mode, step 1: the connection at WeldID, over OpenID Connect or
+ * SAML (chosen once; switching means removing it). The first save creates
+ * it and brings back what to register at the identity provider: the
+ * redirect URI (OpenID Connect; the client secret is write-only), or the
+ * entity ID and reply URL (SAML, created from the identity provider's
+ * metadata).
  */
 export function SsoOidcConnectionStep({ config, oidc, canManage }: Readonly<SsoOidcConnectionStepProps>) {
   const { t } = useI18n();
@@ -50,6 +66,8 @@ export function SsoOidcConnectionStep({ config, oidc, canManage }: Readonly<SsoO
   const [editing, setEditing] = useState(false);
   const [removeOpen, setRemoveOpen] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  const [protocol, setProtocol] = useState<SsoProtocol>('oidc');
+  const saml = connection ? isSamlConnection(connection) : protocol === 'saml';
 
   const schema = useMemo(() => {
     const messages: Record<OidcIssueCode, string> = {
@@ -130,7 +148,17 @@ export function SsoOidcConnectionStep({ config, oidc, canManage }: Readonly<SsoO
       done={Boolean(connection)}
       badge={connection ? <Badge variant="success">{connection.displayName}</Badge> : undefined}
     >
-      {showForm ? (
+      {showForm && !connection && <SsoProtocolChoice value={protocol} onChange={setProtocol} />}
+
+      {showForm && saml ? (
+        <SsoSamlConnectionForm
+          connection={connection}
+          onSaved={() => setEditing(false)}
+          onCancel={connection ? () => setEditing(false) : undefined}
+        />
+      ) : null}
+
+      {showForm && !saml ? (
         <Form {...form}>
           <form onSubmit={form.handleSubmit(submit)} noValidate className="space-y-4">
             <FormField
@@ -251,16 +279,20 @@ export function SsoOidcConnectionStep({ config, oidc, canManage }: Readonly<SsoO
 
       {!showForm && connection && (
         <div className="space-y-4">
-          <FieldGrid
-            fields={[
-              { label: copy.displayName, value: connection.displayName },
-              { label: copy.issuer, value: <span className="break-all">{connection.issuer}</span> },
-              { label: copy.clientId, value: <span className="break-all font-mono text-[13px]">{connection.clientId}</span> },
-              { label: copy.clientSecret, value: connection.hasClientSecret ? copy.secretStored : null },
-              { label: copy.scopes, value: connection.scopes.length > 0 ? connection.scopes.join(' ') : null },
-              { label: copy.trustEmails, value: connection.trustEmails ? copy.trustEmailsOn : copy.trustEmailsOff },
-            ]}
-          />
+          {saml ? (
+            <SsoSamlConnectionSummary connection={connection} />
+          ) : (
+            <FieldGrid
+              fields={[
+                { label: copy.displayName, value: connection.displayName },
+                { label: copy.issuer, value: <span className="break-all">{connection.issuer}</span> },
+                { label: copy.clientId, value: <span className="break-all font-mono text-[13px]">{connection.clientId}</span> },
+                { label: copy.clientSecret, value: connection.hasClientSecret ? copy.secretStored : null },
+                { label: copy.scopes, value: connection.scopes.length > 0 ? connection.scopes.join(' ') : null },
+                { label: copy.trustEmails, value: connection.trustEmails ? copy.trustEmailsOn : copy.trustEmailsOff },
+              ]}
+            />
+          )}
           {canManage && (
             <div className="flex flex-wrap gap-2">
               <Button type="button" variant="outline" size="sm" onClick={() => setEditing(true)}>
@@ -274,7 +306,9 @@ export function SsoOidcConnectionStep({ config, oidc, canManage }: Readonly<SsoO
         </div>
       )}
 
-      {connection && (
+      {connection && saml && <SsoSamlRegisterPanel connection={connection} />}
+
+      {connection && !saml && (
         <div className="space-y-3 rounded-lg border bg-muted/20 p-4">
           <div className="space-y-1">
             <p className="text-sm font-medium">{copy.redirectTitle}</p>

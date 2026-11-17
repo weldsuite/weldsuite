@@ -196,6 +196,8 @@ export const SSO_ERRORS = {
   SUBSCRIPTION_UNPAID: 'SSO_SUBSCRIPTION_UNPAID',
   PAYMENT_METHOD_REQUIRED: 'PAYMENT_METHOD_REQUIRED',
   BILLING_ADMIN_REQUIRED: 'BILLING_ADMIN_REQUIRED',
+  /** WeldID mode: a connection keeps its protocol; switching means removing it first. */
+  PROTOCOL_MISMATCH: 'SSO_PROTOCOL_MISMATCH',
 } as const;
 
 // ============================================================================
@@ -248,13 +250,27 @@ export type SsoDomainStatus = (typeof SSO_DOMAIN_STATUSES)[number];
 /** An OAuth scope token (RFC 6749 §3.3): printable ASCII except space, `"` and `\`. */
 const SCOPE_TOKEN = /^[\x21\x23-\x5B\x5D-\x7E]+$/;
 
+/** The protocols of a connection at WeldID. */
+export const SSO_PROTOCOLS = ['oidc', 'saml'] as const;
+export type SsoProtocol = (typeof SSO_PROTOCOLS)[number];
+
+/** The largest SAML metadata document WeldID takes. */
+export const SSO_SAML_METADATA_MAX_BYTES = 256 * 1024;
+
 /**
  * `PUT /api/sso/connection` in WeldID mode. Every field is optional so a
- * switch sends only itself; creating the connection needs the display name,
- * issuer and client ID. The secret is write-only: leaving it out keeps the
- * stored one.
+ * switch sends only itself. Creating an OpenID Connect connection needs the
+ * display name, issuer and client ID; a SAML connection (`protocol: 'saml'`)
+ * the display name and the identity provider's metadata, as a document or a
+ * URL. The secret is write-only: leaving it out keeps the stored one. The
+ * protocol never changes: remove the connection to switch.
  */
 export const ssoOidcConnectionInputSchema = z.object({
+  protocol: z.enum(SSO_PROTOCOLS).optional(),
+  /** SAML: the identity provider's metadata document. */
+  metadataXml: z.string().trim().min(1).max(SSO_SAML_METADATA_MAX_BYTES).optional(),
+  /** SAML: where WeldID fetches the identity provider's metadata. */
+  metadataUrl: httpsUrl.optional(),
   displayName: z.string().trim().min(1).max(64).optional(),
   issuer: httpsUrl.optional(),
   clientId: z.string().trim().min(1).max(512).optional(),
@@ -300,8 +316,34 @@ export const ssoOidcDomainViewSchema = z.object({
 });
 export type SsoOidcDomainView = z.infer<typeof ssoOidcDomainViewSchema>;
 
+/** A SAML connection's two sides at WeldID. */
+export const ssoSamlViewSchema = z.object({
+  /** What to register at the identity provider as the entity ID (identifier). */
+  entityId: z.string(),
+  /** What to register as the assertion consumer service (reply) URL. */
+  acsUrl: z.string(),
+  /** WeldID's service provider metadata, for identity providers that read it. */
+  metadataUrl: z.string(),
+  idpEntityId: z.string().nullable(),
+  idpSsoUrl: z.string().nullable(),
+  /** Where the identity provider's metadata was fetched from; null when uploaded. */
+  idpMetadataUrl: z.string().nullable(),
+  idpCertificates: z.array(
+    z.object({
+      sha256: z.string(),
+      subject: z.string().nullable(),
+      notAfter: z.string().nullable(),
+    }),
+  ),
+});
+export type SsoSamlView = z.infer<typeof ssoSamlViewSchema>;
+
 export const ssoOidcConnectionViewSchema = z.object({
   id: z.string(),
+  /** Absent (answers before SAML): OpenID Connect. */
+  protocol: z.enum(SSO_PROTOCOLS).optional(),
+  /** SAML only. */
+  saml: ssoSamlViewSchema.nullable().optional(),
   displayName: z.string(),
   issuer: z.string(),
   clientId: z.string(),
@@ -389,8 +431,8 @@ export const ssoConfigViewSchema = z.object({
   canManage: z.boolean(),
   /**
    * `weldid`: a Kubernetes edition with WeldID as the identity provider. The
-   * connection is then an OpenID Connect connection with its own domains, in
-   * `oidc`, and `connection` (SAML) is null. Absent on Global.
+   * connection (OpenID Connect or SAML) and its own domains are then in
+   * `oidc`, and `connection` (Global's Clerk SAML) is null. Absent on Global.
    */
   mode: z.literal('weldid').optional(),
   oidc: ssoOidcViewSchema.optional(),

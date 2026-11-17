@@ -29,7 +29,7 @@ vi.mock('@/components/access-denied-empty-state', () => ({
 
 import { installPointerPolyfills, renderWithProviders } from '@/app/weldbooks/banking/feeds/test-support';
 import SsoSettingsPage from './page';
-import { makeOidcConnection, makeOidcDomain, makeWeldIdConfig } from './test-support';
+import { makeOidcConnection, makeOidcDomain, makeSamlConnection, makeWeldIdConfig } from './test-support';
 
 const ts = en.settings.sso;
 const copy = ts.weldid;
@@ -52,7 +52,21 @@ function installApi() {
     throw refusal(502, 'BILLING_UNAVAILABLE');
   });
   api.sso.saveOidcConnection = vi.fn(async (input: SsoOidcConnectionInput) => {
-    const current = oidc().connection ?? makeOidcConnection({ hasClientSecret: false });
+    const saved = oidc().connection;
+    if (input.protocol === 'saml' || saved?.protocol === 'saml') {
+      const current = saved ?? makeSamlConnection();
+      config = makeWeldIdConfig({
+        ...oidc(),
+        connection: makeSamlConnection({
+          ...current,
+          displayName: input.displayName ?? current.displayName,
+          trustEmails: input.trustEmails ?? current.trustEmails,
+          saml: { ...current.saml!, idpMetadataUrl: input.metadataXml ? null : (input.metadataUrl ?? current.saml!.idpMetadataUrl) },
+        }),
+      });
+      return answer(config);
+    }
+    const current = saved ?? makeOidcConnection({ hasClientSecret: false });
     config = makeWeldIdConfig({
       ...oidc(),
       defaultRole: input.defaultRole ?? oidc().defaultRole,
@@ -117,11 +131,12 @@ beforeEach(() => {
 });
 
 describe('Single sign-on with WeldID: no connection yet', () => {
-  it('shows the OpenID Connect form instead of the add-on and SAML, and blocks the next steps', async () => {
+  it('offers OpenID Connect (the default) or SAML instead of the add-on, and blocks the next steps', async () => {
     render();
 
     const connectionStep = await step(copy.connection.title);
-    expect(screen.getByText(copy.samlLater)).toBeInTheDocument();
+    expect(within(connectionStep).getByRole('radio', { name: new RegExp(copy.connection.protocolOidc) })).toBeChecked();
+    expect(within(connectionStep).getByRole('radio', { name: new RegExp(copy.connection.protocolSaml) })).not.toBeChecked();
     expect(screen.getByText(copy.description)).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: ts.addon.title })).not.toBeInTheDocument();
     expect(api.sso.billing).not.toHaveBeenCalled();
@@ -175,6 +190,63 @@ describe('Single sign-on with WeldID: no connection yet', () => {
     );
     expect(within(connectionStep).getByText(copy.connection.secretStored)).toBeInTheDocument();
     expect(document.body).not.toHaveTextContent(SECRET);
+  });
+
+  it('creates a SAML connection from a metadata URL and shows what to register at the identity provider', async () => {
+    const user = userEvent.setup();
+    render(['sso:read', 'sso:manage']);
+    const connectionStep = await step(copy.connection.title);
+
+    await user.click(within(connectionStep).getByRole('radio', { name: new RegExp(copy.connection.protocolSaml) }));
+    expect(within(connectionStep).queryByLabelText(copy.connection.clientSecret)).not.toBeInTheDocument();
+    // SAML has no verified-email flag: trusting the provider is on by default.
+    expect(within(connectionStep).getByRole('checkbox', { name: copy.connection.trustEmails })).toBeChecked();
+
+    await user.click(within(connectionStep).getByRole('button', { name: copy.connection.create }));
+    expect(await within(connectionStep).findByText(copy.connection.metadataRequired)).toBeInTheDocument();
+    expect(api.sso.saveOidcConnection).not.toHaveBeenCalled();
+
+    await user.type(within(connectionStep).getByLabelText(copy.connection.displayName), 'Acme SAML');
+    await user.type(within(connectionStep).getByLabelText(copy.connection.metadataUrl), 'http://idp.example.test/m.xml');
+    await user.click(within(connectionStep).getByRole('button', { name: copy.connection.create }));
+    expect(await within(connectionStep).findByText(ts.validation.httpsUrl)).toBeInTheDocument();
+
+    const url = within(connectionStep).getByLabelText(copy.connection.metadataUrl);
+    await user.clear(url);
+    await user.type(url, 'https://login.microsoftonline.com/acme/federationmetadata.xml');
+    await user.click(within(connectionStep).getByRole('button', { name: copy.connection.create }));
+
+    await waitFor(() =>
+      expect(api.sso.saveOidcConnection).toHaveBeenCalledWith({
+        protocol: 'saml',
+        displayName: 'Acme SAML',
+        trustEmails: true,
+        metadataUrl: 'https://login.microsoftonline.com/acme/federationmetadata.xml',
+      }),
+    );
+    expect(toast.success).toHaveBeenCalledWith(copy.connection.samlCreated);
+    expect(await within(connectionStep).findByRole('textbox', { name: copy.connection.spEntityId })).toHaveTextContent(
+      'https://auth.example.test/sso/ssoc_1/saml/metadata',
+    );
+    expect(within(connectionStep).getByRole('textbox', { name: copy.connection.spAcsUrl })).toHaveTextContent(
+      'https://auth.example.test/sso/ssoc_1/saml/acs',
+    );
+    expect(within(connectionStep).getByText('AB:CD:EF')).toBeInTheDocument();
+    expect(within(connectionStep).queryByText(copy.connection.redirectTitle)).not.toBeInTheDocument();
+  });
+
+  it('shows WeldID’s refusal of SAML metadata as WeldID wrote it', async () => {
+    const user = userEvent.setup();
+    api.sso.saveOidcConnection = vi
+      .fn()
+      .mockRejectedValueOnce(refusal(400, 'SSO_IDP_REJECTED', 'The metadata has no signing certificate.'));
+    render(['sso:read', 'sso:manage']);
+    const connectionStep = await step(copy.connection.title);
+    await user.click(within(connectionStep).getByRole('radio', { name: new RegExp(copy.connection.protocolSaml) }));
+    await user.type(within(connectionStep).getByLabelText(copy.connection.displayName), 'Acme SAML');
+    await user.type(within(connectionStep).getByLabelText(copy.connection.metadataUrl), 'https://idp.example.test/m.xml');
+    await user.click(within(connectionStep).getByRole('button', { name: copy.connection.create }));
+    expect(await within(connectionStep).findByText(/The metadata has no signing certificate\./)).toBeInTheDocument();
   });
 
   it('says why it cannot connect when the plan has no single sign-on', async () => {
