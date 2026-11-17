@@ -577,10 +577,11 @@ export const formThemeTokensSchema = z.object({
   colors: z
     .object({
       background: colorSchema.default('#ffffff'),
-      question: colorSchema.default('#1f2937'),
-      answer: colorSchema.default('#2563eb'),
-      button: colorSchema.default('#2563eb'),
-      buttonText: colorSchema.default('#ffffff'),
+      // shadcn's neutral palette: foreground, primary and primary-foreground.
+      question: colorSchema.default('#0a0a0a'),
+      answer: colorSchema.default('#171717'),
+      button: colorSchema.default('#171717'),
+      buttonText: colorSchema.default('#fafafa'),
     })
     .default({}),
   background: z

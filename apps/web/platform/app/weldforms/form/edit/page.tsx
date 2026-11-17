@@ -5,8 +5,10 @@
  */
 
 import { useState } from 'react';
-import { ListTree, Monitor, SlidersHorizontal, Smartphone, Eye } from 'lucide-react';
+import { ChevronDown, ListTree, Monitor, SlidersHorizontal, Smartphone, Eye } from 'lucide-react';
 import type { FormLayout } from '@weldsuite/forms-engine';
+import { Button } from '@weldsuite/ui/components/button';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from '@weldsuite/ui/components/dropdown-menu';
 import { ToggleGroup, ToggleGroupItem } from '@weldsuite/ui/components/toggle-group';
 import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 import { cn } from '@/lib/utils';
@@ -15,7 +17,6 @@ import { FormPreview, type PreviewDevice } from '../../components/form-preview';
 import { topLevelIndex } from '../../lib/blocks';
 import { useEffectiveTheme } from '../../lib/use-effective-theme';
 import { useFormEditor, type Selection } from '../editor-context';
-import { AiSuggestDialog } from './ai-suggest-dialog';
 import { DataDialog } from './data-dialog';
 import { Outline } from './outline';
 import { PropertiesPanel } from './properties-panel';
@@ -37,7 +38,6 @@ export default function CreateTab() {
   const [layoutOverride, setLayoutOverride] = useState<FormLayout | null>(null);
   const [pane, setPane] = useState<Pane>('outline');
   const [dataOpen, setDataOpen] = useState(false);
-  const [aiOpen, setAiOpen] = useState(false);
   const { tokens } = useEffectiveTheme(editor.draft.themeId);
   const te = t.weldforms.editor;
 
@@ -73,15 +73,25 @@ export default function CreateTab() {
 
       <div className="flex min-h-0 flex-1">
         <aside className={cn('min-h-0 w-full shrink-0 border-r lg:block lg:w-72', pane === 'outline' ? 'block' : 'hidden')} aria-label={te.paneOutline}>
-          <Outline onDataClick={() => setDataOpen(true)} onAiClick={() => setAiOpen(true)} />
+          <Outline onDataClick={() => setDataOpen(true)} />
         </aside>
 
         <main className={cn('min-h-0 min-w-0 flex-1 flex-col bg-muted/30 lg:flex', pane === 'preview' ? 'flex' : 'hidden')} aria-label={te.panePreview}>
           <div className="flex items-center justify-between gap-2 border-b bg-background px-3 py-1.5">
-            <ToggleGroup type="single" size="sm" variant="outline" value={layout} onValueChange={(v) => v && setLayoutOverride(v as FormLayout)} aria-label={te.previewLayout}>
-              <ToggleGroupItem value="conversational">{te.conversational}</ToggleGroupItem>
-              <ToggleGroupItem value="classic">{te.classic}</ToggleGroupItem>
-            </ToggleGroup>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" aria-label={`${te.previewLayout}: ${layout === 'classic' ? te.classic : te.conversational}`}>
+                  {layout === 'classic' ? te.classic : te.conversational}
+                  <ChevronDown className="size-4 text-muted-foreground" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuRadioGroup value={layout} onValueChange={(v) => setLayoutOverride(v as FormLayout)}>
+                  <DropdownMenuRadioItem value="conversational">{te.conversational}</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="classic">{te.classic}</DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <ToggleGroup type="single" size="sm" variant="outline" value={device} onValueChange={(v) => v && setDevice(v as PreviewDevice)} aria-label={te.previewDevice}>
               <ToggleGroupItem value="desktop" aria-label={t.weldforms.preview.desktop}>
                 <Monitor className="size-4" />
@@ -106,7 +116,6 @@ export default function CreateTab() {
       </div>
 
       <DataDialog open={dataOpen} onOpenChange={setDataOpen} />
-      <AiSuggestDialog open={aiOpen} onOpenChange={setAiOpen} />
     </div>
   );
 }

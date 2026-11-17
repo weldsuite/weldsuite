@@ -1,7 +1,6 @@
 /** WeldDesk integration: open a ticket per response from recall templates. */
 
 import { useState } from 'react';
-import { LifeBuoy } from 'lucide-react';
 import {
   deskIntegrationConfigSchema,
   type DeskIntegrationConfig,
@@ -27,7 +26,7 @@ function parseConfig(integration: FormIntegration | null): DeskIntegrationConfig
   return parsed.success ? parsed.data : deskIntegrationConfigSchema.parse({});
 }
 
-export function DeskCard({ form, integration }: Readonly<{ form: FormDetail; integration: FormIntegration | null }>) {
+export function DeskCard({ form, integration, onBack }: Readonly<{ form: FormDetail; integration: FormIntegration | null; onBack: () => void }>) {
   const { t } = useI18n();
   const ti = t.weldformsResults.integrations;
   const td = ti.desk;
@@ -39,7 +38,8 @@ export function DeskCard({ form, integration }: Readonly<{ form: FormDetail; int
 
   return (
     <IntegrationCard
-      icon={LifeBuoy}
+      appCode="welddesk"
+      onBack={onBack}
       title={td.title}
       description={td.description}
       removeAction={td.actionPerson}

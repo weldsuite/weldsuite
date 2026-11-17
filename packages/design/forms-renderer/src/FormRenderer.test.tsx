@@ -107,8 +107,24 @@ describe('conversational layout', () => {
 
   it('shows progress along the path', () => {
     renderForm({ definition: makeDefinition({ blocks: [nameBlock, ageBlock] }) });
-    expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('0');
-    expect(screen.getByText('0% completed')).toBeTruthy();
+    const bar = screen.getByRole('progressbar');
+    expect(bar.getAttribute('aria-valuenow')).toBe('0');
+    expect(bar.getAttribute('aria-valuetext')).toBe('0% completed');
+    expect(screen.queryByText('0% completed')).toBeNull();
+  });
+
+  it('draws one segment per question and fills the one on screen', () => {
+    const { container } = renderForm({ definition: makeDefinition({ blocks: [nameBlock, ageBlock, colorBlock] }) });
+    const segments = container.querySelectorAll('.wf-progress-segment');
+    expect(segments).toHaveLength(3);
+    expect([...segments].map((s) => s.hasAttribute('data-reached'))).toEqual([true, false, false]);
+  });
+
+  it('draws one continuous bar for a long form', () => {
+    const blocks = Array.from({ length: 16 }, (_, i) => ({ id: `b_q${i}`, ref: `q${i}`, type: 'short_text' as const, title: `Question ${i}` }));
+    const { container } = renderForm({ definition: makeDefinition({ blocks }) });
+    expect(container.querySelectorAll('.wf-progress-segment')).toHaveLength(1);
+    expect((container.querySelector('.wf-progress-bar') as HTMLElement).style.width).toBe('6.25%');
   });
 });
 

@@ -1,7 +1,6 @@
 /** WeldFlow integration: create a task per response, in a project or as a personal task. */
 
 import { useState } from 'react';
-import { SquareCheck } from 'lucide-react';
 import {
   flowIntegrationConfigSchema,
   type FlowIntegrationConfig,
@@ -28,7 +27,7 @@ function parseConfig(integration: FormIntegration | null): FlowIntegrationConfig
   return parsed.success ? parsed.data : flowIntegrationConfigSchema.parse({});
 }
 
-export function FlowCard({ form, integration }: Readonly<{ form: FormDetail; integration: FormIntegration | null }>) {
+export function FlowCard({ form, integration, onBack }: Readonly<{ form: FormDetail; integration: FormIntegration | null; onBack: () => void }>) {
   const { t } = useI18n();
   const ti = t.weldformsResults.integrations;
   const tf = ti.flow;
@@ -41,7 +40,8 @@ export function FlowCard({ form, integration }: Readonly<{ form: FormDetail; int
 
   return (
     <IntegrationCard
-      icon={SquareCheck}
+      appCode="weldflow"
+      onBack={onBack}
       title={tf.title}
       description={tf.description}
       removeAction={tf.actionPerson}
