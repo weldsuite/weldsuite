@@ -15,6 +15,7 @@
  *   GET|POST /reports · GET|PATCH|DELETE /reports/:id
  *   GET|POST /dashboards · GET|PATCH|DELETE /dashboards/:id
  *   POST   /dashboards/:id/tiles · PATCH|DELETE /dashboards/:id/tiles/:tileId · PUT /dashboards/:id/layout
+ *   (dashboard filters, text tiles and templates: here; the rest of collaboration: weldpanel-collab.ts)
  *   GET|POST /cohorts · GET|PATCH|DELETE /cohorts/:id
  *   GET    /lexicon?projectId · PATCH /lexicon
  *   GET    /people · GET /people/by-email · GET|DELETE /people/:distinctId
@@ -29,6 +30,8 @@ import { z } from 'zod';
 import {
   PANEL_DEVICE_CLASSES,
   panelCohortFilterSchema,
+  panelDateRangeSchema,
+  panelFilterSchema,
   panelReportSpecSchema,
   sessionsSpecSchema,
   funnelSpecSchema,
@@ -101,11 +104,41 @@ export const panelTileLayoutSchema = z.object({
 });
 export type PanelTileLayoutInput = z.infer<typeof panelTileLayoutSchema>;
 
+/**
+ * Dashboard-wide overrides for every report tile: a date range that replaces
+ * each report's own, and filters ANDed onto each report's own.
+ */
+export const panelDashboardFiltersSchema = z.object({
+  dateRange: panelDateRangeSchema.optional(),
+  filters: z.array(panelFilterSchema).max(10).default([]),
+});
+export type PanelDashboardFiltersInput = z.input<typeof panelDashboardFiltersSchema>;
+export type PanelDashboardFilters = z.output<typeof panelDashboardFiltersSchema>;
+
+/**
+ * A report spec with a dashboard's filters applied: the date range replaced,
+ * the filters added to the report's own. The server runs dashboard tiles (and
+ * shared ones) this way; a client can use it to preview unsaved filters.
+ */
+export function applyPanelDashboardFilters(
+  spec: Record<string, unknown>,
+  filters: { dateRange?: unknown; filters?: readonly unknown[] } | null | undefined,
+): Record<string, unknown> {
+  if (!filters) return spec;
+  const out: Record<string, unknown> = { ...spec };
+  if (filters.dateRange) out.dateRange = filters.dateRange;
+  if (filters.filters && filters.filters.length > 0) {
+    out.filters = [...(Array.isArray(spec.filters) ? spec.filters : []), ...filters.filters];
+  }
+  return out;
+}
+
 export const createPanelDashboardSchema = z.object({
   projectId,
   name: z.string().trim().min(1).max(255),
   description: z.string().max(2000).nullish(),
   visibility: z.enum(PANEL_VISIBILITIES).default('private'),
+  filters: panelDashboardFiltersSchema.nullish(),
 });
 export type CreatePanelDashboardInput = z.input<typeof createPanelDashboardSchema>;
 
@@ -114,15 +147,32 @@ export const updatePanelDashboardSchema = z
     name: z.string().trim().min(1).max(255),
     description: z.string().max(2000).nullable(),
     visibility: z.enum(PANEL_VISIBILITIES),
+    /** Null clears them: every report as saved. */
+    filters: panelDashboardFiltersSchema.nullable(),
   })
   .partial()
   .refine((v) => Object.keys(v).length > 0, { message: 'Nothing to update' });
 export type UpdatePanelDashboardInput = z.input<typeof updatePanelDashboardSchema>;
 
-export const addPanelDashboardTileSchema = z.object({ reportId: z.string().min(1).max(30), layout: panelTileLayoutSchema });
+/** `report` shows a saved report; `text` shows its own Markdown. */
+export const PANEL_TILE_KINDS = ['report', 'text'] as const;
+export type PanelTileKind = (typeof PANEL_TILE_KINDS)[number];
+
+/** A text tile's Markdown. */
+export const panelTileTextSchema = z.string().trim().min(1).max(5000);
+
+/** A report tile (`kind` may be left out), or a text tile. */
+export const addPanelDashboardTileSchema = z.union([
+  z.object({ kind: z.literal('report').optional(), reportId: z.string().min(1).max(30), layout: panelTileLayoutSchema }),
+  z.object({ kind: z.literal('text'), text: panelTileTextSchema, layout: panelTileLayoutSchema }),
+]);
 export type AddPanelDashboardTileInput = z.input<typeof addPanelDashboardTileSchema>;
 
-export const updatePanelDashboardTileSchema = z.object({ layout: panelTileLayoutSchema });
+/** Move or resize a tile, or change a text tile's Markdown. */
+export const updatePanelDashboardTileSchema = z
+  .object({ layout: panelTileLayoutSchema, text: panelTileTextSchema })
+  .partial()
+  .refine((v) => Object.keys(v).length > 0, { message: 'Nothing to update' });
 export type UpdatePanelDashboardTileInput = z.input<typeof updatePanelDashboardTileSchema>;
 
 /** Replaces every tile's place at once (drag and resize end). */
@@ -139,7 +189,11 @@ export interface PanelDashboardListParams {
 export interface PanelDashboardTileDto {
   id: string;
   dashboardId: string;
-  reportId: string;
+  kind: PanelTileKind;
+  /** Set for a `report` tile. */
+  reportId: string | null;
+  /** Markdown of a `text` tile. */
+  text: string | null;
   layout: { x: number; y: number; w: number; h: number };
   createdAt: string;
 }
@@ -151,13 +205,31 @@ export interface PanelDashboardDto {
   description: string | null;
   ownerUserId: string;
   visibility: PanelVisibility;
+  /** Applied to every report tile; null = each report as saved. */
+  filters: PanelDashboardFilters | null;
+  /** The built-in template it was created from (`website-overview`, …), if any. */
+  template: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
-/** `GET /dashboards/:id`: the dashboard, its tiles and the reports on them (a report the caller may not see is left out with its tile). */
+/** A tile of `GET /dashboards/:id`. */
+export interface PanelDashboardDetailTileDto extends PanelDashboardTileDto {
+  /**
+   * What to send to `POST /query` for a report tile: the report's spec with
+   * the dashboard's filters applied. Null for a text tile, and for a report
+   * whose spec does not take the filters (too many filters together).
+   */
+  spec: Record<string, unknown> | null;
+}
+
+/**
+ * `GET /dashboards/:id`: the dashboard, its tiles and the reports on them. A
+ * report tile whose report the caller may not see is left out with it; text
+ * tiles are always there.
+ */
 export interface PanelDashboardDetailDto extends PanelDashboardDto {
-  tiles: PanelDashboardTileDto[];
+  tiles: PanelDashboardDetailTileDto[];
   reports: PanelReportDto[];
 }
 

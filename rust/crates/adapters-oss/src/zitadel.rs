@@ -1202,7 +1202,7 @@ fn platform_accept_template(page: &str, email: &str) -> String {
 
 /// A user's name from Zitadel's given and family name. An invited user gets
 /// the address's local part as both (Zitadel needs both); that is one name.
-fn person_name(first: Option<&str>, last: Option<&str>) -> Option<String> {
+pub(crate) fn person_name(first: Option<&str>, last: Option<&str>) -> Option<String> {
     let first = first.map(str::trim).filter(|name| !name.is_empty());
     let last = last.map(str::trim).filter(|name| !name.is_empty());
     match (first, last) {

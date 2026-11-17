@@ -16,7 +16,7 @@ On any block, add rules of the form "if *conditions*, go to *block*". Rules are 
 
 Conditions can be combined with AND and OR groups and can test any earlier answer, hidden field or variable. The operators follow the type of the answer: is, is not, contains, starts with, greater than, less than, between, before, after, is answered, is empty, any of, all of and none of.
 
-The **Logic** tab shows every jump as a diagram next to the rule list, so you can see dead ends and loops at a glance.
+The **Logic** tab opens on a diagram of the whole form, with every jump drawn, so you can see dead ends and loops at a glance. Click a question in the diagram to open its rules beside it, or click an ending to set which ending people see.
 
 In the **classic** layout the same rules show or hide questions and jump between pages.
 

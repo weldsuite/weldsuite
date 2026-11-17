@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { lazy, Suspense, useMemo, useState } from 'react';
 import { useAuth } from '@/lib/auth';
 import { BarChart3, ChevronDown, MoreHorizontal, Plus } from 'lucide-react';
 import { toast } from 'sonner';
@@ -24,8 +24,11 @@ import { reportBuilderHref } from '../lib/links';
 
 type Scope = 'all' | 'mine' | 'shared';
 
+// Loaded when opened.
+const ShareDialog = lazy(() => import('../components/share-dialog').then((m) => ({ default: m.ShareDialog })));
+
 /** Report actions need their own mutation hook (a hook per id), so each row's menu is a component. */
-function RowMenu({ report, onRename, onDelete }: Readonly<{ report: PanelReportDto; onRename: () => void; onDelete: () => void }>) {
+function RowMenu({ report, onRename, onDelete, onShare }: Readonly<{ report: PanelReportDto; onRename: () => void; onDelete: () => void; onShare: () => void }>) {
   const { t } = useI18n();
   const tr = t.weldpanel.analytics.reports;
   const canUpdate = useCan('panel_reports:update');
@@ -55,6 +58,7 @@ function RowMenu({ report, onRename, onDelete }: Readonly<{ report: PanelReportD
         </DropdownMenuItem>
         {canUpdate && <DropdownMenuItem onSelect={onRename}>{t.weldpanel.analytics.common.rename}</DropdownMenuItem>}
         {canUpdate && <DropdownMenuItem onSelect={() => void toggleVisibility()}>{next === 'private' ? tr.makePrivate : tr.makeShared}</DropdownMenuItem>}
+        <DropdownMenuItem onSelect={onShare}>{t.weldpanel.collab.share.button}</DropdownMenuItem>
         {canDelete && <DropdownMenuSeparator />}
         {canDelete && (
           <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={onDelete}>
@@ -100,6 +104,7 @@ function ReportsList({ projectId }: Readonly<{ projectId: string }>) {
   const [kind, setKind] = useState<PanelReportDto['kind'] | undefined>(undefined);
   const [renaming, setRenaming] = useState<PanelReportDto | null>(null);
   const [deleting, setDeleting] = useState<PanelReportDto | null>(null);
+  const [sharing, setSharing] = useState<PanelReportDto | null>(null);
   const remove = useDeleteWeldPanelReport();
   const params = useMemo(() => ({ projectId, scope, ...(kind ? { kind } : {}) }), [projectId, scope, kind]);
   const { data: reports, isLoading, isError, refetch } = useWeldPanelReports(params);
@@ -171,7 +176,7 @@ function ReportsList({ projectId }: Readonly<{ projectId: string }>) {
                   <TableCell className="hidden text-muted-foreground md:table-cell">{report.ownerUserId === userId ? tc.ownedByYou : tc.shared}</TableCell>
                   <TableCell className="hidden text-muted-foreground md:table-cell">{formatDate(report.updatedAt, language)}</TableCell>
                   <TableCell>
-                    <RowMenu report={report} onRename={() => setRenaming(report)} onDelete={() => setDeleting(report)} />
+                    <RowMenu report={report} onRename={() => setRenaming(report)} onDelete={() => setDeleting(report)} onShare={() => setSharing(report)} />
                   </TableCell>
                 </TableRow>
               ))}
@@ -181,6 +186,15 @@ function ReportsList({ projectId }: Readonly<{ projectId: string }>) {
       )}
 
       <RenameReportDialog report={renaming} onClose={() => setRenaming(null)} />
+      <Suspense fallback={null}>
+        {sharing && (
+          <ShareDialog
+            open
+            onOpenChange={(open) => !open && setSharing(null)}
+            target={{ targetType: 'report', targetId: sharing.id, name: sharing.name, ownerUserId: sharing.ownerUserId, visibility: sharing.visibility }}
+          />
+        )}
+      </Suspense>
       <ConfirmDialog
         open={deleting !== null}
         onOpenChange={(open) => !open && setDeleting(null)}

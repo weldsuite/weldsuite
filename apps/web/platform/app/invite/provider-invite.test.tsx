@@ -11,12 +11,14 @@ import { en } from '@weldsuite/i18n/locales/en';
 const auth = vi.hoisted(() => ({
   platform: true,
   redirectToSignIn: vi.fn(),
+  signOut: vi.fn(),
   state: { isLoaded: true, isSignedIn: false as boolean },
 }));
 vi.mock('@/lib/auth', () => ({
   usesPlatformSignIn: () => auth.platform,
   redirectToSignIn: auth.redirectToSignIn,
-  useAuth: () => auth.state,
+  useAuth: () => ({ ...auth.state, signOut: auth.signOut }),
+  useUser: () => ({ user: { primaryEmailAddress: { emailAddress: 'bob@acme.test' } } }),
   completeSignIn: vi.fn(),
   getAccountUrl: () => undefined,
 }));
@@ -41,7 +43,8 @@ vi.mock('@/hooks/queries/use-settings-queries', () => ({
 const router = vi.hoisted(() => ({ push: vi.fn() }));
 vi.mock('@/lib/router', () => ({ useRouter: () => ({ push: router.push, replace: vi.fn() }) }));
 
-import { ProviderInviteClient } from './provider-invite';
+import { ApiError } from '@weldsuite/api-client';
+import { ProviderInviteClient, keptRefusal } from './provider-invite';
 
 const t = en.common;
 const originalLocation = window.location;
@@ -150,5 +153,84 @@ describe('ProviderInviteClient', () => {
     render(<ProviderInviteClient orgId="org_1" isAuthenticated />);
 
     await waitFor(() => expect(replace).toHaveBeenCalledWith('/w/org_1/'));
+  });
+});
+
+/** The server's refusal of an acceptance, as the API client throws it. */
+function refused(status: number, reason?: string) {
+  return new ApiError('refused', status, { error: { code: 'X', message: 'refused', details: reason ? { reason } : undefined } });
+}
+
+describe('ProviderInviteClient: an invitation WeldSuite keeps (WeldID)', () => {
+  const kept = { invitationId: 'inv_abc', orgId: 'org_1', orgName: 'Acme', email: 'ann@acme.test', isAuthenticated: false };
+  const search = '?org_id=org_1&invitation_id=inv_abc&email=ann%40acme.test&org_name=Acme';
+
+  beforeEach(() => {
+    // WeldID shows its own sign-in pages: the platform's are off.
+    auth.platform = false;
+    at(search);
+  });
+
+  it('sends a signed-out invitee to sign in, and back to this link', async () => {
+    render(<ProviderInviteClient {...kept} />);
+
+    await waitFor(() =>
+      expect(auth.redirectToSignIn).toHaveBeenCalledWith({ returnTo: `${window.location.pathname}${search}` }),
+    );
+    expect(membership.accept).not.toHaveBeenCalled();
+  });
+
+  it('accepts as the signed-in invitee and opens the workspace', async () => {
+    auth.state = { isLoaded: true, isSignedIn: true };
+    render(<ProviderInviteClient {...kept} isAuthenticated />);
+
+    await waitFor(() => expect(membership.accept).toHaveBeenCalledWith('inv_abc'));
+    await waitFor(() => expect(replace).toHaveBeenCalledWith('/w/org_1/'));
+    expect(window.sessionStorage.getItem('weldsuite:pending-org')).toBe('org_1');
+    expect(auth.redirectToSignIn).not.toHaveBeenCalled();
+  });
+
+  it('offers to sign out when the invitation is for another address', async () => {
+    auth.state = { isLoaded: true, isSignedIn: true };
+    membership.accept.mockRejectedValue(refused(403, 'invitation_email_mismatch'));
+    render(<ProviderInviteClient {...kept} isAuthenticated />);
+
+    expect(await screen.findByRole('heading', { name: t.invite.wrongAccountTitle })).toBeInTheDocument();
+    expect(screen.getByText('bob@acme.test')).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole('button', { name: t.invite.signOutAndUseOtherAccount }));
+    expect(auth.signOut).toHaveBeenCalledWith({ redirectUrl: window.location.href });
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it('says an expired invitation expired, a used one was accepted, and an unverified address to verify', async () => {
+    auth.state = { isLoaded: true, isSignedIn: true };
+    membership.accept.mockRejectedValueOnce(refused(410));
+    const first = render(<ProviderInviteClient {...kept} isAuthenticated />);
+    expect(await screen.findByRole('heading', { name: t.invite.invitationExpiredTitle })).toBeInTheDocument();
+    first.unmount();
+
+    membership.accept.mockRejectedValueOnce(refused(404));
+    const second = render(<ProviderInviteClient {...kept} isAuthenticated />);
+    expect(
+      await screen.findByRole('heading', { name: t.invite.invitationAlreadyAcceptedTitle }),
+    ).toBeInTheDocument();
+    second.unmount();
+
+    membership.accept.mockRejectedValueOnce(refused(403, 'invitation_email_unverified'));
+    render(<ProviderInviteClient {...kept} isAuthenticated />);
+    expect(await screen.findByText(t.invite.errors.verifyEmailFirst)).toBeInTheDocument();
+    expect(replace).not.toHaveBeenCalled();
+  });
+});
+
+describe('keptRefusal', () => {
+  it('reads the status and the reason the server gave', () => {
+    expect(keptRefusal(refused(410))).toBe('expired');
+    expect(keptRefusal(refused(404))).toBe('used');
+    expect(keptRefusal(refused(403, 'invitation_email_mismatch'))).toBe('wrong_account');
+    expect(keptRefusal(refused(403, 'invitation_email_unverified'))).toBe('unverified');
+    expect(keptRefusal(refused(403))).toBe('failed');
+    expect(keptRefusal(refused(500))).toBe('failed');
+    expect(keptRefusal(new Error('offline'))).toBe('failed');
   });
 });

@@ -1320,12 +1320,19 @@ fn white() -> String {
     "#ffffff".to_owned()
 }
 
-fn dark_grey() -> String {
-    "#1f2937".to_owned()
+/// shadcn's neutral foreground.
+fn foreground() -> String {
+    "#0a0a0a".to_owned()
 }
 
-fn blue() -> String {
-    "#2563eb".to_owned()
+/// shadcn's neutral primary.
+fn primary() -> String {
+    "#171717".to_owned()
+}
+
+/// shadcn's neutral primary-foreground.
+fn primary_foreground() -> String {
+    "#fafafa".to_owned()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1333,13 +1340,13 @@ fn blue() -> String {
 pub struct ThemeColors {
     #[serde(default = "white")]
     pub background: String,
-    #[serde(default = "dark_grey")]
+    #[serde(default = "foreground")]
     pub question: String,
-    #[serde(default = "blue")]
+    #[serde(default = "primary")]
     pub answer: String,
-    #[serde(default = "blue")]
+    #[serde(default = "primary")]
     pub button: String,
-    #[serde(default = "white")]
+    #[serde(default = "primary_foreground")]
     pub button_text: String,
 }
 
@@ -1347,10 +1354,10 @@ impl Default for ThemeColors {
     fn default() -> Self {
         Self {
             background: white(),
-            question: dark_grey(),
-            answer: blue(),
-            button: blue(),
-            button_text: white(),
+            question: foreground(),
+            answer: primary(),
+            button: primary(),
+            button_text: primary_foreground(),
         }
     }
 }

@@ -15,6 +15,8 @@ import { useWeldPanelCohorts, useWeldPanelPeople } from '@/hooks/queries/use-wel
 import { useI18n } from '@/lib/i18n/provider';
 import { Link, useRouter } from '@/lib/router';
 import { AnalyticsPage } from '../components/analytics-page';
+import { CsvExportButton } from '../components/chart-card';
+import { csvFilename } from '../lib/csv';
 import { QueryErrorState } from '../components/query-error-state';
 import { formatDate, formatNumber } from '../lib/format';
 import { personDisplayName } from '../lib/people';
@@ -103,6 +105,15 @@ function UsersList({ project }: Readonly<{ project: PanelProjectDto }>) {
           </Select>
         )}
         {data && <span className="ml-auto text-sm text-muted-foreground">{format(tu.count, { count: formatNumber(data.totalCount, language) })}</span>}
+        {people.length > 0 && (
+          // The people loaded so far (this page and any "load more"), not the whole project.
+          <CsvExportButton
+            csv={() => ({
+              filename: csvFilename(`${project.name} ${tu.title}`),
+              rows: people.map((person) => ({ distinct_id: person.userId, name: person.name, email: person.email, first_seen: person.firstSeen, last_seen: person.lastSeen })),
+            })}
+          />
+        )}
       </div>
 
       {error && <QueryErrorState error={error} onRetry={() => void refetch()} />}

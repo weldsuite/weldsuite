@@ -327,6 +327,7 @@ export const common = {
         failedToProcessInvitation: 'No se pudo procesar la invitación',
         failedToAcceptInvitation: 'No se pudo aceptar la invitación',
         failedToLoadDetails: 'No se pudieron cargar los detalles de la invitación.',
+        verifyEmailFirst: 'Verifica tu dirección de correo electrónico y vuelve a abrir el enlace de la invitación.',
       },
     },
     auth: {

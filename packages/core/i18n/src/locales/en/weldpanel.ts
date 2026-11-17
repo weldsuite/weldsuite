@@ -6,6 +6,8 @@
  */
 import { weldpanelAnalytics } from './weldpanel-analytics';
 import { weldpanelObserve } from './weldpanel-observe';
+import { weldpanelCollab } from './weldpanel-collab';
+import { weldpanelExplore } from './weldpanel-explore';
 
 export const weldpanel = {
   title: 'WeldPanel',
@@ -289,4 +291,8 @@ export const weldpanel = {
   },
   /** Users, recordings, heatmaps, frustration, live, keys and usage (phases 3-7), see weldpanel-observe.ts. */
   observe: weldpanelObserve,
+  /** Collaboration, monitoring, data out and the public share page, see weldpanel-collab.ts. */
+  collab: weldpanelCollab,
+  /** Analysis pages and builder upgrades of the gaps PR, see weldpanel-explore.ts. */
+  explore: weldpanelExplore,
 };

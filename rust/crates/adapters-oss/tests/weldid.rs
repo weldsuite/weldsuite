@@ -19,12 +19,13 @@ use base64::Engine;
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use serde_json::{Value, json};
 use weldsuite_adapters_oss::{
-    INVITATIONS_UNAVAILABLE, WELDID_ADMIN_SCOPES, WeldIdIdentity, WeldIdOptions, WeldIdSso,
+    INVITATION_DAYS, INVITATION_EMAIL_MISMATCH, INVITATION_EMAIL_UNVERIFIED, INVITATION_EXPIRED,
+    WELDID_ADMIN_SCOPES, WeldIdIdentity, WeldIdOptions, WeldIdSso,
 };
 use weldsuite_ports::{
-    Identity, IdentityError, ListPage, NewInvitation, NewMembership, NewOrganization,
-    NewSsoConnection, OrganizationChanges, SsoConnectionChanges, SsoDirectory, SsoDomainStatus,
-    UserChanges,
+    BoxFuture, Identity, IdentityError, InvitationEmail, InvitationMailer, ListPage, NewInvitation,
+    NewMembership, NewOrganization, NewSsoConnection, OrganizationChanges, PortError,
+    SsoConnectionChanges, SsoDirectory, SsoDomainStatus, UserChanges,
 };
 
 const CLIENT: &str = "weldsuite-backend";
@@ -142,6 +143,7 @@ async fn mock(
             // As a Kubernetes Secret often holds it: one line, escaped.
             client_key: pem.replace('\n', "\\n"),
             token_endpoint: issuer.map(|_| format!("{base}/oauth/token")),
+            invitation_mailer: None,
         },
         master,
     )
@@ -491,38 +493,13 @@ async fn the_outbox_is_read_after_a_cursor() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn invitations_wait_for_their_table_and_metadata_is_not_kept() {
+async fn organization_metadata_is_not_kept() {
     let setup = mock(Some("https://auth.example.test"), |_, _, _| {
         (StatusCode::INTERNAL_SERVER_ERROR, Value::Null)
     })
     .await;
-    let identity = &setup.identity;
-    let unavailable = |result: Result<(), IdentityError>| match result {
-        Err(IdentityError::Unavailable(reason)) => assert_eq!(reason, INVITATIONS_UNAVAILABLE),
-        other => panic!("unavailable expected: {other:?}"),
-    };
-    unavailable(
-        identity
-            .invite(
-                "org_1",
-                &NewInvitation {
-                    email_address: "new@acme.test".to_owned(),
-                    role: "org:member".to_owned(),
-                    ..NewInvitation::default()
-                },
-            )
-            .await
-            .map(drop),
-    );
-    unavailable(
-        identity
-            .invitations("org_1", Some("pending"), ListPage::limit(500))
-            .await
-            .map(drop),
-    );
-    unavailable(identity.invitation("org_1", "inv_1").await.map(drop));
-    unavailable(identity.revoke_invitation("org_1", "inv_1").await);
-    identity
+    setup
+        .identity
         .update_organization_metadata("org_1", Some(&json!({ "selectedApps": ["crm"] })), None)
         .await
         .expect("accepted, not kept");
@@ -530,8 +507,11 @@ async fn invitations_wait_for_their_table_and_metadata_is_not_kept() {
     assert!(setup.seen.lock().expect("lock").is_empty());
 }
 
+/// The database tests reset the same tables: one at a time.
+static DATABASE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 const SCHEMA: &str = "
-drop table if exists user_workspaces, workspaces, users cascade;
+drop table if exists workspace_invitations, user_workspaces, workspaces, users cascade;
 drop type if exists membership_status;
 create type membership_status as enum ('ACTIVE', 'PENDING');
 create table users (
@@ -565,6 +545,25 @@ create table user_workspaces (
     updated_at timestamp not null default now()
 );
 create unique index user_workspaces_user_workspace_idx on user_workspaces (user_id, workspace_id);
+-- As master migration 0070 makes it.
+create table workspace_invitations (
+    id varchar(30) primary key,
+    workspace_id varchar(255) not null references workspaces (id) on delete cascade,
+    email varchar(320) not null,
+    email_normalized varchar(320) not null,
+    role varchar(50) not null,
+    public_metadata jsonb not null default '{}'::jsonb,
+    status varchar(20) not null default 'pending',
+    invited_by varchar(255) references users (id) on delete set null,
+    accepted_by varchar(255) references users (id) on delete set null,
+    created_at timestamp with time zone not null default now(),
+    expires_at timestamp with time zone not null,
+    accepted_at timestamp with time zone,
+    revoked_at timestamp with time zone,
+    constraint workspace_invitations_status_check check (status in ('pending', 'accepted', 'revoked'))
+);
+create unique index workspace_invitations_pending_email_uidx
+    on workspace_invitations (workspace_id, email_normalized) where status = 'pending';
 insert into users (id, email, first_name, last_name) values
     ('usr_owner', 'owner@acme.test', 'Olga', 'Owner');
 insert into workspaces (id, clerk_org_id, name, slug) values
@@ -582,6 +581,7 @@ async fn organizations_and_memberships_are_weldsuites_own() {
         eprintln!("WELDSUITE_TEST_DATABASE_URL is not set; skipping");
         return;
     };
+    let _one_at_a_time = DATABASE.lock().await;
     let master = weldsuite_db::master_pool(&url, 2).expect("pool");
     sqlx::raw_sql(SCHEMA)
         .execute(&master)
@@ -610,6 +610,7 @@ async fn organizations_and_memberships_are_weldsuites_own() {
             client_id: CLIENT.to_owned(),
             client_key: pem,
             token_endpoint: Some(format!("{}/oauth/token", setup.base)),
+            invitation_mailer: None,
         },
         master.clone(),
     )
@@ -760,6 +761,355 @@ async fn organizations_and_memberships_are_weldsuites_own() {
             .expect("mine")
             .len(),
         1
+    );
+}
+
+/// Records the invitation emails instead of sending them.
+#[derive(Default)]
+struct Outbox(Mutex<Vec<InvitationEmail>>);
+
+impl InvitationMailer for Outbox {
+    fn send<'a>(&'a self, email: &'a InvitationEmail) -> BoxFuture<'a, Result<(), PortError>> {
+        self.0.lock().expect("lock").push(email.clone());
+        Box::pin(async { Ok(()) })
+    }
+}
+
+fn refusal(error: &IdentityError) -> (Option<u16>, Option<&str>) {
+    (error.status(), error.code())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[allow(clippy::too_many_lines)] // one scenario, in order
+async fn invitations_are_weldsuites_own_and_need_the_verified_address() {
+    let Ok(url) = std::env::var("WELDSUITE_TEST_DATABASE_URL") else {
+        eprintln!("WELDSUITE_TEST_DATABASE_URL is not set; skipping");
+        return;
+    };
+    let _one_at_a_time = DATABASE.lock().await;
+    let master = weldsuite_db::master_pool(&url, 4).expect("pool");
+    sqlx::raw_sql(SCHEMA)
+        .execute(&master)
+        .await
+        .expect("schema");
+    // WeldID's users: who they say they are, and whether WeldID verified it.
+    let setup = mock(Some("https://auth.example.test"), |method, path, _| {
+        let user = |id: &str, email: &str, verified: bool| {
+            (
+                StatusCode::OK,
+                json!({ "data": { "id": id, "email": email, "emailVerified": verified, "givenName": "Nia", "familyName": "New" } }),
+            )
+        };
+        match (method, path) {
+            ("POST", "/oauth/token") => (
+                StatusCode::OK,
+                json!({ "access_token": "t", "expires_in": 600 }),
+            ),
+            ("GET", "/admin/v1/users/usr_new") => user("usr_new", "New@Acme.test", true),
+            ("GET", "/admin/v1/users/usr_late") => user("usr_late", "late@acme.test", false),
+            ("GET", "/admin/v1/users/usr_other") => user("usr_other", "other@acme.test", true),
+            ("GET", "/admin/v1/users/usr_owner") => user("usr_owner", "owner@acme.test", true),
+            ("GET", "/admin/v1/users/usr_twin") => user("usr_twin", "twin@acme.test", true),
+            _ => (StatusCode::NOT_FOUND, Value::Null),
+        }
+    })
+    .await;
+    let outbox = Arc::new(Outbox::default());
+    let (pem, _) = client_key();
+    let identity = WeldIdIdentity::new(
+        WeldIdOptions {
+            issuer: "https://auth.example.test".to_owned(),
+            admin_url: format!("{}/", setup.base),
+            client_id: CLIENT.to_owned(),
+            client_key: pem,
+            token_endpoint: Some(format!("{}/oauth/token", setup.base)),
+            invitation_mailer: Some(Arc::clone(&outbox) as Arc<dyn InvitationMailer>),
+        },
+        master.clone(),
+    )
+    .expect("adapter");
+    let invite = |email: &str, role: &str| NewInvitation {
+        email_address: email.to_owned(),
+        role: role.to_owned(),
+        redirect_url: Some("https://app.example.test/invite?org_id=org_acme".to_owned()),
+        invited_by: Some("usr_owner".to_owned()),
+        ..NewInvitation::default()
+    };
+
+    // Inviting: a 128-bit id, open 14 days, emailed with the link.
+    let invited = identity
+        .invite("org_acme", &invite(" new@acme.test ", "org:member"))
+        .await
+        .expect("invited");
+    assert!(
+        invited.id.starts_with("inv_") && invited.id.len() == 30,
+        "{}",
+        invited.id
+    );
+    assert_eq!(invited.email_address, "new@acme.test");
+    assert_eq!(invited.status, "pending");
+    let open = invited.expires_at.expect("expires") - invited.created_at.expect("created");
+    assert!(
+        (open - i64::from(INVITATION_DAYS) * 86_400_000).abs() < 5_000,
+        "{open}"
+    );
+    let sent = outbox.0.lock().expect("lock").clone();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].to, "new@acme.test");
+    assert_eq!(sent[0].inviter_name.as_deref(), Some("Olga Owner"));
+    assert_eq!(sent[0].inviter_email.as_deref(), Some("owner@acme.test"));
+    assert_eq!(sent[0].workspace_name.as_deref(), Some("Acme"));
+    assert_eq!(sent[0].role, "org:member");
+    assert_eq!(
+        sent[0].accept_url,
+        format!(
+            "https://app.example.test/invite?org_id=org_acme&invitation_id={}&email=new%40acme.test&org_name=Acme",
+            invited.id
+        )
+    );
+
+    // One pending invitation per address, whatever its case.
+    let twice = identity
+        .invite("ws_acme", &invite("NEW@acme.test", "org:admin"))
+        .await
+        .expect_err("pending already");
+    assert_eq!(refusal(&twice), (Some(422), Some("duplicate_record")));
+
+    // Listed and found in its workspace; by id from anywhere.
+    let pending = identity
+        .invitations("org_acme", Some("pending"), ListPage::limit(1))
+        .await
+        .expect("listed");
+    assert_eq!(pending.total_count, Some(1));
+    assert_eq!(pending.data[0].id, invited.id);
+    assert_eq!(
+        identity
+            .invitation("ws_acme", &invited.id)
+            .await
+            .expect("found")
+            .email_address,
+        "new@acme.test"
+    );
+    assert!(
+        identity
+            .invitation("ws_old", &invited.id)
+            .await
+            .expect_err("another workspace's")
+            .is_not_found()
+    );
+    let (organization, found) = identity
+        .find_invitation(&invited.id)
+        .await
+        .expect("found")
+        .expect("kept here");
+    assert_eq!(
+        (organization.id.as_str(), organization.name.as_str()),
+        ("org_acme", "Acme")
+    );
+    assert_eq!(found.id, invited.id);
+    assert!(
+        identity
+            .find_invitation("inv_none")
+            .await
+            .expect_err("none")
+            .is_not_found()
+    );
+
+    // Accepting takes the invited address, verified at WeldID.
+    let other = identity
+        .accept_invitation(&invited.id, "usr_other")
+        .await
+        .expect_err("another address");
+    assert_eq!(
+        refusal(&other),
+        (Some(403), Some(INVITATION_EMAIL_MISMATCH))
+    );
+    let late = identity
+        .invite("org_acme", &invite("late@acme.test", "org:member"))
+        .await
+        .expect("invited");
+    let unverified = identity
+        .accept_invitation(&late.id, "usr_late")
+        .await
+        .expect_err("unverified");
+    assert_eq!(
+        refusal(&unverified),
+        (Some(403), Some(INVITATION_EMAIL_UNVERIFIED))
+    );
+    let membership = identity
+        .accept_invitation(&invited.id, "usr_new")
+        .await
+        .expect("accepted")
+        .expect("a membership");
+    assert_eq!(membership.role, "org:member");
+    assert_eq!(membership.user.user_id, "usr_new");
+    assert_eq!(membership.user.identifier, "New@Acme.test");
+    assert_eq!(membership.user.first_name.as_deref(), Some("Nia"));
+    let organization = membership.organization.expect("organization");
+    assert_eq!(
+        (organization.id.as_str(), organization.name.as_str()),
+        ("org_acme", "Acme")
+    );
+    let (status, invited_by): (String, Option<String>) = sqlx::query_as(
+        "select status::text, invited_by from user_workspaces
+          where user_id = 'usr_new' and workspace_id = 'ws_acme'",
+    )
+    .fetch_one(&master)
+    .await
+    .expect("membership row");
+    assert_eq!(
+        (status.as_str(), invited_by.as_deref()),
+        ("ACTIVE", Some("usr_owner"))
+    );
+    assert_eq!(
+        identity
+            .invitation("org_acme", &invited.id)
+            .await
+            .expect("kept")
+            .status,
+        "accepted"
+    );
+    assert!(
+        identity
+            .user_memberships("usr_new", 10)
+            .await
+            .expect("theirs")
+            .iter()
+            .any(|m| m.organization.as_ref().is_some_and(|o| o.id == "org_acme"))
+    );
+    // Once.
+    assert!(
+        identity
+            .accept_invitation(&invited.id, "usr_new")
+            .await
+            .expect_err("used")
+            .is_not_found()
+    );
+
+    // An active member keeps their role.
+    let owner = identity
+        .invite("org_acme", &invite("owner@acme.test", "org:member"))
+        .await
+        .expect("invited");
+    let kept = identity
+        .accept_invitation(&owner.id, "usr_owner")
+        .await
+        .expect("accepted")
+        .expect("a membership");
+    assert_eq!(kept.role, "org:admin");
+
+    // Revoking: once, and only a pending one.
+    identity
+        .revoke_invitation("org_acme", &late.id)
+        .await
+        .expect("revoked");
+    assert!(
+        identity
+            .revoke_invitation("org_acme", &late.id)
+            .await
+            .expect_err("revoked already")
+            .is_not_found()
+    );
+    assert_eq!(
+        identity
+            .invitation("org_acme", &late.id)
+            .await
+            .expect("kept")
+            .status,
+        "revoked"
+    );
+
+    // Expired: read as expired, refused as gone, left out of the pending
+    // count, and no obstacle to a new invitation.
+    sqlx::query(
+        "insert into workspace_invitations
+             (id, workspace_id, email, email_normalized, role, expires_at, created_at)
+         values ('inv_old', 'ws_acme', 'old@acme.test', 'old@acme.test', 'org:member',
+                 now() - interval '1 day', now() - interval '15 days')",
+    )
+    .execute(&master)
+    .await
+    .expect("an old invitation");
+    assert_eq!(
+        identity
+            .invitation("org_acme", "inv_old")
+            .await
+            .expect("kept")
+            .status,
+        "expired"
+    );
+    let gone = identity
+        .accept_invitation("inv_old", "usr_new")
+        .await
+        .expect_err("expired");
+    assert_eq!(refusal(&gone), (Some(410), Some(INVITATION_EXPIRED)));
+    assert_eq!(
+        identity
+            .invitations("org_acme", Some("pending"), ListPage::default())
+            .await
+            .expect("listed")
+            .total_count,
+        Some(0)
+    );
+    assert_eq!(
+        identity
+            .invitations("org_acme", Some("expired"), ListPage::default())
+            .await
+            .expect("listed")
+            .total_count,
+        Some(1)
+    );
+    let again = identity
+        .invite("org_acme", &invite("old@acme.test", "org:member"))
+        .await
+        .expect("a new invitation");
+    assert_eq!(again.status, "pending");
+    assert_eq!(
+        identity
+            .invitation("org_acme", "inv_old")
+            .await
+            .expect("kept")
+            .status,
+        "revoked"
+    );
+
+    // Two acceptances at once: exactly one joins.
+    let twin = identity
+        .invite("org_acme", &invite("twin@acme.test", "org:member"))
+        .await
+        .expect("invited");
+    let (first, second) = tokio::join!(
+        identity.accept_invitation(&twin.id, "usr_twin"),
+        identity.accept_invitation(&twin.id, "usr_twin"),
+    );
+    let joined = [first.is_ok(), second.is_ok()];
+    assert_eq!(joined.iter().filter(|ok| **ok).count(), 1, "{joined:?}");
+    let members: i64 = sqlx::query_scalar(
+        "select count(*) from user_workspaces where user_id = 'usr_twin' and workspace_id = 'ws_acme'",
+    )
+    .fetch_one(&master)
+    .await
+    .expect("count");
+    assert_eq!(members, 1);
+
+    // A deleted workspace's invitations are gone with it.
+    sqlx::query("update workspaces set deleted_at = now() where id = 'ws_acme'")
+        .execute(&master)
+        .await
+        .expect("deleted");
+    assert!(
+        identity
+            .find_invitation(&again.id)
+            .await
+            .expect_err("workspace gone")
+            .is_not_found()
+    );
+    assert!(
+        identity
+            .accept_invitation(&again.id, "usr_new")
+            .await
+            .expect_err("workspace gone")
+            .is_not_found()
     );
 }
 

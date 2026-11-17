@@ -14,12 +14,18 @@ import type {
   ParsedPanelQuerySpec,
 } from '@weldsuite/app-api-client/schemas/weldpanel-query';
 import type { PanelQueryContext } from './context';
+import { runFunnelCorrelation } from './correlation';
 import { runFlows } from './flows';
 import { runFunnel } from './funnel';
 import { runHeatmap } from './heatmap';
+import { runImpact } from './impact';
+import { runLifecycle } from './lifecycle';
 import { runRetention } from './retention';
 import { runSessions } from './sessions';
+import { runSignal } from './signal';
+import { runStickiness } from './stickiness';
 import { runTrends } from './trends';
+import { runVitals } from './vitals';
 import { runWeb } from './web';
 import { PanelQueryError } from './sql';
 import { createRunner, type PanelSqlExecutor, type RunStats } from './rows';
@@ -27,22 +33,55 @@ import { createRunner, type PanelSqlExecutor, type RunStats } from './rows';
 export * from './activity';
 export { BASIN_NAMESPACE, MAX_RETENTION_DAYS, type PanelQueryContext } from './context';
 export { flowsQuery } from './flows';
-export { funnelQuery } from './funnel';
+export { funnelPlan, funnelQuery, funnelTrendQuery, timeToConvertQuery, TIME_TO_CONVERT_EDGES, CORRELATION_COLUMNS } from './funnel';
+export { correlationQueries, correlationRow } from './correlation';
+export { stickinessQuery, STICKINESS_COUNT_BUCKETS } from './stickiness';
+export { lifecycleQuery, previousBucketLabel } from './lifecycle';
+export { vitalsQueries, vitalsRating, vitalsScore } from './vitals';
+export { impactQueries, impactWindows, impactGroup } from './impact';
+export { signalQuery, signalCandidatesQuery, signalCandidate } from './signal';
+export { autoEdges, prepareBreakdowns, type PreparedBreakdowns } from './breakdowns';
+export { activePathRules, applyPathRules, cleanedPathSql, pathRuleProblem, MAX_PATH_RULE_LENGTH } from './paths';
+export { customEventReferences, specReferences, type SpecReferences } from './refs';
+export { channelSql, screenSizeSql } from './web';
+export {
+  EXPLAIN_DIMENSIONS,
+  explainDimensions,
+  explainFrom,
+  explainQueries,
+  explainWindows,
+  type ExplainDimension,
+  type ExplainDimensionResult,
+  type ExplainValue,
+  type ExplainWindows,
+} from './explain';
+export { runTrends, trendsInterval } from './trends';
 export { heatmapQueries, resolveUrlPattern } from './heatmap';
 export { retentionQueries } from './retention';
 export {
+  breakdownExpr,
+  eventMatch,
+  eventNamesOf,
   eventsScope,
+  eventWithFilters,
+  groupsLatest,
+  groupsTable,
   identitiesLatest,
+  namesCondition,
   peopleLatest,
   scopeConds,
+  scopeNeeds,
   eventsTable,
   identitiesTable,
   peopleTable,
   replayChunksTable,
+  unitExpr,
+  NONE_LABEL,
+  OTHER_LABEL,
   type EventsScope,
 } from './scope';
 export { chunkCountsQuery, MAX_SESSIONS_REACH, parseSessionsCursor, sessionRowFrom, sessionsQuery } from './sessions';
-export { PanelQueryError, lit, num, ts } from './sql';
+export { PanelQueryError, isEventName, lit, num, percentileSql, ts } from './sql';
 export { bucketLabel, bucketLabels, resolveRange, retentionFloor, type ResolvedRange } from './time';
 export {
   createRunner,
@@ -99,6 +138,24 @@ export async function runPanelQuery(
       break;
     case 'heatmap':
       result = { kind: 'heatmap', result: await runHeatmap(spec, ctx, run) };
+      break;
+    case 'funnel_correlation':
+      result = { kind: 'funnel_correlation', result: await runFunnelCorrelation(spec, ctx, run) };
+      break;
+    case 'stickiness':
+      result = { kind: 'stickiness', result: await runStickiness(spec, ctx, run) };
+      break;
+    case 'lifecycle':
+      result = { kind: 'lifecycle', result: await runLifecycle(spec, ctx, run) };
+      break;
+    case 'vitals':
+      result = { kind: 'vitals', result: await runVitals(spec, ctx, run) };
+      break;
+    case 'impact':
+      result = { kind: 'impact', result: await runImpact(spec, ctx, run) };
+      break;
+    case 'signal':
+      result = { kind: 'signal', result: await runSignal(spec, ctx, run) };
       break;
   }
   return { result, stats: runner.stats };

@@ -6,11 +6,14 @@
  *   GET    /           → visible reports (?projectId, ?kind, ?scope=all|mine|shared)
  *   POST   /           → new report
  *   GET    /:id        → one report
- *   PATCH  /:id        → name, description, visibility, spec
+ *   PATCH  /:id        → name, description, visibility, spec (keeps the state before as a version)
  *   DELETE /:id        → soft delete; the report leaves every dashboard
+ *   GET    /:id/versions                     → earlier versions, newest first (without specs)
+ *   GET    /:id/versions/:version            → one version with its spec
+ *   POST   /:id/versions/:version/restore    → put it back (the current state becomes a version)
  *
  * Someone else's private report is a 404. Changing or deleting is for the
- * owner, or for `panel_projects:manage` on a shared one.
+ * owner, or for `panel_projects:manage` on a shared one; restoring is a change.
  */
 
 import { Hono, type Context } from 'hono';
@@ -36,9 +39,17 @@ import {
   projectExists,
   reportEventData,
   toReportDto,
-  updateReport,
   type Actor,
 } from '../../services/saved-objects';
+import {
+  getVersion,
+  listVersions,
+  restoreVersion,
+  toVersionDetailDto,
+  toVersionDto,
+  UnrestorableVersionError,
+  updateReportWithHistory,
+} from '../../services/report-versions';
 
 type Ctx = Context<{ Bindings: Env; Variables: Variables }>;
 
@@ -94,10 +105,62 @@ app.patch('/:id', requirePermission('panel_reports:update'), zValidator('json', 
   if (!canChange(existing, actor)) return error.forbidden(c, 'Only the owner can change this report');
   if (input.spec && input.spec.projectId !== existing.projectId) return error.badRequest(c, 'The spec is for a different project');
 
-  const report = await updateReport(db, id, input);
+  const report = await updateReportWithHistory(db, existing, input, actor.userId);
   if (!report) return error.notFound(c, 'Report', id);
   publish(c, report, 'updated');
   return success(c, toReportDto(report));
+});
+
+// ---------------------------------------------------------------------------
+// Versions
+// ---------------------------------------------------------------------------
+
+const versionParam = z.coerce.number().int().min(1).max(1_000_000);
+
+/** The report when the caller may see it, or the answer to send instead. */
+async function visibleReport(c: Ctx): Promise<PanelReport | Response> {
+  const id = c.req.param('id') ?? '';
+  const report = await getReport(c.get('tenantDb'), id);
+  if (!report || !canSee(report, await actorOf(c))) return error.notFound(c, 'Report', id);
+  return report;
+}
+
+app.get('/:id/versions', requirePermission('panel_reports:read'), async (c) => {
+  const report = await visibleReport(c);
+  if (report instanceof Response) return report;
+  const versions = await listVersions(c.get('tenantDb'), report.id);
+  return list(c, versions.map(toVersionDto), cursorPagination(versions.length, false, null));
+});
+
+app.get('/:id/versions/:version', requirePermission('panel_reports:read'), async (c) => {
+  const report = await visibleReport(c);
+  if (report instanceof Response) return report;
+  const number = versionParam.safeParse(c.req.param('version'));
+  const version = number.success ? await getVersion(c.get('tenantDb'), report.id, number.data) : null;
+  if (!version) return error.notFound(c, 'Version', c.req.param('version'));
+  return success(c, toVersionDetailDto(version));
+});
+
+app.post('/:id/versions/:version/restore', requirePermission('panel_reports:update'), async (c) => {
+  const report = await visibleReport(c);
+  if (report instanceof Response) return report;
+  const actor = await actorOf(c);
+  if (!canChange(report, actor)) return error.forbidden(c, 'Only the owner can change this report');
+  const db = c.get('tenantDb');
+  const number = versionParam.safeParse(c.req.param('version'));
+  const version = number.success ? await getVersion(db, report.id, number.data) : null;
+  if (!version) return error.notFound(c, 'Version', c.req.param('version'));
+
+  let restored: PanelReport | null;
+  try {
+    restored = await restoreVersion(db, report, version, actor.userId);
+  } catch (err) {
+    if (err instanceof UnrestorableVersionError) return error.conflict(c, err.message);
+    throw err;
+  }
+  if (!restored) return error.notFound(c, 'Report', report.id);
+  publish(c, restored, 'updated');
+  return success(c, toReportDto(restored));
 });
 
 app.delete('/:id', requirePermission('panel_reports:delete'), async (c) => {

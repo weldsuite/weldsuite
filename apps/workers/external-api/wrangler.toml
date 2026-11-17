@@ -191,6 +191,13 @@ binding = "BOARDS_INTERNAL"
 service = "weldsuite-board-api-dev"
 entrypoint = "BoardsInternal"
 
+# panel-api's PanelApiInternal entrypoint: WeldPanel's read API behind /v1/panel
+# (src/routes/v1/panel). Reachable only over a service binding, so no secret. Deploy panel-api first.
+[[services]]
+binding = "PANEL_INTERNAL"
+service = "weldsuite-panel-api-dev"
+entrypoint = "PanelApiInternal"
+
 # ============ TEST ENVIRONMENT ============
 [env.test]
 name = "weldsuite-external-api-test"
@@ -317,6 +324,13 @@ service = "helpdesk-workflow-worker-test"
 binding = "BOARDS_INTERNAL"
 service = "weldsuite-board-api-test"
 entrypoint = "BoardsInternal"
+
+# panel-api's PanelApiInternal entrypoint: WeldPanel's read API behind /v1/panel
+# (src/routes/v1/panel). Reachable only over a service binding, so no secret. Deploy panel-api first.
+[[env.test.services]]
+binding = "PANEL_INTERNAL"
+service = "weldsuite-panel-api-test"
+entrypoint = "PanelApiInternal"
 
 # ============ PRODUCTION ENVIRONMENT ============
 [env.production]
@@ -458,3 +472,10 @@ service = "helpdesk-workflow-worker"
 binding = "BOARDS_INTERNAL"
 service = "weldsuite-board-api"
 entrypoint = "BoardsInternal"
+
+# panel-api's PanelApiInternal entrypoint: WeldPanel's read API behind /v1/panel
+# (src/routes/v1/panel). Reachable only over a service binding, so no secret. Deploy panel-api first.
+[[env.production.services]]
+binding = "PANEL_INTERNAL"
+service = "weldsuite-panel-api"
+entrypoint = "PanelApiInternal"

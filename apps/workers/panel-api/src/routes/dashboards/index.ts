@@ -1,19 +1,23 @@
 /**
  * Dashboards: /api/panel/dashboards/*. A dashboard is a grid of tiles, each
- * showing a saved report. Same visibility rule as reports.
+ * showing a saved report or its own Markdown text, with optional
+ * dashboard-wide filters (a date range and filters applied to every report
+ * tile). Same visibility rule as reports.
  *
  *   GET    /                      → visible dashboards (?projectId, ?scope)
- *   POST   /                      → new dashboard
- *   GET    /:id                   → dashboard, tiles and the visible reports on them
- *   PATCH  /:id                   → name, description, visibility
+ *   POST   /                      → new dashboard (name, description, visibility, filters)
+ *   GET    /templates             → the built-in templates (?locale=en|nl, else Accept-Language)
+ *   POST   /from-template         → a dashboard and its reports from a template
+ *   GET    /:id                   → dashboard, tiles (with the spec each report tile runs) and the visible reports on them
+ *   PATCH  /:id                   → name, description, visibility, filters
  *   DELETE /:id                   → soft delete (tiles go with it)
- *   POST   /:id/tiles             → add a report
- *   PATCH  /:id/tiles/:tileId     → move or resize a tile
+ *   POST   /:id/tiles             → add a report tile or a text tile
+ *   PATCH  /:id/tiles/:tileId     → move or resize a tile, or change a text tile's text
  *   DELETE /:id/tiles/:tileId     → remove a tile
  *   PUT    /:id/layout            → move and resize every tile at once
  *
- * Tile changes need `panel_reports:update` and are an `updated` event on the
- * dashboard.
+ * Tile and filter changes need `panel_reports:update` and are an `updated`
+ * event on the dashboard (never carrying the filters or the text).
  */
 
 import { Hono, type Context } from 'hono';
@@ -29,7 +33,8 @@ import {
   updatePanelDashboardSchema,
   updatePanelDashboardTileSchema,
 } from '@weldsuite/app-api-client/schemas/weldpanel-objects';
-import type { PanelDashboard } from '@weldsuite/db/schema';
+import { createPanelDashboardFromTemplateSchema, PANEL_TEMPLATE_LOCALES } from '@weldsuite/app-api-client/schemas/weldpanel-collab';
+import type { PanelDashboard, PanelDashboardTile, PanelReport } from '@weldsuite/db/schema';
 import type { Env, Variables } from '../../types';
 import {
   addTile,
@@ -41,9 +46,11 @@ import {
   deleteDashboard,
   getDashboard,
   getReport,
+  getTile,
   listDashboards,
   projectExists,
   removeTile,
+  reportEventData,
   setLayout,
   toDashboardDto,
   toTileDto,
@@ -51,6 +58,7 @@ import {
   updateTile,
   type Actor,
 } from '../../services/saved-objects';
+import { DASHBOARD_TEMPLATES, createFromTemplate, findTemplate, templateLocale, toTemplateDto } from '../../services/dashboard-templates';
 
 type Ctx = Context<{ Bindings: Env; Variables: Variables }>;
 
@@ -61,12 +69,18 @@ const listQuery = z.object({
   scope: z.enum(['all', 'mine', 'shared']).optional(),
 });
 
+const templatesQuery = z.object({ locale: z.enum(PANEL_TEMPLATE_LOCALES).optional() });
+
 async function actorOf(c: Ctx): Promise<Actor> {
   return { userId: c.get('userId'), canManage: await hasContextPermission(c, 'panel_projects:manage') };
 }
 
 function publish(c: Ctx, dashboard: PanelDashboard, action: 'created' | 'updated' | 'deleted') {
   publishEntityEvent({ c, entityType: 'panel_dashboard', entityId: dashboard.id, action, data: dashboardEventData(dashboard) });
+}
+
+function publishReport(c: Ctx, report: PanelReport) {
+  publishEntityEvent({ c, entityType: 'panel_report', entityId: report.id, action: 'created', data: reportEventData(report) });
 }
 
 /** A dashboard the caller may change, or the answer to send instead. */
@@ -94,6 +108,28 @@ app.post('/', requirePermission('panel_reports:create'), zValidator('json', crea
   const dashboard = await createDashboard(db, input, userId);
   publish(c, dashboard, 'created');
   return success(c, toDashboardDto(dashboard), 201);
+});
+
+app.get('/templates', requirePermission('panel_reports:read'), zValidator('query', templatesQuery), (c) => {
+  const locale = templateLocale(c.req.valid('query').locale, c.req.header('Accept-Language'));
+  const templates = DASHBOARD_TEMPLATES.map((t) => toTemplateDto(t, locale));
+  return list(c, templates, cursorPagination(templates.length, false, null));
+});
+
+app.post('/from-template', requirePermission('panel_reports:create'), zValidator('json', createPanelDashboardFromTemplateSchema), async (c) => {
+  const userId = c.get('userId');
+  if (!userId) return error.unauthorized(c);
+  const input = c.req.valid('json');
+  const db = c.get('tenantDb');
+  if (!(await projectExists(db, input.projectId))) return error.notFound(c, 'Project', input.projectId);
+  const template = findTemplate(input.template);
+  if (!template) return error.notFound(c, 'Template', input.template);
+
+  const locale = templateLocale(input.locale, c.req.header('Accept-Language'));
+  const created = await createFromTemplate(db, template, input, userId, locale);
+  for (const report of created.reports) publishReport(c, report);
+  publish(c, created.dashboard, 'created');
+  return success(c, await dashboardDetail(db, created.dashboard, await actorOf(c)), 201);
 });
 
 app.get('/:id', requirePermission('panel_reports:read'), async (c) => {
@@ -128,12 +164,18 @@ app.post('/:id/tiles', requirePermission('panel_reports:update'), zValidator('js
   if (found instanceof Response) return found;
   const input = c.req.valid('json');
   const db = c.get('tenantDb');
-  const report = await getReport(db, input.reportId);
-  // A report the caller cannot see, or one of another project, does not exist for them.
-  if (!report || report.projectId !== found.projectId || !canSee(report, await actorOf(c))) {
-    return error.notFound(c, 'Report', input.reportId);
+
+  let tile: PanelDashboardTile;
+  if (input.kind === 'text') {
+    tile = await addTile(db, found.id, { kind: 'text', text: input.text, layout: input.layout });
+  } else {
+    const report = await getReport(db, input.reportId);
+    // A report the caller cannot see, or one of another project, does not exist for them.
+    if (!report || report.projectId !== found.projectId || !canSee(report, await actorOf(c))) {
+      return error.notFound(c, 'Report', input.reportId);
+    }
+    tile = await addTile(db, found.id, { kind: 'report', reportId: report.id, layout: input.layout });
   }
-  const tile = await addTile(db, found.id, report.id, input.layout);
   const dashboard = await updateDashboard(db, found.id, {});
   if (dashboard) publish(c, dashboard, 'updated');
   return success(c, toTileDto(tile), 201);
@@ -143,8 +185,13 @@ app.patch('/:id/tiles/:tileId', requirePermission('panel_reports:update'), zVali
   const found = await editable(c);
   if (found instanceof Response) return found;
   const tileId = c.req.param('tileId');
+  const input = c.req.valid('json');
   const db = c.get('tenantDb');
-  const tile = await updateTile(db, found.id, tileId, c.req.valid('json').layout);
+  const existing = await getTile(db, found.id, tileId);
+  if (!existing) return error.notFound(c, 'Tile', tileId);
+  if (input.text !== undefined && existing.kind !== 'text') return error.badRequest(c, 'Only a text tile has text');
+
+  const tile = await updateTile(db, found.id, tileId, input);
   if (!tile) return error.notFound(c, 'Tile', tileId);
   const dashboard = await updateDashboard(db, found.id, {});
   if (dashboard) publish(c, dashboard, 'updated');

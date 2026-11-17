@@ -25,6 +25,9 @@ import outboundAbuseAlert from './internal/outbound-abuse-alert';
 import meetInvitation from './meet/invitation';
 import notification from './notifications/notification';
 import panelUsage from './panel/usage';
+import panelAlert from './panel/alert';
+import panelReportDigest from './panel/report-digest';
+import panelExportFailing from './panel/export-failing';
 import partnerDunning from './partner/dunning';
 import partnerInvitation from './partner/invitation';
 import portalSignIn from './portal/sign-in';
@@ -77,6 +80,9 @@ export const templates = {
   'forms.digest': formsDigest,
   'forms.quota': formsQuota,
   'panel.usage': panelUsage,
+  'panel.alert': panelAlert,
+  'panel.report-digest': panelReportDigest,
+  'panel.export-failing': panelExportFailing,
   'sign.request': signRequest,
   'sign.code': signCode,
   'sign.completed': signCompleted,
@@ -116,6 +122,9 @@ export type { EnterpriseInquiryEmailProps } from './internal/enterprise-inquiry'
 export type { MeetInvitationEmailProps } from './meet/invitation';
 export type { NotificationEmailProps } from './notifications/notification';
 export type { PanelUsageEmailKind, PanelUsageEmailProps } from './panel/usage';
+export type { PanelAlertEmailProps } from './panel/alert';
+export type { PanelDigestBlock, PanelDigestFigure, PanelDigestRow, PanelReportDigestEmailProps } from './panel/report-digest';
+export type { PanelExportFailingEmailProps } from './panel/export-failing';
 export type { PartnerDunningEmailProps, PartnerDunningStage } from './partner/dunning';
 export type { PartnerInvitationEmailProps } from './partner/invitation';
 export type { PortalSignInEmailProps } from './portal/sign-in';

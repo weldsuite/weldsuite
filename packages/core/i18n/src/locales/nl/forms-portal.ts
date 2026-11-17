@@ -126,7 +126,6 @@ export const formsPortal: typeof en = {
     submit: 'Versturen',
     back: 'Terug',
     start: 'Start',
-    pressEnter: 'druk op Enter',
     shiftEnterHint: 'Shift + Enter voor een nieuwe regel',
     typeAnswer: 'Typ hier je antwoord...',
     other: 'Anders',
@@ -190,7 +189,6 @@ export const formsPortal: typeof en = {
     noAnswer: 'Geen antwoord',
     redirecting: 'Je wordt doorgestuurd...',
     previewRedirect: 'Respondenten worden doorgestuurd naar {url}',
-    previewBadge: 'Voorbeeld',
     errors: {
       required: 'Deze vraag heeft een antwoord nodig',
       invalid: 'Dat antwoord is niet geldig',

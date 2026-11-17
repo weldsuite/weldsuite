@@ -29,6 +29,11 @@ function toHref(path: string, search: Record<string, unknown>): string {
   return query === '' ? path : `${path}?${query}`;
 }
 
+/** `path` with `search` encoded the way the router reads it back (a string stays a string, even one that reads as JSON). */
+export function searchHref(path: string, search: Record<string, unknown>): string {
+  return toHref(path, search);
+}
+
 export function recordingsHref(search: RecordingsSearch): string {
   return toHref('/weldpanel/recordings', search);
 }
@@ -39,6 +44,11 @@ export const REPORT_BUILDER_PATHS: Record<string, string> = {
   funnel: '/weldpanel/funnels',
   retention: '/weldpanel/retention',
   flows: '/weldpanel/flows',
+  stickiness: '/weldpanel/stickiness',
+  lifecycle: '/weldpanel/lifecycle',
+  vitals: '/weldpanel/performance',
+  impact: '/weldpanel/impact',
+  signal: '/weldpanel/signal',
 };
 
 /** Opens a saved report in its builder. */

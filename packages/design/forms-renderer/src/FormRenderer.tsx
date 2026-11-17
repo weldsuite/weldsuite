@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
-import { ArrowLeft } from 'lucide-react';
 import {
   blockFields,
   classicPages,
@@ -125,27 +124,44 @@ function isLastStep(def: FormDefinition, classic: boolean, step: Step, pageIndex
   return step.type === 'block' && typeof nextStep(def, input, step.id) !== 'string';
 }
 
-/** The progress bar with its percentage or proportion text; nothing when the form hides it. */
+/** Up to this many steps the bar shows one segment per step; past it, one continuous bar. */
+const MAX_SEGMENTS = 15;
+
+/**
+ * The progress bar in the content column, without text: the percentage or
+ * proportion is only read out to screen readers. Nothing when the form hides
+ * it. The step on screen counts as reached, so the first question already
+ * fills its segment.
+ */
 function progressBar(
   mode: FormDefinition['presentation']['progressBar'],
   labels: FormRendererLabels,
-  percent: number,
+  progress: Readonly<{ percent: number; reached: number; total: number }>,
   proportion: string,
 ): ReactNode {
   if (mode === 'none') return null;
+  const { percent, reached, total } = progress;
   return (
     <div className="wf-progress">
-      <div
-        className="wf-progress-track"
-        role="progressbar"
-        aria-label={labels.progressLabel}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={percent}
-      >
-        <div className="wf-progress-bar" style={{ width: `${percent}%` }} />
+      <div className="wf-progress-inner">
+        {/* Screen readers get a native progress element; the segments are only drawn. */}
+        <progress
+          className="wf-sr-only"
+          max={100}
+          value={percent}
+          aria-label={labels.progressLabel}
+          aria-valuetext={mode === 'percentage' ? fill(labels.progressPercent, { percent }) : proportion}
+        />
+        <div className="wf-progress-track" aria-hidden="true">
+          {total <= MAX_SEGMENTS ? (
+            Array.from({ length: total }, (_, i) => <span key={i} className="wf-progress-segment" data-reached={i < reached ? '' : undefined} />)
+          ) : (
+            <span className="wf-progress-segment">
+              <span className="wf-progress-bar" style={{ width: `${(reached / total) * 100}%` }} />
+            </span>
+          )}
+        </div>
       </div>
-      <span className="wf-progress-text">{mode === 'percentage' ? fill(labels.progressPercent, { percent }) : proportion}</span>
     </div>
   );
 }
@@ -153,18 +169,19 @@ function progressBar(
 interface ActionsInput {
   classic: boolean;
   labels: FormRendererLabels;
-  canGoBack: boolean;
+  /** Whether "Back" shows beside the step's button. */
+  showBack: boolean;
   submitting: boolean;
   buttonLabel: string;
   onBack: () => void;
   onNext: () => void;
 }
 
-/** "Back" (classic, after the first page), the step's button and the Enter hint (conversational). */
-function stepActions({ classic, labels, canGoBack, submitting, buttonLabel, onBack, onNext }: ActionsInput): ReactNode {
+/** "Back" (once there is a step to go back to) and the step's button. */
+function stepActions({ classic, labels, showBack, submitting, buttonLabel, onBack, onNext }: ActionsInput): ReactNode {
   return (
     <div className="wf-actions">
-      {classic && canGoBack ? (
+      {showBack ? (
         <button type="button" className="wf-button wf-button-secondary" onClick={onBack}>
           {labels.back}
         </button>
@@ -172,7 +189,6 @@ function stepActions({ classic, labels, canGoBack, submitting, buttonLabel, onBa
       <button type={classic ? 'submit' : 'button'} className="wf-button" disabled={submitting} onClick={classic ? undefined : onNext}>
         {buttonLabel}
       </button>
-      {classic ? null : <span className="wf-hint wf-enter-hint">{labels.pressEnter}</span>}
     </div>
   );
 }
@@ -524,7 +540,7 @@ export function FormRenderer(props: FormRendererProps) {
   // ----- pieces -----
   const progress =
     !core.ending && step.type !== 'welcome' && total > 0
-      ? progressBar(def.presentation.progressBar, labels, percent, proportionText(labels, classic, position, total))
+      ? progressBar(def.presentation.progressBar, labels, { percent, reached: Math.min(total, position + 1), total }, proportionText(labels, classic, position, total))
       : null;
 
   const isLast = isLastStep(def, classic, step, pageIndex, pages.length, { answers: core.answers, hidden: core.hidden });
@@ -538,10 +554,12 @@ export function FormRenderer(props: FormRendererProps) {
     return labels.next;
   })();
 
+  // Classic goes back a page from the second on; conversational a question, when the form allows it.
+  const showBack = classic ? historyLength > 0 : !core.ending && step.type === 'block' && def.presentation.allowBack && historyLength > 0;
   const actions = stepActions({
     classic,
     labels,
-    canGoBack: historyLength > 0,
+    showBack,
     submitting: core.submitting,
     buttonLabel,
     onBack: back,
@@ -563,7 +581,6 @@ export function FormRenderer(props: FormRendererProps) {
     onStart: () => void advance(),
   });
 
-  const showBack = !classic && !core.ending && step.type === 'block' && def.presentation.allowBack && historyLength > 0;
   const rootClass = classNames('wf-root', props.className);
   const body = (
     <>
@@ -572,13 +589,6 @@ export function FormRenderer(props: FormRendererProps) {
       <main className="wf-stage" data-step={core.ending ? 'ending' : step.type}>
         {stage}
       </main>
-      {showBack ? (
-        <button type="button" className="wf-back" onClick={back} aria-label={labels.back}>
-          <ArrowLeft size={18} aria-hidden="true" />
-          <span>{labels.back}</span>
-        </button>
-      ) : null}
-      {preview ? <span className="wf-preview-badge">{labels.previewBadge}</span> : null}
       <div className="wf-sr-only" aria-live="polite" role="status">
         {announce}
       </div>

@@ -23,6 +23,7 @@ export type NotificationCategory =
   | 'weldsheets'
   | 'weldhr'
   | 'weldforms'
+  | 'weldpanel'
   | 'system'
   | 'security';
 
@@ -76,6 +77,9 @@ export type NotificationType =
   | 'hr_announcement'
   // WeldForms (a response to a form the member follows)
   | 'form_response'
+  // WeldPanel (an alert fired or resolved, a scheduled report)
+  | 'panel_alert'
+  | 'panel_report'
   | 'custom';
 
 export const notifications = pgTable('notifications', {

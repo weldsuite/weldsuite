@@ -50,9 +50,19 @@ export function FormGate({
   return <>{children(form)}</>;
 }
 
-/** The page frame the three tabs share: a centred column with the page gutter. */
-export function FormTabFrame({ children, wide = false }: Readonly<{ children: ReactNode; wide?: boolean }>) {
+/**
+ * The page frame the three tabs share: a centred column with the page gutter,
+ * scrolling on its own, since the form shell clips its tabs to the screen.
+ * `narrow` is the settings pages' column (715px with the gutter, 667px inside),
+ * with more room above it.
+ */
+export function FormTabFrame({ children, wide = false, narrow = false }: Readonly<{ children: ReactNode; wide?: boolean; narrow?: boolean }>) {
+  let width = 'max-w-5xl';
+  if (wide) width = 'max-w-7xl';
+  else if (narrow) width = 'max-w-[715px] md:pt-9';
   return (
-    <div className={`mx-auto w-full space-y-6 p-4 md:p-6 ${wide ? 'max-w-7xl' : 'max-w-5xl'}`}>{children}</div>
+    <div className="h-full overflow-y-auto">
+      <div className={`mx-auto w-full space-y-6 p-4 md:p-6 ${width}`}>{children}</div>
+    </div>
   );
 }

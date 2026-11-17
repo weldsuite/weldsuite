@@ -10,20 +10,21 @@
 
 .wf-root {
   --wf-bg: #ffffff;
-  --wf-question: #1f2937;
-  --wf-answer: #2563eb;
-  --wf-button: #2563eb;
-  --wf-button-text: #ffffff;
+  --wf-question: #0a0a0a;
+  --wf-answer: #171717;
+  --wf-button: #171717;
+  --wf-button-text: #fafafa;
   --wf-font: ui-sans-serif, system-ui, sans-serif;
   --wf-radius: 8px;
   --wf-radius-input: 8px;
   --wf-scale: 1;
   --wf-overlay: 0;
-  --wf-muted: color-mix(in srgb, var(--wf-question) 60%, transparent);
-  --wf-border: color-mix(in srgb, var(--wf-question) 22%, transparent);
-  --wf-border-strong: color-mix(in srgb, var(--wf-question) 45%, transparent);
-  --wf-tint: color-mix(in srgb, var(--wf-answer) 12%, transparent);
-  --wf-tint-strong: color-mix(in srgb, var(--wf-answer) 22%, transparent);
+  /* Shades in shadcn's proportions: muted-foreground, border, input, accent. */
+  --wf-muted: color-mix(in srgb, var(--wf-question) 55%, transparent);
+  --wf-border: color-mix(in srgb, var(--wf-question) 10%, transparent);
+  --wf-border-strong: color-mix(in srgb, var(--wf-question) 20%, transparent);
+  --wf-tint: color-mix(in srgb, var(--wf-answer) 4%, transparent);
+  --wf-tint-strong: color-mix(in srgb, var(--wf-answer) 8%, transparent);
   --wf-danger: #dc2626;
 
   position: relative;
@@ -85,32 +86,45 @@
 }
 
 /* ----- Progress ----- */
+/* One segment per step, as wide as the content column under it. */
 .wf-progress {
   position: sticky;
   top: 0;
   z-index: 5;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 20px 0;
+  padding: 20px 24px 0;
+}
+.wf-progress-inner {
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+}
+.wf-root[data-wf-layout='classic'] .wf-progress-inner {
+  max-width: 712px;
 }
 .wf-progress-track {
+  flex: 1;
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+}
+.wf-progress-segment {
+  position: relative;
   flex: 1;
   height: 4px;
   border-radius: 999px;
   background: var(--wf-border);
   overflow: hidden;
+  transition: background-color 0.35s ease;
+}
+.wf-progress-segment[data-reached] {
+  background: var(--wf-answer);
 }
 .wf-progress-bar {
-  height: 100%;
+  position: absolute;
+  inset: 0 auto 0 0;
   background: var(--wf-answer);
   border-radius: inherit;
   transition: width 0.35s ease;
-}
-.wf-progress-text {
-  font-size: 0.78em;
-  color: var(--wf-muted);
-  white-space: nowrap;
 }
 
 /* ----- Stage ----- */
@@ -145,6 +159,15 @@
   display: grid;
   gap: 32px;
   grid-template-columns: minmax(0, 1fr);
+}
+/* A conversational question sits in one column in the middle of the page; its choices fill it. */
+.wf-root:not([data-wf-layout='classic']) .wf-step-content {
+  width: 100%;
+  max-width: 560px;
+  margin-inline: auto;
+}
+.wf-root:not([data-wf-layout='classic']) .wf-step-content .wf-choices {
+  max-width: none;
 }
 .wf-step[data-media='split_left'],
 .wf-step[data-media='split_right'] {
@@ -209,7 +232,8 @@
   .wf-anim-back {
     animation: none;
   }
-  .wf-progress-bar {
+  .wf-progress-bar,
+  .wf-progress-segment {
     transition: none;
   }
   .wf-root * {
@@ -414,7 +438,7 @@
   width: 100%;
   padding: 0;
   text-align: left;
-  border: 1px solid var(--wf-border-strong);
+  border: 1px solid var(--wf-border);
   border-radius: var(--wf-radius-input);
   background: var(--wf-tint);
   cursor: pointer;
@@ -427,7 +451,6 @@
 }
 .wf-choice:focus-visible,
 .wf-button:focus-visible,
-.wf-back:focus-visible,
 .wf-icon-button:focus-visible,
 .wf-link-button:focus-visible,
 .wf-rating-item:focus-visible,
@@ -573,7 +596,7 @@
 .wf-scale-item {
   padding: 12px 0;
   text-align: center;
-  border: 1px solid var(--wf-border-strong);
+  border: 1px solid var(--wf-border);
   border-radius: var(--wf-radius-input);
   background: var(--wf-tint);
   cursor: pointer;
@@ -763,6 +786,10 @@
   cursor: pointer;
   transition: filter 0.15s;
 }
+/* Outranks `.wf-root button { color: inherit }`, which otherwise gave the button the question's colour. */
+.wf-root .wf-button:not(.wf-button-secondary) {
+  color: var(--wf-button-text);
+}
 .wf-button:hover:not(:disabled) {
   filter: brightness(1.08);
 }
@@ -774,28 +801,6 @@
   background: transparent;
   color: var(--wf-question);
   border-color: var(--wf-border-strong);
-}
-.wf-enter-hint {
-  margin: 0;
-}
-@media (hover: none) {
-  .wf-enter-hint {
-    display: none;
-  }
-}
-.wf-back {
-  position: absolute;
-  left: 16px;
-  bottom: 16px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 12px;
-  border: 1px solid var(--wf-border-strong);
-  border-radius: var(--wf-radius);
-  background: var(--wf-bg);
-  font-size: 0.8em;
-  cursor: pointer;
 }
 .wf-icon-button {
   display: inline-grid;
@@ -824,21 +829,6 @@
   text-decoration: underline;
   cursor: pointer;
 }
-/* Bottom left: the progress bar and its label sit at the top. */
-.wf-preview-badge {
-  position: absolute;
-  bottom: 10px;
-  left: 12px;
-  z-index: 6;
-  pointer-events: none;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: var(--wf-tint-strong);
-  font-size: 0.7em;
-  font-weight: 600;
-  color: var(--wf-answer);
-}
-
 /* ----- Ending ----- */
 .wf-screen {
   animation: wf-in-forward 0.35s ease both;

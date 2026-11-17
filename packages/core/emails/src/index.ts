@@ -62,6 +62,12 @@ export {
   type NotificationEmailProps,
   type PanelUsageEmailKind,
   type PanelUsageEmailProps,
+  type PanelAlertEmailProps,
+  type PanelDigestBlock,
+  type PanelDigestFigure,
+  type PanelDigestRow,
+  type PanelReportDigestEmailProps,
+  type PanelExportFailingEmailProps,
   type PartnerDunningEmailProps,
   type PartnerDunningStage,
   type PartnerInvitationEmailProps,
@@ -74,6 +80,18 @@ export {
 } from './templates';
 export { htmlToText, renderEmail, renderHtml, renderTemplate, type RenderOptions, type RenderedEmail } from './render';
 export { SYSTEM_FROM_ADDRESS, sendSystemEmail, type SendSystemEmailOptions } from './send';
+// WeldPanel alert and scheduled-report copy, shared with panel-api's Slack, WeldChat and in-app messages.
+export {
+  alertConditionText,
+  digestFigureText,
+  formatAlertPeriod,
+  formatPanelChange,
+  formatPanelValue,
+  panelAlertText,
+  panelDigestText,
+  type PanelAlertConditionText,
+  type PanelMessageText,
+} from './templates/panel/monitor-text';
 export {
   formatMailbox,
   type EmailTransport,

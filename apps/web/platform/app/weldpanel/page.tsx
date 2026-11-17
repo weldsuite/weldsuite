@@ -1,8 +1,18 @@
 import { useMemo, useState } from 'react';
-import { ChartSpline, Code, Filter, Plus, PlayCircle } from 'lucide-react';
+import { ChartSpline, Code, Filter, Pencil, Plus, PlayCircle } from 'lucide-react';
 import { useCan } from '@weldsuite/permissions/react';
 import type { PanelProjectDto } from '@weldsuite/app-api-client/schemas/weldpanel';
-import type { PanelBreakdownRow, PanelFilter, PanelFilterColumn, PanelWebSpec } from '@weldsuite/app-api-client/schemas/weldpanel-query';
+import {
+  PANEL_WEB_PANELS,
+  type PanelBreakdownRow,
+  type PanelChannel,
+  type PanelFilter,
+  type PanelFilterColumn,
+  type PanelScreenSize,
+  type PanelWebGoal,
+  type PanelWebResult,
+  type PanelWebSpec,
+} from '@weldsuite/app-api-client/schemas/weldpanel-query';
 import { Button } from '@weldsuite/ui/components/button';
 import { EmptyState } from '@weldsuite/ui/components/empty-state';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
@@ -12,38 +22,100 @@ import { Label } from '@weldsuite/ui/components/label';
 import { Tabs, TabsList, TabsTrigger } from '@weldsuite/ui/components/tabs';
 import { useWeldPanelLive, useWeldPanelWeb } from '@/hooks/queries/use-weldpanel-queries';
 import { useI18n } from '@/lib/i18n/provider';
-import { Link } from '@/lib/router';
+import { Link, useRouter, useSearchParams } from '@/lib/router';
 import { AnalyticsPage } from './components/analytics-page';
 import { BreakdownList, type BreakdownListRow } from './components/breakdown-list';
 import { ChartCard } from './components/chart-card';
 import { CreateProjectDialog } from './components/create-project-dialog';
 import { DateRangePicker } from './components/date-range-picker';
+import { PanelDefinitionsProvider } from './components/definitions';
 import { FilterBuilder } from './components/filter-builder';
 import { FreshnessBadge } from './components/freshness-badge';
 import { InstallStatus } from './components/install-status';
 import { QueryErrorState } from './components/query-error-state';
+import { GoalsDialog, GoalsTable, parseGoalsParam } from './components/results/web-goals';
 import { WebChart, WebKpis } from './components/results/web-result';
+import { csvFilename, type CsvExport, type CsvRow } from './lib/csv';
 import { browserTimezone, useDateRange } from './lib/date-range';
+import { breakdownCsvRows, goalsCsvRows } from './lib/explore-csv';
 import { countryName } from './lib/format';
 import { toggleColumnFilter } from './lib/filters';
+import { searchHref } from './lib/links';
 import { isAnalyticsUnavailable } from './lib/query-error';
 import { useCurrentProject } from './lib/use-current-project';
 
-type PagesTab = 'top' | 'entry' | 'exit';
-type SourcesTab = 'referrers' | 'utmSource' | 'utmMedium' | 'utmCampaign';
-type DevicesTab = 'devices' | 'browsers' | 'operatingSystems';
+type PagesTab = 'top' | 'entry' | 'exit' | 'hostnames';
+type SourcesTab = 'channels' | 'referrers' | 'utmSource' | 'utmMedium' | 'utmCampaign';
+type LocationsTab = 'countries' | 'regions' | 'cities';
+type DevicesTab = 'devices' | 'browsers' | 'operatingSystems' | 'screenSizes';
 
-/** Which column a row of each list filters on. */
-const SOURCE_COLUMN: Record<SourcesTab, PanelFilterColumn> = {
+/** Which column a row of each list filters on; lists without one (channels, screen sizes) are not clickable. */
+const SOURCE_COLUMN: Partial<Record<SourcesTab, PanelFilterColumn>> = {
   referrers: 'referrer_host',
   utmSource: 'utm_source',
   utmMedium: 'utm_medium',
   utmCampaign: 'utm_campaign',
 };
-const DEVICE_COLUMN: Record<DevicesTab, PanelFilterColumn> = { devices: 'device_type', browsers: 'browser', operatingSystems: 'os' };
+const LOCATION_COLUMN: Record<LocationsTab, PanelFilterColumn> = { countries: 'country', regions: 'region', cities: 'city' };
+const DEVICE_COLUMN: Partial<Record<DevicesTab, PanelFilterColumn>> = { devices: 'device_type', browsers: 'browser', operatingSystems: 'os' };
 
-function selectedValues(filters: readonly PanelFilter[], field: PanelFilterColumn): string[] {
+function selectedValues(filters: readonly PanelFilter[], field: PanelFilterColumn | undefined): string[] {
+  if (!field) return [];
   return filters.flatMap((f) => (f.source === 'column' && f.field === field && f.operator === 'eq' && typeof f.value === 'string' ? [f.value] : []));
+}
+
+/** `NL / Noord-Holland` → `Noord-Holland`: the region (or city) column value a row filters on. */
+function placePart(value: string): string {
+  const at = value.indexOf(' / ');
+  return at === -1 ? value : value.slice(at + 3);
+}
+
+type ToggleFilter = (field: PanelFilterColumn, value: string) => void;
+
+/** A list's row click: toggles a filter on `field`. Lists without a column are not clickable. */
+function filterPicker(onToggle: ToggleFilter, field: PanelFilterColumn | undefined, transform: (value: string) => string = (v) => v) {
+  return field
+    ? (value: string) => {
+        if (value !== '') onToggle(field, transform(value));
+      }
+    : undefined;
+}
+
+function toBreakdownRows(rows: PanelBreakdownRow[] | undefined, label: (value: string) => string): BreakdownListRow[] {
+  return (rows ?? []).map((row) => ({ key: row.value, label: label(row.value), primary: row.visitors, secondary: row.events }));
+}
+
+/** Rows of a list that filters on a column, labelled for it: country names, device names, "Direct" for no referrer. */
+function useColumnRows(): (rows: PanelBreakdownRow[] | undefined, field: PanelFilterColumn) => BreakdownListRow[] {
+  const { t, language } = useI18n();
+  const to = t.weldpanel.analytics.overview;
+  const unknown = t.weldpanel.analytics.common.unknown;
+  const labelFor = (field: PanelFilterColumn, value: string): string => {
+    if (value === '') return field === 'referrer_host' ? to.sources.direct : unknown;
+    if (field === 'country') return countryName(value, language);
+    if (field === 'device_type' && (value === 'desktop' || value === 'mobile' || value === 'tablet')) return to.devices[value];
+    return value;
+  };
+  return (rows, field) => toBreakdownRows(rows, (v) => labelFor(field, v));
+}
+
+/** A card's "Export CSV": the file is named after the page and the card. */
+function cardCsv(pageTitle: string, title: string, rows: CsvRow[]): () => CsvExport {
+  return () => ({ filename: csvFilename(`${pageTitle} ${title}`), rows });
+}
+
+function BreakdownTabs<T extends string>({ value, onChange, items, label }: Readonly<{ value: T; onChange: (next: T) => void; items: { value: T; label: string }[]; label: string }>) {
+  return (
+    <Tabs value={value} onValueChange={(next) => onChange(next as T)}>
+      <TabsList className="h-7 max-w-full overflow-x-auto" aria-label={label}>
+        {items.map((item) => (
+          <TabsTrigger key={item.value} value={item.value} className="px-2 text-xs">
+            {item.label}
+          </TabsTrigger>
+        ))}
+      </TabsList>
+    </Tabs>
+  );
 }
 
 function LiveVisitors({ projectId }: Readonly<{ projectId: string }>) {
@@ -60,19 +132,243 @@ function LiveVisitors({ projectId }: Readonly<{ projectId: string }>) {
   );
 }
 
-function Overview({ project }: Readonly<{ project: PanelProjectDto }>) {
-  const { t, language } = useI18n();
+function GoalsCard({ goals, result, loading, onEdit }: Readonly<{ goals: PanelWebGoal[]; result: PanelWebResult | undefined; loading: boolean; onEdit: () => void }>) {
+  const { t } = useI18n();
   const to = t.weldpanel.analytics.overview;
+  const tx = t.weldpanel.explore.overview;
+  const hasGoals = goals.length > 0;
+  return (
+    <ChartCard
+      title={tx.goals.title}
+      loading={loading && hasGoals}
+      csv={result?.goals && result.goals.length > 0 ? cardCsv(to.title, tx.goals.title, goalsCsvRows(result.goals)) : undefined}
+      actions={
+        <Button type="button" variant="outline" size="sm" className="h-7" onClick={onEdit}>
+          {hasGoals ? <Pencil /> : <Plus />}
+          {hasGoals ? tx.goals.edit : tx.goals.add}
+        </Button>
+      }
+    >
+      <GoalsTable goals={hasGoals ? result?.goals : undefined} />
+    </ChartCard>
+  );
+}
+
+/** What every breakdown card of the overview gets: the result, its own tab and the page's filters. */
+interface BreakdownCardProps<T extends string> {
+  result: PanelWebResult | undefined;
+  loading: boolean;
+  tab: T;
+  onTabChange: (tab: T) => void;
+  filters: readonly PanelFilter[];
+  onToggle: ToggleFilter;
+}
+
+function PagesCard({ result, loading, tab, onTabChange, filters, onToggle }: Readonly<BreakdownCardProps<PagesTab>>) {
+  const { t } = useI18n();
+  const to = t.weldpanel.analytics.overview;
+  const unknown = t.weldpanel.analytics.common.unknown;
+  const rows: BreakdownListRow[] = useMemo(() => {
+    if (!result) return [];
+    if (tab === 'top') return result.topPages.map((r) => ({ key: r.value, label: r.value, primary: r.visitors, secondary: r.events }));
+    if (tab === 'hostnames') return (result.hostnames ?? []).map((r) => ({ key: r.value, label: r.value || unknown, primary: r.visitors, secondary: r.events }));
+    return result.entryExitPages
+      .filter((r) => (tab === 'entry' ? r.entries > 0 : r.exits > 0))
+      .sort((a, b) => (tab === 'entry' ? b.entries - a.entries : b.exits - a.exits))
+      .map((r) => ({ key: r.value, label: r.value, primary: tab === 'entry' ? r.entries : r.exits }));
+  }, [result, tab, unknown]);
+  const column: PanelFilterColumn = tab === 'hostnames' ? 'host' : 'path';
+
+  return (
+    <ChartCard
+      title={to.pages.title}
+      loading={loading}
+      csv={result ? cardCsv(to.title, to.pages.title, rows.map((r) => ({ value: r.key, primary: r.primary, secondary: r.secondary ?? null }))) : undefined}
+      actions={
+        <BreakdownTabs
+          value={tab}
+          onChange={onTabChange}
+          items={[
+            { value: 'top', label: to.pages.top },
+            { value: 'entry', label: to.pages.entry },
+            { value: 'exit', label: to.pages.exit },
+            { value: 'hostnames', label: t.weldpanel.explore.overview.hostnames },
+          ]}
+          label={to.pages.title}
+        />
+      }
+    >
+      <BreakdownList
+        rows={rows}
+        primaryLabel={{ top: to.columns.visitors, entry: to.pages.entries, exit: to.pages.exits, hostnames: to.columns.visitors }[tab]}
+        secondaryLabel={tab === 'top' || tab === 'hostnames' ? to.columns.pageviews : undefined}
+        selectedKeys={selectedValues(filters, column)}
+        onSelect={filterPicker(onToggle, column)}
+        rowLabel={to.filterRow}
+        emptyText={t.weldpanel.analytics.common.noData}
+      />
+    </ChartCard>
+  );
+}
+
+function SourcesCard({ result, loading, tab, onTabChange, filters, onToggle }: Readonly<BreakdownCardProps<SourcesTab>>) {
+  const { t } = useI18n();
+  const to = t.weldpanel.analytics.overview;
+  const tx = t.weldpanel.explore.overview;
+  const columnRows = useColumnRows();
+  const channelLabel = (value: string) => (value in tx.channelNames ? tx.channelNames[value as PanelChannel] : value || t.weldpanel.analytics.common.unknown);
+  const data = result ? { channels: result.channels ?? [], referrers: result.sources, utmSource: result.utmSources, utmMedium: result.utmMediums, utmCampaign: result.utmCampaigns }[tab] : undefined;
+  const rows = tab === 'channels' ? toBreakdownRows(data, channelLabel) : columnRows(data, SOURCE_COLUMN[tab]!);
+  const column = SOURCE_COLUMN[tab];
+
+  return (
+    <ChartCard
+      title={to.sources.title}
+      loading={loading}
+      csv={data ? cardCsv(to.title, to.sources.title, breakdownCsvRows(data)) : undefined}
+      actions={
+        <BreakdownTabs
+          value={tab}
+          onChange={onTabChange}
+          items={[
+            { value: 'referrers', label: to.sources.referrers },
+            { value: 'channels', label: tx.channels },
+            { value: 'utmSource', label: to.sources.utmSource },
+            { value: 'utmMedium', label: to.sources.utmMedium },
+            { value: 'utmCampaign', label: to.sources.utmCampaign },
+          ]}
+          label={to.sources.title}
+        />
+      }
+    >
+      <BreakdownList
+        rows={rows}
+        primaryLabel={to.columns.visitors}
+        secondaryLabel={to.columns.pageviews}
+        selectedKeys={selectedValues(filters, column)}
+        onSelect={filterPicker(onToggle, column)}
+        rowLabel={to.filterRow}
+        emptyText={t.weldpanel.analytics.common.noData}
+      />
+    </ChartCard>
+  );
+}
+
+function LocationsCard({ result, loading, tab, onTabChange, filters, onToggle }: Readonly<BreakdownCardProps<LocationsTab>>) {
+  const { t } = useI18n();
+  const to = t.weldpanel.analytics.overview;
+  const tx = t.weldpanel.explore.overview;
+  const columnRows = useColumnRows();
+  const data = result ? { countries: result.countries, regions: result.regions ?? [], cities: result.cities ?? [] }[tab] : undefined;
+  const rows = tab === 'countries' ? columnRows(data, 'country') : toBreakdownRows(data, (v) => v || t.weldpanel.analytics.common.unknown);
+  const column = LOCATION_COLUMN[tab];
+  // Region and city rows read `NL / Noord-Holland` but filter on the part after the country.
+  const selectedKeys = tab === 'countries' ? selectedValues(filters, 'country') : rows.filter((r) => selectedValues(filters, column).includes(placePart(r.key))).map((r) => r.key);
+
+  return (
+    <ChartCard
+      title={tx.locations}
+      loading={loading}
+      csv={data ? cardCsv(to.title, tx.locations, breakdownCsvRows(data)) : undefined}
+      actions={
+        <BreakdownTabs
+          value={tab}
+          onChange={onTabChange}
+          items={[
+            { value: 'countries', label: tx.countries },
+            { value: 'regions', label: tx.regions },
+            { value: 'cities', label: tx.cities },
+          ]}
+          label={tx.locations}
+        />
+      }
+    >
+      <BreakdownList
+        rows={rows}
+        primaryLabel={to.columns.visitors}
+        secondaryLabel={to.columns.pageviews}
+        selectedKeys={selectedKeys}
+        onSelect={filterPicker(onToggle, column, tab === 'countries' ? undefined : placePart)}
+        rowLabel={to.filterRow}
+        emptyText={t.weldpanel.analytics.common.noData}
+      />
+    </ChartCard>
+  );
+}
+
+function DevicesCard({ result, loading, tab, onTabChange, filters, onToggle }: Readonly<BreakdownCardProps<DevicesTab>>) {
+  const { t } = useI18n();
+  const to = t.weldpanel.analytics.overview;
+  const tx = t.weldpanel.explore.overview;
+  const columnRows = useColumnRows();
+  const screenLabel = (value: string) => (value in tx.screenSizeNames ? tx.screenSizeNames[value as PanelScreenSize] : value || t.weldpanel.analytics.common.unknown);
+  const data = result ? { devices: result.devices, browsers: result.browsers, operatingSystems: result.operatingSystems, screenSizes: result.screenSizes ?? [] }[tab] : undefined;
+  const rows = tab === 'screenSizes' ? toBreakdownRows(data, screenLabel) : columnRows(data, DEVICE_COLUMN[tab]!);
+  const column = DEVICE_COLUMN[tab];
+
+  return (
+    <ChartCard
+      title={to.devices.title}
+      loading={loading}
+      csv={data ? cardCsv(to.title, to.devices.title, breakdownCsvRows(data)) : undefined}
+      actions={
+        <BreakdownTabs
+          value={tab}
+          onChange={onTabChange}
+          items={[
+            { value: 'devices', label: to.devices.devices },
+            { value: 'browsers', label: to.devices.browsers },
+            { value: 'operatingSystems', label: to.devices.operatingSystems },
+            { value: 'screenSizes', label: tx.screenSizes },
+          ]}
+          label={to.devices.title}
+        />
+      }
+    >
+      <BreakdownList
+        rows={rows}
+        primaryLabel={to.columns.visitors}
+        secondaryLabel={to.columns.pageviews}
+        selectedKeys={selectedValues(filters, column)}
+        onSelect={filterPicker(onToggle, column)}
+        rowLabel={to.filterRow}
+        emptyText={t.weldpanel.analytics.common.noData}
+      />
+    </ChartCard>
+  );
+}
+
+function Overview({ project }: Readonly<{ project: PanelProjectDto }>) {
+  const { t } = useI18n();
+  const to = t.weldpanel.analytics.overview;
+  const params = useSearchParams();
+  const router = useRouter();
   const [range, setRange] = useDateRange();
   const [filters, setFilters] = useState<PanelFilter[]>([]);
   const [compare, setCompare] = useState(true);
+  // The tabs live here, not in the cards, so they survive an error or an empty state.
   const [pagesTab, setPagesTab] = useState<PagesTab>('top');
   const [sourcesTab, setSourcesTab] = useState<SourcesTab>('referrers');
+  const [locationsTab, setLocationsTab] = useState<LocationsTab>('countries');
   const [devicesTab, setDevicesTab] = useState<DevicesTab>('devices');
+  const [editingGoals, setEditingGoals] = useState(false);
+  const goalsParam = params.get('goals');
+  const goals = useMemo(() => parseGoalsParam(goalsParam), [goalsParam]);
 
   const spec = useMemo<PanelWebSpec>(
-    () => ({ kind: 'web', projectId: project.id, dateRange: range, filters, compare, limit: 10, timezone: browserTimezone() }),
-    [project.id, range, filters, compare],
+    () => ({
+      kind: 'web',
+      projectId: project.id,
+      dateRange: range,
+      filters,
+      compare,
+      limit: 10,
+      timezone: browserTimezone(),
+      // Every list, so switching a tab needs no new query.
+      panels: [...PANEL_WEB_PANELS],
+      ...(goals.length > 0 ? { goals } : {}),
+    }),
+    [project.id, range, filters, compare, goals],
   );
   const { data, error, isLoading, isFetching, refetch } = useWeldPanelWeb(spec);
   const result = data?.result;
@@ -80,38 +376,14 @@ function Overview({ project }: Readonly<{ project: PanelProjectDto }>) {
   const noTraffic = result !== undefined && result.totals.pageviews === 0 && result.totals.visitors === 0;
   const unavailable = isAnalyticsUnavailable(error);
 
-  const pickFilter = (field: PanelFilterColumn) => (value: string) => {
-    if (value !== '') setFilters((current) => toggleColumnFilter(current, field, value));
+  const setGoals = (next: PanelWebGoal[]) => {
+    const search: Record<string, unknown> = Object.fromEntries(params.entries());
+    if (next.length > 0) search.goals = JSON.stringify(next);
+    else delete search.goals;
+    router.replace(searchHref('/weldpanel', search));
   };
 
-  const labelFor = (field: PanelFilterColumn, value: string): string => {
-    if (value === '') return field === 'referrer_host' ? to.sources.direct : t.weldpanel.analytics.common.unknown;
-    if (field === 'country') return countryName(value, language);
-    if (field === 'device_type' && (value === 'desktop' || value === 'mobile' || value === 'tablet')) return to.devices[value];
-    return value;
-  };
-
-  const breakdownRows = (rows: PanelBreakdownRow[] | undefined, field: PanelFilterColumn): BreakdownListRow[] =>
-    (rows ?? []).map((row) => ({ key: row.value, label: labelFor(field, row.value), primary: row.visitors, secondary: row.events }));
-
-  const pagesRows: BreakdownListRow[] = useMemo(() => {
-    if (!result) return [];
-    if (pagesTab === 'top') return result.topPages.map((r) => ({ key: r.value, label: r.value, primary: r.visitors, secondary: r.events }));
-    return result.entryExitPages
-      .filter((r) => (pagesTab === 'entry' ? r.entries > 0 : r.exits > 0))
-      .sort((a, b) => (pagesTab === 'entry' ? b.entries - a.entries : b.exits - a.exits))
-      .map((r) => ({ key: r.value, label: r.value, primary: pagesTab === 'entry' ? r.entries : r.exits }));
-  }, [result, pagesTab]);
-
-  const sourcesRows = result
-    ? breakdownRows(
-        { referrers: result.sources, utmSource: result.utmSources, utmMedium: result.utmMediums, utmCampaign: result.utmCampaigns }[sourcesTab],
-        SOURCE_COLUMN[sourcesTab],
-      )
-    : [];
-  const devicesRows = result
-    ? breakdownRows({ devices: result.devices, browsers: result.browsers, operatingSystems: result.operatingSystems }[devicesTab], DEVICE_COLUMN[devicesTab])
-    : [];
+  const toggleFilter: ToggleFilter = (field, value) => setFilters((current) => toggleColumnFilter(current, field, value));
 
   // The page title row belongs to AnalyticsPage; the toolbar opens the body.
   const toolbar = (
@@ -142,19 +414,7 @@ function Overview({ project }: Readonly<{ project: PanelProjectDto }>) {
     );
   }
 
-  const tabsList = <T extends string>(value: T, onChange: (next: T) => void, items: { value: T; label: string }[], label: string) => (
-    <Tabs value={value} onValueChange={(next) => onChange(next as T)}>
-      <TabsList className="h-7" aria-label={label}>
-        {items.map((item) => (
-          <TabsTrigger key={item.value} value={item.value} className="px-2 text-xs">
-            {item.label}
-          </TabsTrigger>
-        ))}
-      </TabsList>
-    </Tabs>
-  );
-
-  const rowLabel = to.filterRow;
+  const cardProps = { result, loading: isLoading, filters, onToggle: toggleFilter };
 
   return (
     <>
@@ -182,83 +442,19 @@ function Overview({ project }: Readonly<{ project: PanelProjectDto }>) {
             {result && <WebChart result={result} />}
           </ChartCard>
 
+          <GoalsCard goals={goals} result={result} loading={isLoading} onEdit={() => setEditingGoals(true)} />
+
           <p className="-mb-3 text-xs text-muted-foreground">{to.clickToFilter}</p>
           <div className="grid gap-4 lg:grid-cols-2">
-            <ChartCard
-              title={to.pages.title}
-              loading={isLoading}
-              actions={tabsList(pagesTab, setPagesTab, [
-                { value: 'top', label: to.pages.top },
-                { value: 'entry', label: to.pages.entry },
-                { value: 'exit', label: to.pages.exit },
-              ], to.pages.title)}
-            >
-              <BreakdownList
-                rows={pagesRows}
-                primaryLabel={{ top: to.columns.visitors, entry: to.pages.entries, exit: to.pages.exits }[pagesTab]}
-                secondaryLabel={pagesTab === 'top' ? to.columns.pageviews : undefined}
-                selectedKeys={selectedValues(filters, 'path')}
-                onSelect={pickFilter('path')}
-                rowLabel={rowLabel}
-                emptyText={t.weldpanel.analytics.common.noData}
-              />
-            </ChartCard>
-
-            <ChartCard
-              title={to.sources.title}
-              loading={isLoading}
-              actions={tabsList(sourcesTab, setSourcesTab, [
-                { value: 'referrers', label: to.sources.referrers },
-                { value: 'utmSource', label: to.sources.utmSource },
-                { value: 'utmMedium', label: to.sources.utmMedium },
-                { value: 'utmCampaign', label: to.sources.utmCampaign },
-              ], to.sources.title)}
-            >
-              <BreakdownList
-                rows={sourcesRows}
-                primaryLabel={to.columns.visitors}
-                secondaryLabel={to.columns.pageviews}
-                selectedKeys={selectedValues(filters, SOURCE_COLUMN[sourcesTab])}
-                onSelect={pickFilter(SOURCE_COLUMN[sourcesTab])}
-                rowLabel={rowLabel}
-                emptyText={t.weldpanel.analytics.common.noData}
-              />
-            </ChartCard>
-
-            <ChartCard title={to.countries.title} loading={isLoading}>
-              <BreakdownList
-                rows={breakdownRows(result?.countries, 'country')}
-                primaryLabel={to.columns.visitors}
-                secondaryLabel={to.columns.pageviews}
-                selectedKeys={selectedValues(filters, 'country')}
-                onSelect={pickFilter('country')}
-                rowLabel={rowLabel}
-                emptyText={t.weldpanel.analytics.common.noData}
-              />
-            </ChartCard>
-
-            <ChartCard
-              title={to.devices.title}
-              loading={isLoading}
-              actions={tabsList(devicesTab, setDevicesTab, [
-                { value: 'devices', label: to.devices.devices },
-                { value: 'browsers', label: to.devices.browsers },
-                { value: 'operatingSystems', label: to.devices.operatingSystems },
-              ], to.devices.title)}
-            >
-              <BreakdownList
-                rows={devicesRows}
-                primaryLabel={to.columns.visitors}
-                secondaryLabel={to.columns.pageviews}
-                selectedKeys={selectedValues(filters, DEVICE_COLUMN[devicesTab])}
-                onSelect={pickFilter(DEVICE_COLUMN[devicesTab])}
-                rowLabel={rowLabel}
-                emptyText={t.weldpanel.analytics.common.noData}
-              />
-            </ChartCard>
+            <PagesCard {...cardProps} tab={pagesTab} onTabChange={setPagesTab} />
+            <SourcesCard {...cardProps} tab={sourcesTab} onTabChange={setSourcesTab} />
+            <LocationsCard {...cardProps} tab={locationsTab} onTabChange={setLocationsTab} />
+            <DevicesCard {...cardProps} tab={devicesTab} onTabChange={setDevicesTab} />
           </div>
         </>
       )}
+
+      <GoalsDialog projectId={project.id} goals={goals} open={editingGoals} onOpenChange={setEditingGoals} onApply={setGoals} />
     </>
   );
 }
@@ -285,7 +481,15 @@ export default function WeldPanelHome() {
   }
 
   if (projects.length > 0) {
-    return <AnalyticsPage title={t.weldpanel.analytics.overview.title} description={t.weldpanel.analytics.overview.description}>{(project) => <Overview key={project.id} project={project} />}</AnalyticsPage>;
+    return (
+      <AnalyticsPage title={t.weldpanel.analytics.overview.title} description={t.weldpanel.analytics.overview.description}>
+        {(project) => (
+          <PanelDefinitionsProvider key={project.id} projectId={project.id}>
+            <Overview project={project} />
+          </PanelDefinitionsProvider>
+        )}
+      </AnalyticsPage>
+    );
   }
 
   const steps = [

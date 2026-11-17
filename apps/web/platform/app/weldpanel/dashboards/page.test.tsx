@@ -12,6 +12,7 @@ const state = vi.hoisted(() => ({
   dashboards: [] as unknown[],
   isError: false,
   create: vi.fn(),
+  createFromTemplate: vi.fn(),
   push: vi.fn(),
 }));
 
@@ -31,12 +32,40 @@ vi.mock('@/hooks/queries/use-weldpanel-queries', () => ({
   useWeldPanelDashboards: () => ({ data: state.isError ? undefined : state.dashboards, isLoading: false, isError: state.isError, refetch: vi.fn() }),
   useCreateWeldPanelDashboard: () => ({ mutateAsync: state.create, isPending: false }),
 }));
+vi.mock('@/hooks/queries/use-weldpanel-collab-queries', () => ({
+  useWeldPanelDashboardTemplates: () => ({
+    data: [
+      {
+        id: 'website-overview',
+        name: 'Website overview',
+        description: 'Traffic at a glance',
+        tiles: [
+          { kind: 'text', reportName: null, reportKind: null, text: 'Hi', layout: { x: 0, y: 0, w: 24, h: 3 } },
+          { kind: 'report', reportName: 'Traffic', reportKind: 'web', text: null, layout: { x: 0, y: 3, w: 24, h: 8 } },
+        ],
+      },
+    ],
+    isLoading: false,
+    isError: false,
+    refetch: vi.fn(),
+  }),
+  useCreateWeldPanelDashboardFromTemplate: () => ({ mutateAsync: state.createFromTemplate, isPending: false }),
+}));
 
 Element.prototype.hasPointerCapture ??= () => false;
 Element.prototype.setPointerCapture ??= () => undefined;
 Element.prototype.releasePointerCapture ??= () => undefined;
 
 const td = en.weldpanel.analytics.dashboards;
+const tt = en.weldpanel.collab.dashboards.templates;
+
+/** "New dashboard" offers the templates first; "Empty dashboard" opens the name form. */
+async function openBlankForm() {
+  await userEvent.click(screen.getAllByRole('button', { name: td.newDashboard })[0]!);
+  const gallery = await screen.findByRole('dialog', { name: tt.title });
+  await userEvent.click(within(gallery).getByRole('button', { name: new RegExp(tt.blank) }));
+  return screen.findByRole('dialog', { name: td.createTitle });
+}
 
 const dashboard = (overrides: Record<string, unknown> = {}) => ({
   id: 'wpd_1',
@@ -56,6 +85,7 @@ describe('Dashboards', () => {
     state.dashboards = [dashboard()];
     state.isError = false;
     state.create.mockReset();
+    state.createFromTemplate.mockReset();
     state.push.mockReset();
     window.localStorage.clear();
     resetCurrentProjectChoice();
@@ -78,8 +108,7 @@ describe('Dashboards', () => {
   it('creates a dashboard and opens it', async () => {
     state.create.mockResolvedValue(dashboard({ id: 'wpd_new' }));
     render(<DashboardsPage />);
-    await userEvent.click(screen.getByRole('button', { name: td.newDashboard }));
-    const dialog = await screen.findByRole('dialog', { name: td.createTitle });
+    const dialog = await openBlankForm();
     await userEvent.type(within(dialog).getByLabelText(en.weldpanel.analytics.save.nameLabel), 'Sales');
     await userEvent.click(within(dialog).getByRole('button', { name: en.weldpanel.analytics.common.create }));
     await waitFor(() => expect(state.create).toHaveBeenCalledTimes(1));
@@ -89,11 +118,24 @@ describe('Dashboards', () => {
 
   it('needs a name', async () => {
     render(<DashboardsPage />);
-    await userEvent.click(screen.getByRole('button', { name: td.newDashboard }));
-    const dialog = await screen.findByRole('dialog');
+    const dialog = await openBlankForm();
     await userEvent.click(within(dialog).getByRole('button', { name: en.weldpanel.analytics.common.create }));
     expect(await screen.findByText(en.weldpanel.analytics.save.nameRequired)).toBeTruthy();
     expect(state.create).not.toHaveBeenCalled();
+  });
+
+  it('creates a dashboard from a template and opens it', async () => {
+    state.createFromTemplate.mockResolvedValue(dashboard({ id: 'wpd_tpl' }));
+    render(<DashboardsPage />);
+    await userEvent.click(screen.getByRole('button', { name: td.newDashboard }));
+    const gallery = await screen.findByRole('dialog', { name: tt.title });
+    await userEvent.click(within(gallery).getByRole('button', { name: /Website overview/ }));
+    const form = await screen.findByRole('dialog', { name: 'Website overview' });
+    expect(within(form).getByText('Traffic')).toBeTruthy();
+    await userEvent.click(within(form).getByRole('button', { name: tt.use }));
+    await waitFor(() => expect(state.createFromTemplate).toHaveBeenCalledTimes(1));
+    expect(state.createFromTemplate.mock.calls[0]?.[0]).toMatchObject({ projectId: 'wpp_1', template: 'website-overview', name: 'Website overview', visibility: 'private', locale: 'en' });
+    await waitFor(() => expect(state.push).toHaveBeenCalledWith('/weldpanel/dashboards/wpd_tpl'));
   });
 
   it('has no create button without the permission', () => {

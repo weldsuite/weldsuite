@@ -47,6 +47,8 @@ export interface Env extends Pick<OutboundGuardEnv, 'OUTBOUND_LEDGER' | 'OUTBOUN
   HELPDESK_WORKFLOW?: Fetcher;
   /** board-api's BoardsInternal entrypoint: the deprecated /v1/whiteboards on WeldBoard boards. */
   BOARDS_INTERNAL?: Fetcher;
+  /** panel-api's PanelApiInternal entrypoint: WeldPanel's read API behind /v1/panel. Unset (Rust editions) = 503. */
+  PANEL_INTERNAL?: Fetcher;
   /**
    * R2 bucket shared with app-api's STORAGE binding: user-app bundles, and
    * WeldMail attachments (downloads, API uploads, sent copies).

@@ -1,8 +1,10 @@
 import { useMemo, useState } from 'react';
-import { Plus, X } from 'lucide-react';
+import { Plus, SearchCheck, X } from 'lucide-react';
+import type { PanelProjectDto } from '@weldsuite/app-api-client/schemas/weldpanel';
 import {
   PANEL_INTERVALS,
   PANEL_TREND_MATHS,
+  PANEL_TRENDS_DISPLAYS,
   type PanelFilter,
   type PanelInterval,
   type PanelTrendMath,
@@ -18,32 +20,42 @@ import { Label } from '@weldsuite/ui/components/label';
 import { useWeldPanelTrends } from '@/hooks/queries/use-weldpanel-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { AnalyticsPage } from '../components/analytics-page';
-import { BreakdownPicker, isBreakdownComplete } from '../components/breakdown-picker';
+import { BreakdownsPicker, completeBreakdowns } from '../components/breakdown-picker';
 import { ChartCard } from '../components/chart-card';
 import { DateRangePicker } from '../components/date-range-picker';
+import { PanelDefinitionsProvider, useDefinitionLabels, usePanelDefinitions } from '../components/definitions';
 import { FilterBuilder } from '../components/filter-builder';
 import { FreshnessBadge } from '../components/freshness-badge';
 import { LabeledField } from '../components/labeled-field';
 import { EventPicker, PropertyPicker } from '../components/pickers';
 import { ReportActions } from '../components/report-actions';
-import { TrendsResultView, type TrendsChartType } from '../components/results/trends-result';
+import { TrendsResultView, trendLines, type TrendsChartType } from '../components/results/trends-result';
 import { SavedReportNotices } from '../components/saved-report-notices';
 import { useSavedReport } from '../components/use-saved-report';
 import { defaultReportName, emptyTrendsDraft, isTrendsReady, needsProperty, seriesLetter, trendsDraftFromSpec, type TrendsDraft } from '../lib/builders';
+import { csvFilename } from '../lib/csv';
 import { defaultInterval, parseRange, useDateRange } from '../lib/date-range';
+import { trendsCsvRows } from '../lib/explore-csv';
+import { ExplainPanel, isExplainable } from './explain-panel';
+import { FormulasEditor, runnableFormulas } from './formulas-editor';
 
 const MAX_SERIES = 5;
-const CHART_TYPES: TrendsChartType[] = ['line', 'bar', 'table', 'number'];
 
 type SeriesDraft = TrendsDraft['series'][number];
 
-function Builder({ projectId }: Readonly<{ projectId: string }>) {
+function Builder({ project }: Readonly<{ project: PanelProjectDto }>) {
+  const projectId = project.id;
   const { t } = useI18n();
   const ti = t.weldpanel.analytics.insights;
+  const tx = t.weldpanel.explore.insights;
+  const tex = t.weldpanel.explore.explain;
+  const { groupTypes } = usePanelDefinitions();
+  const labels = useDefinitionLabels();
   const [range, setRange] = useDateRange();
   const [draft, setDraft] = useState<TrendsDraft>(emptyTrendsDraft);
   const [interval, setInterval] = useState<PanelInterval | 'auto'>('auto');
   const [chartType, setChartType] = useState<TrendsChartType>('line');
+  const [explainOpen, setExplainOpen] = useState(false);
 
   const saved = useSavedReport({
     kind: 'trends',
@@ -59,18 +71,35 @@ function Builder({ projectId }: Readonly<{ projectId: string }>) {
   });
 
   const effectiveInterval = interval === 'auto' ? defaultInterval(range) : interval;
-  const ready = isTrendsReady(draft);
+  const formulas = runnableFormulas(draft.formulas, draft.series.length);
+  const ready = isTrendsReady(draft) && formulas !== null;
 
-  const spec = useMemo<PanelTrendsSpec>(
-    // `display` only matters when saving (below); leaving it out keeps the query's cache key the same.
-    () => ({ ...draft, display: undefined, projectId, dateRange: range, interval: effectiveInterval, breakdown: isBreakdownComplete(draft.breakdown) ? draft.breakdown : undefined }),
-    [draft, projectId, range, effectiveInterval],
-  );
+  const spec = useMemo<PanelTrendsSpec>(() => {
+    const runFormulas = runnableFormulas(draft.formulas, draft.series.length) ?? [];
+    return {
+      ...draft,
+      projectId,
+      dateRange: range,
+      interval: effectiveInterval,
+      breakdown: undefined,
+      breakdowns: completeBreakdowns(draft.breakdowns),
+      formulas: runFormulas.length > 0 ? runFormulas : undefined,
+      formulaOnly: runFormulas.length > 0 && draft.formulaOnly ? true : undefined,
+      // Only `cumulative` changes what the query returns; the other displays are kept with a saved report (below).
+      display: chartType === 'cumulative' ? 'cumulative' : undefined,
+    };
+  }, [draft, projectId, range, effectiveInterval, chartType]);
   const { data, error, isLoading, isFetching, refetch } = useWeldPanelTrends(spec, { enabled: ready });
 
   const updateSeries = (index: number, patch: Partial<SeriesDraft>) =>
     setDraft((d) => ({ ...d, series: d.series.map((s, i) => (i === index ? { ...s, ...patch } : s)) }));
   const setFilters = (filters: PanelFilter[]) => setDraft((d) => ({ ...d, filters }));
+
+  const maths = PANEL_TREND_MATHS.filter((m) => m !== 'unique_groups' || groupTypes.length > 0 || draft.series.some((s) => s.math === 'unique_groups'));
+  const mathLabel = (m: PanelTrendMath) => (m === 'unique_groups' ? tx.measures.unique_groups : ti.measures[m]);
+  const chartLabel = (type: TrendsChartType) => (type === 'area' || type === 'pie' || type === 'cumulative' ? tx.chartTypes[type] : ti.chartTypes[type]);
+  const seriesLabels = draft.series.map((s) => s.label || labels.event(s.event));
+  const canExplain = draft.series.some((s) => isExplainable(s.math));
 
   if (saved.isLoading) return <PageLoader fullScreen={false} label={ti.loadingReport} />;
 
@@ -104,14 +133,22 @@ function Builder({ projectId }: Readonly<{ projectId: string }>) {
                       <EventPicker id={`weldpanel-series-${index}-event`} projectId={projectId} value={series.event} onChange={(event) => updateSeries(index, { event })} ariaLabel={`${ti.event} ${letter}`} />
                     </LabeledField>
                     <LabeledField label={ti.measure} htmlFor={`weldpanel-series-${index}-math`}>
-                      <Select value={math} onValueChange={(next) => updateSeries(index, { math: next as PanelTrendMath })}>
+                      <Select
+                        value={math}
+                        onValueChange={(next) =>
+                          updateSeries(index, {
+                            math: next as PanelTrendMath,
+                            groupType: next === 'unique_groups' ? (series.groupType ?? groupTypes[0]?.groupType) : undefined,
+                          })
+                        }
+                      >
                         <SelectTrigger id={`weldpanel-series-${index}-math`}>
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {PANEL_TREND_MATHS.map((m) => (
+                          {maths.map((m) => (
                             <SelectItem key={m} value={m}>
-                              {ti.measures[m]}
+                              {mathLabel(m)}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -125,7 +162,24 @@ function Builder({ projectId }: Readonly<{ projectId: string }>) {
                           value={series.property ?? ''}
                           onChange={(property) => updateSeries(index, { property })}
                           ariaLabel={`${ti.measureProperty} ${letter}`}
+                          includeComputed
                         />
+                      </LabeledField>
+                    )}
+                    {math === 'unique_groups' && (
+                      <LabeledField label={tx.groupType} htmlFor={`weldpanel-series-${index}-group-type`}>
+                        <Select value={series.groupType ?? ''} onValueChange={(groupType) => updateSeries(index, { groupType })}>
+                          <SelectTrigger id={`weldpanel-series-${index}-group-type`}>
+                            <SelectValue placeholder={t.weldpanel.explore.filters.groupTypePlaceholder} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {groupTypes.map((g) => (
+                              <SelectItem key={g.groupType} value={g.groupType}>
+                                {g.namePlural}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </LabeledField>
                     )}
                   </div>
@@ -165,10 +219,20 @@ function Builder({ projectId }: Readonly<{ projectId: string }>) {
         </div>
       </SectionCard>
 
+      <SectionCard title={tx.formulas.title}>
+        <FormulasEditor
+          formulas={draft.formulas ?? []}
+          onChange={(next) => setDraft((d) => ({ ...d, formulas: next }))}
+          formulaOnly={draft.formulaOnly ?? false}
+          onFormulaOnlyChange={(formulaOnly) => setDraft((d) => ({ ...d, formulaOnly }))}
+          seriesCount={draft.series.length}
+        />
+      </SectionCard>
+
       <SectionCard title={ti.globalFilters}>
         <div className="grid gap-5">
           <FilterBuilder projectId={projectId} filters={draft.filters ?? []} onChange={setFilters} />
-          <BreakdownPicker projectId={projectId} value={draft.breakdown} onChange={(breakdown) => setDraft((d) => ({ ...d, breakdown }))} idPrefix="weldpanel-insights-breakdown" />
+          <BreakdownsPicker projectId={projectId} value={draft.breakdowns ?? []} onChange={(breakdowns) => setDraft((d) => ({ ...d, breakdowns }))} idPrefix="weldpanel-insights-breakdown" />
         </div>
       </SectionCard>
 
@@ -179,6 +243,7 @@ function Builder({ projectId }: Readonly<{ projectId: string }>) {
         onRetry={() => void refetch()}
         empty={!ready}
         emptyText={ti.completeHint}
+        csv={data ? () => ({ filename: csvFilename(saved.report?.name ?? ti.title), rows: trendsCsvRows(trendLines(data.result, t.weldpanel.analytics.common.other, labels.event)) }) : undefined}
         actions={
           <div className="flex flex-wrap items-center gap-3">
             <Select value={interval === 'auto' ? effectiveInterval : interval} onValueChange={(next) => setInterval(next as PanelInterval)}>
@@ -193,10 +258,10 @@ function Builder({ projectId }: Readonly<{ projectId: string }>) {
                 ))}
               </SelectContent>
             </Select>
-            <ToggleGroup type="single" variant="outline" size="sm" value={chartType} onValueChange={(next) => next && setChartType(next as TrendsChartType)} aria-label={ti.chartType}>
-              {CHART_TYPES.map((type) => (
-                <ToggleGroupItem key={type} value={type} aria-label={ti.chartTypes[type]} className="px-2.5 text-xs">
-                  {ti.chartTypes[type]}
+            <ToggleGroup type="single" variant="outline" size="sm" value={chartType} onValueChange={(next) => next && setChartType(next as TrendsChartType)} aria-label={ti.chartType} className="flex-wrap">
+              {PANEL_TRENDS_DISPLAYS.map((type) => (
+                <ToggleGroupItem key={type} value={type} aria-label={chartLabel(type)} className="px-2.5 text-xs">
+                  {chartLabel(type)}
                 </ToggleGroupItem>
               ))}
             </ToggleGroup>
@@ -206,6 +271,12 @@ function Builder({ projectId }: Readonly<{ projectId: string }>) {
                 {t.weldpanel.analytics.range.compare}
               </Label>
             </div>
+            {ready && canExplain && (
+              <Button type="button" variant="outline" size="sm" onClick={() => setExplainOpen(true)}>
+                <SearchCheck />
+                {tex.button}
+              </Button>
+            )}
           </div>
         }
       >
@@ -217,6 +288,16 @@ function Builder({ projectId }: Readonly<{ projectId: string }>) {
         )}
       </ChartCard>
 
+      <ExplainPanel
+        open={explainOpen}
+        onOpenChange={setExplainOpen}
+        projectId={projectId}
+        spec={spec}
+        result={data?.result}
+        seriesLabels={seriesLabels}
+        aiEnabled={project.settings.aiEnabled}
+        initialSeries={Math.max(0, draft.series.findIndex((s) => isExplainable(s.math)))}
+      />
     </div>
   );
 }
@@ -226,7 +307,11 @@ export default function InsightsPage() {
   const ti = t.weldpanel.analytics.insights;
   return (
     <AnalyticsPage title={ti.title} description={ti.description}>
-      {(project) => <Builder key={project.id} projectId={project.id} />}
+      {(project) => (
+        <PanelDefinitionsProvider key={project.id} projectId={project.id}>
+          <Builder project={project} />
+        </PanelDefinitionsProvider>
+      )}
     </AnalyticsPage>
   );
 }

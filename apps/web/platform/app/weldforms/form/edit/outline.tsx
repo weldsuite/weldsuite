@@ -1,8 +1,11 @@
 /**
  * The left panel of the Create tab: the welcome screen, the blocks (drag to
- * reorder, groups with children), the endings, and the add-block menu.
+ * reorder, groups with children), the endings, and the add-block menu. Laid
+ * out like the module sidebar beside it: group labels, menu rows with the
+ * selection filled, and dashed "add" rows like its Invite members button.
  */
 
+import type { ComponentProps, ReactNode } from 'react';
 import {
   DndContext,
   KeyboardSensor,
@@ -14,7 +17,7 @@ import {
 } from '@dnd-kit/core';
 import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { AlertTriangle, ArrowDown, ArrowUp, Copy, GripVertical, ListTree, MoreHorizontal, Plus, Sparkles, Trash2 } from 'lucide-react';
+import { AlertTriangle, ArrowDown, ArrowUp, Braces, Copy, EllipsisVertical, GripVertical, ListTree, Plus, Trash2 } from 'lucide-react';
 import {
   createEnding,
   createField,
@@ -48,9 +51,20 @@ import {
   selectionAfterRemoval,
 } from '../../lib/blocks';
 import { BLOCK_ICONS, ENDING_ICON, type BlockKind } from '../../lib/block-types';
-import { useAiAvailable } from '../../lib/ai-availability';
 import { useFormEditor, type Selection } from '../editor-context';
 import { AddBlockMenu } from './add-block-menu';
+
+/** A row, as the sidebar's menu buttons: 32px, the selected one filled. */
+const ROW = 'group flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm transition-colors';
+const ROW_SELECTED = 'bg-accent font-medium text-accent-foreground';
+const ROW_IDLE = 'hover:bg-accent/60';
+/**
+ * An "add" row: dashed, like the sidebar's Invite members button, 34px tall,
+ * its + and label where a row's icon and title sit (7px padding plus the 1px
+ * border, over the Button's own 12px beside an icon).
+ */
+const ADD_ROW =
+  'h-[34px] w-full justify-start gap-2 rounded-md border border-dashed border-muted-foreground/30 px-[7px] has-[>svg]:px-[7px] py-0 text-sm font-normal text-muted-foreground hover:border-muted-foreground/50 hover:bg-accent/40 hover:text-foreground dark:hover:bg-accent/40';
 
 /** A new block of any kind, with a ref no other block uses. */
 export function newBlock(def: FormDefinition, kind: BlockKind): Block {
@@ -65,6 +79,28 @@ export function newBlock(def: FormDefinition, kind: BlockKind): Block {
     default:
       return createField(kind as FieldType, { ref });
   }
+}
+
+/** A section's label, as the sidebar's `SidebarGroupLabel`, with its + on the right, which stays visible. */
+function SectionHeader({ label, children }: Readonly<{ label: string; children?: ReactNode }>) {
+  return (
+    <div className="flex h-8 items-center justify-between gap-2 pl-2 pr-1.5">
+      <h3 className="truncate text-xs font-medium text-muted-foreground">{label}</h3>
+      {children}
+    </div>
+  );
+}
+
+/**
+ * The + of a section header. Spreads what a wrapping trigger (the add-block
+ * menu's popover) passes, so it works on its own and as that trigger.
+ */
+function AddButton({ label, ...props }: Readonly<{ label: string } & ComponentProps<typeof Button>>) {
+  return (
+    <Button type="button" variant="ghost" size="icon-xs" className="shrink-0 text-muted-foreground hover:text-foreground" aria-label={label} title={label} {...props}>
+      <Plus />
+    </Button>
+  );
 }
 
 interface RowProps {
@@ -94,27 +130,27 @@ function BlockRow({ block, depth, number, selected, issueCount, canEdit, first, 
   return (
     <div
       ref={setNodeRef}
-      style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }}
-      className={cn('group flex items-center gap-1 rounded-md border border-transparent pr-1 text-sm', selected ? 'border-primary/40 bg-primary/5' : 'hover:bg-accent/60')}
+      style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1, paddingLeft: 8 + depth * 20 }}
+      className={cn(ROW, 'pr-1.5', selected ? ROW_SELECTED : ROW_IDLE)}
     >
-      {canEdit ? (
-        <button
-          type="button"
-          className="grid h-8 w-6 shrink-0 cursor-grab touch-none place-items-center text-muted-foreground/60 hover:text-foreground active:cursor-grabbing"
-          style={{ marginLeft: depth * 14 }}
-          aria-label={to.drag}
-          {...attributes}
-          {...listeners}
-        >
-          <GripVertical className="size-3.5" />
-        </button>
-      ) : (
-        <span className="w-6" style={{ marginLeft: depth * 14 }} />
-      )}
-      <button type="button" onClick={onSelect} className="flex min-w-0 flex-1 items-center gap-2 py-1.5 text-left focus-visible:outline-none" aria-current={selected ? 'true' : undefined}>
-        <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-        {number !== null && <span className="w-5 shrink-0 text-xs tabular-nums text-muted-foreground">{number}</span>}
-        <span className={cn('truncate', block.title.trim() === '' && 'italic text-muted-foreground')}>{title}</span>
+      {/* The block's icon; on hover, the drag handle in its place. */}
+      <span className="relative grid size-4 shrink-0 place-items-center">
+        <Icon className={cn('size-4 text-muted-foreground', canEdit && 'group-hover:opacity-0')} aria-hidden />
+        {canEdit && (
+          <button
+            type="button"
+            className="absolute inset-0 grid cursor-grab touch-none place-items-center text-muted-foreground opacity-0 hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100 active:cursor-grabbing"
+            aria-label={to.drag}
+            {...attributes}
+            {...listeners}
+          >
+            <GripVertical className="size-4" />
+          </button>
+        )}
+      </span>
+      <button type="button" onClick={onSelect} className="flex min-w-0 flex-1 items-center gap-1.5 self-stretch text-left focus-visible:outline-none" aria-current={selected ? 'true' : undefined}>
+        {number !== null && <span className="shrink-0 text-xs font-normal tabular-nums text-muted-foreground">{number}.</span>}
+        <span className={cn('truncate', block.title.trim() === '' && 'font-normal italic text-muted-foreground')}>{title}</span>
       </button>
       {issueCount > 0 && (
         <Tooltip>
@@ -129,8 +165,13 @@ function BlockRow({ block, depth, number, selected, issueCount, canEdit, first, 
       {canEdit && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon-xs" className="shrink-0 opacity-0 focus-visible:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100" aria-label={t.common.actions.openMenu}>
-              <MoreHorizontal />
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className="shrink-0 text-muted-foreground opacity-0 hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100 data-[state=open]:text-foreground data-[state=open]:opacity-100"
+              aria-label={t.common.actions.openMenu}
+            >
+              <EllipsisVertical className="size-4" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
@@ -169,15 +210,13 @@ function BlockRow({ block, depth, number, selected, issueCount, canEdit, first, 
 
 interface OutlineProps {
   onDataClick: () => void;
-  onAiClick: () => void;
 }
 
-export function Outline({ onDataClick, onAiClick }: Readonly<OutlineProps>) {
+export function Outline({ onDataClick }: Readonly<OutlineProps>) {
   const { t } = useI18n();
   const to = t.weldforms.outline;
   const editor = useFormEditor();
   const { definition: def, selection, canEdit } = editor;
-  const aiAvailable = useAiAvailable();
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
 
@@ -202,57 +241,65 @@ export function Outline({ onDataClick, onAiClick }: Readonly<OutlineProps>) {
     select({ kind: 'block', id: block.id });
   }
 
+  function addWelcome() {
+    editor.editDefinition((d) => ({ ...d, welcome: { title: to.welcomeDefaultTitle } }));
+    select({ kind: 'welcome' });
+  }
+
+  function addEnding() {
+    const ending = createEnding({ ref: uniqueRef(def, 'ending'), title: to.newEndingTitle });
+    editor.editDefinition((x) => ({ ...x, endings: [...x.endings, ending] }));
+    select({ kind: 'ending', id: ending.id });
+  }
+
   let questionNumber = 0;
   const issuesFor = (id: string) => editor.issuesByBlock.get(id)?.length ?? 0;
   const topBlocks = def.blocks;
 
+  const welcomeSelected = selection?.kind === 'welcome';
+
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3">
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-2">
         {/* Welcome screen */}
-        <div>
-          <div className="px-1 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">{to.welcome}</div>
+        <section>
+          <SectionHeader label={to.welcome}>
+            {canEdit && <AddButton label={to.addWelcome} disabled={Boolean(def.welcome)} onClick={addWelcome} />}
+          </SectionHeader>
           {def.welcome ? (
-            <button
-              type="button"
-              onClick={() => select({ kind: 'welcome' })}
-              className={cn('flex w-full items-center gap-2 rounded-md border border-transparent px-2 py-1.5 text-left text-sm', selection?.kind === 'welcome' ? 'border-primary/40 bg-primary/5' : 'hover:bg-accent/60')}
-            >
-              <ListTree className="size-4 text-muted-foreground" aria-hidden />
+            <button type="button" onClick={() => select({ kind: 'welcome' })} aria-current={welcomeSelected ? 'true' : undefined} className={cn(ROW, welcomeSelected ? ROW_SELECTED : ROW_IDLE)}>
+              <ListTree className="size-4 shrink-0 text-muted-foreground" aria-hidden />
               <span className="truncate">{def.welcome.title || to.welcome}</span>
             </button>
           ) : (
             canEdit && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="w-full justify-start"
-                onClick={() => {
-                  editor.editDefinition((d) => ({ ...d, welcome: { title: to.welcomeDefaultTitle } }));
-                  select({ kind: 'welcome' });
-                }}
-              >
+              <Button type="button" variant="ghost" className={ADD_ROW} onClick={addWelcome}>
                 <Plus className="size-4" />
                 {to.addWelcome}
               </Button>
             )
           )}
-        </div>
+        </section>
 
         {/* Blocks */}
-        <div>
-          <div className="px-1 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">{to.questions}</div>
-          {topBlocks.length === 0 && <p className="px-1 py-2 text-sm text-muted-foreground">{to.empty}</p>}
+        <section>
+          <SectionHeader label={to.questions}>
+            {canEdit && (
+              <AddBlockMenu layout={def.presentation.layout} onAdd={(kind) => add(kind)}>
+                <AddButton label={to.addBlock} />
+              </AddBlockMenu>
+            )}
+          </SectionHeader>
+          {topBlocks.length === 0 && !canEdit && <p className="px-2 py-1.5 text-sm text-muted-foreground">{to.empty}</p>}
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
             <SortableContext items={flatIds} strategy={verticalListSortingStrategy}>
-              <div className="space-y-0.5">
+              <div className="space-y-px">
                 {topBlocks.map((block, index) => {
                   const isField = block.type !== 'statement' && block.type !== 'group' && block.type !== 'page_break';
                   if (isField) questionNumber += 1;
                   const groupSelected = block.type === 'group' && selection?.kind === 'block' && selection.id === block.id;
                   return (
-                    <div key={block.id}>
+                    <div key={block.id} className="space-y-px">
                       <BlockRow
                         block={block}
                         depth={0}
@@ -264,34 +311,33 @@ export function Outline({ onDataClick, onAiClick }: Readonly<OutlineProps>) {
                         last={index === topBlocks.length - 1}
                         onSelect={() => select({ kind: 'block', id: block.id })}
                       />
-                      {block.type === 'group' && (
-                        <div className="space-y-0.5">
-                          {block.children.map((child, childIndex) => {
-                            const childIsField = child.type !== 'statement';
-                            if (childIsField) questionNumber += 1;
-                            return (
-                              <BlockRow
-                                key={child.id}
-                                block={child}
-                                depth={1}
-                                number={childIsField ? questionNumber : null}
-                                selected={selection?.kind === 'block' && selection.id === child.id}
-                                issueCount={issuesFor(child.id)}
-                                canEdit={canEdit}
-                                first={childIndex === 0}
-                                last={childIndex === block.children.length - 1}
-                                onSelect={() => select({ kind: 'block', id: child.id })}
-                              />
-                            );
-                          })}
-                          {canEdit && (groupSelected || block.children.length === 0) && (
-                            <AddBlockMenu layout={def.presentation.layout} insideGroup onAdd={(kind) => add(kind, block.id)}>
-                              <Button type="button" variant="ghost" size="xs" className="ml-9 text-muted-foreground">
-                                <Plus />
-                                {to.addToGroup}
-                              </Button>
-                            </AddBlockMenu>
-                          )}
+                      {block.type === 'group' &&
+                        block.children.map((child, childIndex) => {
+                          const childIsField = child.type !== 'statement';
+                          if (childIsField) questionNumber += 1;
+                          return (
+                            <BlockRow
+                              key={child.id}
+                              block={child}
+                              depth={1}
+                              number={childIsField ? questionNumber : null}
+                              selected={selection?.kind === 'block' && selection.id === child.id}
+                              issueCount={issuesFor(child.id)}
+                              canEdit={canEdit}
+                              first={childIndex === 0}
+                              last={childIndex === block.children.length - 1}
+                              onSelect={() => select({ kind: 'block', id: child.id })}
+                            />
+                          );
+                        })}
+                      {block.type === 'group' && canEdit && (groupSelected || block.children.length === 0) && (
+                        <div className="pl-5">
+                          <AddBlockMenu layout={def.presentation.layout} insideGroup onAdd={(kind) => add(kind, block.id)}>
+                            <Button type="button" variant="ghost" className={ADD_ROW}>
+                              <Plus className="size-4" />
+                              {to.addToGroup}
+                            </Button>
+                          </AddBlockMenu>
                         </div>
                       )}
                     </div>
@@ -300,28 +346,22 @@ export function Outline({ onDataClick, onAiClick }: Readonly<OutlineProps>) {
               </div>
             </SortableContext>
           </DndContext>
-          {canEdit && (
-            <div className="mt-2 flex flex-wrap gap-2">
+          {canEdit && topBlocks.length === 0 && (
+            <div>
               <AddBlockMenu layout={def.presentation.layout} onAdd={(kind) => add(kind)}>
-                <Button type="button" variant="outline" size="sm">
+                <Button type="button" variant="ghost" className={ADD_ROW}>
                   <Plus className="size-4" />
                   {to.addBlock}
                 </Button>
               </AddBlockMenu>
-              {aiAvailable && (
-                <Button type="button" variant="outline" size="sm" onClick={onAiClick}>
-                  <Sparkles className="size-4" />
-                  {to.addWithAi}
-                </Button>
-              )}
             </div>
           )}
-        </div>
+        </section>
 
         {/* Endings */}
-        <div>
-          <div className="px-1 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">{to.endings}</div>
-          <div className="space-y-0.5">
+        <section>
+          <SectionHeader label={to.endings}>{canEdit && <AddButton label={to.addEnding} onClick={addEnding} />}</SectionHeader>
+          <div className="space-y-px">
             {def.endings.map((ending) => {
               const active = selection?.kind === 'ending' && selection.id === ending.id;
               return (
@@ -329,7 +369,8 @@ export function Outline({ onDataClick, onAiClick }: Readonly<OutlineProps>) {
                   key={ending.id}
                   type="button"
                   onClick={() => select({ kind: 'ending', id: ending.id })}
-                  className={cn('flex w-full items-center gap-2 rounded-md border border-transparent px-2 py-1.5 text-left text-sm', active ? 'border-primary/40 bg-primary/5' : 'hover:bg-accent/60')}
+                  aria-current={active ? 'true' : undefined}
+                  className={cn(ROW, active ? ROW_SELECTED : ROW_IDLE)}
                 >
                   <ENDING_ICON className="size-4 shrink-0 text-muted-foreground" aria-hidden />
                   <span className="truncate">{ending.title || to.untitled}</span>
@@ -337,28 +378,19 @@ export function Outline({ onDataClick, onAiClick }: Readonly<OutlineProps>) {
               );
             })}
           </div>
-          {canEdit && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="mt-1 w-full justify-start"
-              onClick={() => {
-                const ending = createEnding({ ref: uniqueRef(def, 'ending'), title: to.newEndingTitle });
-                editor.editDefinition((x) => ({ ...x, endings: [...x.endings, ending] }));
-                select({ kind: 'ending', id: ending.id });
-              }}
-            >
+          {canEdit && def.endings.length === 0 && (
+            <Button type="button" variant="ghost" className={ADD_ROW} onClick={addEnding}>
               <Plus className="size-4" />
               {to.addEnding}
             </Button>
           )}
-        </div>
+        </section>
       </div>
       <div className="border-t p-2">
-        <Button type="button" variant="ghost" size="sm" className="w-full justify-start" onClick={onDataClick}>
-          {to.hiddenAndVariables}
-        </Button>
+        <button type="button" onClick={onDataClick} className={cn(ROW, ROW_IDLE)}>
+          <Braces className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+          <span className="truncate">{to.hiddenAndVariables}</span>
+        </button>
       </div>
     </div>
   );

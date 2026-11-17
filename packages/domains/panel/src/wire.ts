@@ -7,11 +7,18 @@
  * `POST /e` body (sent as `text/plain` JSON so browsers skip the CORS
  * preflight, and with `navigator.sendBeacon` on page hide):
  *
- *   { token, sent_at, lib, lib_version, consent, events: [...], people?: [...] }
+ *   { token, sent_at, lib, lib_version, consent, events: [...], people?: [...], groups?: [...] }
  *
  * Without consent the SDK keeps nothing in the browser and sends no
  * `anon_id` / `session_id` / `user_id` / `people`; the collector derives a
- * daily-rotating visitor hash instead (ADR PANEL-006).
+ * daily-rotating visitor hash instead (ADR PANEL-006). Group profile
+ * operations (`groups`) describe a company or account, not the visitor, and
+ * are applied with or without consent.
+ *
+ * `lib` is `web` (browser SDK), `server` (only through `/v1/track`) or
+ * `mobile` (`@weldsuite/panel-react-native`): mobile events take their `os`,
+ * `device_type`, `host`, `path` and `title` columns from their `$`
+ * properties instead of the user agent and the URL (panel-ingest `lib/rows.ts`).
  *
  * The server API (`POST /v1/track`, `/v1/import`) has its own envelope
  * ({@link parseServerBatch}).
@@ -28,6 +35,19 @@ export const MAX_ELEMENT_TEXT = 255;
 export const MAX_ERROR_MESSAGE = 1000;
 export const MAX_PEOPLE_OPS_PER_BATCH = 50;
 export const MAX_UNSET_KEYS = 50;
+export const MAX_GROUP_OPS_PER_BATCH = 50;
+/** Group types a project collects; the collector drops the ops and `$group_<type>` properties of any type past these. */
+export const MAX_GROUP_TYPES = 5;
+/** A group type (`company`, `workspace`): what `group(type, key)` sends as the `$group_<type>` event property. */
+export const GROUP_TYPE = /^[a-z][a-z0-9_]{0,31}$/;
+/** A group key (`acme`, a company id): 1 to 255 characters, no control characters. */
+export const MAX_GROUP_KEY = 255;
+/** The event property that carries a group membership: `$group_` + {@link GROUP_TYPE}. */
+export const GROUP_PROPERTY = /^\$group_([a-z][a-z0-9_]{0,31})$/;
+
+/** Event libraries: the browser SDK, the server API, the React Native SDK. */
+export const LIBS = ['web', 'server', 'mobile'] as const;
+export type PanelLib = (typeof LIBS)[number];
 
 /** `$`-prefixed names are reserved for events the SDK sends itself. */
 export const SYSTEM_EVENTS = [
@@ -40,6 +60,12 @@ export const SYSTEM_EVENTS = [
   '$quickback',
   '$excessivescroll',
   '$exception',
+  '$webvitals',
+  '$screen',
+  '$app_opened',
+  '$app_backgrounded',
+  '$app_installed',
+  '$app_updated',
 ] as const;
 export type SystemEventName = (typeof SYSTEM_EVENTS)[number];
 
@@ -51,22 +77,56 @@ export type SystemEventName = (typeof SYSTEM_EVENTS)[number];
 export const CUSTOM_EVENT_NAME = /^[A-Za-z0-9](?:[A-Za-z0-9 _.:/-]{0,98}[A-Za-z0-9_.:/-])?$/;
 /** Property keys: identifiers, kept SQL-safe because the query compiler reads them with `json_get_*`. */
 export const PROPERTY_KEY = /^[A-Za-z_]\w{0,63}$/;
+/** Reserved event keys about the page and the visitor: `$exception`'s source, line and column, `$quickback`'s page left, the first touch and `$group_<type>`. */
+export const PAGE_EVENT_KEY =
+  /^\$(?:source|line|col|from|initial_(?:referrer|referring_domain|utm_source|utm_medium|utm_campaign|utm_content|utm_term|landing_path)|group_[a-z][a-z0-9_]{0,31})$/;
+/** Reserved event keys about the device: `$webvitals`' measures, and the mobile SDK's device and screen. */
+export const DEVICE_EVENT_KEY =
+  /^\$(?:lcp|inp|fcp|ttfb|cls|lcp_el|inp_el|cls_el|nav_type|screen_name|os|os_version|device_type|device_model|app_id|app_version|app_build|screen_width|screen_height|locale)$/;
+/** What a property key is checked against: a RegExp, or {@link EVENT_PROPERTY_KEY}. */
+export interface KeyPattern {
+  test(key: string): boolean;
+}
 /**
- * Property keys of an event: {@link PROPERTY_KEY}, plus the few reserved `$`
- * keys the SDK's own events carry (`$exception`: source, line, column;
- * `$quickback`: the page left). Any other `$` key stays refused, so a client
- * can't forge the collector's own (`$action`).
+ * Property keys of an event: {@link PROPERTY_KEY}, plus the reserved `$` keys
+ * the SDKs set themselves ({@link PAGE_EVENT_KEY}, {@link DEVICE_EVENT_KEY}):
+ *
+ * - `$exception`: source, line, column; `$quickback`: the page left;
+ * - first touch, on every event: `$initial_referrer`, `$initial_referring_domain`,
+ *   `$initial_utm_*`, `$initial_landing_path`;
+ * - group membership: `$group_<type>` ({@link GROUP_TYPE});
+ * - `$webvitals`: `$lcp`, `$inp`, `$fcp`, `$ttfb` (ms), `$cls`, the elements
+ *   `$lcp_el`, `$inp_el`, `$cls_el` and `$nav_type`;
+ * - mobile: `$screen_name`, `$os`, `$os_version`, `$device_type`,
+ *   `$device_model`, `$app_id`, `$app_version`, `$app_build`,
+ *   `$screen_width`, `$screen_height`, `$locale`.
+ *
+ * Any other `$` key stays refused, so a client can't forge the collector's
+ * own (`$action`). The Rust collector (rust/modules/panel/src/collector/wire.rs)
+ * has the same keys in one regex; here they are three simpler patterns, which
+ * accept exactly the keys that regex does.
  */
-export const EVENT_PROPERTY_KEY = /^(?:[A-Za-z_]\w{0,63}|\$(?:source|line|col|from))$/;
-/** Profile property keys: {@link PROPERTY_KEY}, plus the reserved profile fields. */
-export const PROFILE_PROPERTY_KEY = /^(?:[A-Za-z_]\w{0,63}|\$(?:email|name|avatar|created))$/;
+export const EVENT_PROPERTY_KEY: KeyPattern = {
+  test: (key) => PROPERTY_KEY.test(key) || PAGE_EVENT_KEY.test(key) || DEVICE_EVENT_KEY.test(key),
+};
+/**
+ * Profile property keys: {@link PROPERTY_KEY}, plus the reserved profile fields and the
+ * first-touch keys the SDK sends with `people.set_once` on `identify()` (`$initial_referrer`, …).
+ */
+export const PROFILE_PROPERTY_KEY =
+  /^(?:[A-Za-z_]\w{0,63}|\$(?:email|name|avatar|created|initial_(?:referrer|referring_domain|utm_source|utm_medium|utm_campaign|utm_content|utm_term|landing_path)))$/;
 /** User ids: 1 to 255 characters, no control characters. */
 export const USER_ID = /^[^\u0000-\u001f\u007f-\u009f]{1,255}$/;
 
 const propertyValue = z.union([z.string().max(MAX_STRING), z.number().finite(), z.boolean(), z.null()]);
 
+/** A key {@link EVENT_PROPERTY_KEY} accepts; any other fails with the issue a `.regex()` check gives. */
+const eventPropertyKey = z.string().superRefine((key, ctx) => {
+  if (!EVENT_PROPERTY_KEY.test(key)) ctx.addIssue({ code: z.ZodIssueCode.invalid_string, validation: 'regex' });
+});
+
 const eventProps = z
-  .record(z.string().regex(EVENT_PROPERTY_KEY), propertyValue)
+  .record(eventPropertyKey, propertyValue)
   .refine((p) => Object.keys(p).length <= MAX_PROPERTIES, { message: `At most ${MAX_PROPERTIES} properties` });
 
 export const wireEventSchema = z.object({
@@ -130,17 +190,34 @@ export const wirePeopleOpSchema = z.discriminatedUnion('op', [
 ]);
 export type WirePeopleOp = z.infer<typeof wirePeopleOpSchema>;
 
+const groupType = z.string().regex(GROUP_TYPE);
+const groupKey = z.string().regex(USER_ID).max(MAX_GROUP_KEY);
+
+/**
+ * A group profile operation (`group(type, key, props)`, `groups.set()` and
+ * friends): the profile of a company or account, keyed by type and key.
+ * Property keys are profile keys ({@link PROFILE_PROPERTY_KEY}).
+ */
+export const wireGroupOpSchema = z.discriminatedUnion('op', [
+  z.object({ op: z.literal('set'), type: groupType, key: groupKey, props: profileProps(propertyValue) }),
+  z.object({ op: z.literal('set_once'), type: groupType, key: groupKey, props: profileProps(propertyValue) }),
+  z.object({ op: z.literal('unset'), type: groupType, key: groupKey, keys: z.array(profileKey).max(MAX_UNSET_KEYS) }),
+]);
+export type WireGroupOp = z.infer<typeof wireGroupOpSchema>;
+
 export const eventBatchSchema = z.object({
   token: z.string().max(64),
   /** Client clock when the batch was sent. */
   sent_at: z.string().datetime({ offset: true }),
-  lib: z.enum(['web', 'server']),
+  lib: z.enum(LIBS),
   lib_version: z.string().max(32),
   /** Whether the visitor has given consent (or the project needs none). */
   consent: z.boolean(),
   events: z.array(wireEventSchema).min(1).max(MAX_EVENTS_PER_BATCH),
   /** Profile operations; only with consent (the collector ignores them without). */
   people: z.array(wirePeopleOpSchema).max(MAX_PEOPLE_OPS_PER_BATCH).optional(),
+  /** Group profile operations; applied with or without consent (they describe a group, not the visitor). */
+  groups: z.array(wireGroupOpSchema).max(MAX_GROUP_OPS_PER_BATCH).optional(),
 });
 export type EventBatch = z.infer<typeof eventBatchSchema>;
 
@@ -148,10 +225,11 @@ export type EventBatch = z.infer<typeof eventBatchSchema>;
 export const batchEnvelopeSchema = eventBatchSchema.extend({
   events: z.array(z.unknown()).min(1).max(MAX_EVENTS_PER_BATCH),
   people: z.array(z.unknown()).max(MAX_PEOPLE_OPS_PER_BATCH).optional(),
+  groups: z.array(z.unknown()).max(MAX_GROUP_OPS_PER_BATCH).optional(),
 });
 
 export type ParsedEventBatch =
-  | { ok: true; batch: EventBatch; dropped: number; peopleDropped: number }
+  | { ok: true; batch: EventBatch; dropped: number; peopleDropped: number; groupsDropped: number }
   | { ok: false; issues: z.ZodIssue[] };
 
 /** Profile operations one by one: an operation this version doesn't understand costs only itself. */
@@ -162,6 +240,21 @@ export function parsePeopleOps(raw: readonly unknown[] | undefined): { ops: Wire
     if (op.success) ops.push(op.data);
   }
   return { ops, dropped: (raw?.length ?? 0) - ops.length };
+}
+
+/** Group profile operations one by one, like {@link parsePeopleOps}. */
+export function parseGroupOps(raw: readonly unknown[] | undefined): { ops: WireGroupOp[]; dropped: number } {
+  const ops: WireGroupOp[] = [];
+  for (const candidate of raw ?? []) {
+    const op = wireGroupOpSchema.safeParse(candidate);
+    if (op.success) ops.push(op.data);
+  }
+  return { ops, dropped: (raw?.length ?? 0) - ops.length };
+}
+
+/** The group type a `$group_<type>` property names, or null for any other key. */
+export function groupTypeOfProperty(key: string): string | null {
+  return GROUP_PROPERTY.exec(key)?.[1] ?? null;
 }
 
 /**
@@ -184,11 +277,19 @@ export function parseEventBatch(body: unknown): ParsedEventBatch {
   });
   if (events.length === 0) return { ok: false, issues: firstIssues ?? [] };
 
-  const { people: rawPeople, ...rest } = envelope.data;
+  const { people: rawPeople, groups: rawGroups, ...rest } = envelope.data;
   const people = parsePeopleOps(rawPeople);
+  const groups = parseGroupOps(rawGroups);
   const batch: EventBatch = { ...rest, events };
   if (people.ops.length > 0) batch.people = people.ops;
-  return { ok: true, batch, dropped: envelope.data.events.length - events.length, peopleDropped: people.dropped };
+  if (groups.ops.length > 0) batch.groups = groups.ops;
+  return {
+    ok: true,
+    batch,
+    dropped: envelope.data.events.length - events.length,
+    peopleDropped: people.dropped,
+    groupsDropped: groups.dropped,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -218,23 +319,25 @@ export interface ServerBatch {
   lib_version: string;
   events: ServerEvent[];
   people?: WirePeopleOp[];
+  groups?: WireGroupOp[];
 }
 
-/** A server batch may carry only profile updates (`people.set(userId, …)` with no event), but not nothing. */
+/** A server batch may carry only profile updates (`people.set(userId, …)`, `groupSet(…)` with no event), but not nothing. */
 const serverEnvelopeSchema = z
   .object({
     lib: z.literal('server'),
     lib_version: z.string().max(32),
     events: z.array(z.unknown()).default([]),
     people: z.array(z.unknown()).max(MAX_PEOPLE_OPS_PER_BATCH).optional(),
+    groups: z.array(z.unknown()).max(MAX_GROUP_OPS_PER_BATCH).optional(),
   })
-  .refine((body) => body.events.length > 0 || (body.people?.length ?? 0) > 0, {
+  .refine((body) => body.events.length > 0 || (body.people?.length ?? 0) > 0 || (body.groups?.length ?? 0) > 0, {
     message: 'Send at least one event or people operation',
     path: ['events'],
   });
 
 export type ParsedServerBatch =
-  | { ok: true; batch: ServerBatch; dropped: number; peopleDropped: number }
+  | { ok: true; batch: ServerBatch; dropped: number; peopleDropped: number; groupsDropped: number }
   | { ok: false; issues: z.ZodIssue[] };
 
 /** Like {@link parseEventBatch}, for `/v1/track` (`maxEvents` 100) and `/v1/import` (1000). */
@@ -266,7 +369,8 @@ export function parseServerBatch(body: unknown, maxEvents: number): ParsedServer
     else firstIssues ??= event.error.issues.map((issue) => ({ ...issue, path: ['events', index, ...issue.path] }));
   });
   const people = parsePeopleOps(envelope.data.people);
-  if (events.length === 0 && (envelope.data.events.length > 0 || people.ops.length === 0)) {
+  const groups = parseGroupOps(envelope.data.groups);
+  if (events.length === 0 && (envelope.data.events.length > 0 || people.ops.length + groups.ops.length === 0)) {
     return {
       ok: false,
       issues: firstIssues ?? [{ code: 'custom', message: 'No valid event or people operation', path: ['people'] }],
@@ -275,7 +379,14 @@ export function parseServerBatch(body: unknown, maxEvents: number): ParsedServer
 
   const batch: ServerBatch = { lib: 'server', lib_version: envelope.data.lib_version, events };
   if (people.ops.length > 0) batch.people = people.ops;
-  return { ok: true, batch, dropped: envelope.data.events.length - events.length, peopleDropped: people.dropped };
+  if (groups.ops.length > 0) batch.groups = groups.ops;
+  return {
+    ok: true,
+    batch,
+    dropped: envelope.data.events.length - events.length,
+    peopleDropped: people.dropped,
+    groupsDropped: groups.dropped,
+  };
 }
 
 /** `GET /c/:token`: what the SDK needs before it collects anything. */

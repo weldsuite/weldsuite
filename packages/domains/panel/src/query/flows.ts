@@ -6,8 +6,9 @@
 
 import type { PanelFlowPath, PanelFlowsResult, ParsedFlowsSpec } from '@weldsuite/app-api-client/schemas/weldpanel-query';
 import type { PanelQueryContext } from './context';
-import { compileFilters, eventsScope } from './scope';
-import { eventName, int, lit } from './sql';
+import { cleanedPathSql } from './paths';
+import { eventsScope, eventWithFilters, scopeNeeds } from './scope';
+import { int, lit } from './sql';
 import { resolveRange, type ResolvedRange } from './time';
 import { toNumber, toNullableText, type PanelSqlQuery, type Row } from './rows';
 import { toResolvedRange } from './result-range';
@@ -15,13 +16,12 @@ import { toResolvedRange } from './result-range';
 /** Rows read before the spec's `limit` trims them. */
 const MAX_PATH_ROWS = 500;
 
-const LABEL = `CASE WHEN e.name = '$pageview' THEN e.path ELSE e.name END`;
-
 export function flowsQuery(spec: ParsedFlowsSpec, ctx: PanelQueryContext, range: ResolvedRange): PanelSqlQuery {
-  const needsProfiles = spec.anchor.filters.some((f) => f.source === 'person');
-  const scope = eventsScope(ctx, range, range, { filters: spec.filters, personProps: needsProfiles });
-  const anchorConds = [`e.name = ${eventName(spec.anchor.event)}`, ...compileFilters(spec.anchor.filters, ctx, range, scope.person)];
-  const anchor = `(${anchorConds.join(' AND ')})`;
+  const needs = scopeNeeds(ctx, { filters: [spec.anchor.filters], events: [spec.anchor.event] });
+  const scope = eventsScope(ctx, range, range, { filters: spec.filters, ...needs });
+  const anchor = `(${eventWithFilters(spec.anchor.event, spec.anchor.filters, ctx, range, scope.person)})`;
+  // Pages are labelled by their (cleaned) path, other events by name.
+  const label = `CASE WHEN e.name = '$pageview' THEN ${cleanedPathSql(ctx, spec.cleanPaths)} ELSE e.name END`;
 
   let inScope: string | null = null;
   if (spec.scope === 'pageviews') inScope = `e.name = ${lit('$pageview')}`;
@@ -31,7 +31,7 @@ export function flowsQuery(spec: ParsedFlowsSpec, ctx: PanelQueryContext, range:
   const fn = spec.direction === 'after' ? 'LEAD' : 'LAG';
   const columns = Array.from({ length: spec.depth }, (_, i) => `n${i + 1}`);
   const neighbours = columns.map(
-    (name, i) => `${fn}(${LABEL}, ${i + 1}) OVER (PARTITION BY ${scope.person} ORDER BY e.ts, e.event_id) AS ${name}`,
+    (name, i) => `${fn}(${label}, ${i + 1}) OVER (PARTITION BY ${scope.person} ORDER BY e.ts, e.event_id) AS ${name}`,
   );
   const sql =
     `SELECT ${columns.join(', ')}, COUNT(*) AS cnt FROM (` +

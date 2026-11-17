@@ -752,6 +752,7 @@ export const common = {
         failedToProcessInvitation: 'Uitnodiging verwerken mislukt',
         failedToAcceptInvitation: 'Uitnodiging accepteren mislukt',
         failedToLoadDetails: 'Uitnodigingsgegevens laden mislukt.',
+        verifyEmailFirst: 'Bevestig je e-mailadres en open de uitnodigingslink daarna opnieuw.',
       },
     },
     auth: {
