@@ -277,6 +277,46 @@ export const userWorkspaces = pgTable('user_workspaces', {
 export type UserWorkspace = typeof userWorkspaces.$inferSelect;
 export type NewUserWorkspace = typeof userWorkspaces.$inferInsert;
 
+// Pending invitations by email, where WeldSuite keeps memberships itself
+// (membership mode: WeldID or a bring-your-own provider on the Kubernetes
+// editions, ADR SEC-019). Clerk and Zitadel keep invitations themselves, so
+// the Global edition leaves this table empty. Read and written by the Rust
+// WeldID adapter (`rust/crates/adapters-oss/src/weldid.rs`).
+export const workspaceInvitations = pgTable('workspace_invitations', {
+  // `inv_` + 128 random bits: also the token in the invitation link. Accepting
+  // takes the invited address, verified, so the id alone joins nobody.
+  id: varchar('id', { length: 30 }).primaryKey(),
+  workspaceId: varchar('workspace_id', { length: 255 }).notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  // As typed, and normalised (NFKC, then lowercase, as WeldID compares them).
+  email: varchar('email', { length: 320 }).notNull(),
+  emailNormalized: varchar('email_normalized', { length: 320 }).notNull(),
+  // The provider-style role key the routes pass: org:admin or org:member.
+  role: varchar('role', { length: 50 }).notNull(),
+  // `member_type: EXTERNAL_GUEST` for a guest.
+  publicMetadata: jsonb('public_metadata').$type<Record<string, unknown>>().notNull().default({}),
+  // pending, accepted or revoked. Expired is read from expires_at, never stored.
+  status: varchar('status', { length: 20 }).notNull().default('pending'),
+  invitedBy: varchar('invited_by', { length: 255 }).references(() => users.id, { onDelete: 'set null' }),
+  acceptedBy: varchar('accepted_by', { length: 255 }).references(() => users.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  acceptedAt: timestamp('accepted_at', { withTimezone: true }),
+  revokedAt: timestamp('revoked_at', { withTimezone: true }),
+}, (table) => [
+  // One pending invitation per address and workspace.
+  uniqueIndex('workspace_invitations_pending_email_uidx')
+    .on(table.workspaceId, table.emailNormalized)
+    .where(sql`${table.status} = 'pending'`),
+  index('workspace_invitations_workspace_status_idx').on(table.workspaceId, table.status, table.createdAt),
+  index('workspace_invitations_pending_email_idx')
+    .on(table.emailNormalized)
+    .where(sql`${table.status} = 'pending'`),
+  check('workspace_invitations_status_check', sql`${table.status} in ('pending', 'accepted', 'revoked')`),
+]);
+
+export type WorkspaceInvitation = typeof workspaceInvitations.$inferSelect;
+export type NewWorkspaceInvitation = typeof workspaceInvitations.$inferInsert;
+
 // ============================================================================
 // WIDGET REGISTRY
 // ============================================================================
