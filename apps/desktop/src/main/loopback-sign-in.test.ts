@@ -86,7 +86,7 @@ describe('the loopback listener', () => {
     const outcome = flow.expect('state-1');
     const answer = await call(port, '/callback?code=code-1&state=state-1&iss=https%3A%2F%2Fauth.example.eu');
     expect(answer.status).toBe(200);
-    expect(answer.body).toContain(DEFAULT_PAGE_TEXT.successTitle.replace("'", '&#39;'));
+    expect(answer.body).toContain(DEFAULT_PAGE_TEXT.successTitle.replaceAll("'", '&#39;'));
     expect(answer.headers['content-security-policy']).toContain("default-src 'none'");
     expect(answer.headers['cache-control']).toBe('no-store');
     await expect(outcome).resolves.toEqual({
