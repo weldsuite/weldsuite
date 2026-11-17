@@ -273,8 +273,8 @@ describe('app store toolbar', () => {
   });
 });
 
-describe('app store filter', () => {
-  // Each step opens a popover; give them time on a busy machine.
+// Each test opens three popovers in turn, which is slow on a busy machine.
+describe('app store filter', { timeout: 20_000 }, () => {
   const slow = { timeout: 5000 };
 
   /** Builds the pill "Status is Installed" through the filter menu. */

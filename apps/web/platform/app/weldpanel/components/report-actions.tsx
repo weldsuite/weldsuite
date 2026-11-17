@@ -2,10 +2,15 @@
  * "Save as report", "Save changes" and "Add to dashboard" for a builder page.
  * A new analysis is saved as a report first (a dashboard tile is a report), so
  * "Add to dashboard" on an unsaved analysis asks for a name too.
+ *
+ * Also the collaboration entry points of every builder: "Annotations" (the
+ * project's chart annotations), and on a saved report "Share" (public links)
+ * and the side panel with comments, history, alerts and schedules. Their
+ * dialogs mount only when opened.
  */
 
-import { useState } from 'react';
-import { LayoutDashboard, Loader2, Save } from 'lucide-react';
+import { lazy, Suspense, useState } from 'react';
+import { LayoutDashboard, Loader2, MessageSquare, Save, Share2, StickyNote } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCan } from '@weldsuite/permissions/react';
 import type { PanelReportSpec } from '@weldsuite/app-api-client/schemas/weldpanel-query';
@@ -24,6 +29,11 @@ import {
 import { useI18n } from '@/lib/i18n/provider';
 import { Link } from '@/lib/router';
 import { NameDialog } from './name-dialog';
+
+// Loaded when opened: they bring the collaboration hooks and forms along.
+const AnnotationsListDialog = lazy(() => import('./annotation-dialogs').then((m) => ({ default: m.AnnotationsListDialog })));
+const ReportSidePanel = lazy(() => import('./report-side-panel').then((m) => ({ default: m.ReportSidePanel })));
+const ShareDialog = lazy(() => import('./share-dialog').then((m) => ({ default: m.ShareDialog })));
 
 /** Where a freshly added tile goes: below everything, half width. The dashboard page packs the tiles by order. */
 export const NEW_TILE_LAYOUT = { x: 0, y: 1000, w: 12, h: 8 } as const;
@@ -140,6 +150,10 @@ export function ReportActions(props: Readonly<ReportActionsProps>) {
   const canUpdate = useCan('panel_reports:update');
   const [saving, setSaving] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [sharing, setSharing] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [annotating, setAnnotating] = useState(false);
+  const tcol = t.weldpanel.collab;
   const createReport = useCreateWeldPanelReport();
   const updateReport = useUpdateWeldPanelReport(report?.id ?? '');
   const complete = spec !== null;
@@ -175,6 +189,24 @@ export function ReportActions(props: Readonly<ReportActionsProps>) {
           {ts.addToDashboard}
         </Button>
       )}
+      {(canCreate || canUpdate) && (
+        <Button type="button" size="sm" variant="outline" onClick={() => setAnnotating(true)}>
+          <StickyNote />
+          {tcol.annotations.button}
+        </Button>
+      )}
+      {report && (
+        <>
+          <Button type="button" size="sm" variant="outline" onClick={() => setSharing(true)}>
+            <Share2 />
+            {tcol.share.button}
+          </Button>
+          <Button type="button" size="sm" variant="outline" onClick={() => setPanelOpen(true)}>
+            <MessageSquare />
+            {tcol.sidePanel.open}
+          </Button>
+        </>
+      )}
 
       <NameDialog
         open={saving}
@@ -205,6 +237,17 @@ export function ReportActions(props: Readonly<ReportActionsProps>) {
         }}
       />
       {adding && <AddToDashboardDialog {...props} open={adding} onOpenChange={setAdding} />}
+      <Suspense fallback={null}>
+        {annotating && <AnnotationsListDialog open={annotating} onOpenChange={setAnnotating} projectId={projectId} reportId={report?.id ?? null} />}
+        {report && sharing && (
+          <ShareDialog
+            open={sharing}
+            onOpenChange={setSharing}
+            target={{ targetType: 'report', targetId: report.id, name: report.name, ownerUserId: report.ownerUserId, visibility: report.visibility }}
+          />
+        )}
+        {report && panelOpen && <ReportSidePanel report={report} open={panelOpen} onOpenChange={setPanelOpen} />}
+      </Suspense>
     </div>
   );
 }

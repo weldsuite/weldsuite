@@ -13,9 +13,10 @@ import type { EventBatch, WireEvent } from '@weldsuite/panel-domain/wire';
 import { PanelProject } from '../durable-objects/panel-project';
 import { PanelSalt } from '../durable-objects/panel-salt';
 import { PanelUsage } from '../durable-objects/panel-usage';
-import type { PanelIdentityRecord, PanelPersonRecord, PanelReplayChunkRecord } from '@weldsuite/panel-domain/tables';
+import type { PanelGroupRecord, PanelIdentityRecord, PanelPersonRecord, PanelReplayChunkRecord } from '@weldsuite/panel-domain/tables';
 import type { Env, PanelEventRecord } from '../env';
 import { app } from '../index';
+import { resetGroupTypesCache } from '../lib/groups';
 import { resetLive } from '../lib/live';
 import { resetQuotaCache } from '../lib/quota';
 import { resetSeenThrottle } from '../lib/seen';
@@ -198,6 +199,7 @@ export interface TestEnv {
   stream: ReturnType<typeof fakeStream>;
   identities: ReturnType<typeof fakePipeline<PanelIdentityRecord>>;
   people: ReturnType<typeof fakePipeline<PanelPersonRecord>>;
+  groups: ReturnType<typeof fakePipeline<PanelGroupRecord>>;
   replayChunks: ReturnType<typeof fakePipeline<PanelReplayChunkRecord>>;
   replays: FakeR2;
   /** The PanelProject objects behind `PANEL_PROJECT`, by project id; `jurisdictions` records `jurisdiction()` calls. */
@@ -208,7 +210,7 @@ export interface TestEnv {
 }
 
 /** An environment with one project (`TOKEN`) registered, unless `record` is null. */
-export function makeEnv(record: PanelProjectRecord | null = projectRecord(), options: { limits?: { events?: number; replays?: number; snapshots?: number } } = {}): TestEnv {
+export function makeEnv(record: PanelProjectRecord | null = projectRecord(), options: { limits?: { events?: number; proxy?: number; replays?: number; snapshots?: number } } = {}): TestEnv {
   const kv = fakeKv(record ? { [projectKvKey(TOKEN)]: JSON.stringify(record) } : {});
   const stream = fakeStream();
   const salt = new PanelSalt(fakeDurableObjectContext().ctx, {});
@@ -217,6 +219,7 @@ export function makeEnv(record: PanelProjectRecord | null = projectRecord(), opt
 
   const identities = fakePipeline<PanelIdentityRecord>();
   const people = fakePipeline<PanelPersonRecord>();
+  const groups = fakePipeline<PanelGroupRecord>();
   const replayChunks = fakePipeline<PanelReplayChunkRecord>();
   const replays = fakeR2();
   const jurisdictions: string[] = [];
@@ -237,16 +240,18 @@ export function makeEnv(record: PanelProjectRecord | null = projectRecord(), opt
     PANEL_EVENTS: stream,
     PANEL_IDENTITIES: identities,
     PANEL_PEOPLE: people,
+    PANEL_GROUPS_STREAM: groups,
     PANEL_REPLAY_CHUNKS: replayChunks,
     PANEL_REPLAYS: replays,
     PANEL_SALT: saltNamespace,
     PANEL_USAGE: usage,
     PANEL_PROJECT: projectNamespace,
     ...(limits.events !== undefined ? { EVENTS_RATE_LIMIT: fakeRateLimit(limits.events) } : {}),
+    ...(limits.proxy !== undefined ? { EVENTS_PROXY_RATE_LIMIT: fakeRateLimit(limits.proxy) } : {}),
     ...(limits.replays !== undefined ? { REPLAYS_RATE_LIMIT: fakeRateLimit(limits.replays) } : {}),
     ...(limits.snapshots !== undefined ? { SNAPSHOTS_RATE_LIMIT: fakeRateLimit(limits.snapshots) } : {}),
   } as unknown as Env;
-  return { env, kv, stream, identities, people, replayChunks, replays, projects: Object.assign(projectObjects, { jurisdictions }), salt, usage };
+  return { env, kv, stream, identities, people, groups, replayChunks, replays, projects: Object.assign(projectObjects, { jurisdictions }), salt, usage };
 }
 
 /** Clears what an isolate would keep between requests. */
@@ -255,6 +260,7 @@ export function resetIsolateState(): void {
   resetSeenThrottle();
   resetQuotaCache();
   resetLive();
+  resetGroupTypesCache();
   resetWarnings();
 }
 

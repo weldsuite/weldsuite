@@ -97,7 +97,7 @@ function Frustration({ project }: Readonly<{ project: PanelProjectDto }>) {
       const kind = FRUSTRATION_TYPES[s.seriesIndex];
       if (!kind) continue;
       for (const point of s.points) {
-        const row = byBucket.get(point.bucket) ?? ({ label: formatBucket(point.bucket, interval, language) } as ChartDatum);
+        const row = byBucket.get(point.bucket) ?? ({ label: formatBucket(point.bucket, interval, language), bucket: point.bucket } as ChartDatum);
         row[kind] = point.value;
         byBucket.set(point.bucket, row);
       }

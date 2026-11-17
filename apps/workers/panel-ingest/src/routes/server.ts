@@ -1,6 +1,6 @@
 /**
- * `POST /v1/track` and `POST /v1/import`: events and profile operations from a
- * customer's server (`@weldsuite/panel-sdk/server`), with a secret key
+ * `POST /v1/track` and `POST /v1/import`: events, profile and group profile
+ * operations from a customer's server (`@weldsuite/panel-sdk/server`), with a secret key
  * (`Authorization: Bearer wps_<32 hex>`).
  *
  * The key is looked up by the SHA-256 of the secret in KV (`panel:key:<hash>`,
@@ -23,6 +23,7 @@ import { keyKvKey, parseKeyRecord, type PanelKeyRecord } from '@weldsuite/panel-
 import { MAX_IMPORT_EVENTS, MAX_TRACK_EVENTS, parseServerBatch } from '@weldsuite/panel-domain/wire';
 import type { Env } from '../env';
 import { readTextLimited } from '../lib/body';
+import { limitGroups } from '../lib/groups';
 import { applyServerIdentifies, applyServerPeople } from '../lib/profiles';
 import { quotaState } from '../lib/quota';
 import { touchSeen } from '../lib/seen';
@@ -90,9 +91,13 @@ async function handle(c: ServerContext, endpoint: Endpoint): Promise<Response> {
     return c.json({ accepted: 0, dropped: batch.events.length + parsed.dropped });
   }
 
+  // Group operations first (`groupSet()`): they may give a type its slot, which decides the events' `$group_` properties.
+  const project = { projectId: key.projectId, workspaceId: key.workspaceId };
+  const events = await limitGroups(c.env, project, batch.events, batch.groups ?? [], receivedAt);
+
   const { rows, dropped: outsideWindow } = buildServerEventRows({
     record: key,
-    batch,
+    batch: { ...batch, events },
     receivedAt,
     maxAgeMs: endpoint.maxAgeMs,
   });
@@ -111,8 +116,8 @@ async function handle(c: ServerContext, endpoint: Endpoint): Promise<Response> {
       ? c.env.PANEL_USAGE.get(c.env.PANEL_USAGE.idFromName(key.workspaceId)).add(utcDate(receivedAt), rows.length, key.workspaceId)
       : Promise.resolve(),
     rows.length > 0 ? touchSeen(c.env.WORKSPACE_CACHE, key.projectId, receivedAt) : Promise.resolve(),
-    applyServerIdentifies(c.env, { projectId: key.projectId, workspaceId: key.workspaceId }, batch.events, receivedAt, endpoint.maxAgeMs),
-    applyServerPeople(c.env, { projectId: key.projectId, workspaceId: key.workspaceId }, batch.people ?? []),
+    applyServerIdentifies(c.env, project, batch.events, receivedAt, endpoint.maxAgeMs),
+    applyServerPeople(c.env, project, batch.people ?? []),
   ]).then((results) => {
     for (const result of results) {
       if (result.status === 'rejected') {

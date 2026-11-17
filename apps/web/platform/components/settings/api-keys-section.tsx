@@ -137,6 +137,8 @@ const PERMISSION_ENTITIES = [
   { entityKey: 'accountingDocuments', group: 'weldbooks', scopes: ro('accounting_documents') },
   { entityKey: 'icpDeclarations', group: 'weldbooks', scopes: ro('icp_declarations') },
   { entityKey: 'accountingSettings', group: 'weldbooks', scopes: ro('accounting_settings') },
+  // WeldPanel — product analytics: projects, reports, dashboards, cohorts, people and groups, read only (`/v1/panel`).
+  { entityKey: 'panelAnalytics', group: 'weldpanel', scopes: ro('panel') },
   // Settings
   { entityKey: 'settings', group: 'settings', scopes: ro('settings') },
   { entityKey: 'members', group: 'settings', scopes: ro('members') },
@@ -182,6 +184,7 @@ const GROUP_LOGOS: Record<string, string> = {
   host: '/assets/images/weldhost/icon.svg',
   automation: '/assets/images/weldconnect/icon.svg?v=2',
   weldbooks: '/assets/images/weldbooks/icon.svg?v=6',
+  weldpanel: '/assets/images/weldpanel/icon.svg?v=2',
   settings: '/assets/images/weldsuite/icon.svg',
 };
 

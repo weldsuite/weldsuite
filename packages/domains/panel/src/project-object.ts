@@ -57,6 +57,39 @@ export interface PanelPeoplePage {
   totalCount: number;
 }
 
+/**
+ * A group profile operation (`group(type, key, props)`, `groups.set()` and
+ * friends, from the SDKs and `/v1/track`). Types match `GROUP_TYPE` (./wire).
+ */
+export type PanelGroupOp =
+  | { op: 'set'; groupType: string; groupKey: string; props: Record<string, PanelPropertyValue> }
+  | { op: 'set_once'; groupType: string; groupKey: string; props: Record<string, PanelPropertyValue> }
+  | { op: 'unset'; groupType: string; groupKey: string; keys: string[] };
+
+/** A group's profile: a company, an account, a workspace. */
+export interface PanelGroup {
+  groupType: string;
+  groupKey: string;
+  properties: Record<string, PanelPropertyValue>;
+  /** First and last profile operation for the group. */
+  firstSeen: string;
+  lastSeen: string;
+}
+
+export interface PanelGroupsPage {
+  groups: PanelGroup[];
+  cursor: string | null;
+  totalCount: number;
+}
+
+/** What `applyGroupOps` did: operations of a type past the project's five are dropped. */
+export interface PanelGroupOpsResult {
+  applied: number;
+  dropped: number;
+  /** The project's group types after the call, in the order they were taken. */
+  types: string[];
+}
+
 export interface PanelErasure {
   /** The user id erased, when the request named or resolved to one. */
   userId: string | null;
@@ -86,6 +119,27 @@ export interface PanelProjectObjectApi {
   hasIdentifiedUsers(): Promise<boolean>;
   /** Called by the maintenance job once the Iceberg rows are rewritten: the ids no longer need excluding. */
   clearErased(ids: string[]): Promise<void>;
+
+  // --- groups (group analytics) -----------------------------------------
+  //
+  // A project collects at most `MAX_GROUP_TYPES` (./wire) group types. A type
+  // takes a slot the first time an operation or an event names it (or when
+  // panel-api creates it), while slots are free; operations of any other type
+  // are dropped, and the collector drops its `$group_<type>` event properties.
+
+  /** Collector side: applies the operations, one `groups_v1` snapshot row per changed group. */
+  applyGroupOps(input: { workspaceId: string; projectId: string; ops: PanelGroupOp[] }): Promise<PanelGroupOpsResult>;
+  /** Gives the named types a slot while there is room and answers the project's types (taken order). */
+  ensureGroupTypes(types: string[]): Promise<string[]>;
+  /** The project's group types, in the order they were taken. */
+  groupTypes(): Promise<string[]>;
+  /** Frees a type's slot (its profiles stay, and come back if the type is taken again). */
+  releaseGroupType(groupType: string): Promise<void>;
+  getGroup(groupType: string, groupKey: string): Promise<PanelGroup | null>;
+  /** One type's groups, most recently seen first; `search` matches the key and the `$name` / `name` property. */
+  listGroups(input: { groupType: string; search?: string; cursor?: string | null; limit: number }): Promise<PanelGroupsPage>;
+  /** Removes the profile and writes a `deleted` row to `groups_v1`; false when there was none. */
+  deleteGroup(input: { workspaceId: string; projectId: string; groupType: string; groupKey: string }): Promise<boolean>;
 }
 
 /** The binding shape both workers use; the real class satisfies {@link PanelProjectObjectApi}. */

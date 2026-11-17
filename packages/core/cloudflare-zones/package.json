@@ -6,6 +6,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./custom-hostnames": "./src/custom-hostnames.ts",
     "./email-events": "./src/email-events.ts",
     "./sandbox": "./src/sandbox/index.ts"
   },

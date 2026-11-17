@@ -601,6 +601,23 @@ export const platformSyncMap: EntitySyncMap = {
   panel_event_definition: inv(['weldpanel', 'lexicon']),
   panel_heatmap_page: inv(['weldpanel', 'heatmap-pages']),
   panel_key: inv(['weldpanel', 'projects']),
+  // Data definitions (use-weldpanel-analysis-queries.ts). Custom events,
+  // computed properties and path rules change what a spec compiles to, so the
+  // cached query results refresh with them.
+  panel_custom_event: inv(['weldpanel', 'custom-events'], ['weldpanel', 'query']),
+  panel_computed_property: inv(['weldpanel', 'computed-properties'], ['weldpanel', 'query']),
+  panel_path_rule: inv(['weldpanel', 'path-rules'], ['weldpanel', 'query']),
+  panel_group_type: inv(['weldpanel', 'group-types'], ['weldpanel', 'groups']),
+  panel_metric_tree: inv(['weldpanel', 'metric-trees']),
+  // Collaboration and monitoring (use-weldpanel-collab-queries.ts). Domains
+  // sit under the project detail.
+  panel_annotation: inv(['weldpanel', 'annotations']),
+  panel_comment: inv(['weldpanel', 'comments']),
+  panel_share_link: inv(['weldpanel', 'share-links']),
+  panel_alert: inv(['weldpanel', 'alerts']),
+  panel_subscription: inv(['weldpanel', 'subscriptions']),
+  panel_export: inv(['weldpanel', 'exports']),
+  panel_custom_domain: inv(['weldpanel', 'projects']),
 
   // WeldMerge — the root of use-weldmerge-queries.ts. Every object shares the
   // root: issues, teams, labels, cycles, comments, connections, repositories and

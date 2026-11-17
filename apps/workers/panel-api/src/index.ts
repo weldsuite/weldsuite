@@ -27,8 +27,27 @@ import heatmapsRoutes from './routes/heatmaps';
 import liveRoutes from './routes/live';
 import keysRoutes from './routes/keys';
 import usageRoutes from './routes/usage';
+import customEventsRoutes from './routes/custom-events';
+import computedPropertiesRoutes from './routes/computed-properties';
+import pathRulesRoutes from './routes/path-rules';
+import annotationsRoutes from './routes/annotations';
+import commentsRoutes from './routes/comments';
+import metricTreesRoutes from './routes/metric-trees';
+import shareLinksRoutes from './routes/share-links';
+import publicRoutes from './routes/public';
+import alertsRoutes from './routes/alerts';
+import subscriptionsRoutes from './routes/subscriptions';
+import exportsRoutes from './routes/exports';
+import domainsRoutes from './routes/domains';
+import metricTreeValuesRoutes from './routes/metric-tree-values';
+import groupsRoutes from './routes/groups';
+import groupTypesRoutes from './routes/group-types';
+import { scheduled } from './scheduled';
 
 const app = createModuleApi<Env, Variables>({ service: 'panel-api' });
+
+// Public share links (no session; the token is the credential): before apiAuth.
+app.route('/public/panel', publicRoutes);
 
 app.use('/api/*', ...apiAuth());
 
@@ -48,10 +67,27 @@ app.route('/api/panel/live', liveRoutes);
 // Secret keys sit under their project; the projects router does not serve /:id/keys, so this one does.
 app.route('/api/panel/projects/:id/keys', keysRoutes);
 app.route('/api/panel/usage', usageRoutes);
+app.route('/api/panel/custom-events', customEventsRoutes);
+app.route('/api/panel/computed-properties', computedPropertiesRoutes);
+app.route('/api/panel/path-rules', pathRulesRoutes);
+app.route('/api/panel/annotations', annotationsRoutes);
+app.route('/api/panel/comments', commentsRoutes);
+app.route('/api/panel/metric-trees', metricTreesRoutes);
+app.route('/api/panel/share-links', shareLinksRoutes);
+app.route('/api/panel/alerts', alertsRoutes);
+app.route('/api/panel/subscriptions', subscriptionsRoutes);
+app.route('/api/panel/exports', exportsRoutes);
+app.route('/api/panel/metric-tree-values', metricTreeValuesRoutes);
+app.route('/api/panel/groups', groupsRoutes);
+app.route('/api/panel/group-types', groupTypesRoutes);
+// Custom collector domains sit under their project like keys; the (Rust-mirrored) projects router does not serve /:id/domains.
+app.route('/api/panel/projects/:id/domains', domainsRoutes);
 
 // Service-binding entrypoint (usage settlement from panel-ingest); see ./internal.ts.
 export { PanelApiInternal } from './internal';
 
 export default {
   fetch: app.fetch,
+  // Every 10 minutes: due alerts, scheduled reports and exports, pending custom domains (./scheduled.ts).
+  scheduled,
 };

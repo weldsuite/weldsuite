@@ -13,6 +13,8 @@ const state = vi.hoisted(() => ({
   canWatch: true,
   funnel: { data: undefined as unknown, error: null as unknown, isLoading: false, isFetching: false, refetch: vi.fn() },
   calls: [] as { spec: unknown; options: unknown }[],
+  correlationCalls: [] as { spec: unknown; options: unknown }[],
+  correlation: { data: undefined as unknown, error: null as unknown, isLoading: false, isFetching: false, isPlaceholderData: false, refetch: vi.fn() },
 }));
 
 vi.mock('@/lib/i18n/provider', async () => {
@@ -42,6 +44,15 @@ vi.mock('@/hooks/queries/use-weldpanel-queries', () => ({
   useAddWeldPanelDashboardTile: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
+vi.mock('@/hooks/queries/use-weldpanel-analysis-queries', async () =>
+  (await import('../explore-test-mocks')).analysisHooksMock({
+    useWeldPanelFunnelCorrelation: (spec: unknown, options: unknown) => {
+      state.correlationCalls.push({ spec, options });
+      return state.correlation;
+    },
+  }),
+);
+
 Element.prototype.hasPointerCapture ??= () => false;
 Element.prototype.setPointerCapture ??= () => undefined;
 Element.prototype.releasePointerCapture ??= () => undefined;
@@ -60,6 +71,7 @@ describe('Funnels', () => {
     state.canWatch = true;
     state.funnel = { data: { result: makeFunnelResult(), dataAsOf: DATA_AS_OF, cached: false }, error: null, isLoading: false, isFetching: false, refetch: vi.fn() };
     state.calls = [];
+    state.correlationCalls = [];
     window.localStorage.clear();
     resetCurrentProjectChoice();
   });
@@ -102,6 +114,41 @@ describe('Funnels', () => {
     await userEvent.clear(input);
     await userEvent.type(input, '14');
     expect(lastSpec().window).toEqual({ value: 14, unit: 'day' });
+  });
+
+  it('offers any order, optional middle steps and exclusions', async () => {
+    const tx = en.weldpanel.explore.funnels;
+    render(<FunnelsPage />);
+    await chooseEvent(tf.stepN.replace('{n}', '2'), 'Signed up');
+    await userEvent.click(screen.getByRole('button', { name: tf.addStep }));
+    await chooseEvent(tf.stepN.replace('{n}', '3'), 'Upgraded');
+    await userEvent.click(screen.getByRole('switch', { name: tx.optional }));
+    expect(lastSpec().steps.map((s) => s.optional)).toEqual([undefined, true, undefined]);
+
+    await userEvent.click(screen.getByRole('button', { name: tx.exclusions.add }));
+    expect(lastCall().options).toMatchObject({ enabled: false });
+    await chooseEvent(`${tx.exclusions.event} 1`, '$pageleave');
+    expect(lastSpec().exclusions).toEqual([{ event: '$pageleave', filters: [], fromStep: 0, toStep: 2 }]);
+
+    await userEvent.click(screen.getByRole('radio', { name: tx.orders.any }));
+    expect(lastSpec().order).toBe('any');
+    expect(lastSpec().exclusions).toBeUndefined();
+    expect(lastSpec().steps.every((s) => s.optional === undefined)).toBe(true);
+    expect(screen.getByText(tx.exclusions.needOrder)).toBeTruthy();
+  });
+
+  it('shows the conversion trend and runs the correlation only on its tab', async () => {
+    const tx = en.weldpanel.explore.funnels;
+    render(<FunnelsPage />);
+    await chooseEvent(tf.stepN.replace('{n}', '2'), 'Signed up');
+    await userEvent.click(screen.getByRole('radio', { name: tx.display.trends }));
+    expect(lastSpec()).toMatchObject({ display: 'trends', interval: 'day' });
+    expect(state.correlationCalls[state.correlationCalls.length - 1]?.options).toMatchObject({ enabled: false });
+    await userEvent.click(screen.getByRole('tab', { name: tx.tabs.correlation }));
+    const last = state.correlationCalls[state.correlationCalls.length - 1]!;
+    expect(last.options).toMatchObject({ enabled: true });
+    expect(last.spec).toMatchObject({ kind: 'funnel_correlation', limit: 10, steps: [{ event: '$pageview' }, { event: 'Signed up' }] });
+    expect((last.spec as { display?: string }).display).toBeUndefined();
   });
 
   describe('with a result', () => {

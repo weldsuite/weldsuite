@@ -41,6 +41,8 @@ vi.mock('@/hooks/queries/use-weldpanel-queries', () => ({
   useAddWeldPanelDashboardTile: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
+vi.mock('@/hooks/queries/use-weldpanel-analysis-queries', async () => (await import('../explore-test-mocks')).analysisHooksMock());
+
 Element.prototype.hasPointerCapture ??= () => false;
 Element.prototype.setPointerCapture ??= () => undefined;
 Element.prototype.releasePointerCapture ??= () => undefined;
@@ -85,6 +87,25 @@ describe('Retention', () => {
     await userEvent.click(screen.getByRole('combobox', { name: tr.interval }));
     await userEvent.click(await screen.findByRole('option', { name: tr.intervals.month }));
     expect(lastSpec().interval).toBe('month');
+  });
+
+  it('chooses how cohorts form and counts later returns', async () => {
+    const tx = en.weldpanel.explore.retention;
+    render(<RetentionPage />);
+    expect(lastSpec().mode).toBeUndefined();
+    await userEvent.click(screen.getByRole('combobox', { name: tx.mode }));
+    await userEvent.click(await screen.findByRole('option', { name: tx.modes.recurring }));
+    expect(lastSpec().mode).toBe('recurring');
+    await userEvent.click(screen.getByRole('combobox', { name: tx.mode }));
+    await userEvent.click(await screen.findByRole('option', { name: tx.modes.range }));
+    expect(lastSpec().mode).toBeUndefined();
+    await userEvent.click(screen.getByRole('switch', { name: tx.unbounded }));
+    expect(lastSpec().unbounded).toBe(true);
+  });
+
+  it('draws the retention curve next to the grid', () => {
+    render(<RetentionPage />);
+    expect(screen.getByText(en.weldpanel.explore.retention.curve)).toBeTruthy();
   });
 
   it('shows a loading skeleton, not a grid, while the first result loads', () => {

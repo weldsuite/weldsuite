@@ -482,7 +482,7 @@ export const API_MODULES: readonly ApiModule[] = [
   // WeldPanel (product analytics and session recordings,
   // weldsuite-documentation/plans/weldpanel.md). Tracked sites never call this worker: they send
   // to the public collector apps/workers/panel-ingest on its own host.
-  mod('panel', 8825, ['weldpanel'], ['/api/panel']),
+  mod('panel', 8825, ['weldpanel'], ['/api/panel', '/public/panel']),
   // WeldBoard (whiteboards, weldsuite-documentation/plans/weldboard.md). Its worker is board-api
   // (with the BoardRoom Durable Object). WeldFlow is listed too: a project's
   // whiteboards are WeldBoard boards, and keep working with WeldFlow alone.

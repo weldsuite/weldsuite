@@ -46,6 +46,12 @@ export interface Env extends KitEnv {
   SEND_EMAIL?: SendEmail;
   /** Platform origin the emails link to (default https://app.weldsuite.org). */
   PLATFORM_URL?: string;
+  /** Cloudflare for SaaS zone whose fallback origin is panel-ingest (custom collector domains). Unset = domains off (503). */
+  PANEL_SAAS_ZONE_ID?: string;
+  /** What customers CNAME their collector host name to (the SaaS zone's target host). Unset = domains off. */
+  PANEL_SAAS_CNAME_TARGET?: string;
+  /** Per-address limit on the public share routes (/public/panel/share/*). Missing = not limited. */
+  PANEL_SHARE_RATE_LIMIT?: RateLimit;
 }
 
 /** What panel-api sends the maintenance worker. */

@@ -9,7 +9,7 @@ import type { WeldPanel } from './client';
 import { init } from './index';
 import { installSnippet, STUB } from './install';
 import { bootSnippet } from './snippet';
-import { HOST, installNetwork, onCleanup, resetPage, TOKEN } from './test/harness';
+import { FIRST_TOUCH, HOST, installNetwork, onCleanup, resetPage, TOKEN } from './test/harness';
 
 afterEach(resetPage);
 
@@ -66,7 +66,7 @@ describe('snippet', () => {
       ['Viewed pricing', true],
       ['After load', true],
     ]);
-    expect(sent[0].batch.events[1].props).toEqual({ plan: 'pro' });
+    expect(sent[0].batch.events[1].props).toEqual({ plan: 'pro', ...FIRST_TOUCH });
   });
 
   it('replays identify() and people calls queued on the stub, identity before the first pageview', async () => {
@@ -89,7 +89,7 @@ describe('snippet', () => {
       ['$pageview', 'user-42'],
       ['After load', 'user-42'],
     ]);
-    expect(sent.batch.people?.map((op) => op.op)).toEqual(['set', 'increment']);
+    expect(sent.batch.people?.map((op) => op.op)).toEqual(['set_once', 'set', 'increment']);
   });
 
   it('works without the stub and without document.currentScript', async () => {

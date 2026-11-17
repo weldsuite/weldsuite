@@ -105,7 +105,7 @@ pub(crate) fn is_secret_param(name: &str, value: &str) -> bool {
 
 /// `decodeURIComponent` (`reserved` empty) or `decodeURI` (`;/?:@&=+$,#`
 /// kept encoded); `None` where JavaScript throws a `URIError`.
-fn decode_uri(text: &str, reserved: &str) -> Option<String> {
+pub(crate) fn decode_uri(text: &str, reserved: &str) -> Option<String> {
     fn hex_byte(bytes: &[u8], at: usize) -> Option<u8> {
         if bytes.get(at) != Some(&b'%') {
             return None;

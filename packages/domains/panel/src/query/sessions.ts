@@ -13,9 +13,14 @@
  * reach is capped at {@link MAX_SESSIONS_REACH}.
  */
 
-import type { PanelSessionRow, PanelSessionsResult, ParsedSessionsSpec } from '@weldsuite/app-api-client/schemas/weldpanel-query';
+import {
+  isCustomEventRef,
+  type PanelSessionRow,
+  type PanelSessionsResult,
+  type ParsedSessionsSpec,
+} from '@weldsuite/app-api-client/schemas/weldpanel-query';
 import type { PanelQueryContext } from './context';
-import { cohortMembership, eventsScope, replayChunksTable, scopeConds, historyBounds } from './scope';
+import { cohortMembership, eventMatch, eventsScope, replayChunksTable, scopeConds, scopeNeeds, historyBounds } from './scope';
 import { PanelQueryError, eventName, inList, int, likeContains, lit, LIKE_ESCAPE, num, ts } from './sql';
 import { resolveRange, type ResolvedRange } from './time';
 import { toIso, toNullableText, toNumber, toText, type PanelSqlQuery, type Row } from './rows';
@@ -59,9 +64,20 @@ function count(cond: string): string {
 }
 
 const named = (name: string) => `name = ${eventName(name)}`;
+
+/** The custom events (`@pnce_…`) among the did / did-not events: each gets a 0/1 column `ce<i>` in the inner select. */
+function customRefs(spec: ParsedSessionsSpec): string[] {
+  return [...new Set([...(spec.didEvents ?? []), ...(spec.notDidEvents ?? [])].filter(isCustomEventRef))];
+}
+
+/** How often the session did an event: a custom event's flag summed, or a plain name counted. */
+function didCount(event: string, refs: readonly string[]): string {
+  const index = refs.indexOf(event);
+  return index === -1 ? count(named(event)) : `SUM(ce${index})`;
+}
 const DURATION = 'to_unixtime(MAX(ts)) - to_unixtime(MIN(ts))';
 
-function havingConditions(spec: ParsedSessionsSpec): string[] {
+function havingConditions(spec: ParsedSessionsSpec, refs: readonly string[]): string[] {
   const having: string[] = [];
   if (spec.minDurationSeconds !== undefined) having.push(`${DURATION} >= ${num(spec.minDurationSeconds)}`);
   if (spec.maxDurationSeconds !== undefined) having.push(`${DURATION} <= ${num(spec.maxDurationSeconds)}`);
@@ -74,8 +90,8 @@ function havingConditions(spec: ParsedSessionsSpec): string[] {
   if (spec.countries?.length) having.push(`MAX(country) IN ${inList(spec.countries)}`);
   if (spec.devices?.length) having.push(`MAX(device_type) IN ${inList(spec.devices)}`);
   if (spec.browsers?.length) having.push(`MAX(browser) IN ${inList(spec.browsers)}`);
-  for (const event of spec.didEvents ?? []) having.push(`${count(named(event))} > 0`);
-  for (const event of spec.notDidEvents ?? []) having.push(`${count(named(event))} = 0`);
+  for (const event of spec.didEvents ?? []) having.push(`${didCount(event, refs)} > 0`);
+  for (const event of spec.notDidEvents ?? []) having.push(`${didCount(event, refs)} = 0`);
   for (const type of spec.frustration ?? []) {
     const name = FRUSTRATION_NAMES[type];
     if (!name) throw new PanelQueryError('Unknown frustration type');
@@ -112,7 +128,8 @@ export function sessionsQuery(spec: ParsedSessionsSpec, ctx: PanelQueryContext, 
   const offset = parseSessionsCursor(spec.cursor);
   if (offset + spec.limit + 1 > MAX_SESSIONS_REACH + 1) throw new PanelQueryError('Narrow the filters to see further back');
 
-  const scope = eventsScope(ctx, range, range);
+  const refs = customRefs(spec);
+  const scope = eventsScope(ctx, range, range, scopeNeeds(ctx, { events: refs }));
   const extra = ['e.session_id IS NOT NULL'];
 
   if (spec.favoritesOnly) {
@@ -137,11 +154,12 @@ export function sessionsQuery(spec: ParsedSessionsSpec, ctx: PanelQueryContext, 
     `SELECT e.session_id AS session_id, e.ts AS ts, e.name AS name, e.path AS path, e.device_type AS device_type, e.browser AS browser, ` +
     `e.os AS os, e.country AS country, e.user_id AS user_id, ${scope.person} AS person, ` +
     `json_get_str(e.properties, '$action') AS act, ` +
+    refs.map((ref, i) => `CASE WHEN ${eventMatch(ref, ctx, range, scope.person)} THEN 1 ELSE 0 END AS ce${i}, `).join('') +
     `ROW_NUMBER() OVER (PARTITION BY e.session_id ORDER BY e.ts ASC, e.event_id ASC) AS rn_first, ` +
     `ROW_NUMBER() OVER (PARTITION BY e.session_id ORDER BY e.ts DESC, e.event_id DESC) AS rn_last ` +
     `FROM ${scope.from} ${scope.where(...extra)}`;
 
-  const having = havingConditions(spec);
+  const having = havingConditions(spec, refs);
   const havingSql = having.length > 0 ? ` HAVING ${having.join(' AND ')}` : '';
   const clicks = count(`${named('$autocapture')} AND act = 'click'`);
   const sql =

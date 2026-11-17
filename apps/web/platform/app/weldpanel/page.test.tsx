@@ -23,6 +23,8 @@ const state = vi.hoisted(() => ({
   live: { visitors: 3 } as { visitors: number } | undefined,
   create: vi.fn(),
   push: vi.fn(),
+  replace: vi.fn(),
+  search: '',
 }));
 
 vi.mock('@/lib/i18n/provider', async () => {
@@ -34,7 +36,8 @@ vi.mock('@/lib/i18n/provider', async () => {
 vi.mock('@weldsuite/permissions/react', () => ({ useCan: () => state.canCreate }));
 vi.mock('@/contexts/workspace-context', () => ({ useWorkspaceId: () => 'ws_1' }));
 vi.mock('@/lib/router', () => ({
-  useRouter: () => ({ push: state.push }),
+  useRouter: () => ({ push: state.push, replace: state.replace }),
+  useSearchParams: () => new URLSearchParams(state.search),
   Link: ({ href, children }: { href: string; children: ReactNode }) => <a href={href}>{children}</a>,
 }));
 vi.mock('@/hooks/queries/use-weldpanel-queries', () => ({
@@ -49,6 +52,13 @@ vi.mock('@/hooks/queries/use-weldpanel-queries', () => ({
   useWeldPanelCohorts: () => ({ data: [] }),
   useWeldPanelLexicon: () => ({ data: undefined }),
 }));
+
+vi.mock('@/hooks/queries/use-weldpanel-analysis-queries', async () => (await import('./explore-test-mocks')).analysisHooksMock());
+
+// Radix Select reads pointer capture, which jsdom lacks.
+Element.prototype.hasPointerCapture ??= () => false;
+Element.prototype.setPointerCapture ??= () => undefined;
+Element.prototype.releasePointerCapture ??= () => undefined;
 
 const th = en.weldpanel.home;
 const to = en.weldpanel.analytics.overview;
@@ -74,6 +84,8 @@ describe('WeldPanel home', () => {
     state.live = { visitors: 3 };
     state.create.mockReset();
     state.push.mockReset();
+    state.replace.mockReset();
+    state.search = '';
     window.localStorage.clear();
     resetCurrentProjectChoice();
   });
@@ -261,6 +273,53 @@ describe('WeldPanel home', () => {
       render(<WeldPanelHome />);
       expect(screen.getByText(to.kpi.visitors)).toBeTruthy();
       expect(screen.queryByText('1,200')).toBeNull();
+    });
+
+    it('asks for every panel, and shows host names, channels, regions and screen sizes', async () => {
+      setData(
+        makeWebResult({
+          hostnames: [{ value: 'shop.example.com', visitors: 80, events: 120 }],
+          channels: [{ value: 'Organic Search', visitors: 300, events: 500 }],
+          regions: [{ value: 'NL / Noord-Holland', visitors: 90, events: 150 }],
+          screenSizes: [{ value: 'laptop', visitors: 70, events: 100 }],
+        }),
+      );
+      render(<WeldPanelHome />);
+      expect(lastSpec().panels).toEqual(expect.arrayContaining(['hostnames', 'regions', 'cities', 'channels', 'screenSizes']));
+      const tx = en.weldpanel.explore.overview;
+      await userEvent.click(screen.getByRole('tab', { name: tx.hostnames }));
+      expect(screen.getByText('shop.example.com')).toBeTruthy();
+      await userEvent.click(screen.getByRole('tab', { name: tx.channels }));
+      expect(screen.getByText(tx.channelNames['Organic Search'])).toBeTruthy();
+      await userEvent.click(screen.getByRole('tab', { name: tx.screenSizes }));
+      expect(screen.getByText(tx.screenSizeNames.laptop)).toBeTruthy();
+      await userEvent.click(screen.getByRole('tab', { name: tx.regions }));
+      await userEvent.click(screen.getByRole('button', { name: to.filterRow.replace('{value}', 'NL / Noord-Holland') }));
+      expect(lastSpec().filters).toEqual([{ source: 'column', field: 'region', operator: 'eq', value: 'Noord-Holland' }]);
+    });
+
+    it('runs the goals kept in the address and shows their conversions', () => {
+      state.search = `goals=${encodeURIComponent(JSON.stringify([{ label: 'Signed up', event: 'Signed up' }]))}`;
+      setData(makeWebResult({ goals: [{ label: 'Signed up', conversions: 40, uniqueConverters: 30, conversionRate: 0.025 }] }));
+      render(<WeldPanelHome />);
+      expect(lastSpec().goals).toEqual([{ label: 'Signed up', event: 'Signed up' }]);
+      expect(screen.getByText('2.5%')).toBeTruthy();
+    });
+
+    it('adds a page goal and keeps it in the address', async () => {
+      setData();
+      render(<WeldPanelHome />);
+      const tg = en.weldpanel.explore.overview.goals;
+      await userEvent.click(screen.getByRole('button', { name: tg.add }));
+      await userEvent.type(screen.getByLabelText(tg.label), 'Checkout done');
+      await userEvent.click(screen.getByRole('combobox', { name: tg.type }));
+      await userEvent.click(await screen.findByRole('option', { name: tg.types.page }));
+      await userEvent.type(screen.getByLabelText(tg.pathPattern), '/checkout/done');
+      await userEvent.click(screen.getByRole('button', { name: tg.apply }));
+      expect(state.replace).toHaveBeenCalledTimes(1);
+      const href = String(state.replace.mock.calls[0]?.[0]);
+      const goals = JSON.parse(JSON.parse(new URLSearchParams(href.split('?')[1]).get('goals') ?? '""')) as unknown;
+      expect(goals).toEqual([{ label: 'Checkout done', pathPattern: '/checkout/done' }]);
     });
 
     it('formats in Dutch', () => {
