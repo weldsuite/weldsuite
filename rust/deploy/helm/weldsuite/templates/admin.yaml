@@ -7,8 +7,9 @@
 # sign in at the install's OIDC provider and get in only with an active
 # admin_users row, the roster `weldsuite admin staff` manages (ADR SEC-014).
 # Until ADMIN_OIDC_CLIENT_ID, ADMIN_OIDC_CLIENT_SECRET and
-# ADMIN_SESSION_SECRET are in the Secret and admin.staffOrgId is set, its
-# sign-in answers 503 and nobody gets in.
+# ADMIN_SESSION_SECRET are in the Secret, its sign-in answers 503 and nobody
+# gets in. admin.staffOrgId: Zitadel's staff organization; empty with
+# WeldID's staff issuer.
 {{- if .Values.serviceAccount.create }}
 apiVersion: v1
 kind: ServiceAccount

@@ -17,7 +17,8 @@ interface DesktopAuthOptions {
 
 /** The desktop sign-in ticket is a Clerk sign-in token: nothing to listen for on other providers. */
 function useNoDesktopAuth(_options?: DesktopAuthOptions): void {
-  // Other providers hand the desktop shell their own session (not built yet).
+  // OIDC signs the desktop shell in through the system browser and a
+  // loopback redirect instead, with no deep link (`lib/auth/oidc/browser-sign-in.ts`).
 }
 
 export function useDesktopAuthHandler(options?: DesktopAuthOptions): void {

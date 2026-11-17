@@ -111,13 +111,33 @@ variable "worker_type" {
 }
 
 variable "livekit_worker_count" {
-  description = "General workers that also run LiveKit, WeldMeet's media server, counted from worker-1, so the default two sit in both locations. They get the node.weldsuite.org/livekit label and the livekit firewall (WebRTC and TURN ports). 0: no video."
+  description = "General workers that also run LiveKit, WeldMeet's and WeldChat's media server, counted from worker-1, so the default two sit in both locations. They get the node.weldsuite.org/livekit label and the livekit firewall (WebRTC and TURN ports). 0, with no livekit_control_planes either: no video."
   type        = number
   default     = 2
 
   validation {
     condition     = var.livekit_worker_count >= 0 && var.livekit_worker_count <= var.worker_count
     error_message = "livekit_worker_count: between 0 and worker_count."
+  }
+}
+
+# LiveKit on control-plane nodes, for a cluster without general workers,
+# where the control planes take the workloads (as mail_pool_nodes does for
+# mail): no extra server, at the price of sharing the node with etcd and the
+# Kubernetes API.
+variable "livekit_control_planes" {
+  description = "Control-plane nodes that also run LiveKit (cp-1, cp-2), on a cluster without general workers (worker_count = 0). They get the node.weldsuite.org/livekit label and the livekit firewall, like the LiveKit workers. Where there are general workers, use livekit_worker_count: the control-plane nodes are tainted then. Empty: none."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for node in var.livekit_control_planes : can(regex("^cp-[0-9]+$", node))])
+    error_message = "livekit_control_planes: control-plane node keys (cp-1, cp-2)."
+  }
+
+  validation {
+    condition     = length(distinct(var.livekit_control_planes)) == length(var.livekit_control_planes)
+    error_message = "livekit_control_planes: each node once."
   }
 }
 

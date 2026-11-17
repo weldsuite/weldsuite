@@ -8,12 +8,28 @@ import {
   idpIssues,
   idpMethodOf,
   isPaused,
+  oidcActivationBlock,
+  oidcFormValues,
+  oidcInputFrom,
+  oidcIssues,
+  oidcStatus,
+  oidcView,
   ssoAddonState,
   ssoStatus,
   type IdpFormValues,
+  type OidcFormValues,
   type SsoIdp,
 } from './sso-view';
-import { makeBilling, makeConfig, makeConnection, makeDomain } from './test-support';
+import { areSsoScopesValid, parseSsoScopes } from '@weldsuite/app-api-client/schemas/sso';
+import {
+  makeBilling,
+  makeConfig,
+  makeConnection,
+  makeDomain,
+  makeOidcConnection,
+  makeOidcDomain,
+  makeWeldIdConfig,
+} from './test-support';
 
 const EMPTY_IDP: SsoIdp = { metadataUrl: null, hasMetadata: false, entityId: null, ssoUrl: null, hasCertificate: false };
 
@@ -255,5 +271,63 @@ describe('formatSsoDate', () => {
     expect(formatSsoDate('2026-11-14T12:00:00.000Z', 'nl')).toBe('14 november 2026');
     expect(formatSsoDate(null, 'en')).toBe('');
     expect(formatSsoDate('not a date', 'en')).toBe('');
+  });
+});
+
+describe('WeldID mode', () => {
+  const connection = makeOidcConnection({ scopes: ['groups'] });
+  const form = (overrides: Partial<OidcFormValues> = {}): OidcFormValues => ({ ...oidcFormValues(connection), ...overrides });
+
+  it('reads the OIDC block only in WeldID mode', () => {
+    expect(oidcView(makeConfig())).toBeNull();
+    expect(oidcView(makeWeldIdConfig())?.defaultRole).toBe('MEMBER');
+  });
+
+  it('is not set up without a connection, off until active, and active once sign-ins go to the provider', () => {
+    expect(oidcStatus(makeWeldIdConfig().oidc!)).toBe('not_set_up');
+    expect(oidcStatus(makeWeldIdConfig({ connection }).oidc!)).toBe('off');
+    expect(oidcStatus(makeWeldIdConfig({ connection, active: true }).oidc!)).toBe('active');
+  });
+
+  it('blocks switching on without the entitlement, a connection or a verified domain', () => {
+    const blocked = (config: ReturnType<typeof makeWeldIdConfig>) => oidcActivationBlock(config, config.oidc!);
+    expect(blocked(makeWeldIdConfig({}, { entitlement: { entitled: false, source: null } }))).toBe('not_entitled');
+    expect(blocked(makeWeldIdConfig())).toBe('no_connection');
+    expect(blocked(makeWeldIdConfig({ connection, domains: [makeOidcDomain()] }))).toBe('domain_unverified');
+    expect(
+      blocked(makeWeldIdConfig({ connection, domains: [makeOidcDomain({ status: 'verified', verified: true })] })),
+    ).toBeNull();
+  });
+
+  it('needs a secret only for a new connection, an https issuer and valid scopes', () => {
+    const blank = oidcFormValues(null);
+    expect(oidcIssues(blank, null).map((issue) => issue.field)).toEqual(['displayName', 'issuer', 'clientId', 'clientSecret']);
+    expect(oidcIssues(form(), connection)).toEqual([]);
+    expect(oidcIssues(form({ issuer: 'http://idp.test' }), connection)).toEqual([{ field: 'issuer', code: 'httpsUrl' }]);
+    expect(oidcIssues(form({ scopes: 'gro"ups' }), connection)).toEqual([{ field: 'scopes', code: 'scopes' }]);
+  });
+
+  it('sends everything for a new connection and only the changes for a saved one, never an empty secret', () => {
+    expect(oidcInputFrom({ ...oidcFormValues(null), displayName: ' A ', issuer: 'https://idp.test', clientId: 'c', clientSecret: 's', scopes: 'a, b a' }, null)).toEqual({
+      displayName: 'A',
+      issuer: 'https://idp.test',
+      clientId: 'c',
+      clientSecret: 's',
+      scopes: ['a', 'b'],
+      trustEmails: false,
+    });
+    expect(oidcInputFrom(form(), connection)).toEqual({});
+    expect(oidcInputFrom(form({ clientSecret: ' new ', scopes: 'groups offline_access', trustEmails: true }), connection)).toEqual({
+      clientSecret: 'new',
+      scopes: ['groups', 'offline_access'],
+      trustEmails: true,
+    });
+  });
+
+  it('parses typed scopes like the server checks them', () => {
+    expect(parseSsoScopes(' groups,offline_access  groups ')).toEqual(['groups', 'offline_access']);
+    expect(areSsoScopesValid(['api://acme/.default'])).toBe(true);
+    expect(areSsoScopesValid(['back\\slash'])).toBe(false);
+    expect(areSsoScopesValid(['two words'])).toBe(false);
   });
 });

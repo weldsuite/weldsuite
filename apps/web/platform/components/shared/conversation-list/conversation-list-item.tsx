@@ -185,6 +185,7 @@ export function ConversationListItem({
   contextMenuContent,
   onLabelDrop,
   compact,
+  hideUnreadCount = false,
 }: Readonly<ConversationListItemProps>) {
   const t = useTranslations();
   const hasUnread = item.unreadCount > 0;
@@ -235,7 +236,7 @@ export function ConversationListItem({
             {/* Label Badges */}
             <LabelBadges item={item} labels={displayLabels} />
             {/* Unread count indicator */}
-            {item.unreadCount > 0 && item.messageCount > 1 && (
+            {!hideUnreadCount && item.unreadCount > 0 && item.messageCount > 1 && (
               <div className="mt-1.5">
                 <span className="text-[10px] text-blue-600 font-medium bg-blue-50 px-1.5 py-px rounded-full">
                   {t('sweep.shared.unreadCount', { count: item.unreadCount })}

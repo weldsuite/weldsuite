@@ -76,6 +76,11 @@ export const weldchat = {
       missedVoiceFrom: 'Gemist audiogesprek van {name}',
       missedVideoFrom: 'Gemist videogesprek van {name}',
       missedCall: 'Gemist gesprek',
+      voiceCall: 'Audiogesprek',
+      videoCall: 'Videogesprek',
+      missedVoiceCall: 'Gemist audiogesprek',
+      missedVideoCall: 'Gemist videogesprek',
+      join: 'Deelnemen',
       callEnded: 'Gesprek beëindigd',
       noAnswer: 'Niet opgenomen',
       declined: 'Geweigerd',
@@ -86,6 +91,7 @@ export const weldchat = {
     },
     calling: {
       ringing: 'Gaat over…',
+      connecting: 'Verbinden…',
       autoEnded: 'Gesprek automatisch beëindigd na 3 minuten alleen.',
       reconnecting: 'Verbinding verbroken. Opnieuw verbinden…',
       reconnected: 'Je bent weer in het gesprek',
@@ -328,6 +334,8 @@ export const weldchat = {
       cancel: 'Annuleren',
       startConversation: 'Gesprek starten',
       creating: 'Aanmaken...',
+      invited: 'Uitgenodigd',
+      invitedHint: 'Je kunt een bericht sturen zodra de uitnodiging is geaccepteerd',
     },
     groupSettings: {
       nav: {
@@ -699,6 +707,7 @@ export const weldchat = {
       selectConversation: 'Selecteer een gesprek of start een nieuw gesprek',
       conversationNotFound: 'Gesprek niet gevonden',
       channelNotFound: 'Kanaal niet gevonden',
+      invitationPending: 'Deze persoon heeft de uitnodiging nog niet geaccepteerd. Je kunt een bericht sturen zodra die lid is.',
     },
     draftsPage: {
       threadReply: 'Thread-antwoord',

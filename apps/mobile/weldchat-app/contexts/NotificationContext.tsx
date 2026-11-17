@@ -97,7 +97,7 @@ async function registerPushToken(token: string): Promise<boolean> {
  * it the ordinary "Incoming call" push.
  */
 async function registerCallToken(expoToken: string | undefined): Promise<void> {
-  // Calls run on RealtimeKit, which the Kubernetes servers don't have: no ring to register for.
+  // A server without a video provider has no calls: no ring to register for.
   if (!isNativeCallsAvailable || !isFeatureAvailable('chat-calls')) return;
   if (Platform.OS === 'ios' && !isCallKitAvailable()) {
     await appApi.pushTokens.unregister(`${await getDeviceId()}:call`).catch(() => {});

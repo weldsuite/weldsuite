@@ -42,6 +42,7 @@ servers later; only this OpenTofu module is replaced by Talos on bare metal.
 | Valkey | chart 0.12.0 (Valkey 9.1.2) | One primary, ACL auth |
 | Restate | chart 1.7.13 | One node to start |
 | Zitadel | chart 10.4.0 (v4.19.2) | `auth.<domain>`, own CNPG cluster |
+| WeldID (opt-in) | chart `WELDID_VERSION` ([weldsuite/weldid](https://github.com/weldsuite/weldid)) | Replaces Zitadel at `auth.<domain>`, own CNPG cluster ("WeldID instead of Zitadel" below) |
 | weldsuite | this repository | `app.<domain>` (the platform SPA and its API on one origin) and `api.<domain>`, 2-6 replicas |
 | weldsuite sign portal | this repository | `sign.<domain>`, 2 replicas (Node; ADR FE-017) |
 | weldsuite forms portal | this repository | `forms.<domain>`, 2 replicas (Node; ADR FORMS-002) |
@@ -109,7 +110,8 @@ cp terraform.tfvars.example terraform.tfvars   # git-ignored
 Server types (`cpx22` control plane, `cpx32` workers, `ccx23` Postgres) are
 defaults, not facts: check availability in the console first (Hetzner has
 listed "limited availability" of cloud instances since April 2026). `livekit_worker_count` (2) is how many general
-workers also run LiveKit ("Video" below).
+workers also run LiveKit; on a cluster without general workers,
+`livekit_control_planes` names the control-plane nodes that do ("Video" below).
 
 **State.** The state holds the Talos secrets and the kubeconfig. Use the S3
 backend in `versions.tf` (a private bucket) and OpenTofu's state encryption,
@@ -140,9 +142,9 @@ the firewall (only 6443 and 50000, from `admin_cidrs`), three control-plane
 nodes, the general workers, the two Postgres nodes (tainted
 `node.weldsuite.org/postgres`), and two load balancers: one for the
 Kubernetes and Talos APIs, one for HTTP(S) to Traefik with the PROXY
-protocol. The first `livekit_worker_count` workers also get the
-`node.weldsuite.org/livekit` label and a second firewall with LiveKit's media
-ports (UDP 7882, TCP 7881, UDP 3478). With `mail_pools`, the mail nodes
+protocol. The first `livekit_worker_count` workers (or the
+`livekit_control_planes`) also get the `node.weldsuite.org/livekit` label and
+a second firewall with LiveKit's media ports (UDP 7882, TCP 7881, UDP 3478). With `mail_pools`, the mail nodes
 come too, each with its own primary IPv4, reverse DNS and the mail firewall
 (TCP 25), and with `mx_node_port` the ingress load balancer also listens on
 25 ("Mail" below). Talos boots from the machine config in the server's user
@@ -203,7 +205,7 @@ a time.
 ## 5. DNS
 
 Create the records `tofu output dns_records` prints (A and AAAA for `app.`,
-`api.`, `auth.`, `sign.`, `forms.`, `admin.`, `grafana.`, `livekit.`, `turn.`, and `mx.` with
+`api.`, `mcp.`, `auth.`, `sign.`, `forms.`, `admin.`, `grafana.`, `livekit.`, `turn.`, and `mx.` with
 `mx_node_port` → the ingress load balancer) at the DNS provider. cert-manager
 issues certificates once they resolve. (external-dns is not installed: a
 handful of static records doesn't need it.) Media needs no record: LiveKit
@@ -276,6 +278,19 @@ default) organisation:
      client id is `ZITADEL_MOBILE_CLIENT_ID`; until it is set the apps can't
      sign in to the cluster
      (`weldsuite-documentation/plans/mobile-server-choice.md` in the code repo).
+   - **2c. Native application** `desktop` in the same project, for the
+     desktop app, which signs in through the system browser (Google and
+     Microsoft refuse sign-in inside its window) and takes the answer on a
+     loopback listener (RFC 8252, `apps/desktop/docs/auth-handoff.md`): type
+     *Native*, authentication *PKCE*, refresh tokens on, **Auth token type:
+     JWT**, the same token settings as `platform`, and the one redirect URI
+     `http://127.0.0.1/callback`. Zitadel ignores the port of a native
+     application's loopback redirect, so it covers the random port the app
+     picks. No post-logout URI: signing out opens Zitadel's own page in the
+     browser. With `OIDC_SIGN_IN=platform`, point its sign-in at
+     `https://app.<domain>/auth` too, like `platform`'s. Its client id is
+     `ZITADEL_DESKTOP_CLIENT_ID` (optional); until it is set the desktop app
+     signs in inside its own window with the web application.
 3. **Scopes** the platform asks for: `openid profile email offline_access`,
    `urn:zitadel:iam:org:project:id:<project id>:aud` (puts the project in
    `aud`), `urn:zitadel:iam:org:projects:roles`, and
@@ -370,6 +385,65 @@ The server fetches Zitadel's discovery document and keys from
 `https://auth.<domain>` through the load balancer. If pods can't reach it
 that way, set `config.auth.oidc.jwksUrl` to a URL they can; Zitadel picks its
 instance by host name, so an in-cluster URL needs that host.
+
+## WeldID instead of Zitadel
+
+WeldID, WeldSuite's own OpenID Connect provider (ADR SEC-019), takes
+Zitadel's place at `auth.<domain>`: step 7 and Zitadel's parts of "Staff
+work" and "Monitoring" then fall away. Opt-in, in two layers a cluster
+lists: `flux/clusters/example/weldid.yaml` (WeldID next to Zitadel, in the
+cluster only) and `weldid-switch.yaml` (sign-in moves to it). Details, and
+what each piece is: `flux/infrastructure/weldid/README.md`.
+
+1. **Settings** in `cluster-settings.yaml`: `WELDID_VERSION` (the chart,
+   `oci://ghcr.io/weldsuite/charts/weldid`), `WELDID_RP_ID`, and
+   `WELDID_BACKEND_KEY_X` / `_Y` from step 2.
+2. **Secrets.** In `rust/deploy/flux`, `node scripts/fill-secrets.mjs --weldid
+   --main secrets/<cluster>/secrets.sops.yaml secrets/<cluster>/weldid/weldid.sops.yaml`
+   (with `SOPS_AGE_KEY_FILE`) generates the database password,
+   `WELDID_MASTER_KEY` and the server's admin API key, copies what WeldID
+   shares with the platform (the MTA's system pool, Valkey, the admin
+   console's and Grafana's client secrets, the backup keys, the registry
+   login), and prints the key's public half for step 1. Encrypt the file,
+   list it in `secrets/<cluster>/weldid/kustomization.yaml`, and put
+   `WELDID_MASTER_KEY` in the password manager: without it a restored
+   `weldid-db` has no usable signing key.
+3. **Image pull.** `ghcr.io/weldsuite/weldid` and its chart stay private
+   until WeldID 1.0, so the cluster pulls both with the Secret
+   `weldid/registry`: a classic GitHub token with `read:packages` of an
+   account that may read the two packages (on GitHub, each package's
+   "Manage access"), as `printf '%s:%s' <user> <token> | base64` in its
+   `auth`. Step 2 copies `weldsuite/registry`'s login, or takes
+   `GHCR_USER` and `GHCR_TOKEN`. The alternative is making both packages
+   public, then deleting that Secret and the `secretRef` in
+   `flux/infrastructure/weldid/source.yaml`.
+4. **The passkey RP ID.** `WELDID_RP_ID` binds every passkey ever made
+   on the cluster: set it once, before WeldID's first start, to the
+   cluster's domain (a parent of `auth.<domain>`), and never change it.
+   Changing it breaks every passkey of every user, with no way back.
+
+The cut-over on EU test, in this order (production keeps Zitadel until
+WeldID 1.0):
+
+1. **WeldID next to Zitadel.** Steps 1-4, then list `weldid.yaml` in the
+   cluster's `kustomization.yaml`. WeldID, `weldid-db` and its certificate
+   for `auth.<domain>` come up; Zitadel keeps the host. Check `/readyz` and
+   the discovery document through a port-forward, and add the staff
+   (`weldid admin staff add`, the layer's README, step 5).
+2. **Switch the app.** `ADMIN_OIDC_CLIENT_ID: weldsuite-admin` in
+   `weldsuite-env`, the staff roster unbound from its Zitadel accounts
+   (`admin_users.console_subject`, the layer's README, "Switching"),
+   `AUTH_PROBE_PATH: /.well-known/openid-configuration` in
+   the settings, and `weldid-switch.yaml` listed: WeldID's Ingress goes on
+   and Zitadel's off, and the platform, the mobile apps, the admin console
+   and Grafana sign in through WeldID. Unlisting it goes back.
+3. **Wipe the test accounts.** Zitadel's accounts are test accounts and are
+   not migrated (SEC-019): its users, and the workspaces and memberships
+   made under them, have no WeldID account to sign in with. Delete them
+   (the test cluster's runbook), and let testers sign up afresh.
+4. **Remove Zitadel** from EU test: its release, values, `zitadel-db` and
+   backups, Secrets, namespace and settings (the layer's README,
+   "Switching", step 5).
 
 ## Sign-up and the first workspace
 
@@ -580,7 +654,11 @@ Cloudflare RealtimeKit (rust/README.md, "WeldMeet on LiveKit").
   (two, one per location), on the host network, sharing those nodes with
   the weldsuite server. Rooms are routed between the two through Valkey
   (database 1). Each pod requests half a CPU and has no CPU limit, because
-  throttling breaks up audio.
+  throttling breaks up audio. A cluster without general workers
+  (`worker_count = 0`, where the control planes take the workloads) runs it
+  on two control-plane nodes instead: `livekit_control_planes = ["cp-1",
+  "cp-2"]`. They then share the node with etcd and the Kubernetes API too;
+  move LiveKit to workers of its own before calls get busy.
 - **What comes in where:**
 
   | Traffic | Path |
@@ -596,10 +674,21 @@ Cloudflare RealtimeKit (rust/README.md, "WeldMeet on LiveKit").
   never asks Google's or Twilio's STUN servers). After the first start,
   check that `kubectl -n livekit logs deploy/livekit | grep -i nodeIP` shows
   the node's public IPv4 (`tofu output nodes`), not a `10.10.x.x` address.
-- **A cluster built before this** gets the firewall from `tofu apply`, but
-  not the label: it lives in the machine config, which OpenTofu doesn't push
-  (step 3). Label the two workers once with
-  `kubectl label node weldsuite-eu-worker-1 weldsuite-eu-worker-2 node.weldsuite.org/livekit=true`.
+- **A cluster built before this**, or nodes added to `livekit_control_planes`
+  later, get the firewall from `tofu apply`, but not the label: it lives in
+  the machine config, which OpenTofu doesn't push (step 3). Patch it into
+  each running node's config, which needs no reboot:
+
+  ```bash
+  cat > livekit-label.yaml <<'EOF'
+  apiVersion: v1alpha1
+  kind: KubeNodeConfig
+  labels:
+    node.weldsuite.org/livekit: "true"
+  EOF
+  talosctl -n <private address> patch machineconfig --mode=no-reboot --patch @livekit-label.yaml
+  ```
+
   New servers get the label from their machine config.
 - **Check it** with a call between two people on different networks, then
   one from a network that only allows 443 out (TURN over TLS). Before relying
@@ -1122,7 +1211,8 @@ Be clear about this before anyone signs a contract:
   WeldSign, WeldPass, the calendar, CRM, Flow, Mail, Chat, Desk, Stash, Ads,
   Social, Data, Commerce, HR, Call (on Telnyx), Host, Meet, Reach, Books,
   Docs, Panel, Sheets and Connect. Also external-api's `/v1` (not yet its
-  mail, custom-object and WeldReach groups), the MCP server at `/mcp`,
+  mail, custom-object and WeldReach groups), the MCP server at
+  `https://mcp.<domain>/mcp`,
   personal-api at `/personal-api` (with `DATABASE_URL_PERSONAL`) and the
   integration workers' webhooks and jobs. Not WeldAgent: there is no AI on
   this edition until there is an EU AI provider (ADR AI-011), and the other
@@ -1150,7 +1240,9 @@ Be clear about this before anyone signs a contract:
   `SIGN_SESSION_SECRET` for signer sessions. `/config.json` carries the
   public settings in `config.publicEnv` (Mapbox, the portal URLs) and lists
   the `unavailableFeatures` the platform hides (billing, credit top-up,
-  paid apps, desktop sign-in, analytics, the search reindex). Not here yet:
+  paid apps, the desktop app's Clerk sign-in ticket, analytics, the search
+  reindex; the desktop app signs in through the browser instead, step 7
+  item 2c). Not here yet:
   the help center and a CDN (Bunny.net) in front of `app.<domain>`.
 - **Billing.** Plans and seats through Mollie (ADR BILL-014,
   `rust/README.md`, "Plan billing"), off until configured. To turn it on:

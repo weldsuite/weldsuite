@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MemberCapacity } from '@weldsuite/app-api-client/domains/flow-portfolio';
-import { addDays, allSkills, bandOf, groupBySkill, percentOf, rangeOf, splitSkills } from './capacity';
+import { addDays, allSkills, bandOf, dayOfMonth, groupBySkill, monthSpans, percentOf, rangeOf, splitSkills } from './capacity';
 
 const member = (memberId: string, skills: string[], hours: number[], weeklyHours = 40): MemberCapacity => ({
   memberId,
@@ -46,5 +46,17 @@ describe('capacity helpers', () => {
     expect(allSkills(people)).toEqual(['Backend', 'QA']);
     expect(percentOf(30, 60)).toBe(50);
     expect(percentOf(1, 0)).toBeNull();
+  });
+
+  it('groups week columns by the month they start in', () => {
+    const weeks = ['2026-11-16', '2026-11-23', '2026-11-30', '2026-12-07', '2026-12-28', '2027-01-04'].map((startsOn) => ({ startsOn }));
+    expect(monthSpans(weeks, 'en-US')).toEqual([
+      { key: '2026-11', label: 'November 2026', span: 3 },
+      { key: '2026-12', label: 'December 2026', span: 2 },
+      { key: '2027-01', label: 'January 2027', span: 1 },
+    ]);
+    expect(monthSpans(weeks.slice(0, 1), 'nl-NL')[0]?.label).toBe('november 2026');
+    expect(monthSpans([], 'en-US')).toEqual([]);
+    expect(dayOfMonth('2026-11-30')).toBe(30);
   });
 });

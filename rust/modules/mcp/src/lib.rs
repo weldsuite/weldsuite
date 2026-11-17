@@ -211,5 +211,8 @@ where
 {
     Router::new()
         .route("/mcp", any(transport::serve))
+        // One workspace's endpoint: membership mode's way to name it, since
+        // an MCP client sends no `X-Weld-Workspace` ([`auth`]).
+        .route("/mcp/w/{workspace}", any(transport::serve))
         .with_state(state)
 }

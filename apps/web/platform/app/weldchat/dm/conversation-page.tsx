@@ -3,6 +3,7 @@ import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useParams } from '@tanstack/react-router';
 import { useMessageDeepLink } from '../lib/message-search';
+import { isInvitationPendingError } from '../lib/dm-availability';
 import { useQueryClient } from '@tanstack/react-query';
 import { useDmByUser, useMarkChannelAsRead, weldchatKeys, mergeMessageIntoCache, updateMessageInCache, removeMessageFromCache } from '@/hooks/queries/use-weldchat-queries';
 import type { ChatMessage } from '@/hooks/queries/use-weldchat-queries';
@@ -33,7 +34,7 @@ export default function DmConversationPage() {
   const st = useTranslations();
   const { userId: targetUserId } = useParams({ from: '/weldchat/dm/$userId' });
   const { targetMessageId, clearTarget } = useMessageDeepLink();
-  const { data, isLoading } = useDmByUser(targetUserId);
+  const { data, isLoading, error } = useDmByUser(targetUserId);
   const queryClient = useQueryClient();
   const { mutate: markAsRead } = useMarkChannelAsRead();
   const { open: openObjectPanel, closeAll: closeAllObjectPanels } = useObjectPanel();
@@ -118,6 +119,16 @@ export default function DmConversationPage() {
 
   useWeldChatRealtime(client, { channelId });
   useWeldChatPresence(client);
+
+  // Before the skeleton: a refused DM never gets a channel id. Also before any
+  // cached channel, so a DM made with an invitee before chat-api refused them
+  // doesn't open.
+  if (isInvitationPendingError(error))
+    return (
+      <div className="flex items-center justify-center h-full px-6 text-center text-muted-foreground">
+        {t.weldchat.dm.invitationPending}
+      </div>
+    );
 
   if (isLoading || !channelId) return <ChatPageSkeleton />;
 

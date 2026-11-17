@@ -82,8 +82,12 @@ describe('decide', () => {
     expect(decide({ ...session, org: null }, STAFF_ORG, row('sub-ann-staff'), undefined)).toBeNull();
   });
 
-  it('refuses everyone when no staff organization is configured', () => {
-    expect(decide({ ...session, org: '' }, '', row('sub-ann-staff'), undefined)).toBeNull();
+  it('skips the organization check when none is configured (SEC-019: WeldID\'s separate staff issuer already guarantees it)', () => {
+    expect(decide({ ...session, org: '' }, '', row('sub-ann-staff'), undefined)).toEqual({
+      row: row('sub-ann-staff'),
+      bind: false,
+    });
+    expect(decide({ ...session, org: null }, '', undefined, row(null))).toEqual({ row: row(null), bind: true });
   });
 
   it('refuses an unverified email', () => {
@@ -156,6 +160,19 @@ describe('staffIdentity', () => {
   it('refuses an account of another organization before reading the roster', async () => {
     await expect(staffIdentity({ ...session, org: 'org-platform' }, { staffOrgId: STAFF_ORG })).resolves.toBeNull();
     expect(fake.state.reads).toBe(0);
+  });
+
+  it('lets in any account on the roster when no staff organization is configured (WeldID)', async () => {
+    fake.state.selects = [[row('sub-ann-staff', { role: 'superadmin' })]];
+    await expect(
+      staffIdentity({ ...session, org: null }, { staffOrgId: '', signingIn: true }),
+    ).resolves.toEqual({
+      userId: 'sub-ann-staff',
+      email: 'ann@weldsuite.test',
+      name: 'Ann',
+      role: 'superadmin',
+      isSuperAdmin: true,
+    });
   });
 
   it('refuses a row whose role is unknown', async () => {

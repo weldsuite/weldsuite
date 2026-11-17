@@ -77,3 +77,8 @@ spec:
   valuesFrom:
     - kind: ConfigMap
       name: zitadel-values
+    # Off auth.${DOMAIN} once WeldID takes it: made only by the weldid-switch
+    # layer (apps/weldid-switch), absent (and ignored) everywhere else.
+    - kind: ConfigMap
+      name: zitadel-values-weldid
+      optional: true

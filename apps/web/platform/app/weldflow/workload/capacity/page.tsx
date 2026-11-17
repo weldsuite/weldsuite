@@ -1,10 +1,13 @@
 import { useMemo, useState } from 'react';
-import { Plus } from 'lucide-react';
+import { useAtom } from 'jotai';
+import { atomWithStorage } from 'jotai/utils';
+import { PanelRight, Plus } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Label } from '@weldsuite/ui/components/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { Switch } from '@weldsuite/ui/components/switch';
 import { Skeleton } from '@weldsuite/ui/components/skeleton';
+import { Toggle } from '@weldsuite/ui/components/toggle';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
@@ -16,6 +19,9 @@ import { allSkills, formatDay, intlLocaleOf, rangeOf, todayIso } from './_lib/ca
 import { WorkloadShell, WorkloadViewSwitch } from '../workload-shell';
 
 const WEEK_OPTIONS = [8, 14, 26] as const;
+
+/** Whether the resource requests panel is shown beside the heatmap, remembered per browser. */
+const showRequestsAtom = atomWithStorage('weldflow.capacity.showRequests', true, undefined, { getOnInit: true });
 
 /**
  * Workload › Capacity: booked hours per person and week across projects
@@ -35,13 +41,14 @@ export default function CapacityPage() {
   const [tentative, setTentative] = useState(true);
   const [requesting, setRequesting] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
+  const [showRequests, setShowRequests] = useAtom(showRequestsAtom);
 
   const range = rangeOf(from, weeks);
   // The skill pills come from everyone, so the filter never hides its own options.
   const everyone = useCapacity({ ...range, tentative });
   const filtered = useCapacity({ ...range, tentative, skill: skill ?? undefined });
   const open = useResourceRequests('open');
-  const { nameOf } = useMemberNames();
+  const { nameOf, pictureOf } = useMemberNames();
   const skills = useMemo(() => allSkills(everyone.data?.members ?? []), [everyone.data]);
   const load = skill ? filtered.data : everyone.data;
   const error = skill ? filtered.isError : everyone.isError;
@@ -109,32 +116,38 @@ export default function CapacityPage() {
             </Label>
           </div>
         </div>
-        {canBook ? (
-          <Button size="sm" className="ml-auto h-8" onClick={() => setRequesting(true)}>
-            <Plus className="size-4" />
-            {copy.requestPerson}
-          </Button>
-        ) : null}
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          <Toggle variant="outline" size="sm" className="px-2.5 text-[13px]" pressed={showRequests} onPressedChange={setShowRequests}>
+            <PanelRight />
+            {copy.requests.title}
+          </Toggle>
+          {canBook ? (
+            <Button size="sm" className="h-8" onClick={() => setRequesting(true)}>
+              <Plus className="size-4" />
+              {copy.requestPerson}
+            </Button>
+          ) : null}
+        </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
-        {error ? (
-          <div role="alert" className="flex items-center gap-3 rounded-lg border border-destructive/30 p-4 text-sm">
-            {t.flowPortfolio.common.loadFailed}
-            <Button variant="outline" size="sm" onClick={retry}>
-              {t.flowPortfolio.common.retry}
-            </Button>
-          </div>
-        ) : null}
-
-        <div className="flex flex-wrap items-start gap-4">
+      {/* Edge to edge under the toolbar, like the timeline: the heatmap fills the page, the requests sit in a column on the right. */}
+      <div className="flex min-h-0 flex-1">
+        <div className="flex min-w-0 flex-1 flex-col">
+          {error ? (
+            <div role="alert" className="flex items-center gap-3 border-b px-4 py-3 text-sm">
+              {t.flowPortfolio.common.loadFailed}
+              <Button variant="outline" size="sm" onClick={retry}>
+                {t.flowPortfolio.common.retry}
+              </Button>
+            </div>
+          ) : null}
           {load ? (
-            <Heatmap load={load} groupBy={groupBy} canEdit={canManage} nameOf={nameOf} onEdit={setEditing} />
+            <Heatmap load={load} groupBy={groupBy} canEdit={canManage} nameOf={nameOf} pictureOf={pictureOf} onEdit={setEditing} />
           ) : (
-            !error && <Skeleton className="h-72 min-w-0 flex-[999_1_720px] rounded-lg" />
+            !error && <Skeleton className="m-4 h-72 rounded-lg" />
           )}
-          <RequestsPanel requests={requests} isLoading={open.isLoading} canBook={canBook} nameOf={nameOf} />
         </div>
+        {showRequests ? <RequestsPanel requests={requests} isLoading={open.isLoading} canBook={canBook} nameOf={nameOf} /> : null}
       </div>
 
       <RequestDialog open={requesting} onClose={() => setRequesting(false)} />

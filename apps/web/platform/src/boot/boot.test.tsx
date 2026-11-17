@@ -23,6 +23,10 @@ vi.mock('@/lib/auth/oidc', () => ({
 vi.mock('@/lib/auth', () => ({
   setAuthImplementation: vi.fn(),
 }));
+const desktop = vi.hoisted(() => ({ browserSignIn: null as unknown }));
+vi.mock('@/lib/desktop-auth', () => ({
+  desktopBrowserSignIn: () => desktop.browserSignIn,
+}));
 
 import { renderApp } from '../app';
 import { setAuthImplementation } from '@/lib/auth';
@@ -93,6 +97,33 @@ describe('Kubernetes boot (VITE_RUNTIME_CONFIG=on)', () => {
     await startRuntime();
     expect(createOidcAuth).toHaveBeenCalledWith(auth);
     expect(setAuthImplementation).toHaveBeenCalledWith({ provider: 'oidc' });
+  });
+
+  it('signs the desktop shell in with the desktop app’s client, through the system browser', async () => {
+    const browserSignIn = { start: vi.fn() };
+    desktop.browserSignIn = browserSignIn;
+    try {
+      const auth = { provider: 'oidc', issuer: 'https://id.example.eu', clientId: 'web', desktopClientId: 'desktop' };
+      serve({ backend: 'rust', auth });
+      await startRuntime();
+      expect(createOidcAuth).toHaveBeenCalledWith({ ...auth, clientId: 'desktop' }, { browserSignIn });
+
+      // No desktop client named: the shell signs in inside its window, as before.
+      vi.mocked(createOidcAuth).mockClear();
+      const webOnly = { provider: 'oidc', issuer: 'https://id.example.eu', clientId: 'web' };
+      serve({ backend: 'rust', auth: webOnly });
+      await startRuntime();
+      expect(createOidcAuth).toHaveBeenCalledWith(webOnly);
+    } finally {
+      desktop.browserSignIn = null;
+    }
+  });
+
+  it('uses the web client in a browser even when a desktop client is named', async () => {
+    const auth = { provider: 'oidc', issuer: 'https://id.example.eu', clientId: 'web', desktopClientId: 'desktop' };
+    serve({ backend: 'rust', auth });
+    await startRuntime();
+    expect(createOidcAuth).toHaveBeenCalledWith(auth);
   });
 
   it('stays on Clerk when the OIDC block has no client id', async () => {

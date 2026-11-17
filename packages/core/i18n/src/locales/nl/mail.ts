@@ -81,7 +81,45 @@ export const mail = {
       scheduleMessage: 'Verzending Plannen',
       addSignature: 'Handtekening Toevoegen',
       recipientRequired: 'Voeg minstens één ontvanger toe',
+      invalidRecipient: '{recipient} is geen geldig e-mailadres',
+      invalidRecipients: 'Dit zijn geen geldige e-mailadressen: {recipients}',
     },
+
+    // The AI island at the bottom of the composer
+    composeAi: {
+      open: 'Schrijven met AI',
+      placeholder: 'Beschrijf de e-mail die u wilt schrijven…',
+      replyPlaceholder: 'Beschrijf het antwoord dat u wilt schrijven…',
+      write: 'Schrijven',
+      ideasLabel: 'Ideeën',
+      optionsLabel: 'Toon en lengte',
+      rewriteLabel: 'Herschrijf wat u hebt geschreven',
+      nothingToRewrite: 'Schrijf eerst iets om het te herschrijven',
+      rewriteFailed: 'De tekst kon niet worden herschreven. Probeer het opnieuw.',
+      tone: 'Toon',
+      length: 'Lengte',
+      automatic: 'Automatisch',
+      tones: { professional: 'Zakelijk', friendly: 'Vriendelijk', casual: 'Informeel' },
+      lengths: { short: 'Kort', medium: 'Gemiddeld', long: 'Lang' },
+      rewrites: {
+        improve: 'Verbeter de tekst',
+        shorten: 'Maak het korter',
+        expand: 'Maak het langer',
+        formalize: 'Maak het formeler',
+        make_friendly: 'Maak het vriendelijker',
+      },
+      ideas: {
+        meeting: 'Vraag om volgende week af te spreken',
+        followUp: 'Kom terug op mijn vorige e-mail',
+        introduce: 'Stel mezelf en ons bedrijf voor',
+        thanks: 'Bedank hen voor hun hulp',
+        accept: 'Zeg ja en bevestig de details',
+        decline: 'Zeg beleefd nee',
+        moreDetails: 'Vraag om meer details',
+        thankThem: 'Bedank hen',
+      },
+    },
+
 
     // Search
     search: {
@@ -710,6 +748,7 @@ export const mail = {
       expandToFullScreen: 'Uitvouwen naar volledig scherm',
       viewContactDetails: 'Contactgegevens bekijken',
       toWord: 'aan',
+      me: 'mij',
       markAsNotImportant: 'Markeren als niet belangrijk',
       markedAsNotImportant: 'Gemarkeerd als niet belangrijk',
       markDone: 'Markeren als gereed',
@@ -958,6 +997,14 @@ export const mail = {
       colorBlue: 'Blauw',
       colorPurple: 'Paars',
       colorPink: 'Roze',
+      colorAmber: 'Amber',
+      colorLime: 'Limoen',
+      colorEmerald: 'Smaragd',
+      colorCyan: 'Cyaan',
+      colorSky: 'Hemelsblauw',
+      colorIndigo: 'Indigo',
+      colorFuchsia: 'Fuchsia',
+      colorGray: 'Grijs',
     },
 
     // Settings - Labels page
@@ -1021,6 +1068,14 @@ export const mail = {
       colorBlue: 'Blauw',
       colorPurple: 'Paars',
       colorPink: 'Roze',
+      colorAmber: 'Amber',
+      colorLime: 'Limoen',
+      colorEmerald: 'Smaragd',
+      colorCyan: 'Cyaan',
+      colorSky: 'Hemelsblauw',
+      colorIndigo: 'Indigo',
+      colorFuchsia: 'Fuchsia',
+      colorGray: 'Grijs',
     },
 
     // Setup page

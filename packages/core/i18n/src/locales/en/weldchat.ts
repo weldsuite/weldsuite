@@ -76,6 +76,11 @@ export const weldchat = {
       missedVoiceFrom: 'Missed voice call from {name}',
       missedVideoFrom: 'Missed video call from {name}',
       missedCall: 'Missed call',
+      voiceCall: 'Voice call',
+      videoCall: 'Video call',
+      missedVoiceCall: 'Missed voice call',
+      missedVideoCall: 'Missed video call',
+      join: 'Join',
       callEnded: 'Call ended',
       noAnswer: 'No answer',
       declined: 'Declined',
@@ -86,6 +91,8 @@ export const weldchat = {
     },
     calling: {
       ringing: 'Ringing…',
+      /** On a call tile: someone already in the call whose connection is not up yet. */
+      connecting: 'Connecting…',
       autoEnded: 'Call ended automatically after 3 minutes alone.',
       reconnecting: 'Connection lost. Reconnecting…',
       reconnected: 'You are back in the call',
@@ -328,6 +335,8 @@ export const weldchat = {
       cancel: 'Cancel',
       startConversation: 'Start Conversation',
       creating: 'Creating...',
+      invited: 'Invited',
+      invitedHint: 'Can be messaged once they accept the invitation',
     },
     groupSettings: {
       nav: {
@@ -699,6 +708,7 @@ export const weldchat = {
       selectConversation: 'Select a conversation or start a new one',
       conversationNotFound: 'Conversation not found',
       channelNotFound: 'Channel not found',
+      invitationPending: "This person hasn't accepted their invitation yet. You can message them once they join.",
     },
     draftsPage: {
       threadReply: 'Thread reply',

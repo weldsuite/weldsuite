@@ -10,8 +10,8 @@ speaks the same API, so any tool that talks to Vault talks to this.
 One store per cluster (test and production apart), one small server each,
 with a state of its own: a cluster's `tofu destroy` (the monthly drill) never
 reaches it, and while it is down or sealed the cluster keeps every Secret it
-has and only stops refreshing them. About €11 a month with Hetzner's backups
-(`cpx12` in `hel1`, November 2026).
+has and only stops refreshing them. About €6 a month with Hetzner's backups
+(`cpx02`, 1 vCPU and 1 GB, in `hel1`, November 2026).
 
 ## How it fits
 

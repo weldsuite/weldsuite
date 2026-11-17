@@ -1752,7 +1752,7 @@ function MinimizedCompose({ agentRight, attachedFiles, availableTags, bccRecipie
             <input aria-label={st('sweep.weldmail.compose.subject')}
               type="text"
               placeholder={st('sweep.weldmail.compose.subject')}
-              className="w-full text-sm font-medium outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground"
+              className="w-full text-sm font-medium outline-none bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground"
               value={composeData.subject}
               onChange={(e) => setComposeData(prev => ({ ...prev, subject: e.target.value }))}
             />
@@ -1764,7 +1764,7 @@ function MinimizedCompose({ agentRight, attachedFiles, availableTags, bccRecipie
               <input aria-label={st('sweep.weldmail.compose.to')}
                 type="text"
                 placeholder={st('sweep.weldmail.compose.to')}
-                className="w-full text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground"
+                className="w-full text-sm outline-none bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground"
                 value={composeData.to}
                 onChange={(e) => setComposeData(prev => ({ ...prev, to: e.target.value }))}
               />
@@ -1773,14 +1773,14 @@ function MinimizedCompose({ agentRight, attachedFiles, availableTags, bccRecipie
                   <input aria-label={st('sweep.weldmail.compose.cc')}
                     type="text"
                     placeholder={st('sweep.weldmail.compose.cc')}
-                    className="w-full text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground"
+                    className="w-full text-sm outline-none bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground"
                     value={ccRecipients}
                     onChange={(e) => setCcRecipients(e.target.value)}
                   />
                   <input aria-label={st('sweep.weldmail.compose.bcc')}
                     type="text"
                     placeholder={st('sweep.weldmail.compose.bcc')}
-                    className="w-full text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground"
+                    className="w-full text-sm outline-none bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground"
                     value={bccRecipients}
                     onChange={(e) => setBccRecipients(e.target.value)}
                   />
@@ -1864,7 +1864,7 @@ function MinimizedCompose({ agentRight, attachedFiles, availableTags, bccRecipie
 
             <textarea aria-label={st('sweep.weldmail.compose.enterText')}
               placeholder={st('sweep.weldmail.compose.enterText')}
-              className="w-full h-full text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent resize-none placeholder-gray-400 dark:placeholder-muted-foreground"
+              className="w-full h-full text-sm outline-none bg-transparent resize-none placeholder-gray-400 dark:placeholder-muted-foreground"
               value={composeData.body}
               onChange={(e) => setComposeData(prev => ({ ...prev, body: e.target.value }))}
             />
@@ -2988,7 +2988,7 @@ export function InboxClient({
                     <input aria-label={st('sweep.weldmail.compose.subject')}
                       type="text"
                       placeholder={st('sweep.weldmail.compose.subject')}
-                      className="w-full text-sm font-medium outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground"
+                      className="w-full text-sm font-medium outline-none bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground"
                       value={composeData.subject}
                       onChange={(e) => setComposeData(prev => ({ ...prev, subject: e.target.value }))}
                     />
@@ -3000,7 +3000,7 @@ export function InboxClient({
                       <input aria-label={st('sweep.weldmail.compose.to')}
                         type="text"
                         placeholder={st('sweep.weldmail.compose.to')}
-                        className="flex-1 text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground text-blue-600"
+                        className="flex-1 text-sm outline-none bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground text-blue-600"
                         value={composeData.to}
                         onChange={(e) => setComposeData(prev => ({ ...prev, to: e.target.value }))}
                       />
@@ -3019,7 +3019,7 @@ export function InboxClient({
                           <input aria-label={st('sweep.weldmail.compose.cc')}
                             type="text"
                             placeholder={st('sweep.weldmail.compose.cc')}
-                            className="flex-1 text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground text-blue-600"
+                            className="flex-1 text-sm outline-none bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground text-blue-600"
                             value={ccRecipients}
                             onChange={(e) => setCcRecipients(e.target.value)}
                           />
@@ -3028,7 +3028,7 @@ export function InboxClient({
                           <input aria-label={st('sweep.weldmail.compose.bcc')}
                             type="text"
                             placeholder={st('sweep.weldmail.compose.bcc')}
-                            className="flex-1 text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground text-blue-600"
+                            className="flex-1 text-sm outline-none bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground text-blue-600"
                             value={bccRecipients}
                             onChange={(e) => setBccRecipients(e.target.value)}
                           />
@@ -3104,7 +3104,7 @@ export function InboxClient({
                     
                     <textarea aria-label={st('sweep.weldmail.compose.enterText')}
                       placeholder={st('sweep.weldmail.compose.enterText')}
-                      className="w-full h-full text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent resize-none placeholder-gray-400 dark:placeholder-muted-foreground"
+                      className="w-full h-full text-sm outline-none bg-transparent resize-none placeholder-gray-400 dark:placeholder-muted-foreground"
                       value={composeData.body}
                       onChange={(e) => setComposeData(prev => ({ ...prev, body: e.target.value }))}
                     />
@@ -3326,7 +3326,7 @@ export function InboxClient({
                   <input aria-label={st('sweep.weldmail.compose.to')}
                     type="text"
                     placeholder={st('sweep.weldmail.compose.to')}
-                    className="flex-1 text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground"
+                    className="flex-1 text-sm outline-none bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground"
                     value={composeData.to}
                     onChange={(e) => setComposeData(prev => ({ ...prev, to: e.target.value }))}
                   />
@@ -3351,7 +3351,7 @@ export function InboxClient({
                 <div className="pl-[18px] pr-[18px] py-4">
                   <textarea aria-label={st('sweep.weldmail.compose.typeYourReply')}
                     placeholder={st('sweep.weldmail.compose.typeYourReply')}
-                    className="w-full h-32 text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent resize-none placeholder-gray-400 dark:placeholder-muted-foreground"
+                    className="w-full h-32 text-sm outline-none bg-transparent resize-none placeholder-gray-400 dark:placeholder-muted-foreground"
                     value={composeData.body}
                     onChange={(e) => setComposeData(prev => ({ ...prev, body: e.target.value }))}
                     ref={focusOnMount}
@@ -3895,7 +3895,7 @@ export function InboxClient({
                   <div className="flex-1 space-y-2">
                     <input aria-label={t.sweep.weldmail.compose.to}
                       type="text"
-                      className="w-full text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent text-blue-600"
+                      className="w-full text-sm outline-none bg-transparent text-blue-600"
                       value={popupComposeData.to}
                       onChange={(e) => setPopupComposeData(prev => ({ ...prev, to: e.target.value }))}
                     />
@@ -3903,7 +3903,7 @@ export function InboxClient({
                       <input aria-label={st('sweep.weldmail.compose.cc')}
                         type="text"
                         placeholder={st('sweep.weldmail.compose.cc')}
-                        className="w-full text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground text-blue-600"
+                        className="w-full text-sm outline-none bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground text-blue-600"
                         value={popupCcRecipients}
                         onChange={(e) => setPopupCcRecipients(e.target.value)}
                       />
@@ -3912,7 +3912,7 @@ export function InboxClient({
                       <input aria-label={st('sweep.weldmail.compose.bcc')}
                         type="text"
                         placeholder={st('sweep.weldmail.compose.bcc')}
-                        className="w-full text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground text-blue-600"
+                        className="w-full text-sm outline-none bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground text-blue-600"
                         value={popupBccRecipients}
                         onChange={(e) => setPopupBccRecipients(e.target.value)}
                       />
@@ -3946,7 +3946,7 @@ export function InboxClient({
                   <input aria-label={st('sweep.weldmail.compose.subject')}
                     type="text"
                     placeholder={st('sweep.weldmail.compose.subject')}
-                    className="flex-1 text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground"
+                    className="flex-1 text-sm outline-none bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground"
                     value={popupComposeData.subject.replace(/^Re:\s*/i, '')}
                     onChange={(e) => setPopupComposeData(prev => ({ ...prev, subject: `Re: ${e.target.value}` }))}
                   />
@@ -3972,7 +3972,7 @@ export function InboxClient({
                 `}</style>
                 <textarea aria-label={st('sweep.weldmail.compose.enterText')}
                   placeholder={st('sweep.weldmail.compose.enterText')}
-                  className="w-full h-full text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent resize-none placeholder-gray-400 dark:placeholder-muted-foreground overflow-y-auto pl-0 pr-2 custom-scrollbar"
+                  className="w-full h-full text-sm outline-none bg-transparent resize-none placeholder-gray-400 dark:placeholder-muted-foreground overflow-y-auto pl-0 pr-2 custom-scrollbar"
                   style={{
                     scrollbarWidth: 'thin',
                     scrollbarColor: '#e5e7eb transparent'

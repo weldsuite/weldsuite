@@ -2159,7 +2159,7 @@ fn core_team(router: Router<AppState>, state: &AppState) -> Router<AppState> {
     }
     let team = core_team_state(state);
     let gate = &state.permissions;
-    router
+    let router = router
         .nest(
             "/team-members",
             weldsuite_core_team::team_members(team.clone(), gate),
@@ -2201,8 +2201,13 @@ fn core_team(router: Router<AppState>, state: &AppState) -> Router<AppState> {
         .nest(
             "/app-catalog",
             weldsuite_core_team::app_catalog(team.clone(), gate),
-        )
-        .nest("/workspaces", weldsuite_core_team::workspaces(team, gate))
+        );
+    if state.workspace_header.is_some() {
+        // Membership mode: listed before a workspace is named (`account`).
+        router
+    } else {
+        router.nest("/workspaces", weldsuite_core_team::workspaces(team, gate))
+    }
 }
 
 /// The smaller core platform route groups (`weldsuite-core-platform`), each
@@ -2289,6 +2294,13 @@ fn core_platform_state(state: &AppState) -> weldsuite_core_platform::CorePlatfor
         top_up: credit_top_up(state),
         ai: state.ai.clone(),
         mail: state.infra.mail.clone(),
+        // WeldID's SSO connections (`IDENTITY_PROVIDER=weldid`); never in
+        // conformance builds, whose tests are Global's.
+        sso: if cfg!(feature = "conformance") {
+            None
+        } else {
+            state.infra.sso.clone()
+        },
     }
 }
 
@@ -2442,13 +2454,26 @@ pub(crate) fn account(state: &AppState) -> Router<AppState> {
         return router;
     }
     let team = core_team_state(state);
-    router
+    let router = router
         .nest("/account", weldsuite_core_team::account(team.clone()))
-        .nest("/invitations", weldsuite_core_team::invitations(team))
+        .nest(
+            "/invitations",
+            weldsuite_core_team::invitations(team.clone()),
+        )
         .nest(
             "/auth-desktop",
             weldsuite_core_apps::auth_desktop(core_apps_state(state)),
+        );
+    if state.workspace_header.is_some() {
+        // Membership mode: the workspace list comes before a workspace is
+        // named, and names each by `workspaces.id` (`core_team` leaves it out).
+        router.nest(
+            "/workspaces",
+            weldsuite_core_team::workspace_directory(team),
         )
+    } else {
+        router
+    }
 }
 
 /// `/api/onboarding` (`weldsuite-core-onboarding`, P4 4a): signup and the
@@ -2482,7 +2507,7 @@ fn onboarding(state: &AppState) -> Router<AppState> {
     } else {
         if provisioner.is_some() {
             tracing::warn!(
-                "TENANT_SHARDS is set but ZITADEL_API_URL is not: signup cannot create workspaces"
+                "TENANT_SHARDS is set but no identity provider is (ZITADEL_API_URL, or IDENTITY_PROVIDER=weldid): signup cannot create workspaces"
             );
         }
         None
@@ -2906,12 +2931,21 @@ pub(crate) fn mcp(state: &AppState) -> Router {
             .public_auth
             .as_deref()
             .map_or(weldsuite_mcp::auth::Discovery::Clerk, |public| {
+                // Membership mode: no organization claim to ask scopes for.
+                let header = public
+                    .get("workspaceSource")
+                    .and_then(serde_json::Value::as_str)
+                    == Some("header");
                 weldsuite_mcp::auth::Discovery::oidc(
                     public.get("audience").and_then(serde_json::Value::as_str),
-                    public
-                        .get("orgClaim")
-                        .and_then(serde_json::Value::as_str)
-                        .unwrap_or_default(),
+                    if header {
+                        ""
+                    } else {
+                        public
+                            .get("orgClaim")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or_default()
+                    },
                 )
             });
     let auth = env.get("MCP_SERVER_URL").map(|server_url| {
@@ -2921,6 +2955,10 @@ pub(crate) fn mcp(state: &AppState) -> Router {
             server_url: server_url.clone(),
             outbound: shared_outbound(),
             discovery,
+            metadata: weldsuite_mcp::auth::IssuerMetadata::default(),
+            // Membership mode: the URL names the workspace, checked as the
+            // platform's `X-Weld-Workspace` is.
+            membership: state.workspace_header.clone(),
         })
     });
     let mcp_state = weldsuite_mcp::McpState::new(

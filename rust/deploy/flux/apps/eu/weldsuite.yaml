@@ -36,3 +36,10 @@ spec:
   valuesFrom:
     - kind: ConfigMap
       name: weldsuite-values
+    # Sign-in on WeldID instead of Zitadel (ADR SEC-019): auth, identity and
+    # the admin console from ../weldid-switch/values/weldsuite.yaml, over the
+    # values above. Made only by the weldid-switch layer; absent, and
+    # ignored, everywhere else.
+    - kind: ConfigMap
+      name: weldsuite-values-weldid
+      optional: true

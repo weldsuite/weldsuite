@@ -1,5 +1,5 @@
 
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { refreshSidebarBadges } from '@/hooks/use-sidebar-badges';
 import { usePathname, useRouter } from '@/lib/router';
@@ -22,36 +22,28 @@ import {
   Eye,
   Copy,
   ExternalLink,
-  FileDown,
   ListFilter,
   Flag,
   Inbox,
-  Link,
   X,
   Check,
   Clock,
   Pin,
   ChevronLeft,
   ArrowLeft,
-  Bold,
-  Italic,
-  Underline,
-  List,
-  ListOrdered,
-  PictureInPicture2,
-  Maximize,
   FileText,
   PenLine,
 } from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   DropdownMenuSub,
@@ -60,7 +52,12 @@ import {
 } from '@weldsuite/ui/components/dropdown-menu';
 import { Calendar } from '@weldsuite/ui/components/calendar';
 import { cn } from '@/lib/utils';
-import { format } from 'date-fns';
+import { format, isThisYear, isToday } from 'date-fns';
+import { attachmentIcon } from '@/app/weldmail/lib/attachment-icon';
+import { useUser } from '@/lib/auth';
+import { ComposeSurface } from '@/app/weldmail/components/compose-surface';
+import type { ComposeAiOptions } from '@/app/weldmail/components/compose-ai-island';
+import { withPendingInput } from '@/app/weldmail/components/compose-recipients';
 import { toast } from 'sonner';
 import { useCustomerPanelOptional } from '@/contexts/customer-panel-context';
 import { useComposeSafe } from '@/contexts/compose-context';
@@ -71,8 +68,6 @@ import { mailApi } from '../lib/api-client';
 import { currentMailHref } from '../lib/mail-urls';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { IsolatedHtmlContent } from './isolated-html-content';
-import { ComposeAttachButton } from './compose-attach-button';
-import { ComposeLinkButton } from './compose-link-button';
 import {
   MAX_EMAIL_SIZE_BYTES,
   MailAttachmentUploadError,
@@ -87,6 +82,7 @@ import {
   useDeleteMailDraft,
   useGenerateAutoDraft,
   useGenerateAIReply,
+  useGenerateEmailDraft,
   useMailAttachments,
   useMailAccounts,
   usePinThread,
@@ -99,7 +95,6 @@ import { isSystemLabel } from '../lib/label-config';
 import { hasLabel, withLabel, withoutLabel } from '../lib/message-labels';
 import { SNOOZE_PRESETS } from '../lib/snooze-presets';
 import { buildComposeBodies } from '../lib/compose-body';
-import { MAIL_EDITOR_PARAGRAPH_CLASSES } from '../lib/editor-styles';
 import { appendQuotedOriginal, quoteSender } from '../lib/reply-quote';
 import {
   OPTIMISTIC_ID_PREFIX,
@@ -111,7 +106,7 @@ import {
 } from '../lib/reply-recipients';
 import { useNotifySendError } from '../lib/use-notify-send-error';
 import { replaceBodyKeepingSignature, userWrittenText, type SignatureMode } from '../lib/signature';
-import { SignaturePicker, useComposeSignature } from './compose-signature';
+import { useComposeSignature } from './compose-signature';
 import { saveMailAttachment } from '../lib/download-attachment';
 import type { Mail as MailTypes } from '@/lib/api/types/apps/mail.types';
 import { CustomerDetailPanel } from './customer-detail-panel';
@@ -121,7 +116,6 @@ import { useI18n } from '@/lib/i18n/provider';
 import { isFeatureAvailable } from '@/lib/edition';
 import { useAiCreditsToast } from '@/hooks/use-ai-credits-toast';
 import { copyText } from '@/lib/clipboard';
-import { runEditorCommand, isEditorCommandActive } from '@weldsuite/ui/lib/editor-commands';
 import { MailAiBadge } from '@/components/ai/mail-ai-badge';
 
 type EmailMessage = MailTypes.Email;
@@ -263,7 +257,7 @@ function ThreadMessageContent({ threadMsg }: Readonly<{ threadMsg: EmailMessage 
   }
 
   return (
-    <div className="px-3 md:px-4 pb-4 pt-0 overflow-x-auto group/email">
+    <div className="px-3 md:px-4 pb-5 pt-0 overflow-x-auto group/email">
       <div className="text-sm text-foreground leading-relaxed">
         {mainContent}
         {quoted && (
@@ -460,20 +454,6 @@ function formatAttachmentSize(size: number): string {
   return `${(size / 1048576).toFixed(1)} MB`;
 }
 
-function readActiveFormats(): Record<string, boolean> {
-  return {
-    bold: isEditorCommandActive('bold'),
-    italic: isEditorCommandActive('italic'),
-    underline: isEditorCommandActive('underline'),
-    insertUnorderedList: isEditorCommandActive('insertUnorderedList'),
-    insertOrderedList: isEditorCommandActive('insertOrderedList'),
-  };
-}
-
-function isSendShortcut(e: React.KeyboardEvent): boolean {
-  return !(e.nativeEvent.isComposing || e.key !== 'Enter' || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey);
-}
-
 // `name` is the label as stored on the message (system labels are upper-case).
 // Sent, Drafts and Scheduled are not offered: mail gets those by being sent,
 // never by hand.
@@ -486,34 +466,6 @@ const SYSTEM_LABEL_ITEMS = [
   { name: 'TRASH', Icon: Trash, labelKey: 'labelTrash' },
 ] as const;
 
-// Checked rows use the theme's accent pair, so text stays readable on the
-// highlight in both light and dark mode.
-const LABEL_ROW_CLASS = "w-full flex items-center justify-start gap-2 px-2 py-1.5 text-sm rounded-md transition-colors";
-const LABEL_ROW_ACTIVE = "bg-accent text-accent-foreground";
-const LABEL_ROW_IDLE = "hover:bg-accent hover:text-accent-foreground";
-
-function SystemLabelButton({ active, Icon, label, disabled, onClick }: Readonly<{
-  active: boolean;
-  Icon: LucideIcon;
-  label: string;
-  disabled: boolean;
-  onClick: () => void;
-}>) {
-  return (
-    <Button
-      variant="ghost"
-      onClick={onClick}
-      disabled={disabled}
-      aria-pressed={active}
-      className={cn(LABEL_ROW_CLASS, active ? LABEL_ROW_ACTIVE : LABEL_ROW_IDLE)}
-    >
-      <Icon className={cn("h-4 w-4 flex-shrink-0", !active && "text-muted-foreground")} />
-      <span className="flex-1 text-left">{label}</span>
-      {active && <Check className="h-4 w-4 flex-shrink-0" />}
-    </Button>
-  );
-}
-
 /** A label the user made, as opposed to a system folder's row in the label list. */
 // The folder list a message view returns to: the unified view's own list, or
 // the account's.
@@ -525,7 +477,7 @@ function isUserLabel(label: MailTypes.Label & { isSystem?: boolean | null }): bo
   return !label.isSystem && !isSystemLabel(label.name.toLowerCase());
 }
 
-function LabelsPopoverContent({ messageLabels, availableLabels, isUpdatingLabels, onToggleLabel }: Readonly<{
+function LabelsMenuContent({ messageLabels, availableLabels, isUpdatingLabels, onToggleLabel }: Readonly<{
   messageLabels: string[];
   availableLabels: MailTypes.Label[];
   isUpdatingLabels: boolean;
@@ -535,55 +487,42 @@ function LabelsPopoverContent({ messageLabels, availableLabels, isUpdatingLabels
   // The label list also carries a row per system folder; those are offered
   // once, above.
   const customLabels = availableLabels.filter((label) => isUserLabel(label));
+  // Toggling a label keeps the menu open, so several can be set in one go.
+  const keepOpen = (e: Event) => e.preventDefault();
   return (
     <>
-      {/* System Labels */}
-      <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1 px-2">{t.mail.messageDetail.systemLabels}</div>
-      <div className="space-y-0.5 mb-3">
-        {SYSTEM_LABEL_ITEMS.map(({ name, Icon, labelKey }) => (
-          <SystemLabelButton
-            key={name}
-            active={hasLabel(messageLabels, name)}
-            Icon={Icon}
-            label={t.mail.messageDetail[labelKey]}
-            disabled={isUpdatingLabels}
-            onClick={() => onToggleLabel(name)}
-          />
-        ))}
-      </div>
-
-      {/* User Labels */}
-      <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1 px-2">{t.mail.messageDetail.customLabels}</div>
+      <DropdownMenuLabel>{t.mail.messageDetail.systemLabels}</DropdownMenuLabel>
+      {SYSTEM_LABEL_ITEMS.map(({ name, Icon, labelKey }) => (
+        <DropdownMenuCheckboxItem
+          key={name}
+          checked={hasLabel(messageLabels, name)}
+          disabled={isUpdatingLabels}
+          onCheckedChange={() => onToggleLabel(name)}
+          onSelect={keepOpen}
+        >
+          <Icon className="text-muted-foreground" />
+          {t.mail.messageDetail[labelKey]}
+        </DropdownMenuCheckboxItem>
+      ))}
+      <DropdownMenuSeparator />
+      <DropdownMenuLabel>{t.mail.messageDetail.customLabels}</DropdownMenuLabel>
       {customLabels.length === 0 ? (
-        <div className="text-sm text-muted-foreground py-2 px-2">
-          {t.mail.messageDetail.noCustomLabels}
-        </div>
+        <DropdownMenuItem disabled>{t.mail.messageDetail.noCustomLabels}</DropdownMenuItem>
       ) : (
-        <div className="space-y-0.5">
-          {customLabels.map((label) => {
-            const isApplied = messageLabels.includes(label.name);
-            const color = getLabelColor(label.name, label);
-            return (
-              <Button
-                variant="ghost"
-                key={label.name}
-                onClick={() => onToggleLabel(label.name)}
-                disabled={isUpdatingLabels}
-                aria-pressed={isApplied}
-                className={cn(LABEL_ROW_CLASS, isApplied ? LABEL_ROW_ACTIVE : LABEL_ROW_IDLE)}
-              >
-                <div
-                  className="w-3 h-3 rounded-full flex-shrink-0"
-                  style={{ backgroundColor: color }}
-                />
-                <span className="flex-1 text-left truncate">{label.name}</span>
-                {isApplied && (
-                  <Check className="h-4 w-4 flex-shrink-0" />
-                )}
-              </Button>
-            );
-          })}
-        </div>
+        customLabels.map((label) => (
+          <DropdownMenuCheckboxItem
+            key={label.name}
+            checked={messageLabels.includes(label.name)}
+            disabled={isUpdatingLabels}
+            onCheckedChange={() => onToggleLabel(label.name)}
+            onSelect={keepOpen}
+          >
+            <span aria-hidden className="flex size-4 items-center justify-center">
+              <span className="size-2.5 rounded-full" style={{ backgroundColor: getLabelColor(label.name, label) }} />
+            </span>
+            {label.name}
+          </DropdownMenuCheckboxItem>
+        ))
       )}
     </>
   );
@@ -611,9 +550,9 @@ function LabelBadge({ labelName, color, onRemove }: Readonly<{
         onClick={(e) => { e.stopPropagation(); onRemove(labelName); }}
         aria-label={removeLabel}
         title={removeLabel}
-        className="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 p-0.5 rounded-full bg-background border border-border shadow-sm hover:bg-muted transition-opacity"
+        className="absolute -top-1.5 -right-1.5 size-4 p-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 rounded-full bg-background border border-border shadow-sm hover:bg-muted transition-opacity"
       >
-        <X className="h-2.5 w-2.5 text-muted-foreground" />
+        <X className="size-2.5 text-muted-foreground" />
       </Button>
     </span>
   );
@@ -737,7 +676,7 @@ function SenderAvatar({ avatarUrl, sender, fallbackChar, fallbackClassName }: Re
   fallbackClassName: string;
 }>) {
   return (
-    <Avatar className="size-6 flex-shrink-0">
+    <Avatar className="size-7 flex-shrink-0">
       {avatarUrl && <AvatarImage src={avatarUrl} alt={extractName(sender)} />}
       <AvatarFallback
         className={fallbackClassName}
@@ -747,6 +686,35 @@ function SenderAvatar({ avatarUrl, sender, fallbackChar, fallbackClassName }: Re
       </AvatarFallback>
     </Avatar>
   );
+}
+
+/**
+ * When a message was sent, beside the sender: the time for today, otherwise
+ * the day (and the year when it isn't this one).
+ */
+function MessageDate({ date }: Readonly<{ date: Date | undefined }>) {
+  const value = date ?? new Date(0);
+  let pattern = 'd MMM yyyy, HH:mm';
+  if (isToday(value)) pattern = 'HH:mm';
+  else if (isThisYear(value)) pattern = 'd MMM, HH:mm';
+  return (
+    <span className="whitespace-nowrap text-xs text-muted-foreground" title={format(value, 'PPpp')}>
+      {format(value, pattern)}
+    </span>
+  );
+}
+
+/** "to me", "to Sanne Bakker, Tom": who a message went to, your own address as "me". */
+function recipientsLine(
+  msg: { to?: string[] | MailTypes.EmailAddress[]; cc?: string[] | MailTypes.EmailAddress[] },
+  labels: { toWord: string; me: string },
+  selfEmail: string | undefined,
+): string {
+  const self = selfEmail?.toLowerCase();
+  const names = [...addressListToEmails(msg.to), ...addressListToEmails(msg.cc)]
+    .filter(Boolean)
+    .map((email) => (email.toLowerCase() === self ? labels.me : emailToDisplayName(email)));
+  return names.length ? `${labels.toWord} ${names.join(', ')}` : '';
 }
 
 /** Content-based React keys that stay unique when two items share the same base key. */
@@ -767,11 +735,12 @@ function RecipientsPopover({ allRecipients, open, onOpenChange, onSelect }: Read
 }>) {
   const { t } = useI18n();
   const recipientKeys = uniqueKeys(allRecipients.map((r) => `${r.type}:${r.email}`));
+  const triggerLabel = t.mail.messageDetail.recipients.replace('{n}', String(allRecipients.length));
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
-        <Button variant="link" className="h-auto p-0 text-sm text-blue-600">
-          +{allRecipients.length - 1}
+        <Button variant="ghost" size="icon" aria-label={triggerLabel} title={triggerLabel} className="size-5 text-muted-foreground">
+          <ChevronDown className="size-3.5" />
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-72 p-0" align="start">
@@ -862,7 +831,7 @@ function QuotedContent({ quotedContent, isHtml, showQuoted, onToggle }: Readonly
 
 function AttachmentsSection({ hasLoadedAttachments, otherAttachments }: Readonly<{
   hasLoadedAttachments: boolean;
-  otherAttachments: { id: string; fileName: string; size: number }[];
+  otherAttachments: { id: string; fileName: string; size: number; contentType?: string | null }[];
 }>) {
   const { t } = useI18n();
   const download = (att: { id: string; fileName: string }) => {
@@ -875,25 +844,24 @@ function AttachmentsSection({ hasLoadedAttachments, otherAttachments }: Readonly
       {hasLoadedAttachments ? (
         otherAttachments.length > 0 && (
           <>
-            <div className="flex items-center gap-2 text-xs font-medium text-gray-500 uppercase tracking-wide">
-              <Paperclip className="h-3.5 w-3.5" />
-              <span>{otherAttachments.length !== 1 ? t.mail.messageDetail.attachmentCountPlural.replace('{n}', String(otherAttachments.length)) : t.mail.messageDetail.attachmentCount.replace('{n}', String(otherAttachments.length))}</span>
-            </div>
             <div className="flex flex-wrap gap-2">
-              {otherAttachments.map((att) => (
-                <button
-                  type="button"
-                  key={att.id}
-                  onClick={() => download(att)}
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-border bg-white dark:bg-card hover:bg-gray-50 dark:hover:bg-secondary transition-colors text-sm group"
-                >
-                  <FileDown className="h-4 w-4 text-gray-400 group-hover:text-gray-600" />
-                  <span className="text-gray-700 truncate max-w-[200px]">{att.fileName}</span>
-                  <span className="text-gray-400 text-xs whitespace-nowrap">
-                    {formatAttachmentSize(att.size)}
-                  </span>
-                </button>
-              ))}
+              {otherAttachments.map((att) => {
+                const TypeIcon = attachmentIcon(att.fileName, att.contentType);
+                return (
+                  <Button
+                    key={att.id}
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => download(att)}
+                    title={att.fileName}
+                  >
+                    <TypeIcon />
+                    <span className="truncate max-w-[200px]">{att.fileName}</span>
+                    <span className="text-xs text-muted-foreground">{formatAttachmentSize(att.size)}</span>
+                  </Button>
+                );
+              })}
             </div>
           </>
         )
@@ -904,227 +872,112 @@ function AttachmentsSection({ hasLoadedAttachments, otherAttachments }: Readonly
   );
 }
 
+/**
+ * An earlier message of the conversation, as in Gmail: collapsed it is one
+ * row (avatar, sender, snippet, date, star); open it adds the sender's
+ * address, who it went to, reply and more, and the body under the name.
+ */
 function ThreadMessageCard({
   threadMsg,
   isExpanded,
+  isStarred,
+  toLine,
   canReplyAll,
   onToggle,
+  onToggleStar,
   onOpenContact,
   onReply,
   onReplyAll,
 }: Readonly<{
   threadMsg: EmailMessage;
   isExpanded: boolean;
+  isStarred: boolean;
+  toLine: string;
   canReplyAll: boolean;
   onToggle: () => void;
+  onToggleStar: () => void;
   onOpenContact: (email: string, name: string) => void;
   onReply: () => void;
   onReplyAll: () => void;
 }>) {
   const { t } = useI18n();
-  const isSentMessage = threadMsg.folder?.toLowerCase() === 'sent';
+  const sender = fromDisplayString(threadMsg.from);
+  const senderEmail = threadMsg.fromEmail || extractEmail(sender);
+  const starLabel = isStarred ? t.mail.messageDetail.removeStar : t.mail.messageDetail.addStar;
   return (
-    <div className="group relative border border-border/50 rounded-lg bg-muted/50">
-      <div className="relative w-full px-3 md:px-4 py-4 flex items-center justify-between hover:bg-muted/50 transition-colors rounded-lg cursor-pointer">
+    <div className="border-b border-border">
+      <div className={cn('relative flex gap-3 px-3 md:px-4 py-4', isExpanded ? 'items-center' : 'items-start')}>
         <button
           type="button"
           aria-expanded={isExpanded}
-          aria-label={fromDisplayString(threadMsg.from)}
+          aria-label={sender}
           onClick={onToggle}
-          className="absolute inset-0 cursor-pointer rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+          className="absolute inset-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         />
-        <div className="flex items-center gap-2 min-w-0 flex-1">
-          <Button
-            variant="ghost"
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              const email = threadMsg.fromEmail || extractEmail(fromDisplayString(threadMsg.from));
-              onOpenContact(email, extractName(fromDisplayString(threadMsg.from)));
-            }}
-            className="relative z-[1] flex items-center gap-2 min-w-0 rounded-md focus:outline-none group/sender"
-            title={t.mail.messageDetail.viewContactDetails}
-          >
-            <SenderAvatar
-              avatarUrl={getSenderAvatarUrl(threadMsg)}
-              sender={fromDisplayString(threadMsg.from)}
-              fallbackChar="U"
-              fallbackClassName="text-white text-xs font-medium"
-            />
-            <span className="text-sm font-medium text-foreground truncate group-hover/sender:underline">
-              {fromDisplayString(threadMsg.from)}
-            </span>
-          </Button>
-          {isSentMessage && (
-            <Badge variant="secondary" className="text-xs px-1.5 py-0 bg-pink-100 text-pink-700 hover:bg-pink-100 flex-shrink-0">{t.mail.messageDetail.sentBadge}</Badge>
-          )}
+        <SenderAvatar
+          avatarUrl={getSenderAvatarUrl(threadMsg)}
+          sender={sender}
+          fallbackChar="U"
+          fallbackClassName="text-white text-sm font-medium"
+        />
+        <div className="min-w-0 flex-1 pointer-events-none">
+          <div className="flex items-baseline gap-1.5 min-w-0">
+            <Button
+              variant="link"
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenContact(senderEmail, extractName(sender));
+              }}
+              className="pointer-events-auto relative z-[1] h-auto p-0 text-sm font-semibold text-foreground min-w-0 max-w-full"
+              title={t.mail.messageDetail.viewContactDetails}
+            >
+              <span className="truncate">{extractName(sender)}</span>
+            </Button>
+            {isExpanded && senderEmail && <span className="truncate text-xs text-muted-foreground">&lt;{senderEmail}&gt;</span>}
+            {isExpanded && <span className="truncate text-[13px] text-muted-foreground">{toLine}</span>}
+          </div>
+          {!isExpanded && <div className="truncate text-[13px] text-muted-foreground">{threadMsg.preview}</div>}
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <span className="hidden md:inline text-xs text-muted-foreground">{format(new Date(threadMsg.date ?? 0), 'MMM d, yyyy h:mm a')}</span>
-          <span className="md:hidden text-xs text-muted-foreground">{format(new Date(threadMsg.date ?? 0), 'MMM d')}</span>
-          <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", isExpanded && "rotate-180")} />
+        <div className="relative z-[1] flex items-center gap-0.5 flex-shrink-0">
+          <MessageDate date={threadMsg.date} />
+          <Button variant="ghost" size="icon" type="button" onClick={onToggleStar} aria-label={starLabel} title={starLabel} className="size-8 text-muted-foreground">
+            <Star className={cn('size-4', isStarred && 'text-yellow-500 fill-yellow-500')} />
+          </Button>
+          {isExpanded && (
+            <>
+              <Button variant="ghost" size="icon" type="button" onClick={onReply} aria-label={t.mail.compose.reply} title={t.mail.compose.reply} className="size-8 text-muted-foreground">
+                <Reply className="size-4" />
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" type="button" aria-label={t.mail.messageDetail.moreActions} title={t.mail.messageDetail.moreActions} className="size-8 text-muted-foreground">
+                    <MoreVertical className="size-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem onClick={onReply}>
+                    <Reply /> {t.mail.compose.reply}
+                  </DropdownMenuItem>
+                  {canReplyAll && (
+                    <DropdownMenuItem onClick={onReplyAll}>
+                      <ReplyAll /> {t.mail.compose.replyAll}
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuItem onClick={() => toast.success(t.mail.messageDetail.forwardComingSoon)}>
+                    <Forward /> {t.mail.compose.forward}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </>
+          )}
         </div>
       </div>
       {isExpanded && (
-        <ThreadMessageContent threadMsg={threadMsg} />
+        <div className="pl-10">
+          <ThreadMessageContent threadMsg={threadMsg} />
+        </div>
       )}
-      {/* Hover Actions - only when expanded, hidden on mobile */}
-      <div className={cn("absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity hidden md:flex items-center gap-1", !isExpanded && "!hidden")}>
-        <Button
-          variant="ghost"
-          onClick={(e) => {
-            e.stopPropagation();
-            onReply();
-          }}
-          className="p-1.5 bg-white dark:bg-card border border-border rounded-md hover:bg-muted transition-colors"
-          title={t.mail.compose.reply}
-        >
-          <Reply className="h-3.5 w-3.5 text-muted-foreground" />
-        </Button>
-        {canReplyAll && (
-          <Button
-            variant="ghost"
-            onClick={(e) => {
-              e.stopPropagation();
-              onReplyAll();
-            }}
-            className="p-1.5 bg-white dark:bg-card border border-border rounded-md hover:bg-muted transition-colors"
-            title={t.mail.compose.replyAll}
-          >
-            <ReplyAll className="h-3.5 w-3.5 text-muted-foreground" />
-          </Button>
-        )}
-        <Button
-          variant="ghost"
-          onClick={(e) => {
-            e.stopPropagation();
-            toast.success(t.mail.messageDetail.forwardComingSoon);
-          }}
-          className="p-1.5 bg-white dark:bg-card border border-border rounded-md hover:bg-muted transition-colors"
-          title={t.mail.compose.forward}
-        >
-          <Forward className="h-3.5 w-3.5 text-muted-foreground" />
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-function FormatButton({ active, title, command, Icon, onCommand }: Readonly<{
-  active: boolean | undefined;
-  title: string;
-  command: string;
-  Icon: LucideIcon;
-  onCommand: (command: string, value?: string) => void;
-}>) {
-  return (
-    <Button variant="ghost" size="icon" className={cn("p-2 rounded-md transition-colors", active ? "bg-muted" : "hover:bg-muted")} title={title} onMouseDown={(e) => { e.preventDefault(); onCommand(command); }}>
-      <Icon className={cn("h-4 w-4", active ? "text-foreground" : "text-muted-foreground")} />
-    </Button>
-  );
-}
-
-function ComposeToolbar({ activeFormats, editorRef, onCommand, onFilesSelected, onOpenAi, signaturePicker }: Readonly<{
-  activeFormats: Record<string, boolean>;
-  editorRef: React.RefObject<HTMLElement | null>;
-  onCommand: (command: string, value?: string) => void;
-  onFilesSelected: (files: File[]) => void;
-  onOpenAi: () => void;
-  signaturePicker: React.ReactNode;
-}>) {
-  const { t } = useI18n();
-  return (
-    <div className="flex items-center gap-0.5">
-      <FormatButton active={activeFormats.bold} title={t.mail.toolbar.bold} command="bold" Icon={Bold} onCommand={onCommand} />
-      <FormatButton active={activeFormats.italic} title={t.mail.toolbar.italic} command="italic" Icon={Italic} onCommand={onCommand} />
-      <FormatButton active={activeFormats.underline} title={t.mail.toolbar.underline} command="underline" Icon={Underline} onCommand={onCommand} />
-      <div className="w-px h-5 bg-border mx-0.5" />
-      <FormatButton active={activeFormats.insertUnorderedList} title={t.mail.toolbar.bulletList} command="insertUnorderedList" Icon={List} onCommand={onCommand} />
-      <FormatButton active={activeFormats.insertOrderedList} title={t.mail.toolbar.numberedList} command="insertOrderedList" Icon={ListOrdered} onCommand={onCommand} />
-      <div className="w-px h-5 bg-border mx-0.5" />
-      <ComposeAttachButton
-        title={t.mail.toolbar.attachFile}
-        testId="reply-attach-input"
-        className="p-2 hover:bg-muted rounded-md transition-colors"
-        iconClassName="text-muted-foreground"
-        onFilesSelected={onFilesSelected}
-      />
-      <ComposeLinkButton
-        editorRef={editorRef}
-        icon={Link}
-        testId="reply-link-btn"
-        className="p-2 hover:bg-muted rounded-md transition-colors"
-        iconClassName="text-muted-foreground"
-      />
-      {signaturePicker}
-      {/* The AI assistant needs `/mail-ai`, which the Kubernetes editions lack. */}
-      {isFeatureAvailable('mail-ai') && (
-        <>
-          <div className="w-px h-5 bg-border mx-0.5" />
-          <Button
-            variant="ghost"
-            size="icon"
-            className="p-2 hover:bg-muted rounded-md transition-colors"
-            title={t.mail.toolbar.aiAssistant}
-            onMouseDown={(e) => {
-              e.preventDefault();
-              onOpenAi();
-            }}
-          >
-            <img src="/assets/images/weldagent/logo-light.png" alt="WeldAgent" className="h-4 w-4" />
-          </Button>
-        </>
-      )}
-    </div>
-  );
-}
-
-function ComposeToRow({ to, autoFocus, onToChange, onMinimize, onExpand }: Readonly<{
-  to: string;
-  autoFocus: boolean;
-  onToChange: (value: string) => void;
-  onMinimize: () => void;
-  onExpand: () => void;
-}>) {
-  const { t } = useI18n();
-  const inputRef = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    if (autoFocus) inputRef.current?.focus();
-    // Focus only when the row mounts, matching the previous autoFocus behaviour.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  return (
-    <div className="flex items-center gap-2 px-3 py-2.5">
-      <span className="text-xs text-muted-foreground font-medium">{t.mail.messageDetail.toPrefix}</span>
-      <input aria-label={t.mail.compose.to}
-        ref={inputRef}
-        type="text"
-        className="flex-1 text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent min-w-0 text-foreground"
-        value={to}
-        onChange={(e) => onToChange(e.target.value)}
-      />
-      <div className="flex items-center gap-0.5 flex-shrink-0">
-        <Button
-          variant="ghost"
-          size="icon"
-          type="button"
-          className="p-1.5 hover:bg-muted rounded-md transition-colors"
-          title={t.mail.messageDetail.minimizeToPanel}
-          onClick={onMinimize}
-        >
-          <PictureInPicture2 className="h-3.5 w-3.5 text-muted-foreground" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          type="button"
-          className="p-1.5 hover:bg-muted rounded-md transition-colors"
-          title={t.mail.messageDetail.expandToFullScreen}
-          onClick={onExpand}
-        >
-          <Maximize className="h-3.5 w-3.5 text-muted-foreground" />
-        </Button>
-      </div>
     </div>
   );
 }
@@ -1155,36 +1008,6 @@ function ForwardedAttachmentChips({ attachments, onRemove }: Readonly<{
             onClick={() => onRemove(att.id)}
             title={t.mail.messageDetail.removeAttachment}
             aria-label={t.mail.messageDetail.removeAttachment}
-          >
-            <X className="h-3 w-3" />
-          </Button>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function AttachedFileChips({ files, onRemove }: Readonly<{
-  files: File[];
-  onRemove: (index: number) => void;
-}>) {
-  const { t } = useI18n();
-  const fileKeys = uniqueKeys(files.map((f) => `${f.name}:${f.size}:${f.lastModified}`));
-  return (
-    <div className="flex flex-wrap gap-1.5 px-3 pb-2">
-      {files.map((file, index) => (
-        <div
-          key={fileKeys[index]}
-          className="flex items-center gap-1 rounded-md border border-border bg-muted px-2 py-1 text-xs max-w-[180px]"
-        >
-          <span className="truncate">{file.name}</span>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-4 w-4 p-0 hover:bg-muted-foreground/20"
-            onClick={() => onRemove(index)}
-            title={t.mail.messageDetail.cancel}
           >
             <X className="h-3 w-3" />
           </Button>
@@ -1239,7 +1062,7 @@ function InlineAiBar({
           if (e.key === 'Escape') onEscape();
         }}
         placeholder={placeholder}
-        className="flex-1 text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent placeholder-muted-foreground/60 resize-none overflow-hidden min-h-[24px] mt-[3px] ml-[3px]"
+        className="flex-1 text-sm outline-none bg-transparent placeholder-muted-foreground/60 resize-none overflow-hidden min-h-[24px] mt-[3px] ml-[3px]"
         rows={1}
       />
       <MailAiBadge className="flex-shrink-0" />
@@ -1337,6 +1160,7 @@ function messageActionLabels(
 
 export function MessageDetail({ message, thread = [], accountId, folder, availableLabels = [], onLabelsChange, threadId, drafts = [], onClose }: Readonly<MessageDetailProps>) {
   const { t } = useI18n();
+  const { user } = useUser();
   const notifySendError = useNotifySendError();
   const router = useRouter();
   const pathname = usePathname();
@@ -1354,6 +1178,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   const generateAutoDraftMutation = useGenerateAutoDraft();
   const generateAIReplyMutation = useGenerateAIReply();
   const handleAiCreditsError = useAiCreditsToast();
+  const generateEmailDraftMutation = useGenerateEmailDraft();
   const { getClient } = useAppApiClient();
   const [isReplying, setIsReplying] = useState(false);
   const [isReplyingAll, setIsReplyingAll] = useState(false);
@@ -1369,8 +1194,24 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   // Counts reply boxes opened, so reopening one on the same message gets its signature again.
   const [composeRound, setComposeRound] = useState(0);
   const inline = inlineSignature(isReplying, isForwarding, composeRound, replyToMessageId);
-  const signature = useComposeSignature({ editorRef, accountId, autoInsert: inline.mode, session: inline.session });
-  const [activeFormats, setActiveFormats] = useState<Record<string, boolean>>({});
+  // Puts the default signature in a newly opened reply / forward.
+  useComposeSignature({ editorRef, accountId, autoInsert: inline.mode, session: inline.session });
+  // The Reply / Forward row stays at the bottom of the pane while the thread
+  // scrolls under it (Gmail), and gets a top border only while it floats there.
+  const showActionBar = !((isReplying || isForwarding) && replyToMessageId);
+  const [actionBarFloating, setActionBarFloating] = useState(false);
+  // A callback ref, so the watch follows whichever bar element is mounted
+  // (opening a thread from the list can replace it without a re-run of an effect).
+  const actionBarRef = useCallback((bar: HTMLDivElement | null) => {
+    if (!bar) return;
+    // The bar sits 1px past the bottom edge while stuck, so it is never fully in view then.
+    const observer = new IntersectionObserver(
+      ([entry]) => setActionBarFloating(entry.intersectionRatio < 1),
+      { root: bar.parentElement, threshold: [1] },
+    );
+    observer.observe(bar);
+    return () => observer.disconnect();
+  }, []);
   const [messageLabels, setMessageLabels] = useState<string[]>(message.labels || []);
   // The labels follow the message when it is refetched (a thread action, a
   // change made elsewhere); local edits in between bridge the gap.
@@ -1383,7 +1224,10 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   const [isUpdatingLabels, setIsUpdatingLabels] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [localThread, setLocalThread] = useState<EmailMessage[]>(thread);
-  const [expandedThreadIds, setExpandedThreadIds] = useState<Set<string>>(() => new Set(thread.map(t => t.id)));
+  // Earlier messages start collapsed to one line, except unread ones (as in Gmail).
+  const [expandedThreadIds, setExpandedThreadIds] = useState<Set<string>>(() => new Set(thread.filter((t) => !t.isRead).map((t) => t.id)));
+  // Stars set on earlier messages before the server confirms them.
+  const [threadStarOverrides, setThreadStarOverrides] = useState<Record<string, boolean>>({});
   const [showAllRecipients, setShowAllRecipients] = useState(false);
   const [userLabels, setUserLabels] = useState<{ id: string; name: string; color?: string | null }[]>([]);
   const [showAddTaskDialog, setShowAddTaskDialog] = useState(false);
@@ -1417,19 +1261,10 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     router.push(listPath);
   };
 
-  // Track active formatting in the editor
-  useEffect(() => {
-    const updateFormats = () => {
-      setActiveFormats(readActiveFormats());
-    };
-    document.addEventListener('selectionchange', updateFormats);
-    return () => document.removeEventListener('selectionchange', updateFormats);
-  }, []);
-
   // Sync local thread with prop
   useEffect(() => {
     setLocalThread(thread);
-    setExpandedThreadIds(new Set(thread.map(t => t.id)));
+    setExpandedThreadIds(new Set(thread.filter((t) => !t.isRead).map((t) => t.id)));
   }, [thread]);
 
   // Fetch user labels on mount
@@ -1648,7 +1483,19 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     setExpandedThreadIds(prev => new Set([...prev, newestMessage.id]));
   };
 
+  // The reply box's To row shows the addresses as chips (like compose); what
+  // is still typed is kept apart and added when forwarding.
+  const [replyToInput, setReplyToInput] = useState('');
+  const splitRecipients = (value: string) => value.split(/[,;]/).map((e) => e.trim()).filter((e) => e.length > 0);
+  const replyToList = useMemo(() => splitRecipients(composeData.to), [composeData.to]);
+  const setReplyToList: React.Dispatch<React.SetStateAction<string[]>> = (action) =>
+    setComposeData((prev) => {
+      const next = typeof action === 'function' ? action(splitRecipients(prev.to)) : action;
+      return { ...prev, to: next.join(', ') };
+    });
+
   const resetCompose = () => {
+    setReplyToInput('');
     setIsReplying(false);
     setIsReplyingAll(false);
     setIsForwarding(false);
@@ -1726,7 +1573,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
 
   const handleSendForward = async () => {
     if (isSending) return;
-    const toAddresses = composeData.to.split(/[,;]/).map((e: string) => e.trim()).filter((e: string) => e.length > 0);
+    const toAddresses = withPendingInput(splitRecipients(composeData.to), replyToInput);
     if (toAddresses.length === 0) {
       toast.error(t.mail.composePage.atLeastOneRecipient);
       return;
@@ -1761,6 +1608,24 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     } finally {
       setIsSending(false);
     }
+  };
+
+  const toggleThreadStar = (msg: EmailMessage) => {
+    const next = !(threadStarOverrides[msg.id] ?? !!msg.isStarred);
+    setThreadStarOverrides((prev) => ({ ...prev, [msg.id]: next }));
+    toggleStarMutation.mutate(
+      { id: msg.id, isStarred: next },
+      {
+        onError: () => {
+          setThreadStarOverrides((prev) => {
+            const rest = { ...prev };
+            delete rest[msg.id];
+            return rest;
+          });
+          toast.error(t.mail.messageDetail.failedToUpdateLabels);
+        },
+      },
+    );
   };
 
   const handleToggleStar = () => {
@@ -2045,7 +1910,6 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     ...addressListToEmails(newestMessage.to).map((email) => ({ email, type: 'To' as const })),
     ...addressListToEmails(newestMessage.cc).map((email) => ({ email, type: 'Cc' as const })),
   ];
-  const primaryToEmail = addressToEmail(newestMessage.to[0]);
 
   // Get the RFC messageId for the message being replied to (for inReplyTo header)
   const getReplyToRfcMessageId = (): string | undefined => {
@@ -2068,21 +1932,10 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     if (editorRef.current) editorRef.current.innerHTML = '';
   };
 
-  const removeAttachedFile = (index: number) => {
-    setAttachedFiles((prev) => prev.filter((_, i) => i !== index));
-  };
-
   const closeInlineAi = () => {
     setIsAutoDraft(false);
     setIsAgentInline(false);
     setInlineAiPrompt('');
-  };
-
-  const openInlineAi = () => {
-    setIsAutoDraft(true);
-    setIsAgentInline(true);
-    setInlineAiPrompt('');
-    setTimeout(() => inlineAiInputRef.current?.focus(), 0);
   };
 
   const insertInlineAi = () => {
@@ -2167,111 +2020,149 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     router.push(`/weldmail/${accountId}/${folder}/compose${query}`);
   };
 
-  const renderComposeBox = (inThread = false) => {
-    const isReply = isReplying;
-    const placeholder = isReply ? t.mail.messageDetail.replyPlaceholder : t.mail.messageDetail.forwardMessagePlaceholder;
-    const onSend = isReply ? handleSendReply : handleSendForward;
-    const sendDisabled = isSending;
+  // AI island in the reply box: a draft of the reply (or forward note) with the
+  // picked tone and length, written into the body above the signature.
+  const handleReplyAiGenerate = async (prompt: string, options: ComposeAiOptions): Promise<boolean> => {
+    const target = allThreadMessages.find((m) => m.id === replyToMessageId) ?? newestMessage;
+    try {
+      const result = await generateEmailDraftMutation.mutateAsync({
+        prompt,
+        accountId,
+        replyToMessageId: isForwarding ? undefined : target.id,
+        ...options,
+      });
+      const body = result.success ? result.data?.body : undefined;
+      if (!body || !editorRef.current) {
+        toast.error(t.mail.floatingCompose.failedToGenerateContent);
+        return false;
+      }
+      replaceBodyKeepingSignature(editorRef.current, formatAiBody(body));
+      return true;
+    } catch (err) {
+      if (!handleAiCreditsError(err)) toast.error(t.mail.floatingCompose.failedToGenerateContent);
+      return false;
+    }
+  };
 
+  const renderComposeBox = () => {
+    const onSend = isReplying ? handleSendReply : handleSendForward;
     if (!isReplying && !isForwarding) return null;
 
-    const execCommand = (command: string, value?: string) => {
-      editorRef.current?.focus();
-      runEditorCommand(command, value);
-      setActiveFormats(readActiveFormats());
-    };
+    let ModeIcon = Reply;
+    let modeLabel = t.mail.compose.reply;
+    if (isForwarding) {
+      ModeIcon = Forward;
+      modeLabel = t.mail.compose.forward;
+    } else if (isReplyingAll) {
+      ModeIcon = ReplyAll;
+      modeLabel = t.mail.compose.replyAll;
+    }
 
+    // Gmail's reply: your avatar beside the reply box. The box is the compose
+    // window itself (To row, AI island, toolbar), without From, Subject, Cc/Bcc
+    // and scheduling, which a reply does not use.
     return (
-      <div
-        role="presentation"
-        className={cn("rounded-lg border border-border bg-white dark:bg-card mb-3 mt-4", !inThread && "mx-3 md:mx-4")}
-        onKeyDown={(e) => {
-          if (!isSendShortcut(e)) return;
-          e.preventDefault();
-          if (!sendDisabled) void onSend();
-        }}
-      >
-        {/* To field */}
-        <ComposeToRow
-          to={composeData.to}
-          autoFocus={!isReply}
-          onToChange={(value) => setComposeData(prev => ({ ...prev, to: value }))}
+      <div className="flex items-start gap-3 px-3 md:px-4 pt-2 pb-4">
+        <SenderAvatar
+          avatarUrl={user?.imageUrl ?? undefined}
+          sender={user?.fullName || accountEmail || ''}
+          fallbackChar="?"
+          fallbackClassName="text-white text-sm font-medium"
+        />
+        <ComposeSurface
+          key={composeRound}
+          className="min-w-0 flex-1 overflow-hidden rounded-lg border border-border shadow-sm"
+          testIdPrefix="reply"
+          accountId={accountId}
+          recipientsLabel={
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" type="button" title={modeLabel} aria-label={modeLabel} className="h-8 gap-1">
+                  <ModeIcon className="size-4" />
+                  <ChevronDown className="size-3.5 text-muted-foreground" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-44">
+                <DropdownMenuItem onClick={() => switchComposeMode('reply')}>
+                  <Reply /> {t.mail.compose.reply}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => switchComposeMode('replyAll')}>
+                  <ReplyAll /> {t.mail.compose.replyAll}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => switchComposeMode('forward')}>
+                  <Forward /> {t.mail.compose.forward}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          }
           onMinimize={minimizeComposeToPanel}
           onExpand={expandComposeToFullScreen}
-        />
-        <div className="mx-3 border-t border-border/50" />
-        {/* Message body */}
-        <div className={cn("px-3 py-2.5", isAutoDraft && !isAgentInline && "mx-3 mt-2.5 rounded-lg border border-purple-200/60 dark:border-purple-500/20 bg-gradient-to-br from-purple-50/50 via-blue-50/30 to-violet-50/40 dark:from-purple-950/20 dark:via-blue-950/10 dark:to-violet-950/15 px-3 py-3")}>
-          <div aria-label={placeholder}
-            ref={editorRef}
-            contentEditable
-            data-placeholder={placeholder}
-            className={cn("w-full min-h-36 text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent text-foreground empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground/60 mt-px", MAIL_EDITOR_PARAGRAPH_CLASSES)}
-            suppressContentEditableWarning
-          />
-        </div>
-        {isForwarding && forwardAsAttachment && (
-          <div className="flex items-center gap-1.5 px-3 pb-2 text-xs text-muted-foreground">
-            <Paperclip className="h-3 w-3 flex-shrink-0" />
-            <span className="truncate">{t.mail.messageDetail.forwardedAsAttachmentNote}</span>
-          </div>
-        )}
-        {isForwarding && !forwardAsAttachment && forwardedAttachments.length > 0 && (
-          <ForwardedAttachmentChips
-            attachments={forwardedAttachments}
-            onRemove={(id) => setExcludedForwardAttachmentIds((prev) => [...prev, id])}
-          />
-        )}
-        {attachedFiles.length > 0 && (
-          <AttachedFileChips
-            files={attachedFiles}
-            onRemove={removeAttachedFile}
-          />
-        )}
-        {/* Actions bar */}
-        {isAutoDraft ? (
-          <InlineAiBar
-            isAgentInline={isAgentInline}
-            inputRef={inlineAiInputRef}
-            prompt={inlineAiPrompt}
-            placeholder={userWrittenText(editorRef.current?.innerHTML ?? '') ? t.mail.messageDetail.aiEditPlaceholder : t.mail.messageDetail.aiReplyPlaceholder}
-            isGenerating={isInlineAiGenerating}
-            onPromptChange={setInlineAiPrompt}
-            onEnter={handleEnterInlineAi}
-            onCreate={handleCreateInlineAi}
-            onEscape={closeInlineAi}
-            onCancel={isAgentInline ? closeInlineAi : cancelCompose}
-            onInsert={insertInlineAi}
-          />
-        ) : (
-          <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-3 border-t border-border/50">
-            <ComposeToolbar
-              activeFormats={activeFormats}
-              editorRef={editorRef}
-              onCommand={execCommand}
-              onFilesSelected={(files) => setAttachedFiles((prev) => [...prev, ...files])}
-              onOpenAi={openInlineAi}
-              signaturePicker={
-                <SignaturePicker
-                  className="p-2 hover:bg-muted rounded-md transition-colors"
-                  iconClassName="text-muted-foreground"
-                  signatures={signature.signatures}
-                  getSelectedId={signature.getSelectedId}
-                  onSelect={signature.select}
-                  testId="reply-signature-btn"
+          onClose={cancelCompose}
+          closeTitle={t.mail.compose.discard}
+          showFromRow={false}
+          showSubjectRow={false}
+          allowCcBcc={false}
+          allowSchedule={false}
+          toRecipients={replyToList}
+          setToRecipients={setReplyToList}
+          toInput={replyToInput}
+          setToInput={setReplyToInput}
+          showCc={false}
+          showBcc={false}
+          onShowCc={() => undefined}
+          onShowBcc={() => undefined}
+          cc=""
+          bcc=""
+          onCcChange={() => undefined}
+          onBccChange={() => undefined}
+          subject={composeData.subject}
+          onSubjectChange={(subject) => setComposeData((prev) => ({ ...prev, subject }))}
+          editorRef={editorRef}
+          onBodyInput={() => undefined}
+          onBodyBlur={() => undefined}
+          signatureMode={null}
+          attachedFiles={attachedFiles}
+          onAttachedFilesChange={setAttachedFiles}
+          scheduledTime={null}
+          onScheduledTimeChange={() => undefined}
+          isReply={!isForwarding}
+          onAiGenerate={handleReplyAiGenerate}
+          onSend={() => void onSend()}
+          isSending={isSending}
+          bodyExtras={
+            <>
+              {isForwarding && forwardAsAttachment && (
+                <div className="flex items-center gap-1.5 px-4 pt-2 text-xs text-muted-foreground">
+                  <Paperclip className="h-3 w-3 flex-shrink-0" />
+                  <span className="truncate">{t.mail.messageDetail.forwardedAsAttachmentNote}</span>
+                </div>
+              )}
+              {isForwarding && !forwardAsAttachment && forwardedAttachments.length > 0 && (
+                <ForwardedAttachmentChips
+                  attachments={forwardedAttachments}
+                  onRemove={(id) => setExcludedForwardAttachmentIds((prev) => [...prev, id])}
                 />
-              }
-            />
-            <div className="flex items-center gap-1.5 ml-auto">
-              <Button variant="outline" size="sm" onClick={cancelCompose}>
-                {t.mail.messageDetail.cancelButton}
-              </Button>
-              <Button size="sm" onClick={onSend} disabled={sendDisabled} title="Ctrl+Enter">
-                {isSending ? <Loader2 className="h-4 w-4 animate-spin" /> : t.mail.compose.send}
-              </Button>
-            </div>
-          </div>
-        )}
+              )}
+            </>
+          }
+          footerOverride={
+            isAutoDraft ? (
+              <InlineAiBar
+                isAgentInline={isAgentInline}
+                inputRef={inlineAiInputRef}
+                prompt={inlineAiPrompt}
+                placeholder={userWrittenText(editorRef.current?.innerHTML ?? '') ? t.mail.messageDetail.aiEditPlaceholder : t.mail.messageDetail.aiReplyPlaceholder}
+                isGenerating={isInlineAiGenerating}
+                onPromptChange={setInlineAiPrompt}
+                onEnter={handleEnterInlineAi}
+                onCreate={handleCreateInlineAi}
+                onEscape={closeInlineAi}
+                onCancel={isAgentInline ? closeInlineAi : cancelCompose}
+                onInsert={insertInlineAi}
+              />
+            ) : undefined
+          }
+        />
       </div>
     );
   };
@@ -2397,6 +2288,22 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     }
   };
 
+  // The reply box's ↩▾ menu: answer the same message another way.
+  const switchComposeMode = (mode: 'reply' | 'replyAll' | 'forward') => {
+    const target = allThreadMessages.find((m) => m.id === replyToMessageId) ?? newestMessage;
+    if (mode !== 'forward') {
+      startThreadReply(target, mode === 'replyAll');
+      return;
+    }
+    setIsForwarding(true);
+    setForwardAsAttachment(false);
+    setExcludedForwardAttachmentIds([]);
+    setIsReplying(false);
+    setIsReplyingAll(false);
+    setReplyToMessageId(target.id);
+    setComposeData({ to: '', subject: `Fwd: ${target.subject || message.subject}`, body: '' });
+  };
+
   const startThreadReply = (threadMsg: EmailMessage, replyAll: boolean) => {
     setIsReplying(true);
     setIsReplyingAll(replyAll);
@@ -2506,9 +2413,9 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
               )}
             </DropdownMenuContent>
           </DropdownMenu>
-          {/* Labels popover - hidden on mobile */}
-          <Popover>
-            <PopoverTrigger asChild>
+          {/* Labels menu - hidden on mobile */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
               <Button
                 variant="ghost"
                 aria-label={t.mail.messageDetail.labelAs}
@@ -2522,16 +2429,16 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                   </span>
                 )}
               </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-64 p-2" align="end">
-              <LabelsPopoverContent
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="w-56" align="end">
+              <LabelsMenuContent
                 messageLabels={messageLabels}
                 availableLabels={availableLabels}
                 isUpdatingLabels={isUpdatingLabels}
                 onToggleLabel={handleToggleLabel}
               />
-            </PopoverContent>
-          </Popover>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button
             variant="ghost"
             size="icon"
@@ -2559,50 +2466,67 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
           Person panels open via ObjectPanelHost (flex sibling of ModuleContent),
           so no right-margin reservation is needed here. */}
       <div className="flex-1 overflow-y-auto">
-        {/* Reply/Forward compose - above newest message */}
-        {(isReplying || isForwarding) && replyToMessageId === newestMessage.id && renderComposeBox()}
+        {/* Earlier messages, oldest first and collapsed to one line (Gmail) */}
+        {olderMessages.length > 0 && (
+          <div>
+            {[...olderMessages].reverse().map((threadMsg) => (
+              <React.Fragment key={threadMsg.id}>
+                <ThreadMessageCard
+                  threadMsg={threadMsg}
+                  isExpanded={expandedThreadIds.has(threadMsg.id)}
+                  isStarred={threadStarOverrides[threadMsg.id] ?? !!threadMsg.isStarred}
+                  toLine={recipientsLine(threadMsg, { toWord: t.mail.messageDetail.toWord, me: t.mail.messageDetail.me }, accountEmail)}
+                  canReplyAll={hasExtraReplyAllRecipients(replyTargetFor(threadMsg), accountEmail)}
+                  onToggle={() => toggleThreadExpanded(threadMsg.id)}
+                  onToggleStar={() => toggleThreadStar(threadMsg)}
+                  onOpenContact={(email, name) => customerPanel?.openPanel(email, name)}
+                  onReply={() => startThreadReply(threadMsg, false)}
+                  onReplyAll={() => startThreadReply(threadMsg, true)}
+                />
+                {/* Reply/Forward compose for this earlier message, right under it */}
+                {(isReplying || isForwarding) && replyToMessageId === threadMsg.id && renderComposeBox()}
+                {/* Draft replies to this earlier message */}
+                {drafts.filter(d => d.inReplyTo === threadMsg.messageId).map((draft) => (
+                  <DraftReplyCard
+                    key={draft.id}
+                    draft={draft}
+                    className="mx-3 md:mx-4 my-2 group/draft relative border border-orange-200 rounded-lg bg-orange-50/50 cursor-pointer hover:bg-orange-50 transition-colors"
+                    deleteButtonClassName="p-1 opacity-0 group-hover/draft:opacity-100 hover:bg-orange-100 rounded-md transition-all"
+                    onOpen={() => openDraft(draft)}
+                    onDelete={() => deleteDraft(draft.id)}
+                  />
+                ))}
+              </React.Fragment>
+            ))}
+          </div>
+        )}
 
-        {/* Draft replies to the newest message - shown above it */}
-        {drafts.filter(d => d.inReplyTo === newestMessage.messageId).map((draft) => (
-          <DraftReplyCard
-            key={draft.id}
-            draft={draft}
-            className="mx-3 md:mx-4 mb-3 group relative border border-orange-200 rounded-lg bg-orange-50/50 cursor-pointer hover:bg-orange-50 transition-colors"
-            deleteButtonClassName="p-1 opacity-0 group-hover:opacity-100 hover:bg-orange-100 rounded-md transition-all"
-            onOpen={() => openDraft(draft)}
-            onDelete={() => deleteDraft(draft.id)}
-          />
-        ))}
-
-        {/* Sender Header */}
-        <div className="px-3 md:px-4 py-3 md:py-4">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2 min-w-0 flex-1">
-              <SenderAvatar
-                avatarUrl={getSenderAvatarUrl(newestMessage)}
-                sender={fromDisplayString(newestMessage.from)}
-                fallbackChar="?"
-                fallbackClassName="text-white font-semibold text-xs"
-              />
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-                  <Button
-                    variant="link"
-                    onClick={() => customerPanel?.openPanel(newestMessage.fromEmail || extractEmail(fromDisplayString(newestMessage.from)), extractName(fromDisplayString(newestMessage.from)))}
-                    className="h-auto p-0 font-semibold text-gray-900 dark:text-foreground text-[14.5px] focus:outline-none max-w-full shrink min-w-0"
-                  >
-                    <span className="truncate">{extractName(fromDisplayString(newestMessage.from))}</span>
-                  </Button>
-                  <span className="text-[14.5px] text-gray-500 dark:text-muted-foreground">{t.mail.messageDetail.toWord}</span>
-                  <Button
-                    variant="link"
-                    onClick={() => customerPanel?.openPanel(primaryToEmail, emailToDisplayName(primaryToEmail))}
-                    className="h-auto p-0 text-[14.5px] text-blue-600 focus:outline-none max-w-full shrink min-w-0"
-                    title={primaryToEmail}
-                  >
-                    <span className="truncate">{primaryToEmail}</span>
-                  </Button>
-                  {allRecipients.length > 1 && (
+        {/* The newest message, open at the bottom of the conversation (Gmail) */}
+        <div className="px-3 md:px-4 pt-5 pb-2">
+          <div className="flex items-center gap-3">
+            <SenderAvatar
+              avatarUrl={getSenderAvatarUrl(newestMessage)}
+              sender={fromDisplayString(newestMessage.from)}
+              fallbackChar="?"
+              fallbackClassName="text-white font-semibold text-sm"
+            />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-baseline gap-1.5 min-w-0">
+                <Button
+                  variant="link"
+                  onClick={() => customerPanel?.openPanel(newestMessage.fromEmail || extractEmail(fromDisplayString(newestMessage.from)), extractName(fromDisplayString(newestMessage.from)))}
+                  className="h-auto p-0 font-semibold text-foreground text-sm focus:outline-none max-w-full shrink min-w-0"
+                >
+                  <span className="truncate">{extractName(fromDisplayString(newestMessage.from))}</span>
+                </Button>
+                {(newestMessage.fromEmail || extractEmail(fromDisplayString(newestMessage.from))) && (
+                  <span className="truncate text-xs text-muted-foreground">
+                    &lt;{newestMessage.fromEmail || extractEmail(fromDisplayString(newestMessage.from))}&gt;
+                  </span>
+                )}
+                <span className="inline-flex items-center gap-0.5 min-w-0 text-[13px] text-muted-foreground">
+                  <span className="truncate">{recipientsLine(newestMessage, { toWord: t.mail.messageDetail.toWord, me: t.mail.messageDetail.me }, accountEmail)}</span>
+                  {allRecipients.length > 0 && (
                     <RecipientsPopover
                       allRecipients={allRecipients}
                       open={showAllRecipients}
@@ -2613,11 +2537,17 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                       }}
                     />
                   )}
-                </div>
+                </span>
               </div>
             </div>
-            <div className="flex items-center gap-2 text-gray-500 dark:text-muted-foreground flex-shrink-0">
-              <span className="text-sm text-gray-700 dark:text-muted-foreground">{format(new Date(newestMessage.date ?? 0), 'd MMM, HH:mm')}</span>
+            <div className="flex items-center gap-0.5 text-muted-foreground flex-shrink-0">
+              <MessageDate date={newestMessage.date} />
+              <Button variant="ghost" size="icon" type="button" onClick={handleToggleStar} aria-label={actionLabels.star} title={actionLabels.star} className="size-8 text-muted-foreground">
+                <Star className={cn('size-4', isStarred && 'text-yellow-500 fill-yellow-500')} />
+              </Button>
+              <Button variant="ghost" size="icon" type="button" onClick={handleReplyToggle} aria-label={t.mail.compose.reply} title={t.mail.compose.reply} className="size-8 text-muted-foreground">
+                <Reply className="size-4" />
+              </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
@@ -2712,7 +2642,10 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
         </div>
 
         {/* Email Content */}
-        <div className="px-3 md:px-4 group/email">
+        <div
+          data-action-bar={showActionBar}
+          className="pl-[calc(0.75rem+40px)] pr-3 md:pl-[calc(1rem+40px)] md:pr-4 group/email pb-6 data-[action-bar=true]:pb-1 md:data-[action-bar=true]:pb-3"
+        >
           <div className="text-gray-700 dark:text-foreground text-sm leading-relaxed overflow-x-auto">
             <MessageBodyContent
               mainContent={mainContent}
@@ -2749,8 +2682,17 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
             <AttachmentsSection hasLoadedAttachments={attachments.length > 0} otherAttachments={otherAttachments} />
           )}
 
-          {/* Reply, Forward, and Auto Draft Buttons */}
-          <div className="flex items-center justify-end gap-2 mt-4 md:mt-6">
+        </div>
+
+        {/* Reply, Forward, and Auto Draft Buttons: pinned to the bottom of the pane while the
+            thread scrolls, hidden while a reply box is open (Gmail) */}
+        {showActionBar && (
+          <div
+            ref={actionBarRef}
+            data-floating={actionBarFloating}
+            className="sticky -bottom-px z-10 border-t border-transparent data-[floating=true]:border-border bg-white dark:bg-background pl-[calc(0.75rem+40px)] pr-3 md:pl-[calc(1rem+40px)] md:pr-4 py-3"
+          >
+          <div className="flex items-center justify-start gap-2">
             {isFeatureAvailable('mail-ai') && (
               <Button
                 variant="ghost"
@@ -2789,41 +2731,22 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
               <span className="text-sm">{t.mail.compose.forward}</span>
             </Button>
           </div>
-        </div>
-
-        {/* Previous Conversations */}
-        {olderMessages.length > 0 && (
-          <div className="px-3 md:px-4 pt-4 mb-4">
-            <div className="space-y-4">
-              {olderMessages.map((threadMsg) => (
-                <React.Fragment key={threadMsg.id}>
-                  {/* Reply/Forward compose - above this thread message */}
-                  {(isReplying || isForwarding) && replyToMessageId === threadMsg.id && renderComposeBox(true)}
-                  {/* Draft replies to this thread message */}
-                  {drafts.filter(d => d.inReplyTo === threadMsg.messageId).map((draft) => (
-                    <DraftReplyCard
-                      key={draft.id}
-                      draft={draft}
-                      className="group/draft relative border border-orange-200 rounded-lg bg-orange-50/50 cursor-pointer hover:bg-orange-50 transition-colors mb-2"
-                      deleteButtonClassName="p-1 opacity-0 group-hover/draft:opacity-100 hover:bg-orange-100 rounded-md transition-all"
-                      onOpen={() => openDraft(draft)}
-                      onDelete={() => deleteDraft(draft.id)}
-                    />
-                  ))}
-                  <ThreadMessageCard
-                    threadMsg={threadMsg}
-                    isExpanded={expandedThreadIds.has(threadMsg.id)}
-                    canReplyAll={hasExtraReplyAllRecipients(replyTargetFor(threadMsg), accountEmail)}
-                    onToggle={() => toggleThreadExpanded(threadMsg.id)}
-                    onOpenContact={(email, name) => customerPanel?.openPanel(email, name)}
-                    onReply={() => startThreadReply(threadMsg, false)}
-                    onReplyAll={() => startThreadReply(threadMsg, true)}
-                  />
-                </React.Fragment>
-              ))}
-            </div>
           </div>
         )}
+        {showActionBar && <div aria-hidden className="h-3" />}
+
+        {/* Reply/Forward compose and draft replies for the newest message, at the bottom (Gmail) */}
+        {(isReplying || isForwarding) && replyToMessageId === newestMessage.id && renderComposeBox()}
+        {drafts.filter(d => d.inReplyTo === newestMessage.messageId).map((draft) => (
+          <DraftReplyCard
+            key={draft.id}
+            draft={draft}
+            className="mx-3 md:mx-4 mb-3 group relative border border-orange-200 rounded-lg bg-orange-50/50 cursor-pointer hover:bg-orange-50 transition-colors"
+            deleteButtonClassName="p-1 opacity-0 group-hover:opacity-100 hover:bg-orange-100 rounded-md transition-all"
+            onOpen={() => openDraft(draft)}
+            onDelete={() => deleteDraft(draft.id)}
+          />
+        ))}
 
       </div>
 

@@ -1,7 +1,7 @@
 
 import * as React from "react"
 import { useTranslations } from '@weldsuite/i18n/client'
-import { Upload, Save, Loader2, Check, ChevronsUpDown } from "lucide-react"
+import { Upload, Loader2, Check, ChevronsUpDown } from "lucide-react"
 import { Button } from "@weldsuite/ui/components/button"
 import { Input } from "@weldsuite/ui/components/input"
 import { Label } from "@weldsuite/ui/components/label"
@@ -282,10 +282,7 @@ export function ProfileSection({
                     {t('sweep.settings.profile.saving')}
                   </>
                 ) : (
-                  <>
-                    <Save className="mr-2 h-4 w-4" />
-                    {t('sweep.settings.profile.saveChanges')}
-                  </>
+                  t('sweep.settings.profile.saveChanges')
                 )}
               </Button>
             </div>

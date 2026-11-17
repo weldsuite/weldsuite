@@ -7,13 +7,31 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { en } from '@weldsuite/i18n/locales/en';
 
-const auth = vi.hoisted(() => ({
-  state: { isLoaded: true, isSignedIn: false },
-  redirectToSignIn: vi.fn(),
-}));
+const auth = vi.hoisted(() => {
+  class BrowserSignInError extends Error {
+    reason: string;
+    constructor(reason: string) {
+      super(reason);
+      this.reason = reason;
+    }
+  }
+  return {
+    state: { isLoaded: true, isSignedIn: false },
+    redirectToSignIn: vi.fn(),
+    /** Inside the desktop shell. */
+    browser: false,
+    signInWithBrowser: vi.fn(),
+    cancelBrowserSignIn: vi.fn(),
+    BrowserSignInError,
+  };
+});
 vi.mock('@/lib/auth', () => ({
   useAuth: () => auth.state,
   redirectToSignIn: auth.redirectToSignIn,
+  usesBrowserSignIn: () => auth.browser,
+  signInWithBrowser: auth.signInWithBrowser,
+  cancelBrowserSignIn: auth.cancelBrowserSignIn,
+  BrowserSignInError: auth.BrowserSignInError,
 }));
 
 const api = vi.hoisted(() => {
@@ -69,6 +87,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   router.search = `authRequest=${REQUEST}`;
   auth.state = { isLoaded: true, isSignedIn: false };
+  auth.browser = false;
   api.loadSignInRequest.mockResolvedValue(CREDENTIALS);
   window.sessionStorage.clear();
   replace = vi.fn();
@@ -341,5 +360,65 @@ describe('what the screens hand on', () => {
 
     expect(await screen.findByText(t.identityProvider.failed)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: t.identityProvider.retry })).toBeInTheDocument();
+  });
+});
+
+describe('/auth/login inside the desktop shell', () => {
+  const browser = t.desktop.browser;
+
+  beforeEach(() => {
+    auth.browser = true;
+    router.search = 'callbackUrl=%2Fweldknow';
+  });
+
+  it('offers the system browser instead of sending the window to the provider, and opens it only on a click', async () => {
+    const user = userEvent.setup();
+    auth.signInWithBrowser.mockReturnValue(new Promise(() => undefined));
+    render(<ProviderLoginPage />);
+
+    expect(screen.getByRole('heading', { name: browser.signInTitle })).toBeInTheDocument();
+    expect(auth.redirectToSignIn).not.toHaveBeenCalled();
+    expect(auth.signInWithBrowser).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: browser.continue }));
+    expect(auth.signInWithBrowser).toHaveBeenCalledWith({ intent: 'sign-in', returnTo: '/weldknow' });
+    expect(await screen.findByText(browser.waiting)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: browser.cancel }));
+    expect(auth.cancelBrowserSignIn).toHaveBeenCalled();
+  });
+
+  it('says so when the browser never came back, and offers the button again', async () => {
+    const user = userEvent.setup();
+    auth.signInWithBrowser.mockRejectedValue(new auth.BrowserSignInError('timeout'));
+    render(<ProviderLoginPage />);
+
+    await user.click(screen.getByRole('button', { name: browser.continue }));
+    expect(await screen.findByText(browser.timedOut)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: browser.continue })).toBeInTheDocument();
+  });
+
+  it('goes back to the button without a word when the person cancelled', async () => {
+    const user = userEvent.setup();
+    auth.signInWithBrowser.mockRejectedValue(new auth.BrowserSignInError('cancelled'));
+    render(<ProviderLoginPage />);
+
+    await user.click(screen.getByRole('button', { name: browser.continue }));
+    expect(await screen.findByRole('button', { name: browser.continue })).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('goes straight on when already signed in', async () => {
+    auth.state = { isLoaded: true, isSignedIn: true };
+    render(<ProviderLoginPage />);
+    await waitFor(() => expect(replace).toHaveBeenCalledWith(`${window.location.origin}/weldknow`));
+    expect(auth.signInWithBrowser).not.toHaveBeenCalled();
+  });
+
+  it('never goes on to another host, even one a browser reads into a path', async () => {
+    auth.state = { isLoaded: true, isSignedIn: true };
+    router.search = `callbackUrl=${encodeURIComponent('/\\evil.example')}`;
+    render(<ProviderLoginPage />);
+    await waitFor(() => expect(replace).toHaveBeenCalledWith(`${window.location.origin}/`));
   });
 });

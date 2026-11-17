@@ -93,7 +93,7 @@ export function RequestsPanel({ requests, isLoading, canBook, nameOf }: Readonly
   const update = useUpdateResourceRequest();
   const current = selected ?? requests[0]?.id ?? null;
   return (
-    <aside aria-labelledby="req-title" className="max-w-[380px] min-w-0 flex-[1_1_320px] overflow-hidden rounded-lg border bg-card">
+    <aside aria-labelledby="req-title" className="w-[340px] shrink-0 overflow-y-auto border-l">
       <div className="flex items-center gap-2 border-b px-4 py-3">
         <h2 id="req-title" className="flex-1 text-[15px] font-semibold">
           {copy.title}

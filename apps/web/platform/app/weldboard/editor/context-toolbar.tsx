@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import {
   AlignCenter,
   AlignHorizontalJustifyCenter,
@@ -34,6 +35,7 @@ import {
   type Cap,
   type ConnectorRoute,
   type Op,
+  type Point,
   type ShapeKind,
 } from '@weldsuite/board-engine';
 import {
@@ -48,6 +50,7 @@ import { cn } from '@/lib/utils';
 import type { BoardController } from './model/board-controller';
 import { toScreen } from './model/camera';
 import { duplicateSelection } from './model/clipboard';
+import { handlePositions } from './model/interactions';
 import { copyStyle, pasteStyle } from './model/style';
 import { hasMark, setMark, toggleMark } from './model/text-editing';
 import { ShapeIcon } from './toolbar';
@@ -101,6 +104,9 @@ function fillSwatch(fill: BoardElement['fill']) {
   );
 }
 
+/** The floating bar's height: a 32px button, its padding and border. */
+const BAR_HEIGHT = 40;
+
 export function ContextToolbar({ controller: c, actions }: { controller: BoardController; actions: ContextActions }) {
   const { t } = useI18n();
   const te = t.weldboard.editor;
@@ -113,8 +119,13 @@ export function ContextToolbar({ controller: c, actions }: { controller: BoardCo
 
   const top = toScreen(c.camera, { x: box.x + box.w / 2, y: box.y });
   const bottom = toScreen(c.camera, { x: box.x + box.w / 2, y: box.y + box.h });
-  const above = top.y > 72;
-  const style = { left: Math.max(8, Math.min(c.viewport.width - 8, top.x)), top: above ? top.y - 56 : Math.min(c.viewport.height - 56, bottom.y + 16) };
+  // Clear of the handles when they show: the rotate handle sits 26px above the box, a connect handle 18px out.
+  const gap = handlePositions(c).length ? 44 : 16;
+  const above = top.y - gap - BAR_HEIGHT > 16;
+  const style = {
+    left: Math.max(8, Math.min(c.viewport.width - 8, top.x)),
+    top: above ? top.y - gap - BAR_HEIGHT : Math.min(c.viewport.height - 56, bottom.y + gap),
+  };
 
   const types = new Set(els.map((e) => e.type));
   const only = types.size === 1 ? els[0]!.type : null;
@@ -293,37 +304,89 @@ export function ContextToolbar({ controller: c, actions }: { controller: BoardCo
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" onCloseAutoFocus={(e) => e.preventDefault()}>
-              <DropdownMenuItem onSelect={() => duplicateSelection(c)}>{ta.duplicate}</DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => c.apply(stackOps(c.board, c.selection, 'front'))}>{ta.bringFront}</DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => c.apply(stackOps(c.board, c.selection, 'forward'))}>{ta.bringForward}</DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => c.apply(stackOps(c.board, c.selection, 'backward'))}>{ta.sendBackward}</DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => c.apply(stackOps(c.board, c.selection, 'back'))}>{ta.sendBack}</DropdownMenuItem>
-              {single && actions.onCopyLink && <DropdownMenuItem onSelect={() => actions.onCopyLink!(single.id)}>{ta.copyLink}</DropdownMenuItem>}
-              {single && actions.onComment && <DropdownMenuItem onSelect={() => actions.onComment!(single.id)}>{ta.addComment}</DropdownMenuItem>}
-              {actions.onToTasks && els.some((e) => e.type === 'sticky' || e.type === 'card' || e.type === 'shape') && (
-                <DropdownMenuItem onSelect={() => actions.onToTasks!(els.filter((e) => e.type === 'sticky' || e.type === 'card' || e.type === 'shape').map((e) => e.id))}>{ta.toTask}</DropdownMenuItem>
-              )}
-              {single?.type === 'frame' && actions.onPresentFrom && <DropdownMenuItem onSelect={() => actions.onPresentFrom!(single.id)}>{ta.presentFromHere}</DropdownMenuItem>}
-              {single?.type === 'record' && actions.onOpenRecord && <DropdownMenuItem onSelect={() => actions.onOpenRecord!(single)}>{ta.openRecord}</DropdownMenuItem>}
-              {single?.type === 'image' && actions.onAltText && <DropdownMenuItem onSelect={() => actions.onAltText!(single.id)}>{ta.altText}</DropdownMenuItem>}
-              {single?.type === 'image' && actions.onCrop && !single.locked && <DropdownMenuItem onSelect={() => actions.onCrop!(single.id)}>{ta.crop}</DropdownMenuItem>}
-              {single?.type === 'image' && single.crop && <DropdownMenuItem onSelect={() => setAll(c, [single], { crop: null })}>{ta.resetCrop}</DropdownMenuItem>}
-              <DropdownMenuItem onSelect={() => copyStyle(c)}>{ta.copyStyle}</DropdownMenuItem>
-              {c.copiedStyle && <DropdownMenuItem onSelect={() => pasteStyle(c)}>{ta.pasteStyle}</DropdownMenuItem>}
-              {single && single.type !== 'connector' && single.type !== 'pen' && (
-                <DropdownMenuItem onSelect={() => setAll(c, [single], { rotation: (((single.rotation ?? 0) + Math.PI / 2 + Math.PI) % (Math.PI * 2)) - Math.PI })}>{ta.rotate}</DropdownMenuItem>
-              )}
-              {actions.onExportSelection && <DropdownMenuItem onSelect={actions.onExportSelection}>{ta.exportSelection}</DropdownMenuItem>}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem className="text-destructive" onSelect={() => c.deleteSelection()}>
-                <Trash2 className="mr-2 size-4" />
-                {ta.delete}
-              </DropdownMenuItem>
+              <SelectionMenuItems c={c} actions={actions} />
             </DropdownMenuContent>
           </DropdownMenu>
         </>
       )}
     </div>
+  );
+}
+
+/** The selection's actions: the toolbar's ⋯ menu and the right-click menu. */
+function SelectionMenuItems({ c, actions }: { c: BoardController; actions: ContextActions }) {
+  const { t } = useI18n();
+  const ta = t.weldboard.editor.actions;
+  const els = c.selected;
+  const single = els.length === 1 ? els[0]! : null;
+  return (
+    <>
+      <DropdownMenuItem onSelect={() => duplicateSelection(c)}>{ta.duplicate}</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => c.apply(stackOps(c.board, c.selection, 'front'))}>{ta.bringFront}</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => c.apply(stackOps(c.board, c.selection, 'forward'))}>{ta.bringForward}</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => c.apply(stackOps(c.board, c.selection, 'backward'))}>{ta.sendBackward}</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => c.apply(stackOps(c.board, c.selection, 'back'))}>{ta.sendBack}</DropdownMenuItem>
+      {single && actions.onCopyLink && <DropdownMenuItem onSelect={() => actions.onCopyLink!(single.id)}>{ta.copyLink}</DropdownMenuItem>}
+      {single && actions.onComment && <DropdownMenuItem onSelect={() => actions.onComment!(single.id)}>{ta.addComment}</DropdownMenuItem>}
+      {actions.onToTasks && els.some((e) => e.type === 'sticky' || e.type === 'card' || e.type === 'shape') && (
+        <DropdownMenuItem onSelect={() => actions.onToTasks!(els.filter((e) => e.type === 'sticky' || e.type === 'card' || e.type === 'shape').map((e) => e.id))}>{ta.toTask}</DropdownMenuItem>
+      )}
+      {single?.type === 'frame' && actions.onPresentFrom && <DropdownMenuItem onSelect={() => actions.onPresentFrom!(single.id)}>{ta.presentFromHere}</DropdownMenuItem>}
+      {single?.type === 'record' && actions.onOpenRecord && <DropdownMenuItem onSelect={() => actions.onOpenRecord!(single)}>{ta.openRecord}</DropdownMenuItem>}
+      {single?.type === 'image' && actions.onAltText && <DropdownMenuItem onSelect={() => actions.onAltText!(single.id)}>{ta.altText}</DropdownMenuItem>}
+      {single?.type === 'image' && actions.onCrop && !single.locked && <DropdownMenuItem onSelect={() => actions.onCrop!(single.id)}>{ta.crop}</DropdownMenuItem>}
+      {single?.type === 'image' && single.crop && <DropdownMenuItem onSelect={() => setAll(c, [single], { crop: null })}>{ta.resetCrop}</DropdownMenuItem>}
+      <DropdownMenuItem onSelect={() => copyStyle(c)}>{ta.copyStyle}</DropdownMenuItem>
+      {c.copiedStyle && <DropdownMenuItem onSelect={() => pasteStyle(c)}>{ta.pasteStyle}</DropdownMenuItem>}
+      {single && single.type !== 'connector' && single.type !== 'pen' && (
+        <DropdownMenuItem onSelect={() => setAll(c, [single], { rotation: (((single.rotation ?? 0) + Math.PI / 2 + Math.PI) % (Math.PI * 2)) - Math.PI })}>{ta.rotate}</DropdownMenuItem>
+      )}
+      {actions.onExportSelection && <DropdownMenuItem onSelect={actions.onExportSelection}>{ta.exportSelection}</DropdownMenuItem>}
+      <DropdownMenuSeparator />
+      <DropdownMenuItem className="text-destructive" onSelect={() => c.deleteSelection()}>
+        <Trash2 className="mr-2 size-4" />
+        {ta.delete}
+      </DropdownMenuItem>
+    </>
+  );
+}
+
+/**
+ * Right-click on the selection: the same actions as the toolbar's ⋯ menu, opened
+ * where the pointer is (`at`, canvas pixels). A locked selection offers Unlock.
+ */
+export function SelectionContextMenu({ controller: c, actions, at, onClose }: {
+  controller: BoardController;
+  actions: ContextActions;
+  at: Point | null;
+  onClose: () => void;
+}) {
+  const { t } = useI18n();
+  const ta = t.weldboard.editor.actions;
+  const els = c.selected;
+  const shown = !!at && els.length > 0 && !c.readOnly;
+  // The selection went away while the menu was open (deleted, or by a collaborator).
+  useEffect(() => {
+    if (at && !shown) onClose();
+  }, [at, shown, onClose]);
+  if (!shown) return null;
+  const locked = els.every((e) => e.locked);
+  return (
+    <DropdownMenu open onOpenChange={(open) => !open && onClose()}>
+      <DropdownMenuTrigger asChild>
+        <span aria-hidden className="pointer-events-none absolute size-0" style={{ left: at.x, top: at.y }} />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-56" onCloseAutoFocus={(e) => e.preventDefault()}>
+        {locked ? (
+          <DropdownMenuItem onSelect={() => setAll(c, els, { locked: false })}>
+            <LockOpen />
+            {ta.unlock}
+          </DropdownMenuItem>
+        ) : (
+          <SelectionMenuItems c={c} actions={actions} />
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ConnectionQuality, DisconnectReason, RoomEvent, Track, type Room } from 'livekit-client';
-import { BROADCAST_TOPIC, LiveKitMeeting, roomLeftState } from './client';
+import { BROADCAST_TOPIC, LiveKitMeeting, liveKitRoomOptions, roomLeftState } from './client';
 import { Emitter } from './emitter';
 import { WAITING_ATTRIBUTE, customIdFromIdentity, liveKitApiBase, readLiveKitToken } from './token';
 
@@ -116,6 +116,24 @@ describe('LiveKit join tokens', () => {
   it('turns the client URL into the API base', () => {
     expect(liveKitApiBase('wss://lk.example.eu/')).toBe('https://lk.example.eu');
     expect(liveKitApiBase('ws://localhost:7880')).toBe('http://localhost:7880');
+  });
+});
+
+describe('liveKitRoomOptions', () => {
+  const capture = { noiseSuppression: false, echoCancellation: true, autoGainControl: true };
+
+  it('keeps adaptive stream off, as nothing attaches remote video through LiveKit', () => {
+    // Adaptive stream pauses every remote video no element was attach()ed to:
+    // a screen share froze on its first frames.
+    expect(liveKitRoomOptions(capture).adaptiveStream).toBe(false);
+  });
+
+  it('keeps dynacast, the capture settings and the screen-share encoding', () => {
+    expect(liveKitRoomOptions(capture)).toMatchObject({
+      dynacast: true,
+      audioCaptureDefaults: capture,
+      publishDefaults: { screenShareEncoding: { maxBitrate: 3_000_000, maxFramerate: 30 } },
+    });
   });
 });
 

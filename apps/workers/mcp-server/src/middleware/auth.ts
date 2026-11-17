@@ -404,7 +404,9 @@ export const authMiddleware: MiddlewareHandler<HonoEnv> = async (c, next) => {
       { jsonrpc: '2.0', error: { code: -32001, message }, id: null },
       401,
       {
-        'WWW-Authenticate': `Bearer resource_metadata="${protectedResourceMetadataUrl(c.env.MCP_SERVER_URL)}"`,
+        // The document for `/mcp`, the URL called: RFC 9728 §3.3 has a
+        // client drop metadata whose `resource` is not that URL.
+        'WWW-Authenticate': `Bearer resource_metadata="${protectedResourceMetadataUrl(c.env.MCP_SERVER_URL, '/mcp')}"`,
       },
     );
   };

@@ -155,4 +155,11 @@ export interface AuthImplementation {
   signIn?: (options?: HostedSignInOptions) => Promise<HostedSignInResult>;
   /** Where the person manages their account when WeldSuite doesn't. */
   accountUrl?: string;
+  /**
+   * The active workspace id, read outside React: WeldID in membership mode
+   * (`workspaceSource: "header"`) tags every API request with it
+   * (`X-Weld-Workspace`) instead of naming it in the token. Unset on Clerk
+   * and on `claim`-mode OIDC.
+   */
+  getActiveOrgId?: () => string | null;
 }
