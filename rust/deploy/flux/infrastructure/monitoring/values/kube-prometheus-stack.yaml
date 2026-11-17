@@ -90,7 +90,7 @@ kubelet:
 # --- Alertmanager --------------------------------------------------------
 #
 # Receivers by role, never by vendor: their URLs and the bearer token come
-# from the Secret alerting-receivers (../../secrets/examples), mounted at
+# from the Secret alerting-receivers (../../secrets/monitoring), mounted at
 # /etc/alertmanager/secrets/alerting-receivers. WeldSuite's clusters point
 # critical and warning at ntfy topics (a URL with ntfy's message template,
 # ALERTS.md) and heartbeat at a healthchecks.io check; another install can

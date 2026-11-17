@@ -1,6 +1,6 @@
 # The weldsuite server (rust/deploy/helm/weldsuite), wired to the cluster's
 # Postgres pooler, Valkey, NATS and object storage. Its secrets come from
-# the weldsuite-env Secret (secrets/examples/weldsuite-env.yaml), whose keys
+# the weldsuite-env Secret (secrets/weldsuite.yaml), whose keys
 # are the server's environment variables (rust/bins/weldsuite/src/config.rs).
 #
 # The chart is a release (infrastructure/sources/weldsuite.yaml), pinned by

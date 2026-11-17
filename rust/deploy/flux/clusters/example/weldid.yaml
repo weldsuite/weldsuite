@@ -1,10 +1,9 @@
 # WeldID (infrastructure/weldid, ADR SEC-019), OPT-IN: applied only when
 # kustomization.yaml here lists this file. Three Kustomizations, in order:
-# the namespace, WeldID's Secrets in it (SOPS, their own folder next to the
-# cluster's other secrets), then WeldID with its database. WeldID then runs
-# next to Zitadel without taking auth.${DOMAIN}; weldid-switch.yaml moves
-# sign-in over (infrastructure/weldid/README.md). In your copy, change the
-# secrets path that names example, as in layers.yaml.
+# the namespace, WeldID's Secrets in it (ExternalSecrets from the cluster's
+# secret store, secrets/weldid), then WeldID with its database. WeldID then
+# runs next to Zitadel without taking auth.${DOMAIN}; weldid-switch.yaml
+# moves sign-in over (infrastructure/weldid/README.md).
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
@@ -21,8 +20,9 @@ spec:
     kind: GitRepository
     name: flux-system
 ---
-# secrets/examples/weldid.example.yaml lists them;
-# scripts/fill-secrets.mjs --weldid writes them.
+# The store's weldsuite/weldid and the platform's entries it shares
+# (secrets/store.example.yaml); scripts/seed-secrets.mjs fills them. Ready
+# once each Secret is written, like the secrets layer.
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
@@ -33,15 +33,18 @@ spec:
     - name: weldid-namespace
     - name: secrets
   interval: 1h
-  path: ./rust/deploy/flux/secrets/example/weldid
+  retryInterval: 2m
+  path: ./rust/deploy/flux/secrets/weldid
   prune: true
+  wait: true
+  timeout: 10m
   sourceRef:
     kind: GitRepository
     name: flux-system
-  decryption:
-    provider: sops
-    secretRef:
-      name: sops-age
+  healthCheckExprs:
+    - apiVersion: external-secrets.io/v1
+      kind: ExternalSecret
+      current: status.conditions.exists(c, c.type == 'Ready' && c.status == 'True')
 ---
 # After the services (Valkey) and monitoring (the Prometheus Operator's
 # CRDs for its monitors and rules). The database is in this layer, so the
