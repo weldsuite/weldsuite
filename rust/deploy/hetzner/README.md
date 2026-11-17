@@ -109,7 +109,8 @@ cp terraform.tfvars.example terraform.tfvars   # git-ignored
 Server types (`cpx22` control plane, `cpx32` workers, `ccx23` Postgres) are
 defaults, not facts: check availability in the console first (Hetzner has
 listed "limited availability" of cloud instances since April 2026). `livekit_worker_count` (2) is how many general
-workers also run LiveKit ("Video" below).
+workers also run LiveKit; on a cluster without general workers,
+`livekit_control_planes` names the control-plane nodes that do ("Video" below).
 
 **State.** The state holds the Talos secrets and the kubeconfig. Use the S3
 backend in `versions.tf` (a private bucket) and OpenTofu's state encryption,
@@ -140,9 +141,9 @@ the firewall (only 6443 and 50000, from `admin_cidrs`), three control-plane
 nodes, the general workers, the two Postgres nodes (tainted
 `node.weldsuite.org/postgres`), and two load balancers: one for the
 Kubernetes and Talos APIs, one for HTTP(S) to Traefik with the PROXY
-protocol. The first `livekit_worker_count` workers also get the
-`node.weldsuite.org/livekit` label and a second firewall with LiveKit's media
-ports (UDP 7882, TCP 7881, UDP 3478). With `mail_pools`, the mail nodes
+protocol. The first `livekit_worker_count` workers (or the
+`livekit_control_planes`) also get the `node.weldsuite.org/livekit` label and
+a second firewall with LiveKit's media ports (UDP 7882, TCP 7881, UDP 3478). With `mail_pools`, the mail nodes
 come too, each with its own primary IPv4, reverse DNS and the mail firewall
 (TCP 25), and with `mx_node_port` the ingress load balancer also listens on
 25 ("Mail" below). Talos boots from the machine config in the server's user
@@ -580,7 +581,11 @@ Cloudflare RealtimeKit (rust/README.md, "WeldMeet on LiveKit").
   (two, one per location), on the host network, sharing those nodes with
   the weldsuite server. Rooms are routed between the two through Valkey
   (database 1). Each pod requests half a CPU and has no CPU limit, because
-  throttling breaks up audio.
+  throttling breaks up audio. A cluster without general workers
+  (`worker_count = 0`, where the control planes take the workloads) runs it
+  on two control-plane nodes instead: `livekit_control_planes = ["cp-1",
+  "cp-2"]`. They then share the node with etcd and the Kubernetes API too;
+  move LiveKit to workers of its own before calls get busy.
 - **What comes in where:**
 
   | Traffic | Path |
@@ -596,10 +601,21 @@ Cloudflare RealtimeKit (rust/README.md, "WeldMeet on LiveKit").
   never asks Google's or Twilio's STUN servers). After the first start,
   check that `kubectl -n livekit logs deploy/livekit | grep -i nodeIP` shows
   the node's public IPv4 (`tofu output nodes`), not a `10.10.x.x` address.
-- **A cluster built before this** gets the firewall from `tofu apply`, but
-  not the label: it lives in the machine config, which OpenTofu doesn't push
-  (step 3). Label the two workers once with
-  `kubectl label node weldsuite-eu-worker-1 weldsuite-eu-worker-2 node.weldsuite.org/livekit=true`.
+- **A cluster built before this**, or nodes added to `livekit_control_planes`
+  later, get the firewall from `tofu apply`, but not the label: it lives in
+  the machine config, which OpenTofu doesn't push (step 3). Patch it into
+  each running node's config, which needs no reboot:
+
+  ```bash
+  cat > livekit-label.yaml <<'EOF'
+  apiVersion: v1alpha1
+  kind: KubeNodeConfig
+  labels:
+    node.weldsuite.org/livekit: "true"
+  EOF
+  talosctl -n <private address> patch machineconfig --mode=no-reboot --patch @livekit-label.yaml
+  ```
+
   New servers get the label from their machine config.
 - **Check it** with a call between two people on different networks, then
   one from a network that only allows 443 out (TURN over TLS). Before relying
