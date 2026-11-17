@@ -247,7 +247,7 @@ pub(crate) fn identity(
 ) -> Result<IdentityPorts, Error> {
     if let Some(settings) = &config.weldid {
         let weldid = Arc::new(WeldIdIdentity::new(
-            weldid_options(settings),
+            weldid_options(settings, mail),
             master.clone(),
         )?);
         let sso: Arc<dyn SsoDirectory> = Arc::new(WeldIdSso::new(Arc::clone(&weldid)));
@@ -272,15 +272,31 @@ pub(crate) fn identity(
     })
 }
 
-/// How to reach WeldID's admin API.
-pub(crate) fn weldid_options(settings: &WeldIdConfig) -> WeldIdOptions {
+/// How to reach WeldID's admin API. With system mail, invitations go out in
+/// WeldSuite's template (WeldID sends none: it knows no workspaces).
+pub(crate) fn weldid_options(
+    settings: &WeldIdConfig,
+    mail: Option<&Arc<dyn DynSystemMail>>,
+) -> WeldIdOptions {
     WeldIdOptions {
         issuer: settings.issuer.clone(),
         admin_url: settings.admin_url.clone(),
         client_id: settings.client_id.clone(),
         client_key: settings.client_key.clone(),
         token_endpoint: None,
+        invitation_mailer: invitation_mailer(mail),
     }
+}
+
+/// WeldSuite's invitation email over system mail.
+fn invitation_mailer(
+    mail: Option<&Arc<dyn DynSystemMail>>,
+) -> Option<Arc<dyn weldsuite_ports::InvitationMailer>> {
+    mail.map(|mail| {
+        Arc::new(weldsuite_emails::workspace::SystemInvitationMailer::new(
+            Arc::clone(mail),
+        )) as Arc<dyn weldsuite_ports::InvitationMailer>
+    })
 }
 
 /// How to reach Zitadel's management API. With system mail, invitations go
@@ -297,11 +313,7 @@ pub(crate) fn zitadel_options(
         accept_on_platform: settings.accept_on_platform,
         application_name: "WeldSuite".to_owned(),
         host: settings.host.clone(),
-        invitation_mailer: mail.map(|mail| {
-            Arc::new(weldsuite_emails::workspace::SystemInvitationMailer::new(
-                Arc::clone(mail),
-            )) as Arc<dyn weldsuite_ports::InvitationMailer>
-        }),
+        invitation_mailer: invitation_mailer(mail),
     }
 }
 
