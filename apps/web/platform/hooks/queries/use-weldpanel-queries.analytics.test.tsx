@@ -88,6 +88,8 @@ describe('every client method has a hook', () => {
       'query.run',
       'reports.list', 'reports.get', 'reports.create', 'reports.update', 'reports.remove',
       'dashboards.list', 'dashboards.get', 'dashboards.create', 'dashboards.update', 'dashboards.remove', 'dashboards.addTile', 'dashboards.updateTile', 'dashboards.removeTile', 'dashboards.setLayout',
+      // Templates and text tiles: hooks in use-weldpanel-collab-queries.ts.
+      'dashboards.templates', 'dashboards.createFromTemplate',
       'cohorts.list', 'cohorts.get', 'cohorts.create', 'cohorts.update', 'cohorts.remove',
       'lexicon.get', 'lexicon.update',
       'people.list', 'people.get', 'people.byEmail', 'people.erase',

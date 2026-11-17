@@ -2650,6 +2650,7 @@ export const settings = {
         host: 'Host',
         automation: 'Automatisering',
         weldbooks: 'WeldBooks',
+        weldpanel: 'WeldPanel',
         settings: 'Instellingen',
       },
       entities: {
@@ -2872,6 +2873,10 @@ export const settings = {
         accountingEntities: {
           name: 'Boekhoudentiteiten',
           description: 'Juridische entiteiten en boeken',
+        },
+        panelAnalytics: {
+          name: 'WeldPanel-analyse',
+          description: 'Projecten, rapporten, dashboards, cohorten, personen en groepen, en query’s uitvoeren',
         },
         auditLogs: {
           name: 'Auditlogboek',

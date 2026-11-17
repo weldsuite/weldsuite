@@ -42,6 +42,8 @@ vi.mock('@/hooks/queries/use-weldpanel-queries', () => ({
   useAddWeldPanelDashboardTile: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
+vi.mock('@/hooks/queries/use-weldpanel-analysis-queries', async () => (await import('../explore-test-mocks')).analysisHooksMock());
+
 Element.prototype.hasPointerCapture ??= () => false;
 Element.prototype.setPointerCapture ??= () => undefined;
 Element.prototype.releasePointerCapture ??= () => undefined;

@@ -73,6 +73,7 @@ describe('isWorkspaceScopedPath', () => {
     '/invite',
     '/invite/accept',
     '/w9/token',
+    '/share/panel/wpsh_token',
     '/w/acme/weldcrm',
     '/preview/weldcrm',
     '/welcome',

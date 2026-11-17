@@ -1,17 +1,22 @@
 /**
  * Install tab: whether the snippet works yet, and the snippets to paste.
  * Everyone who can read the project sees it, token included: the token is
- * public and can only send data.
+ * public and can only send data. Below them: a custom collector domain
+ * (`panel_projects:manage`, Global only), reverse-proxy recipes, the SDK
+ * options and the React Native SDK.
  */
 
 import { useCan } from '@weldsuite/permissions/react';
 import { Skeleton } from '@weldsuite/ui/components/skeleton';
 import type { PanelProjectDto } from '@weldsuite/app-api-client/schemas/weldpanel';
 import { useWeldPanelInstall } from '@/hooks/queries/use-weldpanel-queries';
+import { isFeatureAvailable } from '@/lib/edition';
 import { useI18n } from '@/lib/i18n/provider';
 import { CopyBlock } from '../components/copy-block';
 import { InstallStatus } from '../components/install-status';
 import { serverHttpSnippet, serverSdkSnippet } from '../lib/server-snippets';
+import { DomainsSection } from './domains-section';
+import { ProxySection, ReactNativeSection, SdkOptionsSection } from './install-extras';
 
 export function InstallTab({ project }: Readonly<{ project: PanelProjectDto }>) {
   const { t } = useI18n();
@@ -47,6 +52,16 @@ export function InstallTab({ project }: Readonly<{ project: PanelProjectDto }>) 
             </>
           )}
         </div>
+      )}
+
+      {/* Custom domains live in Global's Cloudflare for SaaS zone (not in the Kubernetes editions). */}
+      {canManage && isFeatureAvailable('panel-analytics') && <DomainsSection projectId={project.id} />}
+      {current && (
+        <>
+          <ProxySection scriptSnippet={current.scriptSnippet} collectorUrl={current.collectorUrl} />
+          <SdkOptionsSection />
+          <ReactNativeSection token={current.token} collectorUrl={current.collectorUrl} />
+        </>
       )}
     </div>
   );

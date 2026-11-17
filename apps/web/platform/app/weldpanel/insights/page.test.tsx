@@ -47,6 +47,8 @@ vi.mock('@/hooks/queries/use-weldpanel-queries', () => ({
   useAddWeldPanelDashboardTile: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
+vi.mock('@/hooks/queries/use-weldpanel-analysis-queries', async () => (await import('../explore-test-mocks')).analysisHooksMock());
+
 // Radix Select reads pointer capture, which jsdom lacks.
 Element.prototype.hasPointerCapture ??= () => false;
 Element.prototype.setPointerCapture ??= () => undefined;
@@ -190,6 +192,52 @@ describe('Insights', () => {
     await userEvent.click(within(dialog).getByRole('button', { name: en.weldpanel.analytics.save.saveReport }));
     expect(await screen.findByText(en.weldpanel.analytics.save.nameRequired)).toBeTruthy();
     expect(state.create).not.toHaveBeenCalled();
+  });
+
+  it('checks a formula as it is typed and runs it once it parses', async () => {
+    const tf = en.weldpanel.explore.insights.formulas;
+    render(<InsightsPage />);
+    await userEvent.click(screen.getByRole('button', { name: tf.add }));
+    const input = screen.getByLabelText(tf.expression.replace('{n}', '1'));
+    await userEvent.type(input, 'A / B');
+    // The spec has one series: B does not exist.
+    expect(input.getAttribute('aria-invalid')).toBe('true');
+    expect(lastCall().options).toMatchObject({ enabled: false });
+    await userEvent.clear(input);
+    await userEvent.type(input, 'A * 100');
+    expect(lastCall().options).toMatchObject({ enabled: true });
+    expect(lastSpec().formulas).toEqual([{ expression: 'A * 100' }]);
+    await userEvent.click(screen.getByRole('switch', { name: tf.only }));
+    expect(lastSpec().formulaOnly).toBe(true);
+  });
+
+  it('asks for cumulative results only when drawn cumulatively', async () => {
+    render(<InsightsPage />);
+    expect(lastSpec().display).toBeUndefined();
+    await userEvent.click(screen.getByRole('radio', { name: en.weldpanel.explore.insights.chartTypes.cumulative }));
+    expect(lastSpec().display).toBe('cumulative');
+    await userEvent.click(screen.getByRole('radio', { name: en.weldpanel.explore.insights.chartTypes.area }));
+    expect(lastSpec().display).toBeUndefined();
+  });
+
+  it('breaks down by up to three properties', async () => {
+    const tb = en.weldpanel.explore.breakdown;
+    render(<InsightsPage />);
+    await userEvent.click(screen.getByRole('button', { name: tb.add }));
+    expect(lastSpec().breakdowns).toEqual([{ source: 'column', field: 'country', limit: 10 }]);
+    await userEvent.click(screen.getByRole('button', { name: tb.addAnother }));
+    await userEvent.click(screen.getByRole('button', { name: tb.addAnother }));
+    expect(lastSpec().breakdowns).toHaveLength(3);
+    expect(screen.queryByRole('button', { name: tb.addAnother })).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: tb.remove.replace('{n}', '2') }));
+    expect(lastSpec().breakdowns).toHaveLength(2);
+    expect(lastSpec().breakdown).toBeUndefined();
+  });
+
+  it('opens "explain this change" for a counting series', async () => {
+    render(<InsightsPage />);
+    await userEvent.click(screen.getByRole('button', { name: en.weldpanel.explore.explain.button }));
+    expect(await screen.findByText(en.weldpanel.explore.explain.title)).toBeTruthy();
   });
 
   describe('opened from a saved report', () => {

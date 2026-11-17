@@ -142,6 +142,8 @@ export function makeDashboard(overrides: Partial<PanelDashboardDetailDto> = {}):
     description: null,
     ownerUserId: 'user_1',
     visibility: 'private',
+    filters: null,
+    template: null,
     createdAt: '2026-11-01T09:00:00.000Z',
     updatedAt: '2026-11-02T09:00:00.000Z',
     tiles: [],

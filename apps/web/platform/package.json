@@ -46,6 +46,7 @@
     "@weldsuite/forms-engine": "workspace:*",
     "@weldsuite/forms-renderer": "workspace:*",
     "@weldsuite/i18n": "workspace:*",
+    "@weldsuite/panel-domain": "workspace:*",
     "@weldsuite/payroll-domain": "workspace:*",
     "@weldsuite/permissions": "workspace:*",
     "@weldsuite/realtime": "workspace:*",

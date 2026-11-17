@@ -2654,6 +2654,7 @@ export const settings = {
         host: 'Host',
         automation: 'Automation',
         weldbooks: 'WeldBooks',
+        weldpanel: 'WeldPanel',
         settings: 'Settings',
       },
       entities: {
@@ -2876,6 +2877,10 @@ export const settings = {
         accountingEntities: {
           name: 'Accounting Entities',
           description: 'Legal entities and books',
+        },
+        panelAnalytics: {
+          name: 'WeldPanel analytics',
+          description: 'Projects, reports, dashboards, cohorts, people and groups, and running queries',
         },
         auditLogs: {
           name: 'Audit log',

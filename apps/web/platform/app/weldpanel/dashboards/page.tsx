@@ -14,6 +14,7 @@ import { Link, useRouter } from '@/lib/router';
 import { AnalyticsPage } from '../components/analytics-page';
 import { NameDialog } from '../components/name-dialog';
 import { formatDate } from '../lib/format';
+import { NewDashboardDialog } from './new-dashboard-dialog';
 
 function DashboardsList({ projectId, creating, onCreatingChange }: Readonly<{ projectId: string; creating: boolean; onCreatingChange: (open: boolean) => void }>) {
   const { t, language } = useI18n();
@@ -23,6 +24,8 @@ function DashboardsList({ projectId, creating, onCreatingChange }: Readonly<{ pr
   const canCreate = useCan('panel_reports:create');
   const { data: dashboards, isLoading, isError, refetch } = useWeldPanelDashboards({ projectId });
   const create = useCreateWeldPanelDashboard();
+  // "New dashboard" offers the templates first; "Empty dashboard" there opens the name form.
+  const [blank, setBlank] = useState(false);
 
   if (isError) return <ErrorState message={td.loadFailed} onRetry={() => void refetch()} retryLabel={t.weldpanel.retry} />;
 
@@ -73,9 +76,10 @@ function DashboardsList({ projectId, creating, onCreatingChange }: Readonly<{ pr
         </ul>
       )}
 
+      <NewDashboardDialog open={creating} onOpenChange={onCreatingChange} projectId={projectId} onBlank={() => setBlank(true)} />
       <NameDialog
-        open={creating}
-        onOpenChange={onCreatingChange}
+        open={blank}
+        onOpenChange={setBlank}
         title={td.createTitle}
         description={td.createDescription}
         submitLabel={tc.create}
@@ -91,7 +95,7 @@ function DashboardsList({ projectId, creating, onCreatingChange }: Readonly<{ pr
               visibility: values.visibility,
             });
             toast.success(td.created);
-            onCreatingChange(false);
+            setBlank(false);
             router.push(`/weldpanel/dashboards/${dashboard.id}`);
           } catch {
             toast.error(td.createFailed);
