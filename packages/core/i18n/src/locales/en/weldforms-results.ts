@@ -464,7 +464,10 @@ export const weldformsResults = {
     noAccessTitle: 'You cannot change integrations',
     noAccessDescription: 'You need permission to edit this form to set up integrations.',
     enabled: 'Enabled',
-    notSetUp: 'Not set up',
+    statusOn: 'On',
+    statusOff: 'Off',
+    statusFailed: 'Last run failed',
+    categoryDevelopers: 'Developers',
     setUp: 'Set up',
     save: 'Save',
     saved: 'Integration saved',
@@ -499,6 +502,7 @@ export const weldformsResults = {
 
     crm: {
       title: 'WeldCRM',
+      creates: 'Person or lead',
       description: 'Create or update a person or a lead from the answers.',
       actionPerson: 'create people',
       target: 'Create or update',
@@ -550,6 +554,7 @@ export const weldformsResults = {
 
     desk: {
       title: 'WeldDesk',
+      creates: 'Ticket',
       description: 'Open a ticket for every response.',
       actionPerson: 'open tickets',
       inbox: 'Inbox',
@@ -566,6 +571,7 @@ export const weldformsResults = {
 
     flow: {
       title: 'WeldFlow',
+      creates: 'Task',
       description: 'Create a task for every response.',
       actionPerson: 'create tasks',
       project: 'Project',
@@ -582,12 +588,14 @@ export const weldformsResults = {
 
     connect: {
       title: 'WeldConnect',
+      creates: 'Workflow',
       description:
         'Build a workflow with the trigger "When a form is submitted" to post answers to chat, send email, update records and more.',
       open: 'Open WeldConnect',
     },
     webhooks: {
       title: 'Webhooks',
+      creates: 'Your own systems',
       description: 'Send every response to your own systems with a workspace webhook for form response events.',
       open: 'Open webhooks',
     },

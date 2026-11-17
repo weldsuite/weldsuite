@@ -1,19 +1,28 @@
 /**
- * The folder list of the home page: all forms, every folder with its form
- * count, and create, rename and delete.
+ * The folder picker in the home page's toolbar: all forms, every folder with
+ * its form count and the forms outside a folder, plus create, and rename and
+ * delete for the folder picked.
  */
 
 import { useState } from 'react';
-import { Folder, FolderPlus, MoreHorizontal, Pencil, Trash2, ClipboardList } from 'lucide-react';
+import { ChevronDown, FolderPlus, Pencil, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCan } from '@weldsuite/permissions/react';
 import type { FormFolder } from '@weldsuite/app-api-client/schemas/weldforms';
 import { Button } from '@weldsuite/ui/components/button';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@weldsuite/ui/components/dropdown-menu';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@weldsuite/ui/components/dropdown-menu';
+import { FilterButton } from '@weldsuite/ui/components/filter-button';
 import { Input } from '@weldsuite/ui/components/input';
-import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
 import { useCreateFormFolder, useDeleteFormFolder, useUpdateFormFolder } from '@/hooks/queries/use-weldforms-queries';
 
@@ -28,7 +37,7 @@ interface Props {
   totalCount: number | null;
 }
 
-export function FolderRail({ folders, selected, onSelect, totalCount }: Readonly<Props>) {
+export function FolderMenu({ folders, selected, onSelect, totalCount }: Readonly<Props>) {
   const { t } = useI18n();
   const tf = t.weldforms.folders;
   const canCreate = useCan('forms:create');
@@ -38,6 +47,11 @@ export function FolderRail({ folders, selected, onSelect, totalCount }: Readonly
   const [dialog, setDialog] = useState<{ mode: 'create' } | { mode: 'rename'; folder: FormFolder } | null>(null);
   const [name, setName] = useState('');
   const [deleting, setDeleting] = useState<FormFolder | null>(null);
+
+  const current = folders.find((folder) => folder.id === selected) ?? null;
+  let label = tf.all;
+  if (current) label = current.name;
+  else if (selected === NO_FOLDER) label = tf.none;
 
   function open(next: typeof dialog) {
     setDialog(next);
@@ -60,63 +74,54 @@ export function FolderRail({ folders, selected, onSelect, totalCount }: Readonly
     }
   }
 
-  const row = (id: string, label: string, Icon: typeof Folder, count: number | null, menu?: React.ReactNode) => (
-    <li key={id} className="group flex items-center">
-      <button
-        type="button"
-        onClick={() => onSelect(id)}
-        aria-current={selected === id ? 'true' : undefined}
-        className={cn('flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm', selected === id ? 'bg-accent font-medium' : 'hover:bg-accent/60')}
-      >
-        <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-        <span className="min-w-0 flex-1 truncate">{label}</span>
-        {count !== null && <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{count}</span>}
-      </button>
-      {menu}
-    </li>
-  );
+  const count = (value: number | null) => value !== null && <span className="ml-auto pl-4 text-xs tabular-nums text-muted-foreground">{value}</span>;
 
   return (
-    <nav aria-label={tf.title} className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center justify-between px-3 py-2">
-        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{tf.title}</span>
-        {canCreate && (
-          <Button type="button" variant="ghost" size="icon-xs" onClick={() => open({ mode: 'create' })} aria-label={tf.new}>
-            <FolderPlus />
-          </Button>
-        )}
-      </div>
-      <ul className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-2 pb-2">
-        {row(ALL_FOLDERS, tf.all, ClipboardList, totalCount)}
-        {folders.map((folder) =>
-          row(
-            folder.id,
-            folder.name,
-            Folder,
-            folder.formCount,
-            canCreate && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon-xs" className="opacity-0 focus-visible:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100" aria-label={t.common.actions.openMenu}>
-                    <MoreHorizontal />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onSelect={() => open({ mode: 'rename', folder })}>
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <FilterButton aria-label={`${tf.title}: ${label}`} className="max-w-56 gap-1.5">
+            <span className="truncate">{label}</span>
+            <ChevronDown className="size-3.5 shrink-0" aria-hidden />
+          </FilterButton>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="min-w-56">
+          <DropdownMenuRadioGroup value={selected} onValueChange={onSelect}>
+            <DropdownMenuRadioItem value={ALL_FOLDERS}>
+              {tf.all}
+              {count(totalCount)}
+            </DropdownMenuRadioItem>
+            {folders.map((folder) => (
+              <DropdownMenuRadioItem key={folder.id} value={folder.id}>
+                <span className="truncate">{folder.name}</span>
+                {count(folder.formCount)}
+              </DropdownMenuRadioItem>
+            ))}
+            <DropdownMenuRadioItem value={NO_FOLDER}>{tf.none}</DropdownMenuRadioItem>
+          </DropdownMenuRadioGroup>
+          {canCreate && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => open({ mode: 'create' })}>
+                <FolderPlus className="size-4" />
+                {tf.new}
+              </DropdownMenuItem>
+              {current && (
+                <>
+                  <DropdownMenuItem onSelect={() => open({ mode: 'rename', folder: current })}>
                     <Pencil className="size-4" />
-                    {tf.rename}
+                    {tf.renameFolder}
                   </DropdownMenuItem>
-                  <DropdownMenuItem variant="destructive" onSelect={() => setDeleting(folder)}>
+                  <DropdownMenuItem variant="destructive" onSelect={() => setDeleting(current)}>
                     <Trash2 className="size-4" />
-                    {t.common.actions.delete}
+                    {tf.deleteFolder}
                   </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ),
-          ),
-        )}
-        {row(NO_FOLDER, tf.none, Folder, null)}
-      </ul>
+                </>
+              )}
+            </>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       <Dialog open={dialog !== null} onOpenChange={(o) => !o && setDialog(null)}>
         <DialogContent className="sm:max-w-sm">
@@ -163,6 +168,6 @@ export function FolderRail({ folders, selected, onSelect, totalCount }: Readonly
           }
         }}
       />
-    </nav>
+    </>
   );
 }

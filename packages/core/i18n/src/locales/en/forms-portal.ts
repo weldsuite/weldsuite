@@ -132,7 +132,6 @@ export const formsPortal = {
     submit: 'Submit',
     back: 'Back',
     start: 'Start',
-    pressEnter: 'press Enter',
     shiftEnterHint: 'Shift + Enter to make a line break',
     typeAnswer: 'Type your answer here...',
     other: 'Other',
@@ -196,7 +195,6 @@ export const formsPortal = {
     noAnswer: 'No answer',
     redirecting: 'Taking you on...',
     previewRedirect: 'Respondents are sent to {url}',
-    previewBadge: 'Preview',
     errors: {
       required: 'This question needs an answer',
       invalid: 'That answer is not valid',

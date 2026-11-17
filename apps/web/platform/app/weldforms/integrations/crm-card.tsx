@@ -5,7 +5,7 @@
  */
 
 import { useMemo, useState } from 'react';
-import { Contact, Plus, X } from 'lucide-react';
+import { Plus, X } from 'lucide-react';
 import { partsOf, type FieldBlock } from '@weldsuite/forms-engine';
 import {
   crmIntegrationConfigSchema,
@@ -39,7 +39,7 @@ function parseConfig(integration: FormIntegration | null): CrmIntegrationConfig 
   return parsed.success ? parsed.data : crmIntegrationConfigSchema.parse({ emailFieldId: '' });
 }
 
-export function CrmCard({ form, integration }: Readonly<{ form: FormDetail; integration: FormIntegration | null }>) {
+export function CrmCard({ form, integration, onBack }: Readonly<{ form: FormDetail; integration: FormIntegration | null; onBack: () => void }>) {
   const { t } = useI18n();
   const ti = t.weldformsResults.integrations;
   const tc = ti.crm;
@@ -68,7 +68,8 @@ export function CrmCard({ form, integration }: Readonly<{ form: FormDetail; inte
 
   return (
     <IntegrationCard
-      icon={Contact}
+      appCode="weldcrm"
+      onBack={onBack}
       title={tc.title}
       description={tc.description}
       removeAction={tc.actionPerson}

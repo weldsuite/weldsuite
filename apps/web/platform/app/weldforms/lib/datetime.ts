@@ -1,24 +1,21 @@
-/** `<input type="datetime-local">` values and the API's ISO timestamps (with offset). */
+/** The opening and closing times: the API's ISO timestamps (with offset) and the `Date` a picker holds. */
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
-/** ISO timestamp to the local `YYYY-MM-DDTHH:mm` an input shows; '' for null or garbage. */
-export function isoToLocalInput(iso: string | null): string {
-  if (!iso) return '';
+/** ISO timestamp to a `Date`; undefined for null or garbage. */
+export function isoToDate(iso: string | null): Date | undefined {
+  if (!iso) return undefined;
   const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return '';
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return Number.isNaN(date.getTime()) ? undefined : date;
 }
 
-/** The input's local time to an ISO timestamp with the local offset; null when empty or invalid. */
-export function localInputToIso(value: string): string | null {
-  if (value === '') return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
+/** A local time to an ISO timestamp with the local offset, to the minute; null when empty or invalid. */
+export function dateToIso(date: Date | undefined): string | null {
+  if (!date || Number.isNaN(date.getTime())) return null;
   const offset = -date.getTimezoneOffset();
   const sign = offset >= 0 ? '+' : '-';
   const abs = Math.abs(offset);
-  return `${isoToLocalInput(date.toISOString().replace('Z', '+00:00'))}:00${sign}${pad(Math.floor(abs / 60))}:${pad(abs % 60)}`;
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:00${sign}${pad(Math.floor(abs / 60))}:${pad(abs % 60)}`;
 }
 
 /** Whether a form would close before (or as) it opens, so it could never take a response. */

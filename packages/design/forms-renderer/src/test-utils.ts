@@ -7,7 +7,6 @@ export const TEST_LABELS: FormRendererLabels = {
   submit: 'Submit',
   back: 'Back',
   start: 'Start',
-  pressEnter: 'press Enter',
   shiftEnterHint: 'Shift + Enter for a line break',
   typeAnswer: 'Type your answer here',
   other: 'Other',
@@ -71,7 +70,6 @@ export const TEST_LABELS: FormRendererLabels = {
   noAnswer: 'No answer',
   redirecting: 'Redirecting',
   previewRedirect: 'Redirects to {url}',
-  previewBadge: 'Preview',
   errors: {
     required: 'This field is required',
     invalid: 'Invalid answer',

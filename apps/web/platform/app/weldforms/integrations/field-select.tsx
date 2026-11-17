@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { fieldsOf, type FieldBlock, type FieldType, type FormDefinition } from '@weldsuite/forms-engine';
+import { InfoTooltip } from '@weldsuite/ui/components/info-tooltip';
 import { Label } from '@weldsuite/ui/components/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { useI18n } from '@/lib/i18n/provider';
@@ -12,7 +13,7 @@ export function fieldsOfTypes(definition: Pick<FormDefinition, 'blocks'>, types?
   return types ? all.filter((field) => types.includes(field.type)) : all;
 }
 
-/** A picker for one question of the form, optionally with an empty choice. */
+/** A picker for one question of the form, optionally with an empty choice; its hint sits behind an info icon by the label. */
 export function FieldSelect({
   id,
   label,
@@ -39,7 +40,10 @@ export function FieldSelect({
   const fields = useMemo(() => fieldsOfTypes(definition, types), [definition, types]);
   return (
     <div className="space-y-1.5">
-      <Label htmlFor={id}>{label}</Label>
+      <div className="flex items-center gap-1.5">
+        <Label htmlFor={id}>{label}</Label>
+        {hint && <InfoTooltip content={hint} iconClassName="size-3.5" />}
+      </div>
       <Select value={value || (noneLabel ? NONE : undefined)} onValueChange={(next) => onChange(next === NONE ? undefined : next)}>
         <SelectTrigger id={id}>
           <SelectValue placeholder={placeholder ?? t.weldformsResults.integrations.chooseField} />
@@ -53,7 +57,6 @@ export function FieldSelect({
           ))}
         </SelectContent>
       </Select>
-      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
       {fields.length === 0 && <p className="text-xs text-muted-foreground">{t.weldformsResults.integrations.noFields}</p>}
     </div>
   );
