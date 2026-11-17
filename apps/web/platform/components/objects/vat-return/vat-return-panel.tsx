@@ -181,6 +181,21 @@ function VatFileButton({
   );
 }
 
+/** The menu item that recalculates an open return's boxes from the ledger. */
+function VatRecalculateItem({
+  recalculating,
+  onRecalculate,
+  t,
+}: Readonly<{ recalculating: boolean; onRecalculate: () => void; t: Translations }>) {
+  const tv = t.accounting.vat;
+  return (
+    <DropdownMenuItem onClick={onRecalculate} disabled={recalculating}>
+      <RefreshCw />
+      {recalculating ? tv.recalculating : tv.recalculate}
+    </DropdownMenuItem>
+  );
+}
+
 function VatReturnActions({
   vr,
   filing,
@@ -256,10 +271,7 @@ function VatReturnActions({
             </DropdownMenuItem>
           ) : null}
           {canRecalculateVatReturn(vr) && can('reports:create') ? (
-            <DropdownMenuItem onClick={onRecalculate} disabled={recalculating}>
-              <RefreshCw />
-              {recalculating ? tv.recalculating : tv.recalculate}
-            </DropdownMenuItem>
+            <VatRecalculateItem recalculating={recalculating} onRecalculate={onRecalculate} t={t} />
           ) : null}
           <DropdownMenuItem onClick={() => void handleXmlDownload()}>
             <Download />

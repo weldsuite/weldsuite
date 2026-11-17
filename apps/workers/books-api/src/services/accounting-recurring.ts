@@ -96,8 +96,11 @@ class RecurringEndedError extends PostingError {
   }
 }
 
+/** A date as a schedule row or a request body may carry it. */
+type DateInput = Date | string | null | undefined;
+
 /** The calendar day of a date, `YYYY-MM-DD` (UTC), or null for none or an invalid one. */
-function dayOf(value: Date | string | null | undefined): string | null {
+function dayOf(value: DateInput): string | null {
   if (!value) return null;
   const date = value instanceof Date ? value : new Date(value);
   return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 10);
@@ -107,7 +110,7 @@ function dayOf(value: Date | string | null | undefined): string | null {
  * Why a schedule's dates can not be saved: an end date before the next issue
  * date would end the schedule before its first invoice. Null when they fit.
  */
-export function recurringDatesError(nextIssueDate: Date | string | null | undefined, endDate: Date | string | null | undefined): string | null {
+export function recurringDatesError(nextIssueDate: DateInput, endDate: DateInput): string | null {
   const next = dayOf(nextIssueDate);
   const end = dayOf(endDate);
   if (!next || !end || end >= next) return null;

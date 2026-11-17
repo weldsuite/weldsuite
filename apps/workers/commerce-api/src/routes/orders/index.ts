@@ -64,6 +64,11 @@ function taxErrorResponse(c: Context, err: OrderSalesTaxError) {
   return c.json({ error: { code: err.code, message: err.message, details: err.details } }, err.status);
 }
 
+/** The fields a PATCH body carries; a key left `undefined` is not part of the update. */
+function sentFields(data: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(data).filter(([, value]) => value !== undefined));
+}
+
 /** What a stored order holds of its tax after an application, for the response. */
 function appliedOrder(id: string, application: OrderTaxApplication) {
   const { taxLines, taxTotal, total } = application.order;
@@ -295,8 +300,7 @@ app.patch('/:id', requirePermission('orders:update'), zValidator('json', updateO
   try {
     const [existing] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
     if (!existing) return error.notFound(c, 'Order', id);
-    const update: Record<string, any> = { updatedAt: new Date() };
-    for (const [k, v] of Object.entries(data)) if (v !== undefined) update[k] = v;
+    const update: Record<string, any> = { updatedAt: new Date(), ...sentFields(data) };
 
     // Tax first, on the order as it will be after this write: an engine failure refuses the update.
     let tax: OrderSalesTaxResult | undefined;

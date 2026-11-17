@@ -53,6 +53,22 @@ function editedNameProblem(role: RoleDetail | null, name: string, roleId: string
   return roleNameProblem(name, [], roleId);
 }
 
+/** "3 members · 12 permissions · 4 apps", with the singular wording for a count of one. */
+function roleSummary(
+  t: ReturnType<typeof useTranslations>,
+  memberCount: number,
+  permissionCount: number,
+  appCount: number,
+): string {
+  const counted = (count: number, oneKey: string, otherKey: string) =>
+    count === 1 ? t(oneKey) : t(otherKey, { count });
+  return [
+    counted(memberCount, 'sweep.settings.roleDetail.membersOne', 'sweep.settings.roleDetail.membersOther'),
+    counted(permissionCount, 'sweep.settings.roleDetail.permissionsOne', 'sweep.settings.roleDetail.permissionsOther'),
+    counted(appCount, 'sweep.settings.roleDetail.appsOne', 'sweep.settings.roleDetail.appsOther'),
+  ].join(' · ');
+}
+
 // ---------------------------------------------------------------------------
 // Page component
 // ---------------------------------------------------------------------------
@@ -364,17 +380,7 @@ export default function RoleDetailPage() {
             )}
           </div>
           <p className="text-sm text-muted-foreground">
-            {[
-              role.memberCount === 1
-                ? t('sweep.settings.roleDetail.membersOne')
-                : t('sweep.settings.roleDetail.membersOther', { count: role.memberCount }),
-              grantedPermissions.size === 1
-                ? t('sweep.settings.roleDetail.permissionsOne')
-                : t('sweep.settings.roleDetail.permissionsOther', { count: grantedPermissions.size }),
-              grantedApps.size === 1
-                ? t('sweep.settings.roleDetail.appsOne')
-                : t('sweep.settings.roleDetail.appsOther', { count: grantedApps.size }),
-            ].join(' · ')}
+            {roleSummary(t, role.memberCount, grantedPermissions.size, grantedApps.size)}
           </p>
         </div>
         {editable && (

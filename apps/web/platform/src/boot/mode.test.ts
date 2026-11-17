@@ -20,7 +20,7 @@ describe('withoutGoogleFonts', () => {
     expect(stripped).not.toMatch(/fonts\.(googleapis|gstatic)\.com/);
     expect(stripped).toContain('<link rel="icon" href="/favicon.ico" />');
     expect(stripped).toContain('<script src="/__ENV.js"></script>');
-    expect(stripped.split('\n').length).toBe(indexHtml.split('\n').length - 3);
+    expect(stripped.split('\n')).toHaveLength(indexHtml.split('\n').length - 3);
   });
 
   it('leaves a page without Google Fonts alone', () => {

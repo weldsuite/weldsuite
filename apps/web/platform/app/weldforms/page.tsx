@@ -62,6 +62,19 @@ function folderForNewForm(folder: string): string | null {
   return folder === ALL_FOLDERS || folder === NO_FOLDER ? null : folder;
 }
 
+/**
+ * The empty list's title and description. An empty folder among other forms is
+ * not "no forms yet"; the AI wording only where AI is offered.
+ */
+function emptyListText(
+  th: ReturnType<typeof useI18n>['t']['weldforms']['home'],
+  folder: string,
+  aiAvailable: boolean,
+): { title: string; description: string } {
+  if (folder !== ALL_FOLDERS) return { title: th.folderEmptyTitle, description: th.folderEmptyDescription };
+  return { title: th.emptyTitle, description: aiAvailable ? th.emptyDescription : th.emptyDescriptionNoAi };
+}
+
 export default function WeldFormsHome() {
   const { t } = useI18n();
   const th = t.weldforms.home;
@@ -252,10 +265,7 @@ export default function WeldFormsHome() {
               createButton={canCreate ? { label: th.newForm, onClick: createForm } : undefined}
               emptyState={{
                 icon: <FormsIllustration />,
-                // An empty folder among other forms is not "no forms yet"; AI only where it is offered.
-                ...(folder === ALL_FOLDERS
-                  ? { title: th.emptyTitle, description: aiAvailable ? th.emptyDescription : th.emptyDescriptionNoAi }
-                  : { title: th.folderEmptyTitle, description: th.folderEmptyDescription }),
+                ...emptyListText(th, folder, aiAvailable),
                 action: canCreate ? { label: th.newForm, onClick: createForm } : undefined,
               }}
               noResultsState={

@@ -242,6 +242,25 @@ async function findFirstOpenStage(
 }
 
 /**
+ * A move between two open stages: the probability follows the deal unless it
+ * was set by hand. One that is unset, or still equals the stage the deal
+ * leaves, takes the new stage's (TASK-1462). A deal that was closed is
+ * reopened by `syncStatusWithStage` itself, so it is left alone here.
+ */
+function followOpenStageProbability(
+  existing: OpportunityRow,
+  previousStage: PipelineStageFlags | undefined,
+  targetStage: PipelineStageFlags,
+  update: Record<string, unknown>,
+  wasClosed: boolean,
+): void {
+  if (wasClosed || update.probability !== undefined || targetStage.probability === null) return;
+  const followsStage =
+    existing.probability == null || !previousStage || previousStage.probability === existing.probability;
+  if (followsStage) update.probability = targetStage.probability;
+}
+
+/**
  * Keep `status` / `actualCloseDate` / `probability` in step with the stage a
  * deal sits in, in both directions (TASK-919):
  *  - Dragging the deal onto a stage flagged isWon/isLost (an explicit
@@ -291,11 +310,8 @@ export async function syncStatusWithStage(
         if (update.probability === undefined && targetStage.probability !== null) {
           update.probability = targetStage.probability;
         }
-      } else if (!wasClosed && update.probability === undefined && targetStage.probability !== null) {
-        const followsStage =
-          existing.probability == null || !previousStage || previousStage.probability === existing.probability;
-        if (followsStage) update.probability = targetStage.probability;
       }
+      followOpenStageProbability(existing, previousStage, targetStage, update, wasClosed);
     }
     return;
   }

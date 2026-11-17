@@ -105,7 +105,9 @@ const INPUT_TYPE_BY_ROW_TYPE: Record<PropertyRowType, string> = {
  */
 export function isPhoneNumber(value: string): boolean {
   const digits = value.replace(/\D/g, '').length;
-  return digits >= 3 && /^\+?[\d\s().\-/]+(?:\s*(?:x|ext\.?)\s*\d{1,6})?$/i.test(value.trim());
+  // The separators already take spaces, so the extension needs no leading
+  // `\s*` of its own; one would let the two overlap and backtrack quadratically.
+  return digits >= 3 && /^\+?[\d\s().\-/]+(?:(?:x|ext\.?)\s*\d{1,6})?$/i.test(value.trim());
 }
 
 const LINK_CLASS = 'text-primary hover:underline inline-block min-w-0 max-w-full break-words [overflow-wrap:anywhere]';

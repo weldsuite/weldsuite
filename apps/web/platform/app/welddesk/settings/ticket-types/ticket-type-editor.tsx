@@ -171,6 +171,11 @@ function removeStateAt(
   });
 }
 
+/** The first state group with a state that has no name yet, if any. */
+function groupWithUnnamedState(groups: TicketTypeStateGroup[]): TicketTypeStateGroup | undefined {
+  return groups.find((group) => group.states.some((state) => !state.label.trim()));
+}
+
 /** The collapsible section's trigger: a real button, so it takes focus and Enter/Space. */
 const SECTION_TRIGGER_CLASS =
   'block w-full text-left rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
@@ -358,13 +363,10 @@ export function TicketTypeEditor({ open, onOpenChange, editingType, onSave }: Re
       }
     }
 
-    for (const group of states) {
-      for (const state of group.states) {
-        if (!state.label.trim()) {
-          toast.error(t.helpdesk.ticketTypesSettings.allStatesInGroupMustHaveName.replace('{group}', group.groupLabel));
-          return;
-        }
-      }
+    const unnamedStateGroup = groupWithUnnamedState(states);
+    if (unnamedStateGroup) {
+      toast.error(t.helpdesk.ticketTypesSettings.allStatesInGroupMustHaveName.replace('{group}', unnamedStateGroup.groupLabel));
+      return;
     }
 
     const now = new Date().toISOString();

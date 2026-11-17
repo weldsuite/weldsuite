@@ -614,6 +614,19 @@ async function assertEntityFitsPayroll(db: Database, employeeId: string, legalEn
   }
 }
 
+/**
+ * Probation can not end before employment starts. Checked only when the save
+ * touches either date, so older rows stay editable (TASK-1471).
+ */
+function assertProbationOnUpdate(input: EmployeeWriteInput, existing: HrEmployee) {
+  if (input.startDate === undefined && input.probationEndDate === undefined) return;
+  assertDateOrder(
+    input.startDate !== undefined ? input.startDate : existing.startDate,
+    input.probationEndDate !== undefined ? input.probationEndDate : existing.probationEndDate,
+    'Probation',
+  );
+}
+
 export async function updateEmployee(db: Database, id: string, input: EmployeeWriteInput): Promise<HrEmployee> {
   const existing = await requireEmployee(db, id);
   assertDateOrder(
@@ -621,14 +634,7 @@ export async function updateEmployee(db: Database, id: string, input: EmployeeWr
     input.endDate !== undefined ? input.endDate : existing.endDate,
     'Employment',
   );
-  // Only when the save touches either date, so older rows stay editable (TASK-1471).
-  if (input.startDate !== undefined || input.probationEndDate !== undefined) {
-    assertDateOrder(
-      input.startDate !== undefined ? input.startDate : existing.startDate,
-      input.probationEndDate !== undefined ? input.probationEndDate : existing.probationEndDate,
-      'Probation',
-    );
-  }
+  assertProbationOnUpdate(input, existing);
   if (input.email && input.email.toLowerCase() !== existing.email.toLowerCase()) {
     await assertEmailFree(db, input.email, id);
   }

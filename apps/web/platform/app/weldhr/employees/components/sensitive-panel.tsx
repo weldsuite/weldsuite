@@ -99,9 +99,8 @@ function SensitiveView({ data, onEdit }: Readonly<{ data: HrEmployeeSensitive | 
     const amount = data.salaryCurrency
       ? formatMoney(data.salaryAmount, data.salaryCurrency)
       : formatKpiValue(data.salaryAmount, 'number');
-    salary = data.salaryPeriod
-      ? `${amount} / ${t(`weldhr.employees.detail.personalTab.salaryPeriod.${data.salaryPeriod}`)}`
-      : amount;
+    const periodKey = `weldhr.employees.detail.personalTab.salaryPeriod.${data.salaryPeriod}`;
+    salary = data.salaryPeriod ? `${amount} / ${t(periodKey)}` : amount;
   }
   return (
     <div className="space-y-4">

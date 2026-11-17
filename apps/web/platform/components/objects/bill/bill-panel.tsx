@@ -73,13 +73,16 @@ function BillActions({
   bill,
   canEdit,
   onRecordPayment,
+  canDelete,
   onDelete,
 }: Readonly<{
   bill?: BillWithTax;
   canEdit: boolean;
   onRecordPayment?: () => void;
-  /** Asks to delete the draft; undefined when the bill is no draft or bills:delete is missing. */
-  onDelete?: () => void;
+  /** The bill is a draft and bills:delete is granted. */
+  canDelete: boolean;
+  /** Asks to delete the draft. */
+  onDelete: () => void;
 }>) {
   const { t } = useI18n();
   const st = useTranslations();
@@ -124,7 +127,7 @@ function BillActions({
               {st('sweep.weldbooks.records.recordPayment')}
             </DropdownMenuItem>
           ) : null}
-          {onDelete ? (
+          {canDelete ? (
             <>
               <DropdownMenuSeparator />
               <DropdownMenuItem variant="destructive" onClick={onDelete}>
@@ -136,6 +139,49 @@ function BillActions({
         </DropdownMenuContent>
       </DropdownMenu>
     </div>
+  );
+}
+
+/** Confirms and deletes a draft bill; `onDeleted` runs once it is gone. */
+function DeleteDraftBillDialog({
+  bill,
+  open,
+  onOpenChange,
+  onDeleted,
+}: Readonly<{
+  bill?: BillWithTax;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onDeleted: () => void;
+}>) {
+  const { t } = useI18n();
+  const tb = t.accounting.billDetail;
+  const deleteBill = useDeleteBill();
+  if (!bill) return null;
+
+  const removeDraft = async () => {
+    try {
+      await deleteBill.mutateAsync(bill.id);
+    } catch (err) {
+      toast.error(tb.deleteDraftFailed, { description: err instanceof Error ? err.message : undefined });
+      return;
+    }
+    toast.success(tb.draftDeleted);
+    onOpenChange(false);
+    onDeleted();
+  };
+
+  return (
+    <ConfirmDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title={tb.deleteDraftTitle.replace('{number}', bill.billNumber ?? '')}
+      description={tb.deleteDraftDescription}
+      confirmLabel={tb.deleteDraft}
+      cancelLabel={tb.keep}
+      variant="destructive"
+      onConfirm={removeDraft}
+    />
   );
 }
 
@@ -157,20 +203,7 @@ export function BillPanel(props: Readonly<ObjectPanelComponentProps>) {
   const approval = useBillApproval(id);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const canPay = !!bill && can('banking:create') && canRecordBillPayment(bill);
-  const deleteBill = useDeleteBill();
   const [confirmDelete, setConfirmDelete] = useState(false);
-
-  const removeDraft = async () => {
-    try {
-      await deleteBill.mutateAsync(id);
-    } catch (err) {
-      toast.error(tb.deleteDraftFailed, { description: err instanceof Error ? err.message : undefined });
-      return;
-    }
-    toast.success(tb.draftDeleted);
-    setConfirmDelete(false);
-    onClose();
-  };
 
   const shell = useObjectPanelShell({
     ...props,
@@ -213,7 +246,8 @@ export function BillPanel(props: Readonly<ObjectPanelComponentProps>) {
             bill={bill}
             canEdit={isDraft && canUpdate}
             onRecordPayment={canPay ? () => setPaymentOpen(true) : undefined}
-            onDelete={isDraft && can('bills:delete') ? () => setConfirmDelete(true) : undefined}
+            canDelete={isDraft && can('bills:delete')}
+            onDelete={() => setConfirmDelete(true)}
           />
         }
         subheader={
@@ -268,18 +302,7 @@ export function BillPanel(props: Readonly<ObjectPanelComponentProps>) {
       ) : null}
       <ApproveBillDialog approval={approval} />
       <RejectBillDialog approval={approval} />
-      {bill ? (
-        <ConfirmDialog
-          open={confirmDelete}
-          onOpenChange={setConfirmDelete}
-          title={tb.deleteDraftTitle.replace('{number}', bill.billNumber ?? '')}
-          description={tb.deleteDraftDescription}
-          confirmLabel={tb.deleteDraft}
-          cancelLabel={tb.keep}
-          variant="destructive"
-          onConfirm={removeDraft}
-        />
-      ) : null}
+      <DeleteDraftBillDialog bill={bill} open={confirmDelete} onOpenChange={setConfirmDelete} onDeleted={onClose} />
     </>
   );
 }
