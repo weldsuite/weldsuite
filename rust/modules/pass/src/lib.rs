@@ -101,8 +101,9 @@ impl PassState {
             v2: read("WELDPASS_ROOT_KEY_V2"),
         };
         // Every vault and project route answers 500 CRYPTO_ERROR without a
-        // usable key; say why once, at start. The error names no key value.
-        if let Err(error) = root_keys.check() {
+        // usable key; say why once, at start. Wrapping a throwaway vault key
+        // is the check those routes run. The error names no key value.
+        if let Err(error) = envelope::create_vault_key(&root_keys, "startup-check") {
             tracing::error!(
                 %error,
                 "WeldPass has no usable root key: vaults and secrets projects answer CRYPTO_ERROR \
