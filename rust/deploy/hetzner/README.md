@@ -204,7 +204,7 @@ a time.
 ## 5. DNS
 
 Create the records `tofu output dns_records` prints (A and AAAA for `app.`,
-`api.`, `auth.`, `sign.`, `forms.`, `admin.`, `grafana.`, `livekit.`, `turn.`, and `mx.` with
+`api.`, `mcp.`, `auth.`, `sign.`, `forms.`, `admin.`, `grafana.`, `livekit.`, `turn.`, and `mx.` with
 `mx_node_port` → the ingress load balancer) at the DNS provider. cert-manager
 issues certificates once they resolve. (external-dns is not installed: a
 handful of static records doesn't need it.) Media needs no record: LiveKit
@@ -1138,7 +1138,8 @@ Be clear about this before anyone signs a contract:
   WeldSign, WeldPass, the calendar, CRM, Flow, Mail, Chat, Desk, Stash, Ads,
   Social, Data, Commerce, HR, Call (on Telnyx), Host, Meet, Reach, Books,
   Docs, Panel, Sheets and Connect. Also external-api's `/v1` (not yet its
-  mail, custom-object and WeldReach groups), the MCP server at `/mcp`,
+  mail, custom-object and WeldReach groups), the MCP server at
+  `https://mcp.<domain>/mcp`,
   personal-api at `/personal-api` (with `DATABASE_URL_PERSONAL`) and the
   integration workers' webhooks and jobs. Not WeldAgent: there is no AI on
   this edition until there is an EU AI provider (ADR AI-011), and the other

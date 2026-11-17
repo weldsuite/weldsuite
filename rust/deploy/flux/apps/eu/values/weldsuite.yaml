@@ -91,6 +91,12 @@ config:
   # OAuth redirects and webhook registrations. The chart sets PUBLIC_URL and
   # every URL setting that names this host from it.
   publicUrl: https://app.${DOMAIN}
+  # The MCP server on a host of its own, as Global's mcp.weldsuite.org: AI
+  # clients connect to https://mcp.${DOMAIN}/mcp, and its OAuth discovery
+  # documents name that origin. The ingress below sends only the MCP paths
+  # there.
+  mcp:
+    serverUrl: https://mcp.${DOMAIN}
   # AI on Mistral, in the EU (ADR AI-012, weldsuite-documentation/plans/eu-ai-mistral.md):
   # every AI feature runs there unless a workspace admin opts in to a
   # provider outside the EU. Keys in weldsuite-env: MISTRAL_API_KEY and
@@ -186,11 +192,25 @@ ingress:
       paths:
         - path: /
           pathType: Prefix
+    # The MCP server (config.mcp): /mcp and its OAuth discovery documents,
+    # nothing else (any other path on this host is Traefik's 404).
+    - host: mcp.${DOMAIN}
+      paths:
+        - path: /mcp
+          pathType: Prefix
+        - path: /.well-known/oauth-protected-resource
+          pathType: Prefix
+        - path: /.well-known/oauth-authorization-server
+          pathType: Prefix
   tls:
     - secretName: weldsuite-api-tls
       hosts:
         - app.${DOMAIN}
         - api.${DOMAIN}
+    # Its own certificate, so app. and api. never wait on mcp.'s DNS.
+    - secretName: weldsuite-mcp-tls
+      hosts:
+        - mcp.${DOMAIN}
 
 # The WeldSign signer portal at sign.${DOMAIN} (ADR FE-017). Its image is the
 # `sign-portal` target of rust/Dockerfile, released with the server's.

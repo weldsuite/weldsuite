@@ -21,6 +21,9 @@ spec:
         - https://api.${DOMAIN}/readyz
         - https://auth.${DOMAIN}/debug/healthz
         - https://sign.${DOMAIN}/healthz
+        # The MCP server's host routes only MCP paths, so no /readyz: its
+        # discovery document, served without a token.
+        - https://mcp.${DOMAIN}/.well-known/oauth-protected-resource/mcp
       labels:
         group: platform
 ---

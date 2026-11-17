@@ -3,7 +3,11 @@
 WeldSuite's MCP server (`apps/workers/mcp-server`, `mcp.weldsuite.org` on
 Global) exposes a workspace to AI clients. On the Kubernetes editions it is
 `modules/mcp` (package `weldsuite-mcp`), served by `weldsuite serve` at `/mcp`
-on the edition's own host (one host serves every path, OPS-013).
+(one server serves every path, OPS-013). The EU values give it a host of its
+own, as Global has: AI clients connect to `https://mcp.<domain>/mcp`, the
+origin `config.mcp.serverUrl` sets and the discovery documents name, and
+that host's ingress routes only `/mcp` and the two `/.well-known/oauth-*`
+paths.
 
 ## What the worker is
 
