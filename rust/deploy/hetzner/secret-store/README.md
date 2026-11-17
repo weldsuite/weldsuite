@@ -24,7 +24,7 @@ operator: seed script, bao CLI ─────HTTPS──▶      │           
 
 | From | Gets through Caddy |
 |---|---|
-| `admin_cidrs` | the whole API: writes, tokens, snapshots, unsealing |
+| `admin_cidrs` | the whole API: writes, tokens, snapshots, unsealing; the web UI (`/ui/`) |
 | anywhere else (the cluster) | `GET` a value (`/v1/secret/data/…`), the caller's own token (`/v1/auth/token/lookup-self`), `/v1/sys/health`; everything else is 403 |
 
 OpenBao's policies apply on top (`policies/`): a cluster token reads values
@@ -122,6 +122,26 @@ ExternalSecrets read. By hand, from the server or with the `bao` CLI and
 ```bash
 bao kv get secret/weldsuite/server
 bao kv patch secret/weldsuite/server SOME_KEY=…
+```
+
+## The web UI
+
+OpenBao's own UI, at `https://<hostname>/ui/` from an `admin_cidrs` address
+(anywhere else gets 403). Sign in with the method **Token** and the operator
+token. It does what `bao kv` does under `secret`: browse, add, change and
+delete values, and look at their earlier versions. The store's own settings
+(policies, auth methods, mounts) stay out of its reach, since they take a
+root token ("Root token"). Sign out when done; the UI keeps the token in the
+browser until then.
+
+A store made while the module had `ui = false` (cloud-init wrote
+`openbao.hcl` once) turns it on by hand. The restart seals it, as any does
+("Reboots and unsealing"):
+
+```bash
+ssh root@<hostname>
+sed -i 's/^ui .*/ui            = true/' /etc/openbao/openbao.hcl
+systemctl restart openbao && bao operator unseal && bao operator unseal
 ```
 
 ## Backups
