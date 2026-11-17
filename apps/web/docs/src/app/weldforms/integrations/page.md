@@ -8,6 +8,8 @@ nextjs:
 
 Set up what happens to each completed response on the **Integrations** tab. {% .lead %}
 
+The tab lists the integrations as cards, grouped by category like the App Store. Click a card to open its settings, and use the arrow at the top to go back to the cards. A card shows **On** or **Off** once it is set up, and **Last run failed** when its last run went wrong.
+
 Each integration runs as a separate step after a response is submitted. A step that fails is retried on its own without repeating the others, and the response shows it with a **Retry** button. Steps act as the member who set them up; if that member loses the permission, the step is skipped and the reason is shown on the integration. Use the **test run** to check the field mapping before you publish.
 
 ---

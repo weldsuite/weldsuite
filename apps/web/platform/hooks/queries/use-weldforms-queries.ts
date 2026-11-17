@@ -15,7 +15,7 @@
  * someone is typing.
  */
 
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { isApiError } from '@weldsuite/api-client';
 import { useAppApi } from '@/lib/api/use-app-api';
 import type {
@@ -80,6 +80,9 @@ export function useForms(params: Omit<ListFormsQuery, 'cursor'> = {}) {
     queryFn: ({ pageParam }) => weldforms.list({ ...params, limit: PAGE_SIZE, cursor: pageParam }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => (last.pagination?.hasMore ? (last.pagination.cursor ?? undefined) : undefined),
+    // A new search, filter, sort or folder keeps the rows on screen until its
+    // answer arrives, so the list (and the search box in its toolbar) stays put.
+    placeholderData: keepPreviousData,
   });
   return { ...query, forms: query.data?.pages.flatMap((page) => page.data) ?? [] };
 }

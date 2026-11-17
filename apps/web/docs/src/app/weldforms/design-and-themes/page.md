@@ -30,4 +30,4 @@ A theme belongs to the workspace, so every form that uses it changes when you ed
 
 ## Text in the form
 
-The buttons and hints WeldForms adds itself (Next, Submit, "press Enter", validation messages) appear in the form's language: English or Dutch. Your own questions are shown exactly as you write them, in any language.
+The buttons and messages WeldForms adds itself (Next, Back, Submit, validation messages) appear in the form's language: English or Dutch. Your own questions are shown exactly as you write them, in any language.

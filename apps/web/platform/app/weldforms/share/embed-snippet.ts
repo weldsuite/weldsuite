@@ -45,7 +45,7 @@ export const DEFAULT_EMBED_CONFIG: EmbedConfig = {
   mode: 'inline',
   size: 'medium',
   buttonText: 'Open the form',
-  buttonColor: '#2563eb',
+  buttonColor: '#171717',
   hidden: [],
   autoHeight: true,
   height: 600,

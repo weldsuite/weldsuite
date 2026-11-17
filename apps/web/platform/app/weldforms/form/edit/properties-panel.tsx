@@ -3,8 +3,9 @@
  * welcome screen or an ending.
  */
 
-import { useState } from 'react';
-import { Trash2 } from 'lucide-react';
+import { useState, type ReactNode } from 'react';
+import { useNavigate } from '@tanstack/react-router';
+import { ArrowDown, ArrowUp, Copy, EllipsisVertical, Trash2 } from 'lucide-react';
 import {
   isEndingUrl,
   isFieldBlock,
@@ -14,19 +15,19 @@ import {
   type FormEnding,
   type WelcomeScreen,
   type FieldBlock,
+  type GroupBlock,
 } from '@weldsuite/forms-engine';
 import { Button } from '@weldsuite/ui/components/button';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@weldsuite/ui/components/dropdown-menu';
 import { EmptyText } from '@weldsuite/ui/components/empty-state';
 import { FormField } from '@weldsuite/ui/components/form-field';
 import { Input } from '@weldsuite/ui/components/input';
 import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 import { useI18n } from '@/lib/i18n/provider';
-import { Link } from '@/lib/router';
 import { MediaField } from '../../components/media-fields';
 import { PropSection, ToggleRow } from '../../components/prop-controls';
 import { RecallInput } from '../../components/recall-input';
-import { removeBlock, removeEnding, topLevelIndex, updateBlock, updateEnding, withProperties } from '../../lib/blocks';
-import { selectionAfterRemoval } from '../../lib/blocks';
+import { duplicateBlock, locate, nudgeBlock, removeBlock, removeEnding, selectionAfterRemoval, topLevelIndex, updateBlock, updateEnding, withProperties } from '../../lib/blocks';
 import { useFormEditor } from '../editor-context';
 import { FieldProperties } from './field-properties';
 
@@ -69,13 +70,47 @@ function RefField({ def, id, value, onCommit, disabled, locked }: Readonly<{ def
   );
 }
 
+/**
+ * A selection's settings: a header row with its name and ⋯ menu, level with
+ * the preview's toolbar, then the settings.
+ */
+function PanelLayout({ title, menu, children }: Readonly<{ title: string; menu?: ReactNode; children: ReactNode }>) {
+  const { t } = useI18n();
+  return (
+    <div>
+      <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b bg-background px-4 py-1.5">
+        <h2 className="min-w-0 truncate text-sm font-medium leading-8">{title}</h2>
+        {menu ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon-sm" className="shrink-0" aria-label={`${t.common.actions.openMenu}: ${title}`}>
+                <EllipsisVertical />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">{menu}</DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
+      </div>
+      {children}
+    </div>
+  );
+}
+
 export function PropertiesPanel() {
   const { t } = useI18n();
   const editor = useFormEditor();
   const { definition, selection, canEdit } = editor;
   const disabled = !canEdit;
 
-  if (!selection) return <div className="p-4"><EmptyText>{t.weldforms.properties.nothingSelected}</EmptyText></div>;
+  if (!selection) {
+    return (
+      <PanelLayout title={t.weldforms.editor.paneProperties}>
+        <div className="p-4">
+          <EmptyText>{t.weldforms.properties.nothingSelected}</EmptyText>
+        </div>
+      </PanelLayout>
+    );
+  }
 
   if (selection.kind === 'welcome') return <WelcomeProperties welcome={definition.welcome} disabled={disabled} />;
   if (selection.kind === 'ending') {
@@ -105,9 +140,23 @@ function WelcomeProperties({ welcome, disabled }: Readonly<{ welcome: WelcomeScr
   const editor = useFormEditor();
   if (!welcome) return null;
   const patch = (change: Partial<WelcomeScreen>, key?: string) => editor.editDefinition((d) => (d.welcome ? { ...d, welcome: { ...d.welcome, ...change } } : d), key);
+  const remove = () => {
+    editor.editDefinition((d) => ({ ...d, welcome: null }));
+    editor.select(null);
+  };
   return (
-    <div>
-      <PropSection title={tp.welcomeScreen}>
+    <PanelLayout
+      title={tp.welcomeScreen}
+      menu={
+        disabled ? null : (
+          <DropdownMenuItem variant="destructive" onSelect={remove}>
+            <Trash2 className="size-4" />
+            {tp.removeBlock}
+          </DropdownMenuItem>
+        )
+      }
+    >
+      <PropSection>
         <FormField label={tp.title}>
           <RecallInput value={welcome.title} onChange={(title) => patch({ title }, 'welcome-title')} definition={editor.definition} sourceIndex={0} multiline rows={2} maxLength={1000} disabled={disabled} ariaLabel={tp.title} />
         </FormField>
@@ -119,15 +168,7 @@ function WelcomeProperties({ welcome, disabled }: Readonly<{ welcome: WelcomeScr
         </FormField>
         <MediaField value={welcome.media} onChange={(media) => patch({ media })} disabled={disabled} showPlacement={false} />
       </PropSection>
-      {!disabled && (
-        <PropSection>
-          <Button type="button" variant="outline" size="sm" onClick={() => { editor.editDefinition((d) => ({ ...d, welcome: null })); editor.select(null); }}>
-            <Trash2 className="size-4" />
-            {tp.removeWelcome}
-          </Button>
-        </PropSection>
-      )}
-    </div>
+    </PanelLayout>
   );
 }
 
@@ -139,9 +180,25 @@ function EndingProperties({ ending, disabled }: Readonly<{ ending: FormEnding; d
   const locked = editor.form.status !== 'draft';
   const patch = (change: Partial<FormEnding>, key?: string) => editor.editDefinition((d) => updateEnding(d, ending.id, (e) => ({ ...e, ...change })), key);
 
+  const canRemove = !disabled && def.endings.length > 1;
+  const remove = () => {
+    editor.editDefinition((d) => removeEnding(d, ending.id));
+    editor.select(null);
+  };
+
   return (
-    <div>
-      <PropSection title={tp.ending}>
+    <PanelLayout
+      title={tp.ending}
+      menu={
+        canRemove ? (
+          <DropdownMenuItem variant="destructive" onSelect={remove}>
+            <Trash2 className="size-4" />
+            {tp.removeBlock}
+          </DropdownMenuItem>
+        ) : null
+      }
+    >
+      <PropSection>
         <FormField label={tp.title}>
           <RecallInput value={ending.title} onChange={(title) => patch({ title }, `${ending.id}-title`)} definition={def} sourceIndex={null} multiline rows={2} maxLength={1000} disabled={disabled} ariaLabel={tp.title} />
         </FormField>
@@ -167,23 +224,7 @@ function EndingProperties({ ending, disabled }: Readonly<{ ending: FormEnding; d
           <RecallInput value={ending.redirectUrl ?? ''} onChange={(redirectUrl) => patch({ redirectUrl: redirectUrl || undefined }, `${ending.id}-redirect`)} definition={def} sourceIndex={null} maxLength={2000} placeholder="https://" disabled={disabled} ariaLabel={tp.redirectUrl} />
         </FormField>
       </PropSection>
-      {!disabled && def.endings.length > 1 && (
-        <PropSection>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              editor.editDefinition((d) => removeEnding(d, ending.id));
-              editor.select(null);
-            }}
-          >
-            <Trash2 className="size-4" />
-            {tp.removeEnding}
-          </Button>
-        </PropSection>
-      )}
-    </div>
+    </PanelLayout>
   );
 }
 
@@ -191,6 +232,7 @@ function BlockProperties({ block, disabled }: Readonly<{ block: Block; disabled:
   const { t } = useI18n();
   const tp = t.weldforms.properties;
   const editor = useFormEditor();
+  const navigate = useNavigate();
   const def = editor.definition;
   const locked = editor.form.status !== 'draft';
   const topIndex = topLevelIndex(def, block.id);
@@ -198,13 +240,14 @@ function BlockProperties({ block, disabled }: Readonly<{ block: Block; disabled:
 
   if (block.type === 'page_break') {
     return (
-      <PropSection title={tp.pageBreak}>
-        <FormField label={tp.pageTitle}>
-          <Input value={block.title} onChange={(e) => edit((b) => ({ ...b, title: e.target.value }), 'title')} maxLength={1000} disabled={disabled} />
-        </FormField>
-        <InfoBanner variant="info">{tp.pageBreakHelp}</InfoBanner>
-        <RemoveBlock block={block} disabled={disabled} />
-      </PropSection>
+      <PanelLayout title={tp.pageBreak} menu={disabled ? null : <BlockMenuItems block={block} />}>
+        <PropSection>
+          <FormField label={tp.pageTitle}>
+            <Input value={block.title} onChange={(e) => edit((b) => ({ ...b, title: e.target.value }), 'title')} maxLength={1000} disabled={disabled} />
+          </FormField>
+          <InfoBanner variant="info">{tp.pageBreakHelp}</InfoBanner>
+        </PropSection>
+      </PanelLayout>
     );
   }
 
@@ -229,8 +272,8 @@ function BlockProperties({ block, disabled }: Readonly<{ block: Block; disabled:
   else if (block.type === 'group') sectionTitle = tp.group;
 
   return (
-    <div>
-      <PropSection title={sectionTitle}>
+    <PanelLayout title={sectionTitle} menu={disabled ? null : <BlockMenuItems block={block} />}>
+      <PropSection>
         <FormField label={tp.title}>
           <RecallInput value={block.title} onChange={setTitle} definition={def} sourceIndex={topIndex} multiline rows={2} maxLength={1000} disabled={disabled} ariaLabel={tp.title} />
         </FormField>
@@ -270,38 +313,66 @@ function BlockProperties({ block, disabled }: Readonly<{ block: Block; disabled:
       {topIndex !== -1 && (
         <PropSection title={tp.logic}>
           <p className="text-sm text-muted-foreground">{logicRules === 0 ? tp.noLogic : tp.logicCount.replace('{count}', String(logicRules))}</p>
-          <Button asChild variant="outline" size="sm">
-            <Link href={`/weldforms/${editor.form.id}/logic`} onClick={() => editor.select({ kind: 'block', id: def.blocks[topIndex]?.id ?? block.id })}>
-              {tp.editLogic}
-            </Link>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const id = def.blocks[topIndex]?.id ?? block.id;
+              editor.select({ kind: 'block', id });
+              // Opens the Logic tab with this question's rules beside the flow.
+              void navigate({ to: '/weldforms/$formId/logic', params: { formId: editor.form.id }, search: { block: id } });
+            }}
+          >
+            {tp.editLogic}
           </Button>
         </PropSection>
       )}
-
-      <PropSection>
-        <RemoveBlock block={block} disabled={disabled} />
-      </PropSection>
-    </div>
+    </PanelLayout>
   );
 }
 
-function RemoveBlock({ block, disabled }: Readonly<{ block: Block; disabled: boolean }>) {
-  const { t } = useI18n();
+/** Removes a block and selects its neighbour, as the outline's row menu does. */
+function useRemoveBlock(block: Block): () => void {
   const editor = useFormEditor();
-  if (disabled) return null;
+  return () => {
+    const next = selectionAfterRemoval(editor.definition, block.id);
+    editor.editDefinition((d) => removeBlock(d, block.id));
+    editor.select(next ? { kind: 'block', id: next } : null);
+  };
+}
+
+/** The header's ⋯ menu for a block: the outline row menu's actions. */
+function BlockMenuItems({ block }: Readonly<{ block: Block }>) {
+  const { t } = useI18n();
+  const to = t.weldforms.outline;
+  const editor = useFormEditor();
+  const remove = useRemoveBlock(block);
+  const where = locate(editor.definition, block.id);
+  const siblings = where?.parentId ? (editor.definition.blocks.find((b): b is GroupBlock => b.id === where.parentId)?.children.length ?? 0) : editor.definition.blocks.length;
+  const first = !where || where.index === 0;
+  const last = !where || where.index === siblings - 1;
   return (
-    <Button
-      type="button"
-      variant="outline"
-      size="sm"
-      onClick={() => {
-        const next = selectionAfterRemoval(editor.definition, block.id);
-        editor.editDefinition((d) => removeBlock(d, block.id));
-        editor.select(next ? { kind: 'block', id: next } : null);
-      }}
-    >
-      <Trash2 className="size-4" />
-      {t.weldforms.properties.removeBlock}
-    </Button>
+    <>
+      <DropdownMenuItem disabled={first} onSelect={() => editor.editDefinition((d) => nudgeBlock(d, block.id, -1))}>
+        <ArrowUp className="size-4" />
+        {to.moveUp}
+      </DropdownMenuItem>
+      <DropdownMenuItem disabled={last} onSelect={() => editor.editDefinition((d) => nudgeBlock(d, block.id, 1))}>
+        <ArrowDown className="size-4" />
+        {to.moveDown}
+      </DropdownMenuItem>
+      {block.type !== 'page_break' && (
+        <DropdownMenuItem onSelect={() => editor.editDefinition((d) => duplicateBlock(d, block.id))}>
+          <Copy className="size-4" />
+          {to.duplicate}
+        </DropdownMenuItem>
+      )}
+      <DropdownMenuSeparator />
+      <DropdownMenuItem variant="destructive" onSelect={remove}>
+        <Trash2 className="size-4" />
+        {t.common.actions.delete}
+      </DropdownMenuItem>
+    </>
   );
 }

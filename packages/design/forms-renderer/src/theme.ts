@@ -23,7 +23,7 @@ const FONT_SCALE: Record<FormThemeTokens['fontSize'], string> = { small: '0.9', 
 /** The default theme (the schema's defaults), for a renderer given none. */
 export const DEFAULT_THEME: FormThemeTokens = {
   font: 'inter',
-  colors: { background: '#ffffff', question: '#1f2937', answer: '#2563eb', button: '#2563eb', buttonText: '#ffffff' },
+  colors: { background: '#ffffff', question: '#0a0a0a', answer: '#171717', button: '#171717', buttonText: '#fafafa' },
   background: { overlay: 0 },
   radius: 'medium',
   alignment: 'left',

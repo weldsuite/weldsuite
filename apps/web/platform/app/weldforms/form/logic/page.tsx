@@ -1,20 +1,20 @@
 /**
- * The Logic tab: pick a block (or "endings") on the left, edit its rules on
- * the right (calculations, jumps, otherwise; ending rules), and see the whole
- * flow as a diagram.
+ * The Logic tab: the whole flow on the WeldConnect canvas, and the rules of
+ * the card you click in a panel beside it (calculations, jumps and otherwise for a block;
+ * the ending rules for an ending). Below lg the panel takes the tab's place,
+ * with a close button back to the flow. The open card is kept in the URL
+ * (`?block=`), so "Edit logic" on the Create tab can open it.
  */
 
-import { useState } from 'react';
-import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
+import { useNavigate, useSearch } from '@tanstack/react-router';
+import { ArrowDown, ArrowUp, Plus, Trash2, X } from 'lucide-react';
 import { fieldsOf, type Block, type Calculation, type ConditionGroup, type FormDefinition, type LogicTarget } from '@weldsuite/forms-engine';
 import { Button } from '@weldsuite/ui/components/button';
 import { EmptyState } from '@weldsuite/ui/components/empty-state';
 import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@weldsuite/ui/components/tabs';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
-import { BLOCK_ICONS, ENDING_ICON, type BlockKind } from '../../lib/block-types';
 import {
   addCalculation,
   addEndingRule,
@@ -37,20 +37,32 @@ import { defaultConstant, readableFields, variableTypeMap } from '../../lib/logi
 import { useFormEditor } from '../editor-context';
 import { ConditionGroupEditor, OperandPicker, newCondition, type LogicContext } from './condition-editor';
 import { FlowDiagram } from './flow-diagram';
-
-const ENDINGS = 'endings';
+import { ENDINGS } from './search';
 
 export default function LogicTab() {
   const { t } = useI18n();
   const tl = t.weldforms.logic;
   const editor = useFormEditor();
-  const { definition: def, selection } = editor;
-  const [target, setTarget] = useState<string>(() => (selection?.kind === 'block' ? topLevelOf(def, selection.id) : null) ?? def.blocks.find((b) => b.type !== 'page_break')?.id ?? ENDINGS);
+  const { definition: def } = editor;
+  const search = useSearch({ strict: false }) as Record<string, unknown>;
+  const navigate = useNavigate();
 
   const logicBlocks = def.blocks.filter((b) => b.type !== 'page_break');
-  const isEndings = target === ENDINGS;
-  const block = isEndings ? undefined : def.blocks.find((b) => b.id === target);
-  const sourceIndex = block ? def.blocks.indexOf(block) : null;
+  const isEndings = search.block === ENDINGS;
+  const block = isEndings ? undefined : logicBlocks.find((b) => b.id === search.block);
+  const open = isEndings || block !== undefined;
+
+  const openRules = (id: string | null) =>
+    void navigate({
+      to: '.',
+      replace: true,
+      search: (prev: Record<string, unknown>): Record<string, unknown> => {
+        const next = { ...prev };
+        delete next.block;
+        if (id) next.block = id;
+        return next;
+      },
+    });
 
   if (logicBlocks.length === 0) {
     return (
@@ -60,77 +72,35 @@ export default function LogicTab() {
     );
   }
 
-  const ctx: LogicContext = { def, sourceIndex: isEndings ? null : sourceIndex, disabled: !editor.canEdit };
-  let rulesEditor: React.ReactNode = null;
-  if (isEndings) rulesEditor = <EndingRulesEditor ctx={ctx} />;
-  else if (block) rulesEditor = <BlockLogicEditor key={block.id} ctx={ctx} block={block} />;
+  const ctx: LogicContext = { def, sourceIndex: block ? def.blocks.indexOf(block) : null, disabled: !editor.canEdit };
 
   return (
-    <div className="flex h-full min-h-0 flex-col lg:flex-row">
-      <aside className="max-h-48 shrink-0 overflow-y-auto border-b p-2 lg:max-h-none lg:w-64 lg:border-b-0 lg:border-r" aria-label={tl.blocks}>
-        <ul className="space-y-0.5">
-          {logicBlocks.map((b) => {
-            const Icon = BLOCK_ICONS[b.type as BlockKind];
-            const logic = logicOf(def, b.id);
-            const count = logic.jumps.length + logic.calculations.length + (logic.otherwise ? 1 : 0);
-            return (
-              <li key={b.id}>
-                <button
-                  type="button"
-                  onClick={() => setTarget(b.id)}
-                  className={cn('flex w-full items-center gap-2 rounded-md border border-transparent px-2 py-1.5 text-left text-sm', target === b.id ? 'border-primary/40 bg-primary/5' : 'hover:bg-accent/60')}
-                >
-                  <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-                  <span className="min-w-0 flex-1 truncate">{b.title || t.weldforms.outline.untitled}</span>
-                  {count > 0 && <span className="shrink-0 rounded-full bg-primary/10 px-1.5 text-xs tabular-nums text-primary">{count}</span>}
-                </button>
-              </li>
-            );
-          })}
-          <li>
-            <button
-              type="button"
-              onClick={() => setTarget(ENDINGS)}
-              className={cn('flex w-full items-center gap-2 rounded-md border border-transparent px-2 py-1.5 text-left text-sm', isEndings ? 'border-primary/40 bg-primary/5' : 'hover:bg-accent/60')}
-            >
-              <ENDING_ICON className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-              <span className="min-w-0 flex-1 truncate">{tl.endingRules}</span>
-              {def.endingRules.length > 0 && <span className="shrink-0 rounded-full bg-primary/10 px-1.5 text-xs tabular-nums text-primary">{def.endingRules.length}</span>}
-            </button>
-          </li>
-        </ul>
-      </aside>
-
-      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4">
-        {!editor.canEdit && <InfoBanner variant="info" className="mb-3">{t.weldforms.editor.readOnly}</InfoBanner>}
-        <Tabs defaultValue="rules">
-          <TabsList>
-            <TabsTrigger value="rules">{tl.rules}</TabsTrigger>
-            <TabsTrigger value="flow">{tl.flow}</TabsTrigger>
-          </TabsList>
-          <TabsContent value="rules" className="mt-4 space-y-6">
-            {rulesEditor}
-          </TabsContent>
-          <TabsContent value="flow" className="mt-4 space-y-3">
-            <p className="text-sm text-muted-foreground">{tl.flowHelp}</p>
-            <FlowDiagram
-              definition={def}
-              selectedId={isEndings ? null : target}
-              onSelect={(id, kind) => {
-                if (kind === 'block') setTarget(id);
-                else setTarget(ENDINGS);
-              }}
-            />
-          </TabsContent>
-        </Tabs>
+    <div className="flex h-full min-h-0">
+      <div className={cn('relative min-h-0 min-w-0 flex-1', open && 'hidden lg:block')}>
+        <FlowDiagram
+          definition={def}
+          selectedId={block?.id ?? null}
+          onSelect={(id, kind) => openRules(kind === 'block' ? id : ENDINGS)}
+          notice={editor.canEdit ? undefined : <InfoBanner variant="info">{t.weldforms.editor.readOnly}</InfoBanner>}
+        />
       </div>
+
+      {open && (
+        <aside className="min-h-0 w-full shrink-0 overflow-y-auto border-l lg:w-96" aria-label={tl.rules}>
+          <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b bg-background px-4 py-1.5">
+            <h2 className="min-w-0 truncate text-sm font-semibold">{block ? block.title || t.weldforms.outline.untitled : tl.endingRules}</h2>
+            <Button type="button" variant="ghost" size="icon-sm" onClick={() => openRules(null)} aria-label={t.common.actions.close}>
+              <X />
+            </Button>
+          </div>
+          <div className="space-y-4 p-4">
+            <p className="text-sm text-muted-foreground">{block ? tl.blockHelp : tl.endingRulesHelp}</p>
+            {block ? <BlockLogicEditor key={block.id} ctx={ctx} block={block} /> : <EndingRulesEditor ctx={ctx} />}
+          </div>
+        </aside>
+      )}
     </div>
   );
-}
-
-function topLevelOf(def: FormDefinition, id: string): string | null {
-  const block = def.blocks.find((b) => b.id === id || (b.type === 'group' && b.children.some((c) => c.id === id)));
-  return block && block.type !== 'page_break' ? block.id : null;
 }
 
 function TargetSelect({ ctx, value, onChange, allowNext, ariaLabel }: Readonly<{ ctx: LogicContext; value: LogicTarget | null; onChange: (target: LogicTarget | null) => void; allowNext?: boolean; ariaLabel: string }>) {
@@ -195,11 +165,6 @@ function BlockLogicEditor({ ctx, block }: Readonly<{ ctx: LogicContext; block: B
 
   return (
     <>
-      <div>
-        <h2 className="text-base font-semibold">{block.title || t.weldforms.outline.untitled}</h2>
-        <p className="text-sm text-muted-foreground">{tl.blockHelp}</p>
-      </div>
-
       <Card
         title={tl.calculations}
         actions={
@@ -372,10 +337,6 @@ function EndingRulesEditor({ ctx }: Readonly<{ ctx: LogicContext }>) {
 
   return (
     <>
-      <div>
-        <h2 className="text-base font-semibold">{tl.endingRules}</h2>
-        <p className="text-sm text-muted-foreground">{tl.endingRulesHelp}</p>
-      </div>
       <Card
         title={tl.endingRules}
         actions={

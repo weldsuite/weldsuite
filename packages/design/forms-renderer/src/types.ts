@@ -19,8 +19,6 @@ export interface FormRendererLabels {
   back: string;
   /** Default text of the welcome screen's button. */
   start: string;
-  /** "press Enter" next to a button. */
-  pressEnter: string;
   /** "Shift + Enter to make a line break" under a long text field. */
   shiftEnterHint: string;
   typeAnswer: string;
@@ -98,7 +96,6 @@ export interface FormRendererLabels {
   redirecting: string;
   /** `{url}`: shown in preview instead of redirecting. */
   previewRedirect: string;
-  previewBadge: string;
   /**
    * Per error code. Placeholders: `{max}` (too_long, too_large, too_many_choices,
    * too_many_files, date_too_late), `{min}` (too_small, too_few_choices,
