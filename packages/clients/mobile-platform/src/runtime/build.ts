@@ -92,6 +92,7 @@ function authFrom(config: RuntimeConfig): MobileAuthConfig {
       audienceScope: auth.audienceScope,
       organizationScope: auth.organizationScope,
       accountUrl: auth.accountUrl,
+      workspaceSource: auth.workspaceSource,
     };
   }
   if (auth?.provider === 'clerk' && auth.publishableKey) {

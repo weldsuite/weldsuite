@@ -339,6 +339,7 @@ helm upgrade weldsuite "$chart" --reuse-values \
   --set-string config.auth.oidc.audience=weldsuite-smoke \
   --set-string config.auth.oidc.webClientId=smoke-web \
   --set-string config.auth.oidc.mobileClientId=smoke-mobile \
+  --set-string config.auth.oidc.desktopClientId=smoke-desktop \
   --wait --timeout 180s
 kubectl rollout status deployment/weldsuite --timeout=120s
 kill "$api_forward" 2>/dev/null || true
@@ -356,6 +357,7 @@ check GET /config.json 200
 contains '"provider":"oidc"'
 contains '"clientId":"smoke-web"'
 contains '"mobileClientId":"smoke-mobile"'
+contains '"desktopClientId":"smoke-desktop"'
 
 # ── Sign-up and the first workspace (P4 4a) ─────────────────────────────────
 # Only with a Zitadel the cluster can reach (SMOKE_ZITADEL_URL as the pods

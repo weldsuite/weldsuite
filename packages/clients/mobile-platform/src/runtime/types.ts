@@ -75,9 +75,18 @@ export interface OidcMobileAuth {
   audience?: string | null;
   orgClaim?: string | null;
   scopes?: string[];
-  audienceScope?: string;
-  organizationScope?: string;
-  accountUrl?: string;
+  /** `null` = no such scope (WeldID); absent = Zitadel's default template. */
+  audienceScope?: string | null;
+  organizationScope?: string | null;
+  accountUrl?: string | null;
+  /**
+   * Where the active workspace comes from (plan `weldid-auth-server.md`):
+   * `claim` (default; Zitadel's org-scoped roles claim) or `header` (WeldID
+   * in membership mode: one token for every workspace, switching needs no
+   * re-authorization, and every API request names the active workspace in
+   * `X-Weld-Workspace` instead).
+   */
+  workspaceSource?: 'claim' | 'header';
 }
 
 export type MobileAuthConfig = ClerkMobileAuth | OidcMobileAuth;

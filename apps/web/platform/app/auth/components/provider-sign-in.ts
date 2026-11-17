@@ -13,9 +13,7 @@ const RESTART_WINDOW_MS = 30_000;
 const RESTART_KEY = 'weldsuite:sign-in:restarted';
 
 /** Only paths on this origin are places to return to. */
-export function sameOriginPath(value: string | null | undefined): string {
-  return value?.startsWith('/') && !value.startsWith('//') ? value : '/';
-}
+export { sameOriginPath } from '@/lib/auth/same-origin-path';
 
 function restartedRecently(): boolean {
   try {

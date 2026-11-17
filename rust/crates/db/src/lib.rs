@@ -14,11 +14,13 @@
 mod atomically;
 mod crypto;
 pub mod due_index;
+mod membership;
 mod middleware;
 mod permissions;
 pub mod pg_errors;
 mod restrictions;
 mod rows;
+pub mod sso_settings;
 mod workspaces;
 
 pub use atomically::{TransactionFuture, atomically, atomically_with};
@@ -26,6 +28,10 @@ pub use crypto::{
     DecryptError, EncryptError, Keyring, aad_writes_enabled, decrypt_field,
     decrypt_workspace_database_url, encrypt_field, encrypt_workspace_database_url,
     resolve_database_url, workspace_database_url_aad,
+};
+pub use membership::{
+    DEFAULT_MEMBERSHIP_TTL, MembershipFuture, MembershipLookup, MembershipsFuture, SoleWorkspace,
+    WorkspaceSelector, workspace_from_header,
 };
 pub use middleware::workspace_db;
 pub use permissions::TenantPermissionQueries;

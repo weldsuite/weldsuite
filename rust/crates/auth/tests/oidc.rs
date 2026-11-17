@@ -13,7 +13,8 @@ use http_body_util::BodyExt;
 use serde_json::{Value, json};
 use tower::ServiceExt;
 use weldsuite_auth::{
-    AuthContext, OidcSettings, SessionVerifier, TokenError, require_second_factor, session_auth,
+    AuthContext, OidcSettings, SessionVerifier, TokenError, WorkspaceSource, require_second_factor,
+    session_auth,
 };
 
 static FIXTURE: LazyLock<Value> = LazyLock::new(|| {
@@ -46,6 +47,22 @@ async fn verify(name: &str) -> Result<AuthContext, TokenError> {
     verifier_with(settings(), "jwksMixed")
         .verify(token(name), now())
         .await
+}
+
+#[tokio::test]
+async fn membership_mode_ignores_the_organization_claim() {
+    let header = OidcSettings {
+        workspace_source: WorkspaceSource::Header,
+        ..settings()
+    };
+    let context = verifier_with(header, "jwksMixed")
+        .verify(token("valid"), now())
+        .await
+        .expect("valid");
+    // The token names an organization, but the request picks the workspace.
+    assert_eq!(context.user_id, text("user"));
+    assert_eq!(context.org_id, None);
+    assert_eq!(context.session_id, "V1_300000000000000777");
 }
 
 #[tokio::test]

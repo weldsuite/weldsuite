@@ -1,6 +1,7 @@
 // The public entry points (api, edition, auth facade, runtime) with the native
 // modules they import replaced by in-memory fakes.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ReactNode } from 'react';
 
 const storage = new Map<string, string>();
 const reloadAsync = vi.fn(async () => {});
@@ -74,6 +75,14 @@ const EU_CONFIG = {
 };
 const globalRuntime = buildGlobalRuntime(APP, BUILD);
 const euRuntime = buildServerRuntime(APP, BUILD, { kind: 'eu', origin: 'https://app.test.weldsuite.eu' }, EU_CONFIG);
+// WeldID in membership mode: no workspace claim in the token.
+const HEADER_CONFIG = { ...EU_CONFIG, auth: { ...EU_CONFIG.auth, workspaceSource: 'header' as const } };
+const headerRuntime = buildServerRuntime(
+  APP,
+  BUILD,
+  { kind: 'eu', origin: 'https://app.test.weldsuite.eu' },
+  HEADER_CONFIG,
+);
 
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } });
@@ -123,6 +132,73 @@ describe('api', () => {
     });
     const anonymous = api.createMobileApiClient({ appCode: 'weldmail', getToken: async () => null });
     await expect(anonymous.requestInit('/files/f1')).rejects.toThrow('Authentication required');
+  });
+
+  function fakeOidcAuth(activeOrgId: string | null) {
+    return {
+      provider: 'oidc' as const,
+      Provider: ({ children }: { children: ReactNode }) => children,
+      useAuth: () =>
+        ({
+          isLoaded: true as const,
+          isSignedIn: false as const,
+          userId: null,
+          orgId: null,
+          orgSlug: null,
+          getToken: async () => null,
+          signOut: async () => {},
+        }),
+      useUser: () => ({ isLoaded: true as const, isSignedIn: false as const, user: null }),
+      useOrganization: () => ({ isLoaded: true, organization: null }),
+      useOrganizationList: () => ({
+        isLoaded: true,
+        setActive: undefined,
+        userMemberships: { data: [], isLoading: false, isFetching: false, hasNextPage: false, fetchNext: undefined },
+      }),
+      getToken: async () => null,
+      signOut: async () => {},
+      getActiveOrgId: () => activeOrgId,
+    };
+  }
+
+  it('tags requests with the active workspace only in OIDC header mode (weldid-auth-server.md)', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ data: { ok: true } }));
+    vi.stubGlobal('fetch', fetchMock);
+    const headerOf = (call: number) => new Headers((fetchMock.mock.calls[call] as unknown as [string, RequestInit])[1].headers).get('X-Weld-Workspace');
+
+    // Clerk (Global): never sent.
+    setMobileRuntime(globalRuntime);
+    api.resetApiOrigins();
+    await api.createMobileApiClient({ appCode: 'weldmail', getToken: async () => 'token-1' }).client.get('/workspaces');
+    expect(headerOf(0)).toBeNull();
+
+    // Claim-mode OIDC: never sent, even once the facade reports an active
+    // workspace (the token already names it) — only header mode names it here.
+    fetchMock.mockClear();
+    setMobileRuntime(euRuntime);
+    api.resetApiOrigins();
+    auth.setAuthImplementation(fakeOidcAuth('ws_acme'));
+    await api.createMobileApiClient({ appCode: 'weldmail', getToken: async () => 'token-1' }).client.get('/workspaces');
+    expect(headerOf(0)).toBeNull();
+
+    // Header mode: tags with the active workspace.
+    fetchMock.mockClear();
+    setMobileRuntime(headerRuntime);
+    api.resetApiOrigins();
+    auth.setAuthImplementation(fakeOidcAuth('ws_acme'));
+    const { client, requestInit } = api.createMobileApiClient({ appCode: 'weldmail', getToken: async () => 'token-1' });
+    await client.get('/workspaces');
+    expect(headerOf(0)).toBe('ws_acme');
+    await expect(requestInit('/files/f1')).resolves.toEqual({
+      url: 'https://app.test.weldsuite.eu/api/files/f1',
+      headers: { Authorization: 'Bearer token-1', 'X-Weld-App': 'weldmail', 'X-Weld-Workspace': 'ws_acme' },
+    });
+
+    // Header mode, no active workspace yet: nothing sent.
+    fetchMock.mockClear();
+    auth.setAuthImplementation(fakeOidcAuth(null));
+    await api.createMobileApiClient({ appCode: 'weldmail', getToken: async () => 'token-1' }).client.get('/workspaces');
+    expect(headerOf(0)).toBeNull();
   });
 
   it('builds a lazy client on first use and again when the origin changes', () => {

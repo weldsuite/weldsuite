@@ -3517,6 +3517,114 @@ export const settings = {
         switchedOff: 'Single sign-on is off.',
       },
 
+      weldid: {
+        description:
+          'Let your team sign in with your own identity provider over OpenID Connect, such as Microsoft Entra ID, Okta or Google Workspace. When it is on, people with an email address at your verified domains sign in through your identity provider.',
+        samlLater: 'SAML connections are coming later. For now, connect any identity provider that supports OpenID Connect.',
+        notEntitled: "Single sign-on is not included in this workspace's plan. Ask your administrator to include it.",
+        connection: {
+          title: 'Connect your identity provider',
+          description:
+            'Create an OpenID Connect application (web) in your identity provider, register the redirect URI we give you, and enter the application’s details here.',
+          notConnected: 'No identity provider has been connected yet.',
+          displayName: 'Name',
+          displayNamePlaceholder: 'Microsoft Entra ID',
+          displayNameHint: 'Shown to your team when they sign in.',
+          issuer: 'Issuer URL',
+          issuerPlaceholder: 'https://login.microsoftonline.com/your-tenant-id/v2.0',
+          issuerHint: 'The https:// address of your identity provider, as its discovery document names it.',
+          clientId: 'Client ID',
+          clientSecret: 'Client secret',
+          clientSecretStored: 'A client secret is stored. Enter a new one to replace it, or leave this empty to keep it.',
+          scopes: 'Extra scopes',
+          scopesPlaceholder: 'groups',
+          scopesHint: 'Optional. Separate scopes with spaces or commas. openid, email and profile are always asked for.',
+          scopesInvalid: 'Enter at most 20 scope names, without spaces, quotes or backslashes in a name.',
+          trustEmails: 'Trust the email addresses this provider sends',
+          trustEmailsHint:
+            'Turn this on for providers that don’t mark email addresses as verified, such as Microsoft Entra ID. Only addresses at your verified domains are accepted either way.',
+          trustEmailsOn: 'Trusted',
+          trustEmailsOff: 'Only addresses the provider marks as verified',
+          create: 'Connect identity provider',
+          save: 'Save changes',
+          created: 'Identity provider connected. Register the redirect URI in your identity provider next.',
+          saved: 'Identity provider saved.',
+          secretStored: 'Client secret stored',
+          redirectTitle: 'Register this redirect URI',
+          redirectDescription:
+            'Add it as a redirect (callback) URI of the application in your identity provider. Sign-in through your identity provider fails until it is registered.',
+          redirectUri: 'Redirect URI',
+          redirectPending: 'The redirect URI is not available yet. Reload the page in a moment.',
+          remove: 'Remove connection',
+          removeConfirmTitle: 'Remove the connection?',
+          removeConfirmDescription:
+            'Single sign-on stops and the domains are removed with the connection. People who only sign in through your identity provider then need another way to sign in.',
+          removed: 'Connection removed.',
+        },
+        domains: {
+          title: 'Verify your domains',
+          description:
+            'Add the domains of your team’s email addresses and prove that you own each one with a DNS record. Only verified domains are sent to your identity provider.',
+          needsConnection: 'Connect your identity provider first.',
+          none: 'No domains have been added yet.',
+          label: 'Domain',
+          placeholder: 'acme.com',
+          hint: 'The part after the @ in your email addresses.',
+          add: 'Add domain',
+          added: 'Domain added. Publish the DNS record, then verify it.',
+          status: {
+            pending: 'Not verified',
+            verified: 'Verified',
+            failed: 'Record not found',
+          },
+          dnsDescription:
+            'Add a TXT record with these values at the DNS host of {domain}, then select Verify. DNS changes can take a while to show up.',
+          verify: 'Verify',
+          verified: 'Domain verified.',
+          remove: 'Remove',
+          removeLabel: 'Remove {domain}',
+          removeConfirmTitle: 'Remove {domain}?',
+          removeConfirmDescription:
+            'People at {domain} no longer sign in through your identity provider. To add the domain again, you have to verify it again.',
+          removed: 'Domain removed.',
+        },
+        signIn: {
+          title: 'Sign-in settings',
+          description: 'Switch single sign-on on, decide whether it is required, and choose the role new people get.',
+          enabled: 'Single sign-on',
+          enabledDescription: 'People at your verified domains are sent to your identity provider when they sign in.',
+          blocked: {
+            not_entitled: "Single sign-on is not included in this workspace's plan.",
+            no_connection: 'Connect your identity provider first.',
+            domain_unverified: 'Verify a domain first.',
+          },
+          confirmOnTitle: 'Switch single sign-on on?',
+          confirmOnDescription:
+            'From now on, people with an email address at {domains} are sent to your identity provider when they sign in. Keep this tab open and test the sign-in in a private window.',
+          confirmOn: 'Switch on',
+          switchedOn: 'Single sign-on is on.',
+          switchedOff: 'Single sign-on is off.',
+          enforce: 'Require single sign-on for these domains',
+          enforceDescription:
+            'People at your verified domains can only sign in through your identity provider, not with a password or another method.',
+          enforceWarning:
+            'If your identity provider is down or set up wrongly, nobody at these domains can sign in, admins included. Keep at least one admin whose email address is outside these domains.',
+          confirmEnforceTitle: 'Require single sign-on?',
+          confirmEnforce: 'Require single sign-on',
+          enforcedOn: 'Single sign-on is now required for these domains.',
+          enforcedOff: 'Single sign-on is no longer required.',
+          defaultRole: 'Role for new members',
+          defaultRoleDescription:
+            'People who sign in through your identity provider and are not in the workspace yet join with this role. Existing members keep their role.',
+          roles: {
+            ADMIN: 'Admin',
+            MEMBER: 'Member',
+            VIEWER: 'Viewer',
+          },
+          roleSaved: 'Role for new members saved.',
+        },
+      },
+
       errors: {
         generic: 'Something went wrong. Try again.',
         forbidden: "You don't have permission to do that.",
@@ -3545,6 +3653,8 @@ export const settings = {
         billingAdminRequired: 'Only a workspace owner can change single sign-on billing.',
         billingBusy: 'Another billing change is in progress. Try again in a moment.',
         billingUnavailable: 'Billing is unavailable right now. Try again later.',
+        oidcIncomplete: 'Enter the name, issuer URL and client ID of your identity provider.',
+        oidcNotEntitled: "Single sign-on is not included in this workspace's plan.",
       },
     },
   };

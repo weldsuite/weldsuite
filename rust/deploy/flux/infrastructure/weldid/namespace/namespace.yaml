@@ -1,0 +1,12 @@
+# WeldID (../README.md): the server, its migration Job and its CloudNativePG
+# cluster, all of which run under the restricted Pod Security Standard.
+# Never pruned: turning the layer off leaves the namespace and the database
+# in it alone.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: weldid
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled

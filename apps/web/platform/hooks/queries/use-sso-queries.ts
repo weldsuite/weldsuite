@@ -14,7 +14,13 @@ import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tansta
 import { useAppApi } from '@/lib/api/use-app-api';
 import { apiErrorCode } from '@/lib/partner/api-errors';
 import type { DataResponse } from '@weldsuite/app-api-client/types';
-import { SSO_ERRORS, type SsoBillingView, type SsoConfigView, type SsoConnectionInput } from '@weldsuite/app-api-client/schemas/sso';
+import {
+  SSO_ERRORS,
+  type SsoBillingView,
+  type SsoConfigView,
+  type SsoConnectionInput,
+  type SsoOidcConnectionInput,
+} from '@weldsuite/app-api-client/schemas/sso';
 
 export const ssoKeys = {
   all: ['sso'] as const,
@@ -36,6 +42,7 @@ const STALE_STATE_CODES: ReadonlySet<string> = new Set([
   SSO_ERRORS.CONNECTION_MISSING,
   SSO_ERRORS.DOMAIN_MISSING,
   SSO_ERRORS.DOMAIN_LOCKED,
+  SSO_ERRORS.CHANGED_MEANWHILE,
 ]);
 
 function refreshWhenStale(qc: QueryClient, err: unknown): void {
@@ -120,6 +127,32 @@ export function useActivateSso() {
 export function useDeactivateSso() {
   const { sso } = useAppApi();
   return useConfigMutation<void>(() => sso.deactivate());
+}
+
+// ============================================================================
+// WeldID mode (Kubernetes editions): the OpenID Connect connection and its domains
+// ============================================================================
+
+/** Create the connection or change some of it: a switch sends only itself. */
+export function useSaveSsoOidcConnection() {
+  const { sso } = useAppApi();
+  return useConfigMutation((input: SsoOidcConnectionInput) => sso.saveOidcConnection(input));
+}
+
+export function useAddSsoConnectionDomain() {
+  const { sso } = useAppApi();
+  return useConfigMutation((domain: string) => sso.addDomain(domain));
+}
+
+export function useRemoveSsoConnectionDomain() {
+  const { sso } = useAppApi();
+  return useConfigMutation((domain: string) => sso.removeConnectionDomain(domain));
+}
+
+/** WeldID looks for the TXT record. 422 `SSO_DOMAIN_NOT_VERIFIED` while it is not there. */
+export function useVerifySsoConnectionDomain() {
+  const { sso } = useAppApi();
+  return useConfigMutation((domain: string) => sso.verifyConnectionDomain(domain));
 }
 
 // ============================================================================

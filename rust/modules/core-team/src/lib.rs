@@ -147,6 +147,17 @@ group_router!(
     workspaces
 );
 
+/// `/api/workspaces` in membership mode (`OIDC_WORKSPACE_SOURCE=header`):
+/// behind the session only, since a client lists the workspaces before it
+/// names one, and each entry's `id` is `workspaces.id` (what
+/// `X-Weld-Workspace` takes). Mounted instead of [`workspaces`].
+pub fn workspace_directory<S>(state: CoreTeamState) -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    groups::workspaces::directory_router().with_state(state)
+}
+
 /// `/api/account`: account deletion. Behind the session only, no workspace.
 pub fn account<S>(state: CoreTeamState) -> Router<S>
 where

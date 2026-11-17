@@ -3,4 +3,7 @@
 module.exports = {
   apiOrigin: jest.fn(() => 'http://localhost:8789'),
   apiOriginForPath: jest.fn(() => 'http://localhost:8789'),
+  // X-Weld-Workspace: only in OIDC header mode (WeldID in membership mode).
+  // Nothing to add here outside that mode — see mobile-platform's own tests.
+  workspaceHeaders: jest.fn(() => ({})),
 };
