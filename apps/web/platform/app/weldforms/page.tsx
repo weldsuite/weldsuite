@@ -267,7 +267,7 @@ export default function WeldFormsHome() {
 function FormsIllustration() {
   return (
     <EmptyStateIllustration>
-      <svg width="120" height="120" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <svg width="120" height="120" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
         <rect x="24" y="12" width="72" height="96" rx="6" className="fill-white dark:fill-white/[0.03]" />
         <rect x="24" y="12" width="72" height="96" rx="6" className="stroke-gray-200 dark:stroke-white/15" strokeWidth="1" />
         <line x1="36" y1="30" x2="72" y2="30" className="stroke-gray-300 dark:stroke-white/20" strokeWidth="1.5" opacity="0.6" />

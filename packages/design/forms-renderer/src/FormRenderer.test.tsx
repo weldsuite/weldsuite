@@ -106,11 +106,15 @@ describe('conversational layout', () => {
   });
 
   it('shows progress along the path', () => {
-    renderForm({ definition: makeDefinition({ blocks: [nameBlock, ageBlock] }) });
-    const bar = screen.getByRole('progressbar');
-    expect(bar.getAttribute('aria-valuenow')).toBe('0');
+    const { container } = renderForm({ definition: makeDefinition({ blocks: [nameBlock, ageBlock] }) });
+    const bar = screen.getByRole('progressbar') as HTMLProgressElement;
+    expect(bar.tagName).toBe('PROGRESS');
+    expect(bar.value).toBe(0);
+    expect(bar.max).toBe(100);
     expect(bar.getAttribute('aria-valuetext')).toBe('0% completed');
     expect(screen.queryByText('0% completed')).toBeNull();
+    // The drawn segments are decoration; the progress element is what screen readers read.
+    expect(container.querySelector('.wf-progress-track')?.getAttribute('aria-hidden')).toBe('true');
   });
 
   it('draws one segment per question and fills the one on screen', () => {

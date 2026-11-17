@@ -144,15 +144,15 @@ function progressBar(
   return (
     <div className="wf-progress">
       <div className="wf-progress-inner">
-        <div
-          className="wf-progress-track"
-          role="progressbar"
+        {/* Screen readers get a native progress element; the segments are only drawn. */}
+        <progress
+          className="wf-sr-only"
+          max={100}
+          value={percent}
           aria-label={labels.progressLabel}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={percent}
           aria-valuetext={mode === 'percentage' ? fill(labels.progressPercent, { percent }) : proportion}
-        >
+        />
+        <div className="wf-progress-track" aria-hidden="true">
           {total <= MAX_SEGMENTS ? (
             Array.from({ length: total }, (_, i) => <span key={i} className="wf-progress-segment" data-reached={i < reached ? '' : undefined} />)
           ) : (

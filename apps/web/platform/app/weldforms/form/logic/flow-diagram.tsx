@@ -104,7 +104,7 @@ export function layoutFlow(def: FormDefinition, labels: { untitled: string }): {
     if (logic?.otherwise) edges.push({ from: block.id, to: logic.otherwise.id, kind: 'otherwise' });
   }
   // Past the last card: the endings a rule picks, and the first ending for everyone else. One connector per ending.
-  const last = column[column.length - 1]!;
+  const last = column.at(-1)!;
   const ruled = new Set(def.endingRules.map((rule) => rule.endingId));
   const fallback = def.endings[0];
   if (fallback) edges.push({ from: last.id, to: fallback.id, kind: ruled.has(fallback.id) ? 'ending-rule' : 'default' });
