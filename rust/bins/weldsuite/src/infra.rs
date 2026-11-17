@@ -14,17 +14,18 @@ use std::sync::Arc;
 
 use weldsuite_adapters_oss::{
     CnpgOptions, CnpgProvisioner, JetStreamEventBus, MasterDbFlagSource, NatsOptions, S3FileStore,
-    SmtpMail, ValkeyCache, ValkeyRealtime, ZitadelIdentity, ZitadelOptions, connect_valkey,
-    entity_events_stream_config,
+    SmtpMail, ValkeyCache, ValkeyRealtime, WeldIdIdentity, WeldIdOptions, WeldIdSso,
+    ZitadelIdentity, ZitadelOptions, connect_valkey, entity_events_stream_config,
 };
 use weldsuite_db::{Keyring, PgPool};
 use weldsuite_events::{EntityEventPublisher, TaskTracker};
 use weldsuite_ports::{
     DatabaseProvisioner, DefaultFlags, DynCache, DynEventBus, DynFileStore, DynFlagSource, DynJobs,
     DynRealtimePublisher, DynSystemMail, Identity, InProcessJobs, JobRegistry, NoopJob,
+    SsoDirectory,
 };
 
-use crate::config::{FlagSourceKind, IdentityConfig, InfraConfig};
+use crate::config::{FlagSourceKind, IdentityConfig, InfraConfig, WeldIdConfig};
 
 type Error = Box<dyn std::error::Error>;
 
@@ -48,8 +49,11 @@ pub(crate) struct Infra {
     pub(crate) job_registry: JobRegistry,
     /// System mail (the workers' `SEND_EMAIL`), from `SYSTEM_EMAIL_FROM` when set.
     pub(crate) mail: Option<Arc<dyn DynSystemMail>>,
-    /// The identity provider's management API (Zitadel), when configured.
+    /// The identity provider's management API (Zitadel, or WeldID), when configured.
     pub(crate) identity: Option<Arc<dyn Identity>>,
+    /// Enterprise SSO connections at the identity provider: WeldID's, with
+    /// `IDENTITY_PROVIDER=weldid` (`/api/sso` in WeldID mode).
+    pub(crate) sso: Option<Arc<dyn SsoDirectory>>,
     /// Workspace databases on the CloudNativePG shards, when configured.
     pub(crate) provisioner: Option<Arc<dyn DatabaseProvisioner>>,
     /// The subject prefix of WeldPanel's events stream, on the bus `events` sends to.
@@ -67,6 +71,7 @@ impl std::fmt::Debug for Infra {
             .field("job_registry", &self.job_registry)
             .field("mail", &self.mail.is_some())
             .field("identity", &self.identity.is_some())
+            .field("sso", &self.sso.is_some())
             .field("provisioner", &self.provisioner.is_some())
             .finish_non_exhaustive()
     }
@@ -89,6 +94,7 @@ impl Infra {
             mail: None,
             flags: Arc::new(DefaultFlags),
             identity: None,
+            sso: None,
             provisioner: None,
             panel_events_subject: weldsuite_adapters_oss::DEFAULT_PANEL_EVENTS_SUBJECT.to_owned(),
         }
@@ -223,19 +229,74 @@ pub(crate) fn system_mail(config: &InfraConfig) -> Result<Option<Arc<dyn DynSyst
     )))
 }
 
-/// Zitadel's management API, when `ZITADEL_*` is set.
-fn identity(
+/// What the identity provider offers through its management API.
+pub(crate) struct IdentityPorts {
+    pub(crate) identity: Option<Arc<dyn Identity>>,
+    /// Enterprise SSO connections: only WeldID's.
+    pub(crate) sso: Option<Arc<dyn SsoDirectory>>,
+}
+
+/// The identity provider's management API: WeldID's with
+/// `IDENTITY_PROVIDER=weldid` (memberships in the master database, and the
+/// SSO connections over the same admin client), else Zitadel's when
+/// `ZITADEL_*` is set.
+pub(crate) fn identity(
     config: &InfraConfig,
+    master: &PgPool,
     mail: Option<&Arc<dyn DynSystemMail>>,
-) -> Result<Option<Arc<dyn Identity>>, Error> {
+) -> Result<IdentityPorts, Error> {
+    if let Some(settings) = &config.weldid {
+        let weldid = Arc::new(WeldIdIdentity::new(
+            weldid_options(settings, mail),
+            master.clone(),
+        )?);
+        let sso: Arc<dyn SsoDirectory> = Arc::new(WeldIdSso::new(Arc::clone(&weldid)));
+        return Ok(IdentityPorts {
+            identity: Some(weldid),
+            sso: Some(sso),
+        });
+    }
     let Some(settings) = &config.identity else {
         tracing::warn!(
-            "ZITADEL_API_URL is not set: no identity provider (onboarding and team changes fail)"
+            "no identity provider (ZITADEL_API_URL, or IDENTITY_PROVIDER=weldid): onboarding and team changes fail"
         );
-        return Ok(None);
+        return Ok(IdentityPorts {
+            identity: None,
+            sso: None,
+        });
     };
     let identity = ZitadelIdentity::new(zitadel_options(settings, mail))?;
-    Ok(Some(Arc::new(identity)))
+    Ok(IdentityPorts {
+        identity: Some(Arc::new(identity)),
+        sso: None,
+    })
+}
+
+/// How to reach WeldID's admin API. With system mail, invitations go out in
+/// WeldSuite's template (WeldID sends none: it knows no workspaces).
+pub(crate) fn weldid_options(
+    settings: &WeldIdConfig,
+    mail: Option<&Arc<dyn DynSystemMail>>,
+) -> WeldIdOptions {
+    WeldIdOptions {
+        issuer: settings.issuer.clone(),
+        admin_url: settings.admin_url.clone(),
+        client_id: settings.client_id.clone(),
+        client_key: settings.client_key.clone(),
+        token_endpoint: None,
+        invitation_mailer: invitation_mailer(mail),
+    }
+}
+
+/// WeldSuite's invitation email over system mail.
+fn invitation_mailer(
+    mail: Option<&Arc<dyn DynSystemMail>>,
+) -> Option<Arc<dyn weldsuite_ports::InvitationMailer>> {
+    mail.map(|mail| {
+        Arc::new(weldsuite_emails::workspace::SystemInvitationMailer::new(
+            Arc::clone(mail),
+        )) as Arc<dyn weldsuite_ports::InvitationMailer>
+    })
 }
 
 /// How to reach Zitadel's management API. With system mail, invitations go
@@ -252,11 +313,7 @@ pub(crate) fn zitadel_options(
         accept_on_platform: settings.accept_on_platform,
         application_name: "WeldSuite".to_owned(),
         host: settings.host.clone(),
-        invitation_mailer: mail.map(|mail| {
-            Arc::new(weldsuite_emails::workspace::SystemInvitationMailer::new(
-                Arc::clone(mail),
-            )) as Arc<dyn weldsuite_ports::InvitationMailer>
-        }),
+        invitation_mailer: invitation_mailer(mail),
     }
 }
 
@@ -304,7 +361,7 @@ pub(crate) async fn connect(
     let job_registry = job_registry();
     let jobs = jobs(config, &job_registry, &tracker)?;
     let mail = system_mail(config)?;
-    let identity = identity(config, mail.as_ref())?;
+    let IdentityPorts { identity, sso } = identity(config, master, mail.as_ref())?;
     let provisioner = provisioner(config, master, keyring)?;
     Ok(Infra {
         jobs,
@@ -318,6 +375,7 @@ pub(crate) async fn connect(
         public_files,
         mail,
         identity,
+        sso,
         provisioner,
         panel_events_subject: config.nats_panel_subject.clone(),
     })

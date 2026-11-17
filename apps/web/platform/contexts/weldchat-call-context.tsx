@@ -40,6 +40,7 @@ import { usePresenceMaybe } from '@/contexts/presence-context';
 import { apiUrl, getRealtimeWsOrigin } from '@/lib/api/public-env';
 import { publicEnv } from '@/lib/runtime-config';
 import { isLiveKit, videoJoin } from '@/lib/video-provider';
+import { usersInCall, type CallParticipantEntry } from '@/app/weldchat/lib/call-peers';
 
 
 // RNNoise noise suppression flag. Default ON; set VITE_NOISE_SUPPRESSION=false
@@ -309,6 +310,8 @@ interface JoinChatCallResponse {
     /** Sent by /join (and by start-and-join for callType); absent from older servers. */
     channelId?: string;
     callType?: string;
+    /** The call's `participants` entries, the joiner's own included. */
+    participants?: CallParticipantEntry[];
   };
 }
 
@@ -342,6 +345,12 @@ interface WeldChatCallState {
   endReason: CallEndReason | null;
   /** True when the local user started this call (vs. joined/answered an existing one). */
   isCallInitiator: boolean;
+  /**
+   * Who the server counted in the call when the local user joined or answered
+   * it (empty for the caller): the room shows them as connecting until their
+   * own connection is up.
+   */
+  callMemberIds: string[];
   isMuted: boolean;
   isVideoOff: boolean;
   isScreenSharing: boolean;
@@ -421,6 +430,7 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
   const [status, setStatus] = useState<CallStatus>('idle');
   const [endReason, setEndReason] = useState<CallEndReason | null>(null);
   const [isCallInitiator, setIsCallInitiator] = useState(false);
+  const [callMemberIds, setCallMemberIds] = useState<string[]>([]);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
@@ -569,6 +579,7 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
     setStatus('idle');
     setEndReason(null);
     setIsCallInitiator(false);
+    setCallMemberIds([]);
     setDuration(0);
     setIsMuted(false);
     setIsVideoOff(false);
@@ -595,6 +606,8 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
     setDuration(0);
     setIsFullscreen(false);
     setIsPiP(false);
+    // Known again once a join answers (the caller's own call needs none).
+    setCallMemberIds([]);
     setStatus('connecting');
   }, [clearFarewell]);
 
@@ -1161,7 +1174,8 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
     // Awaited below; marked handled so a failure while the join is pending isn't reported as unhandled.
     connecting.catch(() => undefined);
     try {
-      await join;
+      const joined = await join;
+      setCallMemberIds(usersInCall(joined.data.participants));
     } catch (err) {
       // The answer never counted, so no /leave either.
       callIdRef.current = null;
@@ -1189,6 +1203,7 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
       callIdRef.current = null;
       throw err;
     }
+    setCallMemberIds(usersInCall(joinRes.data.participants));
     // An older server leaves the call's channel and type out of the answer.
     const call = joinRes.data.channelId && joinRes.data.callType
       ? { channelId: joinRes.data.channelId, callType: joinRes.data.callType }
@@ -1325,6 +1340,7 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
       setCallId(previewJoinCallId);
       enterConnecting();
       const joinRes = await client.post<JoinChatCallResponse>(`/chat-calls/${previewJoinCallId}/join`, {});
+      setCallMemberIds(usersInCall(joinRes.data.participants));
       await initMeeting(joinRes.data.authToken, type, audioOn, videoOn);
     } else if (chId) {
       // Starting new call — single round-trip: creates meeting + joins in one request
@@ -1612,6 +1628,7 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
       status,
       endReason,
       isCallInitiator,
+      callMemberIds,
       isMuted,
       isVideoOff,
       isScreenSharing,
@@ -1660,6 +1677,7 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
       status,
       endReason,
       isCallInitiator,
+      callMemberIds,
       isMuted,
       isVideoOff,
       isScreenSharing,

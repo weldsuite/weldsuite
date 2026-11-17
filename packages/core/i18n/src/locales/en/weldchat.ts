@@ -91,6 +91,8 @@ export const weldchat = {
     },
     calling: {
       ringing: 'Ringing…',
+      /** On a call tile: someone already in the call whose connection is not up yet. */
+      connecting: 'Connecting…',
       autoEnded: 'Call ended automatically after 3 minutes alone.',
       reconnecting: 'Connection lost. Reconnecting…',
       reconnected: 'You are back in the call',

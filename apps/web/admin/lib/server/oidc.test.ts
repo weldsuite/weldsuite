@@ -7,6 +7,7 @@ import {
   oidcConfig,
   readSession,
   safeReturnTo,
+  scopes,
   sessionCookie,
   signOutLocation,
   startSignIn,
@@ -186,13 +187,34 @@ describe('oidcConfig', () => {
         'ADMIN_PUBLIC_URL',
         'ADMIN_OIDC_CLIENT_ID',
         'ADMIN_OIDC_CLIENT_SECRET',
-        'ADMIN_OIDC_ORG_ID',
         'shorter than 32',
       ]) {
         expect(message).toContain(name);
       }
       expect(message).not.toContain('short-secret-value');
+      // SEC-019: optional (WeldID's separate staff issuer stands in for it).
+      expect(message).not.toContain('ADMIN_OIDC_ORG_ID');
     }
+  });
+
+  it('accepts no ADMIN_OIDC_ORG_ID (WeldID) and leaves staffOrgId empty', () => {
+    const settings = oidcConfig({
+      ADMIN_OIDC_ISSUER: 'https://auth.eu.example',
+      ADMIN_OIDC_CLIENT_ID: 'admin-console',
+      ADMIN_OIDC_CLIENT_SECRET: 'secret',
+      ADMIN_PUBLIC_URL: 'https://admin.eu.example',
+      ADMIN_SESSION_SECRET: 'x'.repeat(40),
+    });
+    expect(settings.staffOrgId).toBe('');
+  });
+});
+
+describe('scopes', () => {
+  it('asks for the resource-owner organization scope only with a staff organization configured', () => {
+    expect(scopes({ staffOrgId: 'org-staff' })).toBe(
+      'openid email profile urn:zitadel:iam:user:resourceowner urn:zitadel:iam:org:id:org-staff',
+    );
+    expect(scopes({ staffOrgId: '' })).toBe('openid email profile');
   });
 });
 

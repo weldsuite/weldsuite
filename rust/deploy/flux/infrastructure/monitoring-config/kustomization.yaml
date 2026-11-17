@@ -4,11 +4,11 @@
 # ../monitoring's HelmRelease. What each alert means: ALERTS.md.
 #
 # ${DOMAIN} is substituted (Flux postBuild) in the probes and the Flux
-# alerts, ${SECRET_STORE_URL:=} in the probes. A setting a cluster may leave
-# out takes a default (`:=`): Flux substitutes strictly, so a name a
-# cluster's cluster-settings doesn't define fails the whole layer. The rules
-# use Prometheus's own $labels and $value, which Flux leaves alone; nothing
-# here may contain a dollar-brace otherwise.
+# alerts, ${SECRET_STORE_URL:=} and ${AUTH_PROBE_PATH:=…} in the probes. A
+# setting a cluster may leave out takes a default (`:=`): Flux substitutes
+# strictly, so a name a cluster's cluster-settings doesn't define fails the
+# whole layer. The rules use Prometheus's own $labels and $value, which Flux
+# leaves alone; nothing here may contain a dollar-brace otherwise.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:

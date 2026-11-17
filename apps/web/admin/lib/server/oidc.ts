@@ -9,21 +9,31 @@ import '@tanstack/react-start/server-only';
  * expiry and nonce. The ID token comes straight from the token endpoint over
  * TLS, which OIDC Core (3.1.3.7) accepts in place of checking its signature.
  *
- * Signing in only proves who someone is and which organization their account
- * belongs to (Zitadel's `urn:zitadel:iam:user:resourceowner:id`). Whether they
- * get into the console, and with which role, is for the staff organization
- * and the install's `admin_users` roster to say, read on every request
- * (`staff-roster.ts`, ADR SEC-018).
+ * Signing in only proves who someone is and, on Zitadel, which organization
+ * their account belongs to (`urn:zitadel:iam:user:resourceowner:id`). Whether
+ * they get into the console, and with which role, is for the install's
+ * `admin_users` roster to say, read on every request (`staff-roster.ts`).
  *
- * Configuration (all required):
- * - `ADMIN_OIDC_ISSUER`: the provider's issuer URL, e.g. https://auth.eu.example
- * - `ADMIN_OIDC_CLIENT_ID`, `ADMIN_OIDC_CLIENT_SECRET`: the console's app there
- * - `ADMIN_OIDC_ORG_ID`: the id of the organization that holds the staff's
- *   own accounts (`WeldSuite Staff`); an account of any other organization,
- *   a person's platform account included, gets no access
- * - `ADMIN_PUBLIC_URL`: where staff open the console; the redirect URI is
- *   `{ADMIN_PUBLIC_URL}/auth/callback` (never taken from the Host header)
- * - `ADMIN_SESSION_SECRET`: at least 32 characters, seals the cookies
+ * Configuration:
+ * - `ADMIN_OIDC_ISSUER` (required): the provider's issuer URL, e.g.
+ *   https://auth.eu.example
+ * - `ADMIN_OIDC_CLIENT_ID`, `ADMIN_OIDC_CLIENT_SECRET` (required): the
+ *   console's app there
+ * - `ADMIN_OIDC_ORG_ID` (optional, ADR SEC-018): the id of the organization
+ *   that holds the staff's own accounts on Zitadel (`WeldSuite Staff`); an
+ *   account of any other organization, a person's platform account included,
+ *   gets no access. **Unset on WeldID** (plan `weldid-auth-server.md`,
+ *   SEC-019): its separate staff issuer (`{issuer}/staff`) already has its
+ *   own users, so every account this console ever sees is a staff account,
+ *   and the resource-owner check in `scopes()`, `decide()` and
+ *   `staffIdentity()` is skipped. Set it, and the check still runs, for a
+ *   provider that (like Zitadel) mixes staff and platform accounts in one
+ *   user pool.
+ * - `ADMIN_PUBLIC_URL` (required): where staff open the console; the
+ *   redirect URI is `{ADMIN_PUBLIC_URL}/auth/callback` (never taken from the
+ *   Host header)
+ * - `ADMIN_SESSION_SECRET` (required): at least 32 characters, seals the
+ *   cookies
  */
 
 import * as oauth from 'oauth4webapi';
@@ -42,14 +52,17 @@ export const ORG_SCOPE = 'urn:zitadel:iam:user:resourceowner';
 export const ORG_CLAIM = 'urn:zitadel:iam:user:resourceowner:id';
 
 /**
- * What the console asks for: who the person is, their account's organization,
- * and Zitadel's organization scope, with which its login accepts only the
- * staff organization's accounts (as Grafana's sign-in does). The claim is
- * still checked on every request: the console doesn't rely on the provider's
- * settings alone.
+ * What the console asks for: who the person is, and, with a staff
+ * organization configured (`ADMIN_OIDC_ORG_ID`, Zitadel), their account's
+ * organization and Zitadel's organization scope, with which its login
+ * accepts only that organization's accounts (as Grafana's sign-in does). The
+ * claim is still checked on every request: the console doesn't rely on the
+ * provider's settings alone. Without one configured (WeldID: its staff
+ * issuer already means every account here is staff), neither is asked for.
  */
 export function scopes(config: Pick<OidcConfig, 'staffOrgId'>): string {
-  return `openid email profile ${ORG_SCOPE} urn:zitadel:iam:org:id:${config.staffOrgId}`;
+  const base = 'openid email profile';
+  return config.staffOrgId ? `${base} ${ORG_SCOPE} urn:zitadel:iam:org:id:${config.staffOrgId}` : base;
 }
 
 export interface OidcConfig {
@@ -111,7 +124,9 @@ export function oidcConfig(env: Record<string, string | undefined> = process.env
   const publicUrl = url('ADMIN_PUBLIC_URL');
   const clientId = text('ADMIN_OIDC_CLIENT_ID');
   const clientSecret = text('ADMIN_OIDC_CLIENT_SECRET');
-  const staffOrgId = text('ADMIN_OIDC_ORG_ID');
+  // Optional (SEC-019): see the file comment. Not read with `text()`, which
+  // would make it required and name it among the missing variables.
+  const staffOrgId = env.ADMIN_OIDC_ORG_ID?.trim() ?? '';
   const sessionSecret = text('ADMIN_SESSION_SECRET');
   if (sessionSecret && sessionSecret.length < 32) problems.push('ADMIN_SESSION_SECRET is shorter than 32 characters');
   if (problems.length > 0 || !issuer || !publicUrl) throw new OidcConfigError(problems.join('; '));

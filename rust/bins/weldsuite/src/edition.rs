@@ -14,8 +14,9 @@
 //!   [`COLLAB_ROOMS_FEATURE`], when no collab-rooms service is configured
 //!   (`COLLAB_ROOMS_URLS`); [`CREDIT_TOP_UP_FEATURE`], without Mollie
 //!   (`MOLLIE_API_KEY`); [`CHAT_CALLS_FEATURE`], without a video provider
-//!   (`weldsuite_video_rooms::configured`); and [`AGENT_SANDBOX_FEATURE`], without WeldAgent's
-//!   sandbox (`SANDBOX_ENABLED`).
+//!   (`weldsuite_video_rooms::configured`); [`AGENT_SANDBOX_FEATURE`], without WeldAgent's
+//!   sandbox (`SANDBOX_ENABLED`); and [`SSO_CONNECTIONS_FEATURE`], unless WeldID
+//!   is the identity provider (`IDENTITY_PROVIDER=weldid`).
 //! - `ai`: the install's AI providers, with their region and the key sources
 //!   a workspace may use (`weldsuite_ai::AiConfig::describe`), when it has
 //!   one. The platform shows the AI settings page and the region labels from
@@ -58,13 +59,13 @@ impl Edition {
 /// Features the Rust backend lacks inside the modules it serves; the platform
 /// hides them (`EditionFeature` in `apps/web/platform/lib/edition.ts`).
 pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
-    // `/api/sso` claims and verifies a domain, but the SAML connection lives
-    // at the identity provider (Clerk's): every connection change answers 502.
-    "sso-connections",
     // Paid WeldApps: their subscriptions and developer payouts are Stripe's.
     "paid-apps",
-    // The desktop app's sign-in ticket (`POST /api/auth-desktop/ticket`)
-    // needs an identity provider that mints one.
+    // The desktop app's Clerk sign-in ticket (`POST /api/auth-desktop/ticket`,
+    // Global's desktop sign-in) needs an identity provider that mints one.
+    // It hides only that handoff page: with OIDC the desktop app signs in
+    // through the system browser and a loopback redirect, with its own client
+    // (`OIDC_DESKTOP_CLIENT_ID`, apps/desktop/docs/auth-handoff.md).
     "desktop-sign-in",
     // Analytics pages read Cloudflare's analytics store.
     "analytics",
@@ -162,6 +163,14 @@ pub(crate) const AI_FEATURES: &[&str] = &[
     // editions' own agent loop.
     "agent-ai",
 ];
+
+/// Enterprise SSO connections (`/api/sso`): the connection lives at the
+/// identity provider. Global's are Clerk's SAML connections; on Kubernetes
+/// only WeldID offers them (`IDENTITY_PROVIDER=weldid`, `OpenID` Connect
+/// connections, ADR SEC-019). With Zitadel, or no provider, `/api/sso`
+/// claims and verifies a domain but every connection change answers 502, so
+/// the platform hides the page.
+pub(crate) const SSO_CONNECTIONS_FEATURE: &str = "sso-connections";
 
 /// WeldAgent: offered by `/config.json` only with an AI provider.
 pub(crate) const AI_MODULE: &str = "agent";
@@ -266,6 +275,9 @@ pub(crate) struct EditionConfig {
     /// WeldAgent has a sandbox (`SANDBOX_ENABLED`, set by `Config`):
     /// [`AGENT_SANDBOX_FEATURE`].
     pub(crate) sandbox: bool,
+    /// The identity provider manages SSO connections (WeldID, set by
+    /// `Config` from `IDENTITY_PROVIDER`): [`SSO_CONNECTIONS_FEATURE`].
+    pub(crate) sso_connections: bool,
 }
 
 /// WeldMail's address features this deployment can serve.
@@ -314,6 +326,7 @@ impl Default for EditionConfig {
             credit_top_up: false,
             plan_billing: false,
             sandbox: false,
+            sso_connections: false,
         }
     }
 }
@@ -371,6 +384,8 @@ impl EditionConfig {
             ai: None,
             // `Config` reads `SANDBOX_*` likewise.
             sandbox: false,
+            // And `IDENTITY_PROVIDER`.
+            sso_connections: false,
         }
     }
 
@@ -401,7 +416,11 @@ impl EditionConfig {
     /// [`UNAVAILABLE_FEATURES`], and calls, the AI features, custom mail
     /// domains and live editing when they aren't configured.
     pub(crate) fn unavailable_features(&self) -> Vec<&'static str> {
-        let mut features = UNAVAILABLE_FEATURES.to_vec();
+        let mut features = Vec::with_capacity(UNAVAILABLE_FEATURES.len() + 16);
+        if !self.sso_connections {
+            features.push(SSO_CONNECTIONS_FEATURE);
+        }
+        features.extend_from_slice(UNAVAILABLE_FEATURES);
         if !self.video_configured {
             features.push(CHAT_CALLS_FEATURE);
         }
@@ -495,7 +514,7 @@ mod tests {
                 .as_array()
                 .map(Vec::len)
                 .unwrap_or_default(),
-            UNAVAILABLE_FEATURES.len() + AI_FEATURES.len() + 8
+            UNAVAILABLE_FEATURES.len() + AI_FEATURES.len() + 9
         );
         assert_eq!(
             body["unavailableFeatures"]
@@ -541,6 +560,21 @@ mod tests {
 
     /// WeldAgent's sandbox, computer use and browsing follow the install's
     /// sandbox (`SANDBOX_ENABLED`), whatever the AI provider.
+    /// SSO connections follow the identity provider: only WeldID manages
+    /// them (ADR SEC-019); Zitadel and no provider keep the page hidden.
+    #[test]
+    fn offers_sso_connections_only_with_weldid() {
+        let (off, _) = read(&[]);
+        let lacks = off.unavailable_features();
+        assert_eq!(lacks.first(), Some(&SSO_CONNECTIONS_FEATURE));
+        let on = EditionConfig {
+            sso_connections: true,
+            ..off
+        };
+        assert!(!on.unavailable_features().contains(&SSO_CONNECTIONS_FEATURE));
+        assert!(!UNAVAILABLE_FEATURES.contains(&SSO_CONNECTIONS_FEATURE));
+    }
+
     #[test]
     fn offers_the_agent_sandbox_with_a_sandbox() {
         let (off, _) = read(&[]);
@@ -563,7 +597,8 @@ mod tests {
         assert!(config.live_editing);
         let mut body = json!({});
         config.describe(&mut body);
-        let mut lacks = UNAVAILABLE_FEATURES.to_vec();
+        let mut lacks = vec![SSO_CONNECTIONS_FEATURE];
+        lacks.extend_from_slice(UNAVAILABLE_FEATURES);
         lacks.push(CHAT_CALLS_FEATURE);
         lacks.extend_from_slice(AI_FEATURES);
         lacks.extend([
@@ -804,6 +839,7 @@ mod tests {
             &COLLAB_ROOMS_FEATURE,
             &REACH_BILLING_FEATURE,
             &CHAT_CALLS_FEATURE,
+            &SSO_CONNECTIONS_FEATURE,
         ]) {
             assert!(
                 feature.chars().all(|c| c.is_ascii_lowercase() || c == '-'),

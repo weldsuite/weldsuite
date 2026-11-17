@@ -76,7 +76,8 @@
 //!   sends and engages them itself.
 //! - `identity-sync` (every minute): the identity provider's changes into
 //!   the master and tenant databases (what Clerk's webhooks do on Global;
-//!   `weldsuite_core_onboarding::IdentitySync`).
+//!   `weldsuite_core_onboarding::IdentitySync`): Zitadel's event store by
+//!   time, or WeldID's outbox after its own watermark (`run_feed`).
 //! - `workspace-deletion` (daily): workspaces past their scheduled deletion
 //!   (`workspace-worker/src/services/deletion-sweep.ts`).
 //! - `workspace-teardown` (hourly): deleted workspaces whose database
@@ -1721,14 +1722,7 @@ fn workspace_infra(config: &Config) -> Result<WorkspaceInfra, Box<dyn std::error
         config.workspaces.clone(),
     ));
     let mail = crate::infra::system_mail(&config.infra)?;
-    let identity = config.infra.identity.as_ref().map(|settings| {
-        weldsuite_adapters_oss::ZitadelIdentity::new(crate::infra::zitadel_options(
-            settings,
-            mail.as_ref(),
-        ))
-        .map(|identity| Arc::new(identity) as Arc<dyn weldsuite_ports::Identity>)
-    });
-    let identity = identity.transpose()?;
+    let identity = crate::infra::identity(&config.infra, &master, mail.as_ref())?.identity;
     let provisioner = crate::infra::provisioner(&config.infra, &master, &config.keyring)?;
     Ok(WorkspaceInfra {
         master,
@@ -1757,7 +1751,7 @@ async fn identity_sync(config: Config) -> Result<(), Box<dyn std::error::Error>>
     let infra = workspace_infra(&config)?;
     let Some(identity) = infra.identity else {
         return Err(
-            "identity-sync needs ZITADEL_API_URL, ZITADEL_SERVICE_TOKEN and ZITADEL_PROJECT_ID"
+            "identity-sync needs an identity provider: ZITADEL_API_URL, ZITADEL_SERVICE_TOKEN and ZITADEL_PROJECT_ID, or IDENTITY_PROVIDER=weldid with WELDID_*"
                 .into(),
         );
     };
@@ -1767,7 +1761,14 @@ async fn identity_sync(config: Config) -> Result<(), Box<dyn std::error::Error>>
         tenant_databases(&infra.workspaces),
         infra.provisioner,
     );
-    let report = sync.run().await.map_err(|error| error.to_string())?;
+    // WeldID's outbox has a watermark of its own; Zitadel's event store is
+    // read by time.
+    let report = if config.infra.weldid.is_some() {
+        sync.run_feed().await
+    } else {
+        sync.run().await
+    }
+    .map_err(|error| error.to_string())?;
     println!(
         "{}",
         serde_json::json!({ "job": "identity-sync", "result": report })
@@ -1778,7 +1779,7 @@ async fn identity_sync(config: Config) -> Result<(), Box<dyn std::error::Error>>
 async fn workspace_deletion(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let infra = workspace_infra(&config)?;
     let Some(identity) = infra.identity else {
-        return Err("workspace-deletion needs ZITADEL_API_URL, ZITADEL_SERVICE_TOKEN and ZITADEL_PROJECT_ID".into());
+        return Err("workspace-deletion needs an identity provider: ZITADEL_API_URL, ZITADEL_SERVICE_TOKEN and ZITADEL_PROJECT_ID, or IDENTITY_PROVIDER=weldid with WELDID_*".into());
     };
     let result =
         weldsuite_core_onboarding::sweep_scheduled_deletions(&infra.master, &identity).await?;

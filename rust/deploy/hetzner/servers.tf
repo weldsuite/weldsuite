@@ -8,7 +8,8 @@ data "hcloud_image" "talos" {
 
 locals {
   # Fixed private addresses: 10-19 control plane, 20-39 workers, 40-59 Postgres,
-  # 60-99 mail (mail.tf).
+  # 60-99 mail (mail.tf). On a cluster without general workers, the
+  # livekit_control_planes also run LiveKit.
   control_planes = {
     for i, location in var.control_plane_locations : "cp-${i + 1}" => {
       location = location
@@ -16,7 +17,7 @@ locals {
       type     = var.control_plane_type
       role     = "controlplane"
       pool     = "control-plane"
-      livekit  = false
+      livekit  = contains(var.livekit_control_planes, "cp-${i + 1}")
       mail     = ""
     }
   }

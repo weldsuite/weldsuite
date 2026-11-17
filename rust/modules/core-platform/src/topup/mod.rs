@@ -1026,6 +1026,7 @@ mod tests {
             top_up: Some(Arc::new(top_up)),
             ai: None,
             mail: None,
+            sso: None,
         };
         (fake, webhook_router().with_state(state))
     }

@@ -3521,6 +3521,114 @@ export const settings = {
         switchedOff: 'Single sign-on staat uit.',
       },
 
+      weldid: {
+        description:
+          'Laat uw team zich aanmelden met uw eigen identiteitsprovider via OpenID Connect, zoals Microsoft Entra ID, Okta of Google Workspace. Zodra het aan staat, melden personen met een e-mailadres op uw geverifieerde domeinen zich aan via uw identiteitsprovider.',
+        samlLater: 'SAML-verbindingen volgen later. Koppel voorlopig een identiteitsprovider die OpenID Connect ondersteunt.',
+        notEntitled: 'Single sign-on zit niet in het abonnement van deze werkruimte. Vraag uw beheerder om het toe te voegen.',
+        connection: {
+          title: 'Koppel uw identiteitsprovider',
+          description:
+            'Maak in uw identiteitsprovider een OpenID Connect-toepassing (web) aan, registreer de redirect-URI die wij u geven en vul hier de gegevens van de toepassing in.',
+          notConnected: 'Er is nog geen identiteitsprovider gekoppeld.',
+          displayName: 'Naam',
+          displayNamePlaceholder: 'Microsoft Entra ID',
+          displayNameHint: 'Uw team ziet deze naam bij het aanmelden.',
+          issuer: 'Issuer-URL',
+          issuerPlaceholder: 'https://login.microsoftonline.com/uw-tenant-id/v2.0',
+          issuerHint: 'Het https://-adres van uw identiteitsprovider, zoals het in het discovery-document staat.',
+          clientId: 'Client-ID',
+          clientSecret: 'Clientgeheim',
+          clientSecretStored: 'Er is een clientgeheim opgeslagen. Vul een nieuw geheim in om het te vervangen, of laat dit veld leeg om het te houden.',
+          scopes: 'Extra scopes',
+          scopesPlaceholder: 'groups',
+          scopesHint: 'Optioneel. Scheid scopes met spaties of komma’s. Om openid, email en profile wordt altijd gevraagd.',
+          scopesInvalid: 'Vul maximaal 20 scopenamen in, zonder spaties, aanhalingstekens of backslashes in een naam.',
+          trustEmails: 'De e-mailadressen van deze provider vertrouwen',
+          trustEmailsHint:
+            'Zet dit aan voor providers die e-mailadressen niet als geverifieerd markeren, zoals Microsoft Entra ID. Hoe dan ook worden alleen adressen op uw geverifieerde domeinen geaccepteerd.',
+          trustEmailsOn: 'Vertrouwd',
+          trustEmailsOff: 'Alleen adressen die de provider als geverifieerd markeert',
+          create: 'Identiteitsprovider koppelen',
+          save: 'Wijzigingen opslaan',
+          created: 'Identiteitsprovider gekoppeld. Registreer nu de redirect-URI in uw identiteitsprovider.',
+          saved: 'Identiteitsprovider opgeslagen.',
+          secretStored: 'Clientgeheim opgeslagen',
+          redirectTitle: 'Registreer deze redirect-URI',
+          redirectDescription:
+            'Voeg hem toe als redirect-URI (callback) van de toepassing in uw identiteitsprovider. Aanmelden via uw identiteitsprovider lukt pas als hij geregistreerd is.',
+          redirectUri: 'Redirect-URI',
+          redirectPending: 'De redirect-URI is nog niet beschikbaar. Laad de pagina zo meteen opnieuw.',
+          remove: 'Verbinding verwijderen',
+          removeConfirmTitle: 'De verbinding verwijderen?',
+          removeConfirmDescription:
+            'Single sign-on stopt en de domeinen worden met de verbinding verwijderd. Personen die zich alleen via uw identiteitsprovider aanmelden, hebben dan een andere manier nodig om zich aan te melden.',
+          removed: 'Verbinding verwijderd.',
+        },
+        domains: {
+          title: 'Verifieer uw domeinen',
+          description:
+            'Voeg de domeinen van de e-mailadressen van uw team toe en bewijs met een DNS-record dat elk domein van u is. Alleen geverifieerde domeinen gaan naar uw identiteitsprovider.',
+          needsConnection: 'Koppel eerst uw identiteitsprovider.',
+          none: 'Er zijn nog geen domeinen toegevoegd.',
+          label: 'Domein',
+          placeholder: 'acme.nl',
+          hint: 'Het deel na de @ in uw e-mailadressen.',
+          add: 'Domein toevoegen',
+          added: 'Domein toegevoegd. Publiceer het DNS-record en verifieer het daarna.',
+          status: {
+            pending: 'Niet geverifieerd',
+            verified: 'Geverifieerd',
+            failed: 'Record niet gevonden',
+          },
+          dnsDescription:
+            'Voeg bij de DNS-host van {domain} een TXT-record toe met deze waarden en kies daarna Verifiëren. Het kan even duren voordat DNS-wijzigingen zichtbaar zijn.',
+          verify: 'Verifiëren',
+          verified: 'Domein geverifieerd.',
+          remove: 'Verwijderen',
+          removeLabel: '{domain} verwijderen',
+          removeConfirmTitle: '{domain} verwijderen?',
+          removeConfirmDescription:
+            'Personen op {domain} melden zich niet meer aan via uw identiteitsprovider. Voegt u het domein later opnieuw toe, dan moet u het opnieuw verifiëren.',
+          removed: 'Domein verwijderd.',
+        },
+        signIn: {
+          title: 'Aanmeldinstellingen',
+          description: 'Zet single sign-on aan, bepaal of het verplicht is en kies de rol die nieuwe personen krijgen.',
+          enabled: 'Single sign-on',
+          enabledDescription: 'Personen op uw geverifieerde domeinen gaan bij het aanmelden naar uw identiteitsprovider.',
+          blocked: {
+            not_entitled: 'Single sign-on zit niet in het abonnement van deze werkruimte.',
+            no_connection: 'Koppel eerst uw identiteitsprovider.',
+            domain_unverified: 'Verifieer eerst een domein.',
+          },
+          confirmOnTitle: 'Single sign-on aanzetten?',
+          confirmOnDescription:
+            'Vanaf nu gaan personen met een e-mailadres op {domains} bij het aanmelden naar uw identiteitsprovider. Houd dit tabblad open en test het aanmelden in een privévenster.',
+          confirmOn: 'Aanzetten',
+          switchedOn: 'Single sign-on staat aan.',
+          switchedOff: 'Single sign-on staat uit.',
+          enforce: 'Single sign-on verplichten voor deze domeinen',
+          enforceDescription:
+            'Personen op uw geverifieerde domeinen kunnen zich alleen nog via uw identiteitsprovider aanmelden, niet met een wachtwoord of een andere methode.',
+          enforceWarning:
+            'Als uw identiteitsprovider niet werkt of verkeerd is ingesteld, kan niemand op deze domeinen zich aanmelden, ook beheerders niet. Houd minstens één beheerder met een e-mailadres buiten deze domeinen.',
+          confirmEnforceTitle: 'Single sign-on verplichten?',
+          confirmEnforce: 'Single sign-on verplichten',
+          enforcedOn: 'Single sign-on is nu verplicht voor deze domeinen.',
+          enforcedOff: 'Single sign-on is niet meer verplicht.',
+          defaultRole: 'Rol voor nieuwe leden',
+          defaultRoleDescription:
+            'Personen die zich via uw identiteitsprovider aanmelden en nog niet in de werkruimte zitten, krijgen deze rol. Bestaande leden houden hun rol.',
+          roles: {
+            ADMIN: 'Beheerder',
+            MEMBER: 'Lid',
+            VIEWER: 'Kijker',
+          },
+          roleSaved: 'Rol voor nieuwe leden opgeslagen.',
+        },
+      },
+
       errors: {
         generic: 'Er is iets misgegaan. Probeer het opnieuw.',
         forbidden: 'U heeft hiervoor geen toestemming.',
@@ -3549,6 +3657,8 @@ export const settings = {
         billingAdminRequired: 'Alleen een eigenaar van de werkruimte kan de facturering van single sign-on wijzigen.',
         billingBusy: 'Er is al een andere factureringswijziging bezig. Probeer het zo meteen opnieuw.',
         billingUnavailable: 'Facturering is op dit moment niet beschikbaar. Probeer het later opnieuw.',
+        oidcIncomplete: 'Vul de naam, issuer-URL en client-ID van uw identiteitsprovider in.',
+        oidcNotEntitled: 'Single sign-on zit niet in het abonnement van deze werkruimte.',
       },
     },
   };

@@ -132,12 +132,31 @@ settings, which weldsuite.env adds.
 - name: OIDC_MOBILE_CLIENT_ID
   value: {{ . | toString | quote }}
 {{- end }}
+{{- with .oidc.desktopClientId }}
+- name: OIDC_DESKTOP_CLIENT_ID
+  value: {{ . | toString | quote }}
+{{- end }}
+{{- $weldid := eq ($.Values.config.identity.provider | default "") "weldid" }}
 {{- with .oidc.signIn }}
+{{- if and (eq . "platform") $weldid }}
+{{- fail "config.auth.oidc.signIn platform is Zitadel's login API; WeldID (config.identity.provider weldid) shows its own sign-in screens" }}
+{{- end }}
 {{- if and (eq . "platform") (not $.Values.config.identity.zitadel.apiUrl) }}
 {{- fail "config.auth.oidc.signIn platform needs config.identity.zitadel.apiUrl" }}
 {{- end }}
 - name: OIDC_SIGN_IN
   value: {{ . | quote }}
+{{- end }}
+{{- $source := .oidc.workspaceSource | default (ternary "header" "" $weldid) }}
+{{- if $source }}
+{{- if not (has $source (list "claim" "header")) }}
+{{- fail "config.auth.oidc.workspaceSource must be claim or header" }}
+{{- end }}
+{{- if and $weldid (eq $source "claim") }}
+{{- fail "config.identity.provider weldid needs config.auth.oidc.workspaceSource header: WeldID's tokens name no workspace" }}
+{{- end }}
+- name: OIDC_WORKSPACE_SOURCE
+  value: {{ $source | quote }}
 {{- end }}
 {{- else if ne .provider "clerk" }}
 {{- fail "config.auth.provider must be clerk or oidc" }}
@@ -287,8 +306,30 @@ settings, which weldsuite.env adds.
 - name: TURNSTILE_SITE_KEY
   value: {{ . | quote }}
 {{- end }}
+{{- with .Values.config.identity }}
+{{- $provider := .provider | default "" }}
+{{- if eq $provider "weldid" }}
+{{- if ne $.Values.config.auth.provider "oidc" }}
+{{- fail "config.identity.provider weldid needs config.auth.provider oidc, with WeldID's issuer" }}
+{{- end }}
+- name: IDENTITY_PROVIDER
+  value: "weldid"
+- name: WELDID_ADMIN_URL
+  value: {{ required "config.identity.weldid.adminUrl is required with config.identity.provider weldid" .weldid.adminUrl | quote }}
+- name: WELDID_CLIENT_ID
+  value: {{ required "config.identity.weldid.clientId is required with config.identity.provider weldid" .weldid.clientId | toString | quote }}
+{{- else if eq $provider "zitadel" }}
+{{- if not .zitadel.apiUrl }}
+{{- fail "config.identity.provider zitadel needs config.identity.zitadel.apiUrl" }}
+{{- end }}
+- name: IDENTITY_PROVIDER
+  value: "zitadel"
+{{- else if $provider }}
+{{- fail "config.identity.provider must be zitadel or weldid" }}
+{{- end }}
+{{- end }}
 {{- with .Values.config.identity.zitadel }}
-{{- if .apiUrl }}
+{{- if and .apiUrl (ne ($.Values.config.identity.provider | default "") "weldid") }}
 - name: ZITADEL_API_URL
   value: {{ .apiUrl | quote }}
 - name: ZITADEL_PROJECT_ID

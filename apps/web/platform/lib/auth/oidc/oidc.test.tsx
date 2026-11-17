@@ -10,13 +10,17 @@ import { createOidcAuth } from './index';
 import { defaultAccountUrl, type OidcSessionConfig, type OidcSessionOptions } from './session';
 import { parseWorkspaceDirectory, type WorkspaceDirectoryEntry } from './workspaces';
 import { clerkAuth } from '../clerk-adapter';
+import { BrowserSignInError, type BrowserSignIn } from './browser-sign-in';
 import {
   getAuthProvider,
   getAuthToken,
+  redirectToSignIn,
   setAuthImplementation,
+  signInWithBrowser,
   useAuth,
   useOrganization,
   useOrganizationList,
+  usesBrowserSignIn,
   usesPlatformSignIn,
   useUser,
 } from '../index';
@@ -57,7 +61,10 @@ interface IssuerState {
   memberships: Record<string, string>;
   /** Set from the authorize request's org-roles scope, as Zitadel narrows the roles claim. */
   narrowTo: string | null;
+  /** The authorize request's nonce, echoed in the ID token. */
+  nonce?: string | null;
   tokenRequests: URLSearchParams[];
+  revocations?: URLSearchParams[];
 }
 
 function idToken(state: IssuerState) {
@@ -79,6 +86,7 @@ function idToken(state: IssuerState) {
     'urn:zitadel:iam:user:resourceowner:name': 'Acme BV',
     'urn:zitadel:iam:org:project:roles': { member: orgs },
     [ORG_CLAIM]: { member: orgs },
+    ...(state.nonce ? { nonce: state.nonce } : {}),
   });
 }
 
@@ -97,8 +105,13 @@ function mockIssuer(state: IssuerState) {
         token_endpoint: `${ISSUER}/oauth/v2/token`,
         end_session_endpoint: `${ISSUER}/oidc/v1/end_session`,
         userinfo_endpoint: `${ISSUER}/oidc/v1/userinfo`,
+        revocation_endpoint: `${ISSUER}/oauth/v2/revoke`,
         jwks_uri: `${ISSUER}/oauth/v2/keys`,
       });
+    }
+    if (url === `${ISSUER}/oauth/v2/revoke`) {
+      (state.revocations ??= []).push(new URLSearchParams(String(init?.body ?? '')));
+      return new Response(null, { status: 200 });
     }
     if (url !== `${ISSUER}/oauth/v2/token`) return json({ error: 'not_found' }, 404);
     const body = new URLSearchParams(String(init?.body ?? ''));
@@ -206,6 +219,11 @@ describe('OIDC sign-in', () => {
     expect(scopes).toContain('urn:zitadel:iam:org:projects:roles');
     expect(scopes).toContain(`urn:zitadel:iam:org:project:id:${PROJECT}:aud`);
     expect(scopes.some((s) => s.startsWith(ORG_SCOPE))).toBe(false);
+  });
+
+  it("asks WeldID's sign-in pages for the platform's current language", async () => {
+    const { authorize } = await signedIn();
+    expect(authorize.searchParams.get('ui_locales')).toBe('en');
   });
 
   it('exchanges the code (the verifier matches the challenge) and returns to where sign-in started', async () => {
@@ -477,5 +495,219 @@ describe('the facade on OIDC', () => {
     await waitFor(() => expect(result.current.isLoaded).toBe(true));
     expect(result.current.isSignedIn).toBe(false);
     await expect(getAuthToken()).resolves.toBeNull();
+  });
+});
+
+describe('the facade on OIDC in header mode (WeldID in membership mode)', () => {
+  /** What the Rust backend serves when WeldID owns the workspace header. */
+  const HEADER_CONFIG: OidcSessionConfig = {
+    provider: 'oidc',
+    issuer: ISSUER,
+    clientId: CLIENT_ID,
+    audienceScope: null,
+    organizationScope: null,
+    workspaceSource: 'header',
+  };
+  const directory = [
+    { id: 'ws_acme', name: 'Acme', slug: 'acme' },
+    { id: 'ws_globex', name: 'Globex', slug: 'globex' },
+  ];
+
+  it('never asks for an audience or organization scope', async () => {
+    const auth = createOidcAuth(HEADER_CONFIG, { origin: ORIGIN });
+    setAuthImplementation(auth);
+    void auth.redirectToSignIn?.();
+    const { authorize } = await answerRedirect(auth, 0);
+    const scopes = (authorize.searchParams.get('scope') ?? '').split(' ');
+    expect(scopes.some((s) => s.startsWith(ORG_SCOPE))).toBe(false);
+    expect(scopes.some((s) => s.includes(':aud'))).toBe(false);
+  });
+
+  it("lists workspaces from WeldSuite's own directory, never the token's claims, and switches with no redirect", async () => {
+    const loadWorkspaces = vi.fn(async (_token: string) => directory);
+    const auth = createOidcAuth(HEADER_CONFIG, { origin: ORIGIN, storage: window.localStorage, loadWorkspaces });
+    setAuthImplementation(auth);
+    void auth.redirectToSignIn?.();
+    await answerRedirect(auth, 0);
+
+    const { result } = renderHook(() => ({ auth: useAuth(), list: useOrganizationList() }));
+    await waitFor(() =>
+      expect(result.current.list.userMemberships.data?.map((m) => m.organization.id)).toEqual(['ws_acme', 'ws_globex']),
+    );
+    // Two workspaces and no local choice yet: none active.
+    expect(result.current.auth.orgId).toBeNull();
+
+    await act(async () => {
+      await result.current.list.setActive?.({ organization: 'ws_globex' });
+    });
+    expect(result.current.auth.orgId).toBe('ws_globex');
+    // A local choice only: the one redirect was the sign-in itself.
+    expect(assign).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the chosen workspace for this person across a reload', async () => {
+    const loadWorkspaces = async () => directory;
+    const first = createOidcAuth(HEADER_CONFIG, { origin: ORIGIN, storage: window.localStorage, loadWorkspaces });
+    setAuthImplementation(first);
+    void first.redirectToSignIn?.();
+    await answerRedirect(first, 0);
+    const { result: r1 } = renderHook(() => useOrganizationList());
+    await waitFor(() => expect(r1.current.userMemberships.data?.length).toBe(2));
+    await act(async () => {
+      await r1.current.setActive?.({ organization: 'ws_globex' });
+    });
+
+    const second = createOidcAuth(HEADER_CONFIG, { origin: ORIGIN, storage: window.localStorage, loadWorkspaces });
+    setAuthImplementation(second);
+    const { result } = renderHook(() => useAuth());
+    await waitFor(() => expect(result.current.isLoaded).toBe(true));
+    expect(result.current.orgId).toBe('ws_globex');
+  });
+});
+
+describe('inside the desktop shell (system browser, loopback redirect)', () => {
+  /** What `/config.json` names for the desktop app: its own native client. */
+  const DESKTOP_CONFIG: OidcSessionConfig = {
+    provider: 'oidc',
+    issuer: ISSUER,
+    clientId: 'weldsuite-desktop',
+    audienceScope: null,
+    organizationScope: null,
+    workspaceSource: 'header',
+  };
+  const LOOPBACK = 'http://127.0.0.1:53123/callback';
+
+  type Answer = (authorize: URL, redirectUri: string) => string | BrowserSignInError;
+
+  /** The shell's part, played here: the "browser" answers the authorization request. */
+  function fakeShell(answer: Answer) {
+    const authorizeUrls: URL[] = [];
+    const opened: string[] = [];
+    let flows = 0;
+    const browserSignIn = {
+      start: vi.fn(async () => ({ id: `flow-${++flows}`, redirectUri: LOOPBACK })),
+      authorize: vi.fn(async (_id: string, url: string) => {
+        const authorize = new URL(url);
+        authorizeUrls.push(authorize);
+        issuer.challenge = authorize.searchParams.get('code_challenge');
+        issuer.nonce = authorize.searchParams.get('nonce');
+        const result = answer(authorize, LOOPBACK);
+        if (result instanceof BrowserSignInError) throw result;
+        return result;
+      }),
+      cancel: vi.fn(async (_id: string) => undefined),
+      openExternal: vi.fn(async (url: string) => {
+        opened.push(url);
+      }),
+    } satisfies BrowserSignIn;
+    return { browserSignIn, authorizeUrls, opened };
+  }
+
+  const backWithCode: Answer = (authorize, redirectUri) =>
+    `${redirectUri}?code=code-1&state=${authorize.searchParams.get('state')}`;
+
+  function desktop(answer: Answer = backWithCode) {
+    const shell = fakeShell(answer);
+    setAuthImplementation(createOidcAuth(DESKTOP_CONFIG, { origin: ORIGIN, browserSignIn: shell.browserSignIn }));
+    return shell;
+  }
+
+  it('signs in through the system browser and redeems the code in this page', async () => {
+    const shell = desktop();
+    expect(usesBrowserSignIn()).toBe(true);
+    await signInWithBrowser({ returnTo: '/weldknow' });
+
+    const authorize = shell.authorizeUrls[0];
+    expect(authorize.origin + authorize.pathname).toBe(`${ISSUER}/oauth/v2/authorize`);
+    expect(authorize.searchParams.get('client_id')).toBe('weldsuite-desktop');
+    expect(authorize.searchParams.get('redirect_uri')).toBe(LOOPBACK);
+    expect(authorize.searchParams.get('response_type')).toBe('code');
+    expect(authorize.searchParams.get('code_challenge_method')).toBe('S256');
+    expect(authorize.searchParams.get('state')).toBeTruthy();
+    expect(authorize.searchParams.get('nonce')).toMatch(/^[0-9a-f]{32}$/);
+    expect((authorize.searchParams.get('scope') ?? '').split(' ')).toContain('offline_access');
+
+    // The code is redeemed here, with the verifier, at the loopback redirect URI.
+    const exchange = issuer.tokenRequests[0];
+    expect(exchange.get('grant_type')).toBe('authorization_code');
+    expect(exchange.get('client_id')).toBe('weldsuite-desktop');
+    expect(exchange.get('redirect_uri')).toBe(LOOPBACK);
+    await expect(getAuthToken()).resolves.toBe('at-1');
+    // The window never went to the provider: only on to where sign-in started.
+    expect(assign.mock.calls.map(([url]) => String(url))).toEqual(['/weldknow']);
+    expect(shell.browserSignIn.cancel).not.toHaveBeenCalled();
+  });
+
+  it('keeps the session fresh with the desktop client’s refresh token', async () => {
+    desktop();
+    await signInWithBrowser();
+    vi.useFakeTimers({ now: Date.now() + 10 * 60 * 1000, toFake: ['Date'] });
+    try {
+      await expect(getAuthToken()).resolves.toBe('at-2');
+      expect(issuer.tokenRequests[1].get('grant_type')).toBe('refresh_token');
+      expect(issuer.tokenRequests[1].get('client_id')).toBe('weldsuite-desktop');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('leaves no session when the person cancels, and stops the shell listening', async () => {
+    const shell = desktop(() => new BrowserSignInError('cancelled'));
+    await expect(signInWithBrowser()).rejects.toMatchObject({ reason: 'cancelled' });
+    expect(shell.browserSignIn.cancel).toHaveBeenCalledWith('flow-1');
+    expect(issuer.tokenRequests).toHaveLength(0);
+    await expect(getAuthToken()).resolves.toBeNull();
+  });
+
+  it('refuses a callback for a state this page never sent', async () => {
+    desktop((_authorize, redirectUri) => `${redirectUri}?code=code-1&state=forged`);
+    await expect(signInWithBrowser()).rejects.toMatchObject({ reason: 'failed' });
+    expect(issuer.tokenRequests).toHaveLength(0);
+    await expect(getAuthToken()).resolves.toBeNull();
+  });
+
+  it('refuses an ID token without the nonce it asked for', async () => {
+    desktop((authorize, redirectUri) => {
+      issuer.nonce = 'someone-elses';
+      return backWithCode(authorize, redirectUri) as string;
+    });
+    await expect(signInWithBrowser()).rejects.toBeInstanceOf(BrowserSignInError);
+    await expect(getAuthToken()).resolves.toBeNull();
+  });
+
+  it('sends "sign in" from anywhere else to the sign-in screen, never to the provider', async () => {
+    const shell = desktop();
+    await redirectToSignIn({ returnTo: '/weldknow' });
+    expect(assign).toHaveBeenLastCalledWith('/auth/login?callbackUrl=%2Fweldknow');
+    await redirectToSignIn({ intent: 'sign-up' });
+    expect(assign).toHaveBeenLastCalledWith('/auth/register');
+    expect(shell.browserSignIn.start).not.toHaveBeenCalled();
+  });
+
+  it('signs out by revoking the refresh token and opening the provider’s sign-out with no token in it', async () => {
+    const shell = desktop();
+    await signInWithBrowser();
+    const { result } = renderHook(() => useAuth());
+    await waitFor(() => expect(result.current.isSignedIn).toBe(true));
+
+    await act(() => result.current.signOut({ redirectUrl: '/auth/login' }));
+
+    const revoked = issuer.revocations?.[0];
+    expect(revoked?.get('token')).toBe('rt-1');
+    expect(revoked?.get('token_type_hint')).toBe('refresh_token');
+    expect(revoked?.get('client_id')).toBe('weldsuite-desktop');
+    const endSession = new URL(shell.opened[0]);
+    expect(endSession.origin + endSession.pathname).toBe(`${ISSUER}/oidc/v1/end_session`);
+    expect(endSession.searchParams.get('client_id')).toBe('weldsuite-desktop');
+    expect(endSession.searchParams.has('id_token_hint')).toBe(false);
+    expect(endSession.searchParams.has('post_logout_redirect_uri')).toBe(false);
+    expect(assign).toHaveBeenLastCalledWith(`${ORIGIN}/auth/login`);
+    await expect(getAuthToken()).resolves.toBeNull();
+  });
+
+  it('is not used in a browser: sign-in there still leaves for the provider', async () => {
+    setAuthImplementation(createOidcAuth(CONFIG, { origin: ORIGIN }));
+    expect(usesBrowserSignIn()).toBe(false);
+    await expect(signInWithBrowser()).rejects.toMatchObject({ reason: 'failed' });
   });
 });

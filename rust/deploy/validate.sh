@@ -9,12 +9,15 @@
 #      schema-checked and, with the flux CLI, the whole cluster built the way
 #      Flux builds it (both sources, every layer's patches, the cluster's own
 #      settings substituted) and schema-checked;
-#   4. every secrets folder in SECRETS_DIR built and schema-checked, and every
-#      Secret in it encrypted with SOPS (each data and stringData value
+#   4. every secrets folder in SECRETS_DIR (and each subfolder of one with a
+#      kustomization.yaml, such as weldid/) built and schema-checked, and
+#      every Secret in it encrypted with SOPS (each data and stringData value
 #      ENC[...], and a sops block);
 #   5. every HelmRelease's chart rendered at its pinned version with its own
 #      values file and schema-checked, after checking the pin in the
-#      HelmRelease matches the one here;
+#      HelmRelease matches the one here, and again with the weldid-switch
+#      layer's values over them where it has some; WeldID's chart too when
+#      WELDID_CHART names it (below);
 #   6. with an eu cluster: the weldsuite version production pins
 #      (WELDSUITE_VERSION) is a release X.Y.Z or a main build X.Y.Z-main.N
 #      (ADR OPS-020), and a drill cluster pins the same one; a cluster whose
@@ -30,6 +33,10 @@
 #                 (default: this one); GitRepository weldsuite is this one
 #   SETTINGS      the cluster settings for steps 2 and 5 (default: the
 #                 example cluster's)
+#   WELDID_CHART  WeldID's chart for step 5: a folder (a checkout of
+#                 weldsuite/weldid, deploy/helm/weldid) or oci://… (rendered
+#                 at the settings' WELDID_VERSION; private until WeldID 1.0,
+#                 so `helm registry login ghcr.io` first). Unset: not rendered.
 # Needs tofu, kubectl (kustomize), helm, kubeconform; flux (v2.9) for the
 # full cluster builds in step 3.
 set -euo pipefail
@@ -43,6 +50,11 @@ secrets="$(abs "${SECRETS_DIR:-$here/flux/secrets}")"
 config_root="$(abs "${CONFIG_ROOT:-$repo}")"
 settings="${SETTINGS:-$here/flux/clusters/example/cluster-settings.yaml}"
 settings="$(abs "$(dirname "$settings")")/$(basename "$settings")"
+weldid_chart="${WELDID_CHART:-}"
+case "$weldid_chart" in
+  "" | oci://*) ;;
+  *) weldid_chart="$(abs "$weldid_chart")" ;;
+esac
 cd "$here"
 
 catalog='https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
@@ -107,13 +119,20 @@ for dir in \
   flux/infrastructure/monitoring \
   flux/infrastructure/monitoring-config \
   flux/infrastructure/logging \
+  flux/infrastructure/weldid/namespace \
+  flux/infrastructure/weldid \
   flux/apps/eu \
-  flux/apps/marketing; do
+  flux/apps/marketing \
+  flux/apps/weldid-switch; do
   echo "-- $dir"
   kubectl kustomize "$dir" | substitute "$settings" | kc -
 done
+# The example cluster's opt-in layers, which its kustomization.yaml leaves
+# out (so step 3 doesn't build them).
+echo "-- opt-in layers (flux/clusters/example)"
+kc flux/clusters/example/weldid.yaml flux/clusters/example/weldid-switch.yaml
 echo "-- secret templates"
-kc flux/secrets/examples/secrets.example.yaml
+kc flux/secrets/examples/secrets.example.yaml flux/secrets/examples/weldid.example.yaml
 
 echo "== Clusters ($clusters)"
 if command -v flux >/dev/null; then
@@ -165,10 +184,16 @@ YAML
 done
 
 echo "== Secrets ($secrets)"
-for dir in "$secrets"/*/; do
+# A cluster's secrets folder, and its own layers' folders in it (weldid/,
+# the weldid-secrets layer).
+for dir in "$secrets"/*/ "$secrets"/*/*/; do
   dir="${dir%/}"
-  [ "$(basename "$dir")" != examples ] || continue
-  echo "-- $(basename "$dir")"
+  rel="${dir#"$secrets"/}"
+  case "$rel" in
+    examples | examples/*) continue ;;
+    */*) [ -f "$dir/kustomization.yaml" ] || continue ;;
+  esac
+  echo "-- $rel"
   for file in "$dir"/*.yaml; do
     [ "$(basename "$file")" = kustomization.yaml ] || encrypted "$file"
   done
@@ -177,6 +202,8 @@ done
 
 echo "== Helm releases (chart, version, values)"
 # name  namespace  chart (repo/chart or oci://…)  version  values  release file
+# [values the weldid-switch layer lays over them]
+switch=flux/apps/weldid-switch/values
 releases=(
   "openebs-localpv openebs https://openebs.github.io/dynamic-localpv-provisioner|localpv-provisioner 4.6.0 flux/infrastructure/controllers/values/openebs-localpv.yaml flux/infrastructure/controllers/releases.yaml"
   "cert-manager cert-manager https://charts.jetstack.io|cert-manager v1.21.2 flux/infrastructure/controllers/values/cert-manager.yaml flux/infrastructure/controllers/releases.yaml"
@@ -184,7 +211,7 @@ releases=(
   "cloudnative-pg cnpg-system https://cloudnative-pg.github.io/charts|cloudnative-pg 0.29.1 flux/infrastructure/controllers/values/cloudnative-pg.yaml flux/infrastructure/controllers/releases.yaml"
   "plugin-barman-cloud cnpg-system https://cloudnative-pg.github.io/charts|plugin-barman-cloud 0.8.1 flux/infrastructure/controllers/values/plugin-barman-cloud.yaml flux/infrastructure/controllers/releases.yaml"
   "metrics-server kube-system https://kubernetes-sigs.github.io/metrics-server|metrics-server 3.14.0 flux/infrastructure/controllers/values/metrics-server.yaml flux/infrastructure/controllers/releases.yaml"
-  "kube-prometheus-stack monitoring https://prometheus-community.github.io/helm-charts|kube-prometheus-stack 92.3.1 flux/infrastructure/monitoring/values/kube-prometheus-stack.yaml flux/infrastructure/monitoring/releases.yaml"
+  "kube-prometheus-stack monitoring https://prometheus-community.github.io/helm-charts|kube-prometheus-stack 92.3.1 flux/infrastructure/monitoring/values/kube-prometheus-stack.yaml flux/infrastructure/monitoring/releases.yaml $switch/kube-prometheus-stack.yaml"
   "blackbox-exporter monitoring https://prometheus-community.github.io/helm-charts|prometheus-blackbox-exporter 11.20.2 flux/infrastructure/monitoring/values/blackbox-exporter.yaml flux/infrastructure/monitoring/releases.yaml"
   "loki logging https://grafana.github.io/helm-charts|loki 7.5.0 flux/infrastructure/logging/values/loki.yaml flux/infrastructure/logging/releases.yaml"
   "fluent-bit logging https://fluent.github.io/helm-charts|fluent-bit 0.58.3 flux/infrastructure/logging/values/fluent-bit.yaml flux/infrastructure/logging/releases.yaml"
@@ -192,11 +219,11 @@ releases=(
   "nats weldsuite https://nats-io.github.io/k8s/helm/charts|nats 2.15.0 flux/infrastructure/services/values/nats.yaml flux/infrastructure/services/releases.yaml"
   "valkey weldsuite https://valkey.io/valkey-helm|valkey 0.12.0 flux/infrastructure/services/values/valkey.yaml flux/infrastructure/services/releases.yaml"
   "restate weldsuite oci://ghcr.io/restatedev/restate-helm 1.7.13 flux/infrastructure/services/values/restate.yaml flux/infrastructure/services/releases.yaml"
-  "zitadel zitadel https://charts.zitadel.com|zitadel 10.4.0 flux/infrastructure/services/values/zitadel.yaml flux/infrastructure/services/releases.yaml"
+  "zitadel zitadel https://charts.zitadel.com|zitadel 10.4.0 flux/infrastructure/services/values/zitadel.yaml flux/infrastructure/services/releases.yaml $switch/zitadel.yaml"
   "livekit livekit https://helm.livekit.io|livekit-server 1.9.0 flux/infrastructure/video/values/livekit.yaml flux/infrastructure/video/release.yaml"
 )
 for entry in "${releases[@]}"; do
-  read -r name namespace chart version values pinfile <<<"$entry"
+  read -r name namespace chart version values pinfile overlay <<<"$entry"
   echo "-- $name $version"
   # The HelmRelease (or the OCIRepository tag) pins the same version.
   if ! grep -Eq "(version|tag): \"?$version\"?$" "$pinfile"; then
@@ -212,12 +239,46 @@ for entry in "${releases[@]}"; do
   helm template "$name" "${args[@]}" --namespace "$namespace" --kube-version 1.34.0 \
     -f "$work/values.yaml" >"$work/rendered.yaml"
   kc "$work/rendered.yaml"
+  [ -n "${overlay:-}" ] || continue
+  echo "-- $name $version, with $overlay"
+  substitute "$settings" <"$overlay" >"$work/overlay.yaml"
+  helm template "$name" "${args[@]}" --namespace "$namespace" --kube-version 1.34.0 \
+    -f "$work/values.yaml" -f "$work/overlay.yaml" >"$work/rendered.yaml"
+  kc "$work/rendered.yaml"
 done
 
 echo "-- weldsuite (rust/deploy/helm/weldsuite)"
 substitute "$settings" <flux/apps/eu/values/weldsuite.yaml >"$work/values.yaml"
 helm template weldsuite helm/weldsuite --namespace weldsuite -f "$work/values.yaml" >"$work/rendered.yaml"
 kc "$work/rendered.yaml"
+echo "-- weldsuite, with $switch/weldsuite.yaml"
+substitute "$settings" <"$switch/weldsuite.yaml" >"$work/overlay.yaml"
+helm template weldsuite helm/weldsuite --namespace weldsuite -f "$work/values.yaml" \
+  -f "$work/overlay.yaml" >"$work/rendered.yaml"
+kc "$work/rendered.yaml"
+
+# WeldID's chart lives in its own repository, and its packages are private
+# until WeldID 1.0: rendered only when WELDID_CHART says where it is.
+if [ -n "$weldid_chart" ]; then
+  if [[ "$weldid_chart" == oci://* ]]; then
+    weldid_version="$(tr -d '\r' <"$settings" | awk '$1 == "WELDID_VERSION:" { v = $2; gsub(/"/, "", v); print v }')"
+    args=("$weldid_chart" --version "$weldid_version")
+  else
+    args=("$weldid_chart")
+  fi
+  substitute "$settings" <flux/infrastructure/weldid/values/weldid.yaml >"$work/values.yaml"
+  substitute "$settings" <"$switch/weldid.yaml" >"$work/overlay.yaml"
+  echo "-- weldid ($weldid_chart)"
+  helm template weldid "${args[@]}" --namespace weldid --kube-version 1.34.0 \
+    -f "$work/values.yaml" >"$work/rendered.yaml"
+  kc "$work/rendered.yaml"
+  echo "-- weldid, with $switch/weldid.yaml"
+  helm template weldid "${args[@]}" --namespace weldid --kube-version 1.34.0 \
+    -f "$work/values.yaml" -f "$work/overlay.yaml" >"$work/rendered.yaml"
+  kc "$work/rendered.yaml"
+else
+  echo "(no WELDID_CHART: WeldID's chart not rendered)"
+fi
 
 echo "== weldsuite version"
 # A release from the "Rust release" workflow (.github/workflows/rust-release.yml),

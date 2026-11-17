@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-/** The staff organization's setting, which some tests take away. */
+/** A required setting, taken away to simulate sign-in not being configured. */
+const REQUIRED_SETTING = 'ADMIN_OIDC_ISSUER';
+/** The staff organization's setting (SEC-019: optional since WeldID), which one test takes away. */
 const ORG_SETTING = 'ADMIN_OIDC_ORG_ID';
 const request = vi.hoisted(() => ({ current: new Request('https://admin.eu.example/') }));
 vi.mock('@tanstack/react-start/server', () => ({ getRequest: () => request.current }));
@@ -53,8 +55,17 @@ describe('currentAdminIdentity (Kubernetes)', () => {
 
   it('is nobody while sign-in is not configured', async () => {
     request.current = await signedInRequest();
-    delete process.env[ORG_SETTING];
+    delete process.env[REQUIRED_SETTING];
     await expect(currentAdminIdentity()).resolves.toBeNull();
     expect(staffIdentity).not.toHaveBeenCalled();
+  });
+
+  it('asks the roster with no staff organization when none is configured (WeldID, SEC-019)', async () => {
+    const identity = { userId: session.sub, email: session.email, name: 'Ann', role: 'admin', isSuperAdmin: false };
+    staffIdentity.mockResolvedValue(identity);
+    request.current = await signedInRequest();
+    delete process.env[ORG_SETTING];
+    await expect(currentAdminIdentity()).resolves.toBe(identity);
+    expect(staffIdentity).toHaveBeenCalledWith(session, { staffOrgId: '' });
   });
 });

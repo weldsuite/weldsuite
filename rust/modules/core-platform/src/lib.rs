@@ -42,7 +42,7 @@ use axum::Router;
 use weldsuite_db::PgPool;
 use weldsuite_events::EntityEventPublisher;
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
-use weldsuite_ports::{DynCache, DynRealtimePublisher, DynSystemMail, Identity};
+use weldsuite_ports::{DynCache, DynRealtimePublisher, DynSystemMail, Identity, SsoDirectory};
 
 pub use access::{Caller, PlatformError, PlatformResult, answer, now, validate, validate_query};
 pub use groups::audit_log_streams::{AuditStreamGateway, AuditStreamTest, AuditStreamTestResult};
@@ -72,6 +72,11 @@ pub struct CorePlatformState {
     /// System mail (the workspace owners' notice when a provider outside the
     /// EU is enabled); `None` logs instead of sending.
     pub mail: Option<Arc<dyn DynSystemMail>>,
+    /// Enterprise SSO connections at the identity provider: WeldID's, when
+    /// it is the identity provider (ADR SEC-019). `Some` puts `/api/sso` in
+    /// WeldID mode (`OpenID` Connect connections); `None` keeps Global's
+    /// answers (Clerk's SAML connections cannot be reached).
+    pub sso: Option<Arc<dyn SsoDirectory>>,
 }
 
 impl std::fmt::Debug for CorePlatformState {
@@ -84,6 +89,7 @@ impl std::fmt::Debug for CorePlatformState {
             .field("top_up", &self.top_up.is_some())
             .field("ai", &self.ai.is_some())
             .field("mail", &self.mail.is_some())
+            .field("sso", &self.sso.is_some())
             .finish_non_exhaustive()
     }
 }

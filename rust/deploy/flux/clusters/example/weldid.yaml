@@ -1,0 +1,70 @@
+# WeldID (infrastructure/weldid, ADR SEC-019), OPT-IN: applied only when
+# kustomization.yaml here lists this file. Three Kustomizations, in order:
+# the namespace, WeldID's Secrets in it (SOPS, their own folder next to the
+# cluster's other secrets), then WeldID with its database. WeldID then runs
+# next to Zitadel without taking auth.${DOMAIN}; weldid-switch.yaml moves
+# sign-in over (infrastructure/weldid/README.md). In your copy, change the
+# secrets path that names example, as in layers.yaml.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: weldid-namespace
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: controllers
+  interval: 1h
+  path: ./rust/deploy/flux/infrastructure/weldid/namespace
+  # Never deleted by Flux: the namespace holds WeldID's database.
+  prune: false
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+---
+# secrets/examples/weldid.example.yaml lists them;
+# scripts/fill-secrets.mjs --weldid writes them.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: weldid-secrets
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: weldid-namespace
+    - name: secrets
+  interval: 1h
+  path: ./rust/deploy/flux/secrets/example/weldid
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
+---
+# After the services (Valkey) and monitoring (the Prometheus Operator's
+# CRDs for its monitors and rules). The database is in this layer, so the
+# first install waits a few minutes for it (values/weldid.yaml, migrations).
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: weldid
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: weldid-secrets
+    - name: services
+    - name: monitoring
+  interval: 1h
+  path: ./rust/deploy/flux/infrastructure/weldid
+  prune: true
+  wait: true
+  timeout: 30m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  postBuild:
+    substituteFrom:
+      - kind: ConfigMap
+        name: cluster-settings

@@ -1,5 +1,7 @@
-# LiveKit on the general workers OpenTofu labels node.weldsuite.org/livekit
-# (livekit_worker_count in hetzner/variables.tf: two, one per location). One
+# LiveKit on the nodes OpenTofu labels node.weldsuite.org/livekit: general
+# workers (livekit_worker_count in hetzner/variables.tf: two, one per
+# location) or, on a cluster without them, control-plane nodes
+# (livekit_control_planes). One
 # pod per node on the host network: media goes to the node's own public
 # address, never through the load balancer. The media ports below match the
 # livekit firewall in hetzner/network.tf.

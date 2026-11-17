@@ -18,9 +18,15 @@
 //! | `AuthContext` | Claim |
 //! |---|---|
 //! | `user_id` | `sub` |
-//! | `org_id` | the organization claim ([`OidcSettings::org_claim`], see [`organization`]) |
+//! | `org_id` | the organization claim ([`OidcSettings::org_claim`], see [`organization`]); none in [`WorkspaceSource::Header`] |
 //! | `session_id` | `sid`, else empty |
 //! | `factor_verification_age` | from `auth_time` and `amr`, see [`factor_verification_age`] |
+//!
+//! With [`WorkspaceSource::Header`] (membership mode, `OIDC_WORKSPACE_SOURCE`)
+//! the provider only authenticates: the token names no workspace, and the
+//! request names it in [`WORKSPACE_HEADER`], which the workspace layer
+//! (`weldsuite_db::workspace_from_header`) checks against WeldSuite's own
+//! memberships.
 
 use std::collections::BTreeSet;
 
@@ -40,6 +46,45 @@ pub const ZITADEL_ORG_CLAIM: &str = "urn:zitadel:iam:org:id";
 /// seconds: a customer's own provider may run on another clock.
 pub const OIDC_CLOCK_SKEW_SECONDS: f64 = 30.0;
 
+/// The request header naming the active workspace in
+/// [`WorkspaceSource::Header`]: `workspaces.id` (`ws_…`), its slug, or the
+/// organization id stored in `workspaces.clerk_org_id`.
+pub const WORKSPACE_HEADER: &str = "x-weld-workspace";
+
+/// Where a session's workspace comes from (`OIDC_WORKSPACE_SOURCE`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum WorkspaceSource {
+    /// `claim`, the default: the token's organization claim
+    /// ([`OidcSettings::org_claim`]); the provider keeps the memberships
+    /// (Zitadel).
+    #[default]
+    Claim,
+    /// `header`: membership mode (self-hosted plan E1). The provider only
+    /// authenticates; the request names its workspace in
+    /// [`WORKSPACE_HEADER`] and WeldSuite's memberships decide (WeldID, or a
+    /// customer's own provider).
+    Header,
+}
+
+impl WorkspaceSource {
+    /// `claim` or `header`; anything else is `None`.
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim() {
+            "claim" => Some(Self::Claim),
+            "header" => Some(Self::Header),
+            _ => None,
+        }
+    }
+
+    /// What `/config.json` says: `claim` or `header`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Claim => "claim",
+            Self::Header => "header",
+        }
+    }
+}
+
 /// How an OIDC provider's tokens are checked.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OidcSettings {
@@ -55,6 +100,10 @@ pub struct OidcSettings {
     /// `OIDC_JWKS_URL`: fetch the keys here instead of the discovery
     /// document's `jwks_uri`.
     pub jwks_url: Option<String>,
+    /// `OIDC_WORKSPACE_SOURCE`: the organization claim, or (membership
+    /// mode) the request's [`WORKSPACE_HEADER`], in which case `org_claim`
+    /// is never read.
+    pub workspace_source: WorkspaceSource,
 }
 
 impl OidcSettings {
@@ -65,6 +114,7 @@ impl OidcSettings {
             audiences,
             org_claim: ZITADEL_ORG_CLAIM.to_owned(),
             jwks_url: None,
+            workspace_source: WorkspaceSource::Claim,
         }
     }
 
@@ -136,11 +186,17 @@ impl OidcRules {
             return Err(TokenError::WrongAudience);
         }
         let user_id = subject(&claims)?;
+        // Membership mode: a workspace claim (or a stale one from a provider
+        // that still sends it) never picks the workspace.
+        let org_id = match self.settings.workspace_source {
+            WorkspaceSource::Claim => organization(claims.get(&self.settings.org_claim)),
+            WorkspaceSource::Header => None,
+        };
 
         Ok(VerifiedSession {
             context: AuthContext {
                 user_id,
-                org_id: organization(claims.get(&self.settings.org_claim)),
+                org_id,
                 session_id: non_empty_str(claims.get("sid")).unwrap_or_default(),
                 factor_verification_age: factor_verification_age(&claims, now),
             },
@@ -267,6 +323,25 @@ mod tests {
         assert_eq!(
             factor_verification_age(&claims(json!({"amr": ["mfa"]})), now),
             None
+        );
+    }
+
+    #[test]
+    fn workspace_sources_parse_and_name_themselves() {
+        assert_eq!(
+            WorkspaceSource::parse("claim"),
+            Some(WorkspaceSource::Claim)
+        );
+        assert_eq!(
+            WorkspaceSource::parse(" header "),
+            Some(WorkspaceSource::Header)
+        );
+        assert_eq!(WorkspaceSource::parse("token"), None);
+        assert_eq!(WorkspaceSource::default(), WorkspaceSource::Claim);
+        assert_eq!(WorkspaceSource::Header.as_str(), "header");
+        assert_eq!(
+            OidcSettings::new("https://auth.example", vec!["api".to_owned()]).workspace_source,
+            WorkspaceSource::Claim
         );
     }
 

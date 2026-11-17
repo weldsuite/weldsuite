@@ -23,6 +23,11 @@ spec:
   valuesFrom:
     - kind: ConfigMap
       name: kube-prometheus-stack-values
+    # Grafana's sign-in on WeldID: made only by the weldid-switch layer
+    # (apps/weldid-switch), absent (and ignored) everywhere else.
+    - kind: ConfigMap
+      name: kube-prometheus-stack-values-weldid
+      optional: true
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease

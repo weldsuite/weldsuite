@@ -3,7 +3,11 @@
 WeldSuite's MCP server (`apps/workers/mcp-server`, `mcp.weldsuite.org` on
 Global) exposes a workspace to AI clients. On the Kubernetes editions it is
 `modules/mcp` (package `weldsuite-mcp`), served by `weldsuite serve` at `/mcp`
-on the edition's own host (one host serves every path, OPS-013).
+(one server serves every path, OPS-013). The EU values give it a host of its
+own, as Global has: AI clients connect to `https://mcp.<domain>/mcp`, the
+origin `config.mcp.serverUrl` sets and the discovery documents name, and
+that host's ingress routes only `/mcp` and the two `/.well-known/oauth-*`
+paths.
 
 ## What the worker is
 
@@ -149,6 +153,23 @@ on the edition's own host (one host serves every path, OPS-013).
   token with `urn:zitadel:iam:org:roles:id:<org id>`, which an MCP client
   can't know to ask for. Until `/mcp` can be told the workspace some other
   way, MCP on a Zitadel edition is for accounts in one workspace.
+- **An MCP client on WeldID (membership mode,
+  `OIDC_WORKSPACE_SOURCE=header`).** The token names no workspace, and an
+  MCP client can't send the platform's `X-Weld-Workspace`, so the server URL
+  names it: `/mcp/w/<workspace>` (its `workspaces.id`, slug or organization
+  id, in URL-unreserved characters), checked against the master
+  `user_workspaces` by the same `WorkspaceSelector` as the header. A plain
+  `/mcp` takes the user's only workspace; with several it answers 403 and
+  names the URL to use, with none 403 too. A workspace the user isn't an
+  active member of is 403, unknown or foreign alike. With a token that
+  names its workspace (claim mode, Clerk) a workspace URL must name that
+  one, by id or organization id.
+- **One resource per URL (RFC 9728).** The 401's `WWW-Authenticate` points
+  at the metadata of the URL the client called
+  (`/.well-known/oauth-protected-resource/mcp`, or `…/mcp/w/<workspace>`),
+  and each document's `resource` is exactly that URL, as §3.3 requires of a
+  document found through the challenge. Global's worker points at `…/mcp`
+  the same way.
 - **Bindings on Kubernetes.** KV caches → the cache port (Valkey); the
   rate limiter → the cache's atomic counters, as external-api's; the D1
   due index → `weldsuite_db::due_index` (in the ported WeldReach routes);

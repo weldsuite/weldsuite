@@ -43,8 +43,23 @@
 //   GRAFANA_OIDC_CLIENT_ID=… GRAFANA_OIDC_CLIENT_SECRET=… SOPS_AGE_KEY_FILE=… \
 //     node rust/deploy/flux/scripts/fill-secrets.mjs --update \
 //     --only monitoring/grafana-oidc,monitoring/grafana-admin <encrypted secrets file>
+//
+// WeldID (opt-in, infrastructure/weldid): `--weldid` works from
+// ../secrets/examples/weldid.example.yaml instead, for the file in the
+// cluster's weldid/ secrets folder, new or `--update`. It generates WeldID's
+// own values (the database password, WELDID_MASTER_KEY, the server's P-256
+// key for WeldID's admin API) and never the ones WeldID shares with the
+// platform: with `--main <the cluster's secrets file>` (encrypted or not)
+// those come from there (the MTA's system pool, Valkey, the admin
+// console's and Grafana's client secrets, the backup keys, the registry
+// login); without it they stay CHANGE_ME. It prints the admin API key's
+// public half (WELDID_BACKEND_KEY_X and _Y, for the cluster's settings):
+//
+//   SOPS_AGE_KEY_FILE=~/<cluster>.agekey node rust/deploy/flux/scripts/fill-secrets.mjs \
+//     --weldid --main rust/deploy/flux/secrets/<cluster>/secrets.sops.yaml \
+//     rust/deploy/flux/secrets/<cluster>/weldid/weldid.sops.yaml
 import { execFileSync } from 'node:child_process';
-import { randomBytes, randomInt } from 'node:crypto';
+import { createPublicKey, generateKeyPairSync, randomBytes, randomInt } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -52,11 +67,17 @@ import { fileURLToPath } from 'node:url';
 const args = process.argv.slice(2);
 const onlyAt = args.indexOf('--only');
 const only = onlyAt >= 0 ? new Set((args.splice(onlyAt, 2)[1] ?? '').split(',').filter(Boolean)) : null;
+const weldidAt = args.indexOf('--weldid');
+if (weldidAt >= 0) args.splice(weldidAt, 1);
+const weldid = weldidAt >= 0;
+const mainAt = args.indexOf('--main');
+const mainFile = mainAt >= 0 ? (args.splice(mainAt, 2)[1] ?? '') : null;
 const update = args[0] === '--update';
 const out = args[update ? 1 : 0];
-if (!out) {
+if (!out || (mainFile !== null && (!weldid || !mainFile))) {
   console.error('usage: node fill-secrets.mjs <output file>');
   console.error('       node fill-secrets.mjs --update [--only <ns>/<name>,…] <encrypted secrets file>');
+  console.error('       node fill-secrets.mjs [--update] --weldid [--main <secrets file>] <weldid secrets file>');
   process.exit(2);
 }
 if (update ? !existsSync(out) : existsSync(out)) {
@@ -68,7 +89,8 @@ if (update ? !existsSync(out) : existsSync(out)) {
 // directory up, so it runs in the secrets file's own folder (the deploy
 // repository keeps its .sops.yaml at its root).
 const flux = join(dirname(fileURLToPath(import.meta.url)), '..');
-const example = join(flux, 'secrets/examples/secrets.example.yaml');
+const mainExample = join(flux, 'secrets/examples/secrets.example.yaml');
+const example = weldid ? join(flux, 'secrets/examples/weldid.example.yaml') : mainExample;
 
 const hex = (bytes) => randomBytes(bytes).toString('hex');
 const ALNUM = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -94,12 +116,33 @@ const PROVIDED = {
   'loki-s3/secret-access-key': 'LOGS_S3_SECRET_ACCESS_KEY',
 };
 
+// --weldid --main: the main secrets file's values by `<Secret>/<key>`.
+const mainValues = new Map();
+
 function bareValue(secret, key) {
   const variable = PROVIDED[`${secret}/${key}`];
-  if (variable) return process.env[variable] || 'CHANGE_ME';
+  if (variable && process.env[variable]) return process.env[variable];
+  // WeldID's copy of a key the main file has (the backup bucket's).
+  if (mainValues.has(`${secret}/${key}`)) return mainValues.get(`${secret}/${key}`);
+  if (variable) return 'CHANGE_ME';
   // 32 bytes of hex: also the format DATABASE_ENCRYPTION_KEY needs (AES-256).
   return hex(32);
 }
+
+// WeldID's copies of values the main file holds under another name, by
+// placeholder: `<Secret>/<key>` there. Generated when the main file lacks
+// them (then the main file needs the same value; the script says so).
+const FROM_MAIN = {
+  CHANGE_ME_ADMIN_OIDC_CLIENT_SECRET: 'weldsuite-env/ADMIN_OIDC_CLIENT_SECRET',
+  CHANGE_ME_GRAFANA_OIDC_CLIENT_SECRET: 'grafana-oidc/GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET',
+};
+// Never generated for WeldID: the cluster already has them, and WeldID's
+// must match (from --main, or by hand).
+const SHARED = new Set(['CHANGE_ME_MTA_SUBMISSION_SYSTEM', 'CHANGE_ME_VALKEY']);
+// Placeholders whose value came from the main file, and FROM_MAIN ones this
+// run had to generate instead.
+const fromMain = new Set();
+const generatedShared = new Set();
 
 // Registry logins (base64 of user:token) by placeholder, from these variables.
 const LOGINS = {
@@ -114,10 +157,18 @@ const PLACEHOLDER = /CHANGE_ME_[A-Za-z0-9_]+!?/g;
 const named = new Map();
 function namedValue(token) {
   if (named.has(token)) return named.get(token);
+  if (weldid && SHARED.has(token)) return token;
   let value;
   if (token === 'CHANGE_ME_EXACTLY_32_CHARACTERS_') value = alnum(32);
   // The MTA's MTA_KEY: base64 of 32 random bytes.
   else if (token === 'CHANGE_ME_BASE64_32_BYTES') value = randomBytes(32).toString('base64');
+  // WeldID's WELDID_MASTER_KEY: the same format, its own value.
+  else if (token === 'CHANGE_ME_WELDID_MASTER_KEY') value = randomBytes(32).toString('base64');
+  // The server's key for WeldID's admin API (private_key_jwt): P-256, PKCS#8 PEM.
+  else if (token === 'CHANGE_ME_ES256_PRIVATE_KEY') {
+    const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
+    value = privateKey.export({ type: 'pkcs8', format: 'pem' });
+  }
   // Zitadel's password policy: upper, lower, digit and symbol.
   else if (token === 'CHANGE_ME_Aa1!') value = `${alnum(24)}Aa1!`;
   else if (LOGINS[token]) {
@@ -126,6 +177,7 @@ function namedValue(token) {
     value = Buffer.from(`${user}:${secret}`).toString('base64');
   } else value = hex(24);
   named.set(token, value);
+  if (FROM_MAIN[token]) generatedShared.add(token);
   return value;
 }
 
@@ -159,7 +211,11 @@ function writeNew(out) {
     const bare = /^( {2}([A-Za-z0-9_.-]+): )CHANGE_ME$/.exec(line);
     const value = bare ? bareValue(secret, bare[2]) : '';
     const filled = bare ? bare[1] + (value === 'CHANGE_ME' ? value : JSON.stringify(value)) : line;
-    lines.push(filled.replace(PLACEHOLDER, namedValue));
+    let written = filled.replace(PLACEHOLDER, namedValue);
+    // A generated value over several lines (a PEM key) goes in quoted.
+    const entry = /^( +[A-Za-z0-9_.-]+: )(.*)$/s.exec(written);
+    if (entry && written.includes('\n')) written = entry[1] + JSON.stringify(entry[2]);
+    lines.push(written);
   }
 
   writeFileSync(out, `${lines.join('\n')}\n`, { mode: 0o600 });
@@ -180,11 +236,112 @@ function writeNew(out) {
   if (left.length > 0) {
     console.log('still CHANGE_ME, fill these in by hand:');
     for (const entry of left) console.log(`  ${entry}`);
-    console.log('(registry: delete that Secret instead when the images are public;');
-    console.log(' marketing/ghcr: delete it on a cluster without the marketing site)');
+    if (weldid) {
+      console.log("(the MTA, Valkey and registry values are the main secrets file's: --main <it>;");
+      console.log(" weldid/registry: delete it once WeldID's packages are public)");
+    } else {
+      console.log('(registry: delete that Secret instead when the images are public;');
+      console.log(' marketing/ghcr: delete it on a cluster without the marketing site)');
+    }
+  }
+  if (weldid) {
+    weldidNotes(named.get('CHANGE_ME_ES256_PRIVATE_KEY'));
+    console.log('Keep WELDID_MASTER_KEY in the password manager too, then:');
+    console.log('sops --encrypt --in-place ' + out);
+    return;
   }
   console.log('Keep DATABASE_ENCRYPTION_KEY, WELDPASS_ROOT_KEY and the Zitadel masterkey in the password');
   console.log('manager too, then: sops --encrypt --in-place ' + out);
+}
+
+// After a --weldid run: which client secrets the main file must be given,
+// and the admin API key's public half (not secret) for the cluster's
+// settings.
+function weldidNotes(pem) {
+  for (const token of generatedShared) {
+    console.log(`generated ${token.replace('CHANGE_ME_', '')}: the main secrets file has no ${FROM_MAIN[token]}`);
+    console.log('  (or no --main); put the same value there before the cluster switches to WeldID');
+  }
+  if (!pem) {
+    console.log('no WELDID_CLIENT_KEY found: WELDID_BACKEND_KEY_X and _Y not derived');
+    return;
+  }
+  const { x, y } = createPublicKey(pem).export({ format: 'jwk' });
+  console.log("The server's WeldID admin API key, public half, for the cluster's settings:");
+  console.log(`  WELDID_BACKEND_KEY_X: ${x}`);
+  console.log(`  WELDID_BACKEND_KEY_Y: ${y}`);
+}
+
+// The PEM private key in a decrypted secrets file (WELDID_CLIENT_KEY, the
+// only one in WeldID's), quoted on one line or as a block.
+function pemIn(text) {
+  const match = /-----BEGIN PRIVATE KEY-----[\s\S]*?-----END PRIVATE KEY-----/.exec(text.replaceAll('\\n', '\n'));
+  return match ? `${match[0].split('\n').map((line) => line.trim()).join('\n')}\n` : undefined;
+}
+
+// sops on a secrets file, in the file's own folder (where it finds
+// .sops.yaml upwards).
+function runSops(args, path, input) {
+  try {
+    return execFileSync('sops', args, {
+      cwd: dirname(path),
+      input,
+      encoding: 'utf8',
+      maxBuffer: 16 * 1024 * 1024,
+      stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'inherit'],
+    });
+  } catch {
+    // sops wrote why on stderr (most often: no age key, SOPS_AGE_KEY_FILE).
+    console.error(`sops ${args[0]} failed; nothing written`);
+    process.exit(1);
+  }
+}
+
+// Placeholders a secrets file already has values for: each example value
+// with placeholders matched against the file's value for the same key.
+function learn(current, wanted, learned) {
+  for (const want of wanted.docs) {
+    const have = current.docs.find((d) => d.id === want.id);
+    if (!have) continue;
+    for (const [key, template] of want.values) {
+      const value = have.values.get(key);
+      const tokens = template?.match(PLACEHOLDER);
+      if (!tokens || value === undefined) continue;
+      const pattern = escape(template).replace(/CHANGE_ME_[A-Za-z0-9_]+!?/g, '(.+?)');
+      const match = new RegExp(`^${pattern}$`, 's').exec(value);
+      if (!match) continue;
+      tokens.forEach((token, i) => {
+        if (named.has(token)) return;
+        named.set(token, match[i + 1]);
+        if (!match[i + 1].includes('CHANGE_ME')) learned?.add(token);
+      });
+    }
+  }
+}
+
+// --main: what WeldID shares with the cluster's main secrets file.
+function learnMain(file) {
+  const path = resolve(file);
+  if (!existsSync(path)) {
+    console.error(`${file} does not exist`);
+    process.exit(1);
+  }
+  const text = readFileSync(path, 'utf8');
+  const plain = /^sops:/m.test(text) ? runSops(['decrypt', path], path) : text;
+  const current = parseSecrets(plain);
+  learn(current, parseSecrets(readFileSync(mainExample, 'utf8')), fromMain);
+  for (const doc of current.docs) {
+    for (const [key, value] of doc.values) {
+      const ref = `${doc.name}/${key}`;
+      if (value !== undefined && !value.includes('CHANGE_ME') && !mainValues.has(ref)) mainValues.set(ref, value);
+    }
+  }
+  for (const [token, ref] of Object.entries(FROM_MAIN)) {
+    if (!named.has(token) && mainValues.has(ref)) {
+      named.set(token, mainValues.get(ref));
+      fromMain.add(token);
+    }
+  }
 }
 
 // The Secrets of a YAML stream as the examples and sops write them: one
@@ -267,42 +424,16 @@ function scalar(raw) {
 const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 function updateFile(file) {
-  const sops = (args, input) => {
-    try {
-      return execFileSync('sops', args, {
-        cwd: dirname(path),
-        input,
-        encoding: 'utf8',
-        maxBuffer: 16 * 1024 * 1024,
-        stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'inherit'],
-      });
-    } catch {
-      // sops wrote why on stderr (most often: no age key, SOPS_AGE_KEY_FILE).
-      console.error(`sops ${args[0]} failed; nothing written`);
-      process.exit(1);
-    }
-  };
   const path = resolve(file);
-  const current = parseSecrets(sops(['decrypt', path]));
+  const sops = (args, input) => runSops(args, path, input);
+  const plain = sops(['decrypt', path]);
+  const current = parseSecrets(plain);
   const wanted = parseSecrets(readFileSync(example, 'utf8'));
 
-  // Placeholders the file already has a value for: match each example value
-  // with placeholders against the file's value for the same key.
-  for (const want of wanted.docs) {
-    const have = current.docs.find((d) => d.id === want.id);
-    if (!have) continue;
-    for (const [key, template] of want.values) {
-      const value = have.values.get(key);
-      const tokens = template?.match(PLACEHOLDER);
-      if (!tokens || value === undefined) continue;
-      const pattern = escape(template).replace(/CHANGE_ME_[A-Za-z0-9_]+!?/g, '(.+?)');
-      const match = new RegExp(`^${pattern}$`).exec(value);
-      if (!match) continue;
-      tokens.forEach((token, i) => {
-        if (!named.has(token)) named.set(token, match[i + 1]);
-      });
-    }
-  }
+  // Placeholders the file already has a value for; then, for WeldID's, the
+  // ones it shares with the main file.
+  learn(current, wanted);
+  if (mainFile) learnMain(mainFile);
 
   const added = [];
   const left = [];
@@ -357,6 +488,7 @@ function updateFile(file) {
   if (left.some((e) => e.includes('/registry:'))) {
     console.log('(registry: not needed while the images are public)');
   }
+  if (weldid) weldidNotes(named.get('CHANGE_ME_ES256_PRIVATE_KEY') ?? pemIn(plain));
   if (added.length === 0) {
     console.log(`${file}: nothing to add`);
     return;
@@ -386,4 +518,7 @@ function updateFile(file) {
 }
 
 if (update) updateFile(out);
-else writeNew(out);
+else {
+  if (mainFile) learnMain(mainFile);
+  writeNew(out);
+}

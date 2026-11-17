@@ -80,11 +80,19 @@ describe('handleCallback', () => {
 });
 
 describe('handleSignIn', () => {
-  it('answers 503, naming ADMIN_OIDC_ORG_ID, until the staff organization is configured', async () => {
-    delete process.env[ORG_SETTING];
+  it('answers 503, naming what is missing, until a required setting is configured', async () => {
+    delete process.env.ADMIN_OIDC_ISSUER;
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const response = await handleSignIn(new Request('https://admin.eu.example/auth/sign-in'));
     expect(response.status).toBe(503);
-    expect(await response.text()).toContain('ADMIN_OIDC_ORG_ID is not set');
+    expect(await response.text()).toContain('ADMIN_OIDC_ISSUER is not set');
+  });
+
+  it('signs in without a staff organization configured (WeldID, SEC-019), asking no resource-owner scope', async () => {
+    delete process.env[ORG_SETTING];
+    const response = await handleSignIn(new Request('https://admin.eu.example/auth/sign-in'));
+    expect(response.status).toBe(302);
+    const location = new URL(response.headers.get('location')!);
+    expect(location.searchParams.get('scope')).toBe('openid email profile');
   });
 });

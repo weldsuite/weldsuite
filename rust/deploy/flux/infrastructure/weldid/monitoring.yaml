@@ -1,0 +1,170 @@
+# What Prometheus scrapes and alerts on for WeldID, here rather than in
+# ../monitoring-config so that a cluster without WeldID gets none of it. The
+# server's own /metrics (port 9090) is the chart's ServiceMonitor
+# (values: serviceMonitor), scraped as job "weldid". What each alert means:
+# ../monitoring-config/ALERTS.md, "WeldID".
+
+# weldid-db's instances, as ../monitoring-config/monitors.yaml scrapes the
+# other CloudNativePG clusters: so PostgresWalArchivingFailing,
+# PostgresBackupStale, PostgresReplicationLag and the rest apply to it too,
+# with its signing-key query (database.yaml) on top.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: weldid-db
+  namespace: weldid
+spec:
+  selector:
+    matchExpressions:
+      - key: cnpg.io/cluster
+        operator: In
+        values: [weldid-db]
+      - key: cnpg.io/podRole
+        operator: In
+        values: [instance]
+  podMetricsEndpoints:
+    - port: metrics
+      interval: 30s
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_label_cnpg_io_cluster]
+          targetLabel: cnpg_cluster
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: weldid
+  namespace: weldid
+spec:
+  groups:
+    - name: weldid
+      rules:
+        # From kube-state-metrics, so it fires even when nothing can be
+        # scraped. Once the cluster has switched to WeldID, nobody can sign
+        # in to the platform, the admin console or Grafana.
+        - alert: WeldIDDown
+          expr: kube_deployment_status_replicas_available{namespace="weldid", deployment="weldid"} == 0
+          for: 3m
+          labels:
+            severity: critical
+          annotations:
+            summary: "WeldID has had no ready pod for 3 minutes"
+            description: >-
+              Sign-in (auth.) is down: the platform, the mobile apps, the
+              admin console and Grafana can't sign anyone in, and the
+              server's admin API calls to WeldID fail.
+            runbook_url: https://github.com/weldsuite/weldsuite/blob/main/rust/deploy/flux/infrastructure/monitoring-config/ALERTS.md#weldiddown
+        # A server pod whose /readyz fails (the readiness probe): its
+        # database or its signing keys are unavailable. Migration Job and
+        # Postgres pods are left out.
+        - alert: WeldIDNotReady
+          expr: |
+            (kube_pod_status_ready{namespace="weldid", condition="true", pod=~"weldid-.+", pod!~"weldid-(db|migrate)-.+"} == 0)
+            unless on (namespace, pod) (kube_pod_status_phase{namespace="weldid", phase=~"Succeeded|Failed"} == 1)
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "WeldID: {{ $labels.pod }} has not been ready for 5 minutes"
+            description: >-
+              /readyz on port 9090 says which: database or keys unavailable.
+              The other replica still serves; WeldIDDown fires when none is
+              left.
+            runbook_url: https://github.com/weldsuite/weldsuite/blob/main/rust/deploy/flux/infrastructure/monitoring-config/ALERTS.md#weldidnotready
+        # Many failed sign-ins, and more than three failures for every
+        # success: password guessing or credential stuffing against one
+        # issuer. Without a success at all, the failures alone count.
+        - alert: WeldIDSignInFailures
+          expr: |
+            (sum by (issuer) (rate(weldid_sign_in_failures_total{namespace="weldid"}[10m])) > 0.2)
+            unless
+            (sum by (issuer) (rate(weldid_sign_in_failures_total{namespace="weldid"}[10m]))
+              < 3 * sum by (issuer) (rate(weldid_sign_ins_total{namespace="weldid"}[10m])))
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "WeldID ({{ $labels.issuer }}): {{ $value | humanize }} failed sign-ins a second for 10 minutes"
+            description: >-
+              More than 12 a minute, most of them failing. The rate limits
+              slow a single address down; many addresses mean a distributed
+              attempt.
+            runbook_url: https://github.com/weldsuite/weldsuite/blob/main/rust/deploy/flux/infrastructure/monitoring-config/ALERTS.md#weldidsigninfailures
+        - alert: WeldIDRateLimited
+          expr: sum by (rule) (rate(weldid_rate_limited_total{namespace="weldid"}[10m])) * 60 > 30
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "WeldID refuses {{ $value | humanize }} requests a minute under rate limit {{ $labels.rule }}"
+            description: >-
+              An attack, a client in a loop, or every visitor sharing one
+              address (trustedProxyHops in WeldID's values doesn't match the
+              proxies in front of it).
+            runbook_url: https://github.com/weldsuite/weldsuite/blob/main/rust/deploy/flux/infrastructure/monitoring-config/ALERTS.md#weldidratelimited
+        # From weldid-db (database.yaml): WeldID makes a key's successor 7
+        # days before the key retires, so less than 6 days left means the
+        # successor is a day late. At 0 the issuer can't sign and /readyz
+        # fails on every pod.
+        - alert: WeldIDKeyRotationOverdue
+          expr: min by (issuer, alg) (cnpg_weldid_signing_keys_horizon_seconds) < 6 * 86400
+          for: 2h
+          labels:
+            severity: warning
+          annotations:
+            summary: "WeldID ({{ $labels.issuer }}, {{ $labels.alg }}): the newest signing key retires in {{ $value | humanizeDuration }}, and no successor is there"
+            runbook_url: https://github.com/weldsuite/weldsuite/blob/main/rust/deploy/flux/infrastructure/monitoring-config/ALERTS.md#weldidkeyrotationoverdue
+        # Without the query's metric WeldIDKeyRotationOverdue can never fire.
+        - alert: WeldIDKeyMetricsMissing
+          expr: |
+            (count(up{namespace="weldid", job="weldid"} == 1) > 0)
+            unless on () count(cnpg_weldid_signing_keys_horizon_seconds)
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "weldid-db reports no signing-key metrics, so key rotation isn't watched"
+            runbook_url: https://github.com/weldsuite/weldsuite/blob/main/rust/deploy/flux/infrastructure/monitoring-config/ALERTS.md#weldidkeymetricsmissing
+        # ../monitoring-config/rules/postgres.yaml's PostgresInstanceDown,
+        # for weldid-db (that one watches the postgres and zitadel
+        # namespaces).
+        - alert: PostgresInstanceDown
+          expr: |
+            (
+              (kube_pod_status_ready{namespace="weldid", condition="true", pod=~"weldid-db-.+"} == 0)
+              unless on (namespace, pod) (kube_pod_status_phase{namespace="weldid", phase=~"Succeeded|Failed"} == 1)
+            )
+            * on (namespace, pod) group_left (label_cnpg_io_cluster)
+              kube_pod_labels{namespace="weldid", label_cnpg_io_cluster!=""}
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Postgres {{ $labels.label_cnpg_io_cluster }}: {{ $labels.pod }} has not been ready for 2 minutes"
+            description: >-
+              With a synchronous replica required, weldid-db accepts no
+              writes while either instance is down: no sign-in completes.
+            runbook_url: https://github.com/weldsuite/weldsuite/blob/main/rust/deploy/flux/infrastructure/monitoring-config/ALERTS.md#postgresinstancedown
+---
+# Flux's failures for WeldID's release and chart source, as
+# ../monitoring-config/flux-alerts.yaml sends the other namespaces'.
+apiVersion: notification.toolkit.fluxcd.io/v1beta3
+kind: Alert
+metadata:
+  name: weldid-reconcile-failures
+  namespace: flux-system
+spec:
+  providerRef:
+    name: alertmanager
+  eventSeverity: error
+  eventMetadata:
+    cluster: ${DOMAIN}
+  eventSources:
+    - kind: HelmRelease
+      name: "*"
+      namespace: weldid
+    - kind: HelmRepository
+      name: "*"
+      namespace: weldid
+    - kind: HelmChart
+      name: "*"
+      namespace: weldid

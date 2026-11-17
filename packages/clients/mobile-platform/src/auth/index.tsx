@@ -103,3 +103,12 @@ export function useHostedSignIn(): HostedSignIn | null {
   if (!signIn) return null;
   return { signIn, accountUrl: implementation.accountUrl };
 }
+
+/**
+ * The active workspace id outside React, for an app's own API client to tag
+ * its requests with (`X-Weld-Workspace`). Null on every provider except OIDC
+ * with `workspaceSource: "header"` (WeldID in membership mode).
+ */
+export function getActiveWorkspaceId(): string | null {
+  return getAuthImplementation().getActiveOrgId?.() ?? null;
+}

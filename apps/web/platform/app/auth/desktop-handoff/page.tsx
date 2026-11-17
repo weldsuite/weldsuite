@@ -40,7 +40,9 @@ function PhaseIcon({ phase }: Readonly<{ phase: Phase }>) {
  * shell's navigation interceptor keeps /auth/* in the browser.
  */
 export default function DesktopHandoffPage() {
-  // Edition flags (4.F3): no ticket to mint where the backend can't sign the desktop app in.
+  // Edition flags (4.F3): no Clerk ticket to mint on the OIDC editions, whose
+  // desktop app signs in through the system browser and a loopback redirect
+  // instead (`components/auth/browser-sign-in-screen.tsx`), never via this page.
   if (!isFeatureAvailable('desktop-sign-in')) return <DesktopSignInUnavailable />;
   return <DesktopHandoff />;
 }

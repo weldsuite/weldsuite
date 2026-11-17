@@ -1,0 +1,38 @@
+# WeldID (the weldid chart, https://github.com/weldsuite/weldid,
+# deploy/helm/weldid), pinned by WELDID_VERSION in the cluster's settings;
+# its appVersion is the same version, so it installs that release's image.
+# Values: values/weldid.yaml, then the weldid-switch layer's
+# weldid-values-switch (WeldID's Ingress on), optional: absent until the
+# cluster switches to WeldID (README.md, "Switching").
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: weldid
+  namespace: weldid
+spec:
+  interval: 1h
+  # Covers the migration Job (deadline 10 minutes; on the first install it
+  # waits for weldid-db, which this layer makes at the same time) and the
+  # rollout after it.
+  timeout: 15m
+  chart:
+    spec:
+      chart: weldid
+      version: "${WELDID_VERSION}"
+      sourceRef:
+        kind: HelmRepository
+        name: weldid
+        namespace: weldid
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+  valuesFrom:
+    - kind: ConfigMap
+      name: weldid-values
+    - kind: ConfigMap
+      name: weldid-values-switch
+      optional: true
