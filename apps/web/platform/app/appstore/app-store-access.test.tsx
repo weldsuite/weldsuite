@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { I18nProvider } from '@weldsuite/i18n/provider';
@@ -282,7 +282,14 @@ describe('app store filter', { timeout: 20_000 }, () => {
     await user.click(screen.getByRole('button', { name: 'Filter' }));
     await user.click(await screen.findByText('Status', {}, slow));
     await user.click(await screen.findByText('is', {}, slow));
-    // The value list is a popover; "Installed" is also the card badge.
+    // Picking the operator opens the value list on a timer. In jsdom it races
+    // the operator list's focus handling, which can close it again (seen on CI),
+    // so let that settle and open the list by hand when it is closed.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+    if (!screen.queryByRole('dialog')) {
+      await user.click(screen.getByRole('button', { name: 'Select status' }));
+    }
+    // "Installed" is also the card badge, so look inside the list.
     await user.click(within(await screen.findByRole('dialog', {}, slow)).getByText('Installed'));
   }
 
