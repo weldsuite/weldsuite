@@ -405,5 +405,13 @@ export const navigation = {
       defaultOverview: 'Deze app integreert naadloos met uw WeldSuite-werkruimte en biedt essentiële hulpmiddelen en mogelijkheden om uw bedrijfsprocessen te stroomlijnen. Beheer en automatiseer belangrijke workflows terwijl al uw gegevens gesynchroniseerd blijven binnen uw organisatie.',
       noAccessTitle: 'Geen toegang tot de App Store',
       noAccessDescription: 'U heeft geen toestemming om de App Store te bekijken. Alleen eigenaren en beheerders van de werkruimte kunnen apps installeren of verwijderen. Neem contact op met de eigenaar van uw werkruimte als u toegang nodig heeft.',
+      searchPlaceholder: 'Apps zoeken',
+      noResultsTitle: 'Geen apps gevonden',
+      noResultsDescription: 'Geen apps die passen bij "{query}"',
+      noResultsFilters: 'Geen apps die passen bij deze filters',
+      clearSearch: 'Zoekopdracht wissen',
+      clearFilters: 'Filters wissen',
+      status: 'Status',
+      notInstalled: 'Niet geïnstalleerd',
     }
   };

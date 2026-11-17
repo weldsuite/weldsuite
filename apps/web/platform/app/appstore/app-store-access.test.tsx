@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { I18nProvider } from '@weldsuite/i18n/provider';
@@ -16,6 +16,8 @@ vi.mock('@/components/partner/use-app-licence', () => ({
   useAppLicence: () => ({ isUnlicensed: () => false, managed: null, askPartner: vi.fn() }),
 }));
 vi.mock('./custom-apps-section', () => ({ CustomAppsSection: () => null, OfficialHostedAppsSection: () => null }));
+// The store reads the WeldApps list to know whether a search matched one.
+vi.mock('@/hooks/queries/use-user-apps-queries', () => ({ useUserAppStore: () => ({ data: [] }) }));
 vi.mock('@/lib/router', () => ({
   Link: ({ href, children, ...rest }: { href: string; children?: React.ReactNode }) => (
     <a href={href} {...rest}>
@@ -184,5 +186,72 @@ describe('AppAccessControls (app detail page)', () => {
     expect(screen.getByText('WeldReach is suspended for this workspace')).toBeInTheDocument();
     expect(screen.getByText(/Too many complaints/)).toBeInTheDocument();
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
+  });
+});
+
+describe('app store search', () => {
+  const mail = app({ code: 'weldmail', name: 'WeldMail', description: 'A team inbox', category: 'Email', requiresApproval: false });
+  const books = app({ code: 'weldbooks', name: 'WeldBooks', description: 'Double-entry bookkeeping', category: 'Accounting', requiresApproval: false });
+
+  /** Opens the toolbar's search (a magnifier button, as on the list pages) and returns its field. */
+  async function renderStore(user: ReturnType<typeof userEvent.setup>) {
+    wrap(<AppStoreClient initialApps={[mail, books]} categories={[]} canManage />);
+    await user.click(screen.getByRole('button', { name: 'Search apps' }));
+    return screen.getByPlaceholderText('Search apps');
+  }
+
+  it('shows only the apps whose name matches, and only their categories', async () => {
+    const user = userEvent.setup();
+    const search = await renderStore(user);
+
+    await user.type(search, 'mail');
+
+    expect(screen.getByRole('link', { name: /WeldMail/ })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /WeldBooks/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Communication' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Finance' })).not.toBeInTheDocument();
+  });
+
+  it('matches the category group name, not just the app name', async () => {
+    const user = userEvent.setup();
+    const search = await renderStore(user);
+
+    await user.type(search, 'finance');
+
+    expect(screen.getByRole('link', { name: /WeldBooks/ })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /WeldMail/ })).not.toBeInTheDocument();
+  });
+
+  it('says so when nothing matches, and clears the search on request', async () => {
+    const user = userEvent.setup();
+    const search = await renderStore(user);
+
+    await user.type(search, 'zzz');
+
+    expect(screen.getByText('No apps found')).toBeInTheDocument();
+    expect(screen.getByText('No apps match "zzz"')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Clear search' }));
+    expect(search).toHaveValue('');
+    expect(screen.getByRole('link', { name: /WeldMail/ })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /WeldBooks/ })).toBeInTheDocument();
+  });
+});
+
+describe('app store filter', () => {
+  const mail = app({ code: 'weldmail', name: 'WeldMail', description: 'A team inbox', category: 'Email', requiresApproval: false, isInstalled: true });
+  const books = app({ code: 'weldbooks', name: 'WeldBooks', description: 'Double-entry bookkeeping', category: 'Accounting', requiresApproval: false });
+
+  it('shows only installed apps after filtering on Status is Installed', async () => {
+    const user = userEvent.setup();
+    wrap(<AppStoreClient initialApps={[mail, books]} categories={[]} canManage />);
+
+    await user.click(screen.getByRole('button', { name: 'Filter' }));
+    await user.click(await screen.findByText('Status'));
+    await user.click(await screen.findByText('is'));
+    // The value list is a popover; "Installed" is also the card badge.
+    await user.click(within(await screen.findByRole('dialog')).getByText('Installed'));
+
+    await waitFor(() => expect(screen.queryByRole('link', { name: /WeldBooks/ })).not.toBeInTheDocument());
+    expect(screen.getByRole('link', { name: /WeldMail/ })).toBeInTheDocument();
   });
 });

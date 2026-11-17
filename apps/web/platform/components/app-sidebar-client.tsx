@@ -1,5 +1,5 @@
 ﻿import * as React from 'react';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { Link, usePathname, useRouter } from '@/lib/router';
 import { cn } from '@/lib/utils';
 import { Plus, Box, Puzzle } from 'lucide-react';
@@ -10,7 +10,6 @@ import { useSidebarAppOrder } from '@/hooks/queries/use-ui-preference';
 import { useAppPrefetch } from '@/hooks/use-app-prefetch';
 import { preloadWeldApp } from '@/app/weldapps/host/frame-store';
 import { useBetaAppCodes, useCanManageApps } from '@/hooks/queries/use-settings-queries';
-import { BetaBadge } from '@/components/layout/beta-badge';
 import { RailIconCorner } from '@/components/layout/app-rail-badge';
 import { useAppRailBadges } from '@/hooks/use-sidebar-badges';
 import {
@@ -37,10 +36,18 @@ import { useWorkspaceHref } from '@/lib/workspace-url-rewrite';
 import { LucideDynamicIcon } from '@weldsuite/ui/components/lucide-dynamic-icon';
 import { isModuleOffered } from '@/lib/edition';
 
+/**
+ * WeldAgent isn't an installed app (every workspace has it when the edition
+ * offers the agent module), but it sits in the rail's app list like one so it
+ * can be dragged between the other apps and keeps its slot in the saved order.
+ */
+const WELDAGENT_RAIL_CODE = 'weldagent';
+
 /** Path this app's sidebar icon links to — WeldApps (`appType: 'user'`) are
  * hosted at `/apps/{code}`, first-party system apps keep their own `/{code}`
- * top-level route. */
+ * top-level route, WeldAgent lives at `/agents`. */
 function appHref(appCode: string, appType?: 'system' | 'user' | 'object'): string {
+  if (appCode === WELDAGENT_RAIL_CODE) return '/agents';
   if (appType === 'user') return `/apps/${appCode}`;
   // WeldObjects are first-party UI over user-defined schema, so they get a real
   // platform route rather than the sandboxed /apps/ iframe host.
@@ -190,15 +197,37 @@ export function AppSidebarClient({ installedApps }: Readonly<AppSidebarClientPro
   // Track if component is mounted (client-side only)
   const [mounted, setMounted] = useState(false);
 
+  // The installed apps plus WeldAgent (edition flag: needs the agent module),
+  // which goes last until the user drags it elsewhere.
+  const agentLabel = t.navigation.aiAgents;
+  const railApps = useMemo<InstalledApp[]>(() => {
+    if (!isModuleOffered('agent') || installedApps.some((a) => a.appCode === WELDAGENT_RAIL_CODE)) {
+      return installedApps;
+    }
+    return [
+      ...installedApps,
+      {
+        id: WELDAGENT_RAIL_CODE,
+        workspaceId: '',
+        appCode: WELDAGENT_RAIL_CODE,
+        name: agentLabel,
+        status: 'active',
+        installedAt: '',
+        displayOrder: installedApps.length,
+        appType: 'system',
+      },
+    ];
+  }, [installedApps, agentLabel]);
+
   // Every app code the user has had in the rail, uninstalled ones included, so
   // a reinstalled app returns to its old slot rather than the bottom.
   const [initialKnownOrder] = useState(() =>
-    rememberAppCodes(savedAppOrder ?? [], installedApps.map((a) => a.appCode))
+    rememberAppCodes(savedAppOrder ?? [], railApps.map((a) => a.appCode))
   );
   const knownOrderRef = useRef<string[]>(initialKnownOrder);
 
   const [orderedApps, setOrderedApps] = useState<InstalledApp[]>(() =>
-    sortByAppOrder(installedApps, initialKnownOrder)
+    sortByAppOrder(railApps, initialKnownOrder)
   );
   const [activeApp, setActiveApp] = useState<InstalledApp | null>(null);
 
@@ -207,7 +236,32 @@ export function AppSidebarClient({ installedApps }: Readonly<AppSidebarClientPro
     setMounted(true);
   }, []);
 
-  // Update when installedApps changes (e.g., new app installed), and once when
+  // Mark the app list's edges that have apps scrolled out of view, so the CSS
+  // (`.app-rail-scroll` in globals.css) fades them out instead of slicing an
+  // icon in half. Set on the node directly: scrolling must not re-render the
+  // rail. Re-checked on scroll, on resize and when the list's items change.
+  const appsScrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = appsScrollRef.current;
+    if (!el) return;
+    const update = () => {
+      el.toggleAttribute('data-fade-top', el.scrollTop > 1);
+      el.toggleAttribute('data-fade-bottom', el.scrollTop + el.clientHeight < el.scrollHeight - 1);
+    };
+    update();
+    el.addEventListener('scroll', update, { passive: true });
+    const resizeObserver = new ResizeObserver(update);
+    resizeObserver.observe(el);
+    const mutationObserver = new MutationObserver(update);
+    mutationObserver.observe(el, { childList: true, subtree: true });
+    return () => {
+      el.removeEventListener('scroll', update);
+      resizeObserver.disconnect();
+      mutationObserver.disconnect();
+    };
+  }, []);
+
+  // Update when the rail's apps change (e.g., new app installed), and once when
   // the saved order loads after the first render.
   useEffect(() => {
     let base = knownOrderRef.current;
@@ -215,10 +269,10 @@ export function AppSidebarClient({ installedApps }: Readonly<AppSidebarClientPro
       savedOrderAppliedRef.current = true;
       base = savedAppOrder;
     }
-    const known = rememberAppCodes(base, installedApps.map((a) => a.appCode));
+    const known = rememberAppCodes(base, railApps.map((a) => a.appCode));
     knownOrderRef.current = known;
-    setOrderedApps(sortByAppOrder(installedApps, known));
-  }, [installedApps, savedAppOrder]);
+    setOrderedApps(sortByAppOrder(railApps, known));
+  }, [railApps, savedAppOrder]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -310,10 +364,12 @@ export function AppSidebarClient({ installedApps }: Readonly<AppSidebarClientPro
           </TooltipContent>
         </Tooltip>
 
-        {/* Draggable Apps - scroll on their own when they outgrow the rail, so
-            Home stays on top and WeldAgent + App Store stay on the bottom.
-            Only render DnD context after mount to avoid hydration mismatch. */}
+        {/* Draggable Apps (WeldAgent included) - scroll on their own when they
+            outgrow the rail, so Home stays on top and the App Store stays on
+            the bottom. Only render DnD context after mount to avoid hydration
+            mismatch. */}
         <div
+          ref={appsScrollRef}
           data-testid="app-sidebar-apps"
           className="flex-1 min-h-0 w-full flex flex-col items-center gap-2 py-1 overflow-y-auto overflow-x-hidden app-rail-scroll"
         >
@@ -412,37 +468,6 @@ export function AppSidebarClient({ installedApps }: Readonly<AppSidebarClientPro
             </>
           )}
         </div>
-
-        {/* AI Agents (edition flag: needs the agent module) */}
-        {isModuleOffered('agent') && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <a
-              href={workspaceHref('/agents')}
-              onClick={handleAppClick('/agents')}
-              onMouseEnter={() => router.prefetch('/agents')}
-              onFocus={() => router.prefetch('/agents')}
-              className={cn(
-                'relative h-11.5 w-11.5 shrink-0 flex items-center justify-center rounded-lg transition-colors',
-                isHomePage
-                  ? 'text-white/70 hover:text-white hover:bg-white/10'
-                  : 'hover:bg-accent hover:text-accent-foreground',
-                isActive('/agents') && (isHomePage ? 'bg-white/15 text-white' : 'bg-gray-200/60 dark:bg-accent/60')
-              )}
-            >
-              <img
-                src="/assets/images/weldagent/icon.svg"
-                alt="WeldAgent"
-                className="h-6 w-6"
-              />
-              {betaAppCodes?.has('weldagent') ? <BetaBadge /> : null}
-            </a>
-          </TooltipTrigger>
-          <TooltipContent side="right">
-            <p>{t.navigation.aiAgents}</p>
-          </TooltipContent>
-        </Tooltip>
-        )}
 
         {/* App Store - Fixed at bottom. Only shown to users who can manage apps. */}
         {canManageApps ? (

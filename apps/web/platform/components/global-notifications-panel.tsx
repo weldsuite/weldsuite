@@ -1,8 +1,9 @@
 
 import { useMemo } from 'react';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
-import { Bell, Check, CheckCheck, Trash2, X, Loader2 } from 'lucide-react';
+import { Check, CheckCheck, Trash2, X, Loader2 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
+import { CountBadge } from '@weldsuite/ui/components/count-badge';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { FloatingDrawer } from '@/components/layout/floating-drawer';
@@ -245,24 +246,24 @@ export function GlobalNotificationsPanel({ isOpen, onClose, width = 400, skipAni
       skipAnimation={skipAnimation}
       data-testid="notifications-panel"
     >
-      {/* Panel Header */}
-      <div className="px-4 py-3.5 border-b border-gray-200 dark:border-border bg-white dark:bg-background">
-        <div className="flex items-center justify-between">
+      {/* Panel Header — 53px, the same height as the WeldAgent panel's header. */}
+      <div className="flex h-[53px] flex-shrink-0 items-center px-4 border-b border-gray-200 dark:border-border bg-white dark:bg-background">
+        <div className="flex w-full items-center justify-between">
           <div className="flex items-center gap-2">
-            <Bell className="h-4 w-4 text-gray-600 dark:text-muted-foreground" />
             <span className="font-medium text-gray-900 dark:text-foreground">{tn.title}</span>
-            {unreadCount > 0 && (
-              <span className="h-[9px] w-[9px] rounded-full bg-red-500 border border-red-600" />
-            )}
+            {/* How many notifications are unread; renders nothing at 0. */}
+            <CountBadge count={unreadCount} />
+
             {isLoading && <Loader2 className="h-3 w-3 animate-spin text-gray-400" />}
           </div>
-          <div className="flex items-center gap-1">
+          {/* 28px icon buttons, the size of the WeldAgent panel's header buttons. */}
+          <div className="flex items-center gap-0.5">
             <Button
               variant="ghost"
-              size="icon"
+              size="sm"
               onClick={handleMarkAllAsRead}
               disabled={unreadCount === 0}
-              className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-muted-foreground hover:bg-gray-100 dark:hover:bg-secondary rounded-md transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-gray-400"
+              className="h-7 w-7 p-0 text-gray-400 hover:text-gray-600 dark:hover:text-muted-foreground hover:bg-gray-100 dark:hover:bg-secondary rounded-md transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-gray-400"
               title={tn.markAllAsRead}
               aria-label={tn.markAllAsRead}
             >
@@ -270,9 +271,9 @@ export function GlobalNotificationsPanel({ isOpen, onClose, width = 400, skipAni
             </Button>
             <Button
               variant="ghost"
-              size="icon"
+              size="sm"
               onClick={onClose}
-              className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-muted-foreground hover:bg-gray-100 dark:hover:bg-secondary rounded-md transition-all"
+              className="h-7 w-7 p-0 text-gray-400 hover:text-gray-600 dark:hover:text-muted-foreground hover:bg-gray-100 dark:hover:bg-secondary rounded-md transition-all"
               aria-label={tn.closePanel}
             >
               <X className="h-4 w-4" />
