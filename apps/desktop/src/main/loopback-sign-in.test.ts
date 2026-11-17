@@ -6,6 +6,7 @@ import {
   LoopbackSignIn,
   callbackPage,
   checkAuthorizationRequest,
+  issuerFromRuntimeConfig,
   readPageText,
 } from './loopback-sign-in';
 
@@ -176,15 +177,56 @@ describe('the callback page', () => {
   });
 });
 
+describe('the issuer from /config.json', () => {
+  it("takes the OIDC issuer's origin", () => {
+    expect(issuerFromRuntimeConfig({ auth: { provider: 'oidc', issuer: 'https://auth.example.eu' } })).toBe(
+      'https://auth.example.eu',
+    );
+    expect(issuerFromRuntimeConfig({ auth: { provider: 'oidc', issuer: 'https://auth.example.eu/staff' } })).toBe(
+      'https://auth.example.eu',
+    );
+    // A provider on this machine (local development).
+    expect(issuerFromRuntimeConfig({ auth: { provider: 'oidc', issuer: 'http://localhost:8080' } })).toBe(
+      'http://localhost:8080',
+    );
+  });
+
+  it('refuses Clerk and anything malformed', () => {
+    const refused: unknown[] = [
+      null,
+      'oidc',
+      {},
+      { auth: { provider: 'clerk', publishableKey: 'pk_test_x' } },
+      { auth: { provider: 'oidc' } },
+      { auth: { provider: 'oidc', issuer: 'not a url' } },
+      { auth: { provider: 'oidc', issuer: 'http://auth.example.eu' } },
+      { auth: { provider: 'oidc', issuer: 'https://user:pass@auth.example.eu' } },
+      { auth: { provider: 'oidc', issuer: 'javascript:alert(1)' } },
+    ];
+    for (const config of refused) expect(issuerFromRuntimeConfig(config), JSON.stringify(config)).toBeNull();
+  });
+});
+
 describe('the authorization request', () => {
   const redirect = 'http://127.0.0.1:53123/callback';
+  const issuer = 'https://auth.example.eu';
 
-  it('takes the code flow with PKCE S256 back to this listener', () => {
-    expect(checkAuthorizationRequest(authorizeUrl(redirect), redirect)).toEqual({ state: 'state-1' });
+  it("takes the code flow with PKCE S256 back to this listener, on the issuer's origin", () => {
+    expect(checkAuthorizationRequest(authorizeUrl(redirect), redirect, issuer)).toEqual({
+      state: 'state-1',
+      url: authorizeUrl(redirect),
+    });
     // A provider on this machine (local development).
-    expect(
-      checkAuthorizationRequest(authorizeUrl(redirect).replace('https://auth.example.eu', 'http://localhost:8080'), redirect),
-    ).toEqual({ state: 'state-1' });
+    const local = authorizeUrl(redirect).replace('https://auth.example.eu', 'http://localhost:8080');
+    expect(checkAuthorizationRequest(local, redirect, 'http://localhost:8080')).toEqual({ state: 'state-1', url: local });
+  });
+
+  it("opens a URL rebuilt on the issuer's origin, without the fragment", () => {
+    const checked = checkAuthorizationRequest(`${authorizeUrl(redirect)}#ignored`, redirect, issuer);
+    expect(checked?.url).toBe(authorizeUrl(redirect));
+    // A path that looks like another host stays on the issuer.
+    const odd = authorizeUrl(redirect).replace('/oauth/authorize', '//evil.example/oauth/authorize');
+    expect(new URL(checkAuthorizationRequest(odd, redirect, issuer)!.url).origin).toBe(issuer);
   });
 
   it('refuses anything else', () => {
@@ -199,8 +241,12 @@ describe('the authorization request', () => {
       authorizeUrl(redirect).replace('https://', 'http://'),
       authorizeUrl(redirect).replace('https://', 'https://user:pass@'),
       authorizeUrl(redirect).replace('https://auth.example.eu', 'javascript:alert(1)//'),
+      // Another host, even a well-formed request: only the issuer's origin.
+      authorizeUrl(redirect).replace('https://auth.example.eu', 'https://evil.example'),
+      authorizeUrl(redirect).replace('https://auth.example.eu', 'https://auth.example.eu.evil.example'),
+      authorizeUrl(redirect).replace('https://auth.example.eu', 'https://auth.example.eu:8443'),
       'not a url',
     ];
-    for (const url of refused) expect(checkAuthorizationRequest(url, redirect), url).toBeNull();
+    for (const url of refused) expect(checkAuthorizationRequest(url, redirect, issuer), url).toBeNull();
   });
 });

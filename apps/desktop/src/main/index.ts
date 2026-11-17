@@ -1,10 +1,16 @@
-import { app, BrowserWindow, WebContentsView, Tray, Menu, ipcMain, shell, nativeImage, desktopCapturer, session, Notification } from 'electron';
+import { app, BrowserWindow, WebContentsView, Tray, Menu, ipcMain, shell, nativeImage, desktopCapturer, session, Notification, net } from 'electron';
 import electronUpdater from 'electron-updater';
 const { autoUpdater } = electronUpdater;
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadSettings, saveSettings, loadSettingsSync, getSettings, applySettings, DEFAULT_SETTINGS, type DesktopSettings } from './settings';
-import { LoopbackSignIn, checkAuthorizationRequest, readPageText, type LoopbackOutcome } from './loopback-sign-in';
+import {
+  LoopbackSignIn,
+  checkAuthorizationRequest,
+  issuerFromRuntimeConfig,
+  readPageText,
+  type LoopbackOutcome,
+} from './loopback-sign-in';
 
 process.on('uncaughtException', (err) => {
   console.error('[weldsuite-desktop] uncaughtException:', err);
@@ -82,8 +88,24 @@ let rendererPickerReady = false;
 let pickerRequestSeq = 0;
 const pendingSourcePicks = new Map<number, (sourceId: string | null) => void>();
 
-// The sign-in waiting in the system browser (OIDC editions; one at a time).
+// The sign-in waiting in the system browser (OIDC editions; one at a time),
+// with the issuer origin the app's /config.json named when it started.
 let browserSignIn: LoopbackSignIn | null = null;
+let browserSignInIssuer: string | null = null;
+
+/**
+ * The OIDC issuer's origin, read by this process from the app's own
+ * `/config.json`. Null when it can't be read or names no OIDC issuer.
+ */
+async function readIssuerOrigin(): Promise<string | null> {
+  try {
+    const response = await net.fetch(new URL('/config.json', APP_URL).toString());
+    if (!response.ok) return null;
+    return issuerFromRuntimeConfig(await response.json());
+  } catch {
+    return null;
+  }
+}
 
 function appWebContents(): Electron.WebContents | null {
   return appView?.webContents ?? null;
@@ -110,6 +132,7 @@ function fromAppPage(event: Electron.IpcMainInvokeEvent): boolean {
 function cancelBrowserSignIn() {
   browserSignIn?.cancel();
   browserSignIn = null;
+  browserSignInIssuer = null;
 }
 
 console.log('[weldsuite-desktop] main starting, pid=', process.pid);
@@ -468,8 +491,12 @@ function registerIpc() {
   ipcMain.handle('weldsuite:oidc-sign-in:start', async (event) => {
     if (!fromAppPage(event)) throw new Error('weldsuite:oidc-sign-in answers the WeldSuite app only');
     cancelBrowserSignIn();
+    // The browser is only ever sent to this issuer, whatever the page asks.
+    const issuer = await readIssuerOrigin();
+    if (!issuer) throw new Error("weldsuite:oidc-sign-in needs an OIDC issuer in the app's /config.json");
     const flow = await LoopbackSignIn.open();
     browserSignIn = flow;
+    browserSignInIssuer = issuer;
     return { id: flow.id, redirectUri: flow.redirectUri };
   });
 
@@ -478,16 +505,18 @@ function registerIpc() {
     async (event, opts: { id?: unknown; url?: unknown; page?: unknown } = {}): Promise<LoopbackOutcome> => {
       if (!fromAppPage(event)) return { status: 'failed', reason: 'invalid_request' };
       const flow = browserSignIn;
-      if (!flow || opts?.id !== flow.id || flow.expecting) return { status: 'failed', reason: 'unknown_sign_in' };
+      const issuer = browserSignInIssuer;
+      if (!flow || !issuer || opts?.id !== flow.id || flow.expecting) return { status: 'failed', reason: 'unknown_sign_in' };
       const url = typeof opts.url === 'string' ? opts.url : '';
-      const checked = checkAuthorizationRequest(url, flow.redirectUri);
+      const checked = checkAuthorizationRequest(url, flow.redirectUri, issuer);
       if (!checked) {
         cancelBrowserSignIn();
         return { status: 'failed', reason: 'invalid_request' };
       }
       const outcome = flow.expect(checked.state, readPageText(opts.page));
       try {
-        await shell.openExternal(url);
+        // The checked URL, rebuilt on the issuer's origin: never the page's string.
+        await shell.openExternal(checked.url);
       } catch {
         flow.fail('browser');
       }

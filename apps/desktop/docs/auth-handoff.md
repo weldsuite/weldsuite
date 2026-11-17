@@ -218,10 +218,14 @@ native client's loopback redirect on any port (RFC 8252 section 7.3).
   usual refresh-token grant (`offline_access`).
 - **The shell** (`src/main/loopback-sign-in.ts`) opens a one-shot HTTP
   listener on `127.0.0.1` (never `localhost` or `0.0.0.0`) with a port the OS
-  picks, checks the authorization request before opening it (https, or http
-  to a loopback provider in development; `response_type=code`,
-  `code_challenge_method=S256`, a `state`, and its own redirect URI), and
-  answers only `GET /callback` with that `state` and its own `Host`.
+  picks, checks the authorization request before opening it, and answers
+  only `GET /callback` with that `state` and its own `Host`. The check:
+  - the endpoint is on the issuer's origin. Main reads the issuer itself from
+    `APP_URL`'s `/config.json` when the sign-in starts (https, or http to a
+    loopback provider in development), and opens the request rebuilt on that
+    origin, so the page can't choose where the browser goes;
+  - `response_type=code`, `code_challenge_method=S256`, a `state`, and its
+    own redirect URI.
   Anything else is refused and the listener keeps waiting, so a stray
   request can't end a real sign-in. The browser gets a small page in the
   app's language that loads nothing (`default-src 'none'`). The sign-in ends

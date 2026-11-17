@@ -98,20 +98,46 @@ function isLoopbackHostname(hostname: string): boolean {
 }
 
 /**
- * The authorization request the app page wants opened, checked before it
- * reaches the browser: an https endpoint (http only to a loopback provider,
- * for local development), the code flow with PKCE S256, a `state`, and this
- * listener as its redirect. Null when it is anything else.
+ * The origin of the OIDC issuer the app's `/config.json` names
+ * (`auth.issuer`): https, or http on a loopback host for local development.
+ * Null for a Clerk edition or anything malformed. The main process reads it
+ * itself, so the page can't choose where the browser is sent.
  */
-export function checkAuthorizationRequest(rawUrl: string, redirectUri: string): { state: string } | null {
+export function issuerFromRuntimeConfig(config: unknown): string | null {
+  const auth = (config as { auth?: { provider?: unknown; issuer?: unknown } } | null)?.auth;
+  if (auth?.provider !== 'oidc' || typeof auth.issuer !== 'string') return null;
+  let issuer: URL;
+  try {
+    issuer = new URL(auth.issuer);
+  } catch {
+    return null;
+  }
+  const transport = issuer.protocol === 'https:' || (issuer.protocol === 'http:' && isLoopbackHostname(issuer.hostname));
+  return transport && !issuer.username && !issuer.password ? issuer.origin : null;
+}
+
+/**
+ * The authorization request the app page wants opened, checked before it
+ * reaches the browser: an endpoint on the issuer's origin (from
+ * `issuerFromRuntimeConfig`), the code flow with PKCE S256, a `state`, and
+ * this listener as its redirect. Null when it is anything else.
+ *
+ * `url` is what to open: rebuilt on the issuer's origin, so nothing the page
+ * sends can change the host. WeldID, Zitadel and the common providers serve
+ * their authorization endpoint on the issuer's origin.
+ */
+export function checkAuthorizationRequest(
+  rawUrl: string,
+  redirectUri: string,
+  issuerOrigin: string,
+): { state: string; url: string } | null {
   let url: URL;
   try {
     url = new URL(rawUrl);
   } catch {
     return null;
   }
-  const transport = url.protocol === 'https:' || (url.protocol === 'http:' && isLoopbackHostname(url.hostname));
-  if (!transport || url.username || url.password) return null;
+  if (url.origin !== issuerOrigin || url.username || url.password) return null;
   const params = url.searchParams;
   const state = params.get('state');
   if (
@@ -125,7 +151,7 @@ export function checkAuthorizationRequest(rawUrl: string, redirectUri: string): 
   ) {
     return null;
   }
-  return { state };
+  return { state, url: `${issuerOrigin}${url.pathname}${url.search}` };
 }
 
 function escapeHtml(value: string): string {
