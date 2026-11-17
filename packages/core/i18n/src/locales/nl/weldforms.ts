@@ -579,6 +579,7 @@ export const weldforms = {
     viewList: 'Lijst',
     emptyTitle: 'Nog geen formulieren',
     emptyDescription: 'Bouw je eerste formulier helemaal opnieuw, begin met een sjabloon of laat AI het opzetten.',
+    loadMoreFailed: 'Wis het filter om de formulieren te zien die al geladen zijn, of probeer het opnieuw.',
     noResultsTitle: 'Geen formulieren gevonden',
     noResultsDescription: 'Probeer een andere zoekopdracht of wis de filters.',
     responses: 'Antwoorden',

@@ -53,7 +53,7 @@ interface ListProps {
   leftActionButtons: ReactNode;
   createButton?: { label: string; onClick: () => void };
   emptyState: { title: string; description: string; action?: { label: string; onClick: () => void } };
-  noResultsState: { title: string; description: string };
+  noResultsState: { title: string; description: string; action?: { label: string; onClick: () => void } };
 }
 
 vi.mock('@/components/entity-list', () => ({
@@ -97,6 +97,12 @@ vi.mock('@/components/entity-list', () => ({
           <p>{props.emptyState.title}</p>
           <p>{props.emptyState.description}</p>
           <p>{props.noResultsState.title}</p>
+          <p>{props.noResultsState.description}</p>
+          {props.noResultsState.action && (
+            <button type="button" onClick={props.noResultsState.action.onClick}>
+              {`no results ${props.noResultsState.action.label}`}
+            </button>
+          )}
           {props.emptyState.action && (
             <button type="button" onClick={props.emptyState.action.onClick}>
               {`empty ${props.emptyState.action.label}`}
@@ -365,17 +371,24 @@ describe('WeldForms home page', () => {
     expect(screen.getByText('loading')).toBeTruthy();
   });
 
-  it('stops looking when the next page fails, shows the error and retries that page', () => {
+  it('stops looking when the next page fails, and shows the error in the list with its toolbar', () => {
     listState = { ...listState, forms: [draft], hasNextPage: true, isFetchNextPageError: true };
     render(<WeldFormsHome />);
     fireEvent.click(screen.getByText(`except ${en.weldforms.status.draft}`));
     // No loop on a failing page: nothing is asked for until the member retries.
     expect(fetchNextPage).not.toHaveBeenCalled();
     expect(screen.queryByText('loading')).toBeNull();
+    // The error sits in the list body, so the toolbar (search, filters) stays to clear the filter.
+    expect(screen.getByTestId('entity-list')).toBeTruthy();
+    expect(screen.getByRole('textbox', { name: en.weldforms.home.searchPlaceholder })).toBeTruthy();
     expect(screen.getByText(en.weldforms.loadFailed)).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: en.common.actions.retry }));
+    expect(screen.getByText(en.weldforms.home.loadMoreFailed)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: `no results ${en.common.actions.retry}` }));
     expect(fetchNextPage).toHaveBeenCalledTimes(1);
     expect(refetch).not.toHaveBeenCalled();
+    // Clearing the filter brings back the rows already loaded.
+    fireEvent.click(screen.getByText('clear filters'));
+    expect(screen.getByText('Draft one')).toBeTruthy();
   });
 
   it('stops looking when the last page leaves no row for an "is not" filter', () => {

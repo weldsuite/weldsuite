@@ -579,6 +579,7 @@ export const weldforms = {
     viewList: 'List',
     emptyTitle: 'No forms yet',
     emptyDescription: 'Build your first form from scratch, start from a template or let AI draft it.',
+    loadMoreFailed: 'Clear the filter to see the forms loaded so far, or try again.',
     noResultsTitle: 'No forms match',
     noResultsDescription: 'Try another search or clear the filters.',
     responses: 'Responses',

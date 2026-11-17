@@ -96,7 +96,7 @@ export default function WeldFormsHome() {
   // When that leaves none of the loaded rows, the list has no row to scroll to and
   // never asks for more, so load the next page here until a row is left or none remain.
   // A page that fails stops it (retrying here would loop on a persistent error) and
-  // shows the error in place of the list.
+  // shows the error in the list body, under the toolbar, so the filter can still be cleared.
   const filteredAway = Boolean(status.except) && forms.length === 0 && query.forms.length > 0;
   const { hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage } = query;
   const searchingFurther = filteredAway && hasNextPage && !isFetchNextPageError;
@@ -222,8 +222,8 @@ export default function WeldFormsHome() {
         {/* The toolbar's left side is hidden on small screens; the folder picker shows here instead. */}
         <div className="border-b px-3 py-2 md:hidden">{folderMenu}</div>
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {(query.error && !query.data) || searchFailed ? (
-            <ErrorState message={t.weldforms.loadFailed} onRetry={() => void (searchFailed ? fetchNextPage() : query.refetch())} retryLabel={t.common.actions.retry} />
+          {query.error && !query.data ? (
+            <ErrorState message={t.weldforms.loadFailed} onRetry={() => void query.refetch()} retryLabel={t.common.actions.retry} />
           ) : (
             <EntityList<FormSummary>
               items={forms}
@@ -254,7 +254,11 @@ export default function WeldFormsHome() {
                 description: th.emptyDescription,
                 action: canCreate ? { label: th.newForm, onClick: createForm } : undefined,
               }}
-              noResultsState={{ title: th.noResultsTitle, description: th.noResultsDescription }}
+              noResultsState={
+                searchFailed
+                  ? { title: t.weldforms.loadFailed, description: th.loadMoreFailed, action: { label: t.common.actions.retry, onClick: () => void fetchNextPage() } }
+                  : { title: th.noResultsTitle, description: th.noResultsDescription }
+              }
             />
           )}
         </div>
