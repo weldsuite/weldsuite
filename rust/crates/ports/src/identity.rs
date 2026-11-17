@@ -21,6 +21,8 @@
 //! | [`Identity::invitation`] | `GET /organizations/{org}/invitations/{id}` | invitation details |
 //! | [`Identity::invite`] | `POST /organizations/{org}/invitations` | invite, resend |
 //! | [`Identity::revoke_invitation`] | `POST /organizations/{org}/invitations/{id}/revoke` | cancel, resend |
+//! | [`Identity::find_invitation`] | (none: membership mode only) | invitation details |
+//! | [`Identity::accept_invitation`] | (none: membership mode only) | accept invitation |
 //! | [`Identity::users_by_email`] | `GET /users?email_address=…` | guest invite |
 //! | [`Identity::user_memberships`] | `GET /users/{user}/organization_memberships` | accept invitation |
 //! | [`Identity::delete_user`] | `DELETE /users/{user}` | delete account |
@@ -464,6 +466,36 @@ pub trait Identity: Send + Sync {
         invitation_id: &'a str,
     ) -> BoxFuture<'a, IdentityResult<()>>;
 
+    /// Membership mode (WeldSuite keeps invitations, the provider only
+    /// authenticates): the invitation with this id in any organization, and
+    /// that organization. `Ok(None)` for a provider that keeps invitations
+    /// itself (Clerk, Zitadel): the routes find those through the caller's
+    /// memberships, as before.
+    fn find_invitation<'a>(
+        &'a self,
+        invitation_id: &'a str,
+    ) -> BoxFuture<'a, IdentityResult<Option<(OrganizationRef, Invitation)>>> {
+        let _ = invitation_id;
+        Box::pin(async { Ok(None) })
+    }
+
+    /// Membership mode: make `user_id` a member through the pending
+    /// invitation `invitation_id`, which must be addressed to the user's
+    /// verified email. The membership comes back with its organization and
+    /// its user. Refusals ([`IdentityError::Rejected`]): 404 when there is
+    /// no such invitation or it is no longer pending, 410 when it expired,
+    /// 403 when the user's address is another one or isn't verified.
+    /// `Ok(None)` for a provider that makes the membership itself when the
+    /// invitee accepts there (Clerk, Zitadel).
+    fn accept_invitation<'a>(
+        &'a self,
+        invitation_id: &'a str,
+        user_id: &'a str,
+    ) -> BoxFuture<'a, IdentityResult<Option<Membership>>> {
+        let _ = (invitation_id, user_id);
+        Box::pin(async { Ok(None) })
+    }
+
     /// Users with this email address, at most `limit`.
     fn users_by_email<'a>(
         &'a self,
@@ -667,6 +699,8 @@ pub enum IdentityCall {
     Invitation(String, String),
     Invite(String, NewInvitation),
     RevokeInvitation(String, String),
+    FindInvitation(String),
+    AcceptInvitation(String, String),
     UsersByEmail(String, u32),
     UserMemberships(String, u32),
     DeleteUser(String),
@@ -700,6 +734,9 @@ struct MemoryState {
     next_id: u64,
     /// Refuse every call with this error, when set.
     failure: Option<IdentityError>,
+    /// Membership mode: invitations are found by id and accepted here
+    /// ([`Identity::find_invitation`], [`Identity::accept_invitation`]).
+    keeps_invitations: bool,
 }
 
 /// An identity provider in memory: organizations, memberships, invitations
@@ -752,6 +789,15 @@ impl MemoryIdentity {
             .entry(org.to_owned())
             .or_default()
             .push(invitation);
+        self
+    }
+
+    /// Membership mode, as WeldID's adapter: invitations are found by id
+    /// and accepted here. The invitee's address is the one `with_user` gave
+    /// them; every address counts as verified.
+    #[must_use]
+    pub fn keeping_invitations(self) -> Self {
+        self.lock().keeps_invitations = true;
         self
     }
 
@@ -889,6 +935,26 @@ impl MemoryState {
     fn next(&mut self, prefix: &str) -> String {
         self.next_id += 1;
         format!("{prefix}_{}", self.next_id)
+    }
+
+    /// The invitation with this id, in whichever organization.
+    fn kept_invitation(&self, invitation_id: &str) -> Option<(String, Invitation)> {
+        self.invitations.iter().find_map(|(org, list)| {
+            list.iter()
+                .find(|i| i.id == invitation_id)
+                .map(|i| (org.clone(), i.clone()))
+        })
+    }
+
+    fn organization_ref(&self, org: &str) -> OrganizationRef {
+        let organization = self.organizations.get(org);
+        OrganizationRef {
+            id: org.to_owned(),
+            name: organization.map(|o| o.name.clone()).unwrap_or_default(),
+            slug: organization
+                .and_then(|o| o.slug.clone())
+                .unwrap_or_default(),
+        }
     }
 }
 
@@ -1130,6 +1196,89 @@ impl Identity for MemoryIdentity {
                     .ok_or_else(not_found)?;
                 "revoked".clone_into(&mut invitation.status);
                 Ok(())
+            },
+        )
+    }
+
+    fn find_invitation<'a>(
+        &'a self,
+        invitation_id: &'a str,
+    ) -> BoxFuture<'a, IdentityResult<Option<(OrganizationRef, Invitation)>>> {
+        if !self.lock().keeps_invitations {
+            return Box::pin(async { Ok(None) });
+        }
+        self.answer(
+            IdentityCall::FindInvitation(invitation_id.to_owned()),
+            |s| {
+                let (org, invitation) = s.kept_invitation(invitation_id).ok_or_else(not_found)?;
+                Ok(Some((s.organization_ref(&org), invitation)))
+            },
+        )
+    }
+
+    fn accept_invitation<'a>(
+        &'a self,
+        invitation_id: &'a str,
+        user_id: &'a str,
+    ) -> BoxFuture<'a, IdentityResult<Option<Membership>>> {
+        if !self.lock().keeps_invitations {
+            return Box::pin(async { Ok(None) });
+        }
+        self.answer(
+            IdentityCall::AcceptInvitation(invitation_id.to_owned(), user_id.to_owned()),
+            |s| {
+                let (org, invitation) = s.kept_invitation(invitation_id).ok_or_else(not_found)?;
+                if invitation.status == "expired" {
+                    return Err(IdentityError::Rejected {
+                        status: 410,
+                        code: Some("invitation_expired".to_owned()),
+                        message: Some("This invitation has expired.".to_owned()),
+                        body: None,
+                    });
+                }
+                if invitation.status != "pending" {
+                    return Err(not_found());
+                }
+                let email = s
+                    .users
+                    .iter()
+                    .find(|(_, ids)| ids.iter().any(|id| id == user_id))
+                    .map(|(email, _)| email.clone())
+                    .unwrap_or_default();
+                if !email.eq_ignore_ascii_case(&invitation.email_address) {
+                    return Err(IdentityError::Rejected {
+                        status: 403,
+                        code: Some("invitation_email_mismatch".to_owned()),
+                        message: Some("This invitation is for another email address.".to_owned()),
+                        body: None,
+                    });
+                }
+                if let Some(kept) = s
+                    .invitations
+                    .get_mut(&org)
+                    .and_then(|list| list.iter_mut().find(|i| i.id == invitation_id))
+                {
+                    "accepted".clone_into(&mut kept.status);
+                }
+                let id = s.next("orgmem");
+                let membership = Membership {
+                    id,
+                    role: invitation.role.clone(),
+                    user: MemberUser {
+                        user_id: user_id.to_owned(),
+                        identifier: email,
+                        ..MemberUser::default()
+                    },
+                    ..Membership::default()
+                };
+                s.memberships
+                    .entry(org.clone())
+                    .or_default()
+                    .push(membership.clone());
+                Ok(Some(Membership {
+                    organization: Some(s.organization_ref(&org)),
+                    ..membership
+                }))
             },
         )
     }

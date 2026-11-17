@@ -12,7 +12,8 @@
 //! | `create_organization` | nothing at the provider: a new organization id (`org_…`) for `workspaces.clerk_org_id`, after checking the slug is free |
 //! | `update_organization`, `update_organization_metadata` | nothing: the routes write `workspaces` themselves, the membership cap is WeldSuite's own seat check, and organization metadata isn't kept |
 //! | `delete_organization` | the workspace's `user_workspaces` rows (the route marks the workspace deleted; the `workspace-teardown` sweep drops its database) |
-//! | `invitations`, `invitation`, `invite`, `revoke_invitation` | [`IdentityError::Unavailable`] until the master table for pending invitations by email exists |
+//! | `invitations`, `invitation`, `invite`, `revoke_invitation`, `find_invitation` | WeldSuite's master `workspace_invitations`: one pending invitation per address and workspace, open [`INVITATION_DAYS`] days. `invite` emails it in WeldSuite's template (the platform's `/invite` with `invitation_id`) |
+//! | `accept_invitation` | the invitee's address at WeldID's admin API (`GET /admin/v1/users/{id}`): it must be verified (`emailVerified`) and the invited one; then `user_workspaces` gets the membership in the statement that marks the invitation accepted |
 //!
 //! An organization reference (`org`) is what the session layer puts in
 //! `org_id`: a workspace's `clerk_org_id`, else its `id`; both are accepted.
@@ -32,6 +33,7 @@
 //! fields are read in camelCase, or snake case.
 
 use std::fmt;
+use std::sync::Arc;
 use std::sync::{PoisonError, RwLock};
 use std::time::{Duration, Instant};
 
@@ -41,13 +43,16 @@ use base64::Engine;
 use base64::engine::general_purpose::{STANDARD as BASE64, URL_SAFE_NO_PAD as BASE64URL};
 use reqwest::Method;
 use serde_json::{Value, json};
+use unicode_normalization::UnicodeNormalization;
 use weldsuite_db::PgPool;
 use weldsuite_ports::{
-    BoxFuture, FeedEvent, FeedPage, Identity, IdentityError, IdentityResult, Invitation, ListPage,
-    Listing, MemberUser, Membership, NewInvitation, NewMembership, NewOrganization, Organization,
-    OrganizationChanges, OrganizationRef, Session, User, UserChanges, UserProfile, merge_metadata,
+    BoxFuture, FeedEvent, FeedPage, Identity, IdentityError, IdentityResult, Invitation,
+    InvitationEmail, InvitationMailer, ListPage, Listing, MemberUser, Membership, NewInvitation,
+    NewMembership, NewOrganization, Organization, OrganizationChanges, OrganizationRef, Session,
+    User, UserChanges, UserProfile, merge_metadata,
 };
 
+use crate::zitadel::person_name;
 use crate::zitadel_api::safe_path;
 
 /// What the backend client asks WeldID's token endpoint for. `weldid:sso`
@@ -61,9 +66,13 @@ pub const WELDID_ADMIN_SCOPES: &str =
 /// How long a client assertion is valid.
 const ASSERTION_SECONDS: i64 = 60;
 
-/// Why the invitation calls answer [`IdentityError::Unavailable`].
-pub const INVITATIONS_UNAVAILABLE: &str = "invitations in membership mode need the master \
-     workspace_invitations table (pending invitations by email), which is not migrated yet";
+/// How long an invitation stays open. Resending makes a new one.
+pub const INVITATION_DAYS: i32 = 14;
+
+/// The refusal codes of [`Identity::accept_invitation`].
+pub const INVITATION_EXPIRED: &str = "invitation_expired";
+pub const INVITATION_EMAIL_MISMATCH: &str = "invitation_email_mismatch";
+pub const INVITATION_EMAIL_UNVERIFIED: &str = "invitation_email_unverified";
 
 /// How to reach WeldID.
 #[derive(Clone)]
@@ -82,6 +91,9 @@ pub struct WeldIdOptions {
     /// The token endpoint; `None` reads it from the issuer's discovery
     /// document.
     pub token_endpoint: Option<String>,
+    /// Sends the invitation email in WeldSuite's template. `None`: the
+    /// invitation is kept, and nobody is emailed.
+    pub invitation_mailer: Option<Arc<dyn InvitationMailer>>,
 }
 
 impl fmt::Debug for WeldIdOptions {
@@ -91,6 +103,7 @@ impl fmt::Debug for WeldIdOptions {
             .field("admin_url", &self.admin_url)
             .field("client_id", &self.client_id)
             .field("token_endpoint", &self.token_endpoint)
+            .field("invitation_mailer", &self.invitation_mailer.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -113,6 +126,7 @@ pub struct WeldIdIdentity {
     client: reqwest::Client,
     token_endpoint: RwLock<Option<String>>,
     token: tokio::sync::Mutex<Option<AccessToken>>,
+    mailer: Option<Arc<dyn InvitationMailer>>,
 }
 
 impl fmt::Debug for WeldIdIdentity {
@@ -173,8 +187,58 @@ fn database(error: &sqlx::Error) -> IdentityError {
     IdentityError::Unavailable(format!("master database: {error}"))
 }
 
-fn invitations_unavailable() -> IdentityError {
-    IdentityError::Unavailable(INVITATIONS_UNAVAILABLE.to_owned())
+fn refused(status: u16, code: &str, message: &str) -> IdentityError {
+    IdentityError::Rejected {
+        status,
+        code: Some(code.to_owned()),
+        message: Some(message.to_owned()),
+        body: None,
+    }
+}
+
+/// An address as WeldID compares them: NFKC, then lowercase, trimmed.
+fn normalize_email(email: &str) -> String {
+    email.trim().nfkc().collect::<String>().to_lowercase()
+}
+
+/// `inv_` and 26 Crockford base32 characters of 128 random bits: the
+/// invitation's id and the token in its link.
+fn invitation_id() -> IdentityResult<String> {
+    const ALPHABET: &[u8; 32] = b"0123456789abcdefghjkmnpqrstvwxyz";
+    let mut bytes = [0_u8; 17];
+    SystemRandom::new()
+        .fill(&mut bytes[..16])
+        .map_err(|_| IdentityError::Unavailable("no randomness for an invitation id".into()))?;
+    // 26 groups of 5 bits from the 128 (the last group is zero-padded).
+    let mut id = String::from("inv_");
+    for group in 0..26 {
+        let bit = group * 5;
+        let pair = (u16::from(bytes[bit / 8]) << 8) | u16::from(bytes[bit / 8 + 1]);
+        let index = (pair >> (11 - bit % 8)) & 0x1f;
+        id.push(char::from(ALPHABET[usize::from(index)]));
+    }
+    Ok(id)
+}
+
+/// The address of a WeldID user when WeldID verified it (`emailVerified`,
+/// set only by a code check on that address).
+fn verified_email(user: &Value) -> Option<&str> {
+    let verified = ["emailVerified", "email_verified"]
+        .iter()
+        .find_map(|name| user.get(*name).and_then(Value::as_bool))
+        .unwrap_or(false);
+    verified.then(|| field(user, &["email"])).flatten()
+}
+
+/// The invitation link: the platform's `/invite` (`redirect_url`) with the
+/// invitation, the invited address and the workspace's name added.
+fn accept_link(redirect_url: &str, id: &str, email: &str, workspace_name: &str) -> Option<String> {
+    let mut url = reqwest::Url::parse(redirect_url).ok()?;
+    url.query_pairs_mut()
+        .append_pair("invitation_id", id)
+        .append_pair("email", email)
+        .append_pair("org_name", workspace_name);
+    Some(url.into())
 }
 
 /// A string field under any of `names` (camelCase first, then snake case),
@@ -333,6 +397,7 @@ impl WeldIdIdentity {
             client,
             token_endpoint: RwLock::new(options.token_endpoint),
             token: tokio::sync::Mutex::new(None),
+            mailer: options.invitation_mailer,
         })
     }
 
@@ -941,6 +1006,416 @@ impl WeldIdIdentity {
             private_metadata: organization.private_metadata.clone().unwrap_or(Value::Null),
         })
     }
+
+    // ── WeldSuite's own invitations (master `workspace_invitations`) ────
+
+    async fn invitations_inner(
+        &self,
+        org: &str,
+        status: Option<&str>,
+        page: ListPage,
+    ) -> IdentityResult<Listing<Invitation>> {
+        let workspace = self.live_workspace(org).await?;
+        let filter =
+            format!("i.workspace_id = $1 and ($2::text is null or {INVITATION_STATUS} = $2)");
+        let rows: Vec<InvitationRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "select {INVITATION_COLUMNS} from workspace_invitations i
+              where {filter}
+              order by i.created_at desc, i.id
+              limit $3 offset $4"
+        )))
+        .bind(&workspace.id)
+        .bind(status)
+        .bind(page.limit.map(i64::from))
+        .bind(i64::from(page.offset.unwrap_or(0)))
+        .fetch_all(&self.master)
+        .await
+        .map_err(|error| database(&error))?;
+        let total: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "select count(*) from workspace_invitations i where {filter}"
+        )))
+        .bind(&workspace.id)
+        .bind(status)
+        .fetch_one(&self.master)
+        .await
+        .map_err(|error| database(&error))?;
+        Ok(Listing {
+            data: rows
+                .into_iter()
+                .map(InvitationRow::into_invitation)
+                .collect(),
+            total_count: u64::try_from(total).ok(),
+        })
+    }
+
+    async fn invitation_inner(&self, org: &str, invitation_id: &str) -> IdentityResult<Invitation> {
+        let workspace = self.live_workspace(org).await?;
+        let row: Option<InvitationRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "select {INVITATION_COLUMNS} from workspace_invitations i
+              where i.workspace_id = $1 and i.id = $2"
+        )))
+        .bind(&workspace.id)
+        .bind(invitation_id)
+        .fetch_optional(&self.master)
+        .await
+        .map_err(|error| database(&error))?;
+        row.map(InvitationRow::into_invitation)
+            .ok_or_else(not_found)
+    }
+
+    /// Records the invitation, then emails it. An expired invitation to the
+    /// same address is revoked first, so it doesn't block a new one; a
+    /// pending one is a `duplicate_record` refusal (the route's conflict).
+    async fn invite_inner(
+        &self,
+        org: &str,
+        invitation: &NewInvitation,
+    ) -> IdentityResult<Invitation> {
+        let workspace = self.live_workspace(org).await?;
+        let email = invitation.email_address.trim();
+        if email.is_empty() {
+            return Err(refused(
+                422,
+                "form_param_missing",
+                "An email address is required.",
+            ));
+        }
+        let normalized = normalize_email(email);
+        let id = invitation_id()?;
+        let mut tx = self
+            .master
+            .begin()
+            .await
+            .map_err(|error| database(&error))?;
+        sqlx::query(
+            "update workspace_invitations set status = 'revoked', revoked_at = now()
+              where workspace_id = $1 and email_normalized = $2
+                and status = 'pending' and expires_at <= now()",
+        )
+        .bind(&workspace.id)
+        .bind(&normalized)
+        .execute(&mut *tx)
+        .await
+        .map_err(|error| database(&error))?;
+        let inserted: Result<InvitationRow, sqlx::Error> =
+            sqlx::query_as(sqlx::AssertSqlSafe(format!(
+                "insert into workspace_invitations as i
+                 (id, workspace_id, email, email_normalized, role, public_metadata,
+                  invited_by, expires_at)
+             values ($1, $2, $3, $4, $5, $6, (select id from users where id = $7),
+                     now() + make_interval(days => $8))
+             returning {INVITATION_COLUMNS}"
+            )))
+            .bind(&id)
+            .bind(&workspace.id)
+            .bind(email)
+            .bind(&normalized)
+            .bind(&invitation.role)
+            .bind(
+                invitation
+                    .public_metadata
+                    .clone()
+                    .unwrap_or_else(|| json!({})),
+            )
+            .bind(
+                invitation
+                    .invited_by
+                    .as_deref()
+                    .or(invitation.inviter_user_id.as_deref()),
+            )
+            .bind(INVITATION_DAYS)
+            .fetch_one(&mut *tx)
+            .await;
+        let row = match inserted {
+            Ok(row) => row,
+            Err(error)
+                if error
+                    .as_database_error()
+                    .and_then(sqlx::error::DatabaseError::code)
+                    .as_deref()
+                    == Some("23505") =>
+            {
+                return Err(refused(
+                    422,
+                    "duplicate_record",
+                    "An invitation for this email address is already pending.",
+                ));
+            }
+            Err(error) => return Err(database(&error)),
+        };
+        tx.commit().await.map_err(|error| database(&error))?;
+        self.send_invitation_email(&workspace, invitation, &row)
+            .await;
+        Ok(row.into_invitation())
+    }
+
+    /// WeldSuite's invitation email; a failure is logged, the invitation
+    /// stays (resending sends it again).
+    async fn send_invitation_email(
+        &self,
+        workspace: &WorkspaceRow,
+        invitation: &NewInvitation,
+        row: &InvitationRow,
+    ) {
+        let Some(mailer) = &self.mailer else {
+            tracing::warn!("weldid: no invitation mailer, the invitation is not emailed");
+            return;
+        };
+        let Some(accept_url) = invitation
+            .redirect_url
+            .as_deref()
+            .and_then(|url| accept_link(url, &row.id, &row.email, &workspace.name))
+        else {
+            tracing::error!(
+                "weldid: no invitation link (redirect_url), the invitation is not emailed"
+            );
+            return;
+        };
+        let (inviter_name, inviter_email) = self.inviter(invitation).await;
+        let message = InvitationEmail {
+            to: row.email.clone(),
+            inviter_name,
+            inviter_email,
+            workspace_name: Some(workspace.name.clone()).filter(|name| !name.is_empty()),
+            role: row.role.clone(),
+            accept_url,
+        };
+        if let Err(error) = mailer.send(&message).await {
+            tracing::error!(%error, "weldid: invitation email not sent");
+        }
+    }
+
+    /// The inviter's name and address for the email, from WeldSuite's
+    /// `users` (a name in `invitedByName` metadata before the address).
+    async fn inviter(&self, invitation: &NewInvitation) -> (Option<String>, Option<String>) {
+        let named = invitation
+            .public_metadata
+            .as_ref()
+            .and_then(|metadata| metadata.get("invitedByName"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(str::to_owned);
+        let Some(user_id) = invitation
+            .invited_by
+            .as_deref()
+            .or(invitation.inviter_user_id.as_deref())
+        else {
+            return (named, None);
+        };
+        let found: Result<Option<Inviter>, _> =
+            sqlx::query_as("select first_name, last_name, email from users where id = $1")
+                .bind(user_id)
+                .fetch_optional(&self.master)
+                .await;
+        match found {
+            Ok(Some((first, last, email))) => {
+                let email = email.filter(|email| !email.is_empty());
+                let name = person_name(first.as_deref(), last.as_deref());
+                (name.or(named).or_else(|| email.clone()), email)
+            }
+            Ok(None) => (named, None),
+            Err(error) => {
+                tracing::warn!(%error, "weldid: inviter not read for the invitation");
+                (named, None)
+            }
+        }
+    }
+
+    async fn revoke_invitation_inner(&self, org: &str, invitation_id: &str) -> IdentityResult<()> {
+        let workspace = self.live_workspace(org).await?;
+        let revoked = sqlx::query(
+            "update workspace_invitations set status = 'revoked', revoked_at = now()
+              where workspace_id = $1 and id = $2 and status = 'pending'",
+        )
+        .bind(&workspace.id)
+        .bind(invitation_id)
+        .execute(&self.master)
+        .await
+        .map_err(|error| database(&error))?;
+        if revoked.rows_affected() == 0 {
+            return Err(not_found());
+        }
+        Ok(())
+    }
+
+    async fn find_invitation_inner(
+        &self,
+        invitation_id: &str,
+    ) -> IdentityResult<(OrganizationRef, Invitation)> {
+        let found: Option<FoundInvitation> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "select {INVITATION_COLUMNS},
+                    coalesce(w.clerk_org_id, w.id) as org, w.name as org_name, w.slug as org_slug
+               from workspace_invitations i
+               join workspaces w on w.id = i.workspace_id and w.deleted_at is null
+              where i.id = $1"
+        )))
+        .bind(invitation_id)
+        .fetch_optional(&self.master)
+        .await
+        .map_err(|error| database(&error))?;
+        let found = found.ok_or_else(not_found)?;
+        Ok((
+            OrganizationRef {
+                id: found.org,
+                name: found.org_name,
+                slug: found.org_slug.unwrap_or_default(),
+            },
+            found.invitation.into_invitation(),
+        ))
+    }
+
+    /// Membership mode's acceptance: the invitation must be pending and
+    /// unexpired, its workspace live, and `user_id`'s address at WeldID
+    /// verified and the invited one. The membership is made in the same
+    /// statement that marks the invitation accepted, so two acceptances
+    /// can't both win. An active member keeps their role.
+    async fn accept_invitation_inner(
+        &self,
+        invitation_id: &str,
+        user_id: &str,
+    ) -> IdentityResult<Membership> {
+        let state: Option<(String, bool, String, String)> = sqlx::query_as(
+            "select i.status, i.expires_at <= now(), i.email_normalized, i.workspace_id
+               from workspace_invitations i
+               join workspaces w on w.id = i.workspace_id and w.deleted_at is null
+              where i.id = $1",
+        )
+        .bind(invitation_id)
+        .fetch_optional(&self.master)
+        .await
+        .map_err(|error| database(&error))?;
+        let Some((status, expired, invited, workspace_id)) = state else {
+            return Err(not_found());
+        };
+        if status != "pending" {
+            return Err(not_found());
+        }
+        if expired {
+            return Err(refused(
+                410,
+                INVITATION_EXPIRED,
+                "This invitation has expired.",
+            ));
+        }
+        let user = self.user_inner(user_id).await?;
+        let profile = profile_of(&user, user_id).ok_or_else(not_found)?;
+        let Some(email) = verified_email(&user) else {
+            return Err(refused(
+                403,
+                INVITATION_EMAIL_UNVERIFIED,
+                "Verify your email address before accepting the invitation.",
+            ));
+        };
+        if normalize_email(email) != invited {
+            return Err(refused(
+                403,
+                INVITATION_EMAIL_MISMATCH,
+                "This invitation is for another email address.",
+            ));
+        }
+        self.ensure_user_row(user_id).await?;
+        let joined: Option<(String, String, Option<i64>)> = sqlx::query_as(
+            "with accepted as (
+               update workspace_invitations
+                  set status = 'accepted', accepted_by = $2, accepted_at = now()
+                where id = $1 and status = 'pending' and expires_at > now()
+               returning workspace_id, role, invited_by, created_at
+             )
+             insert into user_workspaces
+                  (id, user_id, workspace_id, role, status, invited_by, invited_at, joined_at)
+             select $3, $2, a.workspace_id, a.role, 'ACTIVE'::membership_status,
+                    a.invited_by, a.created_at, now()
+               from accepted a
+             on conflict (user_id, workspace_id) do update
+                set role = case when user_workspaces.status = 'ACTIVE'
+                                then user_workspaces.role else excluded.role end,
+                    status = 'ACTIVE',
+                    invited_by = coalesce(user_workspaces.invited_by, excluded.invited_by),
+                    invited_at = coalesce(user_workspaces.invited_at, excluded.invited_at),
+                    joined_at = coalesce(user_workspaces.joined_at, excluded.joined_at),
+                    updated_at = now()
+             returning id, role, (extract(epoch from created_at) * 1000)::bigint",
+        )
+        .bind(invitation_id)
+        .bind(user_id)
+        .bind(weldsuite_kit::generate_id("uw"))
+        .fetch_optional(&self.master)
+        .await
+        .map_err(|error| database(&error))?;
+        // Accepted, revoked or expired in the meantime.
+        let (id, role, created_at) = joined.ok_or_else(not_found)?;
+        let workspace = self.live_workspace(&workspace_id).await?;
+        tracing::info!(workspace_id, "weldid: an invitation was accepted");
+        Ok(Membership {
+            id,
+            role,
+            created_at,
+            public_metadata: Value::Null,
+            user: MemberUser {
+                user_id: user_id.to_owned(),
+                first_name: profile.first_name,
+                last_name: profile.last_name,
+                identifier: email.to_owned(),
+                image_url: profile.image_url,
+            },
+            organization: Some(OrganizationRef {
+                id: workspace.org,
+                name: workspace.name,
+                slug: workspace.slug.unwrap_or_default(),
+            }),
+        })
+    }
+}
+
+/// An inviter's first name, last name and address in `users`.
+type Inviter = (Option<String>, Option<String>, Option<String>);
+
+/// `pending` reads as `expired` once its time is up; never stored so.
+const INVITATION_STATUS: &str =
+    "(case when i.status = 'pending' and i.expires_at <= now() then 'expired' else i.status end)";
+
+const INVITATION_COLUMNS: &str = "i.id, i.email, i.role,
+       (case when i.status = 'pending' and i.expires_at <= now() then 'expired' else i.status end)
+         as status,
+       i.public_metadata,
+       (extract(epoch from i.created_at) * 1000)::bigint as created_ms,
+       (extract(epoch from i.expires_at) * 1000)::bigint as expires_ms";
+
+/// An invitation and its workspace, for [`Identity::find_invitation`].
+#[derive(sqlx::FromRow)]
+struct FoundInvitation {
+    #[sqlx(flatten)]
+    invitation: InvitationRow,
+    org: String,
+    org_name: String,
+    org_slug: Option<String>,
+}
+
+/// A `workspace_invitations` row as the port's calls see it.
+#[derive(sqlx::FromRow)]
+struct InvitationRow {
+    id: String,
+    email: String,
+    role: String,
+    status: String,
+    public_metadata: Value,
+    created_ms: Option<i64>,
+    expires_ms: Option<i64>,
+}
+
+impl InvitationRow {
+    fn into_invitation(self) -> Invitation {
+        Invitation {
+            id: self.id,
+            email_address: self.email,
+            role: self.role,
+            status: self.status,
+            public_metadata: self.public_metadata,
+            created_at: self.created_ms,
+            expires_at: self.expires_ms,
+        }
+    }
 }
 
 fn unreachable(error: reqwest::Error) -> IdentityError {
@@ -999,35 +1474,54 @@ impl Identity for WeldIdIdentity {
 
     fn invitations<'a>(
         &'a self,
-        _org: &'a str,
-        _status: Option<&'a str>,
-        _page: ListPage,
+        org: &'a str,
+        status: Option<&'a str>,
+        page: ListPage,
     ) -> BoxFuture<'a, IdentityResult<Listing<Invitation>>> {
-        Box::pin(async { Err(invitations_unavailable()) })
+        Box::pin(self.invitations_inner(org, status, page))
     }
 
     fn invitation<'a>(
         &'a self,
-        _org: &'a str,
-        _invitation_id: &'a str,
+        org: &'a str,
+        invitation_id: &'a str,
     ) -> BoxFuture<'a, IdentityResult<Invitation>> {
-        Box::pin(async { Err(invitations_unavailable()) })
+        Box::pin(self.invitation_inner(org, invitation_id))
     }
 
     fn invite<'a>(
         &'a self,
-        _org: &'a str,
-        _invitation: &'a NewInvitation,
+        org: &'a str,
+        invitation: &'a NewInvitation,
     ) -> BoxFuture<'a, IdentityResult<Invitation>> {
-        Box::pin(async { Err(invitations_unavailable()) })
+        Box::pin(self.invite_inner(org, invitation))
     }
 
     fn revoke_invitation<'a>(
         &'a self,
-        _org: &'a str,
-        _invitation_id: &'a str,
+        org: &'a str,
+        invitation_id: &'a str,
     ) -> BoxFuture<'a, IdentityResult<()>> {
-        Box::pin(async { Err(invitations_unavailable()) })
+        Box::pin(self.revoke_invitation_inner(org, invitation_id))
+    }
+
+    fn find_invitation<'a>(
+        &'a self,
+        invitation_id: &'a str,
+    ) -> BoxFuture<'a, IdentityResult<Option<(OrganizationRef, Invitation)>>> {
+        Box::pin(async move { self.find_invitation_inner(invitation_id).await.map(Some) })
+    }
+
+    fn accept_invitation<'a>(
+        &'a self,
+        invitation_id: &'a str,
+        user_id: &'a str,
+    ) -> BoxFuture<'a, IdentityResult<Option<Membership>>> {
+        Box::pin(async move {
+            self.accept_invitation_inner(invitation_id, user_id)
+                .await
+                .map(Some)
+        })
     }
 
     fn users_by_email<'a>(
@@ -1173,5 +1667,72 @@ mod tests {
             Some("weldid.weldid.svc:8080")
         );
         assert!(parse_key("not a key").is_err());
+    }
+
+    #[test]
+    fn invitation_ids_carry_128_random_bits() {
+        let ids: std::collections::HashSet<String> =
+            (0..1000).map(|_| invitation_id().expect("id")).collect();
+        assert_eq!(ids.len(), 1000);
+        for id in &ids {
+            let token = id.strip_prefix("inv_").expect("prefix");
+            assert_eq!(token.len(), 26, "{id}");
+            assert!(
+                token
+                    .bytes()
+                    .all(|b| b"0123456789abcdefghjkmnpqrstvwxyz".contains(&b)),
+                "{id}"
+            );
+        }
+        // Every one of the 26 characters varies (the last holds 3 bits).
+        for position in 0..26 {
+            let seen: std::collections::HashSet<u8> =
+                ids.iter().map(|id| id.as_bytes()[4 + position]).collect();
+            assert!(seen.len() > 4, "position {position}: {seen:?}");
+        }
+    }
+
+    #[test]
+    fn addresses_compare_as_weldid_compares_them() {
+        assert_eq!(normalize_email("  Ann@Acme.TEST "), "ann@acme.test");
+        // NFKC: full-width letters are the ASCII ones.
+        assert_eq!(normalize_email("ＡＮＮ@acme.test"), "ann@acme.test");
+    }
+
+    #[test]
+    fn only_a_verified_address_counts() {
+        assert_eq!(
+            verified_email(&json!({ "email": "a@b.test", "emailVerified": true })),
+            Some("a@b.test")
+        );
+        assert_eq!(
+            verified_email(&json!({ "email": "a@b.test", "email_verified": true })),
+            Some("a@b.test")
+        );
+        for user in [
+            json!({ "email": "a@b.test", "emailVerified": false }),
+            json!({ "email": "a@b.test" }),
+            json!({ "email": "a@b.test", "emailVerified": "true" }),
+            json!({ "emailVerified": true }),
+        ] {
+            assert_eq!(verified_email(&user), None, "{user}");
+        }
+    }
+
+    #[test]
+    fn the_link_keeps_the_platforms_query_and_adds_the_invitation() {
+        assert_eq!(
+            accept_link(
+                "https://app.example.test/invite?org_id=org_1",
+                "inv_x",
+                "a+b@acme.test",
+                "Acme & Co"
+            )
+            .as_deref(),
+            Some(
+                "https://app.example.test/invite?org_id=org_1&invitation_id=inv_x&email=a%2Bb%40acme.test&org_name=Acme+%26+Co"
+            )
+        );
+        assert_eq!(accept_link("not a url", "inv_x", "a@b.test", "A"), None);
     }
 }

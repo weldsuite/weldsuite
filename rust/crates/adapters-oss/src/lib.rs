@@ -67,7 +67,10 @@ pub use smtp::SmtpMail;
 pub use smtp_transport::{SmtpMailTransport, refusal_code};
 pub use valkey::{ValkeyCache, ValkeyRealtime, connect_valkey};
 pub use valkey_ledger::ValkeyLedgerStore;
-pub use weldid::{INVITATIONS_UNAVAILABLE, WELDID_ADMIN_SCOPES, WeldIdIdentity, WeldIdOptions};
+pub use weldid::{
+    INVITATION_DAYS, INVITATION_EMAIL_MISMATCH, INVITATION_EMAIL_UNVERIFIED, INVITATION_EXPIRED,
+    WELDID_ADMIN_SCOPES, WeldIdIdentity, WeldIdOptions,
+};
 pub use weldid_sso::{WELDID_SSO_TENANTS_PATH, WeldIdSso};
 pub use zitadel::{ZitadelIdentity, ZitadelOptions};
 pub use zitadel_sign_in::{ZitadelSignIn, ZitadelSignInOptions};

@@ -14,6 +14,10 @@ ignore = [
   # async-imap 0.12.0 (crates/adapters-oss, the IMAP mail adapter), the newest
   # release. Drop this once async-imap moves to core::pin::pin!.
   { id = "RUSTSEC-2026-0441", reason = "unmaintained, no fix: async-imap 0.12.0 still depends on pin-utils" },
+  # chrono is unmaintained (2026-11-17), not vulnerable, and no release is
+  # safe from the notice. Its only user is async-imap 0.12.0 as well
+  # (`cargo tree -i chrono`). Drop this once async-imap moves to jiff or time.
+  { id = "RUSTSEC-2026-0543", reason = "unmaintained, no fix: async-imap 0.12.0 depends on chrono" },
 ]
 
 [licenses]
