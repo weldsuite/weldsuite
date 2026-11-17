@@ -417,37 +417,43 @@ pub async fn list_files_in_folders(
     Ok(rows)
 }
 
-/// Delete a trashed folder's files (and the spreadsheet, document or board
-/// rows that reference them), then the folder (`purgeFolder`).
-pub async fn purge_folder(db: &PgPool, folder_id: &str) -> Result<(), sqlx::Error> {
-    sqlx::query("delete from sheets where file_id in (select id from files where folder_id = $1)")
-        .bind(folder_id)
-        .execute(db)
-        .await?;
-    sqlx::query(
-        "delete from whiteboards where file_id in (select id from files where folder_id = $1)",
+/// A trashed folder and the folders under it trashed together with it (the
+/// same `deleted_at`), with what the Drive rules read: what restoring it
+/// brings back, and so what purging it takes (`loadFolderFilesForPurge`).
+pub async fn trashed_folder_tree(db: &PgPool, id: &str) -> Result<Vec<Value>, sqlx::Error> {
+    sqlx::query_scalar(
+        "with recursive tree as (
+             select id, deleted_at from folders where id = $1 and deleted_at is not null
+             union
+             select f.id, f.deleted_at from folders f join tree on f.parent_id = tree.id
+             where f.deleted_at = tree.deleted_at
+         )
+         select jsonb_build_object('id', f.id, 'parentId', f.parent_id,
+                'createdById', f.created_by_id, 'generalAccess', f.general_access)
+         from folders f where f.id in (select id from tree)",
     )
-    .bind(folder_id)
-    .execute(db)
-    .await?;
-    sqlx::query(
-        "delete from document_versions where file_id in (select id from files where folder_id = $1)",
-    )
-    .bind(folder_id)
-    .execute(db)
-    .await?;
-    sqlx::query("delete from docs where file_id in (select id from files where folder_id = $1)")
-        .bind(folder_id)
-        .execute(db)
-        .await?;
-    sqlx::query("delete from files where folder_id = $1")
-        .bind(folder_id)
-        .execute(db)
-        .await?;
-    sqlx::query("delete from folders where id = $1")
-        .bind(folder_id)
-        .execute(db)
-        .await?;
+    .bind(id)
+    .fetch_all(db)
+    .await
+}
+
+/// Delete trashed folders (a purged folder's tree) and every file in them
+/// (and the spreadsheet, document or board rows that reference those)
+/// (`purgeFolder`).
+pub async fn purge_folder(db: &PgPool, folder_ids: &[String]) -> Result<(), sqlx::Error> {
+    if folder_ids.is_empty() {
+        return Ok(());
+    }
+    for statement in [
+        "delete from sheets where file_id in (select id from files where folder_id = any($1))",
+        "delete from whiteboards where file_id in (select id from files where folder_id = any($1))",
+        "delete from document_versions where file_id in (select id from files where folder_id = any($1))",
+        "delete from docs where file_id in (select id from files where folder_id = any($1))",
+        "delete from files where folder_id = any($1)",
+        "delete from folders where id = any($1) and deleted_at is not null",
+    ] {
+        sqlx::query(statement).bind(folder_ids).execute(db).await?;
+    }
     Ok(())
 }
 

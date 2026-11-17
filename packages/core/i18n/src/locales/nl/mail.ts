@@ -233,6 +233,11 @@ export const mail = {
       cancelConfirmAction: 'Naar Concepten',
       keepScheduled: 'Gepland laten',
       movedToDrafts: 'Verzenden geannuleerd. De e-mail staat in Concepten.',
+      cancelDropsAttachments: {
+        one: 'De bijlage gaat niet mee: concepten kunnen nog geen bijlagen bevatten. Hij wordt met de geplande e-mail verwijderd, dus voeg hem opnieuw toe voordat je verzendt.',
+        other: 'De {count} bijlagen gaan niet mee: concepten kunnen nog geen bijlagen bevatten. Ze worden met de geplande e-mail verwijderd, dus voeg ze opnieuw toe voordat je verzendt.',
+      },
+      cancelConfirmActionWithoutAttachments: 'Naar Concepten zonder bijlagen',
     },
 
     // Snoozed

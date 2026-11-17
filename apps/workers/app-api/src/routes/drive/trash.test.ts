@@ -257,6 +257,34 @@ describe('the trash', () => {
     expect((await bob().get(`/api/files/${bobs.id}`)).status).toBe(200);
   });
 
+  it('purges the folders trashed with a folder, and their files and objects, along with it', async () => {
+    const outer = await data<{ id: string }>(await ann().post('/api/folders', { name: 'Old projects' }));
+    const inner = await data<{ id: string }>(await ann().post('/api/folders', { name: 'Old drafts', parentId: outer.id }));
+    const deep = await upload(ann(), 'old-draft.txt', inner.id);
+    expect((await ann().delete(`/api/folders/${outer.id}`)).status).toBe(200);
+
+    expect(await data(await ann().delete(`/api/drive/trash/folder/${outer.id}`))).toEqual({ deleted: true });
+    // The subfolder doesn't surface at the top of the trash: it is gone, with its file and object.
+    const trash = await data<{ files: { id: string }[]; folders: { id: string }[] }>(await ann().get('/api/drive/trash'));
+    expect(trash.folders.map((f) => f.id)).not.toContain(inner.id);
+    expect((await ann().post(`/api/drive/trash/restore/folder/${inner.id}`)).status).toBe(404);
+    expect((await ann().post(`/api/drive/trash/restore/file/${deep.id}`)).status).toBe(404);
+    expect(objects.has(deep.fileKey)).toBe(false);
+  });
+
+  it('will not purge a folder whose subfolder holds a file the caller cannot change', async () => {
+    const outer = await data<{ id: string }>(await ann().post('/api/folders', { name: 'Shared archive' }));
+    const inner = await data<{ id: string }>(await ann().post('/api/folders', { name: 'Shared drafts', parentId: outer.id }));
+    const secret = await upload(ann(), 'ann-private-draft.txt', inner.id);
+    expect((await ann().patch(`/api/files/${secret.id}`, { generalAccess: 'restricted' })).status).toBe(200);
+    expect((await ann().delete(`/api/folders/${outer.id}`)).status).toBe(200);
+
+    // Bob edits the folders through general access but cannot see Ann's file.
+    expect((await bob().delete(`/api/drive/trash/folder/${outer.id}`)).status).toBe(403);
+    expect(objects.has(secret.fileKey)).toBe(true);
+    expect(await data(await ann().delete(`/api/drive/trash/folder/${outer.id}`))).toEqual({ deleted: true });
+  });
+
   it('empties what the caller may change', async () => {
     const file = await upload(ann(), 'empty-me.txt');
     expect((await ann().delete(`/api/files/${file.id}`)).status).toBe(200);

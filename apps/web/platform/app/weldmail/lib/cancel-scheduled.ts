@@ -2,7 +2,7 @@ import { mailApi, type CreateDraftData } from './api-client';
 import type { Mail } from '@/lib/api/types/apps/mail.types';
 
 /** What a scheduled message brings back to Drafts. */
-type ScheduledMessage = Pick<Mail.Email, 'subject' | 'to' | 'cc' | 'bcc' | 'textBody' | 'htmlBody'> & {
+export type ScheduledMessage = Pick<Mail.Email, 'subject' | 'to' | 'cc' | 'bcc' | 'textBody' | 'htmlBody' | 'attachments'> & {
   inReplyTo?: string | null;
 };
 
@@ -19,7 +19,11 @@ function addressList(value: unknown): string[] {
     .filter((email) => email.length > 0);
 }
 
-/** The draft a cancelled scheduled mail turns back into. */
+/**
+ * The draft a cancelled scheduled mail turns back into. Its attachments are
+ * left out: a draft has nowhere to keep them yet (TASK-1448), see
+ * {@link droppedAttachmentCount}.
+ */
 export function draftFromScheduled(message: ScheduledMessage): CreateDraftData {
   const draft: CreateDraftData = { to: addressList(message.to) };
   const cc = addressList(message.cc);
@@ -33,20 +37,36 @@ export function draftFromScheduled(message: ScheduledMessage): CreateDraftData {
   return draft;
 }
 
+/** How many attachments the draft will not have: every one the scheduled mail carries. */
+export function droppedAttachmentCount(message: ScheduledMessage): number {
+  return message.attachments?.length ?? 0;
+}
+
+export type LoadScheduledResult = { success: true; message: ScheduledMessage } | { success: false; error?: string };
+
+/** The scheduled mail as it is now, read before asking, so the question can name what is lost. */
+export async function loadScheduledMessage(accountId: string, messageId: string): Promise<LoadScheduledResult> {
+  const message = await mailApi.messages.get(accountId, messageId);
+  if (!message.success || !message.data) return { success: false, error: message.error };
+  return { success: true, message: message.data };
+}
+
 export type CancelScheduledResult = { success: true; draftId: string } | { success: false; error?: string };
 
 /**
  * Cancel a scheduled mail and put it back in Drafts, where it can be edited
- * or scheduled again. Cancelling alone deletes the scheduled row, so the
- * draft is written first; when the cancel then fails (the mail went out in
- * the meantime, say) the draft is removed again. The mail is never lost and
- * never in two places.
+ * or scheduled again. Cancelling deletes the scheduled row, so the draft is
+ * written first; when the cancel then fails (the mail went out in the
+ * meantime, say) the draft is removed again, and the mail is never in two
+ * places. The draft keeps the recipients, subject and body but not the
+ * attachments, which drafts cannot hold yet: the caller must have said so and
+ * had it confirmed ({@link droppedAttachmentCount}).
  */
-export async function cancelScheduledToDraft(accountId: string, messageId: string): Promise<CancelScheduledResult> {
-  const message = await mailApi.messages.get(accountId, messageId);
-  if (!message.success || !message.data) return { success: false, error: message.error };
-  const scheduled: ScheduledMessage = message.data;
-
+export async function cancelScheduledToDraft(
+  accountId: string,
+  messageId: string,
+  scheduled: ScheduledMessage,
+): Promise<CancelScheduledResult> {
   const draft = await mailApi.drafts.create(accountId, draftFromScheduled(scheduled));
   if (!draft.success || !draft.data) return { success: false, error: draft.error };
 

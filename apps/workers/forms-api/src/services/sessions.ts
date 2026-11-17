@@ -116,23 +116,14 @@ export async function dropSeed(kv: KVNamespace, responseId: string): Promise<voi
 }
 
 /**
- * How long the respondent spent on the form, for the "too quick to be a person"
- * check: the longer of the time since the session started and the time the
- * page measured on the blocks (saved with progress, plus what the submit
- * sends). The page starts a session lazily, so someone who answers quickly can
- * have a session only moments old by the time they submit.
+ * Too quick to be a person (ADR FORMS-005): less than `minFillMs` between the
+ * session's start and the submit, both as this server saw them. The block
+ * timings the page reports are never counted: they come from the respondent,
+ * so a script could claim any time it liked. The page starts the session at the
+ * first answer and waits out what is left of the minimum before it submits.
  */
-export function timeOnForm(
-  startedAt: number,
-  saved: Record<string, number> | undefined,
-  sent: Record<string, number> | undefined,
-  now = Date.now(),
-): number {
-  let measured = 0;
-  for (const ms of [...Object.values(saved ?? {}), ...Object.values(sent ?? {})]) {
-    if (Number.isFinite(ms) && ms > 0) measured += ms;
-  }
-  return Math.max(now - startedAt, measured);
+export function submittedTooSoon(startedAt: number, minFillMs: number, now = Date.now()): boolean {
+  return now - startedAt < minFillMs;
 }
 
 // ---------------------------------------------------------------------------

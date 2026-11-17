@@ -1084,19 +1084,30 @@ pub(crate) async fn purge_folder(
             let Some(folder) = folders_db::trashed_folder(&caller.db, &id).await? else {
                 return Err(not_found("Folder", &id));
             };
-            let folder_files =
-                folders_db::list_files_in_folders(&caller.db, std::slice::from_ref(&id)).await?;
+            // The folders trashed with it go too: restoring it would have
+            // brought them back with it.
+            let tree = folders_db::trashed_folder_tree(&caller.db, &id).await?;
+            let tree_ids: Vec<String> = tree
+                .iter()
+                .filter_map(|f| text(f, "id").map(str::to_owned))
+                .collect();
+            let folder_files = folders_db::list_files_in_folders(&caller.db, &tree_ids).await?;
             let access = caller.drive_access().await?;
             check_editable(
                 folder_role(&access, &DriveFolderRef::from_row(&folder)),
                 "Folder",
                 &id,
             )?;
-            // The purge takes every file in the folder for good, so not one
-            // the caller could not delete on its own.
-            if folder_files
-                .iter()
-                .any(|f| !can_edit(file_role(&access, &DriveFileRef::from_row(f))))
+            // The purge takes those folders and every file in them for good,
+            // so not one the caller could not delete on its own.
+            let locked_folder = tree.iter().any(|f| {
+                text(f, "id") != Some(id.as_str())
+                    && !can_edit(folder_role(&access, &DriveFolderRef::from_row(f)))
+            });
+            if locked_folder
+                || folder_files
+                    .iter()
+                    .any(|f| !can_edit(file_role(&access, &DriveFileRef::from_row(f))))
             {
                 return Err(forbidden(DRIVE_FOLDER_HOLDS_LOCKED_FILES));
             }
@@ -1112,7 +1123,7 @@ pub(crate) async fn purge_folder(
                 keys.extend(files_db::list_document_snapshot_keys(&caller.db, &ids).await?);
                 delete_stored_objects(&caller, &state, keys).await;
             }
-            folders_db::purge_folder(&caller.db, &id).await?;
+            folders_db::purge_folder(&caller.db, &tree_ids).await?;
             caller.publish(
                 &state,
                 FOLDER_PURGED,

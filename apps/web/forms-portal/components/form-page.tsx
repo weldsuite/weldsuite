@@ -7,6 +7,7 @@ import { ApiError, formsApi, uploadFile } from '@/lib/client/api'
 import { collectMetadata, hiddenFromSearch, isSafeUrl, prefillFromSearch } from '@/lib/client/environment'
 import { browserKey, clearStoredSession, loadStoredSession, saveStoredSession, viewKey } from '@/lib/client/storage'
 import { submitRefusal } from '@/lib/client/submit-errors'
+import { submitWaitMs } from '@/lib/client/submit-timing'
 import { Footer } from './footer'
 import { MessageScreen } from './message-screen'
 import { usePortal } from './portal-context'
@@ -27,6 +28,8 @@ interface FormPageProps {
 interface ActiveSession {
   token: string
   responseId: string
+  /** When this page got the session (`Date.now()`), for the wait before a submit. */
+  startedAt: number
 }
 
 /** What the form starts with after a session resumed or a completed response is edited. */
@@ -122,7 +125,7 @@ export function FormPage({ form, seed, invitationToken, embed, search }: Readonl
   /** Applies what forms-api answered to a session start. */
   const applyStart = useCallback(
     async (result: StartSessionResult, eager: boolean): Promise<void> => {
-      session.current = { token: result.session, responseId: result.responseId }
+      session.current = { token: result.session, responseId: result.responseId, startedAt: Date.now() }
       saveStoredSession(publicId, { session: result.session, responseId: result.responseId, expiresAt: result.expiresAt })
       if (!eager) return
       // A response started on an older version continues on that version.
@@ -285,6 +288,9 @@ export function FormPage({ form, seed, invitationToken, embed, search }: Readonl
       })
       const attempt = async (): Promise<SubmitResult | SubmitFieldErrors> => {
         const active = await ensureSession()
+        // forms-api refuses a submit moments after the session started: a quick respondent waits out the rest.
+        const wait = submitWaitMs(active.startedAt, Date.now())
+        if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait))
         try {
           const result = await formsApi.submit(active.token, body())
           return result

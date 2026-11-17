@@ -233,6 +233,11 @@ export const mail = {
       cancelConfirmAction: 'Move to Drafts',
       keepScheduled: 'Keep scheduled',
       movedToDrafts: 'Sending cancelled. The email is in Drafts.',
+      cancelDropsAttachments: {
+        one: "Its attachment won't come along: drafts can't hold attachments yet. It is deleted with the scheduled email, so attach it again before you send.",
+        other: "Its {count} attachments won't come along: drafts can't hold attachments yet. They are deleted with the scheduled email, so attach them again before you send.",
+      },
+      cancelConfirmActionWithoutAttachments: 'Move to Drafts without attachments',
     },
 
     // Snoozed

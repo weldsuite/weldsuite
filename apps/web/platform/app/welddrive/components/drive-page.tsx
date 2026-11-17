@@ -2183,7 +2183,7 @@ function DriveGridView({
   viewToggle: React.ReactNode;
   newMenu: React.ReactNode;
   selectedIds: Set<string>;
-  onSelect: (id: string, e: React.MouseEvent) => void;
+  onSelect: (id: string, e: React.MouseEvent | React.KeyboardEvent) => void;
   onClearSelection: () => void;
   onFolderOpen: (folderId: string) => void;
   onFileClick: (file: UnifiedFile) => void;

@@ -137,9 +137,13 @@ export function ObjectChatShell({
   // the live chat's composer take focus (it replaces the one being typed in).
   const [createdChannelId, setCreatedChannelId] = useState<string | null>(null);
   // A failed channel lookup has no data, so each refetch is a fresh "loading":
-  // showing the loader again would remount the composer under the user.
-  const [settled, setSettled] = useState(false);
-  if (!settled && !channelQuery.isLoading) setSettled(true);
+  // showing the loader again would remount the composer under the user. So
+  // the loader shows only until the first lookup of this record settles;
+  // the record is told apart by its channel query key.
+  const settledFor = JSON.stringify(channelQueryKey ?? null);
+  const [settledKey, setSettledKey] = useState<string | null>(null);
+  if (settledKey !== settledFor && !channelQuery.isLoading) setSettledKey(settledFor);
+  const settled = settledKey === settledFor;
 
   if (channelQuery.isLoading && !settled) {
     return (

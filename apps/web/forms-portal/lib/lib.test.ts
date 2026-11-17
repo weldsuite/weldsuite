@@ -5,6 +5,7 @@ import { frameAncestors } from './csp'
 import { ApiError } from './client/api'
 import { hiddenFromSearch, isSafeUrl, parseUserAgent, prefillFromSearch, utmFromSearch } from './client/environment'
 import { submitRefusal } from './client/submit-errors'
+import { MIN_FILL_MS, submitWaitMs } from './client/submit-timing'
 import { forwardedClientIp } from './forwarded-ip'
 import { parseInvitation } from './invitation'
 import { localeFromRequest } from './i18n'
@@ -67,6 +68,14 @@ describe('submitRefusal', () => {
       `${t.states.past_close_date.title}. ${t.states.past_close_date.body}`,
     )
     expect(submitRefusal(new ApiError(500, 'INTERNAL', 'x'), t)).toBe(t.submit.failed)
+  })
+})
+
+describe('submitWaitMs', () => {
+  it('waits out what is left of the minimum since the session started, and no more', () => {
+    expect(submitWaitMs(10_000, 10_080)).toBe(MIN_FILL_MS + 100 - 80)
+    expect(submitWaitMs(10_000, 10_000 + MIN_FILL_MS + 100)).toBe(0)
+    expect(submitWaitMs(10_000, 60_000)).toBe(0)
   })
 })
 

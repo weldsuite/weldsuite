@@ -2,7 +2,7 @@
  * Folders service — pure functions backing /api/folders/*.
  */
 
-import { and, asc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, isNull, sql, type SQL } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import {
@@ -276,9 +276,23 @@ export function listFilesInFolders(db: Database, folderIds: string[]) {
 }
 
 /**
- * Hard delete a folder and every file inside it. Returns the folder row
- * and its files so the route can check access and clean up R2 before
- * deleting rows.
+ * A trashed folder and the folders under it trashed together with it (the
+ * same `deleted_at`), as a subquery of ids: what restoring it brings back,
+ * and so what purging it takes.
+ */
+function trashedTreeIds(id: string): SQL {
+  return sql`(with recursive tree as (
+    select id, deleted_at from folders where id = ${id} and deleted_at is not null
+    union
+    select f.id, f.deleted_at from folders f join tree on f.parent_id = tree.id where f.deleted_at = tree.deleted_at
+  ) select id from tree)`;
+}
+
+/**
+ * What purging a trashed folder takes for good: the folder, the folders
+ * trashed with it (`treeFolders`, the folder itself included) and every file
+ * in them, trashed or not. Returned first so the route can check access and
+ * clean up R2 before deleting rows.
  */
 export async function loadFolderFilesForPurge(db: Database, folderId: string) {
   const [folder] = await db
@@ -287,18 +301,29 @@ export async function loadFolderFilesForPurge(db: Database, folderId: string) {
     .where(and(eq(folders.id, folderId), isNotNull(folders.deletedAt)))
     .limit(1);
   if (!folder) return null;
-  const folderFiles = await listFilesInFolders(db, [folderId]);
-  return { folder, folderFiles };
+  const treeFolders = await db
+    .select({
+      id: folders.id,
+      parentId: folders.parentId,
+      createdById: folders.createdById,
+      generalAccess: folders.generalAccess,
+    })
+    .from(folders)
+    .where(sql`${folders.id} in ${trashedTreeIds(folderId)}`);
+  const folderFiles = await listFilesInFolders(db, treeFolders.map((f) => f.id));
+  return { folder, treeFolders, folderFiles };
 }
 
-export async function purgeFolder(db: Database, folderId: string) {
+/** Hard delete trashed folders (a purged folder's tree) and every file in them. */
+export async function purgeFolder(db: Database, folderIds: string[]) {
+  if (folderIds.length === 0) return;
   // Caller deletes R2 objects first via loadFolderFilesForPurge. A spreadsheet's,
   // document's or board's row references its file, so those rows go first.
-  const inFolder = db.select({ id: files.id }).from(files).where(eq(files.folderId, folderId));
-  await db.delete(schema.sheets).where(inArray(schema.sheets.fileId, inFolder));
-  await db.delete(schema.whiteboards).where(inArray(schema.whiteboards.fileId, inFolder));
-  await db.delete(schema.documentVersions).where(inArray(schema.documentVersions.fileId, inFolder));
-  await db.delete(schema.docs).where(inArray(schema.docs.fileId, inFolder));
-  await db.delete(files).where(eq(files.folderId, folderId));
-  await db.delete(folders).where(eq(folders.id, folderId));
+  const inFolders = db.select({ id: files.id }).from(files).where(inArray(files.folderId, folderIds));
+  await db.delete(schema.sheets).where(inArray(schema.sheets.fileId, inFolders));
+  await db.delete(schema.whiteboards).where(inArray(schema.whiteboards.fileId, inFolders));
+  await db.delete(schema.documentVersions).where(inArray(schema.documentVersions.fileId, inFolders));
+  await db.delete(schema.docs).where(inArray(schema.docs.fileId, inFolders));
+  await db.delete(files).where(inArray(files.folderId, folderIds));
+  await db.delete(folders).where(and(inArray(folders.id, folderIds), isNotNull(folders.deletedAt)));
 }

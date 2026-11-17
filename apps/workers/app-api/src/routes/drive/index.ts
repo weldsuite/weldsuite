@@ -279,10 +279,14 @@ app.delete('/trash/folder/:id', requirePermission('folders:delete'), async (c) =
     const role = folderRole(access, loaded.folder);
     if (!role) return error.notFound(c, 'Folder', id);
     if (!canEdit(role)) return error.forbidden(c, DRIVE_VIEW_ONLY);
-    // The purge takes every file in the folder for good, so it may not take
-    // one the caller could not delete on its own (a restricted file another
-    // member put in a folder the caller edits through general access).
-    if (loaded.folderFiles.some((f) => !canEdit(fileRole(access, f)))) {
+    // The purge takes the folders trashed with this one and every file in
+    // them for good, so it may not take one the caller could not delete on
+    // its own (a restricted file another member put in a folder the caller
+    // edits through general access).
+    if (
+      loaded.treeFolders.some((f) => f.id !== id && !canEdit(folderRole(access, f)))
+      || loaded.folderFiles.some((f) => !canEdit(fileRole(access, f)))
+    ) {
       return error.forbidden(c, DRIVE_FOLDER_HOLDS_LOCKED_FILES);
     }
 
@@ -294,7 +298,7 @@ app.delete('/trash/folder/:id', requirePermission('folders:delete'), async (c) =
       );
       await deleteStoredObjects(c.env, [...fileKeys, ...snapshotKeys]).catch(() => {});
     }
-    await foldersService.purgeFolder(db, id);
+    await foldersService.purgeFolder(db, loaded.treeFolders.map((f) => f.id));
 
     publishEntityEvent({
       c,

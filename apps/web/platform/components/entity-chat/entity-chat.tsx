@@ -120,9 +120,13 @@ export function EntityChat({ entityType, entityId, fallbackName, hideCallButtons
   // Otherwise the side chat never takes focus from the record next to it.
   const [createdChannelId, setCreatedChannelId] = useState<string | null>(null);
   // A failed channel lookup has no data, so each refetch is a fresh "loading":
-  // showing the loader again would remount the composer under the user.
-  const [settled, setSettled] = useState(false);
-  if (!settled && !channelQuery.isLoading) setSettled(true);
+  // showing the loader again would remount the composer under the user. So
+  // the loader shows only until the first lookup of this record settles;
+  // the shell is not remounted per record (a task panel moving between tasks).
+  const settledFor = `${entityType}:${entityId}`;
+  const [settledKey, setSettledKey] = useState<string | null>(null);
+  if (settledKey !== settledFor && !channelQuery.isLoading) setSettledKey(settledFor);
+  const settled = settledKey === settledFor;
 
   if (channelQuery.isLoading && !settled) {
     return (

@@ -222,43 +222,24 @@ pub(crate) fn keyed_hash(env: &Env, purpose: &str, value: &str) -> FormsResult<S
     ))
 }
 
-/// `timeOnForm(startedAt, saved, sent, now)`: how long the respondent spent on
-/// the form, for the "too quick to be a person" check. The longer of the time
-/// since the session started and the time the page measured on the blocks
-/// (saved with progress, plus what the submit sends): the page starts a
-/// session lazily, so a quick respondent's can be only moments old.
+/// `submittedTooSoon(startedAt, minFillMs, now)`: too quick to be a person
+/// (ADR FORMS-005), less than `min_fill` between the session's start and the
+/// submit, both as this server saw them. The block timings the page reports
+/// are never counted: a script could claim any time it liked. The page starts
+/// the session at the first answer and waits out the rest before it submits.
 #[allow(clippy::cast_precision_loss)]
-pub(crate) fn time_on_form(
-    started_at: i64,
-    saved: &Value,
-    sent: Option<&Map<String, Value>>,
-    now: i64,
-) -> f64 {
-    let measured: f64 = saved
-        .as_object()
-        .into_iter()
-        .flat_map(Map::values)
-        .chain(sent.into_iter().flat_map(Map::values))
-        .filter_map(Value::as_f64)
-        .filter(|ms| ms.is_finite() && *ms > 0.0)
-        .sum();
-    ((now - started_at) as f64).max(measured)
+pub(crate) fn submitted_too_soon(started_at: i64, min_fill: f64, now: i64) -> bool {
+    ((now - started_at) as f64) < min_fill
 }
 
 #[cfg(test)]
 mod tests {
-    use serde_json::{Value, json};
-
-    use super::time_on_form;
+    use super::submitted_too_soon;
 
     #[test]
-    fn time_on_form_takes_the_longer_of_the_session_and_the_measured_time() {
-        let saved = json!({ "b_a": 2_000, "b_b": 500 });
-        let sent = json!({ "b_c": 1_000 });
-        assert!(
-            (time_on_form(10_000, &saved, sent.as_object(), 10_080) - 3_500.0).abs() < f64::EPSILON
-        );
-        assert!((time_on_form(0, &Value::Null, None, 4_000) - 4_000.0).abs() < f64::EPSILON);
-        assert!((time_on_form(0, &json!({ "b_a": -5 }), None, 10) - 10.0).abs() < f64::EPSILON);
+    fn submitted_too_soon_counts_only_the_time_the_server_saw() {
+        assert!(submitted_too_soon(10_000, 1_500.0, 10_080));
+        assert!(!submitted_too_soon(10_000, 1_500.0, 11_500));
+        assert!(!submitted_too_soon(10_000, 0.0, 10_000));
     }
 }

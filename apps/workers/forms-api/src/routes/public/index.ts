@@ -54,7 +54,7 @@ import {
   readSeed,
   requireSession,
   sessionSecret,
-  timeOnForm,
+  submittedTooSoon,
   type RespondentSession,
 } from '../../services/sessions';
 import { submitResponse } from '../../services/submit';
@@ -258,10 +258,10 @@ app.post('/sessions/submit', zValidator('json', submitSessionSchema), (c) =>
     const [existing] = await ctx.db.select().from(formResponses).where(eq(formResponses.id, session.resp)).limit(1);
     const seed = await readSeed(c.env.WORKSPACE_CACHE, session.resp);
 
-    // Too quick to be a person: less than a moment on the form between start and submit.
+    // Too quick to be a person: less than a moment between start and submit.
     const startedAt = existing?.startedAt.getTime() ?? seed?.startedAt;
     const minFill = Number(c.env.FORMS_MIN_FILL_MS ?? FORM_LIMITS.minFillMs);
-    if (existing?.status !== 'completed' && startedAt !== undefined && timeOnForm(startedAt, existing?.metadata?.timings, input.timings) < minFill) {
+    if (existing?.status !== 'completed' && startedAt !== undefined && submittedTooSoon(startedAt, minFill)) {
       throw new FormsError(400, 'SUBMISSION_REJECTED', 'The submission was rejected.');
     }
 
