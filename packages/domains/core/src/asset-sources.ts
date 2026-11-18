@@ -26,7 +26,9 @@
  * times a day, and a record write (its queries, its `updated` event) per
  * device per run is more than a larger fleet's import can do. A step keeps the
  * check-in of the devices it leaves unwritten current with one statement on
- * the field's value column instead: no record write, no event.
+ * the field's value column instead: no record write, no event. Mappings
+ * written while the check-in was part of the checksum are recognised and
+ * their checksum replaced, so the change does not rewrite every device once.
  *
  * Matching: a device maps to its record through `integration_entity_mappings`
  * (connection = the source, external type `intune_device`, external id = the
@@ -926,8 +928,10 @@ async function step(run: StepRun): Promise<AssetImportStepResult> {
   }
 
   // What the step owes the devices it did not write: neither counts as a write.
-  await refreshCheckIns(job);
+  // The checksums first: one of the old kind is recognised by the check-in the
+  // record still holds, so a step that dies in between must not have moved it.
   await replaceChecksums(job);
+  await refreshCheckIns(job);
 
   if (index < page.devices.length) {
     // Stopped inside the page: the next step reads it again from `index`.
@@ -1163,24 +1167,28 @@ const CHECK_IN_SQL: Record<CheckInColumn, { column: SQL; value: SQL }> = {
 
 /**
  * Keep the last check-in of the devices this step left unwritten current: one
- * statement on the field's value column, only where the stored value differs.
+ * statement on the field's value column. A value that differs is replaced, a
+ * record that holds none yet (the device had not checked in when it was last
+ * written) gets its value row, and a value that is current is left as it is.
  * No record is written (its `updatedAt` stays), no event goes out, and it does
- * not count against the step's writes. A record that has no value yet gets it
- * with its next write.
+ * not count against the step's writes.
  */
 async function refreshCheckIns(job: DeviceJob): Promise<void> {
   const field = job.lookups.checkInField;
   if (!field || job.checkIns.size === 0) return;
-  const rows = JSON.stringify([...job.checkIns].map(([record_id, check_in]) => ({ record_id, check_in })));
+  // The id is only used for a value row that does not exist yet.
+  const rows = JSON.stringify(
+    [...job.checkIns].map(([record_id, check_in]) => ({ id: job.generateId('cfv'), record_id, check_in })),
+  );
   const { column, value } = CHECK_IN_SQL[field.column];
+  const now = job.now.toISOString();
   await job.db.execute(sql`
-    update custom_field_values as v
-       set ${column} = ${value}, updated_at = ${job.now.toISOString()}::timestamp
-      from jsonb_to_recordset(${rows}::jsonb) as x(record_id text, check_in text)
-     where v.field_id = ${field.id}
-       and v.entity_type = ${job.entityKey}
-       and v.entity_id = x.record_id
-       and v.${column} is distinct from ${value}`);
+    insert into custom_field_values as v (id, field_id, entity_type, entity_id, ${column}, created_at, updated_at)
+    select x.id, ${field.id}::text, ${job.entityKey}::text, x.record_id, ${value}, ${now}::timestamp, ${now}::timestamp
+      from jsonb_to_recordset(${rows}::jsonb) as x(id text, record_id text, check_in text)
+    on conflict (entity_type, entity_id, field_id) do update
+       set ${column} = excluded.${column}, updated_at = excluded.updated_at
+     where v.${column} is distinct from excluded.${column}`);
 }
 
 /** Put the checksum without the check-in in place of each one of the old kind this step recognised: one statement. */

@@ -349,22 +349,15 @@ fn days_in_month(year: i64, month: i64) -> i64 {
     }
 }
 
-/// `${iso.slice(0, 10)} ${iso.slice(11, 23)}` of `new Date(epoch).toISOString()`.
-/// A year past 9999 prints as `+0YYYYY`, so the slices then cut it short, as
-/// they do in JavaScript (the database refuses the value on both backends).
+/// `timestampText(when)`: a moment as `YYYY-MM-DD HH:MM:SS.mmm` in UTC, the
+/// year as it is. The day after 9999-12-31 has a year of five digits, which
+/// the database reads when it is written plainly.
 fn timestamp_text(epoch_ms: i64) -> String {
     let (year, month, day) = civil_from_days(epoch_ms.div_euclid(DAY_MS));
     let in_day = epoch_ms.rem_euclid(DAY_MS);
     let (hour, minute) = (in_day / 3_600_000, in_day / 60_000 % 60);
     let (second, milli) = (in_day / 1000 % 60, in_day % 1000);
-    let year = if (0..=9999).contains(&year) {
-        format!("{year:04}")
-    } else {
-        format!("{}{:06}", if year < 0 { '-' } else { '+' }, year.abs())
-    };
-    let iso = format!("{year}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{milli:03}Z");
-    let slice = |from: usize, to: usize| iso.get(from..to.min(iso.len())).unwrap_or_default();
-    format!("{} {}", slice(0, 10), slice(11, 23))
+    format!("{year:04}-{month:02}-{day:02} {hour:02}:{minute:02}:{second:02}.{milli:03}")
 }
 
 /// `dateLiteral(m)`: the instant in UTC, checked.
@@ -1105,12 +1098,20 @@ mod tests {
             lit("createdAt eq 2026-01-31T00:00:00Z"),
             Literal::DateTime { day_end: None, .. }
         ));
-        // The last day JavaScript's slices still print, and the one they cut.
+        // The last day ends in the year 10000, written as the database
+        // reads it.
         assert_eq!(
             lit("createdAt eq 9999-12-31"),
             Literal::DateTime {
                 ts: "9999-12-31 00:00:00.000".into(),
-                day_end: Some("+010000-01 01T00:00:00.".into()),
+                day_end: Some("10000-01-01 00:00:00.000".into()),
+            }
+        );
+        assert_eq!(
+            lit("createdAt ge 0001-01-01"),
+            Literal::DateTime {
+                ts: "0001-01-01 00:00:00.000".into(),
+                day_end: Some("0001-01-02 00:00:00.000".into()),
             }
         );
     }

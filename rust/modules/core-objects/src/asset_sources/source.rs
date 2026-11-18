@@ -186,7 +186,6 @@ impl Source {
         }
         None
     }
-
 }
 
 /// Every source, oldest first.

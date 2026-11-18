@@ -91,6 +91,18 @@ function readDateTime(text: string, at: number): WrittenDateTime | null {
   return { text: text.slice(at, end), date, time, zone };
 }
 
+/**
+ * A moment as `YYYY-MM-DD HH:MM:SS.mmm` in UTC, the year as it is. The day
+ * after 9999-12-31 has a year of five digits: `toISOString()` writes that as
+ * `+010000`, which the database does not read.
+ */
+function timestampText(when: Date): string {
+  const part = (value: number, width = 2) => String(value).padStart(width, '0');
+  const date = `${part(when.getUTCFullYear(), 4)}-${part(when.getUTCMonth() + 1)}-${part(when.getUTCDate())}`;
+  const time = `${part(when.getUTCHours())}:${part(when.getUTCMinutes())}:${part(when.getUTCSeconds())}`;
+  return `${date} ${time}.${part(when.getUTCMilliseconds(), 3)}`;
+}
+
 function dateLiteral(written: WrittenDateTime): Literal & { type: 'datetime' } {
   const [, ys, ms, ds] = written.date;
   const [, hs, mins, ss, frac] = written.time ?? [];
@@ -111,9 +123,8 @@ function dateLiteral(written: WrittenDateTime): Literal & { type: 'datetime' } {
   }
   const at = new Date(epoch);
   if (at.getUTCFullYear() < 1 || at.getUTCFullYear() > 9999) throw badRequest(`'${written.text}' is out of range`);
-  const text = (when: Date) => `${when.toISOString().slice(0, 10)} ${when.toISOString().slice(11, 23)}`;
-  if (hs === undefined) return { type: 'datetime', ts: text(at), dayEnd: text(new Date(epoch + 86_400_000)) };
-  return { type: 'datetime', ts: text(at) };
+  if (hs === undefined) return { type: 'datetime', ts: timestampText(at), dayEnd: timestampText(new Date(epoch + 86_400_000)) };
+  return { type: 'datetime', ts: timestampText(at) };
 }
 
 /** A token, and where the text goes on after it. */

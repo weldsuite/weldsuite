@@ -18,7 +18,9 @@
 //! times a day, and a record write per device per run is more than a larger
 //! fleet's import can do. A step keeps the check-in of the devices it leaves
 //! unwritten current with one statement on the field's value column
-//! instead: no record write, no event.
+//! instead: no record write, no event. Mappings written while the check-in
+//! was part of the checksum are recognised and their checksum replaced, so
+//! the change does not rewrite every device once.
 //!
 //! Matching: a device maps to its record through
 //! `integration_entity_mappings` (connection = the source, external type
@@ -31,7 +33,7 @@
 //! ([`create_record_as`], [`update_record_as`]): the same rows, the same
 //! values, the same event data.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use serde_json::{Map, Value, json};
 use time::OffsetDateTime;
@@ -282,6 +284,30 @@ impl Run<'_> {
             ..self.source.clone()
         }))
     }
+
+    /// Where the run stands after a step's devices: stopped inside the page
+    /// (`within`), on to the next page, or over. The state is saved, or the
+    /// run ended.
+    async fn after_page(
+        &self,
+        counters: Map<String, Value>,
+        within: Option<usize>,
+        next_link: Option<String>,
+    ) -> Result<StepResult, sqlx::Error> {
+        let mut next = self.state.as_object().cloned().unwrap_or_default();
+        next.insert("stats".to_owned(), Value::Object(counters));
+        if let Some(index) = within {
+            let link = self.state.get("nextLink").cloned().unwrap_or(Value::Null);
+            next.insert("nextLink".to_owned(), link);
+            next.insert("offset".to_owned(), json!(index));
+        } else if let Some(next_link) = next_link {
+            next.insert("nextLink".to_owned(), json!(next_link));
+            next.insert("offset".to_owned(), json!(0));
+        } else {
+            return self.end(next.get("stats"), None).await;
+        }
+        self.save(Value::Object(next)).await
+    }
 }
 
 /// `withoutLease(state)`: the state as the next step finds it.
@@ -347,9 +373,7 @@ pub(crate) async fn run_step(
                 ..StepResult::under_way(waiting)
             })
         }
-        Err(Stop::Refused(failure)) => {
-            Ok(run.end(run.state.get("stats"), Some(&failure)).await?)
-        }
+        Err(Stop::Refused(failure)) => Ok(run.end(run.state.get("stats"), Some(&failure)).await?),
     }
 }
 
@@ -391,6 +415,7 @@ async fn open_secret(db: &PgPool, source: &Source, keyring: &Keyring) -> Result<
 }
 
 /// A mapping row, the parts the import reads.
+#[derive(Debug, Clone)]
 struct Mapping {
     id: String,
     internal_entity_id: String,
@@ -471,7 +496,29 @@ async fn page_matches(
     Ok((mappings, records))
 }
 
-async fn step(ctx: &ImportContext<'_>, source: &Source, state: &Value) -> Result<StepResult, Stop> {
+/// What a step keeps of the page it reads while it goes through the
+/// devices.
+struct PageWork {
+    /// The mappings of the devices still to handle, by device id.
+    mappings: HashMap<String, Mapping>,
+    /// Whether the record a mapping points to is deleted, by record id.
+    records: HashMap<String, bool>,
+    /// Records this run has already tied to a device (adoption must not
+    /// take them twice).
+    claimed: HashSet<String>,
+    /// The last check-in of each device this step left unwritten, by its
+    /// (live) record.
+    check_ins: BTreeMap<String, String>,
+    /// The checksum to put in place of one of the old kind, by mapping id.
+    replaced: BTreeMap<String, String>,
+    /// The check-ins the page's records hold, read once, when a checksum
+    /// first differs.
+    stored_check_ins: Option<HashMap<String, String>>,
+}
+
+async fn step(run: &Run<'_>) -> Result<StepResult, Stop> {
+    let ctx = run.ctx;
+    let (source, state) = (&run.source, &run.state);
     let db = ctx.db;
     let now = iso_timestamp(ctx.now);
 
@@ -499,7 +546,15 @@ async fn step(ctx: &ImportContext<'_>, source: &Source, state: &Value) -> Result
         .unwrap_or(0);
 
     let remaining = page.devices.get(index..).unwrap_or_default();
-    let (mut mappings, records) = page_matches(db, source, entity_key, remaining).await?;
+    let (mappings, records) = page_matches(db, source, entity_key, remaining).await?;
+    let mut work = PageWork {
+        mappings,
+        records,
+        claimed: HashSet::new(),
+        check_ins: BTreeMap::new(),
+        replaced: BTreeMap::new(),
+        stored_check_ins: None,
+    };
     let job = Job {
         ctx,
         source,
@@ -508,17 +563,13 @@ async fn step(ctx: &ImportContext<'_>, source: &Source, state: &Value) -> Result
         now: &now,
         lookups: prepare_lookups(db, entity_key).await?,
     };
-    let mut claimed = HashSet::new();
     let mut writes = 0;
 
     while index < page.devices.len() && writes < ctx.max_writes {
         let device = &page.devices[index];
         index += 1;
         bump(&mut counters, "total");
-        match job
-            .import_device(device, &mut mappings, &records, &mut claimed)
-            .await
-        {
+        match job.import_device(device, &mut work).await {
             Ok(outcome) => {
                 bump(&mut counters, outcome.counter());
                 if outcome != Outcome::Unchanged {
@@ -533,49 +584,16 @@ async fn step(ctx: &ImportContext<'_>, source: &Source, state: &Value) -> Result
         }
     }
 
+    // What the step owes the devices it did not write: neither counts as a
+    // write. The checksums first: one of the old kind is recognised by the
+    // check-in the record still holds, so a step that dies in between must
+    // not have moved it.
+    job.replace_checksums(&work.replaced).await?;
+    job.refresh_check_ins(&work.check_ins).await?;
+
     // Stopped inside the page: the next step reads it again from `index`.
     let within = (index < page.devices.len()).then_some(index);
-    Ok(after_page(ctx, source, state, counters, within, page.next_link).await?)
-}
-
-/// Where the run stands after a step's devices: stopped inside the page
-/// (`within`), on to the next page, or over. The state is saved, or the run
-/// ended.
-async fn after_page(
-    ctx: &ImportContext<'_>,
-    source: &Source,
-    state: &Value,
-    counters: Map<String, Value>,
-    within: Option<usize>,
-    next_link: Option<String>,
-) -> Result<StepResult, sqlx::Error> {
-    let mut next = state.as_object().cloned().unwrap_or_default();
-    next.insert("stats".to_owned(), Value::Object(counters));
-    if let Some(index) = within {
-        let link = state.get("nextLink").cloned().unwrap_or(Value::Null);
-        next.insert("nextLink".to_owned(), link);
-        next.insert("offset".to_owned(), json!(index));
-    } else if let Some(next_link) = next_link {
-        next.insert("nextLink".to_owned(), json!(next_link));
-        next.insert("offset".to_owned(), json!(0));
-    } else {
-        let stored = source::end_run(ctx.db, source, next.get("stats"), ctx.now, None).await?;
-        return Ok(StepResult {
-            done: true,
-            retry_after_seconds: None,
-            source: stored,
-        });
-    }
-    let next = Value::Object(next);
-    source::save_state(ctx.db, &source.id, &next, &iso_timestamp(ctx.now)).await?;
-    Ok(StepResult {
-        done: false,
-        retry_after_seconds: None,
-        source: Source {
-            sync_state: Some(next),
-            ..source.clone()
-        },
-    })
+    Ok(run.after_page(counters, within, page.next_link).await?)
 }
 
 /// `ensureAssetImportFields`: add the fields the import writes that the
@@ -655,24 +673,57 @@ async fn ensure_import_fields(
     Ok(created)
 }
 
+/// The value column the last check-in is kept in, by the type of its field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CheckInColumn {
+    Date,
+    Text,
+}
+
+/// `checkInColumnOf(fieldType)`: the import adds the field as a date; one
+/// made by hand may be text. Any other type is left to the record writes.
+fn check_in_column_of(field_type: &str) -> Option<CheckInColumn> {
+    match field_type {
+        "date" => Some(CheckInColumn::Date),
+        "text" | "textarea" => Some(CheckInColumn::Text),
+        _ => None,
+    }
+}
+
+/// `isStorableCheckIn(checkIn)`: a check-in the value column takes as it is
+/// written, `toISOString()` of a four-digit year. (A later year has a sign
+/// and six digits, which Postgres does not read; a record write refuses it
+/// too.)
+fn is_storable_check_in(check_in: &str) -> bool {
+    check_in.len() == 24
+}
+
 /// `Lookups`: what matching a device needs from the object, read once per
 /// step.
 struct Lookups {
     /// The live `serial_number` field.
     serial_field_id: Option<String>,
+    /// The live `last_check_in` field, when its type keeps the check-in as
+    /// a date or as plain text: `(id, value column)`.
+    check_in_field: Option<(String, CheckInColumn)>,
     /// The live `owner` link: `(id, target entity key)`.
     owner_link: Option<(String, String)>,
 }
 
 async fn prepare_lookups(db: &PgPool, entity_key: &str) -> Result<Lookups, sqlx::Error> {
-    let serial_field_id: Option<String> = sqlx::query_scalar(
-        "select id from custom_field_definitions
-          where entity_type = $1 and slug = 'serial_number' and deleted_at is null
-          limit 1",
+    let fields: Vec<(String, String, String)> = sqlx::query_as(
+        "select id, slug, field_type from custom_field_definitions
+          where entity_type = $1 and slug = any($2) and deleted_at is null",
     )
     .bind(entity_key)
-    .fetch_optional(db)
+    .bind(vec!["serial_number", CHECK_IN_SLUG])
+    .fetch_all(db)
     .await?;
+    let field = |slug: &str| fields.iter().find(|(_, found, _)| found == slug);
+    let serial_field_id = field("serial_number").map(|(id, _, _)| id.clone());
+    let check_in_field = field(CHECK_IN_SLUG).and_then(|(id, _, field_type)| {
+        check_in_column_of(field_type).map(|column| (id.clone(), column))
+    });
     let owner_link: Option<(String, String)> = sqlx::query_as(
         "select id, target_entity_key from custom_object_links
           where source_entity_key = $1 and slug = 'owner' and deleted_at is null
@@ -683,6 +734,7 @@ async fn prepare_lookups(db: &PgPool, entity_key: &str) -> Result<Lookups, sqlx:
     .await?;
     Ok(Lookups {
         serial_field_id,
+        check_in_field,
         owner_link,
     })
 }
@@ -769,58 +821,254 @@ impl Job<'_> {
             .await
     }
 
-    /// `importDevice(job)`.
+    /// `importDevice(job, device)`.
     async fn import_device(
         &self,
         device: &Value,
-        mappings: &mut HashMap<String, Mapping>,
-        records: &HashMap<String, bool>,
-        claimed: &mut HashSet<String>,
+        work: &mut PageWork,
     ) -> Result<Outcome, DeviceError> {
-        let db = self.ctx.db;
         let mapped = map_intune_device(device).ok_or(DeviceError::NoId)?;
         let checksum = mapped.checksum();
-        let facts = mapped.facts();
+        match work.mappings.get(&mapped.external_id).cloned() {
+            Some(mapping) => self.import_mapped(&mapped, &mapping, checksum, work).await,
+            None => self.import_unmapped(&mapped, &checksum, work).await,
+        }
+    }
 
-        if let Some(mapping) = mappings.get_mut(&mapped.external_id) {
-            // A record a person deleted stays deleted; the import does not
-            // bring it back.
-            let live = records
-                .get(&mapping.internal_entity_id)
-                .is_some_and(|deleted| !deleted);
-            if !live || mapping.sync_checksum.as_deref() == Some(checksum.as_str()) {
-                return Ok(Outcome::Unchanged);
-            }
-            let updated = update_record_as(
-                db,
-                self.user_id,
-                self.object,
-                &mapping.internal_entity_id,
-                Some(&facts),
-                &Field::Absent,
-            )
-            .await?;
-            sqlx::query(
-                "update integration_entity_mappings
-                    set sync_checksum = $2, last_synced_at = $3::timestamp,
-                        updated_at = $3::timestamp
-                  where id = $1",
-            )
-            .bind(&mapping.id)
-            .bind(&checksum)
-            .bind(self.now)
-            .execute(db)
-            .await?;
-            mapping.sync_checksum = Some(checksum);
-            self.emit("updated", &updated).await?;
-            return Ok(Outcome::Updated);
+    /// `importMapped`: a device this source imported before, written again
+    /// only when a fact other than the last check-in changed.
+    async fn import_mapped(
+        &self,
+        mapped: &MappedDevice,
+        mapping: &Mapping,
+        checksum: String,
+        work: &mut PageWork,
+    ) -> Result<Outcome, DeviceError> {
+        let db = self.ctx.db;
+        let record_id = mapping.internal_entity_id.as_str();
+        // A record a person deleted stays deleted; the import does not
+        // bring it back.
+        let live = work.records.get(record_id).is_some_and(|deleted| !deleted);
+        if !live {
+            return Ok(Outcome::Unchanged);
         }
 
+        if mapping.sync_checksum.as_deref() == Some(checksum.as_str())
+            || self
+                .is_checksum_of_old_kind(mapped, mapping, &checksum, work)
+                .await?
+        {
+            if let Some(check_in) = mapped.check_in().filter(|at| is_storable_check_in(at)) {
+                work.check_ins
+                    .insert(record_id.to_owned(), check_in.to_owned());
+            }
+            return Ok(Outcome::Unchanged);
+        }
+
+        let updated = update_record_as(
+            db,
+            self.user_id,
+            self.object,
+            record_id,
+            Some(&mapped.facts()),
+            &Field::Absent,
+        )
+        .await?;
+        sqlx::query(
+            "update integration_entity_mappings
+                set sync_checksum = $2, last_synced_at = $3::timestamp,
+                    updated_at = $3::timestamp
+              where id = $1",
+        )
+        .bind(&mapping.id)
+        .bind(&checksum)
+        .bind(self.now)
+        .execute(db)
+        .await?;
+        if let Some(kept) = work.mappings.get_mut(&mapped.external_id) {
+            kept.sync_checksum = Some(checksum);
+        }
+        // The write carried the check-in and the checksum: nothing is left
+        // to settle for this record.
+        work.check_ins.remove(record_id);
+        work.replaced.remove(&mapping.id);
+        self.emit("updated", &updated).await?;
+        Ok(Outcome::Updated)
+    }
+
+    /// `isChecksumOfOldKind`: whether the mapping carries a checksum of the
+    /// old kind (taken with the last check-in) of these same facts: with
+    /// the check-in the record holds, with the one the device reports now,
+    /// or with none. Then nothing but the check-in differs, and the
+    /// checksum is replaced at the end of the step instead of the record
+    /// being rewritten: the first import after the checksum changed does
+    /// not write every device once.
+    async fn is_checksum_of_old_kind(
+        &self,
+        mapped: &MappedDevice,
+        mapping: &Mapping,
+        checksum: &str,
+        work: &mut PageWork,
+    ) -> Result<bool, sqlx::Error> {
+        if work.stored_check_ins.is_none() {
+            work.stored_check_ins = Some(self.load_stored_check_ins(&work.records).await?);
+        }
+        let stored = work
+            .stored_check_ins
+            .as_ref()
+            .and_then(|stored| stored.get(&mapping.internal_entity_id))
+            .map(String::as_str);
+        let of_old_kind = [stored, mapped.check_in(), None]
+            .into_iter()
+            .any(|check_in| Some(mapped.checksum_with_check_in(check_in)) == mapping.sync_checksum);
+        if of_old_kind {
+            work.replaced
+                .insert(mapping.id.clone(), checksum.to_owned());
+            if let Some(kept) = work.mappings.get_mut(&mapped.external_id) {
+                kept.sync_checksum = Some(checksum.to_owned());
+            }
+        }
+        Ok(of_old_kind)
+    }
+
+    /// `loadStoredCheckIns`: the last check-in each live record of the page
+    /// holds, as the import wrote it (ISO). One query.
+    async fn load_stored_check_ins(
+        &self,
+        records: &HashMap<String, bool>,
+    ) -> Result<HashMap<String, String>, sqlx::Error> {
+        let ids: Vec<&str> = records
+            .iter()
+            .filter(|(_, deleted)| !**deleted)
+            .map(|(id, _)| id.as_str())
+            .collect();
+        let Some((field_id, column)) = self.lookups.check_in_field.as_ref() else {
+            return Ok(HashMap::new());
+        };
+        if ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let rows: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
+            "select entity_id, to_jsonb(value_date) #>> '{}', value_text
+               from custom_field_values
+              where field_id = $1 and entity_type = $2 and entity_id = any($3)",
+        )
+        .bind(field_id)
+        .bind(&self.object.entity_key)
+        .bind(&ids)
+        .fetch_all(self.ctx.db)
+        .await?;
+        let mut stored = HashMap::new();
+        for (record_id, date, text) in rows {
+            let value = match column {
+                // `row.date?.toISOString()`.
+                CheckInColumn::Date => {
+                    date.map(|stamp| weldsuite_db::js_timestamp(&stamp).unwrap_or(stamp))
+                }
+                CheckInColumn::Text => text,
+            };
+            if let Some(value) = value.filter(|value| !value.is_empty()) {
+                stored.insert(record_id, value);
+            }
+        }
+        Ok(stored)
+    }
+
+    /// `refreshCheckIns`: keep the last check-in of the devices this step
+    /// left unwritten current. One statement on the field's value column:
+    /// a value that differs is replaced, a record that holds none yet (the
+    /// device had not checked in when it was last written) gets its value
+    /// row, and a value that is current is left as it is. No record is
+    /// written (its `updated_at` stays), no event goes out, and it does not
+    /// count against the step's writes.
+    async fn refresh_check_ins(
+        &self,
+        check_ins: &BTreeMap<String, String>,
+    ) -> Result<(), sqlx::Error> {
+        let Some((field_id, column)) = self.lookups.check_in_field.as_ref() else {
+            return Ok(());
+        };
+        if check_ins.is_empty() {
+            return Ok(());
+        }
+        // The id is only used for a value row that does not exist yet.
+        let ids: Vec<String> = check_ins.iter().map(|_| generate_id("cfv")).collect();
+        let record_ids: Vec<&str> = check_ins.keys().map(String::as_str).collect();
+        let stamps: Vec<&str> = check_ins.values().map(String::as_str).collect();
+        let statement = match column {
+            CheckInColumn::Date => {
+                "insert into custom_field_values as v
+                     (id, field_id, entity_type, entity_id, value_date, created_at, updated_at)
+                 select x.id, $1, $2, x.record_id, x.check_in::timestamp,
+                        $3::timestamp, $3::timestamp
+                   from unnest($4::text[], $5::text[], $6::text[]) as x(id, record_id, check_in)
+                 on conflict (entity_type, entity_id, field_id) do update
+                    set value_date = excluded.value_date, updated_at = excluded.updated_at
+                  where v.value_date is distinct from excluded.value_date"
+            }
+            CheckInColumn::Text => {
+                "insert into custom_field_values as v
+                     (id, field_id, entity_type, entity_id, value_text, created_at, updated_at)
+                 select x.id, $1, $2, x.record_id, x.check_in, $3::timestamp, $3::timestamp
+                   from unnest($4::text[], $5::text[], $6::text[]) as x(id, record_id, check_in)
+                 on conflict (entity_type, entity_id, field_id) do update
+                    set value_text = excluded.value_text, updated_at = excluded.updated_at
+                  where v.value_text is distinct from excluded.value_text"
+            }
+        };
+        sqlx::query(statement)
+            .bind(field_id)
+            .bind(&self.object.entity_key)
+            .bind(self.now)
+            .bind(&ids)
+            .bind(&record_ids)
+            .bind(&stamps)
+            .execute(self.ctx.db)
+            .await?;
+        Ok(())
+    }
+
+    /// `replaceChecksums`: put the checksum without the check-in in place
+    /// of each one of the old kind this step recognised. One statement.
+    async fn replace_checksums(
+        &self,
+        replaced: &BTreeMap<String, String>,
+    ) -> Result<(), sqlx::Error> {
+        if replaced.is_empty() {
+            return Ok(());
+        }
+        let ids: Vec<&str> = replaced.keys().map(String::as_str).collect();
+        let checksums: Vec<&str> = replaced.values().map(String::as_str).collect();
+        sqlx::query(
+            "update integration_entity_mappings as m
+                set sync_checksum = x.checksum, updated_at = $1::timestamp
+               from unnest($2::text[], $3::text[]) as x(id, checksum)
+              where m.id = x.id",
+        )
+        .bind(self.now)
+        .bind(&ids)
+        .bind(&checksums)
+        .execute(self.ctx.db)
+        .await?;
+        Ok(())
+    }
+
+    /// `importUnmapped`: a device this source has not imported yet. A
+    /// record with its serial number is adopted, else one is created.
+    async fn import_unmapped(
+        &self,
+        mapped: &MappedDevice,
+        checksum: &str,
+        work: &mut PageWork,
+    ) -> Result<Outcome, DeviceError> {
+        let db = self.ctx.db;
+        let facts = mapped.facts();
+
         let adoptable = self
-            .find_adoptable_record(mapped.serial_number.as_deref(), claimed)
+            .find_adoptable_record(mapped.serial_number.as_deref(), &work.claimed)
             .await?;
         if let Some(record_id) = adoptable {
-            claimed.insert(record_id.clone());
+            work.claimed.insert(record_id.clone());
             let updated = update_record_as(
                 db,
                 self.user_id,
@@ -830,8 +1078,13 @@ impl Job<'_> {
                 &Field::Absent,
             )
             .await?;
-            self.insert_mapping(&mapped.external_id, &record_id, &checksum, mappings)
-                .await?;
+            self.insert_mapping(
+                &mapped.external_id,
+                &record_id,
+                checksum,
+                &mut work.mappings,
+            )
+            .await?;
             self.emit("updated", &updated).await?;
             return Ok(Outcome::Updated);
         }
@@ -848,9 +1101,14 @@ impl Job<'_> {
         let created =
             create_record_as(db, self.user_id, self.object, &definitions, fields, None).await?;
         let record_id = created["id"].as_str().unwrap_or_default().to_owned();
-        claimed.insert(record_id.clone());
-        self.insert_mapping(&mapped.external_id, &record_id, &checksum, mappings)
-            .await?;
+        work.claimed.insert(record_id.clone());
+        self.insert_mapping(
+            &mapped.external_id,
+            &record_id,
+            checksum,
+            &mut work.mappings,
+        )
+        .await?;
         self.attach_owner(&record_id, mapped.user_email.as_deref())
             .await?;
         self.emit("created", &created).await?;
@@ -1028,6 +1286,41 @@ mod tests {
             Value::Object(stats),
             json!({ "total": 2, "created": 1, "updated": 0, "unchanged": 1, "failed": 0 })
         );
+    }
+
+    #[test]
+    fn the_lease_is_the_steps_own_and_never_part_of_the_state_it_saves() {
+        let now = instant("2026-11-10T08:00:30.000Z").unwrap_or(OffsetDateTime::UNIX_EPOCH);
+        // `new Date(now.getTime() + ASSET_IMPORT_STEP_LEASE_MS).toISOString()`.
+        assert_eq!(iso_timestamp(now + STEP_LEASE), "2026-11-10T08:05:30.000Z");
+
+        let state = json!({
+            "startedAt": "2026-11-10T08:00:00.000Z", "nextLink": null, "offset": 20,
+            "stats": source::zero_stats(), "leaseUntil": "2026-11-10T08:05:30.000Z",
+        });
+        assert_eq!(
+            without_lease(state),
+            json!({
+                "startedAt": "2026-11-10T08:00:00.000Z", "nextLink": null, "offset": 20,
+                "stats": source::zero_stats(),
+            })
+        );
+        // A state that is no object has no lease to drop.
+        assert_eq!(without_lease(Value::Null), Value::Null);
+    }
+
+    #[test]
+    fn the_check_in_is_refreshed_in_the_column_its_field_keeps_it_in() {
+        assert_eq!(check_in_column_of("date"), Some(CheckInColumn::Date));
+        assert_eq!(check_in_column_of("text"), Some(CheckInColumn::Text));
+        assert_eq!(check_in_column_of("textarea"), Some(CheckInColumn::Text));
+        // Any other type is left to the record writes.
+        for other in ["number", "single_select", "boolean", "url", ""] {
+            assert_eq!(check_in_column_of(other), None, "{other}");
+        }
+        // `toISOString()` of a four-digit year; a later one carries a sign.
+        assert!(is_storable_check_in("2026-11-10T07:45:00.000Z"));
+        assert!(!is_storable_check_in("+012026-11-10T07:45:00.000Z"));
     }
 
     #[test]

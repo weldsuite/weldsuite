@@ -492,6 +492,10 @@ describe('$filter over HTTP', () => {
     expect(await filtered('day(createdAt) eq 31')).toEqual(['cnv_2', 'cnv_4']);
     expect(await filtered('year(createdAt) lt 2026')).toEqual(['cnv_4']);
     expect(await filtered('waitingSince eq null')).toEqual(['cnv_2', 'cnv_3', 'cnv_4', 'cnv_5']);
+    // The last day there is: it ends in the year 10000, which the database still reads.
+    expect(await filtered('createdAt eq 9999-12-31')).toEqual([]);
+    expect(await filtered('createdAt ne 9999-12-31')).toEqual(['cnv_1', 'cnv_2', 'cnv_3', 'cnv_4', 'cnv_5']);
+    expect(await filtered('createdAt lt 9999-12-31')).toEqual(['cnv_1', 'cnv_2', 'cnv_3', 'cnv_4', 'cnv_5']);
   });
 
   it('takes an unencoded + in an offset as a plus', async () => {

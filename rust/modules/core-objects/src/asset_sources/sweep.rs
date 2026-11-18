@@ -17,6 +17,10 @@
 //! A step reads one Microsoft page and writes at most
 //! [`MAX_WRITES`] records, so a tick runs [`STEPS_PER_TICK`] steps in all.
 //! Whatever does not fit stays due and goes on the next tick.
+//!
+//! A step that takes longer than a tick is not run twice: it holds a lease
+//! on its run, the next tick finds the run busy, does nothing for that
+//! source and leaves the workspace due.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -160,6 +164,12 @@ async fn sweep_workspace(
 
         let source_id = running.id.clone();
         let step = run_step(&context, running).await?;
+        // The step of an earlier tick still holds this run: nothing was
+        // done. The source has a run under way, so the workspace stays due
+        // now.
+        if step.busy {
+            continue;
+        }
         result.steps += 1;
         if let Some(seconds) = step.retry_after_seconds.filter(|seconds| *seconds > 0) {
             throttled_until.insert(source_id, now + time::Duration::seconds(i64::from(seconds)));

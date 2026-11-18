@@ -507,38 +507,86 @@ describe('asset import sweep: matching, later imports and stopped runs', () => {
   it('does not write a device that only checked in again, and keeps its check-in current', async () => {
     await addSource('asrc_a');
     const checkedIn = (n: number, at: string, extra: Record<string, unknown> = {}) => ({ ...device(n), lastSyncDateTime: at, ...extra });
-    graph.value = [checkedIn(1, '2026-11-09T10:00:00Z'), checkedIn(2, '2026-11-09T11:00:00Z'), checkedIn(3, '2026-11-09T12:00:00Z')];
+    // Device 4 is enrolled and has never checked in.
+    graph.value = [checkedIn(1, '2026-11-09T10:00:00Z'), checkedIn(2, '2026-11-09T11:00:00Z'), checkedIn(3, '2026-11-09T12:00:00Z'), device(4)];
     const env = makeEnv();
     await markDue(env, new Date(NOW.getTime() - MINUTE));
     expect(await sweep(env)).toMatchObject({ steps: 1, ended: 1 });
     expect(await checkInOf('dev-1')).toBe('2026-11-09T10:00:00.000Z');
+    expect(await checkInOf('dev-4')).toBeNull();
     const before = await importedRecord('dev-1');
+    const beforeFirst = await importedRecord('dev-4');
     const checksums = await checksumsByDevice();
     published.length = 0;
 
-    // A day later all three checked in again; device 2 also runs a newer system.
+    // A day later all of them checked in; device 2 also runs a newer system.
     const later = new Date(NOW.getTime() + 24 * HOUR);
     graph.value = [
       checkedIn(1, '2026-11-10T07:45:00Z'),
       checkedIn(2, '2026-11-10T07:50:00Z', { osVersion: '10.0.26100' }),
       checkedIn(3, '2026-11-10T07:55:00.5Z'),
+      checkedIn(4, '2026-11-10T07:58:00Z'),
     ];
     expect(await sweep(env, later)).toMatchObject({ due: 1, steps: 1, ended: 1 });
 
-    expect((await rowOf('asrc_a')).lastStats).toEqual({ total: 3, created: 0, updated: 1, unchanged: 2, failed: 0 });
+    expect((await rowOf('asrc_a')).lastStats).toEqual({ total: 4, created: 0, updated: 1, unchanged: 3, failed: 0 });
     // One record write and its event, for the device that changed.
     expect(eventTypes().sort()).toEqual(['asset_source:updated', 'co_asset:updated']);
     expect(published.find((m) => m.action === 'updated' && m.entityType === 'co_asset')!.entityId).toBe((await importedRecord('dev-2')).id);
     const after = await importedRecord('dev-1');
     expect(after.updatedAt.toISOString()).toBe(before.updatedAt.toISOString());
+    expect((await importedRecord('dev-4')).updatedAt.toISOString()).toBe(beforeFirst.updatedAt.toISOString());
     const now = await checksumsByDevice();
     expect(now.get('dev-1')).toBe(checksums.get('dev-1'));
     expect(now.get('dev-2')).not.toBe(checksums.get('dev-2'));
     expect(now.get('dev-3')).toBe(checksums.get('dev-3'));
-    // Every check-in is current all the same.
+    expect(now.get('dev-4')).toBe(checksums.get('dev-4'));
+    // Every check-in is current all the same, the first one of device 4 too.
     expect(await checkInOf('dev-1')).toBe('2026-11-10T07:45:00.000Z');
     expect(await checkInOf('dev-2')).toBe('2026-11-10T07:50:00.000Z');
     expect(await checkInOf('dev-3')).toBe('2026-11-10T07:55:00.500Z');
+    expect(await checkInOf('dev-4')).toBe('2026-11-10T07:58:00.000Z');
+    // One value row per record: the refresh adds a missing one once, and never a second.
+    const checkIns = await db.select().from(schema.customFieldValues).where(sql`${schema.customFieldValues.valueDate} is not null`);
+    expect(checkIns).toHaveLength(4);
+  });
+
+  it('keeps a check-in field a person made as text current in its own column', async () => {
+    await db.insert(schema.customFieldDefinitions).values({
+      id: 'cfld_seen',
+      entityType: 'co_asset',
+      name: 'Last seen',
+      slug: 'last_check_in',
+      fieldType: 'text',
+      sortOrder: 2,
+      createdAt: at,
+      updatedAt: at,
+    });
+    await addSource('asrc_a');
+    // Device 2 has never checked in.
+    graph.value = [{ ...device(1), lastSyncDateTime: '2026-11-09T10:00:00Z' }, device(2)];
+    const env = makeEnv();
+    await markDue(env, new Date(NOW.getTime() - MINUTE));
+    expect(await sweep(env)).toMatchObject({ steps: 1, ended: 1 });
+    const seen = async () =>
+      (await db.select().from(schema.customFieldValues).where(eq(schema.customFieldValues.fieldId, 'cfld_seen')))
+        .map((value) => [value.valueText, value.valueDate])
+        .sort();
+    expect(await seen()).toEqual([['2026-11-09T10:00:00.000Z', null]]);
+    published.length = 0;
+
+    graph.value = [
+      { ...device(1), lastSyncDateTime: '2026-11-10T07:45:00Z' },
+      { ...device(2), lastSyncDateTime: '2026-11-10T07:50:00Z' },
+    ];
+    expect(await sweep(env, new Date(NOW.getTime() + 24 * HOUR))).toMatchObject({ steps: 1, ended: 1 });
+
+    expect((await rowOf('asrc_a')).lastStats).toEqual({ total: 2, created: 0, updated: 0, unchanged: 2, failed: 0 });
+    expect(eventTypes()).toEqual(['asset_source:updated']);
+    expect(await seen()).toEqual([
+      ['2026-11-10T07:45:00.000Z', null],
+      ['2026-11-10T07:50:00.000Z', null],
+    ]);
   });
 
   it('takes a checksum taken with the check-in as unchanged and replaces it, instead of rewriting every device once', async () => {

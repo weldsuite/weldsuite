@@ -449,22 +449,54 @@ describe('the last check-in', () => {
     expect((await recordOf('dev-2')).fields.last_check_in).toBe('2026-11-10T07:50:00.000Z');
   });
 
-  it('leaves a record without a check-in value, or one a person deleted, alone', async () => {
-    await runToEnd(graph({ [INTUNE_DEVICES_URL]: { value: [device(1, { lastSyncDateTime: null }), device(2)] } }), await addSource());
+  it('gives a record its first check-in without a record write, and leaves one a person deleted alone', async () => {
+    // Device 1 had never checked in when it was imported; device 3's check-in was cleared by hand.
+    await runToEnd(graph({ [INTUNE_DEVICES_URL]: { value: [device(1, { lastSyncDateTime: null }), device(2), device(3)] } }), await addSource());
+    const first = await recordOf('dev-1');
+    expect(first.fields.last_check_in).toBeUndefined();
     const gone = await recordOf('dev-2');
     await db.update(schema.customObjectRecords).set({ deletedAt: NOW }).where(eq(schema.customObjectRecords.id, gone.record.id));
+    const cleared = await recordOf('dev-3');
+    const checkInField = (await db.select().from(schema.customFieldDefinitions).where(eq(schema.customFieldDefinitions.slug, 'last_check_in')))[0]!;
+    await db
+      .delete(schema.customFieldValues)
+      .where(and(eq(schema.customFieldValues.fieldId, checkInField.id), eq(schema.customFieldValues.entityId, cleared.record.id)));
+    const valuesBefore = (await db.select().from(schema.customFieldValues)).length;
     events.length = 0;
 
     const checkedIn = graph({
-      [INTUNE_DEVICES_URL]: { value: [device(1, { lastSyncDateTime: '2026-11-10T07:45:00Z' }), device(2, { lastSyncDateTime: '2026-11-10T07:50:00Z' })] },
+      [INTUNE_DEVICES_URL]: {
+        value: [
+          device(1, { lastSyncDateTime: '2026-11-10T07:45:00Z' }),
+          device(2, { lastSyncDateTime: '2026-11-10T07:50:00Z' }),
+          device(3, { lastSyncDateTime: '2026-11-10T07:55:00Z' }),
+        ],
+      },
     });
     const { source: after } = await runToEnd(checkedIn, await reload(), { now: LATER });
 
-    expect(after.lastStats).toEqual({ total: 2, created: 0, updated: 0, unchanged: 2, failed: 0 });
+    expect(after.lastStats).toEqual({ total: 3, created: 0, updated: 0, unchanged: 3, failed: 0 });
     expect(events).toEqual([]);
-    // No value row to refresh: the next real write brings the check-in.
-    expect((await recordOf('dev-1')).fields.last_check_in).toBeUndefined();
+    // The check-in is there now, in a value row of its own: the record itself was not written.
+    const now = await recordOf('dev-1');
+    expect(now.fields.last_check_in).toBe('2026-11-10T07:45:00.000Z');
+    expect(now.record.updatedAt.toISOString()).toBe(first.record.updatedAt.toISOString());
+    expect(now.mapping.syncChecksum).toBe(first.mapping.syncChecksum);
+    expect((await recordOf('dev-3')).fields.last_check_in).toBe('2026-11-10T07:55:00.000Z');
+    const added = (await db.select().from(schema.customFieldValues)).filter((value) => value.createdAt.toISOString() === LATER.toISOString());
+    expect(added.map((value) => [value.fieldId, value.entityType, value.entityId]).sort()).toEqual(
+      [now.record.id, cleared.record.id].map((id) => [checkInField.id, ENTITY, id]).sort(),
+    );
+    expect(await db.select().from(schema.customFieldValues)).toHaveLength(valuesBefore + 2);
+    // A deleted record keeps what it had.
     expect((await recordOf('dev-2')).fields.last_check_in).toBe('2026-11-09T10:00:00.000Z');
+
+    // The same check-ins again: nothing is added, nothing is touched.
+    const later = new Date(LATER.getTime() + 3600_000);
+    await runToEnd(checkedIn, await reload(), { now: later });
+    const values = await db.select().from(schema.customFieldValues);
+    expect(values).toHaveLength(valuesBefore + 2);
+    expect(values.filter((value) => value.updatedAt.toISOString() === later.toISOString())).toEqual([]);
   });
 
   it('refreshes a check-in field a person made as text, in its own value column', async () => {

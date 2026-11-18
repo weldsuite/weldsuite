@@ -294,6 +294,9 @@ describe('tokens and literal checks', () => {
     ['createdAt eq 2026-01-31T10:00:60.5+01:00', "400 '2026-01-31T10:00:60.5+01:00' is not a valid date or time"],
     ['createdAt eq 0001-01-01T00:00:00+05:00', "400 '0001-01-01T00:00:00+05:00' is out of range"],
     ['createdAt eq 9999-12-31T23:59:59-01:00', "400 '9999-12-31T23:59:59-01:00' is out of range"],
+    // The last day ends in the year 10000, written as the database reads it (not `toISOString()`'s `+010000`).
+    ['createdAt eq 9999-12-31', '{"kind":"cmp","op":"eq","prop":"createdAt","lit":{"type":"datetime","ts":"9999-12-31 00:00:00.000","dayEnd":"10000-01-01 00:00:00.000"}}'],
+    ['createdAt ge 0001-01-01', '{"kind":"cmp","op":"ge","prop":"createdAt","lit":{"type":"datetime","ts":"0001-01-01 00:00:00.000","dayEnd":"0001-01-02 00:00:00.000"}}'],
     ['createdAt eq 0000-01-01', "400 '0000-01-01' is out of range"],
     ['createdAt eq 0000-00-00', "400 '0000-00-00' is not a valid date or time"],
     ['2026-01-31T10:30:15.5Z lt createdAt', '{"kind":"cmp","op":"gt","prop":"createdAt","lit":{"type":"datetime","ts":"2026-01-31 10:30:15.500"}}'],
