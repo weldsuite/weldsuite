@@ -25,6 +25,7 @@ import {
 } from '@/lib/weldbooks/br-contact';
 import { useI18n } from '@/lib/i18n/provider';
 import { BrContactSection } from './br-contact-section';
+import type { ContactPrefill } from './contact-prefill';
 import {
   BankingCard,
   BillingAddressCard,
@@ -337,6 +338,8 @@ interface ContactFormProps {
   contact?: ContactFormContact;
   /** The role a new contact starts with; a customer unless this says supplier. */
   defaultRole?: 'customer' | 'supplier';
+  /** A new contact starts from these (what the quick add dialog had typed). */
+  prefill?: ContactPrefill;
   isPending: boolean;
   onSubmit: (payload: ContactPayload) => void | Promise<void>;
   onCancel: () => void;
@@ -507,7 +510,7 @@ function FormActions({
  * follow the contact's country and the entity's jurisdiction (VAT number /
  * GSTIN / EIN, KvK / PAN / …).
  */
-export function ContactForm({ mode, contact, defaultRole = 'customer', isPending, onSubmit, onCancel }: Readonly<ContactFormProps>) {
+export function ContactForm({ mode, contact, defaultRole = 'customer', prefill, isPending, onSubmit, onCancel }: Readonly<ContactFormProps>) {
   const { t } = useI18n();
   const st = useTranslations();
   const tc = t.accounting.contacts;
@@ -531,10 +534,10 @@ export function ContactForm({ mode, contact, defaultRole = 'customer', isPending
     [st, tc.companyNameRequired, tc.personNameRequired, tvx.errors, tc.vatNumberInvalid, tc.ibanInvalid, tc.kvkInvalid, tbc.errors, brazilianBooks],
   );
 
-  const defaults = useMemo(
-    () => initialValues(contact, jurisdictionCode, defaultRole),
-    [contact, jurisdictionCode, defaultRole],
-  );
+  const defaults = useMemo(() => {
+    const base = initialValues(contact, jurisdictionCode, defaultRole);
+    return mode === 'add' && prefill ? { ...base, ...prefill } : base;
+  }, [contact, jurisdictionCode, defaultRole, mode, prefill]);
 
   const form = useForm<ContactFormValues>({
     resolver: zodResolver(schema),

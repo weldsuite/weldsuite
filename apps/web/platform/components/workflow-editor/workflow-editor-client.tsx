@@ -3227,7 +3227,10 @@ export function WorkflowEditorClient({
   // Build translated action types (override name/description from locale)
   const translatedActionTypes = useMemo(() => {
     const actions = t.weldconnect.addNodePanel.actions as Record<string, { name: string; description: string }>;
-    return TASK_ACTION_TYPES.map((a) => ({
+    // The AI steps need the deployment's AI (`weldconnect-ai`); without it they
+    // aren't offered. Steps already configured still render.
+    const aiSteps = isFeatureAvailable('weldconnect-ai');
+    return TASK_ACTION_TYPES.filter((a) => aiSteps || a.category !== 'ai').map((a) => ({
       ...a,
       name: actions[a.id]?.name ?? a.name,
       description: actions[a.id]?.description ?? a.description,

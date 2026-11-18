@@ -52,7 +52,7 @@ use crate::respondent::{
 };
 use crate::sessions::{
     MIN_FILL_MS, RespondentSession, drop_seed, expired, issue_verification, keyed_hash, read_seed,
-    require_session, session_secret,
+    require_session, session_secret, submitted_too_soon,
 };
 use crate::submit::{Identity, Seed, SubmitArgs, submit_response};
 
@@ -607,9 +607,8 @@ async fn submit(portal: Portal, headers: HeaderMap, body: Bytes) -> Response {
             let completed = existing
                 .as_ref()
                 .is_some_and(|e| text(e, "status") == "completed");
-            #[allow(clippy::cast_precision_loss)]
-            let too_quick =
-                started_at.is_some_and(|started| ((ctx.now_ms() - started) as f64) < min_fill);
+            let too_quick = started_at
+                .is_some_and(|started| submitted_too_soon(started, min_fill, ctx.now_ms()));
             if !completed && too_quick {
                 return Err(rejected());
             }

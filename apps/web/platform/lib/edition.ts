@@ -154,6 +154,19 @@ export const EDITION_FEATURES = [
    * instructions stay available; the other pages are hidden and redirect to them.
    */
   'panel-analytics',
+  /**
+   * Third-party integrations whose syncs and webhooks run in
+   * integration-sync-worker and integration-webhook-worker (CRM, e-commerce,
+   * accounting and shipping connectors, Slack, Discord, GitHub, Google
+   * Calendar): the Kubernetes editions don't run them yet. Their entries
+   * under Settings › Integrations are hidden.
+   */
+  'integration-sync',
+  /**
+   * WeldCommerce's customer portal (`COMMERCE_PORTAL_URL`, the orders portal):
+   * no Kubernetes deployment, so its link and invites would point at Global's.
+   */
+  'commerce-portal',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];

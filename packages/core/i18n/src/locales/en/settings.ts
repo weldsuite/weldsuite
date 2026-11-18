@@ -200,6 +200,7 @@ export const settings = {
       addressLine2: 'Address Line 2',
       postalCode: 'Postal Code',
       addressLine2Placeholder: '2nd floor',
+      examplePlaceholder: 'e.g. {example}',
       city: 'City',
       provinceState: 'Province / State',
       country: 'Country',
@@ -216,6 +217,7 @@ export const settings = {
         companyNameRequired: 'Company name is required',
         vatInvalid: 'Not a valid VAT number for {country}. Example: {example}',
         taxIdInvalid: 'Not a valid VAT / tax ID. Use letters and digits only.',
+        checkFields: 'Not saved: check the highlighted fields.',
       },
       workspaceName: {
         title: 'Workspace name',
@@ -1035,6 +1037,13 @@ export const settings = {
       updateField: 'Update Field',
       duplicate: 'Duplicate',
       rowsSelected: '{count} of {total} row(s) selected.',
+      object: 'Object',
+      objectFilterLabel: 'Show the fields of',
+      allObjects: 'All objects',
+      deleteDialog: {
+        title: 'Delete custom field?',
+        description: 'Delete "{name}" from {object}? The value stored in this field is removed from every record. This cannot be undone.',
+      },
       validation: {
         nameRequired: 'Name is required',
         slugRequired: 'Slug is required',
@@ -1087,6 +1096,8 @@ export const settings = {
       lastUpdatedValue: 'December 2024',
       list: {
         categoriesHeading: 'Categories',
+        noneOfferedTitle: 'No integrations on this edition yet',
+        noneOfferedDescription: "Third-party integrations need services this edition doesn't run yet.",
         connected: 'Connected',
         categories: {
           crm: 'CRM',
@@ -2220,6 +2231,7 @@ export const settings = {
         displayName: 'Display name',
         displayNamePlaceholder: 'e.g. Support Team',
         displayNameDescription: 'Shown as the sender name on outgoing email.',
+        displayNameRequired: 'Enter a display name',
         cancel: 'Cancel',
         save: 'Save',
         messages: {
@@ -2233,7 +2245,7 @@ export const settings = {
         sharedAccount: 'Shared account',
         sharedAccountDescription: 'Visible to all workspace members',
         assignedUsers: 'Assigned users',
-        assignedUsersDescription: "Only these users can open this mailbox. Admins can manage it but can't read its mail. If no one is assigned, only admins have access.",
+        assignedUsersDescription: 'Only the assigned users can read the mail in this mailbox. Admins can always manage it, and read its mail only while no one is assigned.',
         selectUsers: 'Select users...',
         usersSelected: '{count} user selected',
         usersSelectedPlural: '{count} users selected',
@@ -2278,6 +2290,7 @@ export const settings = {
       noNumbers: 'No phone numbers yet',
       noNumbersConfigured: 'Get a new phone number to start making calls',
       noNumbersUnconfigured: 'Phone service needs to be activated first',
+      noNumbersPurchaseUnavailable: "Numbers can't be bought or ported on this edition yet",
         pendingPorts: 'Pending ports',
         pendingPortsDescription: 'Numbers being moved into WeldSuite from another carrier.',
         pendingDocuments: 'Documents needed',
@@ -3519,10 +3532,47 @@ export const settings = {
 
       weldid: {
         description:
-          'Let your team sign in with your own identity provider over OpenID Connect, such as Microsoft Entra ID, Okta or Google Workspace. When it is on, people with an email address at your verified domains sign in through your identity provider.',
-        samlLater: 'SAML connections are coming later. For now, connect any identity provider that supports OpenID Connect.',
+          'Let your team sign in with your own identity provider over OpenID Connect or SAML, such as Microsoft Entra ID, Okta or Google Workspace. When it is on, people with an email address at your verified domains sign in through your identity provider.',
         notEntitled: "Single sign-on is not included in this workspace's plan. Ask your administrator to include it.",
         connection: {
+          protocol: 'Protocol',
+          protocolOidc: 'OpenID Connect',
+          protocolOidcHint: 'An OpenID Connect (web) application in your identity provider.',
+          protocolSaml: 'SAML 2.0',
+          protocolSamlHint:
+            'A SAML application in your identity provider, such as an enterprise application in Microsoft Entra ID or a custom SAML app in Google Workspace.',
+          samlDescription:
+            'Create a SAML application in your identity provider and give us its metadata. We then show the entity ID and reply URL to enter there.',
+          metadataSource: 'Identity provider metadata',
+          metadataFromUrl: 'From a URL',
+          metadataFromFile: 'Upload a file',
+          metadataUrl: 'Metadata URL',
+          metadataUrlPlaceholder: 'https://login.microsoftonline.com/…/federationmetadata.xml?appid=…',
+          metadataUrlHint:
+            'The https:// address of the SAML metadata of the application. We read it when you save. When your identity provider changes its signing certificate, fetch it again here.',
+          metadataFile: 'Metadata file',
+          metadataFileHint: 'The SAML metadata (XML) you can download from your identity provider, at most 256 KB.',
+          metadataFileChosen: '{name} selected',
+          metadataFileTooLarge: 'This file is larger than 256 KB.',
+          metadataFileUnreadable: 'This file could not be read.',
+          metadataRequired: 'Enter the metadata URL or upload the metadata file.',
+          samlTrustEmailsHint:
+            'SAML does not say whether an email address is verified, so people can sign in only with this on. Only addresses at your verified domains are accepted.',
+          idpEntityId: 'Identity provider entity ID',
+          idpSsoUrl: 'Sign-in URL',
+          idpMetadata: 'Metadata',
+          idpMetadataUploaded: 'Uploaded file',
+          certificates: 'Signing certificates',
+          certificateExpires: 'Expires {date}',
+          refetchMetadata: 'Fetch metadata again',
+          metadataRefetched: 'Metadata fetched again.',
+          spTitle: 'Register these in your identity provider',
+          spDescription:
+            'Enter the entity ID and the reply URL in the SAML settings of the application in your identity provider, or give it our metadata URL. Sign-in through your identity provider fails until they are registered.',
+          spEntityId: 'Entity ID (identifier)',
+          spAcsUrl: 'Reply URL (assertion consumer service URL)',
+          spMetadataUrl: 'Our metadata URL',
+          samlCreated: 'Identity provider connected. Register the entity ID and reply URL in your identity provider next.',
           title: 'Connect your identity provider',
           description:
             'Create an OpenID Connect application (web) in your identity provider, register the redirect URI we give you, and enter the application’s details here.',
@@ -3654,6 +3704,8 @@ export const settings = {
         billingBusy: 'Another billing change is in progress. Try again in a moment.',
         billingUnavailable: 'Billing is unavailable right now. Try again later.',
         oidcIncomplete: 'Enter the name, issuer URL and client ID of your identity provider.',
+        samlIncomplete: 'Enter the name of your identity provider and its SAML metadata (a URL or a file).',
+        protocolMismatch: 'Remove the connection first to switch between OpenID Connect and SAML.',
         oidcNotEntitled: "Single sign-on is not included in this workspace's plan.",
       },
     },

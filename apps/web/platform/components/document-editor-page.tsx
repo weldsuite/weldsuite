@@ -83,8 +83,10 @@ export function DocumentEditorPage({
 }: Readonly<DocumentEditorPageProps>) {
   const defaultToolbarRenderer = useCallback((toolbarProps: ToolbarProps) => (
     <div className="bg-background sticky top-0 z-10 w-full border-b">
-      <div className="flex items-center gap-2 px-3 py-2 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-        <div className="flex items-center gap-2 flex-shrink-0">
+      {/* The formatting buttons wrap onto a second row when the row is narrow (a side
+          panel open at 1280px): a sideways scroll with its scrollbar hidden hid them. */}
+      <div className="flex items-center gap-2 px-3 py-2">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
           {toolbarLeft}
           {toolbarLeft && <div className="w-px h-5 bg-border mx-1" />}
           <DefaultToolbar {...toolbarProps} />

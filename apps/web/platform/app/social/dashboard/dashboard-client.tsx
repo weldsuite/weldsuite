@@ -1,10 +1,13 @@
-import { Loader2, CalendarDays, Clock, CheckCircle, Link2 } from 'lucide-react';
+import { useState } from 'react';
+import { Loader2, CalendarDays, Clock, CheckCircle, Link2, Plus } from 'lucide-react';
 import { format as formatDate } from 'date-fns';
 import { useI18n } from '@/lib/i18n/provider';
+import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { useSocialDashboardStats, useSocialPosts } from '@/hooks/queries/use-social-queries';
 import type { SocialPost } from '@weldsuite/app-api-client/domains/social';
+import { ComposerDialog } from '../components/composer-dialog';
 
 type BadgeVariant = 'default' | 'secondary' | 'destructive' | 'outline';
 
@@ -18,6 +21,7 @@ const statusColors: Record<string, BadgeVariant> = {
 
 export function DashboardClient() {
   const { t, format } = useI18n();
+  const [composeOpen, setComposeOpen] = useState(false);
   const { data: statsData, isLoading: statsLoading } = useSocialDashboardStats();
   const { data: postsData, isLoading: postsLoading } = useSocialPosts({ limit: 5 });
 
@@ -34,7 +38,15 @@ export function DashboardClient() {
 
   return (
     <div className="p-6 space-y-6">
-      <h1 className="text-2xl font-semibold">{t.social.dashboard.socialDashboard}</h1>
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="text-2xl font-semibold">{t.social.dashboard.socialDashboard}</h1>
+        {/* The module header, which carries New Post, is hidden on phones. */}
+        <Button size="sm" className="md:hidden" onClick={() => setComposeOpen(true)}>
+          <Plus className="h-4 w-4" />
+          {t.social.posts.newPost}
+        </Button>
+      </div>
+      <ComposerDialog open={composeOpen} onOpenChange={setComposeOpen} />
 
       {/* Stats cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

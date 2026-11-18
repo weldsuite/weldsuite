@@ -1,4 +1,4 @@
-import type { DriveFile, UnifiedFile } from '@/lib/api/domains/welddrive';
+import type { DriveFile, DriveFilesParams, UnifiedFile } from '@/lib/api/domains/welddrive';
 import type { useI18n } from '@/lib/i18n/provider';
 
 type DriveTranslations = ReturnType<typeof useI18n>['t'];
@@ -71,6 +71,37 @@ export function driveFileToUnified(f: DriveFile): UnifiedFile {
     entityType: f.entityType,
     description: typeof description === 'string' ? description : null,
   };
+}
+
+/** How many days back the Recent view lists files. */
+const RECENT_DAYS = 30;
+
+/**
+ * Where the Recent view starts: local midnight, `RECENT_DAYS` days ago.
+ * Rounded to the day on purpose: it goes into the query key, and a timestamp
+ * to the millisecond made a new key, so a new request, on every render, and
+ * the view never finished loading (TASK-1431).
+ */
+export function recentDateFrom(now: Date = new Date()): string {
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate() - RECENT_DAYS).toISOString();
+}
+
+/** The list params (`/api/drive/all`, `/api/files`) for a Drive view, newest first. */
+export function driveListParams(
+  view: string,
+  filters: { page: number; type?: string; source?: string },
+  now: Date = new Date(),
+): DriveFilesParams {
+  const params: DriveFilesParams = {
+    page: filters.page,
+    pageSize: 50,
+    sortBy: 'createdAt',
+    sortOrder: 'desc',
+  };
+  if (filters.type) params.type = filters.type;
+  if (filters.source && filters.source !== 'all') params.source = filters.source;
+  if (view === 'recent') params.dateFrom = recentDateFrom(now);
+  return params;
 }
 
 /** "report.final.pdf" → ["report.final", ".pdf"]; no extension (or a dotfile) → [name, ""]. */

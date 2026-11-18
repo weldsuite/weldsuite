@@ -125,7 +125,7 @@ export function SavedReplyEditor({ open, onOpenChange, editingItem }: Readonly<S
       }
       onOpenChange(false);
     } catch {
-      toast.error(isEditing ? t.helpdesk.ticketTypesSettings.failedToUpdateSavedReply : t.helpdesk.ticketTypesSettings.failedToDeleteSavedReply);
+      toast.error(isEditing ? t.helpdesk.ticketTypesSettings.failedToUpdateSavedReply : t.helpdesk.ticketTypesSettings.failedToCreateSavedReply);
     }
   };
 

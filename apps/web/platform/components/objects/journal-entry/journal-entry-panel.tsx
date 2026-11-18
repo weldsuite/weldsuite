@@ -20,17 +20,21 @@ import {
   EllipsisVertical,
   Layers,
   Link as LinkIcon,
+  Trash2,
+  Undo2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { DrawerFieldSettings } from '@weldsuite/ui/components/drawer-field-settings';
 import { EntityDetailView } from '@weldsuite/ui/components/entity-detail-view';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import {
@@ -46,8 +50,10 @@ import { NotesIllustration, TabEmptyState, tabBodyClassName } from '@/components
 import {
   useAccountingAccounts,
   useAccountingJournalEntry,
+  useDeleteJournalEntry,
   useDimensionValues,
   usePostJournalEntry,
+  useReverseJournalEntry,
 } from '@/hooks/queries/use-accounting-queries';
 import { useWorkspaceUrl } from '@/hooks/use-workspace-url';
 import type { JournalEntryDetail, JournalLine } from '@/lib/api/domains/weldbooks';
@@ -94,17 +100,38 @@ function JournalEntryTitle({ entry, t }: Readonly<{ entry?: JournalEntryDetail; 
   );
 }
 
+/**
+ * A posted entry of its own (manual, or one without a source document) is reversed here; an entry a document
+ * posted (invoice, bill, payment) is corrected through that document, as the API requires.
+ */
+export function canReverseJournalEntry(
+  entry: Pick<JournalEntryDetail, 'status' | 'isAutomatic' | 'sourceType' | 'sourceId'>,
+): boolean {
+  if (entry.status !== 'posted') return false;
+  return !(entry.isAutomatic && entry.sourceType && entry.sourceType !== 'manual' && entry.sourceId);
+}
+
 function JournalEntryActions({
   entry,
   canPost,
+  canReverse,
+  canDelete,
   posting,
+  reversing,
   onPost,
+  onReverse,
+  onDelete,
   t,
 }: Readonly<{
   entry?: JournalEntryDetail;
   canPost: boolean;
+  canReverse: boolean;
+  canDelete: boolean;
   posting: boolean;
+  reversing: boolean;
   onPost: () => void;
+  onReverse: () => void;
+  onDelete: () => void;
   t: Translations;
 }>) {
   const st = useTranslations();
@@ -123,11 +150,21 @@ function JournalEntryActions({
     }
   };
 
+  const isDraft = entry.status === 'draft';
+  const showReverse = canReverse && canReverseJournalEntry(entry);
+  const showDelete = canDelete && isDraft;
+
   return (
     <div className="flex items-center gap-1">
-      {entry.status === 'draft' && canPost ? (
+      {isDraft && canPost ? (
         <Button size="sm" onClick={onPost} disabled={posting} data-testid="post-journal-entry">
           {posting ? tj.posting : tj.postEntry}
+        </Button>
+      ) : null}
+      {showReverse ? (
+        <Button variant="outline" size="sm" onClick={onReverse} disabled={reversing} data-testid="reverse-journal-entry">
+          <Undo2 className="h-4 w-4" />
+          {reversing ? tj.reversing : tj.reverse}
         </Button>
       ) : null}
       <DropdownMenu>
@@ -136,7 +173,7 @@ function JournalEntryActions({
             variant="ghost"
             size="icon-sm"
             className="size-7 data-[state=open]:bg-accent dark:data-[state=open]:bg-accent/50"
-            aria-label={st('sweep.entities.copyLink')}
+            aria-label={st('sweep.entities.moreActions')}
           >
             <EllipsisVertical className="h-4 w-4 text-muted-foreground" />
           </Button>
@@ -146,6 +183,15 @@ function JournalEntryActions({
             <LinkIcon />
             {st('sweep.entities.copyLink')}
           </DropdownMenuItem>
+          {showDelete ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" onClick={onDelete}>
+                <Trash2 />
+                {tj.deleteDraft}
+              </DropdownMenuItem>
+            </>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
     </div>
@@ -212,6 +258,7 @@ function JournalEntryTabsBar({
           onToggle={toggle}
           onReset={resetToDefaults}
           label={st('sweep.entities.visibleTabs')}
+          title={st('sweep.entities.visibleTabs')}
         />
       </div>
     </div>
@@ -360,7 +407,7 @@ function JournalEntryLinesTab({ entry, t }: Readonly<{ entry: JournalEntryDetail
 // ─── Panel ─────────────────────────────────────────────────────────────────
 
 export function JournalEntryPanel(props: Readonly<ObjectPanelComponentProps>) {
-  const { id, initialTab } = props;
+  const { id, onClose, initialTab } = props;
   const { t } = useI18n();
   const st = useTranslations();
   const { can } = usePermissions();
@@ -369,6 +416,9 @@ export function JournalEntryPanel(props: Readonly<ObjectPanelComponentProps>) {
   const entryQuery = useAccountingJournalEntry(id);
   const entry = entryQuery.data?.data;
   const postEntry = usePostJournalEntry();
+  const reverseEntry = useReverseJournalEntry();
+  const deleteEntry = useDeleteJournalEntry();
+  const [confirm, setConfirm] = useState<'post' | 'reverse' | 'delete' | null>(null);
 
   const shell = useObjectPanelShell({
     ...props,
@@ -395,14 +445,73 @@ export function JournalEntryPanel(props: Readonly<ObjectPanelComponentProps>) {
   }, [initialTab, tabs]);
   const [activeTab, setActiveTab] = useState<JournalEntryTab['id']>(initial);
 
-  const handlePost = () => {
+  const number = entry?.entryNumber ?? t.accounting.statusLabels.journalEntry.fallback;
+  const failure = (title: string) => (error: unknown) =>
+    toast.error(title, { description: error instanceof Error ? error.message : undefined });
+
+  const handlePost = async () => {
     if (!entry) return;
-    postEntry.mutate(entry.id, {
-      onError: (error) => toast.error(error instanceof Error ? error.message : String(error)),
-    });
+    try {
+      await postEntry.mutateAsync(entry.id);
+      toast.success(tj.posted.replace('{number}', number));
+    } catch (error) {
+      failure(tj.postFailed)(error);
+    }
+    setConfirm(null);
   };
 
+  const handleReverse = async () => {
+    if (!entry) return;
+    try {
+      const res = await reverseEntry.mutateAsync(entry.id);
+      toast.success(tj.reversed.replace('{number}', res.data.entryNumber));
+    } catch (error) {
+      failure(tj.reverseFailed)(error);
+    }
+    setConfirm(null);
+  };
+
+  const handleDelete = async () => {
+    if (!entry) return;
+    try {
+      await deleteEntry.mutateAsync(entry.id);
+    } catch (error) {
+      failure(tj.deleteFailed)(error);
+      setConfirm(null);
+      return;
+    }
+    toast.success(tj.deleted);
+    setConfirm(null);
+    onClose();
+  };
+
+  const confirmProps = {
+    post: {
+      title: tj.postConfirmTitle.replace('{number}', number),
+      description: tj.postConfirmDescription,
+      confirmLabel: tj.postEntry,
+      variant: 'default' as const,
+      onConfirm: handlePost,
+    },
+    reverse: {
+      title: tj.reverseConfirmTitle.replace('{number}', number),
+      description: tj.reverseConfirmDescription,
+      confirmLabel: tj.reverse,
+      variant: 'default' as const,
+      onConfirm: handleReverse,
+    },
+    delete: {
+      title: tj.deleteConfirmTitle.replace('{number}', number),
+      description: tj.deleteConfirmDescription,
+      confirmLabel: tj.deleteDraft,
+      variant: 'destructive' as const,
+      onConfirm: handleDelete,
+    },
+  };
+  const confirmation = confirm ? confirmProps[confirm] : null;
+
   return (
+    <>
     <EntityDetailView
       {...shell.entityDetailViewProps}
       contentClassName={tabBodyClassName(mode)}
@@ -411,8 +520,13 @@ export function JournalEntryPanel(props: Readonly<ObjectPanelComponentProps>) {
         <JournalEntryActions
           entry={entry}
           canPost={can('journal:update')}
+          canReverse={can('journal:create')}
+          canDelete={can('journal:delete')}
           posting={postEntry.isPending}
-          onPost={handlePost}
+          reversing={reverseEntry.isPending}
+          onPost={() => setConfirm('post')}
+          onReverse={() => setConfirm('reverse')}
+          onDelete={() => setConfirm('delete')}
           t={t}
         />
       }
@@ -431,5 +545,21 @@ export function JournalEntryPanel(props: Readonly<ObjectPanelComponentProps>) {
       {entry && activeTab === 'lines' && <JournalEntryLinesTab entry={entry} t={t} />}
       {entry && activeTab === 'history' && <EntityAuditPanel entityType="journal_entry" entityId={entry.id} />}
     </EntityDetailView>
+
+    {confirmation ? (
+      <ConfirmDialog
+        open
+        onOpenChange={(open) => {
+          if (!open) setConfirm(null);
+        }}
+        title={confirmation.title}
+        description={confirmation.description}
+        confirmLabel={confirmation.confirmLabel}
+        cancelLabel={tj.keep}
+        variant={confirmation.variant}
+        onConfirm={confirmation.onConfirm}
+      />
+    ) : null}
+    </>
   );
 }

@@ -3,16 +3,18 @@
 # `Rust · deploy config`, and the deploy repository's own validation):
 #   1. OpenTofu: formatting and `tofu validate` of rust/deploy/hetzner;
 #   2. every Flux base layer built with kustomize, ${NAME} substituted from
-#      SETTINGS, and schema-checked with kubeconform (Flux, CloudNativePG and
-#      cert-manager CRDs from the community catalog);
+#      SETTINGS, and schema-checked with kubeconform (Flux, CloudNativePG,
+#      cert-manager and External Secrets CRDs from the community catalog),
+#      the secrets layer with each of its components, and that layer checked
+#      against the store's values (flux/scripts/seed-secrets.mjs --check);
 #   3. every cluster in CLUSTERS_DIR: its files and its own configs folders
 #      schema-checked and, with the flux CLI, the whole cluster built the way
 #      Flux builds it (both sources, every layer's patches, the cluster's own
 #      settings substituted) and schema-checked;
-#   4. every secrets folder in SECRETS_DIR (and each subfolder of one with a
-#      kustomization.yaml, such as weldid/) built and schema-checked, and
-#      every Secret in it encrypted with SOPS (each data and stringData value
-#      ENC[...], and a sops block);
+#   4. with SECRETS_DIR, for clusters still on SOPS: every secrets folder in
+#      it (and each subfolder of one with a kustomization.yaml, such as
+#      weldid/) built and schema-checked, and every Secret in it encrypted
+#      with SOPS (each data and stringData value ENC[...], and a sops block);
 #   5. every HelmRelease's chart rendered at its pinned version with its own
 #      values file and schema-checked, after checking the pin in the
 #      HelmRelease matches the one here, and again with the weldid-switch
@@ -28,7 +30,8 @@
 # cluster (flux/clusters/example). The deploy repository points it at its own
 # folders (relative paths are taken from where it is started):
 #   CLUSTERS_DIR  a folder of cluster folders (default: flux/clusters)
-#   SECRETS_DIR   a folder of secrets folders (default: flux/secrets)
+#   SECRETS_DIR   a folder of SOPS secrets folders, one per cluster not yet
+#                 on a secret store (default: none)
 #   CONFIG_ROOT   the repository the clusters' GitRepository flux-system reads
 #                 (default: this one); GitRepository weldsuite is this one
 #   SETTINGS      the cluster settings for steps 2 and 5 (default: the
@@ -37,8 +40,8 @@
 #                 weldsuite/weldid, deploy/helm/weldid) or oci://… (rendered
 #                 at the settings' WELDID_VERSION; private until WeldID 1.0,
 #                 so `helm registry login ghcr.io` first). Unset: not rendered.
-# Needs tofu, kubectl (kustomize), helm, kubeconform; flux (v2.9) for the
-# full cluster builds in step 3.
+# Needs tofu, kubectl (kustomize), helm, kubeconform, node; flux (v2.9) for
+# the full cluster builds in step 3.
 set -euo pipefail
 
 # Absolute paths, in the form the tools take (Git Bash on Windows: E:/...).
@@ -46,7 +49,7 @@ abs() { (cd "$1" && { pwd -W 2>/dev/null || pwd; }); }
 here="$(abs "$(dirname "$0")")"
 repo="$(abs "$here/../..")"
 clusters="$(abs "${CLUSTERS_DIR:-$here/flux/clusters}")"
-secrets="$(abs "${SECRETS_DIR:-$here/flux/secrets}")"
+secrets="${SECRETS_DIR:+$(abs "$SECRETS_DIR")}"
 config_root="$(abs "${CONFIG_ROOT:-$repo}")"
 settings="${SETTINGS:-$here/flux/clusters/example/cluster-settings.yaml}"
 settings="$(abs "$(dirname "$settings")")/$(basename "$settings")"
@@ -131,8 +134,16 @@ done
 # out (so step 3 doesn't build them).
 echo "-- opt-in layers (flux/clusters/example)"
 kc flux/clusters/example/weldid.yaml flux/clusters/example/weldid-switch.yaml
-echo "-- secret templates"
-kc flux/secrets/examples/secrets.example.yaml flux/secrets/examples/weldid.example.yaml
+# The secrets layer, and each component a cluster can add to it. Its one
+# setting is SECRET_STORE_URL, which a cluster still on SOPS leaves empty (an
+# empty server fails the schema), so the example cluster's settings; a
+# cluster that runs the layer is built with its own in step 3.
+for dir in flux/secrets flux/secrets/*/; do
+  dir="${dir%/}"
+  echo "-- $dir"
+  kubectl kustomize "$dir" | substitute "$here/flux/clusters/example/cluster-settings.yaml" | kc -
+done
+node flux/scripts/seed-secrets.mjs --check
 
 echo "== Clusters ($clusters)"
 if command -v flux >/dev/null; then
@@ -183,22 +194,23 @@ YAML
     | substitute "$own" | kc -
 done
 
-echo "== Secrets ($secrets)"
-# A cluster's secrets folder, and its own layers' folders in it (weldid/,
-# the weldid-secrets layer).
-for dir in "$secrets"/*/ "$secrets"/*/*/; do
-  dir="${dir%/}"
-  rel="${dir#"$secrets"/}"
-  case "$rel" in
-    examples | examples/*) continue ;;
-    */*) [ -f "$dir/kustomization.yaml" ] || continue ;;
-  esac
-  echo "-- $rel"
-  for file in "$dir"/*.yaml; do
-    [ "$(basename "$file")" = kustomization.yaml ] || encrypted "$file"
+if [ -n "$secrets" ]; then
+  echo "== SOPS secrets ($secrets)"
+  # A cluster's secrets folder, and its own layers' folders in it (weldid/,
+  # the weldid-secrets layer).
+  for dir in "$secrets"/*/ "$secrets"/*/*/; do
+    dir="${dir%/}"
+    rel="${dir#"$secrets"/}"
+    case "$rel" in
+      */*) [ -f "$dir/kustomization.yaml" ] || continue ;;
+    esac
+    echo "-- $rel"
+    for file in "$dir"/*.yaml; do
+      [ "$(basename "$file")" = kustomization.yaml ] || encrypted "$file"
+    done
+    kubectl kustomize "$dir" | strip_sops | kc -
   done
-  kubectl kustomize "$dir" | strip_sops | kc -
-done
+fi
 
 echo "== Helm releases (chart, version, values)"
 # name  namespace  chart (repo/chart or oci://…)  version  values  release file
@@ -211,6 +223,7 @@ releases=(
   "cloudnative-pg cnpg-system https://cloudnative-pg.github.io/charts|cloudnative-pg 0.29.1 flux/infrastructure/controllers/values/cloudnative-pg.yaml flux/infrastructure/controllers/releases.yaml"
   "plugin-barman-cloud cnpg-system https://cloudnative-pg.github.io/charts|plugin-barman-cloud 0.8.1 flux/infrastructure/controllers/values/plugin-barman-cloud.yaml flux/infrastructure/controllers/releases.yaml"
   "metrics-server kube-system https://kubernetes-sigs.github.io/metrics-server|metrics-server 3.14.0 flux/infrastructure/controllers/values/metrics-server.yaml flux/infrastructure/controllers/releases.yaml"
+  "external-secrets external-secrets https://charts.external-secrets.io|external-secrets 2.14.0 flux/infrastructure/controllers/values/external-secrets.yaml flux/infrastructure/controllers/releases.yaml"
   "kube-prometheus-stack monitoring https://prometheus-community.github.io/helm-charts|kube-prometheus-stack 92.3.1 flux/infrastructure/monitoring/values/kube-prometheus-stack.yaml flux/infrastructure/monitoring/releases.yaml $switch/kube-prometheus-stack.yaml"
   "blackbox-exporter monitoring https://prometheus-community.github.io/helm-charts|prometheus-blackbox-exporter 11.20.2 flux/infrastructure/monitoring/values/blackbox-exporter.yaml flux/infrastructure/monitoring/releases.yaml"
   "loki logging https://grafana.github.io/helm-charts|loki 7.5.0 flux/infrastructure/logging/values/loki.yaml flux/infrastructure/logging/releases.yaml"

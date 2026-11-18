@@ -241,6 +241,7 @@ export const weldbooksUsSalesTaxDocuments = {
     atLeastOneLine: 'Voeg minstens één regel toe',
     customerRequired: 'Kies een klant',
     dateRequired: 'Kies een datum',
+    endBeforeNextIssue: 'De einddatum mag niet voor de volgende factuurdatum liggen',
     descriptionRequired: 'Vul een omschrijving in',
     finalizeFailedTitle: 'De factuur is gemaakt maar niet afgerond',
     finalizeFailed: '{message} De factuur blijft een concept. Open hem om het probleem op te lossen en hem af te ronden.',

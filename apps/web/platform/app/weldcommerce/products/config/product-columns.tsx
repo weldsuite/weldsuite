@@ -11,11 +11,40 @@ import { getTranslations } from '@/lib/i18n';
 import type { CommerceProduct } from '@/hooks/queries/use-commerce-queries';
 import { ProductSalesChannelsEditor } from '../components/product-sales-channels-editor';
 
+/**
+ * An amount as the lists show it: in the row's currency, formatted the same
+ * way as the object panel (`formatPanelMoney`), so "$19.99" is "$19.99" in both.
+ * Without a usable currency code the plain amount is shown rather than a
+ * guessed currency.
+ */
 export function formatMoney(amount: unknown, currency?: string | null): string {
   if (amount == null || amount === '') return '—';
-  const currencySuffix = currency ? ` ${currency}` : '';
-  return `${Number(amount).toFixed(2)}${currencySuffix}`;
+  const num = Number(amount);
+  if (Number.isNaN(num)) return String(amount);
+  const code = currency?.trim().toUpperCase();
+  if (code && /^[A-Z]{3}$/.test(code)) {
+    try {
+      return new Intl.NumberFormat(undefined, {
+        style: 'currency',
+        currency: code,
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(num);
+    } catch {
+      return `${num.toFixed(2)} ${code}`;
+    }
+  }
+  return num.toFixed(2);
 }
+
+/**
+ * Column widths of the commerce lists. The first column grows and keeps a
+ * minimum width; the others appear as the list gets wider (`@…/list` is the
+ * list's own width, see `PanelEntityList`), least important last, so the
+ * first column is never squeezed to nothing on a laptop, a phone, or next to
+ * an open panel.
+ */
+export const LIST_PRIMARY_COLUMN = 'flex-1 min-w-[140px]';
 
 export function productStatusVariant(status: string | null | undefined) {
   if (status === 'active') return 'default';
@@ -29,7 +58,7 @@ export function buildProductColumns(): ColumnDef<CommerceProduct>[] {
     {
       id: 'name',
       header: t.fields.name,
-      width: 'flex-1',
+      width: LIST_PRIMARY_COLUMN,
       render: (p) => (
         <span className="flex min-w-0 items-center gap-2">
           {p.featuredImageUrl ? (
@@ -48,8 +77,8 @@ export function buildProductColumns(): ColumnDef<CommerceProduct>[] {
     {
       id: 'sku',
       header: t.fields.sku,
-      width: 'w-[150px]',
-      render: (p) => <span className="text-muted-foreground">{p.sku ?? '—'}</span>,
+      width: 'hidden @3xl/list:block w-[150px]',
+      render: (p) => <span className="text-muted-foreground truncate block">{p.sku?.trim() || '—'}</span>,
     },
     {
       id: 'price',
@@ -60,19 +89,19 @@ export function buildProductColumns(): ColumnDef<CommerceProduct>[] {
     {
       id: 'stock',
       header: t.fields.stock,
-      width: 'w-[100px]',
+      width: 'hidden @4xl/list:block w-[100px]',
       render: (p) => <span>{p.inventoryQuantity ?? 0}</span>,
     },
     {
       id: 'brand',
       header: t.fields.brand,
-      width: 'w-[130px]',
-      render: (p) => <span className="text-muted-foreground truncate block">{p.brand ?? '—'}</span>,
+      width: 'hidden @7xl/list:block w-[130px]',
+      render: (p) => <span className="text-muted-foreground truncate block">{p.brand?.trim() || '—'}</span>,
     },
     {
       id: 'salesChannels',
       header: t.products.salesChannels,
-      width: 'w-[280px]',
+      width: 'hidden @6xl/list:block w-[280px]',
       render: (p) => (
         <ProductSalesChannelsEditor
           productId={p.id}
@@ -87,7 +116,7 @@ export function buildProductColumns(): ColumnDef<CommerceProduct>[] {
     {
       id: 'status',
       header: t.fields.status,
-      width: 'w-[120px]',
+      width: 'hidden @lg/list:block w-[120px]',
       render: (p) => (
         <Badge variant={productStatusVariant(p.status)} className="capitalize">
           {p.status}

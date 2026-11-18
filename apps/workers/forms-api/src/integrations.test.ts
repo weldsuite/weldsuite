@@ -318,7 +318,7 @@ describe('CRM step', () => {
     expect(await db.select().from(schema.listMembers)).toMatchObject([{ listId: 'lst_news', entityId: person!.id }]);
     const [activity] = await db.select().from(schema.crmActivities);
     expect(activity).toMatchObject({ type: 'note', subject: 'Submitted Contact us', personId: person!.id, assignedToId: 'user_owner' });
-    expect(activity!.description).toBe(`https://app.test/weldforms/${FORM}/results?tab=responses&response=${RESPONSE}`);
+    expect(activity!.description).toBe(`https://app.test/w/${ORG}/weldforms/${FORM}/results?tab=responses&response=${RESPONSE}`);
     const [response] = await db.select().from(schema.formResponses);
     expect(response!.personId).toBe(person!.id);
     expect(await actions()).toMatchObject([{ integrationId: 'fig_crm', status: 'done', entityType: 'person', entityId: person!.id }]);
@@ -454,7 +454,7 @@ describe('Desk step', () => {
     expect(conversation!.tags).toEqual(['web']);
     const messages = await db.select().from(schema.deskMessages).where(eq(schema.deskMessages.conversationId, conversation!.id));
     const first = messages.find((m) => m.kind === 'message')!;
-    expect(first.body).toBe(`Ada wrote: Please call me back\nhttps://app.test/weldforms/${FORM}/results?tab=responses&response=${RESPONSE}`);
+    expect(first.body).toBe(`Ada wrote: Please call me back\nhttps://app.test/w/${ORG}/weldforms/${FORM}/results?tab=responses&response=${RESPONSE}`);
     expect(first.attachments).toMatchObject([{ name: 'cv.pdf', contentType: 'application/pdf', filesize: 4, url: expect.stringMatching(/^https:\/\/cdn\.test\/desk\/org_forms\/forms\/frs_int\/.+\/cv\.pdf$/) }]);
     expect(await actions()).toMatchObject([{ status: 'done', entityType: 'desk_conversation', entityId: conversation!.id }]);
     expect(world.sent.map((m) => m.eventType)).toContain('desk_conversation:created');

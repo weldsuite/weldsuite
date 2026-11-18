@@ -13,12 +13,12 @@ import { removeChart, saveChart } from '../model/charts';
 import {
   cellSelection,
   clampToGrid,
+  contextMenuSelection,
   extendTo,
   isWholeColumns,
   isWholeRows,
   primaryRange,
   rangeFrom,
-  selectionContains,
   wholeColumns,
   wholeRows,
   type CellPos,
@@ -268,7 +268,8 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot, tableLabels 
   // or a field in a side panel, dialog, the find bar or the add-rows bar does (a chart panel saves as it is typed in).
   useEffect(() => {
     if (editing?.origin === 'bar' || chipMenuOpen.current) return;
-    if (document.activeElement?.closest('aside, form, [role="dialog"], [role="search"]')) return;
+    // A sheet tab's rename field too.
+    if (document.activeElement?.closest('aside, form, [role="dialog"], [role="search"], [role="tablist"] input')) return;
     editorRef.current?.focus({ preventScroll: true });
   }, [version, editing?.origin]);
 
@@ -732,15 +733,20 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot, tableLabels 
   };
 
   const onContextMenuOpen = (e: React.MouseEvent<HTMLDivElement>) => {
+    // The right button's press put the focus on the page around the grid: take
+    // it back before the menu opens, so the menu hands it back here when it
+    // closes and the keys (Ctrl+Z, arrows) keep working.
+    activeInput()?.focus({ preventScroll: true });
     const { hit, x, y } = pointAt(e);
     const onChart = hit.area === 'cell' ? chartAt(layout, sheet, x, y, controller.selectedChart) : null;
     if (onChart) {
       if (controller.commitEdit()) controller.selectChart(onChart.chart.id);
       return;
     }
-    if (hit.area === 'cell' && !selectionContains(controller.selection, hit.row, hit.col)) {
-      if (controller.commitEdit()) controller.select(cellSelection(hit.row, hit.col));
-    }
+    // Right-clicking outside the selection selects what was clicked first: the
+    // cell, or the whole row or column under a header, so the menu acts on it.
+    const target = contextMenuSelection(controller.selection, hit);
+    if (target && controller.commitEdit()) controller.select(target);
   };
 
   // -------------------------------------------------------------------------

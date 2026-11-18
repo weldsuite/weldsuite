@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import { useCreateIntent } from '@/hooks/use-create-intent';
 import { useCanAny } from '@weldsuite/permissions/react';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { getTranslations } from '@/lib/i18n';
@@ -21,6 +22,7 @@ export default function AgentsPage() {
   const { data: agents = [], isLoading } = useAgents();
   const { create, isPending } = useCreateAndOpenAgent();
   const canCreate = useCanAny(['weldagent:create', 'weldagent:manage']);
+  useCreateIntent(() => void create(), { ready: canCreate && !isPending });
   // Notification links arrive as ?conversation=<id>: open it under its agent.
   const linked = useSearchParams().get('conversation');
   const { data: conv, isSuccess, isError } = useWeldAgentConversation(linked);

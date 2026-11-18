@@ -15,7 +15,7 @@
  * | attribute | applies to | meaning |
  * |---|---|---|
  * | `data-wf-mode` | all | `inline` (default; `widget` is accepted too), `popup`, `slider`, `popover`, `fullpage` |
- * | `data-wf-hidden` | all | `a=1,b=2`: hidden field values |
+ * | `data-wf-hidden` | all | `a=1,b=2`: hidden field values, or answers for questions by their reference |
  * | `data-wf-base-url` | all | portal origin, default `https://forms.weldsuite.org` |
  * | `data-wf-size` | popup, slider | `small`, `medium` or `large` |
  * | `data-wf-auto-resize` | inline | `false` keeps a fixed height |

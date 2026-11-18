@@ -73,3 +73,13 @@ export const WithCheckbox: Story = {
     </div>
   ),
 };
+
+export const LabelForControl: Story = {
+  render: () => (
+    <div className="w-[320px]">
+      <FormField label="Opens at" htmlFor="story-opens-at" helpText="The label names the control: clicking it focuses the field.">
+        <input id="story-opens-at" type="datetime-local" className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm" />
+      </FormField>
+    </div>
+  ),
+};

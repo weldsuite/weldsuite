@@ -20,6 +20,13 @@ describe('NL chart of accounts', () => {
     expect(byRole('payroll_liabilities')).toMatchObject({ code: '1800', name: 'Loonheffing te betalen', type: 'liability', normalSide: 'credit' });
   });
 
+  it('carries the roles the fixed asset register books on, so an asset needs no accounts picked', () => {
+    const byRole = (role: string) => chart.find((a) => a.systemRole === role);
+    expect(byRole('fixed_assets')).toMatchObject({ code: '0200', type: 'asset', normalSide: 'debit' });
+    expect(byRole('accumulated_depreciation')).toMatchObject({ code: '0290', type: 'asset', normalSide: 'credit' });
+    expect(byRole('depreciation_expense')).toMatchObject({ code: '4700', name: 'Afschrijvingen', type: 'expense' });
+  });
+
   it('keeps the codes the journal falls back on for entities created before the roles existed', () => {
     // Pension costs (employer benefits) and the bank account have no role: books-api resolves them by code.
     expect(chart.find((a) => a.code === '4130')).toMatchObject({ name: 'Pensioenlasten', type: 'expense' });

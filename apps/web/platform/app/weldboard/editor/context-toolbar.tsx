@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AlignCenter,
   AlignHorizontalJustifyCenter,
@@ -107,8 +107,28 @@ function fillSwatch(fill: BoardElement['fill']) {
 /** The floating bar's height: a 32px button, its padding and border. */
 const BAR_HEIGHT = 40;
 
+/** Where the bar's centre goes: over the selection, but with the whole bar inside the canvas. */
+function barCenter(x: number, barWidth: number, viewportWidth: number): number {
+  const half = barWidth / 2 + 8;
+  if (viewportWidth <= half * 2) return viewportWidth / 2;
+  return Math.max(half, Math.min(viewportWidth - half, x));
+}
+
 export function ContextToolbar({ controller: c, actions }: { controller: BoardController; actions: ContextActions }) {
   const { t } = useI18n();
+  // The bar's own width, so an element near the edge doesn't push half of it off the canvas.
+  const [barWidth, setBarWidth] = useState(0);
+  const observerRef = useRef<ResizeObserver | null>(null);
+  const barRef = useCallback((el: HTMLDivElement | null) => {
+    observerRef.current?.disconnect();
+    observerRef.current = null;
+    if (!el) return;
+    setBarWidth(el.offsetWidth);
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => setBarWidth(el.offsetWidth));
+    observer.observe(el);
+    observerRef.current = observer;
+  }, []);
   const te = t.weldboard.editor;
   const ts = te.style;
   const ta = te.actions;
@@ -123,7 +143,7 @@ export function ContextToolbar({ controller: c, actions }: { controller: BoardCo
   const gap = handlePositions(c).length ? 44 : 16;
   const above = top.y - gap - BAR_HEIGHT > 16;
   const style = {
-    left: Math.max(8, Math.min(c.viewport.width - 8, top.x)),
+    left: barCenter(top.x, barWidth, c.viewport.width),
     top: above ? top.y - gap - BAR_HEIGHT : Math.min(c.viewport.height - 56, bottom.y + gap),
   };
 
@@ -142,7 +162,7 @@ export function ContextToolbar({ controller: c, actions }: { controller: BoardCo
 
   if (locked) {
     return (
-      <div className="pointer-events-auto absolute z-20 flex -translate-x-1/2 items-center gap-0.5 rounded-xl border bg-background p-1 shadow-lg" style={style}>
+      <div ref={barRef} className="pointer-events-auto absolute z-20 flex -translate-x-1/2 items-center gap-0.5 rounded-xl border bg-background p-1 shadow-lg" style={style}>
         {lockButton}
       </div>
     );
@@ -150,6 +170,7 @@ export function ContextToolbar({ controller: c, actions }: { controller: BoardCo
 
   return (
     <div
+      ref={barRef}
       className="pointer-events-auto absolute z-20 flex -translate-x-1/2 items-center gap-0.5 rounded-xl border bg-background p-1 shadow-lg"
       style={style}
       role="toolbar"

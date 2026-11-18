@@ -6,7 +6,9 @@ import { BreadcrumbHeader } from '@/components/breadcrumb-header';
 import { ModuleContent } from '@/components/layout/module-content';
 import { AgentChatInput, AgentSuggestions } from '@/components/weldagent/agent-chat-input';
 import { useI18n } from '@/lib/i18n/provider';
+import { Settings2 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
+import { AppIcon } from '@/components/app-icon';
 import { useUserPreferences } from '@/hooks/queries/use-settings-queries';
 import { HOME_WIDGETS, emptySlots, isWidgetEnabled, type NullableSlot } from '@/lib/home-widgets/registry';
 import type { HomeWidgetSlot, WidgetId } from '@/lib/home-widgets/types';
@@ -30,7 +32,7 @@ function resolveHomeSlots(prefs: ReturnType<typeof useUserPreferences>['data']):
 }
 
 function HomeWidgetsArea() {
-  const { t } = useI18n();
+  const { t, format } = useI18n();
   const prefsQuery = useUserPreferences();
   const slots = resolveHomeSlots(prefsQuery.data);
   const filled = slots.filter((s): s is HomeWidgetSlot => s !== null);
@@ -49,16 +51,44 @@ function HomeWidgetsArea() {
     );
   }
 
+  // Each widget is titled and links to its app; one control leads back to the widget settings (TASK-1427).
   return (
     <div className="flex flex-col gap-4">
       {filled.map((slot, i) => {
         const def = HOME_WIDGETS[slot.widgetId];
         if (!def) return null;
         const Render = def.HomeRender;
+        const title = t.weldsuiteHome.widgets[slot.widgetId].title;
+        // Every widget module but `analytics` is an app at `/<module>`. Not
+        // `lib/apps/catalog`: it imports the master database client, which
+        // can't be bundled for the browser.
+        const appPath = def.module === 'analytics' ? undefined : `/${def.module}`;
         return (
-          <div key={`${i}-${slot.widgetId}`}>
+          <section key={`${i}-${slot.widgetId}`} aria-label={title} className="flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <AppIcon icon={def.module} className="h-4 w-4 shrink-0" />
+              {appPath ? (
+                <Link
+                  href={appPath}
+                  title={format(t.weldsuiteHome.page.openApp, { app: t.weldsuiteHome.groups[def.module] })}
+                  className="text-sm font-medium text-foreground hover:underline underline-offset-2"
+                >
+                  {title}
+                </Link>
+              ) : (
+                <h2 className="text-sm font-medium text-foreground">{title}</h2>
+              )}
+              {i === 0 && (
+                <Button asChild variant="ghost" size="sm" className="ml-auto h-7 px-2 text-xs text-muted-foreground">
+                  <Link href="/settings/apps/weldsuite">
+                    <Settings2 className="h-3.5 w-3.5" />
+                    {t.weldsuiteHome.page.customizeWidgets}
+                  </Link>
+                </Button>
+              )}
+            </div>
             <Render settings={slot.settings as never} />
-          </div>
+          </section>
         );
       })}
     </div>

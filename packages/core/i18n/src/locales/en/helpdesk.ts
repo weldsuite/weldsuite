@@ -455,7 +455,7 @@ export const helpdesk = {
       activityReview: 'Review',
       openMenu: 'Open menu',
       // Layout default breadcrumb
-      helpdeskBreadcrumb: 'Helpdesk',
+      helpdeskBreadcrumb: 'WeldDesk',
     },
 
     // Tickets
@@ -2016,6 +2016,10 @@ export const helpdesk = {
       reportDuplicated: 'Report duplicated',
       failedToDeleteReport: 'Failed to delete report',
       failedToDuplicateReport: 'Failed to duplicate report',
+      chart: 'chart',
+      deleteReportTitle: 'Delete report',
+      deleteReportDescription: 'Delete "{title}"? This cannot be undone.',
+      deleteChartDescription: 'Delete "{title}" from this report? This cannot be undone.',
       analyticsReport: 'Analytics report',
       // Report view
       selectReport: 'Select report...',
@@ -2278,7 +2282,7 @@ export const helpdesk = {
 
     // AI Agents (WeldAgent configuration)
     aiAgents: {
-      helpdeskBreadcrumb: 'Helpdesk',
+      helpdeskBreadcrumb: 'WeldDesk',
       agentDisabled: 'AI Agent is disabled',
       agentDisabledPreview: 'Enable the agent to preview the chat widget',
       online: 'Online',
@@ -2492,6 +2496,8 @@ export const helpdesk = {
       failedToUpdateSavedReply: 'Failed to update saved reply',
       savedReplyDeleted: 'Saved reply deleted',
       failedToDeleteSavedReply: 'Failed to delete saved reply',
+      failedToCreateSavedReply: 'Failed to create saved reply',
+      failedToCreateTicketType: 'Failed to create ticket type',
     },
 
     // Settings - integrations
@@ -2855,7 +2861,7 @@ export const helpdesk = {
       unknownCustomer: 'Unknown',
       noSubject: 'No subject',
       // breadcrumbs
-      helpdeskBreadcrumb: 'Helpdesk',
+      helpdeskBreadcrumb: 'WeldDesk',
       ticketsBreadcrumb: 'Tickets',
       // ticket-detail-client.tsx
       ticketDetailTitle: 'Ticket Details',
@@ -3181,7 +3187,7 @@ export const helpdesk = {
 
     // Ticket types settings page (ticket-types-settings.tsx)
     ticketTypesPage: {
-      helpdeskBreadcrumb: 'Helpdesk',
+      helpdeskBreadcrumb: 'WeldDesk',
       settingsBreadcrumb: 'Settings',
       breadcrumb: 'Ticket Types',
       title: 'Ticket Types',
@@ -3197,6 +3203,9 @@ export const helpdesk = {
       deleteConfirm: 'Delete',
       fieldCount: '{count} field',
       fieldCountPlural: '{count} fields',
+      toggleTypeAria: 'Turn {name} on or off',
+      editTypeAria: 'Edit {name}',
+      deleteTypeAria: 'Delete {name}',
     },
 
     // Ticket type editor (ticket-type-editor.tsx)
@@ -3251,7 +3260,7 @@ export const helpdesk = {
 
     // Saved replies settings page (saved-replies-settings.tsx)
     savedRepliesPage: {
-      helpdeskBreadcrumb: 'Helpdesk',
+      helpdeskBreadcrumb: 'WeldDesk',
       settingsBreadcrumb: 'Settings',
       breadcrumb: 'Saved Replies',
       title: 'Saved Replies',
@@ -3379,7 +3388,7 @@ export const helpdesk = {
     // Member detail page (teams/[id]/members/[memberId]/member-detail-client.tsx
     // and teams/support/members/[id]/member-detail-client.tsx)
     memberDetailPage: {
-      helpdeskBreadcrumb: 'Helpdesk',
+      helpdeskBreadcrumb: 'WeldDesk',
       teamsBreadcrumb: 'Teams',
       teamBreadcrumb: 'Team',
       supportTeamBreadcrumb: 'Support Team',
@@ -3923,6 +3932,10 @@ export const helpdesk = {
       deleted: 'Voice agent deleted',
       saveFailed: 'Failed to save voice agent',
       deleteFailed: 'Failed to delete',
+      deleteTitle: 'Delete voice agent',
+      deleteDescription: 'Delete "{name}"? This cannot be undone.',
+      deleteConfirm: 'Delete',
+      deleteAria: 'Delete {name}',
     },
 
     phoneSettingsPage: {
@@ -3934,6 +3947,7 @@ export const helpdesk = {
       provisionPrefix: 'Provision numbers in',
       phoneNumbersLink: 'Phone Numbers',
       provisionSuffix: ', then sync them here for inbound routing.',
+      provisionUnavailable: "Phone numbers can't be bought or ported on this edition yet.",
       inboundAction: 'Inbound action',
       actionAiAgent: 'AI voice agent',
       actionForward: 'Forward to number',
@@ -4093,6 +4107,11 @@ export const helpdesk = {
       positionRight: 'Right',
       positionLeft: 'Left',
       defaultGreeting: 'Hi — how can we help?',
+      enabledHint: 'When this is off, the widget does not appear on your website.',
+      greetingLabel: 'Greeting',
+      colorLabel: 'Brand color',
+      positionLabel: 'Position',
+      widgetActionsAria: 'Actions for {name}',
       officeHours: 'Office hours',
       officeHoursEnabled: 'Use office hours',
       officeHoursDescription: 'Outside these hours the widget shows your away message and asks visitors for their email.',

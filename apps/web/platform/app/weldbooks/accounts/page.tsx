@@ -23,12 +23,15 @@ import { useI18n } from '@/lib/i18n/provider';
 import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 import { useCurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';
 import { taxLineLabel } from '@/lib/weldbooks/tax-lines';
+import { balanceOnNormalSide } from '@/lib/weldbooks/account-balance';
 
 interface AccountRow {
   id: string;
   code: string;
   name: string;
   type: string;
+  normalSide?: string | null;
+  isActive?: boolean | null;
   currentBalance?: string | number | null;
   currency?: string | null;
   taxLine?: string | null;
@@ -114,6 +117,7 @@ export default function ChartOfAccountsPage() {
         <>
           <RowNumberChip>{acc.code}</RowNumberChip>
           <RowTitle>{acc.name}</RowTitle>
+          {acc.isActive === false ? <StatusChip tone="gray">{t.accounting.accounts.inactive}</StatusChip> : null}
         </>
       ),
     },
@@ -147,7 +151,10 @@ export default function ChartOfAccountsPage() {
       id: 'balance',
       header: tap.colBalance,
       width: 'w-[160px]',
-      render: (acc) => <RowAmount>{formatMoney(acc.currentBalance, acc.currency)}</RowAmount>,
+      // On the account's own side, as on the P&L and the balance sheet (revenue shows positive).
+      render: (acc) => (
+        <RowAmount>{formatMoney(balanceOnNormalSide(acc.currentBalance, acc.normalSide), acc.currency)}</RowAmount>
+      ),
     },
   ];
 

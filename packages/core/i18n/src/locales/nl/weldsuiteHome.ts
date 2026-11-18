@@ -8,6 +8,7 @@ export const weldsuiteHome = {
     pickWidgetPlaceholder: 'Widgets zoeken...',
     comingSoon: 'Binnenkort beschikbaar',
     preview: 'Voorbeeld',
+    settings: 'Instellingen',
     save: 'Opslaan',
     cancel: 'Annuleren',
     unsavedChanges: 'Je hebt niet-opgeslagen wijzigingen.',
@@ -195,6 +196,8 @@ export const weldsuiteHome = {
     fallbackName: 'collega',
     breadcrumbHome: 'Home',
     breadcrumbNewChat: 'Nieuwe chat',
+    customizeWidgets: 'Widgets aanpassen',
+    openApp: '{app} openen',
   },
   time: {
     now: 'nu',

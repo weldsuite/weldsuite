@@ -136,8 +136,12 @@ export const weldbooksUsBanking = {
     undoImport: 'Import ongedaan maken',
     undoImportTitle: 'Deze import ongedaan maken?',
     undoImportDescription: 'Verwijdert de transacties die deze import heeft toegevoegd en haalt ze van het saldo af. Transacties die je al hebt afgestemd blijven staan.',
-    undoImportDone: '{deleted} transacties verwijderd.',
-    undoImportKept: '{deleted} transacties verwijderd, {kept} afgestemde transacties blijven staan.',
+    undoImportDone: '{removed}.',
+    undoImportKept: '{removed}, {kept}.',
+    undoImportRemovedOne: '1 transactie verwijderd',
+    undoImportRemovedMany: '{count} transacties verwijderd',
+    undoImportKeptOne: '1 afgestemde transactie blijft staan',
+    undoImportKeptMany: '{count} afgestemde transacties blijven staan',
     undoImportFailed: 'De import kon niet ongedaan worden gemaakt.',
   },
 
@@ -176,7 +180,7 @@ export const weldbooksUsBanking = {
   csvEditor: {
     title: 'CSV-indeling',
     description:
-      'Amerikaanse banken gebruiken geen gemeenschappelijk CSV-formaat. Controleer hoe dit bestand wordt gelezen voordat je importeert: het voorbeeld hieronder wordt bijgewerkt als je de indeling aanpast.',
+      'Banken gebruiken geen gemeenschappelijk CSV-formaat. Controleer hoe dit bestand wordt gelezen voordat je importeert: het voorbeeld hieronder wordt bijgewerkt als je de indeling aanpast.',
     serverWarnings: {
       noDate: 'Er is geen datumkolom gevonden. Kies er hieronder een.',
       noAmount: 'Er is geen bedragkolom gevonden. Kies er hieronder een.',

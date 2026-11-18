@@ -253,4 +253,48 @@ describe('/api/invoices · list', () => {
     expect(body.data).toHaveLength(1);
     expect(body.data[0]).toMatchObject({ creditNoteForInvoiceId: sourceId, creditNoteForInvoiceNumber: 'INV-CN-SRC' });
   });
+
+  it('GET /?type=invoice lists every invoice but the credit notes', async () => {
+    await db.insert(schema.entities).values({
+      id: 'ent_inv_list',
+      name: 'Invoice List Co',
+      jurisdictionCode: 'NL',
+      baseCurrency: 'EUR',
+      locale: 'nl-NL',
+    });
+    await db.insert(schema.accountingEntitySettings).values({ entityId: 'ent_inv_list' });
+
+    const { request } = createTestApp('/api/invoices', invoicesRoutes, {
+      context: { permissions: permissions('invoices:create', 'invoices:read'), tenantDb: db },
+    });
+    const create = async (extra: Record<string, unknown>) => {
+      const res = await request('/api/invoices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Accounting-Entity-Id': 'ent_inv_list' },
+        body: JSON.stringify({
+          contactId: 'ctt_inv',
+          issueDate: '2026-04-01',
+          dueDate: '2026-04-15',
+          items: [{ description: 'Work', quantity: '1', unitPrice: '10.00' }],
+          ...extra,
+        }),
+      });
+      expect(res.status).toBe(201);
+      return ((await res.json()) as { data: { id: string } }).data.id;
+    };
+
+    const standardId = await create({});
+    const proformaId = await create({ type: 'proforma' });
+    await create({ type: 'credit_note', creditNoteForInvoiceId: standardId });
+
+    const list = async (query: string) => {
+      const res = await request(`/api/invoices${query}`, { headers: { 'X-Accounting-Entity-Id': 'ent_inv_list' } });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { data: { id: string }[]; pagination: { totalCount: number } };
+      return { ids: body.data.map((row) => row.id).sort(), total: body.pagination.totalCount };
+    };
+    expect(await list('?type=invoice')).toEqual({ ids: [standardId, proformaId].sort(), total: 2 });
+    expect(await list('?type=standard')).toEqual({ ids: [standardId], total: 1 });
+    expect((await list('')).total).toBe(3);
+  });
 });

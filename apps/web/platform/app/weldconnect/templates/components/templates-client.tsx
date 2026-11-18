@@ -36,6 +36,10 @@ import {
 } from '../../components/connect-list-row';
 import { TemplateDetailDialog, categoryLabel, integrationLabel } from './template-detail-dialog';
 import { TemplateFormDialog, toTemplateCategory, type TemplateFormValues } from './template-form-dialog';
+import { isFeatureAvailable } from '@/lib/edition';
+
+/** WeldConnect's AI steps (`weldconnect-ai`). */
+const AI_STEP_TYPES: ReadonlySet<string> = new Set(['ai_generate', 'ai_classify', 'ai_extract', 'ai_summarize', 'ai_agent']);
 
 export function TemplatesClient() {
   const { t, language } = useI18n();
@@ -51,7 +55,12 @@ export function TemplatesClient() {
   ]);
 
   const { data, isLoading, error, refetch } = useWorkflowTemplates(language);
-  const templates = useMemo(() => data?.data ?? [], [data]);
+  // A template with an AI step needs the deployment's AI (`weldconnect-ai`).
+  const templates = useMemo(() => {
+    const all = data?.data ?? [];
+    if (isFeatureAvailable('weldconnect-ai')) return all;
+    return all.filter((template) => !template.steps.some((step) => AI_STEP_TYPES.has(step.type)));
+  }, [data]);
   const createFromTemplate = useCreateWorkflowFromTemplate();
   const updateTemplate = useUpdateTemplate();
   const deleteTemplate = useDeleteTemplate();

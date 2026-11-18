@@ -221,3 +221,25 @@ pub(crate) fn keyed_hash(env: &Env, purpose: &str, value: &str) -> FormsResult<S
         &format!("{purpose}:{value}"),
     ))
 }
+
+/// `submittedTooSoon(startedAt, minFillMs, now)`: too quick to be a person
+/// (ADR FORMS-005), less than `min_fill` between the session's start and the
+/// submit, both as this server saw them. The block timings the page reports
+/// are never counted: a script could claim any time it liked. The page starts
+/// the session at the first answer and waits out the rest before it submits.
+#[allow(clippy::cast_precision_loss)]
+pub(crate) fn submitted_too_soon(started_at: i64, min_fill: f64, now: i64) -> bool {
+    ((now - started_at) as f64) < min_fill
+}
+
+#[cfg(test)]
+mod tests {
+    use super::submitted_too_soon;
+
+    #[test]
+    fn submitted_too_soon_counts_only_the_time_the_server_saw() {
+        assert!(submitted_too_soon(10_000, 1_500.0, 10_080));
+        assert!(!submitted_too_soon(10_000, 1_500.0, 11_500));
+        assert!(!submitted_too_soon(10_000, 0.0, 10_000));
+    }
+}

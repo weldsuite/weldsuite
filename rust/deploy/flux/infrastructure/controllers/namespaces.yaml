@@ -19,6 +19,16 @@ metadata:
   labels:
     pod-security.kubernetes.io/enforce: restricted
 ---
+# External Secrets Operator (releases.yaml): it writes every Secret the later
+# layers read, from the cluster's secret store (../../secrets). The store's
+# token, the one Secret put in by hand, lives here too.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: external-secrets
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+---
 # The marketing site (apps/marketing, test only so far). Here rather than in
 # its layer because the secrets layer, which runs first, puts its registry
 # Secret in it. It shares nothing with the platform.

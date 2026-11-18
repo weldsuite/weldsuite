@@ -156,6 +156,8 @@ export function EntityGrid<TEntity>({
           hasMore={hasMore}
           isFetchingMore={isFetchingMore}
           listName={listName}
+          activeSearch={searchParams?.search ?? ''}
+          onClearSearch={() => handleSearchChange('')}
         />
 
         {/* Selection Bar */}

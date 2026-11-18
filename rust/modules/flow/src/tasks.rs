@@ -408,7 +408,15 @@ macro_rules! task_list_filters {
             " or coalesce(t.assignee_ids::jsonb @> $18::jsonb, false)))",
             " and ($19::text is null or (t.assignee_id = $19 or t.assignee_ids::jsonb @> $20::jsonb))",
             " and ($21::text is null or (t.title ilike $21 or t.description ilike $21 or t.key ilike $21",
-            " or ($22::bigint is not null and t.number = $22)))",
+            " or ($22::bigint is not null and t.number = $22)",
+            // A top-level project list also matches a parent whose subtask
+            // (at any depth) matches (`hasMatchingSubtask`).
+            " or ($11::bool is true and t.id in (with recursive hit as (select m.id, m.parent_task_id",
+            " from tasks m where m.deleted_at is null and m.parent_task_id is not null and m.project_id = $1",
+            " and (m.title ilike $21 or m.description ilike $21 or m.key ilike $21",
+            " or ($22::bigint is not null and m.number = $22))",
+            " union select p.id, p.parent_task_id from tasks p join hit on p.id = hit.parent_task_id",
+            " where p.deleted_at is null) select hit.id from hit))))",
             " and ($23::text[] is null or not coalesce(t.labels ?| $23::text[], false))",
             " and ($24::text[] is null or t.labels ?| $24::text[])",
             " and ($25::text is null or ",

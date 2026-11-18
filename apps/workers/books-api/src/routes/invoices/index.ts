@@ -21,7 +21,7 @@
 import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, desc, eq, gte, inArray, isNull, like, lte, or, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, like, lte, ne, or, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent, computeChanges } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
@@ -574,8 +574,11 @@ app.get('/', requirePermission('invoices:read'), async (c) => {
     const statusFilter = c.req.query('status');
     if (statusFilter) conditions.push(eq(invoices.status, statusFilter));
 
+    // `type=invoice` is every invoice that is not a credit note (standard,
+    // proforma, correction): the invoice list, next to the credit notes list.
     const typeFilter = c.req.query('type');
-    if (typeFilter) conditions.push(eq(invoices.type, typeFilter));
+    if (typeFilter === 'invoice') conditions.push(ne(invoices.type, 'credit_note'));
+    else if (typeFilter) conditions.push(eq(invoices.type, typeFilter));
 
     const contactFilter = c.req.query('contactId');
     if (contactFilter) conditions.push(eq(invoices.contactId, contactFilter));

@@ -27,6 +27,7 @@ import {
   type QueryClient,
 } from '@tanstack/react-query';
 import { useAppApi } from '@/lib/api/use-app-api';
+import { isFeatureAvailable } from '@/lib/edition';
 import { expectPanelResult } from '@weldsuite/app-api-client/domains/weldpanel';
 import type {
   CreatePanelProjectInput,
@@ -121,6 +122,16 @@ export const INSTALL_POLL_MS = 10_000;
 export const LIVE_POLL_MS = 15_000;
 /** Query results are fresh for a minute (the server caches two). */
 export const QUERY_STALE_MS = 60_000;
+
+/**
+ * Whether this deployment serves WeldPanel's analytics (queries, live
+ * visitors, usage, server keys). The Kubernetes editions don't
+ * (`panel-analytics`): their routes answer 404, so these hooks never ask,
+ * whichever component mounts them.
+ */
+function analyticsServed(): boolean {
+  return isFeatureAvailable('panel-analytics');
+}
 
 // ---------------------------------------------------------------------------
 // Projects (phase 1)
@@ -236,7 +247,7 @@ export function useWeldPanelProjectKeys(projectId: string) {
     queryKey: weldpanelKeys.secretKeys(projectId),
     queryFn: () => weldpanel.keys.list(projectId),
     select: (res) => res.data,
-    enabled: projectId !== '',
+    enabled: projectId !== '' && analyticsServed(),
     meta: { persist: false },
   });
 }
@@ -277,7 +288,7 @@ export function useWeldPanelQuery(spec: PanelQuerySpec, options: WeldPanelQueryO
     queryKey: weldpanelKeys.query(spec),
     queryFn: () => weldpanel.query.run(spec),
     select: (res) => res.data,
-    enabled: (options.enabled ?? true) && spec.projectId !== '',
+    enabled: (options.enabled ?? true) && spec.projectId !== '' && analyticsServed(),
     staleTime: QUERY_STALE_MS,
     refetchInterval: options.refetchInterval ?? false,
     // Keep the old chart on screen while a new range or filter loads.
@@ -303,7 +314,7 @@ function useKindQuery<K extends PanelQueryKind>(kind: K, spec: PanelQuerySpec, o
       dataAsOf: res.data.dataAsOf,
       cached: res.data.cached,
     }),
-    enabled: (options.enabled ?? true) && spec.projectId !== '',
+    enabled: (options.enabled ?? true) && spec.projectId !== '' && analyticsServed(),
     staleTime: QUERY_STALE_MS,
     refetchInterval: options.refetchInterval ?? false,
     placeholderData: keepPreviousData,
@@ -843,7 +854,7 @@ export function useWeldPanelLive(projectId: string, enabled = true) {
     queryKey: weldpanelKeys.live(projectId),
     queryFn: () => weldpanel.live.get(projectId),
     select: (res) => res.data,
-    enabled: enabled && projectId !== '',
+    enabled: enabled && projectId !== '' && analyticsServed(),
     refetchInterval: LIVE_POLL_MS,
     meta: { persist: false },
   });
@@ -856,7 +867,7 @@ export function useWeldPanelUsage(enabled = true) {
     queryKey: weldpanelKeys.usage(),
     queryFn: () => weldpanel.usage.get(),
     select: (res) => res.data,
-    enabled,
+    enabled: enabled && analyticsServed(),
     staleTime: QUERY_STALE_MS,
     meta: { persist: false },
   });

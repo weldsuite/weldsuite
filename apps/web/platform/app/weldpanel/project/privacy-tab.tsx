@@ -19,6 +19,7 @@ import {
   type PanelProjectDto,
 } from '@weldsuite/app-api-client/schemas/weldpanel';
 import { useUpdateWeldPanelProjectSettings } from '@/hooks/queries/use-weldpanel-queries';
+import { isFeatureAvailable } from '@/lib/edition';
 import { useI18n } from '@/lib/i18n/provider';
 import { OptionRadioGroup } from '../components/option-radio-group';
 import { ReadOnlyChips, ReadOnlyField } from '../components/read-only-field';
@@ -36,6 +37,15 @@ import {
 interface PrivacyTabProps {
   project: PanelProjectDto;
   canManage: boolean;
+}
+
+/**
+ * Session recordings, and the AI summaries of them, come with the analytics store: the
+ * Kubernetes editions' collector takes no recordings (`panel-analytics`), so their settings
+ * stay out of sight there (and keep what is stored).
+ */
+function recordingsServed(): boolean {
+  return isFeatureAvailable('panel-analytics');
 }
 
 export function PrivacyTab({ project, canManage }: Readonly<PrivacyTabProps>) {
@@ -64,10 +74,14 @@ export function PrivacyTab({ project, canManage }: Readonly<PrivacyTabProps>) {
             <ReadOnlyField label={tp.ipFiltersLabel}>
               <ReadOnlyChips values={settings.ipFilters} empty={tp.ipFiltersNone} />
             </ReadOnlyField>
-            <ReadOnlyField label={tp.recordingRateLabel}>
-              {format(tp.recordingRateValue, { percent: toPercent(settings.recordingSampleRate) })}
-            </ReadOnlyField>
-            <ReadOnlyField label={tp.aiLabel}>{settings.aiEnabled ? tp.on : tp.off}</ReadOnlyField>
+            {recordingsServed() && (
+              <>
+                <ReadOnlyField label={tp.recordingRateLabel}>
+                  {format(tp.recordingRateValue, { percent: toPercent(settings.recordingSampleRate) })}
+                </ReadOnlyField>
+                <ReadOnlyField label={tp.aiLabel}>{settings.aiEnabled ? tp.on : tp.off}</ReadOnlyField>
+              </>
+            )}
           </dl>
           <p className="text-sm text-muted-foreground">{tp.readOnlyNote}</p>
         </>
@@ -191,51 +205,55 @@ function PrivacyForm({ project }: Readonly<{ project: PanelProjectDto }>) {
           )}
         />
 
-        <FormField
-          control={form.control}
-          name="recordingSamplePercent"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>{tp.recordingRateLabel}</FormLabel>
-              <div className="flex items-center gap-2">
-                <FormControl>
-                  <NumberInput
-                    ref={field.ref}
-                    name={field.name}
-                    onBlur={field.onBlur}
-                    value={field.value}
-                    // RHF treats undefined as "reset to default", so an empty field is NaN (shown empty, refused by the schema).
-                    onValueChange={(next) => field.onChange(next ?? Number.NaN)}
-                    min={0}
-                    max={100}
-                    step={1}
-                    className="w-24"
-                    disabled={saving}
-                  />
-                </FormControl>
-                <span className="text-sm text-muted-foreground">{tp.recordingRateSuffix}</span>
-              </div>
-              <FormDescription>{tp.recordingRateDescription}</FormDescription>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
+        {recordingsServed() && (
+          <>
+            <FormField
+              control={form.control}
+              name="recordingSamplePercent"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{tp.recordingRateLabel}</FormLabel>
+                  <div className="flex items-center gap-2">
+                    <FormControl>
+                      <NumberInput
+                        ref={field.ref}
+                        name={field.name}
+                        onBlur={field.onBlur}
+                        value={field.value}
+                        // RHF treats undefined as "reset to default", so an empty field is NaN (shown empty, refused by the schema).
+                        onValueChange={(next) => field.onChange(next ?? Number.NaN)}
+                        min={0}
+                        max={100}
+                        step={1}
+                        className="w-24"
+                        disabled={saving}
+                      />
+                    </FormControl>
+                    <span className="text-sm text-muted-foreground">{tp.recordingRateSuffix}</span>
+                  </div>
+                  <FormDescription>{tp.recordingRateDescription}</FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
-        <FormField
-          control={form.control}
-          name="aiEnabled"
-          render={({ field }) => (
-            <FormItem className="flex flex-row items-start justify-between gap-4 rounded-lg border p-3">
-              <div className="space-y-1">
-                <FormLabel>{tp.aiLabel}</FormLabel>
-                <FormDescription>{tp.aiDescription}</FormDescription>
-              </div>
-              <FormControl>
-                <Switch checked={field.value} onCheckedChange={field.onChange} disabled={saving} />
-              </FormControl>
-            </FormItem>
-          )}
-        />
+            <FormField
+              control={form.control}
+              name="aiEnabled"
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-start justify-between gap-4 rounded-lg border p-3">
+                  <div className="space-y-1">
+                    <FormLabel>{tp.aiLabel}</FormLabel>
+                    <FormDescription>{tp.aiDescription}</FormDescription>
+                  </div>
+                  <FormControl>
+                    <Switch checked={field.value} onCheckedChange={field.onChange} disabled={saving} />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+          </>
+        )}
 
         <Button type="submit" disabled={saving || !form.formState.isDirty}>
           {saving && <Loader2 className="animate-spin" />}

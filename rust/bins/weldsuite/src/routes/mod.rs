@@ -259,12 +259,36 @@ fn crm(router: Router<AppState>, state: &AppState) -> Router<AppState> {
     router.merge(weldsuite_crm::router(
         weldsuite_crm::CrmState {
             services,
-            // chat-api's record chats once the chat module is mounted: a
-            // binding that runs the request through this server's router.
-            chat_api: None,
+            chat_api: record_chat_binding(state),
         },
         &state.permissions,
     ))
+}
+
+/// crm-api's `CHAT_API` binding for the company and person chats
+/// (`/api/companies/:id/chat/*`, `/api/people/:id/chat/*`): WeldChat's
+/// `/api/chat-entity-channels` router in this process, which the forwarded
+/// request reaches with the session, tenant database and permissions it came
+/// with. None where chat isn't served, and in conformance builds, whose crm
+/// tests run without the binding (503, as crm-api answers without it).
+pub(crate) fn record_chat_binding(state: &AppState) -> Option<weldsuite_crm::ServiceBinding> {
+    if cfg!(feature = "conformance") || !mounts("chat") {
+        return None;
+    }
+    let chats: Router = Router::new().nest(
+        "/api/chat-entity-channels",
+        weldsuite_chat::record_chats(chat_state(state), &state.permissions),
+    );
+    Some(Arc::new(move |request| {
+        use tower::ServiceExt;
+        let chats = chats.clone();
+        Box::pin(async move {
+            match chats.oneshot(request).await {
+                Ok(response) => response,
+                Err(never) => match never {},
+            }
+        })
+    }))
 }
 
 /// WeldCommerce (`weldsuite-commerce`): commerce-api's routes at their own
@@ -2846,6 +2870,9 @@ fn core_team_state(state: &AppState) -> weldsuite_core_team::CoreTeamState {
         // Zitadel when configured; conformance builds take the test's per
         // request.
         identity: state.infra.identity.clone(),
+        // A plan's member limit only where plans can be bought (Mollie);
+        // conformance builds compare with Global, where they always can.
+        plan_seat_limits: cfg!(feature = "conformance") || state.edition.plan_billing,
     }
 }
 

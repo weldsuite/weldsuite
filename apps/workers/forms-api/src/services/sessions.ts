@@ -115,6 +115,17 @@ export async function dropSeed(kv: KVNamespace, responseId: string): Promise<voi
   await kv.delete(seedKey(responseId));
 }
 
+/**
+ * Too quick to be a person (ADR FORMS-005): less than `minFillMs` between the
+ * session's start and the submit, both as this server saw them. The block
+ * timings the page reports are never counted: they come from the respondent,
+ * so a script could claim any time it liked. The page starts the session at the
+ * first answer and waits out what is left of the minimum before it submits.
+ */
+export function submittedTooSoon(startedAt: number, minFillMs: number, now = Date.now()): boolean {
+  return now - startedAt < minFillMs;
+}
+
 // ---------------------------------------------------------------------------
 // Keyed hashes (never stored raw)
 // ---------------------------------------------------------------------------

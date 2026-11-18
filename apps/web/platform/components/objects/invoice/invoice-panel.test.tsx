@@ -15,6 +15,8 @@ const env = vi.hoisted(() => ({
   generatePdf: vi.fn(),
   listTemplates: vi.fn(),
   push: vi.fn(),
+  deleteInvoice: vi.fn(),
+  onClose: vi.fn(),
   /** The company details an invoice needs that the entity lacks. */
   missingDetails: [] as string[],
   toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() },
@@ -78,6 +80,7 @@ vi.mock('@/hooks/queries/use-accounting-queries', () => ({
   useApplyCreditNote: () => ({ mutate: env.applyCredit, isPending: false }),
   useUpdateInvoiceStatus: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useSendInvoice: () => ({ mutate: vi.fn(), isPending: false }),
+  useDeleteInvoice: () => ({ mutateAsync: env.deleteInvoice, isPending: false }),
   useUpdateAccountingEntity: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 vi.mock('@/hooks/use-current-accounting-entity', () => ({ useCurrentAccountingEntity: () => ({ entityId: 'ent_1' }) }));
@@ -194,7 +197,7 @@ function invoice(overrides: Record<string, unknown> = {}) {
 }
 
 function renderPanel() {
-  return renderWithProviders(<InvoicePanel id="inv_1" isOpen onClose={vi.fn()} />);
+  return renderWithProviders(<InvoicePanel id="inv_1" isOpen onClose={env.onClose} />);
 }
 
 async function openTab(user: ReturnType<typeof userEvent.setup>, name: string) {
@@ -208,6 +211,8 @@ describe('InvoicePanel', () => {
     env.salesTax = true;
     env.missingDetails = [];
     env.certificates = new Map();
+    env.deleteInvoice.mockReset().mockResolvedValue(undefined);
+    env.onClose.mockReset();
     env.finalize.mockReset();
     env.commit.mockReset();
     env.createCreditMemo.mockReset();
@@ -316,6 +321,40 @@ describe('InvoicePanel', () => {
       env.invoice = invoice({ status: 'finalized' });
       renderPanel();
       expect(screen.queryByTestId('entity-invoice-details-notice')).not.toBeInTheDocument();
+    });
+
+    it('cannot finalize a draft while the company details are missing', async () => {
+      env.missingDetails = ['address'];
+      env.invoice = invoice({ status: 'draft', taxBreakdown: [], taxTotal: '0.00' });
+      renderPanel();
+      const finalize = screen.getByRole('button', { name: 'Finalize' });
+      expect(finalize).toBeDisabled();
+      expect(finalize).toHaveAttribute('title', expect.stringContaining('Business address'));
+    });
+
+    it('deletes a draft after a confirmation and closes the panel', async () => {
+      const user = userEvent.setup();
+      env.invoice = invoice({ status: 'draft', taxBreakdown: [], taxTotal: '0.00' });
+      renderPanel();
+
+      await user.click(screen.getByRole('button', { name: 'More actions' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Discard draft' }));
+      const dialog = await screen.findByRole('dialog');
+      expect(dialog).toHaveTextContent('The number stays used');
+      await user.click(within(dialog).getByRole('button', { name: 'Discard draft' }));
+
+      await waitFor(() => expect(env.deleteInvoice).toHaveBeenCalledWith('inv_1'));
+      expect(env.toast.success).toHaveBeenCalledWith('Draft discarded');
+      expect(env.onClose).toHaveBeenCalled();
+    });
+
+    it('offers no delete for a finalized invoice', async () => {
+      const user = userEvent.setup();
+      env.invoice = invoice({ status: 'sent' });
+      renderPanel();
+      await user.click(screen.getByRole('button', { name: 'More actions' }));
+      expect(await screen.findByRole('menuitem', { name: 'Send' })).toBeInTheDocument();
+      expect(screen.queryByRole('menuitem', { name: 'Discard draft' })).not.toBeInTheDocument();
     });
 
     it('a sent invoice can be sent again', async () => {

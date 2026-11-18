@@ -55,7 +55,7 @@ ingress:
     secretName: weldid-tls
 
 secrets:
-  # weldid-env (secrets/examples/weldid.example.yaml): the database URL, the
+  # weldid-env (secrets/weldid): the database URL, the
   # master key, the MTA's system pool, Valkey, and the client secrets of the
   # admin console and Grafana.
   existingSecret: weldid-env
@@ -132,7 +132,7 @@ clients:
   # the identity sync reads), client_credentials with private_key_jwt. Its
   # private key is WELDID_CLIENT_KEY in weldsuite/weldid-client; the public
   # half is in the cluster's settings (WELDID_BACKEND_KEY_X and _Y, which
-  # fill-secrets.mjs --weldid prints). To rotate: add a second key here with
+  # seed-secrets.mjs prints). To rotate: add a second key here with
   # kid weldsuite-backend-2 (a patch in the cluster's layers), switch the
   # server's key, then remove the first.
   - id: weldsuite-backend

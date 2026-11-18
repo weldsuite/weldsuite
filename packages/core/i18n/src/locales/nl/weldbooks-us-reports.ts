@@ -27,6 +27,7 @@ export const weldbooksUsReports = {
   exportCsv: 'CSV downloaden',
   exportPdf: 'PDF downloaden',
   exportFailed: 'Het rapport kon niet worden geëxporteerd',
+  exportDownloaded: 'Rapport gedownload: {file}',
   loadError: 'Het rapport kon niet worden geladen.',
   retry: 'Opnieuw proberen',
   noActivity: 'In deze periode is niets geboekt.',
@@ -82,6 +83,7 @@ export const weldbooksUsReports = {
 
   // Ouderdomsanalyse
   documentsCount: '{count} documenten',
+  documentsCountOne: '1 document',
   byContact: 'Per {contact}',
   openDocuments: 'Openstaande documenten',
 

@@ -541,7 +541,7 @@ describe('InvoiceForm', { timeout: 30_000 }, () => {
       expect(screen.getByRole('button', { name: 'Create draft' })).toBeEnabled();
     });
 
-    it('waits for the company details every invoice must show, and offers to add them', async () => {
+    it('sends only with the company details every invoice must show, and offers to add them', async () => {
       const user = userEvent.setup();
       env.customerEmail = 'ap@globex.test';
       env.missingDetails = ['vatNumber', 'iban'];
@@ -549,7 +549,9 @@ describe('InvoiceForm', { timeout: 30_000 }, () => {
 
       const notice = screen.getByTestId('entity-invoice-details-notice');
       expect(notice).toHaveTextContent('VAT number, IBAN');
-      expect(screen.getByRole('button', { name: 'Create draft' })).toBeDisabled();
+      expect(notice).toHaveTextContent('save this invoice as a draft');
+      // A draft is allowed without them (books-api only refuses to finalize or send).
+      expect(screen.getByRole('button', { name: 'Create draft' })).toBeEnabled();
       expect(screen.getByRole('button', { name: 'Create and send' })).toBeDisabled();
 
       await user.click(within(notice).getByRole('button', { name: 'Add business details' }));
@@ -558,6 +560,18 @@ describe('InvoiceForm', { timeout: 30_000 }, () => {
       expect(within(dialog).getByLabelText('IBAN')).toBeInTheDocument();
       expect(within(dialog).queryByLabelText('KvK number')).not.toBeInTheDocument();
       expect(env.createMutate).not.toHaveBeenCalled();
+    });
+
+    it('saves a draft while the company details are still missing', async () => {
+      const user = userEvent.setup();
+      env.missingDetails = ['vatNumber'];
+      env.createMutate.mockResolvedValue({ data: { id: 'inv_new' } });
+      await fillIn(user);
+
+      await submit(user, 'Create draft');
+
+      await waitFor(() => expect(env.createMutate).toHaveBeenCalledTimes(1));
+      expect(env.sendMutate).not.toHaveBeenCalled();
     });
   });
 });

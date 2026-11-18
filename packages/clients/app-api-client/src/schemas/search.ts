@@ -23,6 +23,19 @@ export const SEARCH_ENTITY_TYPES = [
   'domain',
   'merge_issue',
   'merge_pull_request',
+  'document',
+  'form',
+  'drive_file',
+  'conversation',
+  'meeting',
+  'sign_envelope',
+  'warehouse',
+  'workflow',
+  'agent',
+  'reach_campaign',
+  'chat_channel',
+  'data_list',
+  'panel_project',
 ] as const;
 
 /**

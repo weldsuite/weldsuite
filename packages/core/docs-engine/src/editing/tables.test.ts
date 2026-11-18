@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { OBJECT, PARA } from '../model/chars';
 import { DocModel } from '../model/document';
 import { BODY, cellStoryId } from '../model/objects';
+import type { ParaProps } from '../model/styles';
 import { applyOp } from '../ops/apply';
 import type { Op } from '../ops/types';
 import { validateOp } from '../ops/validate';
@@ -20,6 +21,7 @@ import {
   insertRows,
   insertTable,
   mergeCells,
+  NEW_TABLE_SPACE_BEFORE,
   mergedBlock,
   resizeColumn,
   unmergeCell,
@@ -50,6 +52,15 @@ describe('table commands', () => {
     expect(t.cols).toHaveLength(3);
     expect(t.cols.reduce((n, c) => n + c.width, 0)).toBeCloseTo(451.3, 0);
     expect(findTable(b.d, b.id)).toEqual({ story: BODY, pos: 6 });
+  });
+
+  it('leaves a little space above a new table, so it does not touch the line above', () => {
+    const a = withTable();
+    expect((a.d.body.attrAt(1) as ParaProps).spaceBefore).toBe(NEW_TABLE_SPACE_BEFORE);
+    const b = withTable('Intro');
+    // The table's paragraph (its mark after the table); the text above keeps its own spacing.
+    expect((b.d.body.attrAt(7) as ParaProps).spaceBefore).toBe(NEW_TABLE_SPACE_BEFORE);
+    expect((b.d.body.attrAt(5) as ParaProps | undefined)?.spaceBefore).toBeUndefined();
   });
 
   it('adds rows and columns, keeping the table’s width', () => {

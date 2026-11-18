@@ -245,6 +245,7 @@ import {
   deleteWorkspaceResultSchema,
   workspaceDeletionStatusSchema,
   workspaceNameUpdatedSchema,
+  workspaceSettingsReadSchema,
   workspaceSettingsSchema,
   workspaceSlugUpdatedSchema,
 } from '@weldsuite/app-api-client/schemas/workspace-settings';
@@ -803,7 +804,7 @@ const ROUTES: RouteSchema[] = [
   { method: 'GET', route: '/api/app-catalog/:code/access-request', envelope: 'single', data: appAccessViewOrNullSchema },
   { method: 'POST', route: '/api/app-catalog/:code/access-request', envelope: 'single', data: appAccessViewSchema },
   // core: workspace settings, account, invitations, workspaces
-  { method: 'GET', route: '/api/workspace-settings', envelope: 'single', data: workspaceSettingsSchema.nullable() },
+  { method: 'GET', route: '/api/workspace-settings', envelope: 'single', data: workspaceSettingsReadSchema },
   { method: 'PUT', route: '/api/workspace-settings', envelope: 'single', data: workspaceSettingsSchema },
   { method: 'PUT', route: '/api/workspace-settings/name', envelope: 'single', data: workspaceNameUpdatedSchema },
   { method: 'POST', route: '/api/workspace-settings/slug', envelope: 'single', data: workspaceSlugUpdatedSchema },

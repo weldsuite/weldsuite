@@ -200,6 +200,7 @@ export const settings = {
       addressLine2: 'Adresregel 2',
       postalCode: 'Postcode',
       addressLine2Placeholder: '2e verdieping',
+      examplePlaceholder: 'bijv. {example}',
       city: 'Stad',
       provinceState: 'Provincie / Staat',
       country: 'Land',
@@ -216,6 +217,7 @@ export const settings = {
         companyNameRequired: 'Bedrijfsnaam is verplicht',
         vatInvalid: 'Geen geldig btw-nummer voor {country}. Voorbeeld: {example}',
         taxIdInvalid: 'Geen geldig btw-nummer / fiscaal nummer. Gebruik alleen letters en cijfers.',
+        checkFields: 'Niet opgeslagen: controleer de gemarkeerde velden.',
       },
       workspaceName: {
         title: 'Werkruimtenaam',
@@ -1030,6 +1032,13 @@ export const settings = {
       updateField: 'Veld bijwerken',
       duplicate: 'Dupliceren',
       rowsSelected: '{count} van {total} rij(en) geselecteerd.',
+      object: 'Object',
+      objectFilterLabel: 'Toon de velden van',
+      allObjects: 'Alle objecten',
+      deleteDialog: {
+        title: 'Aangepast veld verwijderen?',
+        description: '"{name}" verwijderen uit {object}? De waarde in dit veld wordt bij elk record verwijderd. Dit kan niet ongedaan worden gemaakt.',
+      },
       validation: {
         nameRequired: 'Naam is verplicht',
         slugRequired: 'Slug is verplicht',
@@ -1082,6 +1091,8 @@ export const settings = {
       lastUpdatedValue: 'december 2024',
       list: {
         categoriesHeading: 'Categorieën',
+        noneOfferedTitle: 'Nog geen integraties in deze editie',
+        noneOfferedDescription: 'Integraties met andere diensten hebben services nodig die deze editie nog niet draait.',
         connected: 'Verbonden',
         categories: {
           crm: 'CRM',
@@ -2216,6 +2227,7 @@ export const settings = {
         displayName: 'Weergavenaam',
         displayNamePlaceholder: 'bijv. Ondersteuningsteam',
         displayNameDescription: 'Wordt weergegeven als de afzendernaam bij uitgaande e-mails.',
+        displayNameRequired: 'Vul een weergavenaam in',
         cancel: 'Annuleren',
         save: 'Opslaan',
         messages: {
@@ -2229,7 +2241,7 @@ export const settings = {
         sharedAccount: 'Gedeeld account',
         sharedAccountDescription: 'Zichtbaar voor alle werkruimteleden',
         assignedUsers: 'Toegewezen gebruikers',
-        assignedUsersDescription: 'Alleen deze gebruikers kunnen deze mailbox openen. Admins kunnen de mailbox beheren, maar de e-mail niet lezen. Is er niemand toegewezen, dan hebben alleen admins toegang.',
+        assignedUsersDescription: 'Alleen de toegewezen gebruikers kunnen de e-mail in deze mailbox lezen. Admins kunnen de mailbox altijd beheren, en lezen de e-mail alleen zolang er niemand is toegewezen.',
         selectUsers: 'Gebruikers selecteren...',
         usersSelected: '{count} gebruiker geselecteerd',
         usersSelectedPlural: '{count} gebruikers geselecteerd',
@@ -2274,6 +2286,7 @@ export const settings = {
       noNumbers: 'Nog geen telefoonnummers',
       noNumbersConfigured: 'Koop een telefoonnummer om te beginnen met bellen',
       noNumbersUnconfigured: 'Telefoonservice moet eerst worden geactiveerd',
+      noNumbersPurchaseUnavailable: 'In deze editie kun je nog geen nummers kopen of porteren',
       pendingPorts: 'Lopende overdrachten',
       pendingPortsDescription: 'Nummers die worden overgezet naar WeldSuite van een andere provider.',
       pendingDocuments: 'Documenten nodig',
@@ -3515,10 +3528,47 @@ export const settings = {
 
       weldid: {
         description:
-          'Laat uw team zich aanmelden met uw eigen identiteitsprovider via OpenID Connect, zoals Microsoft Entra ID, Okta of Google Workspace. Zodra het aan staat, melden personen met een e-mailadres op uw geverifieerde domeinen zich aan via uw identiteitsprovider.',
-        samlLater: 'SAML-verbindingen volgen later. Koppel voorlopig een identiteitsprovider die OpenID Connect ondersteunt.',
+          'Laat uw team zich aanmelden met uw eigen identiteitsprovider via OpenID Connect of SAML, zoals Microsoft Entra ID, Okta of Google Workspace. Zodra het aan staat, melden personen met een e-mailadres op uw geverifieerde domeinen zich aan via uw identiteitsprovider.',
         notEntitled: 'Single sign-on zit niet in het abonnement van deze werkruimte. Vraag uw beheerder om het toe te voegen.',
         connection: {
+          protocol: 'Protocol',
+          protocolOidc: 'OpenID Connect',
+          protocolOidcHint: 'Een OpenID Connect-toepassing (web) in uw identiteitsprovider.',
+          protocolSaml: 'SAML 2.0',
+          protocolSamlHint:
+            'Een SAML-toepassing in uw identiteitsprovider, zoals een bedrijfstoepassing in Microsoft Entra ID of een aangepaste SAML-app in Google Workspace.',
+          samlDescription:
+            'Maak in uw identiteitsprovider een SAML-toepassing aan en geef ons de metadata ervan. Daarna tonen wij de entiteits-ID en de antwoord-URL die u daar invult.',
+          metadataSource: 'Metadata van de identiteitsprovider',
+          metadataFromUrl: 'Via een URL',
+          metadataFromFile: 'Bestand uploaden',
+          metadataUrl: 'Metadata-URL',
+          metadataUrlPlaceholder: 'https://login.microsoftonline.com/…/federationmetadata.xml?appid=…',
+          metadataUrlHint:
+            'Het https://-adres van de SAML-metadata van de toepassing. Wij lezen die bij het opslaan. Haal de metadata hier opnieuw op wanneer uw identiteitsprovider zijn ondertekeningscertificaat vervangt.',
+          metadataFile: 'Metadatabestand',
+          metadataFileHint: 'De SAML-metadata (XML) die u bij uw identiteitsprovider kunt downloaden, maximaal 256 KB.',
+          metadataFileChosen: '{name} gekozen',
+          metadataFileTooLarge: 'Dit bestand is groter dan 256 KB.',
+          metadataFileUnreadable: 'Dit bestand kon niet worden gelezen.',
+          metadataRequired: 'Vul de metadata-URL in of upload het metadatabestand.',
+          samlTrustEmailsHint:
+            'SAML geeft niet aan of een e-mailadres geverifieerd is. Aanmelden werkt daarom alleen als dit aan staat. Alleen adressen op uw geverifieerde domeinen worden geaccepteerd.',
+          idpEntityId: 'Entiteits-ID van de identiteitsprovider',
+          idpSsoUrl: 'Aanmeld-URL',
+          idpMetadata: 'Metadata',
+          idpMetadataUploaded: 'Geüpload bestand',
+          certificates: 'Ondertekeningscertificaten',
+          certificateExpires: 'Verloopt op {date}',
+          refetchMetadata: 'Metadata opnieuw ophalen',
+          metadataRefetched: 'Metadata opnieuw opgehaald.',
+          spTitle: 'Registreer deze gegevens in uw identiteitsprovider',
+          spDescription:
+            'Vul de entiteits-ID en de antwoord-URL in bij de SAML-instellingen van de toepassing in uw identiteitsprovider, of geef de toepassing onze metadata-URL. Aanmelden via uw identiteitsprovider mislukt tot ze geregistreerd zijn.',
+          spEntityId: 'Entiteits-ID (id)',
+          spAcsUrl: 'Antwoord-URL (assertion consumer service-URL)',
+          spMetadataUrl: 'Onze metadata-URL',
+          samlCreated: 'Identiteitsprovider gekoppeld. Registreer nu de entiteits-ID en de antwoord-URL in uw identiteitsprovider.',
           title: 'Koppel uw identiteitsprovider',
           description:
             'Maak in uw identiteitsprovider een OpenID Connect-toepassing (web) aan, registreer de redirect-URI die wij u geven en vul hier de gegevens van de toepassing in.',
@@ -3650,6 +3700,8 @@ export const settings = {
         billingBusy: 'Er is al een andere factureringswijziging bezig. Probeer het zo meteen opnieuw.',
         billingUnavailable: 'Facturering is op dit moment niet beschikbaar. Probeer het later opnieuw.',
         oidcIncomplete: 'Vul de naam, issuer-URL en client-ID van uw identiteitsprovider in.',
+        samlIncomplete: 'Vul de naam van uw identiteitsprovider en de SAML-metadata in (een URL of een bestand).',
+        protocolMismatch: 'Verwijder eerst de koppeling om te wisselen tussen OpenID Connect en SAML.',
         oidcNotEntitled: 'Single sign-on zit niet in het abonnement van deze werkruimte.',
       },
     },

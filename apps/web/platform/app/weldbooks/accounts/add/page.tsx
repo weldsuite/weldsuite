@@ -1,7 +1,6 @@
 import { useMemo, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
 import { useNavigate, Link } from '@tanstack/react-router';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useCreateAccount } from '@/hooks/queries/use-accounting-queries';
@@ -29,61 +28,13 @@ import { useI18n } from '@/lib/i18n/provider';
 import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 import { useCurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';
 import { TaxReportingCard } from '../components/tax-reporting-card';
-
-const subtypesByType: Record<string, { value: string; labelKey: string }[]> = {
-  asset: [
-    { value: 'current_asset', labelKey: 'currentAsset' },
-    { value: 'fixed_asset', labelKey: 'fixedAsset' },
-    { value: 'bank', labelKey: 'bank' },
-    { value: 'cash', labelKey: 'cash' },
-    { value: 'accounts_receivable', labelKey: 'accountsReceivable' },
-    { value: 'inventory', labelKey: 'inventory' },
-    { value: 'prepaid_expense', labelKey: 'prepaidExpense' },
-  ],
-  liability: [
-    { value: 'current_liability', labelKey: 'currentLiability' },
-    { value: 'long_term_liability', labelKey: 'longTermLiability' },
-    { value: 'accounts_payable', labelKey: 'accountsPayable' },
-    { value: 'tax_payable', labelKey: 'taxPayable' },
-    { value: 'credit_card', labelKey: 'creditCard' },
-  ],
-  equity: [
-    { value: 'owners_equity', labelKey: 'ownersEquity' },
-    { value: 'retained_earnings', labelKey: 'retainedEarnings' },
-    { value: 'share_capital', labelKey: 'shareCapital' },
-  ],
-  revenue: [
-    { value: 'sales', labelKey: 'sales' },
-    { value: 'other_income', labelKey: 'otherIncome' },
-    { value: 'interest_income', labelKey: 'interestIncome' },
-    { value: 'service_revenue', labelKey: 'serviceRevenue' },
-  ],
-  expense: [
-    { value: 'operating_expense', labelKey: 'operatingExpense' },
-    { value: 'cost_of_goods_sold', labelKey: 'costOfGoodsSold' },
-    { value: 'payroll', labelKey: 'payroll' },
-    { value: 'depreciation', labelKey: 'depreciation' },
-    { value: 'interest_expense', labelKey: 'interestExpense' },
-    { value: 'tax_expense', labelKey: 'taxExpense' },
-  ],
-};
-
-function createAccountSchema(st: (key: string) => string) {
-  return z.object({
-    code: z.string().min(1, st('sweep.weldbooks.accountForm.codeRequired')),
-    name: z.string().min(1, st('sweep.weldbooks.accountForm.nameRequired')),
-    description: z.string().optional(),
-    type: z.enum(['asset', 'liability', 'equity', 'revenue', 'expense']),
-    subtype: z.string().optional(),
-    normalSide: z.enum(['debit', 'credit']),
-    currency: z.string().optional(),
-    openingBalance: z.coerce.number().optional(),
-    taxLine: z.string().optional(),
-    form1099Box: z.string().optional(),
-  });
-}
-
-type AccountFormValues = z.infer<ReturnType<typeof createAccountSchema>>;
+import {
+  createAccountSchema,
+  normalSideOf,
+  openingBalancePayload,
+  subtypesByType,
+  type AccountFormValues,
+} from '../components/account-form-schema';
 
 export default function AddAccountPage() {
   const navigate = useNavigate();
@@ -129,6 +80,7 @@ export default function AddAccountPage() {
     try {
       await createAccount.mutateAsync({
         ...rest,
+        openingBalance: openingBalancePayload(values.openingBalance),
         currency: values.currency || undefined,
         ...(isUs ? { taxLine: taxLine || null, form1099Box: features.form1099 ? form1099Box || null : undefined } : {}),
       } as Record<string, unknown>);
@@ -187,14 +139,11 @@ export default function AddAccountPage() {
               <Select
                 value={form.watch('type')}
                 onValueChange={(v) => {
+                  if (!v) return;
                   form.setValue('type', v as AccountFormValues['type']);
                   form.setValue('subtype', '');
                   // Auto-set normal side based on type
-                  if (v === 'asset' || v === 'expense') {
-                    form.setValue('normalSide', 'debit');
-                  } else {
-                    form.setValue('normalSide', 'credit');
-                  }
+                  form.setValue('normalSide', normalSideOf(v));
                 }}
               >
                 <SelectTrigger id="type">
@@ -231,7 +180,9 @@ export default function AddAccountPage() {
               <Label htmlFor="normalSide">{ta.normalSide} *</Label>
               <Select
                 value={form.watch('normalSide')}
-                onValueChange={(v) => form.setValue('normalSide', v as AccountFormValues['normalSide'])}
+                onValueChange={(v) => {
+                  if (v) form.setValue('normalSide', v as AccountFormValues['normalSide']);
+                }}
               >
                 <SelectTrigger id="normalSide">
                   <SelectValue />

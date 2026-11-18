@@ -173,7 +173,9 @@ function drawMarker(ctx: Ctx, m: NonNullable<LineLayout['marker']>, x: number, b
     return;
   }
   const metrics = ctx.dl.measurer.metrics(m.style.font);
-  ctx.out.push({ kind: 'text', x: x + m.x, baseline, text: m.text, style: m.style, width: m.width, ascent: metrics.ascent, descent: metrics.descent, ...place });
+  // A raised marker (a footnote's number) sits above the line's baseline.
+  const bl = baseline - (m.style.baselineShift ?? 0);
+  ctx.out.push({ kind: 'text', x: x + m.x, baseline: bl, text: m.text, style: m.style, width: m.width, ascent: metrics.ascent, descent: metrics.descent, ...place });
 }
 
 /** One run of a line at `rx`: text (with its highlight), a tab's leader, or an object. */

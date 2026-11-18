@@ -37,6 +37,7 @@ export default function EditBillPage() {
       { id, data: { ...formData } },
       {
         onSuccess: () => {
+          toast.success(tb.billUpdated);
           navigate({ to: '/weldbooks/bills/$id', params: { id } });
         },
         onError: (err) => {

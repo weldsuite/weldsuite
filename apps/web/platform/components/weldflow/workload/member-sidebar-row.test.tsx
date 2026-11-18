@@ -16,7 +16,7 @@ describe('MemberSidebarRow', () => {
 
   it('falls back to initials and leaves out what it is not given', () => {
     render(<MemberSidebarRow name="Ann Lee" rowHeight={60} isExpanded={false} onToggle={vi.fn()} />);
-    expect(screen.getByRole('button').textContent).toBe('AnAnn Lee');
+    expect(screen.getByRole('button').textContent).toBe('ALAnn Lee');
   });
 
   it('opens and closes on a click, saying which it will do', async () => {

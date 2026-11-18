@@ -32,6 +32,8 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { getAppLogo, getAppLucideIcon } from '@/lib/apps/app-registry';
+import { unavailableListedFeatures } from '@/lib/apps/edition-notes';
+import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 import { BetaBadge } from '@/components/layout/beta-badge';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { cn } from '@/lib/utils';
@@ -134,6 +136,10 @@ export function AppDetailClient({ app: initialApp, canManage = false, content, o
   const { status: accessStatus, view: accessView, needsAccess } = useAppAccessGate(app);
 
   const overview = content.overview || t.appstore.defaultOverview;
+  // What the listing (written for Global) promises that this edition lacks.
+  const missingFeatures = unavailableListedFeatures(app.code).map(
+    (feature) => (t.appstore.editionFeatures as Record<string, string>)[feature] ?? feature,
+  );
   const installLabel = app.isInstalled ? t.appstore.uninstall : t.appstore.install;
   const CategoryIcon = getCategoryIcon(app.category);
   const categoryLabel: Record<string, string> = {
@@ -364,6 +370,11 @@ export function AppDetailClient({ app: initialApp, canManage = false, content, o
                       <div className={PROSE}>
                         <p>{overview}</p>
                       </div>
+                      {missingFeatures.length > 0 && (
+                        <InfoBanner variant="neutral" title={t.appstore.editionNoteTitle} className="mt-6">
+                          {format(t.appstore.editionNote, { app: app.name, features: missingFeatures.join(', ') })}
+                        </InfoBanner>
+                      )}
                       {content.howItWorks.length > 0 && (
                         <>
                           <h2 className={SECTION_TITLE}>{t.appstore.howItWorks}</h2>

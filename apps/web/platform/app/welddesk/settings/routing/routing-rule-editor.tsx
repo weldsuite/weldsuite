@@ -265,7 +265,10 @@ function KeepSelect({
         <SelectItem value={KEEP}>{keepLabel}</SelectItem>
         {options.map((option) => (
           <SelectItem key={option.value} value={option.value}>
-            {option.label}
+            <span className="truncate">
+              {option.label}
+              {option.description && <span className="ml-1.5 text-muted-foreground">{option.description}</span>}
+            </span>
           </SelectItem>
         ))}
       </SelectContent>

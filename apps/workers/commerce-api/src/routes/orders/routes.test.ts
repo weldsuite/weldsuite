@@ -131,6 +131,22 @@ describe('POST and PATCH /api/orders', () => {
     expect((await post({ orderNumber: 'x'.repeat(101) })).status).toBe(400);
   });
 
+  it('holds the currency to three characters, as the column stores, on create and update', async () => {
+    const { request } = app();
+    const send = (method: string, path: string, body: unknown) =>
+      request(path, { method, headers: json, body: JSON.stringify(body) });
+
+    // Longer was a database error (500); empty saved an order with no currency.
+    for (const currency of ['EURO', '', 'EU']) {
+      expect((await send('POST', '/api/orders', { orderNumber: 'WEB-1200', currency })).status).toBe(400);
+      expect((await send('PATCH', '/api/orders/ord_l1', { currency })).status).toBe(400);
+    }
+    const [row] = await db.select().from(schema.orders).where(eq(schema.orders.id, 'ord_l1'));
+    expect(row?.currency).not.toBe('EURO');
+
+    expect((await send('POST', '/api/orders', { orderNumber: 'WEB-1201', currency: 'EUR' })).status).toBe(201);
+  });
+
   it('a timestamp in the body is a 500, as Drizzle cannot write a string to it', async () => {
     const res = await app().request('/api/orders', {
       method: 'POST',

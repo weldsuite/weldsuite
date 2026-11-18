@@ -145,6 +145,7 @@ export function ConversationList({
                 size="sm"
                 className="h-8 w-8 p-0 flex-shrink-0 shadow-none"
                 onClick={() => setSearchOpen(true)}
+                aria-label={t('common.actions.search')}
               >
                 <Search className="h-4 w-4" />
               </Button>
@@ -155,6 +156,7 @@ export function ConversationList({
                   ref={searchInputRef}
                   type="text"
                   placeholder={t('sweep.shared.searchPlaceholder')}
+                  aria-label={t('common.actions.search')}
                   value={searchQuery}
                   onChange={(e) => {
                     setSearchQuery(e.target.value);

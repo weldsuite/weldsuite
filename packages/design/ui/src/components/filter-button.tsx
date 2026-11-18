@@ -1,7 +1,10 @@
+"use client"
+
 import * as React from "react"
 import { Plus, X } from "lucide-react"
 
 import { cn } from "../lib/utils"
+import { useUiLabels } from "../providers/ui-labels-provider"
 import { Button } from "./button"
 
 /**
@@ -109,11 +112,13 @@ function FilterPillButton({
   )
 }
 
-/** The × that removes a filter pill. */
+/** The × that removes a filter pill; named "Remove" (`UiLabelsProvider`) unless an `aria-label` is passed. */
 function FilterPillRemove({ className, ...props }: React.ComponentProps<"button">) {
+  const labels = useUiLabels()
   return (
     <button
       type="button"
+      aria-label={labels.remove}
       className={cn(
         "h-full rounded-r-md px-[7px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
         className

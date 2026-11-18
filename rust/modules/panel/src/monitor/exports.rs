@@ -619,7 +619,7 @@ pub(crate) async fn test_destination(
 
 /// `exportsPath()`.
 fn exports_path() -> &'static str {
-    "/weldpanel/settings?tab=exports"
+    "/settings/apps/weldpanel?tab=exports"
 }
 
 /// `sendExportFailingMail(ctx, exp, lastError)`: in the member's language.

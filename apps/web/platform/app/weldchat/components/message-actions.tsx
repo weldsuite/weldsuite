@@ -316,7 +316,13 @@ export function MessageActions({ message, channelId, readBy, onOpenChange }: Rea
         </Button>
         <DropdownMenu open={dropdownOpen} onOpenChange={handleDropdownOpenChange}>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className={cn("h-7 w-7", dropdownOpen && "bg-accent")}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn("h-7 w-7", dropdownOpen && "bg-accent")}
+              aria-label={t.weldchat.messageActionsBar.moreActions}
+              title={t.weldchat.messageActionsBar.moreActions}
+            >
               <MoreHorizontal className="h-3.5 w-3.5" />
             </Button>
           </DropdownMenuTrigger>

@@ -23,6 +23,7 @@ import {
   EllipsisVertical,
   Hash,
   Link as LinkIcon,
+  RefreshCw,
   Repeat,
   Scale,
   Send,
@@ -68,6 +69,7 @@ import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import {
   canDeleteVatReturn,
   canFileVatReturn,
+  canRecalculateVatReturn,
   isFiledVatReturn,
   vatStatusTone,
   vatTotalToneClass,
@@ -80,6 +82,7 @@ import {
   useDeleteVatReturn,
   useFileVatReturn,
   useMarkVatReturnFiled,
+  useRecalculateVatReturn,
   useVatFilingStatus,
   useVatReturn,
   useVatSuppletie,
@@ -178,15 +181,32 @@ function VatFileButton({
   );
 }
 
+/** The menu item that recalculates an open return's boxes from the ledger. */
+function VatRecalculateItem({
+  recalculating,
+  onRecalculate,
+  t,
+}: Readonly<{ recalculating: boolean; onRecalculate: () => void; t: Translations }>) {
+  const tv = t.accounting.vat;
+  return (
+    <DropdownMenuItem onClick={onRecalculate} disabled={recalculating}>
+      <RefreshCw />
+      {recalculating ? tv.recalculating : tv.recalculate}
+    </DropdownMenuItem>
+  );
+}
+
 function VatReturnActions({
   vr,
   filing,
   checkingStatus,
   checkingCorrections,
+  recalculating,
   onFile,
   onMarkFiled,
   onCheckStatus,
   onCheckCorrections,
+  onRecalculate,
   onDelete,
   t,
 }: Readonly<{
@@ -194,10 +214,12 @@ function VatReturnActions({
   filing: boolean;
   checkingStatus: boolean;
   checkingCorrections: boolean;
+  recalculating: boolean;
   onFile: () => void;
   onMarkFiled: () => void;
   onCheckStatus: () => void;
   onCheckCorrections: () => void;
+  onRecalculate: () => void;
   onDelete: () => void;
   t: Translations;
 }>) {
@@ -247,6 +269,9 @@ function VatReturnActions({
               <Repeat />
               {checkingCorrections ? tv.suppletieChecking : tv.suppletieButton}
             </DropdownMenuItem>
+          ) : null}
+          {canRecalculateVatReturn(vr) && can('reports:create') ? (
+            <VatRecalculateItem recalculating={recalculating} onRecalculate={onRecalculate} t={t} />
           ) : null}
           <DropdownMenuItem onClick={() => void handleXmlDownload()}>
             <Download />
@@ -359,6 +384,8 @@ function VatReturnDetailsTab({
         ) : null}
       </div>
 
+      {canRecalculateVatReturn(vr) ? <p className="text-xs text-muted-foreground">{tv.recalculateHint}</p> : null}
+
       {vr.notes ? (
         <PanelSection title={tv.notesSection}>
           <p className="whitespace-pre-wrap text-sm">{vr.notes}</p>
@@ -445,6 +472,7 @@ export function VatReturnPanel(props: Readonly<ObjectPanelComponentProps>) {
   const [markFiledOpen, setMarkFiledOpen] = useState(false);
   const deleteMutation = useDeleteVatReturn(id);
   const suppletieMutation = useVatSuppletie(id);
+  const recalculateMutation = useRecalculateVatReturn();
   const statusMutation = useVatFilingStatus(id);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -500,6 +528,15 @@ export function VatReturnPanel(props: Readonly<ObjectPanelComponentProps>) {
     });
   };
 
+  const handleRecalculate = () => {
+    if (!vr) return;
+    recalculateMutation.mutate(vr, {
+      onSuccess: () => toast.success(tv.recalculatedFromLedger),
+      onError: (err) =>
+        toast.error(tv.recalculateFailed, { description: err instanceof Error ? err.message : undefined }),
+    });
+  };
+
   const handleCheckStatus = () => {
     statusMutation.mutate(undefined, {
       onSuccess: (res) => toast.info(tv.statusResult.replace('{status}', String(res.data.status))),
@@ -545,10 +582,12 @@ export function VatReturnPanel(props: Readonly<ObjectPanelComponentProps>) {
             filing={fileMutation.isPending}
             checkingStatus={statusMutation.isPending}
             checkingCorrections={suppletieMutation.isPending}
+            recalculating={recalculateMutation.isPending}
             onFile={() => fileMutation.mutate()}
             onMarkFiled={() => setMarkFiledOpen(true)}
             onCheckStatus={handleCheckStatus}
             onCheckCorrections={handleCheckCorrections}
+            onRecalculate={handleRecalculate}
             onDelete={() => setConfirmDelete(true)}
             t={t}
           />

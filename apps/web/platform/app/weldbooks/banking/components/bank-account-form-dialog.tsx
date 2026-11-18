@@ -271,7 +271,11 @@ export function BankAccountFormDialog({
                   value={values.iban}
                   onChange={(e) => set('iban', e.target.value.toUpperCase())}
                   placeholder="NL91 ABNA 0417 1643 00"
+                  aria-invalid={hasProblem('iban') || undefined}
                 />
+                {hasProblem('iban') ? (
+                  <p className="mt-1 text-xs text-destructive" role="alert">{i18n.accounting.contacts.ibanInvalid}</p>
+                ) : null}
               </div>
               <div>
                 <Label htmlFor="ba-bic">{t('sweep.weldbooks.bankAccountForm.bicLabel')}</Label>

@@ -70,6 +70,7 @@ export const weldhrTime = {
       editRecord: 'Edit record',
       deleteConfirmTitle: 'Delete this attendance record?',
       deleteConfirmDescription: 'This permanently removes the record.',
+      deleteConfirmNamed: 'This permanently removes the record of {name} on {date}.',
       deleteFailed: 'Could not delete this record.',
       form: {
         employee: 'Employee',
@@ -88,6 +89,7 @@ export const weldhrTime = {
         breakInvalid: 'Enter the break in whole minutes, 0 or more.',
         breakTooLong: 'The break must be shorter than the time between clock-in and clock-out.',
         nextDay: 'Ends the next day',
+        nextDayWarning: 'Clock-out is before clock-in, so this record runs overnight: {duration} in total. Check the times if that is not right.',
         beforeStartDate: "This date is before the employee's start date ({date}).",
       },
     },
@@ -279,6 +281,7 @@ export const weldhrTime = {
     },
     since: 'Since {date}',
     stillAbsent: 'Still absent',
+    recoveredMovesAfter: 'Recovered · moves to Completed after {date}',
     halfFirstDay: 'half day',
     relapse: 'Within 4 weeks',
     relapseHelp: 'The previous sick report of this employee ended less than four weeks earlier, so this continues the same absence period.',
@@ -317,11 +320,11 @@ export const weldhrTime = {
       },
       emptyOngoing: {
         title: 'Nobody is reported sick',
-        description: 'Employees who report sick show up here until they report recovered.',
+        description: 'Employees who report sick show up here until their last sick day has passed.',
       },
       emptyCompleted: {
         title: 'No completed sick reports',
-        description: 'A report moves here once the employee has recovered.',
+        description: 'A report moves here the day after its last sick day.',
       },
     },
     form: {
@@ -346,6 +349,7 @@ export const weldhrTime = {
       overlap: 'This overlaps another sick report.',
       reportedToast: 'You are reported sick. Get well soon.',
       recoveredToast: 'You are reported recovered. Welcome back.',
+      recoveredOtherToast: '{name} is reported recovered.',
       errors: {
         employee: 'Select an employee',
         date: 'Pick a date',
@@ -426,6 +430,7 @@ export const weldhrTime = {
         cancel: 'Cancel',
         failed: 'Could not submit this request.',
         overlap: 'This overlaps another leave request for this employee.',
+        submittedToast: 'Leave request submitted',
         overAllowance:
           'This request is {days} days, but only {available} of the {allowance} days of {type} are still free (pending requests included). You can still submit it.',
         beforeStartDate: "This leave starts before the employee's start date ({date}).",

@@ -26,9 +26,11 @@ import {
   useObjectPanelStack,
   useObjectPanelUrlSync,
 } from '@/components/object-panel';
+import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
 import { isFeatureAvailable } from '@/lib/edition';
-import { publicDomainRegistrar } from '@weldsuite/core-api-client/schemas/domains';
+import { useToggleAutoRenew } from '@/hooks/queries/use-host-queries';
+import { isExternalDomainRegistrar, publicDomainRegistrar } from '@weldsuite/core-api-client/schemas/domains';
 import { UsedByWeldReachBadge } from '../components/used-by-weldreach-badge';
 
 interface DomainsClientProps {
@@ -63,6 +65,22 @@ export function DomainsClient({ domains }: Readonly<DomainsClientProps>) {
   // id happened to collide — move it to the wrong row.
   const selectedDomainId =
     [...panelStack].reverse().find((handle) => handle.type === 'domain')?.id ?? null;
+  // With the domain panel open the list keeps the domain and its status; the
+  // other columns pushed Status out of view (TASK-1433).
+  const panelOpen = selectedDomainId !== null;
+  const wideOnly = useCallback((width: string) => (panelOpen ? 'hidden' : width), [panelOpen]);
+  const domainWidth = panelOpen ? 'flex-1 min-w-0' : 'flex-1 min-w-[200px]';
+  const canPurchase = isFeatureAvailable('domain-purchase');
+  const toggleAutoRenew = useToggleAutoRenew();
+  const disableAutoRenew = useCallback((domain: HostDomain) => {
+    toggleAutoRenew.mutate(
+      { domainId: domain.id, enabled: false },
+      {
+        onSuccess: () => toast.success(t.host.domainDetail.autoRenewUpdated),
+        onError: () => toast.error(t.host.domainDetail.failedToSaveSettings),
+      },
+    );
+  }, [toggleAutoRenew, t]);
 
   useBreadcrumbs([
     { label: tdl.breadcrumbHost, href: '/weldhost' },
@@ -137,18 +155,21 @@ export function DomainsClient({ domains }: Readonly<DomainsClientProps>) {
 
   // Header columns
   const headerColumns: HeaderColumn[] = useMemo(() => [
-    { id: 'domain', header: tdl.columnDomain, width: 'flex-1 min-w-[200px]' },
-    { id: 'tld', header: tdl.columnTld, width: 'w-[80px]' },
-    { id: 'registrar', header: tdl.columnRegistrar, width: 'w-[120px]' },
-    { id: 'features', header: tdl.columnFeatures, width: 'w-[100px]' },
-    { id: 'expires', header: tdl.columnExpires, width: 'w-[140px]' },
+    { id: 'domain', header: tdl.columnDomain, width: domainWidth },
+    { id: 'tld', header: tdl.columnTld, width: wideOnly('w-[80px]') },
+    { id: 'registrar', header: tdl.columnRegistrar, width: wideOnly('w-[120px]') },
+    { id: 'features', header: tdl.columnFeatures, width: wideOnly('w-[100px]') },
+    { id: 'expires', header: tdl.columnExpires, width: wideOnly('w-[140px]') },
     { id: 'status', header: tdl.columnStatus, width: 'w-[100px]' },
-  ], [tdl]);
+  ], [tdl, domainWidth, wideOnly]);
 
   // Render row
   const renderRow = useCallback((domain: HostDomain) => {
     const statusLabel = (tdl as Record<string, string>)[`status${domain.status.charAt(0).toUpperCase()}${domain.status.slice(1)}`] ?? domain.status;
     const statusClass = statusClassName[domain.status] ?? statusClassName.active;
+    const fullDomain = domain.fullDomain || `${domain.name}.${domain.tld}`;
+    // An external domain renews at its own registrar: WeldSuite never does.
+    const autoRenews = !!domain.autoRenew && !isExternalDomainRegistrar(domain.registrar);
 
     return (
       <div
@@ -161,33 +182,33 @@ export function DomainsClient({ domains }: Readonly<DomainsClientProps>) {
         {/* Row click target: stretched button; the actions cell sits above it */}
         <button
           type="button"
-          aria-label={domain.fullDomain || `${domain.name}.${domain.tld}`}
+          aria-label={fullDomain}
           onClick={() => openPanel({ type: 'domain', id: domain.id, initialTab: 'dns' })}
           className="absolute inset-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         />
         {/* Domain */}
-        <div className="flex-1 min-w-[200px] flex items-center gap-2">
-          <span className="text-sm font-medium text-gray-900 dark:text-foreground">
-            {domain.fullDomain || `${domain.name}.${domain.tld}`}
+        <div className={cn(domainWidth, 'flex items-center gap-2')}>
+          <span className="text-sm font-medium text-gray-900 dark:text-foreground truncate">
+            {fullDomain}
           </span>
           {domain.usedByWeldReach && <UsedByWeldReachBadge />}
         </div>
 
         {/* TLD */}
-        <div className="w-[80px]">
+        <div className={wideOnly('w-[80px]')}>
           <span className="inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none font-mono text-gray-600 dark:text-muted-foreground bg-gray-100 dark:bg-secondary">
             .{domain.tld}
           </span>
         </div>
 
         {/* Registrar */}
-        <div className="w-[120px]">
+        <div className={wideOnly('w-[120px]')}>
           <span className="text-sm text-gray-500">{publicDomainRegistrar(domain.registrar)}</span>
         </div>
 
         {/* Features */}
-        <div className="w-[100px]">
-          {domain.autoRenew && (
+        <div className={wideOnly('w-[100px]')}>
+          {autoRenews && (
             <span className="inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950">
               {tdl.autoRenewBadge}
             </span>
@@ -195,7 +216,7 @@ export function DomainsClient({ domains }: Readonly<DomainsClientProps>) {
         </div>
 
         {/* Expires */}
-        <div className="w-[140px]">
+        <div className={wideOnly('w-[140px]')}>
           {domain.expiresAt ? (
             <span className="text-sm tabular-nums">
               {new Date(domain.expiresAt).toLocaleDateString()}
@@ -221,16 +242,23 @@ export function DomainsClient({ domains }: Readonly<DomainsClientProps>) {
         <div className="relative z-[1] w-[40px] flex justify-end">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent"
+                aria-label={t.common.actions.openMenu}
+              >
                 <MoreVertical className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem asChild>
-                <Link href={`/weldhost/domains/${domain.id}`} className="flex items-center">
-                  <Eye className="h-4 w-4 mr-0.5" />
-                  {tdl.viewDetails}
-                </Link>
+              {/* Details: the panel, as a row click; Manage: the full page. */}
+              <DropdownMenuItem
+                className="flex items-center"
+                onSelect={() => openPanel({ type: 'domain', id: domain.id, initialTab: 'overview' })}
+              >
+                <Eye className="h-4 w-4 mr-0.5" />
+                {tdl.viewDetails}
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <Link href={`/weldhost/domains/${domain.id}`} className="flex items-center">
@@ -239,12 +267,18 @@ export function DomainsClient({ domains }: Readonly<DomainsClientProps>) {
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem className="flex items-center">
-                <ExternalLink className="h-4 w-4 mr-0.5" />
-                {tdl.visitDomain}
+              <DropdownMenuItem asChild>
+                <a href={`https://${fullDomain}`} target="_blank" rel="noopener noreferrer" className="flex items-center">
+                  <ExternalLink className="h-4 w-4 mr-0.5" />
+                  {tdl.visitDomain}
+                </a>
               </DropdownMenuItem>
-              {domain.autoRenew && (
-                <DropdownMenuItem className="flex items-center text-yellow-600">
+              {autoRenews && (
+                <DropdownMenuItem
+                  className="flex items-center text-yellow-600"
+                  disabled={toggleAutoRenew.isPending}
+                  onSelect={() => disableAutoRenew(domain)}
+                >
                   <RefreshCcw className="h-4 w-4 mr-0.5" />
                   {tdl.disableAutoRenew}
                 </DropdownMenuItem>
@@ -254,7 +288,7 @@ export function DomainsClient({ domains }: Readonly<DomainsClientProps>) {
         </div>
       </div>
     );
-  }, [selectedDomainId, openPanel, tdl]);
+  }, [selectedDomainId, openPanel, tdl, t, domainWidth, wideOnly, disableAutoRenew, toggleAutoRenew.isPending]);
 
   return (
     <EntityList<HostDomain>
@@ -272,7 +306,7 @@ export function DomainsClient({ domains }: Readonly<DomainsClientProps>) {
       searchFields={['name', 'fullDomain', 'tld']}
       createButton={
         // Buying a domain is a Stripe checkout, which some editions lack.
-        isFeatureAvailable('domain-purchase')
+        canPurchase
           ? { label: tdl.registerDomain, onClick: () => router.push('/weldhost/domains/register') }
           : undefined
       }
@@ -298,10 +332,11 @@ export function DomainsClient({ domains }: Readonly<DomainsClientProps>) {
           </EmptyStateIllustration>
         ),
         title: tdl.emptyTitle,
-        description: tdl.emptyDescription,
-        action: isFeatureAvailable('domain-purchase')
+        // Without domain purchase (EU), a domain registered elsewhere is the way in.
+        description: canPurchase ? tdl.emptyDescription : tdl.emptyDescriptionExternal,
+        action: canPurchase
           ? { label: tdl.registerDomain, onClick: () => router.push('/weldhost/domains/register') }
-          : undefined,
+          : { label: t.host.externalDomain.addButton, onClick: () => router.push('/weldhost/domains/external') },
       }}
       noResultsState={{
         title: tdl.noResultsTitle,

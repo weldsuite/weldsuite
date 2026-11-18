@@ -72,6 +72,7 @@ const addressSchema = z.object({
 function createRecurringSchema(messages: {
   customerRequired: string;
   dateRequired: string;
+  endBeforeNextIssue: string;
   descriptionRequired: string;
   atLeastOneLine: string;
   br: { line: BrLineMessages; document: BrDocumentMessages };
@@ -106,7 +107,13 @@ function createRecurringSchema(messages: {
     shipFromAddress: addressSchema,
     items: z.array(lineSchema).min(1, messages.atLeastOneLine),
     })
-    .superRefine(brDocumentChecks(messages.br.document));
+    .superRefine(brDocumentChecks(messages.br.document))
+    // The server refuses it too: the schedule would end before its first invoice.
+    .superRefine((values, ctx) => {
+      if (values.endDate && values.nextIssueDate && values.endDate < values.nextIssueDate) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['endDate'], message: messages.endBeforeNextIssue });
+      }
+    });
 }
 
 type RecurringFormValues = z.infer<ReturnType<typeof createRecurringSchema>>;
@@ -167,6 +174,7 @@ export function RecurringInvoiceForm({ mode, recurring, onSaved, onCancel }: Rea
       createRecurringSchema({
         customerRequired: tr.customerRequired,
         dateRequired: tr.dateRequired,
+        endBeforeNextIssue: tr.endBeforeNextIssue,
         descriptionRequired: tr.descriptionRequired,
         atLeastOneLine: tr.atLeastOneLine,
         br: {
@@ -174,7 +182,7 @@ export function RecurringInvoiceForm({ mode, recurring, onSaved, onCancel }: Rea
           document: { iss: tbd.errors.iss, irrf: tbd.errors.irrf, inss: tbd.errors.inss, accessKey: tbd.errors.accessKey },
         },
       }),
-    [tr.customerRequired, tr.dateRequired, tr.descriptionRequired, tr.atLeastOneLine, tbd.errors],
+    [tr.customerRequired, tr.dateRequired, tr.endBeforeNextIssue, tr.descriptionRequired, tr.atLeastOneLine, tbd.errors],
   );
 
   const template = recurring?.templateData ?? null;
@@ -363,6 +371,9 @@ export function RecurringInvoiceForm({ mode, recurring, onSaved, onCancel }: Rea
           <div className="space-y-2">
             <Label htmlFor="recurring-end">{tr.endDate}</Label>
             <Input id="recurring-end" type="date" {...form.register('endDate')} />
+            {form.formState.errors.endDate && (
+              <p className="text-sm text-destructive">{form.formState.errors.endDate.message}</p>
+            )}
           </div>
           <div className="space-y-2">
             <Label htmlFor="recurring-terms">{tr.paymentTermsDays}</Label>

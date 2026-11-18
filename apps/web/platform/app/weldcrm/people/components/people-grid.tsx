@@ -21,6 +21,7 @@ import {
 } from '@/hooks/queries/use-people-queries';
 import { useCustomFields } from '@/hooks/use-custom-fields';
 import { customFieldsToGridColumns } from '@/components/custom-fields/to-grid-columns';
+import { useDeleteAttributeDialog } from '@/components/custom-fields/use-delete-attribute-dialog';
 import { customFieldsToImportFields } from '@/components/custom-fields/to-import-fields';
 import { useGridViewSettings } from '@/hooks/queries/use-settings-queries';
 import { exportToCSV, exportToExcel } from '@/components/entity-grid/utils/export-utils';
@@ -120,12 +121,14 @@ export function PeopleGrid({
   const [isImportOpen, setIsImportOpen] = useState(false);
 
   const { data: customFieldDefs } = useCustomFields('person');
+  const { requestDelete: requestDeleteAttribute, dialog: deleteAttributeDialog } = useDeleteAttributeDialog();
   const customColumns = useMemo(
     () =>
       customFieldsToGridColumns<Person>(customFieldDefs, {
         getCustomFields: (p) => p.customFields as Record<string, unknown> | null | undefined,
+        onDeleteField: requestDeleteAttribute,
       }),
-    [customFieldDefs],
+    [customFieldDefs, requestDeleteAttribute],
   );
 
   // Built-in importable fields + any user-defined custom fields.
@@ -282,6 +285,7 @@ export function PeopleGrid({
         />
       )}
       <QuickAddPersonDialog open={isQuickAddOpen} onOpenChange={setIsQuickAddOpen} />
+      {deleteAttributeDialog}
       <ImportEntitiesDialog
         open={isImportOpen}
         onOpenChange={setIsImportOpen}

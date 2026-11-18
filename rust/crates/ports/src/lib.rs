@@ -104,8 +104,8 @@ pub use sign_in::{
     SignInProvider, SignInResult, SignInSettings, SignInUser, UserStatus,
 };
 pub use sso::{
-    MemorySsoDirectory, NewSsoConnection, SsoConnection, SsoConnectionChanges, SsoDirectory,
-    SsoDomain, SsoDomainStatus,
+    MemorySsoDirectory, NewSsoConnection, SamlCertificate, SamlDetails, SamlMetadata,
+    SsoConnection, SsoConnectionChanges, SsoDirectory, SsoDomain, SsoDomainStatus, SsoProtocol,
 };
 pub use transport::{
     Envelope, MailTransport, RecordingMailTransport, SentEnvelope, TransportFailure,

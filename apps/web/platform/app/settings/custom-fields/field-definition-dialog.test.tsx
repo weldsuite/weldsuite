@@ -121,4 +121,22 @@ describe('FieldDefinitionDialog', () => {
     await userEvent.type(screen.getByLabelText(ts.fieldName), 'Contract Größe & Type!');
     expect(screen.getByLabelText(ts.fieldSlug)).toHaveValue('contract_grosse_type');
   });
+
+  // TASK-1463: empty Min / Max / Step used to become NaN and block Save silently.
+  it('creates a Number field with Min, Max and Step left empty', async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    render(
+      <FieldDefinitionDialog
+        open
+        onOpenChange={vi.fn()}
+        entityType="company"
+        field={draft({ name: 'Score', slug: 'score', fieldType: 'number' })}
+        onSubmit={onSubmit}
+        isPending={false}
+      />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: ts.createField }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    expect(onSubmit.mock.calls[0]![0]).toMatchObject({ fieldType: 'number', slug: 'score' });
+  });
 });

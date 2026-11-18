@@ -1,6 +1,7 @@
 /** Edit dialog for an employee's public profile fields. */
 
 import { useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -53,6 +54,14 @@ function buildFormSchema(t: (path: string) => string) {
     departmentId: z.string().optional(),
     managerId: z.string().optional(),
     legalEntityId: z.string().optional(),
+  }).superRefine((values, ctx) => {
+    // The same order hr-api enforces, shown on the field (TASK-1471).
+    if (values.startDate && values.endDate && values.endDate < values.startDate) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['endDate'], message: t('weldhr.employees.validation.endBeforeStart') });
+    }
+    if (values.startDate && values.probationEndDate && values.probationEndDate < values.startDate) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['probationEndDate'], message: t('weldhr.employees.validation.probationBeforeStart') });
+    }
   });
 }
 
@@ -120,6 +129,7 @@ export function EditEmployeeDialog({ employee, onClose }: Readonly<{ employee: H
         // A location that was deleted since is no longer a valid assignment.
         workLocationIds: workLocationOptions.length > 0 ? workLocationIds.filter((id) => workLocationOptions.some((o) => o.value === id)) : undefined,
       });
+      toast.success(t('weldhr.employees.detail.edit.savedToast'));
       onClose();
     } catch (err) {
       setFailure(errorMessage(err, t('weldhr.employees.detail.edit.failed')));
@@ -335,7 +345,7 @@ export function EditEmployeeDialog({ employee, onClose }: Readonly<{ employee: H
                   <FormItem>
                     <FormLabel>{t('weldhr.employees.detail.overview.probationEndDate')}</FormLabel>
                     <FormControl>
-                      <Input type="date" {...field} />
+                      <Input type="date" min={form.watch('startDate') || undefined} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -348,7 +358,7 @@ export function EditEmployeeDialog({ employee, onClose }: Readonly<{ employee: H
                   <FormItem>
                     <FormLabel>{t('weldhr.employees.detail.overview.endDate')}</FormLabel>
                     <FormControl>
-                      <Input type="date" {...field} />
+                      <Input type="date" min={form.watch('startDate') || undefined} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

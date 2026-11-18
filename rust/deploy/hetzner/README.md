@@ -18,7 +18,8 @@ their settings, secrets and runbooks (ADR OPS-018).
 | Layer | What | Where |
 |---|---|---|
 | Servers, network, firewall, load balancers, Talos bootstrap | OpenTofu (`hetznercloud/hcloud` 1.70.0, `siderolabs/talos` 0.12.0) | `rust/deploy/hetzner` |
-| Everything in the cluster | Flux (v2.9.6), Helm, kustomize, SOPS (age) | `rust/deploy/flux` |
+| Everything in the cluster | Flux (v2.9.6), Helm, kustomize, External Secrets Operator | `rust/deploy/flux` |
+| Secret values | A secret store outside the cluster: OpenBao on a server of its own (Vault works too) | `rust/deploy/hetzner/secret-store`; never in git |
 | The application | the `weldsuite` chart | `rust/deploy/helm/weldsuite` |
 | Checks without a cloud account | `rust/deploy/validate.sh` (CI: `Rust · deploy config`) | |
 
@@ -34,6 +35,7 @@ servers later; only this OpenTofu module is replaced by Talos on bare metal.
 | Talos Linux | v1.14.3 | Image from Talos' Image Factory (`scripts/upload-talos-image.sh`) |
 | OpenEBS LocalPV hostpath | chart 4.6.0 | Default StorageClass `openebs-hostpath`, under `/var/mnt/local-storage` (a Talos user volume) |
 | cert-manager | v1.21.2 | Let's Encrypt (HTTP-01 through Traefik) |
+| External Secrets Operator | chart 2.14.0 (v2.14.0) | Writes every Secret the layers read from the cluster's secret store (`flux/secrets`) |
 | Traefik | chart 41.7.1 (Traefik v3.7.14) | NodePorts 30080/30443 behind the Hetzner LB, PROXY protocol |
 | CloudNativePG | chart 0.29.1 (operator 1.30.1) | Clusters `master`, `tenants-1`, `zitadel-db`; Postgres 17.8 "standard" image (pgvector) |
 | barman-cloud plugin | chart 0.8.1 (v0.15.1) | WAL archive + nightly base backups to a second EU provider |
@@ -67,14 +69,26 @@ differ.
 - A **domain** at an EU DNS provider (Hetzner DNS works).
 - **Object storage**:
   - Hetzner Object Storage bucket(s) for files: the private bucket
-    (`FILES_BUCKET_PRIVATE`) and S3 keys for it;
+    (`FILES_BUCKET_PRIVATE`) and S3 keys for it, and the public bucket
+    (`FILES_BUCKET_PUBLIC`: avatars, product images, social media, chat
+    attachments; private at Hetzner too, the server serves it) next to it
+    with the same keys;
   - a bucket at a **second EU provider** for Postgres backups, and its keys.
-- An **age** key pair for SOPS: `age-keygen -o eu.agekey`. Keep the private
-  key outside git (a password manager); the cluster gets a copy in step 6.
+- A **secret store** outside the cluster: a KV version 2 store (mount
+  `secret`) behind the HashiCorp Vault API. WeldSuite's clusters each have
+  an OpenBao server of their own, built with `secret-store/` here (ADR
+  OPS-023; its README takes it from `tofu apply` to a running store);
+  Vault works the same way. Its address, `https://secrets.<domain>`, is the
+  cluster's `SECRET_STORE_URL` (step 4). Two tokens for it, kept out of
+  git: the operator token, which may write, for you (step 4), and the
+  read-only cluster token, for the cluster (step 6; `secret-store/README.md`,
+  "The cluster's token"). The cluster's lives ten years, since External
+  Secrets Operator doesn't renew a token; if it expires anyway, the
+  Secrets stay as they are and stop refreshing until it is replaced.
 - Tools: `tofu` (OpenTofu ≥ 1.9), `talosctl` v1.14, `kubectl`, `flux` v2.9,
-  `sops`, `age` and `hcloud-upload-image`.
+  `node` (20 or later) and `hcloud-upload-image`.
 - **Your copy of this repository** (a fork or a mirror) for your cluster's
-  folder and its encrypted secrets. Flux reads it (step 6) and never
+  folder. Flux reads it (step 6) and never
   pushes: a public copy needs no credentials, a private one a read-only
   credential (a GitHub App, `flux create secret githubapp`, or a deploy key).
 - **A release** to run: `WELDSUITE_VERSION` (step 4), a `weldsuite-vX.Y.Z`
@@ -158,46 +172,57 @@ a time.
 ## 4. Settings and secrets for Flux
 
 - Your cluster's folder: copy `rust/deploy/flux/clusters/example` to
-  `clusters/<cluster>` and `secrets/example` to `secrets/<cluster>`, and in
-  its `layers.yaml` change the two paths that name `example` (the secrets
-  layer and `configs-extra`). Then `cluster-settings.yaml`: domain, ACME
-  email, the backup and files endpoints and buckets, and the release
-  (`WELDSUITE_VERSION`, "Releases" below). Not secret; commit it. Sizing or
-  other changes to a base layer go in that layer's `patches` in
-  `layers.yaml`.
-- Secrets: a `rust/deploy/flux/.sops.yaml` with your age public key:
-
-  ```yaml
-  creation_rules:
-    - path_regex: secrets[/\\]<cluster>[/\\].*\.sops\.yaml$
-      encrypted_regex: ^(data|stringData)$
-      age: age1…   # the "public key" line of your .agekey
-  ```
-
-  then
+  `clusters/<cluster>`, and in its `layers.yaml` change the path that names
+  `example` (`configs-extra`). Then `cluster-settings.yaml`: domain, ACME
+  email, the secret store's address (`SECRET_STORE_URL`), the backup and
+  files endpoints and buckets, and the release (`WELDSUITE_VERSION`,
+  "Releases" below). Not secret; commit it. Sizing or other changes to a base
+  layer go in that layer's `patches` in `layers.yaml`.
+- The secrets layer's `components` in `layers.yaml` name the optional parts
+  your cluster runs: `mta`, `monitoring` and `logging` in the example, plus
+  `marketing` and `registry` (`flux/secrets/kustomization.yaml` lists them).
+  A store of another kind than the Vault API (Scaleway, a cloud's secret
+  manager): replace the ClusterSecretStore's `spec.provider` in that layer's
+  `patches`, and fill the store by hand from `store.example.yaml`.
+- Secrets: the store holds every value the layers read; no value is ever in
+  the repository. `flux/secrets/store.example.yaml` lists them, and
+  `seed-secrets.mjs` fills the store with them:
 
   ```bash
-  cd rust/deploy/flux
-  cp secrets/examples/secrets.example.yaml secrets/<cluster>/secrets.sops.yaml
-  # replace every CHANGE_ME (openssl rand -base64 32 …)
-  sops --encrypt --in-place secrets/<cluster>/secrets.sops.yaml
-  # list secrets.sops.yaml in secrets/<cluster>/kustomization.yaml, commit
+  export SECRET_STORE_URL=https://secrets.<domain>   # as in cluster-settings.yaml
+  read -rs SECRET_STORE_TOKEN; export SECRET_STORE_TOKEN   # the operator token
+  FILES_S3_ACCESS_KEY_ID=… FILES_S3_SECRET_ACCESS_KEY=… \
+  BACKUP_S3_ACCESS_KEY_ID=… BACKUP_S3_SECRET_ACCESS_KEY=… \
+  MISTRAL_API_KEY=… \
+    node rust/deploy/flux/scripts/seed-secrets.mjs
   ```
 
-  `DATABASE_ENCRYPTION_KEY` decrypts `workspaces.database_url`;
-  `SIGN_PORTAL_SECRET` is shared by the server and the sign portal (the
-  server trusts the signer's IP the portal reports only next to it); the
-  Zitadel masterkey is exactly 32 characters. Losing either makes stored data
-  unreadable: keep them in the password manager too. The LiveKit key pair
-  appears twice (`weldsuite-env` and `livekit-env`) and must match, as must
-  `livekit-env`'s `REDIS_PASSWORD` and the Valkey password. `MTA_KEY`
-  (`weldsuite-mta`) seals every sending domain's DKIM key: keep it there too,
-  and the MTA's database password matches in `weldsuite-mta` and
-  `master-db-mta`. `scripts/fill-secrets.mjs` generates all of these.
-  `MISTRAL_API_KEY` is the one AI key the cluster needs ("AI" below); the
-  script takes it from the variable of that name, and generates
-  `AI_KEYS_ENCRYPTION_KEY`, which seals the keys workspaces bring for Claude
-  and ChatGPT (losing it loses those keys, nothing else).
+  It generates every value that isn't a provider's, takes a provider's from
+  the environment variable the example names (`$NAME`), and writes
+  `CHANGE_ME` for one it doesn't have yet (Zitadel's tokens, made in step 7);
+  a later run with the variable set replaces it. It never changes any other
+  value the store holds, and prints names, never values. The ExternalSecrets
+  in `flux/secrets` build every Secret from these values, so a value shared
+  by several Secrets (the Valkey password, the LiveKit key pair, a database
+  password and the URL that holds it) is stored once.
+  `MISTRAL_API_KEY` is the one AI key the cluster needs (`config.ai`, the EU
+  edition's account on Mistral's La Plateforme): the server, `consume` and
+  the cron jobs don't start without it while `config.ai.defaultProvider` is
+  `mistral`. The script generates `AI_KEYS_ENCRYPTION_KEY`, which seals the
+  keys workspaces bring for Claude and ChatGPT, and `SANDBOX_TOKEN_SECRET`,
+  WeldAgent's sandbox tokens.
+
+  `DATABASE_ENCRYPTION_KEY` decrypts `workspaces.database_url`; the Zitadel
+  masterkey seals Zitadel's data; `MTA_KEY` seals every sending domain's DKIM
+  key. Losing one makes stored data unreadable: keep a copy of each in the
+  password manager too (`seed-secrets.mjs` names them when it makes them).
+- **A value changed later** (a rotation, a provider's new key): change it in
+  the store (its web UI, `https://secrets.<domain>/ui/`, or `bao kv patch
+  secret/<entry> <PROPERTY>=…`), or run `seed-secrets.mjs` with its variable set when the
+  store still holds `CHANGE_ME`. Its Secrets follow within the hour, or at
+  once with `kubectl -n <namespace> annotate externalsecret <name>
+  force-sync=$(date +%s) --overwrite`; then restart the pods that read it as
+  environment variables.
 - The Traefik values trust PROXY headers from `10.10.0.0/16`; change them in
   `flux/infrastructure/controllers/values/traefik.yaml` if you change
   `network_cidr`.
@@ -223,7 +248,10 @@ it installs (v2.9.6; a newer CLI refuses).
 
 ```bash
 flux install --version=v2.9.6
-kubectl -n flux-system create secret generic sops-age --from-file=age.agekey=<cluster>.agekey
+# The one Secret put in by hand: the secret store's read-only token. The
+# controllers layer gives the namespace its labels later.
+kubectl create namespace external-secrets
+kubectl -n external-secrets create secret generic secret-store-token --from-literal=token=<the read-only token>
 flux create source git flux-system \
   --url=https://github.com/<you>/weldsuite --branch=main
 flux create kustomization flux-system \
@@ -237,12 +265,54 @@ to it (`flux create secret githubapp <name> --app-id=… --app-installation-id=�
 source; Flux 2.5 or later).
 
 The layers come up in order: `sources` → `controllers` (namespaces, OpenEBS,
-cert-manager, Traefik, CloudNativePG, the backup plugin) → `secrets` →
+cert-manager, Traefik, CloudNativePG, the backup plugin, External Secrets
+Operator) → `secrets` (ready once every Secret is written from the store;
+`kubectl get clustersecretstore,externalsecrets -A` shows why one isn't) →
 `configs` (Postgres clusters, poolers, backups, the issuer; then
 `configs-extra`, the MTA's database) → `services`
 (NATS, Valkey, Restate, Zitadel) → `apps` (weldsuite), with `video`
 (LiveKit) beside `apps`: a missing `livekit.` or `turn.` record holds up
 calls only.
+
+### Moving a cluster off SOPS
+
+A cluster set up before the secret store reads its Secrets from a
+SOPS-encrypted `secrets/<cluster>/secrets.sops.yaml`. It moves once the base
+layers it runs include External Secrets Operator and `flux/secrets` (a
+release or main build with them), without restarting anything:
+
+1. **The store and its two tokens** (Prerequisites).
+2. **Take the values over**, with the age key that decrypts the file:
+
+   ```bash
+   SECRET_STORE_URL=… SECRET_STORE_TOKEN=<the writing one> SOPS_AGE_KEY_FILE=~/<cluster>.agekey \
+     node rust/deploy/flux/scripts/seed-secrets.mjs --import secrets/<cluster>/secrets.sops.yaml --dry-run
+   ```
+
+   It decrypts the file in memory and works out each value's place in the
+   store. It then makes every Secret of the file again, the way the
+   ExternalSecrets will from what the store would then hold. It stops,
+   writing nothing, if one would come out different or if the store already
+   holds a different value. Without `--dry-run` it writes. Then run it once
+   more without `--import`, to add the values the file lacked.
+3. **The cluster's token**: `kubectl -n external-secrets create secret
+   generic secret-store-token --from-literal=token=<the read-only one>`.
+4. **Switch the secrets layer**, in one commit: `SECRET_STORE_URL` in
+   `cluster-settings.yaml`, and the layer as in
+   `flux/clusters/example/layers.yaml` (path `./rust/deploy/flux/secrets`,
+   your components, the health checks, no `decryption`) but with
+   `prune: false`. Flux then leaves the Secrets it applied from the file in
+   place, and External Secrets Operator takes each one over as it is (it
+   adopts a Secret nothing owns) and writes it from the store from then on.
+   Wait until `kubectl get externalsecrets -A` shows every one
+   `SecretSynced`.
+5. **Clean up**: `prune: true` again; then delete `secrets/<cluster>/`, its
+   `.sops.yaml` rule and the cluster's `flux-system/sops-age` Secret.
+6. **Rotate what can be.** The old file stays in git history, readable by
+   anyone with a copy of the age key. Rotate in the store what can be
+   replaced (tokens, internal secrets, provider keys), and destroy spare
+   copies of the age key. `DATABASE_ENCRYPTION_KEY`, the Zitadel masterkey
+   and `MTA_KEY` seal stored data and can't simply be replaced.
 
 ## 7. Zitadel: first admin, the WeldSuite project, sign-in
 
@@ -450,7 +520,7 @@ WeldID 1.0):
 
 ## Sign-up and the first workspace
 
-With `TENANT_SHARDS` and `ZITADEL_*` in `weldsuite-env` (secrets example),
+With `TENANT_SHARDS` and `ZITADEL_*` in `weldsuite-env` (`flux/secrets`),
 the server serves `/api/onboarding` and runs the provisioning job; the
 `identity-sync` CronJob (every minute), `workspace-deletion` (daily) and
 `workspace-teardown` (hourly) run with the same environment. What happens,
@@ -533,12 +603,13 @@ lets nobody in until these are done, once per cluster:
    secret, and the organization's id (its **Organization** page), which is
    `ZITADEL_STAFF_ORG_ID` (step 4).
 2. **Secrets.** `ADMIN_OIDC_CLIENT_ID` and `ADMIN_OIDC_CLIENT_SECRET` from that
-   app, plus a generated `ADMIN_SESSION_SECRET` and `OUTBOUND_ADMIN_SECRET`, in
-   `weldsuite-env`:
+   app in the store's `weldsuite/server`, next to the generated
+   `ADMIN_SESSION_SECRET` and `OUTBOUND_ADMIN_SECRET`; `weldsuite-env` takes
+   them from there (step 4, "A value changed later"):
 
    ```bash
-   ADMIN_OIDC_CLIENT_ID=… ADMIN_OIDC_CLIENT_SECRET=… SOPS_AGE_KEY_FILE=~/<cluster>.agekey \
-     node rust/deploy/flux/scripts/fill-secrets.mjs --update rust/deploy/flux/secrets/<cluster>/secrets.sops.yaml
+   ADMIN_OIDC_CLIENT_ID=… ADMIN_OIDC_CLIENT_SECRET=… SECRET_STORE_URL=… SECRET_STORE_TOKEN=… \
+     node rust/deploy/flux/scripts/seed-secrets.mjs
    ```
 
 3. **Who may reach it.** `ADMIN_CIDRS` in `flux/clusters/<cluster>/cluster-settings.yaml`:
@@ -1109,9 +1180,10 @@ and what to check first: `flux/infrastructure/monitoring-config/ALERTS.md`.
    first two). For ntfy topics, `flux/scripts/ntfy-receiver-url.mjs`
    prints a URL with ntfy's message template. Any webhook works.
 4. **Secrets**: `alerting-receivers`, `grafana-oidc` (the app's client id
-   and secret), `grafana-admin` (the break-glass login) and `logging/loki-s3`.
-   `fill-secrets.mjs --update` adds them (`ALERT_*`, `GRAFANA_OIDC_*` and
-   `LOGS_S3_*` in the environment).
+   and secret), `grafana-admin` (the break-glass login) and `logging/loki-s3`,
+   from the secrets layer's `monitoring` and `logging` components.
+   `seed-secrets.mjs` puts their values in the store (`ALERT_*`,
+   `GRAFANA_OIDC_*` and `LOGS_S3_*` in the environment; step 4).
 5. **DNS**: `grafana.<domain>` (step 5).
 6. **Layers**: `monitoring`, `monitoring-config` and `logging`, as in
    `flux/clusters/example/layers.yaml`.

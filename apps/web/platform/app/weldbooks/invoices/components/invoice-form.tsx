@@ -293,7 +293,8 @@ function createAndSendAction(
 
 /**
  * The company details every invoice must show (VAT number, KvK, IBAN, address): a new invoice
- * waits for them, a draft being edited only says which are missing.
+ * can be saved as a draft without them, but "Create and send" (which finalizes) waits for them,
+ * as books-api does. A draft being edited only says which are missing.
  */
 function useInvoiceDetailsGate(mode: 'add' | 'edit') {
   const { t } = useI18n();
@@ -302,8 +303,8 @@ function useInvoiceDetailsGate(mode: 'add' | 'edit') {
   return {
     details,
     noticeContext: mode === 'add' ? ('create' as const) : ('issue' as const),
-    /** Why saving waits, for the buttons' title; undefined when it doesn't. */
-    blockedReason: blocked ? t.accounting.entityInvoiceDetails.createBlocked : undefined,
+    /** Why "Create and send" waits, for its title; undefined when it doesn't. */
+    sendBlockedReason: blocked ? t.accounting.entityInvoiceDetails.createBlocked : undefined,
   };
 }
 
@@ -637,7 +638,7 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
   const br = features.brTaxReturn;
   const describeError = useDescribeError();
   const detailsGate = useInvoiceDetailsGate(mode);
-  const detailsBlocked = detailsGate.blockedReason;
+  const sendBlocked = detailsGate.sendBlockedReason;
 
   const createMutation = useCreateInvoice();
   const updateMutation = useUpdateInvoice();
@@ -790,7 +791,7 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
   };
 
   const onSubmit = (values: InvoiceFormValues, intent: 'save' | 'send' = 'save') => {
-    if (detailsBlocked) return;
+    if (intent === 'send' && sendBlocked) return;
     setSending(intent === 'send');
     startTransition(async () => {
       try {
@@ -1207,7 +1208,7 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
       label: tf.createAndSend,
       pendingText: t.accounting.sendInvoice.sending,
       noEmail: tf.customerHasNoEmail,
-      detailsMissing: detailsBlocked,
+      detailsMissing: sendBlocked,
       pending: isPending && sending,
       onClick: () => void form.handleSubmit((values) => onSubmit(values, 'send'))(),
     }),
@@ -1253,8 +1254,6 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
       onSubmit={form.handleSubmit((values) => onSubmit(values, 'save'))}
       isPending={isPending}
       submitText={textWhen(canCreateAndSend, tf.createDraft, submitText)}
-      submitDisabled={detailsBlocked !== undefined}
-      submitTitle={detailsBlocked}
       primaryAction={sendAction}
       backLink={isCreditMemo && invoice ? creditNoteHref(invoice.id) : '/weldbooks/invoices'}
       backText={isCreditMemo ? tf.backToCreditNotes : tf.backToInvoices}

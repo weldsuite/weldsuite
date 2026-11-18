@@ -21,6 +21,9 @@
 //! | [`SsoDirectory::remove_domain`] | `DELETE …/connections/{id}/domains/{domainId}` |
 //! | [`SsoDirectory::verify_domain`] | `POST …/connections/{id}/domains/{domainId}/verify` |
 //!
+//! A connection is `OpenID` Connect (issuer, client id and secret) or SAML
+//! (created and changed from the identity provider's metadata, an upload or
+//! a URL; [`SamlDetails`] says what to register at the identity provider).
 //! The client secret is write-only: [`NewSsoConnection`] and
 //! [`SsoConnectionChanges`] carry it to the provider, and [`SsoConnection`]
 //! has no field for it, only whether one is set. Failures are
@@ -68,6 +71,78 @@ impl SsoDomainStatus {
     }
 }
 
+/// The protocol of a connection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SsoProtocol {
+    #[default]
+    Oidc,
+    Saml,
+}
+
+impl SsoProtocol {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Oidc => "oidc",
+            Self::Saml => "saml",
+        }
+    }
+
+    /// The provider's word for it; `None` for a protocol this port doesn't know.
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "oidc" => Some(Self::Oidc),
+            "saml" => Some(Self::Saml),
+            _ => None,
+        }
+    }
+}
+
+/// An identity provider's metadata for a SAML connection: the document
+/// itself, or where the provider fetches it (https).
+#[derive(Clone, PartialEq, Eq)]
+pub enum SamlMetadata {
+    Xml(String),
+    Url(String),
+}
+
+impl fmt::Debug for SamlMetadata {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Xml(xml) => write!(f, "Xml({} bytes)", xml.len()),
+            Self::Url(url) => f.debug_tuple("Url").field(url).finish(),
+        }
+    }
+}
+
+/// A signing certificate of a SAML identity provider, as the provider shows it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SamlCertificate {
+    /// SHA-256 of the DER, hex pairs with colons.
+    pub sha256: String,
+    pub subject: Option<String>,
+    /// RFC 3339.
+    pub not_after: Option<String>,
+}
+
+/// A SAML connection's two sides: what the admin registers at the identity
+/// provider (the service provider's entity id and ACS URL, also served as
+/// metadata), and what was taken from the identity provider's metadata.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SamlDetails {
+    /// The service provider's entity id (the identity provider's "Identifier").
+    pub entity_id: String,
+    /// The assertion consumer service (the identity provider's "Reply URL").
+    pub acs_url: String,
+    /// The service provider's metadata, for identity providers that read it.
+    pub metadata_url: String,
+    pub idp_entity_id: Option<String>,
+    pub idp_sso_url: Option<String>,
+    /// Where the identity provider's metadata was fetched from; `None` when it
+    /// was uploaded.
+    pub idp_metadata_url: Option<String>,
+    pub idp_certificates: Vec<SamlCertificate>,
+}
+
 /// One domain of a connection, with the record that proves it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SsoDomain {
@@ -86,7 +161,9 @@ pub struct SsoDomain {
     pub txt_value: String,
 }
 
-/// An `OpenID` Connect connection to a workspace's own identity provider.
+/// A connection to a workspace's own identity provider: `OpenID` Connect
+/// (`issuer`, `client_id`) or SAML (`saml`; the `OpenID` Connect fields are
+/// empty).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(
     clippy::struct_excessive_bools,
@@ -96,6 +173,7 @@ pub struct SsoConnection {
     pub id: String,
     /// `workspaces.id`.
     pub tenant_ref: String,
+    pub protocol: SsoProtocol,
     pub display_name: String,
     /// The identity provider's issuer URL.
     pub issuer: String,
@@ -114,6 +192,8 @@ pub struct SsoConnection {
     /// What the admin registers at their identity provider as the redirect
     /// URI: the provider's callback for this connection, as it reports it.
     pub redirect_uri: Option<String>,
+    /// SAML only.
+    pub saml: Option<SamlDetails>,
     pub domains: Vec<SsoDomain>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
@@ -132,9 +212,12 @@ impl SsoConnection {
     }
 }
 
-/// A connection to create.
+/// A connection to create: `OpenID` Connect from `issuer`, `client_id` and
+/// `client_secret`, or SAML from `saml_metadata` (the `OpenID` Connect fields
+/// empty).
 #[derive(Clone, PartialEq, Eq)]
 pub struct NewSsoConnection {
+    pub protocol: SsoProtocol,
     pub display_name: String,
     pub issuer: String,
     pub client_id: String,
@@ -144,11 +227,15 @@ pub struct NewSsoConnection {
     pub trust_emails: bool,
     pub enabled: bool,
     pub enforce_sso: bool,
+    /// SAML only: the identity provider's metadata.
+    pub saml_metadata: Option<SamlMetadata>,
 }
 
 impl fmt::Debug for NewSsoConnection {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("NewSsoConnection")
+            .field("protocol", &self.protocol)
+            .field("saml_metadata", &self.saml_metadata)
             .field("display_name", &self.display_name)
             .field("issuer", &self.issuer)
             .field("client_id", &self.client_id)
@@ -173,6 +260,9 @@ pub struct SsoConnectionChanges {
     pub trust_emails: Option<bool>,
     pub enabled: Option<bool>,
     pub enforce_sso: Option<bool>,
+    /// SAML only: new metadata (a URL is fetched again even when unchanged:
+    /// how a new signing key of the identity provider is picked up).
+    pub saml_metadata: Option<SamlMetadata>,
 }
 
 impl SsoConnectionChanges {
@@ -188,6 +278,7 @@ impl fmt::Debug for SsoConnectionChanges {
             .field("issuer", &self.issuer)
             .field("client_id", &self.client_id)
             .field("client_secret", &self.client_secret.as_ref().map(|_| "…"))
+            .field("saml_metadata", &self.saml_metadata)
             .field("scopes", &self.scopes)
             .field("trust_emails", &self.trust_emails)
             .field("enabled", &self.enabled)
@@ -325,17 +416,65 @@ impl MemorySsoDirectory {
             .ok_or_else(|| refused(404, "not_found"))
     }
 
+    /// What the double takes from metadata: a document that mentions
+    /// `IDPSSODescriptor`, or an https URL. Anything else is WeldID's
+    /// `invalid_metadata` (400, with a message, as WeldID answers).
+    fn metadata_refusal(metadata: &SamlMetadata) -> Option<IdentityError> {
+        let usable = match metadata {
+            SamlMetadata::Xml(xml) => xml.contains("IDPSSODescriptor"),
+            SamlMetadata::Url(url) => url.starts_with("https://"),
+        };
+        (!usable).then(|| IdentityError::Rejected {
+            status: 400,
+            code: Some("invalid_metadata".to_owned()),
+            message: Some("The metadata describes no SAML 2.0 identity provider.".to_owned()),
+            body: None,
+        })
+    }
+
+    fn saml_details(id: &str, metadata: &SamlMetadata) -> SamlDetails {
+        SamlDetails {
+            entity_id: format!("https://auth.example.test/sso/{id}/saml/metadata"),
+            acs_url: format!("https://auth.example.test/sso/{id}/saml/acs"),
+            metadata_url: format!("https://auth.example.test/sso/{id}/saml/metadata"),
+            idp_entity_id: Some("https://idp.example.test/saml".to_owned()),
+            idp_sso_url: Some("https://idp.example.test/saml/sso".to_owned()),
+            idp_metadata_url: match metadata {
+                SamlMetadata::Url(url) => Some(url.clone()),
+                SamlMetadata::Xml(_) => None,
+            },
+            idp_certificates: vec![SamlCertificate {
+                sha256: "AB:CD".to_owned(),
+                subject: Some("CN=idp.example.test".to_owned()),
+                not_after: Some("2029-01-01T00:00:00Z".to_owned()),
+            }],
+        }
+    }
+
     fn create(&self, tenant_ref: &str, new: &NewSsoConnection) -> IdentityResult<SsoConnection> {
         let mut state = self.lock();
         Self::check(&state)?;
-        if new.issuer.is_empty() || new.client_id.is_empty() {
+        let complete = match new.protocol {
+            SsoProtocol::Oidc => !new.issuer.is_empty() && !new.client_id.is_empty(),
+            SsoProtocol::Saml => new.saml_metadata.is_some(),
+        };
+        if !complete {
             return Err(refused(400, "invalid_request"));
+        }
+        if let Some(refusal) = new.saml_metadata.as_ref().and_then(Self::metadata_refusal) {
+            return Err(refusal);
         }
         state.next += 1;
         let id = format!("ssoc_{}", state.next);
+        let saml = new
+            .saml_metadata
+            .as_ref()
+            .map(|metadata| Self::saml_details(&id, metadata));
         let connection = SsoConnection {
             id: id.clone(),
             tenant_ref: tenant_ref.to_owned(),
+            protocol: new.protocol,
+            saml,
             display_name: new.display_name.clone(),
             issuer: new.issuer.clone(),
             client_id: new.client_id.clone(),
@@ -371,6 +510,15 @@ impl MemorySsoDirectory {
                 .insert(connection_id.to_owned(), secret.clone());
         }
         let connection = Self::owned(&mut state, tenant_ref, connection_id)?;
+        if let Some(metadata) = &changes.saml_metadata {
+            if connection.protocol != SsoProtocol::Saml {
+                return Err(refused(400, "invalid_request"));
+            }
+            if let Some(refusal) = Self::metadata_refusal(metadata) {
+                return Err(refusal);
+            }
+            connection.saml = Some(Self::saml_details(connection_id, metadata));
+        }
         if let Some(trust) = changes.trust_emails {
             connection.trust_emails = trust;
         }
@@ -573,6 +721,8 @@ mod tests {
 
     fn new_connection() -> NewSsoConnection {
         NewSsoConnection {
+            protocol: SsoProtocol::Oidc,
+            saml_metadata: None,
             display_name: "Acme Entra".to_owned(),
             issuer: "https://login.example.test/acme/v2.0".to_owned(),
             client_id: "client-1".to_owned(),

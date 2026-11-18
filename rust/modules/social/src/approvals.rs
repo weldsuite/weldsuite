@@ -90,6 +90,7 @@ static APPROVALS: Crud = Crud {
     updated: ev::SOCIAL_APPROVAL_UPDATED,
     updated_event: approval_updated,
     guard: Some(approval_guard),
+    edit: None,
     deleted: ev::SOCIAL_APPROVAL_DELETED,
 };
 

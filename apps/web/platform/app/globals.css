@@ -158,18 +158,75 @@
    keep the bar 3px wide, so the icons stay centred on the rail whether or not
    it scrolls. `scrollbar-width`/`scrollbar-color` must be `auto` for Chromium
    to honour the ::-webkit-scrollbar width; Firefox can't go below `thin`
-   (too wide for the rail), so the bar is hidden there instead. */
+   (too wide for the rail), so the bar is hidden there instead.
+
+   The thumb fades in while the pointer is over the rail and fades out after.
+   Scrollbar pseudo-elements can't transition, and Chromium only repaints a
+   custom scrollbar when the scroller's own style changes. So the colour lives
+   in a typed custom property on the scroller: registering it lets it
+   transition, and every step of that transition is a style change on the
+   scroller, which repaints the thumb.
+
+   Where apps are scrolled out of view, the list fades out over its top or
+   bottom 22px instead of slicing an icon in half under Home or above the App
+   Store. AppSidebarClient sets `data-fade-top` / `data-fade-bottom` while
+   there is more to scroll that way; the mask's end colours are typed custom
+   properties too, so each edge fades in and out rather than popping. */
+@property --app-rail-thumb {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: transparent;
+}
+@property --app-rail-fade-top {
+  syntax: "<color>";
+  inherits: false;
+  initial-value: #000;
+}
+@property --app-rail-fade-bottom {
+  syntax: "<color>";
+  inherits: false;
+  initial-value: #000;
+}
 .app-rail-scroll {
   scrollbar-gutter: stable both-edges;
   scrollbar-width: none;
+  --app-rail-fade-top: #000;
+  --app-rail-fade-bottom: #000;
+  -webkit-mask-image: linear-gradient(to bottom, var(--app-rail-fade-top) 0, #000 22px, #000 calc(100% - 22px), var(--app-rail-fade-bottom) 100%);
+  mask-image: linear-gradient(to bottom, var(--app-rail-fade-top) 0, #000 22px, #000 calc(100% - 22px), var(--app-rail-fade-bottom) 100%);
+  transition:
+    --app-rail-thumb 120ms ease,
+    --app-rail-fade-top 150ms ease,
+    --app-rail-fade-bottom 150ms ease;
+}
+.app-rail-scroll[data-fade-top] {
+  --app-rail-fade-top: transparent;
+}
+.app-rail-scroll[data-fade-bottom] {
+  --app-rail-fade-bottom: transparent;
 }
 @supports selector(::-webkit-scrollbar) {
   .app-rail-scroll {
     scrollbar-width: auto;
     scrollbar-color: auto;
+    --app-rail-thumb: transparent;
+  }
+  .app-rail-scroll:hover {
+    --app-rail-thumb: rgb(209 213 219);
+  }
+  :is(.dark) .app-rail-scroll:hover {
+    --app-rail-thumb: rgba(143, 153, 168, 0.4);
   }
   .app-rail-scroll::-webkit-scrollbar {
     width: 3px;
+    background: transparent;
+  }
+  .app-rail-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .app-rail-scroll::-webkit-scrollbar-thumb {
+    background: var(--app-rail-thumb);
+    border-radius: 9999px;
   }
 }
 

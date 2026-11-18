@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { setRuntimeConfig } from '@/lib/runtime-config';
 import {
   DEFAULT_BOOKING_PORTAL_URL,
   LOCAL_BOOKING_PORTAL_URL,
@@ -53,5 +54,22 @@ describe('getBookingPortalUrl / buildBookingPageUrl', () => {
     vi.stubEnv('VITE_BOOKING_PORTAL_URL', '');
     // jsdom serves tests from localhost.
     expect(getBookingPortalUrl()).toBe(LOCAL_BOOKING_PORTAL_URL);
+  });
+
+  describe('on a Kubernetes edition', () => {
+    afterEach(() => setRuntimeConfig(null));
+
+    it("has no link without a portal of its own, never Global's", () => {
+      vi.stubEnv('VITE_BOOKING_PORTAL_URL', '');
+      setRuntimeConfig({ backend: 'rust', edition: 'eu' });
+      expect(getBookingPortalUrl()).toBeNull();
+      expect(buildBookingPageUrl('acme', 'intro-call')).toBeNull();
+    });
+
+    it('uses the portal its /config.json names', () => {
+      vi.stubEnv('VITE_BOOKING_PORTAL_URL', '');
+      setRuntimeConfig({ backend: 'rust', env: { VITE_BOOKING_PORTAL_URL: 'https://book.example.eu' } });
+      expect(buildBookingPageUrl('acme', 'intro-call')).toBe('https://book.example.eu/acme/intro-call');
+    });
   });
 });

@@ -7,6 +7,7 @@ import { useDeferredValue, useState } from 'react';
 import { Signature } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCan } from '@weldsuite/permissions/react';
+import { useCreateIntent } from '@/hooks/use-create-intent';
 import {
   SIGN_ENVELOPE_FOLDERS,
   type SignEnvelopeFolder,
@@ -57,6 +58,8 @@ export default function WeldSignHome() {
       toast.error(th.createFailed);
     }
   }
+
+  useCreateIntent(() => void newRequest(), { ready: canCreate });
 
   async function confirmDelete(envelope: SignEnvelopeSummary) {
     try {

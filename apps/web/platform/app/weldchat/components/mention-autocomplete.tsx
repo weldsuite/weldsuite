@@ -27,6 +27,8 @@ import {
   useChannel,
 } from '@/hooks/queries/use-weldchat-queries';
 import { useGlobalSearch } from '@/hooks/queries/use-global-search-queries';
+import { SEARCH_ENTITY_TYPES as CHAT_TOKEN_TYPES } from '@weldsuite/core-api-client/schemas/search';
+import type { SearchEntityType } from '@weldsuite/app-api-client/schemas/search';
 import { RESULT_TYPE_ICON, RESULT_TYPE_LABEL } from '@/lib/search/result-types';
 import type { EntitySheetType } from '@/components/entity-sheet/types';
 import { useI18n } from '@/lib/i18n/provider';
@@ -34,6 +36,13 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { Button } from '@weldsuite/ui/components/button';
 import { useCan } from '@weldsuite/permissions/react';
 import { useCanInviteAgents, useInvitableAgents, useInviteAgent } from './invite-agent-picker';
+
+/**
+ * The record types a mention offers, as before search grew: the ones a chat
+ * token names (chat-api reads the same list and takes any other prefix for a
+ * person) and knowledge pages.
+ */
+const MENTION_RECORD_TYPES: SearchEntityType[] = [...CHAT_TOKEN_TYPES, 'knowledge_page'];
 
 export type MentionSelection =
   | { kind: 'user'; userId: string; name: string }
@@ -81,7 +90,8 @@ const PEOPLE_LIMIT = 5;
 const INVITABLE_AGENTS_IDLE_LIMIT = 3;
 
 // Overrides the Button base (justify-center, h-9, rounded-md, font-medium) so
-// rows read as a left-aligned list instead of centered buttons.
+// rows read as a left-aligned list instead of centered buttons. The selected
+// row uses `accent`, not `muted`: in the dark theme muted is the popover's colour.
 const ROW_CLASS =
   'flex items-center justify-start gap-2 w-full h-auto px-3 py-2 rounded-none text-sm font-normal text-left';
 const SECTION_HEADING_CLASS =
@@ -153,7 +163,7 @@ export function MentionAutocomplete({
 
   const { data: searchData, isFetching: isSearching } = useGlobalSearch(
     showRecords ? trimmed : '',
-    { limit: ENTITY_PER_GROUP_LIMIT, enabled: showRecords },
+    { limit: ENTITY_PER_GROUP_LIMIT, enabled: showRecords, types: MENTION_RECORD_TYPES },
   );
 
   // -- Agents + People sections ----------------------------------------------
@@ -449,7 +459,7 @@ export function MentionAutocomplete({
         type="button"
         variant="ghost"
         data-mention-index={idx}
-        className={`${ROW_CLASS} ${active ? 'bg-muted' : 'hover:bg-muted'}`}
+        className={`${ROW_CLASS} ${active ? 'bg-accent text-accent-foreground' : 'hover:bg-accent'}`}
         onMouseEnter={() => enterRow(idx, s)}
         onMouseLeave={() => leaveRow(s)}
         onMouseDown={(e) => {
@@ -489,7 +499,7 @@ export function MentionAutocomplete({
           type="button"
           variant="ghost"
           data-mention-index={everyoneIndex}
-          className={`${ROW_CLASS} ${everyoneIndex === activeIndex ? 'bg-muted' : 'hover:bg-muted'}`}
+          className={`${ROW_CLASS} ${everyoneIndex === activeIndex ? 'bg-accent text-accent-foreground' : 'hover:bg-accent'}`}
           onMouseEnter={() => enterRow(everyoneIndex, { kind: 'everyone' })}
           onMouseLeave={() => leaveRow({ kind: 'everyone' })}
           onMouseDown={(e) => {
@@ -541,7 +551,7 @@ export function MentionAutocomplete({
                       type="button"
                       variant="ghost"
                       data-mention-index={idx}
-                      className={`${ROW_CLASS} ${active ? 'bg-muted' : 'hover:bg-muted'}`}
+                      className={`${ROW_CLASS} ${active ? 'bg-accent text-accent-foreground' : 'hover:bg-accent'}`}
                       onMouseEnter={() => enterRow(idx, item)}
                       onMouseLeave={() => leaveRow(item)}
                       onMouseDown={(e) => {

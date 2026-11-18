@@ -2,9 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from '@testing-library/react';
 import { en } from '@weldsuite/i18n/locales/en';
 
-const env = vi.hoisted(() => ({ pathname: '/weldbooks', segments: [] as Array<{ label: string }> }));
+const env = vi.hoisted(() => ({ pathname: '/weldbooks', search: '', segments: [] as Array<{ label: string }> }));
 
-vi.mock('@/lib/router', () => ({ usePathname: () => env.pathname }));
+vi.mock('@/lib/router', () => ({
+  usePathname: () => env.pathname,
+  useSearchParams: () => new URLSearchParams(env.search),
+}));
 vi.mock('@/lib/i18n/provider', async () => {
   const { en: english } = await import('@weldsuite/i18n/locales/en');
   return { useI18n: () => ({ t: english, language: 'en' }) };
@@ -27,6 +30,14 @@ const labelsFor = (pathname: string) => {
 describe('WeldbooksHeader breadcrumbs', () => {
   beforeEach(() => {
     env.segments = [];
+    env.search = '';
+  });
+
+  it('puts the new-supplier form under Suppliers, the new-customer form under Customers', () => {
+    env.search = 'role=supplier';
+    expect(labelsFor('/weldbooks/customers/add')).toEqual(['WeldBooks', 'Suppliers', en.accounting.header.add]);
+    env.search = '';
+    expect(labelsFor('/weldbooks/customers/add')).toEqual(['WeldBooks', 'Customers', en.accounting.header.add]);
   });
 
   it('names the pages that used to fall back to their URL', () => {

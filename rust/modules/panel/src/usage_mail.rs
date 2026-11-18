@@ -69,7 +69,7 @@ pub fn usage_url(platform_url: Option<&str>, clerk_org_id: Option<&str>) -> Stri
         .filter(|url| !url.is_empty())
         .unwrap_or(DEFAULT_PLATFORM_URL);
     let base = base.strip_suffix('/').unwrap_or(base);
-    workspace_app_url(base, clerk_org_id, "/weldpanel/settings?tab=usage")
+    workspace_app_url(base, clerk_org_id, "/settings/apps/weldpanel?tab=usage")
 }
 
 /// `sendUsageNotice`, once the recipients are known: mails each of `to`,
@@ -189,15 +189,15 @@ mod tests {
     fn links_go_into_the_workspace_or_to_the_platform() {
         assert_eq!(
             usage_url(Some("https://app-test.weldsuite.org"), Some("org_alpha")),
-            "https://app-test.weldsuite.org/w/org_alpha/weldpanel/settings?tab=usage"
+            "https://app-test.weldsuite.org/w/org_alpha/settings/apps/weldpanel?tab=usage"
         );
         assert_eq!(
             usage_url(None, None),
-            "https://app.weldsuite.org/weldpanel/settings?tab=usage"
+            "https://app.weldsuite.org/settings/apps/weldpanel?tab=usage"
         );
         assert_eq!(
             usage_url(Some(""), None),
-            "https://app.weldsuite.org/weldpanel/settings?tab=usage"
+            "https://app.weldsuite.org/settings/apps/weldpanel?tab=usage"
         );
     }
 }

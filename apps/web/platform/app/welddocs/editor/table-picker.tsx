@@ -3,7 +3,7 @@ import { Table } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@weldsuite/ui/components/dropdown-menu';
 import type { DocController } from './model/doc-controller';
 import { insertTableAtCaret } from './model/table-actions';
-import { BUTTON, WithTooltip } from './ui';
+import { BUTTON, MENU_EDGE_GAP, ReturnFocusContext, useCloseAutoFocus, WithTooltip } from './ui';
 
 const MAX = 10;
 
@@ -13,6 +13,7 @@ export const CloseMenuContext = createContext<() => void>(() => undefined);
 /** The grid of squares for picking a new table's size, as in Google Docs. */
 export function TablePicker({ onPick }: { onPick: (rows: number, cols: number) => void }) {
   const close = useContext(CloseMenuContext);
+  const returnFocus = useContext(ReturnFocusContext);
   const [hover, setHover] = useState({ rows: 1, cols: 1 });
   return (
     <div className="flex flex-col gap-1 p-1" onMouseLeave={() => setHover({ rows: 1, cols: 1 })}>
@@ -26,12 +27,14 @@ export function TablePicker({ onPick }: { onPick: (rows: number, cols: number) =
               key={i}
               type="button"
               aria-label={`${r} × ${c}`}
-              className={`size-4 rounded-[2px] border ${on ? 'border-blue-500 bg-blue-500/20' : 'border-border bg-background'}`}
+              // The empty squares need a border that stands out from the menu in both themes.
+              className={`size-4 rounded-[2px] border ${on ? 'border-blue-500 bg-blue-500/20' : 'border-muted-foreground/40 bg-transparent'}`}
               onMouseEnter={() => setHover({ rows: r, cols: c })}
               onFocus={() => setHover({ rows: r, cols: c })}
               onClick={() => {
                 onPick(r, c);
                 close();
+                returnFocus();
               }}
             />
           );
@@ -47,6 +50,7 @@ export function TablePicker({ onPick }: { onPick: (rows: number, cols: number) =
 /** The toolbar's table button: the size grid in a drop-down. */
 export function TableButton({ controller, label, disabled }: { controller: DocController; label: string; disabled?: boolean }) {
   const [open, setOpen] = useState(false);
+  const onCloseAutoFocus = useCloseAutoFocus();
   return (
     <DropdownMenu modal={false} open={open} onOpenChange={setOpen}>
       <WithTooltip label={label}>
@@ -56,7 +60,7 @@ export function TableButton({ controller, label, disabled }: { controller: DocCo
           </button>
         </DropdownMenuTrigger>
       </WithTooltip>
-      <DropdownMenuContent align="start" onCloseAutoFocus={(e) => e.preventDefault()}>
+      <DropdownMenuContent align="start" collisionPadding={MENU_EDGE_GAP} onCloseAutoFocus={onCloseAutoFocus}>
         <CloseMenuContext.Provider value={() => setOpen(false)}>
           <TablePicker onPick={(rows, cols) => insertTableAtCaret(controller, rows, cols)} />
         </CloseMenuContext.Provider>

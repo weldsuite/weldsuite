@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react';
 import { Loader2, Edit, Trash2, Zap, FileText, ImageIcon, Film } from 'lucide-react';
 import { format as formatDate } from 'date-fns';
+import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@weldsuite/ui/components/tooltip';
 import {
   useSocialPosts,
@@ -15,6 +17,7 @@ import {
 import { ComposerDialog } from '@/app/social/components/composer-dialog';
 import { SocialPlatformIcon } from '@/components/social/social-platform-icon';
 import type { SocialAccount, SocialMedia, SocialPost } from '@weldsuite/app-api-client/domains/social';
+import { toastError } from '../lib/feedback';
 
 // Composer still reads `accountIds`; the API stores targets as `targetAccountIds`.
 type DraftPost = SocialPost & { accountIds?: string[] };
@@ -107,6 +110,7 @@ export function DraftsClient() {
   const { t } = useI18n();
   const [composeOpen, setComposeOpen] = useState(false);
   const [editPost, setEditPost] = useState<DraftPost | null>(null);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const { data, isLoading } = useSocialPosts({ status: 'draft' });
   const { data: accountsData } = useSocialAccounts();
@@ -143,6 +147,25 @@ export function DraftsClient() {
   const openCreate = () => {
     setEditPost(null);
     setComposeOpen(true);
+  };
+
+  const publish = (id: string) => {
+    publishPost.mutate(id, {
+      onSuccess: () => toast.success(t.social.messages.postPublished),
+      onError: (err) => toastError(t.social.messages.publishFailed, err),
+    });
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteId) return;
+    try {
+      await deletePost.mutateAsync(deleteId);
+      toast.success(t.social.messages.postDeleted);
+    } catch (err) {
+      toastError(t.social.messages.deleteFailed, err);
+    } finally {
+      setDeleteId(null);
+    }
   };
 
   if (isLoading) {
@@ -207,7 +230,12 @@ export function DraftsClient() {
                         <div className="flex shrink-0 gap-0.5">
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <Button size="sm" variant="ghost" onClick={() => openEdit(post)}>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                aria-label={t.social.posts.editPost}
+                                onClick={() => openEdit(post)}
+                              >
                                 <Edit className="h-4 w-4" />
                               </Button>
                             </TooltipTrigger>
@@ -218,7 +246,8 @@ export function DraftsClient() {
                               <Button
                                 size="sm"
                                 variant="ghost"
-                                onClick={() => publishPost.mutate(post.id)}
+                                aria-label={t.social.posts.publishNow}
+                                onClick={() => publish(post.id)}
                                 disabled={publishPost.isPending}
                               >
                                 <Zap className="h-4 w-4" />
@@ -231,8 +260,9 @@ export function DraftsClient() {
                               <Button
                                 size="sm"
                                 variant="ghost"
+                                aria-label={t.social.posts.deletePost}
                                 className="text-destructive hover:text-destructive"
-                                onClick={() => deletePost.mutate(post.id)}
+                                onClick={() => setDeleteId(post.id)}
                                 disabled={deletePost.isPending}
                               >
                                 <Trash2 className="h-4 w-4" />
@@ -258,6 +288,18 @@ export function DraftsClient() {
           if (!v) setEditPost(null);
         }}
         editPost={editPost}
+      />
+
+      <ConfirmDialog
+        open={deleteId !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteId(null);
+        }}
+        title={t.social.messages.deleteDraftTitle}
+        description={t.social.messages.deleteDraftDescription}
+        confirmLabel={t.social.actions.delete}
+        variant="destructive"
+        onConfirm={confirmDelete}
       />
     </div>
   );

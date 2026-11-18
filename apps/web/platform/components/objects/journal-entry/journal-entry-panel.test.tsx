@@ -1,19 +1,22 @@
 import type { ReactElement, ReactNode } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { I18nProvider } from '@weldsuite/i18n/provider';
 import type { JournalEntryDetail } from '@/lib/api/domains/weldbooks';
 
 const postMutate = vi.fn();
+const reverseMutate = vi.fn();
+const deleteMutate = vi.fn();
+const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 const permissions = new Set(['journal:read', 'journal:update']);
 const journal: { entry: JournalEntryDetail | undefined; isLoading: boolean } = {
   entry: undefined,
   isLoading: false,
 };
 
-vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+vi.mock('sonner', () => ({ toast }));
 vi.mock('@weldsuite/permissions/react', () => ({
   usePermissions: () => ({ can: (permission: string) => permissions.has(permission) }),
 }));
@@ -84,7 +87,9 @@ vi.mock('@/hooks/queries/use-accounting-queries', () => ({
     isLoading: journal.isLoading,
     isError: false,
   }),
-  usePostJournalEntry: () => ({ mutate: postMutate, isPending: false }),
+  usePostJournalEntry: () => ({ mutateAsync: postMutate, isPending: false }),
+  useReverseJournalEntry: () => ({ mutateAsync: reverseMutate, isPending: false }),
+  useDeleteJournalEntry: () => ({ mutateAsync: deleteMutate, isPending: false }),
   useAccountingAccounts: () => ({
     data: { data: [{ id: 'acc_cash', code: '1000', name: 'Cash', type: 'asset', isActive: true }] },
   }),
@@ -92,6 +97,7 @@ vi.mock('@/hooks/queries/use-accounting-queries', () => ({
 }));
 
 import { JournalEntryPanel } from './journal-entry-panel';
+import { installPointerPolyfills } from '@/app/weldbooks/sales-tax/setup/test-support';
 
 function renderPanel(ui: ReactElement) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
@@ -146,11 +152,17 @@ const entry = (overrides: Partial<JournalEntryDetail> = {}): JournalEntryDetail 
   ...overrides,
 });
 
-const panelProps = { id: 'je_1', isOpen: true, onClose: vi.fn() };
+const panelProps = { id: 'je_1', isOpen: true, onClose: vi.fn<() => void>() };
 
 describe('JournalEntryPanel', () => {
+  beforeAll(installPointerPolyfills);
   beforeEach(() => {
-    postMutate.mockReset();
+    postMutate.mockReset().mockResolvedValue({ data: {} });
+    reverseMutate.mockReset().mockResolvedValue({ data: { id: 'je_2', entryNumber: 'JE-0002' } });
+    deleteMutate.mockReset().mockResolvedValue(undefined);
+    toast.success.mockReset();
+    toast.error.mockReset();
+    panelProps.onClose.mockReset();
     permissions.clear();
     permissions.add('journal:read');
     permissions.add('journal:update');
@@ -196,12 +208,60 @@ describe('JournalEntryPanel', () => {
     expect(screen.getByText('No lines')).toBeInTheDocument();
   });
 
-  it('posts a draft entry', async () => {
+  it('posts a draft entry after a confirmation, and says so', async () => {
     const user = userEvent.setup();
     renderPanel(<JournalEntryPanel {...panelProps} />);
 
     await user.click(screen.getByRole('button', { name: 'Post entry' }));
-    expect(postMutate).toHaveBeenCalledWith('je_1', expect.any(Object));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('Post JE-0001?');
+    expect(postMutate).not.toHaveBeenCalled();
+
+    await user.click(within(dialog).getByRole('button', { name: 'Post entry' }));
+    await waitFor(() => expect(postMutate).toHaveBeenCalledWith('je_1'));
+    expect(toast.success).toHaveBeenCalledWith('Journal entry JE-0001 posted');
+  });
+
+  it('deletes a draft entry after a confirmation and closes the panel', async () => {
+    const user = userEvent.setup();
+    permissions.add('journal:delete');
+    renderPanel(<JournalEntryPanel {...panelProps} />);
+
+    await user.click(screen.getByRole('button', { name: 'More actions' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Delete draft' }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Delete draft' }));
+
+    await waitFor(() => expect(deleteMutate).toHaveBeenCalledWith('je_1'));
+    expect(toast.success).toHaveBeenCalledWith('Draft journal entry deleted');
+    expect(panelProps.onClose).toHaveBeenCalled();
+  });
+
+  it('reverses a posted manual entry after a confirmation', async () => {
+    const user = userEvent.setup();
+    permissions.add('journal:create');
+    journal.entry = entry({ status: 'posted', sourceType: 'manual', isAutomatic: false, sourceId: null });
+    renderPanel(<JournalEntryPanel {...panelProps} />);
+
+    await user.click(screen.getByRole('button', { name: 'Reverse' }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Reverse' }));
+
+    await waitFor(() => expect(reverseMutate).toHaveBeenCalledWith('je_1'));
+    expect(toast.success).toHaveBeenCalledWith('Reversed with JE-0002');
+  });
+
+  it('offers no reversal of an entry a document posted, nor a delete of a posted one', async () => {
+    const user = userEvent.setup();
+    permissions.add('journal:create');
+    permissions.add('journal:delete');
+    journal.entry = entry({ status: 'posted', sourceType: 'invoice', isAutomatic: true, sourceId: 'inv_1' });
+    renderPanel(<JournalEntryPanel {...panelProps} />);
+
+    expect(screen.queryByRole('button', { name: 'Reverse' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'More actions' }));
+    expect(await screen.findByRole('menuitem', { name: 'Copy link' })).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'Delete draft' })).not.toBeInTheDocument();
   });
 
   it('offers no posting for a posted entry, or without journal:update', () => {

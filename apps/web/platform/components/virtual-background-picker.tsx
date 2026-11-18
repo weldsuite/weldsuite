@@ -1,7 +1,14 @@
-// Re-export shim — the canonical implementation lives in
-// `packages/design/weldmeet-ui/src/components/background-effects-panel.tsx`. This
-// shim is kept so existing platform imports (`@/components/virtual-background-picker`)
-// continue to resolve while the meeting-portal app uses the same shared
-// component. Edit the shared file to change behavior — both apps stay in sync.
-export { BackgroundEffectsPanel } from '@weldsuite/weldmeet-ui';
-;
+// Platform wrapper — the canonical implementation lives in
+// `packages/design/weldmeet-ui/src/components/background-effects-panel.tsx`,
+// shared with the meeting-portal app. Edit the shared file to change behavior.
+// The wrapper only switches off the stock (Unsplash) backgrounds on a
+// Kubernetes edition (EU, self-hosted), which loads nothing from third parties.
+import {
+  BackgroundEffectsPanel as SharedBackgroundEffectsPanel,
+  type BackgroundEffectsPanelProps,
+} from '@weldsuite/weldmeet-ui';
+import { getRuntimeConfig } from '@/lib/runtime-config';
+
+export function BackgroundEffectsPanel(props: Readonly<BackgroundEffectsPanelProps>) {
+  return <SharedBackgroundEffectsPanel {...props} stockImages={props.stockImages ?? !getRuntimeConfig()} />;
+}

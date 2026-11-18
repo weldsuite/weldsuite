@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { toast } from 'sonner';
 import { Package } from 'lucide-react';
 import { EmptyStateIllustration } from '@/components/entity-list';
+import { useCreateIntent } from '@/hooks/use-create-intent';
 import { PanelEntityList } from '@/components/panel-entity-list';
 import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
 import { useDeleteWeldstashProduct } from '@/hooks/queries/use-weldstash-queries';
@@ -36,6 +37,7 @@ export function ProductsList({
   useObjectPanelUrlSync('/weldstash/products');
 
   const [createOpen, setCreateOpen] = useState(false);
+  useCreateIntent(() => setCreateOpen(true));
   const [editing, setEditing] = useState<WeldstashProduct | undefined>();
 
   const columns = useMemo(() => buildWeldstashProductColumns(), []);

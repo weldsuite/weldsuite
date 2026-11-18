@@ -1,6 +1,6 @@
 /**
  * Header toggle specs — verifies the breadcrumb header's
- * ever-present action buttons (notifications, calendar, WeldAgent)
+ * ever-present action buttons (notifications, WeldAgent)
  * are visible and clickable on every authenticated page.
  */
 
@@ -13,16 +13,6 @@ test.describe('Breadcrumb header · always-visible toggles', () => {
     await expect(page.getByTestId('notifications-bell')).toBeVisible({
       timeout: 10_000,
     });
-  });
-
-  test('calendar toggle is visible on the home page', async ({ page }) => {
-    await page.goto('/');
-    await expect(page.getByTestId('app-sidebar')).toBeVisible({ timeout: 15_000 });
-    // Calendar button is only rendered on desktop layouts (md:flex)
-    const btn = page.getByTestId('calendar-toggle');
-    if (await btn.isVisible().catch(() => false)) {
-      await expect(btn).toBeVisible();
-    }
   });
 
   test('WeldAgent toggle is visible on the home page', async ({ page }) => {

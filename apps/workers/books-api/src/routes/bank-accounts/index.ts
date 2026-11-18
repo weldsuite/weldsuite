@@ -34,6 +34,7 @@ import { generateId } from '@weldsuite/worker-kit/id';
 import { atomically } from '@weldsuite/worker-kit/atomically';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { writeAccountingAudit } from '@weldsuite/books-domain/accounting-guards';
+import { invalidIbanMessage } from '@weldsuite/books-domain/identifiers';
 import { resolveEntityBaseCurrency, resolveEntityId } from '../../lib/entity-context';
 import { PostingError } from '../../services/accounting-posting';
 import {
@@ -114,10 +115,11 @@ async function loadLedgerAccount(
   return ledger;
 }
 
-function badNumbers(data: { routingNumber?: string | null; accountNumber?: string | null }): string | null {
+function badNumbers(data: { routingNumber?: string | null; accountNumber?: string | null; iban?: string | null }): string | null {
   if (data.routingNumber && !isValidAbaRouting(data.routingNumber)) return 'That routing number does not pass the ABA check. Check the nine digits.';
   if (data.accountNumber && !normalizeAccountNumber(data.accountNumber)) return 'An account number has 4 to 34 letters or digits.';
-  return null;
+  // The same check a contact's IBAN gets: its shape, its length for the country and the check digits.
+  return invalidIbanMessage(data.iban);
 }
 
 /** The WeldBooks columns of a bank account, for `accounting_bank_account_settings`. */

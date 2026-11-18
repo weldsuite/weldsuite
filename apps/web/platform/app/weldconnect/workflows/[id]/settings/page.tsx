@@ -14,6 +14,7 @@ import { useUpdateWorkflow } from '@/hooks/queries/use-automation-queries';
 import { useWorkflowDetail } from '@/hooks/use-workflow-editor-data';
 import type { WorkflowSettings } from '@/lib/db/schema/workflows';
 import { useI18n } from '@/lib/i18n/provider';
+import { isFeatureAvailable } from '@/lib/edition';
 import { WorkflowVersionHistoryDialog } from '../../components/workflow-version-history-dialog';
 import { SaveAsTemplateButton } from '../../components/save-as-template-button';
 
@@ -344,9 +345,12 @@ export function WorkflowSettingsContent({ workflowId, basePath = '/weldconnect/w
             </div>
           </div>
 
+          {/* Quotas Section: credits are spent by the AI steps only, so it
+              is offered where the deployment runs them (`weldconnect-ai`). */}
+          {isFeatureAvailable('weldconnect-ai') && (
+          <>
           <div className="border-t my-8" />
 
-          {/* Quotas Section */}
           <div className="space-y-4">
             <h2 className="text-base font-semibold">{tws.quotas.title}</h2>
             <div className="space-y-2">
@@ -373,6 +377,8 @@ export function WorkflowSettingsContent({ workflowId, basePath = '/weldconnect/w
               <p className="text-sm text-muted-foreground">{tws.quotas.maxCreditsHint}</p>
             </div>
           </div>
+          </>
+          )}
 
           <div className="border-t my-8" />
 

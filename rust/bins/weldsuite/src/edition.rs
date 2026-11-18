@@ -117,6 +117,17 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     // install keeps every workspace in its own one cluster, so there is no
     // choice to offer (onboarding's `region` only lands in the metadata).
     "data-regions",
+    // Third-party integrations: their syncs and webhooks run in Global's
+    // integration-sync-worker and integration-webhook-worker (the CRM_SYNC
+    // Workflow, connector syncs, Slack, Discord and GitHub events, Google
+    // Calendar pushes), which aren't ported. The connect routes answer, but
+    // nothing would sync, so the platform hides those integrations.
+    "integration-sync",
+    // WeldCommerce's customer portal: the orders portal has no image in the
+    // chart, so `commerce_portal_origin` would hand out Global's
+    // orders.weldsuite.org in the settings and the magic-link invites. The
+    // platform hides the portal settings.
+    "commerce-portal",
 ];
 
 /// The AI features (ADR AI-012): served on the install's AI provider

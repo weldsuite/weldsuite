@@ -181,6 +181,8 @@ vi.mock('@/lib/i18n/provider', () => ({
   useI18n: () => ({ t: en }),
 }));
 
+vi.mock('@/hooks/use-create-intent', () => ({ useCreateIntent: () => undefined }));
+
 vi.mock('@/lib/router', () => ({
   useRouter: () => ({ push }),
 }));

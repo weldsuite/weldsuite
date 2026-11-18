@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
@@ -6,6 +6,7 @@ import { ApiError } from '@weldsuite/api-client';
 import { en } from '@weldsuite/i18n/locales/en';
 import { nl } from '@weldsuite/i18n/locales/nl';
 import type { PanelInstallInfo, PanelProjectDto } from '@weldsuite/app-api-client/schemas/weldpanel';
+import { setRuntimeConfig } from '@/lib/runtime-config';
 import { makeInstall, makeProject } from '../test-fixtures';
 import WeldPanelProjectPage from './page';
 
@@ -552,6 +553,29 @@ describe('WeldPanel project page', () => {
       await user.click(screen.getByRole('button', { name: en.weldpanel.danger.delete.confirm }));
       await waitFor(() => expect(state.toast.error).toHaveBeenCalledWith(en.weldpanel.danger.delete.failed));
       expect(state.push).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('on an edition without the analytics store (panel-analytics)', () => {
+    beforeEach(() => {
+      state.perms = new Set([READ, 'panel_projects:manage']);
+      setRuntimeConfig({ backend: 'rust', edition: 'eu', modules: ['core', 'panel'], unavailableFeatures: ['panel-analytics'] });
+    });
+    afterEach(() => setRuntimeConfig(null));
+
+    it('offers no server keys and no server-side snippets', () => {
+      show();
+      expect(screen.queryByRole('tab', { name: en.weldpanel.observe.keys.title })).toBeNull();
+      expect(screen.queryByText(en.weldpanel.observe.install.serverTitle)).toBeNull();
+      expect(screen.getByText(en.weldpanel.install.scriptTitle)).toBeTruthy();
+    });
+
+    it('leaves out the recording settings and their AI summaries', async () => {
+      const { user } = show();
+      await user.click(screen.getByRole('tab', { name: tp.tabs.privacy }));
+      expect(screen.queryByLabelText(en.weldpanel.privacy.recordingRateLabel)).toBeNull();
+      expect(screen.queryByRole('switch', { name: en.weldpanel.privacy.aiLabel })).toBeNull();
+      expect(screen.getByRole('switch', { name: en.weldpanel.privacy.autocaptureLabel })).toBeTruthy();
     });
   });
 

@@ -115,6 +115,10 @@ function invoiceTemplateSegments(pathParts: string[], menu: BreadcrumbMenuLabels
   ];
 }
 
+// Trail paths that have no page of their own: their segment is shown without
+// a link (`/settings/apps` would be a 404; the sidebar lists the apps).
+const PATHS_WITHOUT_PAGE = new Set(['/settings/apps']);
+
 // Whether path segment `i` is an id that adds nothing to the trail.
 function isIdSegment(pathParts: string[], i: number): boolean {
   // An entity's: Settings > Entities > Edit entity.
@@ -173,10 +177,11 @@ export function buildBreadcrumbSegments(
   for (let i = 1; i < pathParts.length; i++) {
     if (isIdSegment(pathParts, i)) continue;
     const label = segmentLabel(pathParts, i, menu, pageLabels);
-    if (i === pathParts.length - 1) {
+    const href = '/' + pathParts.slice(0, i + 1).join('/');
+    if (i === pathParts.length - 1 || PATHS_WITHOUT_PAGE.has(href)) {
       segments.push({ label });
     } else {
-      segments.push({ label, href: '/' + pathParts.slice(0, i + 1).join('/') });
+      segments.push({ label, href });
     }
   }
   return segments;

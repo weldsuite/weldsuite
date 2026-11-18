@@ -2,7 +2,9 @@
 # One node: Raft storage on the server's own disk, and the API on localhost
 # only. Caddy holds the certificate and decides who reaches which path
 # (/etc/caddy/Caddyfile).
-ui            = false
+# The web UI at /ui/: Caddy lets only the operators' addresses reach it, as
+# with everything but the cluster's reads (README, "The web UI").
+ui            = true
 cluster_name  = "${name}"
 api_addr      = "https://${hostname}"
 cluster_addr  = "https://127.0.0.1:8201"

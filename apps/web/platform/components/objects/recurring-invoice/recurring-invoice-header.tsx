@@ -4,13 +4,14 @@
  * last generation.
  */
 
-import { EllipsisVertical, Link as LinkIcon, Pause, Pencil, Play, RefreshCw } from 'lucide-react';
+import { EllipsisVertical, Link as LinkIcon, Pause, Pencil, Play, RefreshCw, Trash2 } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { Button } from '@weldsuite/ui/components/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import { InfoBanner } from '@weldsuite/ui/components/info-banner';
@@ -41,7 +42,14 @@ export function RecurringHeaderActions({
   recurring,
   canUpdate,
   onEdit,
-}: Readonly<{ recurring?: RecurringInvoice; canUpdate: boolean; onEdit: () => void }>) {
+  onDelete,
+}: Readonly<{
+  recurring?: RecurringInvoice;
+  canUpdate: boolean;
+  onEdit: () => void;
+  /** Asks to delete the template; undefined without invoices:delete. */
+  onDelete?: () => void;
+}>) {
   const { t } = useI18n();
   const st = useTranslations();
   const td = useDocumentTexts();
@@ -77,6 +85,15 @@ export function RecurringHeaderActions({
             <LinkIcon />
             {st('sweep.entities.copyLink')}
           </DropdownMenuItem>
+          {onDelete ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" onClick={onDelete}>
+                <Trash2 />
+                {t.accounting.recurringPage.deleteTemplate}
+              </DropdownMenuItem>
+            </>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
     </div>

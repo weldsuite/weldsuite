@@ -118,6 +118,10 @@ export const weldpanel = {
     },
     anySite: 'Elke site',
     moreDomains: '+{count} meer',
+    // Waar de omgeving geen analyse-opslag heeft (de editiefunctie `panel-analytics`).
+    editionNoticeTitle: 'Alleen verzamelen in deze editie',
+    editionNotice:
+      'WeldPanel verzamelt hier paginaweergaven en events van je sites en apps. De analyses (verkeer, funnels, retentie, opnames en heatmaps) en server-side tracking zijn in deze editie nog niet beschikbaar.',
   },
 
   project: {

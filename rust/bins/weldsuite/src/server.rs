@@ -1261,4 +1261,85 @@ mod tests {
         }
         assert!(!text.contains("secret123"), "{text}");
     }
+
+    /// A company's chat reaches WeldChat's record-chat routes in this
+    /// process (crm-api's `CHAT_API`, `routes::record_chat_binding`), routed
+    /// afresh: the CRM route's `{id}` must not reach the chat route's
+    /// `Path<(entity_type, entity_id)>` (axum adds a route's params to those
+    /// already on the request). An empty message fails the chat route's own
+    /// validation, which it answers only once routing and its extractors
+    /// (session, tenant database, permissions) passed.
+    #[tokio::test]
+    async fn company_chat_reaches_the_record_chat_routes() {
+        let state = state();
+        let binding = crate::routes::record_chat_binding(&state);
+        assert!(binding.is_some(), "chat is served");
+        let crm = weldsuite_crm::router(
+            weldsuite_crm::CrmState {
+                services: weldsuite_crm::CrmServices {
+                    events: state.infra.events.clone(),
+                    realtime: None,
+                    files: None,
+                    cache: None,
+                    jobs: None,
+                    env: Arc::default(),
+                },
+                chat_api: binding,
+            },
+            &state.permissions,
+        );
+        let app: Router = Router::new().nest("/api", crm);
+        let mut request = Request::post("/api/companies/co_1/chat/messages")
+            .header("content-type", "application/json")
+            .body(Body::from("{}"))
+            .expect("request");
+        // What the session and tenant layers put on the request.
+        let extensions = request.extensions_mut();
+        extensions.insert(weldsuite_auth::AuthContext {
+            user_id: "user_1".to_owned(),
+            org_id: Some("org_1".to_owned()),
+            session_id: String::new(),
+            factor_verification_age: None,
+        });
+        extensions.insert(weldsuite_db::Tenant {
+            workspace_id: "ws_1".to_owned(),
+            clerk_org_id: Some("org_1".to_owned()),
+            db: unreachable_master(),
+            suspended: false,
+            restrictions: weldsuite_db::WorkspaceRestrictions::default(),
+        });
+        extensions.insert(weldsuite_permissions::PresetPermissions(
+            weldsuite_permissions::Permissions::new(
+                weldsuite_permissions::ResolvedPermissions {
+                    permissions: vec!["messages:create".to_owned()],
+                    denies: Vec::new(),
+                    role: "MEMBER".to_owned(),
+                    role_id: None,
+                    is_owner: false,
+                },
+                None,
+                false,
+                "user_1".to_owned(),
+            ),
+        ));
+        let response = app.oneshot(request).await.expect("response");
+        let status = response.status();
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("body")
+            .to_bytes();
+        assert_eq!(
+            status,
+            StatusCode::BAD_REQUEST,
+            "{}",
+            String::from_utf8_lossy(&body)
+        );
+        assert!(
+            String::from_utf8_lossy(&body).contains("content"),
+            "{}",
+            String::from_utf8_lossy(&body)
+        );
+    }
 }

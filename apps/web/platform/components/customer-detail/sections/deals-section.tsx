@@ -116,10 +116,10 @@ export function DealsSection({
 
   // Resolve the real company name for the locked-customer create-deal
   // dialog — `customer` here is often just `{ id }` (DealsTab passes a stub
-  // for the panel's Deals tab). Quietly 404s when this is actually a
-  // person id (Person tab), in which case the dialog falls back to an
-  // unlocked customer picker.
-  const companyQuery = useCompany(customer.id, !!customer.id);
+  // for the panel's Deals tab). On a person's tab the id is a person's, so
+  // there is no company to look up (it 404'd, TASK-1462) and the dialog
+  // offers an unlocked customer picker.
+  const companyQuery = useCompany(customer.id, !!customer.id && entityKind === 'company');
   const company = companyQuery.data?.data;
   const lockedCustomer = useMemo(
     () => (company ? { id: company.id, name: company.displayName || company.name } : undefined),
@@ -300,7 +300,18 @@ export function DealsSection({
   );
 
   const openCreateDeal = () => {
-    if (firstOpenStage) setCreateDealOpen(true);
+    if (firstOpenStage) {
+      setCreateDealOpen(true);
+      return;
+    }
+    // Deals live in a pipeline's stages: without one there is nothing to
+    // create the deal in (the button used to do nothing at all). While the
+    // pipelines or their stages are still loading, there is nothing to say yet.
+    const noPipeline = !!pipelinesResult && (!defaultPipeline || !!stagesResult);
+    if (!noPipeline) return;
+    toast.info(t('sweep.weldcrm.dealsSection.pipelineRequired'), {
+      description: t('sweep.weldcrm.dealsSection.pipelineRequiredDescription'),
+    });
   };
 
   return (

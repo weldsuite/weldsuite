@@ -7,6 +7,10 @@ import { useAppApi } from '@/lib/api/use-app-api';
 import { boardsQueryKey } from '@/app/weldboard/store/use-board-store';
 import { useProject } from '@/hooks/queries/use-projects-queries';
 import { useI18n } from '@/lib/i18n/provider';
+import { useCurrentBreadcrumbsMaybe } from '@/contexts/breadcrumb-context';
+
+/** A record id in the path (`file_…`, `rpt_…`): shortprefix_ then the generated part. */
+const ID_SEGMENT = /^[a-z]{2,8}_[a-z0-9]{6,}$/i;
 
 interface ProjectsHeaderProps {
   onWeldAgentToggle?: (isOpen: boolean) => void;
@@ -40,9 +44,21 @@ export function ProjectsHeader({ onWeldAgentToggle, onCalendarToggle, onNotifica
   });
   const whiteboardName = whiteboardData?.data?.name;
 
+  // A page that opens one item (a sheet, a document, a report) names it as
+  // its last breadcrumb: that name stands for the item's id in the path.
+  const pageCrumbs = useCurrentBreadcrumbsMaybe();
+  const itemName = pageCrumbs?.at(-1)?.label;
+
   const segments: BreadcrumbSegment[] = useMemo(() => {
+    const tabNames = t.projects.projectLayout.tabs;
     const routeLabels: Record<string, string> = {
       'all-projects': t.projects.projectLayout.routeLabels.allProjects,
+      // Project tabs, named as in the tab bar.
+      'table': tabNames.sheets,
+      'documents': tabNames.documents,
+      'gantt': tabNames.gantt,
+      'pipeline': tabNames.pipeline,
+      'timesheet': tabNames.timesheet,
       'tasks': t.projects.projectLayout.routeLabels.tasks,
       'whiteboard': t.projects.projectLayout.routeLabels.whiteboard,
       'members': t.projects.projectLayout.routeLabels.members,
@@ -109,13 +125,20 @@ export function ProjectsHeader({ onWeldAgentToggle, onCalendarToggle, onNotifica
         continue;
       }
 
-      // Other segments (other IDs, unknown routes) — capitalize
+      // Another id (a sheet, a document, a report): the name the page gives
+      // it, never the raw id.
+      if (ID_SEGMENT.test(part)) {
+        result.push({ label: (i === pathParts.length - 1 && itemName) || '...', href });
+        continue;
+      }
+
+      // Unknown routes — capitalize
       const label = part.charAt(0).toUpperCase() + part.slice(1).replace(/-/g, ' ');
       result.push({ label, href });
     }
 
     return result;
-  }, [pathParts, projectId, projectName, whiteboardId, whiteboardName, t]);
+  }, [pathParts, projectId, projectName, whiteboardId, whiteboardName, itemName, t]);
 
   return (
     <BreadcrumbHeader

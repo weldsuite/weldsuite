@@ -1,6 +1,7 @@
-import { usePathname } from '@/lib/router';
+import { usePathname, useSearchParams } from '@/lib/router';
 import { BreadcrumbHeader, type BreadcrumbSegment } from '@/components/breadcrumb-header';
 import { useI18n } from '@/lib/i18n/provider';
+import { isSupplierContactForm } from '../hooks/use-weldbooks-sidebar-items';
 
 interface WeldbooksHeaderProps {
   onWeldAgentToggle?: (isOpen: boolean) => void;
@@ -22,6 +23,7 @@ export function WeldbooksHeader({
   onNotificationsToggle,
 }: Readonly<WeldbooksHeaderProps>) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { t } = useI18n();
   const th = t.accounting.header;
 
@@ -104,6 +106,8 @@ export function WeldbooksHeader({
   ];
 
   const parts = pathname.split('/').filter(Boolean);
+  // The new-supplier form is the customers route with `?role=supplier`: its trail is Suppliers › New.
+  if (isSupplierContactForm(pathname, searchParams.get('role'))) parts[1] = 'suppliers';
   // parts[0] === 'weldbooks'; start from index 1
   for (let i = 1; i < parts.length; i++) {
     const part = parts[i];

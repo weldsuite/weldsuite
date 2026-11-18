@@ -697,6 +697,8 @@ export const host = {
       copyFailed: 'Could not copy to clipboard',
       enabled: 'Enabled',
       disabled: 'Disabled',
+      // A setting an external domain keeps at its own registrar (auto-renew, transfer lock).
+      notApplicable: 'Not applicable',
       recordName: 'Name',
       recordNamePlaceholder: '@ or subdomain',
       ttlSeconds: 'TTL (seconds)',
@@ -834,6 +836,8 @@ export const host = {
       disableAutoRenew: 'Disable Auto-Renew',
       emptyTitle: 'No domains found',
       emptyDescription: 'Register your first domain to get started',
+      // Editions without domain purchase (EU): a domain registered elsewhere is the way in.
+      emptyDescriptionExternal: 'Add a domain you registered elsewhere to manage its DNS here',
       noResultsTitle: 'No domains found',
       noResultsDescription: "We couldn't find any domains matching your filter.",
     },

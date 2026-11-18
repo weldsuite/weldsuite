@@ -5,11 +5,13 @@
  * `customerId` for companies, `contactId` for persons — both written by
  * `/weldcrm/notes` and by this tab itself) in the standard `EntityList` with
  * `TabListRow` rows, like the panel's other tabs. Clicking a row opens
- * `NoteEditorDialog` for inline edit + auto-save. "New note" creates a
- * note pre-attached to this entity (no record-selection step needed).
+ * `NoteEditorDialog` for inline edit + auto-save. "New note" opens an empty
+ * editor for a note pre-attached to this entity (no record-selection step
+ * needed); the note is created by the first save that has text, so closing
+ * an untouched editor leaves nothing behind (TASK-1463).
  */
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Pencil, Trash2 } from 'lucide-react';
 import { format, isThisMonth, isThisWeek, isThisYear, isToday, isYesterday } from 'date-fns';
 import { toast } from 'sonner';
@@ -53,6 +55,11 @@ const COLUMN = {
 
 function stripHtml(html: string): string {
   return stripTags(html).trim();
+}
+
+/** True when the editor holds no text (an empty title and body still carry markup). */
+function isBlankNote(html: string): boolean {
+  return stripHtml(html.replace(/&nbsp;/gi, ' ')) === '';
 }
 
 function getNoteTitle(content: string, untitledLabel: string): string {
@@ -106,6 +113,11 @@ export function NotesTab({ entityId, entityKind, entityName }: Readonly<NotesTab
 
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+  // A new note being written: shown in the editor until it closes. It only
+  // exists on the server once a save has text (`draftIdRef` then holds its id).
+  const [draft, setDraft] = useState<DialogNote | null>(null);
+  const draftIdRef = useRef<string | null>(null);
+  const draftCreateRef = useRef<Promise<string | null> | null>(null);
 
   const notes = useMemo(() => {
     const rows = data?.data ?? [];
@@ -120,6 +132,7 @@ export function NotesTab({ entityId, entityKind, entityName }: Readonly<NotesTab
   }, [data]);
 
   const activeNote = useMemo<DialogNote | null>(() => {
+    if (draft) return draft;
     if (!activeNoteId) return null;
     const n = notes.find((x) => x.id === activeNoteId);
     if (!n) return null;
@@ -130,43 +143,70 @@ export function NotesTab({ entityId, entityKind, entityName }: Readonly<NotesTab
       updatedAt: n.updatedAt,
       customerName: entityName,
     };
-  }, [activeNoteId, notes, entityName]);
+  }, [draft, activeNoteId, notes, entityName]);
 
-  const handleCreate = useCallback(async () => {
-    try {
-      const res = await createMut.mutateAsync({
-        subject: 'Note',
-        description: '',
-        recordKind: entityKind === 'company' ? 'company' : 'person',
-        recordId: entityId,
-        recordName: entityName,
-      });
-      if (res?.id) {
-        setActiveNoteId(res.id);
-        setOpen(true);
-      } else {
-        toast.error(t('sweep.entities.createNoteFailed'));
-      }
-    } catch {
-      toast.error(t('sweep.entities.createNoteFailed'));
-    }
-  }, [createMut, entityId, entityKind, entityName, t]);
+  const handleCreate = useCallback(() => {
+    draftIdRef.current = null;
+    draftCreateRef.current = null;
+    setActiveNoteId(null);
+    const now = new Date();
+    setDraft({ id: `draft-${now.getTime()}`, content: '', createdAt: now, updatedAt: now, customerName: entityName });
+    setOpen(true);
+  }, [entityName]);
+
+  /** The new note's id, creating it with `content` on the first save that has text. */
+  const ensureDraftNote = useCallback(
+    (content: string): Promise<string | null> => {
+      if (draftIdRef.current) return Promise.resolve(draftIdRef.current);
+      draftCreateRef.current ??= createMut
+        .mutateAsync({
+          subject: 'Note',
+          description: content,
+          recordKind: entityKind === 'company' ? 'company' : 'person',
+          recordId: entityId,
+          recordName: entityName,
+        })
+        .then((res) => {
+          draftIdRef.current = res?.id ?? null;
+          if (!draftIdRef.current) toast.error(t('sweep.entities.createNoteFailed'));
+          return draftIdRef.current;
+        })
+        .catch(() => {
+          // Let the next save try again.
+          draftCreateRef.current = null;
+          toast.error(t('sweep.entities.createNoteFailed'));
+          return null;
+        });
+      return draftCreateRef.current;
+    },
+    [createMut, entityId, entityKind, entityName, t],
+  );
 
   const handleSave = useCallback(
     async (content: string) => {
+      if (draft) {
+        const creating = !draftIdRef.current && !draftCreateRef.current;
+        if (creating && isBlankNote(content)) return;
+        const id = await ensureDraftNote(content);
+        // The create already carried this content.
+        if (!id || creating) return;
+        await updateMut.mutateAsync({ id, data: { description: content } });
+        return;
+      }
       if (!activeNoteId) return;
       await updateMut.mutateAsync({ id: activeNoteId, data: { description: content } });
     },
-    [activeNoteId, updateMut],
+    [draft, ensureDraftNote, activeNoteId, updateMut],
   );
 
   const handleDelete = useCallback(
     async (id: string) => {
       try {
         await deleteMut.mutateAsync(id);
-        if (activeNoteId === id) {
+        if (activeNoteId === id || draftIdRef.current === id) {
           setOpen(false);
           setActiveNoteId(null);
+          setDraft(null);
         }
         toast.success(t('sweep.entities.noteDeleted'));
       } catch {
@@ -273,7 +313,7 @@ export function NotesTab({ entityId, entityKind, entityName }: Readonly<NotesTab
         searchFields={['title', 'preview']}
         createButton={{
           label: t('sweep.entities.newNote'),
-          onClick: () => void handleCreate(),
+          onClick: handleCreate,
         }}
         emptyStateClassName={TAB_EMPTY_STATE_TABLE_CLASS}
         emptyState={{
@@ -282,7 +322,7 @@ export function NotesTab({ entityId, entityKind, entityName }: Readonly<NotesTab
           description: t('sweep.entities.noNotesYetDescription'),
           action: {
             label: t('sweep.entities.newNote'),
-            onClick: () => void handleCreate(),
+            onClick: handleCreate,
           },
         }}
         noResultsState={{
@@ -296,11 +336,21 @@ export function NotesTab({ entityId, entityKind, entityName }: Readonly<NotesTab
         open={open}
         onOpenChange={(o) => {
           setOpen(o);
-          if (!o) setActiveNoteId(null);
+          if (!o) {
+            setActiveNoteId(null);
+            setDraft(null);
+          }
         }}
         onSave={handleSave}
         onDelete={() => {
-          if (activeNoteId) void handleDelete(activeNoteId);
+          const id = draft ? draftIdRef.current : activeNoteId;
+          if (id) {
+            void handleDelete(id);
+          } else {
+            // A new note that was never saved: there is nothing to delete.
+            setOpen(false);
+            setDraft(null);
+          }
         }}
       />
     </>

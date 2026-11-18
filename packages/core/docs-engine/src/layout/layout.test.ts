@@ -171,6 +171,11 @@ describe('pagination', () => {
     }
     expect(dl.pages[0]!.footnotes?.items).toHaveLength(1);
     expect(dl.footnoteNumber('f1')).toBe(1);
+    // The footnote starts with its number, raised, before its text.
+    const block = dl.layoutStory(footnoteStoryId('f1'), 400).paragraphs[0]!.layout.blocks[0]!;
+    const first = block.kind === 'lines' ? block.lines[0] : undefined;
+    expect(first?.marker?.text).toBe('1');
+    expect(first?.marker?.style.baselineShift).toBeGreaterThan(0);
   });
 
   it('runs a long table onto later pages, repeating its header row', () => {

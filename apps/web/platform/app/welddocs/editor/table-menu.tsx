@@ -1,14 +1,16 @@
-import type { ReactNode } from 'react';
+import { useContext, type ReactNode } from 'react';
 import { DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger } from '@weldsuite/ui/components/dropdown-menu';
 import { useI18n } from '@/lib/i18n/provider';
 import type { DocController } from './model/doc-controller';
 import { formatCell, formatCurrentTable, runTableAction, tableContext, type TableAction } from './model/table-actions';
-import { PALETTE } from './ui';
+import { CloseMenuContext } from './table-picker';
+import { MENU_EDGE_GAP, PALETTE } from './ui';
 
 /** The table commands for the cell the caret is in (Format > Table, and the right-click menu). */
 export function TableMenuItems({ controller }: { controller: DocController }) {
   const { t } = useI18n();
   const tt = t.welddocs.table;
+  const closeMenu = useContext(CloseMenuContext);
   const ctx = tableContext(controller);
   if (!ctx || controller.readOnly) return null;
   const item = (action: TableAction, label: ReactNode, disabled = false) => (
@@ -35,20 +37,31 @@ export function TableMenuItems({ controller }: { controller: DocController }) {
       <DropdownMenuSeparator />
       <DropdownMenuSub>
         <DropdownMenuSubTrigger>{tt.cellBackground}</DropdownMenuSubTrigger>
-        <DropdownMenuSubContent className="p-2">
+        <DropdownMenuSubContent className="p-2" collisionPadding={MENU_EDGE_GAP}>
           <DropdownMenuItem className="mb-2" onSelect={() => formatCell(controller, { background: null })}>
             {tt.noColor}
           </DropdownMenuItem>
           <div className="grid grid-cols-10 gap-1">
             {PALETTE.map((c) => (
-              <button key={c} type="button" aria-label={c} className="h-5 w-5 rounded-sm border" style={{ background: c }} onClick={() => formatCell(controller, { background: c })} />
+              <button
+                key={c}
+                type="button"
+                aria-label={c}
+                className="h-5 w-5 rounded-sm border"
+                style={{ background: c }}
+                onClick={() => {
+                  formatCell(controller, { background: c });
+                  // The swatches are not menu items: close the menu as picking one of those would.
+                  closeMenu();
+                }}
+              />
             ))}
           </div>
         </DropdownMenuSubContent>
       </DropdownMenuSub>
       <DropdownMenuSub>
         <DropdownMenuSubTrigger>{tt.verticalAlign}</DropdownMenuSubTrigger>
-        <DropdownMenuSubContent>
+        <DropdownMenuSubContent collisionPadding={MENU_EDGE_GAP}>
           <DropdownMenuItem onSelect={() => formatCell(controller, { vAlign: null })}>{tt.top}</DropdownMenuItem>
           <DropdownMenuItem onSelect={() => formatCell(controller, { vAlign: 'middle' })}>{tt.middle}</DropdownMenuItem>
           <DropdownMenuItem onSelect={() => formatCell(controller, { vAlign: 'bottom' })}>{tt.bottom}</DropdownMenuItem>
@@ -56,7 +69,7 @@ export function TableMenuItems({ controller }: { controller: DocController }) {
       </DropdownMenuSub>
       <DropdownMenuSub>
         <DropdownMenuSubTrigger>{tt.tableAlign}</DropdownMenuSubTrigger>
-        <DropdownMenuSubContent>
+        <DropdownMenuSubContent collisionPadding={MENU_EDGE_GAP}>
           <DropdownMenuItem onSelect={() => formatCurrentTable(controller, { align: null })}>{tt.left}</DropdownMenuItem>
           <DropdownMenuItem onSelect={() => formatCurrentTable(controller, { align: 'center' })}>{tt.center}</DropdownMenuItem>
           <DropdownMenuItem onSelect={() => formatCurrentTable(controller, { align: 'right' })}>{tt.right}</DropdownMenuItem>
@@ -64,7 +77,7 @@ export function TableMenuItems({ controller }: { controller: DocController }) {
       </DropdownMenuSub>
       <DropdownMenuSub>
         <DropdownMenuSubTrigger>{tt.borders}</DropdownMenuSubTrigger>
-        <DropdownMenuSubContent>
+        <DropdownMenuSubContent collisionPadding={MENU_EDGE_GAP}>
           {[0, 0.5, 0.75, 1.5, 3].map((w) => (
             <DropdownMenuItem key={w} onSelect={() => formatCurrentTable(controller, { border: { width: w, color: '#000000' } })}>
               {w === 0 ? tt.noBorders : `${w} pt`}

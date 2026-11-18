@@ -65,8 +65,9 @@ async fn mails_every_owner_from_weldpanel_with_the_usage_and_a_link_into_the_wor
     );
     assert!(mail.html.contains("41,000 of 50,000"));
     assert!(
-        mail.html
-            .contains("https://app-test.weldsuite.org/w/org_alpha/weldpanel/settings?tab=usage")
+        mail.html.contains(
+            "https://app-test.weldsuite.org/w/org_alpha/settings/apps/weldpanel?tab=usage"
+        )
     );
     assert!(mail.text.contains("Events: 41,000 of 50,000"));
 }
@@ -147,11 +148,11 @@ async fn sends_nothing_to_no_one() {
 fn links_to_the_workspace_by_its_clerk_org_id_and_to_the_platform_origin_without_one() {
     assert_eq!(
         usage_url(Some(PLATFORM_URL), Some("org_alpha")),
-        "https://app-test.weldsuite.org/w/org_alpha/weldpanel/settings?tab=usage"
+        "https://app-test.weldsuite.org/w/org_alpha/settings/apps/weldpanel?tab=usage"
     );
     assert_eq!(
         usage_url(None, None),
-        "https://app.weldsuite.org/weldpanel/settings?tab=usage"
+        "https://app.weldsuite.org/settings/apps/weldpanel?tab=usage"
     );
 }
 

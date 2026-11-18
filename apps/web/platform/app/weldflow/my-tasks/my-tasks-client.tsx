@@ -1,5 +1,6 @@
 
 import React, { useState, useMemo, useTransition, useCallback, useEffect, useRef } from 'react';
+import { useCreateIntent } from '@/hooks/use-create-intent';
 import { useI18n } from '@/lib/i18n/provider';
 import { useDateLocale } from '@/lib/i18n/date-locale';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
@@ -568,6 +569,7 @@ export function MyTasksClient({
     }
   }, [initialTasks]);
   const [showTaskDialog, setShowTaskDialog] = useState(false);
+  useCreateIntent(() => setShowTaskDialog(true));
   // Status preset for the create dialog (the board column it was opened from).
   const [dialogDefaultStatus, setDialogDefaultStatus] = useState<Task['status'] | undefined>(undefined);
   const [showSubtaskDialog, setShowSubtaskDialog] = useState(false);

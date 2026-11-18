@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { I18nProvider } from '@weldsuite/i18n/provider';
-import { Tag } from 'lucide-react';
-import { TagsPropertyRow } from './property-row';
+import { Receipt, Tag } from 'lucide-react';
+import { PropertyRow, TagsPropertyRow } from './property-row';
 
 const SUGGESTIONS = ['key-account', 'qa-old', 'partner'];
 
@@ -90,5 +90,38 @@ describe('TagsPropertyRow', () => {
     expect(screen.getByRole('button', { name: 'Create "x"' })).toBeInTheDocument();
     await user.keyboard('{Enter}');
     expect(onChange).toHaveBeenCalledWith(['x']);
+  });
+
+  // TASK-1461: focus must not fall to <body> (and from there into the record's
+  // chat composer) when an inline editor is used from the keyboard.
+  it('keeps focus in the input after Enter adds a tag', async () => {
+    const { user, onChange } = renderRow();
+    await user.click(screen.getByRole('button', { name: 'Tags' }));
+    await user.type(screen.getByRole('textbox'), 'e2e-a{Enter}');
+    expect(onChange).toHaveBeenCalledWith(['partner', 'e2e-a']);
+    expect(screen.getByRole('textbox')).toHaveFocus();
+  });
+
+  it('returns focus to the row after Escape', async () => {
+    const { user } = renderRow();
+    await user.click(screen.getByRole('button', { name: 'Tags' }));
+    await user.keyboard('{Escape}');
+    expect(screen.getByRole('button', { name: 'Tags' })).toHaveFocus();
+  });
+});
+
+describe('PropertyRow', () => {
+  it('returns focus to the row after Enter saves the value', async () => {
+    const onSave = vi.fn();
+    render(
+      <I18nProvider initialLanguage="en">
+        <PropertyRow icon={Receipt} label="VAT" value="" onSave={onSave} />
+      </I18nProvider>,
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'VAT' }));
+    await user.type(screen.getByRole('textbox'), 'NL123{Enter}');
+    expect(onSave).toHaveBeenCalledWith('NL123');
+    expect(screen.getByRole('button', { name: 'VAT' })).toHaveFocus();
   });
 });

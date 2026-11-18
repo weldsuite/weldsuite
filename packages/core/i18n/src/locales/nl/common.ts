@@ -279,6 +279,12 @@ export const common = {
       addToGroup: '{group} toevoegen',
       unreadInGroup: '{count} ongelezen',
       mentionsInGroup: '{count} vermeldingen',
+      moreActionsFor: 'Meer acties voor {name}',
+      dragInstructions: 'Sleep met de muis om de volgorde te wijzigen.',
+      dragStart: '{item} opgepakt.',
+      dragOver: '{item} staat boven {target}.',
+      dragEnd: '{item} is neergezet op {target}.',
+      dragCancel: '{item} is teruggezet.',
     },
     /** Display names for the colour and icon pickers (keys are the lowercase identifiers). */
     coloredSquare: {

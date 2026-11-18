@@ -106,7 +106,7 @@ export async function runDeskStep(ctx: ProcessContext, integration: Integration)
     const access = await loadCreatorAccess(ctx.db, ctx.env, integration.createdByUserId);
     access.require('tickets:create', 'welddesk', 'open tickets');
 
-    const template = { env: ctx.env, form: ctx.form, response: ctx.response, definition: ctx.definition };
+    const template = { env: ctx.env, clerkOrgId: ctx.params.clerkOrgId, form: ctx.form, response: ctx.response, definition: ctx.definition };
     const title = renderTemplate(config.subject, template).trim() || `${ctx.form.title} #${ctx.response.number ?? ''}`.trim();
     const body = (config.body.trim() ? renderTemplate(config.body, template) : answerLines(ctx.definition, ctx.response)).trim() || title;
     const requester = requesterOf(ctx, config.requesterFieldId);

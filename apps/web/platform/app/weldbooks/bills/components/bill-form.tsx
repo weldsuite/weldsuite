@@ -399,6 +399,16 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
     }
   }, [watchedContactId, contactData, form, mode]);
 
+  // A new bill is due after the supplier's payment terms (else 30 days), counted from the issue
+  // date, until the user picks a due date by hand. A due date read from the document stays.
+  const supplierTerms = contactData?.data?.id === watchedContactId ? contactData?.data?.paymentTermsDays : undefined;
+  const watchedIssueDate = watched.issueDate;
+  useEffect(() => {
+    if (mode !== 'add' || supplierTerms == null || prefill?.dueDate || form.getFieldState('dueDate').isDirty) return;
+    if (!watchedIssueDate) return;
+    form.setValue('dueDate', addDaysToIsoDate(watchedIssueDate, supplierTerms));
+  }, [mode, supplierTerms, watchedIssueDate, prefill?.dueDate, form]);
+
   // Until a currency is known, the entity's: it loads after the form on a first visit.
   useEffect(() => {
     if (!form.getValues('currency') && baseCurrency) form.setValue('currency', baseCurrency);

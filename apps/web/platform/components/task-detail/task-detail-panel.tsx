@@ -73,6 +73,9 @@ export interface TaskDetailPanelProps {
   // Hide the title-row completion checkbox (useful when this panel is reused for entities
   // without a done/not-done state).
   hideCompletionCheckbox?: boolean;
+  // Hide the record chat at the bottom, for entities that are not real tasks
+  // (a project goal): the chat would post to a task that doesn't exist.
+  hideChat?: boolean;
   // When provided, renders a back chevron at the top of the header. Used when this panel
   // is opened from inside another panel (e.g. the minimized customer detail's Tasks tab)
   // so the user can return to the parent panel instead of just closing.
@@ -133,6 +136,7 @@ export function TaskDetailPanel({
   onRemoveDependency,
   hiddenFields,
   hideCompletionCheckbox,
+  hideChat,
   onBack,
 }: Readonly<TaskDetailPanelProps>) {
   const widthNum = Number.parseInt(width, 10) || 480;
@@ -434,7 +438,7 @@ export function TaskDetailPanel({
       </div>
 
       {/* Chat - pinned at bottom with resizable handle */}
-      {task.id && (
+      {task.id && !hideChat && (
         <div ref={commentsContainerRef} className="flex-shrink-0 flex flex-col" style={manualHeight != null ? { height: manualHeight } : { maxHeight: maxCommentsHeight }}>
           {/* Drag handle */}
           <div

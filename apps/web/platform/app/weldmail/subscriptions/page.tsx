@@ -232,7 +232,7 @@ export default function SubscriptionsPage() {
       toast.success(
         interpolate(ts.scanComplete, {
           scanned: res.data.scanned,
-          subscriptions: res.data.subscriptions,
+          count: res.data.subscriptions,
         }),
       );
     } catch {

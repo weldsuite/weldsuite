@@ -276,7 +276,10 @@ export function ReconciliationRuleFormDialog({
                       });
                     }}
                   >
-                    <SelectTrigger className="w-48">
+                    <SelectTrigger
+                      className="w-48"
+                      aria-label={st('sweep.weldbooks.reconciliationRuleForm.conditionFieldLabel').replace('{n}', String(idx + 1))}
+                    >
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -294,7 +297,10 @@ export function ReconciliationRuleFormDialog({
                       })
                     }
                   >
-                    <SelectTrigger className="w-40">
+                    <SelectTrigger
+                      className="w-40"
+                      aria-label={st('sweep.weldbooks.reconciliationRuleForm.conditionOperatorLabel').replace('{n}', String(idx + 1))}
+                    >
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -312,6 +318,7 @@ export function ReconciliationRuleFormDialog({
                       updateCondition(idx, { value: e.target.value })
                     }
                     placeholder={st('sweep.weldbooks.reconciliationRuleForm.valuePlaceholder')}
+                    aria-label={st('sweep.weldbooks.reconciliationRuleForm.conditionValueLabel').replace('{n}', String(idx + 1))}
                     className="flex-1"
                   />
                   {c.operator === 'between' ? (
@@ -322,6 +329,7 @@ export function ReconciliationRuleFormDialog({
                         updateCondition(idx, { value2: Number(e.target.value) })
                       }
                       placeholder={st('sweep.weldbooks.reconciliationRuleForm.andPlaceholder')}
+                      aria-label={st('sweep.weldbooks.reconciliationRuleForm.conditionValue2Label').replace('{n}', String(idx + 1))}
                       className="w-28"
                     />
                   ) : null}
@@ -330,6 +338,7 @@ export function ReconciliationRuleFormDialog({
                     size="icon"
                     onClick={() => removeCondition(idx)}
                     disabled={conditions.length === 1}
+                    aria-label={st('sweep.weldbooks.reconciliationRuleForm.removeCondition').replace('{n}', String(idx + 1))}
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
@@ -351,9 +360,9 @@ export function ReconciliationRuleFormDialog({
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label className="text-xs">{st('sweep.weldbooks.reconciliationRuleForm.categoryAccountLabel')}</Label>
+                <Label htmlFor="rule-category-account" className="text-xs">{st('sweep.weldbooks.reconciliationRuleForm.categoryAccountLabel')}</Label>
                 <Select value={categoryAccountId} onValueChange={setCategoryAccountId}>
-                  <SelectTrigger>
+                  <SelectTrigger id="rule-category-account">
                     <SelectValue placeholder={st('sweep.weldbooks.reconciliationRuleForm.nonePlaceholder')} />
                   </SelectTrigger>
                   <SelectContent>
@@ -366,9 +375,9 @@ export function ReconciliationRuleFormDialog({
                 </Select>
               </div>
               <div>
-                <Label className="text-xs">{st('sweep.weldbooks.reconciliationRuleForm.taxRateLabel')}</Label>
+                <Label htmlFor="rule-tax-rate" className="text-xs">{st('sweep.weldbooks.reconciliationRuleForm.taxRateLabel')}</Label>
                 <Select value={taxRateId} onValueChange={setTaxRateId}>
-                  <SelectTrigger>
+                  <SelectTrigger id="rule-tax-rate">
                     <SelectValue placeholder={st('sweep.weldbooks.reconciliationRuleForm.nonePlaceholder')} />
                   </SelectTrigger>
                   <SelectContent>
@@ -381,9 +390,9 @@ export function ReconciliationRuleFormDialog({
                 </Select>
               </div>
               <div>
-                <Label className="text-xs">{st('sweep.weldbooks.reconciliationRuleForm.contactLabel')}</Label>
+                <Label htmlFor="rule-contact" className="text-xs">{st('sweep.weldbooks.reconciliationRuleForm.contactLabel')}</Label>
                 <Select value={contactId} onValueChange={setContactId}>
-                  <SelectTrigger>
+                  <SelectTrigger id="rule-contact">
                     <SelectValue placeholder={st('sweep.weldbooks.reconciliationRuleForm.nonePlaceholder')} />
                   </SelectTrigger>
                   <SelectContent>
@@ -396,8 +405,9 @@ export function ReconciliationRuleFormDialog({
                 </Select>
               </div>
               <div>
-                <Label className="text-xs">{st('sweep.weldbooks.reconciliationRuleForm.descriptionOverrideLabel')}</Label>
+                <Label htmlFor="rule-description-override" className="text-xs">{st('sweep.weldbooks.reconciliationRuleForm.descriptionOverrideLabel')}</Label>
                 <Input
+                  id="rule-description-override"
                   value={descriptionOverride}
                   onChange={(e) => setDescriptionOverride(e.target.value)}
                   placeholder={st('sweep.weldbooks.reconciliationRuleForm.optionalPlaceholder')}

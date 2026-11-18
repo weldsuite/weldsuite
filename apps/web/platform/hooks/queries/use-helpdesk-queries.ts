@@ -2211,13 +2211,23 @@ export function useTicketTypes() {
   });
 }
 
+/**
+ * The part of a ticket type a write may carry. The server owns the id and the
+ * timestamps: a timestamp sent as a string fails the write with a 500 (Drizzle
+ * and the Rust backend alike), and an id in a create replaces the server's.
+ */
+export function ticketTypeWriteBody(data: Partial<TicketTypeConfig>) {
+  const { id, createdAt, updatedAt, ...body } = data;
+  return body;
+}
+
 export function useCreateTicketType() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (data: Omit<TicketTypeConfig, 'id' | 'createdAt' | 'updatedAt'>) => {
       const client = await getClient();
-      return toLegacy(await client.post<AppApiSingle<{ id: string }>>('/ticket-types', data));
+      return toLegacy(await client.post<AppApiSingle<{ id: string }>>('/ticket-types', ticketTypeWriteBody(data)));
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: helpdeskKeys.ticketTypes() });
@@ -2229,9 +2239,11 @@ export function useUpdateTicketType() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, ...data }: Partial<TicketTypeConfig> & { id: string }) => {
+    mutationFn: async (data: Partial<TicketTypeConfig> & { id: string }) => {
       const client = await getClient();
-      return toLegacy(await client.patch<AppApiSingle<{ id: string }>>(`/ticket-types/${id}`, data));
+      return toLegacy(
+        await client.patch<AppApiSingle<{ id: string }>>(`/ticket-types/${data.id}`, ticketTypeWriteBody(data)),
+      );
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: helpdeskKeys.ticketTypes() });

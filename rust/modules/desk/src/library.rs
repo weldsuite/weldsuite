@@ -191,7 +191,7 @@ fn escalation_rule_schema(issues: &mut Issues, item: &Value) -> Option<()> {
 fn canned_schema(issues: &mut Issues, body: &Map<String, Value>, partial: Partial) {
     string(issues, body, "name", partial.required(), Some(1), Some(255));
     string(issues, body, "subject", OPT, None, Some(500));
-    string(issues, body, "body", partial.required(), None, None);
+    string(issues, body, "content", partial.required(), None, None);
     string(issues, body, "shortcut", OPT, None, Some(50));
     string(issues, body, "category", OPT, None, Some(100));
     string(issues, body, "departmentId", NULLISH, None, None);

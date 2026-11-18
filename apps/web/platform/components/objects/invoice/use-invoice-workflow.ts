@@ -21,6 +21,8 @@ import {
 import { useI18n } from '@/lib/i18n/provider';
 import { useRouter } from '@/lib/router';
 import { useDocumentTexts } from '@/lib/weldbooks/use-document-texts';
+import { missingFieldsFromError } from '@/lib/weldbooks/invoice-requirements';
+import { useEntityInvoiceDetails } from '@/lib/weldbooks/use-entity-invoice-details';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { useDescribeError } from '@/app/weldbooks/invoices/components/sales-tax-error-notice';
 
@@ -34,6 +36,7 @@ export function useInvoiceWorkflow(invoice: InvoiceWithTax | undefined) {
   const { formatMoney } = useWeldbooksFormat();
   const describeError = useDescribeError();
   const router = useRouter();
+  const invoiceDetails = useEntityInvoiceDetails();
 
   const finalizeMutation = useFinalizeInvoice();
   const statusMutation = useUpdateInvoiceStatus();
@@ -54,7 +57,16 @@ export function useInvoiceWorkflow(invoice: InvoiceWithTax | undefined) {
       setTaxError(err);
       return;
     }
-    toast.error(title, { description: describeError(err) });
+    // The company details the server found missing, named in the user's language (not the entity's).
+    const missing = missingFieldsFromError(err);
+    const description =
+      missing.length > 0
+        ? t.accounting.entityInvoiceDetails.issueDescription.replace(
+            '{fields}',
+            missing.map((field) => invoiceDetails.labels[field]).join(', '),
+          )
+        : describeError(err);
+    toast.error(title, { description });
   };
 
   const finalize = () => {
