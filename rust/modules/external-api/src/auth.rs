@@ -96,15 +96,14 @@ pub(crate) fn atob(input: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
-/// `basicPassword(encoded)`: the password of a Basic credential
-/// (`base64(user:password)`), or `None` if it is not one. Only the first
-/// colon splits the user from the password.
-fn basic_password(encoded: &str) -> Option<String> {
+/// `basicPassword(encoded)`: what a Basic credential (`base64(user:rest)`)
+/// carries after its first colon, or `None` if it is not one. Basic calls
+/// that part the password; the feed's clients put their API key there, a
+/// random token and not a password someone chose, so it is named for that.
+fn basic_key(encoded: &str) -> Option<String> {
     let bytes = atob(weldsuite_kit::validation::js_trim(encoded))?;
     let decoded = String::from_utf8_lossy(&bytes);
-    decoded
-        .split_once(':')
-        .map(|(_, password)| password.to_owned())
+    decoded.split_once(':').map(|(_, key)| key.to_owned())
 }
 
 /// `extractApiKey`: `Authorization: Bearer wsk_…|wsat_…`, on the `OData` feed
@@ -122,12 +121,12 @@ pub(crate) fn extract_api_key(path: &str, headers: &http::HeaderMap) -> Option<S
         return Some(token.to_owned());
     }
     if is_odata_path(path)
-        && let Some(password) = authorization
+        && let Some(key) = authorization
             .and_then(|value| value.strip_prefix("Basic "))
-            .and_then(basic_password)
-        && is_key(&password)
+            .and_then(basic_key)
+        && is_key(&key)
     {
-        return Some(password);
+        return Some(key);
     }
     headers
         .get("x-api-key")
