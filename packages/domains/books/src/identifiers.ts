@@ -172,6 +172,23 @@ export function isValidIban(raw: string): boolean {
   return ibanProblem(raw) === null;
 }
 
+/**
+ * The 400 message for an IBAN that is not valid, or null for a valid (or
+ * empty) one: `"NL12INVALID" is not a valid IBAN: <why>`. Contacts and bank
+ * accounts answer with it.
+ */
+export function invalidIbanMessage(raw: string | null | undefined): string | null {
+  const iban = raw?.trim();
+  if (!iban) return null;
+  const problem = ibanProblem(iban);
+  if (!problem) return null;
+  const countryCode = normalizeIban(iban).slice(0, 2);
+  let reason = 'it should be two letters, two digits and the account number';
+  if (problem === 'country_length') reason = `an IBAN from ${countryCode} has ${IBAN_LENGTHS[countryCode]} characters`;
+  if (problem === 'checksum') reason = 'the check digits do not match';
+  return `"${iban}" is not a valid IBAN: ${reason}`;
+}
+
 // ---------------------------------------------------------------------------
 // Dutch Chamber of Commerce (KvK) number
 // ---------------------------------------------------------------------------

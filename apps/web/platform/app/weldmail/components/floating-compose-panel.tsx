@@ -40,9 +40,14 @@ const getAgentRight = minimizedDockRight;
 function hasComposeContent(
   composeData: { to: string; subject: string; body: string },
   editorHtml: string | undefined,
+  openedTo = '',
 ) {
-  // A body holding only the signature compose put in is not content.
-  return composeData.to || composeData.subject || userWrittenText(editorHtml ?? composeData.body);
+  // A body holding only the signature compose put in is not content, and
+  // neither are the recipients the mail was opened with (Compose on a CRM
+  // record fills in its email): closing that untouched saved an empty
+  // draft (TASK-1463).
+  const typedTo = composeData.to.trim() !== openedTo.trim() ? composeData.to : '';
+  return typedTo || composeData.subject || userWrittenText(editorHtml ?? composeData.body);
 }
 
 function parseRecipients(str: string): string[] {
@@ -175,6 +180,8 @@ function FloatingComposeOpen({
   const router = useRouter();
   const params = useParams();
   const composeContext = useComposeSafe();
+  // What To held when this mail opened (the panel remounts per mail).
+  const [openedTo] = useState(() => composeContext?.composeData?.to ?? '');
   const { data: accountsData } = useMailAccounts();
   const mailAccounts = accountsData?.data ?? [];
   const defaultAccountId = (mailAccounts.find((a) => a.isDefault) ?? mailAccounts[0])?.id;
@@ -386,7 +393,7 @@ function FloatingComposeOpen({
     autosave.switchAccount(nextAccountId);
     const editorHtml = textareaRef.current?.innerHTML;
     // What is written so far is saved again, now under the new account.
-    if (hasComposeContent({ ...composeData, to: toWithPending }, editorHtml)) {
+    if (hasComposeContent({ ...composeData, to: toWithPending }, editorHtml, openedTo)) {
       void autosave.saveNow(
         buildPanelDraftFields({ ...composeData, to: toWithPending, cc: ccRecipients, bcc: bccRecipients }, editorHtml),
       );
@@ -574,7 +581,7 @@ function FloatingComposeOpen({
     handleClose();
   };
 
-  const hasContent = hasComposeContent({ ...composeData, to: toWithPending }, textareaRef.current?.innerHTML);
+  const hasContent = hasComposeContent({ ...composeData, to: toWithPending }, textareaRef.current?.innerHTML, openedTo);
 
   return (
     <>

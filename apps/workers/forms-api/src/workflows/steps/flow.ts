@@ -71,7 +71,7 @@ async function recordedTask(ctx: ProcessContext, integration: Integration): Prom
 
 /** What the task is made with: title and description from the templates, the assignee, a due date from the date question, labels. */
 function taskInput(ctx: ProcessContext, config: FlowConfig, userId: string): Parameters<typeof createTask>[1] {
-  const template = { env: ctx.env, form: ctx.form, response: ctx.response, definition: ctx.definition };
+  const template = { env: ctx.env, clerkOrgId: ctx.params.clerkOrgId, form: ctx.form, response: ctx.response, definition: ctx.definition };
   const title = renderTemplate(config.title, template).trim() || `${ctx.form.title} #${ctx.response.number ?? ''}`.trim();
   const description = renderTemplate(config.description, template).trim();
   const due = config.dueDateFieldId ? answerText(ctx.definition, ctx.response, config.dueDateFieldId) : '';

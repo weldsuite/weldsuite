@@ -134,6 +134,8 @@ export const weldmeet = {
         qa: 'Vragen en antwoorden',
         qaDescription: 'Stel en beantwoord vragen',
         qaOpen: 'Open vragen: {count}',
+        record: 'Opnemen',
+        recordDescription: 'Neem de vergadering op',
       },
       timer: {
         hostHint: 'Iedereen in de vergadering ziet de timer aftellen.',
@@ -383,6 +385,7 @@ export const weldmeet = {
       audio: 'Audio',
     },
     groups: {
+      later: 'Later',
       today: 'Vandaag',
       yesterday: 'Gisteren',
       thisWeek: 'Deze week',
@@ -811,6 +814,7 @@ export const weldmeet = {
       timerHint: 'Alleen jij ziet deze timer.',
       noNumberTitle: 'Koppel eerst een telefoonnummer',
       noNumberDescription: 'Je werkruimte heeft nog geen telefoonnummer. Koop of porteer er een om te kunnen bellen en gebeld te worden.',
+      noNumberPurchaseUnavailable: 'Je werkruimte heeft nog geen telefoonnummer. In deze editie kun je nog geen nummers kopen of porteren.',
       configureNumber: 'Nummer instellen',
     },
     callDetail: {
@@ -826,6 +830,8 @@ export const weldmeet = {
     people: {
       entityName: 'Persoon',
       entityNamePlural: 'Personen',
+      emptyTitle: 'Geen personen met een telefoonnummer',
+      emptyHint: 'Personen die je in WeldCRM toevoegt met een telefoonnummer verschijnen hier.',
       columns: {
         name: 'Naam',
         directPhone: 'Direct telefoonnummer',

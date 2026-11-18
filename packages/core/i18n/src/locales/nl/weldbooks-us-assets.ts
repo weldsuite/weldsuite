@@ -163,6 +163,8 @@ const fixedAssets = {
       placedInServiceHelp: 'Laat leeg om de aanschafdatum te gebruiken.',
       cost: 'Aanschafwaarde',
       costHelp: 'In de valuta van de entiteit, inclusief betaalde sales tax.',
+      /** Buiten de VS: btw die wordt teruggevraagd hoort niet bij de kostprijs. */
+      costHelpVat: 'In de valuta van de entiteit, zonder de btw die u kunt terugvragen.',
       salvageValue: 'Restwaarde',
       salvageHelp: 'Wat het activum naar verwachting aan het eind van de levensduur waard is (alleen het grootboekboek).',
       businessUse: 'Zakelijk gebruik %',
@@ -171,6 +173,7 @@ const fixedAssets = {
       listedPropertyHelp: 'Voor 50% of minder zakelijk gebruikt: alleen ADS, geen sectie 179 of bonus.',
       usefulLife: 'Levensduur (jaren)',
       usefulLifeHelp: 'De levensduur van het grootboekboek. Leeg: de MACRS-categorie, anders 5 jaar.',
+      usefulLifeHelpLedger: 'De levensduur van het grootboekboek. Leeg: 5 jaar.',
       section179: 'Sectie 179-aftrek',
       section179Help: 'Aftrek in het eerste jaar op het federale boek. Laat leeg voor geen.',
       bonusPercent: 'Bonusafschrijving %',
@@ -228,6 +231,9 @@ const fixedAssets = {
   books: {
     title: 'Afschrijvingsboeken',
     intro: 'Elk boek schrijft hetzelfde activum af volgens eigen regels. Alleen het boek (GAAP) boekt naar het grootboek; belastingboeken zijn voor de aangifte.',
+    /** Buiten de VS heeft een activum alleen het grootboekboek. */
+    introLedger: 'Het grootboekboek schrijft het activum af en boekt de afschrijving naar het grootboek.',
+    ledgerBook: 'Grootboekboek',
     defaultsTitle: 'Boeken die de server standaard aanmaakt',
     defaultsHelp: 'Gebaseerd op wat je hebt ingevuld. Dit is een voorbeeld: het activum dat je opslaat toont de opgeslagen boeken.',
     line: '{method} · {convention} · {years} jaar',
@@ -239,6 +245,7 @@ const fixedAssets = {
     midQuarterNote: 'De conventie gaat naar midden van het kwartaal als meer dan 40% van de grondslag van het jaar in het laatste kwartaal in gebruik wordt genomen.',
     customize: 'Boeken aanpassen',
     customizeHelp: 'Kies zelf per boek de methode, levensduur, sectie 179 en bonus.',
+    customizeHelpLedger: 'Kies zelf de methode en levensduur van het grootboekboek.',
     customizeBack: 'Standaard gebruiken',
     addBook: 'Boek toevoegen',
     addFederal: 'Federaal boek toevoegen',
@@ -560,6 +567,8 @@ const payroll = {
     loadFailed: 'De salarisimports konden niet worden geladen.',
     emptyTitle: 'Nog geen salarissen geïmporteerd',
     emptyDescription: 'Importeer een salarisoverzicht of een grootboekexport als CSV-bestand, of koppel Gusto.',
+    /** Waar Gusto niet wordt aangeboden (buiten de VS). */
+    emptyDescriptionCsv: 'Importeer een salarisoverzicht of een grootboekexport als CSV-bestand.',
     emptyFiltered: 'Geen salarissen gevonden met deze filters.',
     allStatuses: 'Alle statussen',
     allSources: 'Alle bronnen',

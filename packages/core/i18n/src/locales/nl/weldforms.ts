@@ -306,6 +306,7 @@ export const weldforms = {
     pasteDescription: 'Eén optie per regel. Opsommingstekens en nummers aan het begin van een regel worden weggelaten.',
     replace: 'Alles vervangen',
     append: 'Aan lijst toevoegen',
+    duplicateLabels: 'Meer dan één optie heet {labels}. Respondenten kunnen ze niet uit elkaar houden.',
   },
 
   media: {
@@ -530,6 +531,7 @@ export const weldforms = {
     collectPartialHelp: 'Bewaar de antwoorden van mensen die niet klaar zijn. Ze worden als onvoltooid gemarkeerd.',
     opensAt: 'Opent op',
     closesAt: 'Sluit op',
+    closesBeforeOpens: 'Kies een sluitingstijd na de openingstijd. Tot dan worden de datums niet opgeslagen.',
     noDate: 'Geen datum',
     openingTime: 'Openingstijd',
     closingTime: 'Sluitingstijd',
@@ -579,6 +581,9 @@ export const weldforms = {
     viewList: 'Lijst',
     emptyTitle: 'Nog geen formulieren',
     emptyDescription: 'Bouw je eerste formulier helemaal opnieuw, begin met een sjabloon of laat AI het opzetten.',
+    emptyDescriptionNoAi: 'Bouw je eerste formulier helemaal opnieuw of begin met een sjabloon.',
+    folderEmptyTitle: 'Deze map is leeg',
+    folderEmptyDescription: 'Verplaats formulieren hierheen, of maak een nieuw formulier in deze map.',
     loadMoreFailed: 'Wis het filter om de formulieren te zien die al geladen zijn, of probeer het opnieuw.',
     noResultsTitle: 'Geen formulieren gevonden',
     noResultsDescription: 'Probeer een andere zoekopdracht of wis de filters.',
@@ -601,6 +606,7 @@ export const weldforms = {
   newForm: {
     title: 'Nieuw formulier',
     description: 'Begin leeg, met een sjabloon, of beschrijf wat je nodig hebt.',
+    descriptionNoAi: 'Begin leeg of met een sjabloon.',
     name: 'Naam',
     namePlaceholder: 'Klantfeedback',
     untitled: 'Formulier zonder titel',

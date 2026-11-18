@@ -26,6 +26,7 @@ use weldsuite_books_domain::guards::{AuditInput, write_accounting_audit};
 use weldsuite_books_domain::http::{
     BooksState, Caller, Refusal, Reply, created, no_content, now, ok, reply, validate,
 };
+use weldsuite_books_domain::identifiers::invalid_iban_message;
 use weldsuite_books_domain::tables::{ACCOUNTS, BANK_ACCOUNTS};
 use weldsuite_catalogs::entity_events::{
     ACCOUNT_CREATED, BANK_ACCOUNT_CREATED, BANK_ACCOUNT_DELETED, BANK_ACCOUNT_UPDATED,
@@ -230,22 +231,27 @@ fn read(issues: &mut Issues, body: &Map<String, Value>, partial: bool) -> Body {
     out
 }
 
-/// `badNumbers(data)`: the 400 message for a routing or account number that
-/// doesn't check out.
-fn bad_numbers(data: &Body) -> Option<&'static str> {
-    if let Some(routing) = text(&Value::Object(data.fields.clone()), "routingNumber")
+/// `badNumbers(data)`: the 400 message for a routing or account number, or
+/// an IBAN, that doesn't check out.
+fn bad_numbers(data: &Body) -> Option<String> {
+    let fields = Value::Object(data.fields.clone());
+    if let Some(routing) = text(&fields, "routingNumber")
         && !routing.is_empty()
         && !is_valid_aba_routing(routing)
     {
-        return Some("That routing number does not pass the ABA check. Check the nine digits.");
+        return Some(
+            "That routing number does not pass the ABA check. Check the nine digits.".to_owned(),
+        );
     }
     if let Field::Set(number) = &data.account_number
         && !number.is_empty()
         && normalize_account_number(number).is_none()
     {
-        return Some("An account number has 4 to 34 letters or digits.");
+        return Some("An account number has 4 to 34 letters or digits.".to_owned());
     }
-    None
+    // The same check a contact's IBAN gets: its shape, its length for the
+    // country and the check digits.
+    text(&fields, "iban").and_then(invalid_iban_message)
 }
 
 /// `loadLedgerAccount(db, entityId, ledgerAccountId, accountType)`.

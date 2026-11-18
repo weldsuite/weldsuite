@@ -7,7 +7,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createOidcAuth } from './index';
-import type { OidcSessionConfig, OidcSessionOptions } from './session';
+import { defaultAccountUrl, type OidcSessionConfig, type OidcSessionOptions } from './session';
 import { parseWorkspaceDirectory, type WorkspaceDirectoryEntry } from './workspaces';
 import { clerkAuth } from '../clerk-adapter';
 import { BrowserSignInError, type BrowserSignIn } from './browser-sign-in';
@@ -198,6 +198,13 @@ afterEach(() => {
   setAuthImplementation(clerkAuth);
   vi.unstubAllGlobals();
   Object.defineProperty(window, 'location', { configurable: true, value: originalLocation });
+});
+
+describe('defaultAccountUrl (TASK-1427)', () => {
+  it('is the Zitadel self-service page under the issuer', () => {
+    expect(defaultAccountUrl('https://auth.test.weldsuite.eu')).toBe('https://auth.test.weldsuite.eu/ui/console/users/me');
+    expect(defaultAccountUrl('not a url')).toBeUndefined();
+  });
 });
 
 describe('OIDC sign-in', () => {

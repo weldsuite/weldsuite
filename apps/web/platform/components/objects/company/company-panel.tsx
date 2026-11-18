@@ -68,11 +68,13 @@ import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/av
 import { EditableEntityAvatar } from '@/components/objects/editable-entity-avatar';
 import {
   PropertyRow,
+  isPhoneNumber,
   MemberPropertyRow,
   StatusPropertyRow,
   TagsPropertyRow,
 } from '@/components/objects/_shared/property-row';
 import { collectKnownTags } from '@/components/objects/_shared/known-tags';
+import { ArchivedRecordBanner } from '@/components/objects/_shared/archived-record-banner';
 import { SelectPropertyRow } from '@/components/objects/_shared/select-property-row';
 import { AddressPropertyRow } from '@/components/objects/_shared/address-property-row';
 import { useLifecycleStageOptions, useLanguageOptions } from '@/components/objects/_shared/crm-field-options';
@@ -121,6 +123,7 @@ import { LinkPersonPopover } from './link-person-popover';
 import { CompanyChat } from './company-chat';
 import { useCompanyDeleteGuard } from './use-company-delete-guard';
 import { logoDomainForCompany, useCompanyLogo } from '@/lib/crm/company-logo';
+import { isFeatureAvailable } from '@/lib/edition';
 import { COMPANY_TABS, type CompanyTab } from './company-tabs';
 import type { Company } from '@weldsuite/app-api-client/schemas/companies';
 
@@ -232,7 +235,7 @@ export function CompanyActions({
           <TooltipContent>{st('sweep.entities.composeEmail')}</TooltipContent>
         </Tooltip>
       )}
-      {company.phone && (
+      {company.phone && isPhoneNumber(company.phone) && (
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
@@ -346,6 +349,7 @@ function CompanyDetailsTab({
         icon={Bookmark}
         label={st('sweep.entities.fieldName')}
         value={company.name}
+        maxLength={255}
         onSave={(v) => onUpdateField({ name: v ?? '' })}
       />
       <PropertyRow
@@ -536,15 +540,19 @@ function CompanyPeopleTab({
           { value: 'past', label: st('sweep.entities.past') },
         ],
       },
-      {
-        field: 'portal',
-        label: st('sweep.entities.filterPortalAccess'),
-        options: [
-          { value: 'active', label: portalT.statusActive },
-          { value: 'invited', label: portalT.statusInvited },
-          { value: 'none', label: st('sweep.entities.filterNoPortalAccess') },
-        ],
-      },
+      ...(isFeatureAvailable('commerce-portal')
+        ? [
+            {
+              field: 'portal',
+              label: st('sweep.entities.filterPortalAccess'),
+              options: [
+                { value: 'active', label: portalT.statusActive },
+                { value: 'invited', label: portalT.statusInvited },
+                { value: 'none', label: st('sweep.entities.filterNoPortalAccess') },
+              ],
+            },
+          ]
+        : []),
     ],
     [st, portalT],
   );
@@ -580,7 +588,8 @@ function CompanyPeopleTab({
     (pc: CompanyPersonListItem) => {
       const name = pc.person?.displayName ?? st('sweep.entities.deletedPerson');
       const access = accessByPerson.get(pc.personId);
-      const canHavePortalAccess = !pc.endedAt && !!pc.person?.email;
+      // No customer portal on this edition: nothing to invite to.
+      const canHavePortalAccess = isFeatureAvailable('commerce-portal') && !pc.endedAt && !!pc.person?.email;
       const hasPortalAccess = !!access && access.status !== 'revoked';
       return (
         <LinkedRecordRow
@@ -767,8 +776,8 @@ export function CompanyPanel(props: Readonly<ObjectPanelComponentProps>) {
 
   const handleDelete = useCallback(async () => {
     if (!company) return;
-    // Warn first when the company still has open deals (TASK-1040).
-    if (!(await confirmCompanyDelete([company.id]))) return;
+    // Always ask, as the person panel does; the question names any open deals (TASK-1040).
+    if (!(await confirmCompanyDelete([company.id], { always: true }))) return;
     deleteMut.mutate(company.id, {
       onSuccess: () => {
         toast.success(st('sweep.entities.companyDeleted'));
@@ -835,6 +844,15 @@ export function CompanyPanel(props: Readonly<ObjectPanelComponentProps>) {
       contentClassName={tabBodyClassName(mode)}
       avatar={<CompanyAvatar company={company} onUpload={(url) => handleUpdateField({ avatarUrl: url })} />}
       title={<CompanyTitle company={company} />}
+      subheader={
+        company?.archivedAt ? (
+          <ArchivedRecordBanner
+            message={st('sweep.entities.companyArchivedBanner')}
+            onUnarchive={handleArchiveToggle}
+            pending={unarchiveMut.isPending}
+          />
+        ) : undefined
+      }
       actions={
         <CompanyActions
           company={company}

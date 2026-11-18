@@ -28,6 +28,7 @@ export const weldboard = {
     untitled: 'Untitled board',
     rename: 'Rename',
     renamePrompt: 'Board name',
+    moreActions: 'Actions for {name}',
     duplicate: 'Make a copy',
     copyOf: 'Copy of {name}',
     delete: 'Delete',

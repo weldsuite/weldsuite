@@ -25,6 +25,7 @@ export const weldsheets = {
     untitled: 'Untitled spreadsheet',
     rename: 'Rename',
     renamePrompt: 'Spreadsheet name',
+    moreActions: 'Actions for {name}',
     delete: 'Delete',
     deleteTitle: 'Delete spreadsheet?',
     deleteDescription: '"{name}" moves to the WeldDrive trash, where it can be restored for 30 days.',

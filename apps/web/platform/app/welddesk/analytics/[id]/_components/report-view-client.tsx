@@ -16,6 +16,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@weldsuite/ui/components/dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -130,6 +131,10 @@ export function ReportViewClient({ report, initialCharts, allReports }: Readonly
   const [createReportDialogOpen, setCreateReportDialogOpen] = useState(false);
   const [newReportTitle, setNewReportTitle] = useState('');
   const [newReportDescription, setNewReportDescription] = useState('');
+  // What the delete confirmation is about: this report, or one of its charts.
+  const [confirmDelete, setConfirmDelete] = useState<
+    { kind: 'report' } | { kind: 'chart'; chartId: string; title: string } | null
+  >(null);
 
   const STANDARD_CHART_HEIGHT = 8;
 
@@ -445,6 +450,36 @@ export function ReportViewClient({ report, initialCharts, allReports }: Readonly
     });
   };
 
+  const askDeleteReport = () => {
+    setReportSelectorOpen(false);
+    setConfirmDelete({ kind: 'report' });
+  };
+
+  const deleteConfirmDialog = (
+    <ConfirmDialog
+      open={confirmDelete !== null}
+      onOpenChange={(next) => !next && setConfirmDelete(null)}
+      title={
+        confirmDelete?.kind === 'chart'
+          ? t.helpdesk.analyticsReports.deleteChart
+          : t.helpdesk.analyticsReports.deleteReportTitle
+      }
+      description={
+        confirmDelete?.kind === 'chart'
+          ? t.helpdesk.analyticsReports.deleteChartDescription.replace('{title}', confirmDelete.title)
+          : t.helpdesk.analyticsReports.deleteReportDescription.replace('{title}', pageTitle)
+      }
+      confirmLabel={t.helpdesk.analyticsReports.delete}
+      variant="destructive"
+      onConfirm={() => {
+        const target = confirmDelete;
+        setConfirmDelete(null);
+        if (target?.kind === 'chart') removeWidget(target.chartId);
+        else if (target?.kind === 'report') deleteCurrentReport();
+      }}
+    />
+  );
+
   // Empty state - no charts
   if (charts.length === 0) {
     return (
@@ -502,7 +537,7 @@ export function ReportViewClient({ report, initialCharts, allReports }: Readonly
                           {t.helpdesk.analyticsReports.newReport}
                         </CommandItem>
                         <CommandItem
-                          onSelect={deleteCurrentReport}
+                          onSelect={askDeleteReport}
                           className="text-red-600 focus:text-red-600"
                         >
                           <Trash2 className="mr-0.5 h-4 w-4 text-red-600 dark:text-red-400" />
@@ -590,6 +625,7 @@ export function ReportViewClient({ report, initialCharts, allReports }: Readonly
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        {deleteConfirmDialog}
       </div>
     );
   }
@@ -745,7 +781,7 @@ export function ReportViewClient({ report, initialCharts, allReports }: Readonly
                             {t.helpdesk.analyticsReports.newReport}
                           </CommandItem>
                           <CommandItem
-                            onSelect={deleteCurrentReport}
+                            onSelect={askDeleteReport}
                             className="text-red-600 focus:text-red-600"
                           >
                             <Trash2 className="mr-0.5 h-4 w-4 text-red-600 dark:text-red-400" />
@@ -868,7 +904,7 @@ export function ReportViewClient({ report, initialCharts, allReports }: Readonly
 
               return (
                 <div key={chart.id} className="h-full w-full">
-                  <Card className={`relative w-full h-full flex flex-col border-gray-200/50 dark:border-border/50 shadow-none ${isDragging ? 'opacity-80' : ''}`}>
+                  <Card className={`relative w-full h-full flex flex-col overflow-hidden border-gray-200/50 dark:border-border/50 shadow-none ${isDragging ? 'opacity-80' : ''}`}>
                     {/* Edit mode controls */}
                     {isEditMode && (
                       <div className="absolute top-4 right-4 z-10 flex items-center gap-1">
@@ -890,7 +926,13 @@ export function ReportViewClient({ report, initialCharts, allReports }: Readonly
                               {t.helpdesk.analyticsReports.duplicateChart}
                             </DropdownMenuItem>
                             <DropdownMenuItem
-                              onClick={() => removeWidget(chart.id)}
+                              onClick={() =>
+                                setConfirmDelete({
+                                  kind: 'chart',
+                                  chartId: chart.id,
+                                  title: chart.title || t.helpdesk.analyticsReports.chartTitle,
+                                })
+                              }
                               className="flex items-center gap-2 text-sm text-red-600 dark:text-red-400 focus:text-red-600 dark:focus:text-red-400 focus:bg-red-50 dark:focus:bg-red-950/50"
                             >
                               <Trash2 className="h-3.5 w-3.5 text-red-600 dark:text-red-400" />
@@ -954,7 +996,9 @@ export function ReportViewClient({ report, initialCharts, allReports }: Readonly
                         )}
                       </div>
                     </CardHeader>
-                    <CardContent className="pb-2 pt-0 flex-1 min-h-[200px] overflow-hidden">
+                    {/* min-h-0, not a fixed minimum: a new chart is 4 grid rows high, and a
+                        200px floor pushed its x-axis out below the card's border. */}
+                    <CardContent className="pb-2 pt-0 flex-1 min-h-0 overflow-hidden">
                       {chartBody}
                     </CardContent>
                   </Card>
@@ -1003,6 +1047,7 @@ export function ReportViewClient({ report, initialCharts, allReports }: Readonly
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {deleteConfirmDialog}
     </div>
   );
 }

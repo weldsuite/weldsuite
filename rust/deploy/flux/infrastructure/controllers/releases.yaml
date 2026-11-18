@@ -138,3 +138,26 @@ spec:
   valuesFrom:
     - kind: ConfigMap
       name: metrics-server-values
+---
+# External Secrets Operator: turns the secrets layer's ExternalSecrets into
+# Secrets, from the cluster's secret store (ClusterSecretStore weldsuite,
+# ../../secrets/store.yaml). The chart installs its CRDs, so the secrets
+# layer, which comes after this one, can use them.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: external-secrets
+  namespace: external-secrets
+spec:
+  interval: 1h
+  chart:
+    spec:
+      chart: external-secrets
+      version: 2.14.0
+      sourceRef:
+        kind: HelmRepository
+        name: external-secrets
+        namespace: flux-system
+  valuesFrom:
+    - kind: ConfigMap
+      name: external-secrets-values

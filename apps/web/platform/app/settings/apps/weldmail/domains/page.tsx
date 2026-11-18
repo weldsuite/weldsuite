@@ -367,8 +367,8 @@ function DnsRecordsTable({
           <TableRow key={`${record.type}-${record.name}-${record.purpose ?? ''}`}>
             <TableCell className="whitespace-nowrap">{purposeLabel(record.purpose)}</TableCell>
             <TableCell className="font-mono text-xs">{record.type}</TableCell>
-            <TableCell className="max-w-[220px] break-all font-mono text-xs">{record.name}</TableCell>
-            <TableCell className="max-w-[320px]">
+            <TableCell className="max-w-[220px] whitespace-normal break-all font-mono text-xs">{record.name}</TableCell>
+            <TableCell className="max-w-[320px] whitespace-normal">
               <div className="flex items-start gap-1">
                 <span className="break-all font-mono text-xs">{record.value}</span>
                 <Button

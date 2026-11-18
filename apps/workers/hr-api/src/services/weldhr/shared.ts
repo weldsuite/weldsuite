@@ -73,6 +73,13 @@ export function assertDateOrder(start: string | null | undefined, end: string | 
   }
 }
 
+/** A date of birth after today is a typo (TASK-1471). */
+export function assertBirthDate(dateOfBirth: string | null | undefined, today: string = todayIso()) {
+  if (dateOfBirth && dateOfBirth > today) {
+    throw new HrValidationError('Date of birth cannot be in the future');
+  }
+}
+
 /** Mon–Fri days in [start, end], inclusive. Used as the default length of a leave request. */
 export function workingDaysBetween(start: string, end: string): number {
   if (end < start) return 0;

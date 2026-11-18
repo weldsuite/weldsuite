@@ -106,6 +106,7 @@ import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { isApiError } from '@weldsuite/api-client';
 import { toast } from 'sonner';
+import { CHANNEL_NAME_MAX_LENGTH } from '../lib/channel-name';
 
 export interface GroupSettingsTarget {
   groupKey: string;
@@ -314,6 +315,13 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<Gro
     update('channelIds', Array.from(next));
   };
 
+  // A taken name (409) comes back in words; a 400 is the validator's raw text
+  // about the name (empty, or over the length limit), so say that plainly.
+  const channelSaveErrorMessage = (err: unknown): string => {
+    if (isApiError(err) && err.status === 400) return t.weldchat.channelCreate.nameInvalid;
+    return (isApiError(err) && err.message) || st('sweep.weldchat.channelCreate.settingsSaveFailed');
+  };
+
   const handleSave = () => {
     if (!target) return;
 
@@ -335,9 +343,7 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<Gro
           {
             onSuccess: () => resolve(true),
             onError: (err) => {
-              toast.error(
-                (isApiError(err) && err.message) || st('sweep.weldchat.channelCreate.settingsSaveFailed'),
-              );
+              toast.error(channelSaveErrorMessage(err));
               resolve(false);
             },
           },
@@ -401,15 +407,28 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<Gro
     );
   };
 
+  // Muting applies at once (not on Save), so confirm it. One toast id: "Mute
+  // all" fires a call per channel but shows a single toast.
+  const setMuted = (channelId: string, mute: boolean) => {
+    const n = t.weldchat.groupSettings.notifications;
+    muteChannel(
+      { channelId, mute },
+      {
+        onSuccess: () => toast.success(mute ? n.mutedToast : n.unmutedToast, { id: 'weldchat-mute' }),
+        onError: () => toast.error(n.muteFailed, { id: 'weldchat-mute' }),
+      },
+    );
+  };
+
   const handleMuteAll = () => {
     for (const ch of sourceChannels) {
-      if (!ch.isMuted) muteChannel({ channelId: ch.id, mute: true });
+      if (!ch.isMuted) setMuted(ch.id, true);
     }
   };
 
   const handleUnmuteAll = () => {
     for (const ch of sourceChannels) {
-      if (ch.isMuted) muteChannel({ channelId: ch.id, mute: false });
+      if (ch.isMuted) setMuted(ch.id, false);
     }
   };
 
@@ -444,7 +463,9 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<Gro
       >
         <DialogTitle className="sr-only">{target?.groupLabel ?? ''} {t.weldchat.groupSettings.header}</DialogTitle>
         <DialogDescription className="sr-only">
-          {t.weldchat.groupSettings.dialogDescription}
+          {isSingleChannel
+            ? t.weldchat.groupSettings.channelDialogDescription
+            : t.weldchat.groupSettings.dialogDescription}
         </DialogDescription>
         <SidebarProvider className="items-start !min-h-0 h-full">
           <Sidebar collapsible="none" className="hidden md:flex border-r">
@@ -494,6 +515,8 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<Gro
                   <div className="space-y-3">
                     <Label className="text-sm font-medium">{t.weldchat.groupSettings.general.channelName}</Label>
                     <Input
+                      aria-label={t.weldchat.groupSettings.general.channelName}
+                      maxLength={CHANNEL_NAME_MAX_LENGTH}
                       value={channelDraft.name}
                       onChange={(e) =>
                         setChannelDraft((d) => ({ ...d, name: e.target.value }))
@@ -505,6 +528,7 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<Gro
                   <div className="space-y-3">
                     <Label className="text-sm font-medium">{t.weldchat.groupSettings.general.topic}</Label>
                     <Input
+                      aria-label={t.weldchat.groupSettings.general.topic}
                       value={channelDraft.topic}
                       onChange={(e) =>
                         setChannelDraft((d) => ({ ...d, topic: e.target.value }))
@@ -516,6 +540,7 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<Gro
                   <div className="space-y-3">
                     <Label className="text-sm font-medium">{t.weldchat.groupSettings.general.description}</Label>
                     <Textarea
+                      aria-label={t.weldchat.groupSettings.general.description}
                       value={channelDraft.description}
                       onChange={(e) =>
                         setChannelDraft((d) => ({ ...d, description: e.target.value }))
@@ -542,6 +567,7 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<Gro
                           </p>
                         </div>
                         <Switch
+                          aria-label={t.weldchat.groupSettings.general.threads}
                           checked={channelDraft.threadsEnabled}
                           onCheckedChange={(v) =>
                             setChannelDraft((d) => ({ ...d, threadsEnabled: !!v }))
@@ -557,6 +583,7 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<Gro
                           </p>
                         </div>
                         <Switch
+                          aria-label={t.weldchat.groupSettings.general.attachments}
                           checked={channelDraft.attachmentsEnabled}
                           onCheckedChange={(v) =>
                             setChannelDraft((d) => ({ ...d, attachmentsEnabled: !!v }))
@@ -572,6 +599,7 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<Gro
                           </p>
                         </div>
                         <Switch
+                          aria-label={t.weldchat.groupSettings.general.reactions}
                           checked={channelDraft.reactionsEnabled}
                           onCheckedChange={(v) =>
                             setChannelDraft((d) => ({ ...d, reactionsEnabled: !!v }))
@@ -586,6 +614,7 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<Gro
                             {t.weldchat.groupSettings.general.voiceCallsHint}</p>
                         </div>
                         <Switch
+                          aria-label={t.weldchat.groupSettings.general.voiceCalls}
                           checked={channelDraft.voiceCallsEnabled}
                           onCheckedChange={(v) =>
                             setChannelDraft((d) => ({ ...d, voiceCallsEnabled: !!v }))
@@ -601,6 +630,7 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<Gro
                           </p>
                         </div>
                         <Switch
+                          aria-label={t.weldchat.groupSettings.general.videoCalls}
                           checked={channelDraft.videoCallsEnabled}
                           onCheckedChange={(v) =>
                             setChannelDraft((d) => ({ ...d, videoCallsEnabled: !!v }))
@@ -624,7 +654,7 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<Gro
                         setChannelDraft((d) => ({ ...d, slowModeSeconds: Number(v) }))
                       }
                     >
-                      <SelectTrigger className="w-48">
+                      <SelectTrigger className="w-48" aria-label={t.weldchat.groupSettings.general.slowMode}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -661,7 +691,7 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<Gro
                           }))
                         }
                       >
-                        <SelectTrigger className="w-64">
+                        <SelectTrigger className="w-64" aria-label={t.weldchat.groupSettings.general.agentReplies}>
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -690,7 +720,7 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<Gro
                           setChannelDraft((d) => ({ ...d, agentMaxHops: Number(v) }))
                         }
                       >
-                        <SelectTrigger className="w-32">
+                        <SelectTrigger className="w-32" aria-label={t.weldchat.groupSettings.general.agentMaxHops}>
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -885,6 +915,7 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<Gro
                     <div className="relative">
                       <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                       <Input
+                        aria-label={t.weldchat.groupSettings.channels.searchChannels}
                         placeholder={t.weldchat.groupSettings.channels.searchChannels}
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
@@ -992,6 +1023,7 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<Gro
                     </div>
                     <Input
                       id="top-n"
+                      aria-label={t.weldchat.groupSettings.display.channelLimit}
                       type="number"
                       min={1}
                       placeholder={t.weldchat.groupSettings.display.allChannels}
@@ -1019,7 +1051,7 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<Gro
                       value={draft.notificationLevel ?? 'all'}
                       onValueChange={(v) => update('notificationLevel', v as NotificationLevel)}
                     >
-                      <SelectTrigger className="w-full">
+                      <SelectTrigger className="w-full" aria-label={t.weldchat.groupSettings.notifications.level}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -1043,7 +1075,7 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<Gro
                       value={draft.notificationSound ?? 'default'}
                       onValueChange={(v) => update('notificationSound', v as 'default' | 'subtle' | 'chime' | 'silent')}
                     >
-                      <SelectTrigger className="w-full max-w-[260px]">
+                      <SelectTrigger className="w-full max-w-[260px]" aria-label={t.weldchat.groupSettings.notifications.sound}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -1099,64 +1131,21 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<Gro
 
                   <Divider />
 
-                  <div className="space-y-2">
-                    <Label className="text-sm font-medium">{t.weldchat.groupSettings.notifications.perChannel}</Label>
-                    <p className="text-xs text-muted-foreground mt-0.5 pb-[3px]">
-                      {t.weldchat.groupSettings.notifications.perChannelHint}
-                    </p>
-                    <div className="flex items-center justify-between text-xs text-muted-foreground">
-                      <span>
-                        {sourceChannels.filter((c) => !c.isMuted).length} of {sourceChannels.length} {t.weldchat.groupSettings.notifications.unmutedOf}
-                      </span>
-                      <div className="flex gap-3">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          className="hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed h-auto p-0 text-xs font-normal text-muted-foreground"
-                          disabled={sourceChannels.every((c) => c.isMuted)}
-                          onClick={handleMuteAll}
-                        >
-                          {t.weldchat.groupSettings.notifications.muteAll}
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          className="hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed h-auto p-0 text-xs font-normal text-muted-foreground"
-                          disabled={sourceChannels.every((c) => !c.isMuted)}
-                          onClick={handleUnmuteAll}
-                        >
-                          {t.weldchat.groupSettings.notifications.unmuteAll}
-                        </Button>
-                      </div>
-                    </div>
-                    {sourceChannels.length === 0 ? (
-                      <div className="rounded-lg border bg-muted/20 px-3 py-6 text-center text-sm text-muted-foreground">
-                        {t.weldchat.groupSettings.notifications.noChannelsInGroup}
-                      </div>
-                    ) : (
-                      <div className="rounded-lg border divide-y divide-border/50 overflow-hidden">
-                        {sourceChannels.map((ch) => (
-                          <div
-                            key={ch.id}
-                            className="flex items-center gap-3 px-3 py-2.5 text-sm"
-                          >
-                            <Hash className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                            <span className="flex-1 truncate">{ch.name || t.weldchat.groupSettings.channels.unnamed}</span>
-                            <span className="text-[11px] text-muted-foreground">
-                              {ch.isMuted ? t.weldchat.groupSettings.notifications.muted : t.weldchat.groupSettings.notifications.active}
-                            </span>
-                            <Switch
-                              checked={!ch.isMuted}
-                              onCheckedChange={(active) =>
-                                muteChannel({ channelId: ch.id, mute: !active })
-                              }
-                              aria-label={ch.isMuted ? t.weldchat.groupSettings.notifications.unmuteChannel : t.weldchat.groupSettings.notifications.muteChannel}
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                  {isSingleChannel ? (
+                    sourceChannel && (
+                      <SingleChannelMute
+                        muted={!!sourceChannel.isMuted}
+                        onChange={(mute) => setMuted(sourceChannel.id, mute)}
+                      />
+                    )
+                  ) : (
+                    <GroupChannelsMute
+                      channels={sourceChannels}
+                      onSetMuted={setMuted}
+                      onMuteAll={handleMuteAll}
+                      onUnmuteAll={handleUnmuteAll}
+                    />
+                  )}
                 </div>
               )}
 
@@ -1241,6 +1230,93 @@ function normalize(s: GroupFilterSettings): GroupFilterSettings {
     ...s,
     channelIds: [...(s.channelIds ?? [])].sort((a, b) => a.localeCompare(b)),
   };
+}
+
+/** Settings of one channel or DM: a single mute switch, no "group" wording. */
+function SingleChannelMute({ muted, onChange }: Readonly<{ muted: boolean; onChange: (mute: boolean) => void }>) {
+  const { t } = useI18n();
+  const n = t.weldchat.groupSettings.notifications;
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <div className="min-w-0">
+        <Label htmlFor="mute-this-conversation" className="text-sm font-medium">
+          {n.muteThisConversation}
+        </Label>
+        <p className="text-xs text-muted-foreground mt-0.5">{n.muteThisConversationHint}</p>
+      </div>
+      <Switch id="mute-this-conversation" checked={muted} onCheckedChange={(v) => onChange(!!v)} />
+    </div>
+  );
+}
+
+/** Settings of a sidebar group: mute or unmute each of its channels, or all of them. */
+function GroupChannelsMute({
+  channels,
+  onSetMuted,
+  onMuteAll,
+  onUnmuteAll,
+}: Readonly<{
+  channels: GroupSettingsTarget['channels'];
+  onSetMuted: (channelId: string, mute: boolean) => void;
+  onMuteAll: () => void;
+  onUnmuteAll: () => void;
+}>) {
+  const { t } = useI18n();
+  const n = t.weldchat.groupSettings.notifications;
+  const unmuted = channels.filter((c) => !c.isMuted).length;
+  const linkClass =
+    'hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed h-auto p-0 text-xs font-normal text-muted-foreground';
+  return (
+    <div className="space-y-2">
+      <Label className="text-sm font-medium">{n.perChannel}</Label>
+      <p className="text-xs text-muted-foreground mt-0.5 pb-[3px]">{n.perChannelHint}</p>
+      <div className="flex items-center justify-between text-xs text-muted-foreground">
+        <span>
+          {n.unmutedCount.replace('{unmuted}', String(unmuted)).replace('{total}', String(channels.length))}
+        </span>
+        <div className="flex gap-3">
+          <Button
+            type="button"
+            variant="ghost"
+            className={linkClass}
+            disabled={channels.every((c) => c.isMuted)}
+            onClick={onMuteAll}
+          >
+            {n.muteAll}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            className={linkClass}
+            disabled={channels.every((c) => !c.isMuted)}
+            onClick={onUnmuteAll}
+          >
+            {n.unmuteAll}
+          </Button>
+        </div>
+      </div>
+      {channels.length === 0 ? (
+        <div className="rounded-lg border bg-muted/20 px-3 py-6 text-center text-sm text-muted-foreground">
+          {n.noChannelsInGroup}
+        </div>
+      ) : (
+        <div className="rounded-lg border divide-y divide-border/50 overflow-hidden">
+          {channels.map((ch) => (
+            <div key={ch.id} className="flex items-center gap-3 px-3 py-2.5 text-sm">
+              <Hash className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <span className="flex-1 truncate">{ch.name || t.weldchat.groupSettings.channels.unnamed}</span>
+              <span className="text-[11px] text-muted-foreground">{ch.isMuted ? n.muted : n.active}</span>
+              <Switch
+                checked={!ch.isMuted}
+                onCheckedChange={(active) => onSetMuted(ch.id, !active)}
+                aria-label={`${ch.isMuted ? n.unmuteChannel : n.muteChannel}: ${ch.name || t.weldchat.groupSettings.channels.unnamed}`}
+              />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function ToggleRow({
@@ -1500,7 +1576,7 @@ function CollapseBehaviorSection({
       </div>
 
       <Select value={mode} onValueChange={(v) => setMode(v as CollapseMode)}>
-        <SelectTrigger className="w-full">
+        <SelectTrigger className="w-full" aria-label={t.weldchat.groupSettings.display.collapseBehavior}>
           <span>{collapseModeLabels[mode]?.label ?? collapseModeLabels.expanded.label}</span>
         </SelectTrigger>
         <SelectContent>

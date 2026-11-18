@@ -99,6 +99,9 @@ function prefetchCallAssets(): void {
   }
 }
 
+/** One "microphone unavailable" toast, however often it is retried. */
+const MIC_UNAVAILABLE_TOAST_ID = 'weldchat-call-mic-unavailable';
+
 /** One toast for the whole reconnect: "reconnecting" is replaced by "back in the call". */
 const RECONNECT_TOAST_ID = 'weldchat-reconnecting';
 
@@ -992,6 +995,14 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
         });
         return;
       }
+      // Asked for the microphone, but it did not start (none found, in use,
+      // blocked): show it off and say so, rather than offering to turn off a
+      // microphone that sends nothing. The LiveKit client has its tracks up by
+      // the time it reports the join (RealtimeKit's may still be starting).
+      if (isLiveKit() && audioOn && !m.self.audioEnabled) {
+        setIsMuted(true);
+        toast.error(getTranslations('weldchat').calling.microphoneUnavailable, { id: MIC_UNAVAILABLE_TOAST_ID });
+      }
       playCallJoinSound();
     });
 
@@ -1509,7 +1520,11 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
       setIsMuted(true);
       playMuteSound();
     } else {
-      void meeting.self.enableAudio();
+      meeting.self.enableAudio().catch(() => {
+        // No microphone, or it is in use or blocked: the button goes back to off.
+        setIsMuted(true);
+        toast.error(getTranslations('weldchat').calling.microphoneUnavailable, { id: MIC_UNAVAILABLE_TOAST_ID });
+      });
       setIsMuted(false);
       playUnmuteSound();
     }

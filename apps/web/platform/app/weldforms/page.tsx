@@ -26,6 +26,7 @@ import { useDeleteForm, useDuplicateForm, useFormFolders, useForms, useMoveForm 
 import { FolderMenu, ALL_FOLDERS, NO_FOLDER } from './components/folder-menu';
 import { NewFormDialog } from './components/new-form-dialog';
 import { FormStatusBadge } from './components/status-badge';
+import { useAiAvailable } from './lib/ai-availability';
 
 type FormSort = NonNullable<ListFormsQuery['sort']>;
 
@@ -62,6 +63,19 @@ function folderForNewForm(folder: string): string | null {
   return folder === ALL_FOLDERS || folder === NO_FOLDER ? null : folder;
 }
 
+/**
+ * The empty list's title and description. An empty folder among other forms is
+ * not "no forms yet"; the AI wording only where AI is offered.
+ */
+function emptyListText(
+  th: ReturnType<typeof useI18n>['t']['weldforms']['home'],
+  folder: string,
+  aiAvailable: boolean,
+): { title: string; description: string } {
+  if (folder !== ALL_FOLDERS) return { title: th.folderEmptyTitle, description: th.folderEmptyDescription };
+  return { title: th.emptyTitle, description: aiAvailable ? th.emptyDescription : th.emptyDescriptionNoAi };
+}
+
 export default function WeldFormsHome() {
   const { t } = useI18n();
   const th = t.weldforms.home;
@@ -69,6 +83,7 @@ export default function WeldFormsHome() {
   const canCreate = useCan('forms:create');
   const canUpdate = useCan('forms:update');
   const canDelete = useCan('forms:delete');
+  const aiAvailable = useAiAvailable();
 
   const [folder, setFolder] = useState<string>(ALL_FOLDERS);
   const [search, setSearch] = useState('');
@@ -252,8 +267,7 @@ export default function WeldFormsHome() {
               createButton={canCreate ? { label: th.newForm, onClick: createForm } : undefined}
               emptyState={{
                 icon: <FormsIllustration />,
-                title: th.emptyTitle,
-                description: th.emptyDescription,
+                ...emptyListText(th, folder, aiAvailable),
                 action: canCreate ? { label: th.newForm, onClick: createForm } : undefined,
               }}
               noResultsState={

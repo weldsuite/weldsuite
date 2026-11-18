@@ -86,7 +86,8 @@ export default function BillsPage() {
     {
       id: 'status',
       header: tbp.colStatus,
-      width: 'shrink-0 w-[110px]',
+      // On a phone the number and the total get the row; the status shows from 512px of list width.
+      width: 'hidden shrink-0 @lg/list:flex w-[110px]',
       render: (bill) => <StatusChip status={bill.status}>{tsl[bill.status] ?? bill.status}</StatusChip>,
     },
   ];

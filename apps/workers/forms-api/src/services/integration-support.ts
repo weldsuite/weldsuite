@@ -7,6 +7,7 @@
 
 import { and, eq } from 'drizzle-orm';
 import { publishEntityEventRaw } from '@weldsuite/entity-events';
+import { workspaceAppUrl } from '@weldsuite/emails';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { displayAnswer, fieldsOf, findField, isCompositeField, ownValue, prepareAnswer, recall } from '@weldsuite/forms-engine';
 import type { FormDefinition } from '@weldsuite/forms-engine/definition';
@@ -20,15 +21,25 @@ type FileRow = typeof schema.formResponseFiles.$inferSelect;
 
 const { formResponseActions } = schema;
 
-/** The member-side page of one response (`<PLATFORM_URL>/weldforms/<formId>/results?...`). */
-export function responseUrl(env: Pick<Env, 'PLATFORM_URL'>, formId: string, responseId: string): string {
-  const base = (env.PLATFORM_URL || 'https://app.weldsuite.org').replace(/\/$/, '');
-  return `${base}/weldforms/${formId}/results?tab=responses&response=${responseId}`;
+/**
+ * The member-side page of one response, in its workspace
+ * (`<PLATFORM_URL>/w/<clerkOrgId>/weldforms/<formId>/results?...`, FE-013):
+ * without the workspace segment the link opened in whichever workspace the
+ * reader last used (TASK-1462).
+ */
+export function responseUrl(env: Pick<Env, 'PLATFORM_URL'>, clerkOrgId: string, formId: string, responseId: string): string {
+  return workspaceAppUrl(
+    env.PLATFORM_URL || 'https://app.weldsuite.org',
+    clerkOrgId,
+    `/weldforms/${formId}/results?tab=responses&response=${responseId}`,
+  );
 }
 
 /** What a template can recall: the engine's tokens over the response, plus `{{form:title}}`, `{{response:number}}`, `{{response:url}}`. */
 export interface TemplateContext {
   env: Pick<Env, 'PLATFORM_URL'>;
+  /** The workspace's Clerk org id, for `{{response:url}}`. */
+  clerkOrgId: string;
   form: Pick<FormRow, 'id' | 'title'>;
   response: Pick<ResponseRow, 'id' | 'number' | 'answers' | 'hidden' | 'variables'>;
   definition: FormDefinition;
@@ -40,7 +51,7 @@ export function renderTemplate(text: string, ctx: TemplateContext): string {
   const withExtras = text.replace(EXTRA_TOKEN_RE, (_m, token: string) => {
     if (token === 'form:title') return ctx.form.title;
     if (token === 'response:number') return ctx.response.number === null ? '' : String(ctx.response.number);
-    return responseUrl(ctx.env, ctx.form.id, ctx.response.id);
+    return responseUrl(ctx.env, ctx.clerkOrgId, ctx.form.id, ctx.response.id);
   });
   return recall(withExtras, ctx.definition, {
     answers: ctx.response.answers as never,

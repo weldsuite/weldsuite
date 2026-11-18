@@ -657,7 +657,12 @@ async fn log_activity(
     if existing.is_some() {
         return Ok(());
     }
-    let url = response_url(ctx.ctx.env(), form_id, response_id);
+    let url = response_url(
+        ctx.ctx.env(),
+        &ctx.params.clerk_org_id,
+        form_id,
+        response_id,
+    );
     let title = text(&ctx.form, "title");
     let subject = if mode == "update" {
         format!("Updated response to {title}")

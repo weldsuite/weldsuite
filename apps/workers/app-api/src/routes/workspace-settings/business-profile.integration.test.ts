@@ -11,6 +11,7 @@ import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/test
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import {
   createLegalEntity,
+  createRegistration,
   getDefaultLegalEntityRow,
   getRegistration,
   listRegistrations,
@@ -147,7 +148,8 @@ describe('business profile = default legal entity', () => {
       const refused = await put({ legalName: 'Acme België', country: 'BE' });
       expect(refused.status).toBe(409);
       expect((await getDefaultLegalEntityRow(db))?.jurisdictionCode).toBe('NL');
-      expect((await get()).data).toBeNull();
+      expect(await db.select().from(schema.workspaceSettings)).toHaveLength(0);
+      expect((await get()).data).toMatchObject({ legalName: null, country: 'NL' });
 
       // The same country (any case) is not a change.
       expect((await put({ legalName: 'Acme B.V.', country: 'nl' })).status).toBe(201);
@@ -156,6 +158,52 @@ describe('business profile = default legal entity', () => {
       await db.delete(schema.journalEntries);
       await db.delete(schema.accountingEntitySettings);
     }
+  });
+
+  it('reads the default entity before the first save, so that save keeps its registrations (TASK-1464)', async () => {
+    expect((await get()).data).toBeNull();
+    const entity = await createLegalEntity(db, {
+      name: 'Acme',
+      legalName: 'Acme B.V.',
+      jurisdictionCode: 'NL',
+      baseCurrency: 'EUR',
+      address: { line1: 'Damrak 1', city: 'Amsterdam', postalCode: '1012 LG', country: 'NL' },
+    });
+    await createRegistration(db, entity.id, { type: 'vat', number: 'NL123456789B01', isPrimary: true });
+    await createRegistration(db, entity.id, { type: 'company_registration', number: '12345678', isPrimary: true });
+
+    // No settings row yet: GET answers the entity, not null.
+    const before = (await get()).data;
+    expect(before).toMatchObject({
+      legalName: 'Acme B.V.',
+      tradingName: null,
+      addressLine1: 'Damrak 1',
+      city: 'Amsterdam',
+      country: 'NL',
+      vatNumber: 'NL123456789B01',
+      registrationNumber: '12345678',
+    });
+
+    // The form's first save sends back what it was shown, with the address and trading name changed.
+    const res = await put({
+      tradingName: 'E2E Trading',
+      contactFirstName: 'Jan',
+      contactLastName: 'de Vries',
+      addressLine1: 'Keizersgracht 100',
+      postalCode: '1015 AA',
+      city: 'Amsterdam',
+      country: 'NL',
+      vatNumber: before?.vatNumber,
+      registrationNumber: before?.registrationNumber,
+    });
+    expect(res.status).toBe(201);
+    expect((await getRegistration(db, entity.id, 'vat'))?.number).toBe('NL123456789B01');
+    expect((await getRegistration(db, entity.id, 'company_registration'))?.number).toBe('12345678');
+    expect((await getDefaultLegalEntityRow(db))?.address).toMatchObject({ line1: 'Keizersgracht 100', postalCode: '1015 AA' });
+
+    // A save that leaves the numbers out (the form sends only what changed) keeps them too.
+    expect((await put({ addressLine2: '2nd floor' })).status).toBe(200);
+    expect((await get()).data).toMatchObject({ vatNumber: 'NL123456789B01', registrationNumber: '12345678', tradingName: 'E2E Trading' });
   });
 
   it('leaves the default entity alone when a save carries no legal field', async () => {

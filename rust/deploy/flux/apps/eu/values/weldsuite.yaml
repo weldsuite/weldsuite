@@ -53,6 +53,12 @@ config:
     endpoint: ${FILES_S3_ENDPOINT}
     region: ${FILES_S3_REGION}
     privateBucket: ${FILES_BUCKET_PRIVATE}
+    # Public uploads (avatars, product images, social media, chat
+    # attachments): a bucket next to the private one, same keys, private at
+    # Hetzner; the server serves it at https://app.${DOMAIN}/api/storage/public.
+    # Empty on a cluster whose settings don't name it: those uploads then
+    # answer "Storage is not configured".
+    publicBucket: ${FILES_BUCKET_PUBLIC:=}
     forcePathStyle: false
   # Durable jobs (sign's finalize, …) on the in-cluster Restate; each pod
   # registers its jobs endpoint with the admin API at start.
@@ -136,18 +142,19 @@ config:
       redirectUrl: ""
 
 # DATABASE_URL_MASTER (through the master-pooler Pooler), DATABASE_ENCRYPTION_KEY,
-# VALKEY_URL, NATS_URL + NATS_TOKEN, S3 keys, SIGN_SESSION_SECRET,
+# WELDPASS_ROOT_KEY, VALKEY_URL, NATS_URL + NATS_TOKEN, S3 keys, SIGN_SESSION_SECRET,
 # SIGN_PORTAL_SECRET, FORMS_SESSION_SECRET, FORMS_PORTAL_SECRET, ALTCHA_HMAC_KEY,
 # WIDGET_TOKEN_SECRET, ZITADEL_SERVICE_TOKEN, TENANT_SHARDS,
 # COLLAB_ROOMS_SECRET, LIVEKIT_API_KEY + LIVEKIT_API_SECRET, MAIL_INBOUND_SECRET,
 # MISTRAL_API_KEY + AI_KEYS_ENCRYPTION_KEY and SANDBOX_TOKEN_SECRET (once
 # config.ai and the sandbox are on again), and optionally MOLLIE_API_KEY:
-# secrets/examples/secrets.example.yaml. The MTA's keys are in weldsuite-mta
-# (mta below).
+# secrets/weldsuite.yaml, from the store's values (secrets/store.example.yaml).
+# The MTA's keys are in weldsuite-mta (mta below).
 secret:
   existingSecret: weldsuite-env
-  # The EU edition's keys live in its SOPS Secret, which a rebuilt cluster
-  # (the drill) gets back; a key the chart generated in the cluster wouldn't.
+  # The EU edition's keys live in its secret store, which a rebuilt cluster
+  # (the drill) reads again; a key the chart generated in the cluster wouldn't
+  # come back.
   generate: false
 
 # The platform (the SPA in the image) and its API on one origin, app.${DOMAIN};
@@ -381,8 +388,8 @@ consume:
 # load balancer, so cert-manager's HTTP-01 issues its certificate through
 # Traefik. Haraka spools to the mail bucket (FILES_BUCKET_MAIL, made next to
 # the private one with the same keys) and consume stores the messages.
-# MAIL_INBOUND_SECRET is in weldsuite-env. No public bucket here, so
-# inbound attachments aren't kept yet (mailInbound.publicUrl).
+# MAIL_INBOUND_SECRET is in weldsuite-env. Inbound attachments are kept in
+# config.files' public bucket once the cluster names one (FILES_BUCKET_PUBLIC).
 mailInbound:
   enabled: true
   bucket: ${FILES_BUCKET_MAIL}
@@ -404,7 +411,7 @@ mailInbound:
 # its queue in weldsuite_mta on master (clusters/example/configs). Bounces
 # and complaint reports come back to bounces.${DOMAIN}, whose MX are the mail
 # nodes. The server's SMTP_URL and MAIL_SMTP_URL point at it (wireServer).
-# Its keys are the weldsuite-mta Secret (secrets example); the bounce MX's
+# Its keys are the weldsuite-mta Secret (secrets/mta); the bounce MX's
 # certificate is self-signed for the mail nodes' names (the chart's default).
 # Before it sends: the port 25 unblock, DNS and the warm-up in the Hetzner
 # runbook, "Mail".

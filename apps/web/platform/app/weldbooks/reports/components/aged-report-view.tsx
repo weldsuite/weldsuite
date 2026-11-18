@@ -55,7 +55,7 @@ export function AgedReportView({ report, kind }: Readonly<AgedReportViewProps>) 
               <CardContent>
                 <p className="text-lg font-semibold tabular-nums">{formatMoney(bucketTotal(report.buckets[bucket]))}</p>
                 {count !== null ? (
-                  <p className="text-xs text-muted-foreground">{tr.documentsCount.replace('{count}', String(count))}</p>
+                  <p className="text-xs text-muted-foreground">{count === 1 ? tr.documentsCountOne : tr.documentsCount.replace('{count}', String(count))}</p>
                 ) : null}
               </CardContent>
             </Card>

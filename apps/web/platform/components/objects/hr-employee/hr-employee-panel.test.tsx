@@ -52,7 +52,7 @@ vi.mock('@/app/weldhr/employees/components/edit-employee-dialog', () => ({
 vi.mock('@/app/weldhr/employees/components/workspace-account-row', () => ({ EmployeeWorkspaceAccountRow: () => null }));
 vi.mock('@/components/custom-fields/custom-fields-sidebar-section', () => ({ CustomFieldsSidebarSection: () => null }));
 
-import { HrEmployeePanel } from './hr-employee-panel';
+import { HrEmployeePanel, dateOrderProblem } from './hr-employee-panel';
 import { panelOpen } from '@/components/objects/_shared/object-panel-test-mock';
 import { renderWithProviders } from '@/app/weldbooks/fixed-assets/test-utils';
 
@@ -217,7 +217,8 @@ describe('HrEmployeePanel', () => {
 
     await user.click(screen.getByRole('button', { name: 'Phone' }));
     await user.type(screen.getByRole('textbox'), 'call me{Enter}');
-    expect(toastError).toHaveBeenCalledWith('Enter a phone number with digits only, such as +31 20 123 4567');
+    // The phone row refuses it (its own check, or the panel's).
+    expect(toastError).toHaveBeenCalledWith(expect.stringMatching(/phone number/));
     expect(updateAsync).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole('button', { name: 'Goes by' }));
@@ -331,6 +332,14 @@ describe('HrEmployeePanel', () => {
     await vi.waitFor(() => expect(toastError).toHaveBeenCalled());
     await user.keyboard('{Escape}');
     expect(screen.queryByText('Delete employee')).not.toBeInTheDocument();
+  });
+
+  it('refuses dates out of order, as hr-api does', () => {
+    const start = { startDate: '2026-03-01', endDate: null, probationEndDate: null };
+    expect(dateOrderProblem(start)).toBeNull();
+    expect(dateOrderProblem({ ...start, endDate: '2026-02-01' })).toBe('weldhr.employees.validation.endBeforeStart');
+    expect(dateOrderProblem({ ...start, probationEndDate: '2026-02-28' })).toBe('weldhr.employees.validation.probationBeforeStart');
+    expect(dateOrderProblem({ ...start, endDate: '2026-12-31', probationEndDate: '2026-06-01' })).toBeNull();
   });
 });
 

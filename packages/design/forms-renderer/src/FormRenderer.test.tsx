@@ -199,6 +199,15 @@ describe('live submit', () => {
     expect(screen.getByRole('heading', { name: /Your name/ })).toBeTruthy();
   });
 
+  it('shows why the server refused a submit, and the connection message when it gave no reason', async () => {
+    const onSubmit = vi.fn().mockResolvedValueOnce({ refused: 'This form has closed.' }).mockRejectedValueOnce(new Error('offline'));
+    renderForm({ definition: makeDefinition({ blocks: [nameBlock] }), mode: 'live', onSubmit, initialAnswers: { b_name: 'Ada' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('This form has closed.'));
+    fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('Could not submit'));
+  });
+
   it('reports progress per step', () => {
     const onProgress = vi.fn();
     renderForm({ definition: makeDefinition({ blocks: [nameBlock, ageBlock] }), mode: 'live', onSubmit: vi.fn(), onProgress });

@@ -118,9 +118,24 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     "data-regions",
     // WeldPanel analytics (insights, funnels, retention, flows, reports,
     // dashboards, cohorts, lexicon, users, recordings, heatmaps, frustration):
-    // queries run on Basin, which only Global has. Projects and the install
-    // instructions stay; the platform hides the rest and redirects to them.
+    // queries run on Basin, which only Global has. Server-side ingest goes
+    // with it (secret keys at `/api/panel/projects/:id/keys`, the collector's
+    // `/v1/track` and `/v1/import`), as do recordings (`/rec.js`, `/r`).
+    // Projects and the browser install instructions stay; the platform hides
+    // the rest (the Server keys tab and snippets, the recording settings) and
+    // redirects to them.
     "panel-analytics",
+    // Third-party integrations: their syncs and webhooks run in Global's
+    // integration-sync-worker and integration-webhook-worker (the CRM_SYNC
+    // Workflow, connector syncs, Slack, Discord and GitHub events, Google
+    // Calendar pushes), which aren't ported. The connect routes answer, but
+    // nothing would sync, so the platform hides those integrations.
+    "integration-sync",
+    // WeldCommerce's customer portal: the orders portal has no image in the
+    // chart, so `commerce_portal_origin` would hand out Global's
+    // orders.weldsuite.org in the settings and the magic-link invites. The
+    // platform hides the portal settings.
+    "commerce-portal",
 ];
 
 /// The AI features (ADR AI-012): served on the install's AI provider

@@ -120,6 +120,18 @@ const emailSchema = z.string().email();
 
 type Translate = ReturnType<typeof useTranslations>;
 
+/**
+ * The order hr-api enforces between an employee's dates (TASK-1471): no end
+ * date and no probation end before the start date. The message key of what is
+ * wrong, or null. Dates are `YYYY-MM-DD`, so they compare as text.
+ */
+export function dateOrderProblem(dates: Pick<HrEmployeeDetail, 'startDate' | 'endDate' | 'probationEndDate'>): string | null {
+  const { startDate, endDate, probationEndDate } = dates;
+  if (startDate && endDate && endDate < startDate) return 'weldhr.employees.validation.endBeforeStart';
+  if (startDate && probationEndDate && probationEndDate < startDate) return 'weldhr.employees.validation.probationBeforeStart';
+  return null;
+}
+
 // ─── Header ────────────────────────────────────────────────────────────────
 
 function EmployeePanelAvatar({ employee }: Readonly<{ employee?: HrEmployeeDetail }>) {
@@ -517,7 +529,14 @@ function EmployeeDetailsTab({
         type="date"
         value={employee.startDate}
         renderValue={renderDate}
-        onSave={(next) => save({ startDate: next })}
+        onSave={async (next) => {
+          const problem = dateOrderProblem({ ...employee, startDate: next });
+          if (problem) {
+            toast.error(t(problem));
+            return;
+          }
+          await save({ startDate: next });
+        }}
       />
       <FieldRow
         readOnly={readOnly}
@@ -526,7 +545,14 @@ function EmployeeDetailsTab({
         type="date"
         value={employee.probationEndDate}
         renderValue={renderDate}
-        onSave={(next) => save({ probationEndDate: next })}
+        onSave={async (next) => {
+          const problem = dateOrderProblem({ ...employee, probationEndDate: next });
+          if (problem) {
+            toast.error(t(problem));
+            return;
+          }
+          await save({ probationEndDate: next });
+        }}
       />
       <FieldRow
         readOnly={readOnly}
@@ -535,7 +561,14 @@ function EmployeeDetailsTab({
         type="date"
         value={employee.endDate}
         renderValue={renderDate}
-        onSave={(next) => save({ endDate: next })}
+        onSave={async (next) => {
+          const problem = dateOrderProblem({ ...employee, endDate: next });
+          if (problem) {
+            toast.error(t(problem));
+            return;
+          }
+          await save({ endDate: next });
+        }}
       />
       <FieldRow
         readOnly={readOnly}
@@ -795,6 +828,7 @@ export function HrEmployeePanel(props: Readonly<ObjectPanelComponentProps>) {
     try {
       await deleteMut.mutateAsync(id);
       setDialog(null);
+      toast.success(t('weldhr.employees.detail.deletedToast'));
       onClose();
     } catch (err) {
       toast.error(errorMessage(err, t('sweep.entities.deleteFailed')));

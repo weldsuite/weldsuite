@@ -34,9 +34,10 @@ app.kubernetes.io/part-of: weldsuite
   value: {{ .subject | quote }}
 - name: NATS_MAIL_INBOUND_DLQ_STREAM
   value: {{ .deadLetterStream | quote }}
-{{- with .publicUrl }}
+{{- /* The server's environment names the files' public URL already (weldsuite.files.publicUrl). */}}
+{{- if and .publicUrl (not (include "weldsuite.files.publicUrl" $)) }}
 - name: R2_PUBLIC_URL
-  value: {{ . | quote }}
+  value: {{ .publicUrl | quote }}
 {{- end }}
 {{- end }}
 {{- end }}

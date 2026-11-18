@@ -33,6 +33,7 @@ import { ActionConfigForm } from '@/components/workflow-editor/components/action
 import { WorkflowCanvas, type WorkflowStep, type TriggerConfig } from '@weldsuite/ui/components/workflow-canvas';
 import { ScrollArea } from '@weldsuite/ui/components/scroll-area';
 import { WELDCONNECT_ACTION_TYPES } from '@/app/weldconnect/mvp';
+import { isFeatureAvailable } from '@/lib/edition';
 
 // Templates persist loosely-typed trigger/step JSON (backend declares them as
 // `unknown[]`); these describe the raw shape before normalization below fills
@@ -106,7 +107,11 @@ export function TemplateEditorClient({
   const sidebarActionTypes: SidebarActionType[] = useMemo(() => {
     const actions = t.weldconnect.addNodePanel.actions as Record<string, { name: string; description: string }>;
     // Only steps a WeldConnect workflow can go live with (see app/weldconnect/mvp.ts).
-    return SIDEBAR_ACTION_META.filter((a) => (WELDCONNECT_ACTION_TYPES as readonly string[]).includes(a.id)).map((a) => ({
+    // AI steps only where the deployment runs WeldConnect's AI.
+    const aiSteps = isFeatureAvailable('weldconnect-ai');
+    return SIDEBAR_ACTION_META.filter(
+      (a) => (WELDCONNECT_ACTION_TYPES as readonly string[]).includes(a.id) && (aiSteps || a.category !== 'ai'),
+    ).map((a) => ({
       ...a,
       name: actions[a.id]?.name ?? a.id,
       description: actions[a.id]?.description ?? '',

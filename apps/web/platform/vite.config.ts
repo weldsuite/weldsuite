@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { tanstackRouter } from '@tanstack/router-plugin/vite';
 import path from 'node:path';
-import { bootMode } from './src/boot/mode';
+import { bootMode, withoutGoogleFonts } from './src/boot/mode';
 
 function i18nChunkName(normalizedId: string): string | undefined {
   const i18nMatch = /\/packages\/i18n\/src\/locales\/(en|nl|fr)\/([^/]+)\.ts/.exec(normalizedId);
@@ -75,6 +75,12 @@ export default defineConfig(async ({ mode }) => {
     }),
     react(),
     tailwindcss(),
+    {
+      // The Kubernetes builds (EU, self-hosted) load nothing from Google:
+      // see `withoutGoogleFonts` in src/boot/mode.ts. Global keeps the fonts.
+      name: 'weldsuite-edition-fonts',
+      transformIndexHtml: (html: string) => (boot === 'runtime' ? withoutGoogleFonts(html) : html),
+    },
     visualizer({
       filename: 'dist/stats.html',
       gzipSize: true,

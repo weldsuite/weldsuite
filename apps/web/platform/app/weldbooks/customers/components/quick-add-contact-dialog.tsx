@@ -8,6 +8,7 @@
 
 import { useMemo } from 'react';
 import { useNavigate } from '@tanstack/react-router';
+import { useSetAtom } from 'jotai';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -19,6 +20,7 @@ import { Label } from '@weldsuite/ui/components/label';
 import { PageTabs } from '@weldsuite/ui/components/page-tabs';
 import { useI18n } from '@/lib/i18n/provider';
 import type { ContactPayload } from './contact-form';
+import { contactPrefillAtom, contactPrefillOf } from './contact-prefill';
 import { PersonEmailConflictDialog } from './person-email-conflict-dialog';
 import { useCreateContact } from './use-create-contact';
 
@@ -53,6 +55,7 @@ function QuickAddContactForm({
   const tc = t.accounting.contacts;
   const submitLabel = role === 'supplier' ? tc.createSupplier : tc.createCustomer;
   const navigate = useNavigate();
+  const setPrefill = useSetAtom(contactPrefillAtom);
   const { submit, conflict, clearConflict, isPending } = useCreateContact({
     onCreated,
     onOpenExisting,
@@ -194,8 +197,9 @@ function QuickAddContactForm({
             variant="ghost"
             disabled={isPending}
             onClick={() => {
+              // The full form, for the same role: addresses, banking and tax details, starting from what was typed here.
+              setPrefill(contactPrefillOf(form.getValues()));
               onCancel();
-              // The full form, for the same role: addresses, banking and tax details.
               void navigate({ to: '/weldbooks/customers/add', search: role === 'supplier' ? { role: 'supplier' } : {} });
             }}
           >

@@ -27,6 +27,7 @@ import type {
 } from '@weldsuite/app-api-client/schemas/weldmeet-recordings';
 import { billableRecordingSeconds, hasApiStatus, isDeletableRecordingStatus } from '@/lib/weldmeet/recording';
 import { MeetingChatHistory } from '../components/meeting-chat-history';
+import { isListedAsUpcoming } from '../components/meeting-list-view';
 import { MeetingInvitePicker } from '../components/meeting-invite-picker';
 import { MeetingSummaryPanel } from '../components/meeting-summary-panel';
 import { RecordingStatePanel } from '../components/recording-state-panel';
@@ -357,13 +358,17 @@ export default function MeetingDetailPage() {
   const { mutate: updateMeetingPolicy } = useUpdateMeetingPolicy();
   const [hostControlsOpen, setHostControlsOpen] = useState(false);
 
-  // Upcoming meetings come from (and go back to) Upcoming; the rest to History.
+  // A meeting that can still be joined (scheduled or running): it may run late.
   const isUpcoming = meeting?.status === 'scheduled' || meeting?.status === 'in_progress';
-  const listUrl = isUpcoming ? '/weldmeet/upcoming' : '/weldmeet/history';
+  // It comes from (and goes back to) the list that shows it: Upcoming until its
+  // time has passed, History after that.
+  const inUpcomingList = !!meeting && isListedAsUpcoming(meeting);
+  const listUrl = inUpcomingList ? '/weldmeet/upcoming' : '/weldmeet/history';
+  const listLabel = inUpcomingList ? navLabels.upcoming : navLabels.history;
   useBreadcrumbs(
     meeting
       ? [
-          { label: isUpcoming ? navLabels.upcoming : navLabels.history, href: listUrl },
+          { label: listLabel, href: listUrl },
           { label: meeting.title },
         ]
       : [],
@@ -552,7 +557,7 @@ export default function MeetingDetailPage() {
       deleteRedirectUrl={listUrl}
       backUrl={listUrl}
       breadcrumbs={[
-        { label: isUpcoming ? navLabels.upcoming : navLabels.history, href: listUrl },
+        { label: listLabel, href: listUrl },
         { label: meeting.title },
       ]}
       headerMenuActions={buildHeaderMenuActions({

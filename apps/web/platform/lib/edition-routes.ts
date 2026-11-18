@@ -13,6 +13,7 @@
 
 import type { ApiModuleId } from '@weldsuite/api-modules';
 import { hasAiSettings, isFeatureAvailable, isModuleOffered, moduleForApp, type EditionFeature } from '@/lib/edition';
+import { getRuntimeConfig, publicEnv } from '@/lib/runtime-config';
 import { stripWorkspacePrefix } from '@/lib/workspace-url';
 
 /** What a page needs: one of these modules, this feature, and one of `anyFeature`. */
@@ -22,6 +23,11 @@ export interface EditionRequirement {
   anyFeature?: readonly EditionFeature[];
   /** The install runs AI with workspace settings (`ai` in `/config.json`): false on Global. */
   ai?: boolean;
+  /**
+   * A public setting a Kubernetes edition must name in `/config.json` (`env`),
+   * such as the origin of a service it may not run. Global always has it.
+   */
+  publicEnv?: `VITE_${string}`;
 }
 
 /**
@@ -48,14 +54,25 @@ const ROUTE_REQUIREMENTS: ReadonlyArray<readonly [prefix: string, requirement: E
   // WeldMail pages whose API is a feature the Kubernetes editions lack.
   ['/weldmail/ai', { modules: ['mail'], feature: 'mail-ai' }],
   ['/weldmail/domains', { modules: ['mail'], feature: 'mail-domains' }],
+  // MCP servers are WeldAgent's tools. Every other integration syncs or
+  // takes webhooks through workers the Kubernetes editions don't run yet.
+  ['/settings/integrations/mcp-servers', { modules: ['agent'] }],
+  ['/settings/integrations/', { modules: ['connect'], feature: 'integration-sync' }],
   ['/settings/integrations', { modules: ['connect'] }],
+  // The public API (external-api) has no Kubernetes port yet: keys need the
+  // origin they work against, which `/config.json` names once it has one.
+  ['/settings/api-keys', { publicEnv: 'VITE_EXTERNAL_API_URL' }],
   ['/settings/webhooks', { modules: ['connect'] }],
   // WeldBooks entities and WeldHR payroll employers share the page.
   ['/settings/entities', { modules: ['books', 'hr'] }],
   ['/settings/weldcrm', { modules: ['crm'] }],
+  // WeldCommerce's settings page is its customer portal's.
+  ['/weldcommerce/settings', { modules: ['commerce'], feature: 'commerce-portal' }],
 ];
 
 function matchesPrefix(pathname: string, prefix: string): boolean {
+  // A prefix ending in `/` matches only the pages below it, not the page itself.
+  if (prefix.endsWith('/')) return pathname.startsWith(prefix) && pathname.length > prefix.length;
   return pathname === prefix || pathname.startsWith(prefix + '/');
 }
 
@@ -82,6 +99,7 @@ export function isRequirementMet(requirement: EditionRequirement | null): boolea
   if (requirement.feature && !isFeatureAvailable(requirement.feature)) return false;
   if (requirement.anyFeature && !requirement.anyFeature.some((feature) => isFeatureAvailable(feature))) return false;
   if (requirement.ai && !hasAiSettings()) return false;
+  if (requirement.publicEnv && getRuntimeConfig() && !publicEnv(requirement.publicEnv)) return false;
   return !requirement.modules || requirement.modules.some((module) => isModuleOffered(module));
 }
 

@@ -90,7 +90,8 @@ const PEOPLE_LIMIT = 5;
 const INVITABLE_AGENTS_IDLE_LIMIT = 3;
 
 // Overrides the Button base (justify-center, h-9, rounded-md, font-medium) so
-// rows read as a left-aligned list instead of centered buttons.
+// rows read as a left-aligned list instead of centered buttons. The selected
+// row uses `accent`, not `muted`: in the dark theme muted is the popover's colour.
 const ROW_CLASS =
   'flex items-center justify-start gap-2 w-full h-auto px-3 py-2 rounded-none text-sm font-normal text-left';
 const SECTION_HEADING_CLASS =
@@ -458,7 +459,7 @@ export function MentionAutocomplete({
         type="button"
         variant="ghost"
         data-mention-index={idx}
-        className={`${ROW_CLASS} ${active ? 'bg-muted' : 'hover:bg-muted'}`}
+        className={`${ROW_CLASS} ${active ? 'bg-accent text-accent-foreground' : 'hover:bg-accent'}`}
         onMouseEnter={() => enterRow(idx, s)}
         onMouseLeave={() => leaveRow(s)}
         onMouseDown={(e) => {
@@ -498,7 +499,7 @@ export function MentionAutocomplete({
           type="button"
           variant="ghost"
           data-mention-index={everyoneIndex}
-          className={`${ROW_CLASS} ${everyoneIndex === activeIndex ? 'bg-muted' : 'hover:bg-muted'}`}
+          className={`${ROW_CLASS} ${everyoneIndex === activeIndex ? 'bg-accent text-accent-foreground' : 'hover:bg-accent'}`}
           onMouseEnter={() => enterRow(everyoneIndex, { kind: 'everyone' })}
           onMouseLeave={() => leaveRow({ kind: 'everyone' })}
           onMouseDown={(e) => {
@@ -550,7 +551,7 @@ export function MentionAutocomplete({
                       type="button"
                       variant="ghost"
                       data-mention-index={idx}
-                      className={`${ROW_CLASS} ${active ? 'bg-muted' : 'hover:bg-muted'}`}
+                      className={`${ROW_CLASS} ${active ? 'bg-accent text-accent-foreground' : 'hover:bg-accent'}`}
                       onMouseEnter={() => enterRow(idx, item)}
                       onMouseLeave={() => leaveRow(item)}
                       onMouseDown={(e) => {

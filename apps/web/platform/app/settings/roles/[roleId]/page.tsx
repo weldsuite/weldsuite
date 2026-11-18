@@ -53,6 +53,22 @@ function editedNameProblem(role: RoleDetail | null, name: string, roleId: string
   return roleNameProblem(name, [], roleId);
 }
 
+/** "3 members · 12 permissions · 4 apps", with the singular wording for a count of one. */
+function roleSummary(
+  t: ReturnType<typeof useTranslations>,
+  memberCount: number,
+  permissionCount: number,
+  appCount: number,
+): string {
+  const counted = (count: number, oneKey: string, otherKey: string) =>
+    count === 1 ? t(oneKey) : t(otherKey, { count });
+  return [
+    counted(memberCount, 'sweep.settings.roleDetail.membersOne', 'sweep.settings.roleDetail.membersOther'),
+    counted(permissionCount, 'sweep.settings.roleDetail.permissionsOne', 'sweep.settings.roleDetail.permissionsOther'),
+    counted(appCount, 'sweep.settings.roleDetail.appsOne', 'sweep.settings.roleDetail.appsOther'),
+  ].join(' · ');
+}
+
 // ---------------------------------------------------------------------------
 // Page component
 // ---------------------------------------------------------------------------
@@ -364,11 +380,7 @@ export default function RoleDetailPage() {
             )}
           </div>
           <p className="text-sm text-muted-foreground">
-            {t('sweep.settings.roleDetail.summary', {
-              memberCount: role.memberCount,
-              permissionCount: grantedPermissions.size,
-              appCount: grantedApps.size,
-            })}
+            {roleSummary(t, role.memberCount, grantedPermissions.size, grantedApps.size)}
           </p>
         </div>
         {editable && (

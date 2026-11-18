@@ -578,6 +578,8 @@ export interface JournalEntry {
   totalDebit: string | null;
   totalCredit: string | null;
   sourceType: string | null;
+  /** The document that posted the entry (invoice, bill, payment…); such an entry is corrected through it. */
+  sourceId?: string | null;
   isAutomatic: boolean | null;
 }
 
@@ -979,6 +981,8 @@ export const accountingApi = {
   createJournalEntry: (data: Record<string, unknown>) => weldbooksApi.post<ApiResponse<JournalEntry>>('/journal-entries', data),
   postJournalEntry: (id: string) => weldbooksApi.post<ApiResponse<JournalEntry>>(`/journal-entries/${id}/post`),
   reverseJournalEntry: (id: string) => weldbooksApi.post<ApiResponse<{ id: string; entryNumber: string }>>(`/journal-entries/${id}/reverse`),
+  /** Drafts only: a posted entry is reversed instead. */
+  deleteJournalEntry: (id: string) => weldbooksApi.delete<ApiResponse<unknown>>(`/journal-entries/${id}`),
 
   // Bank Accounts
   listBankAccounts: () => weldbooksApi.get<ApiResponse<BankAccount[]>>('/bank-accounts'),

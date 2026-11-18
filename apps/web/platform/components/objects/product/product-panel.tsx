@@ -11,7 +11,8 @@ import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { getTranslations } from '@/lib/i18n';
+import { getLocale, getTranslations } from '@/lib/i18n';
+import { plural } from '@/lib/i18n/plural';
 import { useObjectPanel, useObjectPanelNavigationSource } from '@/components/object-panel';
 import {
   useCommerceProduct,
@@ -74,7 +75,7 @@ export function ProductPanel(props: Readonly<ObjectPanelComponentProps>) {
       await Promise.all(
         categoryIds.map((categoryId) => attach.mutateAsync({ categoryId, productIds: [id] })),
       );
-      toast.success(t.linking.categoriesAdded.replace('{count}', String(categoryIds.length)));
+      toast.success(plural(categoryIds.length, t.linking.categoriesAdded, getLocale()));
     } catch (err) {
       toast.error((err as Error).message || t.common.saveFailed);
     }

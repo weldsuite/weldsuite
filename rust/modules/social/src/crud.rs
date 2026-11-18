@@ -99,6 +99,11 @@ pub(crate) type UpdatedEvent = fn(&str, &Map<String, Value>, &Value) -> Value;
 /// A refusal an update makes before writing (`error.badRequest`).
 pub(crate) type Guard = fn(&Map<String, Value>, &Value) -> Option<&'static str>;
 
+/// What an update writes differently from the body (a date string as a
+/// `Date`): changes `data` in place and names the `Date` properties it set
+/// itself; `Err` for an Invalid Date (the route's 500).
+pub(crate) type Edit = fn(&mut Map<String, Value>) -> Result<Vec<&'static str>, ()>;
+
 /// One CRUD route file.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Crud {
@@ -126,6 +131,8 @@ pub(crate) struct Crud {
     pub(crate) updated: EventName,
     pub(crate) updated_event: UpdatedEvent,
     pub(crate) guard: Option<Guard>,
+    /// Runs after the guard, before the update writes.
+    pub(crate) edit: Option<Edit>,
     pub(crate) deleted: EventName,
 }
 
@@ -446,22 +453,23 @@ async fn create(
     Created(json!({ "id": id })).into_response()
 }
 
-/// `update(t).set({ updatedAt: new Date(), ...data })` on the live row.
+/// `update(t).set({ updatedAt: new Date(), ...data })` on the live row;
+/// `trusted_dates` names the `Date` properties the route set itself.
 pub(crate) async fn patch_row(
     caller: &Caller,
     table: &Table,
     id: &str,
     data: &Map<String, Value>,
+    trusted_dates: &[&'static str],
 ) -> Result<Option<Value>, WriteError> {
     let mut values = Map::new();
     table.set(&mut values, "updatedAt", json!(now()));
     values.extend(table.values(data));
-    let trusted: &[&str] = if data.contains_key("updatedAt") {
-        &[]
-    } else {
-        &["updatedAt"]
-    };
-    table.patch(&caller.db, id, values, true, trusted).await
+    let mut trusted = trusted_dates.to_vec();
+    if !data.contains_key("updatedAt") {
+        trusted.push("updatedAt");
+    }
+    table.patch(&caller.db, id, values, true, &trusted).await
 }
 
 async fn update(
@@ -472,7 +480,7 @@ async fn update(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let data = match read_body(crud, &headers, &body, true) {
+    let mut data = match read_body(crud, &headers, &body, true) {
         Ok(data) => data,
         Err(response) => return *response,
     };
@@ -484,7 +492,10 @@ async fn update(
     if let Some(message) = crud.guard.and_then(|guard| guard(&data, &existing)) {
         return ApiError::bad_request(message).into_response();
     }
-    if let Err(error) = patch_row(&caller, crud.table, &id, &data).await {
+    let Ok(trusted) = crud.edit.map_or(Ok(Vec::new()), |edit| edit(&mut data)) else {
+        return crate::internal(&"Invalid time value", crud.messages.update);
+    };
+    if let Err(error) = patch_row(&caller, crud.table, &id, &data, &trusted).await {
         return write_failed(&error, crud.messages.update);
     }
     caller.publish(

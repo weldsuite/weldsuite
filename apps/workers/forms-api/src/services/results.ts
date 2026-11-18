@@ -11,18 +11,20 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { schema } from '@weldsuite/worker-kit/db';
 import {
+  computePath,
   displayAnswer,
   isAnswered,
   isBooleanField,
   isChoiceField,
   isFileField,
   isNumericField,
+  type Answers,
   type ChoiceField,
   type FieldBlock,
   type FieldBlockOf,
   type FileField,
 } from '@weldsuite/forms-engine';
-import type { Block } from '@weldsuite/forms-engine/definition';
+import type { Block, FormDefinition } from '@weldsuite/forms-engine/definition';
 import {
   FORM_LIMITS,
   type FormFieldSummary,
@@ -232,6 +234,15 @@ interface InsightRow {
   submittedAt: Date | null;
   lastBlockId: string | null;
   source: string | null;
+  versionId: string;
+  /** Only loaded when a version's logic can skip blocks (`branches`); `{}` otherwise. */
+  answers: Record<string, unknown>;
+  hidden: Record<string, string>;
+}
+
+/** Whether a definition's logic can take a respondent past blocks: a jump, or an `otherwise`. */
+function branches(def: FormDefinition): boolean {
+  return def.logic.some((l) => l.jumps.length > 0 || l.otherwise !== null);
 }
 
 type DayCounts = { views: number; starts: number; completions: number };
@@ -265,13 +276,31 @@ function countBySource(rows: readonly InsightRow[]): Map<string, { starts: numbe
   return bySource;
 }
 
-/** How many reached each block and how many left there; completed responses reached every block. */
-function dropOffOf(blocks: ReadonlyArray<{ id: string; title: string }>, rows: readonly InsightRow[], completedCount: number): FormInsights['dropOff'] {
+/**
+ * How many reached each block and how many left there. A completed response
+ * reached the blocks on its path, worked out from its answers on its own
+ * version, so a block its logic skipped does not count; without logic that
+ * skips, that is every block. An unfinished one reached every block up to the
+ * one it left on.
+ */
+function dropOffOf(blocks: ReadonlyArray<{ id: string; title: string }>, rows: readonly InsightRow[], versions: readonly VersionInfo[]): FormInsights['dropOff'] {
+  const byId = new Map(versions.map((v) => [v.id, v.definition]));
   const leftAt = new Map<string, number>();
-  for (const r of rows) if (r.status === 'in_progress' && r.lastBlockId) leftAt.set(r.lastBlockId, (leftAt.get(r.lastBlockId) ?? 0) + 1);
+  const passed = new Map<string, number>();
+  let throughAll = 0;
+  for (const r of rows) {
+    if (r.status === 'in_progress' && r.lastBlockId) leftAt.set(r.lastBlockId, (leftAt.get(r.lastBlockId) ?? 0) + 1);
+    if (r.status !== 'completed') continue;
+    const def = byId.get(r.versionId);
+    if (!def || !branches(def)) {
+      throughAll += 1;
+      continue;
+    }
+    for (const id of computePath(def, { answers: r.answers as Answers, hidden: r.hidden }).path) passed.set(id, (passed.get(id) ?? 0) + 1);
+  }
   return blocks.map((block, index) => {
     const beyond = blocks.slice(index).reduce((sum, b) => sum + (leftAt.get(b.id) ?? 0), 0);
-    const reached = completedCount + beyond;
+    const reached = throughAll + (passed.get(block.id) ?? 0) + beyond;
     const leftHere = leftAt.get(block.id) ?? 0;
     return { blockId: block.id, title: block.title, reached, leftHere, dropOffRate: reached === 0 ? 0 : Math.round((leftHere / reached) * 1000) / 1000 };
   });
@@ -282,7 +311,7 @@ function dropOffOf(blocks: ReadonlyArray<{ id: string; title: string }>, rows: r
  * responses started in the range. `completions` and `completionRate` count
  * the started responses that were completed, so the rate stays within 0..1.
  * A response's drop-off point is its `last_block_id`; completed responses
- * count as having reached every block. The range is the last 30 days unless
+ * count as having reached the blocks on their path (`dropOffOf`). The range is the last 30 days unless
  * asked, and never more than `MAX_INSIGHT_DAYS`.
  */
 export async function insights(
@@ -297,6 +326,8 @@ export async function insights(
   const from = new Date(Math.max(range.from ? new Date(range.from).getTime() : to.getTime() - 29 * DAY_MS, earliest));
   const versions = await loadVersions(ctx.db, formId);
   const latest = versions[versions.length - 1];
+  // Answers are only needed to follow logic that can skip blocks.
+  const branching = versions.some((v) => branches(v.definition));
 
   const rows = await ctx.db
     .select({
@@ -306,6 +337,9 @@ export async function insights(
       durationMs: formResponses.durationMs,
       lastBlockId: formResponses.lastBlockId,
       source: sql<string | null>`${formResponses.metadata} ->> 'source'`,
+      versionId: formResponses.versionId,
+      answers: branching ? formResponses.answers : sql<Record<string, unknown>>`'{}'::jsonb`,
+      hidden: branching ? formResponses.hidden : sql<Record<string, string>>`'{}'::jsonb`,
     })
     .from(formResponses)
     .where(and(eq(formResponses.formId, formId), sql`${formResponses.startedAt} >= ${from.toISOString()}::timestamptz`, sql`${formResponses.startedAt} <= ${to.toISOString()}::timestamptz`));
@@ -315,7 +349,7 @@ export async function insights(
   const days = countByDay({ from, to }, views, rows, completed);
   const durations = completed.map((r) => r.durationMs).filter((d): d is number => d !== null);
   const bySource = countBySource(rows);
-  const dropOff = dropOffOf(latest ? stops(latest) : [], rows, completed.length);
+  const dropOff = dropOffOf(latest ? stops(latest) : [], rows, versions);
 
   return {
     views: Object.values(views).reduce((a, b) => a + b, 0),

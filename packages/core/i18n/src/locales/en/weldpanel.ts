@@ -118,6 +118,10 @@ export const weldpanel = {
     },
     anySite: 'Any site',
     moreDomains: '+{count} more',
+    // Where the deployment has no analytics store (the `panel-analytics` edition feature).
+    editionNoticeTitle: 'Collection only on this edition',
+    editionNotice:
+      "WeldPanel collects page views and events from your sites and apps here. The analytics views (traffic, funnels, retention, recordings and heatmaps) and server-side tracking aren't available on this edition yet.",
   },
 
   project: {

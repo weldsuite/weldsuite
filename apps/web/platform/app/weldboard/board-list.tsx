@@ -95,7 +95,7 @@ export function BoardList({
                   <Button
                     variant="ghost"
                     size="sm"
-                    aria-label={name}
+                    aria-label={format(th.moreActions, { name })}
                     className="h-7 w-7 p-0 text-gray-400 opacity-0 hover:text-gray-600 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
                   >
                     <EllipsisVertical className="h-3.5 w-3.5" />
@@ -133,7 +133,7 @@ export function BoardList({
         </div>
       );
     },
-    [th, onOpen, onRename, onDuplicate, onToggleTemplate, onDelete, projectName],
+    [th, format, onOpen, onRename, onDuplicate, onToggleTemplate, onDelete, projectName],
   );
 
   return (

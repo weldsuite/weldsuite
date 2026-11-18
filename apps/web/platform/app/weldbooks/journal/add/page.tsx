@@ -69,6 +69,8 @@ export default function AddJournalEntryPage() {
   const [description, setDescription] = useState('');
   const [reference, setReference] = useState('');
   const [lines, setLines] = useState<JournalLine[]>([emptyLine(), emptyLine()]);
+  /** Why the lines can not be submitted yet, after a submit. */
+  const [linesProblem, setLinesProblem] = useState<string | null>(null);
 
   const totalDebit = lines.reduce((s, l) => s + (Number(l.debit) || 0), 0);
   const totalCredit = lines.reduce((s, l) => s + (Number(l.credit) || 0), 0);
@@ -88,7 +90,18 @@ export default function AddJournalEntryPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isBalanced) return;
-    const validLines = lines.filter((l) => l.accountId && (Number(l.debit) || Number(l.credit)));
+    const hasAmount = (l: JournalLine) => Boolean(Number(l.debit) || Number(l.credit));
+    // A line with an amount and no account would be left out, and the rest no longer balance.
+    if (lines.some((l) => hasAmount(l) && !l.accountId)) {
+      setLinesProblem(tj.lineNeedsAccount);
+      return;
+    }
+    const validLines = lines.filter((l) => l.accountId && hasAmount(l));
+    if (validLines.length < 2) {
+      setLinesProblem(tj.needTwoLines);
+      return;
+    }
+    setLinesProblem(null);
     try {
       await createEntry.mutateAsync({
         date,
@@ -108,6 +121,7 @@ export default function AddJournalEntryPage() {
       toast.error(tj.createFailed, { description: describeError(err) });
       return;
     }
+    toast.success(tj.created);
     navigate({ to: '/weldbooks/journal' });
   };
 
@@ -275,6 +289,11 @@ export default function AddJournalEntryPage() {
                 {tj.notBalanced.replace('{amount}', fmt(Math.abs(totalDebit - totalCredit)))}
               </p>
             )}
+            {linesProblem && isBalanced ? (
+              <p className="text-destructive text-sm mt-2" role="alert">
+                {linesProblem}
+              </p>
+            ) : null}
           </CardContent>
         </Card>
 

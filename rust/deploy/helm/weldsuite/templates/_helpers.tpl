@@ -201,14 +201,22 @@ settings, which weldsuite.env adds.
 {{- if .publicBucket }}
 - name: S3_BUCKET_PUBLIC
   value: {{ .publicBucket | quote }}
+{{- if not .publicUrl }}
+{{- /* A public bucket with no public endpoint of its own: this server serves it, as it does the bundled store's. */}}
+- name: S3_PUBLIC_VIA_SERVER
+  value: "true"
+{{- end }}
 {{- end }}
 - name: S3_FORCE_PATH_STYLE
   value: {{ .forcePathStyle | toString | quote }}
 {{- end }}
-{{- with .publicUrl }}
-- name: S3_PUBLIC_URL
-  value: {{ trimSuffix "/" . | quote }}
 {{- end }}
+{{- with include "weldsuite.files.publicUrl" . }}
+{{- /* R2_PUBLIC_URL is the workers' name for it, which the modules read (chat attachments, inbound mail, …). */}}
+- name: S3_PUBLIC_URL
+  value: {{ . | quote }}
+- name: R2_PUBLIC_URL
+  value: {{ . | quote }}
 {{- end }}
 {{- with .Values.config.jobs }}
 {{- $ingressUrl := include "weldsuite.restate.ingressUrl" $ }}
@@ -730,14 +738,26 @@ release's Secret.
 - name: S3_ENSURE_BUCKETS
   value: "true"
 {{- if not .Values.config.files.publicUrl }}
-{{- /* No public endpoint of its own: this server serves the public bucket. */}}
+{{- /* No public endpoint of its own: this server serves the public bucket (S3_PUBLIC_URL: weldsuite.files.publicUrl). */}}
 - name: S3_PUBLIC_VIA_SERVER
   value: "true"
-{{- with .Values.config.publicUrl }}
-- name: S3_PUBLIC_URL
-  value: {{ printf "%s/api/storage/public" (trimSuffix "/" .) | quote }}
 {{- end }}
 {{- end }}
+{{- end }}
+
+{{- /*
+Where browsers read public objects (avatars, product images, chat
+attachments): config.files.publicUrl; else, when this server serves the
+public bucket itself (the bundled store, or a publicBucket on an endpoint
+without a public URL of its own), <config.publicUrl>/api/storage/public.
+Empty without a public bucket.
+*/}}
+{{- define "weldsuite.files.publicUrl" -}}
+{{- $files := .Values.config.files }}
+{{- if $files.publicUrl }}
+{{- trimSuffix "/" $files.publicUrl }}
+{{- else if and .Values.config.publicUrl (or .Values.bundle.objectStorage (and $files.endpoint $files.publicBucket)) }}
+{{- printf "%s/api/storage/public" (trimSuffix "/" .Values.config.publicUrl) }}
 {{- end }}
 {{- end }}
 

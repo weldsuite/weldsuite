@@ -1130,6 +1130,8 @@ export function MeetingRoomView(props: Readonly<MeetingRoomViewProps>) {
         recordingStartElapsedSeconds={recordingStartElapsedSeconds}
         recordingLabels={recordingLabels}
         recordingAvailable={isOrganizer}
+        // No recorder handed in (an edition without recordings): no Record row for anyone.
+        showRecord={!!(startRecording || stopRecording)}
         tools={tools}
       />
 

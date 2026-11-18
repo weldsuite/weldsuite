@@ -302,6 +302,35 @@ describe('VatReturnPanel', () => {
     expect(screen.queryByRole('menuitem', { name: 'Check status' })).not.toBeInTheDocument();
   });
 
+  it('recalculates an open return from the current bookings', async () => {
+    const user = userEvent.setup();
+    serve(vatReturn({ periodStart: '2026-01-01T00:00:00.000Z', periodEnd: '2026-03-31T00:00:00.000Z' }));
+    renderPanel();
+    expect(await screen.findByText(/only included once you recalculate/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'More actions' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Recalculate' }));
+
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith('/vat-returns/calculate', {
+        periodType: 'quarterly',
+        periodStart: '2026-01-01',
+        periodEnd: '2026-03-31',
+        periodLabel: 'Q1 2026',
+      }),
+    );
+    expect(toast.success).toHaveBeenCalledWith('VAT return recalculated from the current bookings');
+  });
+
+  it('offers no recalculation of a filed return or a correction', async () => {
+    const user = userEvent.setup();
+    serve(vatReturn({ status: 'filed' }));
+    renderPanel();
+    await user.click(await screen.findByRole('button', { name: 'More actions' }));
+    expect(await screen.findByRole('menuitem', { name: 'Download XML' })).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'Recalculate' })).not.toBeInTheDocument();
+  });
+
   it('says so when the jurisdiction has no VAT return', async () => {
     jurisdiction.vatReturn = false;
     renderPanel();

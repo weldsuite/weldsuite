@@ -11,7 +11,7 @@ import { useState } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { Trash2, UserPlus, X } from 'lucide-react';
 import { toast } from 'sonner';
-import type { FormAccessEntry, FormAccessRole, FormRespondentMode, FormSubscriptionMode } from '@weldsuite/app-api-client/schemas/weldforms';
+import type { FormAccessEntry, FormAccessRole, FormRespondentMode, FormSettings, FormSubscriptionMode } from '@weldsuite/app-api-client/schemas/weldforms';
 import { Button } from '@weldsuite/ui/components/button';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { DateTimePicker } from '@weldsuite/ui/components/date-time-picker';
@@ -27,7 +27,7 @@ import { useRouter } from '@/lib/router';
 import { cn } from '@/lib/utils';
 import { useDeleteForm, useFormAccess, useFormSubscription, useSetFormAccess, useSetFormSubscription } from '@/hooks/queries/use-weldforms-queries';
 import { OptionSelect, ToggleRow } from '../../components/prop-controls';
-import { dateToIso, isoToDate } from '../../lib/datetime';
+import { closesBeforeOpens, dateToIso, isoToDate } from '../../lib/datetime';
 import { parseDomains } from '../../lib/embed-domains';
 import { useFormsMembers } from '../../lib/use-members';
 import { useFormEditor } from '../editor-context';
@@ -192,10 +192,64 @@ function RespondentsSection() {
   );
 }
 
-function ResponsesSection() {
+/**
+ * Opening and closing time. A pair that closes the form before it opens is
+ * kept here with an error on the closing time and not saved: forms-api refuses
+ * it, and the refusal would fail every later autosave of the form.
+ */
+function OpenWindowFields({ settings, disabled, onChange }: Readonly<{ settings: FormSettings; disabled: boolean; onChange: (patch: Partial<Pick<FormSettings, 'opensAt' | 'closesAt'>>) => void }>) {
   const { t } = useI18n();
   const ts = t.weldforms.formSettings;
   const { dateFnsLocale } = useDateLocale();
+  const [pending, setPending] = useState<Pick<FormSettings, 'opensAt' | 'closesAt'> | null>(null);
+  const shown = pending ?? { opensAt: settings.opensAt, closesAt: settings.closesAt };
+  const inverted = closesBeforeOpens(shown.opensAt, shown.closesAt);
+
+  const change = (key: 'opensAt' | 'closesAt', date: Date | undefined) => {
+    const next = key === 'opensAt' ? { ...shown, opensAt: dateToIso(date) } : { ...shown, closesAt: dateToIso(date) };
+    if (closesBeforeOpens(next.opensAt, next.closesAt)) {
+      setPending(next);
+      return;
+    }
+    // Only what changed, unless both were held back.
+    const both = pending !== null;
+    setPending(null);
+    if (both) onChange(next);
+    else onChange(key === 'opensAt' ? { opensAt: next.opensAt } : { closesAt: next.closesAt });
+  };
+
+  return (
+    <div className="grid gap-4 sm:grid-cols-2">
+      <FormField label={ts.opensAt} htmlFor="settings-opens-at">
+        <DateTimePicker
+          id="settings-opens-at"
+          value={isoToDate(shown.opensAt)}
+          onChange={(date) => change('opensAt', date)}
+          placeholder={ts.noDate}
+          timeLabel={ts.openingTime}
+          locale={dateFnsLocale}
+          disabled={disabled}
+        />
+      </FormField>
+      <FormField label={ts.closesAt} htmlFor="settings-closes-at" error={inverted ? ts.closesBeforeOpens : undefined}>
+        <DateTimePicker
+          id="settings-closes-at"
+          value={isoToDate(shown.closesAt)}
+          onChange={(date) => change('closesAt', date)}
+          placeholder={ts.noDate}
+          timeLabel={ts.closingTime}
+          defaultTime="23:59"
+          locale={dateFnsLocale}
+          disabled={disabled}
+        />
+      </FormField>
+    </div>
+  );
+}
+
+function ResponsesSection() {
+  const { t } = useI18n();
+  const ts = t.weldforms.formSettings;
   const editor = useFormEditor();
   const { settings, canEdit } = editor;
   const disabled = !canEdit;
@@ -203,36 +257,12 @@ function ResponsesSection() {
   return (
     <>
       <ToggleRow id="settings-partial" label={ts.collectPartial} description={ts.collectPartialHelp} checked={settings.collectPartial} disabled={disabled} onCheckedChange={(collectPartial) => editor.patchSettings({ collectPartial })} />
-      <div className="grid gap-4 sm:grid-cols-2">
-        <FormField label={ts.opensAt}>
-          <DateTimePicker
-            id="settings-opens-at"
-            value={isoToDate(settings.opensAt)}
-            onChange={(date) => editor.patchSettings({ opensAt: dateToIso(date) })}
-            placeholder={ts.noDate}
-            timeLabel={ts.openingTime}
-            locale={dateFnsLocale}
-            disabled={disabled}
-          />
-        </FormField>
-        <FormField label={ts.closesAt}>
-          <DateTimePicker
-            id="settings-closes-at"
-            value={isoToDate(settings.closesAt)}
-            onChange={(date) => editor.patchSettings({ closesAt: dateToIso(date) })}
-            placeholder={ts.noDate}
-            timeLabel={ts.closingTime}
-            defaultTime="23:59"
-            locale={dateFnsLocale}
-            disabled={disabled}
-          />
-        </FormField>
-      </div>
-      <FormField label={ts.responseLimit} helpText={ts.responseLimitHelp}>
-        <NumberInput value={settings.responseLimit ?? undefined} onValueChange={(value) => editor.patchSettings({ responseLimit: value === undefined ? null : Math.max(1, Math.floor(value)) })} min={1} disabled={disabled} placeholder={ts.noLimit} className="w-40" />
+      <OpenWindowFields settings={settings} disabled={disabled} onChange={(patch) => editor.patchSettings(patch)} />
+      <FormField label={ts.responseLimit} helpText={ts.responseLimitHelp} htmlFor="settings-response-limit">
+        <NumberInput id="settings-response-limit" value={settings.responseLimit ?? undefined} onValueChange={(value) => editor.patchSettings({ responseLimit: value === undefined ? null : Math.max(1, Math.floor(value)) })} min={1} disabled={disabled} placeholder={ts.noLimit} className="w-40" />
       </FormField>
-      <FormField label={ts.closedMessage} helpText={ts.closedMessageHelp}>
-        <Textarea value={settings.closedMessage ?? ''} onChange={(e) => editor.patchSettings({ closedMessage: e.target.value === '' ? null : e.target.value })} rows={2} maxLength={1000} disabled={disabled} />
+      <FormField label={ts.closedMessage} helpText={ts.closedMessageHelp} htmlFor="settings-closed-message">
+        <Textarea id="settings-closed-message" value={settings.closedMessage ?? ''} onChange={(e) => editor.patchSettings({ closedMessage: e.target.value === '' ? null : e.target.value })} rows={2} maxLength={1000} disabled={disabled} />
       </FormField>
     </>
   );
@@ -248,14 +278,24 @@ function EmbedSection() {
   const parsed = parseDomains(domainsShown);
 
   return (
-    <FormField label={ts.allowedDomains} helpText={ts.allowedDomainsHelp} error={parsed.invalid.length > 0 ? ts.invalidDomains.replace('{domains}', parsed.invalid.join(', ')) : undefined}>
+    <FormField
+      label={ts.allowedDomains}
+      helpText={ts.allowedDomainsHelp}
+      htmlFor="settings-allowed-domains"
+      error={parsed.invalid.length > 0 ? ts.invalidDomains.replace('{domains}', parsed.invalid.join(', ')) : undefined}
+    >
       <Textarea
+        id="settings-allowed-domains"
         value={domainsShown}
+        aria-invalid={parsed.invalid.length > 0 || undefined}
         onChange={(e) => {
           setDomainsText(e.target.value);
           editor.patchSettings({ allowedEmbedDomains: parseDomains(e.target.value).domains.slice(0, 50) });
         }}
-        onBlur={() => setDomainsText(null)}
+        // Tidies the list on leaving it, but keeps what was typed (and its error) while an entry is not a domain.
+        onBlur={() => {
+          if (parsed.invalid.length === 0) setDomainsText(null);
+        }}
         rows={3}
         placeholder="example.com"
         disabled={!canEdit}

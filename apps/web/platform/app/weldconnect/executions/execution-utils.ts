@@ -86,6 +86,31 @@ export function isTestExecution(execution: { executionContext?: { isTest?: boole
   return execution.executionContext?.isTest === true;
 }
 
+/** The workflows a runs list knows about: one page of `GET /api/workflows`. */
+export interface KnownWorkflows {
+  names: ReadonlyMap<string, string>;
+  /** Every workflow is in `names` (the page held them all), so a missing id was deleted. */
+  complete: boolean;
+}
+
+/**
+ * The name a run is listed under: its workflow's name now, so a rename shows
+ * on its old runs too; the name stored with the run once the workflow is
+ * gone or not loaded.
+ */
+export function runWorkflowName(
+  run: { workflowId: string; workflowName?: string | null },
+  known: KnownWorkflows,
+  fallback: string,
+): string {
+  return known.names.get(run.workflowId) || run.workflowName || fallback;
+}
+
+/** Was the run's workflow deleted? Only certain once every workflow is known. */
+export function isRunWorkflowDeleted(run: { workflowId: string }, known: KnownWorkflows): boolean {
+  return known.complete && !known.names.has(run.workflowId);
+}
+
 export interface ExecutionErrorInfo {
   message: string;
   details?: unknown;

@@ -33,6 +33,7 @@ import {
   writeAccountingAudit,
 } from '@weldsuite/books-domain/accounting-guards';
 import {
+  assertAccountsActive,
   assertDimensionsBelongToEntity,
   assertProjectsExist,
   postDraftJournalEntry,
@@ -168,6 +169,7 @@ app.post('/', requirePermission('journal:create'), zValidator('json', createJour
 
     await assertDimensionsBelongToEntity(db, entityId, data.lines);
     await assertProjectsExist(db, data.lines);
+    await assertAccountsActive(db, entityId, data.lines.map((l) => l.accountId));
 
     const { formatted: entryNumber } = await nextEntityNumber(db, entityId, 'journal');
     const entryId = generateId('je');

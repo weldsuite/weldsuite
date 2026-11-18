@@ -27,6 +27,7 @@ export function AccessibilityBridge({ children }: Readonly<{ children: ReactNode
       confirm: t.common.actions.confirm,
       cancel: t.common.actions.cancel,
       save: t.common.actions.save,
+      remove: t.common.actions.remove,
       presence: t.common.a11y.presence,
       auditTimeline: t.common.auditTimeline,
     }),

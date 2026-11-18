@@ -535,7 +535,7 @@ export const weldconnect = {
         description: 'Activeren vanuit gekoppelde apps (Slack, Google Sheets, …)',
       },
       workflow_complete: {
-        name: 'Workflow voltooid',
+        name: 'Na een andere workflow',
         description: 'Activeren wanneer een andere workflow eindigt',
       },
       api: {
@@ -625,6 +625,7 @@ export const weldconnect = {
       retried: 'Opnieuw proberen gestart',
       retryFailed: 'Opnieuw starten van uitvoering mislukt',
       workflowInactive: 'Activeer eerst de workflow en probeer deze uitvoering dan opnieuw.',
+      workflowDeleted: 'De workflow van deze uitvoering is verwijderd, dus deze kan niet opnieuw worden uitgevoerd.',
       cancelled: 'Uitvoering geannuleerd',
       cancelFailed: 'Annuleren van uitvoering mislukt',
     },
@@ -754,6 +755,7 @@ export const weldconnect = {
       retried: 'Opnieuw proberen gestart',
       retryFailed: 'Opnieuw starten van uitvoering mislukt',
       workflowInactive: 'Activeer eerst de workflow en probeer deze uitvoering dan opnieuw.',
+      workflowDeleted: 'De workflow van deze uitvoering is verwijderd, dus deze kan niet opnieuw worden uitgevoerd.',
     },
   },
 
@@ -1164,8 +1166,10 @@ export const weldconnect = {
       currentlyRunning: '{count} momenteel actief',
       successRate: 'Slagingspercentage',
       successfulExecutions: '{count} geslaagde uitvoeringen',
+      successfulExecutionsOne: '{count} geslaagde uitvoering',
       failedExecutions: 'Mislukte uitvoeringen',
       unacknowledgedErrors: '{count} niet-bevestigde fouten',
+      unacknowledgedErrorsOne: '{count} niet-bevestigde fout',
       avgDuration: 'Gemiddelde duur',
       minMaxDuration: 'Min {min} · Max {max}',
       totalErrors: 'Totaal fouten',
@@ -1288,7 +1292,7 @@ export const weldconnect = {
   // Versiegeschiedenis-dialoog (knop "Geschiedenis" in workflowinstellingen)
   versionHistory: {
     title: 'Versiegeschiedenis',
-    description: 'Elke versie die WeldConnect heeft opgeslagen toen deze workflow werd geactiveerd, of werd gewijzigd terwijl deze actief was.',
+    description: 'Elke versie die is opgeslagen toen deze workflow werd geactiveerd, of werd gewijzigd terwijl deze actief was.',
     close: 'Sluiten',
     loadFailed: 'Kan de versiegeschiedenis niet laden',
     retry: 'Opnieuw proberen',
@@ -2966,7 +2970,7 @@ export const weldconnect = {
     integrationEventDesc: 'Starten wanneer een verbonden app een gebeurtenis stuurt',
     schedule: 'Schema',
     scheduleDesc: 'Starten op een terugkerend schema',
-    workflowComplete: 'Workflow voltooid',
+    workflowComplete: 'Na een andere workflow',
     workflowCompleteDesc: 'Starten wanneer een andere workflow is voltooid',
     webhook: 'Webhook',
     webhookDesc: 'Starten wanneer een HTTP-verzoek wordt ontvangen',
@@ -3040,7 +3044,9 @@ export const weldconnect = {
     notConnected: 'Niet verbonden',
     error: 'Fout',
     actionCount: '{count} acties',
+    actionCountOne: '{count} actie',
     triggerCount: '{count} triggers',
+    triggerCountOne: '{count} trigger',
     disconnectConfirm: {
       title: 'Integratie verbreken',
       description: 'Weet u zeker dat u deze integratie wilt verbreken? Workflows die er gebruik van maken, werken mogelijk niet meer.',

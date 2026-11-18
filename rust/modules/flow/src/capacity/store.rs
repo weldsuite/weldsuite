@@ -162,12 +162,12 @@ pub(crate) async fn load_capacity(
     let task_rows: Vec<TaskRow> = sqlx::query_as(
         "select t.project_id, t.assignee_id, t.assignee_ids,
                     to_char(t.start_date, 'YYYY-MM-DD'), to_char(t.due_date, 'YYYY-MM-DD'),
-                    t.estimated_hours::text
+                    (coalesce(t.estimated_hours, round(t.duration / 60.0, 2)))::text
              from tasks t
              inner join projects p on p.id = t.project_id
              where t.deleted_at is null and p.deleted_at is null and t.project_id is not null
                and t.status not in ('done', 'cancelled')
-               and t.estimated_hours > 0
+               and coalesce(t.estimated_hours, round(t.duration / 60.0, 2)) > 0
                and (t.assignee_id is not null
                     or (case when jsonb_typeof(t.assignee_ids) = 'array'
                              then jsonb_array_length(t.assignee_ids) else 0 end) > 0)

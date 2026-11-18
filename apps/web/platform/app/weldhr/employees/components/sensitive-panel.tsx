@@ -1,6 +1,7 @@
 /** Personal data card: encrypted, audited, revealed on demand, edited inline. */
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useId, useState, type ReactNode } from 'react';
+import { toast } from 'sonner';
 import { Eye, EyeOff, Loader2, ShieldAlert } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card } from '@weldsuite/ui/components/card';
@@ -17,7 +18,7 @@ import {
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrEmployeeSensitive } from '@weldsuite/app-api-client/domains/weldhr';
 import { useHrEmployeeSensitive, useUpdateHrEmployeeSensitive } from '@/hooks/queries/use-weldhr-queries';
-import { errorMessage, formatDate } from '../../components/shared';
+import { errorMessage, formatDate, formatKpiValue, formatMoney, todayIso } from '../../components/shared';
 import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 
 export function SensitivePanel({ employeeId }: Readonly<{ employeeId: string }>) {
@@ -94,8 +95,12 @@ function SensitiveView({ data, onEdit }: Readonly<{ data: HrEmployeeSensitive | 
   const t = useTranslations();
   let salary: string | null = null;
   if (data?.salaryAmount !== null && data?.salaryAmount !== undefined) {
-    const salaryPeriod = data.salaryPeriod ? t(`weldhr.employees.detail.personalTab.salaryPeriod.${data.salaryPeriod}`) : '';
-    salary = `${data.salaryAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${data.salaryCurrency ?? ''} / ${salaryPeriod}`;
+    // "€ 4.000,00 / month"; without a currency the bare amount, without a period no " /" (TASK-1471).
+    const amount = data.salaryCurrency
+      ? formatMoney(data.salaryAmount, data.salaryCurrency)
+      : formatKpiValue(data.salaryAmount, 'number');
+    const periodKey = `weldhr.employees.detail.personalTab.salaryPeriod.${data.salaryPeriod}`;
+    salary = data.salaryPeriod ? `${amount} / ${t(periodKey)}` : amount;
   }
   return (
     <div className="space-y-4">
@@ -148,6 +153,11 @@ function SensitiveForm({
     notes: data?.notes ?? '',
   });
   const [failure, setFailure] = useState<string | null>(null);
+  // Labels point at their inputs (TASK-1471): one id per field.
+  const idBase = useId();
+  const fieldId = (name: string) => `${idBase}-${name}`;
+  const today = todayIso();
+  const birthInFuture = Boolean(form.dateOfBirth && form.dateOfBirth > today);
 
   // Reset local form whenever the server data resolves for the first time.
   useEffect(() => {
@@ -161,6 +171,7 @@ function SensitiveForm({
 
   async function submit() {
     setFailure(null);
+    if (birthInFuture) return;
     try {
       await updateSensitive.mutateAsync({
         id: employeeId,
@@ -179,6 +190,7 @@ function SensitiveForm({
         salaryPeriod: form.salaryPeriod || null,
         notes: form.notes?.trim() || null,
       });
+      toast.success(t('weldhr.employees.detail.personalTab.savedToast'));
       onDone();
     } catch (err) {
       setFailure(errorMessage(err, t('weldhr.employees.detail.personalTab.saveFailed')));
@@ -190,35 +202,49 @@ function SensitiveForm({
       <ErrorBanner error={failure} onDismiss={() => setFailure(null)} />
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <div className="space-y-1.5">
-          <Label>{t('weldhr.employees.detail.personalTab.fields.dateOfBirth')}</Label>
-          <Input type="date" value={form.dateOfBirth ?? ''} onChange={(e) => set('dateOfBirth', e.target.value)} />
+          <Label htmlFor={fieldId('dateOfBirth')}>{t('weldhr.employees.detail.personalTab.fields.dateOfBirth')}</Label>
+          <Input
+            id={fieldId('dateOfBirth')}
+            type="date"
+            max={today}
+            value={form.dateOfBirth ?? ''}
+            onChange={(e) => set('dateOfBirth', e.target.value)}
+            aria-invalid={birthInFuture || undefined}
+            aria-describedby={birthInFuture ? fieldId('dateOfBirth-error') : undefined}
+          />
+          {birthInFuture && (
+            <p id={fieldId('dateOfBirth-error')} className="text-xs text-destructive">
+              {t('weldhr.employees.validation.birthInFuture')}
+            </p>
+          )}
         </div>
         <div className="space-y-1.5">
-          <Label>{t('weldhr.employees.detail.personalTab.fields.nationalId')}</Label>
-          <Input value={form.nationalId ?? ''} onChange={(e) => set('nationalId', e.target.value)} />
+          <Label htmlFor={fieldId('nationalId')}>{t('weldhr.employees.detail.personalTab.fields.nationalId')}</Label>
+          <Input id={fieldId('nationalId')} value={form.nationalId ?? ''} onChange={(e) => set('nationalId', e.target.value)} />
         </div>
         <div className="space-y-1.5">
-          <Label>{t('weldhr.employees.detail.personalTab.fields.taxId')}</Label>
-          <Input value={form.taxId ?? ''} onChange={(e) => set('taxId', e.target.value)} />
+          <Label htmlFor={fieldId('taxId')}>{t('weldhr.employees.detail.personalTab.fields.taxId')}</Label>
+          <Input id={fieldId('taxId')} value={form.taxId ?? ''} onChange={(e) => set('taxId', e.target.value)} />
         </div>
         <div className="space-y-1.5">
-          <Label>{t('weldhr.employees.detail.personalTab.fields.personalEmail')}</Label>
-          <Input type="email" value={form.personalEmail ?? ''} onChange={(e) => set('personalEmail', e.target.value)} />
+          <Label htmlFor={fieldId('personalEmail')}>{t('weldhr.employees.detail.personalTab.fields.personalEmail')}</Label>
+          <Input id={fieldId('personalEmail')} type="email" value={form.personalEmail ?? ''} onChange={(e) => set('personalEmail', e.target.value)} />
         </div>
         <div className="space-y-1.5">
-          <Label>{t('weldhr.employees.detail.personalTab.fields.personalPhone')}</Label>
-          <Input value={form.personalPhone ?? ''} onChange={(e) => set('personalPhone', e.target.value)} />
+          <Label htmlFor={fieldId('personalPhone')}>{t('weldhr.employees.detail.personalTab.fields.personalPhone')}</Label>
+          <Input id={fieldId('personalPhone')} value={form.personalPhone ?? ''} onChange={(e) => set('personalPhone', e.target.value)} />
         </div>
         <div className="space-y-1.5">
-          <Label>{t('weldhr.employees.detail.personalTab.fields.bankAccount')}</Label>
-          <Input value={form.bankAccount ?? ''} onChange={(e) => set('bankAccount', e.target.value)} />
+          <Label htmlFor={fieldId('bankAccount')}>{t('weldhr.employees.detail.personalTab.fields.bankAccount')}</Label>
+          <Input id={fieldId('bankAccount')} value={form.bankAccount ?? ''} onChange={(e) => set('bankAccount', e.target.value)} />
         </div>
       </div>
 
       <div className="grid grid-cols-3 gap-3">
         <div className="space-y-1.5">
-          <Label>{t('weldhr.employees.detail.personalTab.fields.salaryAmount')}</Label>
+          <Label htmlFor={fieldId('salaryAmount')}>{t('weldhr.employees.detail.personalTab.fields.salaryAmount')}</Label>
           <Input
+            id={fieldId('salaryAmount')}
             type="number"
             min={0}
             value={form.salaryAmount ?? ''}
@@ -226,13 +252,13 @@ function SensitiveForm({
           />
         </div>
         <div className="space-y-1.5">
-          <Label>{t('weldhr.employees.detail.personalTab.fields.salaryCurrency')}</Label>
-          <Input maxLength={3} value={form.salaryCurrency ?? ''} onChange={(e) => set('salaryCurrency', e.target.value.toUpperCase())} />
+          <Label htmlFor={fieldId('salaryCurrency')}>{t('weldhr.employees.detail.personalTab.fields.salaryCurrency')}</Label>
+          <Input id={fieldId('salaryCurrency')} maxLength={3} value={form.salaryCurrency ?? ''} onChange={(e) => set('salaryCurrency', e.target.value.toUpperCase())} />
         </div>
         <div className="space-y-1.5">
-          <Label>{t('weldhr.employees.detail.personalTab.fields.salaryPeriod')}</Label>
+          <Label htmlFor={fieldId('salaryPeriod')}>{t('weldhr.employees.detail.personalTab.fields.salaryPeriod')}</Label>
           <Select value={form.salaryPeriod ?? '__none'} onValueChange={(v) => set('salaryPeriod', v === '__none' ? undefined : (v as 'hour' | 'month' | 'year'))}>
-            <SelectTrigger className="w-full">
+            <SelectTrigger id={fieldId('salaryPeriod')} className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -247,33 +273,33 @@ function SensitiveForm({
 
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
-          <Label>{t('weldhr.employees.detail.personalTab.fields.emergencyContactName')}</Label>
-          <Input value={form.emergencyContactName ?? ''} onChange={(e) => set('emergencyContactName', e.target.value)} />
+          <Label htmlFor={fieldId('emergencyContactName')}>{t('weldhr.employees.detail.personalTab.fields.emergencyContactName')}</Label>
+          <Input id={fieldId('emergencyContactName')} value={form.emergencyContactName ?? ''} onChange={(e) => set('emergencyContactName', e.target.value)} />
         </div>
         <div className="space-y-1.5">
-          <Label>{t('weldhr.employees.detail.personalTab.fields.emergencyContactPhone')}</Label>
-          <Input value={form.emergencyContactPhone ?? ''} onChange={(e) => set('emergencyContactPhone', e.target.value)} />
+          <Label htmlFor={fieldId('emergencyContactPhone')}>{t('weldhr.employees.detail.personalTab.fields.emergencyContactPhone')}</Label>
+          <Input id={fieldId('emergencyContactPhone')} value={form.emergencyContactPhone ?? ''} onChange={(e) => set('emergencyContactPhone', e.target.value)} />
         </div>
       </div>
       <div className="space-y-1.5">
-        <Label>{t('weldhr.employees.detail.personalTab.fields.emergencyContactRelation')}</Label>
-        <Input value={form.emergencyContactRelation ?? ''} onChange={(e) => set('emergencyContactRelation', e.target.value)} />
+        <Label htmlFor={fieldId('emergencyContactRelation')}>{t('weldhr.employees.detail.personalTab.fields.emergencyContactRelation')}</Label>
+        <Input id={fieldId('emergencyContactRelation')} value={form.emergencyContactRelation ?? ''} onChange={(e) => set('emergencyContactRelation', e.target.value)} />
       </div>
 
       <div className="space-y-1.5">
-        <Label>{t('weldhr.employees.detail.personalTab.fields.address')}</Label>
-        <Textarea rows={2} value={form.address ?? ''} onChange={(e) => set('address', e.target.value)} />
+        <Label htmlFor={fieldId('address')}>{t('weldhr.employees.detail.personalTab.fields.address')}</Label>
+        <Textarea id={fieldId('address')} rows={2} value={form.address ?? ''} onChange={(e) => set('address', e.target.value)} />
       </div>
       <div className="space-y-1.5">
-        <Label>{t('weldhr.common.notes')}</Label>
-        <Textarea rows={2} value={form.notes ?? ''} onChange={(e) => set('notes', e.target.value)} />
+        <Label htmlFor={fieldId('notes')}>{t('weldhr.common.notes')}</Label>
+        <Textarea id={fieldId('notes')} rows={2} value={form.notes ?? ''} onChange={(e) => set('notes', e.target.value)} />
       </div>
 
       <div className="flex justify-end gap-2">
         <Button type="button" variant="outline" size="sm" onClick={onDone} disabled={updateSensitive.isPending}>
           {t('weldhr.common.cancel')}
         </Button>
-        <Button size="sm" onClick={() => void submit()} disabled={updateSensitive.isPending}>
+        <Button size="sm" onClick={() => void submit()} disabled={updateSensitive.isPending || birthInFuture}>
           {updateSensitive.isPending ? t('weldhr.common.saving') : t('weldhr.common.save')}
         </Button>
       </div>

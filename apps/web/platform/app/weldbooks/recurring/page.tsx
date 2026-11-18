@@ -100,7 +100,16 @@ export default function RecurringInvoicesPage() {
       header: trp.colName,
       width: 'min-w-0 flex-1 gap-2 @2xl/list:min-w-[200px]',
       render: (rec) => (
-        <RowTitle chips={<RowChip icon={<Repeat />}>{rec.frequencyLabel}</RowChip>}>{rec.title}</RowTitle>
+        // The frequency chip only where the name has room next to it (not with a record panel open).
+        <RowTitle
+          chips={
+            <span className="hidden @3xl/list:inline-flex">
+              <RowChip icon={<Repeat />}>{rec.frequencyLabel}</RowChip>
+            </span>
+          }
+        >
+          {rec.title}
+        </RowTitle>
       ),
     },
     {

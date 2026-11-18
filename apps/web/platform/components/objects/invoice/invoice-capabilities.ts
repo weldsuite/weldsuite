@@ -15,7 +15,12 @@ function writtenOffBalanceOf(invoice: InvoiceWithTax): number {
 }
 
 /** Which actions the invoice's status, type and the member's permissions allow. */
-export function getInvoiceCapabilities(invoice: InvoiceWithTax, canUpdate: boolean, canCreate: boolean) {
+export function getInvoiceCapabilities(
+  invoice: InvoiceWithTax,
+  canUpdate: boolean,
+  canCreate: boolean,
+  canDeleteInvoices = false,
+) {
   const isDraft = invoice.status === 'draft';
   const isCreditMemo = invoice.type === 'credit_note';
   const writtenOffBalance = writtenOffBalanceOf(invoice);
@@ -36,6 +41,8 @@ export function getInvoiceCapabilities(invoice: InvoiceWithTax, canUpdate: boole
     canApplyCredit:
       canUpdate && isCreditMemo && !isDraft && Boolean(invoice.creditNoteForInvoiceId) && isPositive(invoice.balanceDue),
     canCreateCreditMemo: canCreate && !isDraft && !isCreditMemo && invoice.status !== 'cancelled',
+    // Only a draft is deleted; a finalized invoice is corrected with a credit note.
+    canDelete: canDeleteInvoices && isDraft,
   };
 }
 

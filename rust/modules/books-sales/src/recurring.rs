@@ -410,6 +410,30 @@ fn js_date(text: &str) -> Result<String, Refusal> {
     js::js_date(text).ok_or_else(|| Refusal::Internal("Invalid time value".to_owned()))
 }
 
+/// `dayOf(value)`: the calendar day (UTC) of a date, `YYYY-MM-DD`, or `None`
+/// for none or an invalid one.
+fn day_of(value: Option<&str>) -> Option<String> {
+    let iso = js::js_date(value.filter(|v| !v.is_empty())?)?;
+    iso.get(..10).map(str::to_owned)
+}
+
+/// `recurringDatesError(nextIssueDate, endDate)`: an end date before the next
+/// issue date would end the schedule before its first invoice.
+fn recurring_dates_error(next_issue_date: Option<&str>, end_date: Option<&str>) -> Option<Refusal> {
+    let (Some(next), Some(end)) = (day_of(next_issue_date), day_of(end_date)) else {
+        return None;
+    };
+    (end < next)
+        .then(|| Refusal::bad_request("The end date can not be before the next issue date."))
+}
+
+/// A body's text field, when it is a non-empty string (`data.x || fallback`).
+fn filled<'a>(data: &'a Map<String, Value>, key: &str) -> Option<&'a str> {
+    data.get(key)
+        .and_then(Value::as_str)
+        .filter(|v| !v.is_empty())
+}
+
 async fn create(
     caller: Caller,
     State(state): State<BooksState>,
@@ -427,6 +451,11 @@ async fn create(
             let Some(entity_id) = resolve_entity_id(&caller).await? else {
                 return Err(Refusal::bad_request("No accounting entity resolved"));
             };
+            if let Some(refusal) =
+                recurring_dates_error(filled(&data, "nextIssueDate"), filled(&data, "endDate"))
+            {
+                return Err(refusal);
+            }
             let at = now();
             let id = generate_id("ri");
             let mut row = Map::new();
@@ -487,6 +516,14 @@ async fn update(
             let Some(rec) = load(db, &id).await? else {
                 return Err(Refusal::not_found("Recurring invoice", &id));
             };
+            // The dates after the change: a new end date or next issue date
+            // is checked against the other.
+            if let Some(refusal) = recurring_dates_error(
+                filled(&data, "nextIssueDate").or_else(|| text(&rec, "nextIssueDate")),
+                filled(&data, "endDate").or_else(|| text(&rec, "endDate")),
+            ) {
+                return Err(refusal);
+            }
             let mut update = data.clone();
             update.insert("updatedAt".into(), json!(now()));
             if let Some(next) = data
@@ -780,6 +817,28 @@ async fn generate_on(
     let at_ms = js::millis_of(&at).unwrap_or(0);
     let entity_id = text(rec, "entityId").unwrap_or_default().to_owned();
     let current_next = text(rec, "nextIssueDate").unwrap_or_default().to_owned();
+
+    // A next issue date past the end date leaves no period to invoice,
+    // "Generate now" included: the schedule is completed (as it is after its
+    // last period) and nothing is made.
+    if let (Some(end_day), Some(next_day)) =
+        (day_of(text(rec, "endDate")), day_of(Some(&current_next)))
+        && next_day > end_day
+    {
+        sqlx::query(
+            "update recurring_invoices set status = 'completed', updated_at = $1::timestamp \
+             where id = $2 and status = 'active'",
+        )
+        .bind(&at)
+        .bind(text(rec, "id").unwrap_or_default())
+        .execute(db)
+        .await
+        .map_err(SalesError::from)?;
+        return Err(
+            SalesError::posting(format!("This recurring invoice ended on {end_day}.")).into(),
+        );
+    }
+
     let current_ms = js::millis_of(&current_next).unwrap_or(0);
     // A period is due once its date is today or past: it is consumed. "Generate
     // now" on a schedule whose next date is still ahead makes an extra invoice
@@ -1165,6 +1224,18 @@ mod tests {
         assert_eq!(
             next_schedule_date(ms(2026, 8, 31), "biannually"),
             ms(2027, 2, 28)
+        );
+    }
+
+    #[test]
+    fn an_end_date_before_the_next_issue_date_is_refused() {
+        assert!(recurring_dates_error(Some("2026-12-01"), Some("2026-11-01")).is_some());
+        assert!(recurring_dates_error(Some("2026-12-01"), Some("2026-12-01")).is_none());
+        assert!(recurring_dates_error(Some("2026-12-01T00:00:00.000Z"), None).is_none());
+        assert!(recurring_dates_error(Some("2026-12-01"), Some("")).is_none());
+        assert_eq!(
+            day_of(Some("2026-11-01T00:00:00.000Z")).as_deref(),
+            Some("2026-11-01")
         );
     }
 

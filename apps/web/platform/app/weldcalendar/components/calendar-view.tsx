@@ -2,7 +2,9 @@ import React, { useState, useCallback, useMemo, useEffect, useLayoutEffect, useR
 import { useCreateIntent } from '@/hooks/use-create-intent';
 import { createPortal } from 'react-dom';
 import { useNavigate } from '@tanstack/react-router';
+import { useSearchParams } from '@/lib/router';
 import { getTranslations } from '@/lib/i18n';
+import { parseEventLink } from '../lib/event-link';
 import {
   format,
   startOfMonth,
@@ -971,6 +973,30 @@ export function CalendarView() {
     handleSelectEvent(event);
   }, [handleSelectEvent]);
 
+  // A link to one event (`?date=…&eventId=…`, as the top-bar calendar panel
+  // writes it) shows that day and opens the event once its range has loaded.
+  // The link is then taken off the URL, so closing the panel doesn't reopen it
+  // and following the same link again does.
+  const searchParams = useSearchParams();
+  const linkedDateParam = searchParams.get('date');
+  const linkedEventParam = searchParams.get('eventId');
+  const pendingLinkedEventRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!linkedDateParam && !linkedEventParam) return;
+    const link = parseEventLink(linkedDateParam, linkedEventParam);
+    if (link.date) setCurrentDate(link.date);
+    pendingLinkedEventRef.current = link.eventId;
+    void navigate({ to: '/weldcalendar', search: {}, replace: true });
+  }, [linkedDateParam, linkedEventParam, navigate]);
+  useEffect(() => {
+    const eventId = pendingLinkedEventRef.current;
+    if (!eventId) return;
+    const event = events.find((e) => e.id === eventId);
+    if (!event) return;
+    pendingLinkedEventRef.current = null;
+    handleSelectEvent(event);
+  }, [events, handleSelectEvent]);
+
   // Escape key to close cards. A popover / dropdown / dialog that is open on
   // top of a card consumes its own Escape, and an inline editor in the panel
   // only cancels its edit: neither may also close the card underneath.
@@ -1023,7 +1049,7 @@ export function CalendarView() {
   return (
     <div className="flex-1 min-h-0 flex flex-col [--cal-time-label-width:60px] md:[--cal-time-label-width:72px]">
       {/* Toolbar */}
-      <div className="flex items-center justify-between max-md:gap-2 border-b px-4 py-2.5 bg-background shrink-0 z-10">
+      <div className="@container flex items-center justify-between max-md:gap-2 border-b px-4 py-2.5 bg-background shrink-0 z-10">
         <div className="flex items-center gap-1 md:gap-2 min-w-0">
           <FilterPills
             filters={activeFilters}
@@ -1039,8 +1065,8 @@ export function CalendarView() {
           <Button variant="ghost" size="icon" className="hidden md:inline-flex h-8 w-8 shrink-0" onClick={goNext} aria-label={t.calendarView.nextPeriod}>
             <ChevronRight className="h-4 w-4" />
           </Button>
-          {/* One line, even with the event panel open: shrink + truncate rather than wrap. */}
-          <h2 className="hidden md:block min-w-0 truncate whitespace-nowrap text-[18px] font-semibold ml-1 -translate-y-[1px]">{headerLabel}</h2>
+          {/* One line and never clipped: in a narrow toolbar (the event panel open) the New event button drops its text instead. */}
+          <h2 className="hidden md:block shrink-0 whitespace-nowrap text-[18px] font-semibold ml-1 -translate-y-[1px]">{headerLabel}</h2>
         </div>
 
         <div className="flex items-center gap-1 md:gap-2 shrink-0">
@@ -1075,9 +1101,11 @@ export function CalendarView() {
             data-new-event-button
             className="shadow-none max-md:h-8 max-md:px-2.5"
             onClick={() => handleCreateEvent(undefined, undefined, 'event')}
+            aria-label={t.calendarView.newEvent}
+            title={t.calendarView.newEvent}
           >
-            <Plus className="h-3.5 w-3.5 mr-1" />
-            {t.calendarView.newEvent}
+            <Plus className="h-3.5 w-3.5 mr-1 @max-[720px]:mr-0" />
+            <span className="@max-[720px]:hidden">{t.calendarView.newEvent}</span>
           </Button>
         </div>
       </div>
@@ -1668,13 +1696,17 @@ function EventTimeRow({
     onSubmit();
   };
   const summary = (
-    <span className="flex items-center gap-1 text-sm h-7">
+    <span className="flex flex-wrap items-center gap-x-1 text-sm min-h-7">
       <span>{format(new Date(`${startDate}T00:00`), 'EEEE, MMM d')}</span>
       {!allDay && (
         <>
           <span className="text-muted-foreground">·</span>
           <span>{formatClock(new Date(`${startDate}T${startTime || '00:00'}`), timeFormat)}</span>
           <span className="text-muted-foreground">–</span>
+          {/* An end on another day (one before the start rolls to the next day) says so. */}
+          {endDate !== startDate && (
+            <span>{format(new Date(`${endDate}T00:00`), 'EEEE, MMM d')} ·</span>
+          )}
           <span>{formatClock(new Date(`${endDate}T${endTime || '00:00'}`), timeFormat)}</span>
         </>
       )}
@@ -1723,6 +1755,7 @@ function EventTimeRow({
             <div className="flex items-center gap-2">
               <Input
                 type="time"
+                aria-label={t.eventDialog.startLabel}
                 value={startTime}
                 onKeyDown={submitOnEnter}
                 onChange={(e) => onStartTimeChange(e.target.value)}
@@ -1731,6 +1764,7 @@ function EventTimeRow({
               <span className="text-muted-foreground text-xs shrink-0">–</span>
               <Input
                 type="time"
+                aria-label={t.eventDialog.endLabel}
                 value={endTime}
                 onKeyDown={submitOnEnter}
                 onChange={(e) => onEndTimeChange(e.target.value)}
@@ -1740,7 +1774,7 @@ function EventTimeRow({
           )}
           <div className="flex items-center justify-between">
             <span className="text-xs text-muted-foreground">{t.calendarView.allDay}</span>
-            <Switch checked={allDay} onCheckedChange={onAllDayChange} className="h-[18.5px] [&_[data-slot=switch-thumb]]:translate-y-0" />
+            <Switch checked={allDay} onCheckedChange={onAllDayChange} aria-label={t.calendarView.allDay} className="h-[18.5px] [&_[data-slot=switch-thumb]]:translate-y-0" />
           </div>
         </div>
       </div>
@@ -2621,7 +2655,7 @@ function MonthView({
   currentDate: Date;
   events: CalendarEvent[];
   calendarColorMap: Record<string, string>;
-  onSelectEvent: (e: CalendarEvent, mouseEvent: React.MouseEvent) => void;
+  onSelectEvent: (e: CalendarEvent, mouseEvent?: React.MouseEvent) => void;
   onSelectSlot: (start: Date, end: Date, e: React.MouseEvent | MouseEvent, wasDrag?: boolean) => void;
   /** Opens the given day's own view; used by the "+N more" affordance. */
   onShowDay: (day: Date) => void;
@@ -2978,7 +3012,7 @@ function MobileWeekTimelineView(props: Readonly<{
   currentDate: Date;
   events: CalendarEvent[];
   calendarColorMap: Record<string, string>;
-  onSelectEvent: (e: CalendarEvent, mouseEvent: React.MouseEvent) => void;
+  onSelectEvent: (e: CalendarEvent, mouseEvent?: React.MouseEvent) => void;
   onSelectDay: (d: Date) => void;
   onSelectSlot: (start: Date, end: Date, e: React.MouseEvent | MouseEvent, wasDrag?: boolean) => void;
   selectedDate?: Date;
@@ -3257,7 +3291,7 @@ function MobileMonthView({
   currentDate: Date;
   events: CalendarEvent[];
   calendarColorMap: Record<string, string>;
-  onSelectEvent: (e: CalendarEvent, mouseEvent: React.MouseEvent) => void;
+  onSelectEvent: (e: CalendarEvent, mouseEvent?: React.MouseEvent) => void;
   /** Called with the tapped day; the parent opens that day's view. */
   onSelectDay: (d: Date) => void;
 }>) {
@@ -3365,7 +3399,7 @@ function WeekView({
   currentDate: Date;
   events: CalendarEvent[];
   calendarColorMap: Record<string, string>;
-  onSelectEvent: (e: CalendarEvent, mouseEvent: React.MouseEvent) => void;
+  onSelectEvent: (e: CalendarEvent, mouseEvent?: React.MouseEvent) => void;
   onSelectSlot: (start: Date, end: Date, e: React.MouseEvent | MouseEvent, wasDrag?: boolean) => void;
   selectedDate?: Date;
   selectedEndDate?: Date;
@@ -3547,7 +3581,7 @@ function DayView({
   currentDate: Date;
   events: CalendarEvent[];
   calendarColorMap: Record<string, string>;
-  onSelectEvent: (e: CalendarEvent, mouseEvent: React.MouseEvent) => void;
+  onSelectEvent: (e: CalendarEvent, mouseEvent?: React.MouseEvent) => void;
   onSelectSlot: (start: Date, end: Date, e: React.MouseEvent | MouseEvent, wasDrag?: boolean) => void;
   selectedDate?: Date;
   selectedEndDate?: Date;
@@ -3719,7 +3753,8 @@ function TimeSlotEvent({
   /** Column inside a cluster of overlapping events; omit for the full column width. */
   placement?: TimedPlacement;
   color: string;
-  onClick: (e: React.MouseEvent) => void;
+  /** Opens the event: a click (its mouse event) or Enter / Space (none). */
+  onClick: (e?: React.MouseEvent) => void;
   hourHeight?: number;
   onDragStart?: (e: React.MouseEvent) => void;
   onResizeTopStart?: (e: React.MouseEvent) => void;
@@ -3767,7 +3802,16 @@ function TimeSlotEvent({
 
   return (
     <div
-      role="presentation"
+      role="button"
+      // Reachable by keyboard: Enter / Space opens the event.
+      tabIndex={dimmed ? -1 : 0}
+      aria-label={statusLabel ? `${event.title} (${statusLabel})` : event.title}
+      onKeyDown={(e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault();
+        e.stopPropagation();
+        onClick();
+      }}
       title={statusLabel}
       data-status={statusLabel ? statusKind : undefined}
       className={cn(
@@ -4639,9 +4683,10 @@ export function EventDetailPanel({
                   variant="ghost"
                   type="button"
                   onClick={onEdit}
-                  className="h-8 text-sm inline-flex items-center self-start group/field text-left"
+                  className="h-auto min-h-8 min-w-0 whitespace-normal text-sm inline-flex items-center self-start group/field text-left"
                 >
-                  <span className="px-1.5 -mx-1.5 rounded ring-1 ring-transparent group-hover/field:ring-gray-300 dark:group-hover/field:ring-gray-600 h-[22px] inline-flex items-center transition-shadow">
+                  {/* A long range (an event over two days) wraps rather than being clipped. */}
+                  <span className="px-1.5 -mx-1.5 rounded ring-1 ring-transparent group-hover/field:ring-gray-300 dark:group-hover/field:ring-gray-600 min-h-[22px] inline-flex items-center transition-shadow">
                     {formatEventWhen(event, timeFormat)}
                   </span>
                 </Button>
@@ -5548,7 +5593,7 @@ function FourDayView({
   currentDate: Date;
   events: CalendarEvent[];
   calendarColorMap: Record<string, string>;
-  onSelectEvent: (e: CalendarEvent, mouseEvent: React.MouseEvent) => void;
+  onSelectEvent: (e: CalendarEvent, mouseEvent?: React.MouseEvent) => void;
   onSelectSlot: (start: Date, end: Date, e: React.MouseEvent | MouseEvent, wasDrag?: boolean) => void;
   selectedDate?: Date;
   selectedEndDate?: Date;

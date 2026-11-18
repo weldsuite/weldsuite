@@ -281,10 +281,20 @@ async function revisionConflict(ctx: Pick<WorkspaceCtx, 'db'>, formId: string): 
   return new FormsError(409, 'REVISION_CONFLICT', 'Somebody else saved this form. Reload it to continue.', { currentRevision: current.revision });
 }
 
+/** 400 when a save of the dates would close the form before (or as) it opens: it could never take a response. */
+function checkOpenWindow(patch: UpdateFormInput['settings'], settings: FormSettings | undefined): void {
+  if (!patch || !settings || (patch.opensAt === undefined && patch.closesAt === undefined)) return;
+  if (!settings.opensAt || !settings.closesAt) return;
+  if (new Date(settings.closesAt).getTime() <= new Date(settings.opensAt).getTime()) {
+    throw new FormsError(400, 'BAD_REQUEST', 'The closing date must be after the opening date.', { field: 'closesAt' });
+  }
+}
+
 export async function updateForm(ctx: WorkspaceCtx, form: FormRow, input: UpdateFormInput): Promise<FormRow> {
   if (input.folderId) await requireFolder(ctx, input.folderId);
   if (input.themeId) await requireTheme(ctx, input.themeId);
   const settings = input.settings ? formSettingsSchema.parse({ ...settingsOf(form), ...input.settings }) : undefined;
+  checkOpenWindow(input.settings, settings);
 
   const [row] = await ctx.db
     .update(forms)

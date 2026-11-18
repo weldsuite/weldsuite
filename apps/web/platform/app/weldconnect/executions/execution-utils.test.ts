@@ -4,7 +4,9 @@ import {
   formatExecutionDuration,
   getExecutionDuration,
   getStepsProgress,
+  isRunWorkflowDeleted,
   normalizeExecutionStatus,
+  runWorkflowName,
   shortExecutionId,
 } from './execution-utils';
 
@@ -100,5 +102,25 @@ describe('extractExecutionError', () => {
       details: { status: 500 },
     });
     expect(extractExecutionError({ message: 'plain' })).toEqual({ message: 'plain' });
+  });
+});
+
+describe('runWorkflowName / isRunWorkflowDeleted', () => {
+  const run = { workflowId: 'wf_1', workflowName: 'Old name' };
+  const known = (complete: boolean, names: [string, string][] = []) => ({ names: new Map(names), complete });
+
+  it("shows the workflow's current name, so a rename reaches its old runs (TASK-1428)", () => {
+    expect(runWorkflowName(run, known(true, [['wf_1', 'New name']]), 'Unknown')).toBe('New name');
+  });
+
+  it('falls back to the stored name, then the placeholder', () => {
+    expect(runWorkflowName(run, known(false), 'Unknown')).toBe('Old name');
+    expect(runWorkflowName({ workflowId: 'wf_1', workflowName: null }, known(false), 'Unknown')).toBe('Unknown');
+  });
+
+  it('calls a workflow deleted only once every workflow is known', () => {
+    expect(isRunWorkflowDeleted(run, known(true))).toBe(true);
+    expect(isRunWorkflowDeleted(run, known(false))).toBe(false);
+    expect(isRunWorkflowDeleted(run, known(true, [['wf_1', 'New name']]))).toBe(false);
   });
 });

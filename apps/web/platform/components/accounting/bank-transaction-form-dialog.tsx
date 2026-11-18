@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import {
   Dialog,
   DialogContent,
@@ -104,7 +105,12 @@ export function BankTransactionFormDialog({
         reference: reference.trim() || undefined,
         ...(categoryAccountId ? { categoryAccountId } : {}),
       },
-      { onSuccess: () => onOpenChange(false) },
+      {
+        onSuccess: () => {
+          toast.success(t('sweep.weldbooks.bankTransactionForm.created'));
+          onOpenChange(false);
+        },
+      },
     );
   };
 
@@ -154,9 +160,9 @@ export function BankTransactionFormDialog({
               />
             </div>
             <div>
-              <Label>{t('sweep.weldbooks.bankTransactionForm.directionLabel')}</Label>
+              <Label htmlFor="bt-direction">{t('sweep.weldbooks.bankTransactionForm.directionLabel')}</Label>
               <Select value={direction} onValueChange={(v) => setDirection(v as 'in' | 'out')}>
-                <SelectTrigger>
+                <SelectTrigger id="bt-direction">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

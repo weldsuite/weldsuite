@@ -1,6 +1,7 @@
 import { Badge } from '@weldsuite/ui/components/badge';
 import { CornerDownRight } from 'lucide-react';
 import type { ColumnDef } from '@/components/panel-entity-list';
+import { LIST_PRIMARY_COLUMN } from '@/app/weldcommerce/products/config/product-columns';
 import type { CommerceCategory } from '@/hooks/queries/use-commerce-queries';
 import { getTranslations } from '@/lib/i18n';
 
@@ -15,7 +16,7 @@ export function buildCategoryColumns(showHierarchy: boolean): ColumnDef<Commerce
     {
       id: 'name',
       header: t.fields.name,
-      width: 'flex-1',
+      width: LIST_PRIMARY_COLUMN,
       render: (c) => {
         const depth = showHierarchy ? c.depth ?? 0 : 0;
         return (
@@ -37,13 +38,13 @@ export function buildCategoryColumns(showHierarchy: boolean): ColumnDef<Commerce
     {
       id: 'slug',
       header: t.fields.slug,
-      width: 'w-[180px]',
+      width: 'hidden @3xl/list:block w-[180px]',
       render: (c) => <span className="text-muted-foreground truncate block">{c.slug ?? '—'}</span>,
     },
     {
       id: 'type',
       header: t.fields.type,
-      width: 'w-[130px]',
+      width: 'hidden @2xl/list:block w-[130px]',
       render: (c) => (
         <Badge variant="outline">
           {c.type === 'automated' ? t.categoryType.automated : t.categoryType.manual}
@@ -53,13 +54,13 @@ export function buildCategoryColumns(showHierarchy: boolean): ColumnDef<Commerce
     {
       id: 'position',
       header: t.fields.position,
-      width: 'w-[100px]',
+      width: 'hidden @4xl/list:block w-[100px]',
       render: (c) => <span className="text-muted-foreground">{c.position ?? 0}</span>,
     },
     {
       id: 'status',
       header: t.fields.status,
-      width: 'w-[120px]',
+      width: 'hidden @lg/list:block w-[120px]',
       render: (c) => (
         <Badge variant={c.isActive === false ? 'secondary' : 'default'}>
           {c.isActive === false ? t.status.inactive : t.status.active}
