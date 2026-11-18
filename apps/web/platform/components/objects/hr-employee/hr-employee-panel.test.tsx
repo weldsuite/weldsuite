@@ -4,9 +4,13 @@ import userEvent from '@testing-library/user-event';
 import type { HrEmployeeDetail } from '@weldsuite/app-api-client/domains/weldhr';
 
 const updateAsync = vi.fn();
+const deleteAsync = vi.fn();
+const refetch = vi.fn();
 const toastError = vi.fn();
 const permissions = new Set<string>();
 let employee: HrEmployeeDetail;
+/** How the employee query answers: loaded, still loading, or failed. */
+let queryState: 'loaded' | 'loading' | 'failed' = 'loaded';
 
 vi.mock('@/components/object-panel', async () => ({
   ...(await import('@/components/objects/_shared/object-panel-test-mock')),
@@ -18,9 +22,15 @@ vi.mock('@weldsuite/permissions/react', () => ({
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: (message: string) => toastError(message) } }));
 vi.mock('@/contexts/compose-context', () => ({ useComposeSafe: () => null }));
 vi.mock('@/hooks/queries/use-weldhr-queries', () => ({
-  useHrEmployee: () => ({ data: employee, isLoading: false, isError: false, refetch: vi.fn() }),
+  useHrEmployee: () => ({
+    data: queryState === 'loaded' ? employee : undefined,
+    isLoading: queryState === 'loading',
+    isError: queryState === 'failed',
+    error: queryState === 'failed' ? new Error('Server unavailable') : null,
+    refetch,
+  }),
   useUpdateHrEmployee: () => ({ mutateAsync: updateAsync, isPending: false }),
-  useDeleteHrEmployee: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useDeleteHrEmployee: () => ({ mutateAsync: deleteAsync, isPending: false }),
   useHrDepartments: () => ({ data: [] }),
   useHrEmployees: () => ({ data: { data: [] } }),
 }));
@@ -77,16 +87,19 @@ function makeEmployee(extra: Partial<HrEmployeeDetail> = {}): HrEmployeeDetail {
   } as HrEmployeeDetail;
 }
 
-function renderPanel() {
+function renderPanel(onClose = vi.fn()) {
   return renderWithProviders(
-    <HrEmployeePanel id="hremp_ann" isOpen onClose={vi.fn()} mode="fullscreen" onModeChange={vi.fn()} />,
+    <HrEmployeePanel id="hremp_ann" isOpen onClose={onClose} mode="fullscreen" onModeChange={vi.fn()} />,
   );
 }
 
 describe('HrEmployeePanel', () => {
   beforeEach(() => {
     updateAsync.mockReset().mockResolvedValue({});
+    deleteAsync.mockReset().mockResolvedValue({});
+    refetch.mockReset();
     toastError.mockReset();
+    queryState = 'loaded';
     panelOpen.mockReset();
     permissions.clear();
     employee = makeEmployee();
@@ -166,5 +179,89 @@ describe('HrEmployeePanel', () => {
 
     await user.click(screen.getByRole('button', { name: 'Bob Baker' }));
     expect(panelOpen).toHaveBeenCalledWith({ type: 'hr_employee', id: 'hremp_bob', stack: true });
+  });
+
+  it('shows placeholders while the employee loads, and a retry when it fails', async () => {
+    queryState = 'loading';
+    const { unmount } = renderPanel();
+    expect(screen.queryByText('Ann Archer')).not.toBeInTheDocument();
+    unmount();
+
+    queryState = 'failed';
+    const user = userEvent.setup();
+    renderPanel();
+    expect(screen.getByText('Server unavailable')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(refetch).toHaveBeenCalled();
+  });
+
+  it('checks an email address and a phone number before saving them', async () => {
+    permissions.add('employees:update');
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(screen.getByRole('button', { name: 'Email' }));
+    await user.clear(screen.getByDisplayValue('ann@example.com'));
+    await user.type(screen.getByRole('textbox'), 'not-an-email{Enter}');
+    expect(toastError).toHaveBeenCalledWith('Enter a valid email address');
+
+    await user.click(screen.getByRole('button', { name: 'Phone' }));
+    await user.type(screen.getByRole('textbox'), 'call me{Enter}');
+    expect(toastError).toHaveBeenCalledWith('Enter a phone number with digits only, such as +31 20 123 4567');
+    expect(updateAsync).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Goes by' }));
+    await user.type(screen.getByRole('textbox'), 'Annie{Enter}');
+    expect(updateAsync).toHaveBeenCalledWith({ id: 'hremp_ann', preferredName: 'Annie' });
+  });
+
+  it('says so when a change could not be saved', async () => {
+    permissions.add('employees:update');
+    updateAsync.mockRejectedValue(new Error('Conflict'));
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(screen.getByRole('button', { name: 'Location' }));
+    await user.type(screen.getByRole('textbox'), 'Amsterdam{Enter}');
+    await vi.waitFor(() => expect(toastError).toHaveBeenCalled());
+  });
+
+  it('deletes the employee after asking, and closes the panel', async () => {
+    permissions.add('employees:delete');
+    const onClose = vi.fn();
+    const user = userEvent.setup();
+    renderPanel(onClose);
+
+    await user.click(screen.getByRole('button', { name: 'More actions' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+    expect(screen.getByText('Delete employee')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Delete' }));
+
+    expect(deleteAsync).toHaveBeenCalledWith('hremp_ann');
+    await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
+
+  it('writes an email and calls from the header', async () => {
+    employee = makeEmployee({ phone: '+31201234567' });
+    const user = userEvent.setup();
+    const hrefs: string[] = [];
+    const location = window.location;
+    Object.defineProperty(window, 'location', { configurable: true, value: { set href(value: string) { hrefs.push(value); } } });
+    try {
+      renderPanel();
+      await user.click(screen.getByRole('button', { name: 'Compose email' }));
+      await user.click(screen.getByRole('button', { name: 'Call' }));
+    } finally {
+      Object.defineProperty(window, 'location', { configurable: true, value: location });
+    }
+    expect(hrefs).toEqual(['mailto:ann@example.com', 'tel:+31201234567']);
+  });
+
+  it('keeps the current manager pickable when the candidate list does not hold them', async () => {
+    permissions.add('employees:update');
+    employee = makeEmployee({ managerId: 'hremp_boss', managerName: 'Bea Boss' });
+    renderPanel();
+
+    expect(screen.getByText('Bea Boss')).toBeInTheDocument();
   });
 });

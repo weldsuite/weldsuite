@@ -140,7 +140,8 @@ export function MenuEntry({ item }: { item: MenuItemSpec }) {
   const split = typeof item.label === 'string' ? splitShortcut(item.label) : null;
   return (
     <DropdownMenuItem
-      role={item.checked === undefined ? undefined : 'menuitemradio'}
+      // Spelled out: an undefined role would replace the item's own "menuitem".
+      role={item.checked === undefined ? 'menuitem' : 'menuitemradio'}
       aria-checked={item.checked}
       disabled={item.disabled}
       onSelect={item.onSelect}
