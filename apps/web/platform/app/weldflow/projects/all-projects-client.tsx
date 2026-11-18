@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useCreateIntent } from '@/hooks/use-create-intent';
 import { useI18n } from '@/lib/i18n/provider';
 import { useDateLocale } from '@/lib/i18n/date-locale';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
@@ -205,6 +206,7 @@ export function AllProjectsClient({
     }
   }, [isSortControlled, sortState, onSortChange]);
   const [showAddDialog, setShowAddDialog] = useState(false);
+  useCreateIntent(() => setShowAddDialog(true));
   const [newProjectName, setNewProjectName] = useState("");
   const [newProjectPriority, setNewProjectPriority] = useState("medium");
   const [selectedColor, setSelectedColor] = useState(coloredSquareColors[0].value);

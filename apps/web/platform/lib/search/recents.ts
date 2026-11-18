@@ -3,7 +3,7 @@
  * Keyed per workspace; capped at 10 most-recently-used.
  */
 
-import type { SearchEntityType } from '@weldsuite/core-api-client/schemas/search';
+import type { SearchEntityType } from '@weldsuite/app-api-client/schemas/search';
 
 export interface RecentItem {
   id: string;
