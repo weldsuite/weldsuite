@@ -25,11 +25,11 @@
 //! 5. **The orphan sweep:** files under each table that no metadata names
 //!    and that are older than three days (what a crash between writing and
 //!    committing leaves).
-//! 6. **Replay tiers:** each workspace's project records in the cache name
-//!    the tier its plan writes recording chunks to (`applyReplayTier`, which
-//!    Global's usage settlement runs), so a plan change reaches the
-//!    collector without anyone touching a project. The master database and
-//!    the cache only.
+//!
+//! The collector's replay tiers are not refreshed here: as on Global, the
+//! usage settlement moves a workspace's project records to its plan's tier
+//! (`applyReplayTier`, `weldsuite cron panel-usage` every five minutes), and
+//! every record written or repaired from the registry carries it.
 
 use std::collections::{BTreeMap, HashSet};
 use std::time::Duration;
@@ -42,7 +42,7 @@ use weldsuite_lakehouse::{
     partitions, workspaces_in,
 };
 use weldsuite_panel::{PanelProjectState, ProjectRef};
-use weldsuite_ports::{BoxFuture, DynCache, DynFileStore, FileStore, PortError};
+use weldsuite_ports::{BoxFuture, DynFileStore, FileStore, PortError};
 
 /// Global's lifecycle rules on the replays bucket
 /// (`scripts/weldpanel/setup-resources.mjs`, ADR PANEL-005): the objects
@@ -92,31 +92,6 @@ pub(crate) async fn expire_replays(
         }
     }
     (deleted, errors)
-}
-
-/// Step 6: every workspace with a live project gets its plan's replay tier
-/// in the collector's records. Answers how many workspaces' records moved.
-async fn refresh_replay_tiers(
-    master: &PgPool,
-    cache: &dyn DynCache,
-    errors: &mut Vec<String>,
-) -> u64 {
-    let tiers = match weldsuite_panel::replay_tiers(master).await {
-        Ok(tiers) => tiers,
-        Err(error) => {
-            errors.push(format!("reading the replay tiers: {error}"));
-            return 0;
-        }
-    };
-    let mut moved = 0_u64;
-    for (workspace_id, tier) in tiers {
-        match weldsuite_panel::apply_replay_tier(master, cache, &workspace_id, tier).await {
-            Ok(true) => moved += 1,
-            Ok(false) => {}
-            Err(error) => errors.push(format!("replay tier of {workspace_id}: {error}")),
-        }
-    }
-    moved
 }
 
 use crate::panel_store::PanelStoreConfig;
@@ -247,15 +222,12 @@ pub(crate) struct NightPorts<'a> {
     /// The replays bucket in the panel bucket (`PanelBucketReplays`);
     /// `None`: nothing expires there.
     pub(crate) replays: Option<&'a dyn DynFileStore>,
-    /// The cache the collector reads project records from; `None`: the
-    /// replay tiers are left as they are.
-    pub(crate) cache: Option<&'a dyn DynCache>,
 }
 
 /// One run. Returns its report (what `weldsuite cron` prints).
 #[allow(
     clippy::too_many_lines,
-    reason = "the six steps, in order, each reporting on its own"
+    reason = "the five steps, in order, each reporting on its own"
 )]
 pub(crate) async fn run(
     master: &PgPool,
@@ -402,12 +374,6 @@ pub(crate) async fn run(
         }
     }
 
-    // 6. Replay tiers.
-    let replay_tiers = match ports.cache {
-        Some(cache) => refresh_replay_tiers(master, cache, &mut errors).await,
-        None => 0,
-    };
-
     for error in &errors {
         tracing::error!(error, "panel-maintenance");
     }
@@ -428,7 +394,6 @@ pub(crate) async fn run(
         "expiredSnapshots": expired_snapshots,
         "deletedFiles": deleted_files,
         "orphansDeleted": orphans,
-        "replayTiersMoved": replay_tiers,
         "errors": errors,
     })
 }
@@ -761,105 +726,6 @@ mod tests {
         ];
         kept.sort();
         assert_eq!(bucket.keys(), kept);
-    }
-
-    /// A workspace's project records follow its plan's replay tier: `90d`
-    /// written on Scale, left out on Free; deleted projects and the
-    /// workspaces already in step are left alone.
-    #[tokio::test]
-    async fn the_project_records_follow_the_plan_s_replay_tier() {
-        use weldsuite_ports::{Cache, MemoryCache};
-        let Some(scratch) = crate::panel_test_support::ScratchPanel::new().await else {
-            return;
-        };
-        let master = &scratch.master;
-        for (id, slug) in [("pln_free_r", "free"), ("pln_scale_r", "scale")] {
-            sqlx::query(
-                "insert into plans (id, name, slug) values ($1, $2, $2) on conflict (slug) do nothing",
-            )
-            .bind(id)
-            .bind(slug)
-            .execute(master)
-            .await
-            .expect("a plan");
-        }
-        for (workspace, slug) in [("ws_r_free", "free"), ("ws_r_scale", "scale")] {
-            sqlx::query(
-                "insert into workspaces (id, name, slug, plan_id) \
-                 values ($1, $1, $1, (select id from plans where slug = $2))",
-            )
-            .bind(workspace)
-            .bind(slug)
-            .execute(master)
-            .await
-            .expect("a workspace");
-        }
-        let cache = MemoryCache::new();
-        let token = |n: u8| format!("wpk_{}", format!("{n:x}").repeat(32));
-        for (n, workspace, deleted) in [
-            (1, "ws_r_scale", false),
-            (2, "ws_r_free", false),
-            (3, "ws_r_scale", true),
-        ] {
-            sqlx::query(
-                "insert into panel_project_registry \
-                 (project_id, token, workspace_id, status, settings, deleted_at) \
-                 values ($1, $2, $3, 'active', '{}'::jsonb, case when $4 then now() end)",
-            )
-            .bind(format!("pnp_r_{n}"))
-            .bind(token(n))
-            .bind(workspace)
-            .bind(deleted)
-            .execute(master)
-            .await
-            .expect("a registry row");
-            let record = json!({ "v": 1, "projectId": format!("pnp_r_{n}"), "workspaceId": workspace, "status": "active", "allowedDomains": [], "settings": {} });
-            cache
-                .put(
-                    &format!("panel:project:{}", token(n)),
-                    &record.to_string(),
-                    None,
-                )
-                .await
-                .expect("a record");
-        }
-        let record = |n: u8| {
-            let cache = &cache;
-            let key = format!("panel:project:{}", token(n));
-            async move {
-                let raw = cache.get(&key).await.expect("the cache").expect("a record");
-                serde_json::from_str::<Value>(&raw).expect("json")
-            }
-        };
-
-        let mut errors = Vec::new();
-        assert_eq!(refresh_replay_tiers(master, &cache, &mut errors).await, 2);
-        assert!(errors.is_empty(), "{errors:?}");
-        assert_eq!(record(1).await["replayTier"], "90d");
-        assert!(record(2).await.get("replayTier").is_none());
-        assert!(record(3).await.get("replayTier").is_none());
-        assert_eq!(
-            cache
-                .get("panel:tier:ws_r_scale")
-                .await
-                .expect("the cache")
-                .as_deref(),
-            Some("90d")
-        );
-
-        // An upgrade reaches the Free workspace's records on the next night;
-        // the Scale one is already in step.
-        sqlx::query(
-            "update workspaces set plan_id = (select id from plans where slug = 'scale') \
-             where id = 'ws_r_free'",
-        )
-        .execute(master)
-        .await
-        .expect("an upgrade");
-        assert_eq!(refresh_replay_tiers(master, &cache, &mut errors).await, 1);
-        assert!(errors.is_empty(), "{errors:?}");
-        assert_eq!(record(2).await["replayTier"], "90d");
-        scratch.finish().await;
     }
 
     /// Records what `clearErased` was asked to release.

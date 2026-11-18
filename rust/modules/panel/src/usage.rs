@@ -22,6 +22,7 @@ use weldsuite_panel_domain::query::{PanelSqlQuery, normalize_rows};
 use weldsuite_ports::Cache;
 
 use crate::engine::AnalyticsSql;
+use crate::usage_mail::mail_notice;
 use crate::usage_settlement::{
     FAVORITE_RETENTION_MONTHS, Settlement, SettlementInput, UsageMonth, load_workspace_plan,
     month_of, parse_quota_state, quota_cache_key, quota_for, settle_usage, usage_row,
@@ -165,15 +166,17 @@ pub(crate) async fn usage(State(state): State<PanelState>, caller: Caller) -> Re
         };
         match settle_usage(&settlement, &input).await {
             Ok(Some(settled)) => {
-                if let Some(notice) = &settled.notice {
-                    // The `panel.usage` email has no Rust template yet: the
-                    // marker is claimed, as panel-api claims it without a
-                    // mail binding.
-                    tracing::info!(
-                        workspace = %notice.workspace_id,
-                        kind = notice.kind,
-                        "[panel-api] usage notice due; mail is not sent here"
-                    );
+                // `notify`: the owners of this workspace are mailed where the
+                // server has mail; without it the notice is claimed only, as
+                // panel-api claims it without a mail binding.
+                if let (Some(notice), Some(transport)) = (&settled.notice, &state.mail) {
+                    mail_notice(
+                        transport.as_ref(),
+                        &caller.db,
+                        notice,
+                        caller.env("PLATFORM_URL").as_deref(),
+                    )
+                    .await;
                 }
                 usage = settled.usage;
                 quota = settled.quota;

@@ -1298,6 +1298,16 @@ cron:
       enabled: false
       schedule: "*/5 * * * *"
       activeDeadlineSeconds: 240
+    # WeldPanel's usage settlement (what the PanelUsage Durable Objects' alarm
+    # does on Global): the events and recordings the collector counted in
+    # Valkey into panel_usage_monthly, overage charged where plans are billed
+    # (config.billing), the quota state and the plan's replay tier the
+    # collector reads, and the usage notices to the owners. Reads the master
+    # database and Valkey; does nothing without Valkey.
+    panel-usage:
+      enabled: true
+      schedule: "*/5 * * * *"
+      activeDeadlineSeconds: 240
     # WeldPanel's table upkeep (config.panel): the erasures waiting in
     # panel_erasure_ledger, retention by plan, compaction, snapshot expiry
     # and the orphan-file sweep. Reads the master database only; does

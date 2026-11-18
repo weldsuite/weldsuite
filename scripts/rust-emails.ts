@@ -548,10 +548,46 @@ const SPECS: Spec[] = [
       joinUrl: S('join_url'),
     }),
   },
+  panelUsageSpec(),
   deskReportSpec(),
   ...calendarSpecs(),
   ...panelMonitorSpecs(),
 ];
+
+/**
+ * WeldPanel's usage notice to a workspace's owners, one kind at a time: 80%
+ * of an allowance (no flag), all of it (`full`), recordings stopped
+ * (`replay_blocked`) and events dropped (`events_blocked`). The four figures
+ * go through `Intl.NumberFormat`, which turns a sentinel into `NaN`, so each
+ * sample figure's formatted text becomes its placeholder and Rust groups the
+ * digits the same way (`weldsuite_emails::panel`).
+ */
+function panelUsageSpec(): Spec {
+  // Sample figures no other part of the email contains.
+  const FIGURES = { events_used: 930001, events_allowance: 930002, recordings_used: 930003, recordings_allowance: 930004 };
+  const KINDS = ['full', 'replay_blocked', 'events_blocked'] as const;
+  return {
+    id: 'panel.usage',
+    flags: [...KINDS],
+    fields: ['workspace_name', 'events_used', 'events_allowance', 'recordings_used', 'recordings_allowance', 'resets_date', 'url'],
+    exclude: (f) => f.size > 1,
+    texts: (locale) => {
+      const number = new Intl.NumberFormat(locale);
+      return {
+        [formatDate(SAMPLE_DATE, locale, 'UTC')]: S('resets_date'),
+        ...Object.fromEntries(Object.entries(FIGURES).map(([field, value]) => [number.format(value), S(field)])),
+      };
+    },
+    props: (f) => ({
+      workspaceName: S('workspace_name'),
+      kind: KINDS.find((kind) => f.has(kind)) ?? 'near',
+      events: { used: FIGURES.events_used, allowance: FIGURES.events_allowance },
+      recordings: { used: FIGURES.recordings_used, allowance: FIGURES.recordings_allowance },
+      resetsAt: SAMPLE_DATE,
+      url: S('url'),
+    }),
+  };
+}
 
 /**
  * WeldDesk's scheduled report (`desk.report`): the overview (KPI rows, the
