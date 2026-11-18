@@ -40,6 +40,14 @@ mod infra;
 mod migrate;
 mod monitoring;
 mod mta;
+mod panel_maintenance;
+mod panel_monitor;
+mod panel_project;
+mod panel_saved;
+mod panel_sql;
+mod panel_store;
+#[cfg(test)]
+mod panel_test_support;
 mod public_auth;
 mod reach;
 mod realtime;
@@ -214,6 +222,13 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let sign_in = sign_in_screens(&config, infra.cache.clone(), infra.mail.clone())?;
     let ai = ai::for_app(&config.ai, infra.cache.clone())?;
     let sandboxes = sandbox::build(config.sandbox.as_ref())?;
+    let panel_sql = panel_sql::engine(config.infra.panel.as_ref(), workspaces.master())?;
+    // Conformance builds run the test's `PANEL_PROJECT` per request.
+    #[cfg(not(feature = "conformance"))]
+    let panel_project =
+        panel_project::serve_ports(&config.infra, &workspaces, infra.events.bus().cloned()).await?;
+    #[cfg(feature = "conformance")]
+    let panel_project = panel_project::ServePorts::default();
 
     let draining = Arc::new(AtomicBool::new(false));
     let state = AppState {
@@ -255,6 +270,9 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         realtime: realtime::PublicRealtime::from_config(&config),
         ai,
         sandboxes,
+        panel_sql,
+        panel_project_state: panel_project.state,
+        panel_collector_state: panel_project.collector,
         #[cfg(feature = "conformance")]
         recorders,
         #[cfg(feature = "conformance")]

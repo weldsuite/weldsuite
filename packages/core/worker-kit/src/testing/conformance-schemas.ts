@@ -547,6 +547,9 @@ import { HOST_ROUTES } from './conformance-schemas-host';
 import { INTEGRATION_WEBHOOK_ROUTES } from './conformance-schemas-integrations';
 import { PERSONAL_ROUTES } from './conformance-schemas-personal';
 import { PANEL_ROUTES } from './conformance-schemas-panel';
+import { PANEL_VISITOR_ROUTES } from './conformance-schemas-panel-visitors';
+import { PANEL_ANALYSIS_ROUTES } from './conformance-schemas-panel-analysis';
+import { PANEL_MONITOR_ROUTES } from './conformance-schemas-panel-monitor';
 import { MERGE_ROUTES } from './conformance-schemas-merge';
 import { FORMS_ROUTES } from './conformance-schemas-forms';
 
@@ -1427,6 +1430,9 @@ const ROUTES: RouteSchema[] = [
   ...INTEGRATION_WEBHOOK_ROUTES,
   ...PERSONAL_ROUTES,
   ...PANEL_ROUTES,
+  ...PANEL_VISITOR_ROUTES,
+  ...PANEL_ANALYSIS_ROUTES,
+  ...PANEL_MONITOR_ROUTES,
   // merge: WeldMerge (teams, issues, pull requests, connections, the GitHub event intake)
   ...MERGE_ROUTES,
   // forms: WeldForms (forms, folders, themes, settings, the fill page, the respondent side)

@@ -64,8 +64,9 @@ pub use database::{
 pub use embeddings::{Embeddings, FakeEmbeddings};
 pub use events::{BusMessage, DynEventBus, EventBus, RecordingEventBus};
 pub use files::{
-    ByteRange, DynFileStore, FileStore, FileStores, MemoryFileStore, ObjectInfo, PutOptions,
-    RangedObject, StorageBuckets, Stored, StoredObject, get_stored, is_safe_key, unsafe_key,
+    ByteRange, DynFileStore, FileStore, FileStores, ListedObject, MemoryFileStore, ObjectInfo,
+    PutOptions, RangedObject, StorageBuckets, Stored, StoredObject, get_stored, is_safe_key,
+    unsafe_key,
 };
 pub use flags::{DefaultFlags, DynFlagSource, FlagContext, FlagSource, FlagSourceExt, StaticFlags};
 pub use identity::{

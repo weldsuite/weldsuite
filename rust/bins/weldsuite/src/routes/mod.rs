@@ -640,13 +640,11 @@ fn ads_state(state: &AppState) -> weldsuite_ads::AdsState {
     }
 }
 
-/// WeldPanel (`weldsuite-panel`): panel-api's `/api/panel/projects`.
-fn panel(router: Router<AppState>, state: &AppState) -> Router<AppState> {
-    if !mounts("panel") {
-        return router;
-    }
+/// What WeldPanel's API routes share (`weldsuite-panel`), for the member
+/// routes and the public share routes alike.
+fn panel_state(state: &AppState) -> weldsuite_panel::PanelState {
     let conformance = cfg!(feature = "conformance");
-    let panel = weldsuite_panel::PanelState {
+    weldsuite_panel::PanelState {
         events: state.infra.events.clone(),
         // The collector reads the cache; without Valkey it lives in this
         // process (one replica's worth), as upload tokens do.
@@ -655,11 +653,201 @@ fn panel(router: Router<AppState>, state: &AppState) -> Router<AppState> {
         collector_url: std::env::var("PANEL_COLLECTOR_URL")
             .ok()
             .filter(|url| !url.is_empty()),
-    };
-    router.nest(
-        "/panel/projects",
-        weldsuite_panel::router(panel, &state.permissions),
-    )
+        // Conformance builds run the test's Basin and `PANEL_PROJECT`, per request.
+        sql: state.panel_sql.clone().filter(|_| !conformance),
+        // The tenant tables and the live view (`crate::panel_project`);
+        // conformance builds run the test's `PANEL_PROJECT`, per request.
+        project_state: state.panel_project_state.clone().filter(|_| !conformance),
+        // Global's replays bucket inside the panel bucket; conformance
+        // builds use the test's `PANEL_REPLAYS`, per request.
+        replays: state
+            .infra
+            .panel_files
+            .clone()
+            .filter(|_| !conformance)
+            .map(|bucket| {
+                Arc::new(weldsuite_panel::PanelBucketReplays::new(bucket))
+                    as Arc<dyn weldsuite_ports::DynFileStore>
+            }),
+        // A comment's in-app notification. The conformance tests mock
+        // `createAndDeliverNotification`, so the Worker publishes nothing
+        // there; conformance builds write the notification without the publish.
+        realtime: state.infra.realtime.clone().filter(|_| !conformance),
+        // Public share links open their workspace here; conformance builds
+        // take the test's lookup from the request.
+        tenants: (!conformance).then(|| {
+            Arc::new(crate::cron::WorkspaceTenants(Arc::clone(&state.workspaces)))
+                as Arc<dyn weldsuite_panel::WorkspaceTenants>
+        }),
+        trusted_proxies: state.trusted_proxies,
+        // AI summaries and root-cause narratives; conformance builds take
+        // the request's (the test's mock model, or off).
+        ai: state.ai.clone(),
+        // Overage is charged where plans are billed (`billing`); the
+        // worker's tests charge, so conformance builds do.
+        bill_overage: state.edition.plan_billing || conformance,
+        // The usage notices to a workspace's owners. The worker's tests bind
+        // no mail (`SEND_EMAIL`), so panel-api sends none there, and
+        // conformance builds neither.
+        mail: state.infra.mail.clone().filter(|_| !conformance),
+    }
+}
+
+/// WeldPanel's projects with their custom domains, and the alerts,
+/// subscriptions and exports (`crate::panel_monitor`).
+fn panel_monitor(
+    router: Router<AppState>,
+    state: &AppState,
+    panel: &weldsuite_panel::PanelState,
+) -> Router<AppState> {
+    let monitor = crate::panel_monitor::monitor_state(state, panel.clone());
+    let gate = &state.permissions;
+    router
+        .nest(
+            "/panel/projects",
+            weldsuite_panel::router(panel.clone(), gate)
+                .merge(weldsuite_panel::domains_router(monitor.clone(), gate)),
+        )
+        .nest(
+            "/panel/alerts",
+            weldsuite_panel::alerts_router(monitor.clone(), gate),
+        )
+        .nest(
+            "/panel/subscriptions",
+            weldsuite_panel::subscriptions_router(monitor.clone(), gate),
+        )
+        .nest(
+            "/panel/exports",
+            weldsuite_panel::exports_router(monitor, gate),
+        )
+}
+
+/// WeldPanel (`weldsuite-panel`): panel-api's `/api/panel/projects` (with
+/// their secret keys), `/api/panel/query`, `/api/panel/lexicon` and the saved
+/// objects: reports, dashboards, cohorts, annotations, comments, custom
+/// events, computed properties, path rules, group types, metric trees and
+/// share links; and the visitor routes: people (with erasure), groups,
+/// sessions and recordings (with AI summaries), heatmaps and the live view;
+/// and the analysis routes: root cause and AI themes (`/panel/insights`),
+/// metric tree values and usage; and the monitoring routes: alerts,
+/// subscriptions, exports and custom domains ([`panel_monitor`]).
+fn panel(router: Router<AppState>, state: &AppState) -> Router<AppState> {
+    if !mounts("panel") {
+        return router;
+    }
+    let panel = panel_state(state);
+    let gate = &state.permissions;
+    panel_monitor(router, state, &panel)
+        .nest(
+            "/panel/query",
+            weldsuite_panel::query_router(panel.clone(), gate),
+        )
+        .nest(
+            "/panel/lexicon",
+            weldsuite_panel::lexicon_router(panel.clone(), gate),
+        )
+        .nest(
+            "/panel/reports",
+            weldsuite_panel::reports_router(panel.clone(), gate),
+        )
+        .nest(
+            "/panel/dashboards",
+            weldsuite_panel::dashboards_router(panel.clone(), gate),
+        )
+        .nest(
+            "/panel/cohorts",
+            weldsuite_panel::cohorts_router(panel.clone(), gate),
+        )
+        .nest(
+            "/panel/annotations",
+            weldsuite_panel::annotations_router(panel.clone(), gate),
+        )
+        .nest(
+            "/panel/comments",
+            weldsuite_panel::comments_router(panel.clone(), gate),
+        )
+        .nest(
+            "/panel/custom-events",
+            weldsuite_panel::custom_events_router(panel.clone(), gate),
+        )
+        .nest(
+            "/panel/computed-properties",
+            weldsuite_panel::computed_properties_router(panel.clone(), gate),
+        )
+        .nest(
+            "/panel/path-rules",
+            weldsuite_panel::path_rules_router(panel.clone(), gate),
+        )
+        .nest(
+            "/panel/group-types",
+            weldsuite_panel::group_types_router(panel.clone(), gate),
+        )
+        .nest(
+            "/panel/metric-trees",
+            weldsuite_panel::metric_trees_router(panel.clone(), gate),
+        )
+        .nest(
+            "/panel/share-links",
+            weldsuite_panel::share_links_router(panel.clone(), gate),
+        )
+        // People (with erasure), groups, recordings, heatmaps and live.
+        .nest(
+            "/panel/people",
+            weldsuite_panel::people_router(panel.clone(), gate),
+        )
+        .nest(
+            "/panel/groups",
+            weldsuite_panel::groups_router(panel.clone(), gate),
+        )
+        .nest(
+            "/panel/sessions",
+            weldsuite_panel::sessions_router(panel.clone(), gate),
+        )
+        .nest(
+            "/panel/heatmaps",
+            weldsuite_panel::heatmaps_router(panel.clone(), gate),
+        )
+        .nest(
+            "/panel/live",
+            weldsuite_panel::live_router(panel.clone(), gate),
+        )
+        // Root cause, AI themes, metric tree values and usage.
+        .nest(
+            "/panel/insights",
+            weldsuite_panel::insights_router(panel.clone(), gate),
+        )
+        .nest(
+            "/panel/metric-tree-values",
+            weldsuite_panel::metric_tree_values_router(panel.clone(), gate),
+        )
+        .nest("/panel/usage", weldsuite_panel::usage_router(panel, gate))
+}
+
+/// WeldPanel's read API for other services (`/internal/panel/v1`,
+/// panel-api's `PanelApiInternal` entrypoint): trusted by topology, so never
+/// on the server's listener; its callers run it in process
+/// (`weldsuite_panel::internal_v1_router`). Conformance builds serve it for
+/// the worker's tests, with the test's workspace lookup and bindings; and
+/// the usage settlement `PanelUsage` posts to (`/internal/panel/usage/settle`,
+/// which `weldsuite cron panel-usage` runs in process), only to a call that
+/// carries the test's context, as only the entrypoint serves it: the
+/// worker's public fetch handler answers it as an unknown path.
+#[cfg(feature = "conformance")]
+fn panel_internal_conformance(state: &AppState) -> Router<AppState> {
+    if !mounts("panel") {
+        return Router::new();
+    }
+    Router::new()
+        .nest(
+            "/internal/panel/v1",
+            weldsuite_panel::internal_v1_router(panel_state(state), &state.permissions),
+        )
+        .nest(
+            "/internal/panel/usage",
+            weldsuite_panel::internal_usage_router(panel_state(state)).route_layer(
+                axum::middleware::from_fn(crate::conformance::internal_entrypoint_only),
+            ),
+        )
 }
 
 /// WeldForms (`weldsuite-forms`): forms-api's `/api/forms`, with the
@@ -899,51 +1087,85 @@ fn merge_internal_conformance(state: &AppState) -> Router<AppState> {
 }
 
 /// WeldPanel's public collector (panel-ingest on Global): under
-/// `/public/panel`, and `/s.js`, `/c/{token}` and `/e` at the root of every
-/// host, outside the server's first-party CORS (it answers any origin
-/// itself). Rows go to the events stream on the bus, the day's salt and
-/// counts to the cache. Conformance builds take the test's bindings.
+/// `/public/panel`, and at the root of every host, outside the server's
+/// first-party CORS (it answers any origin itself). Event rows go to the
+/// events stream on the bus, recording chunks to the panel bucket and their
+/// rows to the state stream, the day's salt, counts and rate limits to the
+/// cache. Conformance builds take the test's bindings.
 pub(crate) fn panel_collector(state: &AppState) -> Router {
     if !mounts("panel") {
         return Router::new();
     }
     let conformance = cfg!(feature = "conformance");
     let cache = (!conformance).then(|| upload_token_cache(state));
-    let sdk = std::env::var("PANEL_SDK_FILE")
-        .ok()
-        .filter(|path| !path.is_empty())
-        .unwrap_or_else(|| "/srv/panel/panel.global.js".to_owned());
-    let collector = weldsuite_panel::CollectorState::new(
-        state.infra.events.clone(),
-        cache.clone(),
-        (!conformance).then(|| state.workspaces.master().clone()),
-        cache.clone().map(|cache| {
+    // Conformance builds write to the test's streams and bucket only (per request).
+    let bus = state.infra.events.bus().filter(|_| !conformance);
+    let ports = weldsuite_panel::RequestCollector {
+        salt: cache.clone().map(|cache| {
             Arc::new(weldsuite_panel::CacheSalt::new(cache)) as Arc<dyn weldsuite_panel::SaltSource>
         }),
-        cache.map(|cache| {
+        usage: cache.clone().map(|cache| {
             Arc::new(weldsuite_panel::CacheUsage::new(cache))
                 as Arc<dyn weldsuite_panel::UsageCounter>
         }),
-        // Conformance builds write to the test's stream only (per request).
-        state
+        sink: bus.map(|bus| {
+            Arc::new(weldsuite_panel::BusSink::new(
+                Arc::clone(bus),
+                state.infra.panel_events_subject.clone(),
+            )) as Arc<dyn weldsuite_panel::EventSink>
+        }),
+        chunks: bus.map(|bus| {
+            Arc::new(weldsuite_panel::BusSink::replay_chunks(
+                Arc::clone(bus),
+                weldsuite_adapters_oss::PANEL_REPLAYS_SUBJECT,
+            )) as Arc<dyn weldsuite_panel::EventSink>
+        }),
+        // Global's replays bucket, inside the panel bucket.
+        replays: state
             .infra
-            .events
-            .bus()
+            .panel_files
+            .clone()
             .filter(|_| !conformance)
-            .map(|bus| {
-                Arc::new(weldsuite_panel::BusSink::new(
-                    Arc::clone(bus),
-                    state.infra.panel_events_subject.clone(),
-                )) as Arc<dyn weldsuite_panel::EventSink>
+            .map(|bucket| {
+                Arc::new(weldsuite_panel::PanelBucketReplays::new(bucket))
+                    as Arc<dyn weldsuite_ports::DynFileStore>
             }),
+        limits: cache.clone().map(|cache| {
+            Arc::new(weldsuite_panel::CacheRateLimiter::new(cache))
+                as Arc<dyn weldsuite_panel::RateLimiter>
+        }),
+        // The project state's collector side (`crate::panel_project`):
+        // operations on NATS, the live view in Valkey; conformance builds
+        // run the test's `PANEL_PROJECT`, per request.
+        project_state: state.panel_collector_state.clone().filter(|_| !conformance),
+    };
+    let bundle = |variable: &str, default: &str| {
+        std::env::var(variable)
+            .ok()
+            .filter(|path| !path.is_empty())
+            .unwrap_or_else(|| default.to_owned())
+    };
+    let bundles = if conformance {
+        weldsuite_panel::Bundles::default()
+    } else {
+        weldsuite_panel::Bundles::load(
+            &bundle("PANEL_SDK_FILE", "/srv/panel/panel.global.js"),
+            &bundle("PANEL_RECORDER_FILE", "/srv/panel/panel-recorder.global.js"),
+            &bundle("PANEL_VITALS_FILE", "/srv/panel/panel-vitals.global.js"),
+        )
+    };
+    let collector = weldsuite_panel::CollectorState::new(
+        state.infra.events.clone(),
+        cache,
+        (!conformance).then(|| state.workspaces.master().clone()),
+        ports,
         state.environment.clone(),
-        (!conformance)
-            .then(|| weldsuite_panel::collector::SdkBundle::load(&sdk))
-            .flatten()
-            .map(Arc::new),
+        bundles,
         state.trusted_proxies,
     );
-    let prefixed = weldsuite_panel::collector::router(collector.clone());
+    // panel-api's public share routes (`/public/panel/share`) sit beside the collector's.
+    let prefixed = weldsuite_panel::collector::router(collector.clone())
+        .merge(weldsuite_panel::public_share_router(panel_state(state)));
     #[cfg(feature = "conformance")]
     let prefixed = prefixed.layer(axum::middleware::from_fn_with_state(
         Arc::clone(&state.conformance_pools),
@@ -1961,7 +2183,9 @@ pub(crate) fn public(state: &AppState) -> Router<AppState> {
         // The integration workers' webhook receivers (no module id: always).
         .merge(integrations::public(state));
     #[cfg(feature = "conformance")]
-    let router = router.merge(merge_internal_conformance(state));
+    let router = router
+        .merge(merge_internal_conformance(state))
+        .merge(panel_internal_conformance(state));
     let router = if mounts("docs") || mounts("sheets") {
         router.merge(crate::collab::public(state))
     } else {

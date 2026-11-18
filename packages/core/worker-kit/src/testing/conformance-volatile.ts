@@ -57,6 +57,9 @@ interface VolatileRoute {
 /** A connector connection id (`generateId('conn')`) inside a string. */
 const CONNECTOR_ID = /conn_[0-9a-z]{16}/g;
 
+/** A WeldPanel SQL `TIMESTAMP` literal that is not a midnight: one counted from the run's clock. */
+const PANEL_CLOCK_TIMESTAMP = /TIMESTAMP '\d{4}-\d{2}-\d{2} (?!00:00:00')\d{2}:\d{2}:\d{2}'/g;
+
 function toolToken(path: string): VolatileField {
   return { path, pattern: /^Bearer \S+$/g, replacement: 'Bearer <volatile>' };
 }
@@ -491,6 +494,79 @@ const ROUTES: VolatileRoute[] = [
     '/public/forms/sessions/uploads',
     '/public/forms/sessions/submit',
   ].map((route) => ({ method: 'POST', route, fields: [{ path: 'error.details.retryAfterSeconds' }] })),
+  // WeldPanel: a report's SQL bounds its range by the run's own clock (the
+  // end of a preset, the retention floor, the previous period), to the
+  // second; a day boundary (midnight) is the same for both runs.
+  ...[
+    { method: 'POST', route: '/api/panel/query' },
+    { method: 'GET', route: '/api/panel/lexicon' },
+    // And the raw reads of people, groups, recordings and heatmap snapshots.
+    { method: 'GET', route: '/api/panel/people' },
+    { method: 'GET', route: '/api/panel/people/by-email' },
+    { method: 'GET', route: '/api/panel/people/:distinctId' },
+    { method: 'DELETE', route: '/api/panel/people/:distinctId' },
+    { method: 'GET', route: '/api/panel/groups/:type/:key' },
+    { method: 'GET', route: '/api/panel/sessions/:id' },
+    { method: 'GET', route: '/api/panel/sessions/:id/chunks/:seq' },
+    { method: 'PUT', route: '/api/panel/sessions/:id/favorite' },
+    { method: 'DELETE', route: '/api/panel/sessions/:id/favorite' },
+    { method: 'GET', route: '/api/panel/heatmaps/pages/:id/snapshot' },
+    { method: 'POST', route: '/public/panel/share/:token/results' },
+    // And the analysis routes: metric tree values and the internal read API.
+    { method: 'POST', route: '/api/panel/metric-tree-values' },
+    { method: 'POST', route: '/api/panel/metric-tree-values/:id' },
+    ...['/query', '/people', '/people/:distinctId', '/groups/:type/:key', '/lexicon'].map((path) => ({
+      method: path === '/query' ? 'POST' : 'GET',
+      route: `/internal/panel/v1/:workspaceId${path}`,
+    })),
+    { method: 'GET', route: '/internal/panel/v1/:workspaceId/reports/:id/results' },
+  ].map(({ method, route }) => ({
+    method,
+    route,
+    fields: [],
+    outbound: [{ path: 'body.query', pattern: PANEL_CLOCK_TIMESTAMP, replacement: "TIMESTAMP '<now>'" }],
+  })),
+  // WeldPanel's AI: the backends ask different models by design (panel-api
+  // Claude through the gateway, Rust the install's own, Mistral on EU), so
+  // the model a summary or narrative names differs; its SQL is bounded by the
+  // run's clock like a report's.
+  ...[
+    { method: 'POST', route: '/api/panel/sessions/:id/summary', modelId: 'data.modelId' },
+    { method: 'POST', route: '/api/panel/insights/summarise', modelId: 'data.modelId' },
+    { method: 'POST', route: '/api/panel/insights/explain', modelId: 'data.narrative.modelId' },
+  ].map(({ method, route, modelId }) => ({
+    method,
+    route,
+    fields: [{ path: modelId }],
+    outbound: [{ path: 'body.query', pattern: PANEL_CLOCK_TIMESTAMP, replacement: "TIMESTAMP '<now>'" }],
+  })),
+  // WeldPanel: a new custom event's or computed property's `ref` is `@` and
+  // its new id.
+  ...['/api/panel/custom-events', '/api/panel/computed-properties'].map((route) => ({
+    method: 'POST',
+    route,
+    fields: [{ path: 'data.ref', pattern: /^@[a-z]+_[0-9a-z]{12,}$/g, replacement: '@<id>' }],
+  })),
+  // WeldPanel: a new secret key (`wps_` + 32 random hex) and a new share
+  // link's token (`wpsh_` + 32 random letters and digits) are drawn per run,
+  // and so are the prefixes shown (and published) to tell them apart and the
+  // link's URL, which ends in the token.
+  {
+    method: 'POST',
+    route: '/api/panel/projects/:id/keys',
+    fields: [{ path: 'data.prefix' }],
+    events: [{ path: 'data.prefix' }],
+  },
+  {
+    method: 'POST',
+    route: '/api/panel/share-links',
+    fields: [
+      { path: 'data.prefix' },
+      { path: 'data.token' },
+      { path: 'data.url', pattern: /\/s\/panel\/wpsh_[A-Za-z0-9]{32}$/g, replacement: '/s/panel/<token>' },
+    ],
+    events: [{ path: 'data.prefix' }],
+  },
 ];
 
 /** The value at a dot path, as text for ordering. */

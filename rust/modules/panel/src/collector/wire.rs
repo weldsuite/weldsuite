@@ -9,17 +9,19 @@ use regex::Regex;
 use serde_json::{Map, Value, json};
 use weldsuite_kit::validation::{Field, Format, Issues, Number, Presence, Text};
 
+use super::wire_server::{group_op, items, people_op};
 use crate::js::Js;
+use crate::project_state::{GroupOp, PeopleOp};
 
 pub(crate) const MAX_EVENTS_PER_BATCH: usize = 100;
 /// `navigator.sendBeacon` refuses bodies over 64 KiB.
 pub(crate) const MAX_BATCH_BYTES: usize = 64 * 1024;
-const MAX_PROPERTIES: usize = 50;
-const MAX_STRING: usize = 2048;
+pub(super) const MAX_PROPERTIES: usize = 50;
+pub(super) const MAX_STRING: usize = 2048;
 const MAX_ELEMENT_TEXT: usize = 255;
 
-const MAX_PEOPLE_OPS_PER_BATCH: usize = 50;
-const MAX_GROUP_OPS_PER_BATCH: usize = 50;
+pub(super) const MAX_PEOPLE_OPS_PER_BATCH: usize = 50;
+pub(super) const MAX_GROUP_OPS_PER_BATCH: usize = 50;
 const MAX_ERROR_MESSAGE: usize = 1000;
 
 /// `LIBS`: the browser SDK, the server API, the React Native SDK.
@@ -65,7 +67,7 @@ static PROPERTY_KEY: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 /// `USER_ID`: 1 to 255 UTF-16 units, no control characters.
-fn is_user_id(text: &str) -> bool {
+pub(super) fn is_user_id(text: &str) -> bool {
     let units = text.encode_utf16().count();
     (1..=255).contains(&units)
         && !text
@@ -124,9 +126,15 @@ pub(crate) struct EventBatch {
     pub(crate) lib_version: String,
     pub(crate) consent: bool,
     pub(crate) events: Vec<WireEvent>,
+    /// The valid profile operations (`people`), each one read on its own;
+    /// applied only with consent.
+    pub(crate) people: Vec<PeopleOp>,
+    /// The valid group profile operations (`groups`); applied only with
+    /// consent too (ADR PANEL-006).
+    pub(crate) groups: Vec<GroupOp>,
 }
 
-const fn length(max: usize) -> Text {
+pub(super) const fn length(max: usize) -> Text {
     Text::length(None, Some(max))
 }
 
@@ -140,7 +148,7 @@ fn int(min: f64, max: f64) -> Number {
 }
 
 /// `events.2.url: Invalid url`: the first issue, as the route reports it.
-fn first_issue(issues: &[Value]) -> String {
+pub(super) fn first_issue(issues: &[Value]) -> String {
     let Some(issue) = issues.first() else {
         return "Invalid batch".to_owned();
     };
@@ -191,9 +199,8 @@ pub(crate) fn parse_event_batch(body: &Js) -> Result<EventBatch, String> {
             Some(MAX_EVENTS_PER_BATCH),
             |_, item| Some(item.clone()),
         );
-        // Profile and group profile operations belong to the PanelProject
-        // object, which the Kubernetes editions don't have: accepted (the
-        // length is still checked) and ignored.
+        // Profile and group profile operations: the lengths are checked
+        // here, each operation on its own below.
         issues.list(
             fields,
             "people",
@@ -264,6 +271,8 @@ pub(crate) fn parse_event_batch(body: &Js) -> Result<EventBatch, String> {
         lib_version,
         consent,
         events,
+        people: items(body, "people").iter().filter_map(people_op).collect(),
+        groups: items(body, "groups").iter().filter_map(group_op).collect(),
     })
 }
 
@@ -368,7 +377,7 @@ fn parse_event(raw: &Js) -> Result<WireEvent, Vec<Value>> {
 /// `z.union([z.enum(SYSTEM_EVENTS), z.string().regex(CUSTOM_EVENT_NAME)])`:
 /// a string that is neither fails the regex ("Invalid"); anything else
 /// fails both options' type checks, an `invalid_union`.
-fn name(issues: &mut Issues, fields: &Map<String, Value>) -> Option<String> {
+pub(super) fn name(issues: &mut Issues, fields: &Map<String, Value>) -> Option<String> {
     match fields.get("name") {
         Some(Value::String(text))
             if SYSTEM_EVENTS.contains(&text.as_str()) || CUSTOM_EVENT_NAME.is_match(text) =>
@@ -394,7 +403,7 @@ fn name(issues: &mut Issues, fields: &Map<String, Value>) -> Option<String> {
 
 /// `z.record(z.string().regex(PROPERTY_KEY), string | number | boolean |
 /// null).refine(at most 50 keys).optional()`, in the body's key order.
-fn properties(
+pub(super) fn properties(
     issues: &mut Issues,
     fields: &Map<String, Value>,
     raw: Option<&Js>,
@@ -599,15 +608,27 @@ mod tests {
     }
 
     #[test]
-    fn accepts_and_ignores_up_to_fifty_group_operations() {
+    fn reads_up_to_fifty_group_operations_each_on_its_own() {
         // An operation this version doesn't understand costs only itself.
         let mut ops = vec![
             json!({ "op": "set", "type": "company", "key": "acme", "props": { "plan": "pro" } });
             49
         ];
         ops.push(json!({ "op": "nonsense" }));
-        let batch = parse_event_batch(&body(&json!({ "groups": ops }))).expect("a batch");
+        let batch = parse_event_batch(&body(&json!({
+            "groups": ops,
+            "people": [
+                { "op": "unset", "user_id": "u-1", "ts": "2026-10-27T12:00:00.000Z", "keys": ["plan"] },
+                { "op": "set", "user_id": "", "ts": "2026-10-27T12:00:00.000Z", "props": {} },
+            ],
+        })))
+        .expect("a batch");
         assert_eq!(batch.events.len(), 1);
+        assert_eq!(batch.groups.len(), 49);
+        assert_eq!(
+            serde_json::to_value(&batch.people).expect("json"),
+            json!([{ "op": "unset", "userId": "u-1", "ts": "2026-10-27T12:00:00.000Z", "keys": ["plan"] }])
+        );
         assert_eq!(
             parse_event_batch(&body(&json!({ "groups": vec![json!({}); 51] })))
                 .expect_err("refused"),

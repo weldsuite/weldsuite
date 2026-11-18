@@ -1541,6 +1541,18 @@ export {
   type PanelScheduleRegistryRow,
   type NewPanelScheduleRegistryRow,
 } from './weldpanel-registry';
+// WeldPanel on the Kubernetes editions: the Iceberg catalog and the erasures waiting for a rewrite.
+export {
+  icebergTables,
+  icebergNamespaceProperties,
+  panelErasureLedger,
+  type IcebergTableRow,
+  type NewIcebergTableRow,
+  type IcebergNamespacePropertyRow,
+  type NewIcebergNamespacePropertyRow,
+  type PanelErasureLedgerRow,
+  type NewPanelErasureLedgerRow,
+} from './weldpanel-lakehouse';
 // WeldReach warmup network: the cross-workspace mailbox pool and its messages.
 export {
   reachWarmupMailboxes,

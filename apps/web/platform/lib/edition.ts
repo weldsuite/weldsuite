@@ -147,8 +147,10 @@ export const EDITION_FEATURES = [
   'collab-rooms',
   /**
    * WeldPanel's analytics pages: web analytics, insights, funnels, retention, flows,
-   * reports, dashboards, cohorts, lexicon, users, recordings, heatmaps and frustration
-   * (queries run on Basin, which only Global has). Projects and the install
+   * reports, dashboards, cohorts, lexicon, users, recordings, heatmaps and frustration.
+   * Global queries Basin; a Kubernetes install queries its own Iceberg tables (ADR
+   * EVT-019) and lists this as unavailable while it has no panel bucket
+   * (`S3_BUCKET_PANEL`, the chart's `config.panel.bucket`). Projects and the install
    * instructions stay available; the other pages are hidden and redirect to them.
    */
   'panel-analytics',

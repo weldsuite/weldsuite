@@ -53,6 +53,7 @@ import { typeScriptSide } from './pglite-rollback';
 import { schemaFor } from './conformance-schemas';
 import { bucketUrls } from './bucket-bridge';
 import { kvUrls } from './kv-bridge';
+import { workspaceBridgeUrl } from './workspace-bridge';
 import { realtimeUrl } from './realtime-bridge';
 import { isolatedEnv } from './write-isolation';
 import { maskVolatile, maskVolatileEvents, maskVolatileOutbound, maskVolatileRealtime, maskVolatileText } from './conformance-volatile';
@@ -88,6 +89,7 @@ import {
   recordTypeScriptPipelineCalls,
   takeRustPipelineCalls,
 } from './pipeline-bridge';
+import { rateLimitUrls } from './rate-limit-bridge';
 import {
   type OutboundCall,
   outboundBridgeUrl,
@@ -321,10 +323,21 @@ export const FORWARDED_ENV = [
   'MAILPOOL_WEBHOOK_SECRET',
   'WELDREACH_WARMUP_KEY',
   'REACH_INBOUND_DOMAIN',
-  // WeldPanel: the collector origin the install snippets point at, and the
-  // SDK bundle the collector serves as /s.js (a file; only Rust reads it).
+  // WeldPanel: the collector origin the install snippets point at, the
+  // bundles the collector serves as /s.js, /rec.js and /v.js (files; only
+  // Rust reads them), and Basin SQL (its token and bucket; CF_ACCOUNT_ID is
+  // forwarded above), which the Rust server reaches through the outbound
+  // bridge in this mode.
   'PANEL_COLLECTOR_URL',
   'PANEL_SDK_FILE',
+  'R2_SQL_API_TOKEN',
+  'PANEL_BASIN_BUCKET',
+  'PANEL_RECORDER_FILE',
+  'PANEL_VITALS_FILE',
+  // WeldPanel's custom collector domains: the Cloudflare for SaaS zone and the
+  // host customers CNAME to (CLOUDFLARE_API_TOKEN is forwarded above).
+  'PANEL_SAAS_ZONE_ID',
+  'PANEL_SAAS_CNAME_TARGET',
   // WeldMerge: the GitHub App's user authorization, the GitLab, Bitbucket and
   // Azure DevOps OAuth apps, and the public origin provider webhooks deliver to
   // (APP_URL, the keyring and the App's id, slug and key are forwarded above).
@@ -399,6 +412,11 @@ const WRITING_READS: RegExp[] = [
   /^\/api\/welddata\/filters(\?|$)/,
   // WeldData: a list's cells, its stuck running ones timed out first.
   /^\/api\/welddata\/lists\/[^/?]+\/cells(\?|$)/,
+  // WeldPanel: usage settles the month again while the collector is blocked
+  // (the master row, the wallet, the quota state in KV).
+  /^\/api\/panel\/usage(\?|$)/,
+  // WeldPanel's read API: a saved report's run, cached in KV on a miss.
+  /^\/internal\/panel\/v1\/[^/?]+\/reports\/[^/?]+\/results(\?|$)/,
   // WeldBooks: the workspace's accounting settings row, created on first read.
   /^\/api\/accounting-settings(\?|$)/,
   // WeldBooks payment runs: the NACHA file marks its run exported, and it, the
@@ -434,6 +452,13 @@ const WRITING_READS: RegExp[] = [
   // WeldForms: the published form, its public cache entry rebuilt and
   // stored on a miss.
   /^\/public\/forms\/f\/[^/?]+(\?|$)/,
+  // WeldPanel: the lexicon's names-seen scan, cached in KV on a miss.
+  /^\/api\/panel\/lexicon(\?|$)/,
+  // WeldPanel: a recording chunk's key, looked up and its session's manifest
+  // cached in KV on a miss.
+  /^\/api\/panel\/sessions\/[^/?]+\/chunks\/[^/?]+(\?|$)/,
+  // WeldPanel: a public share link's page counts the view (at most once a minute).
+  /^\/public\/panel\/share\/[^/?]+(\?|$)/,
 ];
 
 interface ConformanceContext {
@@ -1338,8 +1363,13 @@ async function testContext(ctx: ConformanceContext, env: Record<string, unknown>
     workflows: await workflowUrls(env),
     // Its service bindings (`BOOKS_INTERNAL`).
     services: await serviceBindingUrls(env),
-    // Its stream bindings (`PANEL_EVENTS`).
+    // Its stream bindings (`PANEL_EVENTS`, `PANEL_REPLAY_CHUNKS`).
     pipelines: await pipelineUrls(env),
+    // Its rate-limiting bindings (`EVENTS_RATE_LIMIT`, …).
+    rateLimits: await rateLimitUrls(env),
+    // Its workspace lookup (`getWorkspaceContextForOrg`, mocked or not), for a
+    // public route that opens a workspace by reference (./workspace-bridge.ts).
+    workspaces: await workspaceBridgeUrl(env),
   };
 }
 

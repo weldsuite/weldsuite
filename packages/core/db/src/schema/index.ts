@@ -426,6 +426,8 @@ export * from './weldsign';
 
 // WeldPanel (product analytics and session recordings; config and saved objects only)
 export * from './weldpanel';
+// WeldPanel's project state on the Kubernetes editions (unused on Global)
+export * from './weldpanel-project-state';
 
 // WeldMerge (pull requests and issues across git providers)
 export * from './weldmerge';

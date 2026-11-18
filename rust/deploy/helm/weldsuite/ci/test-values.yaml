@@ -58,6 +58,13 @@ config:
     endpoint: https://s3.example.com
     publicBucket: weldsuite-public
     publicUrl: https://files.example.org
+  # WeldPanel's store, and collection on customers' own host names (the
+  # panel-domains Role, RoleBinding and admission policy).
+  panel:
+    bucket: weldsuite-panel
+    customDomains:
+      enabled: true
+      collectorHost: collect.example.org
 ingress:
   enabled: true
 autoscaling:

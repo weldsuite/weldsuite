@@ -1,7 +1,10 @@
 /**
  * Tests for POST /api/panel/insights/explain and /api/panel/metric-tree-values
- * (+ /:id): real tenant schema (pglite), fake Basin and project object; the
- * model (`@weldsuite/ai`) and the wallet are stubbed.
+ * (+ /:id): real tenant and master schemas (pglite), fake Basin and project
+ * object, the mock model of `@weldsuite/ai/testing` (answering by prompt)
+ * and the real credit wallet, so the Rust backend answers the same tests in
+ * conformance mode (each request then runs twice: model calls and Basin
+ * statements are per run, `RUNS`).
  *
  * What must not regress:
  *   1. Every statement carries the workspace of the request and the project,
@@ -15,49 +18,25 @@
  */
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { conformanceMasterDb, createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type AnyMasterDatabase, type Database } from '@weldsuite/worker-kit/db';
 import { DEFAULT_PANEL_SETTINGS } from '@weldsuite/panel-domain/settings';
 import type { PanelExplainResult, PanelMetricTreeValues } from '@weldsuite/app-api-client/schemas/weldpanel-analysis';
-import { BASIN_ENV, FakeBasin, FakeProjectState, PROJECT, WORKSPACE, memoryKv } from '../test-support/fakes';
+import { BASIN_ENV, FakeBasin, FakeProjectState, PROJECT, RUNS, WORKSPACE, memoryKv } from '../test-support/fakes';
+import { AI_ENV, aiCharges, emptyWallet, installModel, seedWallet, type ModelCall } from '../test-support/ai';
 
 const state = vi.hoisted(() => ({ master: null as unknown }));
 
 vi.mock('@weldsuite/worker-kit/db', async (orig) => {
   const actual = await orig<typeof import('@weldsuite/worker-kit/db')>();
-  return { ...actual, getMasterDb: () => state.master as never };
+  return { ...actual, getMasterDb: () => conformanceMasterDb(state.master) as never };
 });
 
-const modelCalls: { model: string; prompt: string }[] = [];
+const modelCalls: ModelCall[] = [];
 let modelFails = false;
-vi.mock('@weldsuite/ai', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@weldsuite/ai')>()),
-  assertGatewayConfigured: () => undefined,
-  createWeldAI: () => ({ model: (id: string) => id }),
-  generateObject: async (args: { model: string; prompt: string }) => {
-    modelCalls.push({ model: args.model, prompt: args.prompt });
-    if (modelFails) throw new Error('provider down');
-    return { object: { narrative: 'Safari carried most of the rise.' }, usage: { inputTokens: 300, outputTokens: 40, totalTokens: 340 } };
-  },
-}));
-
-let creditsEmpty = false;
-const charges: { modelId: string; op: string }[] = [];
-vi.mock('@weldsuite/core-domain/ai-billing', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@weldsuite/core-domain/ai-billing')>();
-  return {
-    ...actual,
-    resolveAiMetering: async () => ({ masterDb: {}, internalWsId: 'ws_internal', userId: 'user_alice' }),
-    assertAiCredits: async () => {
-      if (creditsEmpty) throw new actual.InsufficientAiCreditsError(0, 5, 5);
-    },
-    chargeAiUsage: async (_metering: unknown, params: { modelId: string; op: string }) => {
-      charges.push({ modelId: params.modelId, op: params.op });
-      return 3;
-    },
-  };
-});
+/** Every call the mock model answers costs the wallet one credit (a few tokens, the minimum charge). */
+const CREDITS_PER_CALL = 1;
 
 import insightsRoutes from './insights';
 import metricTreeValuesRoutes from './metric-tree-values';
@@ -72,8 +51,8 @@ const object = new FakeProjectState();
 
 function app(base: string, router: typeof insightsRoutes, grants: string[] = READ, userId = 'user_alice') {
   return createTestApp(base, router, {
-    context: { permissions: permissions(...grants), tenantDb: db, userId, orgId: 'org_alpha', workspaceId: WORKSPACE, clerkOrgId: 'org_alpha' },
-    env: { WORKSPACE_CACHE: memoryKv(), PANEL_PROJECT: object.namespace(), PANEL_COLLECTOR_URL: 'https://pnl-test.weldsuite.org', ...BASIN_ENV } as never,
+    context: { permissions: permissions(...grants), tenantDb: db, masterDb: master as unknown as Database, userId, orgId: 'org_alpha', workspaceId: WORKSPACE, clerkOrgId: 'org_alpha' },
+    env: { WORKSPACE_CACHE: memoryKv(), PANEL_PROJECT: object.namespace(), PANEL_COLLECTOR_URL: 'https://pnl-test.weldsuite.org', ...BASIN_ENV, ...AI_ENV } as never,
     moduleApiErrors: true,
   });
 }
@@ -129,12 +108,12 @@ beforeEach(async () => {
     { id: 'pnp_b', name: 'Other', token: 'wpk_b', settings: DEFAULT_PANEL_SETTINGS, createdByUserId: 'user_alice' },
   ]);
   modelCalls.length = 0;
-  charges.length = 0;
-  creditsEmpty = false;
   modelFails = false;
+  await seedWallet(master, WORKSPACE, 'org_alpha', 100);
   object.reset();
   basin.reset();
   basin.install();
+  installModel(() => (modelFails ? { status: 500, message: 'provider down' } : { json: { narrative: 'Safari carried most of the rise.' } }), modelCalls);
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -150,7 +129,7 @@ describe('POST /api/panel/insights/explain', () => {
     expect(body.dimensions[0]?.values[0]).toMatchObject({ value: 'Safari', change: 45, contributionShare: 0.9 });
     expect(body.narrative).toBeNull();
     expect(new Date(body.baseline.to).getTime()).toBe(new Date(body.current.from).getTime());
-    expect(basin.sent).toHaveLength(8);
+    expect(basin.sent).toHaveLength(8 * RUNS);
     for (const sql of basin.sent) {
       expect(sql).toContain(`e.workspace_id = '${WORKSPACE}' AND e.project_id = '${PROJECT}'`);
       expect(sql).not.toContain('pnp_b');
@@ -161,7 +140,7 @@ describe('POST /api/panel/insights/explain', () => {
     explainBasin();
     const env = { WORKSPACE_CACHE: memoryKv(), PANEL_PROJECT: object.namespace(), ...BASIN_ENV } as never;
     const one = createTestApp('/api/panel/insights', insightsRoutes, {
-      context: { permissions: permissions(...READ), tenantDb: db, userId: 'user_alice', orgId: 'org_alpha', workspaceId: WORKSPACE, clerkOrgId: 'org_alpha' },
+      context: { permissions: permissions(...READ), tenantDb: db, masterDb: master as unknown as Database, userId: 'user_alice', orgId: 'org_alpha', workspaceId: WORKSPACE, clerkOrgId: 'org_alpha' },
       env,
       moduleApiErrors: true,
     });
@@ -201,35 +180,42 @@ describe('POST /api/panel/insights/explain', () => {
   it('writes a narrative once, charged for the model that served, then answers it from the cache', async () => {
     explainBasin();
     const first = await data<PanelExplainResult>(await explain({ projectId: PROJECT, spec: SPEC, narrate: true }));
-    expect(first.narrative).toMatchObject({ text: 'Safari carried most of the rise.', creditsCharged: 3, cached: false });
-    expect(charges).toEqual([{ modelId: first.narrative?.modelId, op: 'panel_explain' }]);
+    expect(first.narrative).toMatchObject({ text: 'Safari carried most of the rise.', creditsCharged: CREDITS_PER_CALL, cached: false });
+    expect((await aiCharges(master, WORKSPACE)).map(({ op, modelId, credits }) => ({ op, modelId, credits }))).toEqual([
+      { op: 'panel_explain', modelId: first.narrative?.modelId, credits: CREDITS_PER_CALL },
+    ]);
     expect(modelCalls[0]?.prompt).toContain('Dimension browser');
     expect(modelCalls[0]?.prompt).toContain('"Safari": 10 -> 55');
 
     const second = await data<PanelExplainResult>(await explain({ projectId: PROJECT, spec: SPEC, narrate: true }));
     expect(second.narrative).toMatchObject({ cached: true, creditsCharged: 0 });
-    expect(modelCalls).toHaveLength(1);
+    expect(modelCalls).toHaveLength(RUNS);
+    expect(await aiCharges(master, WORKSPACE)).toHaveLength(1);
   });
 
   it('keeps the numbers and says why when there can be no narrative', async () => {
     explainBasin();
-    creditsEmpty = true;
+    await emptyWallet(master, WORKSPACE);
     const broke = await data<PanelExplainResult>(await explain({ projectId: PROJECT, spec: SPEC, narrate: true }));
     expect(broke.narrativeUnavailable).toBe('insufficient_credits');
     expect(broke.metric.current).toBe(150);
-    creditsEmpty = false;
+    expect(modelCalls).toHaveLength(0);
+    await seedWallet(master, WORKSPACE, 'org_alpha', 100);
 
     modelFails = true;
     const down = await data<PanelExplainResult>(await explain({ projectId: PROJECT, spec: SPEC, narrate: true, regenerate: true }));
     expect(down.narrativeUnavailable).toBe('ai_unavailable');
     modelFails = false;
+    const tried = modelCalls.length;
+    expect(tried).toBeGreaterThan(0);
 
     await db.update(panelProjects).set({ settings: { ...DEFAULT_PANEL_SETTINGS, aiEnabled: false } });
     const off = await data<PanelExplainResult>(await explain({ projectId: PROJECT, spec: SPEC, narrate: true }));
     expect(off.narrativeUnavailable).toBe('ai_disabled');
-    expect(modelCalls).toHaveLength(1);
-    expect(charges).toHaveLength(0);
+    expect(modelCalls).toHaveLength(tried);
+    expect(await aiCharges(master, WORKSPACE)).toHaveLength(0);
   });
+
 });
 
 const inlineNodes = [

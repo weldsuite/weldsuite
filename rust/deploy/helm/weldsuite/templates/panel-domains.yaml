@@ -1,0 +1,102 @@
+{{- if eq (include "weldsuite.panelDomains.enabled" .) "true" }}
+{{- /*
+WeldPanel's custom collector domains (ADR PANEL-014,
+rust/modules/panel/src/monitor/cert_manager.rs): for each customer host name
+whose CNAME points at config.panel.customDomains.collectorHost, the server
+(the routes, and the panel-schedule job's sweep) creates a cert-manager
+Certificate and an Ingress in the release's namespace, and deletes both with
+the domain. Every one carries the labels below; keep them in step with
+LABELS in cert_manager.rs.
+*/}}
+{{- $sa := include "weldsuite.serviceAccountName" . }}
+{{- $labels := dict "app.kubernetes.io/managed-by" "weldsuite" "app.kubernetes.io/component" "panel-collector-domain" }}
+# The server's service account may read, create and delete Certificates and
+# Ingresses in this namespace, and nothing else there through this Role (no
+# list, update or patch). RBAC matches kinds, namespaces and names, never
+# labels, so it can't keep the account to WeldPanel's own objects: the server
+# only ever touches objects with WeldPanel's labels, and the admission policy
+# below refuses the account any other.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "weldsuite.fullname" . }}-panel-domains
+  labels:
+    {{- include "weldsuite.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["cert-manager.io"]
+    resources: ["certificates"]
+    verbs: ["get", "create", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "weldsuite.fullname" . }}-panel-domains
+  labels:
+    {{- include "weldsuite.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "weldsuite.fullname" . }}-panel-domains
+subjects:
+  - kind: ServiceAccount
+    name: {{ $sa }}
+    namespace: {{ .Release.Namespace }}
+{{- if .Values.config.panel.customDomains.admissionPolicy.enabled }}
+---
+# What the Role can't say: the server's service account creates and deletes
+# only Certificates and Ingresses carrying WeldPanel's labels, Ingresses that
+# route to the server's Service only, and Certificates from the configured
+# issuer only. Anyone else's requests are not matched.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ include "weldsuite.fullname" . }}-panel-domains
+  labels:
+    {{- include "weldsuite.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["cert-manager.io"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["certificates"]
+      - apiGroups: ["networking.k8s.io"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["ingresses"]
+  matchConditions:
+    - name: the-servers-service-account
+      expression: {{ printf "request.userInfo.username == 'system:serviceaccount:%s:%s'" .Release.Namespace $sa | quote }}
+  variables:
+    # The object as it is after the request; as it was, for a delete.
+    - name: target
+      expression: "request.operation == 'DELETE' ? oldObject : object"
+  validations:
+    - expression: {{ printf "has(variables.target.metadata.labels) && %s" (include "weldsuite.panelDomains.labelCheck" (dict "labels" $labels)) | quote }}
+      message: "the server may only create and delete Certificates and Ingresses carrying WeldPanel's labels"
+    - expression: {{ printf "request.operation != 'UPDATE' || (has(oldObject.metadata.labels) && %s)" (include "weldsuite.panelDomains.labelCheck" (dict "labels" $labels "object" "oldObject")) | quote }}
+      message: "the server may not take over an object without WeldPanel's labels"
+    - expression: {{ printf "request.operation == 'DELETE' || request.resource.resource != 'ingresses' || (!has(object.spec.defaultBackend) && object.spec.rules.all(r, has(r.http) && r.http.paths.all(p, has(p.backend.service) && p.backend.service.name == '%s')))" (include "weldsuite.fullname" .) | quote }}
+      message: "the server's Ingresses route to its own Service only"
+    - expression: {{ printf "request.operation == 'DELETE' || request.resource.resource != 'certificates' || (object.spec.issuerRef.name == '%s' && has(object.spec.issuerRef.kind) && object.spec.issuerRef.kind == '%s')" .Values.config.panel.customDomains.issuerRef.name .Values.config.panel.customDomains.issuerRef.kind | quote }}
+      message: "the server's Certificates come from the configured issuer only"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ include "weldsuite.fullname" . }}-panel-domains
+  labels:
+    {{- include "weldsuite.labels" . | nindent 4 }}
+spec:
+  policyName: {{ include "weldsuite.fullname" . }}-panel-domains
+  validationActions: ["Deny"]
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: {{ .Release.Namespace }}
+{{- end }}
+{{- end }}

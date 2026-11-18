@@ -19,6 +19,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { conformanceTarget } from '@weldsuite/worker-kit/testing/conformance';
 import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { masterSchema, schema, type AnyMasterDatabase, type Database } from '@weldsuite/worker-kit/db';
 import { keyKvKey, parseKeyRecord } from '@weldsuite/panel-domain/registry';
@@ -37,6 +38,13 @@ vi.mock('@weldsuite/worker-kit/db', async (orig) => {
 
 import keysRoutes from './keys';
 import projectsRoutes from './projects';
+
+/**
+ * The id the queue (or a mock) saw for a row the request created: in
+ * conformance mode that is the TypeScript run's own row, with an id of its
+ * own (the test reads Rust's), so only its prefix is known.
+ */
+const minted = (id: string): unknown => (conformanceTarget() ? expect.stringMatching(new RegExp(`^${id.split('_')[0]}_`)) : id);
 
 const { panelProjects } = schema;
 const { panelKeyRegistry, panelProjectRegistry } = masterSchema;
@@ -57,14 +65,23 @@ function context(workspaceId = 'ws_alpha') {
   return { tenantDb: db, masterDb: master as unknown as Database, userId: 'user_alice', orgId: 'org_x', workspaceId, clerkOrgId: 'org_x' };
 }
 
-function env() {
-  const kv = memoryKv(store);
+/**
+ * A KV namespace over `entries` whose writes fail while `failKvPut` is set.
+ * `fork()` is for conformance mode: the TypeScript run of a write gets a copy
+ * that fails the same way, while the Rust backend writes to this one.
+ */
+function failingKv(entries: Map<string, string>): KVNamespace {
+  const kv = memoryKv(entries);
   const put = kv.put.bind(kv);
   kv.put = (async (key: string, value: string) => {
     if (failKvPut) throw new Error('kv unavailable');
     return put(key, value);
   }) as KVNamespace['put'];
-  return { WORKSPACE_CACHE: kv, ENTITY_EVENTS: entityQueue(events), PANEL_COLLECTOR_URL: 'https://pnl-test.weldsuite.org' };
+  return Object.assign(kv, { fork: () => failingKv(new Map(entries)) });
+}
+
+function env() {
+  return { WORKSPACE_CACHE: failingKv(store), ENTITY_EVENTS: entityQueue(events), PANEL_COLLECTOR_URL: 'https://pnl-test.weldsuite.org' };
 }
 
 const keys = (grants: string[] = MANAGE, workspaceId?: string) =>
@@ -140,8 +157,13 @@ describe('create', () => {
   it('publishes a panel_key event without the key', async () => {
     const created = await newKey();
     expect(events).toHaveLength(1);
-    expect(events[0]).toMatchObject({ entityType: 'panel_key', action: 'created', entityId: created.id });
-    expect(events[0]?.data).toEqual({ id: created.id, projectId: 'pnp_a', name: 'Backend', prefix: created.prefix });
+    expect(events[0]).toMatchObject({ entityType: 'panel_key', action: 'created', entityId: minted(created.id) });
+    expect(events[0]?.data).toEqual({
+      id: minted(created.id),
+      projectId: 'pnp_a',
+      name: 'Backend',
+      prefix: conformanceTarget() ? expect.stringMatching(/^wps_[0-9a-f]{4}…$/) : created.prefix,
+    });
     expect(JSON.stringify(events)).not.toContain(created.key);
   });
 

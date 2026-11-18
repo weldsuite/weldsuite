@@ -18,7 +18,7 @@ use weldsuite_emails::sign::{SignCompleted, SignRequest};
 use weldsuite_emails::workspace::WorkspaceInvitation;
 use weldsuite_emails::{
     EmailBrand, EmailLocale, EndTime, RenderedEmail, ai, auth, billing, calendar, desk, flow,
-    forms, hr, meet, portal, reach, sign, workspace,
+    forms, hr, meet, panel, panel_monitor, portal, reach, sign, workspace,
 };
 
 #[derive(Deserialize)]
@@ -392,6 +392,21 @@ fn render(case: &Case) -> RenderedEmail {
             &s(p, "url"),
             minutes(p).unwrap_or(60),
         ),
+        "panel.usage" => panel::usage(
+            locale,
+            &brand,
+            &panel::PanelUsage {
+                workspace_name: s(p, "workspaceName"),
+                kind: p["kind"]
+                    .as_str()
+                    .and_then(panel::UsageKind::parse)
+                    .unwrap_or_default(),
+                events: meter(&p["events"]),
+                recordings: meter(&p["recordings"]),
+                resets_at: s(p, "resetsAt"),
+                url: s(p, "url"),
+            },
+        ),
         "workspace.invitation" => workspace::invitation(
             locale,
             &brand,
@@ -403,9 +418,33 @@ fn render(case: &Case) -> RenderedEmail {
                 recipient_email: s(p, "recipientEmail"),
             },
         ),
+        // WeldPanel: the props deserialize as the template's props type.
+        "panel.alert" => panel_monitor::alert(
+            locale,
+            &brand,
+            &serde_json::from_value(p.clone()).expect("alert props"),
+        ),
+        "panel.report-digest" => panel_monitor::report_digest(
+            locale,
+            &brand,
+            &serde_json::from_value(p.clone()).expect("digest props"),
+        ),
+        "panel.export-failing" => panel_monitor::export_failing(
+            locale,
+            &brand,
+            &serde_json::from_value(p.clone()).expect("export props"),
+        ),
         other => panic!("no Rust renderer for {other}"),
     };
     result.unwrap_or_else(|error| panic!("{} {}: {error}", case.template, case.preview))
+}
+
+/// A WeldPanel meter: `{ used, allowance }`.
+fn meter(value: &Value) -> panel::Meter {
+    panel::Meter {
+        used: value["used"].as_i64().unwrap_or_default(),
+        allowance: value["allowance"].as_i64().unwrap_or_default(),
+    }
 }
 
 /// `expiresInMinutes`, when the preview sets it.

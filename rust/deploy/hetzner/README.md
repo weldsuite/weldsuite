@@ -230,9 +230,12 @@ a time.
 ## 5. DNS
 
 Create the records `tofu output dns_records` prints (A and AAAA for `app.`,
-`api.`, `mcp.`, `auth.`, `sign.`, `forms.`, `admin.`, `grafana.`, `livekit.`, `turn.`, and `mx.` with
+`api.`, `mcp.`, `auth.`, `sign.`, `forms.`, `admin.`, `grafana.`, `livekit.`, `turn.`, `collect.`, and `mx.` with
 `mx_node_port` → the ingress load balancer) at the DNS provider. cert-manager
-issues certificates once they resolve. (external-dns is not installed: a
+issues certificates once they resolve. `collect.` is what customers point
+WeldPanel's own collection domains at (ADR PANEL-014); turn them on with
+`config.panel.customDomains.enabled` in `flux/apps/eu/values/weldsuite.yaml`
+once it resolves. (external-dns is not installed: a
 handful of static records doesn't need it.) Media needs no record: LiveKit
 gives clients the nodes' addresses itself. The mail records are in "Mail" below.
 
