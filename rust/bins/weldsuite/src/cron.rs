@@ -342,6 +342,10 @@ async fn panel_maintenance(config: Config) -> Result<(), Box<dyn std::error::Err
         weldsuite_db::master_pool(&config.master_database_url, config.master_max_connections)?;
     let lake = store.lakehouse(master.clone())?;
     lake.ensure_tables().await?;
+    // The replays bucket inside the panel bucket, for Global's lifecycle rules.
+    let replays = weldsuite_panel::PanelBucketReplays::new(
+        Arc::new(store.file_store()?) as Arc<dyn weldsuite_ports::DynFileStore>
+    );
     let lister = crate::panel_maintenance::S3Lister::new(store)?;
     // The erased ids a rewrite covered leave their project's list: the
     // tenant databases of the workspaces with erasures applied, only.
@@ -350,13 +354,20 @@ async fn panel_maintenance(config: Config) -> Result<(), Box<dyn std::error::Err
         config.keyring.clone(),
         config.workspaces.clone(),
     ));
-    let valkey = match &config.infra.valkey_url {
-        Some(url) => Some(crate::panel_project::PanelValkey::new(
-            weldsuite_adapters_oss::connect_valkey(url).await?,
-            config.infra.valkey_cache_prefix.clone(),
-        )),
+    let connection = match &config.infra.valkey_url {
+        Some(url) => Some(weldsuite_adapters_oss::connect_valkey(url).await?),
         None => None,
     };
+    let valkey = connection.clone().map(|connection| {
+        crate::panel_project::PanelValkey::new(connection, config.infra.valkey_cache_prefix.clone())
+    });
+    // The collector's project records, for the replay tiers.
+    let cache = connection.map(|connection| {
+        weldsuite_adapters_oss::ValkeyCache::new(
+            connection,
+            config.infra.valkey_cache_prefix.clone(),
+        )
+    });
     let projects = crate::panel_project::TenantProjectState {
         pools: Arc::new(crate::panel_project::WorkspaceTenantPools(workspaces)),
         rows: crate::panel_project::rows::RowSink::new(None),
@@ -370,7 +381,13 @@ async fn panel_maintenance(config: Config) -> Result<(), Box<dyn std::error::Err
         &lister,
         time::OffsetDateTime::now_utc(),
         &crate::panel_maintenance::MaintenanceSettings::default(),
-        Some(&projects),
+        crate::panel_maintenance::NightPorts {
+            projects: Some(&projects),
+            replays: Some(&replays),
+            cache: cache
+                .as_ref()
+                .map(|cache| cache as &dyn weldsuite_ports::DynCache),
+        },
     )
     .await;
     let failed = report["errors"]

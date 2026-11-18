@@ -135,6 +135,7 @@ pub use collector::{
     Bundles, BusSink, CacheRateLimiter, CacheSalt, CacheUsage, CollectorState, EventSink, Limit,
     PanelBucketReplays, RateLimiter, RequestCollector, SaltSource, ScriptBundle, UsageCounter,
 };
+pub use domain::plan_replay_tier;
 pub use engine::{AnalyticsSql, BasinSql};
 pub use erasure::{EraseMessage, ErasureQueue, MasterErasureLedger, RequestErasureQueue};
 pub use internal_v1::internal_v1_router;
@@ -143,6 +144,7 @@ pub use public_share::{
     CacheShareRateLimit, FoundWorkspace, OpenedWorkspace, RequestShareRateLimit,
     RequestWorkspaceTenants, ShareRateLimit, WorkspaceTenants,
 };
+pub use registry::{apply_replay_tier, replay_tiers};
 pub use saved_routes::{
     annotations_router, cohorts_router, comments_router, computed_properties_router,
     custom_events_router, dashboards_router, group_types_router, metric_trees_router,

@@ -13,9 +13,12 @@
  * meets another's, and a workspace of its own wherever it sets a quota state
  * (the worker remembers one for a minute).
  *
- * `PANEL_PROJECT` (people, identities, groups, the live view) is not bound:
- * the Rust collector has no PanelProject object yet, so these tests check the
- * worker as it runs without that binding.
+ * `PANEL_PROJECT` (people, identities, groups, the live view) is bound only
+ * where a test asks for it (`projectState`): the others check the worker as
+ * it runs without that binding. Bound, it is the real PanelProject class on
+ * node's SQLite, served to Rust by the ledger bridge, which compares the
+ * calls both backends make; the TypeScript run of a write gets a `fork()` of
+ * the objects, so the tests see Rust's changes.
  *
  * Rust serves the collector at /public/panel (`rustBasePath`); the worker and
  * these tests keep its own paths.
@@ -25,6 +28,7 @@ import { createHash } from 'node:crypto';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { gzipSync } from 'node:zlib';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { createTestApp } from '@weldsuite/worker-kit/testing';
@@ -41,6 +45,7 @@ import {
 import { DEFAULT_PANEL_SETTINGS } from '@weldsuite/panel-domain/settings';
 import { MAX_BATCH_BYTES, type EventBatch, type WireEvent } from '@weldsuite/panel-domain/wire';
 import { buildBatches } from '../../../../packages/sdk/panel-sdk/src/batch';
+import { PanelProject } from './durable-objects/panel-project';
 import { PanelSalt } from './durable-objects/panel-salt';
 import { PanelUsage } from './durable-objects/panel-usage';
 import type { Env } from './env';
@@ -48,7 +53,7 @@ import { app } from './index';
 import recorderBundle from './testing/recorder-bundle-stub';
 import stubBundle from './testing/sdk-bundle-stub';
 import vitalsBundle from './testing/vitals-bundle-stub';
-import { CHROME_WINDOWS } from './testing/fakes';
+import { CHROME_WINDOWS, fakeSqlContext } from './testing/fakes';
 
 // Conformance mode runs every write on both backends.
 vi.setConfig({ testTimeout: 60_000 });
@@ -178,6 +183,79 @@ function memoryBucket(objects = new Map<string, StoredObject>()) {
   };
 }
 
+type SqlRow = Record<string, string | number | null>;
+
+/** A copy of an object's SQLite database: its schema, then its rows. */
+function copyDatabase(from: DatabaseSync): DatabaseSync {
+  const to = new DatabaseSync(':memory:');
+  const objects = from.prepare('SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY rowid').all() as {
+    type: string;
+    name: string;
+    sql: string;
+  }[];
+  for (const { sql } of objects) to.exec(sql);
+  for (const { type, name } of objects) {
+    if (type !== 'table') continue;
+    for (const row of from.prepare(`SELECT * FROM "${name}"`).all() as SqlRow[]) {
+      const columns = Object.keys(row);
+      to.prepare(`INSERT INTO "${name}" (${columns.map((c) => `"${c}"`).join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`).all(
+        ...Object.values(row),
+      );
+    }
+  }
+  return to;
+}
+
+/** What the PanelProject objects wrote to their streams (`identities_v1`, `people_v1`, `groups_v1`). */
+interface ObjectRows {
+  identities: Record<string, unknown>[];
+  people: Record<string, unknown>[];
+  groups: Record<string, unknown>[];
+}
+
+/**
+ * `PANEL_PROJECT`: the real PanelProject objects, one per project id, each on
+ * its own SQLite database. `fork()` gives the TypeScript run of a write
+ * copies of the databases and of the rows written so far, so both runs start
+ * from the same state and only Rust's changes stay.
+ */
+function projectNamespace(dbs = new Map<string, DatabaseSync>(), rows: ObjectRows = { identities: [], people: [], groups: [] }) {
+  const stream = (sent: Record<string, unknown>[]) => ({
+    send: async (records: Record<string, unknown>[]) => {
+      sent.push(...records);
+    },
+  });
+  const objectEnv = {
+    PANEL_IDENTITIES: stream(rows.identities),
+    PANEL_PEOPLE: stream(rows.people),
+    PANEL_GROUPS_STREAM: stream(rows.groups),
+  } as unknown as Env;
+  const instances = new Map<string, PanelProject>();
+  return {
+    rows,
+    idFromName: (name: string) => name,
+    get(name: string): PanelProject {
+      let instance = instances.get(name);
+      if (!instance) {
+        let db = dbs.get(name);
+        if (!db) {
+          db = new DatabaseSync(':memory:');
+          dbs.set(name, db);
+        }
+        instance = new PanelProject(fakeSqlContext(db).ctx, objectEnv);
+        instances.set(name, instance);
+      }
+      return instance;
+    },
+    fork: () =>
+      projectNamespace(new Map([...dbs].map(([name, db]) => [name, copyDatabase(db)])), {
+        identities: [...rows.identities],
+        people: [...rows.people],
+        groups: [...rows.groups],
+      }),
+  };
+}
+
 /** A Workers rate limiter that lets `allowed` calls per key through, then refuses; `fork()` for the TypeScript run. */
 function rateLimit(allowed: number, calls = new Map<string, number>()) {
   return {
@@ -207,6 +285,8 @@ interface SetupOptions {
   /** Bind `PANEL_REPLAY_CHUNKS` (default) or leave it out. */
   chunks?: boolean;
   limits?: Limits;
+  /** Bind `PANEL_PROJECT` (people, identities, groups, the live view). */
+  projectState?: boolean;
 }
 
 interface Setup {
@@ -219,6 +299,8 @@ interface Setup {
   replays: ReturnType<typeof memoryBucket>;
   usage: ReturnType<typeof usageNamespace>;
   limiters: Record<string, ReturnType<typeof rateLimit>>;
+  /** `PANEL_PROJECT`, when bound. */
+  projects: ReturnType<typeof projectNamespace> | null;
   request: (path: string, init?: RequestInit) => Promise<Response>;
 }
 
@@ -256,6 +338,7 @@ function setup(record: Partial<PanelProjectRecord> | null = {}, options: SetupOp
   if (limits.proxy !== undefined) limiters.EVENTS_PROXY_RATE_LIMIT = rateLimit(limits.proxy);
   if (limits.replays !== undefined) limiters.REPLAYS_RATE_LIMIT = rateLimit(limits.replays);
   if (limits.snapshots !== undefined) limiters.SNAPSHOTS_RATE_LIMIT = rateLimit(limits.snapshots);
+  const projectObjects = options.projectState ? projectNamespace() : null;
   const testApp = createTestApp('/', app as never, {
     context: { tenantDb },
     env: {
@@ -266,6 +349,7 @@ function setup(record: Partial<PanelProjectRecord> | null = {}, options: SetupOp
       PANEL_USAGE: usage,
       ...(options.replays === false ? {} : { PANEL_REPLAYS: replays }),
       ...(options.chunks === false ? {} : { PANEL_REPLAY_CHUNKS: chunks }),
+      ...(projectObjects ? { PANEL_PROJECT: projectObjects } : {}),
       ...limiters,
       ...bundleFiles,
     } as never,
@@ -277,7 +361,7 @@ function setup(record: Partial<PanelProjectRecord> | null = {}, options: SetupOp
     await testApp.settled();
     return res;
   };
-  return { token, projectId, workspaceId, kv, stream, chunks, replays, usage, limiters, request };
+  return { token, projectId, workspaceId, kv, stream, chunks, replays, usage, limiters, projects: projectObjects, request };
 }
 
 let workspaces = 0;
@@ -784,6 +868,169 @@ describe('POST /e', () => {
       expect(res.status, message).toBe(status);
       expect(await errorOf(res)).toEqual({ code, message });
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The project state: identities, people, groups and the live view
+// ---------------------------------------------------------------------------
+
+/** A group profile operation (`group(type, key, props)`). */
+const groupSet = (type: string, key: string, props: Record<string, string | number | boolean | null> = {}) => ({ op: 'set', type, key, props });
+
+describe('POST /e with the project state', () => {
+  /** An event of the consenting visitor `a-browser`, in session `s-browser`. */
+  const visitor = (overrides: Partial<WireEvent> = {}) => event({ anon_id: 'a-browser', session_id: 's-browser', ...overrides });
+
+  it('links an $identify and applies the profile operations of a consenting visitor, an unreadable one costing only itself', async () => {
+    const { request, token, projectId, workspaceId, stream, projects } = setup({}, { projectState: true });
+    const ts = new Date().toISOString();
+    const people = [
+      { op: 'set', user_id: 'user-1', ts, props: { $email: 'Ada@Example.com', plan: 'pro' } },
+      { op: 'increment', user_id: 'user-1', ts, props: { logins: 1 } },
+      { op: 'set', user_id: '', ts, props: {} },
+    ];
+    const res = await request('/e', post({ ...batch(token, { consent: true, events: [visitor({ name: '$identify', user_id: 'user-1' })] }), people }));
+    expect(res.status).toBe(204);
+
+    expect(stream.sent.map((row) => row.name)).toEqual(['$identify']);
+    const object = projects!.get(projectId);
+    expect(await object.getPerson('a-browser')).toMatchObject({
+      userId: 'user-1',
+      email: 'ada@example.com',
+      properties: { plan: 'pro', logins: 1 },
+      anonIds: ['a-browser'],
+    });
+    expect(projects!.rows.identities).toEqual([
+      expect.objectContaining({ workspace_id: workspaceId, project_id: projectId, anon_id: 'a-browser', user_id: 'user-1' }),
+    ]);
+  });
+
+  it('applies no identity, profile or group operation without consent, but shows the visitor live', async () => {
+    const { request, token, projectId, stream, projects } = setup({}, { projectState: true });
+    const people = [{ op: 'set', user_id: 'user-1', ts: new Date().toISOString(), props: { plan: 'pro' } }];
+    const res = await request(
+      '/e',
+      post({ ...batch(token, { consent: false, events: [visitor({ name: '$identify', user_id: 'user-1' })] }), people, groups: [groupSet('company', 'acme')] }),
+    );
+    expect(res.status).toBe(204);
+
+    expect(stream.sent).toHaveLength(1);
+    const object = projects!.get(projectId);
+    expect(await object.hasIdentifiedUsers()).toBe(false);
+    expect(await object.getPerson('user-1')).toBeNull();
+    expect(await object.getGroup('company', 'acme')).toBeNull();
+    const live = await object.live();
+    expect(live.visitors).toBe(1);
+    expect(live.sessions[0]!.sessionId).toMatch(/^ck_/);
+  });
+
+  it('leaves an incomplete link alone, and still links when the events stream refuses the rows', async () => {
+    const { request, token, projectId, projects } = setup({}, { failingStream: true, projectState: true });
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const events = [
+      event({ event_id: 'evt-aaaaaaaa', name: '$identify', user_id: 'user-2' }),
+      visitor({ event_id: 'evt-bbbbbbbb', name: '$identify', user_id: 'user-1' }),
+    ];
+    expect((await request('/e', post(batch(token, { consent: true, events })))).status).toBe(204);
+    consoleError.mockRestore();
+
+    expect(projects!.rows.identities.map((row) => [row.anon_id, row.user_id])).toEqual([['a-browser', 'user-1']]);
+    // Nothing was written, so nobody is shown live.
+    expect((await projects!.get(projectId).live()).sessions).toEqual([]);
+  });
+
+  it('shows the session live, without the leave beacon, web vitals or an excluded page', async () => {
+    const { request, token, projectId, projects } = setup({ settings: { ...DEFAULT_PANEL_SETTINGS, excludedUrls: ['/admin/*'] } }, { projectState: true });
+    const events = [
+      visitor({ event_id: 'evt-aaaaaaaa', url: 'https://shop.example.com/pricing', title: 'Pricing' }),
+      visitor({ event_id: 'evt-bbbbbbbb', name: '$pageleave', scroll_depth: 10 }),
+      visitor({ event_id: 'evt-cccccccc', name: '$webvitals', props: { $lcp: 1200 } }),
+      visitor({ event_id: 'evt-dddddddd', url: 'https://shop.example.com/admin/users' }),
+    ];
+    expect((await request('/e', post(batch(token, { consent: true, events })))).status).toBe(204);
+
+    const live = await projects!.get(projectId).live();
+    expect(live.visitors).toBe(1);
+    expect(live.sessions).toEqual([
+      expect.objectContaining({ sessionId: 's-browser', distinctId: 'a-browser', path: '/pricing', title: 'Pricing', deviceType: 'desktop', pageviews: 1 }),
+    ]);
+  });
+
+  it('sends the first batch at once and collects the following ones until the interval has passed', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const start = Date.parse('2026-10-27T12:00:00.000Z');
+    vi.setSystemTime(start);
+    try {
+      const { request, token, projectId, projects } = setup({}, { projectState: true });
+      const page = (id: string, path: string) =>
+        request('/e', post(batch(token, { consent: true, events: [visitor({ event_id: id, url: `https://shop.example.com${path}` })] })));
+
+      await page('evt-aaaaaaaa', '/');
+      await page('evt-bbbbbbbb', '/a');
+      await page('evt-cccccccc', '/b');
+      expect((await projects!.get(projectId).live()).sessions).toEqual([expect.objectContaining({ path: '/', pageviews: 1 })]);
+
+      vi.setSystemTime(start + 5000);
+      await page('evt-dddddddd', '/c');
+      expect((await projects!.get(projectId).live()).sessions).toEqual([expect.objectContaining({ path: '/c', pageviews: 4 })]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('neither links nor shows an erased visitor', async () => {
+    const { request, token, projectId, workspaceId, projects } = setup({}, { projectState: true });
+    const object = projects!.get(projectId);
+    await object.erase({ workspaceId, projectId, userIdOrAnonId: 'a-erased' });
+    const events = [
+      event({ event_id: 'evt-aaaaaaaa', name: '$identify', anon_id: 'a-erased', user_id: 'user-1' }),
+      event({ event_id: 'evt-bbbbbbbb', anon_id: 'a-erased' }),
+    ];
+    expect((await request('/e', post(batch(token, { consent: true, events })))).status).toBe(204);
+
+    expect(projects!.rows.identities).toEqual([]);
+    expect(await object.hasIdentifiedUsers()).toBe(false);
+    expect((await object.live()).sessions).toEqual([]);
+  });
+
+  it('applies group operations sent with consent and keeps the $group_ properties of a type with a slot', async () => {
+    const { request, token, projectId, stream, projects } = setup({}, { projectState: true });
+    const groups = [groupSet('company', 'acme', { $name: 'Acme', plan: 'pro' }), { op: 'set', type: 'Bad-Type', key: 'k', props: {} }];
+    const res = await request('/e', post({ ...batch(token, { consent: true, events: [visitor({ props: { $group_company: 'acme' } })] }), groups }));
+    expect(res.status).toBe(204);
+
+    expect(await projects!.get(projectId).getGroup('company', 'acme')).toMatchObject({ groupType: 'company', groupKey: 'acme', properties: { $name: 'Acme', plan: 'pro' } });
+    expect(projects!.rows.groups).toEqual([expect.objectContaining({ project_id: projectId, group_type: 'company', group_key: 'acme', deleted: false })]);
+    expect(stream.sent[0]!.properties).toBe('{"$group_company":"acme"}');
+  });
+
+  it('keeps the $group_ properties of five types and drops a sixth, also when no operation names them', async () => {
+    const { request, token, projectId, stream, projects } = setup({}, { projectState: true });
+    const types = ['a', 'b', 'c', 'd', 'e'];
+    await request('/e', post({ ...batch(token, { consent: true }), groups: types.map((type) => groupSet(type, 'k')) }));
+    await request(
+      '/e',
+      post({
+        ...batch(token, { consent: true, events: [visitor({ event_id: 'evt-bbbbbbbb', props: { $group_a: 'k', $group_f: 'k', plan: 'pro' } })] }),
+        groups: [groupSet('f', 'k')],
+      }),
+    );
+    await request('/e', post(batch(token, { events: [event({ event_id: 'evt-cccccccc', props: { $group_f: 'k', $group_e: 'k' } })] })));
+
+    const object = projects!.get(projectId);
+    expect(await object.groupTypes()).toEqual(types);
+    expect(await object.getGroup('f', 'k')).toBeNull();
+    expect(stream.sent.slice(-2).map((row) => row.properties)).toEqual(['{"$group_a":"k","plan":"pro"}', '{"$group_e":"k"}']);
+  });
+
+  it('gives a type named only by an event property its slot, with or without consent', async () => {
+    const { request, token, projectId, stream, projects } = setup({}, { projectState: true });
+    await request('/e', post(batch(token, { events: [event({ props: { $group_workspace: 'w-1' } })] })));
+    await request('/e', post(batch(token, { events: [event({ event_id: 'evt-bbbbbbbb', props: { $group_workspace: 'w-2', $group_team: 't-1' } })] })));
+
+    expect(await projects!.get(projectId).groupTypes()).toEqual(['workspace', 'team']);
+    expect(stream.sent.map((row) => row.properties)).toEqual(['{"$group_workspace":"w-1"}', '{"$group_workspace":"w-2","$group_team":"t-1"}']);
   });
 });
 
@@ -1303,6 +1550,74 @@ describe.each(['/v1/track', '/v1/import'] as const)('POST %s', (route) => {
       expect(res.status, message).toBe(400);
       expect(await errorOf(res)).toEqual({ code, message });
     }
+  });
+});
+
+describe.each(['/v1/track', '/v1/import'] as const)('POST %s with the project state', (route) => {
+  it('links an $identify inside the time window and applies the profile operations', async () => {
+    const s = withKey({}, { projectState: true });
+    const ts = iso(Date.now());
+    const people = [
+      { op: 'set', user_id: 'user-1', ts, props: { $email: 'Ada@Example.com', plan: 'pro' } },
+      { op: 'increment', user_id: 'user-1', ts, props: { orders: 1 } },
+      { op: 'bogus' },
+    ];
+    const res = await s.request(
+      route,
+      send(
+        serverBody(
+          [
+            serverEvent({ name: '$identify', event_id: 'evt-identify-1', user_id: 'user-1', anon_id: 'a-browser' }),
+            serverEvent({ name: '$identify', event_id: 'evt-identify-2', distinct_id: 'user-2', user_id: 'user-2' }),
+            serverEvent({
+              name: '$identify',
+              event_id: 'evt-identify-3',
+              distinct_id: 'user-3',
+              user_id: 'user-3',
+              anon_id: 'a-old',
+              ts: iso(Date.now() - 6 * 365 * DAY_MS),
+            }),
+          ],
+          { people },
+        ),
+      ),
+    );
+    expect(await res.json()).toEqual({ accepted: 2, dropped: 1 });
+
+    expect(s.projects!.rows.identities.map((row) => [row.anon_id, row.user_id])).toEqual([['a-browser', 'user-1']]);
+    expect(await s.projects!.get(s.projectId).getPerson('a-browser')).toMatchObject({
+      userId: 'user-1',
+      email: 'ada@example.com',
+      properties: { plan: 'pro', orders: 1 },
+    });
+    // Server events are never shown live.
+    expect((await s.projects!.get(s.projectId).live()).sessions).toEqual([]);
+  });
+
+  it('applies group operations alone, and keeps the $group_ properties of the types it gives a slot', async () => {
+    const s = withKey({}, { projectState: true });
+    const alone = await s.request(route, send(serverBody([], { groups: [groupSet('company', 'acme', { $name: 'Acme' })] })));
+    expect(await alone.json()).toEqual({ accepted: 0, dropped: 0 });
+    expect(await s.projects!.get(s.projectId).getGroup('company', 'acme')).toMatchObject({ properties: { $name: 'Acme' } });
+
+    const withEvent = await s.request(
+      route,
+      send(serverBody([serverEvent({ event_id: 'evt-00000009', name: 'Invoice paid', props: { $group_company: 'acme', $group_team: 'blue' } })])),
+    );
+    expect(await withEvent.json()).toEqual({ accepted: 1, dropped: 0 });
+    expect(s.stream.sent[0]!.properties).toBe('{"$group_company":"acme","$group_team":"blue"}');
+    expect(await s.projects!.get(s.projectId).groupTypes()).toEqual(['company', 'team']);
+  });
+
+  it('links nothing and changes no profile when the stream refuses the rows', async () => {
+    const s = withKey({}, { failingStream: true, projectState: true });
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const people = [{ op: 'set', user_id: 'user-1', ts: iso(Date.now()), props: { plan: 'pro' } }];
+    const res = await s.request(route, send(serverBody([serverEvent({ name: '$identify', user_id: 'user-1', anon_id: 'a-browser' })], { people })));
+    consoleError.mockRestore();
+    expect(res.status).toBe(503);
+    expect(s.projects!.rows.identities).toEqual([]);
+    expect(await s.projects!.get(s.projectId).getPerson('user-1')).toBeNull();
   });
 });
 

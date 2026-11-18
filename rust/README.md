@@ -268,12 +268,18 @@ modules, each with conformance suites that reach every route:
   or Vercel's `x-vercel-ip-*` headers, else `country`, `region` and `city`
   stay null (Cloudflare's `request.cf` has no equivalent here). Mobile
   batches (`lib: "mobile"`) take their place and device columns from their
-  `$` properties. People and group operations (identify, `$set`,
-  `$groupidentify`, the group-type slots) wait on the PanelProject port:
-  they are checked and accepted, and events keep their properties as sent,
-  as panel-ingest without its `PANEL_PROJECT` binding. A project or secret
-  key record missing from the cache is read from the master registry; the
-  quota state is read from the cache, where the usage settlement writes it)
+  `$` properties. People and group operations (`$identify` links, profile
+  and group profile operations, the group-type slots that decide which
+  `$group_<type>` properties an event keeps) and the live view's touches go
+  where panel-ingest calls its `PanelProject` object, to the collector's
+  side of the project state: the operations on NATS (`panel.ops.v1.<ws>`,
+  applied by `weldsuite consume`'s `panel-state`), the group types, erased
+  ids and live view in Valkey, never a tenant database; without Valkey or
+  NATS they are checked and accepted, and events keep their properties as
+  sent, as panel-ingest without the binding. A project or secret key record
+  missing from the cache is read from the master registry (with the replay
+  tier of the workspace's plan); the quota state is read from the cache,
+  where the usage settlement writes it)
 - **connect** (WeldConnect: workflows, their engine as the
   `connect.execute-workflow` job and the scheduled runs, workflow
   integrations and webhooks, GitHub, the CRM and ad integrations, and the
@@ -1000,7 +1006,13 @@ required then); bad rows go to `PANEL_DLQ`. `NATS_PANEL_EVENTS_MAX_AGE_DAYS`
 consume applies it to an existing stream, which `serve` never changes. The
 nightly `weldsuite cron panel-maintenance` keeps the tables (erasure from
 `panel_erasure_ledger`, retention by plan, compaction, snapshot expiry, the
-orphan sweep). Without the bucket WeldPanel analytics is off.
+orphan sweep), deletes what Global's R2 lifecycle rules delete from the
+replays bucket (recording chunks under `replays/30d/` and `replays/90d/`
+after 30 and 90 days, a favourite's `replays/keep/` copies after 396,
+heatmap snapshots after 90, each counted from when it was written) and,
+with `VALKEY_URL`, moves the collector's project records to the replay tier
+of their workspace's plan (`90d` on Scale and Enterprise, `30d` otherwise
+and without billing). Without the bucket WeldPanel analytics is off.
 
 ## WeldMeet on LiveKit
 

@@ -1069,6 +1069,10 @@ pub(crate) fn panel_collector(state: &AppState) -> Router {
             Arc::new(weldsuite_panel::CacheRateLimiter::new(cache))
                 as Arc<dyn weldsuite_panel::RateLimiter>
         }),
+        // The project state's collector side (`crate::panel_project`):
+        // operations on NATS, the live view in Valkey; conformance builds
+        // run the test's `PANEL_PROJECT`, per request.
+        project_state: state.panel_collector_state.clone().filter(|_| !conformance),
     };
     let bundle = |variable: &str, default: &str| {
         std::env::var(variable)

@@ -26,8 +26,8 @@
 //!
 //! Callers: panel-api's routes (queries read [`PanelProjectState::erased_ids`]
 //! and [`PanelProjectState::has_identified_users`]; people, groups, live and
-//! erasure the rest) and, later, the collector (identify, profile and group
-//! operations, live touches).
+//! erasure the rest) and the collector (`collector::project`: identify,
+//! profile and group operations, live touches).
 
 use std::sync::Arc;
 

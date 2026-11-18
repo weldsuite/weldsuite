@@ -118,10 +118,10 @@ type SqlValue = string | number | null;
 
 /**
  * Durable Object storage with a real SQLite behind `storage.sql` (node's
- * built-in), so the PanelProject object runs its own queries in the tests.
+ * built-in), so the PanelProject object runs its own queries in the tests;
+ * over `db` when given (a copy of another object's, for a fork).
  */
-export function fakeSqlContext() {
-  const db = new DatabaseSync(':memory:');
+export function fakeSqlContext(db: DatabaseSync = new DatabaseSync(':memory:')) {
   let alarm: number | null = null;
   const sql = {
     exec: (query: string, ...bindings: SqlValue[]) => {
