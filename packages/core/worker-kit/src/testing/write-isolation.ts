@@ -15,7 +15,7 @@
 import { BUCKET_BINDINGS, isBucketLike, type BucketLike } from './bucket-bridge';
 import { KV_BINDINGS, isKvLike, kvText, type KvLike } from './kv-bridge';
 import { LEDGER_BINDINGS } from './ledger-bridge';
-import { PIPELINE_BINDINGS } from './pipeline-bridge';
+import { PIPELINE_BINDINGS, QUEUE_BINDINGS, isPipelineLike } from './pipeline-bridge';
 import { RATE_LIMIT_BINDINGS } from './rate-limit-bridge';
 
 interface ScratchObject {
@@ -159,6 +159,12 @@ export function isolatedEnv(env: Record<string, unknown>): Record<string, unknow
   for (const name of [...LEDGER_BINDINGS, ...PIPELINE_BINDINGS, ...RATE_LIMIT_BINDINGS]) {
     const copy = forkOf(env[name], isolated);
     if (copy !== undefined) isolated[name] = copy;
+  }
+  // A queue without a copy of its own drops the TypeScript run's messages
+  // (they are still recorded and compared, ./pipeline-bridge.ts): only
+  // Rust's reach the test's queue.
+  for (const name of QUEUE_BINDINGS) {
+    if (isolated[name] === env[name] && isPipelineLike(env[name])) isolated[name] = { send: async () => undefined };
   }
   return isolated;
 }

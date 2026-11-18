@@ -3618,6 +3618,42 @@
       "excludedRoutes": []
     },
     {
+      "name": "panel: people",
+      "module": "panel",
+      "workspace": "apps/workers/panel-api",
+      "tests": [
+        "src/routes/people.test.ts",
+        "src/routes/groups.test.ts",
+        "src/routes/sessions.test.ts",
+        "src/routes/heatmaps.test.ts"
+      ],
+      "paths": [
+        "apps/workers/panel-api/src/",
+        "packages/domains/panel/src/",
+        "packages/clients/app-api-client/src/schemas/weldpanel-query.ts",
+        "packages/clients/app-api-client/src/schemas/weldpanel-objects.ts",
+        "packages/clients/app-api-client/src/schemas/weldpanel-groups.ts",
+        "packages/core/worker-kit/src/basin.ts",
+        "packages/core/worker-kit/src/testing/conformance-schemas-panel-visitors.ts",
+        "packages/core/worker-kit/src/testing/pipeline-bridge.ts",
+        "packages/core/worker-kit/src/testing/bucket-bridge.ts",
+        "packages/core/worker-kit/src/testing/conformance-binary.ts",
+        "rust/modules/panel/",
+        "rust/crates/panel-domain/",
+        "rust/crates/zod/"
+      ],
+      "excludedRoutes": [
+        {
+          "route": "GET /api/panel/sessions/:id/summary",
+          "reason": "Served by Rust (the cached summary), but its test is src/routes/summaries.test.ts, which also generates summaries with AI (the POST below); it joins a suite when WeldPanel's AI summaries are ported."
+        },
+        {
+          "route": "POST /api/panel/sessions/:id/summary",
+          "reason": "An AI summary (services/ai-summaries.ts): not ported yet; its test is src/routes/summaries.test.ts, which joins a suite when WeldPanel's AI summaries are ported."
+        }
+      ]
+    },
+    {
       "name": "mcp-server",
       "module": "mcp-server",
       "workspace": "apps/workers/mcp-server",

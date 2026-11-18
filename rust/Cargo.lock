@@ -8646,6 +8646,7 @@ version = "0.0.0"
 dependencies = [
  "axum",
  "bytes",
+ "flate2",
  "futures-util",
  "getrandom 0.4.3",
  "hex",

@@ -3,10 +3,17 @@
  * that answers by what the SQL asks for, the PanelProject Durable Object, an
  * in-memory KV, queues, and an event log that orders what happened across them
  * (erasure's order matters).
+ *
+ * In conformance mode every request runs on the Hono app and on the Rust
+ * backend (`@weldsuite/worker-kit/testing/conformance`): both ask the fake
+ * Basin, so a count of statements is per run ({@link RUNS}), and the
+ * TypeScript run of a write works on a `fork()` of the project object, so the
+ * calls the tests count are Rust's.
  */
 
-import { vi } from 'vitest';
+import { expect, vi } from 'vitest';
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
+import { conformanceTarget } from '@weldsuite/worker-kit/testing/conformance';
 import { createMemoryR2 } from '@weldsuite/worker-kit/testing/r2';
 import type {
   PanelErasure,
@@ -21,6 +28,14 @@ export const PROJECT = 'pnp_a';
 
 /** Order in which the fakes were called, for the tests that care. */
 export const callLog: string[] = [];
+
+/** How many backends answer each request: 2 in conformance mode (the Hono app, then Rust). */
+export const RUNS = conformanceTarget() ? 2 : 1;
+
+/** A new record's id: the response's, or in conformance mode (Rust's response, TypeScript's event) any with its prefix. */
+export function minted(id: string): unknown {
+  return conformanceTarget() ? expect.stringMatching(new RegExp(`^${id.split('_')[0]}_`)) : id;
+}
 
 // ---------------------------------------------------------------------------
 // Basin
@@ -165,8 +180,23 @@ export class FakeProjectState {
     this.eraseResult = null;
   }
 
-  /** A Durable Object namespace whose object is this state. */
-  namespace() {
+  /** A copy of the state, whose calls go to its own logs (not `callLog`). */
+  private copy(): FakeProjectState {
+    const copy = new FakeProjectState();
+    copy.people = structuredClone(this.people);
+    copy.erased = [...this.erased];
+    copy.identified = this.identified;
+    copy.liveSessions = structuredClone(this.liveSessions);
+    copy.eraseResult = this.eraseResult;
+    return copy;
+  }
+
+  /**
+   * A Durable Object namespace whose object is this state. `fork()` is for
+   * conformance mode: the TypeScript run of a write gets a copy, while the
+   * Rust backend changes (and logs on) this one.
+   */
+  namespace(log = true) {
     const state = this;
     const stub = {
       erasedIds: async () => state.erased,
@@ -183,7 +213,7 @@ export class FakeProjectState {
       findByEmail: async (email: string) => state.people.filter((p) => p.email === email.toLowerCase()),
       live: async () => ({ visitors: state.liveSessions.length, sessions: state.liveSessions }),
       erase: async (input: { userIdOrAnonId: string }): Promise<PanelErasure> => {
-        callLog.push('object.erase');
+        if (log) callLog.push('object.erase');
         state.eraseCalls.push({ userIdOrAnonId: input.userIdOrAnonId });
         const result = state.eraseResult ? state.eraseResult(input.userIdOrAnonId) : { userId: null, erasedIds: [input.userIdOrAnonId] };
         state.erased.push(...result.erasedIds);
@@ -194,6 +224,7 @@ export class FakeProjectState {
     return {
       idFromName: (name: string) => name as unknown as DurableObjectId,
       get: () => stub,
+      fork: () => state.copy().namespace(false),
     };
   }
 }

@@ -24,7 +24,7 @@ import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/test
 import { schema, type AnyMasterDatabase, type Database } from '@weldsuite/worker-kit/db';
 import { DEFAULT_PANEL_SETTINGS } from '@weldsuite/panel-domain/settings';
 import type { PanelGroupDto, PanelGroupProfileDto, PanelGroupTypeDto } from '@weldsuite/app-api-client/schemas/weldpanel-groups';
-import { BASIN_ENV, FakeBasin, PROJECT, WORKSPACE, entityQueue, eventRow, memoryKv } from '../test-support/fakes';
+import { BASIN_ENV, FakeBasin, PROJECT, RUNS, WORKSPACE, entityQueue, eventRow, memoryKv, minted } from '../test-support/fakes';
 import { FakeGroupState, group } from '../test-support/groups-fakes';
 
 const state = vi.hoisted(() => ({ master: null as unknown }));
@@ -162,7 +162,8 @@ describe('GET /api/panel/group-types', () => {
       createdAt: null,
       updatedAt: null,
     });
-    expect(object.objects).toEqual([PROJECT]);
+    // Once per backend in conformance mode (a read runs on both).
+    expect(object.objects).toEqual(Array.from({ length: RUNS }, () => PROJECT));
   });
 
   it('still lists the rows without the object binding, none collecting', async () => {
@@ -193,8 +194,8 @@ describe('POST /api/panel/group-types', () => {
     const [row] = await db.select().from(panelGroupTypes).where(eq(panelGroupTypes.id, created.id ?? ''));
     expect(row?.projectId).toBe(PROJECT);
     expect(events.map((e) => e.eventType)).toEqual(['panel_group_type:created']);
-    expect(events[0]!.entityId).toBe(created.id);
-    expect(events[0]!.data).toEqual({ id: created.id, projectId: PROJECT, groupType: 'company', nameSingular: 'Company', namePlural: 'Companies' });
+    expect(events[0]!.entityId).toEqual(minted(created.id ?? ''));
+    expect(events[0]!.data).toEqual({ id: minted(created.id ?? ''), projectId: PROJECT, groupType: 'company', nameSingular: 'Company', namePlural: 'Companies' });
   });
 
   it('refuses a duplicate, a bad type or property, and a project of another workspace', async () => {
@@ -384,7 +385,7 @@ describe('GET /api/panel/groups/:type/:key', () => {
       { distinctId: 'anon_2', lastSeen: '2026-11-13T09:00:00.000Z', eventCount: 12 },
     ]);
 
-    expect(basin.sent).toHaveLength(3);
+    expect(basin.sent).toHaveLength(3 * RUNS);
     for (const sql of basin.sent) {
       expect(sql).toContain(`workspace_id = '${WORKSPACE}'`);
       expect(sql).toContain(`project_id = '${PROJECT}'`);

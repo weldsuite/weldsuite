@@ -29,11 +29,13 @@ import {
   FakeBasin,
   FakeProjectState,
   PROJECT,
+  RUNS,
   WORKSPACE,
   chunkKey,
   entityQueue,
   gunzipText,
   gzipBytes,
+  minted,
   replaysBucket,
 } from '../test-support/fakes';
 
@@ -147,7 +149,7 @@ describe('heatmap page groups', () => {
       ['panel_heatmap_page', 'updated'],
       ['panel_heatmap_page', 'deleted'],
     ]);
-    expect(events[0]?.data).toMatchObject({ id: page.id, projectId: PROJECT, urlPattern: '/products/*' });
+    expect(events[0]?.data).toMatchObject({ id: minted(page.id), projectId: PROJECT, urlPattern: '/products/*' });
   });
 
   it('checks the permissions and the input', async () => {
@@ -243,7 +245,7 @@ describe('GET /heatmaps/pages/:id/snapshot', () => {
   it('scopes the search to the workspace and project, and to the page group and device class', async () => {
     await knowRecording();
     await heatmaps(WATCH).request(`${BASE}/pages/pnh_1/snapshot?deviceClass=mobile`);
-    expect(basin.sent).toHaveLength(2);
+    expect(basin.sent).toHaveLength(2 * RUNS);
     for (const sql of basin.sent) {
       expect(sql).toContain(`workspace_id = '${WORKSPACE}'`);
       expect(sql).toContain(`project_id = '${PROJECT}'`);

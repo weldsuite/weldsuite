@@ -445,6 +445,9 @@ const WRITING_READS: RegExp[] = [
   /^\/public\/forms\/f\/[^/?]+(\?|$)/,
   // WeldPanel: the lexicon's names-seen scan, cached in KV on a miss.
   /^\/api\/panel\/lexicon(\?|$)/,
+  // WeldPanel: a recording chunk's key, looked up and its session's manifest
+  // cached in KV on a miss.
+  /^\/api\/panel\/sessions\/[^/?]+\/chunks\/[^/?]+(\?|$)/,
   // WeldPanel: a public share link's page counts the view (at most once a minute).
   /^\/public\/panel\/share\/[^/?]+(\?|$)/,
 ];

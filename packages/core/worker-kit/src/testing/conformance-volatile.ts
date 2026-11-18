@@ -500,6 +500,17 @@ const ROUTES: VolatileRoute[] = [
   ...[
     { method: 'POST', route: '/api/panel/query' },
     { method: 'GET', route: '/api/panel/lexicon' },
+    // And the raw reads of people, groups, recordings and heatmap snapshots.
+    { method: 'GET', route: '/api/panel/people' },
+    { method: 'GET', route: '/api/panel/people/by-email' },
+    { method: 'GET', route: '/api/panel/people/:distinctId' },
+    { method: 'DELETE', route: '/api/panel/people/:distinctId' },
+    { method: 'GET', route: '/api/panel/groups/:type/:key' },
+    { method: 'GET', route: '/api/panel/sessions/:id' },
+    { method: 'GET', route: '/api/panel/sessions/:id/chunks/:seq' },
+    { method: 'PUT', route: '/api/panel/sessions/:id/favorite' },
+    { method: 'DELETE', route: '/api/panel/sessions/:id/favorite' },
+    { method: 'GET', route: '/api/panel/heatmaps/pages/:id/snapshot' },
     { method: 'POST', route: '/public/panel/share/:token/results' },
   ].map(({ method, route }) => ({
     method,

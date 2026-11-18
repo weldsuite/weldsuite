@@ -21,6 +21,7 @@ weldsuite-ports = { workspace = true }
 weldsuite-zod = { workspace = true }
 axum = { workspace = true, features = ["json", "query"] }
 bytes = { workspace = true }
+flate2 = { workspace = true }
 futures-util = { workspace = true }
 getrandom = { workspace = true }
 hex = { workspace = true }
@@ -28,7 +29,7 @@ http = { workspace = true }
 http-body-util = { workspace = true }
 regex = { workspace = true }
 serde = { workspace = true }
-serde_json = { workspace = true }
+serde_json = { workspace = true, features = ["raw_value"] }
 sha2 = { workspace = true }
 sqlx = { workspace = true }
 time = { workspace = true, features = ["formatting", "parsing", "macros"] }

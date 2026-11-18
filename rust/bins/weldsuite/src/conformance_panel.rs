@@ -408,6 +408,114 @@ impl EventSink for Stream {
     }
 }
 
+impl PanelBridges {
+    /// The test's `PANEL_MAINTENANCE` queue (served by the pipeline bridge,
+    /// one message per call), or none when the test binds none.
+    pub(crate) fn erasure_queue(
+        &self,
+        pipelines: &HashMap<String, String>,
+    ) -> weldsuite_panel::RequestErasureQueue {
+        weldsuite_panel::RequestErasureQueue(pipelines.get("PANEL_MAINTENANCE").map(|bridge| {
+            Arc::new(Stream {
+                bridge: bridge.trim_end_matches('/').to_owned(),
+                binding: "PANEL_MAINTENANCE",
+                client: self.client.clone(),
+            }) as Arc<dyn weldsuite_panel::ErasureQueue>
+        }))
+    }
+
+    /// The test's `PANEL_REPLAYS` bucket over the bucket bridge, its deletes
+    /// sent as R2's `delete(keys)`: one call per batch, as panel-api makes.
+    pub(crate) fn replays(
+        &self,
+        bridge: &str,
+        store: Arc<dyn DynFileStore>,
+    ) -> Arc<dyn DynFileStore> {
+        Arc::new(BatchDeletes {
+            bridge: bridge.trim_end_matches('/').to_owned(),
+            store,
+            client: self.client.clone(),
+        })
+    }
+}
+
+impl weldsuite_panel::ErasureQueue for Stream {
+    fn send<'a>(
+        &'a self,
+        message: &'a weldsuite_panel::EraseMessage,
+    ) -> BoxFuture<'a, Result<(), PortError>> {
+        Box::pin(async move {
+            let record = serde_json::to_value(message).map_err(PortError::Json)?;
+            EventSink::send(self, std::slice::from_ref(&record)).await
+        })
+    }
+}
+
+/// A bucket over the bucket bridge whose `delete_many` is one
+/// `POST /delete-many` (the stub's `delete(keys)`), as R2 deletes a batch.
+struct BatchDeletes {
+    bridge: String,
+    store: Arc<dyn DynFileStore>,
+    client: Client,
+}
+
+impl weldsuite_ports::FileStore for BatchDeletes {
+    async fn put(
+        &self,
+        key: &str,
+        bytes: Vec<u8>,
+        options: &weldsuite_ports::PutOptions,
+    ) -> Result<Option<weldsuite_ports::Stored>, PortError> {
+        self.store.put_boxed(key, bytes, options).await
+    }
+
+    async fn get(&self, key: &str) -> Result<Option<weldsuite_ports::StoredObject>, PortError> {
+        self.store.get_boxed(key).await
+    }
+
+    async fn get_range(
+        &self,
+        key: &str,
+        range: weldsuite_ports::ByteRange,
+    ) -> Result<Option<weldsuite_ports::RangedObject>, PortError> {
+        self.store.get_range_boxed(key, range).await
+    }
+
+    async fn head(&self, key: &str) -> Result<Option<weldsuite_ports::ObjectInfo>, PortError> {
+        self.store.head_boxed(key).await
+    }
+
+    async fn delete(&self, key: &str) -> Result<(), PortError> {
+        self.store.delete_boxed(key).await
+    }
+
+    async fn delete_many(&self, keys: &[String]) -> Result<(), PortError> {
+        if keys.is_empty() {
+            return Ok(());
+        }
+        let response = self
+            .client
+            .post(format!("{}/delete-many", self.bridge))
+            .header("content-type", "application/json")
+            .body(json!({ "keys": keys }).to_string())
+            .send()
+            .await
+            .map_err(PortError::backend)?;
+        if response.status().is_success() {
+            Ok(())
+        } else {
+            Err(PortError::backend(format!(
+                "the bucket answered {} to a batch delete",
+                response.status()
+            )))
+        }
+    }
+
+    async fn list(&self, prefix: &str) -> Result<Vec<weldsuite_ports::ListedObject>, PortError> {
+        self.store.list_boxed(prefix).await
+    }
+}
+
 /// The test's rate-limiting bindings, by name; one it doesn't bind lets
 /// every request through, as the worker without it does.
 struct Limiter {

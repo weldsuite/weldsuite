@@ -43,7 +43,22 @@ export class FakeGroupState {
     this.deleteCalls = [];
   }
 
-  /** A Durable Object namespace whose object (for every project) is this state. */
+  /** A copy of the slots and profiles, with its own (empty) call records. */
+  private copy(): FakeGroupState {
+    const copy = new FakeGroupState();
+    copy.types = [...this.types];
+    copy.groups = structuredClone(this.groups);
+    copy.erased = [...this.erased];
+    copy.identified = this.identified;
+    copy.maxTypes = this.maxTypes;
+    return copy;
+  }
+
+  /**
+   * A Durable Object namespace whose object (for every project) is this
+   * state. `fork()` is for conformance mode: the TypeScript run of a write
+   * gets a copy, while the Rust backend changes (and is recorded on) this one.
+   */
   namespace() {
     const state = this;
     const stub = {
@@ -89,6 +104,7 @@ export class FakeGroupState {
         return name as unknown as DurableObjectId;
       },
       get: () => stub,
+      fork: () => state.copy().namespace(),
     };
   }
 }

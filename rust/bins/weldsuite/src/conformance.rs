@@ -449,12 +449,14 @@ impl Pools {
                     replays: context
                         .files
                         .get("PANEL_REPLAYS")
-                        .map(|url| self.buckets.store(url)),
+                        .map(|url| self.panel.replays(url, self.buckets.store(url))),
                 }),
         );
         // WeldPanel's project state (`PanelProject`): the test's
         // `PANEL_PROJECT` namespace, or none.
         extensions.insert(self.panel.project_state(&context.ledgers));
+        // And its erasure queue (`PANEL_MAINTENANCE`), or none.
+        extensions.insert(self.panel.erasure_queue(&context.pipelines));
         // WeldPanel's public share links: the test's workspace lookup (its
         // tenant database for what the lookup finds) and its rate limiter.
         if let Ok(db) = self.get(&context.database_url) {

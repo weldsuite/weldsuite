@@ -15,6 +15,8 @@
  *   GET    /list?prefix=…&cursor=…   `bucket.list({ prefix, cursor, limit: 1000 })`
  *                          as `{ keys, truncated, cursor }` (a stub without
  *                          `list`: 501)
+ *   POST   /delete-many    `{ keys }`: `bucket.delete(keys)`, R2's batch delete
+ *                          in one call (WeldPanel's replays bucket)
  *
  * `Content-Type` and `Content-Disposition` carry the object's HTTP metadata,
  * `x-meta-<name>` its custom metadata, `Content-Length` its size and `ETag`
@@ -169,6 +171,12 @@ async function handle(bucket: BucketLike, req: IncomingMessage, res: ServerRespo
   const url = new URL(req.url ?? '/', 'http://127.0.0.1');
   if (url.pathname === '/list' && req.method === 'GET') {
     await handleList(bucket, url, res);
+    return;
+  }
+  if (url.pathname === '/delete-many' && req.method === 'POST') {
+    const { keys } = JSON.parse(new TextDecoder().decode(await readBody(req)) || '{}') as { keys?: string[] };
+    await bucket.delete(keys ?? []);
+    res.writeHead(204).end();
     return;
   }
   const key = url.searchParams.get('key');

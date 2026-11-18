@@ -634,6 +634,17 @@ fn panel_state(state: &AppState) -> weldsuite_panel::PanelState {
         // The tenant-table adapter is not built yet: queries answer 503, as
         // panel-api does without `PANEL_PROJECT`.
         project_state: None,
+        // Global's replays bucket inside the panel bucket; conformance
+        // builds use the test's `PANEL_REPLAYS`, per request.
+        replays: state
+            .infra
+            .panel_files
+            .clone()
+            .filter(|_| !conformance)
+            .map(|bucket| {
+                Arc::new(weldsuite_panel::PanelBucketReplays::new(bucket))
+                    as Arc<dyn weldsuite_ports::DynFileStore>
+            }),
         // A comment's in-app notification. The conformance tests mock
         // `createAndDeliverNotification`, so the Worker publishes nothing
         // there; conformance builds write the notification without the publish.
@@ -652,7 +663,8 @@ fn panel_state(state: &AppState) -> weldsuite_panel::PanelState {
 /// their secret keys), `/api/panel/query`, `/api/panel/lexicon` and the saved
 /// objects: reports, dashboards, cohorts, annotations, comments, custom
 /// events, computed properties, path rules, group types, metric trees and
-/// share links.
+/// share links; and the visitor routes: people (with erasure), groups,
+/// sessions and recordings, heatmaps and the live view.
 fn panel(router: Router<AppState>, state: &AppState) -> Router<AppState> {
     if !mounts("panel") {
         return router;
@@ -714,8 +726,26 @@ fn panel(router: Router<AppState>, state: &AppState) -> Router<AppState> {
         )
         .nest(
             "/panel/share-links",
-            weldsuite_panel::share_links_router(panel, gate),
+            weldsuite_panel::share_links_router(panel.clone(), gate),
         )
+        // People (with erasure), groups, recordings, heatmaps and live.
+        .nest(
+            "/panel/people",
+            weldsuite_panel::people_router(panel.clone(), gate),
+        )
+        .nest(
+            "/panel/groups",
+            weldsuite_panel::groups_router(panel.clone(), gate),
+        )
+        .nest(
+            "/panel/sessions",
+            weldsuite_panel::sessions_router(panel.clone(), gate),
+        )
+        .nest(
+            "/panel/heatmaps",
+            weldsuite_panel::heatmaps_router(panel.clone(), gate),
+        )
+        .nest("/panel/live", weldsuite_panel::live_router(panel, gate))
 }
 
 /// WeldForms (`weldsuite-forms`): forms-api's `/api/forms`, with the
