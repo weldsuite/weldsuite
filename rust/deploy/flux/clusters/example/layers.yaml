@@ -1,13 +1,13 @@
 # An example cluster's layers, the way WeldSuite runs its own: in order, chart
-# sources, operators and the ingress, the encrypted secrets, Postgres and the
+# sources, operators and the ingress, the secrets, Postgres and the
 # issuer (with the MTA's database after it, configs-extra), the services, and
 # the weldsuite server, with video (LiveKit) next to it, and the monitoring
 # and logging layers (weldsuite-documentation/plans/eu-observability.md). Copy clusters/example
 # to clusters/<your cluster> and change the paths below that name example.
 #
 # One source: GitRepository flux-system, your copy of this repository (a fork
-# or a mirror), which holds your cluster folder and your encrypted secrets
-# next to the base layers. `flux create kustomization flux-system ...
+# or a mirror), which holds your cluster folder next to the base layers; the
+# secrets' values are in your secret store, never in the repository. `flux create kustomization flux-system ...
 # --path=./rust/deploy/flux/clusters/<your cluster>` applies this directory
 # (rust/deploy/hetzner/README.md, step 6).
 apiVersion: kustomize.toolkit.fluxcd.io/v1
@@ -44,8 +44,13 @@ spec:
     kind: GitRepository
     name: flux-system
 ---
-# Your secrets, encrypted with SOPS (age): every Secret the layers expect is
-# in secrets/examples/secrets.example.yaml.
+# The Secrets: the ExternalSecrets in secrets/, which External Secrets
+# Operator fills from this cluster's secret store (SECRET_STORE_URL in
+# cluster-settings.yaml; its read-only token is the one Secret put in by
+# hand, rust/deploy/hetzner/README.md, step 6). The components are the
+# optional parts this cluster runs (secrets/kustomization.yaml lists them).
+# The layer is ready once every Secret is written, so Postgres and the rest
+# find theirs; until the store answers it tries again every few minutes.
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
@@ -55,15 +60,29 @@ spec:
   dependsOn:
     - name: controllers
   interval: 1h
-  path: ./rust/deploy/flux/secrets/example
+  retryInterval: 2m
+  path: ./rust/deploy/flux/secrets
+  components:
+    - mta
+    - monitoring
+    - logging
   prune: true
+  wait: true
+  timeout: 10m
   sourceRef:
     kind: GitRepository
     name: flux-system
-  decryption:
-    provider: sops
-    secretRef:
-      name: sops-age
+  postBuild:
+    substituteFrom:
+      - kind: ConfigMap
+        name: cluster-settings
+  healthCheckExprs:
+    - apiVersion: external-secrets.io/v1
+      kind: ClusterSecretStore
+      current: status.conditions.exists(c, c.type == 'Ready' && c.status == 'True')
+    - apiVersion: external-secrets.io/v1
+      kind: ExternalSecret
+      current: status.conditions.exists(c, c.type == 'Ready' && c.status == 'True')
 ---
 # The issuer, the Postgres clusters, poolers and backups. A cluster's own
 # sizing or restore goes in patches here, on top of configs/base.

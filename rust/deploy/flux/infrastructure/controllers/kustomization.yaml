@@ -29,3 +29,6 @@ configMapGenerator:
   - name: metrics-server-values
     namespace: kube-system
     files: [values.yaml=values/metrics-server.yaml]
+  - name: external-secrets-values
+    namespace: external-secrets
+    files: [values.yaml=values/external-secrets.yaml]

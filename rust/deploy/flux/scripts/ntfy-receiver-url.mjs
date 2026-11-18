@@ -10,7 +10,7 @@
 //
 //   node rust/deploy/flux/scripts/ntfy-receiver-url.mjs https://ntfy.sh/my-critical 5 https://grafana.example.com
 //
-// fill-secrets.mjs reads it from ALERT_CRITICAL_URL / ALERT_WARNING_URL:
+// seed-secrets.mjs reads it from ALERT_CRITICAL_URL / ALERT_WARNING_URL:
 //
 //   ALERT_CRITICAL_URL="$(node rust/deploy/flux/scripts/ntfy-receiver-url.mjs https://ntfy.sh/my-critical 5)"
 const [topic, priority, grafana] = process.argv.slice(2);

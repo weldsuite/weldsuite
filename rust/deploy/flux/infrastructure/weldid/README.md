@@ -15,7 +15,7 @@ only the switch layer makes.
 | Piece | Path | Flux Kustomization (clusters/example) |
 |---|---|---|
 | The namespace (restricted) | `namespace/` | `weldid-namespace` (`weldid.yaml`) |
-| WeldID's Secrets (SOPS) | `secrets/<cluster>/weldid/` | `weldid-secrets` (`weldid.yaml`) |
+| WeldID's Secrets (ExternalSecrets from the cluster's secret store) | `../../secrets/weldid/` | `weldid-secrets` (`weldid.yaml`) |
 | Chart source, release and values, `weldid-db` with backups, the `auth.` certificate, monitors and alerts | here | `weldid` (`weldid.yaml`) |
 | The switch: platform, admin console and Grafana on WeldID; WeldID on `auth.`, Zitadel off it | `../../apps/weldid-switch/` | `weldid-switch` (`weldid-switch.yaml`) |
 
@@ -35,21 +35,22 @@ while Zitadel serves `auth.<domain>`. Nobody signs in through it yet.
    below), and `WELDID_BACKEND_KEY_X` / `_Y` from step 2.
    `WELDID_MAIL_FROM` only if the platform sends from another address than
    the chart's `notifications@mail.weldsuite.org`.
-2. **Secrets**, next to the cluster's other secrets:
+2. **Secrets**, in the cluster's secret store: `seed-secrets.mjs` adds
+   WeldID's entry, `weldsuite/weldid`, with the store's operator token
+   (`rust/deploy/hetzner/README.md`, "Filling the store"):
 
    ```bash
-   SOPS_AGE_KEY_FILE=~/<cluster>.agekey node rust/deploy/flux/scripts/fill-secrets.mjs \
-     --weldid --main rust/deploy/flux/secrets/<cluster>/secrets.sops.yaml \
-     rust/deploy/flux/secrets/<cluster>/weldid/weldid.sops.yaml
-   sops --encrypt --in-place rust/deploy/flux/secrets/<cluster>/weldid/weldid.sops.yaml
+   SECRET_STORE_URL=https://secrets.<domain> SECRET_STORE_TOKEN=… \
+     node rust/deploy/flux/scripts/seed-secrets.mjs
    ```
 
-   It prints `WELDID_BACKEND_KEY_X` and `_Y` (step 1). Copy
-   `secrets/example/weldid/kustomization.yaml` there and list the file in
-   it. Put `WELDID_MASTER_KEY` in the password manager.
+   It prints `WELDID_BACKEND_KEY_X` and `_Y` (step 1) when it makes the
+   key. Put `MASTER_KEY` (WeldID's `WELDID_MASTER_KEY`) in the password
+   manager. What WeldID shares with the platform it reads from the
+   platform's entries, so there is nothing to copy.
 3. **Image pull.** `ghcr.io/weldsuite/weldid` and its chart are private
-   until WeldID 1.0. The `weldid/registry` Secret takes the same login as
-   `weldsuite/registry` (the script copies it), so that account must be able
+   until WeldID 1.0. The `weldid/registry` Secret takes the registry component's
+   login (the store's `weldsuite/registry`), so that account must be able
    to read the weldid packages: give its token `read:packages` and the
    account access to the packages (each package's settings on GitHub,
    "Manage access"). Or make both packages public, then delete the Secret
@@ -84,8 +85,8 @@ while Zitadel serves `auth.<domain>`. Nobody signs in through it yet.
 All at once and reversibly, once WeldID is ready:
 
 1. `weldsuite-env`: `ADMIN_OIDC_CLIENT_ID` becomes `weldsuite-admin`
-   (`sops edit` the cluster's secrets file). Its secret stays: WeldID has the
-   same one (step 2 copied it). Grafana keeps `grafana-oidc` as is: the
+   (`bao kv patch secret/weldsuite/server ADMIN_OIDC_CLIENT_ID=weldsuite-admin`
+   in the store). Its secret stays: WeldID reads the same one. Grafana keeps `grafana-oidc` as is: the
    switch sets its client id. The staff roster's rows are bound to their
    Zitadel accounts (`admin_users.console_subject`), which no WeldID account
    matches; unbind them, so each binds to its WeldID staff account by email
@@ -125,8 +126,9 @@ Back to Zitadel: unlist `weldid-switch.yaml`, put `ADMIN_OIDC_CLIENT_ID` and
 
 ## Secrets
 
-`secrets/examples/weldid.example.yaml` lists them; `fill-secrets.mjs
---weldid` writes them. Where each value comes from:
+`../../secrets/weldid/weldid.yaml` writes them from the store
+(`../../secrets/store.example.yaml`, `weldsuite/weldid` and the platform's
+entries). Where each value comes from:
 
 | Secret | Key | Value |
 |---|---|---|
@@ -144,22 +146,12 @@ Back to Zitadel: unlist `weldid-switch.yaml`, put `ADMIN_OIDC_CLIENT_ID` and
 **The admin API key's public half** is not a secret: WeldID's values render
 it into the `weldsuite-backend` client's `jwks` from the cluster settings
 `WELDID_BACKEND_KEY_X` and `_Y` (base64url coordinates of the P-256 key,
-`kid` `weldsuite-backend-1`). The script prints them when it makes the key,
-and again on every `--update`; by hand:
-`node -e "console.log(require('crypto').createPublicKey(require('fs').readFileSync('key.pem')).export({format:'jwk'}))"`.
+`kid` `weldsuite-backend-1`). `seed-secrets.mjs` prints them when it makes
+the key; later, from the store:
+`bao kv get -field=CLIENT_KEY secret/weldsuite/weldid | node -e "console.log(require('crypto').createPublicKey(require('fs').readFileSync(0)).export({format:'jwk'}))"`.
 Empty or wrong, WeldID starts but refuses the server's admin API calls. To
 rotate, add a second key (`weldsuite-backend-2`) to the client in a patch,
 switch `WELDID_CLIENT_KEY`, then remove the first.
-
-> **External Secrets (ADR OPS-023).** The migration of the cluster's Secrets
-> off SOPS to the OpenBao store, in flight, must carry these five Secrets
-> too: new store entries for WeldID's own values (`WELDID_MASTER_KEY`, the
-> database password, the PEM key), ExternalSecrets for `weldid-env`,
-> `weldid-db-owner`, `postgres-backup-s3` and `registry` in `weldid` and
-> `weldid-client` in `weldsuite` (templated from the shared entries above,
-> so each shared value keeps one source), and `weldid` in the
-> ClusterSecretStore's allowed namespaces. The weldid repository's
-> `docs/deploy.md` ("Install with Flux") sketches them.
 
 ## Monitoring
 
