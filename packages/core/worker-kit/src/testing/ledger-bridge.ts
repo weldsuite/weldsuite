@@ -40,6 +40,9 @@ export const LEDGER_BINDINGS = [
   // WeldPanel's collector: the daily salt and the per-workspace event counts.
   'PANEL_SALT',
   'PANEL_USAGE',
+  // WeldPanel's per-project state (people, identities, groups, erased ids,
+  // live view): `PanelProjectObjectApi`, named by the project id.
+  'PANEL_PROJECT',
 ] as const;
 type LedgerBinding = (typeof LEDGER_BINDINGS)[number];
 

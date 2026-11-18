@@ -94,7 +94,7 @@ fn unique(values: Vec<String>) -> Vec<String> {
         .collect()
 }
 
-async fn live_project(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx::Error> {
+pub(crate) async fn live_project(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx::Error> {
     let row: Option<Value> = sqlx::query_scalar(
         "select to_jsonb(p) from panel_projects p
          where p.id = $1 and p.deleted_at is null limit 1",

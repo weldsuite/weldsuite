@@ -3468,6 +3468,25 @@
       ]
     },
     {
+      "name": "panel: query",
+      "module": "panel",
+      "workspace": "apps/workers/panel-api",
+      "tests": [
+        "src/routes/query.test.ts"
+      ],
+      "paths": [
+        "apps/workers/panel-api/src/",
+        "packages/domains/panel/src/",
+        "packages/clients/app-api-client/src/schemas/weldpanel-query.ts",
+        "packages/clients/app-api-client/src/schemas/weldpanel-collab.ts",
+        "packages/clients/app-api-client/src/schemas/weldpanel-objects.ts",
+        "packages/core/worker-kit/src/basin.ts",
+        "rust/modules/panel/",
+        "rust/crates/panel-domain/",
+        "rust/crates/zod/"
+      ]
+    },
+    {
       "name": "merge",
       "module": "merge",
       "workspace": "apps/workers/merge-api",

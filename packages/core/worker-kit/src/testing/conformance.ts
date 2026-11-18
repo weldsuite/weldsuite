@@ -321,10 +321,14 @@ export const FORWARDED_ENV = [
   'MAILPOOL_WEBHOOK_SECRET',
   'WELDREACH_WARMUP_KEY',
   'REACH_INBOUND_DOMAIN',
-  // WeldPanel: the collector origin the install snippets point at, and the
-  // SDK bundle the collector serves as /s.js (a file; only Rust reads it).
+  // WeldPanel: the collector origin the install snippets point at, the
+  // SDK bundle the collector serves as /s.js (a file; only Rust reads it),
+  // and Basin SQL (its token and bucket; CF_ACCOUNT_ID is forwarded above),
+  // which the Rust server reaches through the outbound bridge in this mode.
   'PANEL_COLLECTOR_URL',
   'PANEL_SDK_FILE',
+  'R2_SQL_API_TOKEN',
+  'PANEL_BASIN_BUCKET',
   // WeldMerge: the GitHub App's user authorization, the GitLab, Bitbucket and
   // Azure DevOps OAuth apps, and the public origin provider webhooks deliver to
   // (APP_URL, the keyring and the App's id, slug and key are forwarded above).
@@ -434,6 +438,8 @@ const WRITING_READS: RegExp[] = [
   // WeldForms: the published form, its public cache entry rebuilt and
   // stored on a miss.
   /^\/public\/forms\/f\/[^/?]+(\?|$)/,
+  // WeldPanel: the lexicon's names-seen scan, cached in KV on a miss.
+  /^\/api\/panel\/lexicon(\?|$)/,
 ];
 
 interface ConformanceContext {

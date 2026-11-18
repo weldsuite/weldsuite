@@ -547,6 +547,8 @@ rust/
   crates/panel-domain/  @weldsuite/panel-domain/query: WeldPanel's report compiler (spec → SQL, byte for byte the
                         TypeScript's), the runner behind an executor trait, the result shapes and the cache key;
                         tests/corpus.rs compiles every `compiler` entry of the SQL corpus and compares
+  crates/zod/           Zod 3 schemas as data and the parser zValidator is: Zod's issues, codes, paths, messages and
+                        async order (external-api and panel generate their schemas with tools/generate.mts)
   crates/emails/        @weldsuite/emails: the exported templates rendered with minijinja, sendSystemEmail
   crates/desk-domain/   WeldDesk rules the desk modules share: webchat, assignment and the AssignmentRouter,
                         the inbox for writers outside it (inbox.rs, attributes.rs: WeldConnect's helpdesk steps
@@ -597,7 +599,10 @@ rust/
                         registrar, DNS over HTTPS, the Realtime Register webhook),
                         modules/meet (WeldMeet, with crates/video-rooms: RealtimeKit and LiveKit
                         rooms, and LiveKit's webhook verification),
-                        modules/panel (WeldPanel: projects, the registry sync, and the public
+                        modules/panel (WeldPanel: projects, the registry sync, queries and the
+                        lexicon on the analytics engine (`engine.rs`; DataFusion over the panel
+                        store in bins/weldsuite/src/panel_sql.rs) with the `PanelProject` state
+                        port (`project_state.rs`), and the public
                         collector in `collector/`: the wire format, rows, URLs, user agents,
                         IP filters, the cookieless visitor id),
                         modules/merge (WeldMerge: teams, issues, the pull request mirror and

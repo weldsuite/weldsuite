@@ -100,6 +100,9 @@ pub(crate) struct AppState {
     /// `SANDBOX_ENABLED`: where the agent tools of `computer:use` and
     /// `browser:use` run.
     pub(crate) sandboxes: Option<weldsuite_sandbox::Sandboxes>,
+    /// WeldPanel's analytics engine (`crate::panel_sql`): DataFusion over the
+    /// panel store, `None` without `S3_BUCKET_PANEL`.
+    pub(crate) panel_sql: Option<Arc<dyn weldsuite_panel::AnalyticsSql>>,
     /// What conformance builds record instead of publishing.
     #[cfg(feature = "conformance")]
     pub(crate) recorders: crate::conformance::Recorders,
@@ -641,6 +644,7 @@ mod tests {
             realtime: crate::realtime::PublicRealtime::default(),
             ai: None,
             sandboxes: None,
+            panel_sql: None,
             #[cfg(feature = "conformance")]
             recorders: crate::conformance::Recorders::default(),
             #[cfg(feature = "conformance")]

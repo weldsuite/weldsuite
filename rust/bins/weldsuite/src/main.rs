@@ -41,6 +41,7 @@ mod migrate;
 mod monitoring;
 mod mta;
 mod panel_maintenance;
+mod panel_sql;
 mod panel_store;
 #[cfg(test)]
 mod panel_test_support;
@@ -218,6 +219,7 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let sign_in = sign_in_screens(&config, infra.cache.clone(), infra.mail.clone())?;
     let ai = ai::for_app(&config.ai, infra.cache.clone())?;
     let sandboxes = sandbox::build(config.sandbox.as_ref())?;
+    let panel_sql = panel_sql::engine(config.infra.panel.as_ref(), workspaces.master())?;
 
     let draining = Arc::new(AtomicBool::new(false));
     let state = AppState {
@@ -259,6 +261,7 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         realtime: realtime::PublicRealtime::from_config(&config),
         ai,
         sandboxes,
+        panel_sql,
         #[cfg(feature = "conformance")]
         recorders,
         #[cfg(feature = "conformance")]

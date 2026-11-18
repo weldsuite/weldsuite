@@ -430,6 +430,9 @@ impl Pools {
         // WeldPanel's collector: the test's events stream, salt and usage
         // objects, each one it binds.
         extensions.insert(self.panel.collector(&context.ledgers, &context.pipelines));
+        // WeldPanel's project state (`PanelProject`): the test's
+        // `PANEL_PROJECT` namespace, or none.
+        extensions.insert(self.panel.project_state(&context.ledgers));
         // WeldData's enrichment runs start on the test's `WELDDATA_ENRICH`, or nowhere.
         extensions.insert(weldsuite_data::RequestEnrichRuns(
             self.workflows.enrich_runs(&context.workflows),

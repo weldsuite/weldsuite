@@ -1,18 +1,29 @@
-//! Conformance mode's WeldPanel collector bindings: the test's events
-//! stream (`PANEL_EVENTS`) through the harness's pipeline bridge
+//! Conformance mode's WeldPanel bindings: the test's events stream
+//! (`PANEL_EVENTS`) through the harness's pipeline bridge
 //! (`packages/core/worker-kit/src/testing/pipeline-bridge.ts`,
-//! `POST /send { binding, records }`), and its `PANEL_SALT` and
-//! `PANEL_USAGE` Durable Object namespaces through the ledger bridge
+//! `POST /send { binding, records }`), and its `PANEL_SALT`, `PANEL_USAGE`
+//! and `PANEL_PROJECT` Durable Object namespaces through the ledger bridge
 //! (`ledger-bridge.ts`, `POST /rpc { binding, name, method, args }`), so
-//! both backends hash with the same salt, count on the same objects and
-//! write to the same fake.
+//! both backends hash with the same salt, count on the same objects, read
+//! and change the same project state and write to the same fake. The
+//! bridge records every `PANEL_PROJECT` call, and both backends' calls are
+//! compared.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use reqwest::Client;
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
-use weldsuite_panel::{EventSink, RequestCollector, SaltSource, UsageCounter};
+use weldsuite_panel::project_state::{
+    DeleteGroupInput, EraseInput, Erasure, Group, GroupOpsInput, GroupOpsResult, GroupsPage,
+    Identified, IdentifyInput, ListGroupsInput, ListPeopleInput, Live, LiveTouch, PeopleOpsInput,
+    PeoplePage, Person,
+};
+use weldsuite_panel::{
+    EventSink, PanelProjectState, ProjectRef, RequestCollector, SaltSource, UsageCounter,
+};
 use weldsuite_ports::{BoxFuture, PortError};
 
 /// The panel bindings of one test.
@@ -45,6 +56,23 @@ impl PanelBridges {
                 }) as Arc<dyn EventSink>
             }),
         }
+    }
+}
+
+impl PanelBridges {
+    /// The test's `PANEL_PROJECT` namespace as the project state, or none
+    /// when the test binds none (queries then answer 503, as panel-api does).
+    pub(crate) fn project_state(
+        &self,
+        ledgers: &HashMap<String, String>,
+    ) -> weldsuite_panel::RequestProjectState {
+        weldsuite_panel::RequestProjectState(ledgers.get("PANEL_PROJECT").map(|bridge| {
+            Arc::new(Namespace {
+                bridge: bridge.trim_end_matches('/').to_owned(),
+                binding: "PANEL_PROJECT",
+                client: self.client.clone(),
+            }) as Arc<dyn PanelProjectState>
+        }))
     }
 }
 
@@ -106,6 +134,201 @@ impl UsageCounter for Namespace {
                 .await
                 .map(|_| ())
         })
+    }
+}
+
+impl Namespace {
+    /// `stub[method](...args)` on the project's object (named by the
+    /// project id, as `projectObjectStub` names it), its answer read as `T`
+    /// (`undefined` and `null` both read as `null`).
+    async fn rpc<T: DeserializeOwned>(
+        &self,
+        project: ProjectRef<'_>,
+        method: &str,
+        args: Value,
+    ) -> Result<T, PortError> {
+        let result = self.call(project.project_id, method, args).await?;
+        serde_json::from_value(result).map_err(PortError::Json)
+    }
+}
+
+/// A value as an RPC argument.
+fn arg<T: Serialize + ?Sized>(value: &T) -> Result<Value, PortError> {
+    serde_json::to_value(value).map_err(PortError::Json)
+}
+
+/// `PANEL_PROJECT`: each method as `PanelProjectObjectApi` names it, with
+/// its arguments in order.
+impl PanelProjectState for Namespace {
+    fn identify<'a>(
+        &'a self,
+        project: ProjectRef<'a>,
+        input: &'a IdentifyInput,
+    ) -> BoxFuture<'a, Result<Identified, PortError>> {
+        Box::pin(async move { self.rpc(project, "identify", json!([arg(input)?])).await })
+    }
+
+    fn apply_people_ops<'a>(
+        &'a self,
+        project: ProjectRef<'a>,
+        input: &'a PeopleOpsInput,
+    ) -> BoxFuture<'a, Result<(), PortError>> {
+        Box::pin(async move {
+            self.rpc::<Value>(project, "applyPeopleOps", json!([arg(input)?]))
+                .await
+                .map(|_| ())
+        })
+    }
+
+    fn touch_live<'a>(
+        &'a self,
+        project: ProjectRef<'a>,
+        touches: &'a [LiveTouch],
+    ) -> BoxFuture<'a, Result<(), PortError>> {
+        Box::pin(async move {
+            self.rpc::<Value>(project, "touchLive", json!([arg(touches)?]))
+                .await
+                .map(|_| ())
+        })
+    }
+
+    fn get_person<'a>(
+        &'a self,
+        project: ProjectRef<'a>,
+        user_id_or_anon_id: &'a str,
+    ) -> BoxFuture<'a, Result<Option<Person>, PortError>> {
+        Box::pin(async move {
+            self.rpc(project, "getPerson", json!([user_id_or_anon_id]))
+                .await
+        })
+    }
+
+    fn list_people<'a>(
+        &'a self,
+        project: ProjectRef<'a>,
+        input: &'a ListPeopleInput,
+    ) -> BoxFuture<'a, Result<PeoplePage, PortError>> {
+        Box::pin(async move { self.rpc(project, "listPeople", json!([arg(input)?])).await })
+    }
+
+    fn find_by_email<'a>(
+        &'a self,
+        project: ProjectRef<'a>,
+        email: &'a str,
+    ) -> BoxFuture<'a, Result<Vec<Person>, PortError>> {
+        Box::pin(async move { self.rpc(project, "findByEmail", json!([email])).await })
+    }
+
+    fn live<'a>(&'a self, project: ProjectRef<'a>) -> BoxFuture<'a, Result<Live, PortError>> {
+        Box::pin(async move { self.rpc(project, "live", json!([])).await })
+    }
+
+    fn erase<'a>(
+        &'a self,
+        project: ProjectRef<'a>,
+        input: &'a EraseInput,
+    ) -> BoxFuture<'a, Result<Erasure, PortError>> {
+        Box::pin(async move { self.rpc(project, "erase", json!([arg(input)?])).await })
+    }
+
+    fn erased_ids<'a>(
+        &'a self,
+        project: ProjectRef<'a>,
+    ) -> BoxFuture<'a, Result<Vec<String>, PortError>> {
+        Box::pin(async move {
+            self.rpc::<Option<Vec<String>>>(project, "erasedIds", json!([]))
+                .await
+                .map(Option::unwrap_or_default)
+        })
+    }
+
+    fn has_identified_users<'a>(
+        &'a self,
+        project: ProjectRef<'a>,
+    ) -> BoxFuture<'a, Result<bool, PortError>> {
+        Box::pin(async move {
+            self.rpc::<Option<bool>>(project, "hasIdentifiedUsers", json!([]))
+                .await
+                .map(Option::unwrap_or_default)
+        })
+    }
+
+    fn clear_erased<'a>(
+        &'a self,
+        project: ProjectRef<'a>,
+        ids: &'a [String],
+    ) -> BoxFuture<'a, Result<(), PortError>> {
+        Box::pin(async move {
+            self.rpc::<Value>(project, "clearErased", json!([ids]))
+                .await
+                .map(|_| ())
+        })
+    }
+
+    fn apply_group_ops<'a>(
+        &'a self,
+        project: ProjectRef<'a>,
+        input: &'a GroupOpsInput,
+    ) -> BoxFuture<'a, Result<GroupOpsResult, PortError>> {
+        Box::pin(async move {
+            self.rpc(project, "applyGroupOps", json!([arg(input)?]))
+                .await
+        })
+    }
+
+    fn ensure_group_types<'a>(
+        &'a self,
+        project: ProjectRef<'a>,
+        types: &'a [String],
+    ) -> BoxFuture<'a, Result<Vec<String>, PortError>> {
+        Box::pin(async move { self.rpc(project, "ensureGroupTypes", json!([types])).await })
+    }
+
+    fn group_types<'a>(
+        &'a self,
+        project: ProjectRef<'a>,
+    ) -> BoxFuture<'a, Result<Vec<String>, PortError>> {
+        Box::pin(async move { self.rpc(project, "groupTypes", json!([])).await })
+    }
+
+    fn release_group_type<'a>(
+        &'a self,
+        project: ProjectRef<'a>,
+        group_type: &'a str,
+    ) -> BoxFuture<'a, Result<(), PortError>> {
+        Box::pin(async move {
+            self.rpc::<Value>(project, "releaseGroupType", json!([group_type]))
+                .await
+                .map(|_| ())
+        })
+    }
+
+    fn get_group<'a>(
+        &'a self,
+        project: ProjectRef<'a>,
+        group_type: &'a str,
+        group_key: &'a str,
+    ) -> BoxFuture<'a, Result<Option<Group>, PortError>> {
+        Box::pin(async move {
+            self.rpc(project, "getGroup", json!([group_type, group_key]))
+                .await
+        })
+    }
+
+    fn list_groups<'a>(
+        &'a self,
+        project: ProjectRef<'a>,
+        input: &'a ListGroupsInput,
+    ) -> BoxFuture<'a, Result<GroupsPage, PortError>> {
+        Box::pin(async move { self.rpc(project, "listGroups", json!([arg(input)?])).await })
+    }
+
+    fn delete_group<'a>(
+        &'a self,
+        project: ProjectRef<'a>,
+        input: &'a DeleteGroupInput,
+    ) -> BoxFuture<'a, Result<bool, PortError>> {
+        Box::pin(async move { self.rpc(project, "deleteGroup", json!([arg(input)?])).await })
     }
 }
 

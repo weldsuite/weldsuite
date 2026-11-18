@@ -8121,6 +8121,7 @@ dependencies = [
  "weldsuite-pipeline",
  "weldsuite-ports",
  "weldsuite-social-domain",
+ "weldsuite-zod",
 ]
 
 [[package]]
@@ -8664,8 +8665,10 @@ dependencies = [
  "weldsuite-db",
  "weldsuite-events",
  "weldsuite-kit",
+ "weldsuite-panel-domain",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-zod",
 ]
 
 [[package]]
@@ -9071,6 +9074,18 @@ dependencies = [
  "tokio",
  "tracing",
  "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-zod"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "http",
+ "regex",
+ "serde_json",
+ "tokio",
+ "weldsuite-kit",
 ]
 
 [[package]]

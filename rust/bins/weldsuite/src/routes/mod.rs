@@ -616,7 +616,8 @@ fn ads_state(state: &AppState) -> weldsuite_ads::AdsState {
     }
 }
 
-/// WeldPanel (`weldsuite-panel`): panel-api's `/api/panel/projects`.
+/// WeldPanel (`weldsuite-panel`): panel-api's `/api/panel/projects`,
+/// `/api/panel/query` and `/api/panel/lexicon`.
 fn panel(router: Router<AppState>, state: &AppState) -> Router<AppState> {
     if !mounts("panel") {
         return router;
@@ -631,11 +632,25 @@ fn panel(router: Router<AppState>, state: &AppState) -> Router<AppState> {
         collector_url: std::env::var("PANEL_COLLECTOR_URL")
             .ok()
             .filter(|url| !url.is_empty()),
+        // Conformance builds run the test's Basin and `PANEL_PROJECT`, per request.
+        sql: state.panel_sql.clone().filter(|_| !conformance),
+        // The tenant-table adapter is not built yet: queries answer 503, as
+        // panel-api does without `PANEL_PROJECT`.
+        project_state: None,
     };
-    router.nest(
-        "/panel/projects",
-        weldsuite_panel::router(panel, &state.permissions),
-    )
+    router
+        .nest(
+            "/panel/projects",
+            weldsuite_panel::router(panel.clone(), &state.permissions),
+        )
+        .nest(
+            "/panel/query",
+            weldsuite_panel::query_router(panel.clone(), &state.permissions),
+        )
+        .nest(
+            "/panel/lexicon",
+            weldsuite_panel::lexicon_router(panel, &state.permissions),
+        )
 }
 
 /// WeldForms (`weldsuite-forms`): forms-api's `/api/forms`, with the

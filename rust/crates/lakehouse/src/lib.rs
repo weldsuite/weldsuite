@@ -9,11 +9,13 @@
 //! - [`Lakehouse`]: the catalog and storage, creating the tables, writing
 //!   ([`Lakehouse::append_after`]), replacing files
 //!   ([`Lakehouse::replace_files`]) and the upkeep built on it.
-//! - [`QueryEngine`]: DataFusion over the tables.
+//! - [`QueryEngine`]: DataFusion over the tables, and [`json_rows`]: its
+//!   rows as the JSON Basin SQL answers on Global.
 
 mod catalog;
 mod error;
 mod in_subquery;
+mod json_rows;
 mod like_escape;
 mod maintenance;
 mod pg_catalog;
@@ -31,6 +33,7 @@ pub use arrow_schema::SchemaRef;
 pub use catalog::{CATALOG_NAME, LAKE_PREFIX, Lakehouse, LakehouseConfig, S3Store};
 pub use error::{LakehouseError, Result};
 pub use iceberg::spec::DataFile;
+pub use json_rows::json_rows;
 pub use maintenance::{
     Erasure, ErasureCounts, ExpireOutcome, ListedFile, ORPHAN_MIN_AGE, OrphanSweep,
     SMALL_FILE_BYTES, partitions, workspaces_in,

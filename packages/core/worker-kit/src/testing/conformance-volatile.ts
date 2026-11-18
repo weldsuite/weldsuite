@@ -57,6 +57,9 @@ interface VolatileRoute {
 /** A connector connection id (`generateId('conn')`) inside a string. */
 const CONNECTOR_ID = /conn_[0-9a-z]{16}/g;
 
+/** A WeldPanel SQL `TIMESTAMP` literal that is not a midnight: one counted from the run's clock. */
+const PANEL_CLOCK_TIMESTAMP = /TIMESTAMP '\d{4}-\d{2}-\d{2} (?!00:00:00')\d{2}:\d{2}:\d{2}'/g;
+
 function toolToken(path: string): VolatileField {
   return { path, pattern: /^Bearer \S+$/g, replacement: 'Bearer <volatile>' };
 }
@@ -491,6 +494,18 @@ const ROUTES: VolatileRoute[] = [
     '/public/forms/sessions/uploads',
     '/public/forms/sessions/submit',
   ].map((route) => ({ method: 'POST', route, fields: [{ path: 'error.details.retryAfterSeconds' }] })),
+  // WeldPanel: a report's SQL bounds its range by the run's own clock (the
+  // end of a preset, the retention floor, the previous period), to the
+  // second; a day boundary (midnight) is the same for both runs.
+  ...[
+    { method: 'POST', route: '/api/panel/query' },
+    { method: 'GET', route: '/api/panel/lexicon' },
+  ].map(({ method, route }) => ({
+    method,
+    route,
+    fields: [],
+    outbound: [{ path: 'body.query', pattern: PANEL_CLOCK_TIMESTAMP, replacement: "TIMESTAMP '<now>'" }],
+  })),
 ];
 
 /** The value at a dot path, as text for ordering. */
