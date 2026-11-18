@@ -570,7 +570,11 @@ describe('verification limits', () => {
     const retryAfter = Number(res.headers.get('Retry-After'));
     expect(retryAfter).toBeGreaterThanOrEqual(1);
     expect(retryAfter).toBeLessThanOrEqual(3600);
-    expect(await errorOf(res)).toEqual({ code: 'too_many_attempts', message: 'Too many attempts, try again later' });
+    expect(await errorOf(res)).toEqual({
+      code: 'too_many_attempts',
+      message: 'Too many attempts, try again later',
+      details: { reason: 'too_many_attempts' },
+    });
   }
 
   beforeAll(async () => {

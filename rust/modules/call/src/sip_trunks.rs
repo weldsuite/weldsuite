@@ -13,8 +13,11 @@ use http::StatusCode;
 use serde_json::{Map, Value, json};
 use weldsuite_db::PgPool;
 
-use crate::registry::{self, Entry};
+use crate::registry::{self, OwnRow};
 use crate::sip_trunk_number::{country_of_e164, to_trunk_e164};
+use crate::sip_verification_limits::{
+    CONFIRMS_PER_NUMBER, SENDS_PER_NUMBER, SENDS_PER_WORKSPACE, count_attempt,
+};
 use crate::telnyx::{Telnyx, TelnyxError};
 use crate::telnyx_connections::{
     ConnectionBase, ConnectionPatch, DEFAULT_SIP_HOST, SIGNALING_IPS, SIP_HOSTS, SIP_PORT_PLAIN,
@@ -36,12 +39,14 @@ pub(crate) const TRUNK_NUMBER_REFUSAL: &str =
 
 const WEBHOOK_PATH: &str = "/public/webhooks/telnyx";
 
-/// `SipTrunkError`: a refusal the member can read (400, 404 or 409).
+/// `SipTrunkError`: a refusal the member can read (400, 404, 409 or 429).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Refusal {
     pub(crate) status: StatusCode,
     pub(crate) code: &'static str,
     pub(crate) message: String,
+    /// Seconds until a 429 may be tried again (the `Retry-After` header).
+    pub(crate) retry_after: Option<u64>,
 }
 
 /// Why a trunk operation stopped: a [`Refusal`], or anything else the
@@ -63,6 +68,7 @@ fn refusal(status: StatusCode, code: &'static str, message: impl Into<String>) -
         status,
         code,
         message: message.into(),
+        retry_after: None,
     })
 }
 
@@ -72,6 +78,33 @@ fn bad_request(code: &'static str, message: impl Into<String>) -> Failure {
 
 fn conflict(code: &'static str, message: impl Into<String>) -> Failure {
     refusal(StatusCode::CONFLICT, code, message)
+}
+
+fn too_many_attempts(retry_after: u64) -> Failure {
+    Failure::Refused(Refusal {
+        status: StatusCode::TOO_MANY_REQUESTS,
+        code: "too_many_attempts",
+        message: "Too many attempts, try again later".to_owned(),
+        retry_after: Some(retry_after),
+    })
+}
+
+/// 409 `caller_id_unverified`: a number of a customer's own phone system may
+/// not be a caller id before Telnyx verified it (`PATCH
+/// /api/call-intelligence/phone-numbers/:id`, `POST /api/calls`).
+pub(crate) fn caller_id_unverified() -> axum::response::Response {
+    use axum::response::IntoResponse;
+    weldsuite_kit::ApiError::new(
+        StatusCode::CONFLICT,
+        "caller_id_unverified",
+        "Verify this number before using it for outgoing calls",
+    )
+    .with_details(json!({ "reason": "caller_id_unverified" }))
+    .into_response()
+}
+
+fn number_taken() -> Failure {
+    conflict("number_taken", "This number is already in use")
 }
 
 fn not_found(message: String) -> Failure {
@@ -813,23 +846,22 @@ impl<'a> Trunks<'a> {
         Ok((trunk, credentials))
     }
 
-    /// `retireNumber(ctx, number)`: soft-delete one number of a trunk and
-    /// free it in the registry (and at Telnyx when it was verified).
-    async fn retire_number(&self, number: &Value) -> Result<(), Failure> {
+    /// `releaseNumber(ctx, number)`: free a retired number. This
+    /// workspace's own registry entry goes (never one another workspace holds
+    /// for the number by now), and the verified caller id at Telnyx when
+    /// there was one.
+    async fn release_number(&self, number: &Value) {
         let id = js::string(&number["id"]);
         let phone = js::string(&number["phoneNumber"]);
-        sqlx::query(
-            "update voip_phone_numbers set deleted_at = $2::timestamp, updated_at = $2::timestamp,
-                 status = 'inactive'
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(now())
-        .execute(self.db())
-        .await?;
+        let org = self.caller.org();
         let master = self.caller.master(self.state);
-        if let Err(error) = registry::deactivate(master.as_ref(), &phone).await {
-            tracing::error!(%error, "[sip-trunks] deactivating the registry entry failed (continuing)");
+        let own = OwnRow {
+            phone_number: &phone,
+            clerk_org_id: &org,
+            voip_phone_number_id: &id,
+        };
+        if let Err(error) = registry::release(master.as_ref(), own).await {
+            tracing::error!(%error, "[sip-trunks] releasing the registry entry failed (continuing)");
         }
         if js::truthy(&number["callerIdVerifiedAt"]) && self.telnyx.configured() {
             best_effort(
@@ -837,12 +869,30 @@ impl<'a> Trunks<'a> {
                 self.telnyx.delete_verified_number(&phone).await,
             );
         }
+    }
+
+    /// `retireNumber(ctx, number)`: soft-delete one number of a trunk and
+    /// free it in the registry (and at Telnyx when it was verified).
+    async fn retire_number(&self, number: &Value) -> Result<(), Failure> {
+        sqlx::query(
+            "update voip_phone_numbers set deleted_at = $2::timestamp, updated_at = $2::timestamp,
+                 status = 'inactive'
+             where id = $1",
+        )
+        .bind(js::string(&number["id"]))
+        .bind(now())
+        .execute(self.db())
+        .await?;
+        self.release_number(number).await;
         Ok(())
     }
 
-    /// `deleteSipTrunk(ctx, id)`: the connection first, then the numbers
-    /// (and their verified caller ids, best effort), then the row. Answers
-    /// the trunk and its numbers as they were.
+    /// `deleteSipTrunk(ctx, id)`: the connection first, then the row, then
+    /// its numbers by trunk id (and their verified caller ids, best effort).
+    /// A number added while the trunk is being deleted is then either seen
+    /// here, or undone by `add_number`, which looks for the trunk again after
+    /// its own writes: no live number is left on a deleted trunk. Answers the
+    /// trunk and its numbers as they were.
     pub(crate) async fn delete(&self, id: &str) -> Result<(Value, Vec<Value>), Failure> {
         let trunk = self.load_trunk(id).await?;
         if let Some(connection) = trunk["providerConnectionId"]
@@ -858,14 +908,23 @@ impl<'a> Trunks<'a> {
             ignore_not_found(deleted)
                 .map_err(|error| telnyx_failure("Deleting the connection", &error))?;
         }
-        let numbers = self.load_numbers(&[id.to_owned()]).await?;
-        for number in &numbers {
-            self.retire_number(number).await?;
-        }
         sqlx::query("delete from voip_sip_trunks where id = $1")
             .bind(id)
             .execute(self.db())
             .await?;
+        let numbers = self.load_numbers(&[id.to_owned()]).await?;
+        sqlx::query(
+            "update voip_phone_numbers set deleted_at = $2::timestamp, updated_at = $2::timestamp,
+                 status = 'inactive'
+             where sip_trunk_id = $1 and deleted_at is null",
+        )
+        .bind(id)
+        .bind(now())
+        .execute(self.db())
+        .await?;
+        for number in &numbers {
+            self.release_number(number).await;
+        }
         Ok((trunk, numbers))
     }
 
@@ -929,6 +988,95 @@ impl<'a> Trunks<'a> {
         Ok(weldsuite_db::js_row(row))
     }
 
+    /// `reclaimableRegistryIds(ctx, e164, ownRowId)`: the registry entries
+    /// this workspace may take over when it claims `e164`: its own entry
+    /// that names a row of this workspace which is soft-deleted or gone (a
+    /// clean-up that did not finish). Its own entry for `own_row_id` (the
+    /// number's row here, known to be soft-deleted) needs no naming: the claim
+    /// accepts the row it writes. Anything else holds the number, and so does
+    /// every entry of another workspace, active or not.
+    async fn reclaimable_registry_ids(
+        &self,
+        master: &PgPool,
+        e164: &str,
+        own_row_id: Option<&str>,
+    ) -> Result<Vec<String>, Failure> {
+        let registered: Option<(String, String)> = sqlx::query_as(
+            "select clerk_org_id, voip_phone_number_id from phone_number_registry
+             where phone_number = $1 limit 1",
+        )
+        .bind(e164)
+        .fetch_optional(master)
+        .await?;
+        let Some((org, row_id)) = registered else {
+            return Ok(Vec::new());
+        };
+        if org != self.caller.org() {
+            return Err(number_taken());
+        }
+        if Some(row_id.as_str()) == own_row_id {
+            return Ok(Vec::new());
+        }
+        let named: Option<bool> = sqlx::query_scalar(
+            "select deleted_at is null from voip_phone_numbers where id = $1 limit 1",
+        )
+        .bind(&row_id)
+        .fetch_optional(self.db())
+        .await?;
+        if named == Some(true) {
+            return Err(number_taken());
+        }
+        Ok(vec![row_id])
+    }
+
+    /// `shelveNumber(db, numberId)`: take back a number's row whose claim did
+    /// not go through.
+    async fn shelve_number(&self, number_id: &str) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "update voip_phone_numbers set deleted_at = $2::timestamp, status = 'inactive'
+             where id = $1",
+        )
+        .bind(number_id)
+        .bind(crate::now())
+        .execute(self.db())
+        .await?;
+        Ok(())
+    }
+
+    /// `claimNumber(ctx, row, reclaimIds)`: claim the number in the registry
+    /// for the row, in one conditional write. A claim that fails or is lost
+    /// (another workspace took the number between the look and the write)
+    /// takes the row back.
+    async fn claim_number(
+        &self,
+        master: &PgPool,
+        e164: &str,
+        number_id: &str,
+        reclaim_ids: &[String],
+    ) -> Result<(), Failure> {
+        let org = self.caller.org();
+        let own = OwnRow {
+            phone_number: e164,
+            clerk_org_id: &org,
+            voip_phone_number_id: number_id,
+        };
+        match registry::claim(Some(master), own, reclaim_ids).await {
+            Ok(true) => Ok(()),
+            Ok(false) => {
+                self.shelve_number(number_id).await?;
+                Err(number_taken())
+            }
+            Err(error) => {
+                tracing::error!(%error, "[sip-trunks] registering the number failed");
+                self.shelve_number(number_id).await?;
+                Err(bad_request(
+                    "registry_failed",
+                    "The number could not be registered, try again",
+                ))
+            }
+        }
+    }
+
     /// `addTrunkNumber(ctx, trunkId, input)`: a number of the phone system,
     /// registered for inbound routing and kept from outbound caller id until
     /// it is verified. A number removed earlier comes back as its old row.
@@ -945,24 +1093,6 @@ impl<'a> Trunks<'a> {
                 "Enter the number in international format, like +31201234567",
             ));
         };
-        let taken = || conflict("number_taken", "This number is already in use");
-
-        // The registry is the arbiter: any active entry (this or another
-        // workspace) holds the number.
-        let master = self
-            .caller
-            .master(self.state)
-            .ok_or_else(|| Failure::Internal("no master database".to_owned()))?;
-        let registered: Option<bool> = sqlx::query_scalar(
-            "select coalesce(is_active, false) from phone_number_registry
-             where phone_number = $1 limit 1",
-        )
-        .bind(&e164)
-        .fetch_optional(&master)
-        .await?;
-        if registered == Some(true) {
-            return Err(taken());
-        }
 
         let existing: Option<(String, bool)> = sqlx::query_as(
             "select id, deleted_at is null from voip_phone_numbers where phone_number = $1 limit 1",
@@ -971,8 +1101,18 @@ impl<'a> Trunks<'a> {
         .fetch_optional(self.db())
         .await?;
         if matches!(existing, Some((_, true))) {
-            return Err(taken());
+            return Err(number_taken());
         }
+
+        // The registry is the arbiter between workspaces. This look only
+        // spares a write that cannot succeed: the claim below is what decides.
+        let master = self
+            .caller
+            .master(self.state)
+            .ok_or_else(|| Failure::Internal("no master database".to_owned()))?;
+        let reclaim_ids = self
+            .reclaimable_registry_ids(&master, &e164, existing.as_ref().map(|(id, _)| id.as_str()))
+            .await?;
 
         let row = self
             .store_number(
@@ -984,30 +1124,20 @@ impl<'a> Trunks<'a> {
             .await?;
         let number_id = js::string(&row["id"]);
 
-        let registered = registry::upsert(
-            Some(&master),
-            Entry {
-                phone_number: &e164,
-                clerk_org_id: &self.caller.org(),
-                voip_phone_number_id: &number_id,
-                is_active: true,
-            },
-        )
-        .await;
-        if let Err(error) = registered {
-            tracing::error!(%error, "[sip-trunks] registering the number failed");
-            sqlx::query(
-                "update voip_phone_numbers set deleted_at = $2::timestamp, status = 'inactive'
-                 where id = $1",
-            )
-            .bind(&number_id)
-            .bind(crate::now())
-            .execute(self.db())
+        self.claim_number(&master, &e164, &number_id, &reclaim_ids)
             .await?;
-            return Err(bad_request(
-                "registry_failed",
-                "The number could not be registered, try again",
-            ));
+
+        // The trunk may have been deleted while this ran. Its delete takes the
+        // numbers it finds after the trunk's row is gone; one written too late
+        // for that is taken back here.
+        let still: Option<String> =
+            sqlx::query_scalar("select id from voip_sip_trunks where id = $1 limit 1")
+                .bind(js::string(&trunk["id"]))
+                .fetch_optional(self.db())
+                .await?;
+        if still.is_none() {
+            self.retire_number(&row).await?;
+            return Err(not_found(format!("Phone system '{trunk_id}' not found")));
         }
         Ok(row)
     }
@@ -1025,6 +1155,16 @@ impl<'a> Trunks<'a> {
     }
 
     // ── Caller id verification ──────────────────────────────────────────────
+
+    /// `limitAttempts(ctx, scope, max)`: count one attempt in `scope`; over
+    /// `max` in the hour it is refused (429, with when to try again).
+    async fn limit_attempts(&self, scope: &str, max: i64) -> Result<(), Failure> {
+        let cache = self.caller.cache(self.state);
+        match count_attempt(cache.as_ref(), scope, max).await {
+            Some(retry_after) => Err(too_many_attempts(retry_after)),
+            None => Ok(()),
+        }
+    }
 
     /// The number to verify, unless it already is.
     async fn unverified_number(&self, trunk_id: &str, number_id: &str) -> Result<Value, Failure> {
@@ -1050,6 +1190,13 @@ impl<'a> Trunks<'a> {
     ) -> Result<Value, Failure> {
         let number = self.unverified_number(trunk_id, number_id).await?;
         let phone = js::string(&number["phoneNumber"]);
+        // Every send makes Telnyx call or text the number: a few an hour are plenty.
+        let org = self.caller.org();
+        let own = js::string(&number["id"]);
+        self.limit_attempts(&format!("send-number:{org}:{own}"), SENDS_PER_NUMBER)
+            .await?;
+        self.limit_attempts(&format!("send-workspace:{org}"), SENDS_PER_WORKSPACE)
+            .await?;
         if let Err(error) = self
             .telnyx
             .request_number_verification(&phone, method)
@@ -1080,6 +1227,11 @@ impl<'a> Trunks<'a> {
     ) -> Result<Value, Failure> {
         let number = self.unverified_number(trunk_id, number_id).await?;
         let phone = js::string(&number["phoneNumber"]);
+        // A code is a few digits: it must not be guessed.
+        let org = self.caller.org();
+        let own = js::string(&number["id"]);
+        self.limit_attempts(&format!("confirm-number:{org}:{own}"), CONFIRMS_PER_NUMBER)
+            .await?;
         if let Err(error) = self.telnyx.confirm_number_verification(&phone, code).await {
             return Err(match confirmation_refusal(&error) {
                 Some(refusal) => refusal,

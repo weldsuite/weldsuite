@@ -1027,6 +1027,7 @@ fn call_state(state: &AppState) -> weldsuite_call::CallState {
         },
         realtime: state.infra.realtime.clone(),
         tenants: Some(tenants),
+        cache: (!conformance).then(|| state.infra.cache.clone()).flatten(),
         assignment: (!conformance).then(desk_assignment_router),
     }
 }

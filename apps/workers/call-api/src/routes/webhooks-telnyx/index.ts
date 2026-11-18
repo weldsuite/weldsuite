@@ -55,7 +55,7 @@ import {
 } from '../../services/desk-phone-inbound';
 import { handleAgentLegEvent, handleCallerLeftQueue } from '../../services/desk-phone-legs';
 import { ringWaitingCalls } from '../../services/desk-phone-ring';
-import { finishCallTranslation, handleCallTranscription } from '../../services/desk-phone-translation';
+import { finishCallTranslation, handleAgentLegTranscription, handleCallTranscription } from '../../services/desk-phone-translation';
 import {
   handleDequeued,
   handleSpeakEnded,
@@ -842,7 +842,7 @@ async function dispatchCallEvent(eventType: string, ctx: CallEventContext): Prom
           callId: ctx.callId,
           lineId: ctx.event.data.id,
           at: ctx.event.data.occurred_at,
-          clientState: ctx.clientState,
+          speaker: 'caller',
           payload: ctx.payload,
         }),
       );
@@ -957,6 +957,34 @@ async function isForgedTrunkState(env: TelnyxEnv, workspaceId: string, payload: 
   return !(await ownsTrunkConnection(db, payload));
 }
 
+/**
+ * An event of a leg the server dialled to ring an agent's browser. A
+ * transcription line is the agent speaking: the leg says who, not the state.
+ */
+async function handleAgentLegWebhook(
+  env: TelnyxEnv,
+  event: TelnyxWebhookEvent,
+  workspaceId: string,
+  legId: string,
+  background: (work: Promise<void>) => Promise<void>,
+): Promise<void> {
+  const db = await getTenantDbForWorkspace(env, workspaceId);
+  const { event_type: eventType, payload } = event.data;
+  if (eventType === 'call.transcription') {
+    await background(
+      handleAgentLegTranscription({
+        ctx: { env, db, workspaceId },
+        legId,
+        lineId: event.data.id,
+        at: event.data.occurred_at,
+        payload,
+      }),
+    );
+    return;
+  }
+  await handleAgentLegEvent({ env, db, workspaceId, eventType, legId, payload });
+}
+
 app.post('/', async (c) => {
   try {
     const raw = await c.req.text();
@@ -986,6 +1014,13 @@ app.post('/', async (c) => {
 
     const clientState = decodeClientState(payload.client_state);
     const { callId, workspaceId, deskConversationId } = clientState;
+    const background = async (work: Promise<void>): Promise<void> => {
+      try {
+        c.executionCtx.waitUntil(work);
+      } catch {
+        await work;
+      }
+    };
 
     console.log(`[Telnyx Webhook] ${event_type} — callId=${callId}, callControlId=${payload.call_control_id}`);
 
@@ -996,15 +1031,7 @@ app.post('/', async (c) => {
 
     // A leg the server dialled to ring an agent's browser: its own client_state, no callId.
     if (clientState.agentLegId && workspaceId) {
-      const legDb = await getTenantDbForWorkspace(c.env, workspaceId);
-      await handleAgentLegEvent({
-        env: c.env,
-        db: legDb,
-        workspaceId,
-        eventType: event_type,
-        legId: clientState.agentLegId,
-        payload,
-      });
+      await handleAgentLegWebhook(c.env, event, workspaceId, clientState.agentLegId, background);
       return c.json({ ok: true });
     }
 
@@ -1034,13 +1061,7 @@ app.post('/', async (c) => {
       clientState,
       callId,
       workspaceId,
-      background: async (work) => {
-        try {
-          c.executionCtx.waitUntil(work);
-        } catch {
-          await work;
-        }
-      },
+      background,
       // An outbound call placed from a conversation carries no conversation in its client_state: the row has it.
       deskConversationId: deskConversationId || (await conversationOfCall(db, callId)),
     });

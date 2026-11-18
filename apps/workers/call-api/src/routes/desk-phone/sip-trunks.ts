@@ -61,11 +61,15 @@ function ctxOf(c: C): SipTrunkContext {
   };
 }
 
+/** Refusals the settings screen tells apart by `details.reason` as well as by code. */
+const REASON_CODES = new Set(['number_taken', 'too_many_attempts']);
+
 /** The service's refusal as the API's error envelope; anything else is rethrown. */
 function refuse(c: C, err: unknown) {
   if (err instanceof SipTrunkError) {
     if (err.status === 404) return error.notFound(c, 'Phone system');
-    const body = { error: { code: err.code, message: err.message } };
+    const reason = REASON_CODES.has(err.code) ? { details: { reason: err.code } } : {};
+    const body = { error: { code: err.code, message: err.message, ...reason } };
     if (err.retryAfter !== undefined) return c.json(body, err.status, { 'Retry-After': String(err.retryAfter) });
     return c.json(body, err.status);
   }

@@ -210,6 +210,10 @@ fn read_number(issues: &mut Issues, fields: &Map<String, Value>) -> (String, Opt
     (phone_number.unwrap_or_default(), display_name)
 }
 
+/// Refusals the settings screen tells apart by `details.reason` as well as by
+/// code.
+const REASON_CODES: [&str; 2] = ["number_taken", "too_many_attempts"];
+
 /// The service's refusal as the API's error envelope; anything else is the
 /// worker's 500.
 fn refuse(failure: Failure) -> Response {
@@ -218,7 +222,19 @@ fn refuse(failure: Failure) -> Response {
             ApiError::not_found("Phone system", None).into_response()
         }
         Failure::Refused(refusal) => {
-            ApiError::new(refusal.status, refusal.code, refusal.message).into_response()
+            let mut error = ApiError::new(refusal.status, refusal.code, refusal.message);
+            if REASON_CODES.contains(&refusal.code) {
+                error = error.with_details(json!({ "reason": refusal.code }));
+            }
+            let mut response = error.into_response();
+            if let Some(seconds) = refusal.retry_after
+                && let Ok(value) = http::HeaderValue::from_str(&seconds.to_string())
+            {
+                response
+                    .headers_mut()
+                    .insert(http::header::RETRY_AFTER, value);
+            }
+            response
         }
         Failure::Internal(error) => {
             tracing::error!(%error, "[sip-trunks] request failed");
@@ -676,6 +692,7 @@ mod tests {
             status: StatusCode::NOT_FOUND,
             code: "not_found",
             message: "Number 'vpn_1' not found on this phone system".to_owned(),
+            retry_after: None,
         };
         assert_eq!(
             body_of(refuse(Failure::Refused(not_found))).await,
@@ -688,14 +705,24 @@ mod tests {
             status: StatusCode::CONFLICT,
             code: "number_taken",
             message: "This number is already in use".to_owned(),
+            retry_after: None,
         };
         assert_eq!(
             body_of(refuse(Failure::Refused(taken))).await,
             (
                 StatusCode::CONFLICT,
-                json!({ "error": { "code": "number_taken", "message": "This number is already in use" } })
+                json!({ "error": { "code": "number_taken", "message": "This number is already in use", "details": { "reason": "number_taken" } } })
             )
         );
+        let limited = crate::sip_trunks::Refusal {
+            status: StatusCode::TOO_MANY_REQUESTS,
+            code: "too_many_attempts",
+            message: "Too many attempts, try again later".to_owned(),
+            retry_after: Some(120),
+        };
+        let response = refuse(Failure::Refused(limited));
+        assert_eq!(response.headers()["retry-after"], "120");
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
         let (status, body) = body_of(refuse(Failure::Internal("boom".to_owned()))).await;
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(body["error"]["code"], "INTERNAL_ERROR");

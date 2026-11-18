@@ -62,6 +62,7 @@ mod sip_trunk_inbound;
 mod sip_trunk_number;
 mod sip_trunk_routes;
 mod sip_trunks;
+mod sip_verification_limits;
 mod telephony;
 mod telnyx;
 mod telnyx_connections;
@@ -91,8 +92,8 @@ use weldsuite_kit::validation::{Issues, json_body};
 use weldsuite_kit::{ApiError, RequestEnv};
 use weldsuite_permissions::{PermissionGate, PermissionQueries, Permissions};
 use weldsuite_ports::{
-    BoxFuture, DynFileStore, DynOutboundHttp, DynRealtimePublisher, HttpRequest, HttpResponse,
-    OutboundHttp, PortError, PresenceReader, StorageBuckets,
+    BoxFuture, DynCache, DynFileStore, DynOutboundHttp, DynRealtimePublisher, HttpRequest,
+    HttpResponse, OutboundHttp, PortError, PresenceReader, RequestCache, StorageBuckets,
 };
 
 use crate::desk_phone_ring::Phone;
@@ -124,6 +125,10 @@ pub struct CallState {
     /// Workspaces' tenant databases for the webhook. A request's `Tenant`
     /// (conformance) wins.
     pub tenants: Option<TenantDatabases>,
+    /// `WORKSPACE_CACHE`: the counters of the caller id verification limits.
+    /// A request's `RequestCache` (conformance) wins; without a cache nothing
+    /// is limited.
+    pub cache: Option<Arc<dyn DynCache>>,
     /// WeldDesk's `AssignmentRouter` for phone conversations; without it the
     /// pick is the local balanced one (as the worker without the binding).
     pub assignment:
@@ -460,6 +465,7 @@ pub(crate) struct Caller {
     http: Option<OutboundHttp>,
     buckets: Option<StorageBuckets>,
     presence: Option<PresenceReader>,
+    cache: Option<RequestCache>,
 }
 
 impl Caller {
@@ -545,6 +551,14 @@ impl Caller {
         )
     }
 
+    /// `c.env.WORKSPACE_CACHE`: the test's KV (conformance), else the state's.
+    pub(crate) fn cache(&self, state: &CallState) -> Option<Arc<dyn DynCache>> {
+        self.cache
+            .as_ref()
+            .map(|RequestCache(cache)| Arc::clone(cache))
+            .or_else(|| state.cache.clone())
+    }
+
     /// `c.env.STORAGE`: the test's bucket (conformance), else the state's.
     pub(crate) fn storage(&self, state: &CallState) -> Option<Arc<dyn DynFileStore>> {
         if self.conformance() {
@@ -580,6 +594,7 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
                 http: extensions.get::<OutboundHttp>().cloned(),
                 buckets: extensions.get::<StorageBuckets>().cloned(),
                 presence: extensions.get::<PresenceReader>().cloned(),
+                cache: extensions.get::<RequestCache>().cloned(),
             })
         } else {
             tracing::error!("call: a route without the session or tenant layer");

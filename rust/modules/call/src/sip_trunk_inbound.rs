@@ -14,18 +14,24 @@
 //! That holds for every way such a call could reach us, not only over a
 //! trunk: the trunk's connection is what authenticates the sender.
 //!
-//! A number we host is never refused here. A phone system that sends a call
-//! to one (a colleague dialling the support number from their desk phone)
-//! is an ordinary inbound call to that number.
+//! A number we host takes a call from a phone system only when that phone
+//! system is the destination workspace's own (a colleague dialling the
+//! support number from their desk phone), or the connection is the number's
+//! own: then it is an ordinary inbound call to that number. Any other
+//! trunk's call to it is refused, so one workspace cannot run its calls (and
+//! their minutes) into another's number.
+//!
+//! A trunk's SIP login is in a customer's hands, so a client state on an
+//! event of a trunk connection proves nothing by itself: the workspace it
+//! names must own that connection (`owns_trunk_connection`).
 
 use serde_json::Value;
 use weldsuite_db::PgPool;
 
 use crate::{js, now};
 
-/// `isTrunkCall(env, payload)`: whether a `call.initiated` payload (already
-/// known to carry no client state) came in over a customer's trunk: it
-/// names a connection that is not one of ours. Without
+/// `isTrunkCall(env, payload)`: whether an event's payload came in over a
+/// customer's trunk: it names a connection that is not one of ours. Without
 /// `TELNYX_CONNECTION_ID` there is nothing to tell ours from theirs, so
 /// nothing counts as a trunk call.
 pub(crate) fn is_trunk_call(
@@ -125,6 +131,72 @@ pub(crate) async fn admit_trunk_call(
         return refused(reason);
     }
     Ok(Admission::Admitted { trunk_id })
+}
+
+/// `String(payload.connection_id ?? '')`.
+fn connection_of(payload: &Value) -> String {
+    match &payload["connection_id"] {
+        Value::Null => String::new(),
+        other => js::string(other),
+    }
+}
+
+/// `hasTrunkOnConnection(db, connectionId)`: whether a phone system of this
+/// workspace has the connection.
+async fn has_trunk_on_connection(db: &PgPool, connection_id: &str) -> Result<bool, sqlx::Error> {
+    let trunk: Option<String> = sqlx::query_scalar(
+        "select id from voip_sip_trunks where provider_connection_id = $1 limit 1",
+    )
+    .bind(connection_id)
+    .fetch_optional(db)
+    .await?;
+    Ok(trunk.is_some())
+}
+
+/// `admitTrunkCallToHostedNumber(db, { payload, phoneRow })`: whether a call
+/// that came in over a trunk connection may reach a number we host (no
+/// `sipTrunkId`): the connection is the number's own, or a phone system of
+/// this, the destination, workspace has it.
+pub(crate) async fn admit_trunk_call_to_hosted_number(
+    db: &PgPool,
+    payload: &Value,
+    number_connection: Option<&str>,
+) -> Result<bool, sqlx::Error> {
+    let connection_id = connection_of(payload);
+    if connection_id.is_empty() {
+        return Ok(false);
+    }
+    if number_connection == Some(connection_id.as_str()) {
+        return Ok(true);
+    }
+    has_trunk_on_connection(db, &connection_id).await
+}
+
+/// `ownsTrunkConnection(db, payload)`: whether the workspace of `db` owns
+/// the trunk connection an event came in on: one of its phone systems has it,
+/// or one of its live numbers is on it (a call
+/// `admit_trunk_call_to_hosted_number` let in on the number's own
+/// connection). The gate for a client state that names this workspace on
+/// such an event.
+pub(crate) async fn owns_trunk_connection(
+    db: &PgPool,
+    payload: &Value,
+) -> Result<bool, sqlx::Error> {
+    let connection_id = connection_of(payload);
+    if connection_id.is_empty() {
+        return Ok(false);
+    }
+    if has_trunk_on_connection(db, &connection_id).await? {
+        return Ok(true);
+    }
+    let number: Option<String> = sqlx::query_scalar(
+        "select id from voip_phone_numbers
+         where provider_connection_id = $1 and deleted_at is null limit 1",
+    )
+    .bind(&connection_id)
+    .fetch_optional(db)
+    .await?;
+    Ok(number.is_some())
 }
 
 /// `recordTrunkInbound(db, trunkId, now)`: a call came in over the trunk,

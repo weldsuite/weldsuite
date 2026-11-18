@@ -24,7 +24,6 @@ import {
   ORG,
   actionCalls,
   callEvent,
-  decodeState,
   deliverWith,
   encodeState,
   env as webhookEnv,
@@ -168,7 +167,10 @@ function transcription(
   lineSeq += 1;
   const event = callEvent('call.transcription', {
     call_control_id: side === 'caller' ? CALLER : AGENT,
-    client_state: encodeState({ workspaceId: ORG, callId, translate: side }),
+    // Each leg's own state: no command sets a new one.
+    client_state: encodeState(
+      side === 'caller' ? { workspaceId: ORG, callId } : { workspaceId: ORG, agentLegId: 'dleg_tr_1', parentCallId: callId },
+    ),
     transcription_data: { transcript, is_final: data.is_final ?? true, confidence: data.confidence ?? 0.9, transcription_track: 'inbound' },
   });
   return { ...event, data: { ...event.data, id: `ev-line-${lineSeq}`, occurred_at: `2026-10-10T10:00:${String(lineSeq).padStart(2, '0')}Z` } };
@@ -270,12 +272,12 @@ describe('POST /calls/:callId/translation', () => {
       transcription_engine_config: { transcription_model: 'openai/whisper-large-v3-turbo', language: 'auto_detect' },
       transcription_tracks: 'inbound',
     });
-    expect(decodeState(body(caller!).client_state)).toEqual({ workspaceId: ORG, callId: CALL, translate: 'caller' });
+    expect(body(caller!)).not.toHaveProperty('client_state');
     expect(body(agent!)).toMatchObject({
       transcription_engine_config: { language: 'en' },
       transcription_tracks: 'inbound',
     });
-    expect(decodeState(body(agent!).client_state)).toEqual({ workspaceId: ORG, callId: CALL, translate: 'agent' });
+    expect(body(agent!)).not.toHaveProperty('client_state');
 
     expect((await callRow()).translation).toMatchObject({ callerLanguage: null, agentLanguage: 'en', agentLegId: AGENT, stoppedAt: null });
   });
@@ -541,6 +543,51 @@ describe('call.transcription lines', () => {
     await deliver(transcription('caller', 'Bonjour'));
     await deliver(transcription('caller', 'mm hallo', { confidence: 0.9 }));
     expect((await callRow()).translation!.callerLanguage).toBeNull();
+  });
+
+  it('translates a line once when Telnyx delivers the same webhook twice', async () => {
+    await seedCall({ translation: translation() });
+    const line = transcription('caller', 'Ik wil mijn pakket volgen');
+    await deliver(line);
+    await deliver(line);
+    expect(aiCalls()).toBe(1);
+    expect(realtime.inbox('user_anna', 'phone.caption')).toHaveLength(1);
+    // A different line (another event id) is not a repeat.
+    await deliver(transcription('caller', 'Ik wil mijn pakket volgen'));
+    expect(aiCalls()).toBe(2);
+  });
+
+  it('locks the detected language without undoing what changed meanwhile', async () => {
+    await seedCall({ translation: translation({ callerLanguage: null }) });
+    answers.set('Guten Tag', { language: 'de', translation: 'Good day' });
+    answers.set('Ich brauche Hilfe', { language: 'de', translation: 'I need help' });
+    await deliver(transcription('caller', 'Guten Tag'));
+
+    // While the model works on the next line the agent switches speaking off.
+    ai.generateObject.mockImplementationOnce(async () => {
+      await db
+        .update(schema.voipCalls)
+        .set({ translation: translation({ callerLanguage: null, speakToCaller: false }) })
+        .where(eq(schema.voipCalls.id, CALL));
+      return { object: { language: 'de', translation: 'I need help' }, usage };
+    });
+    await deliver(transcription('caller', 'Ich brauche Hilfe'));
+    expect((await callRow()).translation).toMatchObject({ callerLanguage: 'de', speakToCaller: false, stoppedAt: null });
+  });
+
+  it('does not lock a language onto a translation that was stopped meanwhile', async () => {
+    await seedCall({ translation: translation({ callerLanguage: null }) });
+    answers.set('Guten Tag', { language: 'de', translation: 'Good day' });
+    await deliver(transcription('caller', 'Guten Tag'));
+    ai.generateObject.mockImplementationOnce(async () => {
+      await db
+        .update(schema.voipCalls)
+        .set({ translation: translation({ callerLanguage: null, stoppedAt: '2026-10-10T10:01:00.000Z' }) })
+        .where(eq(schema.voipCalls.id, CALL));
+      return { object: { language: 'de', translation: 'I need help' }, usage };
+    });
+    await deliver(transcription('caller', 'Ich brauche Hilfe'));
+    expect((await callRow()).translation).toMatchObject({ callerLanguage: null, stoppedAt: '2026-10-10T10:01:00.000Z' });
   });
 
   it('shows an agent line untranslated while the caller language is unknown', async () => {

@@ -140,7 +140,13 @@ app.patch('/phone-numbers/:id', requirePermission('activities:update'), zValidat
     // once Telnyx verified it is theirs (desk/phone/sip-trunks … /verification).
     if (existing.provider === 'sip_trunk' && data.allowOutbound === true && !existing.callerIdVerifiedAt) {
       return c.json(
-        { error: { code: 'caller_id_unverified', message: 'Verify this number before using it for outgoing calls' } },
+        {
+          error: {
+            code: 'caller_id_unverified',
+            message: 'Verify this number before using it for outgoing calls',
+            details: { reason: 'caller_id_unverified' },
+          },
+        },
         409,
       );
     }

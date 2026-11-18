@@ -114,7 +114,11 @@ describe('phone numbers', () => {
     const refused = await send('PATCH', '/phone-numbers/vpn_ci_unverified', { allowOutbound: true, displayName: 'Front desk' });
     expect(refused.status).toBe(409);
     expect(await refused.json()).toEqual({
-      error: { code: 'caller_id_unverified', message: 'Verify this number before using it for outgoing calls' },
+      error: {
+        code: 'caller_id_unverified',
+        message: 'Verify this number before using it for outgoing calls',
+        details: { reason: 'caller_id_unverified' },
+      },
     });
     const numbers = async () =>
       ((await (await send('GET', '/phone-numbers?provider=sip_trunk')).json()) as { data: Array<Record<string, unknown>> }).data;

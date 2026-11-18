@@ -128,7 +128,13 @@ pub(crate) async fn delete_number(
         .bind(&now)
         .execute(&caller.db)
         .await?;
-        if let Err(error) = registry::deactivate(caller.master(&state).as_ref(), &phone).await {
+        let org = caller.org();
+        let own = registry::OwnRow {
+            phone_number: &phone,
+            clerk_org_id: &org,
+            voip_phone_number_id: &id,
+        };
+        if let Err(error) = registry::deactivate(caller.master(&state).as_ref(), own).await {
             tracing::error!(%error, "[Telephony] Failed to deactivate phone registry");
         }
         caller.publish(

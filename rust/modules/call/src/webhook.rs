@@ -44,7 +44,10 @@ use crate::desk_phone_queue::{
 use crate::desk_phone_ring::{Phone, ring_waiting_calls};
 use crate::js::{self, Ordered};
 use crate::registry::{self, Entry, normalize_e164};
-use crate::sip_trunk_inbound::{Admission, admit_trunk_call, is_trunk_call, record_trunk_inbound};
+use crate::sip_trunk_inbound::{
+    Admission, admit_trunk_call, admit_trunk_call_to_hosted_number, is_trunk_call,
+    owns_trunk_connection, record_trunk_inbound,
+};
 use crate::sip_trunk_number::dialed_number_of;
 use crate::telnyx::{Telnyx, decode_client_state, encode_client_state, verify_signature};
 use crate::tool_auth;
@@ -330,6 +333,25 @@ async fn process(hook: &Hook<'_>, event: &Value) -> Result<(), String> {
         .get("workspaceId")
         .cloned()
         .unwrap_or(Value::Null);
+    // A trunk's SIP login is in a customer's hands: a client signed in with
+    // it can originate a call that carries any client_state. On an event of a
+    // trunk connection, the workspace the state names must own that
+    // connection; otherwise the state is made up, and the event is
+    // acknowledged and dropped.
+    if js::truthy(&workspace) && hook.is_trunk_call(payload) {
+        let named = js::string(&workspace);
+        let db = hook.tenant(&named).await?;
+        if !owns_trunk_connection(&db, payload)
+            .await
+            .map_err(|e| e.to_string())?
+        {
+            tracing::warn!(
+                event_type,
+                "[Telnyx Webhook] event on a trunk connection names a workspace that does not own it, ignoring"
+            );
+            return Ok(());
+        }
+    }
     // A leg the server dialled to ring an agent's browser: its own
     // client_state, no callId.
     if let Some(leg_id) = client_state.get("agentLegId").filter(|id| js::truthy(id))
@@ -593,13 +615,41 @@ async fn porting_completed(
         return Ok(());
     }
     let phone = js::string(&draft["phone_number"]);
-    let existing: Option<String> =
-        sqlx::query_scalar("select id from voip_phone_numbers where phone_number = $1 limit 1")
-            .bind(&phone)
-            .fetch_optional(&db)
+    let existing: Option<(String, Option<String>, Option<String>, bool)> = sqlx::query_as(
+        "select id, provider, sip_trunk_id, deleted_at is not null from voip_phone_numbers
+         where phone_number = $1 limit 1",
+    )
+    .bind(&phone)
+    .fetch_optional(&db)
+    .await
+    .map_err(|e| e.to_string())?;
+    let number_id = if let Some((id, provider, sip_trunk_id, deleted)) = existing {
+        // The number was first connected over the customer's own phone
+        // system, or was removed: from now on it is a number we host. Left as
+        // a trunk's number, every call from the phone network would be refused
+        // (only the trunk's connection may call such a number), and no route
+        // could repair it.
+        if provider.as_deref() == Some("sip_trunk")
+            || sip_trunk_id
+                .as_deref()
+                .is_some_and(|trunk| !trunk.is_empty())
+            || deleted
+        {
+            sqlx::query(
+                "update voip_phone_numbers set provider = 'telnyx', sip_trunk_id = null,
+                     deleted_at = null, provider_phone_number_id = $2, provider_connection_id = $3,
+                     status = 'active', caller_id_verified_at = null, allow_outbound = true,
+                     updated_at = $4::timestamp
+                 where id = $1",
+            )
+            .bind(&id)
+            .bind(ported["id"].as_str())
+            .bind(hook.ctx.env("TELNYX_CONNECTION_ID"))
+            .bind(now())
+            .execute(&db)
             .await
             .map_err(|e| e.to_string())?;
-    let number_id = if let Some(id) = existing {
+        }
         id
     } else {
         let id = weldsuite_kit::generate_id("vpn");
@@ -734,12 +784,13 @@ async fn porting_exception(
 // ── inbound calls ───────────────────────────────────────────────────────────
 
 /// A number the call came in on: `(id, assignedUserId, allowInbound,
-/// enableRecording, sipTrunkId)`.
+/// enableRecording, sipTrunkId, providerConnectionId)`.
 type PhoneRow = (
     String,
     Option<String>,
     Option<bool>,
     Option<bool>,
+    Option<String>,
     Option<String>,
 );
 
@@ -785,7 +836,8 @@ async fn inbound(hook: &Hook<'_>, payload: &Value) -> Result<(), String> {
     };
     let db = hook.tenant(&workspace).await?;
     let phone: Option<PhoneRow> = sqlx::query_as(
-        "select id, assigned_user_id, allow_inbound, enable_recording, sip_trunk_id
+        "select id, assigned_user_id, allow_inbound, enable_recording, sip_trunk_id,
+             provider_connection_id
          from voip_phone_numbers
          where id = $1 and deleted_at is null limit 1",
     )
@@ -793,8 +845,8 @@ async fn inbound(hook: &Hook<'_>, payload: &Value) -> Result<(), String> {
     .fetch_optional(&db)
     .await
     .map_err(|e| e.to_string())?;
-    let Some((phone_id, assigned, allow_inbound, recording, sip_trunk)) =
-        phone.filter(|(_, _, allow, _, _)| *allow != Some(false))
+    let Some((phone_id, assigned, allow_inbound, recording, sip_trunk, phone_connection)) =
+        phone.filter(|(_, _, allow, _, _, _)| *allow != Some(false))
     else {
         tracing::warn!(%to_number, "[Telnyx Webhook] Inbound not allowed");
         hook.telnyx
@@ -805,8 +857,10 @@ async fn inbound(hook: &Hook<'_>, payload: &Value) -> Result<(), String> {
     };
     let _ = allow_inbound;
     // A number on a customer's own phone system only takes calls over that
-    // trunk's connection. A number we host is routed as before, whoever
-    // sent it.
+    // trunk's connection. A number we host takes a phone system's call only
+    // from this workspace's own (or on the number's own connection): another
+    // workspace's trunk must not run its calls, and their minutes, into it.
+    // A call that is not a trunk call is routed as before.
     let mut trunk_id: Option<String> = None;
     if let Some(sip_trunk) = sip_trunk.as_deref().filter(|trunk| !trunk.is_empty()) {
         match admit_trunk_call(&db, payload, sip_trunk, &to_number)
@@ -828,6 +882,17 @@ async fn inbound(hook: &Hook<'_>, payload: &Value) -> Result<(), String> {
                 trunk_id = Some(admitted);
             }
         }
+    } else if trunk_call
+        && !admit_trunk_call_to_hosted_number(&db, payload, phone_connection.as_deref())
+            .await
+            .map_err(|e| e.to_string())?
+    {
+        tracing::warn!(%to_number, "[Telnyx Webhook] Trunk call refused: the phone system is not this workspace's");
+        hook.telnyx
+            .hangup(&call_control_id, None)
+            .await
+            .map_err(|e| e.to_string())?;
+        return Ok(());
     }
     let route: Option<RouteRow> = sqlx::query_as(
         "select action, voice_agent_id, forward_to_e164, options from desk_phone_routes

@@ -203,9 +203,11 @@ fn read_number_changes(issues: &mut Issues, fields: &Map<String, Value>) -> Numb
 }
 
 /// A live number's provider, when the number exists.
-async fn live_number(caller: &Caller, id: &str) -> Result<Option<String>, sqlx::Error> {
-    sqlx::query_scalar(
-        "select provider from voip_phone_numbers where id = $1 and deleted_at is null limit 1",
+/// A live number's provider, and whether Telnyx verified it as caller id.
+async fn live_number(caller: &Caller, id: &str) -> Result<Option<(String, bool)>, sqlx::Error> {
+    sqlx::query_as(
+        "select provider, caller_id_verified_at is not null from voip_phone_numbers
+         where id = $1 and deleted_at is null limit 1",
     )
     .bind(id)
     .fetch_optional(&caller.db)
@@ -225,6 +227,13 @@ pub(crate) async fn update_number(
         Err(response) => return *response,
     };
     match live_number(&caller, &id).await {
+        // A number on the customer's own phone system is shown as caller id
+        // only once Telnyx verified it is theirs.
+        Ok(Some((provider, verified)))
+            if provider == TRUNK_PROVIDER && changes.allow_outbound == Some(true) && !verified =>
+        {
+            return crate::sip_trunks::caller_id_unverified();
+        }
         Ok(Some(_)) => {}
         Ok(None) => return ApiError::not_found("Phone number", Some(&id)).into_response(),
         Err(error) => return internal(&error, "Failed to update phone number"),
@@ -272,7 +281,7 @@ pub(crate) async fn delete_number(
     match live_number(&caller, &id).await {
         // A number on the customer's own phone system is removed from that
         // system (desk/phone/sip-trunks).
-        Ok(Some(provider)) if provider == TRUNK_PROVIDER => {
+        Ok(Some((provider, _))) if provider == TRUNK_PROVIDER => {
             return ApiError::conflict(TRUNK_NUMBER_REFUSAL).into_response();
         }
         Ok(Some(_)) => {}
