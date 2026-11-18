@@ -3,8 +3,8 @@
 //! strictly, then each event on its own), and the profile and group
 //! operations (`wirePeopleOpSchema`, `wireGroupOpSchema`) it may carry.
 //!
-//! The operations are only checked here: applying them is the `PanelProject`
-//! object's work, which these editions don't have yet.
+//! The operations that pass are read into the `PanelProject` calls' shapes
+//! (`toPeopleOps`, `toGroupOps`).
 
 use std::sync::LazyLock;
 
@@ -17,6 +17,7 @@ use super::wire::{
     is_user_id, length, name, properties,
 };
 use crate::js::Js;
+use crate::project_state::{GroupOp, PeopleOp, Properties};
 
 /// `POST /v1/track` takes at most this many events.
 pub(crate) const MAX_TRACK_EVENTS: usize = 100;
@@ -60,11 +61,10 @@ pub(crate) struct ServerBatch {
     pub(crate) events: Vec<ServerEvent>,
     /// Events left out because they couldn't be read.
     pub(crate) dropped: usize,
-    /// Valid profile operations (`people`) and group profile operations
-    /// (`groups`): for the `PanelProject` object, which these editions don't
-    /// have yet.
-    pub(crate) people_ops: usize,
-    pub(crate) group_ops: usize,
+    /// The valid profile operations (`people`) and group profile operations
+    /// (`groups`), each one read on its own.
+    pub(crate) people: Vec<PeopleOp>,
+    pub(crate) groups: Vec<GroupOp>,
 }
 
 /// `propertyValue`: a string of at most 2048 characters, a finite number,
@@ -138,7 +138,92 @@ pub(crate) fn is_group_op(op: &Js) -> bool {
     group_type && key && rest
 }
 
-fn items<'a>(body: &'a Js, key: &str) -> &'a [Js] {
+/// An operation's `props` as Zod's record gives them: in the body's order,
+/// without `__proto__` (which a record never sets as its own property).
+fn op_props(op: &Js) -> Properties {
+    match op.get("props") {
+        Some(Js::Object(entries)) => entries
+            .iter()
+            .filter(|(key, _)| key != "__proto__")
+            .map(|(key, value)| (key.clone(), value.to_value()))
+            .collect(),
+        _ => Properties::new(),
+    }
+}
+
+/// An operation's `keys`.
+fn op_keys(op: &Js) -> Vec<String> {
+    match op.get("keys") {
+        Some(Js::Array(keys)) => keys
+            .iter()
+            .filter_map(|key| match key {
+                Js::String(key) => Some(key.clone()),
+                _ => None,
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// A valid profile operation as `toPeopleOps` hands it to the project state.
+pub(crate) fn people_op(op: &Js) -> Option<PeopleOp> {
+    if !is_people_op(op) {
+        return None;
+    }
+    let user_id = text(op, "user_id")?.to_owned();
+    let ts = text(op, "ts")?.to_owned();
+    Some(match text(op, "op")? {
+        "set" => PeopleOp::Set {
+            user_id,
+            ts,
+            props: op_props(op),
+        },
+        "set_once" => PeopleOp::SetOnce {
+            user_id,
+            ts,
+            props: op_props(op),
+        },
+        "unset" => PeopleOp::Unset {
+            user_id,
+            ts,
+            keys: op_keys(op),
+        },
+        _ => PeopleOp::Increment {
+            user_id,
+            ts,
+            props: op_props(op),
+        },
+    })
+}
+
+/// A valid group profile operation as `toGroupOps` hands it to the project
+/// state.
+pub(crate) fn group_op(op: &Js) -> Option<GroupOp> {
+    if !is_group_op(op) {
+        return None;
+    }
+    let group_type = text(op, "type")?.to_owned();
+    let group_key = text(op, "key")?.to_owned();
+    Some(match text(op, "op")? {
+        "set" => GroupOp::Set {
+            group_type,
+            group_key,
+            props: op_props(op),
+        },
+        "set_once" => GroupOp::SetOnce {
+            group_type,
+            group_key,
+            props: op_props(op),
+        },
+        _ => GroupOp::Unset {
+            group_type,
+            group_key,
+            keys: op_keys(op),
+        },
+    })
+}
+
+pub(super) fn items<'a>(body: &'a Js, key: &str) -> &'a [Js] {
     match body.get(key) {
         Some(Js::Array(items)) => items,
         _ => &[],
@@ -300,9 +385,9 @@ pub(crate) fn parse_server_batch(body: &Js, max_events: usize) -> Result<ServerB
             }
         }
     }
-    let people_ops = raw_people.iter().filter(|op| is_people_op(op)).count();
-    let group_ops = raw_groups.iter().filter(|op| is_group_op(op)).count();
-    if events.is_empty() && (!raw_events.is_empty() || people_ops + group_ops == 0) {
+    let people: Vec<PeopleOp> = raw_people.iter().filter_map(people_op).collect();
+    let groups: Vec<GroupOp> = raw_groups.iter().filter_map(group_op).collect();
+    if events.is_empty() && (!raw_events.is_empty() || people.len() + groups.len() == 0) {
         return Err(first_issues.map_or_else(
             || "people: No valid event or people operation".to_owned(),
             |issues| first_issue(&issues),
@@ -312,8 +397,8 @@ pub(crate) fn parse_server_batch(body: &Js, max_events: usize) -> Result<ServerB
         lib_version,
         dropped: raw_events.len() - events.len(),
         events,
-        people_ops,
-        group_ops,
+        people,
+        groups,
     })
 }
 
@@ -423,7 +508,17 @@ mod tests {
         )
         .expect("a batch");
         assert!(parsed.events.is_empty());
-        assert_eq!((parsed.people_ops, parsed.group_ops), (2, 1));
+        assert_eq!(
+            serde_json::to_value(&parsed.people).expect("json"),
+            json!([
+                { "op": "set", "userId": "user-1", "ts": "2026-10-27T12:00:00.000Z", "props": { "$email": "a@b.com", "plan": "pro" } },
+                { "op": "increment", "userId": "user-1", "ts": "2026-10-27T12:00:00.000Z", "props": { "orders": 1 } },
+            ])
+        );
+        assert_eq!(
+            serde_json::to_value(&parsed.groups).expect("json"),
+            json!([{ "op": "unset", "groupType": "company", "groupKey": "acme", "keys": ["legacy"] }])
+        );
     }
 
     #[test]

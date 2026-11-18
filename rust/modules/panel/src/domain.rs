@@ -244,6 +244,57 @@ pub(crate) fn project_record(
     })
 }
 
+/// `panel:tier:<workspaceId>` → the replay tier last written into the
+/// workspace's project records (`tierKvKey`).
+pub(crate) fn tier_key(workspace_id: &str) -> String {
+    format!("panel:tier:{workspace_id}")
+}
+
+/// The tier a plan writes new recording chunks to
+/// (`panelPlanLimits(slug).replayTier`): `90d` on Scale and Enterprise,
+/// `30d` on Free, Business, a plan WeldPanel doesn't know or none (Global's
+/// default, so an install without billing keeps it).
+pub fn plan_replay_tier(plan_slug: Option<&str>) -> &'static str {
+    match plan_slug.map(|slug| slug.trim().to_lowercase()).as_deref() {
+        Some("scale" | "enterprise") => "90d",
+        _ => "30d",
+    }
+}
+
+/// `withReplayTier(record, tier)`: `90d` is written, `30d` is the default
+/// and left out.
+pub(crate) fn with_replay_tier(mut record: Value, tier: &str) -> Value {
+    if let Some(object) = record.as_object_mut() {
+        if tier == "90d" {
+            object.insert("replayTier".to_owned(), json!(tier));
+        } else {
+            object.remove("replayTier");
+        }
+    }
+    record
+}
+
+/// `parseProjectRecord(raw)` as stored, without the settings filled in:
+/// `None` for a missing, malformed or unknown-version record.
+pub(crate) fn stored_project_record(raw: Option<&str>) -> Option<Value> {
+    let value: Value = serde_json::from_str(raw.filter(|raw| !raw.is_empty())?).ok()?;
+    let object = value.as_object()?;
+    (is_version_one(object.get("v"))
+        && object.get("projectId").is_some_and(Value::is_string)
+        && object.get("workspaceId").is_some_and(Value::is_string))
+    .then_some(value)
+}
+
+/// Whether a stored record already names `tier`
+/// (`record.replayTier === (tier === '90d' ? tier : undefined)`).
+pub(crate) fn names_replay_tier(record: &Value, tier: &str) -> bool {
+    match record.get("replayTier") {
+        None => tier != "90d",
+        Some(Value::String(named)) => tier == "90d" && named == tier,
+        Some(_) => false,
+    }
+}
+
 /// A parsed project record (`parseProjectRecord`), its settings filled in.
 #[derive(Debug, Clone)]
 pub(crate) struct ProjectRecord {
@@ -463,6 +514,43 @@ mod tests {
         assert_eq!(tier(""), "30d");
         assert_eq!(tier(r#","replayTier":null"#), "30d");
         assert_eq!(tier(r#","replayTier":"90d""#), "90d");
+    }
+
+    #[test]
+    fn the_plan_decides_the_replay_tier_and_30d_is_left_out() {
+        for slug in ["scale", "enterprise", " Scale "] {
+            assert_eq!(plan_replay_tier(Some(slug)), "90d", "{slug}");
+        }
+        for slug in [Some("free"), Some("business"), Some("unknown"), None] {
+            assert_eq!(plan_replay_tier(slug), "30d", "{slug:?}");
+        }
+        let record = project_record("pnp_1", "ws_1", &json!("active"), &json!([]), &json!({}));
+        let ninety = with_replay_tier(record.clone(), "90d");
+        assert_eq!(ninety["replayTier"], "90d");
+        assert!(names_replay_tier(&ninety, "90d"));
+        assert!(!names_replay_tier(&ninety, "30d"));
+        let thirty = with_replay_tier(ninety, "30d");
+        assert!(thirty.get("replayTier").is_none());
+        assert!(names_replay_tier(&thirty, "30d"));
+        assert!(!names_replay_tier(&json!({ "replayTier": null }), "30d"));
+        assert_eq!(tier_key("ws_1"), "panel:tier:ws_1");
+    }
+
+    #[test]
+    fn reads_a_stored_record_as_it_is() {
+        let raw = r#"{"v":1,"projectId":"p","workspaceId":"w","settings":{},"extra":1}"#;
+        assert_eq!(
+            stored_project_record(Some(raw)),
+            Some(serde_json::from_str::<Value>(raw).expect("json"))
+        );
+        for raw in [
+            r#"{"v":2,"projectId":"p","workspaceId":"w"}"#,
+            r#"{"v":1,"projectId":1,"workspaceId":"w"}"#,
+            "not json",
+            "",
+        ] {
+            assert!(stored_project_record(Some(raw)).is_none(), "{raw}");
+        }
     }
 
     #[test]

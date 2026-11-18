@@ -83,6 +83,8 @@ impl PanelBridges {
             chunks: stream("PANEL_REPLAY_CHUNKS"),
             replays: bindings.replays,
             limits,
+            // `PANEL_PROJECT`, when the test binds it.
+            project_state: self.project_state(bindings.ledgers).0,
         }
     }
 }

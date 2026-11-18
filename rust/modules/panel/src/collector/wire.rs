@@ -9,7 +9,9 @@ use regex::Regex;
 use serde_json::{Map, Value, json};
 use weldsuite_kit::validation::{Field, Format, Issues, Number, Presence, Text};
 
+use super::wire_server::{group_op, items, people_op};
 use crate::js::Js;
+use crate::project_state::{GroupOp, PeopleOp};
 
 pub(crate) const MAX_EVENTS_PER_BATCH: usize = 100;
 /// `navigator.sendBeacon` refuses bodies over 64 KiB.
@@ -124,6 +126,12 @@ pub(crate) struct EventBatch {
     pub(crate) lib_version: String,
     pub(crate) consent: bool,
     pub(crate) events: Vec<WireEvent>,
+    /// The valid profile operations (`people`), each one read on its own;
+    /// applied only with consent.
+    pub(crate) people: Vec<PeopleOp>,
+    /// The valid group profile operations (`groups`); applied only with
+    /// consent too (ADR PANEL-006).
+    pub(crate) groups: Vec<GroupOp>,
 }
 
 pub(super) const fn length(max: usize) -> Text {
@@ -191,9 +199,8 @@ pub(crate) fn parse_event_batch(body: &Js) -> Result<EventBatch, String> {
             Some(MAX_EVENTS_PER_BATCH),
             |_, item| Some(item.clone()),
         );
-        // Profile and group profile operations belong to the PanelProject
-        // object, which the Kubernetes editions don't have: accepted (the
-        // length is still checked) and ignored.
+        // Profile and group profile operations: the lengths are checked
+        // here, each operation on its own below.
         issues.list(
             fields,
             "people",
@@ -264,6 +271,8 @@ pub(crate) fn parse_event_batch(body: &Js) -> Result<EventBatch, String> {
         lib_version,
         consent,
         events,
+        people: items(body, "people").iter().filter_map(people_op).collect(),
+        groups: items(body, "groups").iter().filter_map(group_op).collect(),
     })
 }
 
@@ -599,15 +608,27 @@ mod tests {
     }
 
     #[test]
-    fn accepts_and_ignores_up_to_fifty_group_operations() {
+    fn reads_up_to_fifty_group_operations_each_on_its_own() {
         // An operation this version doesn't understand costs only itself.
         let mut ops = vec![
             json!({ "op": "set", "type": "company", "key": "acme", "props": { "plan": "pro" } });
             49
         ];
         ops.push(json!({ "op": "nonsense" }));
-        let batch = parse_event_batch(&body(&json!({ "groups": ops }))).expect("a batch");
+        let batch = parse_event_batch(&body(&json!({
+            "groups": ops,
+            "people": [
+                { "op": "unset", "user_id": "u-1", "ts": "2026-10-27T12:00:00.000Z", "keys": ["plan"] },
+                { "op": "set", "user_id": "", "ts": "2026-10-27T12:00:00.000Z", "props": {} },
+            ],
+        })))
+        .expect("a batch");
         assert_eq!(batch.events.len(), 1);
+        assert_eq!(batch.groups.len(), 49);
+        assert_eq!(
+            serde_json::to_value(&batch.people).expect("json"),
+            json!([{ "op": "unset", "userId": "u-1", "ts": "2026-10-27T12:00:00.000Z", "keys": ["plan"] }])
+        );
         assert_eq!(
             parse_event_batch(&body(&json!({ "groups": vec![json!({}); 51] })))
                 .expect_err("refused"),

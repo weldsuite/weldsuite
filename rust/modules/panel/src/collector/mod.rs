@@ -23,6 +23,7 @@
 mod bundles;
 mod ip_filter;
 mod limits;
+mod project;
 mod proxy;
 mod recordings;
 mod replays_store;
@@ -68,7 +69,9 @@ use crate::domain::{
     project_key, quota_key, seen_key, snapshot_request_key,
 };
 use crate::js::{Js, number_value};
+use crate::project_state::{PanelProjectState, ProjectRef};
 use limits::rate_limited;
+use project::ProjectCaches;
 use proxy::{Addresses, Edge, request_addresses};
 use rows::{Geo, RowSource, build_event_rows, consented_anon_id, iso_millis, parse_millis};
 use visitor::{cookieless_visitor_id, utc_date};
@@ -185,6 +188,10 @@ pub struct RequestCollector {
     pub replays: Option<Arc<dyn DynFileStore>>,
     /// The per-IP rate limits (`EVENTS_RATE_LIMIT`, …).
     pub limits: Option<Arc<dyn RateLimiter>>,
+    /// `PANEL_PROJECT`: the project's people, identities, groups and live
+    /// view. Here the collector's adapter, which never opens a tenant
+    /// database (ADR DATA-008).
+    pub project_state: Option<Arc<dyn PanelProjectState>>,
 }
 
 /// What the collector shares.
@@ -207,6 +214,8 @@ pub struct CollectorState {
     /// (`proxy::request_addresses`).
     pub trusted_proxies: usize,
     seen: Arc<SeenThrottle>,
+    /// The group types and live view touches this process keeps.
+    project_caches: Arc<ProjectCaches>,
 }
 
 impl CollectorState {
@@ -228,6 +237,7 @@ impl CollectorState {
             bundles,
             trusted_proxies,
             seen: Arc::new(SeenThrottle::default()),
+            project_caches: Arc::new(ProjectCaches::default()),
         }
     }
 }
@@ -241,6 +251,7 @@ impl std::fmt::Debug for CollectorState {
             .field("chunks", &self.ports.chunks.is_some())
             .field("replays", &self.ports.replays.is_some())
             .field("limits", &self.ports.limits.is_some())
+            .field("project_state", &self.ports.project_state.is_some())
             .field("bundles", &self.bundles)
             .finish_non_exhaustive()
     }
@@ -475,7 +486,8 @@ async fn health(State(state): State<CollectorState>, ctx: Ctx) -> Response {
 /// in; `None` for a malformed, unknown or deleted token. A record missing
 /// from the cache is read from the master registry and put back for ten
 /// minutes (only ten: a deletion racing the read must not keep a dead token
-/// alive).
+/// alive), with the replay tier of the workspace's plan as the project
+/// routes write it.
 async fn load_project(
     ctx: &Ctx,
     state: &CollectorState,
@@ -493,28 +505,34 @@ async fn load_project(
     let Some(master) = ctx.master(state) else {
         return Ok(None);
     };
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(r) from panel_project_registry r
+    let row: Option<(Value, Option<String>)> = sqlx::query_as(
+        "select to_jsonb(r), p.slug from panel_project_registry r
+         left join workspaces w on w.id = r.workspace_id
+         left join plans p on p.id = w.plan_id
          where r.token = $1 and r.deleted_at is null limit 1",
     )
     .bind(token)
     .fetch_optional(&master)
     .await
     .map_err(PortError::backend)?;
-    let Some(row) = row.map(weldsuite_db::js_row) else {
+    let Some((row, plan)) = row else {
         return Ok(None);
     };
+    let row = weldsuite_db::js_row(row);
     let field = |key: &str| row.get(key).cloned().unwrap_or(Value::Null);
-    let record = crate::domain::project_record(
-        row.get("projectId")
-            .and_then(Value::as_str)
-            .unwrap_or_default(),
-        row.get("workspaceId")
-            .and_then(Value::as_str)
-            .unwrap_or_default(),
-        &field("status"),
-        &field("allowedDomains"),
-        &field("settings"),
+    let record = crate::domain::with_replay_tier(
+        crate::domain::project_record(
+            row.get("projectId")
+                .and_then(Value::as_str)
+                .unwrap_or_default(),
+            row.get("workspaceId")
+                .and_then(Value::as_str)
+                .unwrap_or_default(),
+            &field("status"),
+            &field("allowedDomains"),
+            &field("settings"),
+        ),
+        crate::domain::plan_replay_tier(plan.as_deref()),
     )
     .to_string();
     if let Some(cache) = &cache
@@ -774,10 +792,10 @@ async fn events(
     };
     let cache = ctx.cache(&state);
     let seen = Arc::clone(&state.seen);
-    state
-        .events
-        .tracker()
-        .spawn(async move { collect(accepted, ports, cache, seen).await });
+    let caches = Arc::clone(&state.project_caches);
+    state.events.tracker().spawn(async move {
+        collect_in_background(accepted, ports, cache, seen, caches).await;
+    });
     StatusCode::NO_CONTENT.into_response()
 }
 
@@ -815,14 +833,65 @@ fn log_failure_for(what: &str, project_id: &str, error: &dyn std::fmt::Display) 
     );
 }
 
-/// `collectEvents(env, accepted)`: the rows to the stream, then the day's
-/// count and the install-check stamp, which never fail the write that
-/// already happened.
-async fn collect(
-    accepted: Accepted,
+/// `collectInBackground(env, accepted)`: the group operations first (they
+/// may give a type its slot, which decides the events' `$group_`
+/// properties; applied only from a batch sent with consent, ADR PANEL-006),
+/// then the events and the people side by side: a stream that refuses the
+/// rows must not lose an identify, and the other way round.
+async fn collect_in_background(
+    mut accepted: Accepted,
     ports: RequestCollector,
     cache: Option<Arc<dyn DynCache>>,
     seen: Arc<SeenThrottle>,
+    caches: Arc<ProjectCaches>,
+) {
+    let state = ports.project_state.clone();
+    let batch = &mut accepted.batch;
+    let group_ops = if batch.consent {
+        batch.groups.as_slice()
+    } else {
+        &[]
+    };
+    project::limit_groups(
+        state.as_ref(),
+        ProjectRef {
+            workspace_id: &accepted.project.workspace_id,
+            project_id: &accepted.project.project_id,
+        },
+        batch
+            .events
+            .iter_mut()
+            .map(|event| &mut event.props)
+            .collect(),
+        group_ops,
+        accepted.received_at,
+        &caches,
+    )
+    .await;
+    let project = ProjectRef {
+        workspace_id: &accepted.project.workspace_id,
+        project_id: &accepted.project.project_id,
+    };
+    futures_util::join!(
+        collect(&accepted, &ports, cache, &seen, &caches),
+        project::apply_batch_people(
+            state.as_ref(),
+            project,
+            &accepted.batch,
+            accepted.received_at
+        ),
+    );
+}
+
+/// `collectEvents(env, accepted)`: the rows to the stream, then the day's
+/// count, the install-check stamp and the live view, which never fail the
+/// write that already happened.
+async fn collect(
+    accepted: &Accepted,
+    ports: &RequestCollector,
+    cache: Option<Arc<dyn DynCache>>,
+    seen: &SeenThrottle,
+    caches: &ProjectCaches,
 ) {
     let Accepted {
         project,
@@ -832,13 +901,14 @@ async fn collect(
         user_agent,
         geo,
     } = accepted;
+    let received_at = *received_at;
     // Events that need a cookieless id are left out when the salt is
     // unavailable: an id built without it would be stable across days.
     let mut cookieless_id = None;
     if batch
         .events
         .iter()
-        .any(|event| consented_anon_id(&batch, event).is_none())
+        .any(|event| consented_anon_id(batch, event).is_none())
     {
         match &ports.salt {
             Some(salt) => match salt.today(received_at).await {
@@ -846,32 +916,32 @@ async fn collect(
                     cookieless_id = Some(cookieless_visitor_id(
                         &salt,
                         &project.project_id,
-                        &ip,
-                        &user_agent,
+                        ip,
+                        user_agent,
                     ));
                 }
-                Err(error) => log_failure("Salt lookup", &project, &error),
+                Err(error) => log_failure("Salt lookup", project, &error),
             },
-            None => log_failure("Salt lookup", &project, &"no salt source"),
+            None => log_failure("Salt lookup", project, &"no salt source"),
         }
     }
     let rows = build_event_rows(&RowSource {
-        record: &project,
-        batch: &batch,
+        record: project,
+        batch,
         received_at,
-        user_agent: user_agent::parse_user_agent(&user_agent),
-        geo,
+        user_agent: user_agent::parse_user_agent(user_agent),
+        geo: geo.clone(),
         cookieless_id,
     });
     if rows.is_empty() {
         return;
     }
     let Some(sink) = &ports.sink else {
-        log_failure("Event write", &project, &"no events stream");
+        log_failure("Event write", project, &"no events stream");
         return;
     };
     if let Err(error) = sink.send(&rows).await {
-        log_failure("Event write", &project, &error);
+        log_failure("Event write", project, &error);
         return;
     }
     let day = utc_date(received_at);
@@ -888,10 +958,20 @@ async fn collect(
             None => Err(PortError::backend("no cache")),
         }
     };
-    let (usage, stamp) = futures_util::join!(usage, stamp);
+    let live = project::track_live(
+        ports.project_state.as_ref(),
+        ProjectRef {
+            workspace_id: &project.workspace_id,
+            project_id: &project.project_id,
+        },
+        &rows,
+        received_at,
+        caches,
+    );
+    let (usage, stamp, ()) = futures_util::join!(usage, stamp, live);
     for result in [usage, stamp] {
         if let Err(error) = result {
-            log_failure("Usage count or seen marker", &project, &error);
+            log_failure("Usage count, seen marker or live view", project, &error);
         }
     }
 }

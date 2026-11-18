@@ -10,7 +10,10 @@ use weldsuite_db::PgPool;
 use weldsuite_events::iso_timestamp;
 use weldsuite_ports::{Cache, DynCache, PortError};
 
-use crate::domain::{project_key, project_record, with_setting_defaults};
+use crate::domain::{
+    names_replay_tier, plan_replay_tier, project_key, project_record, stored_project_record,
+    tier_key, with_replay_tier, with_setting_defaults,
+};
 
 /// What a registry write can fail with: the master database or the cache.
 #[derive(Debug)]
@@ -143,12 +146,17 @@ impl Registry {
             return Ok(());
         }
 
-        let record = project_record(
-            project_id,
-            &self.workspace_id,
-            &view.get("status"),
-            &view.get("allowedDomains"),
-            &settings,
+        // No expiry: deleting is explicit (rotation, project deletion).
+        let tier = replay_tier_of(&self.master, &self.workspace_id).await?;
+        let record = with_replay_tier(
+            project_record(
+                project_id,
+                &self.workspace_id,
+                &view.get("status"),
+                &view.get("allowedDomains"),
+                &settings,
+            ),
+            tier,
         );
         self.cache
             .put(&project_key(token), &record.to_string(), None)
@@ -172,12 +180,15 @@ impl Registry {
                     .get("workspaceId")
                     .and_then(Value::as_str)
                     .unwrap_or_default();
-                let latest = project_record(
-                    project_id,
-                    workspace,
-                    &after.get("status").cloned().unwrap_or(Value::Null),
-                    &after.get("allowedDomains").cloned().unwrap_or(Value::Null),
-                    &after.get("settings").cloned().unwrap_or(Value::Null),
+                let latest = with_replay_tier(
+                    project_record(
+                        project_id,
+                        workspace,
+                        &after.get("status").cloned().unwrap_or(Value::Null),
+                        &after.get("allowedDomains").cloned().unwrap_or(Value::Null),
+                        &after.get("settings").cloned().unwrap_or(Value::Null),
+                    ),
+                    tier,
                 );
                 self.cache
                     .put(&project_key(after_token), &latest.to_string(), None)
@@ -213,6 +224,91 @@ impl Registry {
             .await?;
         Ok(())
     }
+}
+
+/// `replayTierOf(registry)`: the tier the workspace's plan writes new
+/// recording chunks to; `30d` for a workspace without a plan, or none.
+pub(crate) async fn replay_tier_of(
+    master: &PgPool,
+    workspace_id: &str,
+) -> Result<&'static str, sqlx::Error> {
+    let slug: Option<Option<String>> = sqlx::query_scalar(
+        "select p.slug from workspaces w left join plans p on p.id = w.plan_id
+         where w.id = $1 limit 1",
+    )
+    .bind(workspace_id)
+    .fetch_optional(master)
+    .await?;
+    Ok(plan_replay_tier(slug.flatten().as_deref()))
+}
+
+/// `applyReplayTier(deps, workspaceId, tier)`: brings the cache records of
+/// a workspace's projects in step with its plan's replay tier, so a plan
+/// change takes effect without anyone touching a project. Checked against
+/// `panel:tier:<workspace>` first, so the usual call is one cache read; a
+/// failed run leaves the marker alone and is repeated by the next one.
+/// Answers whether the marker was behind (the records were looked at).
+///
+/// # Errors
+///
+/// The master database or the cache failing.
+pub async fn apply_replay_tier(
+    master: &PgPool,
+    cache: &dyn DynCache,
+    workspace_id: &str,
+    tier: &str,
+) -> Result<bool, PortError> {
+    if cache.get_boxed(&tier_key(workspace_id)).await?.as_deref() == Some(tier) {
+        return Ok(false);
+    }
+    let tokens: Vec<String> = sqlx::query_scalar(
+        "select token from panel_project_registry
+         where workspace_id = $1 and deleted_at is null",
+    )
+    .bind(workspace_id)
+    .fetch_all(master)
+    .await
+    .map_err(PortError::backend)?;
+    for token in tokens {
+        let raw = cache.get_boxed(&project_key(&token)).await?;
+        let Some(record) = stored_project_record(raw.as_deref()) else {
+            continue;
+        };
+        if names_replay_tier(&record, tier) {
+            continue;
+        }
+        cache
+            .put_boxed(
+                &project_key(&token),
+                &with_replay_tier(record, tier).to_string(),
+                None,
+            )
+            .await?;
+    }
+    cache.put_boxed(&tier_key(workspace_id), tier, None).await?;
+    Ok(true)
+}
+
+/// Every workspace with a live project, and the tier its plan writes to
+/// (`30d` without billing, as on Global without a plan).
+///
+/// # Errors
+///
+/// The master database failing.
+pub async fn replay_tiers(master: &PgPool) -> Result<Vec<(String, &'static str)>, sqlx::Error> {
+    let rows: Vec<(String, Option<String>)> = sqlx::query_as(
+        "select r.workspace_id, p.slug
+         from (select distinct workspace_id from panel_project_registry where deleted_at is null) r
+         left join workspaces w on w.id = r.workspace_id
+         left join plans p on p.id = w.plan_id
+         order by r.workspace_id",
+    )
+    .fetch_all(master)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(workspace_id, slug)| (workspace_id, plan_replay_tier(slug.as_deref())))
+        .collect())
 }
 
 /// An ISO timestamp field of a `js_row` (`toISOString()` form, which orders

@@ -18,12 +18,15 @@
 //! are counted in `dropped`. Server events get no geo or user-agent
 //! enrichment.
 //!
-//! Profile and group operations (`people`, `groups`, `$identify` links, the
-//! group-type slots of `$group_<type>` properties) belong to the
-//! `PanelProject` object, which these editions don't have yet: they are
-//! checked and accepted, and the events keep their properties as sent, as
-//! panel-ingest does without its `PANEL_PROJECT` binding.
+//! Profile and group operations go to the project state
+//! ([`crate::PanelProjectState`], the `PanelProject` object on Global): the
+//! group operations first, before the rows are built (they may give a type
+//! its slot, which decides the events' `$group_<type>` properties), the
+//! `$identify` links and profile operations after the write, beside the
+//! counting. Without the state they are checked and accepted, and the
+//! events keep their properties as sent.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::body::Body;
@@ -34,6 +37,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use weldsuite_ports::{Cache, PortError};
 
+use super::project::{apply_people, filled, identify, limit_groups, people_object};
 use super::proxy::header;
 use super::rows::{iso_millis, parse_millis};
 use super::url::parse_page_url;
@@ -42,11 +46,11 @@ use super::wire_server::{
     MAX_IMPORT_EVENTS, MAX_TRACK_EVENTS, ServerBatch, ServerEvent, parse_server_batch,
 };
 use super::{
-    CollectorState, Ctx, log_failure_for, quota_state, read_text_limited, reject, warn_once,
-    went_wrong,
+    CollectorState, Ctx, log_failure_for, quota_state, read_text_limited, reject, went_wrong,
 };
 use crate::domain::{KeyRecord, key_key};
 use crate::js::{Js, stringify};
+use crate::project_state::{PanelProjectState, PeopleOp, ProjectRef};
 
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 /// `TRACK_MAX_AGE_MS`.
@@ -280,19 +284,60 @@ fn build_server_rows(
     (rows, dropped)
 }
 
-/// Whether the batch has work for the project object: group or profile
-/// operations, `$group_<type>` properties, or `$identify` links.
-fn wants_project_object(batch: &ServerBatch) -> bool {
-    batch.people_ops + batch.group_ops > 0
-        || batch.events.iter().any(|event| {
-            (event.name == "$identify"
-                && event.anon_id.as_deref().is_some_and(|id| !id.is_empty())
-                && event.user_id.as_deref().is_some_and(|id| !id.is_empty()))
-                || event
-                    .props
-                    .as_deref()
-                    .is_some_and(|props| props.iter().any(|(key, _)| key.starts_with("$group_")))
+/// `applyServerIdentifies(env, project, events, receivedAt, maxAgeMs)`: the
+/// `$identify` events of a server batch (`identify()` of the server SDK)
+/// link like a browser's, so an erasure finds the anonymous id. An event
+/// outside the endpoint's time window was dropped from the rows and links
+/// nothing either.
+async fn apply_server_identifies(
+    state: Option<&Arc<dyn PanelProjectState>>,
+    project: ProjectRef<'_>,
+    events: &[ServerEvent],
+    received_at: i64,
+    max_age_ms: i64,
+) {
+    let identifies: Vec<&ServerEvent> = events
+        .iter()
+        .filter(|event| {
+            event.name == "$identify"
+                && filled(event.anon_id.as_deref())
+                && filled(event.user_id.as_deref())
         })
+        .collect();
+    if identifies.is_empty() {
+        return;
+    }
+    let Some(state) = people_object(state) else {
+        return;
+    };
+    for event in identifies {
+        let Some(at) = server_event_time(&event.ts, received_at, max_age_ms) else {
+            continue;
+        };
+        identify(
+            state,
+            project,
+            event.anon_id.as_deref().unwrap_or_default(),
+            event.user_id.as_deref().unwrap_or_default(),
+            at,
+        )
+        .await;
+    }
+}
+
+/// `applyServerPeople(env, project, ops)`: the profile operations of a
+/// server batch.
+async fn apply_server_people(
+    state: Option<&Arc<dyn PanelProjectState>>,
+    project: ProjectRef<'_>,
+    ops: &[PeopleOp],
+) {
+    if ops.is_empty() {
+        return;
+    }
+    if let Some(state) = people_object(state) {
+        apply_people(state, project, ops).await;
+    }
 }
 
 fn answer(accepted: usize, dropped: usize) -> Response {
@@ -332,7 +377,7 @@ async fn handle(
             "The body is not valid JSON",
         );
     };
-    let batch = match parse_server_batch(&body, endpoint.max_events) {
+    let mut batch = match parse_server_batch(&body, endpoint.max_events) {
         Ok(batch) => batch,
         Err(message) => return reject(StatusCode::BAD_REQUEST, "invalid_batch", &message),
     };
@@ -350,20 +395,28 @@ async fn handle(
         return answer(0, batch.events.len() + batch.dropped);
     }
 
-    // On Global the group operations go to the project object first (they
-    // may give a type its slot, which decides the events' `$group_`
-    // properties), and `$identify` links and profile operations after the
-    // write. Waiting on the `PanelProject` port: as panel-ingest without the
-    // binding, the events keep their properties as sent, and it says so once.
-    if wants_project_object(&batch) {
-        warn_once(
-            "binding:PANEL_PROJECT",
-            "PANEL_PROJECT is not bound: the live view, identities, people and groups are off",
-        );
-    }
+    // Group operations first (`groupSet()`): they may give a type its slot,
+    // which decides the events' `$group_` properties.
+    let ports = ctx.ports(state);
+    let project = ProjectRef {
+        workspace_id: &key.workspace_id,
+        project_id: &key.project_id,
+    };
+    limit_groups(
+        ports.project_state.as_ref(),
+        project,
+        batch
+            .events
+            .iter_mut()
+            .map(|event| &mut event.props)
+            .collect(),
+        &batch.groups,
+        received_at,
+        &state.project_caches,
+    )
+    .await;
     let (rows, outside_window) = build_server_rows(&key, &batch, received_at, endpoint.max_age_ms);
 
-    let ports = ctx.ports(state);
     if !rows.is_empty() {
         let written = match &ports.sink {
             Some(sink) => sink.send(&rows).await,
@@ -377,37 +430,87 @@ async fn handle(
                 "The events could not be stored, try again",
             );
         }
-        let cache = ctx.cache(state);
-        let seen = std::sync::Arc::clone(&state.seen);
-        let count = rows.len() as u64;
-        let project_id = key.project_id.clone();
-        let workspace_id = key.workspace_id.clone();
-        state.events.tracker().spawn(async move {
-            let usage = async {
-                match &ports.usage {
-                    Some(usage) => {
-                        usage
-                            .add(&workspace_id, &utc_date(received_at), count)
-                            .await
-                    }
-                    None => Err(PortError::backend("no usage counter")),
-                }
-            };
-            let stamp = async {
-                match &cache {
-                    Some(cache) => seen.touch(cache, &project_id, received_at).await,
-                    None => Err(PortError::backend("no cache")),
-                }
-            };
-            let (usage, stamp) = futures_util::join!(usage, stamp);
-            for result in [usage, stamp] {
-                if let Err(error) = result {
-                    log_failure_for("Server bookkeeping", &project_id, &error);
-                }
-            }
-        });
     }
-    answer(rows.len(), batch.dropped + outside_window)
+
+    let answered = answer(rows.len(), batch.dropped + outside_window);
+    let after = Bookkeeping {
+        key,
+        batch,
+        count: rows.len() as u64,
+        received_at,
+        max_age_ms: endpoint.max_age_ms,
+    };
+    let cache = ctx.cache(state);
+    let seen = Arc::clone(&state.seen);
+    state
+        .events
+        .tracker()
+        .spawn(async move { after.run(&ports, cache, &seen).await });
+    answered
+}
+
+/// What a server batch leaves to do after the answer (`waitUntil`).
+struct Bookkeeping {
+    key: KeyRecord,
+    batch: ServerBatch,
+    /// Rows the stream took.
+    count: u64,
+    received_at: i64,
+    max_age_ms: i64,
+}
+
+impl Bookkeeping {
+    /// The day's count and the install check (when rows were written), the
+    /// `$identify` links and the profile operations, side by side; a
+    /// failure is logged.
+    async fn run(
+        &self,
+        ports: &super::RequestCollector,
+        cache: Option<Arc<dyn weldsuite_ports::DynCache>>,
+        seen: &super::SeenThrottle,
+    ) {
+        let Self {
+            key,
+            batch,
+            count,
+            received_at,
+            max_age_ms,
+        } = self;
+        let project = ProjectRef {
+            workspace_id: &key.workspace_id,
+            project_id: &key.project_id,
+        };
+        let usage = async {
+            match &ports.usage {
+                _ if *count == 0 => Ok(()),
+                Some(usage) => {
+                    usage
+                        .add(&key.workspace_id, &utc_date(*received_at), *count)
+                        .await
+                }
+                None => Err(PortError::backend("no usage counter")),
+            }
+        };
+        let stamp = async {
+            match &cache {
+                _ if *count == 0 => Ok(()),
+                Some(cache) => seen.touch(cache, &key.project_id, *received_at).await,
+                None => Err(PortError::backend("no cache")),
+            }
+        };
+        let state = ports.project_state.as_ref();
+        let (usage, stamp, (), ()) = futures_util::join!(
+            usage,
+            stamp,
+            apply_server_identifies(state, project, &batch.events, *received_at, *max_age_ms),
+            apply_server_people(state, project, &batch.people),
+        );
+        for result in [usage, stamp] {
+            if let Err(error) = result {
+                log_failure_for("Server bookkeeping", &key.project_id, &error);
+            }
+        }
+    }
 }
 
 #[cfg(test)]

@@ -111,10 +111,6 @@ pub(crate) struct AppState {
     /// The collector's side (`crate::panel_project::CollectorProjectState`):
     /// calls on NATS, the live view and the lists it reads in Valkey; `None`
     /// without Valkey or NATS.
-    #[allow(
-        dead_code,
-        reason = "the collector's people, groups and live view read it once they are ported"
-    )]
     pub(crate) panel_collector_state: Option<Arc<dyn weldsuite_panel::PanelProjectState>>,
     /// What conformance builds record instead of publishing.
     #[cfg(feature = "conformance")]
