@@ -10,7 +10,7 @@ describe('palette result types', () => {
   });
 
   it('labels WeldKnow pages instead of showing the raw type key', () => {
-    expect(RESULT_TYPE_LABEL.knowledge_page).toBe('Pages');
+    expect(RESULT_TYPE_LABEL.knowledge_page).toBe('Knowledge pages');
     expect(RESULT_TYPE_ICON.knowledge_page).toBeTruthy();
   });
 

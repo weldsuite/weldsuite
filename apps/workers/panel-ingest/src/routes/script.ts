@@ -1,6 +1,7 @@
 /**
- * `GET /s.js` (the browser SDK) and `GET /rec.js` (its recording plugin): the
- * same bundles for every project. The project comes from the snippet's
+ * `GET /s.js` (the browser SDK), `GET /rec.js` (its recording plugin) and
+ * `GET /v.js` (its web vitals plugin, loaded on every page unless the site
+ * turned web vitals off): the same bundles for every project. The project comes from the snippet's
  * `data-project` attribute, not from these URLs, so each response is identical
  * for everyone and cacheable. The core loads `/rec.js` only when the visitor
  * consented, the session is sampled, `GET /c/:token` says recording isn't
@@ -14,6 +15,7 @@
 import { Hono } from 'hono';
 import panelRecorderSource from '@weldsuite/panel-sdk/dist/panel-recorder.global.js';
 import panelSdkSource from '@weldsuite/panel-sdk/dist/panel.global.js';
+import panelVitalsSource from '@weldsuite/panel-sdk/dist/panel-vitals.global.js';
 import type { Env } from '../env';
 
 /** A strong validator derived from the bundle, so a redeploy with an unchanged SDK keeps browser caches valid. */
@@ -52,3 +54,4 @@ function serveBundle(path: string, source: string): void {
 
 serveBundle('/s.js', panelSdkSource);
 serveBundle('/rec.js', panelRecorderSource);
+serveBundle('/v.js', panelVitalsSource);

@@ -43,6 +43,7 @@ export function WebChart({ result, className }: Readonly<{ result: PanelWebResul
   const tc = t.weldpanel.analytics.overview.chart;
   const data: ChartDatum[] = result.series.map((point, index) => ({
     label: formatBucket(point.bucket, result.interval, language),
+    bucket: point.bucket,
     visitors: point.visitors,
     pageviews: point.pageviews,
     ...(result.previousSeries?.[index] ? { previous: result.previousSeries[index]!.visitors } : {}),

@@ -32,6 +32,19 @@ const RECORD_NOUN: Record<SearchEntityType, string> = {
   board: 'board',
   merge_issue: 'WeldMerge issue',
   merge_pull_request: 'pull request',
+  document: 'document',
+  form: 'form',
+  drive_file: 'file',
+  conversation: 'helpdesk conversation',
+  meeting: 'meeting',
+  sign_envelope: 'signature request',
+  warehouse: 'warehouse',
+  workflow: 'workflow',
+  agent: 'agent',
+  reach_campaign: 'outreach campaign',
+  chat_channel: 'chat channel',
+  data_list: 'lead list',
+  panel_project: 'analytics project',
 };
 
 export interface TaggedRecord {

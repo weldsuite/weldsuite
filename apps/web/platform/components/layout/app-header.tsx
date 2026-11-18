@@ -4,14 +4,13 @@
  * Layout matches the existing breadcrumb-header.tsx visual:
  *  - Left: SidebarTrigger + breadcrumb trail
  *  - Center: button that opens the command palette (Cmd/Ctrl+K)
- *  - Right: drawer toggle buttons (calendar / notifications / WeldAgent)
- *  - Renders the calendar + notifications drawers
+ *  - Right: drawer toggle buttons (notifications / WeldAgent)
  *
  * The palette dialog itself is mounted once in the app shell.
  */
 
 import { useState } from 'react';
-import { Bell, Calendar } from 'lucide-react';
+import { Bell } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { SidebarTrigger } from '@weldsuite/ui/components/sidebar';
 import { Button } from '@weldsuite/ui/components/button';
@@ -19,7 +18,6 @@ import { useCalendarDrawerOpen } from '@/hooks/use-calendar-drawer-open';
 import { useNotificationsPanelOpen } from '@/hooks/use-notifications-panel-open';
 import { useWeldAgentDrawerOpen } from '@/hooks/use-weldagent-drawer-open';
 import { useUnifiedNotifications } from '@/contexts/unified-notification-context';
-import { useUpcomingCalendarEvents } from '@/hooks/queries/use-calendar-queries';
 import { cn } from '@/lib/utils';
 import { isModuleOffered } from '@/lib/edition';
 import { AppHeaderTrail } from './app-header-trail';
@@ -43,31 +41,13 @@ export function AppHeader({
   const [showNotifications, setShowNotifications] = useNotificationsPanelOpen();
   const [showWeldAgent, setShowWeldAgent] = useWeldAgentDrawerOpen();
 
-  // Edition flags (4.F3): the calendar and agent buttons need their modules.
-  const calendarOffered = isModuleOffered('calendar');
+  // Edition flags (4.F3): the agent button needs its module.
   const agentOffered = isModuleOffered('agent');
 
   const { unreadCount } = useUnifiedNotifications();
-  const { data: todayEventsData } = useUpcomingCalendarEvents({ days: 1 });
-  const todayEventCount =
-    todayEventsData?.data?.filter((e: { status?: string }) => e.status !== 'cancelled').length ?? 0;
 
-  const toggleCalendar = () => {
-    const next = !showCalendar;
-    if (next) {
-      if (showWeldAgent) {
-        setShowWeldAgent(false);
-        onWeldAgentToggle?.(false);
-      }
-      if (showNotifications) {
-        setShowNotifications(false);
-        onNotificationsToggle?.(false);
-      }
-    }
-    setShowCalendar(next);
-    onCalendarToggle?.(next);
-  };
-
+  // The header has no calendar button; opening another drawer still closes a
+  // calendar drawer left open earlier in the session.
   const toggleNotifications = () => {
     const next = !showNotifications;
     if (next) {
@@ -130,26 +110,6 @@ export function AppHeader({
 
           {/* Right Actions */}
           <div className="ml-auto hidden md:flex shrink-0 items-center gap-2">
-            {calendarOffered && (
-              <Button
-                onClick={toggleCalendar}
-                variant="outline"
-                size="sm"
-                className={cn(
-                  'shadow-none relative',
-                  showCalendar &&
-                    'bg-primary text-primary-foreground border-primary hover:bg-primary/90 hover:text-primary-foreground',
-                )}
-                aria-label={t('sweep.shared.calendar')}
-                aria-pressed={showCalendar}
-              >
-                <Calendar className="h-4 w-4" />
-                {todayEventCount > 0 && !showCalendar && (
-                  <span className="absolute -top-[3px] -right-[3px] z-10 h-[9px] w-[9px] rounded-full bg-red-500 border border-red-600 ring-2 ring-background pointer-events-none" />
-                )}
-              </Button>
-            )}
-
             <Button
               onClick={toggleNotifications}
               variant="outline"
@@ -163,7 +123,8 @@ export function AppHeader({
               aria-pressed={showNotifications}
             >
               <Bell className="h-4 w-4" />
-              {unreadCount > 0 && !showNotifications && (
+              {/* Stays while the panel is open, so the unread state stays visible. */}
+              {unreadCount > 0 && (
                 <span className="absolute -top-[3px] -right-[3px] z-10 h-[9px] w-[9px] rounded-full bg-red-500 border border-red-600 ring-2 ring-background pointer-events-none" />
               )}
             </Button>

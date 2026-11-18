@@ -24,4 +24,28 @@ export const PANEL_ENTITY_EVENTS = {
    * Payload: id, project id, name and the key's visible prefix, never the key.
    */
   panel_key: ['created', 'deleted'],
+  /** A custom event (several events under one name). Payload: id, project id and name; the definition stays off the bus. */
+  panel_custom_event: ['created', 'updated', 'deleted'],
+  /** A computed property. Payload: id, project id and name. */
+  panel_computed_property: ['created', 'updated', 'deleted'],
+  /** A path cleaning rule. Payload: id, project id, position, pattern and replacement. */
+  panel_path_rule: ['created', 'updated', 'deleted'],
+  /** A group type for group analytics. Payload: id, project id, group type and names. */
+  panel_group_type: ['created', 'updated', 'deleted'],
+  /** A chart annotation. Payload: id, project id, report id, date and label. */
+  panel_annotation: ['created', 'updated', 'deleted'],
+  /** A comment on a report or dashboard. Payload: id, project id, target and author; the body stays off the bus. */
+  panel_comment: ['created', 'updated', 'deleted'],
+  /** A metric tree. Payload: id, project id, name and visibility; the nodes stay off the bus. */
+  panel_metric_tree: ['created', 'updated', 'deleted'],
+  /** A public link to a report or dashboard: `created`, and `deleted` when revoked. Payload: id, project id, target and the token's prefix, never the token. */
+  panel_share_link: ['created', 'deleted'],
+  /** An alert on a metric; `fired` and `resolved` when its state changes. Payload: id, project id, name, state and value; channels stay off the bus. */
+  panel_alert: ['created', 'updated', 'deleted', 'fired', 'resolved'],
+  /** A scheduled report delivery. Payload: id, project id, name, target and schedule; channels stay off the bus. */
+  panel_subscription: ['created', 'updated', 'deleted'],
+  /** A raw export to the customer's bucket. Payload: id, project id, name, provider, bucket and status; credentials stay off the bus. */
+  panel_export: ['created', 'updated', 'deleted'],
+  /** A custom collector host name. Payload: id, project id, host name and status. */
+  panel_custom_domain: ['created', 'updated', 'deleted'],
 } as const;

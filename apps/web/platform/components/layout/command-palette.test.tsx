@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const { push, signOut, setTheme, openPanel } = vi.hoisted(() => ({
@@ -13,7 +13,10 @@ const access = vi.hoisted(() => ({
   isOwner: false,
   allowAll: true,
   grants: new Set<string>(),
+  appEnforced: false,
 }));
+
+const route = vi.hoisted(() => ({ pathname: '/' }));
 
 const WELDCRM = {
   id: 'weldcrm',
@@ -37,6 +40,7 @@ vi.mock('@/lib/i18n/provider', async () => {
 
 vi.mock('@/lib/router', () => ({
   useRouter: () => ({ push }),
+  usePathname: () => route.pathname,
 }));
 
 vi.mock('@clerk/clerk-react', () => ({
@@ -47,7 +51,10 @@ vi.mock('@clerk/clerk-react', () => ({
 vi.mock('@weldsuite/permissions/react', () => ({
   usePermissions: () => ({
     isOwner: access.isOwner,
-    can: (key: string) => access.allowAll || access.grants.has(key),
+    isLoading: false,
+    appEnforced: access.appEnforced,
+    permissions: access.allowAll ? ['*'] : [...access.grants],
+    denies: [],
   }),
 }));
 
@@ -166,6 +173,8 @@ describe('CommandPalette', () => {
     access.isOwner = false;
     access.allowAll = true;
     access.grants = new Set();
+    access.appEnforced = false;
+    route.pathname = '/';
     installedState.apps = [{ ...WELDCRM }];
     setCommandPaletteOpen(false);
     window.localStorage.clear();
@@ -210,31 +219,34 @@ describe('CommandPalette', () => {
     expect(screen.queryByTestId('command-palette')).not.toBeInTheDocument();
   });
 
-  it('labels a company record as Companies and opens it in the company panel', async () => {
+  it('lists a company record under Companies and opens it in the company panel', async () => {
     const user = userEvent.setup();
     render(<CommandPalette />);
     openWithShortcut();
 
     await user.type(await screen.findByTestId('cmdk-input'), 'acme');
 
-    const record = await screen.findByRole('option', { name: /Acme Industries/ });
-    expect(record).toHaveTextContent('Companies');
-    expect(record).not.toHaveTextContent('Customers');
+    const record = within(await screen.findByRole('group', { name: 'Companies' })).getByRole('option', {
+      name: /Acme Industries/,
+    });
+    expect(screen.queryByRole('group', { name: 'Customers' })).not.toBeInTheDocument();
     fireEvent.click(record);
 
     expect(openPanel).toHaveBeenCalledWith({ type: 'company', id: 'cus_acme' });
     expect(push).not.toHaveBeenCalled();
   });
 
-  it('labels a spreadsheet as Spreadsheets and opens its page, since it has no entity sheet', async () => {
+  it('groups records by type and opens a spreadsheet on its page, since it has no entity sheet', async () => {
     const user = userEvent.setup();
     render(<CommandPalette />);
     openWithShortcut();
 
     await user.type(await screen.findByTestId('cmdk-input'), 'budget');
 
-    const record = await screen.findByRole('option', { name: /Budget 2026/ });
-    expect(record).toHaveTextContent('Spreadsheets');
+    expect(await screen.findByRole('group', { name: 'Companies' })).toBeVisible();
+    const record = within(screen.getByRole('group', { name: 'Spreadsheets' })).getByRole('option', {
+      name: /Budget 2026/,
+    });
     fireEvent.click(record);
 
     expect(push).toHaveBeenCalledWith('/weldsheets/sht_1');
@@ -280,6 +292,42 @@ describe('CommandPalette', () => {
     fireEvent.click(await screen.findByRole('option', { name: 'Create company' }));
     fireEvent.click(await screen.findByTestId('create-company-dialog'));
     expect(openPanel).toHaveBeenCalledWith({ type: 'company', id: 'com_1' });
+  });
+
+  it("offers every installed app's Create actions when typing and opens that app's page to start it", async () => {
+    const user = userEvent.setup();
+    installedState.apps = [{ ...WELDCRM }, { ...WELDCRM, id: 'welddocs', appCode: 'welddocs', name: 'WeldDocs' }];
+    route.pathname = '/weldcrm';
+    render(<CommandPalette />);
+    openWithShortcut();
+
+    expect(await screen.findByRole('option', { name: /Create task/ })).toBeVisible();
+    expect(screen.queryByRole('option', { name: /Create document/ })).not.toBeInTheDocument();
+
+    await user.type(screen.getByTestId('cmdk-input'), 'create doc');
+    fireEvent.click(await screen.findByRole('option', { name: /Create document/ }));
+    expect(push).toHaveBeenCalledWith('/welddocs?new=1');
+  });
+
+  it("checks a Create action's permission in the app it creates in, not the current one", async () => {
+    const user = userEvent.setup();
+    installedState.apps = [{ ...WELDCRM }, { ...WELDCRM, id: 'welddocs', appCode: 'welddocs', name: 'WeldDocs' }];
+    route.pathname = '/weldcrm';
+    access.allowAll = false;
+    access.appEnforced = true;
+    access.grants = new Set(['welddocs:docs:create']);
+    const { unmount } = render(<CommandPalette />);
+    openWithShortcut();
+    await user.type(await screen.findByTestId('cmdk-input'), 'create');
+    expect(await screen.findByRole('option', { name: /Create document/ })).toBeVisible();
+    unmount();
+    setCommandPaletteOpen(false);
+
+    access.grants = new Set(['weldcrm:docs:create']);
+    render(<CommandPalette />);
+    openWithShortcut();
+    await user.type(await screen.findByTestId('cmdk-input'), 'create');
+    expect(screen.queryByRole('option', { name: /Create document/ })).not.toBeInTheDocument();
   });
 
   it('closes on Escape', async () => {

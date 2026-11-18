@@ -63,7 +63,7 @@ async function compileRaw(spec: unknown, ctx = ctxWith()): Promise<PanelSqlQuery
   return sent;
 }
 
-const TABLE_REF = /\bpanel\.(events_v1|identities_v1|people_v1|replay_chunks_v1)\b/g;
+const TABLE_REF = /\bpanel\.(events_v1|identities_v1|people_v1|groups_v1|replay_chunks_v1)\b/g;
 const WORKSPACE = /\bworkspace_id = 'ws_1'/g;
 const PROJECT = /\bproject_id = 'pnp_1'/g;
 const LOWER_BOUND = /\b(?:ts|ts_start) >= TIMESTAMP '\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}'/g;
@@ -208,6 +208,147 @@ const SPECS: Record<string, PanelQuerySpec> = {
   },
   'heatmap area': { kind: 'heatmap', projectId: PROJECT_ID, type: 'area', deviceClass: 'tablet', urlPattern: '/products/*' },
   'heatmap scroll': { kind: 'heatmap', projectId: PROJECT_ID, type: 'scroll', deviceClass: 'desktop', urlPattern: '/' },
+
+  // Section B: custom events, computed properties, groups, path rules and the new kinds.
+  'web (all panels, goals)': {
+    kind: 'web',
+    projectId: PROJECT_ID,
+    filters: [{ source: 'group', groupType: 'company', key: 'plan', operator: 'eq', value: 'enterprise' }],
+    panels: ['topPages', 'entryExitPages', 'channels', 'hostnames', 'regions', 'cities', 'screenSizes'],
+    goals: [
+      { label: 'Signed up', event: '@pnce_signup' },
+      { label: 'Pricing', pathPattern: '/pricing*', filters: [{ source: 'person', key: 'plan', operator: 'is_set' }] },
+    ],
+  },
+  'trends (formulas, refs, groups, buckets)': {
+    kind: 'trends',
+    projectId: PROJECT_ID,
+    filters: [{ source: 'group_key', groupType: 'company', operator: 'is_set' }],
+    series: [
+      { event: '@pnce_signup', math: 'unique_users' },
+      { event: 'Purchase', math: 'sum', property: '@pncp_revenue', filters: [{ source: 'event', key: '@pncp_label', operator: 'eq', value: 'x' }] },
+      { event: 'Purchase', math: 'unique_groups', groupType: 'company' },
+    ],
+    breakdowns: [
+      { source: 'group', groupType: 'company', key: 'plan' },
+      { source: 'event', key: 'amount', bucket: { kind: 'auto', count: 4 } },
+      { source: 'column', field: 'path' },
+    ],
+    formulas: [{ expression: 'B / A' }, { expression: '(A + C) * 100', label: 'Reach' }],
+    display: 'cumulative',
+    compare: true,
+  },
+  'trends (custom buckets, person)': {
+    kind: 'trends',
+    projectId: PROJECT_ID,
+    series: [{ event: '$pageview', math: 'sessions' }],
+    breakdown: { source: 'person', key: 'age', bucket: { kind: 'custom', edges: [18, 30, 50] } },
+    formulas: [{ expression: 'A * 2' }],
+    formulaOnly: true,
+  },
+  'funnel (exclusions, hold, optional, ttc)': {
+    kind: 'funnel',
+    projectId: PROJECT_ID,
+    filters: FILTERS,
+    steps: [{ event: '@pnce_signup' }, { event: 'Added to cart', optional: true }, { event: 'Checkout' }, { event: 'Purchase' }],
+    exclusions: [
+      { event: 'Refund', fromStep: 0, toStep: 3 },
+      { event: '@pnce_signup', fromStep: 1, toStep: 2, filters: [{ source: 'column', field: 'country', operator: 'eq', value: 'NL' }] },
+    ],
+    holdConstant: { source: 'event', key: 'product' },
+    breakdowns: [{ source: 'column', field: 'country' }, { source: 'group', groupType: 'company', key: 'plan' }],
+    display: 'time_to_convert',
+  },
+  'funnel (strict, optional, trends, groups)': {
+    kind: 'funnel',
+    projectId: PROJECT_ID,
+    steps: [{ event: 'A' }, { event: 'B', optional: true }, { event: 'C' }],
+    order: 'strict',
+    aggregateBy: { groupType: 'company' },
+    exclusions: [{ event: 'X', fromStep: 0, toStep: 2 }],
+    holdConstant: { source: 'column', field: 'path' },
+    display: 'trends',
+    interval: 'week',
+  },
+  'funnel (any order)': {
+    kind: 'funnel',
+    projectId: PROJECT_ID,
+    steps: [{ event: 'A' }, { event: 'B' }, { event: 'C', filters: [{ source: 'group', groupType: 'company', key: 'size', operator: 'gt', value: 10 }] }],
+    order: 'any',
+    holdConstant: { source: 'person', key: 'plan' },
+    breakdown: { source: 'event', key: 'plan' },
+    display: 'time_to_convert',
+  },
+  funnel_correlation: {
+    kind: 'funnel_correlation',
+    projectId: PROJECT_ID,
+    filters: FILTERS,
+    steps: [{ event: '@pnce_signup' }, { event: 'Purchase' }],
+    exclusions: [{ event: 'Refund', fromStep: 0, toStep: 1 }],
+    limit: 5,
+  },
+  'funnel_correlation (any, groups)': {
+    kind: 'funnel_correlation',
+    projectId: PROJECT_ID,
+    steps: [{ event: 'A' }, { event: 'B' }],
+    order: 'any',
+    aggregateBy: { groupType: 'company' },
+  },
+  'retention (breakdown, first time, unbounded)': {
+    kind: 'retention',
+    projectId: PROJECT_ID,
+    filters: FILTERS,
+    firstEvent: '@pnce_signup',
+    returnEvent: '@pnce_signup',
+    breakdown: { source: 'group', groupType: 'company', key: 'plan' },
+    mode: 'first_time',
+    unbounded: true,
+  },
+  'retention (recurring, groups)': {
+    kind: 'retention',
+    projectId: PROJECT_ID,
+    firstEvent: 'Login',
+    mode: 'recurring',
+    aggregateBy: { groupType: 'company' },
+    interval: 'month',
+  },
+  'flows (path rules, custom event)': { kind: 'flows', projectId: PROJECT_ID, anchor: { event: '@pnce_signup' }, scope: 'pageviews' },
+  'sessions (custom events)': { kind: 'sessions', projectId: PROJECT_ID, didEvents: ['@pnce_signup', 'Purchase'], notDidEvents: ['@pnce_signup'] },
+  'stickiness (intervals)': { kind: 'stickiness', projectId: PROJECT_ID, filters: FILTERS, event: '@pnce_signup' },
+  'stickiness (count, groups)': { kind: 'stickiness', projectId: PROJECT_ID, event: 'Login', measure: 'count', interval: 'week', aggregateBy: { groupType: 'company' } },
+  lifecycle: { kind: 'lifecycle', projectId: PROJECT_ID, filters: FILTERS, event: '@pnce_signup', interval: 'week' },
+  'lifecycle (month, groups)': { kind: 'lifecycle', projectId: PROJECT_ID, event: 'Login', interval: 'month', aggregateBy: { groupType: 'company' } },
+  vitals: { kind: 'vitals', projectId: PROJECT_ID, filters: FILTERS, metric: 'inp', percentile: 'p90' },
+  'vitals (ttfb)': { kind: 'vitals', projectId: PROJECT_ID, metric: 'ttfb', cleanPaths: false },
+  impact: {
+    kind: 'impact',
+    projectId: PROJECT_ID,
+    filters: FILTERS,
+    launchEvent: '@pnce_signup',
+    launchDate: '2026-11-01',
+    metric: { event: 'Purchase', math: 'avg', property: '@pncp_revenue' },
+    windowDays: 7,
+  },
+  signal: { kind: 'signal', projectId: PROJECT_ID, filters: FILTERS, goal: { event: 'Purchase' }, candidates: ['@pnce_signup', 'Login'] },
+  'signal (top N)': { kind: 'signal', projectId: PROJECT_ID, goal: { event: '@pnce_signup' }, topN: 3 },
+};
+
+/** The definitions panel-api would load for the specs above. */
+const DEFINITIONS: Partial<PanelQueryContext> = {
+  customEvents: {
+    pnce_signup: {
+      match: [
+        { event: 'Signed up', filters: [{ source: 'event', key: '@pncp_revenue', operator: 'gt', value: 0 }] },
+        { event: '$pageview', filters: [{ source: 'column', field: 'path', operator: 'eq', value: "/welcome'" }] },
+      ],
+    },
+  },
+  computedProperties: {
+    pncp_revenue: { kind: 'formula', expression: 'price * quantity' },
+    pncp_label: { kind: 'coalesce', keys: [{ source: 'event', key: 'label' }, { source: 'column', field: 'title' }] },
+  },
+  pathRules: [{ pattern: '^/users/\\d+', replacement: '/users/:id' }],
+  groupTypes: ['company'],
 };
 
 const CONTEXTS: Record<string, Partial<PanelQueryContext>> = {
@@ -222,6 +363,7 @@ describe('every spec kind is scoped to the workspace and project, and time-bound
       it(`${name} (${contextName})`, async () => {
         const ctx = ctxWith({
           ...WITH_COHORT,
+          ...DEFINITIONS,
           pageGroups: { pnh_1: '/products/*' },
           favoriteSessionIds: ['s_1'],
           ...overrides,
@@ -229,8 +371,11 @@ describe('every spec kind is scoped to the workspace and project, and time-bound
         // The chunk lookup of the sessions list runs only when the page has rows.
         const canned: Record<string, RawRow[]> = {
           'sessions.list': [{ session_id: 's_1' }, { session_id: 's_2' }],
-          'trends.breakdownValues': [{ value: 'pro', n: 3 }],
+          'trends.breakdownValues': [{ value: 'pro', v0: 'pro', n: 3 }],
+          'trends.breakdownRange': [{ min1: 0, max1: 100 }],
           'funnel.breakdownValues': [{ value: 'pro', n: 3 }],
+          'retention.breakdownValues': [{ value: 'pro', n: 3 }],
+          'signal.candidates': [{ name: 'Login', n: 9 }, { name: 'Purchase', n: 3 }],
         };
         const sent = await compile(spec, ctx, canned);
         expect(sent.length).toBeGreaterThan(0);
@@ -241,7 +386,7 @@ describe('every spec kind is scoped to the workspace and project, and time-bound
 
   it('sends every statement of every spec with its alias list', async () => {
     for (const spec of Object.values(SPECS)) {
-      const sent = await compile(spec, ctxWith({ ...WITH_COHORT, pageGroups: { pnh_1: '/p/*' }, favoriteSessionIds: [] }));
+      const sent = await compile(spec, ctxWith({ ...WITH_COHORT, ...DEFINITIONS, pageGroups: { pnh_1: '/p/*' }, favoriteSessionIds: [] }));
       for (const query of sent) {
         expect(query.columns.length).toBeGreaterThan(0);
         expect(query.name).toMatch(/^[a-z]+\./);

@@ -326,7 +326,8 @@ describe('heatmap result', () => {
 describe('statistics and rows', () => {
   it('adds up the bytes scanned and counts the statements', async () => {
     const out = await runPanelQuery(panelQuerySpecSchema.parse({ kind: 'web', projectId: 'pnp_1' }), ctx, async () => ({ rows: [], bytesScanned: 100 }));
-    expect(out.stats).toEqual({ queries: 12, bytesScanned: 1200 });
+    // Summary, series, entry and exit pages, 9 lists and channels.
+    expect(out.stats).toEqual({ queries: 13, bytesScanned: 1300 });
   });
 
   it('reads positional and keyed rows alike', () => {

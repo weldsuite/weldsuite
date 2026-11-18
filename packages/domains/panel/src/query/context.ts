@@ -3,7 +3,11 @@
  * the plan's retention and what the PanelProject object knows about the project.
  */
 
-import type { ParsedPanelCohortFilter } from '@weldsuite/app-api-client/schemas/weldpanel-query';
+import type { PanelPathRule, ParsedPanelCohortFilter } from '@weldsuite/app-api-client/schemas/weldpanel-query';
+import type {
+  ParsedPanelComputedPropertyDefinition,
+  ParsedPanelCustomEventDefinition,
+} from '@weldsuite/app-api-client/schemas/weldpanel-collab';
 
 export const BASIN_NAMESPACE = 'panel';
 
@@ -27,6 +31,14 @@ export interface PanelQueryContext {
   pageGroups?: Record<string, string>;
   /** Favourited session ids (tenant DB), for `favoritesOnly`. */
   favoriteSessionIds?: readonly string[];
+  /** Custom events by id (`pnce_…`, without the `@`), for `@pnce_…` event refs (the caller loads the ones the spec names). */
+  customEvents?: Record<string, ParsedPanelCustomEventDefinition>;
+  /** Computed properties by id (`pncp_…`), for `@pncp_…` property refs. */
+  computedProperties?: Record<string, ParsedPanelComputedPropertyDefinition>;
+  /** The project's path rules in order (`panel_path_rules`), applied where reports group by path. */
+  pathRules?: readonly PanelPathRule[];
+  /** The project's group types (`panel_group_types.group_type`). When set, a spec naming another type is refused. */
+  groupTypes?: readonly string[];
   /** Injected clock for tests. */
   now?: Date;
 }

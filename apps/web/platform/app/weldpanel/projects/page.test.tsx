@@ -18,6 +18,7 @@ const state = vi.hoisted(() => ({
   push: vi.fn(),
 }));
 
+vi.mock('@/hooks/use-create-intent', () => ({ useCreateIntent: () => undefined }));
 vi.mock('@/lib/i18n/provider', async () => {
   const { en: english } = await import('@weldsuite/i18n/locales/en');
   const { nl: dutch } = await import('@weldsuite/i18n/locales/nl');

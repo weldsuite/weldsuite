@@ -8,10 +8,12 @@
     "./device-class": "./src/device-class.ts",
     "./erasure": "./src/erasure.ts",
     "./event-row": "./src/event-row.ts",
+    "./expression": "./src/expression.ts",
     "./plans": "./src/plans.ts",
     "./pricing": "./src/pricing.ts",
     "./project-object": "./src/project-object.ts",
     "./query": "./src/query/index.ts",
+    "./query/export": "./src/query/export.ts",
     "./registry": "./src/registry.ts",
     "./replays": "./src/replays.ts",
     "./settings": "./src/settings.ts",
@@ -33,6 +35,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250110.0",
     "@types/node": "^20",
+    "@vitest/coverage-v8": "^4.1.12",
     "@weldsuite/typescript-config": "workspace:*",
     "typescript": "^5.7",
     "vitest": "^4.1.12"

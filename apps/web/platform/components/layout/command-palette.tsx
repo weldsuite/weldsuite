@@ -2,31 +2,38 @@
  * Centered command palette.
  *
  * Cmd/Ctrl+K (and the header search button) opens a dialog in the middle of
- * the screen. The empty state is commands — go to an app, open settings,
- * switch theme — not a dump of companies and people. Typing filters those
- * commands, and a query of two or more characters also searches records.
- * Create company and Create person open the CRM quick-add dialogs when this
- * workspace has an app for that record and the member is allowed to create it.
+ * the screen. The empty state is commands — go to an app, create in the
+ * current app, switch theme — not a dump of companies and people. Typing
+ * filters every command (Create actions of all installed apps, their pages,
+ * settings), and a query of two or more characters also searches records of
+ * every type the member may read, grouped by type.
+ * Create company and Create person open the CRM quick-add dialogs; every other
+ * Create action links to the owning app's page, which starts its own flow.
  */
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react';
 import { toPublicPath } from '@/lib/workspace-url-rewrite';
 import { useOrganization, useAuth } from '@/lib/auth';
+import { checkAppPermission } from '@weldsuite/permissions';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { ArrowRight, Loader2, Search } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/provider';
 import { isWeldbooksHrefVisible } from '@/lib/weldbooks/jurisdiction-menu';
 import { useCurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';
-import { useRouter } from '@/lib/router';
+import { usePathname, useRouter } from '@/lib/router';
+import { appFromPathname } from '@/lib/apps/current-app';
+import { stripWorkspacePrefix } from '@/lib/workspace-url';
+import { isHrefOffered } from '@/lib/edition-routes';
 import { useInstalledApps } from '@/hooks/use-installed-apps';
 import { useGlobalSearch } from '@/hooks/queries/use-global-search-queries';
 import { useTheme } from '@/hooks/use-theme';
 import { getAppLucideIcon } from '@/lib/apps/app-registry';
 import { isDesktop } from '@/lib/desktop';
-import { RESULT_TYPE_ICON, RESULT_TYPE_LABEL } from '@/lib/search/result-types';
+import { RESULT_TYPE_ICON, resultTypeLabel } from '@/lib/search/result-types';
+import { paletteRecordGroups, paletteRecordTarget } from '@/lib/search/palette-records';
 import { pushRecent } from '@/lib/search/recents';
 import { getRecentCommands, pushRecentCommand, type RecentCommand } from '@/lib/search/command-recents';
-import { useEntitySheet, hasEntitySheetRenderer } from '@/components/entity-sheet';
+import { useEntitySheet } from '@/components/entity-sheet';
 import { useObjectPanel } from '@/components/object-panel';
 import { QuickAddCompanyDialog } from '@/app/weldcrm/companies/components/quick-add-company-dialog';
 import { QuickAddPersonDialog } from '@/app/weldcrm/people/components/quick-add-person-dialog';
@@ -47,9 +54,10 @@ import {
   DialogDescription,
   DialogTitle,
 } from '@weldsuite/ui/components/dialog';
-import type { SearchEntityType, SearchResultItem } from '@weldsuite/core-api-client/schemas/search';
+import type { SearchResultItem } from '@weldsuite/app-api-client/schemas/search';
 import {
   actionCommands,
+  agentNavigationCommands,
   extraNavigationCommands,
   navigationCommandsForApps,
   pagesForModule,
@@ -112,7 +120,7 @@ export function CommandPaletteTrigger({ className }: { className?: string }) {
       onClick={() => openCommandPalette()}
       className={
         className ??
-        'flex h-9 w-full items-center gap-2 rounded-md border border-input bg-transparent px-3 text-sm text-muted-foreground shadow-xs transition-colors hover:bg-accent/50 hover:text-foreground'
+        'flex h-9 w-full items-center gap-2 rounded-[10px] border border-input bg-transparent px-3 text-sm text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground'
       }
     >
       <Search className="h-4 w-4 shrink-0" />
@@ -132,21 +140,6 @@ export function CommandPaletteTrigger({ className }: { className?: string }) {
 
 const GROUP_ORDER: PaletteGroup[] = ['actions', 'navigation', 'settings'];
 
-/**
- * Search returns CRM companies and people under their legacy types, with URLs
- * to the removed `/weldcrm/customers` and `/weldcrm/contacts` detail routes.
- * They open as object panels instead.
- */
-const CRM_PANEL: Partial<Record<string, { type: 'company' | 'person'; page: string }>> = {
-  customer: { type: 'company', page: '/weldcrm/companies' },
-  contact: { type: 'person', page: '/weldcrm/people' },
-};
-
-function recordHref(item: SearchResultItem): string {
-  const panel = CRM_PANEL[item.type];
-  return panel ? `${panel.page}?stack=${panel.type}:${encodeURIComponent(item.id)}` : item.url;
-}
-
 export function CommandPalette() {
   const { t } = useI18n();
   const open = useCommandPaletteOpen();
@@ -155,7 +148,8 @@ export function CommandPalette() {
   const { organization } = useOrganization();
   const workspaceId = organization?.id ?? null;
   const { signOut } = useAuth();
-  const { can, isOwner } = usePermissions();
+  const pathname = usePathname();
+  const permissions = usePermissions();
   const { data: installedApps = [] } = useInstalledApps();
   const { resolvedTheme, setTheme } = useTheme();
   const { open: openEntitySheet } = useEntitySheet();
@@ -196,7 +190,18 @@ export function CommandPalette() {
     appType: app.appType,
   }));
   const installedCodes = new Set(installed.map((app) => app.appCode));
-  const canSee = (permission: string | undefined) => !permission || isOwner || can(permission);
+  const appNames = new Map(installed.map((app) => [app.appCode, app.name]));
+  appNames.set('agents', t.navigation.aiAgents);
+  const currentApp = appFromPathname(stripWorkspacePrefix(pathname ?? '/'));
+  // In the app the command opens (not the one the member is in), the same
+  // check its pages and API run. Without an app: allowed in any app.
+  const canSee = (permission: string | undefined, app?: string | null) => {
+    if (!permission) return true;
+    if (permissions.isLoading) return false;
+    if (permissions.isOwner) return true;
+    const subject = { permissions: permissions.permissions, denies: permissions.denies };
+    return checkAppPermission(subject, permission, permissions.appEnforced ? (app ?? null) : null).allowed;
+  };
   // WeldBooks pages follow the selected entity's country, like its sidebar does.
   const {
     features: weldbooksFeatures,
@@ -217,20 +222,30 @@ export function CommandPalette() {
     );
 
   const commands = visibleCommands([
-    ...actionCommands(t, theme, { canSee, installedCodes }),
+    ...actionCommands(t, theme, {
+      canSee,
+      installedCodes,
+      currentApp,
+      appName: (code) => appNames.get(code),
+    }),
     ...extraNavigationCommands(t),
     ...navigationCommandsForApps(installed, pagesFor, getAppLucideIcon, canSee),
+    ...agentNavigationCommands(t),
     ...settingsCommands(t, installedCodes, { includeDesktop: isDesktop() }),
   ], query);
 
   const byGroup = (group: PaletteGroup) => commands.filter((command) => command.group === group);
 
-  const recordItems: SearchResultItem[] = !isPlaceholderData && trimmed.length >= 2
-    ? (data?.data ?? []).flatMap((group) => group.items).slice(0, 8)
+  // Grouped by type in the API's order; a type this edition doesn't serve is left out.
+  const recordGroups = !isPlaceholderData && trimmed.length >= 2
+    ? paletteRecordGroups(
+        (data?.data ?? []).map((group) => ({ ...group, items: group.items.filter((item) => isHrefOffered(item.url)) })),
+      )
     : [];
+  const hasRecords = recordGroups.length > 0;
 
-  const showSearching = trimmed.length >= 2 && isFetching && recordItems.length === 0;
-  const showEmpty = commands.length === 0 && recordItems.length === 0 && !showSearching && trimmed.length > 0;
+  const showSearching = trimmed.length >= 2 && isFetching && !hasRecords;
+  const showEmpty = commands.length === 0 && !hasRecords && !showSearching && trimmed.length > 0;
   const showRecents = trimmed.length === 0 && recents.length > 0;
 
   const close = useCallback(() => {
@@ -291,7 +306,8 @@ export function CommandPalette() {
 
   const goToRecord = useCallback(
     (item: SearchResultItem) => {
-      const href = recordHref(item);
+      const target = paletteRecordTarget(item);
+      const href = target.href;
       pushRecent(workspaceId, {
         id: item.id,
         type: item.type,
@@ -306,13 +322,12 @@ export function CommandPalette() {
         window.open(toPublicPath(href), '_blank', 'noopener');
         return;
       }
-      const panel = CRM_PANEL[item.type];
-      if (panel) {
-        openObjectPanel({ type: panel.type, id: item.id });
-      } else if (hasEntitySheetRenderer(item.type)) {
-        openEntitySheet(item.type, item.id);
+      if (target.kind === 'panel') {
+        openObjectPanel(target.panel);
+      } else if (target.kind === 'sheet') {
+        openEntitySheet(target.type, target.id);
       } else {
-        router.push(item.url);
+        router.push(target.href);
       }
     },
     [workspaceId, close, openEntitySheet, openObjectPanel, router],
@@ -403,12 +418,11 @@ export function CommandPalette() {
               );
             })}
 
-            {recordItems.length > 0 && (
-              <CommandGroup heading={copy.records}>
-                {recordItems.map((item) => {
-                  const Icon = RESULT_TYPE_ICON[item.type] ?? Search;
-                  const typeLabel = RESULT_TYPE_LABEL[item.type as SearchEntityType] ?? item.type;
-                  return (
+            {recordGroups.map((group) => {
+              const Icon = RESULT_TYPE_ICON[group.type] ?? Search;
+              return (
+                <CommandGroup key={`records:${group.type}`} heading={resultTypeLabel(t, group.type)}>
+                  {group.items.map((item) => (
                     <CommandItem
                       key={`${item.type}-${item.id}`}
                       value={`record ${item.type} ${item.id}`}
@@ -419,12 +433,16 @@ export function CommandPalette() {
                     >
                       <Icon className="text-muted-foreground" />
                       <span className="min-w-0 flex-1 truncate">{item.title}</span>
-                      <span className="ml-auto truncate pl-3 text-xs text-muted-foreground">{typeLabel}</span>
+                      {item.subtitle && (
+                        <span className="ml-auto max-w-[45%] truncate pl-3 text-xs text-muted-foreground">
+                          {item.subtitle}
+                        </span>
+                      )}
                     </CommandItem>
-                  );
-                })}
-              </CommandGroup>
-            )}
+                  ))}
+                </CommandGroup>
+              );
+            })}
 
             {showSearching && (
               <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">

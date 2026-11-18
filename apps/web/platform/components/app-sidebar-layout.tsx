@@ -72,13 +72,8 @@ import {
 import { Button } from "@weldsuite/ui/components/button"
 import { useMobileNavActions } from "@/contexts/mobile-nav-context"
 import { useIsMobile } from "@/hooks/use-mobile"
-import { InviteMemberButton } from "@/components/invite-member-button"
 import { PartnerPortalLink } from "@/components/partner/partner-portal-link"
-import { useManagedBilling } from "@/hooks/queries/use-partner-queries"
-import { UpgradeButton } from "@/components/upgrade-button"
-import { useFeatureFlag } from "@/hooks/queries/use-feature-flags-queries"
 import { ResourceUsage } from "@/components/resource-usage"
-import { OnboardingChecklist } from "@/components/layout/onboarding-checklist-group"
 import { CalendarLogoIcon } from "@/components/calendar-logo-icon"
 import { BetaBadge } from "@/components/layout/beta-badge"
 import { CountBadge } from "@weldsuite/ui/components/count-badge"
@@ -1297,15 +1292,9 @@ export function AppSidebarLayout({
   const { signOut } = useAuth()
   const presence = usePresenceMaybe()
 
-  // Sidebar Upgrade button is gated behind a Cloudflare Flagship feature flag.
-  // Hidden by default — shown only to segments the flag targets.
-  const upgradeFlag = useFeatureFlag("upgrade-button")
-  // A partner-managed workspace has nothing to upgrade to: its partner bills it.
-  const { data: managedBilling } = useManagedBilling()
-  // Edition flags (4.F3): without billing there is nothing to upgrade to, and
-  // the credit balance stays hidden too (open decision 14).
+  // Edition flags (4.F3): without billing the credit balance stays hidden
+  // (open decision 14).
   const billingAvailable = isFeatureAvailable("billing")
-  const showUpgradeButton = billingAvailable && upgradeFlag && !managedBilling
 
   // Track whether the sidebar content actually overflows (i.e. can scroll).
   // Only relevant when the scrollbar is visible (hideScrollbar=false, e.g.
@@ -1337,7 +1326,7 @@ export function AppSidebarLayout({
   }, [hideScrollbar, menuItems, state])
 
   // Keep the current page's item in view. On a short window the footer
-  // (credits, checklist, invite, user) leaves little room for the list, and an
+  // (credits, partner link, user) leaves little room for the list, and an
   // item added at the bottom (a new pipeline or list, which also becomes the
   // current page) would otherwise sit below the fold until the user scrolls.
   // Keyed on the item hrefs, not `menuItems` itself: hosts rebuild that array
@@ -1431,16 +1420,13 @@ export function AppSidebarLayout({
       collapsible={isMobile ? "none" : "offcanvas"}
       className={cn(
         isMobile ? "hidden" : "left-15",
-        // Turn the module sidebar into a "panel" that matches the shell
-        // chrome: inset it from the top/bottom, sit flush against the rail on
-        // its left, and keep its right edge flush so the content card attaches
-        // directly to it. The inner surface gets the panel tone and a
-        // left-rounded card edge (the rail's chrome shows in the rounded
-        // notch) and a border on its top, left and bottom, so it and the
-        // content card read as one outlined area; the card's left border is
-        // the divider between them.
+        // The module sidebar runs the full height, flush against the rail on
+        // its left and the page content on its right. The inner surface gets
+        // the panel tone and a left border against the rail; the content's
+        // left border is the divider on the other side, so the container's
+        // own right border is dropped.
         !isMobile &&
-          "group-data-[side=left]:!border-r-0 md:py-1 [&_[data-slot=sidebar-inner]]:!bg-[var(--shell-panel)] [&_[data-slot=sidebar-inner]]:rounded-l-md [&_[data-slot=sidebar-inner]]:border [&_[data-slot=sidebar-inner]]:border-r-0 [&_[data-slot=sidebar-inner]]:border-border",
+          "group-data-[side=left]:!border-r-0 [&_[data-slot=sidebar-inner]]:!bg-[var(--shell-panel)] [&_[data-slot=sidebar-inner]]:border-l [&_[data-slot=sidebar-inner]]:border-border",
       )}
       {...props}
     >
@@ -1497,12 +1483,9 @@ export function AppSidebarLayout({
         })}
         </DndContext>
       </SidebarContent>
-      <SidebarFooter suppressHydrationWarning>
-        {billingAvailable && <ResourceUsage collapsed={state === "collapsed"} hideUpgrade={showUpgradeButton} />}
-        <OnboardingChecklist collapsed={state === "collapsed"} />
-        {showUpgradeButton && <UpgradeButton collapsed={state === "collapsed"} />}
+      <SidebarFooter suppressHydrationWarning className="border-t border-border">
+        {billingAvailable && <ResourceUsage collapsed={state === "collapsed"} />}
         <PartnerPortalLink collapsed={state === "collapsed"} />
-        <InviteMemberButton collapsed={state === "collapsed"} />
         {user && (
           <SidebarUserMenu
             user={user}

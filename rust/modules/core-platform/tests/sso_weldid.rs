@@ -448,6 +448,8 @@ async fn weldid_connections_on_the_real_schema() {
         .create_connection(
             "ws_sso_b",
             &NewSsoConnection {
+                protocol: weldsuite_ports::SsoProtocol::Oidc,
+                saml_metadata: None,
                 display_name: "B".to_owned(),
                 issuer: "https://idp.b.test".to_owned(),
                 client_id: "b".to_owned(),
@@ -584,4 +586,145 @@ async fn without_weldid_the_domains_routes_do_not_exist() {
     ));
     let (status, _, _) = call(&app, "POST", "/domains/acme.test/verify", None).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+#[allow(clippy::too_many_lines)] // one scenario, in order
+async fn weldid_saml_connections_on_the_real_schema() {
+    let Some((tenant, master)) = pools() else {
+        return;
+    };
+    workspace(&master, "ws_saml_a", true).await;
+    let directory = Arc::new(MemorySsoDirectory::new());
+    let admin = harness(
+        &directory,
+        (tenant.clone(), master.clone()),
+        "ws_saml_a",
+        &["sso:read", "sso:manage"],
+    );
+    let metadata = r#"<md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata" entityID="https://idp.example.test/saml"><md:IDPSSODescriptor/></md:EntityDescriptor>"#;
+
+    // A SAML connection needs its metadata, a file or a URL, not both, and
+    // takes none of OpenID Connect's fields.
+    for body in [
+        json!({ "protocol": "saml", "displayName": "Entra SAML" }),
+        json!({ "protocol": "saml", "displayName": "Entra SAML", "metadataXml": metadata, "issuer": "https://idp.example.test" }),
+    ] {
+        let (status, view, _) = call(&admin.app, "PUT", "/connection", Some(body)).await;
+        assert_eq!(
+            (status, &view["error"]["code"]),
+            (StatusCode::BAD_REQUEST, &json!("SSO_IDP_INCOMPLETE"))
+        );
+    }
+    let (status, _, _) = call(
+        &admin.app,
+        "PUT",
+        "/connection",
+        Some(json!({ "protocol": "saml", "displayName": "Entra SAML", "metadataXml": metadata, "metadataUrl": "https://idp.example.test/m.xml" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _, _) = call(
+        &admin.app,
+        "PUT",
+        "/connection",
+        Some(json!({ "protocol": "saml", "displayName": "Entra SAML", "metadataUrl": "http://idp.example.test/m.xml" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "https only");
+
+    // WeldID's refusal of the metadata is shown as WeldID wrote it.
+    let (status, view, _) = call(
+        &admin.app,
+        "PUT",
+        "/connection",
+        Some(json!({ "protocol": "saml", "displayName": "Entra SAML", "metadataXml": "<x/>" })),
+    )
+    .await;
+    assert_eq!(
+        (status, &view["error"]["code"]),
+        (StatusCode::BAD_REQUEST, &json!("SSO_IDP_REJECTED"))
+    );
+    assert!(
+        view["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("no SAML 2.0 identity provider"),
+        "{view}"
+    );
+
+    // Created from the metadata: the view says what to register at the
+    // identity provider.
+    let (status, view, _) = call(
+        &admin.app,
+        "PUT",
+        "/connection",
+        Some(json!({ "protocol": "saml", "displayName": "Entra SAML", "metadataXml": metadata, "trustEmails": true })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{view}");
+    let connection = &view["data"]["oidc"]["connection"];
+    assert_eq!(connection["protocol"], "saml");
+    assert_eq!(connection["trustEmails"], true);
+    assert_eq!(connection["enabled"], false);
+    let saml = &connection["saml"];
+    assert!(
+        saml["entityId"]
+            .as_str()
+            .unwrap_or_default()
+            .ends_with("/saml/metadata")
+    );
+    assert!(
+        saml["acsUrl"]
+            .as_str()
+            .unwrap_or_default()
+            .ends_with("/saml/acs")
+    );
+    assert_eq!(saml["idpMetadataUrl"], Value::Null);
+    assert_eq!(saml["idpCertificates"][0]["sha256"], "AB:CD");
+
+    // New metadata by URL; OpenID Connect fields or a protocol switch are
+    // refused (remove the connection to switch).
+    let (status, view, _) = call(
+        &admin.app,
+        "PUT",
+        "/connection",
+        Some(json!({ "metadataUrl": "https://idp.example.test/metadata.xml" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{view}");
+    assert_eq!(
+        view["data"]["oidc"]["connection"]["saml"]["idpMetadataUrl"],
+        "https://idp.example.test/metadata.xml"
+    );
+    for body in [json!({ "clientId": "abc" }), json!({ "protocol": "oidc" })] {
+        let (status, view, _) = call(&admin.app, "PUT", "/connection", Some(body)).await;
+        assert_eq!(
+            (status, &view["error"]["code"]),
+            (StatusCode::CONFLICT, &json!("SSO_PROTOCOL_MISMATCH"))
+        );
+    }
+    let (status, _, _) = call(&admin.app, "DELETE", "/connection", None).await;
+    assert_eq!(status, StatusCode::OK);
+
+    // The changes were published with the protocol, never the metadata.
+    admin.tracker.close();
+    admin.tracker.wait().await;
+    let payloads: Vec<String> = admin
+        .bus
+        .messages()
+        .iter()
+        .map(|message| String::from_utf8_lossy(&message.payload).into_owned())
+        .collect();
+    assert!(
+        payloads
+            .iter()
+            .any(|text| text.contains("connection_created") && text.contains("\"saml\"")),
+        "{payloads:?}"
+    );
+    assert!(
+        payloads
+            .iter()
+            .all(|text| !text.contains("EntityDescriptor"))
+    );
 }

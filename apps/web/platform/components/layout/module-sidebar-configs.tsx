@@ -74,6 +74,7 @@ import {
   ShieldCheck,
   Radar,
   CalendarClock,
+  BellRing,
   Banknote,
   Wallet,
   FileSpreadsheet,
@@ -105,6 +106,10 @@ import {
   MousePointerClick,
   CircleDot,
   Repeat,
+  Magnet,
+  Activity,
+  Network,
+  Gauge,
 } from 'lucide-react';
 import type { MenuGroupProps, AppLogo } from '@/components/app-sidebar-layout';
 import { HR_DASHBOARD_PERMISSIONS, MY_HR_GROUP_KEY, MY_HR_PATHS } from '@/app/weldhr/access';
@@ -282,6 +287,12 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
             { title: nav.funnels, href: '/weldpanel/funnels', icon: Filter, permission: 'panel_reports:read' },
             { title: nav.retention, href: '/weldpanel/retention', icon: Repeat, permission: 'panel_reports:read' },
             { title: nav.flows, href: '/weldpanel/flows', icon: GitBranch, permission: 'panel_reports:read' },
+            { title: nav.stickiness, href: '/weldpanel/stickiness', icon: Magnet, permission: 'panel_reports:read' },
+            { title: nav.lifecycle, href: '/weldpanel/lifecycle', icon: Activity, permission: 'panel_reports:read' },
+            { title: nav.impact, href: '/weldpanel/impact', icon: Rocket, permission: 'panel_reports:read' },
+            { title: nav.signal, href: '/weldpanel/signal', icon: Target, permission: 'panel_reports:read' },
+            { title: nav.metricTrees, href: '/weldpanel/metric-trees', icon: Network, permission: 'panel_reports:read' },
+            { title: nav.performance, href: '/weldpanel/performance', icon: Gauge, permission: 'panel_reports:read' },
           ],
         },
         {
@@ -289,6 +300,7 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           items: [
             { title: nav.live, href: '/weldpanel/live', icon: Radio, permission: 'panel_reports:read' },
             { title: nav.users, href: '/weldpanel/users', icon: Users, permission: 'panel_people:read' },
+            { title: nav.groupProfiles, href: '/weldpanel/groups', icon: Building2, permission: 'panel_people:read' },
             { title: nav.recordings, href: '/weldpanel/recordings', icon: MonitorPlay, permission: 'panel_recordings:read' },
             { title: nav.heatmaps, href: '/weldpanel/heatmaps', icon: Flame, permission: 'panel_reports:read' },
             { title: nav.frustration, href: '/weldpanel/frustration', icon: MousePointerClick, permission: 'panel_reports:read' },
@@ -300,6 +312,8 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
             { title: nav.reports, href: '/weldpanel/reports', icon: BarChart3, permission: 'panel_reports:read' },
             { title: nav.dashboards, href: '/weldpanel/dashboards', icon: LayoutDashboard, permission: 'panel_reports:read' },
             { title: nav.cohorts, href: '/weldpanel/cohorts', icon: UsersRound, permission: 'panel_reports:read' },
+            { title: nav.alerts, href: '/weldpanel/alerts', icon: BellRing, permission: 'panel_reports:read' },
+            { title: nav.subscriptions, href: '/weldpanel/subscriptions', icon: CalendarClock, permission: 'panel_reports:read' },
           ],
         },
         {
@@ -307,6 +321,7 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           items: [
             projects,
             { title: nav.lexicon, href: '/weldpanel/lexicon', icon: BookOpen, permission: 'panel_reports:read' },
+            { title: nav.data, href: '/weldpanel/data', icon: Database, permission: 'panel_reports:read' },
             { title: nav.settings, href: '/weldpanel/settings', icon: Settings, permission: 'panel_projects:manage' },
           ],
         },

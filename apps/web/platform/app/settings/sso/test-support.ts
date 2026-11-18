@@ -86,6 +86,29 @@ export function makeOidcConnection(overrides: Partial<OidcConnection> = {}): Oid
   };
 }
 
+/** A SAML connection as WeldID answers it (the OpenID Connect fields empty). */
+export function makeSamlConnection(overrides: Partial<OidcConnection> = {}): OidcConnection {
+  return makeOidcConnection({
+    protocol: 'saml',
+    displayName: 'Acme SAML',
+    issuer: '',
+    clientId: '',
+    hasClientSecret: false,
+    trustEmails: true,
+    redirectUri: null,
+    saml: {
+      entityId: 'https://auth.example.test/sso/ssoc_1/saml/metadata',
+      acsUrl: 'https://auth.example.test/sso/ssoc_1/saml/acs',
+      metadataUrl: 'https://auth.example.test/sso/ssoc_1/saml/metadata',
+      idpEntityId: 'https://sts.windows.net/acme/',
+      idpSsoUrl: 'https://login.microsoftonline.com/acme/saml2',
+      idpMetadataUrl: 'https://login.microsoftonline.com/acme/federationmetadata.xml',
+      idpCertificates: [{ sha256: 'AB:CD:EF', subject: 'CN=Microsoft Azure Federated SSO Certificate', notAfter: '2029-11-16T00:00:00Z' }],
+    },
+    ...overrides,
+  });
+}
+
 export function makeOidcDomain(overrides: Partial<OidcDomain> = {}): OidcDomain {
   const name = overrides.name ?? 'acme.com';
   return {

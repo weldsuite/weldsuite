@@ -3,6 +3,7 @@ import { FileText } from 'lucide-react';
 import { toast } from 'sonner';
 import { isApiError } from '@weldsuite/api-client';
 import { useCan } from '@weldsuite/permissions/react';
+import { useCreateIntent } from '@/hooks/use-create-intent';
 import type { MenuGroupProps, MenuItemProps } from '@/components/app-sidebar-layout';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { getTranslations } from '@/lib/i18n';
@@ -151,6 +152,14 @@ export function useWeldknowSidebarItems(isActive: boolean): {
     },
     [createPage, router, t],
   );
+
+  // `?new=1` starts a page in the private space (or the first joined teamspace).
+  const newPageSpaceId = (personalSpaces[0] ?? spaces[0])?.id;
+  useCreateIntent(() => {
+    if (newPageSpaceId) void handleCreatePage(newPageSpaceId, null);
+  }, {
+    ready: isActive && canCreate && !spacesLoading && !!newPageSpaceId,
+  });
 
   const handleToggleFavorite = React.useCallback(
     async (pageId: string, isFavorite: boolean) => {

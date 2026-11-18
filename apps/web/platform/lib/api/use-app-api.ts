@@ -81,6 +81,10 @@ import { createDocsApi } from '@weldsuite/app-api-client/domains/docs';
 import { createBoardsApi } from '@weldsuite/app-api-client/domains/boards';
 import { createWeldSignApi } from '@weldsuite/app-api-client/domains/weldsign';
 import { createWeldPanelApi } from '@weldsuite/app-api-client/domains/weldpanel';
+import { createWeldPanelAnalysisApi } from '@weldsuite/app-api-client/domains/weldpanel-analysis';
+import { createWeldPanelCollabApi } from '@weldsuite/app-api-client/domains/weldpanel-collab';
+import { createWeldPanelGroupsApi } from '@weldsuite/app-api-client/domains/weldpanel-groups';
+import { createWeldPanelMonitorApi } from '@weldsuite/app-api-client/domains/weldpanel-monitor';
 import { createWeldFormsApi } from '@weldsuite/app-api-client/domains/weldforms';
 import { createWeldMergeApi } from '@weldsuite/app-api-client/domains/weldmerge';
 import { createAppAccessApi } from '@weldsuite/app-api-client/domains/app-access';
@@ -257,6 +261,13 @@ export function useAppApi() {
       weldsign: createWeldSignApi(lazyClient),
       // WeldPanel (panel-api): projects and their install check.
       weldpanel: createWeldPanelApi(lazyClient),
+      // WeldPanel analysis endpoints (explain, metric tree values), groups,
+      // collaboration (definitions, annotations, comments, versions, share links)
+      // and monitoring/data out (alerts, scheduled reports, exports, domains).
+      weldpanelAnalysis: createWeldPanelAnalysisApi(lazyClient),
+      weldpanelGroups: createWeldPanelGroupsApi(lazyClient),
+      weldpanelCollab: createWeldPanelCollabApi(lazyClient),
+      weldpanelMonitor: createWeldPanelMonitorApi(lazyClient),
       // WeldMerge (merge-api): issues, pull requests, git provider connections.
       weldmerge: createWeldMergeApi(lazyClient),
       // WeldForms (forms-api): forms, folders, themes, responses, invitations, integrations.

@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useCreateIntent } from '@/hooks/use-create-intent';
 import { Megaphone, MoreHorizontal, Pause, Play, Pencil, Plus } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { EmptyState } from '@weldsuite/ui/components/empty-state';
@@ -79,6 +80,8 @@ export default function WeldAdsCampaignsPage() {
     setEditingCampaign(campaign);
     setDialogOpen(true);
   };
+
+  useCreateIntent(openCreateDialog, { ready: canCreate && selectedAccounts.length > 0 });
 
   const handleStatusChange = async (campaign: AdCampaignRow, status: 'ACTIVE' | 'PAUSED') => {
     try {

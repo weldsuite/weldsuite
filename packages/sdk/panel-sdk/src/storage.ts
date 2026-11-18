@@ -2,7 +2,9 @@
  * Everything the SDK keeps in the browser (ADR PANEL-006). Before consent:
  * nothing but the opt-out flag, if the visitor opted out. After consent:
  *
- * - localStorage `weldpanel:<token>`: the visitor's ids and user id;
+ * - localStorage `weldpanel:<token>`: the visitor's ids and user id, super
+ *   properties, groups and first-touch properties (before consent these live
+ *   in memory only);
  * - localStorage `weldpanel:<token>:rec`: whether this session is recorded and
  *   the next recording chunk number, shared by the session's tabs;
  * - sessionStorage `weldpanel:<token>`: this tab's last page (quick backs),
@@ -13,6 +15,7 @@
  */
 
 import { uuid } from './event';
+import type { Properties } from './wire';
 
 /** A visit ends after 30 minutes without events. */
 export const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
@@ -29,7 +32,15 @@ export interface VisitorState {
   g: 0 | 1;
   /** The user id from `identify()`. */
   u?: string;
+  /** Super properties (`register()`). */
+  p?: Properties;
+  /** Groups (`group()`): type → key. */
+  r?: Record<string, string>;
+  /** First-touch properties (`$initial_*`), set once. */
+  f?: Properties;
 }
+
+const obj = <T>(v: unknown): T | undefined => (v && typeof v === 'object' && !Array.isArray(v) ? (v as T) : undefined);
 
 export const stateKey = (token: string): string => `weldpanel:${token}`;
 export const recordingKey = (token: string): string => `weldpanel:${token}:rec`;
@@ -62,9 +73,16 @@ export function writeJson(key: string, value: object, session?: boolean): void {
 
 export function readState(token: string): VisitorState | null {
   const v = readJson<VisitorState>(stateKey(token));
-  return v && typeof v.a === 'string' && typeof v.s === 'string' && typeof v.t === 'number'
-    ? { a: v.a, s: v.s, t: v.t, g: v.g === 1 ? 1 : 0, ...(typeof v.u === 'string' ? { u: v.u } : {}) }
-    : null;
+  if (!v || typeof v.a !== 'string' || typeof v.s !== 'string' || typeof v.t !== 'number') return null;
+  const state: VisitorState = { a: v.a, s: v.s, t: v.t, g: v.g === 1 ? 1 : 0 };
+  if (typeof v.u === 'string') state.u = v.u;
+  const p = obj<Properties>(v.p);
+  const r = obj<Record<string, string>>(v.r);
+  const f = obj<Properties>(v.f);
+  if (p) state.p = p;
+  if (r) state.r = r;
+  if (f) state.f = f;
+  return state;
 }
 
 export function writeState(token: string, state: VisitorState): void {

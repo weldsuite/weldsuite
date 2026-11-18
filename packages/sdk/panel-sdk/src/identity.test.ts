@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { stateKey, type VisitorState } from './storage';
-import { resetPage, setup, TOKEN } from './test/harness';
+import { FIRST_TOUCH, resetPage, setup, TOKEN } from './test/harness';
 import type { WireEvent } from './wire';
 
 afterEach(resetPage);
@@ -125,6 +125,8 @@ describe('people', () => {
     const [sent] = await net.sent();
     expect(sent.batch.consent).toBe(true);
     expect(sent.batch.people?.map(({ ts: _ts, ...op }) => op)).toEqual([
+      // identify() puts where the visitor first came from on the profile, once.
+      { op: 'set_once', user_id: 'user-42', props: FIRST_TOUCH },
       { op: 'set', user_id: 'user-42', props: { $email: 'ann@example.com', $name: 'Ann', plan: 'pro' } },
       { op: 'set_once', user_id: 'user-42', props: { first_seen_plan: 'free' } },
       { op: 'unset', user_id: 'user-42', keys: ['trial'] },
@@ -176,7 +178,9 @@ describe('people', () => {
     client.api.track('Anonymous again');
     await client.api.flush();
     const sent = await net.sent();
-    expect(sent.every((s) => s.batch.people === undefined)).toBe(true);
+    // Only the first-touch set_once that left with $identify, before the revoke.
+    const ops = ([] as Array<{ op: string }>).concat(...sent.map((s) => s.batch.people ?? []));
+    expect(ops.map((op) => op.op)).toEqual(['set_once']);
     expect(byName(await net.events(), 'Anonymous again')[0].user_id).toBeUndefined();
     expect(localStorage).toHaveLength(0);
   });

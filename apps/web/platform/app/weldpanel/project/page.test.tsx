@@ -24,6 +24,8 @@ const state = vi.hoisted(() => ({
   remove: vi.fn(),
   push: vi.fn(),
   toast: { success: vi.fn(), error: vi.fn() },
+  domains: { data: [] as unknown[], isLoading: false, error: null as unknown, refetch: vi.fn() },
+  createDomain: vi.fn(),
 }));
 
 vi.mock('@/lib/i18n/provider', async () => {
@@ -48,6 +50,13 @@ vi.mock('@/hooks/queries/use-weldpanel-queries', () => ({
   useUpdateWeldPanelProjectSettings: () => ({ mutateAsync: state.updateSettings, isPending: false }),
   useRotateWeldPanelToken: () => ({ mutateAsync: state.rotate, isPending: false }),
   useDeleteWeldPanelProject: () => ({ mutateAsync: state.remove, isPending: false }),
+}));
+
+vi.mock('@/hooks/queries/use-weldpanel-collab-queries', () => ({
+  useWeldPanelDomains: () => state.domains,
+  useCreateWeldPanelDomain: () => ({ mutateAsync: state.createDomain, isPending: false }),
+  useRefreshWeldPanelDomain: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useDeleteWeldPanelDomain: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
 const tp = en.weldpanel.project;
@@ -347,6 +356,96 @@ describe('WeldPanel project page', () => {
         expect(lang.weldpanel.observe.session.summary.aiDisabled).toContain(lang.weldpanel.privacy.aiLabel);
         expect(lang.weldpanel.observe.session.summary.aiDisabled).toContain(lang.weldpanel.project.tabs.privacy);
       }
+    });
+  });
+
+  describe('Install tab, own domain and proxy', () => {
+    const td = en.weldpanel.collab.domains;
+    beforeEach(() => {
+      state.perms = new Set([READ, 'panel_projects:manage']);
+      state.domains = { data: [], isLoading: false, error: null, refetch: vi.fn() };
+      state.createDomain.mockReset();
+    });
+
+    it('says custom domains are not available yet where the API answers 503', () => {
+      state.domains = { data: [], isLoading: false, error: new ApiError('Unavailable', 503), refetch: vi.fn() };
+      show();
+      expect(screen.getByText(td.unavailable)).toBeTruthy();
+    });
+
+    it('lists the DNS records of a pending domain, and the snippet of an active one', () => {
+      state.domains = {
+        data: [
+          {
+            id: 'pncd_1',
+            projectId: 'wpp_1',
+            hostname: 'stats.acme.test',
+            status: 'pending',
+            sslStatus: 'pending_validation',
+            records: [{ type: 'CNAME', name: 'stats.acme.test', value: 'collect.weldsuite.org', purpose: 'routing' }],
+            lastError: null,
+            lastCheckedAt: null,
+            scriptUrl: null,
+            snippet: null,
+            createdAt: '2026-11-01T00:00:00Z',
+          },
+          {
+            id: 'pncd_2',
+            projectId: 'wpp_1',
+            hostname: 'pnl.acme.test',
+            status: 'active',
+            sslStatus: 'active',
+            records: [],
+            lastError: null,
+            lastCheckedAt: null,
+            scriptUrl: 'https://pnl.acme.test/s.js',
+            snippet: '<script async src="https://pnl.acme.test/s.js"></script>',
+            createdAt: '2026-11-01T00:00:00Z',
+          },
+        ],
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      };
+      show();
+      expect(screen.getByText(td.statuses.pending)).toBeTruthy();
+      expect(screen.getByText('collect.weldsuite.org')).toBeTruthy();
+      expect(screen.getByRole('region', { name: td.snippetTitle.replace('{hostname}', 'pnl.acme.test') }).textContent).toContain('https://pnl.acme.test/s.js');
+    });
+
+    it('adds a domain and refuses something that is not a host name', async () => {
+      state.createDomain.mockResolvedValue({});
+      const { user } = show();
+      const input = screen.getByLabelText(td.hostnameLabel);
+      await user.type(input, 'not a host');
+      await user.click(screen.getByRole('button', { name: td.add }));
+      expect(screen.getByText(td.invalid)).toBeTruthy();
+      expect(state.createDomain).not.toHaveBeenCalled();
+      await user.clear(input);
+      await user.type(input, 'Stats.Acme.test');
+      await user.click(screen.getByRole('button', { name: td.add }));
+      await waitFor(() => expect(state.createDomain).toHaveBeenCalledWith('stats.acme.test'));
+    });
+
+    it('hides custom domains from people who cannot manage projects', () => {
+      state.perms = new Set([READ]);
+      show();
+      expect(screen.queryByText(td.title)).toBeNull();
+    });
+
+    it('builds the proxy recipe and the snippet for the path typed', async () => {
+      const { user } = show();
+      const path = screen.getByLabelText(en.weldpanel.collab.proxy.pathLabel);
+      await user.clear(path);
+      await user.type(path, 'stats/');
+      const recipe = screen.getByRole('region', { name: `${en.weldpanel.collab.proxy.recipeTitle} · Next.js` }).textContent ?? '';
+      expect(recipe).toContain("source: '/stats/:path*', destination: 'https://pnl.weldsuite.org/:path*'");
+      expect(screen.getByRole('region', { name: en.weldpanel.collab.proxy.snippetTitle }).textContent).toContain('src="/stats/s.js"');
+    });
+
+    it('shows the React Native install with the project token', () => {
+      show();
+      expect(screen.getByRole('region', { name: en.weldpanel.collab.reactNative.initTitle }).textContent).toContain("token: 'wpk_abc123'");
     });
   });
 

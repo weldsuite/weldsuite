@@ -380,3 +380,81 @@ export function verifiedDomainNames(oidc: SsoOidcView): string {
     .map((domain) => domain.name)
     .join(', ');
 }
+
+// ============================================================================
+// WeldID mode: a SAML connection
+// ============================================================================
+
+/** Where the form takes the identity provider's metadata from. */
+export type SamlMetadataSource = 'url' | 'file';
+
+export interface SamlFormValues {
+  displayName: string;
+  source: SamlMetadataSource;
+  metadataUrl: string;
+  /** The uploaded file's text; empty when none was chosen. */
+  metadataXml: string;
+  trustEmails: boolean;
+}
+
+/** A SAML connection's form, from what is saved (a new one trusts its IdP's emails: SAML has no flag for it). */
+export function samlFormValues(connection: SsoOidcConnection | null): SamlFormValues {
+  const metadataUrl = connection?.saml?.idpMetadataUrl ?? '';
+  return {
+    displayName: connection?.displayName ?? '',
+    source: connection && !metadataUrl ? 'file' : 'url',
+    metadataUrl,
+    metadataXml: '',
+    trustEmails: connection ? connection.trustEmails : true,
+  };
+}
+
+export type SamlField = 'displayName' | 'metadataUrl' | 'metadataXml';
+export type SamlIssueCode = 'required' | 'httpsUrl' | 'metadataRequired';
+
+export interface SamlIssue {
+  field: SamlField;
+  code: SamlIssueCode;
+}
+
+/**
+ * What is wrong with the form: a new connection needs its metadata; a saved
+ * one keeps its own unless a URL is given or a file chosen.
+ */
+export function samlIssues(values: SamlFormValues, connection: SsoOidcConnection | null): SamlIssue[] {
+  const issues: SamlIssue[] = [];
+  if (!values.displayName.trim()) issues.push({ field: 'displayName', code: 'required' });
+  if (values.source === 'url') {
+    const url = values.metadataUrl.trim();
+    if (url && !isHttpsUrl(url)) issues.push({ field: 'metadataUrl', code: 'httpsUrl' });
+    else if (!url && !connection) issues.push({ field: 'metadataUrl', code: 'metadataRequired' });
+  } else if (!values.metadataXml.trim() && !connection) {
+    issues.push({ field: 'metadataXml', code: 'metadataRequired' });
+  }
+  return issues;
+}
+
+/**
+ * The `PUT /api/sso/connection` body for the SAML form: everything for a new
+ * connection; for a saved one what changed, and the metadata when a file was
+ * chosen or a URL given (a URL is fetched again even when it is the same: how
+ * a new signing certificate is picked up).
+ */
+export function samlInputFrom(values: SamlFormValues, connection: SsoOidcConnection | null): SsoOidcConnectionInput {
+  const displayName = values.displayName.trim();
+  const metadata: Pick<SsoOidcConnectionInput, 'metadataUrl' | 'metadataXml'> = {};
+  if (values.source === 'url' && values.metadataUrl.trim()) metadata.metadataUrl = values.metadataUrl.trim();
+  if (values.source === 'file' && values.metadataXml.trim()) metadata.metadataXml = values.metadataXml;
+  if (!connection) {
+    return { protocol: 'saml', displayName, trustEmails: values.trustEmails, ...metadata };
+  }
+  const input: SsoOidcConnectionInput = { ...metadata };
+  if (displayName !== connection.displayName) input.displayName = displayName;
+  if (values.trustEmails !== connection.trustEmails) input.trustEmails = values.trustEmails;
+  return input;
+}
+
+/** Whether a saved connection is a SAML one (answers from before SAML have no protocol). */
+export function isSamlConnection(connection: SsoOidcConnection | null): boolean {
+  return connection?.protocol === 'saml';
+}

@@ -39,6 +39,15 @@ export function flowColumns(result: PanelFlowsResult): FlowColumn[] {
   });
 }
 
+/** "Export CSV": one row per path, in time order, with its count. */
+export function flowsCsvRows(result: PanelFlowsResult, leftLabel: string): { path: string; count: number; share: number }[] {
+  return result.paths.map((path) => {
+    const steps = path.steps.map((s) => s ?? leftLabel);
+    const chain = result.direction === 'before' ? [...steps].reverse().concat(result.anchor) : [result.anchor, ...steps];
+    return { path: chain.join(' → '), count: path.count, share: result.anchorCount > 0 ? path.count / result.anchorCount : 0 };
+  });
+}
+
 interface FlowsResultViewProps {
   result: PanelFlowsResult;
   compact?: boolean;

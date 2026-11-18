@@ -3,12 +3,15 @@
 The SDK for WeldPanel, WeldSuite's product analytics. In the browser:
 pageviews (including single-page-app navigation), page leaves with scroll
 depth, clicks and form submits, your own custom events, identified users and
-their profiles, frustration signals (rage clicks, dead clicks, quick backs,
-excessive scrolling, JavaScript errors) and, with a separate plugin, session
-recordings. On your server: events, profiles and historical imports with a
-secret key. Cookieless until the visitor consents. The browser script is about
-9 KB gzipped; the recording plugin, about 25 KB, is only downloaded for
-sessions that are recorded. MIT licensed.
+their profiles, super properties, first-touch attribution, groups (companies,
+accounts), Core Web Vitals, frustration signals (rage clicks, dead clicks,
+quick backs, excessive scrolling, JavaScript errors) and, with a separate
+plugin, session recordings. On your server: events, profiles, group profiles
+and historical imports with a secret key. Cookieless until the visitor
+consents. The browser script is just under 10 KB gzipped; the web vitals
+plugin (under 1 KB) is loaded after it, and the recording plugin, about 25 KB,
+only for sessions that are recorded. For React Native apps there is
+`@weldsuite/panel-react-native`. MIT licensed.
 
 ## Install
 
@@ -19,7 +22,7 @@ Settings → Install:
 
 ```html
 <script>
-!function(w,p,s){p=w.weldpanel=w.weldpanel||{q:[]};if(!p.q)return;s=function(n){return function(){p.q.push([n,[].slice.call(arguments)])}};p.track=s("track");p.identify=s("identify");p.reset=s("reset");p.optOut=s("optOut");p.optIn=s("optIn");p.flush=s("flush");p.consent={grant:s("consent.grant"),revoke:s("consent.revoke")};p.people={set:s("people.set"),set_once:s("people.set_once"),unset:s("people.unset"),increment:s("people.increment")}}(window);
+!function(w,p,s){p=w.weldpanel=w.weldpanel||{q:[]};if(!p.q)return;s=function(n){return function(){p.q.push([n,[].slice.call(arguments)])}};p.track=s("track");p.identify=s("identify");p.reset=s("reset");p.optOut=s("optOut");p.optIn=s("optIn");p.flush=s("flush");p.register=s("register");p.registerOnce=s("registerOnce");p.unregister=s("unregister");p.group=s("group");p.resetGroups=s("resetGroups");p.consent={grant:s("consent.grant"),revoke:s("consent.revoke")};p.people={set:s("people.set"),set_once:s("people.set_once"),unset:s("people.unset"),increment:s("people.increment")};p.groups={set:s("groups.set"),set_once:s("groups.set_once"),unset:s("groups.unset")}}(window);
 </script>
 <script async src="https://pnl.weldsuite.org/s.js" data-project="wpk_…"></script>
 ```
@@ -33,9 +36,12 @@ SDK has arrived, and nothing is lost. Consent, opt-out, `identify()` and
 order they were made; `track()` and `people.*` calls follow it. The stub is
 optional: without it, call `window.weldpanel` only after the script has loaded.
 
-The SDK reads the token from `data-project` and talks to the origin it was
-loaded from. Add `data-debug` to the tag to see in the console why an event,
-property or call was dropped.
+The SDK reads the token from `data-project` and talks to where it was loaded
+from (the origin, plus the path for `…/wp/s.js` behind a proxy, see "Your own
+domain"). `data-api-host="https://example.com/wp"` sends events somewhere
+else than the script came from. `data-web-vitals="false"` turns web vitals off.
+Add `data-debug` to the tag to see in the console why an event, property or
+call was dropped.
 
 The snippet is also exported, for install pages:
 `import { installSnippet, STUB } from '@weldsuite/panel-sdk/install'`.
@@ -51,7 +57,7 @@ const panel = init({ token: 'wpk_…' });
 panel.track('Signed up', { plan: 'pro' });
 ```
 
-`init({ token, host?, debug?, recorder? })` returns at once. It fetches the
+`init({ token, host?, apiHost?, debug?, recorder?, webVitals?, vitals? })` returns at once. It fetches the
 project's settings from the collector (`host`, default
 `https://pnl.weldsuite.org`) and keeps the calls made in the meantime. On the
 server (no `window`) it returns a client that does nothing, so it is safe to
@@ -74,12 +80,30 @@ The same on `window.weldpanel` and on what `init()` returns.
 | `consent.revoke()` | The visitor withdrew: delete everything stored and go back to cookieless counting. |
 | `optOut()` | Send nothing at all, on this page and on later visits, until `optIn()`. Deletes everything stored. |
 | `optIn()` | Undo `optOut()`. Consent goes back to the project's default (cookieless until `grant()`, unless the project needs no consent). |
+| `register(props)` | Super properties: added to every later event (the event's own properties win). Same key and value rules as `track()`. Kept in localStorage with consent, in memory before it. |
+| `registerOnce(props)` | Only the super properties not set yet. |
+| `unregister(key)` | Remove a super property. |
+| `group(type, key, props?)` | The visitor belongs to a group: `group('company', 'acme')` puts `$group_company: 'acme'` on every later event. `type`: lower case letters, digits and `_`, starting with a letter, at most 32; `key`: 1 to 255 characters (a number becomes text). `props` update the group's profile. A project collects at most five group types; the collector drops the rest. |
+| `groups.set(type, key, props)` / `groups.set_once` / `groups.unset(type, key, keys)` | A group's profile, any group. `name` is the profile's `$name`. |
+| `resetGroups()` | Leave every group. |
+| `getDistinctId()` / `getSessionId()` | The user id (else the anonymous id) and the session id; `null` without consent. |
 | `flush()` | Send waiting events now. Returns a promise. |
 | `version` | The SDK version. |
 
 `identify()` and the `people` calls need consent (or a project that needs
 none) and are dropped without it, and `people` calls need `identify()` first.
-Profile updates are sent with the next batch of events, never on their own.
+Profile and group updates are sent with the next batch of events, never on
+their own. Groups wait for consent, like `identify()`: before
+`consent.grant()` the membership is kept in memory only, events carry no
+`$group_` properties and group updates are dropped. `reset()` also clears the
+super properties and groups.
+
+Every event (except `$webvitals`) also carries the visitor's **first touch**,
+taken once from the first page seen: `$initial_referrer` (without its query
+string, `$direct` without a referrer), `$initial_referring_domain`,
+`$initial_utm_source` / `_medium` / `_campaign` / `_content` / `_term` and
+`$initial_landing_path`. `identify()` also sends them to the profile with
+`set_once`. Before consent they live in memory for the page only.
 
 ## Consent and what is stored
 
@@ -101,7 +125,8 @@ After `grant()` the SDK keeps:
     events;
   - `t`: the time of the last event;
   - `g`: whether the ids come from `grant()`;
-  - `u`: the user id from `identify()`, if any.
+  - `u`: the user id from `identify()`, if any;
+  - `p`, `r`, `f`: super properties, groups and first-touch properties.
 - localStorage `weldpanel:<project token>:rec`, only for projects that record
   sessions: whether this session is recorded and the number of the next
   recording chunk, shared by the session's tabs.
@@ -183,6 +208,17 @@ The events:
   second after such a click; to see requests it wraps `window.fetch` and
   `XMLHttpRequest.prototype.send`, which only note the time (the SDK's own
   requests don't count).
+- **`$webvitals`**: Core Web Vitals, one event per page view, sent when the
+  page is hidden or left, or on a single-page-app route change: `$lcp`,
+  `$inp`, `$fcp`, `$ttfb` (milliseconds) and `$cls`, the elements behind
+  them as `$lcp_el`, `$inp_el`, `$cls_el` (short CSS selectors) and
+  `$nav_type` (`navigate`, `reload`, `back_forward`, `prerender`, or `soft`
+  for a route change). Only metrics the browser measured are there. Sent
+  before consent too, always without ids or other properties, and nothing is
+  stored. The measuring is a small plugin loaded from `{collector}/v.js`
+  (bundlers: `init({ vitals: watchVitals })` with `watchVitals` from
+  `@weldsuite/panel-sdk/vitals`); turn it off with `webVitals: false` or
+  `data-web-vitals="false"`.
 - **Custom events** from `track()`, with their properties.
 
 Never collected: what visitors type or pick. The SDK does not read the value
@@ -265,6 +301,8 @@ panel.track({ name: 'Subscription renewed', distinctId: user.id, userId: user.id
 panel.identify({ userId: user.id, anonId }); // the browser's anonymous id, e.g. sent along at sign-up
 panel.people.set(user.id, { email: user.email, plan: 'pro' });
 panel.people.increment(user.id, 'renewals');
+panel.track({ name: 'Invoice paid', distinctId: user.id, groups: { company: account.id } });
+panel.groupSet('company', account.id, { name: account.name, plan: 'pro' });
 await panel.flush();
 
 await panel.import(historicalOrders.map((o) => ({ name: 'Order placed', distinctId: o.customerId, timestamp: o.createdAt })));
@@ -276,9 +314,10 @@ Create a secret key (`wps_…`) in WeldPanel; keep it on the server.
 | Call | Does |
 |---|---|
 | `createPanelServer({ secretKey, collectorUrl?, fetch?, onError? })` | A client. `collectorUrl` defaults to `https://pnl.weldsuite.org`. |
-| `track({ name, distinctId, userId?, anonId?, url?, title?, props?, timestamp?, eventId? })` | Queue an event. `distinctId` is required: whoever you count as the visitor. Timestamps up to 7 days old. `eventId` (8 to 64 characters) makes a repeat count once. |
+| `track({ name, distinctId, userId?, anonId?, url?, title?, props?, groups?, timestamp?, eventId? })` | Queue an event. `groups` (`{ company: 'acme' }`) become `$group_<type>` properties. `distinctId` is required: whoever you count as the visitor. Timestamps up to 7 days old. `eventId` (8 to 64 characters) makes a repeat count once. |
 | `identify({ userId, anonId })` | Link a browser's anonymous id to a user, like the browser's `identify()`. |
 | `people.set` / `set_once` / `unset` / `increment` | As in the browser, with the user id first: `people.set(userId, props)`. |
+| `groupSet(type, key, props)` | A group's profile, like `groups.set()` in the browser. |
 | `flush()` | Send what is queued, 100 events and 50 profile updates a request, to `POST /v1/track`. Resolves to `{ accepted, dropped }`; rejects with a `PanelServerError` (`status`, `code`) when the collector refuses, e.g. 401 for a bad or revoked key. |
 | `import(events)` | Historical events (timestamps up to 5 years old), sent now in requests of 1000 to `POST /v1/import`. Resolves to `{ accepted, dropped }`. |
 
@@ -289,11 +328,30 @@ failure of that send goes to `onError`, by default `console.error`). Call
 retried once after a second. Server events get no location or device
 enrichment.
 
+## Your own domain
+
+Ad blockers block requests to analytics hosts; requests to your own domain go
+through. Forward a path on your site (`/wp` below) to the collector and load the
+script from there; it then sends to the same path by itself:
+
+```html
+<script async src="https://example.com/wp/s.js" data-project="wpk_…"></script>
+```
+
+`import { PROXY_RECIPES, proxyRecipe } from '@weldsuite/panel-sdk/install'` has
+the recipes for Next.js rewrites, Vercel (`vercel.json`), a Cloudflare Worker and
+nginx (`proxyRecipe(kind, { path, collector })` for another path). Each sends the
+visitor's address as the first `X-Forwarded-For` hop, which the collector uses
+for the cookieless id, IP filters and rate limits (and never stores), and, where
+the proxy knows it, the location as `X-WeldPanel-Country` / `-Region` / `-City`
+(Vercel's `x-vercel-ip-*` headers are read too); otherwise the location is the
+proxy's. Cookies are not forwarded.
+
 ## Sending
 
 Events are queued and sent every 5 seconds, or as soon as 20 are waiting, as
 `text/plain` JSON (no CORS preflight) to `POST {collector}/e`, in batches of at
-most 100 events, 50 profile updates and 64 KiB. When the page is hidden or
+most 100 events, 50 profile updates, 50 group updates and 64 KiB. When the page is hidden or
 closed, the queue goes out with `navigator.sendBeacon`, or `fetch` with
 `keepalive` where beacons are missing or refused. A batch that fails to send
 because of a network error is tried once more after a second or two. No

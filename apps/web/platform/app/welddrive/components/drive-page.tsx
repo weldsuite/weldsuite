@@ -1,5 +1,6 @@
 ﻿import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { useCreateIntent } from '@/hooks/use-create-intent';
 import { useNavigate } from '@tanstack/react-router';
 import { useI18n } from '@/lib/i18n/provider';
 import {
@@ -811,6 +812,7 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
     window.addEventListener('welddrive:create-folder', handler);
     return () => window.removeEventListener('welddrive:create-folder', handler);
   }, []);
+  useCreateIntent(() => setShowCreateFolder(true), { kind: 'folder' });
 
   // Determine which data source to use based on view
   const useAggregated = sidebarView === 'all-files' || sidebarView === 'recent' || !!activeSourceFilter;

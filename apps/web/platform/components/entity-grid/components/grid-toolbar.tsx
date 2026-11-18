@@ -702,6 +702,7 @@ export function SearchIconButton({
         <Button
           variant="outline"
           size="sm"
+          aria-label={placeholder}
           className={cn(
             "h-8 w-8 p-0 flex-shrink-0 shadow-none transition-opacity duration-200",
             searchOpen && "opacity-0 pointer-events-none absolute"

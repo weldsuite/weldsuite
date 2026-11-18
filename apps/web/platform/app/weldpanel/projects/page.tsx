@@ -5,6 +5,7 @@
  */
 
 import { useState } from 'react';
+import { useCreateIntent } from '@/hooks/use-create-intent';
 import { Globe } from 'lucide-react';
 import { useCan } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
@@ -30,6 +31,7 @@ export default function WeldPanelProjectsPage() {
   const canCreate = useCan('panel_projects:create');
   const { data: projects, isLoading, isError, refetch } = useWeldPanelProjects();
   const [creating, setCreating] = useState(false);
+  useCreateIntent(() => setCreating(true), { ready: canCreate });
 
   useBreadcrumbs([{ label: t.weldpanel.breadcrumb.home, href: '/weldpanel' }, { label: t.weldpanel.breadcrumb.projects }]);
 

@@ -12,6 +12,7 @@ import { Hono, type Context } from 'hono';
 import { isAllowedOrigin } from '@weldsuite/panel-domain/registry';
 import { MAX_BATCH_BYTES, parseEventBatch } from '@weldsuite/panel-domain/wire';
 import type { Env } from '../env';
+import { requestAddresses, requestGeo } from '../lib/address';
 import { readTextLimited } from '../lib/body';
 import { collectInBackground } from '../lib/collect';
 import { matchesIpFilter } from '../lib/ip-filter';
@@ -35,14 +36,18 @@ function firstIssue(issues: { path: (string | number)[]; message: string }[]): s
   return issue.path.length > 0 ? `${issue.path.join('.')}: ${issue.message}` : issue.message;
 }
 
-const geoValue = (value: string | undefined): string | null => (value && value !== 'XX' ? value : null);
-
 export const eventRoutes = new Hono<{ Bindings: Env }>();
 
 eventRoutes.post('/e', async (c) => {
-  // The per-IP limit comes first, before the body is read and KV is asked, so a
-  // flood costs as little as possible.
-  if (await rateLimited(c.env.EVENTS_RATE_LIMIT, c.req.header('CF-Connecting-IP') ?? '')) {
+  // The per-IP limits come first, before the body is read and KV is asked, so a
+  // flood costs as little as possible. Behind a proxy (or with a forged
+  // X-Forwarded-For) the client IP is not the connecting one: that one gets a
+  // second, 50 times higher ceiling.
+  const addresses = requestAddresses(c.req.raw.headers);
+  const limited =
+    (await rateLimited(c.env.EVENTS_RATE_LIMIT, addresses.client)) ||
+    (addresses.connecting !== addresses.client && (await rateLimited(c.env.EVENTS_PROXY_RATE_LIMIT, addresses.connecting)));
+  if (limited) {
     c.header('Retry-After', '10');
     return reject(c, 429, 'rate_limited', 'Too many requests');
   }
@@ -77,7 +82,7 @@ eventRoutes.post('/e', async (c) => {
   }
 
   const cf = c.req.raw.cf as IncomingRequestCfProperties | undefined;
-  const ip = c.req.header('CF-Connecting-IP') ?? '';
+  const ip = addresses.client;
   const userAgent = c.req.header('User-Agent') ?? '';
 
   const dropped =
@@ -98,7 +103,7 @@ eventRoutes.post('/e', async (c) => {
       receivedAt,
       ip,
       userAgent,
-      geo: { country: geoValue(cf?.country), region: geoValue(cf?.region), city: geoValue(cf?.city) },
+      geo: requestGeo(c.req.raw.headers, cf),
     }),
   );
   return c.body(null, 204);

@@ -14,7 +14,8 @@ export function operatorNeedsValue(operator: PanelFilterOperator): boolean {
 /** A filter the API accepts: a cohort needs its id, the rest a key or column and, mostly, a value. */
 export function isFilterComplete(filter: PanelFilter): boolean {
   if (filter.source === 'cohort') return filter.cohortId !== '';
-  if (filter.source !== 'column' && filter.key === '') return false;
+  if ((filter.source === 'group' || filter.source === 'group_key') && filter.groupType === '') return false;
+  if ((filter.source === 'event' || filter.source === 'person' || filter.source === 'group') && filter.key === '') return false;
   if (!operatorNeedsValue(filter.operator)) return true;
   const value = filter.value;
   if (value === undefined || value === '') return false;
@@ -62,13 +63,38 @@ export function toggleColumnFilter(filters: readonly PanelFilter[], field: Panel
   return [...others, { source: 'column', field, operator: 'eq', value }];
 }
 
-/** "Country is NL", "plan is one of pro, team" or "in Trial users". */
-export function describeFilter(filter: PanelFilter, labels: FilterLabels, cohortName?: (id: string) => string | undefined): string {
+/** How names in a filter are shown: cohorts, computed properties and group types by their names. */
+export interface FilterNames {
+  cohort?: (id: string) => string | undefined;
+  /** An event property key or computed property ref → what to show. */
+  property?: (key: string) => string;
+  /** A group type → its singular name (`Company`). */
+  groupType?: (groupType: string) => string;
+}
+
+function filterSubject(filter: Exclude<PanelFilter, { source: 'cohort' }>, labels: FilterLabels, names: FilterNames): string {
+  switch (filter.source) {
+    case 'column':
+      return labels.columns[filter.field];
+    case 'event':
+      return names.property?.(filter.key) ?? filter.key;
+    case 'person':
+      return filter.key;
+    case 'group':
+      return `${names.groupType?.(filter.groupType) ?? filter.groupType} ${filter.key}`;
+    case 'group_key':
+      return names.groupType?.(filter.groupType) ?? filter.groupType;
+  }
+}
+
+/** "Country is NL", "plan is one of pro, team", "Company plan is pro" or "in Trial users". */
+export function describeFilter(filter: PanelFilter, labels: FilterLabels, names: FilterNames | ((id: string) => string | undefined) = {}): string {
+  const resolved: FilterNames = typeof names === 'function' ? { cohort: names } : names;
   if (filter.source === 'cohort') {
-    const name = cohortName?.(filter.cohortId) ?? labels.cohortMissing;
+    const name = resolved.cohort?.(filter.cohortId) ?? labels.cohortMissing;
     return (filter.negate ? labels.notInCohort : labels.inCohort).replace('{name}', name);
   }
-  const subject = filter.source === 'column' ? labels.columns[filter.field] : filter.key;
+  const subject = filterSubject(filter, labels, resolved);
   const operator = labels.operators[filter.operator];
   return operatorNeedsValue(filter.operator) ? `${subject} ${operator} ${formatFilterValue(filter.value)}` : `${subject} ${operator}`;
 }

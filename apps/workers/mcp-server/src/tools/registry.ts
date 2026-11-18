@@ -89,6 +89,7 @@ import { workspaceTools } from './workspace';
 import { commerceTools } from './commerce';
 import { socialTools } from './social';
 import { reachTools } from './reach';
+import { panelTools } from './panel';
 
 /**
  * All registered tools
@@ -106,4 +107,5 @@ export const allTools: ToolDefinition[] = [
   ...commerceTools,
   ...socialTools,
   ...reachTools,
+  ...panelTools,
 ];

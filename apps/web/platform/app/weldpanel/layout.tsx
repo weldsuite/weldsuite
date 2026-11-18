@@ -8,6 +8,7 @@ import { useAppAccess } from '@/hooks/use-app-access';
 import { isFeatureAvailable } from '@/lib/edition';
 import { useI18n } from '@/lib/i18n/provider';
 import { usePathname, useRouter } from '@/lib/router';
+import { ChartAnnotationsProvider } from './components/charts/annotations-context';
 import { ProjectBar } from './components/project-bar';
 import { UsageBanner } from './components/usage-banner';
 
@@ -53,7 +54,8 @@ export default function WeldPanelLayout({ children }: Readonly<{ children: React
         <AppHeader />
         {analytics && !isProjectsPath(pathname) && <ProjectBar />}
         {analytics && <UsageBanner />}
-        <ModuleContent className="min-h-0 overflow-y-auto">{children}</ModuleContent>
+        {/* Time charts on every page show the project's annotations (and the open report's own). */}
+        <ModuleContent className="min-h-0 overflow-y-auto">{analytics ? <ChartAnnotationsProvider enabled>{children}</ChartAnnotationsProvider> : children}</ModuleContent>
       </div>
     </BreadcrumbProvider>
   );

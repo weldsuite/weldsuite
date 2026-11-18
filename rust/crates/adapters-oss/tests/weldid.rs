@@ -1224,12 +1224,13 @@ async fn sso_connections_go_through_the_admin_api_scoped_by_tenant() {
     let seen = Arc::clone(&setup.seen);
     let sso = WeldIdSso::new(Arc::new(setup.identity));
 
-    // Only ws_a's OIDC connection is listed.
+    // Only ws_a's connections are listed, OpenID Connect and SAML.
     let listed = sso.connections("ws_a").await.expect("list");
     assert_eq!(
         listed.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(),
-        ["ssoc_1"]
+        ["ssoc_1", "ssoc_saml"]
     );
+    assert_eq!(listed[1].protocol, weldsuite_ports::SsoProtocol::Saml);
     let token = calls(&seen, "/oauth/token");
     assert!(
         form_field(&form(&token[0].body), "scope")
@@ -1242,6 +1243,8 @@ async fn sso_connections_go_through_the_admin_api_scoped_by_tenant() {
         .create_connection(
             "ws_a",
             &NewSsoConnection {
+                protocol: weldsuite_ports::SsoProtocol::Oidc,
+                saml_metadata: None,
                 display_name: "Acme Entra".to_owned(),
                 issuer: "https://login.example.test/acme/v2.0".to_owned(),
                 client_id: "client-1".to_owned(),

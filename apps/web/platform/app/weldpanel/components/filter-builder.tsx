@@ -1,8 +1,9 @@
 /**
  * Filters of a query spec: chips for the active ones and a popover form to add
- * one (a column of the visit or page, an event property, a person property or
- * a cohort). `FilterChips` alone serves pages whose filters come from clicking
- * a row.
+ * one (a column of the visit or page, an event property, a person property, a
+ * cohort, and inside a definitions provider with group types: a property of
+ * the event's group or the group itself). `FilterChips` alone serves pages
+ * whose filters come from clicking a row.
  */
 
 import { useState } from 'react';
@@ -22,6 +23,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useWeldPanelCohorts } from '@/hooks/queries/use-weldpanel-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { describeFilter, filterKey, isFilterComplete, operatorNeedsValue, parseFilterValue } from '../lib/filters';
+import { useDefinitionLabels, usePanelDefinitions } from './definitions';
 import { PropertyPicker } from './pickers';
 
 type FilterSource = PanelFilter['source'];
@@ -38,15 +40,20 @@ interface FilterChipsProps {
 export function FilterChips({ filters, onChange, projectId, className }: Readonly<FilterChipsProps>) {
   const { t } = useI18n();
   const tf = t.weldpanel.analytics.filters;
+  const labels = useDefinitionLabels();
   const needsCohorts = filters.some((f) => f.source === 'cohort');
   const { data: cohorts } = useWeldPanelCohorts(projectId, needsCohorts);
-  const cohortName = (id: string) => cohorts?.find((c) => c.id === id)?.name;
+  const names = {
+    cohort: (id: string) => cohorts?.find((c) => c.id === id)?.name,
+    property: labels.property,
+    groupType: (groupType: string) => labels.groupType(groupType, 'singular'),
+  };
 
   if (filters.length === 0) return null;
   return (
     <ul className={className ?? 'flex flex-wrap items-center gap-2'} aria-label={tf.title}>
       {filters.map((filter, index) => {
-        const text = describeFilter(filter, tf, cohortName);
+        const text = describeFilter(filter, tf, names);
         return (
           <li key={filterKey(filter, index)} className="flex items-center gap-1 rounded-full border bg-muted/50 py-0.5 pl-3 pr-1 text-sm">
             <span className="max-w-64 truncate">{text}</span>
@@ -81,9 +88,12 @@ interface FilterFormProps {
 function FilterForm({ projectId, allowCohort, onAdd }: Readonly<FilterFormProps>) {
   const { t } = useI18n();
   const tf = t.weldpanel.analytics.filters;
+  const tx = t.weldpanel.explore.filters;
+  const { groupTypes } = usePanelDefinitions();
   const [source, setSource] = useState<FilterSource>('column');
   const [column, setColumn] = useState<PanelFilterColumn>('path');
   const [key, setKey] = useState('');
+  const [groupType, setGroupType] = useState(groupTypes[0]?.groupType ?? '');
   const [operator, setOperator] = useState<PanelFilterOperator>('eq');
   const [text, setText] = useState('');
   const [cohortId, setCohortId] = useState('');
@@ -94,12 +104,17 @@ function FilterForm({ projectId, allowCohort, onAdd }: Readonly<FilterFormProps>
     if (source === 'cohort') return { source, cohortId, negate };
     const value = parseFilterValue(text, operator);
     if (source === 'column') return { source, field: column, operator, value };
+    if (source === 'group') return { source, groupType, key: key.trim(), operator, value };
+    if (source === 'group_key') return { source, groupType, operator, value };
     return { source, key: key.trim(), operator, value };
   }
 
   const draft = build();
   const complete = isFilterComplete(draft);
-  const sources: FilterSource[] = allowCohort ? ['column', 'event', 'person', 'cohort'] : ['column', 'event', 'person'];
+  const sources: FilterSource[] = ['column', 'event', 'person'];
+  if (allowCohort) sources.push('cohort');
+  if (groupTypes.length > 0) sources.push('group', 'group_key');
+  const sourceLabel = (s: FilterSource): string => (s === 'group' || s === 'group_key' ? tx.sources[s] : tf.sources[s]);
 
   return (
     <form
@@ -118,7 +133,7 @@ function FilterForm({ projectId, allowCohort, onAdd }: Readonly<FilterFormProps>
           <SelectContent>
             {sources.map((s) => (
               <SelectItem key={s} value={s}>
-                {tf.sources[s]}
+                {sourceLabel(s)}
               </SelectItem>
             ))}
           </SelectContent>
@@ -143,10 +158,36 @@ function FilterForm({ projectId, allowCohort, onAdd }: Readonly<FilterFormProps>
         </div>
       )}
 
-      {(source === 'event' || source === 'person') && (
+      {(source === 'group' || source === 'group_key') && (
+        <div className="grid gap-1.5">
+          <Label htmlFor="weldpanel-filter-group-type">{tx.groupType}</Label>
+          <Select value={groupType} onValueChange={setGroupType}>
+            <SelectTrigger id="weldpanel-filter-group-type">
+              <SelectValue placeholder={tx.groupTypePlaceholder} />
+            </SelectTrigger>
+            <SelectContent>
+              {groupTypes.map((g) => (
+                <SelectItem key={g.groupType} value={g.groupType}>
+                  {g.nameSingular}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
+      {(source === 'event' || source === 'person' || source === 'group') && (
         <div className="grid gap-1.5">
           <Label htmlFor="weldpanel-filter-property">{tf.property}</Label>
-          <PropertyPicker id="weldpanel-filter-property" projectId={projectId} value={key} onChange={setKey} ariaLabel={tf.property} placeholder={tf.propertyPlaceholder} />
+          <PropertyPicker
+            id="weldpanel-filter-property"
+            projectId={projectId}
+            value={key}
+            onChange={setKey}
+            ariaLabel={tf.property}
+            placeholder={tf.propertyPlaceholder}
+            includeComputed={source === 'event'}
+          />
         </div>
       )}
 

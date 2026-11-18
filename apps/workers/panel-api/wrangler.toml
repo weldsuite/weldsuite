@@ -47,6 +47,14 @@ PANEL_COLLECTOR_URL = "http://localhost:8841"
 PANEL_BASIN_BUCKET = "weldsuite-panel-test"
 # Platform origin the usage emails link to.
 PLATFORM_URL = "http://localhost:3000"
+# Custom collector domains (Cloudflare for SaaS): the SaaS zone whose fallback origin is panel-ingest,
+# and the host customers CNAME to. Empty = the feature is off (the routes answer 503).
+PANEL_SAAS_ZONE_ID = ""
+PANEL_SAAS_CNAME_TARGET = ""
+
+# Alerts, scheduled reports, raw exports and custom-domain checks (src/scheduled.ts).
+[triggers]
+crons = ["*/10 * * * *"]
 
 [[kv_namespaces]]
 binding = "WORKSPACE_CACHE"
@@ -84,6 +92,12 @@ binding = "REALTIME"
 service = "weldsuite-realtime-test"
 remote = true
 
+# Per-address limit on the public share links (/public/panel/share/*, routes/public).
+[[ratelimits]]
+name = "PANEL_SHARE_RATE_LIMIT"
+namespace_id = "7104"
+simple = { limit = 300, period = 60 }
+
 # ============ TEST ENVIRONMENT ============
 [env.test]
 logpush = true
@@ -99,6 +113,14 @@ AI_BYOK_PROVIDERS = "anthropic"
 PANEL_COLLECTOR_URL = "https://pnl-test.weldsuite.org"
 PANEL_BASIN_BUCKET = "weldsuite-panel-test"
 PLATFORM_URL = "https://app-test.weldsuite.org"
+# Custom collector domains (Cloudflare for SaaS): the SaaS zone whose fallback origin is panel-ingest,
+# and the host customers CNAME to. Empty = the feature is off (the routes answer 503).
+PANEL_SAAS_ZONE_ID = ""
+PANEL_SAAS_CNAME_TARGET = ""
+
+# Alerts, scheduled reports, raw exports and custom-domain checks (src/scheduled.ts).
+[env.test.triggers]
+crons = ["*/10 * * * *"]
 
 [[env.test.flagship]]
 binding = "FLAGSHIP"
@@ -132,6 +154,12 @@ queue = "panel-maintenance-test"
 binding = "REALTIME"
 service = "weldsuite-realtime-test"
 
+# Per-address limit on the public share links (/public/panel/share/*).
+[[env.test.ratelimits]]
+name = "PANEL_SHARE_RATE_LIMIT"
+namespace_id = "7204"
+simple = { limit = 300, period = 60 }
+
 # Usage notices to workspace owners (panel.usage), from notifications@mail.weldsuite.org.
 [[env.test.send_email]]
 name = "SEND_EMAIL"
@@ -154,6 +182,14 @@ AI_BYOK_PROVIDERS = "anthropic"
 PANEL_COLLECTOR_URL = "https://pnl.weldsuite.org"
 PANEL_BASIN_BUCKET = "weldsuite-panel"
 PLATFORM_URL = "https://app.weldsuite.org"
+# Custom collector domains (Cloudflare for SaaS): the SaaS zone whose fallback origin is panel-ingest,
+# and the host customers CNAME to. Empty = the feature is off (the routes answer 503).
+PANEL_SAAS_ZONE_ID = ""
+PANEL_SAAS_CNAME_TARGET = ""
+
+# Alerts, scheduled reports, raw exports and custom-domain checks (src/scheduled.ts).
+[env.production.triggers]
+crons = ["*/10 * * * *"]
 
 [[env.production.flagship]]
 binding = "FLAGSHIP"
@@ -175,6 +211,12 @@ script_name = "weldsuite-panel-ingest"
 [[env.production.services]]
 binding = "REALTIME"
 service = "weldsuite-realtime-production"
+
+# Per-address limit on the public share links (/public/panel/share/*).
+[[env.production.ratelimits]]
+name = "PANEL_SHARE_RATE_LIMIT"
+namespace_id = "7304"
+simple = { limit = 300, period = 60 }
 
 # Usage notices to workspace owners (panel.usage), from notifications@mail.weldsuite.org.
 [[env.production.send_email]]

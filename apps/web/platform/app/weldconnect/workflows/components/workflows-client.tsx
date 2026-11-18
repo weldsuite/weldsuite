@@ -1,5 +1,6 @@
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import { useCreateIntent } from '@/hooks/use-create-intent';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { Link, useRouter } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
@@ -404,6 +405,7 @@ export function WorkflowsClient({
   const router = useRouter();
   const [workflows, setWorkflows] = useState<Workflow[]>(initialWorkflows);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
+  useCreateIntent(() => setShowCreateDialog(true));
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // Sync local state when parent data changes (e.g. after refetch). Also prune
