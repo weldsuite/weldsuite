@@ -9,8 +9,8 @@
 //! | Port call | Request |
 //! |---|---|
 //! | `connections` | `GET …/connections` |
-//! | `create_connection` | `POST …/connections` `{ protocol: "oidc", displayName, issuer, clientId, clientSecret?, scopes, trustEmails, enabled, enforceSso }` (201) |
-//! | `update_connection` | `PATCH …/connections/{id}` with the changed fields only (`clientSecret` only when replaced) |
+//! | `create_connection` | `POST …/connections` `{ protocol: "oidc", displayName, issuer, clientId, clientSecret?, scopes, trustEmails, enabled, enforceSso }`, or `{ protocol: "saml", displayName, metadataXml or metadataUrl, trustEmails, enabled, enforceSso }` (201) |
+//! | `update_connection` | `PATCH …/connections/{id}` with the changed fields only (`clientSecret` only when replaced; `metadataXml` or `metadataUrl` for SAML) |
 //! | `delete_connection` | `DELETE …/connections/{id}` (204, its domains go with it) |
 //! | `add_domain` | `POST …/connections/{id}/domains` `{ domain }` (201, the domain) |
 //! | `remove_domain` | `DELETE …/connections/{id}/domains/{domainId}` (204) |
@@ -18,7 +18,9 @@
 //!
 //! A connection reads as `{ id, tenantRef, protocol, displayName, issuer,
 //! clientId, hasClientSecret, scopes, trustEmails, enabled, enforceSso,
-//! redirectUri, domains, createdAt, updatedAt }`; a domain as `{ id, domain,
+//! redirectUri, saml, domains, createdAt, updatedAt }` (`saml`: null, or
+//! `{ entityId, acsUrl, metadataUrl, idpEntityId, idpSsoUrl, idpMetadataUrl,
+//! idpCertificates: [{ sha256, subject, notBefore, notAfter }] }`); a domain as `{ id, domain,
 //! status: pending|verified|suspended, recordName, recordValue, lastCheck:
 //! found|missing|mismatch|lookup_failed, checkedAt, verifiedAt }`. WeldID
 //! refuses unknown body fields, so only those are sent.
@@ -34,24 +36,23 @@
 //!   the connection read before the call. Domain writes answer the
 //!   connection read again, and a check that leaves the domain unverified
 //!   is a 422 `domain_not_verified`.
-//! - Only `oidc` connections are read (SAML comes later).
+//! - Only `oidc` and `saml` connections are read; one of another protocol
+//!   is skipped.
 
 use std::sync::Arc;
 
 use reqwest::Method;
 use serde_json::{Map, Value, json};
 use weldsuite_ports::{
-    BoxFuture, IdentityError, IdentityResult, NewSsoConnection, SsoConnection,
-    SsoConnectionChanges, SsoDirectory, SsoDomain, SsoDomainStatus,
+    BoxFuture, IdentityError, IdentityResult, NewSsoConnection, SamlCertificate, SamlDetails,
+    SamlMetadata, SsoConnection, SsoConnectionChanges, SsoDirectory, SsoDomain, SsoDomainStatus,
+    SsoProtocol,
 };
 
 use crate::weldid::{WeldIdIdentity, field, list, not_found};
 
 /// Where a workspace's SSO admin routes are: `{prefix}/{tenantRef}/sso`.
 pub const WELDID_SSO_TENANTS_PATH: &str = "/admin/v1/tenants";
-
-/// The connections' protocol this adapter reads and writes.
-const PROTOCOL: &str = "oidc";
 
 /// The [`SsoDirectory`] port on WeldID's admin API.
 pub struct WeldIdSso {
@@ -103,7 +104,49 @@ fn domain_of(domain: &Value) -> Option<SsoDomain> {
     })
 }
 
-/// A connection as WeldID answers it, if it is an OIDC connection of
+/// A SAML connection's `saml` block: what to register at the identity
+/// provider, and what WeldID took from its metadata. `None` without the
+/// service provider's side, which the admin can't do without.
+fn saml_of(saml: &Value) -> Option<SamlDetails> {
+    let text = |names: &[&str]| field(saml, names).map(str::to_owned);
+    let entity_id = text(&["entityId", "entity_id"])?;
+    let certificates = saml
+        .get("idpCertificates")
+        .and_then(Value::as_array)
+        .map(|certificates| {
+            certificates
+                .iter()
+                .filter_map(|certificate| {
+                    Some(SamlCertificate {
+                        sha256: field(certificate, &["sha256"])?.to_owned(),
+                        subject: field(certificate, &["subject"]).map(str::to_owned),
+                        not_after: field(certificate, &["notAfter", "not_after"])
+                            .map(str::to_owned),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Some(SamlDetails {
+        metadata_url: text(&["metadataUrl", "metadata_url"]).unwrap_or_else(|| entity_id.clone()),
+        entity_id,
+        acs_url: text(&["acsUrl", "acs_url"])?,
+        idp_entity_id: text(&["idpEntityId", "idp_entity_id"]),
+        idp_sso_url: text(&["idpSsoUrl", "idp_sso_url"]),
+        idp_metadata_url: text(&["idpMetadataUrl", "idp_metadata_url"]),
+        idp_certificates: certificates,
+    })
+}
+
+/// `metadataXml` or `metadataUrl` into `body`.
+fn put_metadata(body: &mut Map<String, Value>, metadata: &SamlMetadata) {
+    match metadata {
+        SamlMetadata::Xml(xml) => body.insert("metadataXml".to_owned(), json!(xml)),
+        SamlMetadata::Url(url) => body.insert("metadataUrl".to_owned(), json!(url)),
+    };
+}
+
+/// A connection as WeldID answers it, if it is an OIDC or SAML connection of
 /// `tenant_ref` (an answer without a `tenantRef` is taken as the
 /// requested tenant's: every path names it).
 fn connection_of(connection: &Value, tenant_ref: &str) -> Option<SsoConnection> {
@@ -111,9 +154,11 @@ fn connection_of(connection: &Value, tenant_ref: &str) -> Option<SsoConnection> 
     if tenant != tenant_ref {
         return None;
     }
-    if field(connection, &["protocol"]).is_some_and(|protocol| protocol != PROTOCOL) {
-        return None;
-    }
+    // A connection without a protocol predates SAML: `OpenID` Connect.
+    let protocol = match field(connection, &["protocol"]) {
+        None => SsoProtocol::Oidc,
+        Some(protocol) => SsoProtocol::parse(protocol)?,
+    };
     let scopes = match connection.get("scopes") {
         Some(Value::Array(scopes)) => scopes
             .iter()
@@ -131,6 +176,11 @@ fn connection_of(connection: &Value, tenant_ref: &str) -> Option<SsoConnection> 
     Some(SsoConnection {
         id: field(connection, &["id"])?.to_owned(),
         tenant_ref: tenant.to_owned(),
+        protocol,
+        saml: match protocol {
+            SsoProtocol::Saml => connection.get("saml").and_then(saml_of),
+            SsoProtocol::Oidc => None,
+        },
         display_name: field(connection, &["displayName", "display_name"])
             .unwrap_or_default()
             .to_owned(),
@@ -167,22 +217,32 @@ fn odd_answer(what: &str) -> IdentityError {
     IdentityError::Unavailable(format!("WeldID answered {what} without a connection"))
 }
 
-/// The body of `POST …/connections`.
+/// The body of `POST …/connections`: an `OpenID` Connect connection's
+/// client, or a SAML connection's metadata (WeldID refuses the other
+/// protocol's fields).
 fn create_body(new: &NewSsoConnection) -> Value {
-    let mut body = json!({
-        "protocol": PROTOCOL,
-        "displayName": new.display_name,
-        "issuer": new.issuer,
-        "clientId": new.client_id,
-        "scopes": new.scopes,
-        "trustEmails": new.trust_emails,
-        "enabled": new.enabled,
-        "enforceSso": new.enforce_sso,
-    });
-    if let Some(secret) = &new.client_secret {
-        body["clientSecret"] = json!(secret);
+    let mut body = Map::new();
+    body.insert("protocol".to_owned(), json!(new.protocol.as_str()));
+    body.insert("displayName".to_owned(), json!(new.display_name));
+    match new.protocol {
+        SsoProtocol::Oidc => {
+            body.insert("issuer".to_owned(), json!(new.issuer));
+            body.insert("clientId".to_owned(), json!(new.client_id));
+            body.insert("scopes".to_owned(), json!(new.scopes));
+            if let Some(secret) = &new.client_secret {
+                body.insert("clientSecret".to_owned(), json!(secret));
+            }
+        }
+        SsoProtocol::Saml => {
+            if let Some(metadata) = &new.saml_metadata {
+                put_metadata(&mut body, metadata);
+            }
+        }
     }
-    body
+    body.insert("trustEmails".to_owned(), json!(new.trust_emails));
+    body.insert("enabled".to_owned(), json!(new.enabled));
+    body.insert("enforceSso".to_owned(), json!(new.enforce_sso));
+    Value::Object(body)
 }
 
 /// The body of `PATCH …/connections/{id}`: only what changes.
@@ -214,6 +274,9 @@ fn changes_body(changes: &SsoConnectionChanges) -> Value {
     }
     if let Some(enforce) = changes.enforce_sso {
         put("enforceSso", json!(enforce));
+    }
+    if let Some(metadata) = &changes.saml_metadata {
+        put_metadata(&mut body, metadata);
     }
     Value::Object(body)
 }
@@ -518,10 +581,78 @@ mod tests {
         );
 
         assert!(connection_of(&answer, "ws_b").is_none(), "another tenant's");
+        assert_eq!(connection.protocol, SsoProtocol::Oidc);
+        assert_eq!(connection.saml, None);
         assert!(
-            connection_of(&json!({ "id": "c", "protocol": "saml" }), "ws_a").is_none(),
-            "SAML is not read yet"
+            connection_of(&json!({ "id": "c", "protocol": "ldap" }), "ws_a").is_none(),
+            "an unknown protocol is skipped"
         );
+    }
+
+    #[test]
+    fn saml_connections_read_both_sides() {
+        let answer = json!({
+            "id": "ssc_2", "tenantRef": "ws_a", "protocol": "saml", "displayName": "Entra SAML",
+            "issuer": null, "clientId": null, "hasClientSecret": false, "scopes": [],
+            "trustEmails": true, "enabled": false, "enforceSso": false, "redirectUri": null,
+            "saml": {
+                "entityId": "https://auth.example.test/sso/ssc_2/saml/metadata",
+                "acsUrl": "https://auth.example.test/sso/ssc_2/saml/acs",
+                "metadataUrl": "https://auth.example.test/sso/ssc_2/saml/metadata",
+                "idpEntityId": "https://sts.windows.net/t/",
+                "idpSsoUrl": "https://login.microsoftonline.com/t/saml2",
+                "idpMetadataUrl": null,
+                "idpCertificates": [{ "sha256": "AB:CD", "subject": "CN=Microsoft Azure Federated SSO Certificate", "notBefore": "2026-01-01T00:00:00Z", "notAfter": "2029-01-01T00:00:00Z" }],
+            },
+            "domains": [],
+        });
+        let connection = connection_of(&answer, "ws_a").expect("read");
+        assert_eq!(connection.protocol, SsoProtocol::Saml);
+        assert_eq!(connection.issuer, "");
+        let saml = connection.saml.expect("the SAML side");
+        assert_eq!(saml.acs_url, "https://auth.example.test/sso/ssc_2/saml/acs");
+        assert_eq!(
+            saml.idp_entity_id.as_deref(),
+            Some("https://sts.windows.net/t/")
+        );
+        assert_eq!(saml.idp_metadata_url, None);
+        assert_eq!(saml.idp_certificates[0].sha256, "AB:CD");
+        assert_eq!(
+            saml.idp_certificates[0].not_after.as_deref(),
+            Some("2029-01-01T00:00:00Z")
+        );
+    }
+
+    #[test]
+    fn saml_bodies_carry_the_metadata_and_no_oidc_fields() {
+        let new = NewSsoConnection {
+            protocol: SsoProtocol::Saml,
+            display_name: "Google Workspace".to_owned(),
+            issuer: String::new(),
+            client_id: String::new(),
+            client_secret: None,
+            scopes: Vec::new(),
+            trust_emails: true,
+            enabled: false,
+            enforce_sso: false,
+            saml_metadata: Some(SamlMetadata::Url(
+                "https://idp.example.test/metadata.xml".to_owned(),
+            )),
+        };
+        assert_eq!(
+            create_body(&new),
+            json!({
+                "protocol": "saml", "displayName": "Google Workspace",
+                "metadataUrl": "https://idp.example.test/metadata.xml",
+                "trustEmails": true, "enabled": false, "enforceSso": false,
+            })
+        );
+        let body = changes_body(&SsoConnectionChanges {
+            saml_metadata: Some(SamlMetadata::Xml("<md:EntityDescriptor/>".to_owned())),
+            ..SsoConnectionChanges::default()
+        });
+        assert_eq!(body, json!({ "metadataXml": "<md:EntityDescriptor/>" }));
+        assert!(!format!("{:?}", SamlMetadata::Xml("<secret-ish/>".to_owned())).contains("secret"));
     }
 
     #[test]
@@ -543,6 +674,7 @@ mod tests {
             json!({ "displayName": "Okta", "clientSecret": "new", "scopes": ["groups"], "trustEmails": false })
         );
         let new = NewSsoConnection {
+            protocol: SsoProtocol::Oidc,
             display_name: "Okta".to_owned(),
             issuer: "https://acme.okta.test".to_owned(),
             client_id: "c".to_owned(),
@@ -551,6 +683,7 @@ mod tests {
             trust_emails: false,
             enabled: false,
             enforce_sso: false,
+            saml_metadata: None,
         };
         let body = create_body(&new);
         assert_eq!(body["protocol"], "oidc");

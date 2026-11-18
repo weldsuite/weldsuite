@@ -8,6 +8,10 @@ import {
   idpIssues,
   idpMethodOf,
   isPaused,
+  isSamlConnection,
+  samlFormValues,
+  samlInputFrom,
+  samlIssues,
   oidcActivationBlock,
   oidcFormValues,
   oidcInputFrom,
@@ -28,6 +32,7 @@ import {
   makeDomain,
   makeOidcConnection,
   makeOidcDomain,
+  makeSamlConnection,
   makeWeldIdConfig,
 } from './test-support';
 
@@ -329,5 +334,48 @@ describe('WeldID mode', () => {
     expect(areSsoScopesValid(['api://acme/.default'])).toBe(true);
     expect(areSsoScopesValid(['back\\slash'])).toBe(false);
     expect(areSsoScopesValid(['two words'])).toBe(false);
+  });
+});
+
+describe('the SAML connection form (WeldID mode)', () => {
+  const blank = samlFormValues(null);
+
+  it('starts on a metadata URL and trusts the provider’s emails (SAML has no verified flag)', () => {
+    expect(blank).toEqual({ displayName: '', source: 'url', metadataUrl: '', metadataXml: '', trustEmails: true });
+    const uploaded = makeSamlConnection({ saml: { ...makeSamlConnection().saml!, idpMetadataUrl: null } });
+    expect(samlFormValues(uploaded).source).toBe('file');
+    expect(samlFormValues(makeSamlConnection()).metadataUrl).toBe(
+      'https://login.microsoftonline.com/acme/federationmetadata.xml',
+    );
+  });
+
+  it('needs a name and metadata for a new connection, and an https URL', () => {
+    expect(samlIssues(blank, null)).toEqual([
+      { field: 'displayName', code: 'required' },
+      { field: 'metadataUrl', code: 'metadataRequired' },
+    ]);
+    expect(samlIssues({ ...blank, displayName: 'Acme', metadataUrl: 'http://idp.test/m.xml' }, null)).toEqual([
+      { field: 'metadataUrl', code: 'httpsUrl' },
+    ]);
+    expect(samlIssues({ ...blank, displayName: 'Acme', source: 'file' }, null)).toEqual([
+      { field: 'metadataXml', code: 'metadataRequired' },
+    ]);
+    // A saved connection keeps its metadata unless new metadata is given.
+    expect(samlIssues({ ...blank, displayName: 'Acme', source: 'file' }, makeSamlConnection())).toEqual([]);
+  });
+
+  it('sends everything for a new connection, and only changes and new metadata for a saved one', () => {
+    expect(
+      samlInputFrom({ ...blank, displayName: ' Acme ', source: 'file', metadataXml: '<md:EntityDescriptor/>' }, null),
+    ).toEqual({ protocol: 'saml', displayName: 'Acme', trustEmails: true, metadataXml: '<md:EntityDescriptor/>' });
+    const saved = makeSamlConnection();
+    const values = samlFormValues(saved);
+    // The URL is fetched again even when it didn't change: how a new certificate is picked up.
+    expect(samlInputFrom(values, saved)).toEqual({
+      metadataUrl: 'https://login.microsoftonline.com/acme/federationmetadata.xml',
+    });
+    expect(samlInputFrom({ ...values, metadataUrl: '', trustEmails: false }, saved)).toEqual({ trustEmails: false });
+    expect(isSamlConnection(saved)).toBe(true);
+    expect(isSamlConnection(makeOidcConnection())).toBe(false);
   });
 });

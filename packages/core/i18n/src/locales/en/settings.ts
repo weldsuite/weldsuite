@@ -3519,10 +3519,47 @@ export const settings = {
 
       weldid: {
         description:
-          'Let your team sign in with your own identity provider over OpenID Connect, such as Microsoft Entra ID, Okta or Google Workspace. When it is on, people with an email address at your verified domains sign in through your identity provider.',
-        samlLater: 'SAML connections are coming later. For now, connect any identity provider that supports OpenID Connect.',
+          'Let your team sign in with your own identity provider over OpenID Connect or SAML, such as Microsoft Entra ID, Okta or Google Workspace. When it is on, people with an email address at your verified domains sign in through your identity provider.',
         notEntitled: "Single sign-on is not included in this workspace's plan. Ask your administrator to include it.",
         connection: {
+          protocol: 'Protocol',
+          protocolOidc: 'OpenID Connect',
+          protocolOidcHint: 'An OpenID Connect (web) application in your identity provider.',
+          protocolSaml: 'SAML 2.0',
+          protocolSamlHint:
+            'A SAML application in your identity provider, such as an enterprise application in Microsoft Entra ID or a custom SAML app in Google Workspace.',
+          samlDescription:
+            'Create a SAML application in your identity provider and give us its metadata. We then show the entity ID and reply URL to enter there.',
+          metadataSource: 'Identity provider metadata',
+          metadataFromUrl: 'From a URL',
+          metadataFromFile: 'Upload a file',
+          metadataUrl: 'Metadata URL',
+          metadataUrlPlaceholder: 'https://login.microsoftonline.com/…/federationmetadata.xml?appid=…',
+          metadataUrlHint:
+            'The https:// address of the SAML metadata of the application. We read it when you save. When your identity provider changes its signing certificate, fetch it again here.',
+          metadataFile: 'Metadata file',
+          metadataFileHint: 'The SAML metadata (XML) you can download from your identity provider, at most 256 KB.',
+          metadataFileChosen: '{name} selected',
+          metadataFileTooLarge: 'This file is larger than 256 KB.',
+          metadataFileUnreadable: 'This file could not be read.',
+          metadataRequired: 'Enter the metadata URL or upload the metadata file.',
+          samlTrustEmailsHint:
+            'SAML does not say whether an email address is verified, so people can sign in only with this on. Only addresses at your verified domains are accepted.',
+          idpEntityId: 'Identity provider entity ID',
+          idpSsoUrl: 'Sign-in URL',
+          idpMetadata: 'Metadata',
+          idpMetadataUploaded: 'Uploaded file',
+          certificates: 'Signing certificates',
+          certificateExpires: 'Expires {date}',
+          refetchMetadata: 'Fetch metadata again',
+          metadataRefetched: 'Metadata fetched again.',
+          spTitle: 'Register these in your identity provider',
+          spDescription:
+            'Enter the entity ID and the reply URL in the SAML settings of the application in your identity provider, or give it our metadata URL. Sign-in through your identity provider fails until they are registered.',
+          spEntityId: 'Entity ID (identifier)',
+          spAcsUrl: 'Reply URL (assertion consumer service URL)',
+          spMetadataUrl: 'Our metadata URL',
+          samlCreated: 'Identity provider connected. Register the entity ID and reply URL in your identity provider next.',
           title: 'Connect your identity provider',
           description:
             'Create an OpenID Connect application (web) in your identity provider, register the redirect URI we give you, and enter the application’s details here.',
@@ -3654,6 +3691,8 @@ export const settings = {
         billingBusy: 'Another billing change is in progress. Try again in a moment.',
         billingUnavailable: 'Billing is unavailable right now. Try again later.',
         oidcIncomplete: 'Enter the name, issuer URL and client ID of your identity provider.',
+        samlIncomplete: 'Enter the name of your identity provider and its SAML metadata (a URL or a file).',
+        protocolMismatch: 'Remove the connection first to switch between OpenID Connect and SAML.',
         oidcNotEntitled: "Single sign-on is not included in this workspace's plan.",
       },
     },
