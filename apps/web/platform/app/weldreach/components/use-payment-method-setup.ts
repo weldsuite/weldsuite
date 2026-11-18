@@ -13,7 +13,7 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { reachKeys, useReachBillingSetup } from '@/hooks/queries/use-reach-queries';
 import { useWorkspaceUrl } from '@/hooks/use-workspace-url';
 
-/** WeldReach's settings page, in workspace Settings (`/weldreach/settings` redirects here). */
+/** WeldReach's settings page, in workspace Settings (Settings → Apps → WeldReach). */
 export const REACH_SETTINGS_PATH = '/settings/apps/weldreach';
 
 type ReturnPath = '/weldreach/setup' | '/weldreach/mailboxes' | typeof REACH_SETTINGS_PATH;

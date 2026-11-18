@@ -7,7 +7,7 @@
 
 import { Link, useNavigate } from '@tanstack/react-router';
 import { toast } from 'sonner';
-import { CalendarClock, Check, Circle, FileText, Loader2, Settings, Users, UserX } from 'lucide-react';
+import { CalendarClock, Check, Circle, FileText, Loader2, Users, UserX } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@weldsuite/ui/components/table';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -37,25 +37,13 @@ export default function WeldHrPayrollHomePage() {
 function PayrollHome() {
   const t = useTranslations();
   useHrBreadcrumbs({ label: t('weldhr.payroll.title') });
-  const { can } = usePermissions();
   const { data, isLoading, error } = useHrPayrollOverview();
 
   if (isLoading) return <PageLoader fullScreen={false} />;
 
   return (
-    <DashboardPage
-      title={t('weldhr.payroll.title')}
-      actions={
-        can('payroll:manage') && (
-          <Button asChild variant="outline" size="sm">
-            <Link to="/weldhr/payroll/settings">
-              <Settings className="mr-1.5 h-4 w-4" />
-              {t('weldhr.payroll.home.settingsLink')}
-            </Link>
-          </Button>
-        )
-      }
-    >
+    // No settings button: pay schedules are in Settings → Apps → WeldHR.
+    <DashboardPage title={t('weldhr.payroll.title')}>
       <ErrorBanner error={error ? errorMessage(error, t('weldhr.payroll.home.loadFailed')) : null} />
       {data && <HomeBody overview={data} />}
     </DashboardPage>
@@ -130,7 +118,7 @@ function SetupChecklist({ overview }: Readonly<{ overview: HrPayrollOverview }>)
   const { setup } = overview;
   const canManage = can('payroll:manage');
 
-  const steps: Array<{ id: string; done: boolean; title: string; description: string; cta?: { label: string; to: '/weldhr/payroll/settings' | '/weldhr/payroll/employees' | '/settings/entities'; search?: { tab: string } } }> = [
+  const steps: Array<{ id: string; done: boolean; title: string; description: string; cta?: { label: string; to: '/settings/apps/weldhr' | '/weldhr/payroll/employees' | '/settings/entities'; search?: { tab: string } } }> = [
     {
       id: 'employer',
       done: setup.hasEmployer,
@@ -144,7 +132,7 @@ function SetupChecklist({ overview }: Readonly<{ overview: HrPayrollOverview }>)
       done: setup.hasSchedule,
       title: t('weldhr.payroll.home.setup.schedule.title'),
       description: t('weldhr.payroll.home.setup.schedule.description'),
-      cta: canManage && setup.hasEmployer ? { label: t('weldhr.payroll.home.setup.schedule.cta'), to: '/weldhr/payroll/settings' } : undefined,
+      cta: canManage && setup.hasEmployer ? { label: t('weldhr.payroll.home.setup.schedule.cta'), to: '/settings/apps/weldhr', search: { tab: 'pay-schedules' } } : undefined,
     },
     {
       id: 'employees',

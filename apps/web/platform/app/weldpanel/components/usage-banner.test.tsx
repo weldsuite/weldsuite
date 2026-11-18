@@ -46,7 +46,7 @@ describe('UsageBanner', () => {
     state.usage = { data: makeUsage({ events: meter(850_000, 1_000_000) }) };
     render(<UsageBanner />);
     expect(screen.getByText(tb.warning80.replace('{percent}', '85%').replace('{what}', tb.what.events))).toBeTruthy();
-    expect(screen.getByRole('link', { name: tb.viewUsage }).getAttribute('href')).toBe('/weldpanel/settings?tab=usage');
+    expect(screen.getByRole('link', { name: tb.viewUsage }).getAttribute('href')).toBe('/settings/apps/weldpanel?tab=usage');
     expect(screen.getByRole('link', { name: tb.topUp }).getAttribute('href')).toBe('/settings/billing');
     expect(screen.getByRole('link', { name: tb.upgrade }).getAttribute('href')).toBe('/settings/plans');
   });

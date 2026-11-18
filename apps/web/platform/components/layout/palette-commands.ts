@@ -94,6 +94,7 @@ import { isHrefOffered, isRouteOffered } from '@/lib/edition-routes';
 import { withCreateIntent } from '@/hooks/use-create-intent';
 import { menuPermissionAllows, type MenuPermission } from './menu-permission';
 import { MODULE_CONFIGS } from './module-sidebar-configs';
+import { resolveAppCode } from '@/lib/apps/app-registry';
 
 export type PaletteIcon = ComponentType<{ className?: string }>;
 export type PaletteGroup = 'actions' | 'navigation' | 'settings';
@@ -742,15 +743,27 @@ export function settingsCommands(
 
   const appSettings: Array<{ code: string; title: string; keywords: string; href: string }> = [
     { code: 'parcel', title: search.parcelSettings, keywords: `${search.parcelSettings} ${search.configureParcel}`, href: '/settings/apps/parcel' },
+    { code: 'weldbooks', title: 'WeldBooks', keywords: 'weldbooks accounting dimensions sales tax payment runs settings', href: '/settings/apps/weldbooks' },
+    { code: 'weldcalendar', title: 'WeldCalendar', keywords: 'weldcalendar calendar tasks scheduling settings', href: '/settings/apps/weldcalendar' },
+    { code: 'weldcommerce', title: 'WeldCommerce', keywords: 'weldcommerce commerce customer portal b2b settings', href: '/settings/apps/weldcommerce' },
     { code: 'weldcrm', title: 'WeldCRM', keywords: 'weldcrm crm settings', href: '/settings/apps/weldcrm' },
+    { code: 'weldflow', title: 'WeldFlow', keywords: 'weldflow projects tasks scheduling settings', href: '/settings/apps/weldflow' },
+    { code: 'weldforms', title: 'WeldForms', keywords: 'weldforms forms themes branding invitations reminders settings', href: '/settings/apps/weldforms' },
     { code: 'welddesk', title: search.helpdeskSettings, keywords: `${search.helpdeskSettings} ${search.configureHelpdesk}`, href: '/settings/apps/welddesk' },
-    { code: 'weldmail', title: search.mailAccounts, keywords: `${search.mailAccounts} ${search.manageMailAccounts} weldmail`, href: '/settings/apps/weldmail' },
+    { code: 'weldmail', title: search.mailAccounts, keywords: `${search.mailAccounts} ${search.manageMailAccounts} weldmail labels signatures`, href: '/settings/apps/weldmail' },
     { code: 'weldmerge', title: 'WeldMerge', keywords: 'weldmerge git providers repositories teams labels settings', href: '/settings/apps/weldmerge' },
+    { code: 'weldpanel', title: 'WeldPanel', keywords: 'weldpanel analytics usage exports api mcp settings', href: '/settings/apps/weldpanel' },
     { code: 'weldreach', title: 'WeldReach', keywords: 'weldreach outreach sender sending defaults suppressions settings', href: '/settings/apps/weldreach' },
-    { code: 'weldhr', title: search.weldhrSettings, keywords: `${search.weldhrSettings} ${search.configureWeldhr} weldhr`, href: '/settings/apps/weldhr' },
+    { code: 'weldhr', title: search.weldhrSettings, keywords: `${search.weldhrSettings} ${search.configureWeldhr} weldhr payroll pay schedules`, href: '/settings/apps/weldhr' },
+    { code: 'social', title: 'WeldSocial', keywords: 'weldsocial social publishing timezone approval team settings', href: '/settings/apps/social' },
   ];
+  // The same matching as the Settings side nav (`resolveAppCode`): a workspace
+  // still installed under a legacy code (`accounting`, `commerce`) gets its
+  // app's entry, and `social` and `parcel` stay themselves (`normalizeAppCode`
+  // would fold `parcel` into WeldStash).
+  const installedApps = new Set([...installed].map(resolveAppCode));
   for (const app of appSettings) {
-    if (!installed.has(app.code)) continue;
+    if (!installedApps.has(resolveAppCode(app.code))) continue;
     links.push({
       id: `settings-app:${app.code}`,
       title: app.title,

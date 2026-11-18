@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from '@tanstack/react-router';
+import { rememberSettingsReturn } from '@/lib/weldbooks/settings-links';
 import { toast } from 'sonner';
 import { ArrowLeft, Download, Eye, Loader2, Printer, Settings } from 'lucide-react';
 import { usePermissions } from '@weldsuite/permissions/react';
@@ -184,7 +185,11 @@ export default function PrintChecksPage() {
               <label htmlFor="include-printed" className="text-sm">{tc.includePrinted}</label>
             </div>
             <Button asChild variant="ghost" size="sm">
-              <Link to="/weldbooks/payment-runs/settings/$bankAccountId" params={{ bankAccountId: data.run.bankAccountId }}>
+              <Link
+                to="/settings/apps/weldbooks/payment-runs/$bankAccountId"
+                params={{ bankAccountId: data.run.bankAccountId }}
+                onClick={rememberSettingsReturn}
+              >
                 <Settings className="h-4 w-4" aria-hidden />
                 {tc.alignmentSettings}
               </Link>

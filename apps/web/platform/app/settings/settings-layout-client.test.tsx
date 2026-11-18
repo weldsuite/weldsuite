@@ -13,6 +13,7 @@ vi.mock('@/lib/i18n/provider', () => ({
         routing: { title: 'Routing' },
         assets: { settingsTitle: 'Asset register' },
       },
+      weldbooksUs: { settingsPage: { tabs: { paymentRuns: 'Payment runs' } } },
     },
   }),
 }));

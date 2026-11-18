@@ -131,12 +131,12 @@ test.describe('WeldMail · AI features', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Settings — labels page
+// Settings — labels (Settings → Apps → WeldMail → Labels)
 // ---------------------------------------------------------------------------
 
 test.describe('WeldMail · settings labels', () => {
-  test('/weldmail/settings/labels renders with Create Label button', async ({ page }) => {
-    await page.goto('/weldmail/settings/labels');
+  test('the Labels tab of the WeldMail settings renders with Create Label button', async ({ page }) => {
+    await page.goto('/settings/apps/weldmail?tab=labels');
     await expect(page.getByTestId('app-sidebar')).toBeVisible({ timeout: 15_000 });
 
     const createBtn = page.getByTestId('labels-create-btn');
@@ -150,7 +150,7 @@ test.describe('WeldMail · settings labels', () => {
   });
 
   test('Create Label button opens the dialog', async ({ page }) => {
-    await page.goto('/weldmail/settings/labels');
+    await page.goto('/settings/apps/weldmail?tab=labels');
     await expect(page.getByTestId('app-sidebar')).toBeVisible({ timeout: 15_000 });
 
     const createBtn = page.getByTestId('labels-create-btn').or(
@@ -166,19 +166,6 @@ test.describe('WeldMail · settings labels', () => {
     // Dismiss
     await page.keyboard.press('Escape');
     await expect(dialog).toBeHidden({ timeout: 5_000 });
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Settings — accounts page
-// ---------------------------------------------------------------------------
-
-test.describe('WeldMail · settings accounts', () => {
-  // The old stub page is gone: mail accounts are managed in the WeldMail app
-  // settings, and the old path (linked from onboarding) forwards there.
-  test('/weldmail/settings/accounts forwards to the WeldMail app settings', async ({ page }) => {
-    await page.goto('/weldmail/settings/accounts');
-    await expect(page).toHaveURL(/\/settings\/apps\/weldmail/, { timeout: 15_000 });
   });
 });
 

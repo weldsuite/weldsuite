@@ -169,7 +169,7 @@ async function seedState(provider: 'discord' | 'slack', state: string, orgId = O
 const discordPage = (query: string, org: string | null = ORG, base = CALLER) =>
   `${base}${org ? `/w/${org}` : ''}/settings/integrations/discord?${query}`;
 const slackPage = (query: string, org: string | null = ORG, base = CALLER) =>
-  `${base}${org ? `/w/${org}` : ''}/welddesk/settings/integrations/slack?${query}`;
+  `${base}${org ? `/w/${org}` : ''}/settings/integrations/slack?${query}`;
 
 beforeAll(async () => {
   vi.stubGlobal('fetch', fetchStub);
@@ -292,13 +292,13 @@ describe('GET /api/integrations/helpdesk/slack/callback', () => {
   it('sends a callback without code or state back to the default app', async () => {
     expect(await callback('/slack/callback?code=good')).toEqual({
       status: 302,
-      location: `${APP}/welddesk/settings/integrations/slack?error=missing_params`,
+      location: `${APP}/settings/integrations/slack?error=missing_params`,
     });
   });
 
   it('refuses a state it did not issue, and an unconfigured app', async () => {
     expect((await callback('/slack/callback?code=good&state=never-issued')).location).toBe(
-      `${APP}/welddesk/settings/integrations/slack?error=invalid_state`,
+      `${APP}/settings/integrations/slack?error=invalid_state`,
     );
     await seedState('slack', 'sl-config');
     expect((await callback('/slack/callback?code=good&state=sl-config', { SLACK_CLIENT_SECRET: undefined })).location).toBe(

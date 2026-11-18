@@ -73,7 +73,7 @@ describe('WeldbooksEntitySettings', () => {
 
     expect(mocks.setEntityId).not.toHaveBeenCalled();
     expect(mocks.resetQueries).not.toHaveBeenCalled();
-    expect(screen.getByRole('link', { name: 'Manage' })).toHaveAttribute('href', '/weldbooks/settings/dimensions');
+    expect(screen.getByRole('link', { name: 'Manage' })).toHaveAttribute('href', '/settings/apps/weldbooks');
     expect(screen.getByRole('link', { name: 'Manage templates' })).toHaveAttribute(
       'href',
       '/settings/entities/ent_b/invoice-templates',

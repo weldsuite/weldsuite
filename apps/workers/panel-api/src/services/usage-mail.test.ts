@@ -29,7 +29,7 @@ describe('sendUsageNotice', () => {
     const mail = transport.sent[0]!;
     expect(mail.subject).toBe('Acme Staffing has used 80% of its WeldPanel allowance');
     expect(mail.html).toContain('41,000 of 50,000');
-    expect(mail.html).toContain('https://app-test.weldsuite.org/w/org_alpha/weldpanel/settings?tab=usage');
+    expect(mail.html).toContain('https://app-test.weldsuite.org/w/org_alpha/settings/apps/weldpanel?tab=usage');
     expect(mail.text).toContain('Events: 41,000 of 50,000');
   });
 
@@ -72,7 +72,7 @@ describe('recipients and links', () => {
   });
 
   it('links to the workspace by its Clerk org id, and to the platform origin without one', () => {
-    expect(usageUrl(env, 'org_alpha')).toBe('https://app-test.weldsuite.org/w/org_alpha/weldpanel/settings?tab=usage');
-    expect(usageUrl({} as Env, null)).toBe('https://app.weldsuite.org/weldpanel/settings?tab=usage');
+    expect(usageUrl(env, 'org_alpha')).toBe('https://app-test.weldsuite.org/w/org_alpha/settings/apps/weldpanel?tab=usage');
+    expect(usageUrl({} as Env, null)).toBe('https://app.weldsuite.org/settings/apps/weldpanel?tab=usage');
   });
 });

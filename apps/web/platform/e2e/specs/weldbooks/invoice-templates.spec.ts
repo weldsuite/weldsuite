@@ -6,7 +6,7 @@
  *
  * Verifies:
  *   1. The WeldBooks settings (the WeldBooks tab of the entity in Settings →
- *      Entities, where /weldbooks/settings leads) link to the templates page.
+ *      Entities) link to the templates page.
  *   2. A template is created from a preset and opens in the designer, still
  *      in Settings.
  *   3. Adding a block enables Save, undo takes it back, Save persists.
@@ -19,8 +19,10 @@ test.describe('WeldBooks · invoice templates', () => {
   test('creates, edits and deletes a template', async ({ page }) => {
     const name = `E2E template ${Date.now()}`;
 
-    await page.goto('/weldbooks/settings');
+    await page.goto('/settings/entities');
     await expect(page.getByTestId('app-sidebar')).toBeVisible({ timeout: 15_000 });
+    await page.getByRole('button', { name: /^view$/i }).first().click();
+    await page.getByRole('tab', { name: /^weldbooks$/i }).click();
     await page.getByRole('link', { name: /manage templates/i }).click();
     await expect(page).toHaveURL(/\/settings\/entities\/[^/]+\/invoice-templates$/, { timeout: 10_000 });
 

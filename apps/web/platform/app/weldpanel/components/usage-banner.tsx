@@ -67,7 +67,7 @@ export function UsageBanner() {
         action={
           <div className="flex flex-wrap gap-2">
             <Button asChild size="sm" variant="outline">
-              <Link href="/weldpanel/settings?tab=usage">{tb.viewUsage}</Link>
+              <Link href="/settings/apps/weldpanel?tab=usage">{tb.viewUsage}</Link>
             </Button>
             <Button asChild size="sm" variant="outline">
               <Link href="/settings/billing">{tb.topUp}</Link>

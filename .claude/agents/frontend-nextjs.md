@@ -23,6 +23,7 @@ You are the Next.js Apps specialist for WeldSuite.
 - **Helpdesk widget SDK at `packages/sdk/helpdesk-widget-sdk`:** any change to `src/core/IframeManager.ts` must be mirrored in `apps/web/helpdesk-widget/test-local.html`. They share iframe creation + postMessage protocol.
 - SEO metadata: root `check:metadata` script enforces presence, don't ship failing pages.
 - i18n: cookie-based, same `en`/`nl`. Respect locale headers.
+- **Modern web guidance:** before writing HTML, CSS or browser code, run the `modern-web-guidance` skill (search, retrieve, apply, check) as root `AGENTS.md` → "Modern web guidance" describes. Don't wait to be asked.
 
 ## API targets
 
