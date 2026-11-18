@@ -902,9 +902,10 @@ reminders and daily response digest over the `forms_reminders` and
 raw exports that the master `panel_schedule_registry` lists as due, opening
 only those workspaces' tenant databases, as panel-api's cron does; mail goes
 out as system mail, Slack webhooks and the customers' S3 stores over a client
-that connects to public addresses only; custom collector domains are polled
-once a provider is configured, cert-manager in a later step; nothing while
-panel is not served). The server reads
+that connects to public addresses only; and the custom collector domains
+still pending, whose cert-manager `Certificate` and `Ingress` it creates once
+their CNAME points at the collector host, with `PANEL_CUSTOM_DOMAINS` below;
+nothing while panel is not served). The server reads
 environment variables only (`bins/weldsuite/src/config.rs`).
 At start it logs a "Global default" warning for every setting still on a value
 that assumes the Global edition (`global_defaults` in `config.rs`: Clerk
@@ -960,6 +961,7 @@ log none.
 | `NATS_URL`, `NATS_USER`/`NATS_PASSWORD` or `NATS_TOKEN`, `NATS_ENTITY_EVENTS_STREAM`, `NATS_ENTITY_EVENTS_SUBJECT`, `NATS_ENSURE_STREAMS` | entity events (optional) |
 | `NATS_PANEL_EVENTS_STREAM`, `NATS_PANEL_EVENTS_SUBJECT`, `NATS_PANEL_EVENTS_MAX_AGE_DAYS` | WeldPanel: the events stream the collector writes `events_v1` rows to (default `PANEL_EVENTS` on `panel.events.v1.<workspace>`), created with `NATS_ENSURE_STREAMS`, and how many days it keeps rows (0, the default: no age limit). Without NATS the collector accepts batches and writes nothing |
 | `PANEL_COLLECTOR_URL`, `PANEL_SDK_FILE`, `PANEL_RECORDER_FILE`, `PANEL_VITALS_FILE` | WeldPanel: the collector origin the install snippets and the server SDK point at (default: the request's own origin, which serves the collector too, `/v1/track` and `/v1/import` included), and the bundles served as `/s.js`, `/rec.js` and `/v.js` (default `/srv/panel/panel.global.js`, `panel-recorder.global.js` and `panel-vitals.global.js`, which the image carries; a missing one answers 404). The day's salt, the daily event and recording counts and the per-IP rate limits need `VALKEY_URL` across pods. Recording chunks and heatmap snapshots go to the panel bucket (`S3_BUCKET_PANEL`; unset: `POST /r` and `/snap` answer 204 and store nothing), their index rows to `PANEL_STATE` (`panel.replays.v1.<workspace>`) |
+| `PANEL_CUSTOM_DOMAINS`, `PANEL_COLLECTOR_HOST`, `PANEL_DOMAINS_NAMESPACE`, `PANEL_DOMAINS_SERVICE`, `PANEL_DOMAINS_SERVICE_PORT`, `PANEL_DOMAINS_INGRESS_CLASS`, `PANEL_DOMAINS_ISSUER`, `PANEL_DOMAINS_ISSUER_KIND`, `PANEL_DNS_RESOLVER` | WeldPanel: collection on a customer's own host name (ADR PANEL-014, `modules/panel/src/monitor/cert_manager.rs`; chart `config.panel.customDomains`). With `PANEL_CUSTOM_DOMAINS=cert-manager` and the CNAME target `PANEL_COLLECTOR_HOST`, a host name whose CNAME chain reaches the target (looked up over DNS-over-HTTPS at `PANEL_DNS_RESOLVER`, default Cloudflare's) gets a cert-manager `Certificate` from the issuer (default the `letsencrypt` `ClusterIssuer`) and an `Ingress` (that class) sending the collector's paths to the Service, in the namespace, through the Kubernetes API with the pod's service-account token; both carry WeldPanel's labels and go with the domain. Host names under the target's parent domain are refused. Unset: the domain routes answer 503 `FEATURE_UNAVAILABLE` |
 | `SMTP_URL` | system mail: `smtp://user:password@relay:587?tls=required`, `smtps://…:465` or `smtp://mailpit:1025` (optional; unset skips mail, as the workers without `SEND_EMAIL`) |
 | `SYSTEM_EMAIL_FROM` | send from this address instead of `notifications@mail.weldsuite.org` (optional) |
 | `SIGN_SESSION_SECRET`, `SIGN_PORTAL_URL` | WeldSign: the key of signer sessions and access-code hashes (the workers' value), and the signer portal's origin for signing links (default `https://sign.weldsuite.org`) |

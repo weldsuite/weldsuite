@@ -149,8 +149,8 @@ pub use erasure::{EraseMessage, ErasureQueue, MasterErasureLedger, RequestErasur
 pub use internal_usage::internal_usage_router;
 pub use internal_v1::internal_v1_router;
 pub use monitor::{
-    CloudflareDomains, CollectorDomains, MonitorState, alerts_router, domains_router,
-    exports_router, subscriptions_router,
+    CertManagerDomains, CertManagerSettings, CloudflareDomains, CollectorDomains, KubeToken,
+    MonitorState, alerts_router, domains_router, exports_router, subscriptions_router,
 };
 pub use project_state::{PanelProjectState, ProjectRef, RequestProjectState};
 pub use public_share::{

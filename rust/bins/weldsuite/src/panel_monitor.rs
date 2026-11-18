@@ -7,9 +7,10 @@
 //! custom collector domains.
 //!
 //! Custom collector domains come from cert-manager on Kubernetes (ADR
-//! PANEL-014), built in a later step; until then there is no provider and
-//! the routes answer as Global does without Cloudflare custom hostnames (503), and
-//! the cron polls none.
+//! PANEL-014, [`collector_domains`]) when the chart turns them on
+//! (`config.panel.customDomains`, `PANEL_CUSTOM_DOMAINS=cert-manager`);
+//! without that there is no provider, the routes answer as Global does
+//! without Cloudflare custom hostnames (503), and the cron polls none.
 
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
@@ -18,6 +19,7 @@ use weldsuite_db::Workspaces;
 use weldsuite_panel::monitor::scheduled::{
     ScheduleDeps, ScheduleTenants, WorkspaceHandle, run_scheduled, summary_json,
 };
+use weldsuite_panel::{CertManagerDomains, CertManagerSettings, CollectorDomains};
 use weldsuite_ports::{BoxFuture, OutboundHttp};
 
 use crate::config::Config;
@@ -35,9 +37,55 @@ pub(crate) fn public_http() -> Option<OutboundHttp> {
     .clone()
 }
 
+/// Custom collector domains through cert-manager (ADR PANEL-014), when
+/// `PANEL_CUSTOM_DOMAINS=cert-manager` and `PANEL_COLLECTOR_HOST` say so
+/// (`CertManagerSettings::from_env`), made once per process: the Kubernetes
+/// API over a client that trusts only the cluster's CA (as WeldAgent's
+/// sandbox reaches it), the CNAME looked up with the public-only client.
+/// `None` otherwise, and in conformance builds (their suites bring
+/// Cloudflare's settings per request).
+pub(crate) fn collector_domains() -> Option<Arc<dyn CollectorDomains>> {
+    static DOMAINS: OnceLock<Option<Arc<dyn CollectorDomains>>> = OnceLock::new();
+    if cfg!(feature = "conformance") {
+        return None;
+    }
+    DOMAINS
+        .get_or_init(|| {
+            let settings = match CertManagerSettings::from_env(|name| std::env::var(name).ok()) {
+                Ok(Some(settings)) => settings,
+                Ok(None) => return None,
+                Err(problem) => {
+                    tracing::error!(%problem, "custom collector domains are off");
+                    return None;
+                }
+            };
+            let kube = match weldsuite_sandbox::kube::http_client(
+                weldsuite_sandbox::config::CA_FILE,
+                Duration::from_secs(30),
+            ) {
+                Ok(kube) => kube,
+                Err(error) => {
+                    tracing::error!(%error, "custom collector domains are off: no Kubernetes API client");
+                    return None;
+                }
+            };
+            let Some(dns) = public_http() else {
+                tracing::error!("custom collector domains are off: no DNS client");
+                return None;
+            };
+            tracing::info!(
+                collector_host = %settings.collector_host,
+                namespace = %settings.namespace,
+                "custom collector domains through cert-manager"
+            );
+            Some(Arc::new(CertManagerDomains::new(settings, kube, dns)) as Arc<dyn CollectorDomains>)
+        })
+        .clone()
+}
+
 /// The monitoring routes' state: system mail, the public-only client, and
-/// no custom-domain provider yet. Conformance builds take the test's fetch
-/// stub and Cloudflare settings per request.
+/// the custom-domain provider ([`collector_domains`]). Conformance builds
+/// take the test's fetch stub and Cloudflare settings per request.
 pub(crate) fn monitor_state(
     state: &AppState,
     panel: weldsuite_panel::PanelState,
@@ -47,7 +95,7 @@ pub(crate) fn monitor_state(
         panel,
         mail: state.infra.mail.clone(),
         http: (!conformance).then(public_http).flatten(),
-        domains: None,
+        domains: collector_domains(),
     }
 }
 
@@ -126,7 +174,7 @@ pub(crate) async fn panel_schedule(config: Config) -> Result<(), Box<dyn std::er
         cache: infra.cache.clone(),
         sql,
         project_state: Some(project_state),
-        domains: None,
+        domains: collector_domains(),
         keyring: config.keyring.clone(),
         platform_url: std::env::var("PLATFORM_URL")
             .ok()

@@ -13,9 +13,9 @@
 //! databases). Who serves the host name is a port, [`CollectorDomains`]:
 //! on Global Cloudflare custom hostnames ([`CloudflareDomains`], the same calls
 //! `@weldsuite/cloudflare-zones` makes, through the outbound bridge in
-//! conformance); on Kubernetes cert-manager (PANEL-014, built in a later
-//! step). Without one the routes answer as Global does without its Cloudflare
-//! settings: 503 `FEATURE_UNAVAILABLE`.
+//! conformance); on Kubernetes cert-manager and an `Ingress` per host name
+//! (PANEL-014, [`super::cert_manager`]). Without one the routes answer as
+//! Global does without its Cloudflare settings: 503 `FEATURE_UNAVAILABLE`.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -81,7 +81,8 @@ impl std::fmt::Display for DomainError {
 
 /// Who serves a customer's collection host name.
 pub trait CollectorDomains: Send + Sync {
-    /// What the customer points a CNAME at (`PANEL_SAAS_CNAME_TARGET`).
+    /// What the customer points a CNAME at (`PANEL_SAAS_CNAME_TARGET`, or
+    /// the install's collector host on Kubernetes).
     fn cname_target(&self) -> &str;
     /// Registers `hostname`; `metadata` says whose it is.
     fn create<'a>(
@@ -89,8 +90,15 @@ pub trait CollectorDomains: Send + Sync {
         hostname: &'a str,
         metadata: &'a [(&'a str, String)],
     ) -> BoxFuture<'a, Result<HostnameState, DomainError>>;
-    /// Its state now; `None` when the provider no longer has it.
-    fn get<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Option<HostnameState>, DomainError>>;
+    /// Its state now (`id` is what [`create`](Self::create) answered,
+    /// `hostname` the row's); `None` when the provider no longer has it.
+    /// cert-manager's adapter also moves it along here: the status sweep is
+    /// what starts its certificate once the CNAME is in place.
+    fn get<'a>(
+        &'a self,
+        id: &'a str,
+        hostname: &'a str,
+    ) -> BoxFuture<'a, Result<Option<HostnameState>, DomainError>>;
     /// Removes it; one already gone counts as removed.
     fn delete<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<(), DomainError>>;
 }
@@ -317,7 +325,11 @@ impl CollectorDomains for CloudflareDomains {
         })
     }
 
-    fn get<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Option<HostnameState>, DomainError>> {
+    fn get<'a>(
+        &'a self,
+        id: &'a str,
+        _hostname: &'a str,
+    ) -> BoxFuture<'a, Result<Option<HostnameState>, DomainError>> {
         Box::pin(async move {
             match self.call("GET", &format!("/{id}"), None, 2).await {
                 Ok(found) => Ok(Some(hostname_state(&found))),
@@ -358,7 +370,12 @@ pub(crate) fn domain_status_of(state: &HostnameState) -> &'static str {
         return "failed";
     }
     let ssl = state.ssl_status.as_deref().unwrap_or_default();
-    if ssl.ends_with("timed_out") || ssl == "expired" || ssl == "deleted" {
+    // `failed` is cert-manager's (PANEL-014); Cloudflare never reports it.
+    if ssl.ends_with("timed_out")
+        || ssl == "expired"
+        || ssl == "deleted"
+        || ssl == super::cert_manager::SSL_FAILED
+    {
         return "failed";
     }
     if state.status == "active" && ssl == "active" {
@@ -577,7 +594,7 @@ pub(crate) async fn refresh_domain(
         return Ok(domain.clone());
     };
     let id = text(domain, "id");
-    let row = match domains.get(provider_id).await {
+    let row = match domains.get(provider_id, text(domain, "hostname")).await {
         Ok(Some(state)) => {
             store_state(master, domains, id, text(domain, "hostname"), &state, now).await?
         }

@@ -17,7 +17,8 @@
 //! - `fetch` to a Slack webhook or the customer's store: [`MonitorState::http`],
 //!   a client that connects to public addresses only (conformance: the
 //!   request's outbound bridge);
-//! - Cloudflare custom hostnames: [`CollectorDomains`] ([`domains`]);
+//! - Cloudflare custom hostnames: [`CollectorDomains`] ([`domains`]), on
+//!   Kubernetes cert-manager ([`cert_manager`], ADR PANEL-014);
 //! - `DATABASE_ENCRYPTION_KEY(_V2)`: the sealed Slack URL and S3 key
 //!   ([`secrets`]).
 
@@ -26,6 +27,7 @@
 
 mod alerts;
 mod anomaly;
+pub mod cert_manager;
 mod delivery;
 pub mod domains;
 mod exports;
@@ -55,6 +57,7 @@ use weldsuite_panel_domain::schemas::PanelQuerySpec;
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_ports::{BoxFuture, DynSystemMail, OutboundHttp};
 
+pub use cert_manager::{CertManagerDomains, CertManagerSettings, KubeToken};
 pub use domains::{CloudflareDomains, CollectorDomains, DomainError, HostnameState};
 pub use schedule::{ScheduleRow, claim_due, release_schedule};
 
@@ -72,8 +75,9 @@ pub struct MonitorState {
     /// Slack webhooks and the customers' stores: public addresses only.
     /// Conformance builds use the request's outbound bridge.
     pub http: Option<OutboundHttp>,
-    /// Who serves custom collector domains; `None` answers 503 as Global
-    /// without Cloudflare custom hostnames. Conformance builds use Cloudflare with
+    /// Who serves custom collector domains (cert-manager on Kubernetes when
+    /// the chart turns it on); `None` answers 503 as Global without
+    /// Cloudflare custom hostnames. Conformance builds use Cloudflare with
     /// the test's settings, through the bridge.
     pub domains: Option<Arc<dyn CollectorDomains>>,
 }

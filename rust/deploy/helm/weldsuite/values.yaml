@@ -219,6 +219,41 @@ config:
     # missing one); without it, change an existing stream by hand:
     # nats stream edit PANEL_EVENTS --max-age 7d.
     eventsMaxAgeDays: 7
+    # Collection on a customer's own host name (ADR PANEL-014): a project adds
+    # stats.example.com, the customer points its CNAME at collectorHost, and
+    # once it resolves the server (and the panel-schedule job's sweep, every
+    # 10 minutes) creates, in the release's namespace through the Kubernetes
+    # API, a cert-manager Certificate for it (HTTP-01 through the ingress
+    # controller) and an Ingress sending the collector's paths on it to the
+    # server; removing the domain deletes both. The server's and
+    # panel-schedule's pods then get the service-account token, bound to the
+    # panel-domains Role (templates/panel-domains.yaml). Needs cert-manager
+    # and enabled with collectorHost set; otherwise the domain routes answer
+    # 503 and the platform says custom domains aren't available here.
+    customDomains:
+      enabled: false
+      # What customers point their CNAME at, e.g. collect.example.com: a name
+      # of the install's own that resolves to the ingress load balancer.
+      # Host names under its parent domain (example.com here) are refused.
+      collectorHost: ""
+      # The certificates' issuer: one that solves HTTP-01 through the
+      # ingress controller.
+      issuerRef:
+        name: letsencrypt
+        kind: ClusterIssuer
+      # The Ingresses' class; empty: ingress.className (or the cluster's
+      # default class).
+      ingressClassName: ""
+      # The DNS-over-HTTPS endpoint the CNAME is looked up at; empty:
+      # Cloudflare's (https://cloudflare-dns.com/dns-query), as the server's
+      # other DNS checks.
+      dnsResolver: ""
+      # Holds the server's service account to Certificates and Ingresses with
+      # WeldPanel's labels, routing to the server and from issuerRef only
+      # (ValidatingAdmissionPolicy, Kubernetes 1.30+): RBAC can't limit it
+      # by label.
+      admissionPolicy:
+        enabled: true
   # Durable jobs (the workers' Workflows) on Restate. Leave ingressUrl empty
   # to run jobs inside the server process instead (lost on a restart; fine
   # for a small self-hosted install). With Restate, every pod also serves the

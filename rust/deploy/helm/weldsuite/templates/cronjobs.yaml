@@ -46,8 +46,9 @@ spec:
             {{- toYaml . | nindent 12 }}
           {{- end }}
           serviceAccountName: {{ include "weldsuite.serviceAccountName" $ }}
-          {{- /* The jobs that start or delete sandbox pods talk to the Kubernetes API. */}}
-          automountServiceAccountToken: {{ and $.Values.sandbox.enabled (has $name (list "weldagent-routines" "sandbox-cleanup")) }}
+          {{- /* The jobs that start or delete sandbox pods talk to the Kubernetes API, and so does
+          panel-schedule with WeldPanel's custom domains on (its sweep creates their Certificates and Ingresses). */}}
+          automountServiceAccountToken: {{ or (and $.Values.sandbox.enabled (has $name (list "weldagent-routines" "sandbox-cleanup"))) (and (eq (include "weldsuite.panelDomains.enabled" $) "true") (eq $name "panel-schedule")) }}
           securityContext:
             {{- toYaml $.Values.podSecurityContext | nindent 12 }}
           containers:
