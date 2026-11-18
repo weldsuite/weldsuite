@@ -443,6 +443,60 @@ pub(crate) fn refine_update_panel_group_type(value: Option<&Value>, hook: &mut H
     }
 }
 
+/// `explainPanelChangeSchema`'s `period`: `from <= to` (JavaScript's string
+/// order).
+pub(crate) fn refine_explain_panel_change_inner_period(value: Option<&Value>, hook: &mut Hook) {
+    refine_panel_date_range_or1(value, hook);
+}
+
+/// `explainPanelChangeSchema`'s `properties`: event or person properties only.
+pub(crate) fn refine_explain_panel_change_inner_properties(value: Option<&Value>, hook: &mut Hook) {
+    let all_props = value.and_then(Value::as_array).is_none_or(|list| {
+        list.iter()
+            .all(|b| matches!(text(b.get("source")), Some("event" | "person")))
+    });
+    if !all_props {
+        hook.fail("Use event or person properties");
+    }
+}
+
+/// `PANEL_EXPLAINABLE_MATHS`: maths whose parts add up to the whole.
+const EXPLAINABLE_MATHS: [&str; 5] = ["total", "unique_users", "unique_groups", "sessions", "sum"];
+
+/// `explainPanelChangeSchema`'s `superRefine`: the request's project, one
+/// series of a math that can be split, a bucket or a period.
+pub(crate) fn refine_explain_panel_change(value: Option<&Value>, hook: &mut Hook) {
+    let spec = field(value, "spec");
+    if text(field(spec, "projectId")) != text(field(value, "projectId")) {
+        hook.fail_at(
+            &[json!("spec"), json!("projectId")],
+            "The spec names another project",
+        );
+    }
+    let series = field(spec, "series")
+        .and_then(Value::as_array)
+        .map_or(&[][..], Vec::as_slice);
+    if series.len() != 1 {
+        hook.fail_at(
+            &[json!("spec"), json!("series")],
+            "Explain one series at a time",
+        );
+    }
+    if let Some(math) = series.first().and_then(|s| text(s.get("math")))
+        && !math.is_empty()
+        && !EXPLAINABLE_MATHS.contains(&math)
+    {
+        hook.fail_at(
+            &[json!("spec"), json!("series"), json!(0), json!("math")],
+            "Root cause works on counts and sums",
+        );
+    }
+    let bucket = text(field(value, "bucket")).is_some_and(|b| !b.is_empty());
+    if bucket && field(value, "period").is_some_and(|p| !p.is_null()) {
+        hook.fail_at(&[json!("period")], "Choose a bucket or a period, not both");
+    }
+}
+
 /// The generated schemas against Zod itself: `zod_cases.json` holds bodies
 /// with what `safeParseAsync` answered (`tools/zod-cases.mts`).
 #[cfg(test)]
@@ -453,9 +507,10 @@ mod tests {
     use crate::schemas_gen::{
         ADD_PANEL_DASHBOARD_TILE, CREATE_PANEL_DASHBOARD, CREATE_PANEL_GROUP_TYPE,
         CREATE_PANEL_METRIC_TREE, CREATE_PANEL_REPORT, CREATE_PANEL_SHARE_LINK,
-        PANEL_ANNOTATION_LIST_QUERY, PANEL_COHORT_FILTER, PANEL_COMPUTED_PROPERTY_DEFINITION,
-        PANEL_CUSTOM_EVENT_DEFINITION, PANEL_QUERY_SPEC, SET_PANEL_PATH_RULES,
-        TEST_PANEL_PATH_RULES, UPDATE_PANEL_GROUP_TYPE, UPDATE_PANEL_LEXICON, UPDATE_PANEL_REPORT,
+        EXPLAIN_PANEL_CHANGE, PANEL_ANNOTATION_LIST_QUERY, PANEL_COHORT_FILTER,
+        PANEL_COMPUTED_PROPERTY_DEFINITION, PANEL_CUSTOM_EVENT_DEFINITION, PANEL_QUERY_SPEC,
+        SET_PANEL_PATH_RULES, SUMMARISE_PANEL_SET, TEST_PANEL_PATH_RULES, UPDATE_PANEL_GROUP_TYPE,
+        UPDATE_PANEL_LEXICON, UPDATE_PANEL_REPORT,
     };
 
     fn schema(name: &str) -> &'static Z {
@@ -476,6 +531,8 @@ mod tests {
             "PANEL_ANNOTATION_LIST_QUERY" => &PANEL_ANNOTATION_LIST_QUERY,
             "CREATE_PANEL_GROUP_TYPE" => &CREATE_PANEL_GROUP_TYPE,
             "UPDATE_PANEL_GROUP_TYPE" => &UPDATE_PANEL_GROUP_TYPE,
+            "EXPLAIN_PANEL_CHANGE" => &EXPLAIN_PANEL_CHANGE,
+            "SUMMARISE_PANEL_SET" => &SUMMARISE_PANEL_SET,
             other => panic!("no schema {other}"),
         }
     }

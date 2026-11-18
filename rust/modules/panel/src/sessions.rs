@@ -7,6 +7,7 @@
 //!   PUT    /:id/favorite      → favourite with a note; copies the chunks to `keep/`
 //!   DELETE /:id/favorite      → unfavourite; deletes the copies
 //!   GET    /:id/summary       → the cached AI summary, or `data: null` (never charges)
+//!   POST   /:id/summary       → generate (and charge for) one unless cached (`crate::ai_summaries`)
 //!
 //! All of it needs `panel_recordings:read` (a recording shows what a visitor
 //! saw and did); the person on the detail also needs `panel_people:read`.
@@ -89,7 +90,7 @@ fn project_query(raw: Option<&str>) -> Result<String, Box<Response>> {
 /// `loadSessionRow`: the session's row (one id through the `sessions`
 /// kind), wide when it is a favourite (older than the 90 days recordings
 /// are kept for).
-async fn load_session_row(
+pub(crate) async fn load_session_row(
     engine: &Engine,
     ctx: &PanelQueryContext,
     session_id: &str,

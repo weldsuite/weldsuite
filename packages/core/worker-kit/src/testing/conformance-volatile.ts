@@ -512,10 +512,32 @@ const ROUTES: VolatileRoute[] = [
     { method: 'DELETE', route: '/api/panel/sessions/:id/favorite' },
     { method: 'GET', route: '/api/panel/heatmaps/pages/:id/snapshot' },
     { method: 'POST', route: '/public/panel/share/:token/results' },
+    // And the analysis routes: metric tree values and the internal read API.
+    { method: 'POST', route: '/api/panel/metric-tree-values' },
+    { method: 'POST', route: '/api/panel/metric-tree-values/:id' },
+    ...['/query', '/people', '/people/:distinctId', '/groups/:type/:key', '/lexicon'].map((path) => ({
+      method: path === '/query' ? 'POST' : 'GET',
+      route: `/internal/panel/v1/:workspaceId${path}`,
+    })),
+    { method: 'GET', route: '/internal/panel/v1/:workspaceId/reports/:id/results' },
   ].map(({ method, route }) => ({
     method,
     route,
     fields: [],
+    outbound: [{ path: 'body.query', pattern: PANEL_CLOCK_TIMESTAMP, replacement: "TIMESTAMP '<now>'" }],
+  })),
+  // WeldPanel's AI: the backends ask different models by design (panel-api
+  // Claude through the gateway, Rust the install's own, Mistral on EU), so
+  // the model a summary or narrative names differs; its SQL is bounded by the
+  // run's clock like a report's.
+  ...[
+    { method: 'POST', route: '/api/panel/sessions/:id/summary', modelId: 'data.modelId' },
+    { method: 'POST', route: '/api/panel/insights/summarise', modelId: 'data.modelId' },
+    { method: 'POST', route: '/api/panel/insights/explain', modelId: 'data.narrative.modelId' },
+  ].map(({ method, route, modelId }) => ({
+    method,
+    route,
+    fields: [{ path: modelId }],
     outbound: [{ path: 'body.query', pattern: PANEL_CLOCK_TIMESTAMP, replacement: "TIMESTAMP '<now>'" }],
   })),
   // WeldPanel: a new custom event's or computed property's `ref` is `@` and

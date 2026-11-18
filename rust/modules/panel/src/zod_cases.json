@@ -2196,6 +2196,274 @@
           "name": "ZodError"
         }
       }
+    },
+    {
+      "name": "an explanation, defaults filled in",
+      "schema": "EXPLAIN_PANEL_CHANGE",
+      "input": {
+        "projectId": "pnp_a",
+        "spec": {
+          "kind": "trends",
+          "projectId": "pnp_a",
+          "series": [
+            {
+              "event": "A"
+            }
+          ]
+        }
+      },
+      "output": {
+        "success": true,
+        "data": {
+          "projectId": "pnp_a",
+          "spec": {
+            "projectId": "pnp_a",
+            "dateRange": {
+              "preset": "30d"
+            },
+            "timezone": "UTC",
+            "filters": [],
+            "kind": "trends",
+            "series": [
+              {
+                "event": "A",
+                "math": "total",
+                "filters": []
+              }
+            ],
+            "interval": "day",
+            "compare": false
+          },
+          "properties": [],
+          "limit": 5,
+          "narrate": false,
+          "regenerate": false
+        }
+      }
+    },
+    {
+      "name": "an explanation of another project, two series of averages, a bucket and a period",
+      "schema": "EXPLAIN_PANEL_CHANGE",
+      "input": {
+        "projectId": "pnp_a",
+        "spec": {
+          "kind": "trends",
+          "projectId": "pnp_b",
+          "series": [
+            {
+              "event": "A",
+              "math": "avg",
+              "property": "x"
+            },
+            {
+              "event": "B"
+            }
+          ]
+        },
+        "bucket": "2026-11-10",
+        "period": {
+          "from": "2026-11-01",
+          "to": "2026-11-07"
+        }
+      },
+      "output": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "custom",
+              "path": [
+                "spec",
+                "projectId"
+              ],
+              "message": "The spec names another project"
+            },
+            {
+              "code": "custom",
+              "path": [
+                "spec",
+                "series"
+              ],
+              "message": "Explain one series at a time"
+            },
+            {
+              "code": "custom",
+              "path": [
+                "spec",
+                "series",
+                0,
+                "math"
+              ],
+              "message": "Root cause works on counts and sums"
+            },
+            {
+              "code": "custom",
+              "path": [
+                "period"
+              ],
+              "message": "Choose a bucket or a period, not both"
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "name": "an explanation of a backwards period",
+      "schema": "EXPLAIN_PANEL_CHANGE",
+      "input": {
+        "projectId": "pnp_a",
+        "spec": {
+          "kind": "trends",
+          "projectId": "pnp_a",
+          "series": [
+            {
+              "event": "A"
+            }
+          ]
+        },
+        "period": {
+          "from": "2026-11-07",
+          "to": "2026-11-01"
+        }
+      },
+      "output": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "custom",
+              "message": "`from` must not be after `to`",
+              "path": [
+                "period"
+              ]
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "name": "an explanation of a group property",
+      "schema": "EXPLAIN_PANEL_CHANGE",
+      "input": {
+        "projectId": "pnp_a",
+        "spec": {
+          "kind": "trends",
+          "projectId": "pnp_a",
+          "series": [
+            {
+              "event": "A"
+            }
+          ]
+        },
+        "properties": [
+          {
+            "source": "group",
+            "groupType": "company",
+            "key": "plan"
+          }
+        ]
+      },
+      "output": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "custom",
+              "message": "Use event or person properties",
+              "path": [
+                "properties"
+              ]
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "name": "a set from a funnel step",
+      "schema": "SUMMARISE_PANEL_SET",
+      "input": {
+        "projectId": "pnp_a",
+        "source": {
+          "type": "funnel_drop_off",
+          "stepIndex": 0,
+          "spec": {
+            "kind": "funnel",
+            "projectId": "pnp_a",
+            "steps": [
+              {
+                "event": "A"
+              },
+              {
+                "event": "B"
+              }
+            ]
+          }
+        }
+      },
+      "output": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "too_small",
+              "minimum": 1,
+              "type": "number",
+              "inclusive": true,
+              "exact": false,
+              "message": "Number must be greater than or equal to 1",
+              "path": [
+                "source",
+                "stepIndex"
+              ]
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "name": "a set from a recordings filter, defaults filled in",
+      "schema": "SUMMARISE_PANEL_SET",
+      "input": {
+        "projectId": "pnp_a",
+        "source": {
+          "type": "sessions",
+          "spec": {
+            "kind": "sessions",
+            "projectId": "pnp_a",
+            "frustration": [
+              "rage"
+            ]
+          }
+        }
+      },
+      "output": {
+        "success": true,
+        "data": {
+          "projectId": "pnp_a",
+          "source": {
+            "type": "sessions",
+            "spec": {
+              "projectId": "pnp_a",
+              "dateRange": {
+                "preset": "30d"
+              },
+              "timezone": "UTC",
+              "kind": "sessions",
+              "frustration": [
+                "rage"
+              ],
+              "sort": "started_desc",
+              "limit": 25
+            }
+          },
+          "limit": 20,
+          "regenerate": false
+        }
+      }
     }
   ]
 }

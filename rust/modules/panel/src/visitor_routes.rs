@@ -13,7 +13,7 @@ use weldsuite_catalogs::permission_keys::{
 };
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
-use crate::{PanelState, groups, heatmaps, live, people, sessions};
+use crate::{PanelState, ai_summaries, groups, heatmaps, live, people, sessions};
 
 /// `/api/panel/people`.
 pub fn people_router<S, Q>(state: PanelState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
@@ -76,6 +76,11 @@ where
             delete(sessions::unfavorite).route_layer(watch()),
         )
         .route("/{id}/summary", get(sessions::summary).route_layer(watch()))
+        // Generates (and charges for) an AI summary unless one is cached.
+        .route(
+            "/{id}/summary",
+            post(ai_summaries::generate).route_layer(watch()),
+        )
         .with_state(state)
 }
 

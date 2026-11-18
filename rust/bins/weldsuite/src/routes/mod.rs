@@ -656,6 +656,12 @@ fn panel_state(state: &AppState) -> weldsuite_panel::PanelState {
                 as Arc<dyn weldsuite_panel::WorkspaceTenants>
         }),
         trusted_proxies: state.trusted_proxies,
+        // AI summaries and root-cause narratives; conformance builds take
+        // the request's (the test's mock model, or off).
+        ai: state.ai.clone(),
+        // Overage is charged where plans are billed (`billing`); the
+        // worker's tests charge, so conformance builds do.
+        bill_overage: state.edition.plan_billing || conformance,
     }
 }
 
@@ -664,7 +670,9 @@ fn panel_state(state: &AppState) -> weldsuite_panel::PanelState {
 /// objects: reports, dashboards, cohorts, annotations, comments, custom
 /// events, computed properties, path rules, group types, metric trees and
 /// share links; and the visitor routes: people (with erasure), groups,
-/// sessions and recordings, heatmaps and the live view.
+/// sessions and recordings (with AI summaries), heatmaps and the live view;
+/// and the analysis routes: root cause and AI themes (`/panel/insights`),
+/// metric tree values and usage.
 fn panel(router: Router<AppState>, state: &AppState) -> Router<AppState> {
     if !mounts("panel") {
         return router;
@@ -745,7 +753,36 @@ fn panel(router: Router<AppState>, state: &AppState) -> Router<AppState> {
             "/panel/heatmaps",
             weldsuite_panel::heatmaps_router(panel.clone(), gate),
         )
-        .nest("/panel/live", weldsuite_panel::live_router(panel, gate))
+        .nest(
+            "/panel/live",
+            weldsuite_panel::live_router(panel.clone(), gate),
+        )
+        // Root cause, AI themes, metric tree values and usage.
+        .nest(
+            "/panel/insights",
+            weldsuite_panel::insights_router(panel.clone(), gate),
+        )
+        .nest(
+            "/panel/metric-tree-values",
+            weldsuite_panel::metric_tree_values_router(panel.clone(), gate),
+        )
+        .nest("/panel/usage", weldsuite_panel::usage_router(panel, gate))
+}
+
+/// WeldPanel's read API for other services (`/internal/panel/v1`,
+/// panel-api's `PanelApiInternal` entrypoint): trusted by topology, so never
+/// on the server's listener; its callers run it in process
+/// (`weldsuite_panel::internal_v1_router`). Conformance builds serve it for
+/// the worker's tests, with the test's workspace lookup and bindings.
+#[cfg(feature = "conformance")]
+fn panel_internal_conformance(state: &AppState) -> Router<AppState> {
+    if !mounts("panel") {
+        return Router::new();
+    }
+    Router::new().nest(
+        "/internal/panel/v1",
+        weldsuite_panel::internal_v1_router(panel_state(state), &state.permissions),
+    )
 }
 
 /// WeldForms (`weldsuite-forms`): forms-api's `/api/forms`, with the
@@ -2077,7 +2114,9 @@ pub(crate) fn public(state: &AppState) -> Router<AppState> {
         // The integration workers' webhook receivers (no module id: always).
         .merge(integrations::public(state));
     #[cfg(feature = "conformance")]
-    let router = router.merge(merge_internal_conformance(state));
+    let router = router
+        .merge(merge_internal_conformance(state))
+        .merge(panel_internal_conformance(state));
     let router = if mounts("docs") || mounts("sheets") {
         router.merge(crate::collab::public(state))
     } else {

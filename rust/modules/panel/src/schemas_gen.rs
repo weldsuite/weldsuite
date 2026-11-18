@@ -268,6 +268,73 @@ pub(crate) const CREATE_PANEL_SHARE_LINK: Z = Z::Obj(
     Keys::Strip,
 );
 
+/// `explainPanelChangeSchema`.
+pub(crate) const EXPLAIN_PANEL_CHANGE: Z = Z::Refine(
+    &Z::Obj(
+        &[
+            ("projectId", Z::Str(&[S::Min(1, None), S::Max(30, None)])),
+            ("spec", TRENDS_SPEC),
+            (
+                "bucket",
+                Z::Opt(&Z::Str(&[S::Regex(
+                    "^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:00)?$",
+                    Some("Use a bucket label (YYYY-MM-DD or YYYY-MM-DDTHH:00)"),
+                )])),
+            ),
+            (
+                "period",
+                Z::Opt(&Z::Refine(
+                    &Z::Obj(
+                        &[
+                            (
+                                "from",
+                                Z::Str(&[S::Regex(
+                                    "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+                                    Some("Use YYYY-MM-DD"),
+                                )]),
+                            ),
+                            (
+                                "to",
+                                Z::Str(&[S::Regex(
+                                    "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+                                    Some("Use YYYY-MM-DD"),
+                                )]),
+                            ),
+                        ],
+                        Keys::Strip,
+                    ),
+                    hooks::refine_explain_panel_change_inner_period,
+                )),
+            ),
+            (
+                "properties",
+                Z::Def(
+                    &Z::Refine(
+                        &Z::Arr(&PANEL_BREAKDOWN, None, Some((3, None))),
+                        hooks::refine_explain_panel_change_inner_properties,
+                    ),
+                    "[]",
+                ),
+            ),
+            (
+                "limit",
+                Z::Def(
+                    &Z::Num(&[
+                        N::Int(None),
+                        N::Min(1.0, true, None),
+                        N::Max(10.0, true, None),
+                    ]),
+                    "5",
+                ),
+            ),
+            ("narrate", Z::Def(&Z::Bool, "false")),
+            ("regenerate", Z::Def(&Z::Bool, "false")),
+        ],
+        Keys::Strip,
+    ),
+    hooks::refine_explain_panel_change,
+);
+
 /// `flowsSpecSchema`.
 pub(crate) const FLOWS_SPEC: Z = Z::Obj(
     &[
@@ -474,6 +541,15 @@ pub(crate) const FUNNEL_SPEC: Z = Z::Refine(
         Keys::Strip,
     ),
     hooks::refine_funnel_spec,
+);
+
+/// `generatePanelSessionSummarySchema`.
+pub(crate) const GENERATE_PANEL_SESSION_SUMMARY: Z = Z::Obj(
+    &[
+        ("projectId", Z::Str(&[S::Min(1, None), S::Max(30, None)])),
+        ("regenerate", Z::Def(&Z::Bool, "false")),
+    ],
+    Keys::Strip,
 );
 
 /// `heatmapSpecSchema`.
@@ -1414,6 +1490,20 @@ pub(crate) const PANEL_METRIC_TREE_NODES: Z = Z::Refine(
     hooks::refine_panel_metric_tree_nodes,
 );
 
+/// `panelMetricTreeValuesSchema`.
+pub(crate) const PANEL_METRIC_TREE_VALUES: Z = Z::Obj(
+    &[
+        ("projectId", Z::Str(&[S::Min(1, None), S::Max(30, None)])),
+        ("nodes", PANEL_METRIC_TREE_NODES),
+        ("dateRange", Z::Opt(&PANEL_DATE_RANGE)),
+        (
+            "timezone",
+            Z::Opt(&Z::Str(&[S::Min(1, None), S::Max(64, None)])),
+        ),
+    ],
+    Keys::Strip,
+);
+
 /// `panelPathRuleInputSchema`.
 pub(crate) const PANEL_PATH_RULE_INPUT: Z = Z::Obj(
     &[
@@ -1493,6 +1583,47 @@ pub(crate) const PANEL_REPORT_SPEC: Z = Z::Union(&[
     IMPACT_SPEC,
     SIGNAL_SPEC,
 ]);
+
+/// `panelSavedMetricTreeValuesSchema`.
+pub(crate) const PANEL_SAVED_METRIC_TREE_VALUES: Z = Z::Obj(
+    &[
+        ("dateRange", Z::Opt(&PANEL_DATE_RANGE)),
+        (
+            "timezone",
+            Z::Opt(&Z::Str(&[S::Min(1, None), S::Max(64, None)])),
+        ),
+    ],
+    Keys::Strip,
+);
+
+/// `panelSetSummarySourceSchema`.
+pub(crate) const PANEL_SET_SUMMARY_SOURCE: Z = Z::Disc(
+    "type",
+    &[
+        Z::Obj(
+            &[
+                ("type", Z::Lit(Lit::Str("sessions"))),
+                ("spec", SESSIONS_SPEC),
+            ],
+            Keys::Strip,
+        ),
+        Z::Obj(
+            &[
+                ("type", Z::Lit(Lit::Str("funnel_drop_off"))),
+                ("spec", FUNNEL_SPEC),
+                (
+                    "stepIndex",
+                    Z::Num(&[
+                        N::Int(None),
+                        N::Min(1.0, true, None),
+                        N::Max(9.0, true, None),
+                    ]),
+                ),
+            ],
+            Keys::Strip,
+        ),
+    ],
+);
 
 /// `panelSingleSeriesTrendsSpecSchema`.
 pub(crate) const PANEL_SINGLE_SERIES_TRENDS_SPEC: Z =
@@ -1926,6 +2057,27 @@ pub(crate) const STICKINESS_SPEC: Z = Z::Obj(
             Z::Def(&Z::Enum(&["intervals", "count"], None), "\"intervals\""),
         ),
         ("aggregateBy", Z::Opt(&PANEL_AGGREGATE_BY)),
+    ],
+    Keys::Strip,
+);
+
+/// `summarisePanelSetSchema`.
+pub(crate) const SUMMARISE_PANEL_SET: Z = Z::Obj(
+    &[
+        ("projectId", Z::Str(&[S::Min(1, None), S::Max(30, None)])),
+        ("source", PANEL_SET_SUMMARY_SOURCE),
+        (
+            "limit",
+            Z::Def(
+                &Z::Num(&[
+                    N::Int(None),
+                    N::Min(1.0, true, None),
+                    N::Max(20.0, true, None),
+                ]),
+                "20",
+            ),
+        ),
+        ("regenerate", Z::Def(&Z::Bool, "false")),
     ],
     Keys::Strip,
 );

@@ -23,6 +23,7 @@ const query = await load('@weldsuite/app-api-client/schemas/weldpanel-query');
 const collab = await load('@weldsuite/app-api-client/schemas/weldpanel-collab');
 const objects = await load('@weldsuite/app-api-client/schemas/weldpanel-objects');
 const groups = await load('@weldsuite/app-api-client/schemas/weldpanel-groups');
+const analysis = await load('@weldsuite/app-api-client/schemas/weldpanel-analysis');
 
 /** By the generated constant's name. */
 const SCHEMAS = {
@@ -42,6 +43,8 @@ const SCHEMAS = {
   PANEL_ANNOTATION_LIST_QUERY: collab.panelAnnotationListQuerySchema,
   CREATE_PANEL_GROUP_TYPE: groups.createPanelGroupTypeSchema,
   UPDATE_PANEL_GROUP_TYPE: groups.updatePanelGroupTypeSchema,
+  EXPLAIN_PANEL_CHANGE: analysis.explainPanelChangeSchema,
+  SUMMARISE_PANEL_SET: objects.summarisePanelSetSchema,
 } as const;
 
 const node = (id: string, parentId: string | null, extra: Record<string, unknown> = {}) => ({
@@ -134,6 +137,33 @@ const CASES: Array<[string, keyof typeof SCHEMAS, unknown]> = [
   ['annotations by day', 'PANEL_ANNOTATION_LIST_QUERY', { projectId: 'pnp_a', from: '2026-10-15', to: '2026-11' }],
   ['a group type with a bad match', 'CREATE_PANEL_GROUP_TYPE', { projectId: 'pnp_a', groupType: 'team', nameSingular: 'Team', namePlural: 'Teams', crmMatchProperty: 'do-main' }],
   ['a group type with nothing to change', 'UPDATE_PANEL_GROUP_TYPE', { other: 1 }],
+  ['an explanation, defaults filled in', 'EXPLAIN_PANEL_CHANGE', { projectId: 'pnp_a', spec: { kind: 'trends', projectId: 'pnp_a', series: [{ event: 'A' }] } }],
+  [
+    'an explanation of another project, two series of averages, a bucket and a period',
+    'EXPLAIN_PANEL_CHANGE',
+    {
+      projectId: 'pnp_a',
+      spec: { kind: 'trends', projectId: 'pnp_b', series: [{ event: 'A', math: 'avg', property: 'x' }, { event: 'B' }] },
+      bucket: '2026-11-10',
+      period: { from: '2026-11-01', to: '2026-11-07' },
+    },
+  ],
+  [
+    'an explanation of a backwards period',
+    'EXPLAIN_PANEL_CHANGE',
+    { projectId: 'pnp_a', spec: { kind: 'trends', projectId: 'pnp_a', series: [{ event: 'A' }] }, period: { from: '2026-11-07', to: '2026-11-01' } },
+  ],
+  [
+    'an explanation of a group property',
+    'EXPLAIN_PANEL_CHANGE',
+    {
+      projectId: 'pnp_a',
+      spec: { kind: 'trends', projectId: 'pnp_a', series: [{ event: 'A' }] },
+      properties: [{ source: 'group', groupType: 'company', key: 'plan' }],
+    },
+  ],
+  ['a set from a funnel step', 'SUMMARISE_PANEL_SET', { projectId: 'pnp_a', source: { type: 'funnel_drop_off', stepIndex: 0, spec: { kind: 'funnel', projectId: 'pnp_a', steps: [{ event: 'A' }, { event: 'B' }] } } }],
+  ['a set from a recordings filter, defaults filled in', 'SUMMARISE_PANEL_SET', { projectId: 'pnp_a', source: { type: 'sessions', spec: { kind: 'sessions', projectId: 'pnp_a', frustration: ['rage'] } } }],
 ];
 
 const cases = [];

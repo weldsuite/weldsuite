@@ -72,6 +72,35 @@ pub trait WorkspaceTenants: Send + Sync {
         &'a self,
         workspace_id: &'a str,
     ) -> BoxFuture<'a, Result<Option<OpenedWorkspace>, PortError>>;
+
+    /// `getWorkspaceContextForOrg(env, reference)` by `workspaces.id` or the
+    /// Clerk org id, with the ids it names (the internal read API, which acts
+    /// in a workspace other workers name). `None` when there is no such
+    /// workspace. Without its own lookup, [`Self::open`] with the
+    /// reference as the id.
+    fn find<'a>(
+        &'a self,
+        reference: &'a str,
+    ) -> BoxFuture<'a, Result<Option<FoundWorkspace>, PortError>> {
+        Box::pin(async move {
+            Ok(self.open(reference).await?.map(|opened| FoundWorkspace {
+                id: reference.to_owned(),
+                clerk_org_id: None,
+                db: opened.db,
+                suspended: opened.suspended,
+            }))
+        })
+    }
+}
+
+/// A workspace found by reference ([`WorkspaceTenants::find`]).
+#[derive(Clone)]
+pub struct FoundWorkspace {
+    /// `workspaces.id`.
+    pub id: String,
+    pub clerk_org_id: Option<String>,
+    pub db: PgPool,
+    pub suspended: bool,
 }
 
 /// The workspaces a request opens (conformance: the test's lookup). Without

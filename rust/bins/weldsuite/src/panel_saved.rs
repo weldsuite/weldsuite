@@ -3,7 +3,7 @@
 //! (`getWorkspaceContextForOrg` on Global).
 
 use weldsuite_db::WorkspaceError;
-use weldsuite_panel::{OpenedWorkspace, WorkspaceTenants};
+use weldsuite_panel::{FoundWorkspace, OpenedWorkspace, WorkspaceTenants};
 use weldsuite_ports::{BoxFuture, PortError};
 
 use crate::cron::WorkspaceTenants as AppWorkspaces;
@@ -16,6 +16,26 @@ impl WorkspaceTenants for AppWorkspaces {
         Box::pin(async move {
             match self.0.tenant(workspace_id).await {
                 Ok(tenant) => Ok(Some(OpenedWorkspace {
+                    db: tenant.db,
+                    suspended: tenant.suspended,
+                })),
+                Err(WorkspaceError::NotFound) => Ok(None),
+                Err(error) => Err(PortError::backend(error.to_string())),
+            }
+        })
+    }
+
+    /// By `workspaces.id` or the Clerk org id, with both ids (the internal
+    /// read API).
+    fn find<'a>(
+        &'a self,
+        reference: &'a str,
+    ) -> BoxFuture<'a, Result<Option<FoundWorkspace>, PortError>> {
+        Box::pin(async move {
+            match self.0.tenant(reference).await {
+                Ok(tenant) => Ok(Some(FoundWorkspace {
+                    id: tenant.workspace_id,
+                    clerk_org_id: tenant.clerk_org_id,
                     db: tenant.db,
                     suspended: tenant.suspended,
                 })),
