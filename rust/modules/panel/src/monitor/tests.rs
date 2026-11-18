@@ -1161,15 +1161,18 @@ async fn delivery_tries_every_channel_on_its_own() {
         return;
     };
     let _turn = LOCK.lock().await;
+    // Only this test's channel: the shared test database holds other crates'
+    // channels, whose members and messages a blanket delete would trip over.
     exec(
         &tenant,
-        "delete from workspace_members; delete from user_preferences; delete from chat_channels;
+        "delete from workspace_members; delete from user_preferences;
          insert into workspace_members (id, user_id, email, name, role, status, deleted_at) values
            ('wm_1', 'user_alice', 'alice@example.com', 'Alice', 'OWNER', 'ACTIVE', null),
            ('wm_2', 'user_bram', 'bram@example.com', 'Bram', 'MEMBER', 'ACTIVE', null),
            ('wm_3', 'user_gone', 'gone@example.com', 'Gone', 'MEMBER', 'ACTIVE', now());
          insert into user_preferences (id, user_id, language) values ('up_1', 'user_bram', 'nl');
-         insert into chat_channels (id, name, slug) values ('chc_1', 'growth', 'growth');",
+         insert into chat_channels (id, name, slug) values ('chc_1', 'growth', 'panel-monitor-growth')
+           on conflict (id) do nothing;",
     )
     .await;
     let ring = keyring();

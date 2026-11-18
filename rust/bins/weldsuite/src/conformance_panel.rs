@@ -428,13 +428,20 @@ impl PanelBridges {
 
     /// The test's `PANEL_REPLAYS` bucket over the bucket bridge, its deletes
     /// sent as R2's `delete(keys)`: one call per batch, as panel-api makes.
+    /// The bridge's URL comes in the test context header, so only a loopback
+    /// bridge is called (`conformance_kv::loopback_bridge`); any other keeps the
+    /// plain store.
     pub(crate) fn replays(
         &self,
         bridge: &str,
         store: Arc<dyn DynFileStore>,
     ) -> Arc<dyn DynFileStore> {
+        let Some(bridge) = crate::conformance_kv::loopback_bridge(bridge) else {
+            tracing::warn!("conformance: the test's PANEL_REPLAYS is not a loopback bridge");
+            return store;
+        };
         Arc::new(BatchDeletes {
-            bridge: bridge.trim_end_matches('/').to_owned(),
+            bridge,
             store,
             client: self.client.clone(),
         })
