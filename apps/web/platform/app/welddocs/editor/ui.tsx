@@ -8,13 +8,28 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@weldsuite/ui/components/tooltip';
+import { shortcutLabel, splitShortcut } from './model/keyboard';
 
 // Toolbar building blocks, as in the WeldSheets toolbar. Buttons keep focus in
 // the document (mousedown is prevented), so a click formats the selection.
+// Labels may name shortcuts ("Bold (Ctrl+B)"): they show as this keyboard reads them.
+
+/** Space kept between a drop-down and the window's edge. */
+export const MENU_EDGE_GAP = 8;
+
+/**
+ * A dialog's `onOpenAutoFocus` that opens it without lighting up its first
+ * button: focus goes to the dialog itself, and Tab still reaches the buttons.
+ */
+export function focusDialogItself(e: Event) {
+  e.preventDefault();
+  (e.currentTarget as HTMLElement | null)?.focus({ preventScroll: true });
+}
 
 /**
  * Hands typing back to the document after a drop-down command
@@ -47,7 +62,7 @@ export function WithTooltip({ label, children }: { label: string; children: Reac
   return (
     <Tooltip>
       <TooltipTrigger asChild>{children}</TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
+      <TooltipContent>{shortcutLabel(label)}</TooltipContent>
     </Tooltip>
   );
 }
@@ -55,7 +70,7 @@ export function WithTooltip({ label, children }: { label: string; children: Reac
 export function IconButton({ label, onClick, disabled, children }: { label: string; onClick: () => void; disabled?: boolean; children: ReactNode }) {
   return (
     <WithTooltip label={label}>
-      <button type="button" className={BUTTON} onClick={onClick} disabled={disabled} aria-label={label} onMouseDown={(e) => e.preventDefault()}>
+      <button type="button" className={BUTTON} onClick={onClick} disabled={disabled} aria-label={shortcutLabel(label)} onMouseDown={(e) => e.preventDefault()}>
         {children}
       </button>
     </WithTooltip>
@@ -70,7 +85,7 @@ export function Toggle({ label, active, onClick, disabled, children }: { label: 
         className={`${BUTTON} ${active ? 'bg-accent' : ''}`}
         onClick={onClick}
         disabled={disabled}
-        aria-label={label}
+        aria-label={shortcutLabel(label)}
         aria-pressed={active}
         onMouseDown={(e) => e.preventDefault()}
       >
@@ -119,7 +134,7 @@ export function Menu({
           </button>
         </DropdownMenuTrigger>
       </WithTooltip>
-      <DropdownMenuContent align="start" className="min-w-44" onCloseAutoFocus={onCloseAutoFocus}>
+      <DropdownMenuContent align="start" collisionPadding={MENU_EDGE_GAP} className="min-w-44" onCloseAutoFocus={onCloseAutoFocus}>
         {items?.map((item) => <MenuEntry key={item.key} item={item} />)}
         {sections?.map((section, i) => (
           <Fragment key={section.title ?? i}>
@@ -139,9 +154,12 @@ export function Menu({
 
 export function MenuEntry({ item }: { item: MenuItemSpec }) {
   const returnFocus = useContext(ReturnFocusContext);
+  // A label that carries its shortcut in brackets shows it at the right, as the other menus do.
+  const split = typeof item.label === 'string' ? splitShortcut(item.label) : null;
   return (
     <DropdownMenuItem
-      role={item.checked === undefined ? undefined : 'menuitemradio'}
+      // Spelled out: an undefined role would replace the item's own "menuitem".
+      role={item.checked === undefined ? 'menuitem' : 'menuitemradio'}
       aria-checked={item.checked}
       disabled={item.disabled}
       onSelect={() => {
@@ -149,8 +167,10 @@ export function MenuEntry({ item }: { item: MenuItemSpec }) {
         returnFocus();
       }}
     >
-      {item.label}
-      {item.checked && <Check className="ml-auto" />}
+      {split ? split.name : item.label}
+      {split?.shortcut && <DropdownMenuShortcut>{shortcutLabel(split.shortcut)}</DropdownMenuShortcut>}
+      {/* The check keeps its place when off, so shortcuts line up in a column. */}
+      {item.checked !== undefined && <Check className={`${split?.shortcut ? 'ml-2' : 'ml-auto'} ${item.checked ? '' : 'invisible'}`} />}
     </DropdownMenuItem>
   );
 }
@@ -188,7 +208,18 @@ export function ColorButton({
           </button>
         </PopoverTrigger>
       </WithTooltip>
-      <PopoverContent className="w-auto p-2" align="start" onCloseAutoFocus={onCloseAutoFocus}>
+      {/* Not focused on open: the first control would be Reset, which then
+          shows its focus ring as if it were a text field. Tab still reaches it. */}
+      <PopoverContent
+        className="w-auto p-2"
+        align="start"
+        collisionPadding={MENU_EDGE_GAP}
+        onOpenAutoFocus={(e) => {
+          e.preventDefault();
+          (e.currentTarget as HTMLElement | null)?.focus({ preventScroll: true });
+        }}
+        onCloseAutoFocus={onCloseAutoFocus}
+      >
         <Button variant="ghost" size="sm" className="mb-2 w-full justify-start" onClick={() => pick(null)}>
           {reset}
         </Button>

@@ -35,7 +35,6 @@ import { Button } from '@weldsuite/ui/components/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@weldsuite/ui/components/dropdown-menu';
 import { useI18n } from '@/lib/i18n/provider';
 import type { DocController, EditMode } from './model/doc-controller';
-import { MOD_LABEL } from './model/keyboard';
 import { TableButton } from './table-picker';
 import { ColorButton, Divider, IconButton, Menu, Toggle, useCloseAutoFocus } from './ui';
 
@@ -61,7 +60,12 @@ export function Toolbar({ controller, end }: { controller: DocController; end?: 
   const align = para.align ?? 'left';
 
   return (
-    <div className="flex h-12 shrink-0 items-center border-b bg-muted/30" role="toolbar" aria-label={t.welddocs.title}>
+    <div
+      className="flex h-12 shrink-0 items-center border-b bg-muted/30"
+      role="toolbar"
+      aria-label={t.welddocs.title}
+      onMouseDown={keepTypingFocus}
+    >
       {/* The controls scroll; the menus at the end stay in view on a narrow window. */}
       <div className="flex h-full min-w-0 flex-1 items-center gap-0.5 overflow-x-auto px-2">
         <IconButton label={tt.undo} onClick={() => controller.undo()} disabled={ro || !controller.canUndo}>
@@ -132,7 +136,7 @@ export function Toolbar({ controller, end }: { controller: DocController; end?: 
           <ImagePlus />
         </IconButton>
         <TableButton controller={controller} label={tt.table} disabled={ro} />
-        <IconButton label={`${tr.addComment} (${MOD_LABEL}+Alt+M)`} onClick={() => controller.startComment()} disabled={!controller.commentsAvailable || (ro && !controller.canComment)}>
+        <IconButton label={`${tr.addComment} (Ctrl+Alt+M)`} onClick={() => controller.startComment()} disabled={!controller.commentsAvailable || (ro && !controller.canComment)}>
           <MessageSquarePlus />
         </IconButton>
         <Divider />
@@ -229,11 +233,16 @@ export function ModeMenu({ controller }: { controller: DocController }) {
   );
 }
 
+/**
+ * A style's name in its own size, weight and font. Not in its colour: that is
+ * picked for a white page (the greys of Subtitle, Heading 3–6 and Quote), and
+ * is unreadable on a dark menu.
+ */
 function StylePreview({ controller, id, label }: { controller: DocController; id: string; label: string }) {
   const s = controller.doc.styles.get(id);
   const size = Math.min(20, Math.max(10, s?.text?.size ?? 11));
   return (
-    <span style={{ fontSize: `${size}px`, fontWeight: s?.text?.bold ? 700 : undefined, fontStyle: s?.text?.italic ? 'italic' : undefined, color: s?.text?.color, fontFamily: s?.text?.font }}>
+    <span style={{ fontSize: `${size}px`, fontWeight: s?.text?.bold ? 700 : undefined, fontStyle: s?.text?.italic ? 'italic' : undefined, fontFamily: s?.text?.font }}>
       {label}
     </span>
   );
@@ -263,6 +272,16 @@ function SizeInput({ controller, size, label, disabled }: { controller: DocContr
       className="h-7 w-10 rounded border bg-background text-center text-xs outline-none focus:border-primary"
     />
   );
+}
+
+/**
+ * A press on the toolbar itself (a gap, a greyed-out button, which takes no
+ * clicks) leaves typing in the document; its fields (the font size) still
+ * take focus.
+ */
+export function keepTypingFocus(e: React.MouseEvent) {
+  if ((e.target as HTMLElement).closest('input, textarea, select')) return;
+  e.preventDefault();
 }
 
 function stepSize(size: number, dir: 1 | -1): number {

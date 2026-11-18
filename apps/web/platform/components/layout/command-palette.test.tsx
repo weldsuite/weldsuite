@@ -203,6 +203,14 @@ describe('CommandPalette', () => {
     expect(screen.queryByText('Acme Industries')).not.toBeInTheDocument();
   });
 
+  it('leaves Ctrl+K to a focused editor that already used it (a link in WeldDocs)', () => {
+    render(<CommandPalette />);
+    const event = new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true, cancelable: true });
+    event.preventDefault();
+    window.dispatchEvent(event);
+    expect(screen.queryByTestId('command-palette')).not.toBeInTheDocument();
+  });
+
   it('filters to a page and navigates when that command is chosen', async () => {
     const user = userEvent.setup();
     render(<CommandPalette />);

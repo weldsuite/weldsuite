@@ -51,7 +51,8 @@ export function DocHeader({
             if (e.key === 'Enter') e.currentTarget.blur();
           }}
           aria-label={t.welddocs.home.rename}
-          className="h-7 min-w-0 max-w-md flex-1 rounded px-1 text-[15px] font-medium leading-6 text-foreground outline-none hover:bg-muted focus:bg-muted"
+          // A name too long for the row ends in "…" (while it is not being edited).
+          className="h-7 min-w-0 max-w-md flex-1 text-ellipsis rounded px-1 text-[15px] font-medium leading-6 text-foreground outline-none hover:bg-muted focus:bg-muted"
         />
         <StatusLabel status={status} />
       </div>

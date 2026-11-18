@@ -1,16 +1,21 @@
 /**
- * Workspace account card on the employee detail page.
+ * "Workspace account" row of the employee panel's Details tab.
  *
  * New employees are created from a workspace member or together with their
  * invitation, so an unlinked employee is either still to accept (hr-api links
  * them by email once they do) or from before every employee had to be a
  * member. For the latter: link them to an existing member, or invite them (as
  * an Employee member by default, which gives them My HR and WeldChat only).
+ *
+ * Same geometry as the panel's other property rows: a linked member opens
+ * their team-member panel (in place, with a back arrow); "Not linked" opens a
+ * menu with the link and invite actions.
  */
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ComponentType } from 'react';
 import { toast } from 'sonner';
 import { Link2, Loader2, Send, UserPlus } from 'lucide-react';
+import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { Button } from '@weldsuite/ui/components/button';
 import {
   Dialog,
@@ -19,6 +24,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@weldsuite/ui/components/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@weldsuite/ui/components/dropdown-menu';
 import { Label } from '@weldsuite/ui/components/label';
 import {
   Select,
@@ -30,18 +41,13 @@ import {
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import type { HrEmployeeDetail } from '@weldsuite/app-api-client/domains/weldhr';
+import { useObjectPanel } from '@/components/object-panel';
 import { useAppApi } from '@/lib/api/use-app-api';
-import { useTeamMembers } from '@/hooks/queries/use-team-queries';
+import { useMemberProfile, useTeamMembers } from '@/hooks/queries/use-team-queries';
 import { useWorkspaceRoles } from '@/hooks/queries/use-settings-queries';
 import { useHrAvailableMembers, useUpdateHrEmployee } from '@/hooks/queries/use-weldhr-queries';
 import { errorMessage } from '../../components/shared';
 import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
-import { EmptyText } from '@weldsuite/ui/components/empty-state';
-import { SectionCard } from '@weldsuite/ui/components/section-card';
-
-type Props = Readonly<{
-  employee: HrEmployeeDetail;
-}>;
 
 type InviteAs = 'EMPLOYEE' | 'INTERNAL';
 
@@ -68,7 +74,36 @@ function usePendingInvite(employee: HrEmployeeDetail, enabled: boolean) {
   return { pendingInvite, refetchPending: refetch };
 }
 
-export function EmployeeWorkspaceMemberCard({ employee }: Props) {
+// The value box of `PropertyRow`, so this row's hover border sits where the
+// editable rows' does.
+const VALUE_BOX =
+  'text-sm min-w-0 flex items-center min-h-[32px] py-1 rounded-[9px] -mx-2 px-[7px] box-border border border-transparent text-left';
+
+function LinkedMember({ userId }: Readonly<{ userId: string }>) {
+  const { data: profile } = useMemberProfile(userId);
+  const { open: openPanel } = useObjectPanel();
+  const name = profile?.name || profile?.email || userId;
+  return (
+    <button
+      type="button"
+      className={`${VALUE_BOX} cursor-pointer gap-2 transition-colors hover:border-border`}
+      onClick={() => openPanel({ type: 'team-member', id: userId, stack: true })}
+    >
+      <Avatar className="size-[18px] flex-shrink-0">
+        {profile?.picture && <AvatarImage src={profile.picture} alt={name} className="object-cover" />}
+        <AvatarFallback className="text-[9px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+          {(name.trim()[0] ?? '?').toUpperCase()}
+        </AvatarFallback>
+      </Avatar>
+      <span className="truncate text-foreground">{name}</span>
+    </button>
+  );
+}
+
+export function EmployeeWorkspaceAccountRow({
+  employee,
+  icon: Icon,
+}: Readonly<{ employee: HrEmployeeDetail; icon: ComponentType<{ className?: string }> }>) {
   const t = useTranslations();
   const { can } = usePermissions();
   const { teamMembers } = useAppApi();
@@ -78,11 +113,6 @@ export function EmployeeWorkspaceMemberCard({ employee }: Props) {
   // PATCH /employees/:id (the link) and the available-members list both need employees:update.
   const canLink = can('employees:update');
 
-  // Only to show who a linked employee is; every member type, since the
-  // linked member is often an EMPLOYEE member.
-  const { data: membersResponse } = useTeamMembers(
-    canReadTeam && employee.userId ? { limit: 100, status: 'ACTIVE', memberType: 'all' } : undefined,
-  );
   const { pendingInvite, refetchPending } = usePendingInvite(employee, canReadTeam && !employee.userId);
   // Members who are free to link: active INTERNAL / EMPLOYEE, not an employee yet.
   const { data: availableMembers } = useHrAvailableMembers({ limit: 200 }, { enabled: canLink && !employee.userId });
@@ -95,11 +125,6 @@ export function EmployeeWorkspaceMemberCard({ employee }: Props) {
   const [roleId, setRoleId] = useState<string>('');
   const [failure, setFailure] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
-
-  const linkedMember = useMemo(() => {
-    if (!employee.userId) return null;
-    return (membersResponse?.data ?? []).find((m) => m.userId === employee.userId) ?? null;
-  }, [employee.userId, membersResponse]);
 
   const linkableMembers = useMemo(() => availableMembers ?? [], [availableMembers]);
 
@@ -160,60 +185,57 @@ export function EmployeeWorkspaceMemberCard({ employee }: Props) {
     }
   }
 
-  let body;
+  let value;
   if (employee.userId) {
-    body = (
-      <div className="space-y-2">
-        <p className="text-sm">
-          {t('weldhr.employees.workspace.linkedAs', {
-            name: linkedMember?.name || (linkedMember ? memberEmail(linkedMember) : null) || employee.userId,
-          })}
-        </p>
-        {linkedMember && memberEmail(linkedMember) && (
-          <p className="text-xs text-muted-foreground">{memberEmail(linkedMember)}</p>
-        )}
-      </div>
-    );
+    value = <LinkedMember userId={employee.userId} />;
   } else if (pendingInvite) {
-    body = (
-      <p className="text-sm text-muted-foreground">
-        {t('weldhr.employees.workspace.invitePending', { email: employee.email })}
-      </p>
+    value = (
+      <span className={`${VALUE_BOX} text-muted-foreground`} title={t('weldhr.employees.workspace.invitePending', { email: employee.email })}>
+        {t('weldhr.employees.workspace.invitePendingShort')}
+      </span>
     );
-  } else {
-    body = (
-      <div className="space-y-3">
-        <EmptyText>{t('weldhr.employees.workspace.notLinked')}</EmptyText>
-        {emailMatch && (
-          <p className="text-xs text-muted-foreground">
-            {t('weldhr.employees.workspace.emailMatchHint', {
-              name: emailMatch.name || memberEmail(emailMatch) || emailMatch.userId,
-            })}
-          </p>
-        )}
-        <div className="flex flex-wrap gap-2">
+  } else if (canLink || canInvite) {
+    value = (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className={`${VALUE_BOX} cursor-pointer transition-colors hover:border-border data-[state=open]:border-border`}
+            title={t('weldhr.employees.workspace.notLinked')}
+          >
+            <span className="text-muted-foreground/70">{t('weldhr.employees.workspace.notLinkedShort')}</span>
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start">
           {canLink && (
-            <Button size="sm" variant="outline" onClick={openLink}>
-              <Link2 className="mr-1.5 h-4 w-4" />
-              {emailMatch
-                ? t('weldhr.employees.workspace.linkMatching')
-                : t('weldhr.employees.workspace.linkExisting')}
-            </Button>
+            <DropdownMenuItem onClick={openLink}>
+              <Link2 />
+              {emailMatch ? t('weldhr.employees.workspace.linkMatching') : t('weldhr.employees.workspace.linkExisting')}
+            </DropdownMenuItem>
           )}
           {canInvite && (
-            <Button size="sm" onClick={openInvite}>
-              <UserPlus className="mr-1.5 h-4 w-4" />
+            <DropdownMenuItem onClick={openInvite}>
+              <UserPlus />
               {t('weldhr.employees.workspace.invite')}
-            </Button>
+            </DropdownMenuItem>
           )}
-        </div>
-      </div>
+        </DropdownMenuContent>
+      </DropdownMenu>
     );
+  } else {
+    value = <span className={`${VALUE_BOX} text-muted-foreground`}>{t('weldhr.employees.workspace.notLinkedShort')}</span>;
   }
 
   return (
     <>
-      <SectionCard title={t('weldhr.employees.workspace.title')}>{body}</SectionCard>
+      <div className="grid grid-cols-[120px_minmax(0,1fr)_auto] gap-2 items-center group/row min-h-[32px]">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Icon className="h-4 w-4" />
+          <span>{t('weldhr.employees.detail.fields.workspaceAccount')}</span>
+        </div>
+        <div className="min-w-0 flex">{value}</div>
+        <div />
+      </div>
 
       {dialog === 'invite' && (
         <Dialog open onOpenChange={(open) => !open && !pending && setDialog(null)}>
@@ -290,6 +312,13 @@ export function EmployeeWorkspaceMemberCard({ employee }: Props) {
             <div className="space-y-4">
               <ErrorBanner error={failure} onDismiss={() => setFailure(null)} />
               <p className="text-sm text-muted-foreground">{t('weldhr.employees.workspace.linkDescription')}</p>
+              {emailMatch && (
+                <p className="text-xs text-muted-foreground">
+                  {t('weldhr.employees.workspace.emailMatchHint', {
+                    name: emailMatch.name || memberEmail(emailMatch) || emailMatch.userId,
+                  })}
+                </p>
+              )}
               <div className="space-y-2">
                 <Label>{t('weldhr.employees.create.teamMember')}</Label>
                 <Select value={selectedUserId || '__none'} onValueChange={(v) => setSelectedUserId(v === '__none' ? '' : v)}>

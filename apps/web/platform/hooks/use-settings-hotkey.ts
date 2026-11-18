@@ -4,8 +4,9 @@ import { HOTKEYS, matchesHotkey } from "@/lib/hotkeys/registry";
 export function useSettingsHotkey(onOpen: () => void) {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      // Cmd+, (Mac) or Ctrl+, (Windows/Linux) to open settings
-      if (matchesHotkey(event, HOTKEYS.openSettings)) {
+      // Cmd+, (Mac) or Ctrl+, (Windows/Linux) to open settings, unless an
+      // editor already used the key (subscript in WeldDocs).
+      if (!event.defaultPrevented && matchesHotkey(event, HOTKEYS.openSettings)) {
         event.preventDefault();
         onOpen();
       }

@@ -169,7 +169,8 @@ export function CommandPalette() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.repeat || !matchesHotkey(event, HOTKEYS.openCommandPalette)) return;
+      // A focused editor that uses the key itself (⌘K inserts a link in WeldDocs) has handled it already.
+      if (event.repeat || event.defaultPrevented || !matchesHotkey(event, HOTKEYS.openCommandPalette)) return;
       event.preventDefault();
       toggleCommandPalette();
     };

@@ -60,6 +60,21 @@ export const weldhrSelf = {
         milestones: 'Milestones achieved',
         milestonesHint: '{open} still open',
       },
+      // The overview as a record: short labels for its Details rows and the empty states of its lists.
+      record: {
+        clockedInSince: 'Clocked in since {time}',
+        notClockedIn: 'Not clocked in',
+        toAcknowledge: 'To confirm',
+        evaluation: 'Evaluation',
+        milestones: 'Milestones',
+        milestonesValue: '{achieved} of {total} achieved',
+        clients: 'Clients',
+        time: 'Time',
+        leaveEmptyTitle: 'No leave balances yet',
+        leaveEmptyDescription: 'Your leave types show up here once HR adds them',
+        shiftsEmptyTitle: 'No upcoming shifts',
+        shiftsEmptyDescription: 'Shifts planned for you show up here',
+      },
       profile: {
         title: 'Profile',
         email: 'Email',

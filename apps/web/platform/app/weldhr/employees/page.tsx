@@ -2,13 +2,14 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useCreateIntent } from '@/hooks/use-create-intent';
-import { useNavigate } from '@tanstack/react-router';
 import { Users } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import type { HrEmployeeListItem } from '@weldsuite/app-api-client/domains/weldhr';
 import { useDebounce } from '@/hooks/use-debounce';
 import { PanelEntityList, type ColumnDef, type FilterConfig, type ActiveFilter, type GroupConfig } from '@/components/panel-entity-list';
+import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
+import { HR_EMPLOYEE_PANEL_TYPE } from '@/components/objects/hr-employee/hr-employee-tabs';
 import { useHrDepartments, useHrEmployees } from '@/hooks/queries/use-weldhr-queries';
 import { cn } from '@/lib/utils';
 import { HR_COL, HrListContainer, emptyIcon, useHrBreadcrumbs } from '../components/page-kit';
@@ -18,7 +19,9 @@ import { CreateEmployeeDialog } from './components/create-employee-dialog';
 export default function WeldHrEmployeesPage() {
   const t = useTranslations();
   useHrBreadcrumbs({ label: t('weldhr.employees.title') });
-  const navigate = useNavigate();
+  // An employee opens in the object panel; `?stack=` keeps it deep-linkable.
+  useObjectPanelUrlSync('/weldhr/employees');
+  const { open: openPanel } = useObjectPanel();
   const { can } = usePermissions();
   const canCreate = can('employees:create') || can('employees:manage');
 
@@ -152,7 +155,8 @@ export default function WeldHrEmployeesPage() {
           error={error as Error | null}
           columns={columns}
           groups={groups}
-          onRowClick={(emp) => navigate({ to: '/weldhr/employees/$employeeId', params: { employeeId: emp.id } })}
+          onRowClick={(emp) => openPanel({ type: HR_EMPLOYEE_PANEL_TYPE, id: emp.id })}
+          objectPanel={{ type: HR_EMPLOYEE_PANEL_TYPE }}
           filters={filterConfigs}
           activeFilters={filters}
           onFiltersChange={setFilters}

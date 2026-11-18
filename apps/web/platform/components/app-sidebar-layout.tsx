@@ -598,18 +598,6 @@ function GroupLabelPlain({ group }: Readonly<{ group: MenuGroupProps }>) {
   }
   return (
     <div className="group/label relative flex items-center rounded-md px-1 py-0 -mx-1 transition-colors hover:bg-sidebar-accent">
-      {group.onToggleCollapse && (
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          onClick={group.onToggleCollapse}
-          className="flex items-center justify-center w-4 h-4 rounded text-muted-foreground hover:text-foreground"
-          aria-label={group.collapsed ? t.common.sidebarItemMenu.expandGroup : t.common.sidebarItemMenu.collapseGroup}
-        >
-          {group.collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-        </Button>
-      )}
       <SidebarGroupLabel
         className={cn('flex flex-1 items-center gap-1', group.onToggleCollapse && 'cursor-pointer select-none')}
         onClick={group.onToggleCollapse}
@@ -617,6 +605,20 @@ function GroupLabelPlain({ group }: Readonly<{ group: MenuGroupProps }>) {
         <GroupLabelText group={group} />
       </SidebarGroupLabel>
       {addButton}
+      {/* At the far right of the row, in line with the scope switcher's
+          up/down icon above it. */}
+      {group.onToggleCollapse && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          onClick={group.onToggleCollapse}
+          className="mr-2 flex items-center justify-center w-4 h-4 rounded text-muted-foreground hover:text-foreground"
+          aria-label={group.collapsed ? t.common.sidebarItemMenu.expandGroup : t.common.sidebarItemMenu.collapseGroup}
+        >
+          {group.collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+        </Button>
+      )}
     </div>
   );
 }

@@ -17,12 +17,12 @@ import {
 import { usePreviewMode } from '@/contexts/preview-mode-context';
 import { useI18n } from '@/lib/i18n/provider';
 import type { DocController } from './model/doc-controller';
-import { MOD_LABEL } from './model/keyboard';
+import { FIND_SHORTCUT, MOD_LABEL, shortcutLabel, splitShortcut } from './model/keyboard';
 import { insertTableAtCaret, tableContext } from './model/table-actions';
 import { TableMenuItems } from './table-menu';
 import { CloseMenuContext, TablePicker } from './table-picker';
 import { PARAGRAPH_STYLES, ZOOMS } from './toolbar';
-import { ReturnFocusContext, useCloseAutoFocus } from './ui';
+import { MENU_EDGE_GAP, ReturnFocusContext, useCloseAutoFocus } from './ui';
 import { useDocDownload } from '../use-doc-files';
 
 /** File, Edit, View, Insert, Format, Tools and Help, as in Google Docs. */
@@ -113,7 +113,7 @@ export function Menubar({ controller, name, onRename }: { controller: DocControl
         <Item shortcut={`${MOD_LABEL}+A`} onSelect={() => controller.selectAll()}>
           {tm.selectAll}
         </Item>
-        <Item shortcut={`${MOD_LABEL}+H`} onSelect={() => controller.openFind()}>
+        <Item shortcut={FIND_SHORTCUT} onSelect={() => controller.openFind()}>
           {tm.findReplace}
         </Item>
       </TopMenu>
@@ -323,7 +323,9 @@ function TopMenu({ label, children }: { label: string; children: ReactNode }) {
           {label}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="min-w-60" onCloseAutoFocus={onCloseAutoFocus}>
+      {/* The menus sit at the toolbar's right end: each opens under its own
+          button, running leftwards, and keeps clear of the window's edge. */}
+      <DropdownMenuContent align="end" collisionPadding={MENU_EDGE_GAP} className="min-w-60" onCloseAutoFocus={onCloseAutoFocus}>
         <CloseMenuContext.Provider value={() => setOpen(false)}>{children}</CloseMenuContext.Provider>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -349,6 +351,10 @@ function Item({
   disabled?: boolean;
   inset?: boolean;
 }) {
+  // A label that carries its shortcut in brackets (the toolbar's "Left align
+  // (Ctrl+Shift+L)") shows it at the right, like every other command here.
+  const split = typeof children === 'string' && !shortcut ? splitShortcut(children) : null;
+  const keys = shortcut ?? split?.shortcut;
   const returnFocus = useContext(ReturnFocusContext);
   const select = () => {
     onSelect();
@@ -356,8 +362,8 @@ function Item({
   };
   const content = (
     <>
-      {children}
-      {shortcut && <DropdownMenuShortcut>{shortcut}</DropdownMenuShortcut>}
+      {split ? split.name : children}
+      {keys && <DropdownMenuShortcut>{shortcutLabel(keys)}</DropdownMenuShortcut>}
     </>
   );
   if (checked === undefined) {
