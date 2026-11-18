@@ -97,6 +97,18 @@ export interface ApiModule {
  */
 export const RUST_PORTED_MODULES: ReadonlySet<ApiModuleId> = new Set<ApiModuleId>(['core', 'know', 'sign', 'pass', 'calendar', 'crm', 'flow', 'mail', 'chat', 'desk', 'stash', 'ads', 'social', 'data', 'commerce', 'hr', 'call', 'host', 'meet', 'reach', 'books', 'docs', 'panel', 'sheets', 'connect', 'board', 'merge', 'forms', 'agent']);
 
+/**
+ * Features built only in the Rust backend. Global is being retired (ADR
+ * OPS-025), so new work lands in Rust first and Global's TypeScript workers
+ * never get it. Global serves no `/config.json`, so the platform
+ * (`isFeatureAvailable` in `apps/web/platform/lib/edition.ts`) and the mobile
+ * apps (`buildGlobalRuntime` in `@weldsuite/mobile-platform`) read this list
+ * instead and hide these features on Global until the cutover. Each name is
+ * an `EditionFeature` (`apps/web/platform/lib/edition.ts`): add it there first.
+ * Deleted together with Global.
+ */
+export const GLOBAL_UNAVAILABLE_FEATURES: readonly string[] = [];
+
 const mod = (
   id: ApiModuleId,
   devPort: number,

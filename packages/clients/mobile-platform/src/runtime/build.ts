@@ -3,7 +3,7 @@
  * `/config.json`) to the `MobileRuntime` the app reads. Pure.
  */
 
-import { parseModuleList, type ApiModuleId } from '@weldsuite/api-modules';
+import { GLOBAL_UNAVAILABLE_FEATURES, parseModuleList, type ApiModuleId } from '@weldsuite/api-modules';
 import type { RuntimeConfig } from '@weldsuite/app-api-client/schemas/runtime-config';
 import { trimTrailing } from '../text';
 import { normaliseServerAddress } from './address';
@@ -68,7 +68,8 @@ export function buildGlobalRuntime(app: MobileAppIdentity, build: MobileBuildEnv
     platformUrl: trimSlash(build.platformUrl || apiOrigin.replace('//app-api', '//app')),
     auth: { provider: 'clerk', publishableKey: build.clerkPublishableKey ?? '' },
     modules: 'all',
-    unavailableFeatures: new Set(),
+    // Features built only in Rust since OPS-025; Global serves no /config.json.
+    unavailableFeatures: new Set(GLOBAL_UNAVAILABLE_FEATURES),
     env: {},
     videoProvider: null,
     videoUrl: null,

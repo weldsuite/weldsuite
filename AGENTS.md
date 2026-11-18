@@ -19,10 +19,13 @@ accounting, commerce, chat, meetings, AI agents and more) built as `weld*`
 modules a workspace installs. It is a pnpm 10.34.5 + Turborepo monorepo on
 Node 22+.
 
-It ships as three editions from one codebase (ADR OPS-012):
+Today it ships as three editions from one codebase (ADR OPS-012). Global is
+being retired: once its workspaces have moved into the EU install, two remain,
+hosted EU and self-hosted (ADR OPS-025, which supersedes OPS-012).
 
-- **Global**: the platform SPA (Vite + React 19, TanStack Router, Clerk) talks
-  to Hono APIs on Cloudflare Workers, backed by Neon Postgres through Drizzle.
+- **Global** (being retired): the platform SPA (Vite + React 19, TanStack
+  Router, Clerk) talks to Hono APIs on Cloudflare Workers, backed by Neon
+  Postgres through Drizzle.
 - **EU** and **self-hosted**: the same frontends against a Rust backend
   (`rust/`) on Kubernetes, with Zitadel (OIDC) sign-in. Only the modules in
   `RUST_PORTED_MODULES` (`packages/core/api-modules`) are offered there; the
@@ -274,6 +277,19 @@ counts) use `useIdleAwareRefetchInterval`
 (`apps/web/platform/hooks/use-user-idle.ts`) so they stop when nobody is there.
 
 ### Both backends
+
+**Global is being retired, so build in Rust first (ADR OPS-025).** Global's
+workspaces move into the EU install, and the TypeScript workers are deleted
+after the cutover (plan: `weldsuite-documentation/plans/retire-global-edition.md`).
+Until then:
+
+- New features are built in Rust.
+- The TypeScript workers get only fixes, plus whatever a shared frontend change
+  needs to keep working on Global.
+- A feature that exists only in Rust gets an `EditionFeature`
+  (`apps/web/platform/lib/edition.ts`) and goes into
+  `GLOBAL_UNAVAILABLE_FEATURES` (`packages/core/api-modules`). That hides it on
+  Global in the platform and in the mobile apps.
 
 A route listed in `rust/conformance/suites.json` is served by the TypeScript
 worker and by Rust: change its behaviour in both, and `pnpm rust:conformance`

@@ -2,8 +2,10 @@
 
 The backend of the EU and self-hosted editions (ADR API-014): one `weldsuite`
 binary, shipped as one container image and installed with the Helm chart in
-`deploy/helm/weldsuite`. Global keeps the TypeScript workers on Cloudflare;
-modules are ported from them one at a time, and both answer the same API.
+`deploy/helm/weldsuite`. Global runs the TypeScript workers on Cloudflare until
+it is retired (ADR OPS-025): its workspaces then move into the EU install and
+the workers are deleted. Until then, both backends answer the same API, and new
+features are built here first (root `AGENTS.md`, "Both backends").
 Read the root `AGENTS.md` first. [`README.md`](README.md) here is the full
 reference (layout, commands, conformance, migrations, running it); read the
 section you need rather than all of it.
