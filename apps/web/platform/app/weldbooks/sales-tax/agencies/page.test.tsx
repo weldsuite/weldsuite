@@ -173,7 +173,7 @@ describe('SalesTaxAgenciesPage', () => {
   it('links to the engine settings', async () => {
     serve([]);
     renderWithProviders(<SalesTaxAgenciesPage />);
-    expect(await screen.findByRole('link', { name: ta.engineSettings })).toHaveAttribute('href', '/weldbooks/sales-tax/settings');
+    expect(await screen.findByRole('link', { name: ta.engineSettings })).toHaveAttribute('href', '/settings/apps/weldbooks');
   });
 
   it('is only for a US entity', () => {

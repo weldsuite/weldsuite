@@ -145,7 +145,7 @@ describe('PaymentRunsPage', () => {
     await screen.findByText('$350.50');
     const nav = screen.getByRole('navigation', { name: 'Vendor payments' });
     expect(within(nav).getByRole('link', { name: 'Payment runs' })).toHaveAttribute('aria-current', 'page');
-    for (const name of ['Check register', 'Positive Pay', 'Payment settings']) {
+    for (const name of ['Check register', 'Positive Pay']) {
       expect(within(nav).getByRole('link', { name })).not.toHaveAttribute('aria-current');
     }
   });

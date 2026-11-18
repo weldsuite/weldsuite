@@ -35,8 +35,7 @@ export function SocialHeader({
       accounts: t.social.accounts.title,
       approvals: st('sweep.miscA.socialHeader.approvals'),
       campaigns: t.social.campaigns.title,
-      team: t.social.team.title,
-      settings: t.social.settings.title,
+      // Team and settings are in Settings → Apps → WeldSocial, not under /social.
     };
 
     const result: BreadcrumbSegment[] = [{ label: t.social.title, href: '/social' }];

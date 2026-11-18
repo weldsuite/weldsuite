@@ -34,7 +34,7 @@ describe('route availability', () => {
     expect(isRouteOffered('/weldmail/ai/smart-reply')).toBe(false);
     expect(isRouteOffered('/weldmail/domains')).toBe(false);
     expect(isRouteOffered('/weldmail/setup')).toBe(true);
-    expect(isRouteOffered('/weldmail/settings/labels')).toBe(true);
+    expect(isRouteOffered('/settings/apps/weldmail')).toBe(true);
   });
 
   it('hides buying and porting phone numbers without the feature, and only those', () => {

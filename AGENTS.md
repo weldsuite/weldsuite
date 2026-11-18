@@ -2,8 +2,46 @@
 
 The authoritative map of this monorepo (modules, routing, API/DB conventions,
 commands) lives in [CLAUDE.md](./CLAUDE.md) and [CONTRIBUTING.md](./CONTRIBUTING.md).
-Read those first. This file adds one hard architecture rule plus
-cloud-environment caveats.
+Read those first. This file adds two hard rules (app settings, tenant
+databases) plus cloud-environment caveats.
+
+## App settings live in Settings, nowhere else
+
+An app's settings (its configuration: channels, types, statuses, schedules,
+portal, team roles, defaults, …) have exactly one home: the workspace
+Settings page for that app, **`/settings/apps/{appCode}`** (shown to people as
+`/w/{workspace}/settings/apps/{appCode}`, e.g. `/w/weldsuite/settings/apps/weldcrm`).
+When you build a new app or add settings to an existing one:
+
+- **Not inside the app.** No `/{module}/settings` route, no settings tab or
+  "Settings" button in the app's own pages, no settings dialog behind a gear
+  icon in the app header.
+- **Not in the app's sidebar.** No "Settings" group or settings item in the
+  module menu (`components/layout/module-sidebar-configs.tsx` or the module's
+  own `use-*-sidebar-items` hook). `module-sidebar-configs.test.ts` fails if a
+  module menu links to a settings page.
+- **In the Settings side nav.** Add the app to `APP_SETTINGS_ITEMS` in
+  `app/settings/hooks/use-settings-sidebar-items.tsx` (listed under *Apps* when
+  the app is installed) and to the `appSettings` list in
+  `components/layout/palette-commands.ts`.
+- **Page and route.** The page is `app/settings/apps/{appCode}/page.tsx`, the
+  route wrapper `src/routes/settings/apps/{appCode}.tsx` (or a folder with
+  `index.tsx` when the app has sub-pages). Several areas are tabs on that one
+  page, selected with `?tab=` (see `app/settings/apps/weldhr/page.tsx`); keep
+  the page inside the settings column (`settings-layout-client.tsx`).
+- **No redirects.** When moving settings out of an app, delete the old route;
+  don't leave a redirect behind. Repoint every link, and every backend that
+  sends people back to the page (OAuth and install callbacks, Stripe returns),
+  at the new URL.
+- A contextual link from the app into its settings is fine ("Set up sales
+  tax" on an empty state, "Add an account" in a picker). Before navigating,
+  call `sessionStorage.setItem('settings-return-url', pathname)` so the
+  Settings back button returns to where the person was.
+
+Settings of one record (a project's settings, a workflow's settings, a
+campaign's settings tab) are not app settings and stay with the record. So does
+everyday work that only sounds like configuration, such as opening and closing
+WeldBooks fiscal periods or the connected profiles WeldSocial posts to.
 
 ## Never periodically wake tenant databases
 

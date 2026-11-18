@@ -8,7 +8,6 @@ import {
   Globe,
   Briefcase,
   FolderOpen,
-  Settings,
   Server,
   Plus,
   SquareArrowOutUpRight,
@@ -85,7 +84,6 @@ import {
   Contact,
   Mailbox,
   ReceiptText,
-  Ungroup,
   TextAlignStart,
   SquareChartGantt,
   HandCoins,
@@ -152,7 +150,6 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.navigation.moduleSidebar.weldcommerce.categories, href: '/weldcommerce/categories', icon: FolderTree, permission: 'categories:read' },
           { title: t.navigation.moduleSidebar.weldcommerce.orders, href: '/weldcommerce/orders', icon: ShoppingCart, permission: 'orders:read' },
           { title: t.navigation.moduleSidebar.weldcommerce.customers, href: '/weldcommerce/customers', icon: Building, permission: 'companies:read' },
-          { title: t.navigation.moduleSidebar.weldcommerce.portal, href: '/weldcommerce/settings', icon: Globe, permission: 'companies:read' },
         ],
       },
     ],
@@ -264,8 +261,11 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
     ],
   },
   // WeldMerge (pull requests and issues across git providers). Teams are picked
-  // on the Issues page; the sidebar is a static list per module. Its settings
-  // live in workspace Settings (Settings → Apps → WeldMerge).
+  // on the Issues page; the sidebar is a static list per module.
+  //
+  // No module menu has a settings item: an app's settings live only in
+  // workspace Settings (`/settings/apps/{appCode}`, listed by
+  // useSettingsSidebarItems). See AGENTS.md, "App settings live in Settings".
   weldmerge: {
     appName: 'WeldMerge',
     appIcon: GitPullRequest,
@@ -383,13 +383,6 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.navigation.moduleSidebar.weldhr.payRuns, href: '/weldhr/payroll/runs', icon: CalendarClock, permission: 'payroll:read' },
           { title: t.navigation.moduleSidebar.weldhr.payrollEmployees, href: '/weldhr/payroll/employees', icon: Users, permission: 'payroll:read' },
           { title: t.navigation.moduleSidebar.weldhr.filings, href: '/weldhr/payroll/filings', icon: FileSpreadsheet, permission: 'payroll:read' },
-          { title: t.navigation.moduleSidebar.weldhr.payrollSettings, href: '/weldhr/payroll/settings', icon: Settings, permission: 'payroll:manage' },
-        ],
-      },
-      {
-        group: t.navigation.moduleSidebar.groups.settings,
-        items: [
-          { title: t.navigation.moduleSidebar.weldhr.settings, href: '/weldhr/settings', icon: Settings, permission: 'employees:manage' },
         ],
       },
     ],
@@ -423,8 +416,9 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
     appIcon: Headphones,
     appLogo: getAppLogoConfig('welddesk'),
     // Everyday work only. The configuration pages (channels, voice agents,
-    // ticket types, assignment) live in Settings → Apps → WeldDesk. The inbox
-    // views share a path, so `useWelddeskSidebarItems` marks the active one.
+    // ticket types, assignment) live in Settings → Apps → WeldDesk, and only
+    // there (see AGENTS.md). The inbox views share a path, so
+    // `useWelddeskSidebarItems` marks the active one.
     getMenuItems: (t) => [
       {
         group: t.navigation.moduleSidebar.welddesk.groups.inbox,
@@ -456,12 +450,6 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
         items: [
           { title: t.navigation.moduleSidebar.welddesk.reportsOverview, href: '/welddesk/reports', icon: LayoutDashboard, permission: 'settings:read' },
           { title: t.navigation.moduleSidebar.welddesk.customReports, href: '/welddesk/reports/custom', icon: BarChart3, permission: 'settings:read' },
-        ],
-      },
-      {
-        group: t.navigation.moduleSidebar.groups.settings,
-        items: [
-          { title: t.navigation.moduleSidebar.welddesk.settings, href: '/settings/apps/welddesk', icon: Settings },
         ],
       },
     ],
@@ -594,6 +582,8 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.navigation.moduleSidebar.weldbooks.vatReturns, href: '/weldbooks/vat', icon: Receipt },
           { title: t.navigation.moduleSidebar.weldbooks.fixedAssets, href: '/weldbooks/fixed-assets', icon: SquareChartGantt },
           { title: t.navigation.moduleSidebar.weldbooks.payroll, href: '/weldbooks/payroll', icon: HandCoins },
+          // Opening and closing periods is month-end work, not configuration.
+          { title: t.navigation.moduleSidebar.weldbooks.fiscalPeriods, href: '/weldbooks/fiscal-periods', icon: CalendarRange },
         ],
       },
       {
@@ -624,14 +614,8 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.navigation.moduleSidebar.weldbooks.taxWorksheet, href: '/weldbooks/reports/tax-worksheet', icon: FileSpreadsheet },
         ],
       },
-      {
-        group: t.navigation.moduleSidebar.groups.settings,
-        items: [
-          { title: t.navigation.moduleSidebar.weldbooks.fiscalPeriods, href: '/weldbooks/fiscal-periods', icon: CalendarRange },
-          { title: t.navigation.moduleSidebar.weldbooks.dimensions, href: '/weldbooks/settings/dimensions', icon: Ungroup },
-          // The rest of the WeldBooks settings live on the entity in Settings → Entities.
-        ],
-      },
+      // No settings here: dimensions, sales tax and payment runs are in
+      // Settings → Apps → WeldBooks, the entity's books in Settings → Entities.
     ],
   },
   agents: {
@@ -662,16 +646,12 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.navigation.moduleSidebar.social.analytics, href: '/social/analytics', icon: BarChart3 },
           { title: t.navigation.moduleSidebar.social.campaigns, href: '/social/campaigns', icon: Megaphone },
           { title: t.navigation.moduleSidebar.social.approvals, href: '/social/approvals', icon: CircleCheck },
-        ],
-      },
-      {
-        group: t.navigation.moduleSidebar.groups.settings,
-        items: [
+          // The connected profiles you post to. Stays in the app: the
+          // providers' OAuth redirect URIs are registered on this path.
           { title: t.navigation.moduleSidebar.social.accounts, href: '/social/accounts', icon: Link2 },
-          { title: t.navigation.moduleSidebar.social.team, href: '/social/team', icon: Users },
-          { title: t.navigation.moduleSidebar.social.settings, href: '/social/settings', icon: Settings },
         ],
       },
+      // Team and settings are in Settings → Apps → WeldSocial.
     ],
   },
   home: {

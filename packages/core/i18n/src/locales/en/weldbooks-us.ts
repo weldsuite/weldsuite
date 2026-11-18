@@ -12,6 +12,7 @@ import { weldbooksUsSalesTax } from './weldbooks-us-sales-tax';
 import { weldbooksUs1099 } from './weldbooks-us-form1099';
 import { weldbooksUsPayments } from './weldbooks-us-payments';
 import { weldbooksUsAssets } from './weldbooks-us-assets';
+import { weldbooksUsSettings } from './weldbooks-us-settings';
 
 export const weldbooksUs = {
   setup: weldbooksUsSetup,
@@ -22,4 +23,5 @@ export const weldbooksUs = {
   form1099: weldbooksUs1099,
   payments: weldbooksUsPayments,
   assets: weldbooksUsAssets,
+  settingsPage: weldbooksUsSettings,
 };

@@ -234,7 +234,7 @@ describe('SalesTaxAgencyPanel', () => {
     renderPanel();
 
     expect(await screen.findByText('Your tax engine is Stripe Tax')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: ta.notManual.link })).toHaveAttribute('href', '/weldbooks/sales-tax/settings');
+    expect(screen.getByRole('link', { name: ta.notManual.link })).toHaveAttribute('href', '/settings/apps/weldbooks');
   });
 
   it('does not show that note while the engine is manual', async () => {

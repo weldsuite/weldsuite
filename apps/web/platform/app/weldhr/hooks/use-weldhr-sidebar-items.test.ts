@@ -63,7 +63,7 @@ describe('WeldHR sidebar', () => {
 
   it('gives an HR manager My HR on top, collapsible, above the team view', () => {
     const groups = sidebar(HR_MANAGER);
-    expect(groupNames(groups)).toEqual(['My HR', 'Team', 'Time', 'Expenses', 'Settings']);
+    expect(groupNames(groups)).toEqual(['My HR', 'Team', 'Time', 'Expenses']);
     expect(hrefs(groups[0])).toEqual(MY_HR_HREFS);
     expect(groups[0]!.onToggleCollapse).toBeTypeOf('function');
     expect(hrefs(groups[2])).toEqual(['/weldhr/attendance', '/weldhr/absenteeism', '/weldhr/leave']);

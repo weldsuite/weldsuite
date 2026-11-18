@@ -29,6 +29,8 @@ const BREADCRUMB_LABEL_OVERRIDES: Record<string, string> = {
   weldsuite: 'WeldSuite',
   weldcommerce: 'WeldCommerce',
   weldsocial: 'WeldSocial',
+  // WeldSocial's app code (`/settings/apps/social`).
+  social: 'WeldSocial',
   weldcalendar: 'WeldCalendar',
 };
 
@@ -118,9 +120,16 @@ function isIdSegment(pathParts: string[], i: number): boolean {
   if (pathParts[1] === 'entities') return i === 2 && pathParts[3] === 'edit';
   // A legal entity's: Settings > Legal entities (the page names the entity).
   if (pathParts[1] === 'legal-entities') return i === 2;
+  // A bank account's payment-run settings: Settings > Apps > WeldBooks > Payment runs.
+  if (pathParts[2] === 'weldbooks' && pathParts[3] === 'payment-runs') return i === 4;
   // A chat widget's: Settings > Apps > WeldDesk > Chat widget.
   return pathParts[2] === 'welddesk' && pathParts[3] === 'chat-widget' && i === 4;
 }
+
+// Path segments with no page of their own, linked to the tab that holds them.
+const SEGMENT_HREFS: Record<string, string> = {
+  '/settings/apps/weldbooks/payment-runs': '/settings/apps/weldbooks?tab=payment-runs',
+};
 
 // Label for path segment `i`: the app's own page title, else (under Entities)
 // New/Edit entity, else a translated menu title, else a known module slug with
@@ -173,7 +182,8 @@ export function buildBreadcrumbSegments(
     if (i === pathParts.length - 1) {
       segments.push({ label });
     } else {
-      segments.push({ label, href: '/' + pathParts.slice(0, i + 1).join('/') });
+      const path = '/' + pathParts.slice(0, i + 1).join('/');
+      segments.push({ label, href: SEGMENT_HREFS[path] ?? path });
     }
   }
   return segments;

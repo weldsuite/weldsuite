@@ -431,12 +431,17 @@ export function settingsCommands(
 
   const appSettings: Array<{ code: string; title: string; keywords: string; href: string }> = [
     { code: 'parcel', title: search.parcelSettings, keywords: `${search.parcelSettings} ${search.configureParcel}`, href: '/settings/apps/parcel' },
+    { code: 'weldbooks', title: 'WeldBooks', keywords: 'weldbooks accounting dimensions sales tax payment runs settings', href: '/settings/apps/weldbooks' },
+    { code: 'weldcalendar', title: 'WeldCalendar', keywords: 'weldcalendar calendar tasks scheduling settings', href: '/settings/apps/weldcalendar' },
+    { code: 'weldcommerce', title: 'WeldCommerce', keywords: 'weldcommerce commerce customer portal b2b settings', href: '/settings/apps/weldcommerce' },
     { code: 'weldcrm', title: 'WeldCRM', keywords: 'weldcrm crm settings', href: '/settings/apps/weldcrm' },
+    { code: 'weldflow', title: 'WeldFlow', keywords: 'weldflow projects tasks scheduling settings', href: '/settings/apps/weldflow' },
     { code: 'welddesk', title: search.helpdeskSettings, keywords: `${search.helpdeskSettings} ${search.configureHelpdesk}`, href: '/settings/apps/welddesk' },
-    { code: 'weldmail', title: search.mailAccounts, keywords: `${search.mailAccounts} ${search.manageMailAccounts} weldmail`, href: '/settings/apps/weldmail' },
+    { code: 'weldmail', title: search.mailAccounts, keywords: `${search.mailAccounts} ${search.manageMailAccounts} weldmail labels signatures`, href: '/settings/apps/weldmail' },
     { code: 'weldmerge', title: 'WeldMerge', keywords: 'weldmerge git providers repositories teams labels settings', href: '/settings/apps/weldmerge' },
     { code: 'weldreach', title: 'WeldReach', keywords: 'weldreach outreach sender sending defaults suppressions settings', href: '/settings/apps/weldreach' },
-    { code: 'weldhr', title: search.weldhrSettings, keywords: `${search.weldhrSettings} ${search.configureWeldhr} weldhr`, href: '/settings/apps/weldhr' },
+    { code: 'weldhr', title: search.weldhrSettings, keywords: `${search.weldhrSettings} ${search.configureWeldhr} weldhr payroll pay schedules`, href: '/settings/apps/weldhr' },
+    { code: 'social', title: 'WeldSocial', keywords: 'weldsocial social publishing timezone approval team settings', href: '/settings/apps/social' },
   ];
   for (const app of appSettings) {
     if (!installed.has(app.code)) continue;

@@ -531,6 +531,7 @@ Environments: local wrangler → **test** (`develop`) → **production** (`main`
 - **NOT Next.js, Vite SPA.** No server components, server actions, or middleware.ts in the platform.
 - **`app/` holds components, `src/routes/` holds route wrappers.** Despite the name.
 - **Never edit `apps/web/platform/src/routeTree.gen.ts`.**
+- **App settings live only in Settings → Apps** (`/settings/apps/{appCode}`, in the Settings side nav): never inside the app, never in the app's sidebar, no redirects from old paths. Full rule in [AGENTS.md](./AGENTS.md#app-settings-live-in-settings-nowhere-else).
 - **Schema changes**: edit `packages/core/db/src/schema/` freely, but never create migration files without explicit user approval.
 - **Zod v3 only** in app code. Root `package.json` may show v4 in overrides; ignore, do not upgrade app imports.
 - **Tailwind v4** via `@tailwindcss/vite`.

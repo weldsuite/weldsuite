@@ -15,8 +15,6 @@ const routes = [
   '/weldmail/inbox/compose',
   '/weldmail/scheduled',
   '/weldmail/search',
-  '/weldmail/settings/accounts',
-  '/weldmail/settings/labels',
   '/weldmail/setup',
   '/weldmail/snoozed',
 ];

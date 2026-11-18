@@ -22,7 +22,7 @@ use crate::js::query_param;
 use crate::tables::HELPDESK_CHANNEL_INTEGRATIONS as HCI;
 
 const DISCORD_SETTINGS_PATH: &str = "/settings/integrations/discord";
-const SLACK_SETTINGS_PATH: &str = "/welddesk/settings/integrations/slack";
+const SLACK_SETTINGS_PATH: &str = "/settings/integrations/slack";
 
 pub(super) fn routes() -> Router<PublicState> {
     Router::new()
