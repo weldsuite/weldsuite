@@ -187,12 +187,6 @@ impl Source {
         None
     }
 
-    /// `nextAssetImportAt(source, from)`: when the next scheduled import is
-    /// due after a run that ended at `from` (`None`: the schedule is off).
-    pub(crate) fn next_import_at(&self, from: OffsetDateTime) -> Option<OffsetDateTime> {
-        self.enabled
-            .then(|| from + time::Duration::hours(self.interval_hours))
-    }
 }
 
 /// Every source, oldest first.
@@ -366,50 +360,104 @@ pub(crate) async fn start_import(
     Ok(row.map(Source::from_row))
 }
 
-/// `saveState`: where the run stopped, for the next step.
+/// `claimStep`: take the run for one step. A compare-and-set that goes
+/// through only while no other step holds a lease that has not run out; it
+/// writes `lease` as the state's `leaseUntil`. The source as stored then (the
+/// step works from it, not from what its caller read earlier), or `None`:
+/// another step is at work, or no run is under way any more.
+pub(crate) async fn claim_step(
+    db: &PgPool,
+    id: &str,
+    now: &str,
+    lease: &str,
+) -> Result<Option<Source>, sqlx::Error> {
+    // ISO times of one form order as text; no lease reads as the empty string.
+    let row: Option<Value> = sqlx::query_scalar(concat!(
+        "update asset_sources as s set \
+           sync_state = jsonb_set(s.sync_state, '{leaseUntil}', to_jsonb($2::text)) \
+         where s.id = $1 and jsonb_typeof(s.sync_state) = 'object' \
+           and coalesce(s.sync_state->>'leaseUntil', '') collate \"C\" <= $3 \
+         returning ",
+        columns!()
+    ))
+    .bind(id)
+    .bind(lease)
+    .bind(now)
+    .fetch_optional(db)
+    .await?;
+    Ok(row.map(Source::from_row))
+}
+
+/// `saveState`: where the run stopped, for the next step. Written by the
+/// step that holds `lease`, and the lease goes with it (`state` carries
+/// none). `false`: the run was no longer this step's.
 pub(crate) async fn save_state(
     db: &PgPool,
     id: &str,
     state: &Value,
     now: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update asset_sources set sync_state = $2, updated_at = $3::timestamp where id = $1",
+    lease: &str,
+) -> Result<bool, sqlx::Error> {
+    let saved = sqlx::query(
+        "update asset_sources set sync_state = $2, updated_at = $3::timestamp \
+          where id = $1 and sync_state->>'leaseUntil' = $4",
     )
     .bind(id)
     .bind(state)
     .bind(now)
+    .bind(lease)
+    .execute(db)
+    .await?;
+    Ok(saved.rows_affected() > 0)
+}
+
+/// `releaseLease`: give the lease up and leave everything else as it is (a
+/// throttled step waits).
+pub(crate) async fn release_lease(db: &PgPool, id: &str, lease: &str) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "update asset_sources set sync_state = sync_state - 'leaseUntil' \
+          where id = $1 and sync_state->>'leaseUntil' = $2",
+    )
+    .bind(id)
+    .bind(lease)
     .execute(db)
     .await?;
     Ok(())
 }
 
-/// `endRun`: the run is over, finished or failed. The source as stored
-/// afterwards (as it was when the row went away meanwhile).
+/// `endRun`: the run is over, finished or failed. The next scheduled import
+/// comes from the row's own `enabled` and `interval_hours` as they are when
+/// this is written, not as the step read them: the schedule may have been
+/// switched on, or its interval changed, while the step ran. The source as
+/// stored afterwards, or `None` when the run was no longer this step's (its
+/// lease ran out and another step took over, or the source was deleted).
 pub(crate) async fn end_run(
     db: &PgPool,
-    source: &Source,
+    id: &str,
     stats: Option<&Value>,
     now: OffsetDateTime,
     failure: Option<&SourceError>,
-) -> Result<Source, sqlx::Error> {
-    let next = source.next_import_at(now).map(iso_timestamp);
+    lease: &str,
+) -> Result<Option<Source>, sqlx::Error> {
     let row: Option<Value> = sqlx::query_scalar(concat!(
         "update asset_sources as s set \
            sync_state = null, last_sync_at = $2::timestamp, last_status = $3, last_error = $4, \
-           last_stats = $5, next_sync_at = $6::timestamp, updated_at = $2::timestamp \
-         where s.id = $1 returning ",
+           last_stats = $5, \
+           next_sync_at = case when s.enabled \
+             then $2::timestamp + s.interval_hours * interval '1 hour' else null end, \
+           updated_at = $2::timestamp \
+         where s.id = $1 and s.sync_state->>'leaseUntil' = $6 returning ",
         columns!()
     ))
-    .bind(&source.id)
+    .bind(id)
     .bind(iso_timestamp(now))
     .bind(if failure.is_some() { "failed" } else { "ok" })
     .bind(failure.map(SourceError::stored))
     .bind(stats)
-    .bind(next)
+    .bind(lease)
     .fetch_optional(db)
     .await?;
-    Ok(row.map_or_else(|| source.clone(), Source::from_row))
+    Ok(row.map(Source::from_row))
 }
 
 /// The source goes with its mappings; the asset records it imported stay.
@@ -529,12 +577,6 @@ mod tests {
         let never = source(json!({ "next_sync_at": null }));
         assert_eq!(never.due_at(now), None);
 
-        // One interval after a run, or nowhere when the schedule is off.
-        assert_eq!(
-            scheduled.next_import_at(now),
-            instant("2026-11-11T08:00:30.000Z")
-        );
-        assert_eq!(paused.next_import_at(now), None);
         assert_eq!(
             to_millisecond(now + time::Duration::microseconds(1_999)),
             now + time::Duration::milliseconds(1)

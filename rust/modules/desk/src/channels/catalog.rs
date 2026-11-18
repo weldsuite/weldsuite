@@ -7,7 +7,9 @@
 //! ([`super::request`]).
 //!
 //! Every mutation publishes a `desk_catalog_item` entity event. Answers: 400
-//! `details.field` for an item that can't be saved, 404 for an unknown item.
+//! `details.field` for an item that can't be saved, 404 for an unknown item,
+//! and 409 `details.reason = 'has_pending_requests'` (with `details.count`)
+//! for deleting an item whose requests still wait for approval.
 
 use std::sync::Arc;
 
@@ -53,11 +55,15 @@ where
 }
 
 /// `refusal(c, err, failure)`: an item that can't be saved is a 400 naming
-/// the field; anything else the route's 500.
+/// the field, one that can't be deleted yet a 409 with how many requests
+/// wait; anything else the route's 500.
 fn refused(error: CatalogError, failure: &str) -> Response {
     match error {
         CatalogError::Rejected { field, message } => ApiError::bad_request(message)
             .with_details(json!({ "field": field }))
+            .into_response(),
+        CatalogError::InUse { count } => ApiError::conflict(catalog::ITEM_IN_USE)
+            .with_details(json!({ "reason": "has_pending_requests", "count": count }))
             .into_response(),
         error => {
             tracing::error!(%error, "[desk-api/desk-catalog] {failure}");
@@ -368,7 +374,7 @@ async fn remove(State(state): State<DeskState>, ctx: Ctx, Path(id): Path<String>
             NoContent.into_response()
         }
         Ok(None) => not_found(&id),
-        Err(error) => Refusal::Database(error).respond("Failed to delete the catalogue item"),
+        Err(error) => refused(error, "Failed to delete the catalogue item"),
     }
 }
 

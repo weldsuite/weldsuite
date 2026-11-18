@@ -14,8 +14,12 @@ import { encryptField } from '@weldsuite/db/lib/crypto';
 import { getValuesForEntity, setValues } from '@weldsuite/db/lib/custom-field-values';
 import {
   ASSET_IMPORT_FIELDS,
+  ASSET_IMPORT_STEP_LEASE_MS,
   INTUNE_DEVICES_URL,
   INTUNE_DEVICE_ENTITY_TYPE,
+  deviceChecksum,
+  deviceChecksumWithCheckIn,
+  mapIntuneDevice,
   runAssetImportStep,
   startAssetImport,
   ensureAssetImportFields,
@@ -375,6 +379,313 @@ describe('a later import', () => {
     expect(after.lastStats).toEqual({ total: 1, created: 0, updated: 0, unchanged: 1, failed: 0 });
     expect(await records()).toHaveLength(1);
     expect(await db.select().from(schema.integrationEntityMappings)).toHaveLength(2);
+  });
+});
+
+describe('the last check-in', () => {
+  const LATER = new Date('2026-11-10T20:00:00.000Z');
+  const recordOf = async (externalId: string) => {
+    const found = await fieldsOfDevice(externalId);
+    const [record] = await db.select().from(schema.customObjectRecords).where(eq(schema.customObjectRecords.id, found!.mapping.internalEntityId));
+    return { ...found!, record: record! };
+  };
+
+  it('leaves a device that only checked in again unwritten, and still keeps its check-in current', async () => {
+    await runToEnd(graph({ [INTUNE_DEVICES_URL]: { value: [device(1), device(2), device(3)] } }), await addSource());
+    const before = await recordOf('dev-1');
+    expect(before.fields.last_check_in).toBe('2026-11-09T10:00:00.000Z');
+    events.length = 0;
+
+    // Two devices checked in again; nothing else about them changed. One write per step would be the cap.
+    const checkedIn = graph({
+      [INTUNE_DEVICES_URL]: {
+        value: [device(1, { lastSyncDateTime: '2026-11-10T07:45:00Z' }), device(2, { lastSyncDateTime: '2026-11-10T19:59:59.5Z' }), device(3)],
+      },
+    });
+    const { steps, source: after } = await runToEnd(checkedIn, await reload(), { now: LATER, maxWrites: 1 });
+
+    // Unchanged, in one step: the refresh is not a write against the cap.
+    expect(steps).toBe(1);
+    expect(after.lastStats).toEqual({ total: 3, created: 0, updated: 0, unchanged: 3, failed: 0 });
+    // No record write: no event, the record and its mapping as they were.
+    expect(events).toEqual([]);
+    const again = await recordOf('dev-1');
+    expect(again.record.updatedAt.toISOString()).toBe(before.record.updatedAt.toISOString());
+    expect(again.record.updatedBy).toBe(before.record.updatedBy);
+    expect(again.mapping.syncChecksum).toBe(before.mapping.syncChecksum);
+    expect(again.mapping.lastSyncedAt?.toISOString()).toBe(before.mapping.lastSyncedAt?.toISOString());
+    // The check-in itself is current.
+    expect(again.fields.last_check_in).toBe('2026-11-10T07:45:00.000Z');
+    expect((await recordOf('dev-2')).fields.last_check_in).toBe('2026-11-10T19:59:59.500Z');
+    expect((await recordOf('dev-3')).fields.last_check_in).toBe('2026-11-09T10:00:00.000Z');
+    expect(again.fields).toMatchObject({ name: 'DEVICE-1', os_version: '10.0.22631', asset_type: 'laptop' });
+
+    // Only the value that differs is touched: the row of the device that did not check in keeps its time.
+    const values = await db.select().from(schema.customFieldValues);
+    const checkIns = values.filter((value) => value.valueDate !== null);
+    expect(checkIns).toHaveLength(3);
+    expect(checkIns.filter((value) => value.updatedAt.toISOString() === LATER.toISOString())).toHaveLength(2);
+  });
+
+  it('writes a device that really changed, with its newer check-in', async () => {
+    await runToEnd(graph({ [INTUNE_DEVICES_URL]: { value: [device(1), device(2)] } }), await addSource());
+    const before = await recordOf('dev-1');
+    events.length = 0;
+
+    const changed = graph({
+      [INTUNE_DEVICES_URL]: {
+        value: [device(1, { osVersion: '10.0.26100', lastSyncDateTime: '2026-11-10T07:45:00Z' }), device(2, { lastSyncDateTime: '2026-11-10T07:50:00Z' })],
+      },
+    });
+    const { source: after } = await runToEnd(changed, await reload(), { now: LATER });
+
+    expect(after.lastStats).toEqual({ total: 2, created: 0, updated: 1, unchanged: 1, failed: 0 });
+    const again = await recordOf('dev-1');
+    expect(again.fields).toMatchObject({ os_version: '10.0.26100', last_check_in: '2026-11-10T07:45:00.000Z' });
+    expect(again.mapping.syncChecksum).not.toBe(before.mapping.syncChecksum);
+    expect(again.mapping.lastSyncedAt?.toISOString()).toBe(LATER.toISOString());
+    expect(events.map((e) => [e.action, e.id])).toEqual([['updated', again.record.id]]);
+    expect((events[0]!.data.fields as Record<string, unknown>).last_check_in).toBe('2026-11-10T07:45:00.000Z');
+    expect((await recordOf('dev-2')).fields.last_check_in).toBe('2026-11-10T07:50:00.000Z');
+  });
+
+  it('leaves a record without a check-in value, or one a person deleted, alone', async () => {
+    await runToEnd(graph({ [INTUNE_DEVICES_URL]: { value: [device(1, { lastSyncDateTime: null }), device(2)] } }), await addSource());
+    const gone = await recordOf('dev-2');
+    await db.update(schema.customObjectRecords).set({ deletedAt: NOW }).where(eq(schema.customObjectRecords.id, gone.record.id));
+    events.length = 0;
+
+    const checkedIn = graph({
+      [INTUNE_DEVICES_URL]: { value: [device(1, { lastSyncDateTime: '2026-11-10T07:45:00Z' }), device(2, { lastSyncDateTime: '2026-11-10T07:50:00Z' })] },
+    });
+    const { source: after } = await runToEnd(checkedIn, await reload(), { now: LATER });
+
+    expect(after.lastStats).toEqual({ total: 2, created: 0, updated: 0, unchanged: 2, failed: 0 });
+    expect(events).toEqual([]);
+    // No value row to refresh: the next real write brings the check-in.
+    expect((await recordOf('dev-1')).fields.last_check_in).toBeUndefined();
+    expect((await recordOf('dev-2')).fields.last_check_in).toBe('2026-11-09T10:00:00.000Z');
+  });
+
+  it('refreshes a check-in field a person made as text, in its own value column', async () => {
+    await db.insert(schema.customFieldDefinitions).values({
+      id: 'cfld_seen',
+      entityType: ENTITY,
+      name: 'Last seen',
+      slug: 'last_check_in',
+      fieldType: 'text',
+      sortOrder: 9,
+    });
+    await runToEnd(graph({ [INTUNE_DEVICES_URL]: { value: [device(1)] } }), await addSource());
+    events.length = 0;
+
+    const checkedIn = graph({ [INTUNE_DEVICES_URL]: { value: [device(1, { lastSyncDateTime: '2026-11-10T07:45:00Z' })] } });
+    const { source: after } = await runToEnd(checkedIn, await reload(), { now: LATER });
+
+    expect(after.lastStats).toMatchObject({ updated: 0, unchanged: 1 });
+    expect(events).toEqual([]);
+    const [value] = await db.select().from(schema.customFieldValues).where(eq(schema.customFieldValues.fieldId, 'cfld_seen'));
+    expect(value).toMatchObject({ valueText: '2026-11-10T07:45:00.000Z', valueDate: null });
+  });
+
+  it('takes a checksum of the old kind, with the check-in in it, as unchanged and replaces it', async () => {
+    await runToEnd(graph({ [INTUNE_DEVICES_URL]: { value: [device(1), device(2), device(3, { lastSyncDateTime: null })] } }), await addSource());
+    // The mappings as an import wrote them while the check-in was part of the checksum.
+    const oldKind = async (n: number, extra: Record<string, unknown> = {}) => {
+      const values = mapIntuneDevice(device(n, extra)).values;
+      const checksum = await deviceChecksumWithCheckIn(values, values.last_check_in ?? null);
+      await db.update(schema.integrationEntityMappings).set({ syncChecksum: checksum }).where(eq(schema.integrationEntityMappings.externalEntityId, `dev-${n}`));
+      return checksum;
+    };
+    const old1 = await oldKind(1);
+    await oldKind(2);
+    await oldKind(3, { lastSyncDateTime: null });
+    const before = await recordOf('dev-1');
+    expect(before.mapping.syncChecksum).toBe(old1);
+    events.length = 0;
+
+    // Device 1 only checked in again, device 2 also runs a newer system, device 3 reports its first check-in.
+    const next = graph({
+      [INTUNE_DEVICES_URL]: {
+        value: [
+          device(1, { lastSyncDateTime: '2026-11-10T07:45:00Z' }),
+          device(2, { lastSyncDateTime: '2026-11-10T07:50:00Z', osVersion: '10.0.26100' }),
+          device(3, { lastSyncDateTime: '2026-11-10T07:55:00Z' }),
+        ],
+      },
+    });
+    const { source: after } = await runToEnd(next, await reload(), { now: LATER });
+
+    // Not every device rewritten once: only the one whose facts changed.
+    expect(after.lastStats).toEqual({ total: 3, created: 0, updated: 1, unchanged: 2, failed: 0 });
+    expect(events.map((e) => e.action)).toEqual(['updated']);
+    const again = await recordOf('dev-1');
+    expect(again.record.updatedAt.toISOString()).toBe(before.record.updatedAt.toISOString());
+    expect(again.fields.last_check_in).toBe('2026-11-10T07:45:00.000Z');
+    // The checksums are now the kind without the check-in, whichever way they got there.
+    for (const [n, extra] of [[1, {}], [2, { osVersion: '10.0.26100' }], [3, {}]] as const) {
+      const found = await recordOf(`dev-${n}`);
+      expect(found.mapping.syncChecksum, `dev-${n}`).toBe(await deviceChecksum(mapIntuneDevice(device(n, extra)).values));
+    }
+    // A replaced checksum is not a sync of the record.
+    expect(again.mapping.lastSyncedAt?.toISOString()).toBe(before.mapping.lastSyncedAt?.toISOString());
+
+    // The run after that finds nothing of the old kind left.
+    events.length = 0;
+    const { source: third } = await runToEnd(next, await reload(), { now: LATER });
+    expect(third.lastStats).toEqual({ total: 3, created: 0, updated: 0, unchanged: 3, failed: 0 });
+    expect(events).toEqual([]);
+  });
+});
+
+describe('one step at a time', () => {
+  const mappingCount = async () => (await db.select().from(schema.integrationEntityMappings)).length;
+
+  it('lets one of two overlapping steps work; the other does nothing', async () => {
+    const g = graph({ [INTUNE_DEVICES_URL]: { value: [1, 2, 3].map((n) => device(n)) } });
+    const started = await startAssetImport(db, await addSource(), { now: NOW });
+
+    // Microsoft's page is held back until both steps ask for it, or one of them
+    // has ended: a slow step and the next tick's, at work at the same time.
+    let asked = 0;
+    let open: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    const held = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      if ((init?.method ?? 'GET') === 'GET') {
+        asked += 1;
+        if (asked === 2) open();
+        await gate;
+      }
+      return fetcherFor(g)(input, init);
+    }) as FetchLike;
+
+    const steps = [1, 2].map(() => runAssetImportStep(context(g, { fetch: held }), started!).finally(open));
+    const results = await Promise.all(steps);
+
+    const busy = results.filter((result) => result.busy);
+    const worked = results.filter((result) => !result.busy);
+    expect(busy).toHaveLength(1);
+    expect(busy[0]).toMatchObject({ done: false, busy: true });
+    expect(worked).toHaveLength(1);
+    expect(worked[0]!.done).toBe(true);
+    // The step that was refused the run never called Microsoft.
+    expect(g.calls.filter((call) => call.startsWith('GET'))).toHaveLength(1);
+
+    // No duplicate record, no mapping that lost the unique index.
+    expect(await records()).toHaveLength(3);
+    expect(await mappingCount()).toBe(3);
+    const after = await reload();
+    expect(after.syncState).toBeNull();
+    expect(after.lastStats).toEqual({ total: 3, created: 3, updated: 0, unchanged: 0, failed: 0 });
+    expect(events.filter((e) => e.action === 'created')).toHaveLength(3);
+  });
+
+  it('gives the lease up with the state it saves, and takes it again for the next step', async () => {
+    const g = graph({ [INTUNE_DEVICES_URL]: { value: [1, 2, 3].map((n) => device(n)) } });
+    const started = await startAssetImport(db, await addSource(), { now: NOW });
+
+    const first = await runAssetImportStep(context(g, { maxWrites: 2 }), started!);
+    expect(first).toMatchObject({ done: false });
+    expect(first.busy).toBeUndefined();
+    expect((await reload()).syncState).toEqual({ ...started!.syncState, offset: 2, stats: { total: 2, created: 2, updated: 0, unchanged: 0, failed: 0 } });
+    expect(first.source.syncState).not.toHaveProperty('leaseUntil');
+
+    // The same instant, and even a caller that still holds the row from before the first step.
+    const second = await runAssetImportStep(context(g, { maxWrites: 2 }), started!);
+    expect(second.done).toBe(true);
+    expect((await reload()).lastStats).toEqual({ total: 3, created: 3, updated: 0, unchanged: 0, failed: 0 });
+    expect(await records()).toHaveLength(3);
+  });
+
+  it('waits for the lease of a step that died to run out, then carries on', async () => {
+    const g = graph({ [INTUNE_DEVICES_URL]: { value: [device(1)] } });
+    const started = await startAssetImport(db, await addSource(), { now: NOW });
+    // A step took the run at NOW and never came back.
+    const leaseUntil = new Date(NOW.getTime() + ASSET_IMPORT_STEP_LEASE_MS).toISOString();
+    await db.update(schema.assetSources).set({ syncState: { ...started!.syncState!, leaseUntil } });
+
+    const during = await runAssetImportStep(context(g, { now: new Date(NOW.getTime() + 60_000) }), await reload());
+    expect(during).toMatchObject({ done: false, busy: true });
+    expect(g.calls).toEqual([]);
+    expect(await records()).toHaveLength(0);
+    expect((await reload()).syncState).toMatchObject({ leaseUntil, stats: { total: 0 } });
+
+    const afterwards = await runAssetImportStep(context(g, { now: new Date(NOW.getTime() + ASSET_IMPORT_STEP_LEASE_MS) }), await reload());
+    expect(afterwards.done).toBe(true);
+    expect(await records()).toHaveLength(1);
+    expect((await reload()).lastStatus).toBe('ok');
+  });
+
+  it('gives the lease up when Microsoft throttles, and ends a run that is too old once it holds the lease', async () => {
+    const g = graph({ [INTUNE_DEVICES_URL]: { value: [device(1)] } });
+    g.throttle = true;
+    const started = await startAssetImport(db, await addSource(), { now: NOW });
+    const waiting = await runAssetImportStep(context(g), started!);
+    expect(waiting).toMatchObject({ done: false, retryAfterSeconds: 120 });
+    expect((await reload()).syncState).toEqual(started!.syncState);
+    expect(waiting.source.syncState).toEqual(started!.syncState);
+
+    // More than a day on: the next step takes the run and stops it.
+    const stopped = await runAssetImportStep(context(g, { now: new Date(NOW.getTime() + 25 * 3600_000) }), await reload());
+    expect(stopped.done).toBe(true);
+    expect((await reload()).lastError).toMatch(/^throttled: The import did not finish within 24 hours/);
+  });
+
+  it('does nothing when the run it was handed is over', async () => {
+    const g = graph({ [INTUNE_DEVICES_URL]: { value: [device(1)] } });
+    const started = await startAssetImport(db, await addSource(), { now: NOW });
+    expect((await runAssetImportStep(context(g), started!)).done).toBe(true);
+    const calls = g.calls.length;
+
+    // A caller that read the row before the run ended.
+    expect(await runAssetImportStep(context(g), started!)).toMatchObject({ done: false, busy: true });
+    expect(g.calls).toHaveLength(calls);
+    expect((await reload()).lastStats).toEqual({ total: 1, created: 1, updated: 0, unchanged: 0, failed: 0 });
+  });
+});
+
+describe('the schedule at the end of a run', () => {
+  /** A fetch that changes the source row while the step is at Microsoft: after the step read it, before it ends. */
+  const changingMeanwhile = (g: Graph, change: Partial<typeof schema.assetSources.$inferInsert>): FetchLike =>
+    (async (input: RequestInfo | URL, init?: RequestInit) => {
+      await db.update(schema.assetSources).set(change).where(eq(schema.assetSources.id, 'asrc_1'));
+      return fetcherFor(g)(input, init);
+    }) as FetchLike;
+
+  it('schedules the next import when the schedule was switched on while the last step ran', async () => {
+    const g = graph({ [INTUNE_DEVICES_URL]: { value: [device(1)] } });
+    const started = await startAssetImport(db, await addSource({ enabled: false, nextSyncAt: null }), { now: NOW, startedById: 'user_admin' });
+
+    const fetch = changingMeanwhile(g, { enabled: true, intervalHours: 6, nextSyncAt: NOW });
+    const result = await runAssetImportStep(context(g, { fetch }), started!);
+
+    expect(result.done).toBe(true);
+    const after = await reload();
+    expect(after).toMatchObject({ enabled: true, intervalHours: 6, lastStatus: 'ok', syncState: null });
+    expect(after.nextSyncAt?.toISOString()).toBe('2026-11-10T14:00:00.000Z');
+    expect(result.source.nextSyncAt?.toISOString()).toBe('2026-11-10T14:00:00.000Z');
+  });
+
+  it('follows an interval that changed, and a schedule that was switched off, also for a run that fails', async () => {
+    const g = graph({ [INTUNE_DEVICES_URL]: { value: [device(1)] } });
+    const shorter = await startAssetImport(db, await addSource(), { now: NOW });
+    await runAssetImportStep(context(g, { fetch: changingMeanwhile(g, { intervalHours: 1 }) }), shorter!);
+    expect((await reload()).nextSyncAt?.toISOString()).toBe('2026-11-10T09:00:00.000Z');
+
+    const off = await startAssetImport(db, await reload(), { now: NOW });
+    await runAssetImportStep(context(g, { fetch: changingMeanwhile(g, { enabled: false, nextSyncAt: null }) }), off!);
+    expect((await reload()).nextSyncAt).toBeNull();
+
+    // Switched back on while Microsoft refuses the sign-in: the failed run still leaves a next import.
+    g.secret = 'another';
+    const failing = await startAssetImport(db, await reload(), { now: NOW });
+    const failed = await runAssetImportStep(context(g, { fetch: changingMeanwhile(g, { enabled: true, intervalHours: 12 }) }), failing!);
+    expect(failed.done).toBe(true);
+    const after = await reload();
+    expect(after.lastStatus).toBe('failed');
+    expect(after.nextSyncAt?.toISOString()).toBe('2026-11-10T20:00:00.000Z');
   });
 });
 

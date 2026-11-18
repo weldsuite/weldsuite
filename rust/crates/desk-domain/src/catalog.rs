@@ -16,6 +16,13 @@
 //! due); a rejection skips the remaining steps and rejects it. A request
 //! without steps has `approval_status` null and fulfilment is due at once.
 //!
+//! Each change of state is one statement (the compare-and-set first, in a
+//! `with`; the writes that depend on it run off what it returns), so a
+//! failure never leaves a request half way: claimed without its steps, or a
+//! step decided without the next one opened. The timeline entry follows;
+//! without it the state is still whole. The same statements as TypeScript,
+//! whose tenant database has no interactive transactions.
+//!
 //! Callers publish the changes, in order. Creating the fulfilment tasks and
 //! notifying approvers is [`crate::fulfilment`]. The help center's side
 //! (`listDeskCatalogForPrincipal`, `createDeskCatalogPortalRequest`) is not
@@ -65,6 +72,12 @@ pub enum CatalogError {
         reason: &'static str,
         message: &'static str,
     },
+    /// `DeskCatalogItemInUseError`: an item that can't be deleted while
+    /// `count` requests made from it wait for approval, a 409 with
+    /// `{ reason: 'has_pending_requests', count }`.
+    InUse {
+        count: i64,
+    },
     Write(WriteError),
 }
 
@@ -86,6 +99,7 @@ impl std::fmt::Display for CatalogError {
             Self::ConversationNotFound(id) => write!(f, "conversation {id} not found"),
             Self::Rejected { message, .. } => f.write_str(message),
             Self::Refused { message, .. } => f.write_str(message),
+            Self::InUse { .. } => f.write_str(ITEM_IN_USE),
             Self::Write(error) => error.fmt(f),
         }
     }
@@ -103,6 +117,10 @@ fn refused(reason: &'static str, message: &'static str) -> CatalogError {
 }
 
 const ALREADY_REQUEST: &str = "This ticket is already a service request";
+
+/// `DeskCatalogItemInUseError`'s message.
+pub const ITEM_IN_USE: &str =
+    "Requests made from this item are waiting for approval; switch the item off instead";
 
 // ── items: the input ──────────────────────────────────────────────────────────
 
@@ -466,17 +484,51 @@ pub async fn update_item(
         .await?)
 }
 
-/// `deleteDeskCatalogItem(db, id)`: delete an item. Requests made from it
-/// keep their `catalog_item_id` and their approval rows. `None` when it
-/// doesn't exist.
-pub async fn delete_item(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
+/// `countPendingRequests(db, itemId)`: how many requests made from an item
+/// wait for approval.
+async fn count_pending_requests(db: &PgPool, item_id: &str) -> Result<i64, sqlx::Error> {
+    let count: i32 = sqlx::query_scalar(
+        "select count(*)::int from desk_conversations
+          where catalog_item_id = $1 and approval_status = 'pending'",
+    )
+    .bind(item_id)
+    .fetch_one(db)
+    .await?;
+    Ok(i64::from(count))
+}
+
+/// `deleteDeskCatalogItem(db, id)`: delete an item. Refused
+/// ([`CatalogError::InUse`]) while requests made from it wait for approval.
+/// Decided requests keep their `catalog_item_id` and their approval rows.
+/// `None` when it doesn't exist.
+pub async fn delete_item(db: &PgPool, id: &str) -> Result<Option<Value>, CatalogError> {
+    if get_item(db, id).await?.is_none() {
+        return Ok(None);
+    }
+    let pending = count_pending_requests(db, id).await?;
+    if pending > 0 {
+        return Err(CatalogError::InUse { count: pending });
+    }
+    // The condition again in the delete itself: a request that started a
+    // moment ago keeps its item.
     let row: Option<Value> = sqlx::query_scalar(
-        "delete from desk_catalog_items t where t.id = $1 returning to_jsonb(t)",
+        "delete from desk_catalog_items t
+          where t.id = $1
+            and not exists (select 1 from desk_conversations c
+                             where c.catalog_item_id = $1 and c.approval_status = 'pending')
+          returning to_jsonb(t)",
     )
     .bind(id)
     .fetch_optional(db)
     .await?;
-    Ok(row.map(|row| DESK_CATALOG_ITEMS.js(row)))
+    if let Some(row) = row {
+        return Ok(Some(DESK_CATALOG_ITEMS.js(row)));
+    }
+    let started = count_pending_requests(db, id).await?;
+    if started > 0 {
+        return Err(CatalogError::InUse { count: started });
+    }
+    Ok(None)
 }
 
 // ── starting a request ────────────────────────────────────────────────────────
@@ -608,6 +660,64 @@ pub fn assert_startable(conversation: &Value) -> Result<(), CatalogError> {
     Ok(())
 }
 
+/// The step rows a start writes (`PlannedStep[]`), one column each.
+#[derive(Debug, Default)]
+struct PlannedSteps {
+    ids: Vec<String>,
+    indexes: Vec<i32>,
+    names: Vec<Option<String>>,
+    approvers: Vec<Option<String>>,
+    statuses: Vec<&'static str>,
+}
+
+/// `claimWithSteps(db, conversationId, itemId, steps)`: claim the
+/// conversation for `item_id` and write its steps, in one statement. The
+/// steps are inserted from the claim's own `returning`, so there is no
+/// claimed request without steps, and a second start at the same moment (its
+/// claim finds the item set) writes nothing. The steps in order; none when
+/// the conversation was taken.
+async fn claim_with_steps(
+    db: &PgPool,
+    conversation_id: &str,
+    item_id: &str,
+    steps: &PlannedSteps,
+) -> Result<Vec<Value>, sqlx::Error> {
+    let rows: Vec<Value> = sqlx::query_scalar(
+        "with claimed as (
+           update desk_conversations
+              set catalog_item_id = $2, approval_status = 'pending', updated_at = $3::timestamp
+            where id = $1 and catalog_item_id is null
+           returning id
+         ), inserted as (
+           insert into desk_request_approvals
+             (id, created_at, updated_at, conversation_id, catalog_item_id,
+              step_index, step_name, approver_id, status)
+           select step.id, $3::timestamp, $3::timestamp, claimed.id, $2,
+                  step.step_index, step.step_name, step.approver_id, step.status
+             from claimed
+            cross join unnest($4::varchar[], $5::integer[], $6::varchar[], $7::varchar[],
+                              $8::varchar[])
+                  as step (id, step_index, step_name, approver_id, status)
+           returning *
+         )
+         select to_jsonb(t) from inserted t order by t.step_index asc, t.id asc",
+    )
+    .bind(conversation_id)
+    .bind(item_id)
+    .bind(webchat::now())
+    .bind(&steps.ids)
+    .bind(&steps.indexes)
+    .bind(&steps.names)
+    .bind(&steps.approvers)
+    .bind(&steps.statuses)
+    .fetch_all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| DESK_REQUEST_APPROVALS.js(row))
+        .collect())
+}
+
 /// `startDeskCatalogRequest(db, input)`: make an existing conversation a
 /// service request of `item` and start its flow. `actor` is who started it
 /// (the timeline event's author type and id). Refused (409 `reason`):
@@ -627,24 +737,22 @@ pub async fn start_request(
     let item_id = item["id"].as_str().unwrap_or_default();
     let steps: &[Value] = item["approvalSteps"].as_array().map_or(&[], Vec::as_slice);
 
-    // Claim the conversation first: a second start at the same moment finds it taken.
-    let claimed: Option<Value> = sqlx::query_scalar(
-        "update desk_conversations t
-            set catalog_item_id = $2, approval_status = $3, updated_at = $4::timestamp
-          where t.id = $1 and t.catalog_item_id is null
-          returning to_jsonb(t)",
-    )
-    .bind(&id)
-    .bind(item_id)
-    .bind((!steps.is_empty()).then_some("pending"))
-    .bind(webchat::now())
-    .fetch_optional(db)
-    .await?;
-    let Some(claimed) = claimed.map(|row| DESK_CONVERSATIONS.js(row)) else {
-        return Err(refused("already_request", ALREADY_REQUEST));
-    };
-
     if steps.is_empty() {
+        // Claim the conversation: a second start at the same moment finds it taken.
+        let claimed: Option<Value> = sqlx::query_scalar(
+            "update desk_conversations t
+                set catalog_item_id = $2, approval_status = null, updated_at = $3::timestamp
+              where t.id = $1 and t.catalog_item_id is null
+              returning to_jsonb(t)",
+        )
+        .bind(&id)
+        .bind(item_id)
+        .bind(webchat::now())
+        .fetch_optional(db)
+        .await?;
+        let Some(claimed) = claimed.map(|row| DESK_CONVERSATIONS.js(row)) else {
+            return Err(refused("already_request", ALREADY_REQUEST));
+        };
         return Ok(Started {
             conversation: claimed,
             changes: Vec::new(),
@@ -653,34 +761,24 @@ pub async fn start_request(
         });
     }
 
-    let now = webchat::now();
-    let mut first: Option<Value> = None;
+    // Who each step asks is read first, so the claim and the steps can be
+    // one statement.
+    let mut planned = PlannedSteps::default();
     for (index, step) in steps.iter().enumerate() {
-        let approver = resolve_approver(db, step, &claimed).await?;
-        let mut values = Map::new();
-        for (prop, value) in [
-            ("id", json!(generate_id("dappr"))),
-            ("createdAt", json!(now)),
-            ("updatedAt", json!(now)),
-            ("conversationId", json!(id)),
-            ("catalogItemId", json!(item_id)),
-            ("stepIndex", json!(index)),
-            ("stepName", json!(step["name"].as_str())),
-            ("approverId", json!(approver)),
-            (
-                "status",
-                json!(if index == 0 { "pending" } else { "waiting" }),
-            ),
-        ] {
-            DESK_REQUEST_APPROVALS.set(&mut values, prop, value);
-        }
-        let row = DESK_REQUEST_APPROVALS.insert(db, values, &TRUSTED).await?;
-        if first.is_none() {
-            first = Some(row);
-        }
+        planned.ids.push(generate_id("dappr"));
+        planned
+            .indexes
+            .push(i32::try_from(index).unwrap_or(i32::MAX));
+        planned.names.push(step["name"].as_str().map(str::to_owned));
+        planned
+            .approvers
+            .push(resolve_approver(db, step, &conversation).await?);
+        planned
+            .statuses
+            .push(if index == 0 { "pending" } else { "waiting" });
     }
-    let Some(first) = first else {
-        // Not reached: `steps` is not empty.
+    let rows = claim_with_steps(db, &id, item_id, &planned).await?;
+    let Some(first) = rows.into_iter().next() else {
         return Err(refused("already_request", ALREADY_REQUEST));
     };
     let change =
@@ -722,24 +820,6 @@ pub struct Decided {
     pub decided: Value,
 }
 
-/// `setApprovalStatus(db, conversationId, status)`.
-async fn set_approval_status(
-    db: &PgPool,
-    conversation_id: &str,
-    status: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update desk_conversations set approval_status = $2, updated_at = $3::timestamp
-          where id = $1",
-    )
-    .bind(conversation_id)
-    .bind(status)
-    .bind(webchat::now())
-    .execute(db)
-    .await?;
-    Ok(())
-}
-
 /// The first step of `conversation_id` in `status`, by step index.
 async fn first_step(
     db: &PgPool,
@@ -758,53 +838,78 @@ async fn first_step(
     Ok(row.map(|row| DESK_REQUEST_APPROVALS.js(row)))
 }
 
-/// The decision on the `pending` step, written while it still is pending:
-/// `None` when it was decided a moment ago.
+/// A rejection and everything that follows from it, in one statement: the
+/// decision (written only while the step still is pending), then, off its
+/// `returning`, the waiting steps skipped and the request rejected.
+const REJECT: &str = "with decided as (
+       update desk_request_approvals t
+          set status = 'rejected', decided_at = $2::timestamp, decided_by_id = $3, comment = $4,
+              updated_at = $2::timestamp
+        where t.id = $1 and t.status = 'pending'
+       returning to_jsonb(t) as step
+     ), skipped as (
+       update desk_request_approvals
+          set status = 'skipped', updated_at = $2::timestamp
+        where conversation_id = $5 and status = 'waiting' and exists (select 1 from decided)
+       returning id
+     ), request as (
+       update desk_conversations
+          set approval_status = 'rejected', updated_at = $2::timestamp
+        where id = $5 and exists (select 1 from decided)
+       returning id
+     )
+     select (select step from decided), null::jsonb";
+
+/// An approval and everything that follows from it, in one statement: the
+/// decision, then, off its `returning`, the first waiting step goes to its
+/// approver, or, when none waits, the request is approved.
+const APPROVE: &str = "with decided as (
+       update desk_request_approvals t
+          set status = 'approved', decided_at = $2::timestamp, decided_by_id = $3, comment = $4,
+              updated_at = $2::timestamp
+        where t.id = $1 and t.status = 'pending'
+       returning to_jsonb(t) as step
+     ), opened as (
+       update desk_request_approvals t
+          set status = 'pending', updated_at = $2::timestamp
+        where t.id = (select w.id from desk_request_approvals w
+                       where w.conversation_id = $5 and w.status = 'waiting'
+                       order by w.step_index asc limit 1)
+          and t.status = 'waiting' and exists (select 1 from decided)
+       returning to_jsonb(t) as step
+     ), request as (
+       update desk_conversations
+          set approval_status = 'approved', updated_at = $2::timestamp
+        where id = $5 and exists (select 1 from decided) and not exists (select 1 from opened)
+       returning id
+     )
+     select (select step from decided), (select step from opened)";
+
+/// `writeDecision(db, input)`: write a decision and what follows from it
+/// ([`REJECT`], [`APPROVE`]): all of it happens or none of it. The decided
+/// step and the step that opened; `None` when the step was decided a moment
+/// ago (nothing is written then).
 async fn write_decision(
     db: &PgPool,
     pending: &Value,
     input: &Decide<'_>,
     comment: Option<&str>,
-    now: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "update desk_request_approvals t
-            set status = $2, decided_at = $3::timestamp, decided_by_id = $4, comment = $5,
-                updated_at = $3::timestamp
-          where t.id = $1 and t.status = 'pending'
-          returning to_jsonb(t)",
-    )
-    .bind(pending["id"].as_str())
-    .bind(input.decision)
-    .bind(now)
-    .bind(input.user_id)
-    .bind(comment)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(|row| DESK_REQUEST_APPROVALS.js(row)))
-}
-
-/// The first waiting step, now with its approver (`pending`); `None` when
-/// no step waits (or another decision opened it a moment ago).
-async fn open_next_step(
-    db: &PgPool,
-    conversation_id: &str,
-    now: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    let Some(waiting) = first_step(db, conversation_id, "waiting").await? else {
-        return Ok(None);
+) -> Result<Option<(Value, Option<Value>)>, sqlx::Error> {
+    let statement = if input.decision == "rejected" {
+        REJECT
+    } else {
+        APPROVE
     };
-    let row: Option<Value> = sqlx::query_scalar(
-        "update desk_request_approvals t
-            set status = 'pending', updated_at = $2::timestamp
-          where t.id = $1 and t.status = 'waiting'
-          returning to_jsonb(t)",
-    )
-    .bind(waiting["id"].as_str())
-    .bind(now)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(|row| DESK_REQUEST_APPROVALS.js(row)))
+    let (decided, next): (Option<Value>, Option<Value>) = sqlx::query_as(statement)
+        .bind(pending["id"].as_str())
+        .bind(webchat::now())
+        .bind(input.user_id)
+        .bind(comment)
+        .bind(pending["conversationId"].as_str())
+        .fetch_one(db)
+        .await?;
+    let js = |row: Value| DESK_REQUEST_APPROVALS.js(row);
+    Ok(decided.map(|decided| (js(decided), next.map(js))))
 }
 
 /// `decideDeskRequestApproval(db, input)`: decide the pending step of a
@@ -828,8 +933,7 @@ pub async fn decide(db: &PgPool, input: Decide<'_>) -> Result<Decided, CatalogEr
     }
 
     let comment = text(input.comment);
-    let now = webchat::now();
-    let Some(decided) = write_decision(db, &pending, &input, comment.as_deref(), &now).await?
+    let Some((decided, next)) = write_decision(db, &pending, &input, comment.as_deref()).await?
     else {
         return Err(refused("not_pending", "This approval was already decided"));
     };
@@ -848,15 +952,6 @@ pub async fn decide(db: &PgPool, input: Decide<'_>) -> Result<Decided, CatalogEr
     let mut changes = Vec::new();
 
     if input.decision == "rejected" {
-        sqlx::query(
-            "update desk_request_approvals set status = 'skipped', updated_at = $2::timestamp
-              where conversation_id = $1 and status = 'waiting'",
-        )
-        .bind(input.conversation_id)
-        .bind(&now)
-        .execute(db)
-        .await?;
-        set_approval_status(db, input.conversation_id, "rejected").await?;
         changes.push(
             approval_event(
                 db,
@@ -877,10 +972,6 @@ pub async fn decide(db: &PgPool, input: Decide<'_>) -> Result<Decided, CatalogEr
         });
     }
 
-    let next = open_next_step(db, input.conversation_id, &now).await?;
-    if next.is_none() {
-        set_approval_status(db, input.conversation_id, "approved").await?;
-    }
     changes.push(
         approval_event(
             db,
@@ -931,7 +1022,8 @@ fn approval_view(row: &Value) -> Value {
 
 /// `getDeskConversationRequest(db, conversationId)`: the service request a
 /// conversation is (its item, null when it was deleted since, the approval
-/// state and the steps in order); `None` when it isn't one or doesn't exist.
+/// state, the steps in order and whether its tasks were created); `None`
+/// when it isn't one or doesn't exist.
 pub async fn conversation_request(
     db: &PgPool,
     conversation_id: &str,
@@ -973,6 +1065,7 @@ pub async fn conversation_request(
         "item": item,
         "approvalStatus": approval_status,
         "approvals": approvals,
+        "fulfilmentStarted": fulfilment_started(db, conversation_id).await?,
     })))
 }
 
@@ -1043,8 +1136,60 @@ pub async fn fulfilment_started(db: &PgPool, conversation_id: &str) -> Result<bo
     Ok(found.is_some())
 }
 
+/// `listDeskRequestTasks(db, conversationId)`: the tasks linked to a
+/// request as `(id, title)`, oldest first. Before `fulfilment_started`
+/// exists they are what a run that stopped half way left behind.
+pub async fn request_tasks(
+    db: &PgPool,
+    conversation_id: &str,
+) -> Result<Vec<(String, String)>, sqlx::Error> {
+    sqlx::query_as(
+        "select id, title from tasks
+          where source_type = 'desk_conversation' and source_id = $1
+          order by created_at asc, id asc",
+    )
+    .bind(conversation_id)
+    .fetch_all(db)
+    .await
+}
+
+/// `loadDeskFulfilmentRetry(db, conversationId)`: the request and its item,
+/// when its fulfilment can be run again: the request is approved (or needed
+/// no approval), its tasks were not created yet and its item still exists.
+/// Refused (409 `reason`): `not_request`, `not_approved`,
+/// `already_started`, `item_missing`.
+pub async fn load_fulfilment_retry(
+    db: &PgPool,
+    conversation_id: &str,
+) -> Result<(Value, Value), CatalogError> {
+    let conversation = load_conversation(db, conversation_id).await?;
+    let Some(item_id) = truthy_text(&conversation, "catalogItemId") else {
+        return Err(refused(
+            "not_request",
+            "This ticket is not a service request",
+        ));
+    };
+    let approval = &conversation["approvalStatus"];
+    if !approval.is_null() && approval != "approved" {
+        return Err(refused("not_approved", "This request is not approved"));
+    }
+    if fulfilment_started(db, conversation_id).await? {
+        return Err(refused(
+            "already_started",
+            "The tasks of this request were created already",
+        ));
+    }
+    let Some(item) = get_item(db, item_id).await? else {
+        return Err(refused(
+            "item_missing",
+            "The catalogue item of this request no longer exists",
+        ));
+    };
+    Ok((conversation, item))
+}
+
 /// `recordDeskRequestFulfilment(db, input)`: the internal
-/// `fulfilment_started` event, naming the tasks that were created.
+/// `fulfilment_started` event, naming the request's tasks.
 /// `author_id` is the member whose action started it; absent for the system.
 pub async fn record_fulfilment(
     db: &PgPool,

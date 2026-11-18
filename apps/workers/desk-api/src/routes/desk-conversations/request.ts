@@ -1,6 +1,6 @@
 /**
  * WeldDesk service requests on a conversation —
- * /api/desk/conversations/:id/{request,catalog-item,approval}
+ * /api/desk/conversations/:id/{request,catalog-item,approval,fulfilment}
  *
  * A conversation is a service request when it was made from a catalogue item
  * (`catalog_item_id`): the item's form is its ticket type, its approval steps
@@ -10,12 +10,14 @@
  *   GET  /:id/request       the item, approval state and steps   (conversations:read; null when not a request)
  *   PUT  /:id/catalog-item  make it a request of an item         (conversations:update)
  *   POST /:id/approval      decide the pending step              (conversations:read; the approver, or settings:update)
+ *   POST /:id/fulfilment    create the item's tasks again        (conversations:update; after a run that failed)
  *
  * Writes go through @weldsuite/db/lib/desk-catalog (the rules are there);
  * entries are published like linked tickets' (publishDeskLinkChanges).
  * Notifying the next approver and creating the tasks run after the answer
- * (@weldsuite/desk-domain/catalog). Refusals answer 409 `details.reason`,
- * a field problem 400 `details.field`.
+ * (@weldsuite/desk-domain/catalog); the answer's `request` is read before
+ * they start. POST …/fulfilment is the one that waits for the tasks. Refusals
+ * answer 409 `details.reason`, a field problem 400 `details.field`.
  */
 
 import { Hono, type Context } from 'hono';
@@ -39,6 +41,7 @@ import {
   decideDeskRequestApproval,
   getDeskCatalogItem,
   getDeskConversationRequest,
+  loadDeskFulfilmentRetry,
   startDeskCatalogRequest,
   type DeskCatalogItem,
   type DeskRequestApproval,
@@ -47,6 +50,7 @@ import type { DeskLinkChange } from '@weldsuite/db/lib/desk-links';
 import {
   fulfilDeskCatalogRequest,
   notifyDeskApprover,
+  runDeskCatalogFulfilment,
   type DeskCatalogContext,
 } from '@weldsuite/desk-domain/catalog';
 import { error, success } from '@weldsuite/worker-kit/response';
@@ -71,17 +75,18 @@ function refusal(c: Ctx, err: unknown, failure: string) {
 const ownMessages = (id: string, changes: DeskLinkChange[]) =>
   changes.filter((change) => change.conversation.id === id).map((change) => change.message);
 
+interface FollowUp {
+  conversation: DeskConversation;
+  item: DeskCatalogItem | null;
+  approval: DeskRequestApproval | null;
+  fulfilmentDue: boolean;
+}
+
+const catalogContext = (c: Ctx): DeskCatalogContext => ({ env: c.env, clerkOrgId: c.get('clerkOrgId'), generateId });
+
 /** What happens after a step opened or the request was approved, once the answer is out. */
-function followUp(
-  c: Ctx,
-  work: {
-    conversation: DeskConversation;
-    item: DeskCatalogItem | null;
-    approval: DeskRequestApproval | null;
-    fulfilmentDue: boolean;
-  },
-): void {
-  const ctx: DeskCatalogContext = { env: c.env, clerkOrgId: c.get('clerkOrgId'), generateId };
+function followUp(c: Ctx, work: FollowUp): void {
+  const ctx = catalogContext(c);
   const db = c.get('tenantDb');
   const { conversation, item, approval, fulfilmentDue } = work;
   if (approval) {
@@ -90,6 +95,19 @@ function followUp(
     c.executionCtx.waitUntil(
       fulfilDeskCatalogRequest(ctx, { db, conversation, item, actorUserId: c.get('userId') }).then(() => undefined),
     );
+  }
+}
+
+/**
+ * The request as the answer shows it, read before the follow-up starts: its
+ * `fulfilmentStarted` then never depends on how far the tasks got. The
+ * follow-up starts even when the read fails (the change itself is written).
+ */
+async function requestThenFollowUp(c: Ctx, id: string, work: FollowUp) {
+  try {
+    return await getDeskConversationRequest(c.get('tenantDb'), id);
+  } finally {
+    followUp(c, work);
   }
 }
 
@@ -160,17 +178,13 @@ app.put('/:id/catalog-item', requirePermission('conversations:update'), zValidat
       });
     }
     changes.push(...started.changes);
-    followUp(c, {
+    const request = await requestThenFollowUp(c, id, {
       conversation: started.conversation,
       item,
       approval: started.pendingApproval,
       fulfilmentDue: started.fulfilmentDue,
     });
-    return success(c, {
-      conversation: started.conversation,
-      messages: ownMessages(id, changes),
-      request: await getDeskConversationRequest(db, id),
-    });
+    return success(c, { conversation: started.conversation, messages: ownMessages(id, changes), request });
   } catch (err) {
     return refusal(c, err, 'Failed to start the service request');
   }
@@ -192,19 +206,39 @@ app.post('/:id/approval', requirePermission('conversations:read'), zValidator('j
     });
     await publishDeskLinkChanges(c, result.changes);
     const item = await getDeskCatalogItem(db, result.decided.catalogItemId);
-    followUp(c, {
+    const request = await requestThenFollowUp(c, id, {
       conversation: result.conversation,
       item,
       approval: result.nextApproval,
       fulfilmentDue: result.fulfilmentDue,
     });
-    return success(c, {
-      conversation: result.conversation,
-      messages: ownMessages(id, result.changes),
-      request: await getDeskConversationRequest(db, id),
-    });
+    return success(c, { conversation: result.conversation, messages: ownMessages(id, result.changes), request });
   } catch (err) {
     return refusal(c, err, 'Failed to decide the approval');
+  }
+});
+
+/**
+ * Create the item's tasks for a request whose fulfilment never finished (the
+ * run after the answer failed): approved or without approval, the item still
+ * there, no `fulfilment_started` on the timeline. Waits for the tasks and
+ * answers how many it created; the tasks a failed run left are kept, not
+ * created twice. Publishes what the run after an approval publishes.
+ */
+app.post('/:id/fulfilment', requirePermission('conversations:update'), async (c) => {
+  const db = c.get('tenantDb');
+  const id = c.req.param('id');
+  try {
+    const { conversation, item } = await loadDeskFulfilmentRetry(db, id);
+    const result = await runDeskCatalogFulfilment(catalogContext(c), {
+      db,
+      conversation,
+      item,
+      actorUserId: c.get('userId'),
+    });
+    return success(c, { created: result?.created ?? 0 });
+  } catch (err) {
+    return refusal(c, err, 'Failed to create the tasks');
   }
 });
 

@@ -50,8 +50,9 @@ const app = (keys: string[], env: Record<string, unknown> = {}) =>
     env: { DATABASE_URL_MASTER: undefined, ...env } as never,
   });
 const reader = () => app(['problems:read']);
+// Linking incidents and sharing a workaround write to conversations too.
 const writer = (env: Record<string, unknown> = {}) =>
-  app(['problems:read', 'problems:create', 'problems:update', 'problems:delete', 'articles:create'], env);
+  app(['problems:read', 'problems:create', 'problems:update', 'problems:delete', 'articles:create', 'conversations:update'], env);
 
 const send = (body: unknown, method = 'POST'): RequestInit => ({
   method,
@@ -264,6 +265,25 @@ describe('POST /api/desk/problems', () => {
     expect((await writer().request(BASE, send({ title: 'Nope', conversationIds: ['dconv_nope'] }))).status).toBe(404);
     const after = ((await (await reader().request(BASE)).json()) as { pagination: { totalCount: number } }).pagination.totalCount;
     expect(after).toBe(before);
+  });
+
+  it('refuses a closed problem with incidents before creating anything', async () => {
+    await seedConversation('dconv_c1', 413, { visitorId: 'vis_c1' });
+    const total = async () => ((await (await reader().request(BASE)).json()) as { pagination: { totalCount: number } }).pagination.totalCount;
+    const before = await total();
+    const refused = await writer().request(BASE, send({ title: 'Closed at once', status: 'closed', conversationIds: ['dconv_c1'] }));
+    expect(refused.status).toBe(409);
+    expect(await reason(refused)).toBe('problem_closed');
+    // No problem is left behind, and the ticket is untouched.
+    expect(await total()).toBe(before);
+    expect((await conversation('dconv_c1')).problemId).toBeNull();
+    expect(await messagesOf('dconv_c1')).toEqual([]);
+    // An unknown ticket is still what is reported first.
+    expect((await writer().request(BASE, send({ title: 'Closed', status: 'closed', conversationIds: ['dconv_nope'] }))).status).toBe(404);
+    // Closed without incidents is a problem like any other.
+    const ok = await writer().request(BASE, send({ title: 'Closed, no tickets', status: 'closed', conversationIds: [] }));
+    expect(ok.status).toBe(201);
+    expect(await total()).toBe(before + 1);
   });
 
   it('validates the body, the team and the owner', async () => {
@@ -501,5 +521,41 @@ describe('permissions', () => {
     expect(await status(['problems:read'], '/dprob_s1/share-workaround', send({ visibility: 'note' }))).toBe(403);
     expect(await status(['problems:read', 'problems:update'], '/dprob_s1/article', { method: 'POST' })).toBe(403);
     expect(await status(['problems:update', 'articles:create'], '/dprob_s1/article', { method: 'POST' })).toBe(403);
+  });
+
+  it('needs conversations:update for what writes to conversations, answered like the gate', async () => {
+    const total = async () => ((await (await reader().request(BASE)).json()) as { pagination: { totalCount: number } }).pagination.totalCount;
+    // Everything a problem manager holds, without the inbox's own permission.
+    const manager = () => app(['problems:read', 'problems:create', 'problems:update', 'problems:delete']);
+    const gate = await app(['problems:read']).request(BASE, send({ title: 'x' }));
+    expect(gate.status).toBe(403);
+    const forbidden = await gate.json();
+    expect(forbidden).toEqual({ success: false, error: { code: 'FORBIDDEN', message: 'You do not have permission to perform this action' } });
+
+    await seedConversation('dconv_p1', 451, { visitorId: 'vis_p1' });
+    const before = await total();
+    const linked = await manager().request(BASE, send({ title: 'With a ticket', conversationIds: ['dconv_p1'] }));
+    expect(linked.status).toBe(403);
+    expect(await linked.json()).toEqual(forbidden);
+    expect(await total()).toBe(before);
+    expect((await conversation('dconv_p1')).problemId).toBeNull();
+    expect(await messagesOf('dconv_p1')).toEqual([]);
+    // The body is checked first, as for a permission in the route's own list.
+    expect((await manager().request(BASE, send({ title: '', conversationIds: ['dconv_p1'] }))).status).toBe(400);
+    // Without incidents the problem's own permission is enough.
+    expect((await manager().request(BASE, send({ title: 'No tickets', conversationIds: [] }))).status).toBe(201);
+    expect((await manager().request(BASE, send({ title: 'No tickets either' }))).status).toBe(201);
+
+    const posted = (await messagesOf('dconv_w1')).length;
+    for (const visibility of ['note', 'reply']) {
+      const shared = await manager().request(`${BASE}/dprob_w1/share-workaround`, send({ visibility }));
+      expect(shared.status).toBe(403);
+      expect(await shared.json()).toEqual(forbidden);
+    }
+    // A gate: it answers before the body is read.
+    expect((await manager().request(`${BASE}/dprob_w1/share-workaround`, send({}))).status).toBe(403);
+    expect(await messagesOf('dconv_w1')).toHaveLength(posted);
+    // The inbox's permission alone is not enough either.
+    expect((await app(['problems:read', 'conversations:update']).request(`${BASE}/dprob_w1/share-workaround`, send({ visibility: 'note' }))).status).toBe(403);
   });
 });

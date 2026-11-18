@@ -17,6 +17,10 @@
  * records, and every query of the tenant DB (Neon HTTP) is a subrequest, so a
  * tick runs STEPS_PER_TICK steps in all. Whatever does not fit stays due and
  * goes on the next tick.
+ *
+ * A step that takes longer than a tick is not run twice: it holds a lease on
+ * its run, the next tick finds the run busy, does nothing for that source and
+ * leaves the workspace due.
  */
 
 import { asc } from 'drizzle-orm';
@@ -150,6 +154,9 @@ export async function sweepWorkspaceAssetImports(
     if (!running) continue;
 
     const step = await runAssetImportStep(context, running);
+    // The step of an earlier tick still holds this run: nothing was done. The
+    // source has a run under way, so the workspace stays due now.
+    if (step.busy) continue;
     result.steps += 1;
     if (step.retryAfterSeconds) throttledUntil.set(source.id, new Date(now.getTime() + step.retryAfterSeconds * 1000));
     if (step.done) {

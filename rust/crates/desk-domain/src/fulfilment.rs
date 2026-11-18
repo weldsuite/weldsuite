@@ -8,13 +8,18 @@
 //!   (`tasks.source_type = 'desk_conversation'`), each announced like the
 //!   flow API announces a task (`project_task created`, an assignment
 //!   notification), and the timeline gets `fulfilment_started`. Idempotent
-//!   per conversation.
+//!   per conversation, and a second run after a failure creates only the
+//!   tasks the first one did not get to.
 //! - [`notify_approver`] (`notifyDeskApprover`): the approver of a step that
 //!   just opened hears about it.
 //!
 //! The rows are written by [`crate::catalog`]. Both run after the response
 //! (the workers' `waitUntil`): they never fail, a failure is logged and the
-//! request that triggered them is unaffected.
+//! request that triggered them is unaffected. [`run`]
+//! (`runDeskCatalogFulfilment`) is the same fulfilment for a caller that
+//! waits for it and answers with its outcome (the retry route): it fails.
+
+use std::collections::{HashMap, VecDeque};
 
 use serde_json::{Map, Value, json};
 use weldsuite_db::PgPool;
@@ -137,20 +142,27 @@ async fn notify_assignee(
     Ok(())
 }
 
-/// `fulfilDeskCatalogRequest(ctx, input)`: create the item's fulfilment
-/// tasks for an approved (or approval-free) request; no project. A request
-/// whose `fulfilment_started` event exists is left alone, and an item
-/// without tasks writes nothing. `actor_user_id` is the member whose action
-/// approved the request; absent for the system. The tasks that were
-/// created, in the item's order; `None` when it did nothing or failed.
+/// `FulfilDeskCatalogRequestResult`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Fulfilled {
+    /// The request's tasks, in the item's order: the ones this run created
+    /// and the ones an earlier run left.
+    pub task_ids: Vec<String>,
+    /// How many of them this run created.
+    pub created: usize,
+}
+
+/// `fulfilDeskCatalogRequest(ctx, input)`: [`run`] for after the response,
+/// it never fails. `None` when it did nothing or failed; a failed run is
+/// completed by the next one (`POST /api/desk/conversations/:id/fulfilment`).
 pub async fn fulfil(
     ctx: &FollowUp<'_>,
     conversation: &Value,
     item: &Value,
     actor_user_id: Option<&str>,
-) -> Option<Vec<String>> {
-    match try_fulfil(ctx, conversation, item, actor_user_id).await {
-        Ok(task_ids) => task_ids,
+) -> Option<Fulfilled> {
+    match run(ctx, conversation, item, actor_user_id).await {
+        Ok(fulfilled) => fulfilled,
         Err(error) => {
             tracing::error!(%error, "[desk-catalog] fulfilment failed");
             None
@@ -158,12 +170,46 @@ pub async fn fulfil(
     }
 }
 
-async fn try_fulfil(
+/// `tasksLeftBehind(db, conversationId)`: the tasks a run that stopped half
+/// way left on the conversation, by title, oldest first. Each one stands for
+/// one template of that title.
+fn left_behind(tasks: Vec<(String, String)>) -> HashMap<String, VecDeque<String>> {
+    let mut by_title: HashMap<String, VecDeque<String>> = HashMap::new();
+    for (id, title) in tasks {
+        by_title.entry(title).or_default().push_back(id);
+    }
+    by_title
+}
+
+/// The task of a template that an earlier run created already (`left` loses
+/// it: one task per template, so two templates with one title still give two
+/// tasks). `None` when the template's task has to be created.
+fn kept(left: &mut HashMap<String, VecDeque<String>>, template: &Value) -> Option<String> {
+    left.get_mut(template["title"].as_str()?)?
+        .pop_front()
+        .filter(|id| !id.is_empty())
+}
+
+/// `runDeskCatalogFulfilment(ctx, input)`: create the item's fulfilment
+/// tasks for an approved (or approval-free) request; no project. A request
+/// whose `fulfilment_started` event exists is left alone, and an item
+/// without tasks writes nothing: `None` then. `actor_user_id` is the member
+/// whose action approved the request; absent for the system.
+///
+/// `fulfilment_started` is written after the last task, so a run that failed
+/// can simply run again: a template whose title is already on a task linked
+/// to the conversation (`source_type = 'desk_conversation'`) is not created
+/// a second time.
+///
+/// # Errors
+///
+/// What stopped the run, as text for the log.
+pub async fn run(
     ctx: &FollowUp<'_>,
     conversation: &Value,
     item: &Value,
     actor_user_id: Option<&str>,
-) -> Result<Option<Vec<String>>, String> {
+) -> Result<Option<Fulfilled>, String> {
     let failed = |error: &dyn std::fmt::Display| error.to_string();
     let templates: &[Value] = item["fulfilmentTasks"]
         .as_array()
@@ -180,9 +226,20 @@ async fn try_fulfil(
     }
     let actor = actor_user_id.unwrap_or("system");
 
+    let mut left = left_behind(
+        catalog::request_tasks(ctx.db, conversation_id)
+            .await
+            .map_err(|error| failed(&error))?,
+    );
     let now = now_ms();
     let mut task_ids = Vec::with_capacity(templates.len());
+    let mut created_count = 0;
     for template in templates {
+        if let Some(task_id) = kept(&mut left, template) {
+            task_ids.push(task_id);
+            continue;
+        }
+        created_count += 1;
         let data = task_data(template, conversation, now);
         let created = create_task(ctx.db, &data, None, actor)
             .await
@@ -225,7 +282,10 @@ async fn try_fulfil(
         recorded.message.clone(),
     )
     .await;
-    Ok(Some(task_ids))
+    Ok(Some(Fulfilled {
+        task_ids,
+        created: created_count,
+    }))
 }
 
 /// The approver's notification: "Approval needed: <item> for <requester>",
@@ -331,6 +391,43 @@ mod tests {
                 "sourceType": "desk_conversation", "sourceId": "dconv_2",
             })
         );
+    }
+
+    #[test]
+    fn a_second_run_keeps_the_tasks_the_first_one_created() {
+        // What a run that stopped after two of four templates left behind.
+        let mut left = left_behind(vec![
+            ("task_1".to_owned(), "Order".to_owned()),
+            ("task_2".to_owned(), "Check".to_owned()),
+        ]);
+        let template = |title: &str| json!({ "id": "t", "title": title });
+        // In the item's order: Order, Check, Check, Hand over.
+        assert_eq!(
+            kept(&mut left, &template("Order")).as_deref(),
+            Some("task_1")
+        );
+        assert_eq!(
+            kept(&mut left, &template("Check")).as_deref(),
+            Some("task_2")
+        );
+        // The second template of that title has no task yet, nor has a new title.
+        assert_eq!(kept(&mut left, &template("Check")), None);
+        assert_eq!(kept(&mut left, &template("Hand over")), None);
+        // A title is matched as it is written.
+        assert_eq!(kept(&mut left, &template("order")), None);
+        assert_eq!(kept(&mut left, &json!({ "id": "t" })), None);
+    }
+
+    #[test]
+    fn tasks_of_one_title_are_kept_oldest_first() {
+        let mut left = left_behind(vec![
+            ("task_a".to_owned(), "Check".to_owned()),
+            ("task_b".to_owned(), "Check".to_owned()),
+        ]);
+        let template = json!({ "title": "Check" });
+        assert_eq!(kept(&mut left, &template).as_deref(), Some("task_a"));
+        assert_eq!(kept(&mut left, &template).as_deref(), Some("task_b"));
+        assert_eq!(kept(&mut left, &template), None);
     }
 
     #[test]

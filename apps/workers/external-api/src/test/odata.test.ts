@@ -521,6 +521,19 @@ describe('$filter over HTTP', () => {
     await errorOf('/v1/odata/Conversations', { $filter: '' });
   });
 
+  it('answers 400 for a NUL character in a string literal, percent-encoded or raw', async () => {
+    const message = 'A string literal in $filter must not contain a NUL character';
+    const filters = ["title eq 'a\u0000b'", "contains(title,'\u0000')", "tags/any(t: t eq 'vip\u0000')", "title eq 'x' or title eq '\u0000'"];
+    for (const filter of filters) {
+      expect(await errorOf('/v1/odata/Conversations', { $filter: filter }), JSON.stringify(filter)).toEqual({ code: 'BadRequest', message });
+    }
+    expect((await errorOf('/v1/odata/Conversations/$count', { $filter: "title eq '\u0000'" })).message).toBe(message);
+    // As a client's own query string carries it.
+    const raw = await app().request("/v1/odata/Conversations?$filter=title eq 'a\u0000b'");
+    expect(raw.status).toBe(400);
+    expect(((await raw.json()) as { error: { message: string } }).error.message).toBe(message);
+  });
+
   it('cannot be injected through a literal or a name', async () => {
     const before = await (await app().request('/v1/odata/Conversations/$count')).text();
     expect(await filtered("title eq 'x''; DROP TABLE desk_conversations; --'")).toEqual([]);
@@ -576,6 +589,20 @@ describe('single entities', () => {
     ["/v1/odata/Nope('x')", 404, "The entity set 'Nope' does not exist"],
   ])('answers %j with %i', async (path, status, message) => {
     expect((await errorOf(path, {}, status)).message).toBe(message);
+  });
+
+  it('answers 400 for a NUL character in a key, percent-encoded or raw', async () => {
+    const paths = [
+      "/v1/odata/Teams('a%00b')",
+      "/v1/odata/Teams('%00')",
+      "/v1/odata/Teams('team_1\u0000')",
+      "/v1/odata/Teams('te''am%00')",
+      "/v1/odata/Teams('%00')/$count",
+      "/v1/odata/Nope('%00')",
+    ];
+    for (const path of paths) {
+      expect(await errorOf(path), path).toEqual({ code: 'BadRequest', message: 'A key must not contain a NUL character' });
+    }
   });
 
   it('reads Teams() as the collection', async () => {
@@ -671,6 +698,25 @@ describe('server paging', () => {
     await errorOf('/v1/odata/Messages', { $skiptoken: token, $orderby: 'createdAt' }); // a keyset token with $orderby
     const key = JSON.parse(atob(token.replace(/-/g, '+').replace(/_/g, '/'))) as { k: string };
     expect(key.k).toBe('msg_01000');
+  });
+
+  it('answers 400 for a forged skiptoken the database would refuse', async () => {
+    const forged = (value: unknown) => btoa(JSON.stringify(value));
+    const invalid = { code: 'BadRequest', message: 'Invalid $skiptoken' };
+    // An offset above what OFFSET takes, negative, fractional or not a number.
+    for (const o of [2147483648, 123456789012, 9007199254740992, -1, 1.5, '5', null, true]) {
+      const error = await errorOf('/v1/odata/Messages', { $skiptoken: forged({ o }), $orderby: 'id' });
+      expect(error, JSON.stringify(o)).toEqual(invalid);
+    }
+    // A key that is not a string, or one with a NUL character in it.
+    for (const k of [5, null, ['a'], { a: 1 }, 'msg_\u0000', '\u0000']) {
+      const error = await errorOf('/v1/odata/Messages', { $skiptoken: forged({ k }) });
+      expect(error, JSON.stringify(k)).toEqual(invalid);
+    }
+    // The largest offset is still a position: nothing lies that far.
+    const last = await get('/v1/odata/Messages', { $skiptoken: forged({ o: 2147483647 }), $orderby: 'id', $select: 'id' });
+    expect(last.value).toEqual([]);
+    expect(last['@odata.nextLink']).toBeUndefined();
   });
 });
 

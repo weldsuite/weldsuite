@@ -3,8 +3,9 @@
  * item with none, one and two approval steps; deciding them in order (approve,
  * next step, approved, fulfilment tasks linked to the conversation with their
  * due dates; reject skipping the rest); who may decide; a double decision;
- * the refusals; and that every approval event stays internal. Seeded rows have
- * fixed ids and timestamps, so the suite runs against Rust too.
+ * the refusals; that every approval event stays internal; and running a
+ * fulfilment that stopped half way again. Seeded rows have fixed ids and
+ * timestamps, so the suite runs against Rust too.
  */
 
 import { beforeAll, describe, expect, it, vi } from 'vitest';
@@ -17,6 +18,7 @@ import { isPublicDeskMessage, type DeskMessage } from '@weldsuite/db/lib/desk';
 import {
   deskConversationRequestChangeSchema,
   deskConversationRequestOrNullSchema,
+  deskRequestFulfilmentSchema,
 } from '@weldsuite/core-api-client/schemas/desk-catalog';
 import type { Env, Variables } from '../../types';
 import { deskConversationsRoutes } from './index';
@@ -82,6 +84,7 @@ interface Request {
   item: { id: string; name: string } | null;
   approvalStatus: 'pending' | 'approved' | 'rejected' | null;
   approvals: Array<{ stepIndex: number; stepName: string | null; approverId: string | null; status: string; decidedById: string | null; comment: string | null }>;
+  fulfilmentStarted: boolean;
 }
 interface Change {
   data: { conversation: { id: string; ticketTypeId: string | null; departmentId: string | null; priority: string | null; catalogItemId: string | null; approvalStatus: string | null }; messages: DeskMessage[]; request: Request };
@@ -174,6 +177,18 @@ beforeAll(async () => {
   await seed('dconv_plain_2', 911);
   await seed('dconv_gone', 912);
   await seed('dconv_not_request', 913);
+  // Requests whose fulfilment stopped: after one of two tasks, and before the first.
+  await seed('dconv_half', 921, { catalogItemId: 'dcat_plain', assigneeId: 'user_bob' });
+  await db.insert(schema.tasks).values({
+    id: 'task_half_1',
+    title: 'Order the headset',
+    sourceType: 'desk_conversation',
+    sourceId: 'dconv_half',
+    assigneeId: 'user_alice',
+    createdAt: at(21),
+    updatedAt: at(21),
+  });
+  await seed('dconv_stalled', 922, { catalogItemId: 'dcat_one', approvalStatus: 'approved' });
 }, 60_000);
 
 describe('PUT /api/desk/conversations/:id/catalog-item without approval steps', () => {
@@ -189,10 +204,12 @@ describe('PUT /api/desk/conversations/:id/catalog-item without approval steps', 
       priority: 'low',
     });
     expect(types(data.messages)).toEqual(['attributes_changed']);
+    // The tasks are made after the answer: they are not there yet.
     expect(data.request).toEqual({
       item: { id: 'dcat_plain', name: 'Headset', category: null, icon: null, deliveryEstimate: null },
       approvalStatus: null,
       approvals: [],
+      fulfilmentStarted: false,
     });
 
     await test.settled();
@@ -217,6 +234,7 @@ describe('PUT /api/desk/conversations/:id/catalog-item without approval steps', 
     expect(((await again.res.json()) as ErrorBody).error.details.reason).toBe('already_request');
     const read = (await (await reader().request(`${BASE}/dconv_plain/request`)).json()) as { data: Request };
     expect(read.data.item?.name).toBe('Headset');
+    expect(read.data.fulfilmentStarted).toBe(true);
     expect(await tasksOf('dconv_plain')).toHaveLength(2);
   });
 });
@@ -292,6 +310,7 @@ describe('POST /api/desk/conversations/:id/approval', () => {
     expect(data.messages[0]?.metadata).toMatchObject({ stepIndex: 0, decidedById: 'user_alice', comment: 'Within budget' });
     expect(isPublicDeskMessage(data.messages[0]!)).toBe(false);
     expect(data.request.approvals[0]).toMatchObject({ status: 'approved', decidedById: 'user_alice', comment: 'Within budget' });
+    expect(data.request.fulfilmentStarted).toBe(false);
 
     const tasks = await tasksOf('dconv_one');
     expect(tasks.map((t) => t.title)).toEqual(['Order the laptop']);
@@ -392,6 +411,67 @@ describe('POST /api/desk/conversations/:id/approval', () => {
   });
 });
 
+describe('POST /api/desk/conversations/:id/fulfilment', () => {
+  const retry = (conversationId: string, who = agent()) => who.request(`${BASE}/${conversationId}/fulfilment`, { method: 'POST' });
+  const reason = async (res: Response) => ((await res.json()) as ErrorBody).error.details.reason;
+  const started = async (conversationId: string) =>
+    ((await (await reader().request(`${BASE}/${conversationId}/request`)).json()) as { data: Request }).data.fulfilmentStarted;
+
+  it('creates only the tasks a run that stopped half way did not get to', async () => {
+    expect(await started('dconv_half')).toBe(false);
+    const res = await retry('dconv_half');
+    expect(res.status).toBe(200);
+    // Not after the answer: the tasks are there when it comes.
+    expect(await res.json()).toEqual({ data: { created: 1 } });
+    const tasks = (await tasksOf('dconv_half')).sort((a, b) => a.title.localeCompare(b.title));
+    expect(tasks.map((t) => [t.title, t.assigneeId])).toEqual([
+      ['Hand it over', 'user_bob'],
+      ['Order the headset', 'user_alice'],
+    ]);
+    expect(tasks.map((t) => t.id)).toContain('task_half_1');
+    // One timeline entry, naming both tasks in the item's order, by the member who ran it.
+    const events = await eventsOf('dconv_half', 'fulfilment_started');
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ kind: 'event', authorType: 'agent', authorId: 'user_test_default' });
+    expect(events[0]?.metadata?.taskIds).toEqual(['task_half_1', tasks[0]!.id]);
+    expect(isPublicDeskMessage(events[0]!)).toBe(false);
+    expect(await started('dconv_half')).toBe(true);
+  });
+
+  it('creates every task when the run never got to the first, and only once', async () => {
+    const res = await retry('dconv_stalled');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ data: { created: 1 } });
+    expect((await tasksOf('dconv_stalled')).map((t) => t.title)).toEqual(['Order the laptop']);
+
+    const again = await retry('dconv_stalled');
+    expect(again.status).toBe(409);
+    expect(await reason(again)).toBe('already_started');
+    expect(await tasksOf('dconv_stalled')).toHaveLength(1);
+    expect(await eventsOf('dconv_stalled', 'fulfilment_started')).toHaveLength(1);
+  });
+
+  it('refuses what is not a request, not approved, started already or without its item', async () => {
+    const none = await retry('dconv_gone');
+    expect(none.status).toBe(409);
+    expect(await reason(none)).toBe('not_request');
+    // Waiting for its approver, and rejected.
+    expect(await reason(await retry('dconv_team_orphan'))).toBe('not_approved');
+    expect(await reason(await retry('dconv_reject'))).toBe('not_approved');
+    expect(await reason(await retry('dconv_plain'))).toBe('already_started');
+    // Approved after its item was deleted: there is nothing to create the tasks from.
+    const missing = await retry('dconv_orphan');
+    expect(missing.status).toBe(409);
+    expect(await reason(missing)).toBe('item_missing');
+    expect(await tasksOf('dconv_orphan')).toHaveLength(0);
+    expect((await retry('dconv_nope')).status).toBe(404);
+  });
+
+  it('needs conversations:update', async () => {
+    expect((await retry('dconv_half', reader())).status).toBe(403);
+  });
+});
+
 describe('GET /api/desk/conversations/:id/request', () => {
   it('answers null for a conversation that is not a request and 404 for an unknown one', async () => {
     const res = await reader().request(`${BASE}/dconv_gone/request`);
@@ -426,5 +506,11 @@ describe('the answers match their published schemas', () => {
     const approved = await decide('dconv_not_request', { decision: 'approved', comment: 'Fine by me' });
     expect(approved.status).toBe(200);
     expect(deskConversationRequestChangeSchema.parse(await body(approved))).toBeTruthy();
+
+    // A fulfilment run again: how many tasks it created, and nothing else.
+    await seed('dconv_schema', 923, { catalogItemId: 'dcat_one', approvalStatus: 'approved' });
+    const retried = await agent().request(`${BASE}/dconv_schema/fulfilment`, { method: 'POST' });
+    expect(retried.status).toBe(200);
+    expect(deskRequestFulfilmentSchema.parse(await body(retried))).toEqual({ created: 1 });
   });
 });

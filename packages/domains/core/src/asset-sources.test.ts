@@ -10,6 +10,7 @@ import {
   assetSourceDueAt,
   assetTypeFor,
   deviceChecksum,
+  deviceChecksumWithCheckIn,
   fetchIntunePage,
   formatAssetSourceError,
   INTUNE_DEVICES_URL,
@@ -18,7 +19,6 @@ import {
   isValidEntraTenantId,
   mapCompliance,
   mapIntuneDevice,
-  nextAssetImportAt,
   parseAssetSourceError,
   testAssetSource,
   AssetSourceError,
@@ -202,6 +202,30 @@ describe('mapIntuneDevice', () => {
     expect(await deviceChecksum(mapIntuneDevice({ ...device }).values)).toBe(a);
     expect(await deviceChecksum(mapIntuneDevice({ ...device, osVersion: '10.0.26100' }).values)).not.toBe(a);
   });
+
+  it('leaves the last check-in out of the checksum: a device that only checked in again is unchanged', async () => {
+    const values = mapIntuneDevice(device).values;
+    const a = await deviceChecksum(values);
+    for (const lastSyncDateTime of ['2026-11-09T23:59:59Z', '2031-01-01T00:00:00Z', null, '0001-01-01T00:00:00Z']) {
+      expect(await deviceChecksum(mapIntuneDevice({ ...device, lastSyncDateTime }).values), String(lastSyncDateTime)).toBe(a);
+    }
+    // The Rust port takes the same checksum (`device.rs`): either backend continues the other's import.
+    expect(a).toBe('4066fe26c1c29fb1c3a1cb6cf98b8a9ba9850dee860d4499fc55c2b15fdd65cb');
+    expect(await deviceChecksum(mapIntuneDevice({ id: 'a' }).values)).toBe('d7053dff28e0a13f6b0af97de9c722f04b214f98bcc84036b89e780df44620ec');
+    // The check-in is still a fact a write sends.
+    expect(values.last_check_in).toBe('2026-11-01T08:30:00.000Z');
+  });
+
+  it('still takes the checksum of the old kind, with the check-in in it, to recognise a mapping written before', async () => {
+    const values = mapIntuneDevice(device).values;
+    // What `deviceChecksum` answered while the check-in was part of it.
+    expect(await deviceChecksumWithCheckIn(values, values.last_check_in!)).toBe('09d0e9adc303229790ad775d0fb7be2f140658bb37045f0d7cf90ade0cb6c6c8');
+    expect(await deviceChecksumWithCheckIn(mapIntuneDevice({ id: 'a' }).values, null)).toBe('f966abdabcaecb6b9cbb90fce12f3946ee4f80ee915e0da9d6f8118cdd8f22fa');
+    const later = mapIntuneDevice({ ...device, lastSyncDateTime: '2026-11-09T23:59:59Z' }).values;
+    // The same facts with the check-in the record still holds give the old checksum back.
+    expect(await deviceChecksumWithCheckIn(later, '2026-11-01T08:30:00.000Z')).toBe(await deviceChecksumWithCheckIn(values, values.last_check_in!));
+    expect(await deviceChecksumWithCheckIn(later, later.last_check_in!)).not.toBe(await deviceChecksumWithCheckIn(values, values.last_check_in!));
+  });
 });
 
 describe('isValidEntraTenantId', () => {
@@ -366,12 +390,6 @@ describe('stored errors', () => {
 
 describe('schedule', () => {
   const now = new Date('2026-11-10T08:00:00Z');
-
-  it('puts the next import one interval after a run, or nowhere when the schedule is off', () => {
-    expect(nextAssetImportAt({ enabled: true, intervalHours: 24 }, now)?.toISOString()).toBe('2026-11-11T08:00:00.000Z');
-    expect(nextAssetImportAt({ enabled: true, intervalHours: 1 }, now)?.toISOString()).toBe('2026-11-10T09:00:00.000Z');
-    expect(nextAssetImportAt({ enabled: false, intervalHours: 24 }, now)).toBeNull();
-  });
 
   it('is due now while a run is under way, else at its schedule', () => {
     const state = { startedAt: now.toISOString(), stats: { total: 0, created: 0, updated: 0, unchanged: 0, failed: 0 } };

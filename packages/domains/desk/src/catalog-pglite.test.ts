@@ -1,14 +1,15 @@
 /**
  * The service catalogue's shared pieces on pglite: the db lib (items, the
  * reader view with audiences, a help-center request, starting and deciding,
- * deleting an item that has requests) and the domain follow-up (fulfilment
- * tasks linked to the conversation, once; the approver notification). The
+ * deleting an item that has requests, a failure between statements) and the
+ * domain follow-up (fulfilment tasks linked to the conversation, once, and
+ * completed by a second run after a failure; the approver notification). The
  * lib is `@weldsuite/db/lib/desk-catalog`; it lives here because the db
  * package has no pglite.
  */
 
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { and, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
@@ -17,6 +18,7 @@ import {
   createDeskCatalogPortalRequest,
   decideDeskRequestApproval,
   deleteDeskCatalogItem,
+  DeskCatalogItemInUseError,
   DeskCatalogRefusedError,
   DeskCatalogRejectedError,
   getDeskCatalogItem,
@@ -39,7 +41,7 @@ vi.mock('@weldsuite/notifications', () => ({
   sendTaskAssignmentNotification: notifications.assigned,
 }));
 
-const { fulfilDeskCatalogRequest, notifyDeskApprover } = await import('./catalog');
+const { fulfilDeskCatalogRequest, notifyDeskApprover, runDeskCatalogFulfilment } = await import('./catalog');
 type DeskCatalogContext = import('./catalog').DeskCatalogContext;
 
 let db: Database;
@@ -62,6 +64,47 @@ const tasksOf = (conversationId: string) =>
     .select()
     .from(schema.tasks)
     .where(and(eq(schema.tasks.sourceType, 'desk_conversation'), eq(schema.tasks.sourceId, conversationId)));
+
+const conversationOf = async (id: string) => {
+  const [row] = await db.select().from(schema.deskConversations).where(eq(schema.deskConversations.id, id));
+  return row!;
+};
+
+const stepsOf = (conversationId: string) =>
+  db
+    .select()
+    .from(schema.deskRequestApprovals)
+    .where(eq(schema.deskRequestApprovals.conversationId, conversationId))
+    .orderBy(asc(schema.deskRequestApprovals.stepIndex));
+
+const eventsOf = async (conversationId: string, type: string) => {
+  const rows = await db.select().from(schema.deskMessages).where(eq(schema.deskMessages.conversationId, conversationId));
+  return rows.filter((message) => message.metadata?.eventType === type);
+};
+
+const WRITES = new Set<PropertyKey>(['insert', 'update', 'delete', 'execute']);
+
+/**
+ * `db`, failing its n-th write (an insert, update, delete or raw statement)
+ * before it runs, as a dropped connection would. `writes()` is how many were
+ * started.
+ */
+function failingOn(nth: number): { db: Database; writes: () => number } {
+  let writes = 0;
+  const handle = new Proxy(db, {
+    get(target, prop) {
+      const value = Reflect.get(target, prop, target) as unknown;
+      if (typeof value !== 'function') return value;
+      if (!WRITES.has(prop)) return value.bind(target);
+      return (...args: unknown[]) => {
+        writes += 1;
+        if (writes === nth) throw new Error(`statement ${nth} failed`);
+        return (value as (...a: unknown[]) => unknown).apply(target, args);
+      };
+    },
+  });
+  return { db: handle, writes: () => writes };
+}
 
 beforeAll(async () => {
   db = (await createPgliteDb()).db;
@@ -113,7 +156,8 @@ describe('items', () => {
     });
     await seedConversation('dconv_keep', 9001);
     await startDeskCatalogRequest(db, { generateId, conversationId: 'dconv_keep', item, actorType: 'agent', actorId: 'user_b' });
-    await deleteDeskCatalogItem(db, item.id);
+    // An item deleted before deleting was refused for pending requests.
+    await db.delete(schema.deskCatalogItems).where(eq(schema.deskCatalogItems.id, item.id));
     const request = await getDeskConversationRequest(db, 'dconv_keep');
     expect(request).toMatchObject({ item: null, approvalStatus: 'pending' });
     expect(request?.approvals).toHaveLength(1);
@@ -126,6 +170,165 @@ describe('items', () => {
     });
     expect(decided.fulfilmentDue).toBe(true);
     expect(decided.changes[0]?.message.metadata).toMatchObject({ catalogItemName: null });
+  });
+
+  it('refuses to delete an item while requests made from it wait for approval', async () => {
+    const item = await createDeskCatalogItem(db, {
+      generateId,
+      name: 'Wanted',
+      ticketTypeId: 'ttyp_ok',
+      approvalSteps: [{ approverType: 'member', approverId: 'user_a' }],
+    });
+    for (const [id, number] of [['dconv_wait_1', 9101], ['dconv_wait_2', 9102]] as const) {
+      await seedConversation(id, number);
+      await startDeskCatalogRequest(db, { generateId, conversationId: id, item, actorType: 'agent' });
+    }
+    const refused = deleteDeskCatalogItem(db, item.id);
+    await expect(refused).rejects.toBeInstanceOf(DeskCatalogItemInUseError);
+    await expect(refused).rejects.toMatchObject({ reason: 'has_pending_requests', count: 2, itemId: item.id });
+    expect(await getDeskCatalogItem(db, item.id)).not.toBeNull();
+
+    // One decided: one still waits.
+    const decide = (conversationId: string, decision: 'approved' | 'rejected') =>
+      decideDeskRequestApproval(db, { generateId, conversationId, userId: 'user_a', canManage: false, decision });
+    await decide('dconv_wait_1', 'rejected');
+    await expect(deleteDeskCatalogItem(db, item.id)).rejects.toMatchObject({ count: 1 });
+    // All decided: the item can go, and the decided requests keep pointing at it.
+    await decide('dconv_wait_2', 'approved');
+    expect((await deleteDeskCatalogItem(db, item.id))?.id).toBe(item.id);
+    expect((await conversationOf('dconv_wait_2')).catalogItemId).toBe(item.id);
+  });
+});
+
+describe('a failure between statements', () => {
+  const member = (approverId: string) => ({ approverType: 'member' as const, approverId });
+  let item: Awaited<ReturnType<typeof createDeskCatalogItem>>;
+  let single: Awaited<ReturnType<typeof createDeskCatalogItem>>;
+  let number = 9600;
+
+  beforeAll(async () => {
+    item = await createDeskCatalogItem(db, {
+      generateId,
+      name: 'Three steps',
+      ticketTypeId: 'ttyp_ok',
+      approvalSteps: [member('user_a'), member('user_b'), member('user_a')],
+    });
+    single = await createDeskCatalogItem(db, { generateId, name: 'One step', ticketTypeId: 'ttyp_ok', approvalSteps: [member('user_a')] });
+  });
+
+  const fresh = async () => {
+    number += 1;
+    const id = `dconv_atomic_${number}`;
+    await seedConversation(id, number);
+    return id;
+  };
+  const start = (handle: Database, conversationId: string, of = item) =>
+    startDeskCatalogRequest(handle, { generateId, conversationId, item: of, actorType: 'agent', actorId: 'user_b' });
+  const decide = (handle: Database, conversationId: string, decision: 'approved' | 'rejected') =>
+    decideDeskRequestApproval(handle, { generateId, conversationId, userId: 'user_a', canManage: false, decision });
+  const state = async (id: string) => ({
+    request: await conversationOf(id),
+    steps: (await stepsOf(id)).map((step) => step.status),
+  });
+
+  /** How many writes a clean run of `work` makes. */
+  async function writesOf(work: (handle: Database) => Promise<unknown>): Promise<number> {
+    const counting = failingOn(Number.POSITIVE_INFINITY);
+    await work(counting.db);
+    return counting.writes();
+  }
+
+  it('never leaves a started request without its steps', async () => {
+    const counted = await fresh();
+    const total = await writesOf((handle) => start(handle, counted));
+    expect(total).toBeGreaterThanOrEqual(2);
+    const seen = new Set<string>();
+    for (let nth = 1; nth <= total; nth++) {
+      const id = await fresh();
+      await expect(start(failingOn(nth).db, id)).rejects.toThrow(`statement ${nth} failed`);
+      const { request, steps } = await state(id);
+      if (request.catalogItemId === null) {
+        // Nothing happened: it is still an ordinary ticket, and can be started.
+        expect(request.approvalStatus).toBeNull();
+        expect(steps).toEqual([]);
+        seen.add('untouched');
+        expect((await start(db, id)).pendingApproval?.stepIndex).toBe(0);
+      } else {
+        // Claimed, with every step: the first one can be decided.
+        expect(request).toMatchObject({ catalogItemId: item.id, approvalStatus: 'pending' });
+        expect(steps).toEqual(['pending', 'waiting', 'waiting']);
+        seen.add('started');
+        expect((await decide(db, id, 'approved')).nextApproval?.stepIndex).toBe(1);
+      }
+    }
+    // A failure at the claim leaves nothing, one after it (the timeline entry) a whole request.
+    expect([...seen].sort()).toEqual(['started', 'untouched']);
+  });
+
+  it.each([
+    ['approved', ['approved', 'pending', 'waiting'], 'pending'],
+    ['rejected', ['rejected', 'skipped', 'skipped'], 'rejected'],
+  ] as const)('never leaves a step %s half way', async (decision, after, status) => {
+    const counted = await fresh();
+    await start(db, counted);
+    const total = await writesOf((handle) => decide(handle, counted, decision));
+    expect(total).toBeGreaterThanOrEqual(2);
+    const seen = new Set<string>();
+    for (let nth = 1; nth <= total; nth++) {
+      const id = await fresh();
+      await start(db, id);
+      await expect(decide(failingOn(nth).db, id, decision)).rejects.toThrow(`statement ${nth} failed`);
+      const { request, steps } = await state(id);
+      if (steps[0] === 'pending') {
+        expect(steps).toEqual(['pending', 'waiting', 'waiting']);
+        expect(request.approvalStatus).toBe('pending');
+        seen.add('untouched');
+        // The approver can still decide it.
+        expect((await decide(db, id, decision)).decided.status).toBe(decision);
+      } else {
+        expect(steps).toEqual(after);
+        expect(request.approvalStatus).toBe(status);
+        seen.add('decided');
+        await expect(decide(db, id, decision)).rejects.toMatchObject({ reason: decision === 'approved' ? 'not_approver' : 'not_pending' });
+      }
+    }
+    expect([...seen].sort()).toEqual(['decided', 'untouched']);
+  });
+
+  it('never leaves the last approval without the approved request', async () => {
+    const counted = await fresh();
+    await start(db, counted, single);
+    const total = await writesOf((handle) => decide(handle, counted, 'approved'));
+    for (let nth = 1; nth <= total; nth++) {
+      const id = await fresh();
+      await start(db, id, single);
+      await expect(decide(failingOn(nth).db, id, 'approved')).rejects.toThrow(`statement ${nth} failed`);
+      const { request, steps } = await state(id);
+      expect([steps[0], request.approvalStatus]).toEqual(steps[0] === 'pending' ? ['pending', 'pending'] : ['approved', 'approved']);
+    }
+  });
+
+  it('lets one of two starts and one of two decisions at the same moment win', async () => {
+    const id = await fresh();
+    const starts = await Promise.allSettled([start(db, id), start(db, id)]);
+    expect(starts.map((result) => result.status).sort()).toEqual(['fulfilled', 'rejected']);
+    expect(starts.find((result) => result.status === 'rejected')).toMatchObject({ reason: { reason: 'already_request' } });
+    expect((await state(id)).steps).toEqual(['pending', 'waiting', 'waiting']);
+    expect(await eventsOf(id, 'approval_requested')).toHaveLength(1);
+
+    const decisions = await Promise.allSettled([decide(db, id, 'approved'), decide(db, id, 'rejected')]);
+    expect(decisions.map((result) => result.status).sort()).toEqual(['fulfilled', 'rejected']);
+    expect(decisions.find((result) => result.status === 'rejected')).toMatchObject({ reason: { reason: 'not_pending' } });
+    const { request, steps } = await state(id);
+    expect([
+      [['approved', 'pending', 'waiting'], 'pending'],
+      [['rejected', 'skipped', 'skipped'], 'rejected'],
+    ]).toContainEqual([steps, request.approvalStatus]);
+
+    // The second step belongs to someone else.
+    if (request.approvalStatus === 'pending') {
+      await expect(decide(db, id, 'approved')).rejects.toMatchObject({ reason: 'not_approver' });
+    }
   });
 });
 
@@ -193,9 +396,54 @@ describe('fulfilDeskCatalogRequest', () => {
       ['user_b', 'First'],
     ]);
 
+    expect(first?.created).toBe(2);
     const again = await fulfilDeskCatalogRequest(ctx, { db, conversation: { id: 'dconv_fulfil', assigneeId: 'user_a' }, item });
     expect(again).toBeNull();
     expect(await tasksOf('dconv_fulfil')).toHaveLength(2);
+  });
+
+  it('is completed by a second run after a failure at any point, without a task twice', async () => {
+    // Two templates share a title: each still gets its own task.
+    const templates = { fulfilmentTasks: [...item.fulfilmentTasks, { id: 't3', title: 'Second' }, { id: 't4', title: 'Third' }] };
+    const titles = ['First', 'Second', 'Second', 'Third'];
+    await seedConversation('dconv_retry_0', 9700);
+    const counting = failingOn(Number.POSITIVE_INFINITY);
+    await runDeskCatalogFulfilment(ctx, { db: counting.db, conversation: { id: 'dconv_retry_0', assigneeId: null }, item: templates });
+    const total = counting.writes();
+    expect(total).toBeGreaterThan(templates.fulfilmentTasks.length);
+
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const partial = new Set<number>();
+      for (let nth = 1; nth <= total; nth++) {
+        const id = `dconv_retry_${nth}`;
+        await seedConversation(id, 9700 + nth);
+        const conversation = { id, assigneeId: null };
+        // The run after the response fails, quietly, and leaves what it got to.
+        expect(await fulfilDeskCatalogRequest(ctx, { db: failingOn(nth).db, conversation, item: templates })).toBeNull();
+        const before = await tasksOf(id);
+        const started = (await eventsOf(id, 'fulfilment_started')).length === 1;
+        partial.add(started ? templates.fulfilmentTasks.length : before.length);
+
+        const retried = await runDeskCatalogFulfilment(ctx, { db, conversation, item: templates, actorUserId: 'user_a' });
+        // It created only what was missing (nothing at all when only the timeline entry's follow-up failed).
+        expect(retried).toEqual(started ? null : { taskIds: expect.any(Array), created: titles.length - before.length });
+        const after = await tasksOf(id);
+        expect(after.map((task) => task.title).sort()).toEqual(titles);
+        const [event] = await eventsOf(id, 'fulfilment_started');
+        expect(await eventsOf(id, 'fulfilment_started')).toHaveLength(1);
+        expect([...(event?.metadata?.taskIds as string[])].sort()).toEqual(after.map((task) => task.id).sort());
+        if (retried) {
+          // In the item's order, the tasks of the first run included.
+          const byId = new Map(after.map((task) => [task.id, task.title]));
+          expect(retried.taskIds.map((taskId) => byId.get(taskId))).toEqual(titles);
+        }
+      }
+      // The failures really covered runs that stopped with none, some and all of the tasks.
+      expect([...partial].sort()).toEqual([0, 1, 2, 3, 4]);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('leaves an item without tasks alone and never throws', async () => {

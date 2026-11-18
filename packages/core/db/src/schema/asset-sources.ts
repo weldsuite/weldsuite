@@ -57,6 +57,12 @@ export interface AssetSourceSyncState {
   stats: AssetSourceRunStats;
   /** Who started it by hand (a user id); absent for a scheduled run. */
   startedById?: string | null;
+  /**
+   * A step is at work on the run until this time (ISO). A step takes the lease
+   * before it does anything and gives it up with its last write, so two ticks
+   * never work on the same run at once; a step that died leaves it to expire.
+   */
+  leaseUntil?: string;
 }
 
 export const ASSET_SOURCE_DEFAULT_INTERVAL_HOURS = 24;

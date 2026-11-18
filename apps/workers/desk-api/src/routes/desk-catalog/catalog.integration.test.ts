@@ -1,13 +1,15 @@
 /**
  * The service catalogue items on pglite: create / read / change / delete with
  * their validation (the form is an active customer ticket type, a team is
- * active, limits, ids), the `desk_catalog_item` entity events, the pending
- * approvals list per scope and the permission gates. Seeded rows have fixed
- * ids, so the suite runs against Rust too.
+ * active, limits, ids), the `desk_catalog_item` entity events, deleting an
+ * item whose requests wait for approval (refused), the pending approvals list
+ * per scope and the permission gates. Seeded rows have fixed ids, so the suite
+ * runs against Rust too.
  */
 
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
+import { inArray } from 'drizzle-orm';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { conformanceTarget } from '@weldsuite/worker-kit/testing/conformance';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
@@ -247,6 +249,49 @@ describe('PATCH and DELETE /api/desk/catalog/:id', () => {
     expect(events).toContainEqual(expect.objectContaining({ entityType: 'desk_catalog_item', action: 'deleted', entityId: id }));
     expect((await manager().request(`${BASE}/${id}`, { method: 'DELETE' })).status).toBe(404);
     expect((await reader().request(`${BASE}/${id}`)).status).toBe(404);
+  });
+
+  it('refuses to delete an item while requests made from it wait for approval, with how many', async () => {
+    await db.insert(schema.deskCatalogItems).values({ id: 'dcat_busy', name: 'Busy item', ticketTypeId: 'ttyp_hw', createdAt: at(0), updatedAt: at(0) });
+    // Two requests wait; a decided one and one that needed no approval don't count.
+    for (const [i, approvalStatus] of [
+      [1, 'pending'],
+      [2, 'pending'],
+      [3, 'approved'],
+      [4, null],
+    ] as const) {
+      await db.insert(schema.deskConversations).values({
+        id: `dconv_busy_${i}`,
+        conversationNumber: 810 + i,
+        catalogItemId: 'dcat_busy',
+        approvalStatus,
+        createdAt: at(10 + i),
+        updatedAt: at(10 + i),
+      });
+    }
+    const deleted = () => events.filter((e) => e.action === 'deleted' && e.entityId === 'dcat_busy');
+
+    const refused = await manager().request(`${BASE}/dcat_busy`, { method: 'DELETE' });
+    expect(refused.status).toBe(409);
+    const body = (await refused.json()) as { error: { code: string; message: string; details: unknown } };
+    expect(body.error.code).toBe('CONFLICT');
+    expect(body.error.details).toEqual({ reason: 'has_pending_requests', count: 2 });
+    expect(body.error.message).toContain('switch the item off');
+    // Still there, and nothing was announced.
+    expect((await reader().request(`${BASE}/dcat_busy`)).status).toBe(200);
+    expect(deleted()).toHaveLength(0);
+    // Switching it off is what the message asks for, and works.
+    expect((await manager().request(`${BASE}/dcat_busy`, send({ isActive: false }, 'PATCH'))).status).toBe(200);
+
+    // Once they are decided, the item can go.
+    await db
+      .update(schema.deskConversations)
+      .set({ approvalStatus: 'rejected' })
+      .where(inArray(schema.deskConversations.id, ['dconv_busy_1', 'dconv_busy_2']));
+    expect((await manager().request(`${BASE}/dcat_busy`, { method: 'DELETE' })).status).toBe(204);
+    expect(deleted()).toHaveLength(1);
+    // An item that is gone is a 404, also when requests still name it (the seeded ones wait for 'dcat_seed').
+    expect((await manager().request(`${BASE}/dcat_seed`, { method: 'DELETE' })).status).toBe(404);
   });
 });
 

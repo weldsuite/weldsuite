@@ -22,6 +22,12 @@
  * rejection skips the remaining steps and rejects it. A request without steps
  * has `approval_status` null and fulfilment is due at once.
  *
+ * Each change of state is one statement (the compare-and-set first, in a
+ * WITH; the writes that depend on it run off what it returns), so a failure
+ * never leaves a request half way: claimed without its steps, or a step
+ * decided without the next one opened. The timeline entry follows; without it
+ * the state is still whole. The tenant DB has no interactive transactions.
+ *
  * Callers publish the changes (entity + realtime events) in order. Creating
  * the fulfilment tasks and notifying approvers is `@weldsuite/desk-domain/catalog`.
  * The Rust twin is `weldsuite_desk_domain::catalog`.
@@ -92,7 +98,12 @@ export type DeskCatalogRefusal =
   | 'closed'
   | 'item_inactive'
   | 'not_pending'
-  | 'not_approver';
+  | 'not_approver'
+  // Running a request's fulfilment again (POST …/fulfilment):
+  | 'not_request'
+  | 'not_approved'
+  | 'already_started'
+  | 'item_missing';
 
 export class DeskCatalogRefusedError extends Error {
   constructor(
@@ -101,6 +112,23 @@ export class DeskCatalogRefusedError extends Error {
   ) {
     super(message);
     this.name = 'DeskCatalogRefusedError';
+  }
+}
+
+/**
+ * An item that can't be deleted yet: requests made from it wait for approval,
+ * and approving one would then find no item (no tasks, and no sign of it).
+ * Routes answer 409 with `details.reason = 'has_pending_requests'` and
+ * `details.count`; switching the item off is what stops new requests.
+ */
+export class DeskCatalogItemInUseError extends Error {
+  readonly reason = 'has_pending_requests';
+  constructor(
+    readonly itemId: string,
+    readonly count: number,
+  ) {
+    super('Requests made from this item are waiting for approval; switch the item off instead');
+    this.name = 'DeskCatalogItemInUseError';
   }
 }
 
@@ -154,6 +182,14 @@ function text(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
 }
+
+/** The rows of a raw statement, whichever driver ran it. */
+function rowsOf<T>(result: unknown): T[] {
+  return (result as { rows?: T[] }).rows ?? (result as T[]);
+}
+
+/** A `Date` as drizzle binds it for a `timestamp` column. */
+const stamp = (date: Date) => date.toISOString();
 
 /** An active internal member, by user id. */
 async function activeMemberUserId(db: AnyDb, userId: string): Promise<string | null> {
@@ -363,14 +399,39 @@ export async function updateDeskCatalogItem(
   return updated ?? null;
 }
 
+/** How many requests made from an item wait for approval. */
+async function countPendingRequests(db: AnyDb, itemId: string): Promise<number> {
+  const [row] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(conversations)
+    .where(and(eq(conversations.catalogItemId, itemId), eq(conversations.approvalStatus, 'pending')));
+  return Number(row?.count ?? 0);
+}
+
 /**
- * Delete an item. Requests made from it keep their `catalog_item_id` and
- * their approval rows (they just no longer name the item). Null when it
+ * Delete an item. Refused (DeskCatalogItemInUseError) while requests made
+ * from it wait for approval. Decided requests keep their `catalog_item_id`
+ * and their approval rows (they just no longer name the item). Null when it
  * doesn't exist.
  */
 export async function deleteDeskCatalogItem(db: AnyDb, id: string): Promise<DeskCatalogItem | null> {
-  const [deleted] = await db.delete(items).where(eq(items.id, id)).returning();
-  return deleted ?? null;
+  if (!(await getDeskCatalogItem(db, id))) return null;
+  const pending = await countPendingRequests(db, id);
+  if (pending > 0) throw new DeskCatalogItemInUseError(id, pending);
+  // The condition again in the delete itself: a request that started a moment ago keeps its item.
+  const [deleted] = await db
+    .delete(items)
+    .where(
+      and(
+        eq(items.id, id),
+        sql`NOT EXISTS (SELECT 1 FROM desk_conversations c WHERE c.catalog_item_id = ${id} AND c.approval_status = 'pending')`,
+      ),
+    )
+    .returning();
+  if (deleted) return deleted;
+  const started = await countPendingRequests(db, id);
+  if (started > 0) throw new DeskCatalogItemInUseError(id, started);
+  return null;
 }
 
 /** The names of these catalogue items, by id (an item that is gone has no entry). */
@@ -544,6 +605,51 @@ export function assertDeskRequestStartable(
   }
 }
 
+type PlannedStep = Pick<DeskRequestApproval, 'id' | 'stepIndex' | 'stepName' | 'approverId' | 'status'>;
+
+/**
+ * Claim the conversation for `itemId` and write its steps, in one statement:
+ * the steps are inserted from the claim's own RETURNING, so there is no
+ * claimed request without steps, and a second start at the same moment (its
+ * claim finds the item set) writes nothing. The steps in order; none when the
+ * conversation was taken.
+ */
+async function claimWithSteps(
+  db: AnyDb,
+  conversationId: string,
+  itemId: string,
+  steps: PlannedStep[],
+): Promise<DeskRequestApproval[]> {
+  const now = stamp(new Date());
+  const values = sql.join(
+    steps.map(
+      (step) =>
+        sql`(${step.id}::varchar, ${step.stepIndex}::integer, ${step.stepName}::varchar, ${step.approverId}::varchar, ${step.status}::varchar)`,
+    ),
+    sql`, `,
+  );
+  const inserted = await db.execute(sql`
+    WITH claimed AS (
+      UPDATE desk_conversations
+         SET catalog_item_id = ${itemId}, approval_status = 'pending', updated_at = ${now}::timestamp
+       WHERE id = ${conversationId} AND catalog_item_id IS NULL
+      RETURNING id
+    )
+    INSERT INTO desk_request_approvals
+      (id, created_at, updated_at, conversation_id, catalog_item_id, step_index, step_name, approver_id, status)
+    SELECT step.id, ${now}::timestamp, ${now}::timestamp, claimed.id, ${itemId}::varchar,
+           step.step_index, step.step_name, step.approver_id, step.status
+      FROM claimed CROSS JOIN (VALUES ${values}) AS step (id, step_index, step_name, approver_id, status)
+    RETURNING id
+  `);
+  if (rowsOf(inserted).length === 0) return [];
+  return db
+    .select()
+    .from(approvals)
+    .where(eq(approvals.conversationId, conversationId))
+    .orderBy(asc(approvals.stepIndex), asc(approvals.id));
+}
+
 /**
  * Make an existing conversation a service request of `item` and start its
  * flow. Refused (409 `reason`): `already_request` (one item per conversation),
@@ -557,43 +663,31 @@ export async function startDeskCatalogRequest(
   assertDeskRequestStartable(conversation);
 
   const steps = input.item.approvalSteps;
-  // Claim the conversation first: a second start at the same moment finds it taken.
-  const [claimed] = await db
-    .update(conversations)
-    .set({
-      catalogItemId: input.item.id,
-      approvalStatus: steps.length > 0 ? 'pending' : null,
-      updatedAt: new Date(),
-    })
-    .where(and(eq(conversations.id, conversation.id), isNull(conversations.catalogItemId)))
-    .returning();
-  if (!claimed) throw new DeskCatalogRefusedError('already_request', 'This ticket is already a service request');
-
   if (steps.length === 0) {
+    // Claim the conversation: a second start at the same moment finds it taken.
+    const [claimed] = await db
+      .update(conversations)
+      .set({ catalogItemId: input.item.id, approvalStatus: null, updatedAt: new Date() })
+      .where(and(eq(conversations.id, conversation.id), isNull(conversations.catalogItemId)))
+      .returning();
+    if (!claimed) throw new DeskCatalogRefusedError('already_request', 'This ticket is already a service request');
     return { conversation: claimed, changes: [], pendingApproval: null, fulfilmentDue: true };
   }
 
-  const rows: DeskRequestApproval[] = [];
-  const now = new Date();
+  // Who each step asks is read first, so the claim and the steps can be one statement.
+  const planned: PlannedStep[] = [];
   for (const [index, step] of steps.entries()) {
-    const [row] = await db
-      .insert(approvals)
-      .values({
-        id: input.generateId('dappr'),
-        createdAt: now,
-        updatedAt: now,
-        conversationId: conversation.id,
-        catalogItemId: input.item.id,
-        stepIndex: index,
-        stepName: step.name ?? null,
-        approverId: await resolveApprover(db, step, claimed),
-        status: index === 0 ? 'pending' : 'waiting',
-      })
-      .returning();
-    if (!row) throw new Error('desk_request_approvals insert returned no row');
-    rows.push(row);
+    planned.push({
+      id: input.generateId('dappr'),
+      stepIndex: index,
+      stepName: step.name ?? null,
+      approverId: await resolveApprover(db, step, conversation),
+      status: index === 0 ? 'pending' : 'waiting',
+    });
   }
-  const first = rows[0] as DeskRequestApproval;
+  const rows = await claimWithSteps(db, conversation.id, input.item.id, planned);
+  const first = rows[0];
+  if (!first) throw new DeskCatalogRefusedError('already_request', 'This ticket is already a service request');
   const change = await approvalEvent(db, {
     generateId: input.generateId,
     conversationId: conversation.id,
@@ -655,13 +749,9 @@ export async function decideDeskRequestApproval(
   }
 
   const comment = text(input.comment);
-  const now = new Date();
-  const [decided] = await db
-    .update(approvals)
-    .set({ status: input.decision, decidedAt: now, decidedById: input.userId, comment, updatedAt: now })
-    .where(and(eq(approvals.id, pending.id), eq(approvals.status, 'pending')))
-    .returning();
-  if (!decided) throw new DeskCatalogRefusedError('not_pending', 'This approval was already decided');
+  const written = await writeDecision(db, { pending, decision: input.decision, userId: input.userId, comment });
+  if (!written) throw new DeskCatalogRefusedError('not_pending', 'This approval was already decided');
+  const { decided, next } = written;
 
   const [item] = await db.select({ name: items.name }).from(items).where(eq(items.id, decided.catalogItemId)).limit(1);
   const catalogItemName = item?.name ?? null;
@@ -670,11 +760,6 @@ export async function decideDeskRequestApproval(
   const changes: DeskLinkChange[] = [];
 
   if (input.decision === 'rejected') {
-    await db
-      .update(approvals)
-      .set({ status: 'skipped', updatedAt: now })
-      .where(and(eq(approvals.conversationId, input.conversationId), eq(approvals.status, 'waiting')));
-    await setApprovalStatus(db, input.conversationId, 'rejected');
     changes.push(
       await approvalEvent(db, {
         ...base,
@@ -688,20 +773,6 @@ export async function decideDeskRequestApproval(
     return { conversation: lastConversation(changes), changes, nextApproval: null, fulfilmentDue: false, decided };
   }
 
-  const [waiting] = await db
-    .select()
-    .from(approvals)
-    .where(and(eq(approvals.conversationId, input.conversationId), eq(approvals.status, 'waiting')))
-    .orderBy(asc(approvals.stepIndex))
-    .limit(1);
-  const [next] = waiting
-    ? await db
-        .update(approvals)
-        .set({ status: 'pending', updatedAt: now })
-        .where(and(eq(approvals.id, waiting.id), eq(approvals.status, 'waiting')))
-        .returning()
-    : [];
-  if (!next) await setApprovalStatus(db, input.conversationId, 'approved');
   changes.push(
     await approvalEvent(db, {
       ...base,
@@ -726,17 +797,90 @@ export async function decideDeskRequestApproval(
   return {
     conversation: lastConversation(changes),
     changes,
-    nextApproval: next ?? null,
+    nextApproval: next,
     fulfilmentDue: !next,
     decided,
   };
 }
 
-async function setApprovalStatus(db: AnyDb, conversationId: string, status: DeskRequestApprovalStatus): Promise<void> {
-  await db
-    .update(conversations)
-    .set({ approvalStatus: status, updatedAt: new Date() })
-    .where(eq(conversations.id, conversationId));
+interface DecisionInput {
+  /** The step that waits, as it was read. */
+  pending: DeskRequestApproval;
+  decision: 'approved' | 'rejected';
+  userId: string;
+  comment: string | null;
+}
+
+/**
+ * Write a decision and everything that follows from it, in one statement.
+ * The decision is written only while the step still is pending; what depends
+ * on it runs off its RETURNING, so all of it happens or none of it:
+ *   - rejected: the waiting steps are skipped and the request is rejected;
+ *   - approved: the first waiting step goes to its approver, or, when none
+ *     waits, the request is approved.
+ * The decided step and the step that opened; null when the step was decided a
+ * moment ago (nothing is written then).
+ */
+async function writeDecision(
+  db: AnyDb,
+  input: DecisionInput,
+): Promise<{ decided: DeskRequestApproval; next: DeskRequestApproval | null } | null> {
+  const { id, conversationId } = input.pending;
+  const now = stamp(new Date());
+  const decided = sql`
+    decided AS (
+      UPDATE desk_request_approvals
+         SET status = ${input.decision}, decided_at = ${now}::timestamp, decided_by_id = ${input.userId},
+             comment = ${input.comment}, updated_at = ${now}::timestamp
+       WHERE id = ${id} AND status = 'pending'
+      RETURNING id
+    )`;
+  const rejection = sql`
+    WITH ${decided},
+    skipped AS (
+      UPDATE desk_request_approvals
+         SET status = 'skipped', updated_at = ${now}::timestamp
+       WHERE conversation_id = ${conversationId} AND status = 'waiting'
+         AND EXISTS (SELECT 1 FROM decided)
+      RETURNING id
+    ),
+    request AS (
+      UPDATE desk_conversations
+         SET approval_status = 'rejected', updated_at = ${now}::timestamp
+       WHERE id = ${conversationId} AND EXISTS (SELECT 1 FROM decided)
+      RETURNING id
+    )
+    SELECT (SELECT id FROM decided) AS decided_id, NULL::varchar AS next_id`;
+  const approval = sql`
+    WITH ${decided},
+    opened AS (
+      UPDATE desk_request_approvals
+         SET status = 'pending', updated_at = ${now}::timestamp
+       WHERE id = (
+               SELECT w.id FROM desk_request_approvals w
+                WHERE w.conversation_id = ${conversationId} AND w.status = 'waiting'
+                ORDER BY w.step_index ASC LIMIT 1
+             )
+         AND status = 'waiting' AND EXISTS (SELECT 1 FROM decided)
+      RETURNING id
+    ),
+    request AS (
+      UPDATE desk_conversations
+         SET approval_status = 'approved', updated_at = ${now}::timestamp
+       WHERE id = ${conversationId}
+         AND EXISTS (SELECT 1 FROM decided) AND NOT EXISTS (SELECT 1 FROM opened)
+      RETURNING id
+    )
+    SELECT (SELECT id FROM decided) AS decided_id, (SELECT id FROM opened) AS next_id`;
+  const result = await db.execute(input.decision === 'rejected' ? rejection : approval);
+  const [written] = rowsOf<{ decided_id: string | null; next_id: string | null }>(result);
+  if (!written?.decided_id) return null;
+
+  const ids = written.next_id ? [written.decided_id, written.next_id] : [written.decided_id];
+  const rows = await db.select().from(approvals).where(inArray(approvals.id, ids));
+  const decidedRow = rows.find((row) => row.id === written.decided_id);
+  if (!decidedRow) throw new Error('the decided approval step is gone');
+  return { decided: decidedRow, next: rows.find((row) => row.id === written.next_id) ?? null };
 }
 
 function lastConversation(changes: DeskLinkChange[]): DeskConversation {
@@ -761,6 +905,12 @@ export interface DeskConversationRequest {
   approvalStatus: DeskRequestApprovalStatus | null;
   /** The request's steps, in order. */
   approvals: DeskRequestApprovalView[];
+  /**
+   * The item's tasks were created (the timeline has `fulfilment_started`).
+   * False on an approved request whose item has tasks means the run is under
+   * way or failed; POST …/fulfilment runs it again.
+   */
+  fulfilmentStarted: boolean;
 }
 
 /** The service request a conversation is; null when it isn't one (or doesn't exist). */
@@ -796,7 +946,12 @@ export async function getDeskConversationRequest(db: AnyDb, conversationId: stri
     .from(approvals)
     .where(eq(approvals.conversationId, conversationId))
     .orderBy(asc(approvals.stepIndex), asc(approvals.id));
-  return { item: item ?? null, approvalStatus: conversation.approvalStatus, approvals: rows };
+  return {
+    item: item ?? null,
+    approvalStatus: conversation.approvalStatus,
+    approvals: rows,
+    fulfilmentStarted: await hasDeskFulfilmentStarted(db, conversationId),
+  };
 }
 
 export interface DeskPendingApproval {
@@ -870,6 +1025,46 @@ export async function hasDeskFulfilmentStarted(db: AnyDb, conversationId: string
   return Boolean(row);
 }
 
+/**
+ * The tasks linked to a request, oldest first. Before `fulfilment_started`
+ * exists they are what a run that stopped half way left behind.
+ */
+export async function listDeskRequestTasks(db: AnyDb, conversationId: string): Promise<Array<{ id: string; title: string }>> {
+  const tasks = schema.tasks;
+  return db
+    .select({ id: tasks.id, title: tasks.title })
+    .from(tasks)
+    .where(and(eq(tasks.sourceType, 'desk_conversation'), eq(tasks.sourceId, conversationId)))
+    .orderBy(asc(tasks.createdAt), asc(tasks.id));
+}
+
+/**
+ * The request and its item, when its fulfilment can be run again: the request
+ * is approved (or needed no approval), its tasks were not created yet and its
+ * item still exists. Refused (409 `reason`): `not_request`, `not_approved`,
+ * `already_started`, `item_missing`.
+ */
+export async function loadDeskFulfilmentRetry(
+  db: AnyDb,
+  conversationId: string,
+): Promise<{ conversation: DeskConversation; item: DeskCatalogItem }> {
+  const conversation = await loadConversation(db, conversationId);
+  if (!conversation.catalogItemId) {
+    throw new DeskCatalogRefusedError('not_request', 'This ticket is not a service request');
+  }
+  if (conversation.approvalStatus !== null && conversation.approvalStatus !== 'approved') {
+    throw new DeskCatalogRefusedError('not_approved', 'This request is not approved');
+  }
+  if (await hasDeskFulfilmentStarted(db, conversationId)) {
+    throw new DeskCatalogRefusedError('already_started', 'The tasks of this request were created already');
+  }
+  const item = await getDeskCatalogItem(db, conversation.catalogItemId);
+  if (!item) {
+    throw new DeskCatalogRefusedError('item_missing', 'The catalogue item of this request no longer exists');
+  }
+  return { conversation, item };
+}
+
 export interface RecordDeskRequestFulfilmentInput {
   generateId: IdGenerator;
   conversationId: string;
@@ -878,7 +1073,7 @@ export interface RecordDeskRequestFulfilmentInput {
   taskIds: string[];
 }
 
-/** The internal `fulfilment_started` event, naming the tasks that were created. */
+/** The internal `fulfilment_started` event, naming the request's tasks. */
 export function recordDeskRequestFulfilment(db: AnyDb, input: RecordDeskRequestFulfilmentInput): Promise<DeskLinkChange> {
   return appendDeskMessage(db, {
     generateId: input.generateId,

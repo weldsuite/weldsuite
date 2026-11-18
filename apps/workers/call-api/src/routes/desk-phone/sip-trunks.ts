@@ -11,6 +11,9 @@
  *   DELETE /:id/numbers/:numberId                 settings:manage
  *   POST   /:id/numbers/:numberId/verification          settings:manage  { method }
  *   POST   /:id/numbers/:numberId/verification/confirm  settings:manage  { code }
+ *
+ * Codes are sent and tried a limited number of times an hour: over that the
+ * two verification routes answer 429 `too_many_attempts` with `Retry-After`.
  */
 
 import { Hono } from 'hono';
@@ -62,7 +65,9 @@ function ctxOf(c: C): SipTrunkContext {
 function refuse(c: C, err: unknown) {
   if (err instanceof SipTrunkError) {
     if (err.status === 404) return error.notFound(c, 'Phone system');
-    return c.json({ error: { code: err.code, message: err.message } }, err.status);
+    const body = { error: { code: err.code, message: err.message } };
+    if (err.retryAfter !== undefined) return c.json(body, err.status, { 'Retry-After': String(err.retryAfter) });
+    return c.json(body, err.status);
   }
   throw err;
 }

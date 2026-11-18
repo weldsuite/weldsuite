@@ -464,6 +464,13 @@ fn tokenize(text: &str) -> Result<Vec<Token>, ODataError> {
                     }
                     break;
                 }
+                // Postgres refuses a NUL in a text parameter, so no stored
+                // value holds one.
+                if value.contains('\0') {
+                    return Err(bad_request(
+                        "A string literal in $filter must not contain a NUL character",
+                    ));
+                }
                 out.push(Token::Str(value));
                 i = j + 1;
             }
@@ -1317,6 +1324,25 @@ mod tests {
                 "Cannot compare Edm.String 'title' with a int literal",
             ),
             ("title eq 'x", "Unterminated string literal in $filter"),
+            // A NUL in a string literal: Postgres refuses it in a text
+            // parameter. An unterminated literal is reported first.
+            (
+                "title eq 'a\0b'",
+                "A string literal in $filter must not contain a NUL character",
+            ),
+            (
+                "contains(title,'\0')",
+                "A string literal in $filter must not contain a NUL character",
+            ),
+            (
+                "tags/any(t: t eq 'vip\0')",
+                "A string literal in $filter must not contain a NUL character",
+            ),
+            (
+                "title eq 'ok' and nope eq 'a\0'",
+                "A string literal in $filter must not contain a NUL character",
+            ),
+            ("title eq 'a\0b", "Unterminated string literal in $filter"),
             (
                 "state eq 'a' AND state eq 'b'",
                 "Unexpected 'AND' in $filter",

@@ -31,6 +31,7 @@ type VerificationErrors = ReturnType<typeof getTranslations<'deskSipTrunks'>>['v
 
 /** What to say when sending the code failed. */
 function sendErrorText(code: string | null, errors: VerificationErrors): string {
+  if (code === 'too_many_attempts') return errors.tooManyAttempts;
   if (code === 'verification_refused') return errors.refused;
   if (code === 'already_verified') return errors.alreadyVerified;
   return errors.failed;
@@ -38,6 +39,7 @@ function sendErrorText(code: string | null, errors: VerificationErrors): string 
 
 /** What to say when the entered code was not accepted. */
 function confirmErrorText(code: string | null, errors: VerificationErrors): string {
+  if (code === 'too_many_attempts') return errors.tooManyAttempts;
   if (code === 'code_expired') return errors.codeExpired;
   if (code === 'already_verified') return errors.alreadyVerified;
   return errors.wrongCode;

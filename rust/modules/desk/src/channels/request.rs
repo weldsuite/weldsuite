@@ -1,6 +1,6 @@
 //! Service requests on a conversation:
 //! `routes/desk-conversations/request.ts` at
-//! `/api/desk/conversations/{id}/{request,catalog-item,approval}`.
+//! `/api/desk/conversations/{id}/{request,catalog-item,approval,fulfilment}`.
 //!
 //! A conversation is a service request when it was made from a catalogue
 //! item (`catalog_item_id`): the item's form is its ticket type, its
@@ -10,8 +10,10 @@
 //! [`weldsuite_desk_domain::catalog`]; timeline entries are published like
 //! the linked-ticket routes publish theirs. Notifying the next approver and
 //! creating the tasks run after the answer
-//! ([`weldsuite_desk_domain::fulfilment`]). Refusals answer 409
-//! `details.reason`, a field problem 400 `details.field`.
+//! ([`weldsuite_desk_domain::fulfilment`]); the answer's `request` is read
+//! before they start. `POST …/fulfilment` is the one that waits for the
+//! tasks. Refusals answer 409 `details.reason`, a field problem 400
+//! `details.field`.
 
 use std::sync::Arc;
 
@@ -39,19 +41,23 @@ use super::inbox::{load_author, publish_change, spawn_realtime};
 use super::links::{changes_to_publish, own_messages, publish_changes};
 use crate::{DeskState, Refusal, validate};
 
-/// `/desk/conversations/{id}/{request,catalog-item,approval}`, next to the
-/// inbox routes. Deciding only needs to read the inbox: who may decide a
-/// step is the step's approver, or anyone who manages the catalogue.
+/// `/desk/conversations/{id}/{request,catalog-item,approval,fulfilment}`,
+/// next to the inbox routes. Deciding only needs to read the inbox: who may
+/// decide a step is the step's approver, or anyone who manages the catalogue.
 pub(super) fn routes<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<DeskState>
 where
     Q: PermissionQueries + 'static,
 {
     let read = || gate.require([perm::CONVERSATIONS_READ.to_owned()]);
-    let update = gate.require([perm::CONVERSATIONS_UPDATE.to_owned()]);
+    let update = || gate.require([perm::CONVERSATIONS_UPDATE.to_owned()]);
     Router::new()
         .route("/{id}/request", get(read_request).route_layer(read()))
-        .route("/{id}/catalog-item", put(attach).route_layer(update))
+        .route("/{id}/catalog-item", put(attach).route_layer(update()))
         .route("/{id}/approval", post(decide).route_layer(read()))
+        .route(
+            "/{id}/fulfilment",
+            post(retry_fulfilment).route_layer(update()),
+        )
 }
 
 fn conversation_not_found(id: &str) -> Response {
@@ -137,15 +143,17 @@ fn publish_then_follow_up(
 }
 
 /// The answer of a change: the conversation, its new timeline entries and
-/// the request as it stands.
-async fn answer(
-    ctx: &Ctx,
+/// the request as it stood before the follow-up started (`request`, read by
+/// the caller first: its `fulfilmentStarted` then never depends on how far
+/// the tasks got).
+fn answer(
     id: &str,
-    conversation: Value,
+    conversation: &Value,
     changes: &[Appended],
+    request: Result<Option<Value>, sqlx::Error>,
     failure: &str,
 ) -> Response {
-    match catalog::conversation_request(&ctx.caller.db, id).await {
+    match request {
         Ok(request) => Data(json!({
             "conversation": conversation,
             "messages": own_messages(id, changes),
@@ -293,6 +301,7 @@ async fn attach(
         ));
     }
     changes.extend(started.changes);
+    let request = catalog::conversation_request(db, &id).await;
     publish_then_follow_up(
         &ctx,
         &state,
@@ -305,7 +314,7 @@ async fn attach(
             fulfilment_due: started.fulfilment_due,
         },
     );
-    answer(&ctx, &id, started.conversation, &changes, failure).await
+    answer(&id, &started.conversation, &changes, request, failure)
 }
 
 // ── POST /:id/approval ────────────────────────────────────────────────────────
@@ -374,6 +383,7 @@ async fn decide(
             return Refusal::Database(error).respond(failure);
         }
     };
+    let request = catalog::conversation_request(db, &id).await;
     publish_then_follow_up(
         &ctx,
         &state,
@@ -386,7 +396,41 @@ async fn decide(
             fulfilment_due: result.fulfilment_due,
         },
     );
-    answer(&ctx, &id, result.conversation, &result.changes, failure).await
+    answer(&id, &result.conversation, &result.changes, request, failure)
+}
+
+// ── POST /:id/fulfilment ──────────────────────────────────────────────────────
+
+/// Create the item's tasks for a request whose fulfilment never finished
+/// (the run after the answer failed): approved or without approval, the item
+/// still there, no `fulfilment_started` on the timeline. Waits for the tasks
+/// and answers how many it created; the tasks a failed run left are kept,
+/// not created twice. Publishes what the run after an approval publishes.
+async fn retry_fulfilment(
+    State(state): State<DeskState>,
+    ctx: Ctx,
+    Path(id): Path<String>,
+) -> Response {
+    let failure = "Failed to create the tasks";
+    let caller = &ctx.caller;
+    let (conversation, item) = match catalog::load_fulfilment_retry(&caller.db, &id).await {
+        Ok(found) => found,
+        Err(error) => return refused(error, failure),
+    };
+    let notifier = crate::notify::notifier(&state);
+    let follow = FollowUp {
+        db: &caller.db,
+        events: &state.events,
+        notifier: &notifier,
+        clerk_org_id: &caller.clerk_org_id,
+    };
+    match fulfilment::run(&follow, &conversation, &item, Some(&caller.user_id)).await {
+        Ok(fulfilled) => {
+            let created = fulfilled.map_or(0, |fulfilled| fulfilled.created);
+            Data(json!({ "created": created })).into_response()
+        }
+        Err(error) => failed(&error, failure),
+    }
 }
 
 #[cfg(test)]

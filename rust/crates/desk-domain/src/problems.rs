@@ -143,6 +143,20 @@ fn assert_known_error_backed(
     Ok(())
 }
 
+/// `assertOpenForIncidents(status, incidents)`: a problem logged as closed
+/// takes no incidents (the rule [`assert_linkable`] applies to an existing
+/// one). Checked before the problem is written: the link would otherwise fail
+/// after the insert and leave the problem behind.
+fn assert_open_for_incidents(status: &str, incidents: usize) -> Result<(), ProblemError> {
+    if status == "closed" && incidents > 0 {
+        return Err(rejected(
+            "problem_closed",
+            "A closed problem takes no incidents; link the tickets before closing it",
+        ));
+    }
+    Ok(())
+}
+
 // ── validation ────────────────────────────────────────────────────────────────
 
 /// `assertTeam(db, departmentId)`: the team exists, is active and not deleted.
@@ -643,6 +657,9 @@ pub async fn create(
             ));
         }
     }
+    // The last refusal the links below can raise: with it, a 4xx never leaves
+    // a problem behind.
+    assert_open_for_incidents(status, conversation_ids.len())?;
 
     let id = generate_id("dprob");
     let now = webchat::now();
@@ -1117,6 +1134,25 @@ mod tests {
                 "Problem #3 is closed and takes no new incidents".to_owned()
             ))
         );
+    }
+
+    #[test]
+    fn a_problem_created_closed_takes_no_incidents() {
+        let reason = |status, incidents| match assert_open_for_incidents(status, incidents) {
+            Err(ProblemError::Rejected { reason, message }) => Some((reason, message)),
+            _ => None,
+        };
+        assert_eq!(
+            reason("closed", 1),
+            Some((
+                "problem_closed",
+                "A closed problem takes no incidents; link the tickets before closing it"
+                    .to_owned()
+            ))
+        );
+        assert_eq!(reason("closed", 0), None);
+        assert_eq!(reason("resolved", 2), None);
+        assert_eq!(reason("open", 2), None);
     }
 
     #[test]

@@ -33,8 +33,14 @@ import {
   telnyxUpdateCredentialConnection,
   telnyxUpdateIpConnection,
 } from '../lib/telnyx-connections';
-import { deactivatePhoneNumberRegistry, upsertPhoneNumberRegistry } from '../lib/phone-registry';
+import { claimPhoneNumberRegistry, releasePhoneNumberRegistry } from '../lib/phone-registry';
 import { countryOfE164, toTrunkE164 } from '../lib/sip-trunk-number';
+import {
+  SIP_VERIFICATION_CONFIRMS_PER_NUMBER,
+  SIP_VERIFICATION_SENDS_PER_NUMBER,
+  SIP_VERIFICATION_SENDS_PER_WORKSPACE,
+  countVerificationAttempt,
+} from '../lib/sip-verification-limits';
 import {
   DEFAULT_SIP_HOST,
   SIP_PORT_PLAIN,
@@ -48,9 +54,11 @@ export type SipTrunkNumberRow = typeof schema.voipPhoneNumbers.$inferSelect;
 
 export class SipTrunkError extends Error {
   constructor(
-    readonly status: 400 | 404 | 409,
+    readonly status: 400 | 404 | 409 | 429,
     readonly code: string,
     message: string,
+    /** Seconds until a 429 may be tried again (the `Retry-After` header). */
+    readonly retryAfter?: number,
   ) {
     super(message);
     this.name = 'SipTrunkError';
@@ -482,18 +490,33 @@ export async function rotateSipTrunkPassword(ctx: SipTrunkContext, id: string) {
   return { row: trunk, credentials: { username: trunk.sipUsername, password } };
 }
 
-/** Soft-delete one number of a trunk and free it in the registry (and at Telnyx when it was verified). */
-async function retireNumber(ctx: SipTrunkContext, number: SipTrunkNumberRow): Promise<void> {
-  const { env, db } = ctx;
-  const now = new Date();
-  await db
-    .update(schema.voipPhoneNumbers)
-    .set({ deletedAt: now, updatedAt: now, status: 'inactive' })
-    .where(eq(schema.voipPhoneNumbers.id, number.id));
-  await bestEffort('deactivating the registry entry', () => deactivatePhoneNumberRegistry(env, number.phoneNumber));
+/**
+ * Free a retired number: this workspace's own registry entry goes (never one
+ * another workspace holds for the number by now), and the verified caller id
+ * at Telnyx when there was one.
+ */
+async function releaseNumber(ctx: SipTrunkContext, number: SipTrunkNumberRow): Promise<void> {
+  const { env } = ctx;
+  await bestEffort('releasing the registry entry', () =>
+    releasePhoneNumberRegistry(env, {
+      phoneNumber: number.phoneNumber,
+      clerkOrgId: ctx.workspaceId,
+      voipPhoneNumberId: number.id,
+    }),
+  );
   if (number.callerIdVerifiedAt && env.TELNYX_API_KEY) {
     await bestEffort('removing the verified number', () => telnyxDeleteVerifiedNumber(env, number.phoneNumber));
   }
+}
+
+/** Soft-delete one number of a trunk and free it in the registry (and at Telnyx when it was verified). */
+async function retireNumber(ctx: SipTrunkContext, number: SipTrunkNumberRow): Promise<void> {
+  const now = new Date();
+  await ctx.db
+    .update(schema.voipPhoneNumbers)
+    .set({ deletedAt: now, updatedAt: now, status: 'inactive' })
+    .where(eq(schema.voipPhoneNumbers.id, number.id));
+  await releaseNumber(ctx, number);
 }
 
 export async function deleteSipTrunk(ctx: SipTrunkContext, id: string) {
@@ -512,43 +535,104 @@ export async function deleteSipTrunk(ctx: SipTrunkContext, id: string) {
       throw telnyxFailure('Deleting the connection', err);
     }
   }
-  const numbers = await loadNumbers(db, [id]);
-  for (const number of numbers) await retireNumber(ctx, number);
+  // The trunk's row goes first and its numbers after it, by trunk id. A number
+  // added while the trunk is being deleted is then either seen here, or undone
+  // by addTrunkNumber, which looks for the trunk again after its own writes:
+  // no live number is left on a deleted trunk.
   await db.delete(schema.voipSipTrunks).where(eq(schema.voipSipTrunks.id, id));
+  const numbers = await loadNumbers(db, [id]);
+  const now = new Date();
+  await db
+    .update(schema.voipPhoneNumbers)
+    .set({ deletedAt: now, updatedAt: now, status: 'inactive' })
+    .where(and(eq(schema.voipPhoneNumbers.sipTrunkId, id), isNull(schema.voipPhoneNumbers.deletedAt)));
+  for (const number of numbers) await releaseNumber(ctx, number);
   return { row: trunk, numbers };
 }
 
 // ── Numbers ───────────────────────────────────────────────────────────────
+
+const numberTaken = () => new SipTrunkError(409, 'number_taken', 'This number is already in use');
+
+/**
+ * The registry entries this workspace may take over when it claims `e164`:
+ * its own entry that names a row of this workspace which is soft-deleted or
+ * gone (a clean-up that did not finish). Its own entry for `ownRowId` (the
+ * number's row here, known to be soft-deleted) needs no naming: the claim
+ * accepts the row it writes. Anything else holds the number, and so does every
+ * entry of another workspace, active or not.
+ */
+async function reclaimableRegistryIds(ctx: SipTrunkContext, e164: string, ownRowId: string | undefined): Promise<string[]> {
+  const [registered] = await getMasterDb(ctx.env)
+    .select()
+    .from(masterSchema.phoneNumberRegistry)
+    .where(eq(masterSchema.phoneNumberRegistry.phoneNumber, e164))
+    .limit(1);
+  if (!registered) return [];
+  if (registered.clerkOrgId !== ctx.workspaceId) throw numberTaken();
+  if (registered.voipPhoneNumberId === ownRowId) return [];
+  const [named] = await ctx.db
+    .select({ deletedAt: schema.voipPhoneNumbers.deletedAt })
+    .from(schema.voipPhoneNumbers)
+    .where(eq(schema.voipPhoneNumbers.id, registered.voipPhoneNumberId))
+    .limit(1);
+  if (named && !named.deletedAt) throw numberTaken();
+  return [registered.voipPhoneNumberId];
+}
+
+/** Take back a number's row whose claim did not go through. */
+async function shelveNumber(db: Database, numberId: string): Promise<void> {
+  await db
+    .update(schema.voipPhoneNumbers)
+    .set({ deletedAt: new Date(), status: 'inactive' })
+    .where(eq(schema.voipPhoneNumbers.id, numberId));
+}
+
+/**
+ * Claim the number in the registry for `row`, in one conditional write. A
+ * claim that fails or is lost (another workspace took the number between the
+ * look and the write) takes the row back.
+ */
+async function claimNumber(ctx: SipTrunkContext, row: SipTrunkNumberRow, reclaimIds: string[]): Promise<void> {
+  let claimed: boolean;
+  try {
+    claimed = await claimPhoneNumberRegistry(ctx.env, {
+      phoneNumber: row.phoneNumber,
+      clerkOrgId: ctx.workspaceId,
+      voipPhoneNumberId: row.id,
+      reclaimIds,
+    });
+  } catch (err) {
+    console.error('[sip-trunks] registering the number failed:', err);
+    await shelveNumber(ctx.db, row.id);
+    throw new SipTrunkError(400, 'registry_failed', 'The number could not be registered, try again');
+  }
+  if (!claimed) {
+    await shelveNumber(ctx.db, row.id);
+    throw numberTaken();
+  }
+}
 
 export async function addTrunkNumber(
   ctx: SipTrunkContext,
   trunkId: string,
   input: { phoneNumber: string; displayName?: string | null },
 ) {
-  const { env, db } = ctx;
+  const { db } = ctx;
   const trunk = await loadTrunk(db, trunkId);
   const e164 = toTrunkE164(input.phoneNumber);
   if (!e164) throw new SipTrunkError(400, 'invalid_number', 'Enter the number in international format, like +31201234567');
-
-  // The registry is the arbiter: any active entry (this or another workspace) holds the number.
-  const masterDb = getMasterDb(env);
-  const [registered] = await masterDb
-    .select()
-    .from(masterSchema.phoneNumberRegistry)
-    .where(eq(masterSchema.phoneNumberRegistry.phoneNumber, e164))
-    .limit(1);
-  if (registered?.isActive) {
-    throw new SipTrunkError(409, 'number_taken', 'This number is already in use');
-  }
 
   const [existing] = await db
     .select()
     .from(schema.voipPhoneNumbers)
     .where(eq(schema.voipPhoneNumbers.phoneNumber, e164))
     .limit(1);
-  if (existing && !existing.deletedAt) {
-    throw new SipTrunkError(409, 'number_taken', 'This number is already in use');
-  }
+  if (existing && !existing.deletedAt) throw numberTaken();
+
+  // The registry is the arbiter between workspaces. This look only spares a
+  // write that cannot succeed: the claim below is what decides.
+  const reclaimIds = await reclaimableRegistryIds(ctx, e164, existing?.id);
 
   const now = new Date();
   const values = {
@@ -587,20 +671,19 @@ export async function addTrunkNumber(
       .returning()) as SipTrunkNumberRow[];
   }
 
-  try {
-    await upsertPhoneNumberRegistry(env, {
-      phoneNumber: e164,
-      clerkOrgId: ctx.workspaceId,
-      voipPhoneNumberId: row.id,
-      isActive: true,
-    });
-  } catch (err) {
-    console.error('[sip-trunks] registering the number failed:', err);
-    await db
-      .update(schema.voipPhoneNumbers)
-      .set({ deletedAt: new Date(), status: 'inactive' })
-      .where(eq(schema.voipPhoneNumbers.id, row.id));
-    throw new SipTrunkError(400, 'registry_failed', 'The number could not be registered, try again');
+  await claimNumber(ctx, row, reclaimIds);
+
+  // The trunk may have been deleted while this ran. Its delete takes the
+  // numbers it finds after the trunk's row is gone; one written too late for
+  // that is taken back here.
+  const [still] = await db
+    .select({ id: schema.voipSipTrunks.id })
+    .from(schema.voipSipTrunks)
+    .where(eq(schema.voipSipTrunks.id, trunk.id))
+    .limit(1);
+  if (!still) {
+    await retireNumber(ctx, row);
+    throw new SipTrunkError(404, 'not_found', `Phone system '${trunkId}' not found`);
   }
   return { number: row, trunk };
 }
@@ -630,6 +713,14 @@ export async function removeTrunkNumber(ctx: SipTrunkContext, trunkId: string, n
 
 // ── Caller id verification ────────────────────────────────────────────────
 
+/** Count one attempt in `scope`; over `max` in the hour it is refused (429, with when to try again). */
+async function limitAttempts(ctx: SipTrunkContext, scope: string, max: number): Promise<void> {
+  const retryAfter = await countVerificationAttempt(ctx.env, scope, max);
+  if (retryAfter !== null) {
+    throw new SipTrunkError(429, 'too_many_attempts', 'Too many attempts, try again later', retryAfter);
+  }
+}
+
 export async function startNumberVerification(
   ctx: SipTrunkContext,
   trunkId: string,
@@ -640,6 +731,9 @@ export async function startNumberVerification(
   await loadTrunk(ctx.db, trunkId);
   const number = await loadTrunkNumber(ctx.db, trunkId, numberId);
   if (number.callerIdVerifiedAt) throw new SipTrunkError(409, 'already_verified', 'This number is already verified');
+  // Every send makes Telnyx call or text the number: a few an hour are plenty.
+  await limitAttempts(ctx, `send-number:${ctx.workspaceId}:${number.id}`, SIP_VERIFICATION_SENDS_PER_NUMBER);
+  await limitAttempts(ctx, `send-workspace:${ctx.workspaceId}`, SIP_VERIFICATION_SENDS_PER_WORKSPACE);
   try {
     await telnyxRequestNumberVerification(ctx.env, number.phoneNumber, method);
   } catch (err) {
@@ -662,6 +756,8 @@ export async function confirmNumberVerification(
   const trunk = await loadTrunk(ctx.db, trunkId);
   const number = await loadTrunkNumber(ctx.db, trunkId, numberId);
   if (number.callerIdVerifiedAt) throw new SipTrunkError(409, 'already_verified', 'This number is already verified');
+  // A code is a few digits: it must not be guessed.
+  await limitAttempts(ctx, `confirm-number:${ctx.workspaceId}:${number.id}`, SIP_VERIFICATION_CONFIRMS_PER_NUMBER);
   try {
     await telnyxConfirmNumberVerification(ctx.env, number.phoneNumber, code);
   } catch (err) {

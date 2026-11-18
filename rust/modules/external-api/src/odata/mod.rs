@@ -227,7 +227,14 @@ fn parse_segment(segment: &str) -> Result<(&str, Option<String>), ODataError> {
                 "A key must be a string in single quotes, like Conversations('cnv_1')",
             )
         })?;
-    Ok((name, Some(quoted.replace("''", "'"))))
+    let key = quoted.replace("''", "'");
+    // Postgres refuses a NUL in a text parameter, so no key holds one.
+    if key.contains('\0') {
+        return Err(ODataError::bad_request(
+            "A key must not contain a NUL character",
+        ));
+    }
+    Ok((name, Some(key)))
 }
 
 /// The request's origin as the client reached it (`new URL(c.req.url).origin`):
@@ -622,6 +629,18 @@ mod tests {
                 "A key must be a string in single quotes, like Conversations('cnv_1')",
             ),
             (
+                "/v1/odata/Teams('a%00b')",
+                400,
+                "BadRequest",
+                "A key must not contain a NUL character",
+            ),
+            (
+                "/v1/odata/Teams('%00')/$count",
+                400,
+                "BadRequest",
+                "A key must not contain a NUL character",
+            ),
+            (
                 "/v1/odata/Conversations/messages",
                 501,
                 "NotImplemented",
@@ -814,6 +833,14 @@ mod tests {
             "Teams(\"x\")",
         ] {
             assert_eq!(parse(segment), bad_key, "{segment}");
+        }
+        // Postgres refuses a NUL in a text parameter: no key holds one.
+        for segment in ["Teams('a\0b')", "Teams('\0')", "Nope('te''am\0')"] {
+            assert_eq!(
+                parse(segment),
+                Err((400, "A key must not contain a NUL character".to_owned())),
+                "{segment:?}"
+            );
         }
         for segment in [
             "$batch",

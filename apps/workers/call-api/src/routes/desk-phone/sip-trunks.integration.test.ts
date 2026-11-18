@@ -11,6 +11,7 @@ import { eq } from 'drizzle-orm';
 import * as masterSchema from '@weldsuite/db/schema/master';
 import { conformanceMasterDb, createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { createMemoryKv } from '@weldsuite/worker-kit/testing/d1';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import {
   DESK_SIP_TRUNK_AUTH_MODES,
@@ -109,7 +110,7 @@ beforeAll(async () => {
   for (const ip of ['8.8.8.8', '1.1.1.1', '4.4.4.4', '5.5.5.5']) {
     for (const port of [5060, 5070]) telnyx.on('DELETE', `/ips/ip-${ip}-${port}`, () => json({}));
   }
-  for (const name of ['XelionIp', 'DstnyCred', 'RollbackPbx', 'VoiceProfile', 'Edit', 'Gone', 'Cleanup', 'Lister', 'Rotate']) {
+  for (const name of ['XelionIp', 'DstnyCred', 'RollbackPbx', 'VoiceProfile', 'Edit', 'Gone', 'Cleanup', 'Lister', 'Rotate', 'Handover', 'Limits']) {
     stubConnection(name);
   }
   telnyx.on('POST', '/verified_numbers', ({ body }) =>
@@ -391,7 +392,8 @@ describe('numbers', () => {
     expect((await send('DELETE', `/${trunkId}/numbers/${added.id}`)).status).toBe(204);
     const [row] = await db.select().from(schema.voipPhoneNumbers).where(eq(schema.voipPhoneNumbers.id, added.id));
     expect(row!.deletedAt).not.toBeNull();
-    expect((await registry('+31201300003'))!.isActive).toBe(false);
+    // A trunk's claim leaves nothing behind in the registry.
+    expect(await registry('+31201300003')).toBeUndefined();
     expect((await send('DELETE', `/${trunkId}/numbers/${added.id}`)).status).toBe(404);
 
     const back = await send('POST', `/${trunkId}/numbers`, { phoneNumber: '+31201300003' });
@@ -405,6 +407,79 @@ describe('numbers', () => {
     const trunk = listed.find((t) => t.id === trunkId)!;
     expect(trunk.numbers.map((n) => n.phoneNumber)).toEqual(['+31201300001', '+31201300003']);
     expect(deskSipTrunkSchema.safeParse(trunk).success).toBe(true);
+  });
+
+  it('is held by another workspace’s entry, switched off or not', async () => {
+    await master.insert(masterSchema.phoneNumberRegistry).values({
+      phoneNumber: '+31201300051',
+      clerkOrgId: 'org_someone_else',
+      voipPhoneNumberId: 'vpn_elsewhere_51',
+      isActive: false,
+    });
+    const res = await send('POST', `/${trunkId}/numbers`, { phoneNumber: '+31201300051' });
+    expect(res.status).toBe(409);
+    expect((await errorOf(res)).code).toBe('number_taken');
+    expect(await registry('+31201300051')).toMatchObject({
+      isActive: false,
+      clerkOrgId: 'org_someone_else',
+      voipPhoneNumberId: 'vpn_elsewhere_51',
+    });
+    expect(await db.select().from(schema.voipPhoneNumbers).where(eq(schema.voipPhoneNumbers.phoneNumber, '+31201300051'))).toHaveLength(0);
+  });
+
+  it('can be claimed again after a clean-up that did not finish', async () => {
+    // The number's row was retired, but its registry entry stayed behind, still switched on.
+    const added = await dataOf<{ id: string }>(await send('POST', `/${trunkId}/numbers`, { phoneNumber: '+31201300004' }));
+    await db
+      .update(schema.voipPhoneNumbers)
+      .set({ deletedAt: new Date(), status: 'inactive' })
+      .where(eq(schema.voipPhoneNumbers.id, added.id));
+    expect(await registry('+31201300004')).toMatchObject({ isActive: true, voipPhoneNumberId: added.id });
+    const back = await send('POST', `/${trunkId}/numbers`, { phoneNumber: '+31201300004' });
+    expect(back.status).toBe(201);
+    expect((await dataOf<{ id: string }>(back)).id).toBe(added.id);
+    expect(await registry('+31201300004')).toMatchObject({ isActive: true, clerkOrgId: ORG, voipPhoneNumberId: added.id });
+
+    // An entry of this workspace that names a row which no longer exists is taken over too.
+    await master.insert(masterSchema.phoneNumberRegistry).values({
+      phoneNumber: '+31201300005',
+      clerkOrgId: ORG,
+      voipPhoneNumberId: 'vpn_long_gone',
+      isActive: false,
+    });
+    const fresh = await send('POST', `/${trunkId}/numbers`, { phoneNumber: '+31201300005' });
+    expect(fresh.status).toBe(201);
+    const freshId = (await dataOf<{ id: string }>(fresh)).id;
+    expect(await registry('+31201300005')).toMatchObject({ isActive: true, clerkOrgId: ORG, voipPhoneNumberId: freshId });
+  });
+
+  it('is not taken from a live number of this workspace', async () => {
+    // The registry names another, live row of this workspace for the number: that row holds it.
+    const [live] = await db.select().from(schema.voipPhoneNumbers).where(eq(schema.voipPhoneNumbers.phoneNumber, '+31201300001'));
+    await master.insert(masterSchema.phoneNumberRegistry).values({
+      phoneNumber: '+31201300006',
+      clerkOrgId: ORG,
+      voipPhoneNumberId: live!.id,
+    });
+    const res = await send('POST', `/${trunkId}/numbers`, { phoneNumber: '+31201300006' });
+    expect(res.status).toBe(409);
+    expect((await errorOf(res)).code).toBe('number_taken');
+    expect(await registry('+31201300006')).toMatchObject({ voipPhoneNumberId: live!.id });
+  });
+
+  it('leaves the registry alone when the number is someone else’s by now', async () => {
+    const added = await dataOf<{ id: string }>(await send('POST', `/${trunkId}/numbers`, { phoneNumber: '+31201300007' }));
+    // Another workspace ported the number in since: the entry is theirs.
+    await master
+      .update(masterSchema.phoneNumberRegistry)
+      .set({ clerkOrgId: 'org_someone_else', voipPhoneNumberId: 'vpn_theirs_07' })
+      .where(eq(masterSchema.phoneNumberRegistry.phoneNumber, '+31201300007'));
+    expect((await send('DELETE', `/${trunkId}/numbers/${added.id}`)).status).toBe(204);
+    expect(await registry('+31201300007')).toMatchObject({
+      isActive: true,
+      clerkOrgId: 'org_someone_else',
+      voipPhoneNumberId: 'vpn_theirs_07',
+    });
   });
 });
 
@@ -474,8 +549,72 @@ describe('caller id verification', () => {
     const rows = await db.select().from(schema.voipPhoneNumbers).where(eq(schema.voipPhoneNumbers.sipTrunkId, trunkId));
     expect(rows.length).toBeGreaterThan(0);
     expect(rows.every((r) => r.deletedAt !== null)).toBe(true);
-    expect((await registry('+31201300002'))!.isActive).toBe(false);
+    expect(await registry('+31201300002')).toBeUndefined();
     expect((await send('DELETE', `/${trunkId}`)).status).toBe(404);
+  });
+});
+
+describe('verification limits', () => {
+  // The counters live in the worker's KV; the other tests run without one, and so without limits.
+  const limited = { env: { WORKSPACE_CACHE: createMemoryKv() } };
+  const numbers: string[] = [];
+  let trunkId: string;
+
+  const sendCode = (numberId: string, options: Options = limited) =>
+    send('POST', `/${trunkId}/numbers/${numberId}/verification`, { method: 'sms' }, options);
+  const tryCode = (numberId: string, options: Options = limited) =>
+    send('POST', `/${trunkId}/numbers/${numberId}/verification/confirm`, { code: '111111' }, options);
+
+  async function expectTooMany(res: Response) {
+    expect(res.status).toBe(429);
+    const retryAfter = Number(res.headers.get('Retry-After'));
+    expect(retryAfter).toBeGreaterThanOrEqual(1);
+    expect(retryAfter).toBeLessThanOrEqual(3600);
+    expect(await errorOf(res)).toEqual({ code: 'too_many_attempts', message: 'Too many attempts, try again later' });
+  }
+
+  beforeAll(async () => {
+    trunkId = (await dataOf<{ id: string }>(await send('POST', '/', { name: 'Limits', authMode: 'credentials' }))).id;
+    for (const phoneNumber of ['+31201300060', '+31201300061', '+31201300062', '+31201300063']) {
+      numbers.push((await dataOf<{ id: string }>(await send('POST', `/${trunkId}/numbers`, { phoneNumber }))).id);
+    }
+    telnyx.on('POST', '/verified_numbers/%2B31201300060/actions/verify', () => telnyxError(422, 'Invalid verification code'));
+  });
+
+  it('sends at most three codes an hour to one number', async () => {
+    const mark = telnyx.calls.length;
+    for (let n = 0; n < 3; n += 1) expect((await sendCode(numbers[0]!)).status).toBe(200);
+    await expectTooMany(await sendCode(numbers[0]!));
+    // The refused request never reached Telnyx.
+    expect(callsTo('POST', '/verified_numbers', mark)).toHaveLength(3);
+  });
+
+  it('sends at most ten codes an hour for a workspace', async () => {
+    const mark = telnyx.calls.length;
+    // Three went to the first number; seven more make ten.
+    for (const numberId of [numbers[1]!, numbers[1]!, numbers[1]!, numbers[2]!, numbers[2]!, numbers[2]!, numbers[3]!]) {
+      expect((await sendCode(numberId)).status).toBe(200);
+    }
+    await expectTooMany(await sendCode(numbers[3]!));
+    expect(callsTo('POST', '/verified_numbers', mark)).toHaveLength(7);
+  });
+
+  it('lets a code be tried at most five times an hour', async () => {
+    const mark = telnyx.calls.length;
+    for (let n = 0; n < 5; n += 1) {
+      const wrong = await tryCode(numbers[0]!);
+      expect(wrong.status).toBe(400);
+      expect((await errorOf(wrong)).code).toBe('wrong_code');
+    }
+    await expectTooMany(await tryCode(numbers[0]!));
+    expect(callsTo('POST', '/verified_numbers/%2B31201300060/actions/verify', mark)).toHaveLength(5);
+    // Another number has its own count.
+    expect((await tryCode(numbers[1]!)).status).not.toBe(429);
+  });
+
+  it('limits nothing where the worker has no cache', async () => {
+    for (let n = 0; n < 4; n += 1) expect((await sendCode(numbers[0]!, {})).status).toBe(200);
+    for (let n = 0; n < 6; n += 1) expect((await tryCode(numbers[0]!, {})).status).toBe(400);
   });
 });
 
@@ -499,6 +638,29 @@ describe('cleanup', () => {
     const mark = telnyx.calls.length;
     expect((await send('DELETE', `/${id}`)).status).toBe(204);
     expect(callsTo('DELETE', '/ip_connections/ipc-Cleanup', mark)).toHaveLength(1);
-    expect((await registry('+31201300077'))!.isActive).toBe(false);
+    expect(await registry('+31201300077')).toBeUndefined();
+  });
+
+  it('leaves alone a number another workspace holds by now', async () => {
+    const id = (await dataOf<{ id: string }>(await send('POST', '/', { name: 'Handover', authMode: 'credentials' }))).id;
+    await send('POST', `/${id}/numbers`, { phoneNumber: '+31201300078' });
+    await send('POST', `/${id}/numbers`, { phoneNumber: '+31201300079' });
+    // The second number was ported in by another workspace since: the entry is theirs.
+    await master
+      .update(masterSchema.phoneNumberRegistry)
+      .set({ clerkOrgId: 'org_someone_else', voipPhoneNumberId: 'vpn_theirs_79' })
+      .where(eq(masterSchema.phoneNumberRegistry.phoneNumber, '+31201300079'));
+
+    expect((await send('DELETE', `/${id}`)).status).toBe(204);
+    expect(await registry('+31201300078')).toBeUndefined();
+    expect(await registry('+31201300079')).toMatchObject({
+      isActive: true,
+      clerkOrgId: 'org_someone_else',
+      voipPhoneNumberId: 'vpn_theirs_79',
+    });
+    // The trunk's row went first, its numbers after it: none is left live.
+    const rows = await db.select().from(schema.voipPhoneNumbers).where(eq(schema.voipPhoneNumbers.sipTrunkId, id));
+    expect(rows).toHaveLength(2);
+    expect(rows.every((r) => r.deletedAt !== null && r.status === 'inactive')).toBe(true);
   });
 });

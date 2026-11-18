@@ -139,6 +139,8 @@ function readString(text: string, start: number): Read {
     value += text[j];
     j++;
   }
+  // Postgres refuses a NUL in a text parameter, so no stored value holds one.
+  if (value.includes('\u0000')) throw badRequest('A string literal in $filter must not contain a NUL character');
   return { token: { t: 'string', v: value }, end: j + 1 };
 }
 

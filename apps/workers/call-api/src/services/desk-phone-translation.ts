@@ -5,9 +5,11 @@
  * An agent who answered an inbound call in the browser switches Translate on:
  *
  * - Telnyx transcribes both legs (`transcription_start`, track `inbound` on
- *   each: the party on that leg). The `client_state` of each start names the
- *   call and who speaks (`translate: 'caller' | 'agent'`), so a
- *   `call.transcription` webhook needs no guessing.
+ *   each: the party on that leg). The commands carry no `client_state` (a new
+ *   one would replace the leg's own on its later webhooks), so a
+ *   `call.transcription` webhook comes with the state of the leg it is from,
+ *   and that tells who speaks: the agent on an agent leg (`agentLegId`), the
+ *   caller on the call's own leg (`callId`).
  * - Every final line is translated with `@weldsuite/ai` (the model family inbox
  *   translation uses) and published to the answering agent's browser as
  *   `phone.caption`. The agent's own translated words are optionally spoken on
@@ -20,6 +22,8 @@
  *
  * State is `voip_calls.translation`. Telnyx commands that fail because a leg is
  * gone are logged and swallowed, except at start, where they fail the request.
+ * A webhook Telnyx delivers twice is translated once (its event id is kept in
+ * KV for ten minutes).
  */
 
 import { and, eq, isNull, sql } from 'drizzle-orm';
@@ -53,7 +57,7 @@ import { appendDeskMessage } from '@weldsuite/db/lib/desk';
 import type { VoipCallTranslation } from '@weldsuite/db/schema/voip-calls';
 import { getMasterDb, schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
-import { encodeClientState, telnyxSpeak } from '../lib/telnyx';
+import { telnyxSpeak } from '../lib/telnyx';
 import { telnyxTranscriptionStart, telnyxTranscriptionStop } from '../lib/telnyx-transcription';
 import { fanoutDeskPhoneMessage } from '../lib/desk-phone-fanout';
 import { PHONE_VOICE } from '../lib/desk-phone-options';
@@ -71,6 +75,8 @@ const MIN_DETECTION_CONFIDENCE = 0.5;
 /** Agreeing utterances before the caller's language is locked in. */
 const DETECTION_UTTERANCES = 2;
 const DETECTION_TTL_SECONDS = 6 * 60 * 60;
+/** How long a transcription webhook's event id is remembered, so a redelivery is not translated again. */
+const LINE_SEEN_TTL_SECONDS = 10 * 60;
 
 export type CallTranslationRefusalCode =
   | 'not_found'
@@ -156,9 +162,6 @@ function aiOf(env: PhoneCtx['env']): ReturnType<typeof createWeldAI> {
 
 // ── Telnyx ──────────────────────────────────────────────────────────────────
 
-const stateOf = (ctx: PhoneCtx, callId: string, side: TranslationSide) =>
-  encodeClientState({ workspaceId: ctx.workspaceId, callId, translate: side });
-
 function legOf(call: VoipCallRow, t: VoipCallTranslation, side: TranslationSide): string | null {
   return side === 'caller' ? call.providerCallId : t.agentLegId;
 }
@@ -172,11 +175,7 @@ async function startSide(ctx: PhoneCtx, call: VoipCallRow, t: VoipCallTranslatio
   const control = legOf(call, t, side);
   if (!control) throw new CallTranslationError('not_live', 'The call is not live');
   try {
-    await telnyxTranscriptionStart(ctx.env, control, {
-      language: sideLanguage(t, side),
-      track: 'inbound',
-      clientState: stateOf(ctx, call.id, side),
-    });
+    await telnyxTranscriptionStart(ctx.env, control, { language: sideLanguage(t, side), track: 'inbound' });
   } catch (err) {
     console.error(`[desk-phone-translation] transcription_start (${side}) failed:`, err);
     throw new CallTranslationError('telnyx_failed', 'Could not start the live transcription');
@@ -186,9 +185,7 @@ async function startSide(ctx: PhoneCtx, call: VoipCallRow, t: VoipCallTranslatio
 async function stopSide(ctx: PhoneCtx, call: VoipCallRow, t: VoipCallTranslation, side: TranslationSide): Promise<void> {
   const control = legOf(call, t, side);
   if (!control) return;
-  await bestEffort(`transcription_stop (${side})`, () =>
-    telnyxTranscriptionStop(ctx.env, control, { clientState: stateOf(ctx, call.id, side) }),
-  );
+  await bestEffort(`transcription_stop (${side})`, () => telnyxTranscriptionStop(ctx.env, control));
 }
 
 // ── Start / update / stop ───────────────────────────────────────────────────
@@ -387,11 +384,12 @@ export async function finishCallTranslation(ctx: PhoneCtx, callId: string): Prom
 export interface CallTranscriptionEvent {
   ctx: PhoneCtx;
   callId: string;
+  /** Who speaks: the party on the leg the webhook is from. */
+  speaker: TranslationSide;
   /** The webhook event's id: the caption's line id. */
   lineId: string;
   /** ISO time of the line (the webhook's `occurred_at`). */
   at: string;
-  clientState: Record<string, string>;
   payload: Record<string, unknown>;
 }
 
@@ -471,14 +469,33 @@ async function lockedByDetection(ctx: PhoneCtx, callId: string, lang: string, co
   }
 }
 
-/** Store the detected language on the call and tell the browser. */
+/**
+ * Store the detected language on the call and tell the browser. Only the
+ * language is written, and only on the session this line belongs to while its
+ * caller language is still unknown: `t` was read before the model call, so
+ * writing it back whole would undo what the agent changed meanwhile (or revive
+ * a translation that was stopped). When the session moved on, nothing is
+ * written and `t` is answered as it was.
+ */
 async function lockCallerLanguage(ctx: PhoneCtx, call: VoipCallRow, t: VoipCallTranslation, lang: string): Promise<VoipCallTranslation> {
   const next = { ...t, callerLanguage: lang };
   const c = schema.voipCalls;
-  await ctx.db
+  const [locked] = await ctx.db
     .update(c)
-    .set({ translation: next, updatedAt: new Date() })
-    .where(and(eq(c.id, call.id), IS_ACTIVE));
+    .set({
+      translation: sql`jsonb_set(${c.translation}, '{callerLanguage}', to_jsonb(${lang}::text))`,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(c.id, call.id),
+        IS_ACTIVE,
+        sql`${c.translation}->>'startedAt' = ${t.startedAt}`,
+        sql`${c.translation}->>'callerLanguage' is null`,
+      ),
+    )
+    .returning({ id: c.id });
+  if (!locked) return t;
   const event: PhoneTranslationEvent = {
     callId: call.id,
     active: true,
@@ -603,14 +620,50 @@ async function speakToCaller(
   }
 }
 
-/** The line of a webhook worth translating: final, long enough, its speaker named. Null otherwise. */
+/** The line of a webhook worth translating: final and long enough. Null otherwise. */
 function spokenLine(ev: CallTranscriptionEvent): { text: string; speaker: TranslationSide; confidence: unknown } | null {
   const data = (ev.payload.transcription_data ?? {}) as TranscriptionData;
   const text = typeof data.transcript === 'string' ? data.transcript.trim() : '';
-  const speaker = ev.clientState.translate;
   if (data.is_final !== true || text.length < MIN_LINE_CHARS) return null;
-  if (speaker !== 'caller' && speaker !== 'agent') return null;
-  return { text, speaker, confidence: data.confidence };
+  return { text, speaker: ev.speaker, confidence: data.confidence };
+}
+
+/**
+ * True the first time a transcription webhook is seen. Telnyx delivers at
+ * least once: a redelivery must not cost a second model call, note or spoken
+ * sentence. The event's id is kept in KV for ten minutes; without KV (or when
+ * it fails) every delivery is processed, as before.
+ */
+async function firstDelivery(ctx: PhoneCtx, lineId: string): Promise<boolean> {
+  const kv = ctx.env.WORKSPACE_CACHE as Partial<KVNamespace> | undefined;
+  if (typeof kv?.get !== 'function' || typeof kv.put !== 'function') return true;
+  const key = `desk-call-translation-line:${ctx.workspaceId}:${lineId}`;
+  try {
+    if (await kv.get(key)) return false;
+    await kv.put(key, '1', { expirationTtl: LINE_SEEN_TTL_SECONDS });
+    return true;
+  } catch (err) {
+    console.warn('[desk-phone-translation] delivery marker unavailable:', err);
+    return true;
+  }
+}
+
+/**
+ * A `call.transcription` webhook of an agent's leg (its state has
+ * `agentLegId`): the agent speaking, on the call that leg belongs to. Never
+ * throws: the webhook must answer 200.
+ */
+export async function handleAgentLegTranscription(
+  ev: Omit<CallTranscriptionEvent, 'callId' | 'speaker'> & { legId: string },
+): Promise<void> {
+  try {
+    const l = schema.deskPhoneCallLegs;
+    const [leg] = await ev.ctx.db.select({ callId: l.callId }).from(l).where(eq(l.id, ev.legId)).limit(1);
+    if (!leg) return;
+    await processLine({ ctx: ev.ctx, callId: leg.callId, speaker: 'agent', lineId: ev.lineId, at: ev.at, payload: ev.payload });
+  } catch (err) {
+    console.error('[desk-phone-translation] dropped an agent line:', err);
+  }
 }
 
 /** The language a side speaks, and the one its words are translated into. */
@@ -629,6 +682,7 @@ async function processLine(ev: CallTranscriptionEvent): Promise<void> {
   const call = await loadCall(ctx.db, ev.callId);
   let t = call ? activeTranslation(call) : null;
   if (!call || !t) return;
+  if (!(await firstDelivery(ctx, ev.lineId))) return;
 
   const { source, target } = sideLanguages(speaker, t);
 

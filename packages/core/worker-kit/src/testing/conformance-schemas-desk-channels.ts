@@ -51,6 +51,7 @@ import {
   deskConversationRequestChangeSchema,
   deskConversationRequestOrNullSchema,
   deskPendingApprovalSchema,
+  deskRequestFulfilmentSchema,
 } from '@weldsuite/core-api-client/schemas/desk-catalog';
 import type { RouteSchema } from './conformance-schemas';
 
@@ -80,6 +81,7 @@ export const DESK_CHANNEL_ROUTES: RouteSchema[] = [
   { method: 'GET', route: '/api/desk/conversations/:id/request', envelope: 'single', data: deskConversationRequestOrNullSchema },
   { method: 'PUT', route: '/api/desk/conversations/:id/catalog-item', envelope: 'single', data: deskConversationRequestChangeSchema },
   { method: 'POST', route: '/api/desk/conversations/:id/approval', envelope: 'single', data: deskConversationRequestChangeSchema },
+  { method: 'POST', route: '/api/desk/conversations/:id/fulfilment', envelope: 'single', data: deskRequestFulfilmentSchema },
   // problem management (DELETE answers 204: no body to check)
   { method: 'GET', route: '/api/desk/problems', envelope: 'list', data: deskProblemWithCountsSchema },
   { method: 'POST', route: '/api/desk/problems', envelope: 'single', data: deskProblemCreatedSchema },

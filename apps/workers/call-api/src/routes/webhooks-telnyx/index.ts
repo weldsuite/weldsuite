@@ -26,7 +26,13 @@ import {
 } from '../../lib/telnyx';
 import { lookupPhoneNumberRegistry, normalizeE164 } from '../../lib/phone-registry';
 import { dialedNumberOf } from '../../lib/sip-trunk-number';
-import { admitTrunkCall, isTrunkCall, recordTrunkInbound } from '../../services/sip-trunk-inbound';
+import {
+  admitTrunkCall,
+  admitTrunkCallToHostedNumber,
+  isTrunkCall,
+  ownsTrunkConnection,
+  recordTrunkInbound,
+} from '../../services/sip-trunk-inbound';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { markWorkspaceDue } from '@weldsuite/worker-kit/due-index';
 import {
@@ -344,7 +350,10 @@ async function handleInboundInitiated(
   }
 
   // A number on a customer's own phone system only takes calls over that
-  // trunk's connection. A number we host is routed as before, whoever sent it.
+  // trunk's connection. A number we host takes a phone system's call only
+  // from this workspace's own (or on the number's own connection): another
+  // workspace's trunk must not run its calls, and their minutes, into it.
+  // A call that is not a trunk call is routed as before.
   let trunkId: string | null = null;
   if (phoneRow.sipTrunkId) {
     const admitted = await admitTrunkCall(db, { payload, phoneRow, toNumber });
@@ -355,6 +364,10 @@ async function handleInboundInitiated(
     }
     trunkId = admitted.trunk.id;
     await recordTrunkInbound(db, trunkId, new Date());
+  } else if (trunkCall && !(await admitTrunkCallToHostedNumber(db, { payload, phoneRow }))) {
+    console.warn(`[Telnyx Webhook] Trunk call to ${toNumber} refused: the phone system is not this workspace's`);
+    await telnyxHangup(env, callControlId);
+    return;
   }
 
   const [route] = await db
@@ -931,6 +944,19 @@ async function isTelnyxSignatureValid(
   });
 }
 
+/**
+ * A trunk's SIP login is in a customer's hands: a client signed in with it can
+ * originate a call that carries any `client_state`. On an event of a trunk
+ * connection, the workspace the state names must therefore own that connection
+ * (our own state on a call we let in over a trunk does); otherwise the state is
+ * made up, and the event is acknowledged and dropped.
+ */
+async function isForgedTrunkState(env: TelnyxEnv, workspaceId: string, payload: TelnyxPayload): Promise<boolean> {
+  if (!isTrunkCall(env, payload)) return false;
+  const db = await getTenantDbForWorkspace(env, workspaceId);
+  return !(await ownsTrunkConnection(db, payload));
+}
+
 app.post('/', async (c) => {
   try {
     const raw = await c.req.text();
@@ -962,6 +988,11 @@ app.post('/', async (c) => {
     const { callId, workspaceId, deskConversationId } = clientState;
 
     console.log(`[Telnyx Webhook] ${event_type} — callId=${callId}, callControlId=${payload.call_control_id}`);
+
+    if (workspaceId && (await isForgedTrunkState(c.env, workspaceId, payload))) {
+      console.warn(`[Telnyx Webhook] ${event_type} on a trunk connection names a workspace that does not own it — ignoring`);
+      return c.json({ ok: true });
+    }
 
     // A leg the server dialled to ring an agent's browser: its own client_state, no callId.
     if (clientState.agentLegId && workspaceId) {

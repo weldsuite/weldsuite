@@ -597,7 +597,6 @@ mod tests {
             "' OR '1'='1",
             "\\'; DELETE FROM desk_conversations; --",
             "' OR title LIKE '",
-            "\u{0}",
             "${1+1}",
             "$1::text) OR (1=1",
             "\"desk_conversations\"; DROP TABLE x",
@@ -625,6 +624,14 @@ mod tests {
                 });
                 assert!(bound, "{filter}");
             }
+        }
+        // A NUL never becomes a parameter: Postgres would refuse the statement.
+        for filter in [
+            "state eq '\0'",
+            "contains(title,'a\0')",
+            "tags/any(t: t eq '\0b')",
+        ] {
+            assert!(parse_filter(filter, conversations()).is_err(), "{filter:?}");
         }
     }
 

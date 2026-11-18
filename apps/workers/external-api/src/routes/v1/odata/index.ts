@@ -51,7 +51,10 @@ function parseSegment(segment: string): { name: string; key: string | null } {
   if (inner === undefined || inner === '') return { name: match[1]!, key: null };
   const quoted = /^'((?:[^']|'')*)'$/s.exec(inner);
   if (!quoted) throw new ODataError(400, 'A key must be a string in single quotes, like Conversations(\'cnv_1\')');
-  return { name: match[1]!, key: quoted[1]!.replace(/''/g, "'") };
+  const key = quoted[1]!.replace(/''/g, "'");
+  // Postgres refuses a NUL in a text parameter, so no key holds one.
+  if (key.includes('\u0000')) throw new ODataError(400, 'A key must not contain a NUL character');
+  return { name: match[1]!, key };
 }
 
 function pathSegments(c: Context<HonoEnv>): string[] {

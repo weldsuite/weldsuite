@@ -19,7 +19,9 @@ import {
   callEvent,
   deliverWith,
   dialCalls,
+  encodeState,
   env,
+  legsOf,
   realtimeStub,
   seedPhoneWorkspace,
   stubCallActions,
@@ -57,6 +59,10 @@ const AGENTS = '+31201280001';
 const VOICEMAIL = '+31201280002';
 const OFF = '+31201280003';
 const OTHER = '+31201280004';
+/** A number we host, on a connection of its own (neither of ours, nor a trunk). */
+const LEGACY = '+31201280005';
+/** The connection of a phone system that is not this workspace's. */
+const ELSEWHERE = 'conn-pbx-elsewhere';
 
 let seq = 0;
 /** A call the phone system sends to Telnyx: parked, on the trunk's connection, no client_state. */
@@ -106,6 +112,17 @@ beforeAll(async () => {
   await master.insert(masterSchema.phoneNumberRegistry).values(
     numbers.map((n) => ({ phoneNumber: n.phoneNumber, clerkOrgId: ORG, voipPhoneNumberId: n.id })),
   );
+  await db.insert(schema.voipPhoneNumbers).values({
+    id: 'vpn_t_legacy',
+    provider: 'telnyx',
+    phoneNumber: LEGACY,
+    countryCode: 'NL',
+    status: 'active',
+    providerConnectionId: 'conn-legacy',
+  });
+  await master
+    .insert(masterSchema.phoneNumberRegistry)
+    .values({ phoneNumber: LEGACY, clerkOrgId: ORG, voipPhoneNumberId: 'vpn_t_legacy' });
   await db.insert(schema.deskPhoneRoutes).values([
     { id: 'dpr_t_agents', voipPhoneNumberId: 'vpn_t_agents', action: 'agents', options: null },
     { id: 'dpr_t_voicemail', voipPhoneNumberId: 'vpn_t_voicemail', action: 'voicemail', options: null },
@@ -226,5 +243,80 @@ describe('calls on our own connections', () => {
   it('still route inbound calls that name no connection', async () => {
     const { call } = await trunkCall({ to: '+31201270001', direction: 'incoming' });
     expect(call).toMatchObject({ sipTrunkId: null, toNumber: '+31201270001' });
+  });
+});
+
+describe('a call over a trunk to a number we host', () => {
+  it('is refused when the phone system is not this workspace’s: no call, no conversation', async () => {
+    const conversations = (await db.select().from(schema.deskConversations)).length;
+    const { control, call, calls } = await trunkCall({ connection_id: ELSEWHERE, to: '+31201270001' });
+    expect(call).toBeUndefined();
+    expect(actionCalls(calls, control, 'hangup')).toHaveLength(1);
+    expect(actionCalls(calls, control, 'answer')).toHaveLength(0);
+    expect(dialCalls(calls)).toHaveLength(0);
+    // Whatever direction Telnyx gives it.
+    const incoming = await trunkCall({ connection_id: ELSEWHERE, to: '+31201270001', direction: 'incoming' });
+    expect(incoming.call).toBeUndefined();
+    expect(actionCalls(incoming.calls, incoming.control, 'hangup')).toHaveLength(1);
+    expect(await db.select().from(schema.deskConversations)).toHaveLength(conversations);
+  });
+
+  it('is let in on the number’s own connection', async () => {
+    const { call } = await trunkCall({ connection_id: 'conn-legacy', to: LEGACY, direction: 'incoming' });
+    expect(call).toMatchObject({ sipTrunkId: null, direction: 'inbound', toNumber: LEGACY });
+    expect(call!.deskConversationId).toBeTruthy();
+  });
+});
+
+describe('an event on a trunk connection that carries a client_state', () => {
+  const callRow = async (id: string) => (await db.select().from(schema.voipCalls).where(eq(schema.voipCalls.id, id)))[0]!;
+
+  it('is acted on only when the workspace it names owns the connection', async () => {
+    const { control, call } = await trunkCall({ connection_id: 'conn-pbx-1', to: VOICEMAIL });
+    const state = encodeState({ callId: call!.id, workspaceId: ORG, deskConversationId: call!.deskConversationId! });
+    const hangup = (connection: string) =>
+      callEvent(
+        'call.hangup',
+        { call_control_id: control, connection_id: connection, client_state: state, hangup_cause: 'normal_clearing' },
+        '2026-10-10T10:05:00Z',
+      );
+
+    // A SIP client signed in on another workspace's trunk names this workspace's call.
+    expect((await deliver(hangup(ELSEWHERE))).status).toBe(200);
+    expect(await callRow(call!.id)).toMatchObject({ endedAt: null, hangupCause: null });
+
+    // The same event on the call's own trunk connection is the real one.
+    expect((await deliver(hangup('conn-pbx-1'))).status).toBe(200);
+    const ended = await callRow(call!.id);
+    expect(ended).toMatchObject({ status: 'completed', hangupCause: 'normal_clearing' });
+    expect(ended.endedAt).toBeInstanceOf(Date);
+  });
+
+  it('is acted on for a number on its own connection', async () => {
+    const { control, call } = await trunkCall({ connection_id: 'conn-legacy', to: LEGACY, direction: 'incoming' });
+    const state = encodeState({ callId: call!.id, workspaceId: ORG });
+    await deliver(
+      callEvent('call.hangup', { call_control_id: control, connection_id: 'conn-legacy', client_state: state, hangup_cause: 'normal_clearing' }),
+    );
+    expect(await callRow(call!.id)).toMatchObject({ status: 'completed' });
+  });
+
+  it('does not reach an agent’s leg from a connection the workspace does not own', async () => {
+    const { call } = await trunkCall({ connection_id: 'conn-pbx-1', to: AGENTS });
+    const [leg] = await legsOf(db, call!.id);
+    const legHangup = (connection: string) =>
+      callEvent('call.hangup', {
+        call_control_id: leg!.providerCallId,
+        connection_id: connection,
+        client_state: encodeState({ agentLegId: leg!.id, workspaceId: ORG }),
+        hangup_cause: 'normal_clearing',
+      });
+
+    await deliver(legHangup(ELSEWHERE));
+    expect((await legsOf(db, call!.id))[0]).toMatchObject({ id: leg!.id, status: 'ringing' });
+
+    // The leg's own events come over our softphone connection.
+    await deliver(legHangup('sip-conn-1'));
+    expect((await legsOf(db, call!.id))[0]!.status).not.toBe('ringing');
   });
 });

@@ -68,6 +68,23 @@ describe('SipNumberVerification', () => {
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
   });
 
+  it('says so when too many codes were sent or tried', async () => {
+    mocks.start
+      .mockRejectedValueOnce({ body: { error: { code: 'too_many_attempts' } } })
+      .mockResolvedValueOnce({ method: 'call', phoneNumber: number.phoneNumber });
+    mocks.confirm.mockRejectedValueOnce({ body: { error: { code: 'too_many_attempts' } } });
+    open();
+    fireEvent.click(screen.getByRole('button', { name: 'Send code' }));
+    expect(await screen.findByText('Too many attempts. Wait an hour and try again.')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Verification code')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Send code' }));
+    const input = await screen.findByLabelText('Verification code');
+    fireEvent.change(input, { target: { value: '111111' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Verify number' }));
+    expect(await screen.findByText('Too many attempts. Wait an hour and try again.')).toBeInTheDocument();
+  });
+
   it('explains a number Telnyx could not reach', async () => {
     mocks.start.mockRejectedValue({ body: { error: { code: 'verification_refused' } } });
     open();

@@ -6,7 +6,8 @@
  * Paging: with no `$orderby` rows come in key order and the skiptoken is a
  * keyset position (`key > last`); with `$orderby` the key is appended as the
  * tie-breaker and the skiptoken is an offset. A token is base64url JSON,
- * `{"k":"<last key>"}` or `{"o":<offset>}`, and is only ours to read.
+ * `{"k":"<last key>"}` or `{"o":<offset>}`, and is only ours to read: a
+ * forged one whose key or offset the database would refuse is a 400.
  */
 
 import { sql, type SQL } from 'drizzle-orm';
@@ -23,6 +24,8 @@ import { parseFilter, type FilterNode } from './filter';
 import { filterToSql, propExpr } from './filter-sql';
 
 export const MAX_ORDERBY_TERMS = 5;
+/** The largest offset a skiptoken may carry: the page's `OFFSET` is cast to `int` (2^31 - 1). */
+export const MAX_SKIP_OFFSET = 2_147_483_647;
 
 export interface OrderTerm {
   prop: ODataProperty;
@@ -70,14 +73,24 @@ export function encodeSkipToken(token: SkipToken): string {
   return encoded.slice(0, end);
 }
 
+/** A key the database takes as text: a string without a NUL character (Postgres refuses one in a text parameter). */
+function isTokenKey(k: unknown): k is string {
+  return typeof k === 'string' && !k.includes('\u0000');
+}
+
+/** An offset the database takes: a whole number from 0 up to what `OFFSET $n::int` accepts. */
+function isTokenOffset(o: unknown): o is number {
+  return typeof o === 'number' && Number.isInteger(o) && o >= 0 && o <= MAX_SKIP_OFFSET;
+}
+
 export function decodeSkipToken(raw: string): SkipToken {
   try {
     const binary = atob(raw.replace(/-/g, '+').replace(/_/g, '/'));
     const value: unknown = JSON.parse(new TextDecoder().decode(Uint8Array.from(binary, (ch) => ch.charCodeAt(0))));
     if (typeof value === 'object' && value !== null) {
       const { k, o } = value as { k?: unknown; o?: unknown };
-      if (typeof k === 'string' && o === undefined) return { k };
-      if (typeof o === 'number' && Number.isSafeInteger(o) && o >= 0 && k === undefined) return { o };
+      if (isTokenKey(k) && o === undefined) return { k };
+      if (isTokenOffset(o) && k === undefined) return { o };
     }
   } catch {
     // falls through to the error below

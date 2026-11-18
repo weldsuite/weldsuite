@@ -5,7 +5,10 @@
 //! `/api/desk/conversations/{id}/problem` (the problem an incident is linked
 //! to). The rules and writes are [`weldsuite_desk_domain::problems`];
 //! timeline entries on incidents are published like the linked-ticket routes
-//! publish theirs ([`super::links::publish_changes`]).
+//! publish theirs ([`super::links::publish_changes`]). What writes to
+//! conversations also needs `conversations:update`, as the conversation's
+//! own routes do: creating a problem with `conversationIds` (checked in the
+//! handler, after the body) and sharing the workaround (a second gate).
 
 use std::sync::Arc;
 
@@ -58,7 +61,9 @@ where
         )
         .route(
             "/{id}/share-workaround",
-            post(share_workaround).route_layer(need(perm::PROBLEMS_UPDATE)),
+            post(share_workaround)
+                .route_layer(need(perm::CONVERSATIONS_UPDATE))
+                .route_layer(need(perm::PROBLEMS_UPDATE)),
         )
         .route(
             "/{id}/article",
@@ -98,6 +103,19 @@ fn refused(error: ProblemError, failure: &str) -> Response {
             ApiError::internal().with_message(failure).into_response()
         }
     }
+}
+
+/// The 403 the permission gate answers (`requirePermission`), `success:
+/// false` included, for a permission that depends on the body.
+fn permission_refused() -> Response {
+    let body = json!({
+        "success": false,
+        "error": {
+            "code": "FORBIDDEN",
+            "message": "You do not have permission to perform this action",
+        },
+    });
+    (http::StatusCode::FORBIDDEN, axum::Json(body)).into_response()
 }
 
 /// The timeline entries of `changes`, in order.
@@ -253,6 +271,10 @@ async fn create(
         Err(refusal) => return refusal.respond(failure),
     };
     let caller = &ctx.caller;
+    // Linking incidents writes to those conversations.
+    if !input.conversation_ids.is_empty() && !caller.can(perm::CONVERSATIONS_UPDATE) {
+        return permission_refused();
+    }
     match problems::create(&caller.db, Some(&caller.user_id), &input).await {
         Ok(created) => {
             let id = created.problem["id"]

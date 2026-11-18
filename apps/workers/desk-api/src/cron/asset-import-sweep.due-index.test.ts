@@ -18,7 +18,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { createMemoryKv, createSqliteD1 } from '@weldsuite/worker-kit/testing/d1';
 import { markWorkspaceDue } from '@weldsuite/worker-kit/due-index';
@@ -39,7 +39,12 @@ vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => {
   };
 });
 
-import { ASSET_IMPORT_MAX_WRITES } from '@weldsuite/core-domain/asset-sources';
+import {
+  ASSET_IMPORT_MAX_WRITES,
+  deviceChecksum,
+  deviceChecksumWithCheckIn,
+  mapIntuneDevice,
+} from '@weldsuite/core-domain/asset-sources';
 import { runAssetImportSweep, ASSET_IMPORT_STEPS_PER_TICK } from './asset-import-sweep';
 
 const MIGRATION = readFileSync(
@@ -83,6 +88,8 @@ interface Graph {
   retryAfter?: string;
   secret: string;
   calls: string[];
+  /** Runs while a step is at Microsoft for its page: what someone else does to the tenant meanwhile. */
+  meanwhile?: () => Promise<void>;
 }
 let graph: Graph;
 
@@ -142,6 +149,7 @@ beforeEach(async () => {
       return new Response(JSON.stringify({ value: page.value, ...(page.next ? { '@odata.nextLink': page.next } : {}) }), { status: 200 });
     }
     if (method === 'GET' && url === DEVICES) {
+      await graph.meanwhile?.();
       if (graph.status) return new Response('{}', { status: graph.status, headers: graph.retryAfter ? { 'Retry-After': graph.retryAfter } : {} });
       return new Response(JSON.stringify({ value: graph.value }), { status: 200 });
     }
@@ -243,6 +251,29 @@ async function markDue(env: Env, at: Date) {
 }
 
 const recordCount = async () => (await db.select().from(schema.customObjectRecords)).length;
+
+const mappingOf = async (deviceId: string) =>
+  (await db.select().from(schema.integrationEntityMappings).where(eq(schema.integrationEntityMappings.externalEntityId, deviceId)))[0]!;
+
+/** The record a device was imported into. */
+async function importedRecord(deviceId: string) {
+  const mapping = await mappingOf(deviceId);
+  return (await db.select().from(schema.customObjectRecords).where(eq(schema.customObjectRecords.id, mapping.internalEntityId)))[0]!;
+}
+
+/** The last check-in the device's record holds. */
+async function checkInOf(deviceId: string): Promise<string | null> {
+  const mapping = await mappingOf(deviceId);
+  const [field] = await db.select().from(schema.customFieldDefinitions).where(eq(schema.customFieldDefinitions.slug, 'last_check_in'));
+  const [value] = await db
+    .select()
+    .from(schema.customFieldValues)
+    .where(and(eq(schema.customFieldValues.fieldId, field!.id), eq(schema.customFieldValues.entityId, mapping.internalEntityId)));
+  return value?.valueDate?.toISOString() ?? null;
+}
+
+const checksumsByDevice = async () =>
+  new Map((await db.select().from(schema.integrationEntityMappings)).map((m) => [m.externalEntityId, m.syncChecksum]));
 const eventTypes = () => published.map((m) => `${String(m.entityType)}:${String(m.action)}`);
 
 describe('asset import sweep on the due index', () => {
@@ -471,6 +502,150 @@ describe('asset import sweep: matching, later imports and stopped runs', () => {
     const [deleted] = await db.select().from(schema.customObjectRecords).where(eq(schema.customObjectRecords.id, recordOf('dev-3')));
     expect(deleted!.deletedAt).not.toBeNull();
     expect(await db.select().from(schema.customObjectRelations)).toHaveLength(1);
+  });
+
+  it('does not write a device that only checked in again, and keeps its check-in current', async () => {
+    await addSource('asrc_a');
+    const checkedIn = (n: number, at: string, extra: Record<string, unknown> = {}) => ({ ...device(n), lastSyncDateTime: at, ...extra });
+    graph.value = [checkedIn(1, '2026-11-09T10:00:00Z'), checkedIn(2, '2026-11-09T11:00:00Z'), checkedIn(3, '2026-11-09T12:00:00Z')];
+    const env = makeEnv();
+    await markDue(env, new Date(NOW.getTime() - MINUTE));
+    expect(await sweep(env)).toMatchObject({ steps: 1, ended: 1 });
+    expect(await checkInOf('dev-1')).toBe('2026-11-09T10:00:00.000Z');
+    const before = await importedRecord('dev-1');
+    const checksums = await checksumsByDevice();
+    published.length = 0;
+
+    // A day later all three checked in again; device 2 also runs a newer system.
+    const later = new Date(NOW.getTime() + 24 * HOUR);
+    graph.value = [
+      checkedIn(1, '2026-11-10T07:45:00Z'),
+      checkedIn(2, '2026-11-10T07:50:00Z', { osVersion: '10.0.26100' }),
+      checkedIn(3, '2026-11-10T07:55:00.5Z'),
+    ];
+    expect(await sweep(env, later)).toMatchObject({ due: 1, steps: 1, ended: 1 });
+
+    expect((await rowOf('asrc_a')).lastStats).toEqual({ total: 3, created: 0, updated: 1, unchanged: 2, failed: 0 });
+    // One record write and its event, for the device that changed.
+    expect(eventTypes().sort()).toEqual(['asset_source:updated', 'co_asset:updated']);
+    expect(published.find((m) => m.action === 'updated' && m.entityType === 'co_asset')!.entityId).toBe((await importedRecord('dev-2')).id);
+    const after = await importedRecord('dev-1');
+    expect(after.updatedAt.toISOString()).toBe(before.updatedAt.toISOString());
+    const now = await checksumsByDevice();
+    expect(now.get('dev-1')).toBe(checksums.get('dev-1'));
+    expect(now.get('dev-2')).not.toBe(checksums.get('dev-2'));
+    expect(now.get('dev-3')).toBe(checksums.get('dev-3'));
+    // Every check-in is current all the same.
+    expect(await checkInOf('dev-1')).toBe('2026-11-10T07:45:00.000Z');
+    expect(await checkInOf('dev-2')).toBe('2026-11-10T07:50:00.000Z');
+    expect(await checkInOf('dev-3')).toBe('2026-11-10T07:55:00.500Z');
+  });
+
+  it('takes a checksum taken with the check-in as unchanged and replaces it, instead of rewriting every device once', async () => {
+    await addSource('asrc_a');
+    const first = { ...device(1), lastSyncDateTime: '2026-11-09T10:00:00Z' };
+    const second = { ...device(2), lastSyncDateTime: '2026-11-09T11:00:00Z' };
+    graph.value = [first, second];
+    const env = makeEnv();
+    await markDue(env, new Date(NOW.getTime() - MINUTE));
+    expect(await sweep(env)).toMatchObject({ steps: 1, ended: 1 });
+    // The mappings as an import wrote them while the check-in was part of the checksum.
+    for (const imported of [first, second]) {
+      const values = mapIntuneDevice(imported).values;
+      await db
+        .update(schema.integrationEntityMappings)
+        .set({ syncChecksum: await deviceChecksumWithCheckIn(values, values.last_check_in ?? null) })
+        .where(eq(schema.integrationEntityMappings.externalEntityId, imported.id));
+    }
+    const before = await importedRecord('dev-1');
+    published.length = 0;
+
+    const later = new Date(NOW.getTime() + 24 * HOUR);
+    const again = [
+      { ...first, lastSyncDateTime: '2026-11-10T07:45:00Z' },
+      { ...second, lastSyncDateTime: '2026-11-10T07:50:00Z' },
+    ];
+    graph.value = again;
+    expect(await sweep(env, later)).toMatchObject({ steps: 1, ended: 1 });
+
+    expect((await rowOf('asrc_a')).lastStats).toEqual({ total: 2, created: 0, updated: 0, unchanged: 2, failed: 0 });
+    expect(eventTypes()).toEqual(['asset_source:updated']);
+    expect((await importedRecord('dev-1')).updatedAt.toISOString()).toBe(before.updatedAt.toISOString());
+    expect(await checkInOf('dev-1')).toBe('2026-11-10T07:45:00.000Z');
+    expect(await checkInOf('dev-2')).toBe('2026-11-10T07:50:00.000Z');
+    const now = await checksumsByDevice();
+    for (const imported of again) {
+      expect(now.get(imported.id), imported.id).toBe(await deviceChecksum(mapIntuneDevice(imported).values));
+    }
+  });
+
+  it('does nothing for a run another step holds, keeps the workspace due, and carries on when the lease has run out', async () => {
+    const state = { startedAt: NOW.toISOString(), nextLink: null, offset: 0, stats: { total: 0, created: 0, updated: 0, unchanged: 0, failed: 0 } };
+    // The step of the tick before took the run and is still at work (or died).
+    const leaseUntil = new Date(NOW.getTime() + 4 * MINUTE).toISOString();
+    await addSource('asrc_a', { lastStatus: 'running', syncState: { ...state, leaseUntil } });
+    const env = makeEnv();
+    await markDue(env, NOW);
+
+    const tick = new Date(NOW.getTime() + MINUTE);
+    expect(await sweep(env, tick)).toMatchObject({ due: 1, processed: 1, failed: 0, steps: 0, ended: 0 });
+    expect(graph.calls).toEqual([]);
+    expect(await recordCount()).toBe(0);
+    expect(eventTypes()).toEqual([]);
+    const held = await rowOf('asrc_a');
+    expect(held.lastStatus).toBe('running');
+    expect(held.syncState).toEqual({ ...state, leaseUntil });
+    // Still under way: due again on the next tick.
+    expect(await dueAt(env)).toBe(tick.getTime());
+
+    // At the moment the lease runs out the run is free again.
+    expect(await sweep(env, new Date(NOW.getTime() + 4 * MINUTE))).toMatchObject({ steps: 1, ended: 1 });
+    const row = await rowOf('asrc_a');
+    expect(row.lastStatus).toBe('ok');
+    expect(row.syncState).toBeNull();
+    expect(row.lastStats).toEqual({ total: 2, created: 2, updated: 0, unchanged: 0, failed: 0 });
+    expect(await recordCount()).toBe(2);
+    expect((await db.select().from(schema.integrationEntityMappings))).toHaveLength(2);
+  });
+
+  it('takes the lease for a step and gives it up with the state it saves', async () => {
+    await addSource('asrc_a');
+    const cap = ASSET_IMPORT_MAX_WRITES;
+    graph.value = Array.from({ length: cap + 1 }, (_, i) => device(i + 1));
+    const env = makeEnv();
+    await markDue(env, new Date(NOW.getTime() - MINUTE));
+
+    expect(await sweep(env)).toMatchObject({ steps: 1, ended: 0 });
+    const between = await rowOf('asrc_a');
+    expect(between.syncState).toMatchObject({ offset: cap });
+    expect(between.syncState).not.toHaveProperty('leaseUntil');
+    // The very next tick continues: nothing holds the run.
+    expect(await sweep(env, new Date(NOW.getTime() + MINUTE))).toMatchObject({ steps: 1, ended: 1 });
+    expect(await recordCount()).toBe(cap + 1);
+  });
+
+  it('schedules the next import from the schedule as it is when the run ends', async () => {
+    // Started by hand on a paused source.
+    await addSource('asrc_a', {
+      enabled: false,
+      nextSyncAt: null,
+      lastStatus: 'running',
+      syncState: { startedAt: NOW.toISOString(), nextLink: null, offset: 0, stats: { total: 0, created: 0, updated: 0, unchanged: 0, failed: 0 }, startedById: 'user_admin' },
+    });
+    // While the step is at Microsoft, someone switches the schedule on, every six hours.
+    graph.meanwhile = async () => {
+      await (dbs.tenant as Database).update(sources).set({ enabled: true, intervalHours: 6, nextSyncAt: NOW }).where(eq(sources.id, 'asrc_a'));
+    };
+    const env = makeEnv();
+    await markDue(env, NOW);
+
+    expect(await sweep(env)).toMatchObject({ steps: 1, ended: 1 });
+    const row = await rowOf('asrc_a');
+    expect(row).toMatchObject({ enabled: true, intervalHours: 6, lastStatus: 'ok', syncState: null });
+    expect(row.nextSyncAt?.toISOString()).toBe(new Date(NOW.getTime() + 6 * HOUR).toISOString());
+    expect(await dueAt(env)).toBe(NOW.getTime() + 6 * HOUR);
+    const ended = published.find((m) => m.entityType === 'asset_source')!.data as { nextSyncAt: string | null; enabled: boolean };
+    expect(ended).toMatchObject({ enabled: true, nextSyncAt: new Date(NOW.getTime() + 6 * HOUR).toISOString() });
   });
 
   it('stops a run that is older than a day, and fails one whose asset register is gone', async () => {

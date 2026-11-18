@@ -14,7 +14,9 @@
  *   DELETE /:id             delete an item          (settings:update)   204
  *
  * Every mutation publishes a `desk_catalog_item` entity event. Answers: 400
- * `details.field` for an item that can't be saved, 404 for an unknown item.
+ * `details.field` for an item that can't be saved, 404 for an unknown item,
+ * and 409 `details.reason = 'has_pending_requests'` (with `details.count`)
+ * for deleting an item whose requests still wait for approval.
  */
 
 import { Hono, type Context } from 'hono';
@@ -29,6 +31,7 @@ import {
 } from '@weldsuite/core-api-client/schemas/desk-catalog';
 import {
   createDeskCatalogItem,
+  DeskCatalogItemInUseError,
   DeskCatalogRejectedError,
   deleteDeskCatalogItem,
   getDeskCatalogItem,
@@ -48,6 +51,7 @@ const DEFAULT_APPROVALS_LIMIT = 100;
 
 function refusal(c: Ctx, err: unknown, failure: string) {
   if (err instanceof DeskCatalogRejectedError) return error.badRequest(c, err.message, { field: err.field });
+  if (err instanceof DeskCatalogItemInUseError) return error.conflict(c, err.message, { reason: err.reason, count: err.count });
   console.error(`[desk-api/desk-catalog] ${failure}:`, err);
   return error.internal(c, failure);
 }

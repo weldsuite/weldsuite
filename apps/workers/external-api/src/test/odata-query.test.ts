@@ -176,7 +176,8 @@ describe('skiptokens', () => {
     [{ k: 'x'.repeat(1000) }, `eyJrIjoi${'eHh4'.repeat(333)}eCJ9`],
     [{"o":0}, 'eyJvIjowfQ'],
     [{"o":1000}, 'eyJvIjoxMDAwfQ'],
-    [{"o":123456789012}, 'eyJvIjoxMjM0NTY3ODkwMTJ9'],
+    // The largest offset the database's `OFFSET … ::int` takes.
+    [{"o":2147483647}, 'eyJvIjoyMTQ3NDgzNjQ3fQ'],
   ])('writes %j as base64url without padding, and reads it back', (token, encoded) => {
     expect(encodeSkipToken(token)).toBe(encoded);
     expect(decodeSkipToken(encoded)).toEqual(token);
@@ -192,6 +193,18 @@ describe('skiptokens', () => {
     ['eyJvIjotMX0', '400 Invalid $skiptoken'],
     ['eyJvIjoxLjV9', '400 Invalid $skiptoken'],
     ['eyJrIjoiYSIsIm8iOjF9', '400 Invalid $skiptoken'],
+    // An offset `OFFSET … ::int` would refuse: {"o":2147483648}, {"o":123456789012}, {"o":1e10}, {"o":9007199254740993}.
+    ['eyJvIjoyMTQ3NDgzNjQ4fQ', '400 Invalid $skiptoken'],
+    ['eyJvIjoxMjM0NTY3ODkwMTJ9', '400 Invalid $skiptoken'],
+    ['eyJvIjoxZTEwfQ', '400 Invalid $skiptoken'],
+    ['eyJvIjo5MDA3MTk5MjU0NzQwOTkzfQ', '400 Invalid $skiptoken'],
+    // An offset that is not a number, a key that is not a string: {"o":"5"}, {"k":null}, {"k":["a"]}.
+    ['eyJvIjoiNSJ9', '400 Invalid $skiptoken'],
+    ['eyJrIjpudWxsfQ', '400 Invalid $skiptoken'],
+    ['eyJrIjpbImEiXX0', '400 Invalid $skiptoken'],
+    // A NUL in the key ({"k":"a\u0000b"}): Postgres refuses it in a text parameter.
+    ['eyJrIjoiYVx1MDAwMGIifQ', '400 Invalid $skiptoken'],
+    ['eyJvIjoyMTQ3NDgzNjQ3fQ', '{"o":2147483647}'],
     ['bnVsbA', '400 Invalid $skiptoken'],
     ['eyJrIjoiYSJ9==', '400 Invalid $skiptoken'],
     ['eyJrIjoiYSJ9\n', '{"k":"a"}'],

@@ -145,6 +145,7 @@ export const deskSipTrunks = {
       refused: 'We could not send a code to this number',
       alreadyVerified: 'This number is already verified',
       failed: 'The code could not be sent',
+      tooManyAttempts: 'Too many attempts. Wait an hour and try again.',
     },
   },
   manage: {

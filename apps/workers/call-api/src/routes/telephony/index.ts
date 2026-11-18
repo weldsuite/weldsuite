@@ -223,7 +223,12 @@ app.delete('/phone-numbers/:id', requirePermission(MANAGE_TELEPHONY), async (c) 
       .where(eq(voipPhoneNumbers.id, id));
 
     try {
-      await deactivatePhoneNumberRegistry(c.env, phone.phoneNumber);
+      // Only this workspace's own entry: the number may be someone else's by now.
+      await deactivatePhoneNumberRegistry(c.env, {
+        phoneNumber: phone.phoneNumber,
+        clerkOrgId: c.get('clerkOrgId'),
+        voipPhoneNumberId: id,
+      });
     } catch (regErr) {
       console.error('[Telephony] Failed to deactivate phone registry:', regErr);
     }

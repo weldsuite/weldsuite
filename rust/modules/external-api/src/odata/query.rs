@@ -31,8 +31,9 @@ pub(crate) const MAX_ORDERBY_TERMS: usize = 5;
 /// Values per `json_build_array` call (PostgreSQL allows 100 arguments).
 const ROW_GROUP: usize = 90;
 
-/// `Number.MAX_SAFE_INTEGER`.
-const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
+/// `MAX_SKIP_OFFSET`: the largest offset a skiptoken may carry. The page's
+/// `OFFSET` is cast to `int` (2^31 - 1).
+const MAX_SKIP_OFFSET: f64 = 2_147_483_647.0;
 
 /// `OrderTerm`.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -176,8 +177,10 @@ fn without_unpaired_surrogates(text: &str) -> std::borrow::Cow<'_, str> {
     std::borrow::Cow::Owned(out)
 }
 
-/// `decodeSkipToken(raw)`: `{ k: string }` with no `o`, or `{ o: a safe
-/// integer >= 0 }` with no `k`; anything else is not ours.
+/// `decodeSkipToken(raw)`: `{ k: string }` with no `o`, or `{ o: a whole
+/// number from 0 to MAX_SKIP_OFFSET }` with no `k`; anything else is not
+/// ours. A key with a NUL character is refused too: Postgres takes none in a
+/// text parameter.
 pub(crate) fn decode_skip_token(raw: &str) -> Result<SkipToken, ODataError> {
     let invalid = || bad_request("Invalid $skiptoken");
     let bytes = atob(&raw.replace('-', "+").replace('_', "/")).ok_or_else(invalid)?;
@@ -197,10 +200,10 @@ pub(crate) fn decode_skip_token(raw: &str) -> Result<SkipToken, ODataError> {
             .map(|(_, value)| value)
     };
     match (member("k"), member("o")) {
-        (Some(Js::String(key)), None) => Ok(SkipToken::Key(key.clone())),
+        (Some(Js::String(key)), None) if !key.contains('\0') => Ok(SkipToken::Key(key.clone())),
         #[allow(clippy::cast_possible_truncation)]
         (None, Some(Js::Number(offset)))
-            if offset.fract() == 0.0 && (0.0..=MAX_SAFE_INTEGER).contains(offset) =>
+            if offset.fract() == 0.0 && (0.0..=MAX_SKIP_OFFSET).contains(offset) =>
         {
             Ok(SkipToken::Offset(*offset as i64))
         }
@@ -824,7 +827,18 @@ mod tests {
             "{\"o\":1.5}",
             "{\"o\":\"5\"}",
             "{\"o\":9007199254740992}",
+            // More than `OFFSET … ::int` takes.
+            "{\"o\":2147483648}",
+            "{\"o\":123456789012}",
+            "{\"o\":1e10}",
+            "{\"o\":null}",
+            "{\"o\":true}",
             "{\"k\":5}",
+            "{\"k\":null}",
+            "{\"k\":[\"a\"]}",
+            // A NUL in the key: Postgres refuses it in a text parameter.
+            "{\"k\":\"a\\u0000b\"}",
+            "{\"k\":\"\\u0000\"}",
             "{\"k\":\"a\",\"o\":1}",
             "{\"k\":\"a\",\"o\":null}",
             "[1]",
@@ -841,6 +855,11 @@ mod tests {
         }
         assert!(decode_skip_token("garbage!!").is_err());
         assert!(decode_skip_token("a").is_err());
+        // The largest offset is a position still.
+        assert_eq!(
+            decode_skip_token(&encode("{\"o\":2147483647}")),
+            Ok(SkipToken::Offset(2_147_483_647))
+        );
         // Other members are ignored, and the last of a repeated key counts.
         assert_eq!(
             decode_skip_token(&encode("{\"k\":\"a\",\"z\":[1]}")),
@@ -1326,10 +1345,23 @@ mod tests {
             "\"; DROP TABLE x; --",
             "$1::text) OR (1=1",
             "${1+1}",
-            "\u{0}",
         ];
         let conversations = set("Conversations");
         let all = served_properties(conversations, None);
+        // A NUL never becomes a parameter (Postgres would refuse the
+        // statement): the literal and the token are a 400.
+        let nul = encode_skip_token(&SkipToken::Key("a\0b".to_owned()));
+        assert_eq!(
+            refused(&[("$skiptoken", &nul)]),
+            (400, "Invalid $skiptoken".to_owned())
+        );
+        assert_eq!(
+            refused(&[("$filter", "title eq 'a\0b'")]),
+            (
+                400,
+                "A string literal in $filter must not contain a NUL character".to_owned()
+            )
+        );
         for attack in attacks {
             let quoted = format!("'{}'", attack.replace('\'', "''"));
 

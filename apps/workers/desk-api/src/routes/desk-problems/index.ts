@@ -15,13 +15,15 @@
  * Writes go through @weldsuite/db/lib/desk-problems (the rules are there).
  * Timeline entries on incidents are published like the link routes publish
  * theirs. Permissions: problems:read | create | update | delete, and
- * articles:create for the article.
+ * articles:create for the article. What writes to conversations also needs
+ * conversations:update, as the conversation's own routes do: creating a
+ * problem with `conversationIds`, and sharing the workaround.
  */
 
 import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { eq } from 'drizzle-orm';
-import { requirePermission } from '@weldsuite/permissions/server';
+import { hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import {
   createDeskProblemSchema,
@@ -68,6 +70,14 @@ function refusal(c: Ctx, err: unknown, failure: string) {
   return error.internal(c, failure);
 }
 
+/** The 403 `requirePermission` answers, for a permission that depends on the body. */
+function permissionRefused(c: Ctx) {
+  return c.json(
+    { success: false, error: { code: 'FORBIDDEN', message: 'You do not have permission to perform this action' } },
+    403,
+  );
+}
+
 app.get('/', requirePermission('problems:read'), zValidator('query', listDeskProblemsQuerySchema), async (c) => {
   const { status, ...query } = c.req.valid('query');
   try {
@@ -80,6 +90,10 @@ app.get('/', requirePermission('problems:read'), zValidator('query', listDeskPro
 
 app.post('/', requirePermission('problems:create'), zValidator('json', createDeskProblemSchema), async (c) => {
   const input = c.req.valid('json');
+  // Linking incidents writes to those conversations.
+  if ((input.conversationIds?.length ?? 0) > 0 && !(await hasContextPermission(c, 'conversations:update'))) {
+    return permissionRefused(c);
+  }
   try {
     const result = await createDeskProblem(c.get('tenantDb'), {
       ...input,
@@ -176,6 +190,7 @@ app.get(
 app.post(
   '/:id/share-workaround',
   requirePermission('problems:update'),
+  requirePermission('conversations:update'),
   zValidator('json', shareDeskProblemWorkaroundSchema),
   async (c) => {
     const db = c.get('tenantDb');

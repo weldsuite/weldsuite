@@ -353,6 +353,14 @@ describe('tokens and literal checks', () => {
     ["title eq '😀 ü'", '{"kind":"cmp","op":"eq","prop":"title","lit":{"type":"string","value":"😀 ü"}}'],
     [`title eq ${"'".repeat(1802)}`, `{"kind":"cmp","op":"eq","prop":"title","lit":{"type":"string","value":"${"'".repeat(900)}"}}`],
     ["title eq 'a'b'", '400 Unterminated string literal in $filter'],
+    // A NUL in a string literal: Postgres refuses it in a text parameter.
+    ["title eq 'a\u0000b'", '400 A string literal in $filter must not contain a NUL character'],
+    ["title eq '\u0000'", '400 A string literal in $filter must not contain a NUL character'],
+    ["contains(title,'a\u0000')", '400 A string literal in $filter must not contain a NUL character'],
+    ["tags/any(t: t eq '\u0000')", '400 A string literal in $filter must not contain a NUL character'],
+    ["title eq 'a\u0000b", '400 Unterminated string literal in $filter'],
+    ["title eq 'ok' and nope eq 'a\u0000'", '400 A string literal in $filter must not contain a NUL character'],
+    ["title\u0000 eq 'a'", "400 Unexpected character '\u0000' in $filter"],
     ["title eq 'a' 'b'", "400 Unexpected 'b' in $filter"],
     ['title eq 😀', "400 Unexpected character '\ud83d' in $filter"],
     ["title\neq 'a'", "400 Unexpected character '\n' in $filter"],
@@ -505,7 +513,6 @@ describe('SQL', () => {
       "' OR '1'='1",
       "\\'; DELETE FROM desk_conversations; --",
       "' OR title LIKE '",
-      '\u0000',
       '${1+1}',
       '$1::text) OR (1=1',
     ];
@@ -520,6 +527,10 @@ describe('SQL', () => {
         expect(sql, text).not.toContain('OR title');
         expect(params.map(String).some((p) => p.includes(attack) || p.includes(escapeLike(attack))), text).toBe(true);
       }
+    }
+    // a NUL never becomes a parameter: Postgres would refuse the statement
+    for (const text of ["state eq '\u0000'", "contains(title,'a\u0000')", "tags/any(t: t eq '\u0000b')"]) {
+      rejects(text);
     }
     // numbers are numbers: nothing else gets through the tokenizer
     for (const text of ['rating eq 1; DROP TABLE x', 'rating eq 1 OR 1=1', 'rating eq (1)', 'rating eq 1/**/']) {

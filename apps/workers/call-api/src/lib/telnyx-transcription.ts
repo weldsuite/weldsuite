@@ -4,8 +4,12 @@
  * `transcription_engine_config` live here and nowhere else: only a live call
  * can confirm them, so a test call adjusts this one module.
  *
- * Transcripts come back as `call.transcription` webhooks carrying the
- * `client_state` given at start.
+ * Transcripts come back as `call.transcription` webhooks of the leg they were
+ * started on, carrying that leg's own `client_state`. Neither command sends a
+ * `client_state`: Telnyx applies a command's state to the leg's later
+ * webhooks, and a new one would wipe what tells an agent's leg from the
+ * caller's (`agentLegId`), so the agent's hangup would be taken for the
+ * call's.
  */
 
 import { callControlAction, type TelnyxEnv } from './telnyx';
@@ -38,21 +42,14 @@ export function transcriptionEngineFields(language: string | null): Record<strin
 export async function telnyxTranscriptionStart(
   env: TelnyxEnv,
   callControlId: string,
-  args: { language: string | null; track?: TranscriptionTrack; clientState: string },
+  args: { language: string | null; track?: TranscriptionTrack },
 ): Promise<unknown> {
   return callControlAction(env, callControlId, 'transcription_start', {
     ...transcriptionEngineFields(args.language),
     transcription_tracks: args.track ?? 'inbound',
-    client_state: args.clientState,
   });
 }
 
-export async function telnyxTranscriptionStop(
-  env: TelnyxEnv,
-  callControlId: string,
-  opts?: { clientState?: string },
-): Promise<unknown> {
-  return callControlAction(env, callControlId, 'transcription_stop', {
-    ...(opts?.clientState ? { client_state: opts.clientState } : {}),
-  });
+export async function telnyxTranscriptionStop(env: TelnyxEnv, callControlId: string): Promise<unknown> {
+  return callControlAction(env, callControlId, 'transcription_stop', {});
 }

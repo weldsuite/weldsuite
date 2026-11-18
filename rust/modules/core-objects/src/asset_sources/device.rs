@@ -16,6 +16,8 @@ use crate::js::{Js, js_date, js_string, stringify};
 
 /// The `status` of a record the import creates.
 pub(crate) const CREATED_STATUS: &str = "in_use";
+/// `CHECK_IN_SLUG`: the field the last check-in is kept in.
+pub(crate) const CHECK_IN_SLUG: &str = "last_check_in";
 
 /// `COMPLIANCE_OPTIONS`: `(value, label)`.
 pub(crate) const COMPLIANCE_OPTIONS: [(&str, &str); 7] = [
@@ -170,22 +172,54 @@ impl MappedDevice {
             .collect()
     }
 
-    /// `deviceChecksum(values)`: SHA-256 (hex) of the values as
-    /// `JSON.stringify` writes them, in their fixed key order. Stored with
-    /// the mapping, so an unchanged device is not written again, by either
-    /// backend.
+    /// `values.last_check_in`: the last check-in the device reports.
+    pub(crate) fn check_in(&self) -> Option<&str> {
+        self.values
+            .iter()
+            .find(|(slug, _)| *slug == CHECK_IN_SLUG)
+            .and_then(|(_, value)| value.as_deref())
+    }
+
+    /// `deviceChecksum(values)`: SHA-256 (hex) of the values a change shows
+    /// in, as `JSON.stringify` writes them, in their fixed key order: every
+    /// fact but the last check-in. Stored with the mapping, so an unchanged
+    /// device is not written again, by either backend. Devices check in
+    /// several times a day; their check-in is kept current without a record
+    /// write.
     pub(crate) fn checksum(&self) -> String {
-        let values = Js::Object(
+        sha256_hex(
             self.values
                 .iter()
-                .map(|(slug, value)| {
-                    let value = value.clone().map_or(Js::Null, Js::String);
-                    ((*slug).to_owned(), value)
-                })
-                .collect(),
-        );
-        hex::encode(Sha256::digest(stringify(&values).as_bytes()))
+                .filter(|(slug, _)| *slug != CHECK_IN_SLUG)
+                .map(|(slug, value)| (*slug, value.as_deref())),
+        )
     }
+
+    /// `deviceChecksumWithCheckIn(values, checkIn)`: the checksum as it was
+    /// taken while the last check-in was part of it, over every value, with
+    /// `check_in` as the check-in. Mappings written then still carry one.
+    pub(crate) fn checksum_with_check_in(&self, check_in: Option<&str>) -> String {
+        sha256_hex(self.values.iter().map(|(slug, value)| {
+            if *slug == CHECK_IN_SLUG {
+                (*slug, check_in)
+            } else {
+                (*slug, value.as_deref())
+            }
+        }))
+    }
+}
+
+/// SHA-256 (hex) of the values as `JSON.stringify` writes their object.
+fn sha256_hex<'a>(values: impl Iterator<Item = (&'a str, Option<&'a str>)>) -> String {
+    let values = Js::Object(
+        values
+            .map(|(slug, value)| {
+                let value = value.map_or(Js::Null, |value| Js::String(value.to_owned()));
+                (slug.to_owned(), value)
+            })
+            .collect(),
+    );
+    hex::encode(Sha256::digest(stringify(&values).as_bytes()))
 }
 
 /// `mapIntuneDevice`: the managedDevice as asset fields; `None` when it has
@@ -215,7 +249,7 @@ pub(crate) fn map_intune_device(device: &Value) -> Option<MappedDevice> {
             "compliance",
             Some(map_compliance(device.get("complianceState")).to_owned()),
         ),
-        ("last_check_in", check_in(device.get("lastSyncDateTime"))),
+        (CHECK_IN_SLUG, check_in(device.get("lastSyncDateTime"))),
         ("primary_user", upn.clone().or_else(|| email.clone())),
         ("intune_device_id", Some(id.clone())),
     ];
@@ -416,12 +450,12 @@ mod tests {
         // `deviceChecksum(mapIntuneDevice(device).values)` on TypeScript.
         assert_eq!(
             mapped.checksum(),
-            "09d0e9adc303229790ad775d0fb7be2f140658bb37045f0d7cf90ade0cb6c6c8"
+            "4066fe26c1c29fb1c3a1cb6cf98b8a9ba9850dee860d4499fc55c2b15fdd65cb"
         );
         // A device that reports next to nothing: the nulls are part of it.
         assert_eq!(
             map_intune_device(&json!({ "id": "a" })).map(|bare| bare.checksum()),
-            Some("f966abdabcaecb6b9cbb90fce12f3946ee4f80ee915e0da9d6f8118cdd8f22fa".to_owned())
+            Some("d7053dff28e0a13f6b0af97de9c722f04b214f98bcc84036b89e780df44620ec".to_owned())
         );
         assert_eq!(
             map_intune_device(&device()).map(|again| again.checksum()),
@@ -433,5 +467,57 @@ mod tests {
             map_intune_device(&changed).map(|changed| changed.checksum()),
             Some(mapped.checksum())
         );
+    }
+
+    #[test]
+    fn the_last_check_in_is_not_part_of_the_checksum() {
+        let Some(mapped) = map_intune_device(&device()) else {
+            panic!("a device with an id");
+        };
+        // A device that only checked in again (or never did) is unchanged.
+        for at in [
+            json!("2026-11-09T23:59:59Z"),
+            json!("2031-01-01T00:00:00Z"),
+            json!(null),
+            json!("0001-01-01T00:00:00Z"),
+        ] {
+            let mut again = device();
+            again["lastSyncDateTime"] = at.clone();
+            assert_eq!(
+                map_intune_device(&again).map(|again| again.checksum()),
+                Some(mapped.checksum()),
+                "{at}"
+            );
+        }
+        // The check-in is still a fact a write sends.
+        assert_eq!(mapped.check_in(), Some("2026-11-01T08:30:00.000Z"));
+        assert!(mapped.facts().iter().any(|(slug, _)| slug == CHECK_IN_SLUG));
+    }
+
+    #[test]
+    fn the_checksum_of_the_old_kind_is_typescripts_with_the_check_in_in_it() {
+        let Some(mapped) = map_intune_device(&device()) else {
+            panic!("a device with an id");
+        };
+        // What `deviceChecksum` answered while the check-in was part of it
+        // (`deviceChecksumWithCheckIn` on TypeScript).
+        let old = "09d0e9adc303229790ad775d0fb7be2f140658bb37045f0d7cf90ade0cb6c6c8";
+        assert_eq!(mapped.checksum_with_check_in(mapped.check_in()), old);
+        assert_eq!(
+            map_intune_device(&json!({ "id": "a" })).map(|bare| bare.checksum_with_check_in(None)),
+            Some("f966abdabcaecb6b9cbb90fce12f3946ee4f80ee915e0da9d6f8118cdd8f22fa".to_owned())
+        );
+        // The same facts with the check-in the record still holds give it back.
+        let mut later = device();
+        later["lastSyncDateTime"] = json!("2026-11-09T23:59:59Z");
+        let Some(later) = map_intune_device(&later) else {
+            panic!("a device with an id");
+        };
+        assert_eq!(
+            later.checksum_with_check_in(Some("2026-11-01T08:30:00.000Z")),
+            old
+        );
+        assert_ne!(later.checksum_with_check_in(later.check_in()), old);
+        assert_ne!(later.checksum_with_check_in(None), old);
     }
 }

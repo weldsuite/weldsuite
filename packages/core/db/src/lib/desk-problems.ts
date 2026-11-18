@@ -147,6 +147,20 @@ function textOrNull(value: string | null | undefined): string | null {
   return trimmed ? trimmed : null;
 }
 
+/**
+ * A problem logged as closed takes no incidents (the rule `assertLinkable`
+ * applies to an existing one). Checked before the problem is written: the
+ * link would otherwise fail after the insert and leave the problem behind.
+ */
+export function assertOpenForIncidents(status: DeskProblemStatus, incidents: number): void {
+  if (status === 'closed' && incidents > 0) {
+    throw new DeskProblemRejectedError(
+      'problem_closed',
+      'A closed problem takes no incidents; link the tickets before closing it',
+    );
+  }
+}
+
 function assertKnownErrorBacked(status: DeskProblemStatus, workaround: string | null, rootCause: string | null) {
   if (status === 'known_error' && blank(workaround) && blank(rootCause)) {
     throw new DeskProblemRejectedError(
@@ -475,6 +489,8 @@ export async function createDeskProblem(db: AnyDb, input: CreateDeskProblemInput
       throw new DeskProblemRejectedError('merged', `Ticket #${found.conversationNumber} was merged into another one; link the kept ticket`);
     }
   }
+  // The last refusal the links below can raise: with it, a 4xx never leaves a problem behind.
+  assertOpenForIncidents(status, conversationIds.length);
 
   const id = input.generateId('dprob');
   const now = new Date();

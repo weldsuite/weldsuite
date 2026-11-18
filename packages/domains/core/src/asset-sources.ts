@@ -17,6 +17,17 @@
  * Resuming is safe: a device that was already written has its mapping and
  * checksum, so a repeated device counts as unchanged.
  *
+ * One step at a time: a step takes a lease on the run (`leaseUntil` in the
+ * sync state, a compare-and-set) before it does anything, and gives it up with
+ * its last write. A tick that finds the run leased does nothing; a step that
+ * died leaves the lease to expire (`ASSET_IMPORT_STEP_LEASE_MS`).
+ *
+ * The last check-in is not part of the checksum: devices check in several
+ * times a day, and a record write (its queries, its `updated` event) per
+ * device per run is more than a larger fleet's import can do. A step keeps the
+ * check-in of the devices it leaves unwritten current with one statement on
+ * the field's value column instead: no record write, no event.
+ *
  * Matching: a device maps to its record through `integration_entity_mappings`
  * (connection = the source, external type `intune_device`, external id = the
  * managedDevice id, internal type = the object's entity key). No mapping: a
@@ -26,15 +37,16 @@
  *
  * Field ownership: device facts (name, serial number, manufacturer, model, OS,
  * compliance, last check-in, primary user, Intune id) are written on every
- * change; `asset_type`, `status` and the `owner` link only when the record is
- * created, so a person's corrections are never overwritten. A fact the device
- * does not report is not written (it never clears a value a person entered).
+ * change (a newer check-in alone is not one, see above); `asset_type`,
+ * `status` and the `owner` link only when the record is created, so a
+ * person's corrections are never overwritten. A fact the device does not
+ * report is not written (it never clears a value a person entered).
  *
  * Only `login.microsoftonline.com` and `graph.microsoft.com` are ever called.
  * The client secret never reaches a log, an error or a result.
  */
 
-import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import {
   assetSources,
   customFieldDefinitions,
@@ -80,6 +92,12 @@ export const INTUNE_DEVICE_ENTITY_TYPE = 'intune_device';
 export const ASSET_IMPORT_MAX_WRITES = 20;
 /** A run that has not finished after this long is stopped. */
 export const ASSET_IMPORT_MAX_RUN_MS = 24 * 60 * 60_000;
+/**
+ * How long a step holds the run. Well over what a step takes (two calls to
+ * Microsoft and twenty record writes), short enough that a step that died does
+ * not hold the import up for long.
+ */
+export const ASSET_IMPORT_STEP_LEASE_MS = 5 * 60_000;
 export const ASSET_IMPORT_REQUEST_TIMEOUT_MS = 20_000;
 const DEFAULT_RETRY_AFTER_SECONDS = 60;
 const MAX_RETRY_AFTER_SECONDS = 3600;
@@ -427,11 +445,35 @@ export function mapIntuneDevice(device: IntuneDevice): MappedDevice {
   };
 }
 
-/** SHA-256 (hex) of the imported values; an unchanged device is not written again. */
-export async function deviceChecksum(values: Record<string, string | null>): Promise<string> {
+/** The field the last check-in is kept in. */
+const CHECK_IN_SLUG = 'last_check_in';
+
+/** SHA-256 (hex) of the values as `JSON.stringify` writes them. */
+async function sha256Hex(values: Record<string, string | null>): Promise<string> {
   const bytes = new TextEncoder().encode(JSON.stringify(values));
   const digest = await crypto.subtle.digest('SHA-256', bytes);
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * SHA-256 (hex) of the imported values a change shows in: every fact but the
+ * last check-in. A device with the same checksum is not written again; its
+ * check-in is kept current without a record write (`refreshCheckIns`).
+ */
+export async function deviceChecksum(values: Record<string, string | null>): Promise<string> {
+  return sha256Hex(Object.fromEntries(Object.entries(values).filter(([slug]) => slug !== CHECK_IN_SLUG)));
+}
+
+/**
+ * The checksum as it was taken while the last check-in was part of it: over
+ * every value, with `checkIn` as the check-in. Mappings written then still
+ * carry one; a step recognises it and replaces it (`isChecksumOfOldKind`).
+ */
+export async function deviceChecksumWithCheckIn(
+  values: Record<string, string | null>,
+  checkIn: string | null,
+): Promise<string> {
+  return sha256Hex({ ...values, [CHECK_IN_SLUG]: checkIn });
 }
 
 /** The non-empty facts: what a write sends. */
@@ -532,12 +574,8 @@ export async function ensureAssetImportFields(
 // Scheduling
 // ============================================================================
 
-const HOUR_MS = 60 * 60_000;
-
-/** When the next scheduled import is due after a run that ended at `from` (null: schedule off). */
-export function nextAssetImportAt(source: Pick<AssetSource, 'enabled' | 'intervalHours'>, from: Date): Date | null {
-  return source.enabled ? new Date(from.getTime() + source.intervalHours * HOUR_MS) : null;
-}
+// The next scheduled import after a run (one interval after it ended, or none
+// when the schedule is off) is set by `endRun`, in the UPDATE that ends the run.
 
 /** When the sweep next has work for a source: now while a run is under way, else its schedule. */
 export function assetSourceDueAt(
@@ -641,6 +679,11 @@ export interface AssetImportStepResult {
   done: boolean;
   /** Microsoft asked to wait: do not continue before this many seconds. */
   retryAfterSeconds?: number;
+  /**
+   * Another step holds the run (the one of an earlier tick is still at work):
+   * this one did nothing, and the run is still under way.
+   */
+  busy?: boolean;
   /** The source as stored after the step. */
   source: AssetSource;
 }
@@ -674,27 +717,104 @@ export async function startAssetImport(
   return row ?? null;
 }
 
+/** A step at work: the run as its claim returned it, and the lease the claim took. */
+interface StepRun {
+  ctx: AssetImportContext;
+  /** The source as stored when the step claimed the run. */
+  source: AssetSource;
+  state: AssetSourceSyncState;
+  now: Date;
+  /** The `leaseUntil` this step wrote: its writes go through only while the row still carries it. */
+  lease: string;
+}
+
+/** The row still carries this step's lease. */
+const leasedBy = (lease: string): SQL => sql`${assetSources.syncState}->>'leaseUntil' = ${lease}`;
+
+/**
+ * Take the run for one step: a compare-and-set that goes through only while no
+ * other step holds a lease that has not run out. The step then works from the
+ * row the claim returns, not from what its caller read earlier. Null: another
+ * step is at work, or no run is under way any more.
+ */
+async function claimStep(ctx: AssetImportContext, id: string, now: Date): Promise<StepRun | null> {
+  const lease = new Date(now.getTime() + ASSET_IMPORT_STEP_LEASE_MS).toISOString();
+  const [source] = await ctx.db
+    .update(assetSources)
+    .set({ syncState: sql`jsonb_set(${assetSources.syncState}, '{leaseUntil}', to_jsonb(${lease}::text))` })
+    .where(
+      and(
+        eq(assetSources.id, id),
+        sql`jsonb_typeof(${assetSources.syncState}) = 'object'`,
+        // ISO times of one form order as text; no lease reads as the empty string.
+        sql`coalesce(${assetSources.syncState}->>'leaseUntil', '') collate "C" <= ${now.toISOString()}`,
+      ),
+    )
+    .returning();
+  const state = source?.syncState;
+  return source && state ? { ctx, source, state, now, lease } : null;
+}
+
+/** The state as the next step finds it: without this step's lease. */
+function withoutLease(state: AssetSourceSyncState): AssetSourceSyncState {
+  const next = { ...state };
+  delete next.leaseUntil;
+  return next;
+}
+
+/**
+ * The step's last write found the run no longer its own (its lease ran out and
+ * another step took over, or the source was deleted): this step settles nothing.
+ */
+function lostRun(run: StepRun): AssetImportStepResult {
+  return { done: false, source: run.source };
+}
+
+/** Save where the run stands; the lease goes with the write. */
+async function saveState(run: StepRun, next: AssetSourceSyncState): Promise<AssetImportStepResult> {
+  const saved = await run.ctx.db
+    .update(assetSources)
+    .set({ syncState: next, updatedAt: run.now })
+    .where(and(eq(assetSources.id, run.source.id), leasedBy(run.lease)))
+    .returning({ id: assetSources.id });
+  if (saved.length === 0) return lostRun(run);
+  return { done: false, source: { ...run.source, syncState: next } };
+}
+
+/** Give the lease up and leave everything else as it is: a throttled step waits. */
+async function releaseLease(run: StepRun): Promise<void> {
+  await run.ctx.db
+    .update(assetSources)
+    .set({ syncState: sql`${assetSources.syncState} - 'leaseUntil'` })
+    .where(and(eq(assetSources.id, run.source.id), leasedBy(run.lease)));
+}
+
+/**
+ * The run is over, finished or failed. The next scheduled import comes from
+ * the row's own `enabled` and `interval_hours` as they are when this is
+ * written, not as the step read them: the schedule may have been switched on,
+ * or its interval changed, while the step ran.
+ */
 async function endRun(
-  ctx: AssetImportContext,
-  source: AssetSource,
-  state: AssetSourceSyncState,
-  now: Date,
+  run: StepRun,
+  stats: AssetSourceRunStats,
   failure: AssetSourceError | null,
-): Promise<AssetSource> {
-  const [row] = await ctx.db
+): Promise<AssetImportStepResult> {
+  const { now } = run;
+  const [row] = await run.ctx.db
     .update(assetSources)
     .set({
       syncState: null,
       lastSyncAt: now,
       lastStatus: failure ? 'failed' : 'ok',
       lastError: failure ? formatAssetSourceError(failure) : null,
-      lastStats: state.stats,
-      nextSyncAt: nextAssetImportAt(source, now),
+      lastStats: stats,
+      nextSyncAt: sql`case when ${assetSources.enabled} then ${now.toISOString()}::timestamp + ${assetSources.intervalHours} * interval '1 hour' else null end`,
       updatedAt: now,
     })
-    .where(eq(assetSources.id, source.id))
+    .where(and(eq(assetSources.id, run.source.id), leasedBy(run.lease)))
     .returning();
-  return row ?? source;
+  return row ? { done: true, source: row } : lostRun(run);
 }
 
 async function openSecret(source: AssetSource, keyring: EncryptionKeyring): Promise<string> {
@@ -713,35 +833,44 @@ type MappingRow = typeof integrationEntityMappings.$inferSelect;
  * Do one bounded step of the run under way (`source.syncState`). Never throws
  * for a problem with Microsoft or with one device: those end the run as
  * `failed` (or, when throttled, wait). A thrown error is a tenant DB failure;
- * the run stays as it was and the next tick repeats the step.
+ * the run stays as it was and a later tick repeats the step, once the lease
+ * this one took has run out.
+ *
+ * The step takes the run's lease before it does anything. When another step
+ * holds it, this one does nothing and answers `busy` (not done), so two ticks
+ * never import the same devices at once.
  */
 export async function runAssetImportStep(ctx: AssetImportContext, source: AssetSource): Promise<AssetImportStepResult> {
   const now = ctx.now ?? new Date();
-  const state = source.syncState;
-  if (!state) return { done: true, source };
+  if (!source.syncState) return { done: true, source };
 
-  if (now.getTime() - Date.parse(state.startedAt) > ASSET_IMPORT_MAX_RUN_MS) {
+  const run = await claimStep(ctx, source.id, now);
+  if (!run) return { done: false, busy: true, source };
+
+  if (now.getTime() - Date.parse(run.state.startedAt) > ASSET_IMPORT_MAX_RUN_MS) {
     const failure = new AssetSourceError('throttled', 'The import did not finish within 24 hours and was stopped. It starts again on schedule.');
-    return { done: true, source: await endRun(ctx, source, state, now, failure) };
+    return endRun(run, run.state.stats, failure);
   }
 
   try {
-    return await step(ctx, source, state, now);
+    return await step(run);
   } catch (err) {
     if (!(err instanceof AssetSourceError)) throw err;
     if (err.code === 'throttled') {
-      return { done: false, retryAfterSeconds: err.retryAfterSeconds ?? DEFAULT_RETRY_AFTER_SECONDS, source };
+      await releaseLease(run);
+      return {
+        done: false,
+        retryAfterSeconds: err.retryAfterSeconds ?? DEFAULT_RETRY_AFTER_SECONDS,
+        source: { ...run.source, syncState: withoutLease(run.state) },
+      };
     }
-    return { done: true, source: await endRun(ctx, source, state, now, err) };
+    return endRun(run, run.state.stats, err);
   }
 }
 
-async function step(
-  ctx: AssetImportContext,
-  source: AssetSource,
-  state: AssetSourceSyncState,
-  now: Date,
-): Promise<AssetImportStepResult> {
+async function step(run: StepRun): Promise<AssetImportStepResult> {
+  const { ctx, source, now } = run;
+  const state = withoutLease(run.state);
   const { db } = ctx;
   const generateId = ctx.generateId ?? defaultGenerateId;
   const maxWrites = ctx.maxWrites ?? ASSET_IMPORT_MAX_WRITES;
@@ -764,8 +893,22 @@ async function step(
   let index = state.offset ?? 0;
   const { mappings, records } = await loadMappedRecords(db, source, entityKey, page.devices.slice(index));
 
-  const lookups = await prepareLookups(db, entityKey);
-  const claimed = new Set<string>();
+  const job: DeviceJob = {
+    ctx,
+    db,
+    source,
+    object,
+    entityKey,
+    userId,
+    generateId,
+    now,
+    mappings,
+    records,
+    claimed: new Set(),
+    lookups: await prepareLookups(db, entityKey),
+    checkIns: new Map(),
+    replaced: new Map(),
+  };
   let writes = 0;
 
   while (index < page.devices.length && writes < maxWrites) {
@@ -773,21 +916,7 @@ async function step(
     index += 1;
     stats.total += 1;
     try {
-      const outcome = await importDevice({
-        ctx,
-        db,
-        source,
-        object,
-        entityKey,
-        userId,
-        generateId,
-        now,
-        device,
-        mappings,
-        records,
-        claimed,
-        lookups,
-      });
+      const outcome = await importDevice(job, device);
       stats[outcome] += 1;
       if (outcome !== 'unchanged') writes += 1;
     } catch {
@@ -796,17 +925,16 @@ async function step(
     }
   }
 
+  // What the step owes the devices it did not write: neither counts as a write.
+  await refreshCheckIns(job);
+  await replaceChecksums(job);
+
   if (index < page.devices.length) {
     // Stopped inside the page: the next step reads it again from `index`.
-    await saveState(db, source, { ...state, nextLink: state.nextLink ?? null, offset: index, stats }, now);
-    return { done: false, source: { ...source, syncState: { ...state, offset: index, stats } } };
+    return saveState(run, { ...state, nextLink: state.nextLink ?? null, offset: index, stats });
   }
-  if (page.nextLink) {
-    const next: AssetSourceSyncState = { ...state, nextLink: page.nextLink, offset: 0, stats };
-    await saveState(db, source, next, now);
-    return { done: false, source: { ...source, syncState: next } };
-  }
-  return { done: true, source: await endRun(ctx, source, { ...state, stats }, now, null) };
+  if (page.nextLink) return saveState(run, { ...state, nextLink: page.nextLink, offset: 0, stats });
+  return endRun(run, stats, null);
 }
 
 /** The devices' mappings, and the records they point to, in one query each. */
@@ -850,27 +978,36 @@ async function loadMappedRecords(
   return { mappings, records };
 }
 
-async function saveState(db: TenantDb, source: AssetSource, state: AssetSourceSyncState, now: Date): Promise<void> {
-  await db.update(assetSources).set({ syncState: state, updatedAt: now }).where(eq(assetSources.id, source.id));
-}
+/** The value column the last check-in is kept in, by the type of its field. */
+type CheckInColumn = 'date' | 'text';
 
 interface Lookups {
   serialFieldId: string | null;
+  /** The live `last_check_in` field, when its type keeps the check-in as a date or as plain text. */
+  checkInField: { id: string; column: CheckInColumn } | null;
   ownerLink: typeof customObjectLinks.$inferSelect | null;
 }
 
+/** The import adds the field as a date; one made by hand may be text. Any other type is left to the record writes. */
+function checkInColumnOf(fieldType: string): CheckInColumn | null {
+  if (fieldType === 'date') return 'date';
+  return fieldType === 'text' || fieldType === 'textarea' ? 'text' : null;
+}
+
 async function prepareLookups(db: TenantDb, entityKey: string): Promise<Lookups> {
-  const [serial] = await db
-    .select({ id: customFieldDefinitions.id })
+  const fields = await db
+    .select({ id: customFieldDefinitions.id, slug: customFieldDefinitions.slug, fieldType: customFieldDefinitions.fieldType })
     .from(customFieldDefinitions)
     .where(
       and(
         eq(customFieldDefinitions.entityType, entityKey),
-        eq(customFieldDefinitions.slug, 'serial_number'),
+        inArray(customFieldDefinitions.slug, ['serial_number', CHECK_IN_SLUG]),
         isNull(customFieldDefinitions.deletedAt),
       ),
-    )
-    .limit(1);
+    );
+  const serial = fields.find((field) => field.slug === 'serial_number');
+  const checkIn = fields.find((field) => field.slug === CHECK_IN_SLUG);
+  const checkInColumn = checkIn ? checkInColumnOf(checkIn.fieldType) : null;
   const [ownerLink] = await db
     .select()
     .from(customObjectLinks)
@@ -882,7 +1019,11 @@ async function prepareLookups(db: TenantDb, entityKey: string): Promise<Lookups>
       ),
     )
     .limit(1);
-  return { serialFieldId: serial?.id ?? null, ownerLink: ownerLink ?? null };
+  return {
+    serialFieldId: serial?.id ?? null,
+    checkInField: checkIn && checkInColumn ? { id: checkIn.id, column: checkInColumn } : null,
+    ownerLink: ownerLink ?? null,
+  };
 }
 
 interface DeviceJob {
@@ -894,44 +1035,176 @@ interface DeviceJob {
   userId: string;
   generateId: IdGenerator;
   now: Date;
-  device: IntuneDevice;
   mappings: Map<string, MappingRow>;
   records: Map<string, RecordRow>;
   /** Records this run has already tied to a device (adoption must not take them twice). */
   claimed: Set<string>;
   lookups: Lookups;
+  /** The last check-in of each device this step left unwritten, by its (live) record. */
+  checkIns: Map<string, string>;
+  /** The checksum to put in place of one of the old kind, by mapping id. */
+  replaced: Map<string, string>;
+  /** The check-ins the page's records hold, read once, when a checksum first differs. */
+  storedCheckIns?: Map<string, string>;
 }
 
-async function importDevice(job: DeviceJob): Promise<'created' | 'updated' | 'unchanged'> {
-  const { db, source, object, entityKey, userId, generateId, now, mappings, records, claimed, lookups } = job;
-  const mapped = mapIntuneDevice(job.device);
-  const checksum = await deviceChecksum(mapped.values);
-  const facts = factsOf(mapped.values);
-  const emit = async (action: 'created' | 'updated', data: Record<string, unknown>) => {
-    if (object.enableEvents) await job.ctx.events?.record?.({ action, entityKey, recordId: String(data.id), data });
-  };
+type DeviceOutcome = 'created' | 'updated' | 'unchanged';
 
-  const mapping = mappings.get(mapped.externalId);
-  if (mapping) {
-    const record = records.get(mapping.internalEntityId);
-    // A record a person deleted stays deleted; the import does not bring it back.
-    if (!record || record.deletedAt || mapping.syncChecksum === checksum) return 'unchanged';
-    const updated = await updateRecord(db, object, record, { fields: facts }, userId, generateId);
-    await db
-      .update(integrationEntityMappings)
-      .set({ syncChecksum: checksum, lastSyncedAt: now, updatedAt: now })
-      .where(eq(integrationEntityMappings.id, mapping.id));
-    mappings.set(mapped.externalId, { ...mapping, syncChecksum: checksum });
-    await emit('updated', { ...updated });
-    return 'updated';
+async function importDevice(job: DeviceJob, device: IntuneDevice): Promise<DeviceOutcome> {
+  const mapped = mapIntuneDevice(device);
+  const checksum = await deviceChecksum(mapped.values);
+  const mapping = job.mappings.get(mapped.externalId);
+  return mapping ? importMapped(job, mapped, mapping, checksum) : importUnmapped(job, mapped, checksum);
+}
+
+async function emitRecord(job: DeviceJob, action: 'created' | 'updated', data: Record<string, unknown>): Promise<void> {
+  if (!job.object.enableEvents) return;
+  await job.ctx.events?.record?.({ action, entityKey: job.entityKey, recordId: String(data.id), data });
+}
+
+/**
+ * A check-in the value column takes as it is written: `toISOString()` of a
+ * four-digit year. (A later year has a sign and six digits, which Postgres
+ * does not read; a record write refuses it too.)
+ */
+function isStorableCheckIn(checkIn: string): boolean {
+  return checkIn.length === 24;
+}
+
+/** A device this source imported before: written again only when a fact other than the last check-in changed. */
+async function importMapped(
+  job: DeviceJob,
+  mapped: MappedDevice,
+  mapping: MappingRow,
+  checksum: string,
+): Promise<DeviceOutcome> {
+  const { db, now } = job;
+  const record = job.records.get(mapping.internalEntityId);
+  // A record a person deleted stays deleted; the import does not bring it back.
+  if (!record || record.deletedAt) return 'unchanged';
+
+  if (mapping.syncChecksum === checksum || (await isChecksumOfOldKind(job, mapped, mapping, checksum))) {
+    const checkIn = mapped.values[CHECK_IN_SLUG];
+    if (checkIn && isStorableCheckIn(checkIn)) job.checkIns.set(record.id, checkIn);
+    return 'unchanged';
   }
+
+  const updated = await updateRecord(db, job.object, record, { fields: factsOf(mapped.values) }, job.userId, job.generateId);
+  await db
+    .update(integrationEntityMappings)
+    .set({ syncChecksum: checksum, lastSyncedAt: now, updatedAt: now })
+    .where(eq(integrationEntityMappings.id, mapping.id));
+  job.mappings.set(mapped.externalId, { ...mapping, syncChecksum: checksum });
+  // The write carried the check-in and the checksum: nothing is left to settle for this record.
+  job.checkIns.delete(record.id);
+  job.replaced.delete(mapping.id);
+  await emitRecord(job, 'updated', { ...updated });
+  return 'updated';
+}
+
+/**
+ * Whether the mapping carries a checksum of the old kind (taken with the last
+ * check-in) of these same facts: with the check-in the record holds, with the
+ * one the device reports now, or with none. Then nothing but the check-in
+ * differs, and the checksum is replaced at the end of the step instead of the
+ * record being rewritten: the first import after the checksum changed does not
+ * write every device once.
+ */
+async function isChecksumOfOldKind(
+  job: DeviceJob,
+  mapped: MappedDevice,
+  mapping: MappingRow,
+  checksum: string,
+): Promise<boolean> {
+  job.storedCheckIns ??= await loadStoredCheckIns(job);
+  const candidates = new Set<string | null>([
+    job.storedCheckIns.get(mapping.internalEntityId) ?? null,
+    mapped.values[CHECK_IN_SLUG] ?? null,
+    null,
+  ]);
+  for (const checkIn of candidates) {
+    if ((await deviceChecksumWithCheckIn(mapped.values, checkIn)) === mapping.syncChecksum) {
+      job.replaced.set(mapping.id, checksum);
+      job.mappings.set(mapped.externalId, { ...mapping, syncChecksum: checksum });
+      return true;
+    }
+  }
+  return false;
+}
+
+/** The last check-in each live record of the page holds, as the import wrote it (ISO). One query. */
+async function loadStoredCheckIns(job: DeviceJob): Promise<Map<string, string>> {
+  const stored = new Map<string, string>();
+  const field = job.lookups.checkInField;
+  const ids = [...job.records.values()].filter((record) => !record.deletedAt).map((record) => record.id);
+  if (!field || ids.length === 0) return stored;
+  const rows = await job.db
+    .select({ recordId: customFieldValues.entityId, date: customFieldValues.valueDate, text: customFieldValues.valueText })
+    .from(customFieldValues)
+    .where(
+      and(
+        eq(customFieldValues.fieldId, field.id),
+        eq(customFieldValues.entityType, job.entityKey),
+        inArray(customFieldValues.entityId, ids),
+      ),
+    );
+  for (const row of rows) {
+    const value = field.column === 'date' ? row.date?.toISOString() : row.text;
+    if (value) stored.set(row.recordId, value);
+  }
+  return stored;
+}
+
+/** The value column of each kind of check-in field, and the check-in as that column takes it. */
+const CHECK_IN_SQL: Record<CheckInColumn, { column: SQL; value: SQL }> = {
+  date: { column: sql.raw('value_date'), value: sql.raw('x.check_in::timestamp') },
+  text: { column: sql.raw('value_text'), value: sql.raw('x.check_in') },
+};
+
+/**
+ * Keep the last check-in of the devices this step left unwritten current: one
+ * statement on the field's value column, only where the stored value differs.
+ * No record is written (its `updatedAt` stays), no event goes out, and it does
+ * not count against the step's writes. A record that has no value yet gets it
+ * with its next write.
+ */
+async function refreshCheckIns(job: DeviceJob): Promise<void> {
+  const field = job.lookups.checkInField;
+  if (!field || job.checkIns.size === 0) return;
+  const rows = JSON.stringify([...job.checkIns].map(([record_id, check_in]) => ({ record_id, check_in })));
+  const { column, value } = CHECK_IN_SQL[field.column];
+  await job.db.execute(sql`
+    update custom_field_values as v
+       set ${column} = ${value}, updated_at = ${job.now.toISOString()}::timestamp
+      from jsonb_to_recordset(${rows}::jsonb) as x(record_id text, check_in text)
+     where v.field_id = ${field.id}
+       and v.entity_type = ${job.entityKey}
+       and v.entity_id = x.record_id
+       and v.${column} is distinct from ${value}`);
+}
+
+/** Put the checksum without the check-in in place of each one of the old kind this step recognised: one statement. */
+async function replaceChecksums(job: DeviceJob): Promise<void> {
+  if (job.replaced.size === 0) return;
+  const rows = JSON.stringify([...job.replaced].map(([id, checksum]) => ({ id, checksum })));
+  await job.db.execute(sql`
+    update integration_entity_mappings as m
+       set sync_checksum = x.checksum, updated_at = ${job.now.toISOString()}::timestamp
+      from jsonb_to_recordset(${rows}::jsonb) as x(id text, checksum text)
+     where m.id = x.id`);
+}
+
+/** A device this source has not imported yet: a record with its serial number is adopted, else one is created. */
+async function importUnmapped(job: DeviceJob, mapped: MappedDevice, checksum: string): Promise<DeviceOutcome> {
+  const { db, source, object, entityKey, userId, generateId, now, mappings, claimed, lookups } = job;
+  const facts = factsOf(mapped.values);
 
   const adoptable = await findAdoptableRecord(db, source, entityKey, mapped.serialNumber, lookups, claimed);
   if (adoptable) {
     claimed.add(adoptable.id);
     const updated = await updateRecord(db, object, adoptable, { fields: facts }, userId, generateId);
     await insertMapping(db, source, entityKey, mapped.externalId, adoptable.id, checksum, now, generateId, mappings);
-    await emit('updated', { ...updated });
+    await emitRecord(job, 'updated', { ...updated });
     return 'updated';
   }
 
@@ -945,7 +1218,7 @@ async function importDevice(job: DeviceJob): Promise<'created' | 'updated' | 'un
   claimed.add(created.id);
   await insertMapping(db, source, entityKey, mapped.externalId, created.id, checksum, now, generateId, mappings);
   await attachOwner(db, lookups, entityKey, created.id, mapped.userEmail, userId, now, generateId);
-  await emit('created', { ...created });
+  await emitRecord(job, 'created', { ...created });
   return 'created';
 }
 

@@ -1404,7 +1404,8 @@
         "/api/desk/catalog",
         "/api/desk/conversations/:id/request",
         "/api/desk/conversations/:id/catalog-item",
-        "/api/desk/conversations/:id/approval"
+        "/api/desk/conversations/:id/approval",
+        "/api/desk/conversations/:id/fulfilment"
       ],
       "paths": [
         "apps/workers/desk-api/src/routes/desk-catalog/",

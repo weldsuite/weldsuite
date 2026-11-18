@@ -4,7 +4,7 @@ import { deskConversationSchema, deskMessageSchema, DESK_PRIORITIES } from './de
 /**
  * The WeldDesk service catalogue (desk-api): items at `/api/desk/catalog`, and
  * the request side on a conversation at
- * `/api/desk/conversations/:id/{request,catalog-item,approval}`. Rows are
+ * `/api/desk/conversations/:id/{request,catalog-item,approval,fulfilment}`. Rows are
  * written by `@weldsuite/db/lib/desk-catalog`. Limits mirror
  * `DESK_CATALOG_MAX_APPROVAL_STEPS` / `DESK_CATALOG_MAX_FULFILMENT_TASKS`.
  */
@@ -166,6 +166,12 @@ export const deskConversationRequestSchema = z
       .nullable(),
     approvalStatus: z.enum(DESK_REQUEST_APPROVAL_STATUSES).nullable(),
     approvals: z.array(deskRequestApprovalSchema),
+    /**
+     * The item's tasks were created. False on an approved (or approval-free)
+     * request whose item has tasks: the run is under way, or it failed and
+     * POST …/fulfilment runs it again.
+     */
+    fulfilmentStarted: z.boolean(),
   })
   .strict();
 
@@ -180,6 +186,12 @@ export const deskConversationRequestChangeSchema = z
     request: deskConversationRequestSchema,
   })
   .strict();
+
+/** POST /api/desk/conversations/:id/fulfilment: how many tasks the run created (the ones a failed run left are not counted). */
+export const deskRequestFulfilmentSchema = z.object({ created: z.number().int().min(0) }).strict();
+
+/** Why POST …/fulfilment answers 409 (`details.reason`). */
+export const DESK_FULFILMENT_REFUSALS = ['not_request', 'not_approved', 'already_started', 'item_missing'] as const;
 
 /** One row of GET /api/desk/catalog/approvals. */
 export const deskPendingApprovalSchema = z
@@ -207,5 +219,6 @@ export type DeskCatalogFulfilmentTaskInput = z.infer<typeof deskCatalogFulfilmen
 export type DeskRequestApproval = z.infer<typeof deskRequestApprovalSchema>;
 export type DeskConversationRequest = z.infer<typeof deskConversationRequestSchema>;
 export type DeskConversationRequestChange = z.infer<typeof deskConversationRequestChangeSchema>;
+export type DeskRequestFulfilment = z.infer<typeof deskRequestFulfilmentSchema>;
 export type DeskPendingApproval = z.infer<typeof deskPendingApprovalSchema>;
 export type DeskApprovalDecision = z.infer<typeof decideDeskApprovalSchema>['decision'];

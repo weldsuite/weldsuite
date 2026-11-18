@@ -9,6 +9,17 @@
 //! written has its mapping and checksum, so a repeated device counts as
 //! unchanged.
 //!
+//! One step at a time: a step takes a lease on the run (`leaseUntil` in the
+//! sync state, a compare-and-set) before it does anything, and gives it up
+//! with its last write. A tick that finds the run leased does nothing; a
+//! step that died leaves the lease to expire ([`STEP_LEASE`]).
+//!
+//! The last check-in is not part of the checksum: devices check in several
+//! times a day, and a record write per device per run is more than a larger
+//! fleet's import can do. A step keeps the check-in of the devices it leaves
+//! unwritten current with one statement on the field's value column
+//! instead: no record write, no event.
+//!
 //! Matching: a device maps to its record through
 //! `integration_entity_mappings` (connection = the source, external type
 //! `intune_device`, external id = the managedDevice id, internal type = the
@@ -31,7 +42,9 @@ use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::Field;
 use weldsuite_ports::OutboundHttp;
 
-use super::device::{COMPLIANCE_OPTIONS, CREATED_STATUS, map_intune_device, text};
+use super::device::{
+    CHECK_IN_SLUG, COMPLIANCE_OPTIONS, CREATED_STATUS, MappedDevice, map_intune_device, text,
+};
 use super::microsoft::{
     DEFAULT_RETRY_AFTER_SECONDS, ErrorCode, Page, SourceError, fetch_intune_page, intune_token,
 };
@@ -47,6 +60,10 @@ pub(crate) const MAX_WRITES: usize = 20;
 /// `ASSET_IMPORT_MAX_RUN_MS`: a run that has not finished after this long is
 /// stopped.
 const MAX_RUN: time::Duration = time::Duration::hours(24);
+/// `ASSET_IMPORT_STEP_LEASE_MS`: how long a step holds the run. Well over
+/// what a step takes, short enough that a step that died does not hold the
+/// import up for long.
+const STEP_LEASE: time::Duration = time::Duration::minutes(5);
 const RUN_TOO_LONG: &str =
     "The import did not finish within 24 hours and was stopped. It starts again on schedule.";
 
@@ -135,8 +152,33 @@ pub(crate) struct StepResult {
     pub(crate) done: bool,
     /// Microsoft asked to wait: do not continue before this many seconds.
     pub(crate) retry_after_seconds: Option<u32>,
+    /// Another step holds the run (the one of an earlier tick is still at
+    /// work): this one did nothing, and the run is still under way.
+    pub(crate) busy: bool,
     /// The source as stored after the step.
     pub(crate) source: Source,
+}
+
+impl StepResult {
+    /// The run ended (finished or failed).
+    fn ended(source: Source) -> Self {
+        Self {
+            done: true,
+            retry_after_seconds: None,
+            busy: false,
+            source,
+        }
+    }
+
+    /// The run goes on with a later step.
+    fn under_way(source: Source) -> Self {
+        Self {
+            done: false,
+            retry_after_seconds: None,
+            busy: false,
+            source,
+        }
+    }
 }
 
 /// What TypeScript throws out of a step: the run stays as it was and the
@@ -183,52 +225,130 @@ impl From<sqlx::Error> for Stop {
     }
 }
 
+/// `StepRun`: a step at work, with the run as its claim returned it.
+struct Run<'a> {
+    ctx: &'a ImportContext<'a>,
+    /// The source as stored when the step claimed the run.
+    source: Source,
+    /// The run's state without the lease: what the next step finds.
+    state: Value,
+    /// The `leaseUntil` this step wrote: its writes go through only while
+    /// the row still carries it.
+    lease: String,
+}
+
+impl Run<'_> {
+    /// `lostRun`: the step's last write found the run no longer its own
+    /// (its lease ran out and another step took over, or the source was
+    /// deleted). This step settles nothing.
+    fn lost(&self) -> StepResult {
+        StepResult::under_way(self.source.clone())
+    }
+
+    /// `endRun`: the run is over, finished or failed.
+    async fn end(
+        &self,
+        stats: Option<&Value>,
+        failure: Option<&SourceError>,
+    ) -> Result<StepResult, sqlx::Error> {
+        let stored = source::end_run(
+            self.ctx.db,
+            &self.source.id,
+            stats,
+            self.ctx.now,
+            failure,
+            &self.lease,
+        )
+        .await?;
+        Ok(stored.map_or_else(|| self.lost(), StepResult::ended))
+    }
+
+    /// `saveState`: where the run stands, for the next step; the lease goes
+    /// with the write.
+    async fn save(&self, next: Value) -> Result<StepResult, sqlx::Error> {
+        let saved = source::save_state(
+            self.ctx.db,
+            &self.source.id,
+            &next,
+            &iso_timestamp(self.ctx.now),
+            &self.lease,
+        )
+        .await?;
+        if !saved {
+            return Ok(self.lost());
+        }
+        Ok(StepResult::under_way(Source {
+            sync_state: Some(next),
+            ..self.source.clone()
+        }))
+    }
+}
+
+/// `withoutLease(state)`: the state as the next step finds it.
+fn without_lease(mut state: Value) -> Value {
+    if let Some(entries) = state.as_object_mut() {
+        entries.remove("leaseUntil");
+    }
+    state
+}
+
 /// `runAssetImportStep(ctx, source)`: one bounded step of the run under way
 /// (`source.syncState`). A problem with Microsoft or with one device never
 /// fails it: those end the run as `failed` (or, when throttled, wait). An
-/// `Err` is a tenant database failure; the run stays as it was and the next
-/// tick repeats the step.
+/// `Err` is a tenant database failure; the run stays as it was and a later
+/// tick repeats the step, once the lease this one took has run out.
+///
+/// The step takes the run's lease before it does anything. When another
+/// step holds it, this one does nothing and answers `busy` (not done), so
+/// two ticks never import the same devices at once.
 pub(crate) async fn run_step(
     ctx: &ImportContext<'_>,
     source: Source,
 ) -> Result<StepResult, StepFailure> {
-    let Some(state) = source.running().cloned() else {
-        return Ok(StepResult {
-            done: true,
-            retry_after_seconds: None,
-            source,
-        });
-    };
-    let ended = |source: Source| StepResult {
-        done: true,
-        retry_after_seconds: None,
-        source,
-    };
-
-    if ran_too_long(state["startedAt"].as_str(), ctx.now) {
-        let failure = SourceError::with_message(ErrorCode::Throttled, RUN_TOO_LONG);
-        let stored =
-            source::end_run(ctx.db, &source, state.get("stats"), ctx.now, Some(&failure)).await?;
-        return Ok(ended(stored));
+    if source.running().is_none() {
+        return Ok(StepResult::ended(source));
     }
 
-    match step(ctx, &source, &state).await {
+    let lease = iso_timestamp(ctx.now + STEP_LEASE);
+    let claimed = source::claim_step(ctx.db, &source.id, &iso_timestamp(ctx.now), &lease).await?;
+    let Some(held) = claimed else {
+        return Ok(StepResult {
+            busy: true,
+            ..StepResult::under_way(source)
+        });
+    };
+    let run = Run {
+        ctx,
+        state: without_lease(held.sync_state.clone().unwrap_or(Value::Null)),
+        source: held,
+        lease,
+    };
+
+    if ran_too_long(run.state["startedAt"].as_str(), ctx.now) {
+        let failure = SourceError::with_message(ErrorCode::Throttled, RUN_TOO_LONG);
+        return Ok(run.end(run.state.get("stats"), Some(&failure)).await?);
+    }
+
+    match step(&run).await {
         Ok(result) => Ok(result),
         Err(Stop::Failed(failure)) => Err(failure),
-        Err(Stop::Refused(failure)) if failure.code == ErrorCode::Throttled => Ok(StepResult {
-            done: false,
-            retry_after_seconds: Some(
-                failure
-                    .retry_after_seconds
-                    .unwrap_or(DEFAULT_RETRY_AFTER_SECONDS),
-            ),
-            source,
-        }),
+        Err(Stop::Refused(failure)) if failure.code == ErrorCode::Throttled => {
+            source::release_lease(ctx.db, &run.source.id, &run.lease).await?;
+            let waiting = Source {
+                sync_state: Some(run.state),
+                ..run.source
+            };
+            Ok(StepResult {
+                retry_after_seconds: Some(
+                    failure
+                        .retry_after_seconds
+                        .unwrap_or(DEFAULT_RETRY_AFTER_SECONDS),
+                ),
+                ..StepResult::under_way(waiting)
+            })
+        }
         Err(Stop::Refused(failure)) => {
-            let stored =
-                source::end_run(ctx.db, &source, state.get("stats"), ctx.now, Some(&failure))
-                    .await?;
-            Ok(ended(stored))
+            Ok(run.end(run.state.get("stats"), Some(&failure)).await?)
         }
     }
 }

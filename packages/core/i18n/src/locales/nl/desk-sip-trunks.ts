@@ -144,6 +144,7 @@ export const deskSipTrunks = {
       refused: 'We konden geen code naar dit nummer sturen',
       alreadyVerified: 'Dit nummer is al geverifieerd',
       failed: 'De code kon niet worden verstuurd',
+      tooManyAttempts: 'Te veel pogingen. Wacht een uur en probeer het opnieuw.',
     },
   },
   manage: {
