@@ -28,7 +28,7 @@ export function WeldDocsPendingSkeleton() {
  * breadcrumb bar above it, for when the WeldDocs layout (which draws that
  * bar) has not loaded yet either.
  */
-export function DocSkeleton({ withAppHeader = false }: { withAppHeader?: boolean }) {
+export function DocSkeleton({ withAppHeader = false }: Readonly<{ withAppHeader?: boolean }>) {
   return (
     <div className="flex h-full min-h-0 flex-col bg-background" data-slot="doc-pending" aria-busy="true">
       {withAppHeader && (

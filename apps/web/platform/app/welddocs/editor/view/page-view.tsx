@@ -134,11 +134,11 @@ export function PageView({ controller, scrollRef }: { controller: DocController;
         inputRef.current?.focus({ preventScroll: true });
         return;
       }
-      const menu = active.closest('[role="menu"]');
+      const menu = active.closest<HTMLElement>('[role="menu"]');
       if (!menu) return;
       // A menu that is fading out after its command: take focus now, or the
       // first keys typed (into a table just inserted, say) go to the menu.
-      if (menu.getAttribute('data-state') === 'closed') inputRef.current?.focus({ preventScroll: true });
+      if (menu.dataset.state === 'closed') inputRef.current?.focus({ preventScroll: true });
       // One still open (a submenu being browsed): wait for it to go.
       else if (tries++ < 60) frame = requestAnimationFrame(check);
     };

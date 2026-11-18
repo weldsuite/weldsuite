@@ -21,7 +21,7 @@ export interface TextAnchor {
   height: number;
 }
 
-function Anchor({ at }: { at: TextAnchor }) {
+function Anchor({ at }: Readonly<{ at: TextAnchor }>) {
   return (
     <PopoverAnchor asChild>
       <div aria-hidden className="pointer-events-none absolute w-px" style={{ left: at.left, top: at.top, height: at.height }} />
@@ -62,7 +62,7 @@ export function linkLabel(url: string): string {
 }
 
 /** Add or change the link of the selection (or of the link the caret is on). */
-export function LinkEditor({ controller, at, onClose }: { controller: DocController; at: TextAnchor; onClose: () => void }) {
+export function LinkEditor({ controller, at, onClose }: Readonly<{ controller: DocController; at: TextAnchor; onClose: () => void }>) {
   const { t } = useI18n();
   const tl = t.welddocs.link;
   const existing = controller.link();
@@ -130,12 +130,12 @@ export function LinkBubble({
   at,
   url,
   onDismiss,
-}: {
+}: Readonly<{
   controller: DocController;
   at: TextAnchor;
   url: string;
   onDismiss: () => void;
-}) {
+}>) {
   const { t } = useI18n();
   const te = t.welddocs.editor;
   const bookmark = url.startsWith('#');
