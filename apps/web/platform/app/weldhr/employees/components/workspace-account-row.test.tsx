@@ -120,4 +120,41 @@ describe('EmployeeWorkspaceAccountRow', () => {
     expect(await screen.findByText(/Seat limit reached|Could not invite/)).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Invite as workspace member' })).toBeInTheDocument();
   });
+
+  it('invites them as a team member with a workspace role, Member picked first', async () => {
+    permissions.add('team:create');
+    const user = userEvent.setup();
+    renderRow();
+
+    await user.click(screen.getByRole('button', { name: 'Not linked' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Invite to workspace' }));
+    await user.click(screen.getByRole('combobox'));
+    await user.click(await screen.findByRole('option', { name: 'Team member' }));
+    expect(screen.getByText('Uses a seat. Access to the workspace apps their role allows.')).toBeInTheDocument();
+    expect(screen.getByText('Workspace role')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Send invitation/ }));
+
+    expect(inviteMember).toHaveBeenCalledWith({ email: 'ann@example.com', name: 'Ann Archer', roleId: 'role_member', memberType: 'INTERNAL' });
+  });
+
+  it('links a member picked from the list, and keeps the dialog when that fails', async () => {
+    permissions.add('employees:update');
+    available = [{ userId: 'user_bob', name: 'Bob Baker', email: 'bob@example.com' }];
+    updateAsync.mockRejectedValue(new Error('Already linked'));
+    const user = userEvent.setup();
+    renderRow();
+
+    await user.click(screen.getByRole('button', { name: 'Not linked' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Link team member' }));
+    expect(screen.getByRole('button', { name: /Link member/ })).toBeDisabled();
+    await user.click(screen.getByRole('combobox'));
+    await user.click(await screen.findByRole('option', { name: 'Bob Baker · bob@example.com' }));
+    await user.click(screen.getByRole('button', { name: /Link member/ }));
+
+    expect(updateAsync).toHaveBeenCalledWith({ id: 'hremp_ann', userId: 'user_bob' });
+    expect(await screen.findByText(/Already linked|Could not link/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('heading', { name: 'Link workspace member' })).not.toBeInTheDocument();
+  });
 });
+

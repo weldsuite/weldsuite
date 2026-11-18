@@ -11,6 +11,8 @@ const permissions = new Set<string>();
 let employee: HrEmployeeDetail;
 /** How the employee query answers: loaded, still loading, or failed. */
 let queryState: 'loaded' | 'loading' | 'failed' = 'loaded';
+let departments: Array<{ id: string; name: string }> = [];
+let colleagues: Array<{ id: string; displayName: string }> = [];
 
 vi.mock('@/components/object-panel', async () => ({
   ...(await import('@/components/objects/_shared/object-panel-test-mock')),
@@ -31,8 +33,8 @@ vi.mock('@/hooks/queries/use-weldhr-queries', () => ({
   }),
   useUpdateHrEmployee: () => ({ mutateAsync: updateAsync, isPending: false }),
   useDeleteHrEmployee: () => ({ mutateAsync: deleteAsync, isPending: false }),
-  useHrDepartments: () => ({ data: [] }),
-  useHrEmployees: () => ({ data: { data: [] } }),
+  useHrDepartments: () => ({ data: departments }),
+  useHrEmployees: () => ({ data: { data: colleagues } }),
 }));
 vi.mock('@/hooks/queries/use-weldhr-payroll-queries', () => ({ useHrPayrollFlag: () => ({ enabled: false }) }));
 // The tab bodies and dialogs that come from WeldHR have tests of their own.
@@ -40,7 +42,13 @@ vi.mock('@/app/weldhr/components/employee-tabs/attendance-tab', () => ({ Employe
 vi.mock('@/app/weldhr/components/employee-tabs/leave-tab', () => ({ EmployeeLeaveTab: () => null }));
 vi.mock('@/app/weldhr/components/employee-tabs/payroll-tab', () => ({ EmployeePayrollTab: () => null }));
 vi.mock('@/app/weldhr/employees/components/sensitive-panel', () => ({ SensitivePanel: () => null }));
-vi.mock('@/app/weldhr/employees/components/edit-employee-dialog', () => ({ EditEmployeeDialog: () => null }));
+vi.mock('@/app/weldhr/employees/components/edit-employee-dialog', () => ({
+  EditEmployeeDialog: ({ onClose }: { onClose: () => void }) => (
+    <button type="button" onClick={onClose}>
+      Close the editor
+    </button>
+  ),
+}));
 vi.mock('@/app/weldhr/employees/components/workspace-account-row', () => ({ EmployeeWorkspaceAccountRow: () => null }));
 vi.mock('@/components/custom-fields/custom-fields-sidebar-section', () => ({ CustomFieldsSidebarSection: () => null }));
 
@@ -100,6 +108,8 @@ describe('HrEmployeePanel', () => {
     refetch.mockReset();
     toastError.mockReset();
     queryState = 'loaded';
+    departments = [];
+    colleagues = [];
     panelOpen.mockReset();
     permissions.clear();
     employee = makeEmployee();
@@ -264,4 +274,63 @@ describe('HrEmployeePanel', () => {
 
     expect(screen.getByText('Bea Boss')).toBeInTheDocument();
   });
+
+  it('saves each field it is given, and clears weekly hours', async () => {
+    permissions.add('employees:update');
+    departments = [{ id: 'dep_1', name: 'Product' }];
+    colleagues = [{ id: 'hremp_ann', displayName: 'Ann Archer' }, { id: 'hremp_bob', displayName: 'Bob Baker' }];
+    const user = userEvent.setup();
+    renderPanel();
+
+    const edit = async (field: string, text: string) => {
+      await user.click(screen.getByRole('button', { name: field }));
+      const box = screen.getByRole('textbox');
+      await user.clear(box);
+      if (text) await user.type(box, text);
+      await user.keyboard('{Enter}');
+    };
+    await edit('First name', 'Annie');
+    await edit('Last name', 'Archer-Smith');
+    await edit('Email', 'annie@example.com');
+    await edit('Phone', '+31 20 123 4567');
+    await edit('Emp. no.', 'E-7');
+    await edit('Pronouns', 'she/her');
+    await edit('Weekly hours', '');
+    await edit('Email', '');
+
+    expect(updateAsync).toHaveBeenCalledWith({ id: 'hremp_ann', firstName: 'Annie' });
+    expect(updateAsync).toHaveBeenCalledWith({ id: 'hremp_ann', lastName: 'Archer-Smith' });
+    expect(updateAsync).toHaveBeenCalledWith({ id: 'hremp_ann', email: 'annie@example.com' });
+    expect(updateAsync).toHaveBeenCalledWith({ id: 'hremp_ann', employeeNumber: 'E-7' });
+    expect(updateAsync).toHaveBeenCalledWith({ id: 'hremp_ann', pronouns: 'she/her' });
+    expect(updateAsync).toHaveBeenCalledWith({ id: 'hremp_ann', weeklyHours: null });
+    expect(updateAsync).toHaveBeenCalledWith(expect.objectContaining({ phone: expect.stringContaining('20') }));
+    expect(toastError).toHaveBeenCalledWith('Email is required');
+  });
+
+  it('opens the full editor from the menu, and closes it again', async () => {
+    permissions.add('employees:update');
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(screen.getByRole('button', { name: 'More actions' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Edit' }));
+    await user.click(screen.getByRole('button', { name: 'Close the editor' }));
+    expect(screen.queryByRole('button', { name: 'Close the editor' })).not.toBeInTheDocument();
+  });
+
+  it('says so when deleting fails, and the dialog can be dismissed', async () => {
+    permissions.add('employees:delete');
+    deleteAsync.mockRejectedValue(new Error('In use'));
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(screen.getByRole('button', { name: 'More actions' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+    await user.click(screen.getByRole('button', { name: 'Delete' }));
+    await vi.waitFor(() => expect(toastError).toHaveBeenCalled());
+    await user.keyboard('{Escape}');
+    expect(screen.queryByText('Delete employee')).not.toBeInTheDocument();
+  });
 });
+
