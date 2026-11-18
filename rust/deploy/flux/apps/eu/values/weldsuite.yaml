@@ -148,12 +148,13 @@ config:
 # COLLAB_ROOMS_SECRET, LIVEKIT_API_KEY + LIVEKIT_API_SECRET, MAIL_INBOUND_SECRET,
 # MISTRAL_API_KEY + AI_KEYS_ENCRYPTION_KEY and SANDBOX_TOKEN_SECRET (once
 # config.ai and the sandbox are on again), and optionally MOLLIE_API_KEY:
-# secrets/examples/secrets.example.yaml. The MTA's keys are in weldsuite-mta
-# (mta below).
+# secrets/weldsuite.yaml, from the store's values (secrets/store.example.yaml).
+# The MTA's keys are in weldsuite-mta (mta below).
 secret:
   existingSecret: weldsuite-env
-  # The EU edition's keys live in its SOPS Secret, which a rebuilt cluster
-  # (the drill) gets back; a key the chart generated in the cluster wouldn't.
+  # The EU edition's keys live in its secret store, which a rebuilt cluster
+  # (the drill) reads again; a key the chart generated in the cluster wouldn't
+  # come back.
   generate: false
 
 # The platform (the SPA in the image) and its API on one origin, app.${DOMAIN};
@@ -410,7 +411,7 @@ mailInbound:
 # its queue in weldsuite_mta on master (clusters/example/configs). Bounces
 # and complaint reports come back to bounces.${DOMAIN}, whose MX are the mail
 # nodes. The server's SMTP_URL and MAIL_SMTP_URL point at it (wireServer).
-# Its keys are the weldsuite-mta Secret (secrets example); the bounce MX's
+# Its keys are the weldsuite-mta Secret (secrets/mta); the bounce MX's
 # certificate is self-signed for the mail nodes' names (the chart's default).
 # Before it sends: the port 25 unblock, DNS and the warm-up in the Hetzner
 # runbook, "Mail".

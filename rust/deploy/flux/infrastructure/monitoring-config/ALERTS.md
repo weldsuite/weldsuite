@@ -26,8 +26,9 @@ admin login from the Secret `grafana-admin`.
 
 ## Receivers
 
-The Secret `monitoring/alerting-receivers` (examples:
-`../../secrets/examples/secrets.example.yaml`):
+The Secret `monitoring/alerting-receivers`, from the store's
+`weldsuite/alerting` (`../../secrets/monitoring`,
+`../../secrets/store.example.yaml`):
 
 | Key | Gets |
 |---|---|

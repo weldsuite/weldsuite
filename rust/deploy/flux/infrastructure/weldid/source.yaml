@@ -5,7 +5,7 @@
 # one: WELDID_VERSION in the cluster's settings.
 #
 # Both packages stay private until WeldID 1.0, so this reads them with the
-# registry Secret in this namespace (secrets/examples/weldid.example.yaml),
+# registry Secret in this namespace (secrets/weldid),
 # which the pods pull the image with too. Its own source in its own
 # namespace, as the marketing site's: the platform's public charts never
 # depend on that login. Once the packages are public, the Secret and this
