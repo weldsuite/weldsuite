@@ -148,7 +148,7 @@ function SharedView({ token, share, embed }: Readonly<{ token: string; share: Pa
         <footer className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
           <span>{share.expiresAt && !embed ? format(tp.expires, { date: formatDate(share.expiresAt, language) }) : ''}</span>
           <a href="https://weldsuite.org" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 hover:text-foreground">
-            <img src="/assets/images/weldpanel/icon.svg" alt="" className="size-4" />
+            <img src="/assets/images/weldpanel/icon.svg?v=2" alt="" className="size-4" />
             {tp.madeWith}
           </a>
         </footer>

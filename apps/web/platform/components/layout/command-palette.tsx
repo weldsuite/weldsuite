@@ -112,7 +112,7 @@ export function CommandPaletteTrigger({ className }: { className?: string }) {
       onClick={() => openCommandPalette()}
       className={
         className ??
-        'flex h-9 w-full items-center gap-2 rounded-md border border-input bg-transparent px-3 text-sm text-muted-foreground shadow-xs transition-colors hover:bg-accent/50 hover:text-foreground'
+        'flex h-9 w-full items-center gap-2 rounded-[10px] border border-input bg-transparent px-3 text-sm text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground'
       }
     >
       <Search className="h-4 w-4 shrink-0" />

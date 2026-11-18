@@ -20,6 +20,7 @@ import {
   SubscriptionRequiredError,
   type StoreUserApp,
 } from '@/hooks/queries/use-user-apps-queries';
+import { isCompleteFilter, userAppMatches, type AppStoreFilter } from './app-search';
 
 function CustomAppIcon({ icon, className = 'h-5 w-5' }: Readonly<{ icon?: string | null; className?: string }>) {
   if (icon && (/^https?:\/\//i.test(icon) || icon.startsWith('/') || icon.startsWith('data:image/'))) {
@@ -411,11 +412,17 @@ function UserAppStoreGrid({
   );
 }
 
+/** The App Store's search text and filter pills, which narrow these sections too. */
+interface StoreNarrowing {
+  query?: string;
+  filters?: readonly AppStoreFilter[];
+}
+
 /** First-party hosted apps — shown in the main App Store grid with an Official badge. */
-export function OfficialHostedAppsSection() {
+export function OfficialHostedAppsSection({ query = '', filters = [] }: Readonly<StoreNarrowing>) {
   const { t } = useI18n();
   const { data: apps, isLoading } = useUserAppStore();
-  const official = (apps ?? []).filter(isOfficial);
+  const official = (apps ?? []).filter((app) => isOfficial(app) && userAppMatches(app, query, filters));
   if (!isLoading && official.length === 0) return null;
   return (
     <div className="mb-8">
@@ -426,12 +433,16 @@ export function OfficialHostedAppsSection() {
 
 /**
  * Community / workspace-authored WeldApps (excludes official first-party hosted apps).
+ * While searching or filtering, only the matches show, and the section is left
+ * out when none match (its "no apps yet" text would read as a search result).
  */
-export function CustomAppsSection() {
+export function CustomAppsSection({ query = '', filters = [] }: Readonly<StoreNarrowing>) {
   const { t } = useI18n();
   const wa = t.weldapps;
   const { data: apps, isLoading } = useUserAppStore();
-  const community = (apps ?? []).filter((app) => !isOfficial(app));
+  const community = (apps ?? []).filter((app) => !isOfficial(app) && userAppMatches(app, query, filters));
+  const narrowed = query.trim() !== '' || filters.some(isCompleteFilter);
+  if (narrowed && !isLoading && community.length === 0) return null;
 
   return (
     <div className="scroll-mt-6">
