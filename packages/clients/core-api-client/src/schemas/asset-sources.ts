@@ -19,6 +19,7 @@ export const ASSET_SOURCE_ERROR_CODES = [
   'unreachable',
   'sign_in_failed',
   'asset_register_missing',
+  'run_timeout',
 ] as const;
 export const ASSET_SOURCE_MIN_INTERVAL_HOURS = 1;
 export const ASSET_SOURCE_MAX_INTERVAL_HOURS = 168;

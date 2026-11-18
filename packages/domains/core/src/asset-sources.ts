@@ -122,6 +122,7 @@ export const ASSET_SOURCE_ERROR_CODES = [
   'unreachable',
   'sign_in_failed',
   'asset_register_missing',
+  'run_timeout',
 ] as const;
 export type AssetSourceErrorCode = (typeof ASSET_SOURCE_ERROR_CODES)[number];
 
@@ -138,6 +139,7 @@ export const ASSET_SOURCE_ERROR_MESSAGES: Record<AssetSourceErrorCode, string> =
   unreachable: 'Microsoft could not be reached. The import tries again on its next run.',
   sign_in_failed: 'Microsoft did not accept the sign-in. Check the tenant id, the client id and the client secret.',
   asset_register_missing: 'The asset register is not set up. Set it up before importing devices.',
+  run_timeout: 'The import did not finish within 24 hours and was stopped. It starts again on schedule.',
 };
 
 export class AssetSourceError extends Error {
@@ -850,8 +852,8 @@ export async function runAssetImportStep(ctx: AssetImportContext, source: AssetS
   if (!run) return { done: false, busy: true, source };
 
   if (now.getTime() - Date.parse(run.state.startedAt) > ASSET_IMPORT_MAX_RUN_MS) {
-    const failure = new AssetSourceError('throttled', 'The import did not finish within 24 hours and was stopped. It starts again on schedule.');
-    return endRun(run, run.state.stats, failure);
+    // Its own code: the run is over, unlike `throttled`, after which the import continues shortly.
+    return endRun(run, run.state.stats, new AssetSourceError('run_timeout'));
   }
 
   try {

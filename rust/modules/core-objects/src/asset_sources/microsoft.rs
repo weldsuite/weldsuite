@@ -39,10 +39,12 @@ pub(crate) enum ErrorCode {
     Unreachable,
     SignInFailed,
     AssetRegisterMissing,
+    /// The run was stopped after 24 hours. Unlike `Throttled`, it is over.
+    RunTimeout,
 }
 
 impl ErrorCode {
-    const ALL: [Self; 9] = [
+    const ALL: [Self; 10] = [
         Self::InvalidSecret,
         Self::SecretExpired,
         Self::TenantNotFound,
@@ -52,6 +54,7 @@ impl ErrorCode {
         Self::Unreachable,
         Self::SignInFailed,
         Self::AssetRegisterMissing,
+        Self::RunTimeout,
     ];
 
     pub(crate) fn as_str(self) -> &'static str {
@@ -65,6 +68,7 @@ impl ErrorCode {
             Self::Unreachable => "unreachable",
             Self::SignInFailed => "sign_in_failed",
             Self::AssetRegisterMissing => "asset_register_missing",
+            Self::RunTimeout => "run_timeout",
         }
     }
 
@@ -95,6 +99,9 @@ impl ErrorCode {
             }
             Self::AssetRegisterMissing => {
                 "The asset register is not set up. Set it up before importing devices."
+            }
+            Self::RunTimeout => {
+                "The import did not finish within 24 hours and was stopped. It starts again on schedule."
             }
         }
     }

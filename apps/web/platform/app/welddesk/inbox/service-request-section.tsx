@@ -353,7 +353,15 @@ export function ServiceRequestSection({
         </div>
       )}
 
-      <DecisionDialog decision={deciding} pending={decide.isPending} onCancel={() => setDeciding(null)} onConfirm={confirm} t={t} />
+      {/* Keyed by the decision: a comment typed for one never carries over to the next. */}
+      <DecisionDialog
+        key={deciding ?? 'closed'}
+        decision={deciding}
+        pending={decide.isPending}
+        onCancel={() => setDeciding(null)}
+        onConfirm={confirm}
+        t={t}
+      />
     </div>
   );
 }

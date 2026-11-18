@@ -662,7 +662,7 @@ describe('one step at a time', () => {
     // More than a day on: the next step takes the run and stops it.
     const stopped = await runAssetImportStep(context(g, { now: new Date(NOW.getTime() + 25 * 3600_000) }), await reload());
     expect(stopped.done).toBe(true);
-    expect((await reload()).lastError).toMatch(/^throttled: The import did not finish within 24 hours/);
+    expect((await reload()).lastError).toMatch(/^run_timeout: The import did not finish within 24 hours/);
   });
 
   it('does nothing when the run it was handed is over', async () => {
@@ -862,7 +862,7 @@ describe('Microsoft problems', () => {
     expect(after.lastError).toMatch(/^unreachable: /);
 
     const refusing: AssetImportContext = { ...context(g), fetch: (async (input: RequestInfo | URL, init?: RequestInit) =>
-      String(input).includes('graph.microsoft.com') ? json({}, 403) : fetcherFor(g)(input, init)) as FetchLike };
+      new URL(String(input)).hostname === 'graph.microsoft.com' ? json({}, 403) : fetcherFor(g)(input, init)) as FetchLike };
     const started = await startAssetImport(db, await reload(), { now: NOW });
     await runAssetImportStep(refusing, started!);
     expect((await reload()).lastError).toMatch(/^permission_missing: /);

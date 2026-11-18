@@ -148,6 +148,22 @@ describe('a service request', () => {
     expect(state.decide.mock.calls[0]![0]).toEqual({ conversationId: 'dconv_1', decision: 'rejected', comment: '' });
   });
 
+  it('starts every decision with an empty comment', async () => {
+    state.request = request([step(0, { approverId: 'user_me', status: 'pending' })]);
+    renderSection();
+    // Typed for a rejection, then cancelled.
+    fireEvent.click(screen.getByTestId('desk-request-reject'));
+    let dialog = await screen.findByTestId('desk-request-decision-dialog');
+    fireEvent.change(within(dialog).getByLabelText('Comment'), { target: { value: 'Too expensive' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+    fireEvent.click(screen.getByTestId('desk-request-approve'));
+    dialog = await screen.findByTestId('desk-request-decision-dialog');
+    expect(within(dialog).getByLabelText('Comment')).toHaveValue('');
+    fireEvent.click(within(dialog).getByTestId('desk-request-decision-confirm'));
+    expect(state.decide.mock.calls[0]![0]).toEqual({ conversationId: 'dconv_1', decision: 'approved', comment: '' });
+  });
+
   it('offers the buttons only to the approver or a catalogue manager', () => {
     state.request = request([step(0, { approverId: 'user_alice', status: 'pending' })]);
     const { unmount } = renderSection();

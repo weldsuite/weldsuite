@@ -712,7 +712,7 @@ describe('asset import sweep: matching, later imports and stopped runs', () => {
     expect(await sweep(env)).toMatchObject({ steps: 1, ended: 1 });
     const stopped = await rowOf('asrc_a');
     expect(stopped.lastStatus).toBe('failed');
-    expect(stopped.lastError).toMatch(/^throttled: The import did not finish within 24 hours/);
+    expect(stopped.lastError).toMatch(/^run_timeout: The import did not finish within 24 hours/);
     expect(stopped.lastStats).toEqual({ total: 7, created: 7, updated: 0, unchanged: 0, failed: 0 });
     expect(stopped.nextSyncAt?.toISOString()).toBe(new Date(NOW.getTime() + 24 * HOUR).toISOString());
     expect(graph.calls).toEqual([]);

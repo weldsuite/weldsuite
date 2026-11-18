@@ -113,6 +113,7 @@ export const assetSources = {
       unreachable: 'Microsoft could not be reached. The import tries again on its next run.',
       sign_in_failed: 'Microsoft did not accept the sign-in. Check the tenant ID, the client ID and the client secret.',
       asset_register_missing: 'The asset register is not set up. Set it up before importing devices.',
+      run_timeout: 'The import did not finish within 24 hours and was stopped. It starts again on schedule.',
       unknown: 'Something went wrong',
     },
     lastErrorTitle: 'The last import failed',

@@ -66,8 +66,6 @@ const MAX_RUN: time::Duration = time::Duration::hours(24);
 /// what a step takes, short enough that a step that died does not hold the
 /// import up for long.
 const STEP_LEASE: time::Duration = time::Duration::minutes(5);
-const RUN_TOO_LONG: &str =
-    "The import did not finish within 24 hours and was stopped. It starts again on schedule.";
 
 /// `ASSET_IMPORT_FIELDS`: the fields the import adds to the object, as
 /// `(slug, name, field type)`. The compliance field takes
@@ -351,7 +349,9 @@ pub(crate) async fn run_step(
     };
 
     if ran_too_long(run.state["startedAt"].as_str(), ctx.now) {
-        let failure = SourceError::with_message(ErrorCode::Throttled, RUN_TOO_LONG);
+        // Its own code: the run is over, unlike `throttled`, after which the import
+        // continues shortly.
+        let failure = SourceError::new(ErrorCode::RunTimeout);
         return Ok(run.end(run.state.get("stats"), Some(&failure)).await?);
     }
 

@@ -113,6 +113,7 @@ export const assetSources = {
       unreachable: 'Microsoft was niet bereikbaar. De import probeert het bij de volgende keer opnieuw.',
       sign_in_failed: 'Microsoft heeft de aanmelding niet geaccepteerd. Controleer de tenant-ID, de client-ID en het clientgeheim.',
       asset_register_missing: 'Het assetregister is niet ingesteld. Stel het in voordat je apparaten importeert.',
+      run_timeout: 'De import was na 24 uur niet klaar en is gestopt. Hij start opnieuw volgens de planning.',
       unknown: 'Er ging iets mis',
     },
     lastErrorTitle: 'De laatste import is mislukt',
