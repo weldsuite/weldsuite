@@ -52,6 +52,7 @@ mod know;
 mod legal_entities;
 mod list;
 mod oauth;
+mod odata;
 mod project_sheets;
 mod schemas;
 #[rustfmt::skip]
@@ -186,7 +187,8 @@ where
         router
     };
     let router = if mounts("desk") {
-        inbox::routes(desk::routes(router))
+        // With WeldDesk's BI feed (`/v1/odata`), which desk owns too.
+        odata::routes(inbox::routes(desk::routes(router)))
     } else {
         router
     };

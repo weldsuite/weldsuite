@@ -589,11 +589,18 @@ export const manifest: Record<string, SecretEntry[]> = {
     "TELNYX_SIP_CONNECTION_ID",
     "TELNYX_PUBLIC_KEY",
     "TELNYX_WEBHOOK_SECRET",
+    // Optional (/api/desk/phone/sip-trunks, a customer's own phone system): the
+    // outbound voice profile attached to its Telnyx connection, and the SIP host shown to it.
+    "TELNYX_OUTBOUND_VOICE_PROFILE_ID",
+    "TELNYX_SIP_HOST",
     // Same value as billing-worker in the same env. fulfill-number re-reads the
     // Stripe Checkout Session to verify payment before buying a Telnyx number.
     "STRIPE_SECRET_KEY",
     // Sent as x-internal-secret on realtime-worker /publish/* (same value on realtime-worker).
     "REALTIME_INTERNAL_SECRET",
+    // Live call translation (/api/desk/phone/calls/:callId/translation) through
+    // @weldsuite/ai: the dedicated AI token, preferred over CLOUDFLARE_API_TOKEN.
+    "AI_GATEWAY_API_TOKEN",
   ],
 
   // desk-api: the desk module's API worker (split from app-api). Base

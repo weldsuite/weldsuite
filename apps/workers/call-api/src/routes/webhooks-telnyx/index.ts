@@ -25,6 +25,14 @@ import {
   type TelnyxEnv,
 } from '../../lib/telnyx';
 import { lookupPhoneNumberRegistry, normalizeE164 } from '../../lib/phone-registry';
+import { dialedNumberOf } from '../../lib/sip-trunk-number';
+import {
+  admitTrunkCall,
+  admitTrunkCallToHostedNumber,
+  isTrunkCall,
+  ownsTrunkConnection,
+  recordTrunkInbound,
+} from '../../services/sip-trunk-inbound';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { markWorkspaceDue } from '@weldsuite/worker-kit/due-index';
 import {
@@ -47,6 +55,7 @@ import {
 } from '../../services/desk-phone-inbound';
 import { handleAgentLegEvent, handleCallerLeftQueue } from '../../services/desk-phone-legs';
 import { ringWaitingCalls } from '../../services/desk-phone-ring';
+import { finishCallTranslation, handleAgentLegTranscription, handleCallTranscription } from '../../services/desk-phone-translation';
 import {
   handleDequeued,
   handleSpeakEnded,
@@ -260,9 +269,12 @@ async function insertInboundCall(
     conversationId: string;
     phoneRow: PhoneNumberRow;
     caller: InboundCaller;
+    /** The customer's own phone system the call came in over, if any. */
+    sipTrunkId?: string | null;
   },
 ): Promise<void> {
   const { callId, now, payload, callControlId, fromNumber, toNumber, phoneRow, caller } = args;
+  const sipTrunkId = args.sipTrunkId ?? null;
   await db.insert(schema.voipCalls).values({
     id: callId,
     createdAt: now,
@@ -283,6 +295,7 @@ async function insertInboundCall(
     isRecorded: phoneRow.enableRecording ?? true,
     customerId: caller.customerId,
     contactId: caller.contactId,
+    sipTrunkId,
   });
 }
 
@@ -302,8 +315,11 @@ async function handleInboundInitiated(
     return;
   }
 
-  const toNumber = normalizeE164(String(toRaw));
-  const fromNumber = normalizeE164(String(fromRaw || 'unknown'));
+  // A phone system may dial `sip:<number>@host` or a number without its `+`.
+  const trunkCall = isTrunkCall(env, payload);
+  const toNumber = (trunkCall && dialedNumberOf(String(toRaw))) || normalizeE164(String(toRaw));
+  const fromNumber =
+    (trunkCall && dialedNumberOf(String(fromRaw))) || normalizeE164(String(fromRaw || 'unknown'));
 
   const masterDb = getMasterDb(env);
   const registry = await lookupPhoneNumberRegistry(masterDb, toNumber);
@@ -329,6 +345,27 @@ async function handleInboundInitiated(
 
   if (!phoneRow || phoneRow.allowInbound === false) {
     console.warn(`[Telnyx Webhook] Inbound not allowed for ${toNumber}`);
+    await telnyxHangup(env, callControlId);
+    return;
+  }
+
+  // A number on a customer's own phone system only takes calls over that
+  // trunk's connection. A number we host takes a phone system's call only
+  // from this workspace's own (or on the number's own connection): another
+  // workspace's trunk must not run its calls, and their minutes, into it.
+  // A call that is not a trunk call is routed as before.
+  let trunkId: string | null = null;
+  if (phoneRow.sipTrunkId) {
+    const admitted = await admitTrunkCall(db, { payload, phoneRow, toNumber });
+    if (!admitted.ok) {
+      console.warn(`[Telnyx Webhook] Trunk call refused: ${admitted.reason}`);
+      await telnyxHangup(env, callControlId);
+      return;
+    }
+    trunkId = admitted.trunk.id;
+    await recordTrunkInbound(db, trunkId, new Date());
+  } else if (trunkCall && !(await admitTrunkCallToHostedNumber(db, { payload, phoneRow }))) {
+    console.warn(`[Telnyx Webhook] Trunk call to ${toNumber} refused: the phone system is not this workspace's`);
     await telnyxHangup(env, callControlId);
     return;
   }
@@ -368,6 +405,7 @@ async function handleInboundInitiated(
   });
 
   await insertInboundCall(db, {
+    sipTrunkId: trunkId,
     callId,
     now,
     payload,
@@ -521,6 +559,8 @@ interface CallEventContext {
   callId: string;
   workspaceId: string;
   deskConversationId: string | undefined;
+  /** Run slow work after the webhook answered (`waitUntil`); awaited inline where there is no execution context. */
+  background: (work: Promise<void>) => Promise<void>;
 }
 
 /** The slice of an event the phone queue flows read. */
@@ -672,6 +712,9 @@ async function handleCallHangupEvent(ctx: CallEventContext): Promise<void> {
     console.error('[Telnyx Webhook] Abandoned-call handling failed:', err);
   }
 
+  // A translated call is over: stop it and charge its minutes.
+  await finishCallTranslation({ env, db, workspaceId: ctx.workspaceId }, callId);
+
   if (duration && duration > 0) {
     console.log(`[Telnyx Webhook] Call ${callId} completed: ${duration}s`);
     await settleCallCredits(ctx, duration, hangupCause);
@@ -792,6 +835,17 @@ async function dispatchCallEvent(eventType: string, ctx: CallEventContext): Prom
       return handleGatherEnded(toEventInput(ctx));
     case 'call.dequeued':
       return handleDequeued(toEventInput(ctx));
+    case 'call.transcription':
+      return ctx.background(
+        handleCallTranscription({
+          ctx: { env: ctx.env, db: ctx.db, workspaceId: ctx.workspaceId },
+          callId: ctx.callId,
+          lineId: ctx.event.data.id,
+          at: ctx.event.data.occurred_at,
+          speaker: 'caller',
+          payload: ctx.payload,
+        }),
+      );
     case 'call.machine.detection.ended':
       console.log(`[Telnyx Webhook] AMD result for ${ctx.callId}: ${ctx.payload.result}`);
       return;
@@ -890,6 +944,47 @@ async function isTelnyxSignatureValid(
   });
 }
 
+/**
+ * A trunk's SIP login is in a customer's hands: a client signed in with it can
+ * originate a call that carries any `client_state`. On an event of a trunk
+ * connection, the workspace the state names must therefore own that connection
+ * (our own state on a call we let in over a trunk does); otherwise the state is
+ * made up, and the event is acknowledged and dropped.
+ */
+async function isForgedTrunkState(env: TelnyxEnv, workspaceId: string, payload: TelnyxPayload): Promise<boolean> {
+  if (!isTrunkCall(env, payload)) return false;
+  const db = await getTenantDbForWorkspace(env, workspaceId);
+  return !(await ownsTrunkConnection(db, payload));
+}
+
+/**
+ * An event of a leg the server dialled to ring an agent's browser. A
+ * transcription line is the agent speaking: the leg says who, not the state.
+ */
+async function handleAgentLegWebhook(
+  env: TelnyxEnv,
+  event: TelnyxWebhookEvent,
+  workspaceId: string,
+  legId: string,
+  background: (work: Promise<void>) => Promise<void>,
+): Promise<void> {
+  const db = await getTenantDbForWorkspace(env, workspaceId);
+  const { event_type: eventType, payload } = event.data;
+  if (eventType === 'call.transcription') {
+    await background(
+      handleAgentLegTranscription({
+        ctx: { env, db, workspaceId },
+        legId,
+        lineId: event.data.id,
+        at: event.data.occurred_at,
+        payload,
+      }),
+    );
+    return;
+  }
+  await handleAgentLegEvent({ env, db, workspaceId, eventType, legId, payload });
+}
+
 app.post('/', async (c) => {
   try {
     const raw = await c.req.text();
@@ -919,25 +1014,34 @@ app.post('/', async (c) => {
 
     const clientState = decodeClientState(payload.client_state);
     const { callId, workspaceId, deskConversationId } = clientState;
+    const background = async (work: Promise<void>): Promise<void> => {
+      try {
+        c.executionCtx.waitUntil(work);
+      } catch {
+        await work;
+      }
+    };
 
     console.log(`[Telnyx Webhook] ${event_type} — callId=${callId}, callControlId=${payload.call_control_id}`);
 
+    if (workspaceId && (await isForgedTrunkState(c.env, workspaceId, payload))) {
+      console.warn(`[Telnyx Webhook] ${event_type} on a trunk connection names a workspace that does not own it — ignoring`);
+      return c.json({ ok: true });
+    }
+
     // A leg the server dialled to ring an agent's browser: its own client_state, no callId.
     if (clientState.agentLegId && workspaceId) {
-      const legDb = await getTenantDbForWorkspace(c.env, workspaceId);
-      await handleAgentLegEvent({
-        env: c.env,
-        db: legDb,
-        workspaceId,
-        eventType: event_type,
-        legId: clientState.agentLegId,
-        payload,
-      });
+      await handleAgentLegWebhook(c.env, event, workspaceId, clientState.agentLegId, background);
       return c.json({ ok: true });
     }
 
     // Inbound without client_state: route on call.initiated
-    if ((!callId || !workspaceId) && event_type === 'call.initiated' && isInboundDirection(payload)) {
+    // (a customer's phone system's call counts whatever its direction says: sip-trunk-inbound.ts)
+    if (
+      (!callId || !workspaceId) &&
+      event_type === 'call.initiated' &&
+      (isInboundDirection(payload) || isTrunkCall(c.env, payload))
+    ) {
       await runInboundHandler(c.env, payload);
       return c.json({ ok: true });
     }
@@ -957,6 +1061,7 @@ app.post('/', async (c) => {
       clientState,
       callId,
       workspaceId,
+      background,
       // An outbound call placed from a conversation carries no conversation in its client_state: the row has it.
       deskConversationId: deskConversationId || (await conversationOfCall(db, callId)),
     });

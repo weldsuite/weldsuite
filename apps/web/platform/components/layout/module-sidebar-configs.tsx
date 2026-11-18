@@ -108,6 +108,7 @@ import {
   Activity,
   Network,
   Gauge,
+  Bug,
 } from 'lucide-react';
 import type { MenuGroupProps, AppLogo } from '@/components/app-sidebar-layout';
 import { HR_DASHBOARD_PERMISSIONS, MY_HR_GROUP_KEY, MY_HR_PATHS } from '@/app/weldhr/access';
@@ -501,6 +502,8 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.navigation.moduleSidebar.welddesk.allOpen, href: '/welddesk/inbox', icon: Inbox },
           { title: t.navigation.moduleSidebar.welddesk.assignedToMe, href: '/welddesk/inbox?assignee=mine', icon: User },
           { title: t.navigation.moduleSidebar.welddesk.unassigned, href: '/welddesk/inbox?assignee=unassigned', icon: UserX },
+          { title: t.navigation.moduleSidebar.welddesk.problems, href: '/welddesk/problems', icon: Bug, permission: 'problems:read' },
+          { title: t.navigation.moduleSidebar.welddesk.approvals, href: '/welddesk/approvals', icon: ClipboardCheck, permission: 'conversations:read' },
         ],
       },
       {
@@ -529,6 +532,7 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.navigation.moduleSidebar.welddesk.phoneReport, href: '/welddesk/reports/phone', icon: Phone, permission: 'settings:read' },
           { title: t.navigation.moduleSidebar.welddesk.customReports, href: '/welddesk/reports/custom', icon: BarChart3, permission: 'settings:read' },
           { title: t.navigation.moduleSidebar.welddesk.reportSchedules, href: '/welddesk/reports/schedules', icon: CalendarClock, permission: 'settings:read' },
+          { title: t.navigation.moduleSidebar.welddesk.biConnector, href: '/welddesk/reports/bi-connector', icon: Database, permission: 'settings:read' },
         ],
       },
     ],

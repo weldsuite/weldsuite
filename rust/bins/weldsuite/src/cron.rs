@@ -52,6 +52,11 @@
 //!   `desk_report`, `apps/workers/desk-api/src/cron/report-schedule-sweep.ts`).
 //!   The mail goes out on the customer mail relay behind the outbound guard,
 //!   as WeldCalendar's invitations do.
+//! - `asset-import-sweep` (every minute): the asset register's device
+//!   imports from Microsoft Intune, one bounded step per tick, for the
+//!   workspaces the due index lists (kind `asset_import`,
+//!   `apps/workers/desk-api/src/cron/asset-import-sweep.ts`; the import
+//!   itself is `weldsuite-core-objects`).
 //! - `reach-send-sweep` (every minute): WeldReach's send sweep over the
 //!   due index (kind `reach_send`, `apps/workers/reach-api/src/cron/send-sweep.ts`).
 //!   With `REACH_SEND_QUEUE=nats` it publishes each due workspace on NATS
@@ -164,7 +169,7 @@ impl weldsuite_forms::TenantResolver for WorkspaceTenants {
     }
 }
 
-const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, flow-approval-due, flow-benefit-measure, flow-status-reports, flow-finance-snapshot, books-sweep, domain-auto-renew, desk-sla-sweep, desk-report-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due, crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup, moneybird-push, merge-digest-sweep, forms-reminders, forms-digest, weldagent-routines, sandbox-cleanup, billing-renewals, panel-usage, panel-maintenance, panel-schedule";
+const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, flow-approval-due, flow-benefit-measure, flow-status-reports, flow-finance-snapshot, books-sweep, domain-auto-renew, desk-sla-sweep, desk-report-sweep, asset-import-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due, crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup, moneybird-push, merge-digest-sweep, forms-reminders, forms-digest, weldagent-routines, sandbox-cleanup, billing-renewals, panel-usage, panel-maintenance, panel-schedule";
 
 /// `weldsuite cron <job>`.
 #[allow(clippy::too_many_lines)] // one arm per job
@@ -185,6 +190,7 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
         | "domain-auto-renew"
         | "desk-sla-sweep"
         | "desk-report-sweep"
+        | "asset-import-sweep"
         | "reach-send-sweep"
         | "reach-warmup-sweep"
         | "reach-slot-reconciliation"
@@ -250,6 +256,7 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
             }
             "desk-sla-sweep" => desk_sla_sweep(config).await,
             "desk-report-sweep" => desk_report_sweep(config).await,
+            "asset-import-sweep" => asset_import_sweep(config).await,
             "reach-send-sweep" => reach_send_sweep(config).await,
             "reach-warmup-sweep" | "reach-slot-reconciliation" => reach_warmup(config, job).await,
             "reach-warmup-dispatch" | "reach-warmup-plan" | "reach-warmup-daily" => {
@@ -280,6 +287,57 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
     };
     telemetry.shutdown();
     code
+}
+
+/// `asset-import-sweep`: one step of the due workspaces' device imports.
+async fn asset_import_sweep(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    let master =
+        weldsuite_db::master_pool(&config.master_database_url, config.master_max_connections)?;
+    let workspaces = Arc::new(Workspaces::new(
+        master.clone(),
+        config.keyring.clone(),
+        config.workspaces.clone(),
+    ));
+    let tracker = weldsuite_events::TaskTracker::new();
+    #[cfg(not(feature = "conformance"))]
+    let infra =
+        crate::infra::connect(&config.infra, &master, &config.keyring, tracker.clone()).await?;
+    #[cfg(feature = "conformance")]
+    let (infra, _) = crate::conformance::infra(tracker.clone());
+    let tenants: weldsuite_core_objects::ImportTenants = Arc::new(move |reference: String| {
+        let workspaces = Arc::clone(&workspaces);
+        Box::pin(async move {
+            let tenant = workspaces
+                .tenant(&reference)
+                .await
+                .map_err(|error| error.to_string())?;
+            Ok(weldsuite_core_objects::ImportTenant {
+                db: tenant.db,
+                clerk_org_id: tenant.clerk_org_id.unwrap_or(tenant.workspace_id),
+            })
+        })
+    });
+    let services = weldsuite_core_objects::AssetImportServices {
+        events: infra.events.clone(),
+        http: crate::routes::asset_import_http(),
+        keyring: crate::routes::field_keyring(),
+    };
+    let now = time::OffsetDateTime::now_utc();
+    let result =
+        weldsuite_core_objects::run_asset_import_sweep(&master, &tenants, &services, now).await;
+    println!(
+        "{}",
+        serde_json::json!({ "job": "asset-import-sweep", "result": result.to_json() })
+    );
+    // Entity events go out in the background: let them finish.
+    tracker.close();
+    if tokio::time::timeout(Duration::from_secs(10), tracker.wait())
+        .await
+        .is_err()
+    {
+        tracing::warn!("stopped with publishes still in flight");
+    }
+    Ok(())
 }
 
 /// `forms-reminders` / `forms-digest`: one tick of WeldForms' sweep;

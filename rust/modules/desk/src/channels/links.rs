@@ -23,6 +23,7 @@ use weldsuite_desk_domain::webchat::Appended;
 use weldsuite_kit::validation::{Issues, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_ports::RealtimeMessage;
 
 use super::Ctx;
 use super::inbox;
@@ -55,8 +56,34 @@ where
 /// The entity events and the realtime messages each go out as one ordered
 /// batch, as TypeScript sends them.
 pub(super) async fn publish_changes(ctx: &Ctx, state: &DeskState, changes: &[Appended]) {
+    publish_changes_after(ctx, state, Vec::new(), changes).await;
+}
+
+/// [`publish_changes`] behind the entity events the route publishes first
+/// (a new problem's `desk_problem created`), in the same ordered batch.
+pub(super) async fn publish_changes_after(
+    ctx: &Ctx,
+    state: &DeskState,
+    first: Vec<(ev::EventName, String, Value)>,
+    changes: &[Appended],
+) {
+    let (events, realtime) = changes_to_publish(ctx, state, first, changes).await;
+    ctx.caller.publish_in_order(state, events);
+    inbox::spawn_realtime(state, realtime);
+}
+
+/// What [`publish_changes_after`] sends, for a route that has more to do
+/// once they are out (a service request's follow-up): the entity events
+/// behind `first` and the realtime messages, each in order. The SLA due
+/// times are marked here.
+pub(super) async fn changes_to_publish(
+    ctx: &Ctx,
+    state: &DeskState,
+    first: Vec<(ev::EventName, String, Value)>,
+    changes: &[Appended],
+) -> (Vec<(ev::EventName, String, Value)>, Vec<RealtimeMessage>) {
     let caller = &ctx.caller;
-    let mut events = Vec::new();
+    let mut events = first;
     let mut realtime = Vec::new();
     let mut authors: HashMap<String, HashMap<String, Author>> = HashMap::new();
     for change in changes {
@@ -95,8 +122,7 @@ pub(super) async fn publish_changes(ctx: &Ctx, state: &DeskState, changes: &[App
             &authors[&key],
         ));
     }
-    caller.publish_in_order(state, events);
-    inbox::spawn_realtime(state, realtime);
+    (events, realtime)
 }
 
 /// The answer to a refusal, a missing conversation or a failure.
@@ -114,7 +140,7 @@ fn refused(error: LinkError, failure: &str) -> Response {
 }
 
 /// The entries a change wrote on `id`'s own timeline.
-fn own_messages(id: &str, changes: &[Appended]) -> Vec<Value> {
+pub(super) fn own_messages(id: &str, changes: &[Appended]) -> Vec<Value> {
     changes
         .iter()
         .filter(|change| change.conversation["id"] == id)

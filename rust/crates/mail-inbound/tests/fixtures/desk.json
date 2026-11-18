@@ -81,7 +81,9 @@
   ],
   "conversations": [
     {
+      "approval_status": null,
       "assignee_id": null,
+      "catalog_item_id": null,
       "channel": "email",
       "contact_id": null,
       "conversation_number": 1,
@@ -101,6 +103,7 @@
       "name": "Cara Customer",
       "parent_conversation_id": null,
       "priority": null,
+      "problem_id": null,
       "rated_at": null,
       "rating": null,
       "rating_comment": null,
@@ -119,7 +122,9 @@
       "waiting_since": "<ts>"
     },
     {
+      "approval_status": null,
       "assignee_id": null,
+      "catalog_item_id": null,
       "channel": "email",
       "contact_id": null,
       "conversation_number": 2,
@@ -139,6 +144,7 @@
       "name": "Dan",
       "parent_conversation_id": null,
       "priority": null,
+      "problem_id": null,
       "rated_at": null,
       "rating": null,
       "rating_comment": null,
@@ -157,7 +163,9 @@
       "waiting_since": "<ts>"
     },
     {
+      "approval_status": null,
       "assignee_id": null,
+      "catalog_item_id": null,
       "channel": "email",
       "contact_id": null,
       "conversation_number": 3,
@@ -177,6 +185,7 @@
       "name": "Dan D",
       "parent_conversation_id": null,
       "priority": null,
+      "problem_id": null,
       "rated_at": null,
       "rating": null,
       "rating_comment": null,

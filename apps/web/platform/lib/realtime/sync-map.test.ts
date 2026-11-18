@@ -168,9 +168,18 @@ describe('platformSyncMap — WeldDesk', () => {
   });
 
   it('desk v2 topics keep conversation list + detail helpers', () => {
+    // Linking a problem, attaching a catalogue item and deciding an approval
+    // only publish the conversation's events: its panels follow those.
     expect(platformSyncMap.desk_conversation?.invalidate).toEqual([
       ['desk', 'conversations'],
+      ['desk', 'problems', 'conversation'],
+      ['desk', 'problems', 'incidents'],
+      ['desk', 'problems', 'list'],
+      ['desk', 'catalog', 'request'],
+      ['desk', 'catalog', 'approvals'],
     ]);
+    expect(platformSyncMap.desk_problem?.invalidate).toEqual([['desk', 'problems']]);
+    expect(platformSyncMap.desk_catalog_item?.invalidate).toEqual([['desk', 'catalog']]);
     expect(platformSyncMap.desk_conversation?.updateDetail).toBeTypeOf('function');
     expect(platformSyncMap.desk_conversation?.remove).toBeTypeOf('function');
     expect(platformSyncMap.desk_message?.invalidate).toEqual([['desk', 'conversations']]);

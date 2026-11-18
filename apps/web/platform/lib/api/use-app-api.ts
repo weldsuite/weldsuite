@@ -27,6 +27,7 @@ import { createObjectTemplatesApi } from '@weldsuite/app-api-client/domains/obje
 import { createTaskCommentsApi } from '@weldsuite/core-api-client/domains/task-comments';
 import { createSlasApi } from '@weldsuite/core-api-client/domains/slas';
 import { createAuditLogStreamsApi } from '@weldsuite/core-api-client/domains/audit-log-streams';
+import { createAssetSourcesApi } from '@weldsuite/core-api-client/domains/asset-sources';
 import { createProjectLabelsApi } from '@weldsuite/core-api-client/domains/project-labels';
 import { createProjectMembersApi } from '@weldsuite/core-api-client/domains/project-members';
 import { createGithubApi } from '@weldsuite/core-api-client/domains/github';
@@ -186,6 +187,7 @@ export function useAppApi() {
       taskComments: createTaskCommentsApi(lazyClient),
       slas: createSlasApi(lazyClient),
       auditLogStreams: createAuditLogStreamsApi(lazyClient),
+      assetSources: createAssetSourcesApi(lazyClient),
       projectLabels: createProjectLabelsApi(lazyClient),
       projectMembers: createProjectMembersApi(lazyClient),
       github: createGithubApi(lazyClient),

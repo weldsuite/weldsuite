@@ -145,6 +145,20 @@ describe('phone numbers', () => {
     expect((await registry('+31201230004'))?.isActive).toBe(false);
     expect((await send('DELETE', '/phone-numbers/vpn_tel_delete')).status).toBe(404);
   });
+
+  it('removes a number without touching a registry entry that is not its own', async () => {
+    // Another workspace holds the number by now (ported in), or the entry names another row here.
+    await seedNumber('vpn_tel_moved', '+31201230005');
+    await seedNumber('vpn_tel_stale', '+31201230006');
+    await master.insert(masterSchema.phoneNumberRegistry).values([
+      { phoneNumber: '+31201230005', clerkOrgId: 'org_other', voipPhoneNumberId: 'vpn_theirs_05' },
+      { phoneNumber: '+31201230006', clerkOrgId: 'org_test_default', voipPhoneNumberId: 'vpn_tel_newer' },
+    ]);
+    expect((await send('DELETE', '/phone-numbers/vpn_tel_moved')).status).toBe(200);
+    expect((await send('DELETE', '/phone-numbers/vpn_tel_stale')).status).toBe(200);
+    expect(await registry('+31201230005')).toMatchObject({ isActive: true, clerkOrgId: 'org_other', voipPhoneNumberId: 'vpn_theirs_05' });
+    expect(await registry('+31201230006')).toMatchObject({ isActive: true, voipPhoneNumberId: 'vpn_tel_newer' });
+  });
 });
 
 describe('POST /phone-numbers/search', () => {

@@ -628,6 +628,7 @@ export const settings = {
         conversation: 'Conversation',
         helpdesk_conversation: 'Conversation',
         desk_conversation: 'Conversation',
+        desk_problem: 'Problem',
         helpdesk_article: 'Help article',
         chat_channel: 'Channel',
         chat_message: 'Chat message',
@@ -1997,6 +1998,8 @@ export const settings = {
       slaPoliciesDescription: 'Reply and resolution targets for your conversations.',
       priorityMatrixTitle: 'Priority matrix',
       priorityMatrixDescription: "Set a ticket's priority from its impact and urgency.",
+      serviceCatalogueTitle: 'Service catalogue',
+      serviceCatalogueDescription: 'Request items with their own form, approval steps and fulfilment tasks.',
     },
 
     weldmail: {
@@ -2913,6 +2916,10 @@ export const settings = {
         auditLogs: {
           name: 'Audit log',
           description: 'Read the workspace audit log (who changed what, and when)',
+        },
+        reports: {
+          name: 'Reports (BI connector)',
+          description: 'Lets the key read helpdesk data over OData, for Power BI and Excel',
         },
         legalEntities: {
           name: 'Legal entities',

@@ -100,6 +100,39 @@ describe('phone numbers', () => {
     expect((await send('PATCH', `/phone-numbers/${data.id}`, { status: 'active' })).status).toBe(404);
   });
 
+  it('opens a phone system’s number for outgoing calls only once it is verified', async () => {
+    await db.insert(schema.voipPhoneNumbers).values([
+      {
+        id: 'vpn_ci_unverified', provider: 'sip_trunk', phoneNumber: '+31201115001', countryCode: 'NL', status: 'active',
+        sipTrunkId: 'strk_ci', allowOutbound: false,
+      },
+      {
+        id: 'vpn_ci_verified', provider: 'sip_trunk', phoneNumber: '+31201115002', countryCode: 'NL', status: 'active',
+        sipTrunkId: 'strk_ci', allowOutbound: false, callerIdVerifiedAt: new Date('2026-10-01T00:00:00Z'),
+      },
+    ]);
+    const refused = await send('PATCH', '/phone-numbers/vpn_ci_unverified', { allowOutbound: true, displayName: 'Front desk' });
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toEqual({
+      error: {
+        code: 'caller_id_unverified',
+        message: 'Verify this number before using it for outgoing calls',
+        details: { reason: 'caller_id_unverified' },
+      },
+    });
+    const numbers = async () =>
+      ((await (await send('GET', '/phone-numbers?provider=sip_trunk')).json()) as { data: Array<Record<string, unknown>> }).data;
+    // Nothing of the refused change was kept.
+    expect((await numbers()).find((n) => n.id === 'vpn_ci_unverified')).toMatchObject({ allowOutbound: false, displayName: null });
+
+    // Everything else about it can still be changed, and outgoing calls switched off.
+    expect((await send('PATCH', '/phone-numbers/vpn_ci_unverified', { allowOutbound: false, displayName: 'Front desk' })).status).toBe(200);
+    expect((await send('PATCH', '/phone-numbers/vpn_ci_verified', { allowOutbound: true })).status).toBe(200);
+    const after = await numbers();
+    expect(after.find((n) => n.id === 'vpn_ci_unverified')).toMatchObject({ allowOutbound: false, displayName: 'Front desk' });
+    expect(after.find((n) => n.id === 'vpn_ci_verified')).toMatchObject({ allowOutbound: true });
+  });
+
   it('validates, and refuses a duplicate number', async () => {
     expect((await send('POST', '/phone-numbers', { phoneNumber: '', countryCode: 'NL', provider: 'twilio' })).status).toBe(400);
     expect((await send('PATCH', '/phone-numbers/vnum_x', { isDefault: 'yes' })).status).toBe(400);

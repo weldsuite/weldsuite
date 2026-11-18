@@ -15,9 +15,11 @@
   },
   "dependencies": {
     "@hono/zod-validator": "^0.4.0",
+    "@weldsuite/ai": "workspace:*",
     "@weldsuite/api-modules": "workspace:*",
     "@weldsuite/app-api-client": "workspace:*",
     "@weldsuite/core-api-client": "workspace:*",
+    "@weldsuite/core-domain": "workspace:*",
     "@weldsuite/credits": "workspace:*",
     "@weldsuite/db": "workspace:*",
     "@weldsuite/desk-domain": "workspace:*",

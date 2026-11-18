@@ -108,7 +108,7 @@ export function encodeClientState(state: Record<string, string>): string {
   return btoa(JSON.stringify(state));
 }
 
-async function callControlAction(
+export async function callControlAction(
   env: TelnyxEnv,
   callControlId: string,
   action: string,
@@ -260,6 +260,8 @@ export async function telnyxBridge(
 export interface TelnyxSpeakOptions {
   voice?: string;
   language?: string;
+  /** Which leg hears it: `self` (the leg the command is sent to), `opposite` or `both`. Telnyx default: self. */
+  targetLegs?: 'self' | 'opposite' | 'both';
   clientState?: string;
 }
 
@@ -273,6 +275,7 @@ export async function telnyxSpeak(
     payload,
     voice: opts?.voice ?? 'female',
     ...(opts?.language ? { language: opts.language } : {}),
+    ...(opts?.targetLegs ? { target_legs: opts.targetLegs } : {}),
     ...(opts?.clientState ? { client_state: opts.clientState } : {}),
   });
 }

@@ -12,7 +12,7 @@
 import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, desc, eq, gte, like, lte, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, isNull, like, lte, or, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import {
   hasContextPermission,
@@ -29,6 +29,7 @@ import {
 import { contactCallStatsQuerySchema, createCallSchema } from '@weldsuite/app-api-client/schemas/call-intelligence';
 import type { Env, Variables } from '../../types';
 import { postPhoneMessage } from '../../lib/desk-phone-messages';
+import { normalizeE164 } from '../../lib/phone-registry';
 import { getContactCallStats } from '../../services/contact-call-stats';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
@@ -223,6 +224,35 @@ app.post('/', requirePermission('activities:create'), zValidator('json', createC
       .where(eq(schema.deskConversations.id, data.deskConversationId))
       .limit(1);
     if (!conversation) return error.notFound(c, 'Conversation', data.deskConversationId);
+  }
+
+  // A number on the customer's own phone system is a caller id only once Telnyx verified it is theirs.
+  if (data.direction === 'outbound' && data.fromNumber) {
+    const n = schema.voipPhoneNumbers;
+    const [unverified] = await db
+      .select({ id: n.id })
+      .from(n)
+      .where(
+        and(
+          eq(n.phoneNumber, normalizeE164(data.fromNumber)),
+          eq(n.provider, 'sip_trunk'),
+          isNull(n.callerIdVerifiedAt),
+          isNull(n.deletedAt),
+        ),
+      )
+      .limit(1);
+    if (unverified) {
+      return c.json(
+        {
+          error: {
+            code: 'caller_id_unverified',
+            message: 'Verify this number before using it for outgoing calls',
+            details: { reason: 'caller_id_unverified' },
+          },
+        },
+        409,
+      );
+    }
   }
 
   const id = generateId('vcall');

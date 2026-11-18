@@ -90,6 +90,7 @@ import whiteboards from './whiteboards';
 import workflows from './workflows';
 import legalEntities from './legal-entities';
 import auditLogs from './audit-logs';
+import odata from './odata';
 
 export const v1 = new Hono<HonoEnv>();
 
@@ -147,6 +148,7 @@ v1.get('/', (c) => {
       '/v1/mail-messages',
       '/v1/mail-threads',
       '/v1/milestones',
+      '/v1/odata',
       '/v1/opportunities',
       '/v1/orders',
       '/v1/panel',
@@ -219,6 +221,7 @@ v1.route('/accounting-entities', accountingEntities);
 v1.route('/accounting-settings', accountingSettings);
 v1.route('/legal-entities', legalEntities);
 v1.route('/audit-logs', auditLogs);
+v1.route('/odata', odata);
 v1.route('/bank-accounts', bankAccounts);
 v1.route('/bank-transactions', bankTransactions);
 v1.route('/bills', bills);

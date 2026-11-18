@@ -7759,19 +7759,23 @@ version = "0.0.0"
 dependencies = [
  "axum",
  "form_urlencoded",
+ "hex",
  "http",
  "serde",
  "serde_json",
+ "sha2 0.11.1",
  "sqlx",
  "time",
  "tokio",
  "tracing",
+ "url",
  "weldsuite-auth",
  "weldsuite-catalogs",
  "weldsuite-db",
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-permissions",
+ "weldsuite-ports",
 ]
 
 [[package]]
@@ -7994,10 +7998,12 @@ dependencies = [
 name = "weldsuite-desk-domain"
 version = "0.0.0"
 dependencies = [
+ "hex",
  "jiff",
  "regex",
  "serde",
  "serde_json",
+ "sha2 0.11.1",
  "sqlx",
  "time",
  "tokio",
@@ -8005,6 +8011,7 @@ dependencies = [
  "weldsuite-core-domain",
  "weldsuite-db",
  "weldsuite-events",
+ "weldsuite-flow-domain",
  "weldsuite-kit",
  "weldsuite-notifications",
  "weldsuite-ports",

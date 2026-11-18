@@ -101,6 +101,7 @@
       "objects": [
         "tickets",
         "conversations",
+        "problems",
         "articles",
         "agents",
         "departments",
@@ -1300,6 +1301,28 @@
         {
           "key": "conversations:delete",
           "label": "Delete conversations"
+        }
+      ]
+    },
+    {
+      "key": "problems",
+      "label": "Problems",
+      "permissions": [
+        {
+          "key": "problems:read",
+          "label": "View problems"
+        },
+        {
+          "key": "problems:create",
+          "label": "Create problems"
+        },
+        {
+          "key": "problems:update",
+          "label": "Edit problems"
+        },
+        {
+          "key": "problems:delete",
+          "label": "Delete problems"
         }
       ]
     },
@@ -3296,6 +3319,10 @@
         "conversations:create",
         "conversations:update",
         "conversations:delete",
+        "problems:read",
+        "problems:create",
+        "problems:update",
+        "problems:delete",
         "articles:read",
         "articles:create",
         "articles:update",
@@ -3718,6 +3745,9 @@
         "conversations:read",
         "conversations:create",
         "conversations:update",
+        "problems:read",
+        "problems:create",
+        "problems:update",
         "articles:read",
         "agents:read",
         "departments:read",
@@ -3923,6 +3953,7 @@
         "reports:read",
         "tickets:read",
         "conversations:read",
+        "problems:read",
         "articles:read",
         "agents:read",
         "departments:read",

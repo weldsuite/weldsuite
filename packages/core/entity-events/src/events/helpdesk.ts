@@ -13,6 +13,10 @@ export const HELPDESK_ENTITY_EVENTS = {
   /** A file an agent uploaded to a conversation (before it is sent in a reply). */
   desk_attachment: ['created'],
   desk_widget: ['created', 'updated', 'deleted'],
+  /** A problem: the cause behind one or more incidents (problem management). */
+  desk_problem: ['created', 'updated', 'deleted'],
+  /** A service catalogue item. */
+  desk_catalog_item: ['created', 'updated', 'deleted'],
 
   // ── Legacy (v1) ─────────────────────────────────────────────────────────
   ticket: [

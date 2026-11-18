@@ -61,6 +61,8 @@ export const SENSITIVE_COLUMNS = {
   panel_subscriptions: ['slackWebhookCiphertext'],
   /** The secret access key of a WeldPanel raw export's bucket; only panel-api's export runner decrypts it. */
   panel_exports: ['secretCiphertext'],
+  /** The client secret of the customer's own app registration (Intune); only the device import decrypts it. */
+  asset_sources: ['secretEncrypted'],
 } as const satisfies Record<string, readonly string[]>;
 
 export type SensitiveTableName = keyof typeof SENSITIVE_COLUMNS;

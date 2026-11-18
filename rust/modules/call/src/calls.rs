@@ -381,6 +381,22 @@ async fn metering(caller: &Caller, state: &CallState) -> Option<(weldsuite_db::P
     }
 }
 
+/// Whether `number` is a live number of the customer's own phone system that
+/// Telnyx has not verified as caller id: such a number is a caller id only once
+/// it is.
+async fn unverified_trunk_number(caller: &Caller, number: &str) -> Result<bool, sqlx::Error> {
+    let found: Option<String> = sqlx::query_scalar(
+        "select id from voip_phone_numbers
+         where phone_number = $1 and provider = 'sip_trunk' and caller_id_verified_at is null
+             and deleted_at is null
+         limit 1",
+    )
+    .bind(crate::registry::normalize_e164(number))
+    .fetch_optional(&caller.db)
+    .await?;
+    Ok(found.is_some())
+}
+
 /// `POST /api/calls`: a call record, before the dialer dials. An outbound
 /// call needs a minute's credits in the wallet (402 otherwise).
 pub(crate) async fn create(
@@ -422,6 +438,13 @@ pub(crate) async fn create(
             Ok(None) => {
                 return ApiError::not_found("Conversation", Some(conversation)).into_response();
             }
+            Err(error) => return internal(&error, "Internal server error"),
+        }
+    }
+    if data.direction == "outbound" && !data.from_number.is_empty() {
+        match unverified_trunk_number(&caller, &data.from_number).await {
+            Ok(false) => {}
+            Ok(true) => return crate::sip_trunks::caller_id_unverified(),
             Err(error) => return internal(&error, "Internal server error"),
         }
     }

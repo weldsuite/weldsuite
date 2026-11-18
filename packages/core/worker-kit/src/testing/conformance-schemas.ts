@@ -407,6 +407,7 @@ import {
 } from '@weldsuite/core-api-client/schemas/notifications';
 import { auditLogRefSchema, auditLogSchema } from '@weldsuite/core-api-client/schemas/audit-logs';
 import { auditLogStreamSchema, auditLogStreamTestResultSchema } from '@weldsuite/core-api-client/schemas/audit-log-streams';
+import { assetSourceSchema, assetSourceTestResultSchema } from '@weldsuite/core-api-client/schemas/asset-sources';
 import {
   assignAllMembersResultSchema,
   canManageAppsSchema,
@@ -855,6 +856,14 @@ const ROUTES: RouteSchema[] = [
   { method: 'POST', route: '/api/audit-log-streams', envelope: 'single', data: auditLogStreamSchema.strict() },
   { method: 'PATCH', route: '/api/audit-log-streams/:id', envelope: 'single', data: auditLogStreamSchema.strict() },
   { method: 'POST', route: '/api/audit-log-streams/:id/test', envelope: 'single', data: auditLogStreamTestResultSchema.strict() },
+  // core: asset-sources (strict: a row never carries the client secret or `secretEncrypted`)
+  { method: 'GET', route: '/api/asset-sources', envelope: 'list', data: assetSourceSchema },
+  { method: 'POST', route: '/api/asset-sources', envelope: 'single', data: assetSourceSchema },
+  { method: 'GET', route: '/api/asset-sources/:id', envelope: 'single', data: assetSourceSchema },
+  { method: 'PATCH', route: '/api/asset-sources/:id', envelope: 'single', data: assetSourceSchema },
+  { method: 'POST', route: '/api/asset-sources/test', envelope: 'single', data: assetSourceTestResultSchema },
+  { method: 'POST', route: '/api/asset-sources/:id/test', envelope: 'single', data: assetSourceTestResultSchema },
+  { method: 'POST', route: '/api/asset-sources/:id/sync', envelope: 'single', data: assetSourceSchema },
   // core: appstore
   { method: 'GET', route: '/api/appstore/my-apps', envelope: 'single', data: myAppCodesSchema },
   { method: 'GET', route: '/api/appstore/installed-apps', envelope: 'array', data: workspaceInstalledAppSchema },

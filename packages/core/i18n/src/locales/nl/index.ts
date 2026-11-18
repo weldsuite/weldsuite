@@ -51,7 +51,13 @@ import { weldboard } from './weldboard';
 import { weldhr } from './weldhr';
 import { weldknow } from './weldknow';
 import { weldads } from './weldads';
+import { assetSources } from './asset-sources';
 import { deskInbox2 } from './desk-inbox2';
+import { deskCatalog } from './desk-catalog';
+import { deskProblems } from './desk-problems';
+import { deskSipTrunks } from './desk-sip-trunks';
+import { deskCallTranslation } from './desk-call-translation';
+import { deskBi } from './desk-bi';
 import { blockEditor } from './block-editor';
 import { weldapps } from './weldapps';
 import { weldobjects } from './weldobjects';
@@ -129,7 +135,13 @@ export const nl = {
   weldhr,
   weldknow,
   weldads,
+  assetSources,
   deskInbox2,
+  deskCatalog,
+  deskProblems,
+  deskSipTrunks,
+  deskCallTranslation,
+  deskBi,
   blockEditor,
   weldapps,
   weldobjects,

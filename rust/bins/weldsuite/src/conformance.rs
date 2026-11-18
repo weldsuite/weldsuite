@@ -1049,6 +1049,10 @@ pub(crate) struct SweepRequest {
     /// Its `OUTBOUND_LEDGER` / `OUTBOUND_PLATFORM` namespaces over HTTP.
     #[serde(default)]
     ledgers: HashMap<String, String>,
+    /// The harness's outbound bridge, for a job that calls a third party:
+    /// its calls go through the test's own fetch stub.
+    #[serde(default)]
+    outbound: Option<String>,
 }
 
 /// Every workspace opens the test's tenant database.
@@ -1261,6 +1265,58 @@ pub(crate) async fn desk_report_sweep(
     };
     let result =
         weldsuite_desk::report_sweep::run_report_sweep(&master, &tenants, &services, now).await;
+    axum::Json(result.to_json()).into_response()
+}
+
+/// `POST /__conformance/cron/asset-import-sweep`: one tick of the asset
+/// register's device import sweep against the test's databases, as
+/// `runAssetImportSweep(env, now)` runs it there. Every workspace opens the
+/// test's tenant database, with the Clerk org id the test maps it to.
+/// Microsoft is the test's own fetch stub, through the harness's outbound
+/// bridge (unreachable when the test sends none), and the client secrets
+/// open with the test's field key.
+pub(crate) async fn asset_import_sweep(
+    State(state): State<AppState>,
+    axum::Json(request): axum::Json<SweepRequest>,
+) -> Response {
+    let pools = &state.conformance_pools;
+    let (db, master) = match (
+        pools.get(&request.database_url),
+        pools.get(&request.master_database_url),
+    ) {
+        (Ok(db), Ok(master)) => (db, master),
+        (Err(error), _) | (_, Err(error)) => return error.into_response(),
+    };
+    let Ok(now) =
+        time::OffsetDateTime::parse(&request.now, &time::format_description::well_known::Rfc3339)
+    else {
+        return ApiError::bad_request("conformance: now is not an ISO time").into_response();
+    };
+    let orgs = Arc::new(request.workspaces);
+    let tenants: weldsuite_core_objects::ImportTenants = Arc::new(move |workspace_id: String| {
+        let db = db.clone();
+        let orgs = Arc::clone(&orgs);
+        Box::pin(async move {
+            Ok::<_, String>(weldsuite_core_objects::ImportTenant {
+                db,
+                clerk_org_id: orgs.get(&workspace_id).cloned().unwrap_or(workspace_id),
+            })
+        })
+    });
+    let key = |name: &str| request.env.get(name).filter(|key| !key.is_empty()).cloned();
+    let services = weldsuite_core_objects::AssetImportServices {
+        events: state.infra.events.clone(),
+        http: request
+            .outbound
+            .as_deref()
+            .map(|bridge| pools.outbound.outbound_http(bridge)),
+        keyring: weldsuite_db::Keyring {
+            v1: key("DATABASE_ENCRYPTION_KEY"),
+            v2: key("DATABASE_ENCRYPTION_KEY_V2"),
+        },
+    };
+    let result =
+        weldsuite_core_objects::run_asset_import_sweep(&master, &tenants, &services, now).await;
     axum::Json(result.to_json()).into_response()
 }
 

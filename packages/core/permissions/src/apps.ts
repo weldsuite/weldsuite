@@ -64,7 +64,7 @@ export const PERMISSION_APPS: readonly PermissionAppDefinition[] = [
     code: 'welddesk',
     label: 'WeldDesk',
     objects: [
-      'tickets', 'conversations', 'articles', 'agents', 'departments', 'slas', 'settings',
+      'tickets', 'conversations', 'problems', 'articles', 'agents', 'departments', 'slas', 'settings',
       'companies', 'people', 'activities', 'telephony', 'workflows', 'integrations',
     ],
   },

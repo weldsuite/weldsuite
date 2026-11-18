@@ -13,7 +13,9 @@
 //!   matched in the CRM, the call lands in a WeldDesk phone conversation,
 //!   and the route runs (`desk_phone_inbound`): forwarded, answered by a
 //!   voice agent, offered to the team, sent to voicemail or a keypad menu,
-//!   or hung up.
+//!   or hung up. A call a customer's own phone system sends over its trunk
+//!   counts whatever its direction says, and a number of a trunk only takes
+//!   calls on that trunk's connection (`sip_trunk_inbound`).
 //! - Other call events update the call (status, recording, AI summary,
 //!   the live transcript), move it through the phone queue (the menu's
 //!   choice, the queue's timeout, the voicemail, the caller leaving) and
@@ -42,6 +44,11 @@ use crate::desk_phone_queue::{
 use crate::desk_phone_ring::{Phone, ring_waiting_calls};
 use crate::js::{self, Ordered};
 use crate::registry::{self, Entry, normalize_e164};
+use crate::sip_trunk_inbound::{
+    Admission, admit_trunk_call, admit_trunk_call_to_hosted_number, is_trunk_call,
+    owns_trunk_connection, record_trunk_inbound,
+};
+use crate::sip_trunk_number::dialed_number_of;
 use crate::telnyx::{Telnyx, decode_client_state, encode_client_state, verify_signature};
 use crate::tool_auth;
 use crate::{CallState, PublicCtx, now};
@@ -88,6 +95,16 @@ impl Hook<'_> {
     /// database.
     fn phone<'a>(&'a self, db: &'a PgPool, org: &'a str) -> Phone<'a> {
         self.ctx.phone(self.state, &self.telnyx, db, org)
+    }
+
+    /// `isTrunkCall(env, payload)`: the call came in on a connection that is
+    /// not one of ours.
+    fn is_trunk_call(&self, payload: &Value) -> bool {
+        is_trunk_call(
+            self.ctx.env("TELNYX_CONNECTION_ID").as_deref(),
+            self.ctx.env("TELNYX_SIP_CONNECTION_ID").as_deref(),
+            payload,
+        )
     }
 }
 
@@ -316,6 +333,25 @@ async fn process(hook: &Hook<'_>, event: &Value) -> Result<(), String> {
         .get("workspaceId")
         .cloned()
         .unwrap_or(Value::Null);
+    // A trunk's SIP login is in a customer's hands: a client signed in with
+    // it can originate a call that carries any client_state. On an event of a
+    // trunk connection, the workspace the state names must own that
+    // connection; otherwise the state is made up, and the event is
+    // acknowledged and dropped.
+    if js::truthy(&workspace) && hook.is_trunk_call(payload) {
+        let named = js::string(&workspace);
+        let db = hook.tenant(&named).await?;
+        if !owns_trunk_connection(&db, payload)
+            .await
+            .map_err(|e| e.to_string())?
+        {
+            tracing::warn!(
+                event_type,
+                "[Telnyx Webhook] event on a trunk connection names a workspace that does not own it, ignoring"
+            );
+            return Ok(());
+        }
+    }
     // A leg the server dialled to ring an agent's browser: its own
     // client_state, no callId.
     if let Some(leg_id) = client_state.get("agentLegId").filter(|id| js::truthy(id))
@@ -336,9 +372,10 @@ async fn process(hook: &Hook<'_>, event: &Value) -> Result<(), String> {
         Value::Null => String::new(),
         other => js::string(other).to_lowercase(),
     };
+    // A customer's phone system's call counts whatever its direction says.
     if missing
         && event_type == "call.initiated"
-        && matches!(direction.as_str(), "incoming" | "inbound")
+        && (matches!(direction.as_str(), "incoming" | "inbound") || hook.is_trunk_call(payload))
     {
         if let Err(error) = inbound(hook, payload).await {
             tracing::error!(%error, "[Telnyx Webhook] Inbound handler threw");
@@ -578,13 +615,41 @@ async fn porting_completed(
         return Ok(());
     }
     let phone = js::string(&draft["phone_number"]);
-    let existing: Option<String> =
-        sqlx::query_scalar("select id from voip_phone_numbers where phone_number = $1 limit 1")
-            .bind(&phone)
-            .fetch_optional(&db)
+    let existing: Option<(String, Option<String>, Option<String>, bool)> = sqlx::query_as(
+        "select id, provider, sip_trunk_id, deleted_at is not null from voip_phone_numbers
+         where phone_number = $1 limit 1",
+    )
+    .bind(&phone)
+    .fetch_optional(&db)
+    .await
+    .map_err(|e| e.to_string())?;
+    let number_id = if let Some((id, provider, sip_trunk_id, deleted)) = existing {
+        // The number was first connected over the customer's own phone
+        // system, or was removed: from now on it is a number we host. Left as
+        // a trunk's number, every call from the phone network would be refused
+        // (only the trunk's connection may call such a number), and no route
+        // could repair it.
+        if provider.as_deref() == Some("sip_trunk")
+            || sip_trunk_id
+                .as_deref()
+                .is_some_and(|trunk| !trunk.is_empty())
+            || deleted
+        {
+            sqlx::query(
+                "update voip_phone_numbers set provider = 'telnyx', sip_trunk_id = null,
+                     deleted_at = null, provider_phone_number_id = $2, provider_connection_id = $3,
+                     status = 'active', caller_id_verified_at = null, allow_outbound = true,
+                     updated_at = $4::timestamp
+                 where id = $1",
+            )
+            .bind(&id)
+            .bind(ported["id"].as_str())
+            .bind(hook.ctx.env("TELNYX_CONNECTION_ID"))
+            .bind(now())
+            .execute(&db)
             .await
             .map_err(|e| e.to_string())?;
-    let number_id = if let Some(id) = existing {
+        }
         id
     } else {
         let id = weldsuite_kit::generate_id("vpn");
@@ -719,8 +784,15 @@ async fn porting_exception(
 // ── inbound calls ───────────────────────────────────────────────────────────
 
 /// A number the call came in on: `(id, assignedUserId, allowInbound,
-/// enableRecording)`.
-type PhoneRow = (String, Option<String>, Option<bool>, Option<bool>);
+/// enableRecording, sipTrunkId, providerConnectionId)`.
+type PhoneRow = (
+    String,
+    Option<String>,
+    Option<bool>,
+    Option<bool>,
+    Option<String>,
+    Option<String>,
+);
 
 /// A number's route: `(action, voiceAgentId, forwardToE164, options)`.
 type RouteRow = (String, Option<String>, Option<String>, Option<Value>);
@@ -736,11 +808,20 @@ async fn inbound(hook: &Hook<'_>, payload: &Value) -> Result<(), String> {
         return Ok(());
     }
     let call_control_id = js::string(&call_control_id);
-    let to_number = normalize_e164(&js::string(&to_raw));
-    let from_number = normalize_e164(&if js::truthy(&from_raw) {
-        js::string(&from_raw)
-    } else {
-        "unknown".to_owned()
+    // A phone system may dial `sip:<number>@host` or a number without its `+`.
+    let trunk_call = hook.is_trunk_call(payload);
+    let dialed = |raw: &Value| {
+        trunk_call
+            .then(|| dialed_number_of(&js::string(raw)))
+            .flatten()
+    };
+    let to_number = dialed(&to_raw).unwrap_or_else(|| normalize_e164(&js::string(&to_raw)));
+    let from_number = dialed(&from_raw).unwrap_or_else(|| {
+        normalize_e164(&if js::truthy(&from_raw) {
+            js::string(&from_raw)
+        } else {
+            "unknown".to_owned()
+        })
     });
     let master = hook.master().ok_or("no master database")?;
     let Some((workspace, number_id)) = registry::lookup(&master, &to_number)
@@ -755,15 +836,17 @@ async fn inbound(hook: &Hook<'_>, payload: &Value) -> Result<(), String> {
     };
     let db = hook.tenant(&workspace).await?;
     let phone: Option<PhoneRow> = sqlx::query_as(
-        "select id, assigned_user_id, allow_inbound, enable_recording from voip_phone_numbers
+        "select id, assigned_user_id, allow_inbound, enable_recording, sip_trunk_id,
+             provider_connection_id
+         from voip_phone_numbers
          where id = $1 and deleted_at is null limit 1",
     )
     .bind(&number_id)
     .fetch_optional(&db)
     .await
     .map_err(|e| e.to_string())?;
-    let Some((phone_id, assigned, allow_inbound, recording)) =
-        phone.filter(|(_, _, allow, _)| *allow != Some(false))
+    let Some((phone_id, assigned, allow_inbound, recording, sip_trunk, phone_connection)) =
+        phone.filter(|(_, _, allow, _, _, _)| *allow != Some(false))
     else {
         tracing::warn!(%to_number, "[Telnyx Webhook] Inbound not allowed");
         hook.telnyx
@@ -773,6 +856,44 @@ async fn inbound(hook: &Hook<'_>, payload: &Value) -> Result<(), String> {
         return Ok(());
     };
     let _ = allow_inbound;
+    // A number on a customer's own phone system only takes calls over that
+    // trunk's connection. A number we host takes a phone system's call only
+    // from this workspace's own (or on the number's own connection): another
+    // workspace's trunk must not run its calls, and their minutes, into it.
+    // A call that is not a trunk call is routed as before.
+    let mut trunk_id: Option<String> = None;
+    if let Some(sip_trunk) = sip_trunk.as_deref().filter(|trunk| !trunk.is_empty()) {
+        match admit_trunk_call(&db, payload, sip_trunk, &to_number)
+            .await
+            .map_err(|e| e.to_string())?
+        {
+            Admission::Refused { reason } => {
+                tracing::warn!(%reason, "[Telnyx Webhook] Trunk call refused");
+                hook.telnyx
+                    .hangup(&call_control_id, None)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                return Ok(());
+            }
+            Admission::Admitted { trunk_id: admitted } => {
+                record_trunk_inbound(&db, &admitted)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                trunk_id = Some(admitted);
+            }
+        }
+    } else if trunk_call
+        && !admit_trunk_call_to_hosted_number(&db, payload, phone_connection.as_deref())
+            .await
+            .map_err(|e| e.to_string())?
+    {
+        tracing::warn!(%to_number, "[Telnyx Webhook] Trunk call refused: the phone system is not this workspace's");
+        hook.telnyx
+            .hangup(&call_control_id, None)
+            .await
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
     let route: Option<RouteRow> = sqlx::query_as(
         "select action, voice_agent_id, forward_to_e164, options from desk_phone_routes
          where voip_phone_number_id = $1 limit 1",
@@ -871,9 +992,9 @@ async fn inbound(hook: &Hook<'_>, payload: &Value) -> Result<(), String> {
         "insert into voip_calls (id, created_at, updated_at, user_id, provider, provider_call_id,
              provider_session_id, provider_leg_id, direction, status, from_number, to_number,
              from_number_formatted, to_number_formatted, initiated_at, desk_conversation_id,
-             is_recorded, customer_id, contact_id)
+             is_recorded, customer_id, contact_id, sip_trunk_id)
          values ($1, $2::timestamp, $2::timestamp, $3, 'telnyx', $4, $5, $6, 'inbound', 'initiated',
-             $7, $8, $7, $8, $2::timestamp, $9, $10, $11, $12)",
+             $7, $8, $7, $8, $2::timestamp, $9, $10, $11, $12, $13)",
     )
     .bind(&call_id)
     .bind(&now)
@@ -891,6 +1012,7 @@ async fn inbound(hook: &Hook<'_>, payload: &Value) -> Result<(), String> {
     .bind(recording.unwrap_or(true))
     .bind(&caller.customer_id)
     .bind(&caller.contact_id)
+    .bind(&trunk_id)
     .execute(&db)
     .await
     .map_err(|e| e.to_string())?;
@@ -994,6 +1116,10 @@ impl CallEvent<'_> {
             }
             "call.gather.ended" => handle_gather_ended(&self.input()).await,
             "call.dequeued" => handle_dequeued(&self.input()).await,
+            // A line of a call's live translation (`desk_phone_translation`):
+            // that runs on `@weldsuite/ai`, which this backend does not have,
+            // so no call is translated here and the line is dropped.
+            "call.transcription" => Ok(()),
             "call.machine.detection.ended" => {
                 tracing::info!(call = self.call_id, "[Telnyx Webhook] AMD result");
                 Ok(())
@@ -1178,6 +1304,8 @@ impl CallEvent<'_> {
                 false
             }
         };
+        // The worker stops and charges a live translation here
+        // (`finishCallTranslation`); none can be running on this backend.
         if let Some(seconds) = seconds.filter(|s| *s > 0) {
             self.settle(seconds, &cause).await;
         }

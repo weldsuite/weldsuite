@@ -101,11 +101,41 @@ export const deskPortalCreateRequestSchema = z.object({
 });
 export type DeskPortalCreateRequest = z.infer<typeof deskPortalCreateRequestSchema>;
 
+// ── service catalogue ──────────────────────────────────────────────────────
+
+/** One item of the service catalogue as the reader sees it, with the form to fill in. */
+export const deskPortalCatalogItemSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  summary: z.string().nullable(),
+  description: z.string().nullable(),
+  category: z.string().nullable(),
+  icon: z.string().nullable(),
+  deliveryEstimate: z.string().nullable(),
+  /** The request goes to an approver before anyone starts on it. */
+  needsApproval: z.boolean(),
+  /** The item's ticket type as a request form. */
+  form: deskPortalRequestTypeSchema,
+});
+export type DeskPortalCatalogItem = z.infer<typeof deskPortalCatalogItemSchema>;
+
+/** POST /catalog/:id/requests: the same body as a request, minus the type; the title defaults to the item's name. */
+export const deskPortalCatalogRequestSchema = z.object({
+  title: z.string().trim().min(1).max(DESK_PORTAL_TITLE_MAX).optional(),
+  description: z.string().trim().max(DESK_PORTAL_BODY_MAX).optional(),
+  fields: z.record(z.unknown()).optional(),
+});
+export type DeskPortalCatalogRequest = z.infer<typeof deskPortalCatalogRequestSchema>;
+
 // ── my requests ────────────────────────────────────────────────────────────
 
 /** The ticket-type state groups; the conversation's open/closed and last speaker pick one. */
 export const DESK_PORTAL_STATUSES = ['submitted', 'in_progress', 'waiting_on_customer', 'resolved'] as const;
 export type DeskPortalStatus = (typeof DESK_PORTAL_STATUSES)[number];
+
+/** Where a service request stands with its approvers; absent for any other request. */
+export const DESK_PORTAL_APPROVAL_STATES = ['awaiting_approval', 'approved', 'rejected'] as const;
+export type DeskPortalApprovalState = (typeof DESK_PORTAL_APPROVAL_STATES)[number];
 
 export const deskPortalRequestSummarySchema = z.object({
   id: z.string(),
@@ -118,6 +148,10 @@ export const deskPortalRequestSummarySchema = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
   lastMessagePreview: z.string().nullable(),
+  /** The service catalogue item this request was made from; null for other requests. */
+  catalogItemName: z.string().nullable(),
+  /** Approval state of a service request; null when it needs none (or is no service request). */
+  approval: z.enum(DESK_PORTAL_APPROVAL_STATES).nullable(),
 });
 export type DeskPortalRequestSummary = z.infer<typeof deskPortalRequestSummarySchema>;
 

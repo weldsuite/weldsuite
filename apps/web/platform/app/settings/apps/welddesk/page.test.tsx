@@ -48,6 +48,7 @@ describe('WeldDesk settings page', () => {
       '/settings/apps/welddesk/assignment',
       '/settings/apps/welddesk/sla-policies',
       '/settings/apps/welddesk/priority-matrix',
+      '/settings/apps/welddesk/service-catalogue',
     ]);
   });
 });

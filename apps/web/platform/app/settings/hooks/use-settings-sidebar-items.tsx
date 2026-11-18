@@ -30,6 +30,8 @@ import {
   Shuffle,
   Timer,
   Grid3x3,
+  ConciergeBell,
+  Laptop,
   Route,
   Sparkles,
 } from 'lucide-react';
@@ -94,6 +96,8 @@ function welddeskSettingsSubItems(
     { title: td.assignmentTitle, href: '/settings/apps/welddesk/assignment', icon: Shuffle },
     { title: td.slaPoliciesTitle, href: '/settings/apps/welddesk/sla-policies', icon: Timer },
     { title: td.priorityMatrixTitle, href: '/settings/apps/welddesk/priority-matrix', icon: Grid3x3 },
+    { title: td.serviceCatalogueTitle, href: '/settings/apps/welddesk/service-catalogue', icon: ConciergeBell },
+    { title: th.assets.settingsTitle, href: '/settings/apps/welddesk/asset-register', icon: Laptop },
   ];
 }
 

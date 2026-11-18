@@ -31,6 +31,8 @@ import { signDeskPhoneToolToken } from '../../lib/desk-phone-tool-auth';
 import { lookupCrmUrl, lookupCrmWebhookTool } from '../../lib/desk-phone-tools';
 import { deskPhoneQueueRoutes } from './queue';
 import { deskPhoneSoftphoneRoutes } from './softphone';
+import { deskPhoneSipTrunkRoutes } from './sip-trunks';
+import { deskPhoneTranslationRoutes } from './translation';
 
 const app = new Hono<{ Bindings: Env & TelnyxEnv; Variables: Variables }>();
 
@@ -431,6 +433,8 @@ app.post(
 
 app.route('/softphone', deskPhoneSoftphoneRoutes);
 app.route('/queue', deskPhoneQueueRoutes);
+app.route('/sip-trunks', deskPhoneSipTrunkRoutes);
+app.route('/calls', deskPhoneTranslationRoutes);
 
 export { app as deskPhoneRoutes };
 export default app;

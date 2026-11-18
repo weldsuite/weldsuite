@@ -14,6 +14,14 @@ import {
   deskIncidentUpdateSchema,
 } from '@weldsuite/core-api-client/schemas/desk-conversation-links';
 import {
+  deskConversationProblemChangeSchema,
+  deskConversationProblemSchema,
+  deskProblemCreatedSchema,
+  deskProblemShareSchema,
+  deskProblemIncidentSchema,
+  deskProblemWithCountsSchema,
+} from '@weldsuite/core-api-client/schemas/desk-problems';
+import {
   helpdeskChannelIntegrationSchema,
   helpdeskConnectionTestSchema,
   helpdeskDisconnectedSchema,
@@ -38,6 +46,13 @@ import {
   publicHelpcenterFolderSchema,
   publicHelpcenterSearchPageSchema,
 } from '@weldsuite/core-api-client/schemas/public-helpcenter';
+import {
+  deskCatalogItemSchema,
+  deskConversationRequestChangeSchema,
+  deskConversationRequestOrNullSchema,
+  deskPendingApprovalSchema,
+  deskRequestFulfilmentSchema,
+} from '@weldsuite/core-api-client/schemas/desk-catalog';
 import type { RouteSchema } from './conformance-schemas';
 
 const HI = '/api/helpdesk-integrations';
@@ -57,6 +72,26 @@ export const DESK_CHANNEL_ROUTES: RouteSchema[] = [
   { method: 'POST', route: '/api/desk/conversations/:id/merge', envelope: 'single', data: deskConversationMergeSchema },
   { method: 'PUT', route: '/api/desk/conversations/:id/major-incident', envelope: 'single', data: deskConversationLinkChangeSchema },
   { method: 'POST', route: '/api/desk/conversations/:id/incident-update', envelope: 'single', data: deskIncidentUpdateSchema },
+  // service catalogue: items, requests on a conversation and their approvals
+  { method: 'GET', route: '/api/desk/catalog', envelope: 'array', data: deskCatalogItemSchema },
+  { method: 'GET', route: '/api/desk/catalog/approvals', envelope: 'array', data: deskPendingApprovalSchema },
+  { method: 'GET', route: '/api/desk/catalog/:id', envelope: 'single', data: deskCatalogItemSchema },
+  { method: 'POST', route: '/api/desk/catalog', envelope: 'single', data: deskCatalogItemSchema },
+  { method: 'PATCH', route: '/api/desk/catalog/:id', envelope: 'single', data: deskCatalogItemSchema },
+  { method: 'GET', route: '/api/desk/conversations/:id/request', envelope: 'single', data: deskConversationRequestOrNullSchema },
+  { method: 'PUT', route: '/api/desk/conversations/:id/catalog-item', envelope: 'single', data: deskConversationRequestChangeSchema },
+  { method: 'POST', route: '/api/desk/conversations/:id/approval', envelope: 'single', data: deskConversationRequestChangeSchema },
+  { method: 'POST', route: '/api/desk/conversations/:id/fulfilment', envelope: 'single', data: deskRequestFulfilmentSchema },
+  // problem management (DELETE answers 204: no body to check)
+  { method: 'GET', route: '/api/desk/problems', envelope: 'list', data: deskProblemWithCountsSchema },
+  { method: 'POST', route: '/api/desk/problems', envelope: 'single', data: deskProblemCreatedSchema },
+  { method: 'GET', route: '/api/desk/problems/:id', envelope: 'single', data: deskProblemWithCountsSchema },
+  { method: 'PATCH', route: '/api/desk/problems/:id', envelope: 'single', data: deskProblemWithCountsSchema },
+  { method: 'GET', route: '/api/desk/problems/:id/conversations', envelope: 'array', data: deskProblemIncidentSchema },
+  { method: 'POST', route: '/api/desk/problems/:id/share-workaround', envelope: 'single', data: deskProblemShareSchema },
+  { method: 'POST', route: '/api/desk/problems/:id/article', envelope: 'single', data: deskProblemWithCountsSchema },
+  { method: 'GET', route: '/api/desk/conversations/:id/problem', envelope: 'single', data: deskConversationProblemSchema },
+  { method: 'PUT', route: '/api/desk/conversations/:id/problem', envelope: 'single', data: deskConversationProblemChangeSchema },
   // Discord / Slack channel integrations (the OAuth callbacks only redirect)
   { method: 'GET', route: HI, envelope: 'single', data: helpdeskIntegrationListSchema },
   { method: 'POST', route: `${HI}/token`, envelope: 'single', data: helpdeskTokenSavedSchema },

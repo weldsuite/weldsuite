@@ -85,7 +85,7 @@ export interface DeskEscalationResult {
 }
 
 /** An active internal member, found by user id or by member id (`helpdesk_departments.managerId` holds the latter). */
-async function memberUserId(db: AnyDb, ref: string | null | undefined): Promise<string | null> {
+export async function memberUserId(db: AnyDb, ref: string | null | undefined): Promise<string | null> {
   if (!ref) return null;
   const m = schema.workspaceMembers;
   const [row] = await db

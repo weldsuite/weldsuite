@@ -38,6 +38,13 @@ import {
   voipPhoneNumberSchema,
 } from '@weldsuite/app-api-client/schemas/call-responses';
 import { deskVoiceAgentSchema } from '@weldsuite/core-api-client/schemas/desk-phone';
+import {
+  deskSipTrunkCreatedSchema,
+  deskSipTrunkNumberSchema,
+  deskSipTrunkRotatedSchema,
+  deskSipTrunkSchema,
+  deskSipVerificationStartedSchema,
+} from '@weldsuite/core-api-client/schemas/desk-sip-trunks';
 import type { RouteSchema } from './conformance-schemas';
 
 export const CALL_ROUTES: RouteSchema[] = [
@@ -69,6 +76,14 @@ export const CALL_ROUTES: RouteSchema[] = [
   { method: 'POST', route: '/api/desk/phone/softphone/token', envelope: 'single', data: deskSoftphoneTokenSchema },
   { method: 'GET', route: '/api/desk/phone/queue', envelope: 'array', data: deskPhoneQueueItemSchema },
   { method: 'POST', route: '/api/desk/phone/queue/:callId/pickup', envelope: 'single', data: deskPhonePickupSchema },
+  // WeldDesk phone: the customer's own phone system (SIP trunks)
+  { method: 'GET', route: '/api/desk/phone/sip-trunks', envelope: 'list', data: deskSipTrunkSchema },
+  { method: 'POST', route: '/api/desk/phone/sip-trunks', envelope: 'single', data: deskSipTrunkCreatedSchema },
+  { method: 'PATCH', route: '/api/desk/phone/sip-trunks/:id', envelope: 'single', data: deskSipTrunkSchema },
+  { method: 'POST', route: '/api/desk/phone/sip-trunks/:id/rotate-password', envelope: 'single', data: deskSipTrunkRotatedSchema },
+  { method: 'POST', route: '/api/desk/phone/sip-trunks/:id/numbers', envelope: 'single', data: deskSipTrunkNumberSchema },
+  { method: 'POST', route: '/api/desk/phone/sip-trunks/:id/numbers/:numberId/verification', envelope: 'single', data: deskSipVerificationStartedSchema },
+  { method: 'POST', route: '/api/desk/phone/sip-trunks/:id/numbers/:numberId/verification/confirm', envelope: 'single', data: deskSipTrunkNumberSchema },
   // telephony
   { method: 'GET', route: '/api/telephony/configured', envelope: 'single', data: telephonyConfiguredSchema },
   { method: 'PUT', route: '/api/telephony/phone-numbers/:id', envelope: 'single', data: callSuccessSchema },

@@ -16,6 +16,7 @@
     "@neondatabase/serverless": "^1.0.1",
     "@weldsuite/app-api-client": "workspace:*",
     "@weldsuite/commerce-domain": "workspace:*",
+    "@weldsuite/desk-domain": "workspace:*",
     "@weldsuite/db": "workspace:*",
     "@weldsuite/emails": "workspace:*",
     "@weldsuite/entity-events": "workspace:*",

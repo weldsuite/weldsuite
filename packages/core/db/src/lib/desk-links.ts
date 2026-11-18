@@ -118,6 +118,9 @@ function summaryOf(row: DeskConversation): DeskConversationLinkSummary {
   };
 }
 
+/** Used by desk-problems to list a problem's incidents in the same shape. */
+export const deskConversationLinkSummaryOf = summaryOf;
+
 async function findConversation(db: AnyDb, id: string): Promise<DeskConversation | null> {
   const [row] = await db.select().from(conversations).where(eq(conversations.id, id)).limit(1);
   return row ?? null;

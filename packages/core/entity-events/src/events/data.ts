@@ -458,6 +458,14 @@ export interface VoipPhoneNumberEventData {
   status?: string | null;
 }
 
+/** A customer's own phone system (SIP trunk / PBX) connected to WeldDesk. */
+export interface SipTrunkEventData {
+  id: string;
+  name: string;
+  provider?: string | null;
+  status?: string | null;
+}
+
 // ===========================================================================
 // WeldDrive (files + folders)
 // ===========================================================================
@@ -909,6 +917,7 @@ export interface EntityEventData {
   email_forward: EmailForwardEventData;
   domain_transfer: DomainTransferEventData;
   voip_phone_number: VoipPhoneNumberEventData;
+  sip_trunk: SipTrunkEventData;
 
   // WeldDrive
   file: FileEventData;

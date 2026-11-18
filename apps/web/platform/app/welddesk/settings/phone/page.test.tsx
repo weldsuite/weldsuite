@@ -50,6 +50,7 @@ vi.mock('@/hooks/queries/use-desk-phone-settings-queries', () => ({
       { id: 'vpn_1', phoneNumber: '+31201234567', displayName: 'Main line', status: 'active' },
       { id: 'vpn_2', phoneNumber: '+31207654321', displayName: null, status: 'active' },
       { id: 'vpn_3', phoneNumber: '+31209999999', displayName: null, status: 'active' },
+      { id: 'vpn_4', phoneNumber: '+31208888888', displayName: null, status: 'active', sipTrunkId: 'strk_1' },
     ],
     isLoading: false,
     isError: false,
@@ -59,6 +60,12 @@ vi.mock('@/hooks/queries/use-desk-phone-settings-queries', () => ({
   useDeskPhoneVoiceAgents: () => ({ data: [] }),
   useSyncDeskPhoneNumbers: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useSaveDeskPhoneRoute: () => ({ mutateAsync: vi.fn(), isPending: false }),
+}));
+
+// The own-phone-system section has its own tests (sip-trunks/).
+vi.mock('./sip-trunks/sip-trunks-section', () => ({ SipTrunksSection: () => <div data-testid="sip-trunks-section" /> }));
+vi.mock('@/hooks/queries/use-desk-sip-trunk-queries', () => ({
+  useDeskSipTrunks: () => ({ data: [{ id: 'strk_1', name: 'Head office Xelion' }] }),
 }));
 
 vi.mock('@/hooks/queries/use-desk-routing-queries', () => ({
@@ -75,7 +82,16 @@ describe('PhoneSettingsPage', () => {
       'Rings Support, then voicemail after 5 min',
       'Menu: 1 Sales, 2 Support, 0 Voicemail',
       'No route set: calls are hung up',
+      'No route set: calls are hung up',
     ]);
+  });
+
+  it('labels a number on the customer own phone system with its trunk, and shows the section', () => {
+    render(<PhoneSettingsPage />);
+    const badges = screen.getAllByTestId('phone-number-trunk');
+    expect(badges).toHaveLength(1);
+    expect(badges[0]).toHaveTextContent('Via Head office Xelion');
+    expect(screen.getByTestId('sip-trunks-section')).toBeInTheDocument();
   });
 
   it('explains how ringing works and where agents switch on take calls', () => {

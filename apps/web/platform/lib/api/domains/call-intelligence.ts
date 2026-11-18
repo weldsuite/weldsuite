@@ -19,7 +19,7 @@
 // Types
 // ============================================================================
 
-type VoipProvider = 'telnyx';
+type VoipProvider = 'telnyx' | 'sip_trunk';
 
 export interface VoipCall {
   id: string;
@@ -85,6 +85,9 @@ export interface VoipPhoneNumber {
   enableRecording?: boolean;
   displayName?: string;
   description?: string;
+  /** The customer's own phone system the number lives on (provider `sip_trunk`). */
+  sipTrunkId?: string | null;
+  callerIdVerifiedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }

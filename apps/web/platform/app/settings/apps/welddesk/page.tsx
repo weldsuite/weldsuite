@@ -1,4 +1,4 @@
-import { BookOpen, Bot, ChevronRight, Grid3x3, Mail, MessagesSquare, Phone, Route, Shuffle, Tags, Timer, Users, type LucideIcon } from 'lucide-react';
+import { BookOpen, Bot, ChevronRight, ConciergeBell, Grid3x3, Mail, MessagesSquare, Phone, Route, Shuffle, Tags, Timer, Users, type LucideIcon } from 'lucide-react';
 import { Link } from '@/lib/router';
 import { getTranslations } from '@/lib/i18n';
 import { AssetRegisterCard } from './asset-register-card';
@@ -54,6 +54,7 @@ export default function HelpdeskSettingsPage() {
         deskLink('assignment', Shuffle, td.assignmentTitle, td.assignmentDescription),
         deskLink('sla-policies', Timer, td.slaPoliciesTitle, td.slaPoliciesDescription),
         deskLink('priority-matrix', Grid3x3, td.priorityMatrixTitle, td.priorityMatrixDescription),
+        deskLink('service-catalogue', ConciergeBell, td.serviceCatalogueTitle, td.serviceCatalogueDescription),
       ],
     },
   ];
@@ -87,7 +88,7 @@ export default function HelpdeskSettingsPage() {
         </section>
       ))}
 
-      <AssetRegisterCard />
+      <AssetRegisterCard manageHref="/settings/apps/welddesk/asset-register" />
     </div>
   );
 }

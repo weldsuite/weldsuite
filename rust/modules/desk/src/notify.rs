@@ -62,14 +62,19 @@ async fn deliver(
     workspace: &str,
     notification: &HelpdeskNotification,
 ) {
-    let notifier = Notifier {
+    deliver_with(db, &notifier(state), workspace, notification).await;
+}
+
+/// Where a request's notifications go out (`c.env` as `NotificationEnv`):
+/// in-app over realtime, and system mail.
+pub(crate) fn notifier(state: &DeskState) -> Notifier {
+    Notifier {
         realtime: state.realtime.clone(),
         presence: None,
         mail: state.mail.clone(),
         http: None,
         apns: None,
-    };
-    deliver_with(db, &notifier, workspace, notification).await;
+    }
 }
 
 /// [`deliver`] through the given channels (the SLA sweep's, outside a

@@ -9,6 +9,10 @@
 //! reached. Removing a number releases nothing there either: no number
 //! was bought through Stripe here (`/config.json` lists
 //! `phone-number-purchase` as unavailable).
+//!
+//! A number on a customer's own phone system (provider `sip_trunk`,
+//! `sip_trunks`) is not Telnyx's to describe: a sync leaves it as it is and
+//! it is removed from its phone system, not here (409).
 
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
@@ -25,6 +29,7 @@ use crate::calls::query_param;
 use crate::numbers::{self, PriceRow};
 use crate::porting::{FormFile, read_form_file};
 use crate::registry::{self, Entry};
+use crate::sip_trunks::{TRUNK_NUMBER_REFUSAL, TRUNK_PROVIDER};
 use crate::telnyx::{Body, COUNTRIES_REQUIRING_ADDRESS};
 use crate::{CallState, Caller, internal, js, now, validate};
 
@@ -35,12 +40,12 @@ pub(crate) async fn configured(State(state): State<CallState>, caller: Caller) -
     Data(json!({ "configured": caller.telnyx(&state).configured() })).into_response()
 }
 
-/// A live number: `(phoneNumber, status, countryCode, numberType)`.
-type LiveNumber = (String, String, String, Option<String>);
+/// A live number: `(phoneNumber, status, countryCode, numberType, provider)`.
+type LiveNumber = (String, String, String, Option<String>, String);
 
 async fn live_number(caller: &Caller, id: &str) -> Result<Option<LiveNumber>, sqlx::Error> {
     sqlx::query_as(
-        "select phone_number, status, country_code, number_type from voip_phone_numbers
+        "select phone_number, status, country_code, number_type, provider from voip_phone_numbers
          where id = $1 and deleted_at is null limit 1",
     )
     .bind(id)
@@ -68,7 +73,7 @@ pub(crate) async fn update_number(
         Err(response) => return *response,
     };
     let result = async {
-        let Some((phone, status, _, _)) = live_number(&caller, &id).await? else {
+        let Some((phone, status, _, _, _)) = live_number(&caller, &id).await? else {
             return Ok(ApiError::not_found("Phone number", Some(&id)).into_response());
         };
         sqlx::query(
@@ -104,9 +109,14 @@ pub(crate) async fn delete_number(
     Path(id): Path<String>,
 ) -> Response {
     let result = async {
-        let Some((phone, status, _, _)) = live_number(&caller, &id).await? else {
+        let Some((phone, status, _, _, provider)) = live_number(&caller, &id).await? else {
             return Ok(ApiError::not_found("Phone number", Some(&id)).into_response());
         };
+        // A number on the customer's own phone system is not ours (nor
+        // billed): it is removed from that system.
+        if provider == TRUNK_PROVIDER {
+            return Ok(ApiError::conflict(TRUNK_NUMBER_REFUSAL).into_response());
+        }
         // The worker asks billing-worker to drop the number's Stripe price
         // here, ignoring any failure; billing is Global-only.
         let now = now();
@@ -118,7 +128,13 @@ pub(crate) async fn delete_number(
         .bind(&now)
         .execute(&caller.db)
         .await?;
-        if let Err(error) = registry::deactivate(caller.master(&state).as_ref(), &phone).await {
+        let org = caller.org();
+        let own = registry::OwnRow {
+            phone_number: &phone,
+            clerk_org_id: &org,
+            voip_phone_number_id: &id,
+        };
+        if let Err(error) = registry::deactivate(caller.master(&state).as_ref(), own).await {
             tracing::error!(%error, "[Telephony] Failed to deactivate phone registry");
         }
         caller.publish(
@@ -140,7 +156,7 @@ pub(crate) async fn set_default(
     Path(id): Path<String>,
 ) -> Response {
     let result = async {
-        let Some((phone, status, _, _)) = live_number(&caller, &id).await? else {
+        let Some((phone, status, _, _, _)) = live_number(&caller, &id).await? else {
             return Ok(ApiError::not_found("Phone number", Some(&id)).into_response());
         };
         let now = now();
@@ -502,19 +518,32 @@ pub(crate) async fn sync(State(state): State<CallState>, caller: Caller) -> Resp
         if numbers.is_empty() {
             return Ok(json!({ "count": 0 }));
         }
-        let existing: Vec<(String, String, Option<String>)> = sqlx::query_as(
-            "select id, phone_number, provider_phone_number_id from voip_phone_numbers
+        let existing: Vec<(String, String, Option<String>, String)> = sqlx::query_as(
+            "select id, phone_number, provider_phone_number_id, provider from voip_phone_numbers
              where deleted_at is null",
         )
         .fetch_all(&caller.db)
         .await
         .map_err(|e| e.to_string())?;
+        // A number on a customer's own phone system is not ours to sync:
+        // leave it as it is.
+        let trunk_numbers: Vec<&str> = existing
+            .iter()
+            .filter(|(_, _, _, provider)| provider == TRUNK_PROVIDER)
+            .map(|(_, phone, _, _)| phone.as_str())
+            .collect();
         let master = caller.master(&state);
-        let tenant_ids: Vec<String> = existing.iter().map(|(id, _, _)| id.clone()).collect();
+        let tenant_ids: Vec<String> = existing.iter().map(|(id, _, _, _)| id.clone()).collect();
         let numbers = owned_numbers(&caller, master.as_ref(), numbers, tenant_ids).await?;
         let org = caller.clerk_org_id.clone().unwrap_or_default();
         let mut synced = 0;
         for raw in numbers {
+            if raw["phone_number"]
+                .as_str()
+                .is_some_and(|phone| trunk_numbers.contains(&phone))
+            {
+                continue;
+            }
             let Some(phone) = raw["phone_number"].as_str().map(str::to_owned) else {
                 tracing::error!("[Telephony] Failed to sync a number without a phone number");
                 continue;
@@ -524,7 +553,7 @@ pub(crate) async fn sync(State(state): State<CallState>, caller: Caller) -> Resp
                 phone_number: phone,
                 connection_id: raw["connection_id"].clone(),
             };
-            let found = existing.iter().find(|(_, existing_phone, provider_id)| {
+            let found = existing.iter().find(|(_, existing_phone, provider_id, _)| {
                 provider_id
                     .as_deref()
                     .is_some_and(|p| number.id.as_str() == Some(p))
@@ -536,7 +565,7 @@ pub(crate) async fn sync(State(state): State<CallState>, caller: Caller) -> Resp
                 other => Some(other.to_string()),
             };
             let written = async {
-                let id = if let Some((id, _, _)) = found {
+                let id = if let Some((id, _, _, _)) = found {
                     sqlx::query(
                         "update voip_phone_numbers set status = 'active',
                              provider_phone_number_id = case when $2 then $3 else provider_phone_number_id end,
@@ -759,7 +788,7 @@ pub(crate) async fn order_requirements(
         return Data(json!({ "requirementsMet": true, "requirements": [] })).into_response();
     }
     let result = async {
-        let Some((phone, status, country, kind)) =
+        let Some((phone, status, country, kind, _)) =
             live_number(&caller, &id).await.map_err(|e| e.to_string())?
         else {
             return Ok(ApiError::not_found("Phone number", Some(&id)).into_response());
@@ -823,7 +852,7 @@ pub(crate) async fn submit_order_requirements(
         return ApiError::bad_request(NOT_ACTIVATED).into_response();
     }
     let result = async {
-        let Some((phone, status, country, kind)) =
+        let Some((phone, status, country, kind, _)) =
             live_number(&caller, &id).await.map_err(|e| e.to_string())?
         else {
             return Ok(ApiError::not_found("Phone number", Some(&id)).into_response());

@@ -73,19 +73,79 @@ pub(crate) async fn upsert(master: Option<&PgPool>, entry: Entry<'_>) -> Result<
     Ok(())
 }
 
-/// `deactivatePhoneNumberRegistry(env, phoneNumber)`.
-pub(crate) async fn deactivate(master: Option<&PgPool>, phone_number: &str) -> Result<(), String> {
+/// A workspace's own registry row: the number, the workspace (Clerk org id)
+/// and the number's row in its tenant (`OwnRegistryRow`).
+pub(crate) struct OwnRow<'a> {
+    pub(crate) phone_number: &'a str,
+    pub(crate) clerk_org_id: &'a str,
+    pub(crate) voip_phone_number_id: &'a str,
+}
+
+/// `deactivatePhoneNumberRegistry(env, row)`: switch the caller's own entry
+/// off. Another workspace's entry for the number is left alone.
+pub(crate) async fn deactivate(master: Option<&PgPool>, row: OwnRow<'_>) -> Result<(), String> {
     let master = master.ok_or("no master database")?;
     sqlx::query(
-        "update phone_number_registry set is_active = false, updated_at = $2::timestamp
-         where phone_number = $1",
+        "update phone_number_registry set is_active = false, updated_at = $4::timestamp
+         where phone_number = $1 and clerk_org_id = $2 and voip_phone_number_id = $3",
     )
-    .bind(normalize_e164(phone_number))
+    .bind(normalize_e164(row.phone_number))
+    .bind(row.clerk_org_id)
+    .bind(row.voip_phone_number_id)
     .bind(now())
     .execute(master)
     .await
     .map_err(|error| error.to_string())?;
     Ok(())
+}
+
+/// `releasePhoneNumberRegistry(env, row)`: delete the caller's own entry.
+pub(crate) async fn release(master: Option<&PgPool>, row: OwnRow<'_>) -> Result<(), String> {
+    let master = master.ok_or("no master database")?;
+    sqlx::query(
+        "delete from phone_number_registry
+         where phone_number = $1 and clerk_org_id = $2 and voip_phone_number_id = $3",
+    )
+    .bind(normalize_e164(row.phone_number))
+    .bind(row.clerk_org_id)
+    .bind(row.voip_phone_number_id)
+    .execute(master)
+    .await
+    .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+/// `claimPhoneNumberRegistry(env, row)`: claim a number in one conditional
+/// write. True when the number was free, or the existing entry is this
+/// workspace's own and names this row or one of `reclaim_ids`; an entry of
+/// another workspace holds the number (false, nothing written).
+pub(crate) async fn claim(
+    master: Option<&PgPool>,
+    row: OwnRow<'_>,
+    reclaim_ids: &[String],
+) -> Result<bool, String> {
+    let master = master.ok_or("no master database")?;
+    let mut ids: Vec<String> = vec![row.voip_phone_number_id.to_owned()];
+    ids.extend(reclaim_ids.iter().cloned());
+    let claimed: Option<String> = sqlx::query_scalar(
+        "insert into phone_number_registry
+             (phone_number, clerk_org_id, voip_phone_number_id, is_active, created_at, updated_at)
+         values ($1, $2, $3, true, $4::timestamp, $4::timestamp)
+         on conflict (phone_number) do update
+             set voip_phone_number_id = $3, is_active = true, updated_at = $4::timestamp
+             where phone_number_registry.clerk_org_id = $2
+               and phone_number_registry.voip_phone_number_id = any($5)
+         returning phone_number",
+    )
+    .bind(normalize_e164(row.phone_number))
+    .bind(row.clerk_org_id)
+    .bind(row.voip_phone_number_id)
+    .bind(now())
+    .bind(&ids)
+    .fetch_optional(master)
+    .await
+    .map_err(|error| error.to_string())?;
+    Ok(claimed.is_some())
 }
 
 /// `lookupPhoneNumberRegistry(masterDb, phoneNumber)`: the active entry's

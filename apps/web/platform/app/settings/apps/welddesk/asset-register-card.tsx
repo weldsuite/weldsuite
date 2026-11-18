@@ -1,7 +1,7 @@
 import { toast } from 'sonner';
 import { Laptop, Loader2 } from 'lucide-react';
 import { getTranslations } from '@/lib/i18n';
-import { useRouter } from '@/lib/router';
+import { Link, useRouter } from '@/lib/router';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
 import {
@@ -14,8 +14,9 @@ import {
  * object template (custom objects), which the inbox's details panel then
  * attaches to conversations; once installed the card opens the asset list.
  */
-export function AssetRegisterCard() {
+export function AssetRegisterCard({ manageHref }: Readonly<{ manageHref?: string }> = {}) {
   const t = getTranslations('helpdesk').assets;
+  const ta = getTranslations('assetSources');
   const router = useRouter();
   const { can } = usePermissions();
   const canManage = can('weldobjects:manage');
@@ -67,6 +68,11 @@ export function AssetRegisterCard() {
             <span className="mt-1 block text-xs text-muted-foreground">{t.askAdmin}</span>
           )}
         </span>
+        {manageHref && asset?.installed && (
+          <Link href={manageHref} className="text-sm text-primary underline-offset-4 hover:underline" data-testid="desk-asset-register-manage">
+            {ta.manage}
+          </Link>
+        )}
         {action}
       </div>
     </section>

@@ -291,6 +291,9 @@ export const FORWARDED_ENV = [
   'TELNYX_CONNECTION_ID',
   'TELNYX_SIP_CONNECTION_ID',
   'TELNYX_PUBLIC_KEY',
+  // SIP trunks: the voice profile of a trunk's connection and the SIP host shown to the customer.
+  'TELNYX_OUTBOUND_VOICE_PROFILE_ID',
+  'TELNYX_SIP_HOST',
   'STRIPE_SECRET_KEY',
   'APP_API_PUBLIC_URL',
   // WeldHost: Realtime Register (the registrar and ADAC keys, the customer
@@ -694,6 +697,12 @@ export interface ConformanceRequest {
   context?: Record<string, unknown>;
   /** Response headers the two answers must agree on, besides status and body. */
   compareHeaders?: readonly string[];
+  /**
+   * The two bodies must be the same text, not only the same JSON: the order of
+   * the keys and the way numbers and strings are written are part of the
+   * answer (the OData feed, whose clients read a payload as it is written).
+   */
+  exactBody?: boolean;
   /**
    * Masks, in both runs' side effects, what differs between the backends by
    * construction for this caller only (a generated PDF's size).
@@ -1518,19 +1527,28 @@ function pipelineEffects(calls: PipelineCall[]): Pick<SideEffects, 'pipelines'> 
   return calls.length > 0 ? { pipelines: calls } : {};
 }
 
+/** Where two bodies that must be the same text (`exactBody`) first differ, with what each holds there. */
+function textDifference(ts: string, rust: string): string {
+  let at = 0;
+  while (at < ts.length && ts[at] === rust[at]) at++;
+  const from = Math.max(at - 20, 0);
+  return `response bodies differ as text at ${at}: ${JSON.stringify(ts.slice(from, at + 40))} vs ${JSON.stringify(rust.slice(from, at + 40))}`;
+}
+
 /** Where the two runs differ: status, headers, body, then side effects; null when they match. */
 function compareRuns(
   { ts, rust, tsEffects, rustEffects }: Runs,
   isWrite: boolean,
   method: string,
   route: string | null,
-  options: Pick<ConformanceRequest, 'compareHeaders' | 'normalizeEffects'> = {},
+  options: Pick<ConformanceRequest, 'compareHeaders' | 'exactBody' | 'normalizeEffects'> = {},
 ): string | null {
   if (ts.status !== rust.status) return `status ${ts.status} (TypeScript) vs ${rust.status} (Rust)`;
   for (const name of options.compareHeaders ?? []) {
     const [a, b] = [ts.headers.get(name), rust.headers.get(name)];
     if (a !== b) return `header ${name}: ${JSON.stringify(a)} vs ${JSON.stringify(b)}`;
   }
+  if (options.exactBody && ts.text !== rust.text) return textDifference(ts.text, rust.text);
   if (ts.json !== undefined || rust.json !== undefined) {
     // Values a route draws per run (./conformance-volatile.ts) are masked
     // first, and seconds counted to each run's own "now" aligned.

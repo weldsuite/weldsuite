@@ -121,6 +121,7 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/api-keys',
     '/api/app-catalog',
     '/api/appstore',
+    '/api/asset-sources',
     '/api/audit-log-streams',
     '/api/audit-logs',
     '/api/auth-desktop',
@@ -190,7 +191,9 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/canned-responses',
     '/api/conversations',
     '/api/desk/assignment',
+    '/api/desk/catalog',
     '/api/desk/conversations',
+    '/api/desk/problems',
     '/api/desk/routing',
     '/api/desk/widget',
     '/api/helpcenter-settings',
@@ -539,6 +542,8 @@ export function findModuleForPath(path: string): ApiModule {
 const EXTERNAL_OBJECT_MODULES: Readonly<Record<string, ApiModuleId>> = {
   'knowledge-pages': 'know',
   'knowledge-spaces': 'know',
+  // WeldDesk's BI connector: the OData feed of helpdesk tables (ADR API-015).
+  odata: 'desk',
   quotes: 'crm',
   // WeldFlow's deprecated project whiteboard API (served on WeldBoard boards): licensed as it always was.
   whiteboards: 'flow',

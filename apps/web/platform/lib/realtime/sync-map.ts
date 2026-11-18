@@ -338,6 +338,8 @@ export const platformSyncMap: EntitySyncMap = {
   // Settings → AI (EU and self-hosted editions).
   ai_settings: inv(['ai-settings']),
   ai_provider_key: inv(['ai-settings']),
+  // Settings → Apps → WeldDesk → Asset register (device import sources).
+  asset_source: inv(['asset-sources']),
   // Phase 3 gaps — API/agent surfaces today; provisional kebab prefixes match
   // accountingKeys style until dedicated list hooks land.
   purchase_order: inv(['accounting', 'purchase-orders']),
@@ -473,9 +475,19 @@ export const platformSyncMap: EntitySyncMap = {
   ),
   helpdesk_email: inv(['helpdesk', 'email']),
 
-  // WeldDesk webchat — list + open conversation pane
+  // WeldDesk webchat — list + open conversation pane. A ticket's problem link
+  // and its service request (item, approval, tasks) change through the
+  // conversation's own events, so their panels and the lists built on them
+  // (a problem's incidents, the problem lists' counts, the approvals) follow.
   desk_conversation: {
-    invalidate: [deskKeys.conversations()],
+    invalidate: [
+      deskKeys.conversations(),
+      ['desk', 'problems', 'conversation'],
+      ['desk', 'problems', 'incidents'],
+      ['desk', 'problems', 'list'],
+      ['desk', 'catalog', 'request'],
+      ['desk', 'catalog', 'approvals'],
+    ],
     updateDetail: detailUpdater(deskKeys.conversationDetail),
     remove: detailRemover(deskKeys.conversationDetail),
   },
@@ -488,6 +500,14 @@ export const platformSyncMap: EntitySyncMap = {
     },
   },
   desk_widget: inv(['desk', 'widget']),
+  // A problem's own changes (created, edited, deleted). A ticket linked or
+  // unlinked arrives as desk_conversation, above.
+  desk_problem: inv(['desk', 'problems']),
+  // A catalogue item's own changes. A request's approval and tasks arrive as
+  // desk_conversation, above.
+  desk_catalog_item: inv(['desk', 'catalog']),
+  // Settings → Apps → WeldDesk → Phone → "Your own phone system".
+  sip_trunk: inv(['desk', 'phone', 'sip-trunks']),
 
   // =========================================================================
   // WeldMail

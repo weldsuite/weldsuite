@@ -17,6 +17,8 @@ import { formatFileSize } from './attachments';
 import { MessageTranslation } from './translation/message-translation';
 import { LinkifiedText } from './linkified-text';
 import { impactUrgencySentences, isLinkEvent, linkEventSentence } from './linked-timeline';
+import { isServiceRequestEvent, serviceRequestEventSentence } from './service-request-timeline';
+import { isProblemEvent, problemEventSentence } from './problem-timeline';
 import { escalationSentence } from './escalation-label';
 import { isPhoneTimelineMessage, PhoneTimelineRow } from './phone-timeline';
 
@@ -170,7 +172,10 @@ function eventSentence(message: DeskMessage, members: DeskWorkspaceMember[], vis
     if (message.metadata?.auto) return t.timeline.autoAssigned.replace('{target}', target);
     return t.timeline.assignmentToAdmin.replace('{actor}', actor).replace('{target}', target);
   }
-  const linked = linkEventSentence(message, actor);
+  const linked =
+    linkEventSentence(message, actor) ??
+    problemEventSentence(message, actor) ??
+    serviceRequestEventSentence(message, actor, (id) => memberLabel(members, id));
   if (linked) return linked;
   return message.body || t.timeline.genericEvent.replace('{actor}', actor).replace('{event}', eventType ?? 'event');
 }
@@ -205,8 +210,8 @@ function EventRow({
       </div>
     );
   }
-  if (isLinkEvent(message)) {
-    // Internal: links, merges and major incidents stay with the team.
+  if (isLinkEvent(message) || isProblemEvent(message) || isServiceRequestEvent(message)) {
+    // Internal: links, merges, major incidents and problems stay with the team.
     return (
       <p className="text-xs text-muted-foreground text-center py-2 px-4 flex items-center justify-center gap-1" data-testid="desk-inbox-link-event">
         <Lock className="h-3 w-3 flex-shrink-0" />

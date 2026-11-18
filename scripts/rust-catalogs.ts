@@ -76,6 +76,7 @@ import {
   PROVIDER_MARKUP,
   WORKERS_AI_FALLBACK_PRICE,
 } from '../packages/core/ai/src/billing-rates';
+import { odataCatalogJson } from '../apps/workers/external-api/src/routes/v1/odata/catalog';
 import { buildPermissionCases } from './rust-permission-cases';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -221,6 +222,9 @@ async function main(): Promise<void> {
     'catalogs/sheet-data.json': sheetDataCatalog(),
     'catalogs/forms-templates.json': formsTemplatesCatalog(),
     'catalogs/ai.json': aiCatalog(),
+    // The public API's OData feed (`/v1/odata`): its entity sets and properties,
+    // in order, as external-api exports them (rust/modules/external-api/src/odata).
+    'catalogs/odata.json': JSON.parse(odataCatalogJson()),
     'catalogs/permissions.json': {
       objects: PERMISSION_CATALOG_OBJECTS,
       systemRoles: SYSTEM_ROLES,

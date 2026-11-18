@@ -11,6 +11,13 @@ import {
   textOrNull,
 } from './desk-phone-events';
 import { deskPhoneEndedAtom, deskPhoneIncomingAtom } from './desk-phone-state';
+import {
+  deskCallTranslationAtom,
+  parseCaption,
+  parseTranslationEvent,
+  withCaption,
+  withTranslationEvent,
+} from './call-translation/call-translation-state';
 
 /**
  * The member's personal inbox topic: `phone.incoming` (the server is dialing
@@ -24,6 +31,7 @@ export function useDeskPhoneRealtime(): void {
   const pathname = usePathname();
   const setIncoming = useSetAtom(deskPhoneIncomingAtom);
   const setEnded = useSetAtom(deskPhoneEndedAtom);
+  const setTranslation = useSetAtom(deskCallTranslationAtom);
 
   const handle = useCallback(
     (event: WorkspaceEvent<Record<string, unknown> | null>) => {
@@ -46,6 +54,18 @@ export function useDeskPhoneRealtime(): void {
         return;
       }
 
+      // Live call translation: a finished line, or the translation changed under the agent.
+      if (event.event === 'phone.caption') {
+        const caption = parseCaption(data);
+        if (caption) setTranslation((prev) => withCaption(prev, caption));
+        return;
+      }
+      if (event.event === 'phone.translation') {
+        const change = parseTranslationEvent(data);
+        if (change) setTranslation((prev) => withTranslationEvent(prev, change));
+        return;
+      }
+
       if (event.event === 'phone.ended') {
         if (isDeskPhoneEndedReason(data.reason)) {
           setEnded({ callId, reason: data.reason, at: Date.now() });
@@ -60,7 +80,7 @@ export function useDeskPhoneRealtime(): void {
         }
       }
     },
-    [pathname, router, setEnded, setIncoming],
+    [pathname, router, setEnded, setIncoming, setTranslation],
   );
 
   useTopic<Record<string, unknown> | null>(user?.id ? `inbox.${user.id}` : '', handle);

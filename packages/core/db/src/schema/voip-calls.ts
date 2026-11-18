@@ -52,6 +52,31 @@ export const VOIP_CALL_OUTCOMES = ['answered', 'abandoned', 'missed', 'voicemail
 export type VoipCallOutcome = (typeof VOIP_CALL_OUTCOMES)[number];
 
 /**
+ * Live translation of a call between a caller and an agent who do not share
+ * a language. Both sides' speech is transcribed and translated: the agent
+ * reads the caller in their own language, and the caller can hear the
+ * agent's words spoken in theirs.
+ *
+ *   - `callerLanguage`: the caller's language (a primary tag, `de`), or null
+ *     while it is still being detected.
+ *   - `agentLanguage`: the language the agent reads and speaks.
+ *   - `speakToCaller`: speak the agent's translated words on the caller's side.
+ *   - `agentLegId`: the carrier's id of the agent's side of the call, so a
+ *     transcript can be told from the caller's.
+ *   - `stoppedAt`: set when translation was switched off or the call ended;
+ *     the minutes between `startedAt` and it are what is charged.
+ */
+export interface VoipCallTranslation {
+  callerLanguage: string | null;
+  agentLanguage: string;
+  speakToCaller: boolean;
+  agentLegId: string | null;
+  startedAt: string;
+  startedById: string;
+  stoppedAt: string | null;
+}
+
+/**
  * AI sentiment values
  */
 export const AI_SENTIMENT_VALUES = ['positive', 'neutral', 'negative', 'mixed'] as const;
@@ -104,6 +129,12 @@ export const voipCalls = pgTable('voip_calls', {
   outcome: varchar('outcome', { length: 20 }).$type<VoipCallOutcome>(),
   /** The team (helpdesk_departments) whose queue the call waited in; null is the general queue. */
   departmentId: varchar('department_id', { length: 30 }),
+
+  /** The customer's own phone system the call came in over (voip_sip_trunks); null for our own numbers. */
+  sipTrunkId: varchar('sip_trunk_id', { length: 30 }),
+
+  /** Live translation of the call, when an agent switched it on; see VoipCallTranslation. */
+  translation: jsonb('translation').$type<VoipCallTranslation | null>(),
 
   // Recording
   isRecorded: boolean('is_recorded').default(false),

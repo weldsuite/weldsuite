@@ -76,7 +76,12 @@ export async function handlePortingCompleted(ctx: CompletionContext): Promise<vo
   // Idempotency on the underlying phone_numbers table — the unique index
   // on phoneNumber means a parallel run would error. Check first.
   const [existingNumber] = await db
-    .select({ id: schema.voipPhoneNumbers.id })
+    .select({
+      id: schema.voipPhoneNumbers.id,
+      provider: schema.voipPhoneNumbers.provider,
+      sipTrunkId: schema.voipPhoneNumbers.sipTrunkId,
+      deletedAt: schema.voipPhoneNumbers.deletedAt,
+    })
     .from(schema.voipPhoneNumbers)
     .where(eq(schema.voipPhoneNumbers.phoneNumber, draft.phoneNumber))
     .limit(1);
@@ -84,6 +89,26 @@ export async function handlePortingCompleted(ctx: CompletionContext): Promise<vo
   let voipPhoneNumberId: string;
   if (existingNumber) {
     voipPhoneNumberId = existingNumber.id;
+    // The number was first connected over the customer's own phone system, or
+    // was removed: from now on it is a number we host. Left as a trunk's
+    // number, every call from the phone network would be refused (only the
+    // trunk's connection may call such a number), and no route could repair it.
+    if (existingNumber.provider === 'sip_trunk' || existingNumber.sipTrunkId || existingNumber.deletedAt) {
+      await db
+        .update(schema.voipPhoneNumbers)
+        .set({
+          provider: 'telnyx',
+          sipTrunkId: null,
+          deletedAt: null,
+          providerPhoneNumberId: portedNumber.id ?? null,
+          providerConnectionId: env.TELNYX_CONNECTION_ID ?? null,
+          status: 'active',
+          callerIdVerifiedAt: null,
+          allowOutbound: true,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.voipPhoneNumbers.id, existingNumber.id));
+    }
   } else {
     voipPhoneNumberId = generateId('vpn');
     await db.insert(schema.voipPhoneNumbers).values({

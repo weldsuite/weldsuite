@@ -83,6 +83,8 @@ const PERMISSION_ENTITIES = [
   { entityKey: 'tickets', group: 'helpdesk', scopes: rw('tickets') },
   { entityKey: 'articles', group: 'helpdesk', scopes: rw('articles') },
   { entityKey: 'conversations', group: 'helpdesk', scopes: rw('conversations') },
+  // The OData feed for Power BI and Excel (/v1/odata): reads helpdesk data, never writes.
+  { entityKey: 'reports', group: 'helpdesk', scopes: ro('reports') },
   // Files
   { entityKey: 'files', group: 'files', scopes: rw('files') },
   { entityKey: 'folders', group: 'files', scopes: rw('folders') },

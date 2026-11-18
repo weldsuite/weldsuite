@@ -49,7 +49,10 @@ export type DueIndexKind =
   | 'merge_digest'
   // WeldForms (forms-api): invitation reminders coming due, and the daily response digest.
   | 'forms_reminders'
-  | 'forms_digest';
+  | 'forms_digest'
+  // Asset register: app-api marks it when an asset_sources row is saved or started and
+  // desk-api's cron sweeps it (device imports coming due, and imports under way).
+  | 'asset_import';
 
 /** A due row as listed by the sweep; `version` is the compare-and-set token. */
 export interface DueIndexRow {

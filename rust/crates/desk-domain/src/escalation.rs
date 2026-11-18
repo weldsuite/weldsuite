@@ -517,7 +517,7 @@ impl From<UpdateError> for EscalationError {
 
 /// `memberUserId(db, ref)`: an active internal member, by user id or by
 /// member id (`managerId` holds the latter).
-async fn member_user_id(
+pub(crate) async fn member_user_id(
     db: &PgPool,
     reference: Option<&str>,
 ) -> Result<Option<String>, sqlx::Error> {

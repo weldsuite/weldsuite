@@ -37,6 +37,7 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { usePathname, useRouter } from '@/lib/router';
 import { isFeatureAvailable } from '@/lib/edition';
 import { DeskCallDetails } from '@/components/welddesk/phone/desk-call-details';
+import { DeskCallTranslation } from '@/components/welddesk/phone/call-translation/desk-call-translation';
 import {
   DIAL_PAD_DIGITS,
   MAX_PHONE_DIGITS,
@@ -339,6 +340,11 @@ function ActiveCallView({
       {/* Who an inbound WeldDesk call is */}
       {callState.direction === 'inbound' && callState.inbound && (
         <DeskCallDetails details={callState.inbound} answeredAt={callState.startedAt?.getTime() ?? Date.now()} />
+      )}
+
+      {/* Live translation: only on an answered inbound WeldDesk call */}
+      {callState.direction === 'inbound' && callState.inbound?.callId && isConnected && (
+        <DeskCallTranslation callId={callState.inbound.callId} />
       )}
 
       {/* Recording indicator */}
