@@ -490,6 +490,12 @@ export const platformSyncMap: EntitySyncMap = {
     },
   },
   desk_widget: inv(['desk', 'widget']),
+  // Problems (root cause behind several tickets) and the tickets' own problem panel.
+  desk_problem: inv(['desk', 'problems']),
+  // Service catalogue: the items, a ticket's request panel and the approvals list.
+  desk_catalog_item: inv(['desk', 'catalog']),
+  // Settings → Apps → WeldDesk → Phone → "Your own phone system".
+  sip_trunk: inv(['desk', 'phone', 'sip-trunks']),
 
   // =========================================================================
   // WeldMail
