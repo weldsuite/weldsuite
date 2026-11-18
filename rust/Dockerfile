@@ -99,13 +99,14 @@ USER nonroot:nonroot
 EXPOSE 8090
 CMD ["--enable-source-maps", "server.mjs"]
 
-# ── WeldPanel's browser SDK, the script the collector serves as /s.js ───────
+# ── WeldPanel's browser SDK and its plugins, the scripts the collector ──────
+# serves as /s.js, /rec.js (recordings) and /v.js (web vitals)
 FROM web-deps AS panel-sdk
 RUN set -eux; \
     cd packages/sdk/panel-sdk; \
     pnpm build; \
     mkdir /panel; \
-    mv dist/panel.global.js /panel/
+    mv dist/panel.global.js dist/panel-recorder.global.js dist/panel-vitals.global.js /panel/
 
 # ── The sign portal, TanStack Start's Node build ────────────────────────────
 FROM web-deps AS sign-portal-build
@@ -233,7 +234,8 @@ LABEL org.opencontainers.image.title="weldsuite" \
       org.opencontainers.image.licenses="AGPL-3.0-only"
 COPY --from=build /weldsuite /usr/local/bin/weldsuite
 COPY --from=spa /spa /srv/spa
-# WeldPanel's SDK bundle (PANEL_SDK_FILE's default).
+# WeldPanel's SDK bundles (the defaults of PANEL_SDK_FILE, PANEL_RECORDER_FILE
+# and PANEL_VITALS_FILE).
 COPY --from=panel-sdk /panel /srv/panel
 # Serve the SPA for every path the API doesn't answer; SPA_DIR= (empty) for
 # the API alone.

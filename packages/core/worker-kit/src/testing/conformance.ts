@@ -88,6 +88,7 @@ import {
   recordTypeScriptPipelineCalls,
   takeRustPipelineCalls,
 } from './pipeline-bridge';
+import { rateLimitUrls } from './rate-limit-bridge';
 import {
   type OutboundCall,
   outboundBridgeUrl,
@@ -322,9 +323,12 @@ export const FORWARDED_ENV = [
   'WELDREACH_WARMUP_KEY',
   'REACH_INBOUND_DOMAIN',
   // WeldPanel: the collector origin the install snippets point at, and the
-  // SDK bundle the collector serves as /s.js (a file; only Rust reads it).
+  // bundles the collector serves as /s.js, /rec.js and /v.js (files; only
+  // Rust reads them).
   'PANEL_COLLECTOR_URL',
   'PANEL_SDK_FILE',
+  'PANEL_RECORDER_FILE',
+  'PANEL_VITALS_FILE',
   // WeldMerge: the GitHub App's user authorization, the GitLab, Bitbucket and
   // Azure DevOps OAuth apps, and the public origin provider webhooks deliver to
   // (APP_URL, the keyring and the App's id, slug and key are forwarded above).
@@ -1338,8 +1342,10 @@ async function testContext(ctx: ConformanceContext, env: Record<string, unknown>
     workflows: await workflowUrls(env),
     // Its service bindings (`BOOKS_INTERNAL`).
     services: await serviceBindingUrls(env),
-    // Its stream bindings (`PANEL_EVENTS`).
+    // Its stream bindings (`PANEL_EVENTS`, `PANEL_REPLAY_CHUNKS`).
     pipelines: await pipelineUrls(env),
+    // Its rate-limiting bindings (`EVENTS_RATE_LIMIT`, …).
+    rateLimits: await rateLimitUrls(env),
   };
 }
 

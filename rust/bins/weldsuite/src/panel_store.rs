@@ -1,6 +1,8 @@
 //! WeldPanel's store on this install (ADR EVT-019): the bucket
-//! (`S3_BUCKET_PANEL`) holding the Iceberg tables under `lake/` (recording
-//! chunks will go under `replays/…`), the catalog on the master database,
+//! (`S3_BUCKET_PANEL`) holding the Iceberg tables under `lake/`, the
+//! collector's recording chunks under `replays/<tier>/…` and its heatmap
+//! snapshots under `snapshots/…` (`weldsuite_panel::PanelBucketReplays`),
+//! the catalog on the master database,
 //! and the NATS streams the collector publishes rows to and `panel-writer`
 //! reads.
 //!

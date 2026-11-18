@@ -244,26 +244,36 @@ modules, each with conformance suites that reach every route:
   `/api/panel/projects`, kept in step with the master
   `panel_project_registry` row and the cache record the collector reads;
   and the public collector panel-ingest is on Global, served at
-  `/public/panel` and, so a snippet's script origin is a collector, at
-  `/s.js`, `/c/{token}` and `/e` on every host. What Cloudflare gives the
+  `/public/panel` and, so a snippet's script origin is a collector, at the
+  root of every host: the SDK and its recording and web vitals plugins
+  (`/s.js`, `/rec.js`, `/v.js`), `/c/{token}`, `POST /e`, recording chunks
+  (`POST /r`), heatmap snapshots (`POST /snap`) and the server API with
+  secret keys (`POST /v1/track`, `/v1/import`). What Cloudflare gives the
   collector is, here: the events stream (Pipelines into the Basin table
   `panel.events_v1`) is a NATS JetStream stream, one message per row on
-  `panel.events.v1.<workspace>`, deduplicated on the event id; the daily
-  salt of the cookieless visitor hash (the `PanelSalt` Durable Object) and
-  the per-workspace daily counts (`PanelUsage`) live in Valkey, the salt
-  claimed by the first pod and expiring as the object's alarm deletes it;
-  the client address is the first `X-Forwarded-For` hop, as panel-ingest
-  reads it (a site's first-party proxy passes the visitor's there), and the
-  geo comes from a proxy's `X-WeldPanel-Country`/`-Region`/`-City` or
-  Vercel's `x-vercel-ip-*` headers, else `country`, `region` and `city`
-  stay null (Cloudflare's `request.cf` has no equivalent here); there is no
-  per-address rate limit (panel-ingest's Workers rate limiting). Mobile
+  `panel.events.v1.<workspace>`, deduplicated on the event id; the replays
+  bucket is the panel bucket (`S3_BUCKET_PANEL`): recording chunks under
+  `replays/` with Global's keys (`<tier>/<workspace>/…`, what `r2_key`
+  holds), heatmap snapshots under `snapshots/`, and the chunk index rows go
+  to `PANEL_STATE` on `panel.replays.v1.<workspace>` for `panel-writer`;
+  the daily salt of the cookieless visitor hash (the
+  `PanelSalt` Durable Object), the per-workspace daily event and recording
+  counts (`PanelUsage`) and the per-address rate limits (panel-ingest's
+  Workers rate limiting, the same limits per minute) live in Valkey, the
+  salt claimed by the first pod and expiring as the object's alarm deletes
+  it; the client address is the first `X-Forwarded-For` hop, as
+  panel-ingest reads it (a site's first-party proxy passes the visitor's
+  there), the connecting address the hop `TRUSTED_PROXIES` from the right,
+  and the geo comes from a proxy's `X-WeldPanel-Country`/`-Region`/`-City`
+  or Vercel's `x-vercel-ip-*` headers, else `country`, `region` and `city`
+  stay null (Cloudflare's `request.cf` has no equivalent here). Mobile
   batches (`lib: "mobile"`) take their place and device columns from their
-  `$` properties, and group operations are accepted and ignored like
-  people's. A project record missing from the cache is read from the master
-  registry. Nothing reads the events yet: reports, recordings and people
-  are later WeldPanel phases, and their store (a consumer of the stream
-  into Postgres or a columnar store) comes with them)
+  `$` properties. People and group operations (identify, `$set`,
+  `$groupidentify`, the group-type slots) wait on the PanelProject port:
+  they are checked and accepted, and events keep their properties as sent,
+  as panel-ingest without its `PANEL_PROJECT` binding. A project or secret
+  key record missing from the cache is read from the master registry; the
+  quota state is read from the cache, where the usage settlement writes it)
 - **connect** (WeldConnect: workflows, their engine as the
   `connect.execute-workflow` job and the scheduled runs, workflow
   integrations and webhooks, GitHub, the CRM and ad integrations, and the
@@ -599,7 +609,8 @@ rust/
                         rooms, and LiveKit's webhook verification),
                         modules/panel (WeldPanel: projects, the registry sync, and the public
                         collector in `collector/`: the wire format, rows, URLs, user agents,
-                        IP filters, the cookieless visitor id),
+                        IP filters, the cookieless visitor id, the scripts, recordings and
+                        snapshots, the server API, the rate limits),
                         modules/merge (WeldMerge: teams, issues, the pull request mirror and
                         its automation, GitHub through the App's tokens in crates/connect-domain
                         (with the install state and installation metadata), GitLab, Bitbucket
@@ -915,7 +926,7 @@ log none.
 | `WIDGET_TOKEN_SECRET` | WeldDesk: the helpdesk widget API (`/public/helpdesk-widget`) signs its visitors' conversation-room tokens with it and the gateway verifies them, the workers' value (optional; unset: `POST /api/realtime/token` answers 500 and visitors get no live updates) |
 | `NATS_URL`, `NATS_USER`/`NATS_PASSWORD` or `NATS_TOKEN`, `NATS_ENTITY_EVENTS_STREAM`, `NATS_ENTITY_EVENTS_SUBJECT`, `NATS_ENSURE_STREAMS` | entity events (optional) |
 | `NATS_PANEL_EVENTS_STREAM`, `NATS_PANEL_EVENTS_SUBJECT`, `NATS_PANEL_EVENTS_MAX_AGE_DAYS` | WeldPanel: the events stream the collector writes `events_v1` rows to (default `PANEL_EVENTS` on `panel.events.v1.<workspace>`), created with `NATS_ENSURE_STREAMS`, and how many days it keeps rows (0, the default: no age limit). Without NATS the collector accepts batches and writes nothing |
-| `PANEL_COLLECTOR_URL`, `PANEL_SDK_FILE` | WeldPanel: the collector origin the install snippets point at (default: the request's own origin, which serves the collector too), and the SDK bundle served as `/s.js` (default `/srv/panel/panel.global.js`, which the image carries; missing: `/s.js` answers 404). The day's salt and the daily counts need `VALKEY_URL` across pods |
+| `PANEL_COLLECTOR_URL`, `PANEL_SDK_FILE`, `PANEL_RECORDER_FILE`, `PANEL_VITALS_FILE` | WeldPanel: the collector origin the install snippets and the server SDK point at (default: the request's own origin, which serves the collector too, `/v1/track` and `/v1/import` included), and the bundles served as `/s.js`, `/rec.js` and `/v.js` (default `/srv/panel/panel.global.js`, `panel-recorder.global.js` and `panel-vitals.global.js`, which the image carries; a missing one answers 404). The day's salt, the daily event and recording counts and the per-IP rate limits need `VALKEY_URL` across pods. Recording chunks and heatmap snapshots go to the panel bucket (`S3_BUCKET_PANEL`; unset: `POST /r` and `/snap` answer 204 and store nothing), their index rows to `PANEL_STATE` (`panel.replays.v1.<workspace>`) |
 | `SMTP_URL` | system mail: `smtp://user:password@relay:587?tls=required`, `smtps://…:465` or `smtp://mailpit:1025` (optional; unset skips mail, as the workers without `SEND_EMAIL`) |
 | `SYSTEM_EMAIL_FROM` | send from this address instead of `notifications@mail.weldsuite.org` (optional) |
 | `SIGN_SESSION_SECRET`, `SIGN_PORTAL_URL` | WeldSign: the key of signer sessions and access-code hashes (the workers' value), and the signer portal's origin for signing links (default `https://sign.weldsuite.org`) |

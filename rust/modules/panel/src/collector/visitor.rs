@@ -122,8 +122,10 @@ impl SaltSource for CacheSalt {
     }
 }
 
-/// Events per workspace and UTC day: `panel:usage:<workspace>:<YYYY-MM-DD>`,
-/// kept for 400 days.
+/// Events per workspace and UTC day: `panel:usage:<workspace>:<YYYY-MM-DD>`;
+/// recordings started (a session's first chunk) per workspace and UTC day:
+/// `panel:usage-recordings:<workspace>:<YYYY-MM-DD>`. Both kept for 400
+/// days, for the usage settlement to read.
 pub struct CacheUsage {
     cache: Arc<dyn DynCache>,
 }
@@ -131,6 +133,14 @@ pub struct CacheUsage {
 impl CacheUsage {
     pub fn new(cache: Arc<dyn DynCache>) -> Self {
         Self { cache }
+    }
+
+    async fn count(&self, key: String, by: u64) -> Result<(), PortError> {
+        let by = i64::try_from(by).map_err(PortError::backend)?;
+        self.cache
+            .increment(&key, by, Some(Duration::from_hours(400 * 24)))
+            .await
+            .map(|_| ())
     }
 }
 
@@ -141,17 +151,19 @@ impl UsageCounter for CacheUsage {
         day: &'a str,
         events: u64,
     ) -> BoxFuture<'a, Result<(), PortError>> {
-        Box::pin(async move {
-            let by = i64::try_from(events).map_err(PortError::backend)?;
-            self.cache
-                .increment(
-                    &format!("panel:usage:{workspace_id}:{day}"),
-                    by,
-                    Some(Duration::from_hours(400 * 24)),
-                )
-                .await
-                .map(|_| ())
-        })
+        Box::pin(self.count(format!("panel:usage:{workspace_id}:{day}"), events))
+    }
+
+    fn add_recordings<'a>(
+        &'a self,
+        workspace_id: &'a str,
+        day: &'a str,
+        recordings: u64,
+    ) -> BoxFuture<'a, Result<(), PortError>> {
+        Box::pin(self.count(
+            format!("panel:usage-recordings:{workspace_id}:{day}"),
+            recordings,
+        ))
     }
 }
 

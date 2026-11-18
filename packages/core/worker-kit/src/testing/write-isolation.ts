@@ -16,6 +16,7 @@ import { BUCKET_BINDINGS, isBucketLike, type BucketLike } from './bucket-bridge'
 import { KV_BINDINGS, isKvLike, kvText, type KvLike } from './kv-bridge';
 import { LEDGER_BINDINGS } from './ledger-bridge';
 import { PIPELINE_BINDINGS } from './pipeline-bridge';
+import { RATE_LIMIT_BINDINGS } from './rate-limit-bridge';
 
 interface ScratchObject {
   key: string;
@@ -153,9 +154,9 @@ export function isolatedEnv(env: Record<string, unknown>): Record<string, unknow
   // A Durable Object namespace stub that can copy its state (the portal's
   // rate-limit counters, WeldSheets' rooms) runs the TypeScript side on the
   // copy, given the isolated env (its rooms write to the bucket views above),
-  // and a stream stub that can copy itself takes the TypeScript run's rows on
-  // the copy.
-  for (const name of [...LEDGER_BINDINGS, ...PIPELINE_BINDINGS]) {
+  // a stream stub that can copy itself takes the TypeScript run's rows on
+  // the copy, and a rate limiter that can copy itself counts its calls there.
+  for (const name of [...LEDGER_BINDINGS, ...PIPELINE_BINDINGS, ...RATE_LIMIT_BINDINGS]) {
     const copy = forkOf(env[name], isolated);
     if (copy !== undefined) isolated[name] = copy;
   }

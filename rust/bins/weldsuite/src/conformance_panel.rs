@@ -1,19 +1,21 @@
-//! Conformance mode's WeldPanel collector bindings: the test's events
-//! stream (`PANEL_EVENTS`) through the harness's pipeline bridge
-//! (`packages/core/worker-kit/src/testing/pipeline-bridge.ts`,
-//! `POST /send { binding, records }`), and its `PANEL_SALT` and
-//! `PANEL_USAGE` Durable Object namespaces through the ledger bridge
-//! (`ledger-bridge.ts`, `POST /rpc { binding, name, method, args }`), so
-//! both backends hash with the same salt, count on the same objects and
-//! write to the same fake.
+//! Conformance mode's WeldPanel collector bindings: the test's streams
+//! (`PANEL_EVENTS`, `PANEL_REPLAY_CHUNKS`) through the harness's pipeline
+//! bridge (`packages/core/worker-kit/src/testing/pipeline-bridge.ts`,
+//! `POST /send { binding, records }`), its `PANEL_SALT` and `PANEL_USAGE`
+//! Durable Object namespaces through the ledger bridge (`ledger-bridge.ts`,
+//! `POST /rpc { binding, name, method, args }`), its rate-limiting bindings
+//! through the rate-limit bridge (`rate-limit-bridge.ts`, `POST /limit {
+//! binding, key }`) and its `PANEL_REPLAYS` bucket through the bucket bridge,
+//! so both backends hash with the same salt, count on the same objects,
+//! store in the same bucket and write to the same fakes.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use reqwest::Client;
 use serde_json::{Value, json};
-use weldsuite_panel::{EventSink, RequestCollector, SaltSource, UsageCounter};
-use weldsuite_ports::{BoxFuture, PortError};
+use weldsuite_panel::{EventSink, Limit, RateLimiter, RequestCollector, SaltSource, UsageCounter};
+use weldsuite_ports::{BoxFuture, DynFileStore, PortError};
 
 /// The panel bindings of one test.
 #[derive(Default)]
@@ -21,29 +23,53 @@ pub(crate) struct PanelBridges {
     client: Client,
 }
 
+/// Where the test's panel bindings are served.
+pub(crate) struct PanelBindings<'a> {
+    pub(crate) ledgers: &'a HashMap<String, String>,
+    pub(crate) pipelines: &'a HashMap<String, String>,
+    pub(crate) rate_limits: &'a HashMap<String, String>,
+    /// Its `PANEL_REPLAYS` bucket, over the bucket bridge.
+    pub(crate) replays: Option<Arc<dyn DynFileStore>>,
+}
+
 impl PanelBridges {
-    /// The test's stream and namespaces, each one it binds.
-    pub(crate) fn collector(
-        &self,
-        ledgers: &HashMap<String, String>,
-        pipelines: &HashMap<String, String>,
-    ) -> RequestCollector {
+    /// The test's streams, namespaces, bucket and limits, each one it binds.
+    pub(crate) fn collector(&self, bindings: PanelBindings<'_>) -> RequestCollector {
         let namespace = |binding: &'static str| {
-            ledgers.get(binding).map(|bridge| Namespace {
+            bindings.ledgers.get(binding).map(|bridge| Namespace {
                 bridge: bridge.trim_end_matches('/').to_owned(),
                 binding,
                 client: self.client.clone(),
             })
         };
+        let stream = |binding: &'static str| {
+            bindings.pipelines.get(binding).map(|bridge| {
+                Arc::new(Stream {
+                    bridge: bridge.trim_end_matches('/').to_owned(),
+                    binding,
+                    client: self.client.clone(),
+                }) as Arc<dyn EventSink>
+            })
+        };
+        let limits = (!bindings.rate_limits.is_empty()).then(|| {
+            Arc::new(Limiter {
+                bridges: bindings
+                    .rate_limits
+                    .iter()
+                    .map(|(binding, bridge)| {
+                        (binding.clone(), bridge.trim_end_matches('/').to_owned())
+                    })
+                    .collect(),
+                client: self.client.clone(),
+            }) as Arc<dyn RateLimiter>
+        });
         RequestCollector {
             salt: namespace("PANEL_SALT").map(|ns| Arc::new(ns) as Arc<dyn SaltSource>),
             usage: namespace("PANEL_USAGE").map(|ns| Arc::new(ns) as Arc<dyn UsageCounter>),
-            sink: pipelines.get("PANEL_EVENTS").map(|bridge| {
-                Arc::new(Stream {
-                    bridge: bridge.trim_end_matches('/').to_owned(),
-                    client: self.client.clone(),
-                }) as Arc<dyn EventSink>
-            }),
+            sink: stream("PANEL_EVENTS"),
+            chunks: stream("PANEL_REPLAY_CHUNKS"),
+            replays: bindings.replays,
+            limits,
         }
     }
 }
@@ -107,11 +133,29 @@ impl UsageCounter for Namespace {
                 .map(|_| ())
         })
     }
+
+    fn add_recordings<'a>(
+        &'a self,
+        workspace_id: &'a str,
+        day: &'a str,
+        recordings: u64,
+    ) -> BoxFuture<'a, Result<(), PortError>> {
+        Box::pin(async move {
+            self.call(
+                workspace_id,
+                "addRecordings",
+                json!([day, recordings, workspace_id]),
+            )
+            .await
+            .map(|_| ())
+        })
+    }
 }
 
-/// The test's `PANEL_EVENTS` stream.
+/// One of the test's streams.
 struct Stream {
     bridge: String,
+    binding: &'static str,
     client: Client,
 }
 
@@ -122,7 +166,7 @@ impl EventSink for Stream {
                 .client
                 .post(format!("{}/send", self.bridge))
                 .header("content-type", "application/json")
-                .body(json!({ "binding": "PANEL_EVENTS", "records": rows }).to_string())
+                .body(json!({ "binding": self.binding, "records": rows }).to_string())
                 .send()
                 .await
                 .map_err(PortError::backend)?;
@@ -130,10 +174,50 @@ impl EventSink for Stream {
                 Ok(())
             } else {
                 Err(PortError::backend(format!(
-                    "the events stream answered {}",
+                    "the {} stream answered {}",
+                    self.binding,
                     response.status()
                 )))
             }
+        })
+    }
+}
+
+/// The test's rate-limiting bindings, by name; one it doesn't bind lets
+/// every request through, as the worker without it does.
+struct Limiter {
+    bridges: HashMap<String, String>,
+    client: Client,
+}
+
+impl RateLimiter for Limiter {
+    fn limit<'a>(&'a self, limit: Limit, key: &'a str) -> BoxFuture<'a, Result<bool, PortError>> {
+        Box::pin(async move {
+            let Some(bridge) = self.bridges.get(limit.binding()) else {
+                return Ok(true);
+            };
+            let response = self
+                .client
+                .post(format!("{bridge}/limit"))
+                .header("content-type", "application/json")
+                .body(json!({ "binding": limit.binding(), "key": key }).to_string())
+                .send()
+                .await
+                .map_err(PortError::backend)?;
+            let status = response.status();
+            let text = response.text().await.map_err(PortError::backend)?;
+            let body: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+            if !status.is_success() {
+                return Err(PortError::backend(
+                    body["error"]
+                        .as_str()
+                        .unwrap_or("the rate limiter threw")
+                        .to_owned(),
+                ));
+            }
+            body["success"]
+                .as_bool()
+                .ok_or_else(|| PortError::backend("the rate limiter answered no outcome"))
         })
     }
 }
