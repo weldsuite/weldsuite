@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { screen, within } from '@testing-library/react';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const env = vi.hoisted(() => ({
@@ -10,6 +10,8 @@ const env = vi.hoisted(() => ({
   permissions: new Set<string>(),
   approve: vi.fn(),
   recordPayment: vi.fn(),
+  deleteBill: vi.fn(),
+  onClose: vi.fn(),
   // Stable, like the real formatter's callbacks: the payment dialog resets its form when this changes.
   today: () => '2026-03-15',
   toast: { success: vi.fn(), error: vi.fn() },
@@ -92,6 +94,7 @@ vi.mock('@/hooks/queries/use-accounting-queries', () => ({
     isError: false,
   }),
   useApproveBill: () => ({ mutate: env.approve, isPending: false }),
+  useDeleteBill: () => ({ mutateAsync: env.deleteBill, isPending: false }),
   useRejectBill: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 vi.mock('@/hooks/queries/use-weldbooks-banking-queries', () => ({
@@ -208,7 +211,7 @@ function bill(overrides: Record<string, unknown> = {}) {
 }
 
 function renderPanel() {
-  return renderWithProviders(<BillPanel id="bil_1" isOpen onClose={vi.fn()} />);
+  return renderWithProviders(<BillPanel id="bil_1" isOpen onClose={env.onClose} />);
 }
 
 async function openTab(name: string) {
@@ -216,7 +219,15 @@ async function openTab(name: string) {
 }
 
 describe('BillPanel', () => {
+  beforeAll(() => {
+    const proto = window.HTMLElement.prototype as unknown as Record<string, unknown>;
+    proto.hasPointerCapture ??= () => false;
+    proto.setPointerCapture ??= () => undefined;
+    proto.releasePointerCapture ??= () => undefined;
+  });
   beforeEach(() => {
+    env.deleteBill.mockReset().mockResolvedValue(undefined);
+    env.onClose.mockReset();
     env.bill = bill();
     env.loading = false;
     env.us = true;
@@ -400,6 +411,32 @@ describe('BillPanel', () => {
     env.bill = bill();
     renderPanel();
     expect(screen.queryByRole('link', { name: 'Edit' })).not.toBeInTheDocument();
+  });
+
+  it('deletes a draft bill after a confirmation and closes the panel', async () => {
+    const user = userEvent.setup();
+    env.permissions.add('bills:delete');
+    env.bill = bill({ status: 'draft', approvalStatus: 'pending' });
+    renderPanel();
+
+    await user.click(screen.getByRole('button', { name: 'More actions' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Delete draft' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('Delete draft bill BILL-1?');
+    await user.click(within(dialog).getByRole('button', { name: 'Delete draft' }));
+
+    await waitFor(() => expect(env.deleteBill).toHaveBeenCalledWith('bil_1'));
+    expect(env.toast.success).toHaveBeenCalledWith('Draft bill deleted');
+    expect(env.onClose).toHaveBeenCalled();
+  });
+
+  it('offers no delete for a bill that is no draft', async () => {
+    const user = userEvent.setup();
+    env.permissions.add('bills:delete');
+    renderPanel();
+    await user.click(screen.getByRole('button', { name: 'More actions' }));
+    expect(await screen.findByRole('menuitem', { name: 'Copy link' })).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'Delete draft' })).not.toBeInTheDocument();
   });
 
   it('turns the balance due red only when the bill is overdue', () => {

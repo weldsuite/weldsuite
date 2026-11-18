@@ -549,7 +549,8 @@ function DomainSettingsTab({
           </p>
         </div>
         <Switch
-          checked={autoRenew}
+          // An external domain renews at its own registrar, never here: off.
+          checked={!isExternal && autoRenew}
           onCheckedChange={(next) => void handleToggle(next)}
           disabled={readOnly || toggleAutoRenew.isPending}
         />
@@ -586,7 +587,8 @@ function DomainSettingsTab({
           enabled={!!domain.privacyProtection}
           td={td}
         />
-        <FlagRow icon={Lock} label={td.transferLock} enabled={!!domain.locked} td={td} />
+        {/* An external domain's transfer lock is set at its own registrar. */}
+        <FlagRow icon={Lock} label={td.transferLock} enabled={isExternal ? null : !!domain.locked} td={td} />
         {domain.authCode && (
           <PropertyRow
             icon={KeyRound}
@@ -612,6 +614,15 @@ function DomainSettingsTab({
   );
 }
 
+/** "Enabled", "Disabled", or "Not applicable" (`null`) for a domain flag. */
+function domainFlagLabel(
+  enabled: boolean | null,
+  td: Pick<DomainDetailTranslations, 'enabled' | 'disabled' | 'notApplicable'>,
+): string {
+  if (enabled === null) return td.notApplicable;
+  return enabled ? td.enabled : td.disabled;
+}
+
 function FlagRow({
   icon,
   label,
@@ -620,7 +631,8 @@ function FlagRow({
 }: Readonly<{
   icon: typeof ShieldCheck;
   label: string;
-  enabled: boolean;
+  /** `null`: the setting doesn't apply to this domain. */
+  enabled: boolean | null;
   td: DomainDetailTranslations;
 }>) {
   return (
@@ -629,7 +641,7 @@ function FlagRow({
       label={label}
       // `PropertyRow` treats an empty value as "unset" and renders the
       // placeholder, so pass the label text and override the rendering.
-      value={enabled ? td.enabled : td.disabled}
+      value={domainFlagLabel(enabled, td)}
       readOnly
       renderValue={(value) => (
         <span

@@ -266,7 +266,8 @@ export const sweep = {
       "categoryLabel": "Boeken op grootboekrekening",
       "categoryHint": "Optioneel. Gebruik dit voor geld dat geen klantfactuur is, zoals een PayPal-fee-terugbetaling of settlement.",
       "categoryNone": "Nog niet boeken — later afstemmen",
-      "categoryPlaceholder": "Selecteer rekening (optioneel)"
+      "categoryPlaceholder": "Selecteer rekening (optioneel)",
+      "created": "Banktransactie toegevoegd"
     },
     "entitySwitcher": {
       "createEntity": "Entiteit aanmaken",
@@ -314,7 +315,12 @@ export const sweep = {
       "actionsEmptyHint": "Stel minstens één actie in — categorie, btw-tarief, contact of omschrijving.",
       "activeLabel": "Actief (toepassen tijdens automatisch afletteren)",
       "saveRule": "Regel opslaan",
-      "createRule": "Regel aanmaken"
+      "createRule": "Regel aanmaken",
+      "conditionFieldLabel": "Voorwaarde {n}: veld",
+      "conditionOperatorLabel": "Voorwaarde {n}: operator",
+      "conditionValueLabel": "Voorwaarde {n}: waarde",
+      "conditionValue2Label": "Voorwaarde {n}: bovengrens",
+      "removeCondition": "Voorwaarde {n} verwijderen"
     },
     "bankTransactionsTable": {
       "emptyMessage": "Nog geen transacties.",
@@ -326,7 +332,10 @@ export const sweep = {
     },
     "accountForm": {
       "codeRequired": "Code is verplicht",
-      "nameRequired": "Naam is verplicht"
+      "nameRequired": "Naam is verplicht",
+      "typeRequired": "Kies een type",
+      "normalSideRequired": "Kies de normale kant",
+      "checkFields": "Controleer de gemarkeerde velden"
     },
     "billForm": {
       "descriptionRequired": "Omschrijving is verplicht",
@@ -1619,6 +1628,7 @@ export const sweep = {
     "comingSoonToast": "{label} — binnenkort beschikbaar",
     "companyDeleted": "Bedrijf verwijderd",
     "companyDeleteConfirm": "Dit bedrijf verwijderen?",
+    "companyDeleteDescription": "Het bedrijf wordt verwijderd. Dit kunt u niet ongedaan maken.",
     "companyDeleteOpenDealsOne": "Dit bedrijf heeft 1 open deal. De deal blijft zonder bedrijf op het pipelinebord staan. Het bedrijf toch verwijderen?",
     "companyDeleteOpenDealsOther": "Dit bedrijf heeft {count} open deals. De deals blijven zonder bedrijf op het pipelinebord staan. Het bedrijf toch verwijderen?",
     "companyDeleteBulkOpenDeals": "{count} van de geselecteerde bedrijven hebben open deals (in totaal {deals}). De deals blijven zonder bedrijf op het pipelinebord staan. De bedrijven toch verwijderen?",
@@ -1664,6 +1674,7 @@ export const sweep = {
     "deleteTask": "Taak verwijderen",
     "deleteTaskFailed": "Taak verwijderen mislukt",
     "deleteTaskConfirmDescription": "Deze taak wordt verwijderd. Dit kan niet ongedaan worden gemaakt.",
+    "deleteTaskConfirmNamed": "\"{name}\" wordt verwijderd. Dit kan niet ongedaan worden gemaakt.",
     "deletedCompany": "(verwijderd bedrijf)",
     "deletedFile": "{fileName} verwijderd",
     "deletedPerson": "(verwijderde persoon)",
@@ -2119,6 +2130,17 @@ export const sweep = {
     "recordChangedByOther": "Dit record is door iemand anders gewijzigd. Herlaad om de nieuwste versie te zien.",
     "updateFailed": "Bijwerken mislukt",
     "updateFieldFailed": "Veld bijwerken mislukt",
+    "invalidPhone": "Voer een geldig telefoonnummer in",
+    "numberBetween": "Voer een getal van {min} tot en met {max} in",
+    "numberAtLeast": "Voer een getal van minimaal {min} in",
+    "numberAtMost": "Voer een getal van maximaal {max} in",
+    "personArchivedBanner": "Deze persoon is gearchiveerd.",
+    "companyArchivedBanner": "Dit bedrijf is gearchiveerd.",
+    "deleteAttribute": "Kenmerk verwijderen",
+    "deleteAttributeTitle": "Kenmerk “{name}” verwijderen?",
+    "deleteAttributeDescription": "De waarde wordt van elk record verwijderd. Dit kan niet ongedaan worden gemaakt.",
+    "attributeDeleted": "Kenmerk verwijderd",
+    "attributeDeleteFailed": "Kenmerk verwijderen mislukt",
     "updatePersonFailed": "Persoon bijwerken mislukt",
     "updateTaskFailed": "Taak bijwerken mislukt",
     "upload": "Uploaden",
@@ -2462,6 +2484,12 @@ export const sweep = {
       "saveFailed": "Rol opslaan mislukt",
       "back": "Terug",
       "summary": "{memberCount} lid/leden · {permissionCount} rechten · {appCount} apps",
+      "membersOne": "1 lid",
+      "membersOther": "{count} leden",
+      "permissionsOne": "1 recht",
+      "permissionsOther": "{count} rechten",
+      "appsOne": "1 app toegewezen",
+      "appsOther": "{count} apps toegewezen",
       "saveChanges": "Wijzigingen opslaan",
       "nameLabel": "Naam",
       "descriptionLabel": "Omschrijving",
@@ -2589,7 +2617,8 @@ export const sweep = {
     },
     "pendingInvitations": {
       "thisMember": "dit lid",
-      "count": "{count} openstaande uitnodiging(en)",
+      "count": "{count} openstaande uitnodigingen",
+      "countOne": "1 openstaande uitnodiging",
       "invited": "Uitgenodigd",
       "actions": "Acties"
     },
@@ -3628,6 +3657,7 @@ export const sweep = {
       "keypad": "Kiestoetsen",
       "noPhoneNumberConnected": "Geen telefoonnummer gekoppeld",
       "noPhoneNumberDescription": "U moet een telefoonnummer configureren voordat u kunt bellen.",
+      "noPhoneNumberPurchaseUnavailable": "In deze editie kunt u nog geen nummers kopen of porteren, dus er is geen nummer om mee te bellen.",
       "configureNumber": "Nummer configureren",
       "selectANumber": "Selecteer een nummer",
       "default": "Standaard",
@@ -4146,6 +4176,8 @@ export const sweep = {
       "dealCreated": "Deal aangemaakt",
       "dealCreateFailed": "Deal aanmaken mislukt",
       "newDeal": "Nieuwe deal",
+      "pipelineRequired": "Maak eerst een pijplijn aan",
+      "pipelineRequiredDescription": "Deals staan in een pijplijn. Voeg er een toe onder Deals in de CRM-zijbalk.",
       "openPipeline": "Open pijplijn",
       "won": "Gewonnen",
       "totalValue": "Totale waarde",

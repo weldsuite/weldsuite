@@ -100,12 +100,22 @@ export function TicketTypesSettings() {
     }
   };
 
-  const handleSaveType = (type: TicketTypeConfig) => {
-    const onError = () => toast.error(t.helpdesk.ticketTypesSettings.failedToUpdateTicketType);
-    if (editingType) {
-      updateTicketType.mutate(type, { onError });
-    } else {
-      createTicketType.mutate(type, { onError });
+  /** Resolves true once the write succeeded; the editor only then says so and closes. */
+  const handleSaveType = async (type: TicketTypeConfig): Promise<boolean> => {
+    try {
+      if (editingType) {
+        await updateTicketType.mutateAsync(type);
+      } else {
+        await createTicketType.mutateAsync(type);
+      }
+      return true;
+    } catch {
+      toast.error(
+        editingType
+          ? t.helpdesk.ticketTypesSettings.failedToUpdateTicketType
+          : t.helpdesk.ticketTypesSettings.failedToCreateTicketType,
+      );
+      return false;
     }
   };
 
@@ -198,11 +208,13 @@ export function TicketTypesSettings() {
                     <Switch
                       checked={type.isActive}
                       onCheckedChange={() => handleToggleActive(type)}
+                      aria-label={ttp.toggleTypeAria.replace('{name}', type.name)}
                     />
                     <Button
                       variant="ghost"
                       size="icon"
                       onClick={() => handleEdit(type)}
+                      aria-label={ttp.editTypeAria.replace('{name}', type.name)}
                     >
                       <Pencil className="h-4 w-4" />
                     </Button>
@@ -210,6 +222,7 @@ export function TicketTypesSettings() {
                       variant="ghost"
                       size="icon"
                       onClick={() => setDeleteId(type.id)}
+                      aria-label={ttp.deleteTypeAria.replace('{name}', type.name)}
                     >
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>

@@ -205,7 +205,7 @@ export function KnowledgeSpaceTree(props: Readonly<KnowledgeSpaceTreeProps>) {
             )}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className={ROW_ACTION_CLASS}>
+                <Button variant="ghost" size="icon" className={ROW_ACTION_CLASS} aria-label={t.sidebar.pageActions}>
                   <MoreVertical className="h-3 w-3" />
                 </Button>
               </DropdownMenuTrigger>
@@ -290,7 +290,7 @@ export function KnowledgeSpaceTree(props: Readonly<KnowledgeSpaceTreeProps>) {
                 )}
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon" className={ROW_ACTION_CLASS}>
+                    <Button variant="ghost" size="icon" className={ROW_ACTION_CLASS} aria-label={t.sidebar.spaceActions}>
                       <MoreVertical className="h-3 w-3" />
                     </Button>
                   </DropdownMenuTrigger>

@@ -20,6 +20,7 @@ import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { isApiError } from '@weldsuite/api-client';
+import { CHANNEL_NAME_MAX_LENGTH } from '../lib/channel-name';
 
 interface ChannelCreateDialogProps {
   open: boolean;
@@ -111,12 +112,15 @@ export function ChannelCreateDialog({
             });
         },
         onError: (err) => {
-          // 409 = a channel with this name exists, 400 = the server rejected the
-          // name itself: both belong next to the field.
-          if (isApiError(err) && (err.status === 409 || err.status === 400)) {
-            setNameError(
-              err.message || st('sweep.weldchat.channelCreate.duplicateName'),
-            );
+          // 409 = a channel with this name exists (the server says so in
+          // words), 400 = the name broke the length rule (the message is the
+          // validator's raw text): both belong next to the field.
+          if (isApiError(err) && err.status === 409) {
+            setNameError(err.message || st('sweep.weldchat.channelCreate.duplicateName'));
+            return;
+          }
+          if (isApiError(err) && err.status === 400) {
+            setNameError(t.weldchat.channelCreate.nameInvalid);
             return;
           }
           toast.error(t.weldchat.channelCreate.createFailed);
@@ -148,6 +152,7 @@ export function ChannelCreateDialog({
                 setNameError(null);
               }}
               placeholder={t.weldchat.channelCreate.namePlaceholder}
+              maxLength={CHANNEL_NAME_MAX_LENGTH}
               autoFocus
               aria-invalid={nameError ? true : undefined}
               aria-describedby={nameError ? 'channel-name-error' : undefined}

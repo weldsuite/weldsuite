@@ -206,6 +206,38 @@ describe('RecurringInvoiceForm', { timeout: 30_000 }, () => {
     expect(data.templateData.items[0]).toMatchObject({ quantity: 3, unitPrice: 20, taxCode: 'saas', accountId: 'acc_4' });
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith('ri_1'));
   });
+
+  it('refuses an end date before the next issue date', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <RecurringInvoiceForm
+        mode="edit"
+        onSaved={vi.fn()}
+        recurring={{
+          id: 'ri_1',
+          name: 'Retainer',
+          contactId: 'cus_1',
+          frequency: 'quarterly',
+          dayOfMonth: null,
+          nextIssueDate: '2026-12-01T00:00:00.000Z',
+          endDate: null,
+          status: 'active',
+          autoSend: false,
+          autoFinalize: false,
+          generatedCount: 0,
+          lastGeneratedAt: null,
+          lastGeneratedInvoiceId: null,
+          templateData: { items: [{ description: 'Hosting', quantity: 1, unitPrice: 20 } as never] },
+        }}
+      />,
+    );
+
+    await user.type(screen.getByLabelText('End date (optional)'), '2026-11-01');
+    await user.click(screen.getByRole('button', { name: 'Save recurring invoice' }));
+
+    expect(await screen.findByText('The end date can not be before the next issue date')).toBeInTheDocument();
+    expect(env.update).not.toHaveBeenCalled();
+  });
 });
 
 describe('RecurringInvoiceForm: new template', { timeout: 30_000 }, () => {

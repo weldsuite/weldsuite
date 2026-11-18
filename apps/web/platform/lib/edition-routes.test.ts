@@ -117,4 +117,25 @@ describe('route availability', () => {
     setRuntimeConfig({ backend: 'rust', modules: ['core', 'hr'] });
     expect(isRouteOffered('/settings/entities')).toBe(true);
   });
+
+  it('hides the integrations whose syncs the backend lacks, and MCP servers without WeldAgent', () => {
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'connect'], unavailableFeatures: ['integration-sync'] });
+    expect(isRouteOffered('/settings/integrations')).toBe(true);
+    for (const path of ['/settings/integrations/attio', '/settings/integrations/sendcloud', '/settings/integrations/int_1']) {
+      expect(isRouteOffered(path), path).toBe(false);
+    }
+    expect(isRouteOffered('/settings/integrations/mcp-servers')).toBe(false);
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'connect', 'agent'], unavailableFeatures: ['integration-sync'] });
+    expect(isRouteOffered('/settings/integrations/mcp-servers')).toBe(true);
+    setRuntimeConfig(null);
+    expect(isRouteOffered('/settings/integrations/attio')).toBe(true);
+  });
+
+  it('offers API keys on a Kubernetes edition only once it names the public API', () => {
+    expect(isRouteOffered('/settings/api-keys')).toBe(true);
+    setRuntimeConfig({ backend: 'rust', modules: ['core'] });
+    expect(isRouteOffered('/settings/api-keys')).toBe(false);
+    setRuntimeConfig({ backend: 'rust', modules: ['core'], env: { VITE_EXTERNAL_API_URL: 'https://api.example.eu' } });
+    expect(isRouteOffered('/settings/api-keys')).toBe(true);
+  });
 });

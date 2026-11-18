@@ -44,6 +44,14 @@ export function canDeleteVatReturn(status: string): boolean {
   return status === 'calculated' || status === 'reviewed' || status === 'draft' || status === 'rejected';
 }
 
+/**
+ * A regular return that was not filed yet is calculated again from the current bookings (the API recalculates
+ * the period's return in place). A correction (suppletie) is not: it is checked from the filed return.
+ */
+export function canRecalculateVatReturn(vr: { status: string; correctionOfId?: string | null }): boolean {
+  return !vr.correctionOfId && !['filed', 'submitted', 'accepted'].includes(vr.status);
+}
+
 /** A filed return can be followed up at the tax authority and corrected (suppletie). */
 export function isFiledVatReturn(status: string): boolean {
   return status === 'filed' || status === 'accepted';

@@ -70,6 +70,7 @@ export const weldhrTime = {
       editRecord: 'Registratie bewerken',
       deleteConfirmTitle: 'Deze aanwezigheidsregistratie verwijderen?',
       deleteConfirmDescription: 'Dit verwijdert de registratie definitief.',
+      deleteConfirmNamed: 'Dit verwijdert de registratie van {name} op {date} definitief.',
       deleteFailed: 'Deze registratie kon niet worden verwijderd.',
       form: {
         employee: 'Medewerker',
@@ -88,6 +89,7 @@ export const weldhrTime = {
         breakInvalid: 'Vul de pauze in hele minuten in, 0 of meer.',
         breakTooLong: 'De pauze moet korter zijn dan de tijd tussen inklokken en uitklokken.',
         nextDay: 'Eindigt de volgende dag',
+        nextDayWarning: 'Uitklokken ligt voor inklokken, dus deze registratie loopt door tot de volgende dag: {duration} in totaal. Controleer de tijden als dat niet klopt.',
         beforeStartDate: 'Deze datum ligt voor de startdatum van de medewerker ({date}).',
       },
     },
@@ -279,6 +281,7 @@ export const weldhrTime = {
     },
     since: 'Sinds {date}',
     stillAbsent: 'Nog afwezig',
+    recoveredMovesAfter: 'Hersteld · gaat na {date} naar Afgerond',
     halfFirstDay: 'halve dag',
     relapse: 'Binnen 4 weken',
     relapseHelp: 'De vorige ziekmelding van deze medewerker eindigde minder dan vier weken eerder, dus dit hoort bij dezelfde verzuimperiode.',
@@ -317,11 +320,11 @@ export const weldhrTime = {
       },
       emptyOngoing: {
         title: 'Niemand is ziek gemeld',
-        description: 'Medewerkers die zich ziek melden staan hier tot ze zich beter melden.',
+        description: 'Medewerkers die zich ziek melden staan hier tot hun laatste ziektedag voorbij is.',
       },
       emptyCompleted: {
         title: 'Geen afgeronde ziekmeldingen',
-        description: 'Een melding komt hier te staan zodra de medewerker hersteld is.',
+        description: 'Een melding komt hier te staan op de dag na de laatste ziektedag.',
       },
     },
     form: {
@@ -346,6 +349,7 @@ export const weldhrTime = {
       overlap: 'Dit overlapt met een andere ziekmelding.',
       reportedToast: 'Je bent ziek gemeld. Beterschap.',
       recoveredToast: 'Je bent beter gemeld. Welkom terug.',
+      recoveredOtherToast: '{name} is beter gemeld.',
       errors: {
         employee: 'Kies een medewerker',
         date: 'Kies een datum',
@@ -426,6 +430,7 @@ export const weldhrTime = {
         cancel: 'Annuleren',
         failed: 'Deze aanvraag kon niet worden ingediend.',
         overlap: 'Dit overlapt met een andere verlofaanvraag van deze medewerker.',
+        submittedToast: 'Verlofaanvraag ingediend',
         overAllowance:
           'Deze aanvraag is {days} dagen, maar van de {allowance} dagen {type} zijn er nog maar {available} vrij (lopende aanvragen meegerekend). Je kunt de aanvraag toch indienen.',
         beforeStartDate: 'Dit verlof begint voor de startdatum van de medewerker ({date}).',

@@ -11,6 +11,8 @@ const env = vi.hoisted(() => ({
   requests: [] as unknown[],
   /** The suppliers the picker lists. */
   suppliers: [{ id: 'sup_1', name: 'Dell' }] as Array<{ id: string; name: string }>,
+  /** The supplier's payment terms in days, when set. */
+  supplierTerms: null as number | null,
   /** The account a line without one is booked to, when known. */
   defaultAccount: null as { id: string; code: string; name: string } | null,
   taxRates: [
@@ -30,7 +32,7 @@ vi.mock('@tanstack/react-router', async () => {
   return { Link: RouteLink };
 });
 vi.mock('@/hooks/queries/use-accounting-queries', () => ({
-  useAccountingCustomer: () => ({ data: { data: { id: 'sup_1', name: 'Dell', billingAddress: null } } }),
+  useAccountingCustomer: () => ({ data: { data: { id: 'sup_1', name: 'Dell', billingAddress: null, paymentTermsDays: env.supplierTerms } } }),
   useAccountingCustomers: () => ({ data: { data: env.suppliers }, isLoading: false }),
   useBillDefaultExpenseAccount: () => ({ data: env.defaultAccount }),
   useAccountingTaxRates: () => ({ data: { data: env.taxRates } }),
@@ -165,6 +167,7 @@ describe('BillForm', { timeout: 30_000 }, () => {
     env.requests = [];
     env.suppliers = [{ id: 'sup_1', name: 'Dell' }];
     env.defaultAccount = null;
+    env.supplierTerms = null;
     for (const rate of env.taxRates) rate.isDefault = false;
   });
 
@@ -394,6 +397,34 @@ describe('BillForm', { timeout: 30_000 }, () => {
       const pickers = screen.getAllByRole('combobox', { name: 'Tax rate' });
       expect(pickers).toHaveLength(2);
       expect(pickers[1]).toHaveTextContent('BTW inkoop 21%');
+    });
+
+    it("makes a new bill due after the supplier's payment terms, from the issue date", async () => {
+      env.supplierTerms = 14;
+      const user = userEvent.setup();
+      renderWithProviders(<BillForm mode="add" prefill={{ matchedContactId: 'sup_1', issueDate: '2026-11-17' }} onSubmit={vi.fn()} />);
+
+      const due = screen.getByLabelText('Due date') as HTMLInputElement;
+      await waitFor(() => expect(due.value).toBe('2026-12-01'));
+      const issue = screen.getByLabelText('Issue date') as HTMLInputElement;
+      await user.clear(issue);
+      await user.type(issue, '2026-11-20');
+      await waitFor(() => expect(due.value).toBe('2026-12-04'));
+    });
+
+    it('keeps a due date the user picked over the payment terms', async () => {
+      env.supplierTerms = 14;
+      const user = userEvent.setup();
+      renderWithProviders(<BillForm mode="add" prefill={{ matchedContactId: 'sup_1', issueDate: '2026-11-17' }} onSubmit={vi.fn()} />);
+
+      const due = screen.getByLabelText('Due date') as HTMLInputElement;
+      await waitFor(() => expect(due.value).toBe('2026-12-01'));
+      await user.clear(due);
+      await user.type(due, '2026-12-24');
+      const issue = screen.getByLabelText('Issue date') as HTMLInputElement;
+      await user.clear(issue);
+      await user.type(issue, '2026-11-20');
+      expect(due.value).toBe('2026-12-24');
     });
 
     it('leaves a new bill line without a rate when the workspace has no default', () => {

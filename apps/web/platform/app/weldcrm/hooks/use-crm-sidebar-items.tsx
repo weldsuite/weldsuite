@@ -216,6 +216,12 @@ export function useCrmSidebarItems(isActive: boolean): {
   const [listToDelete, setListToDelete] = React.useState<{ id: string; name: string; memberCount: number | null } | null>(null);
   const [deleteListPending, setDeleteListPending] = React.useState(false);
   const [pipelineToDelete, setPipelineToDelete] = React.useState<{ id: string; name: string; dealCount: number | null } | null>(null);
+  // The names the delete confirmations show, kept while they close so the
+  // title doesn't flash `Delete ""?` as it animates out (TASK-1463).
+  const deleteListNameRef = React.useRef('');
+  if (listToDelete) deleteListNameRef.current = listToDelete.name;
+  const deletePipelineNameRef = React.useRef('');
+  if (pipelineToDelete) deletePipelineNameRef.current = pipelineToDelete.name;
   const [deletePipelinePending, setDeletePipelinePending] = React.useState(false);
 
   // Fetch pipelines and lists when active
@@ -925,13 +931,15 @@ export function useCrmSidebarItems(isActive: boolean): {
         onOpenChange={setRenameListDialogOpen}
         currentName={renamingList?.name || ''}
         onRename={handleConfirmRename}
+        // A pipeline's rename said "Rename List" (TASK-1463).
+        title={renamingList?.type === 'pipeline' ? t('crm.renameDialog.titlePipeline') : undefined}
       />
       <ConfirmDialog
         open={!!listToDelete}
         onOpenChange={(open) => {
           if (!open) setListToDelete(null);
         }}
-        title={t('crm.sidebar.deleteListTitle', { name: listToDelete?.name ?? '' })}
+        title={t('crm.sidebar.deleteListTitle', { name: deleteListNameRef.current })}
         description={deleteListDescription}
         variant="destructive"
         confirmLabel={t('crm.sidebar.deleteListConfirm')}
@@ -943,7 +951,7 @@ export function useCrmSidebarItems(isActive: boolean): {
         onOpenChange={(open) => {
           if (!open) setPipelineToDelete(null);
         }}
-        title={t('crm.sidebar.deletePipelineTitle', { name: pipelineToDelete?.name ?? '' })}
+        title={t('crm.sidebar.deletePipelineTitle', { name: deletePipelineNameRef.current })}
         description={deletePipelineDescription}
         variant="destructive"
         confirmLabel={t('crm.sidebar.deletePipelineConfirm')}

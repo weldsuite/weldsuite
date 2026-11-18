@@ -34,8 +34,8 @@ import { useMobileNavOptional } from '@/contexts/mobile-nav-context';
 import { toast } from 'sonner';
 import { useFetchVoiceToken } from '@/hooks/queries';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { toPublicPath } from '@/lib/workspace-url-rewrite';
-import { usePathname } from '@/lib/router';
+import { usePathname, useRouter } from '@/lib/router';
+import { isFeatureAvailable } from '@/lib/edition';
 import { DeskCallDetails } from '@/components/welddesk/phone/desk-call-details';
 import {
   DIAL_PAD_DIGITS,
@@ -400,21 +400,27 @@ function ActiveCallView({
 
 function NoPhoneNumbersView({ onConfigure }: Readonly<{ onConfigure: () => void }>) {
   const t = useTranslations();
+  // Where numbers can't be bought or ported, there is nothing to configure.
+  const canGetNumber = isFeatureAvailable('phone-number-purchase');
 
   return (
     /* No phone numbers configured - match dialer height */
     <div className="p-4 flex flex-col items-center justify-center text-center" style={{ minHeight: '540px' }}>
       <h4 className="text-sm font-medium text-gray-900 dark:text-foreground mb-1">{t('sweep.weldcrm.globalCallPanel.noPhoneNumberConnected')}</h4>
       <p className="text-xs text-gray-500 mb-4">
-        {t('sweep.weldcrm.globalCallPanel.noPhoneNumberDescription')}
+        {canGetNumber
+          ? t('sweep.weldcrm.globalCallPanel.noPhoneNumberDescription')
+          : t('sweep.weldcrm.globalCallPanel.noPhoneNumberPurchaseUnavailable')}
       </p>
-      <Button
-        size="sm"
-        className="bg-primary text-primary-foreground hover:bg-primary/90"
-        onClick={onConfigure}
-      >
-        {t('sweep.weldcrm.globalCallPanel.configureNumber')}
-      </Button>
+      {canGetNumber && (
+        <Button
+          size="sm"
+          className="bg-primary text-primary-foreground hover:bg-primary/90"
+          onClick={onConfigure}
+        >
+          {t('sweep.weldcrm.globalCallPanel.configureNumber')}
+        </Button>
+      )}
     </div>
   );
 }
@@ -696,6 +702,7 @@ export function GlobalCallPanel() {
   const mobileNav = useMobileNavOptional();
   const agentRight = mobileNav?.showWeldAgent ? `${(mobileNav?.weldAgentWidth ?? 480) + 16}px` : '16px';
   const pathname = usePathname();
+  const router = useRouter();
   // The WeldCall page shows a live call itself; the panel covers it everywhere else
   const isCallOnPage = !!callState && isWeldCallDialerPath(pathname);
 
@@ -824,7 +831,8 @@ export function GlobalCallPanel() {
 
   const handleConfigureNumber = () => {
     setIsDialerOpen(false);
-    window.location.href = toPublicPath('/settings/apps/phone-numbers');
+    // In-app navigation: no full page reload.
+    router.push('/settings/apps/phone-numbers');
   };
 
   if (!mounted || isCallOnPage || (!isDialerOpen && !callState)) return null;

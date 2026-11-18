@@ -131,7 +131,7 @@ export const weldformsResults = {
       snippetCopy: 'Code kopiëren',
       snippetCopied: 'Code gekopieerd',
       domainsHint:
-        'Alleen sites onder "Toegestane domeinen voor insluiten" in de formulierinstellingen mogen het insluiten; leeg betekent elke site.',
+        'Alleen sites onder "Toegestane domeinen" in de formulierinstellingen mogen het insluiten; leeg betekent elke site.',
     },
 
     email: {
@@ -390,6 +390,8 @@ export const weldformsResults = {
     drawer: {
       title: 'Antwoord {number}',
       titleNoNumber: 'Antwoord',
+      description: 'De antwoorden, details en integratieacties van één antwoord.',
+      answeredBy: 'Ingevuld door',
       answers: 'Antwoorden',
       unanswered: 'Niet beantwoord',
       hidden: 'Verborgen velden',

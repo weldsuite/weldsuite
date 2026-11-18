@@ -485,6 +485,8 @@ export const welddrive = {
     itemsRestored: '{count} items hersteld',
     itemPermanentlyDeleted: '1 item definitief verwijderd',
     itemsPermanentlyDeleted: '{count} items definitief verwijderd',
+    otherModuleItemKept: '1 item hoort bij een andere module en is niet naar de prullenbak verplaatst. Verwijder het daar.',
+    otherModuleItemsKept: '{count} items horen bij andere modules en zijn niet naar de prullenbak verplaatst. Verwijder ze daar.',
   },
 
   confirmDialog: {

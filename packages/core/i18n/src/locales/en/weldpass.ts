@@ -8,6 +8,8 @@ export const weldpass = {
   sync: 'Sync',
   auditLog: 'Audit log',
   dismiss: 'Dismiss',
+  keyUnavailable:
+    "WeldPass can't encrypt or open anything right now: this server's WeldPass encryption key is missing or doesn't match. Ask an administrator to check it.",
 
   projectList: {
     newProject: 'New project',

@@ -8,6 +8,8 @@ export const weldpass = {
   sync: 'Synchronisatie',
   auditLog: 'Auditlog',
   dismiss: 'Sluiten',
+  keyUnavailable:
+    'WeldPass kan nu niets versleutelen of openen: de WeldPass-versleutelingssleutel van deze server ontbreekt of klopt niet. Vraag een beheerder om dit na te kijken.',
 
   projectList: {
     newProject: 'Nieuw project',

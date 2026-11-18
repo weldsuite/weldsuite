@@ -9,6 +9,8 @@ import { useSettings } from '@/providers/settings-provider'
 import {
   DndContext,
   DragEndEvent,
+  type Announcements,
+  type UniqueIdentifier,
   PointerSensor,
   useSensor,
   useSensors,
@@ -340,16 +342,42 @@ function SortableSidebarItem({ id, children }: Readonly<{ id: string; children: 
   );
 }
 
-function ActionDropdownItems({ actions }: Readonly<{ actions: ItemAction[] }>) {
+/**
+ * Run a menu item's action once its menu has closed. Most items open a dialog;
+ * opened while the menu is still closing, the menu hands focus back to its ⋮
+ * trigger behind the dialog, so typing goes nowhere and the first click only
+ * dismisses the menu. Give items `deferred(action)` and the menu content
+ * `onCloseAutoFocus`.
+ */
+function useDeferredMenuAction() {
+  const pending = React.useRef<(() => void) | null>(null);
+  const deferred = React.useCallback(
+    (action: () => void) => () => {
+      pending.current = action;
+    },
+    [],
+  );
+  // Radix calls this once the content has unmounted, right before it puts focus
+  // back on the trigger; the action runs after that, so its dialog takes focus last.
+  const onCloseAutoFocus = React.useCallback(() => {
+    const action = pending.current;
+    pending.current = null;
+    if (action) setTimeout(action, 0);
+  }, []);
+  return { deferred, onCloseAutoFocus };
+}
+
+function ActionDropdownContent({ actions }: Readonly<{ actions: ItemAction[] }>) {
+  const { deferred, onCloseAutoFocus } = useDeferredMenuAction();
   return (
-    <>
+    <DropdownMenuContent align="end" onCloseAutoFocus={onCloseAutoFocus}>
       {actions.map((action, idx) => {
         const ActionIcon = action.icon;
         const isDelete = action.destructive ?? action.label.toLowerCase() === 'delete';
         return (
           <React.Fragment key={action.label}>
             <DropdownMenuItem
-              onClick={action.onClick}
+              onSelect={deferred(action.onClick)}
               className={isDelete ? "text-red-600 focus:text-red-600 focus:bg-red-600/10 hover:bg-red-600/10" : ""}
             >
               {ActionIcon && <ActionIcon className={cn("mr-0.5 h-4 w-4", isDelete && "text-red-600")} />}
@@ -361,7 +389,7 @@ function ActionDropdownItems({ actions }: Readonly<{ actions: ItemAction[] }>) {
           </React.Fragment>
         );
       })}
-    </>
+    </DropdownMenuContent>
   );
 }
 
@@ -475,6 +503,8 @@ function GroupLabelText({ group }: Readonly<{ group: MenuGroupProps }>) {
 
 function GroupLabelWithMenu({ group }: Readonly<{ group: MenuGroupProps }>) {
   const { t } = useI18n();
+  const moreActionsLabel = useMoreActionsLabel();
+  const { deferred, onCloseAutoFocus } = useDeferredMenuAction();
   const menu = group.groupContextMenu ?? [];
   const menuKeys = menuEntryKeys(menu);
   return (
@@ -503,18 +533,19 @@ function GroupLabelWithMenu({ group }: Readonly<{ group: MenuGroupProps }>) {
                   variant="ghost"
                   size="icon"
                   className="opacity-0 group-hover/label:opacity-100 data-[state=open]:opacity-100 transition-opacity flex items-center justify-center w-5 h-5 rounded-[6px] hover:bg-black/[0.05] dark:hover:bg-black/20 data-[state=open]:bg-black/[0.05] dark:data-[state=open]:bg-black/20 text-muted-foreground outline-none ring-0 focus:ring-0 focus:outline-none focus-visible:outline-none focus-visible:ring-0"
+                  aria-label={moreActionsLabel(group.group)}
                   onClick={(e) => e.stopPropagation()}
                 >
                   <MoreVertical className="h-3.5 w-3.5" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuContent align="end" className="w-44" onCloseAutoFocus={onCloseAutoFocus}>
                 {menu.map((item, i) => {
                   const Icon = item.icon;
                   return (
                     <DropdownMenuItem
                       key={menuKeys[i]}
-                      onClick={item.onClick}
+                      onSelect={deferred(item.onClick)}
                       className={item.destructive ? 'text-destructive focus:text-destructive focus:bg-destructive/10 hover:bg-destructive/10' : ''}
                     >
                       {Icon && <Icon className={`h-4 w-4 mr-0.5 ${item.destructive ? 'text-destructive' : ''}`} />}
@@ -527,13 +558,13 @@ function GroupLabelWithMenu({ group }: Readonly<{ group: MenuGroupProps }>) {
           </div>
         </div>
       </ContextMenuTrigger>
-      <ContextMenuContent>
+      <ContextMenuContent onCloseAutoFocus={onCloseAutoFocus}>
         {menu.map((item, i) => {
           const Icon = item.icon;
           return (
             <ContextMenuItem
               key={menuKeys[i]}
-              onClick={item.onClick}
+              onSelect={deferred(item.onClick)}
               className={item.destructive ? 'text-destructive focus:text-destructive focus:bg-destructive/10 hover:bg-destructive/10' : ''}
             >
               {Icon && <Icon className={`h-4 w-4 mr-0.5 ${item.destructive ? 'text-destructive' : ''}`} />}
@@ -596,8 +627,15 @@ function SidebarGroupHeader({ group }: Readonly<{ group: MenuGroupProps }>) {
   return <GroupLabelPlain group={group} />;
 }
 
+/** Accessible name of a row's ⋮ menu trigger: "More actions for <row>". */
+function useMoreActionsLabel() {
+  const { t, format } = useI18n();
+  return (name: string) => format(t.common.sidebarItemMenu.moreActionsFor, { name });
+}
+
 function SidebarSubItemRow({ subItem, pathname }: Readonly<{ subItem: MenuItemProps; pathname: string }>) {
   const isSubActive = pathname === subItem.href;
+  const moreActionsLabel = useMoreActionsLabel();
   return (
     <SidebarMenuSubItem>
       <div
@@ -619,14 +657,13 @@ function SidebarSubItemRow({ subItem, pathname }: Readonly<{ subItem: MenuItemPr
                 className={cn(
                   "h-6 w-6 mr-1 transition-opacity opacity-0 group-hover/subitem:opacity-100 hover:bg-muted-foreground/20 rounded-sm"
                 )}
+                aria-label={moreActionsLabel(subItem.title)}
                 onClick={(e) => e.stopPropagation()}
               >
                 <MoreVertical className="h-3 w-3" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <ActionDropdownItems actions={subItem.actions} />
-            </DropdownMenuContent>
+            <ActionDropdownContent actions={subItem.actions} />
           </DropdownMenu>
         )}
       </div>
@@ -636,6 +673,7 @@ function SidebarSubItemRow({ subItem, pathname }: Readonly<{ subItem: MenuItemPr
 
 function SidebarItemWithSubItems({ item, pathname, isActive }: Readonly<{ item: MenuItemProps; pathname: string; isActive: boolean }>) {
   const Icon = item.icon;
+  const moreActionsLabel = useMoreActionsLabel();
   return (
     <Collapsible defaultOpen className="group/collapsible">
       <SidebarMenuItem>
@@ -656,14 +694,13 @@ function SidebarItemWithSubItems({ item, pathname, isActive }: Readonly<{ item: 
                     className={cn(
                       "h-6 w-6 transition-opacity opacity-0 group-hover/item:opacity-100 hover:bg-muted-foreground/20 rounded-sm"
                     )}
+                    aria-label={moreActionsLabel(item.title)}
                     onClick={(e) => e.stopPropagation()}
                   >
                     <MoreVertical className="h-3 w-3" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <ActionDropdownItems actions={item.actions} />
-                </DropdownMenuContent>
+                <ActionDropdownContent actions={item.actions} />
               </DropdownMenu>
             )}
             {item.onAddSubItem && (
@@ -707,6 +744,7 @@ function SidebarItemWithSubItems({ item, pathname, isActive }: Readonly<{ item: 
 function ColoredItemDropdown({ item }: Readonly<{ item: MenuItemProps }>) {
   const { t } = useI18n();
   const tm = t.common.sidebarItemMenu;
+  const moreActionsLabel = useMoreActionsLabel();
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -720,6 +758,7 @@ function ColoredItemDropdown({ item }: Readonly<{ item: MenuItemProps }>) {
             // the row exactly and showed no contrast).
             "absolute right-1 h-6 w-6 transition-opacity opacity-0 group-hover/item:opacity-100 hover:bg-black/[0.05] dark:hover:bg-black/20 rounded-md"
           )}
+          aria-label={moreActionsLabel(item.title)}
           onClick={(e) => e.stopPropagation()}
         >
           <MoreVertical className="h-3 w-3" />
@@ -786,6 +825,7 @@ function ColoredItemDropdown({ item }: Readonly<{ item: MenuItemProps }>) {
 
 function SidebarItemContent({ item, isActive, pathname, hasContextMenu }: Readonly<{ item: MenuItemProps; isActive: boolean; pathname: string; hasContextMenu: boolean }>) {
   const { t } = useI18n();
+  const moreActionsLabel = useMoreActionsLabel();
   const Icon = item.icon;
   return (
     <div
@@ -833,6 +873,7 @@ function SidebarItemContent({ item, isActive, pathname, hasContextMenu }: Readon
                   variant="ghost"
                   size="icon"
                   onClick={(e) => { e.preventDefault(); e.stopPropagation(); item.onJoinCall?.(); }}
+                  aria-label={t.common.sidebarItemMenu.joinCall}
                   className="ml-auto -mr-[2px] text-green-500 hover:bg-green-500/15 p-[5px] rounded-md transition-colors h-auto w-auto"
                 >
                   {item.activeCallType === 'video' ? <Video className="h-3.5 w-3.5" /> : <Phone className="h-3.5 w-3.5" fill="currentColor" />}
@@ -853,14 +894,13 @@ function SidebarItemContent({ item, isActive, pathname, hasContextMenu }: Readon
               className={cn(
                 "absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 transition-opacity opacity-0 group-hover/item:opacity-100 data-[state=open]:opacity-100 hover:bg-muted-foreground/10 rounded-sm z-10"
               )}
+              aria-label={moreActionsLabel(item.title)}
               onClick={(e) => e.stopPropagation()}
             >
               <MoreVertical className="h-3 w-3" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <ActionDropdownItems actions={item.actions} />
-          </DropdownMenuContent>
+          <ActionDropdownContent actions={item.actions} />
         </DropdownMenu>
       )}
       {hasContextMenu && <ColoredItemDropdown item={item} />}
@@ -1188,6 +1228,35 @@ function SidebarMenuGroup({ group, pathname, allMenuItems }: Readonly<SidebarMen
   );
 }
 
+/**
+ * What dnd-kit's live region says while a row is dragged. Its defaults read out
+ * the raw ids ("Draggable item /weldchat/ch_… was dropped over droppable area
+ * …"); these name the rows and groups instead. Rows only move by pointer here.
+ */
+function useSidebarDndAccessibility(menuItems: MenuGroupProps[]) {
+  const { t, format } = useI18n();
+  return React.useMemo(() => {
+    const tm = t.common.sidebarItemMenu;
+    const names = new Map<string, string>();
+    for (const group of menuItems) {
+      if (group.groupKey) names.set(`dropzone:${group.groupKey}`, group.group);
+      for (const item of group.items) names.set(item.href, item.title);
+    }
+    const name = (id: UniqueIdentifier) => names.get(String(id)) ?? '';
+    const announcements: Announcements = {
+      onDragStart: ({ active }) => format(tm.dragStart, { item: name(active.id) }),
+      onDragOver: ({ active, over }) =>
+        over ? format(tm.dragOver, { item: name(active.id), target: name(over.id) }) : undefined,
+      onDragEnd: ({ active, over }) =>
+        over
+          ? format(tm.dragEnd, { item: name(active.id), target: name(over.id) })
+          : format(tm.dragCancel, { item: name(active.id) }),
+      onDragCancel: ({ active }) => format(tm.dragCancel, { item: name(active.id) }),
+    };
+    return { announcements, screenReaderInstructions: { draggable: tm.dragInstructions } };
+  }, [menuItems, t, format]);
+}
+
 export function AppSidebarLayout({
   appName,
   appIcon: AppIcon,
@@ -1276,6 +1345,7 @@ export function AppSidebarLayout({
   const dndSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
   );
+  const dndAccessibility = useSidebarDndAccessibility(menuItems);
 
   /**
    * Cross-group drag-end handler. Activated when any group has both `groupKey` and
@@ -1397,7 +1467,7 @@ export function AppSidebarLayout({
           isScrollable && "[&_[data-sidebar=group]]:pr-0"
         )}
       >
-        <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handleGlobalDragEnd}>
+        <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handleGlobalDragEnd} accessibility={dndAccessibility}>
         {menuItems.map((group, groupIndex) => {
           // Flatten all menu items across all groups for matching logic
           const allMenuItems = menuItems.flatMap(g => g.items);

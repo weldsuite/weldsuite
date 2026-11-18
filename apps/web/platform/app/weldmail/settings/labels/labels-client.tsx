@@ -50,6 +50,7 @@ import {
   useDeleteMailLabel,
 } from '@/hooks/queries/use-mail-queries';
 import { useI18n } from '@/lib/i18n/provider';
+import { isFeatureAvailable } from '@/lib/edition';
 import { DEFAULT_LABEL_COLOR, LABEL_COLORS, type LabelColorValue } from '@/app/weldmail/lib/label-colors';
 
 interface LabelsClientProps {
@@ -528,8 +529,8 @@ export function LabelsClient({ initialLabels, accountId }: Readonly<LabelsClient
               </div>
             </div>
 
-            {/* AI Auto-Labeling Configuration */}
-            <div className="border border-border/60 rounded-lg p-4 mt-4 bg-muted/25">
+            {/* AI Auto-Labeling Configuration: runs on WeldMail's AI (`mail-ai`). */}
+            <div className="border border-border/60 rounded-lg p-4 mt-4 bg-muted/25" hidden={!isFeatureAvailable('mail-ai')}>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5">
                   <Label className="flex items-center gap-2">
@@ -693,8 +694,8 @@ export function LabelsClient({ initialLabels, accountId }: Readonly<LabelsClient
               </Select>
             </div>
 
-            {/* AI Auto-Labeling Configuration */}
-            <div className="border border-border/60 rounded-lg p-4 mt-4 bg-muted/25">
+            {/* AI Auto-Labeling Configuration: runs on WeldMail's AI (`mail-ai`). */}
+            <div className="border border-border/60 rounded-lg p-4 mt-4 bg-muted/25" hidden={!isFeatureAvailable('mail-ai')}>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5">
                   <Label className="flex items-center gap-2">

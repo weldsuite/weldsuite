@@ -62,6 +62,7 @@ import {
   CommandList,
 } from '@weldsuite/ui/components/command';
 import { Calendar } from '@weldsuite/ui/components/calendar';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { runEditorCommand, isEditorCommandActive } from '@weldsuite/ui/lib/editor-commands';
 import { cn } from '@/lib/utils';
 import { MAIL_EDITOR_PARAGRAPH_CLASSES } from '../lib/editor-styles';
@@ -82,6 +83,7 @@ import { RecipientsRow, StringRecipientsRow, type RecipientsRowHandle } from '@/
 import { ComposeLinkButton } from '@/app/weldmail/components/compose-link-button';
 import { SignaturePicker, useComposeSignature } from '@/app/weldmail/components/compose-signature';
 import type { SignatureMode } from '@/app/weldmail/lib/signature';
+import { unfilledPlaceholders } from '@/app/weldmail/lib/compose-placeholders';
 
 /**
  * Pairs each attachment with a stable content-based React key. The same file can
@@ -597,10 +599,19 @@ export function ComposeSurface({
     if (hasRecipient) setRecipientMissing(false);
   }, [hasRecipient]);
 
+  // Nothing fills `{{placeholders}}` in at send time: a mail that still has
+  // some asks before it goes, since the recipient would read them as written.
+  const [unfilled, setUnfilled] = useState<string[]>([]);
+
   const handleSend = () => {
     if (!hasRecipient) {
       setRecipientMissing(true);
       toFieldRef.current?.focus();
+      return;
+    }
+    const placeholders = unfilledPlaceholders(subject, editorRef.current?.textContent);
+    if (placeholders.length > 0) {
+      setUnfilled(placeholders);
       return;
     }
     onSend();
@@ -1148,7 +1159,7 @@ export function ComposeSurface({
                           value={String(scheduledTime?.getHours() ?? new Date().getHours())}
                           onValueChange={(value) => onScheduledTimeChange(scheduleWithHour(scheduledTime, value))}
                         >
-                          <SelectTrigger className="w-[70px] h-9">
+                          <SelectTrigger className="w-[70px] h-9" aria-label={t.mail.a11y.scheduleHour}>
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -1164,7 +1175,7 @@ export function ComposeSurface({
                           value={String(scheduledTime?.getMinutes() ?? Math.min(new Date().getMinutes() + 1, 59))}
                           onValueChange={(value) => onScheduledTimeChange(scheduleWithMinute(scheduledTime, value))}
                         >
-                          <SelectTrigger className="w-[70px] h-9">
+                          <SelectTrigger className="w-[70px] h-9" aria-label={t.mail.a11y.scheduleMinute}>
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -1217,6 +1228,20 @@ export function ComposeSurface({
           </div>
         </div>
       )}
+      <ConfirmDialog
+        open={unfilled.length > 0}
+        onOpenChange={(open) => {
+          if (!open) setUnfilled([]);
+        }}
+        title={t.mail.compose.unfilledPlaceholdersTitle}
+        description={t.mail.compose.unfilledPlaceholdersDescription.replace('{placeholders}', unfilled.join(', '))}
+        confirmLabel={t.mail.compose.sendAnyway}
+        cancelLabel={t.mail.compose.goBack}
+        onConfirm={() => {
+          setUnfilled([]);
+          onSend();
+        }}
+      />
     </div>
   );
 }

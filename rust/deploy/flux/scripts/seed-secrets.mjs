@@ -46,6 +46,7 @@ const KEEP = [
   'weldsuite/server DATABASE_ENCRYPTION_KEY',
   'weldsuite/server DATABASE_ENCRYPTION_KEY_V2',
   'weldsuite/server WELDREACH_WARMUP_KEY',
+  'weldsuite/server WELDPASS_ROOT_KEY',
   'weldsuite/server AI_KEYS_ENCRYPTION_KEY',
   'weldsuite/zitadel MASTERKEY',
   'weldsuite/mta MTA_KEY',

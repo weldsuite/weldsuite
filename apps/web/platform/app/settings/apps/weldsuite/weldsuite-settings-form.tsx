@@ -7,10 +7,11 @@ import { Label } from '@weldsuite/ui/components/label';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { useI18n } from '@/lib/i18n/provider';
 import { useUserPreferences, useUpdateUserPreferences } from '@/hooks/queries/use-settings-queries';
+import { useInstalledApps } from '@/hooks/use-installed-apps';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { AppIcon } from '@/components/app-icon';
 import { HOME_WIDGETS, WIDGETS_BY_MODULE, emptySlots, isWidgetEnabled, isWidgetOffered, type NullableSlot } from '@/lib/home-widgets/registry';
-import { WIDGET_MODULES, type HomeWidgetSlot, type WidgetId, type WidgetModule } from '@/lib/home-widgets/types';
+import { WIDGET_MODULES, type HomeWidgetDefinition, type HomeWidgetSlot, type WidgetId, type WidgetModule } from '@/lib/home-widgets/types';
 
 function readSlotsFrom(prefs: ReturnType<typeof useUserPreferences>['data']): [NullableSlot, NullableSlot] {
   const persisted = prefs?.uiPreferences?.homeWidgets?.slots;
@@ -38,6 +39,11 @@ function SlotEditor({
 }>) {
   const { t } = useI18n();
   const tH = t.weldsuiteHome;
+  const { data: installedApps } = useInstalledApps();
+  // Only widgets of apps this workspace has (their pages are closed otherwise), and the current pick (TASK-1427).
+  const installed = installedApps ? new Set(installedApps.map((app) => app.appCode)) : null;
+  const isPickable = (w: HomeWidgetDefinition) =>
+    isWidgetOffered(w) && (w.module === 'analytics' || !installed || installed.has(w.module) || w.id === value?.widgetId);
 
   const handlePickWidget = (id: string) => {
     if (id === '__clear__') {
@@ -75,7 +81,7 @@ function SlotEditor({
             <SelectContent>
               {WIDGET_MODULES.map((m: WidgetModule) => {
                 // Edition flags (4.F3): only widgets whose module this deployment serves.
-                const widgets = WIDGETS_BY_MODULE[m].filter(isWidgetOffered);
+                const widgets = WIDGETS_BY_MODULE[m].filter(isPickable);
                 if (widgets.length === 0) return null;
                 return (
                   <SelectGroup key={m}>
@@ -105,13 +111,14 @@ function SlotEditor({
         {value && SettingsForm && Preview ? (
           <>
             <div className="min-w-0">
-              <Label className="mb-2 block">{tH.settingsPage.preview}</Label>
+              <Label className="mb-2 block">{tH.settingsPage.settings}</Label>
               <SettingsForm
                 value={value.settings as never}
                 onChange={(next: unknown) => onChange({ widgetId: value.widgetId, settings: next as Record<string, unknown> })}
               />
             </div>
             <div className="min-w-0">
+              <Label className="mb-2 block">{tH.settingsPage.preview}</Label>
               <Preview settings={value.settings as never} />
             </div>
           </>

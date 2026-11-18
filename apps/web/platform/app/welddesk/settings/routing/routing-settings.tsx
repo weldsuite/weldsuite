@@ -54,7 +54,12 @@ export function RoutingSettings() {
     () => ({
       ticketTypes: (attributes?.ticketTypes ?? []).map((type) => ({ value: type.id, label: type.name })),
       teams: teams.filter((team) => team.isActive).map((team) => ({ value: team.id, label: team.name })),
-      members: members.map((member) => ({ value: member.userId, label: member.name })),
+      // The email tells apart teammates who share a name.
+      members: members.map((member) => ({
+        value: member.userId,
+        label: member.name,
+        description: member.email && member.email !== member.name ? member.email : undefined,
+      })),
       tags: (attributes?.tags ?? []).map((tag) => tag.tag),
     }),
     [attributes, teams, members],

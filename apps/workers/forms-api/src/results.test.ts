@@ -340,6 +340,37 @@ describe('insights', () => {
     for (const d of insights.dropOff) expect(d.dropOffRate).toBeGreaterThanOrEqual(0), expect(d.dropOffRate).toBeLessThanOrEqual(1);
   });
 
+  it('does not count a block that logic skipped as reached', async () => {
+    const form = await publishForm(
+      formDefinitionSchema.parse({
+        blocks: [
+          { id: 'b_customer', ref: 'customer', type: 'yes_no', title: 'Are you a customer?', properties: {} },
+          { id: 'b_rating', ref: 'rating', type: 'rating', title: 'Rate us', properties: { steps: 5 } },
+        ],
+        logic: [
+          {
+            blockId: 'b_customer',
+            jumps: [
+              {
+                id: 'j_no',
+                when: { op: 'and', conditions: [{ left: { type: 'field', id: 'b_customer' }, operator: 'is', right: { type: 'constant', value: false } }] },
+                to: { type: 'ending', id: 'e_done' },
+              },
+            ],
+          },
+        ],
+        endings: [{ id: 'e_done', ref: 'thanks', title: 'Thanks' }],
+      }),
+    );
+    await addResponse(form, { answers: { b_customer: false }, startedAt: at(2), submittedAt: at(2, 11) });
+    await addResponse(form, { answers: { b_customer: true, b_rating: 4 }, startedAt: at(2), submittedAt: at(2, 11) });
+
+    const insights = await data<FormInsights>(await results().request(`${FORMS}/${form.id}/insights?from=${at(1, 0).toISOString()}&to=${at(5, 0).toISOString()}`));
+    const drop = (id: string) => insights.dropOff.find((d) => d.blockId === id)!;
+    expect(drop('b_customer')).toMatchObject({ reached: 2, leftHere: 0 });
+    expect(drop('b_rating')).toMatchObject({ reached: 1, leftHere: 0 });
+  });
+
   it('reads at most 400 days back from the end of the range, however early it starts', async () => {
     const form = await publishForm();
     const counters = countersFor(world.env.FORM_COUNTERS, form.id);

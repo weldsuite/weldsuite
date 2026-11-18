@@ -252,6 +252,9 @@ export async function writeThroughToDefaultEntity(
   return { entity: (await getDefaultLegalEntityRow(db)) ?? entity, created: true };
 }
 
+/** The settings fields that live on the legal entity. */
+export type BusinessProfileFields = Pick<SettingsRow, (typeof LEGAL_FIELDS)[number]>;
+
 /**
  * The settings row with the legal fields read from the default entity. The
  * entity wins; a field it leaves empty falls back to the row (a save writes
@@ -259,7 +262,24 @@ export async function writeThroughToDefaultEntity(
  */
 export async function overlayDefaultEntity(db: Database, row: SettingsRow): Promise<SettingsRow> {
   const entity = await getDefaultLegalEntityRow(db);
-  if (!entity) return row;
+  return entity ? overlayEntity(db, entity, row) : row;
+}
+
+/**
+ * The business profile of a workspace that never saved its settings: the
+ * default entity's legal fields (null where it has none), or null without a
+ * default entity. GET answers this instead of null, so the settings form
+ * shows (and a save sends back) what the entity holds rather than empty
+ * fields that would clear it (TASK-1464).
+ */
+export async function defaultEntityProfile(db: Database): Promise<BusinessProfileFields | null> {
+  const entity = await getDefaultLegalEntityRow(db);
+  if (!entity) return null;
+  const empty = Object.fromEntries(LEGAL_FIELDS.map((field) => [field, null])) as BusinessProfileFields;
+  return overlayEntity(db, entity, empty);
+}
+
+async function overlayEntity<T extends BusinessProfileFields>(db: Database, entity: EntityRow, row: T): Promise<T> {
   const registrations = await listRegistrations(db, entity.id);
   const primary = (type: LegalEntityRegistrationType) =>
     registrations.find((r) => r.type === type && r.isPrimary)?.number ?? registrations.find((r) => r.type === type)?.number;

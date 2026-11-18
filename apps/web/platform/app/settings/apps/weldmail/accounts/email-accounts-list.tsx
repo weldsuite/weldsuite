@@ -1,4 +1,5 @@
 import { getTranslations } from '@/lib/i18n';
+import { isFeatureAvailable } from '@/lib/edition';
 import { useMemo, useState, useTransition } from 'react';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@weldsuite/ui/components/tooltip';
@@ -221,7 +222,7 @@ function buildEmailAccountColumns({
             <DropdownMenuTrigger asChild>
               <Button
                 variant="ghost"
-                className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 transition-opacity"
+                className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity"
               >
                 <span className="sr-only">{ta.openMenu}</span>
                 <EllipsisVertical className="h-4 w-4" />
@@ -240,16 +241,19 @@ function buildEmailAccountColumns({
                 <Users className="h-4 w-4 mr-0.5" />
                 {ta.menuManageAccess}
               </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => onAiSettings(account)}
-              >
-                <img
-                  src="/assets/images/weldagent/logo-light.png"
-                  alt="WeldAgent"
-                  className="h-4 w-4 mr-0.5 grayscale opacity-70"
-                />
-                {ta.menuAiSettings}
-              </DropdownMenuItem>
+              {/* AI drafts run on WeldMail's AI (`mail-ai`). */}
+              {isFeatureAvailable('mail-ai') && (
+                <DropdownMenuItem
+                  onClick={() => onAiSettings(account)}
+                >
+                  <img
+                    src="/assets/images/weldagent/logo-light.png"
+                    alt="WeldAgent"
+                    className="h-4 w-4 mr-0.5 grayscale opacity-70"
+                  />
+                  {ta.menuAiSettings}
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem
                 onClick={() => onDelete(account)}
                 className="text-destructive focus:text-destructive focus:bg-destructive/10"

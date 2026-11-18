@@ -313,7 +313,7 @@ describe('WeldForms form Settings tab', () => {
     });
 
     it('patches the opening and closing dates as ISO timestamps, or null when cleared', () => {
-      setup({ settings: { opensAt: '2030-05-01T10:00:00+00:00' } }, 'responses');
+      setup({ settings: { opensAt: '2029-05-01T10:00:00+00:00' } }, 'responses');
       expect(screen.getByTestId('settings-opens-at').textContent).toBe('settings-opens-at:set');
       expect(screen.getByTestId('settings-closes-at').textContent).toBe(ts.noDate);
 
@@ -327,6 +327,17 @@ describe('WeldForms form Settings tab', () => {
       expect(patchSettings).toHaveBeenLastCalledWith({ opensAt: null });
       fireEvent.click(screen.getByTestId('settings-closes-at-clear'));
       expect(patchSettings).toHaveBeenLastCalledWith({ closesAt: null });
+    });
+
+    it('holds back a closing time before the opening time, with an error on it', () => {
+      setup({ settings: { opensAt: '2030-05-01T10:00:00+00:00' } }, 'responses');
+      fireEvent.click(screen.getByTestId('settings-closes-at'));
+      expect(patchSettings).not.toHaveBeenCalled();
+      expect(screen.getByText(ts.closesBeforeOpens)).toBeTruthy();
+      // Clearing the opening time saves both.
+      fireEvent.click(screen.getByTestId('settings-opens-at-clear'));
+      expect(patchSettings).toHaveBeenLastCalledWith({ opensAt: null, closesAt: expect.stringMatching(/^2030-01-02T03:04:00[+-]\d{2}:\d{2}$/) });
+      expect(screen.queryByText(ts.closesBeforeOpens)).toBeNull();
     });
 
     it('treats an unparseable stored date as no date', () => {

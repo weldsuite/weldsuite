@@ -19,11 +19,12 @@
 
 import { Hono } from 'hono';
 import type { Context } from 'hono';
+import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import { and, desc, eq, isNull, like, sql, type SQL } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
-import { createOrderSchema, updateOrderSchema } from '@weldsuite/core-api-client/schemas/orders';
+import { createOrderSchema } from '@weldsuite/core-api-client/schemas/orders';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
@@ -48,9 +49,24 @@ import { calculateCartTaxSchema, calculateOrderTaxSchema } from './calculate-tax
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.orders;
 
+/**
+ * The bodies of `POST /` and `PATCH /:id`: the shared order schema, with
+ * `currency` held to the three characters `orders.currency` stores. A longer
+ * code would otherwise fail at the database as a 500, and an empty one leave
+ * an order with no currency. Kept next to the route because external-api and
+ * mcp-server serve the shared schema too.
+ */
+const createOrderBodySchema = createOrderSchema.extend({ currency: z.string().length(3).optional() });
+const updateOrderBodySchema = createOrderBodySchema.partial();
+
 /** An engine failure as the API answers it: 503 `TAX_ENGINE_UNAVAILABLE`, or 422 `TAX_REQUEST_INVALID` for a request the engine can't place. */
 function taxErrorResponse(c: Context, err: OrderSalesTaxError) {
   return c.json({ error: { code: err.code, message: err.message, details: err.details } }, err.status);
+}
+
+/** The fields a PATCH body carries; a key left `undefined` is not part of the update. */
+function sentFields(data: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(data).filter(([, value]) => value !== undefined));
 }
 
 /** What a stored order holds of its tax after an application, for the response. */
@@ -236,7 +252,7 @@ app.post('/:id/calculate-tax', requirePermission('orders:read'), zValidator('jso
   }
 });
 
-app.post('/', requirePermission('orders:create'), zValidator('json', createOrderSchema), async (c) => {
+app.post('/', requirePermission('orders:create'), zValidator('json', createOrderBodySchema), async (c) => {
   const db = c.get('tenantDb');
   // `calculateTax` is a request flag, not an order column.
   const { calculateTax, ...data } = c.req.valid('json') as Record<string, any>;
@@ -276,7 +292,7 @@ app.post('/', requirePermission('orders:create'), zValidator('json', createOrder
   }
 });
 
-app.patch('/:id', requirePermission('orders:update'), zValidator('json', updateOrderSchema), async (c) => {
+app.patch('/:id', requirePermission('orders:update'), zValidator('json', updateOrderBodySchema), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   // `calculateTax` is a request flag, not an order column.
@@ -284,8 +300,7 @@ app.patch('/:id', requirePermission('orders:update'), zValidator('json', updateO
   try {
     const [existing] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
     if (!existing) return error.notFound(c, 'Order', id);
-    const update: Record<string, any> = { updatedAt: new Date() };
-    for (const [k, v] of Object.entries(data)) if (v !== undefined) update[k] = v;
+    const update: Record<string, any> = { updatedAt: new Date(), ...sentFields(data) };
 
     // Tax first, on the order as it will be after this write: an engine failure refuses the update.
     let tax: OrderSalesTaxResult | undefined;

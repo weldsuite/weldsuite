@@ -191,14 +191,21 @@ config:
     region: us-east-1
     # Everything a member or signer must be authorised to read.
     privateBucket: weldsuite-private
-    # Read only, for objects stored before the private bucket (optional).
+    # Public objects: avatars, logos, product images, social media, chat
+    # attachments and published documents (the workers' STORAGE bucket), and
+    # objects stored before the private bucket. Without one, those uploads
+    # answer 500 "Storage is not configured". It may stay private at the
+    # store: without publicUrl this server serves it (S3_PUBLIC_VIA_SERVER) at
+    # <config.publicUrl>/api/storage/public.
     publicBucket: ""
     # Path-style URLs; MinIO, RustFS, Garage and endpoints reached by IP need them.
     forcePathStyle: false
-    # Where browsers read public objects (avatars, logos, published
-    # documents), e.g. https://files.weldsuite.example.com: S3_PUBLIC_URL.
-    # Unset, public object links point at Global's test bucket host, and the
-    # server warns at start.
+    # Where browsers read public objects, when the bucket has a public
+    # endpoint of its own, e.g. https://files.weldsuite.example.com:
+    # S3_PUBLIC_URL (and the modules' R2_PUBLIC_URL). Unset with a
+    # publicBucket, this server serves it (above); unset without one, public
+    # object links point at Global's test bucket host, and the server warns
+    # at start.
     publicUrl: ""
   # Durable jobs (the workers' Workflows) on Restate. Leave ingressUrl empty
   # to run jobs inside the server process instead (lost on a restart; fine
@@ -987,8 +994,10 @@ mailInbound:
   # the EU edition.
   bucket: weldsuite-mail
   # Inbound attachments and new contacts' avatars go to config.files'
-  # publicBucket, served at this URL (the workers' R2_PUBLIC_URL). Empty: a
-  # message keeps no attachments, as the worker without STORAGE.
+  # publicBucket, served at this URL (the workers' R2_PUBLIC_URL). Ignored
+  # when config.files has a public URL (its publicUrl, or this server's with
+  # a publicBucket), which is used instead. Empty without either: a message
+  # keeps no attachments, as the worker without STORAGE.
   publicUrl: ""
   # The largest message accepted, in bytes (Cloudflare Email Routing's 25 MiB).
   maxMessageBytes: 26214400

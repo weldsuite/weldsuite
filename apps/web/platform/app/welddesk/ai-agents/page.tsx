@@ -24,6 +24,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@weldsuite/ui/components/dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { toast } from 'sonner';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { Link } from '@/lib/router';
@@ -56,6 +57,7 @@ export default function VoiceAgentsPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<DeskVoiceAgent | null>(null);
   const [form, setForm] = useState(emptyForm);
+  const [deleteTarget, setDeleteTarget] = useState<DeskVoiceAgent | null>(null);
 
   const { data: agents = [], isLoading } = useQuery({
     queryKey: ['desk', 'phone', 'agents'],
@@ -98,6 +100,7 @@ export default function VoiceAgentsPage() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['desk', 'phone', 'agents'] });
+      setDeleteTarget(null);
       toast.success(tv.deleted);
     },
     onError: (err: Error) => toast.error(err.message || tv.deleteFailed),
@@ -183,8 +186,9 @@ export default function VoiceAgentsPage() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => deleteMutation.mutate(agent.id)}
+                      onClick={() => setDeleteTarget(agent)}
                       disabled={deleteMutation.isPending}
+                      aria-label={format(tv.deleteAria, { name: agent.name })}
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -263,6 +267,19 @@ export default function VoiceAgentsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(next) => !next && setDeleteTarget(null)}
+        title={tv.deleteTitle}
+        description={format(tv.deleteDescription, { name: deleteTarget?.name ?? '' })}
+        confirmLabel={tv.deleteConfirm}
+        variant="destructive"
+        loading={deleteMutation.isPending}
+        onConfirm={() => {
+          if (deleteTarget) deleteMutation.mutate(deleteTarget.id);
+        }}
+      />
     </div>
   );
 }

@@ -9,6 +9,7 @@
  */
 
 import { Hono } from 'hono';
+import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
@@ -20,6 +21,13 @@ import { schema } from '@weldsuite/worker-kit/db';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.chatDrafts;
+
+// A draft belongs to a channel (or to none). An empty channel id is not a
+// channel: every composer that couldn't resolve its channel would share that
+// one draft, so its text turned up in every record's composer (TASK-1461).
+const channelIdSchema = z.string().min(1).nullish();
+const createDraftBody = createChatDraftSchema.extend({ channelId: channelIdSchema });
+const updateDraftBody = updateChatDraftSchema.extend({ channelId: channelIdSchema });
 
 /** SQL condition: the draft has text or at least one attachment. */
 const hasDraftBody = sql`(
@@ -97,7 +105,7 @@ app.get('/:id', requirePermission('channels:read'), async (c) => {
   }
 });
 
-app.post('/', requirePermission('channels:read'), zValidator('json', createChatDraftSchema), async (c) => {
+app.post('/', requirePermission('channels:read'), zValidator('json', createDraftBody), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.get('userId');
   // chat_drafts.workspace_id holds the Clerk org id (workspace-id plan).
@@ -141,7 +149,7 @@ app.post('/', requirePermission('channels:read'), zValidator('json', createChatD
   }
 });
 
-app.patch('/:id', requirePermission('channels:read'), zValidator('json', updateChatDraftSchema), async (c) => {
+app.patch('/:id', requirePermission('channels:read'), zValidator('json', updateDraftBody), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.get('userId');
   const id = c.req.param('id');

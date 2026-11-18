@@ -241,6 +241,7 @@ export const weldbooksUsSalesTaxDocuments = {
     atLeastOneLine: 'Add at least one line',
     customerRequired: 'Choose a customer',
     dateRequired: 'Pick a date',
+    endBeforeNextIssue: 'The end date can not be before the next issue date',
     descriptionRequired: 'Enter a description',
     finalizeFailedTitle: 'The invoice was created but not finalized',
     finalizeFailed: '{message} The invoice stays a draft. Open it to fix the problem and finalize it.',

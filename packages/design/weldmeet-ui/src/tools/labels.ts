@@ -33,6 +33,9 @@ export interface MeetingToolsLabels {
     qa: string;
     qaDescription: string;
     qaOpen: string;
+    /** The Record row the viewer cannot use (another participant is the host). */
+    record: string;
+    recordDescription: string;
   };
   timer: {
     hostHint: string;
@@ -178,6 +181,8 @@ export const DEFAULT_MEETING_TOOLS_LABELS: MeetingToolsLabels = {
     qa: 'Q&A',
     qaDescription: 'Ask and answer questions',
     qaOpen: 'Open questions: {count}',
+    record: 'Record',
+    recordDescription: 'Capture the meeting',
   },
   timer: {
     hostHint: 'Everyone in the meeting sees the countdown.',

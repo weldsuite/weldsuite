@@ -288,8 +288,7 @@ const PRIORITY_SORT_ORDER = ['low', 'medium', 'high', 'urgent', 'critical'];
 // own width rather than the viewport's: below 820px the status column (the
 // groups already say it) and the counts go, below 560px the assignee goes too
 // and what is left tightens up. Header and row cells share these classes so
-// they stay aligned. They are only applied in entity mode; outside it there is
-// no `@container`, and the project board keeps its full layout.
+// they stay aligned.
 const ENTITY_HIDE_WHEN_COMPACT = '@max-[820px]:hidden';
 const ENTITY_HIDE_WHEN_NARROW = '@max-[560px]:hidden';
 const ENTITY_NARROW_TITLE = '@max-[560px]:min-w-0';
@@ -298,14 +297,27 @@ const ENTITY_NARROW_DUE = '@max-[560px]:w-[68px]';
 const ENTITY_NARROW_ACTIONS = '@max-[560px]:w-[28px]';
 const ENTITY_NARROW_GAP = '@max-[560px]:gap-2';
 
-/** An entity-mode container-query class, or none outside entity mode. */
-function entityOnly(isEntityMode: boolean, cls: string): string | undefined {
-  return isEntityMode ? cls : undefined;
+// The project board gets narrow too: next to the open project chat on a
+// 1280px screen it is under 500px wide, and the assignee and part of the due
+// date fell off its clipped right edge. Below 560px it drops the counts and the
+// assignee and tightens up like entity mode, but keeps the status (its groups
+// need not be statuses). From md up only: phones wrap the row instead.
+const PROJECT_HIDE_WHEN_NARROW = 'md:@max-[560px]:hidden';
+const PROJECT_NARROW_TITLE = 'md:@max-[560px]:min-w-0';
+const PROJECT_NARROW_STATUS = 'md:@max-[560px]:w-[96px]';
+const PROJECT_NARROW_PRIORITY = 'md:@max-[560px]:w-[80px]';
+const PROJECT_NARROW_DUE = 'md:@max-[560px]:w-[68px]';
+const PROJECT_NARROW_ACTIONS = 'md:@max-[560px]:w-[28px]';
+const PROJECT_NARROW_GAP = 'md:@max-[560px]:gap-2';
+
+/** The entity-mode or the project-mode container-query class. */
+function byMode(isEntityMode: boolean, entityCls: string, projectCls: string): string {
+  return isEntityMode ? entityCls : projectCls;
 }
 
-/** Makes the board a size container in entity mode; a no-op wrapper elsewhere. */
-function EntityContainerScope({ enabled, children }: Readonly<{ enabled: boolean; children: React.ReactNode }>) {
-  return enabled ? <div className="@container min-w-0 w-full">{children}</div> : <>{children}</>;
+/** Makes the board a size container, so its columns follow its own width (see above). */
+function EntityContainerScope({ children }: Readonly<{ children: React.ReactNode }>) {
+  return <div className="@container min-w-0 w-full">{children}</div>;
 }
 
 function toCrmTask(
@@ -1721,11 +1733,11 @@ export function TasksClient({
   // Header columns
   const headerColumns: HeaderColumn[] = useMemo(() => [
     { id: 'checkbox', header: t.projects.tasks.headerTask, width: 'w-4 flex-shrink-0' },
-    { id: 'task', header: '', width: cn('min-w-[200px] flex-1', entityOnly(isEntityMode, ENTITY_NARROW_TITLE)) },
-    { id: 'status', header: t.projects.tasks.headerStatus, width: cn('w-[120px]', entityOnly(isEntityMode, ENTITY_HIDE_WHEN_COMPACT)), sortable: true },
-    { id: 'priority', header: t.projects.tasks.headerPriority, width: cn('w-[100px]', entityOnly(isEntityMode, ENTITY_NARROW_PRIORITY)), sortable: true },
-    { id: 'dueDate', header: t.projects.tasks.headerDue, width: cn('w-[100px]', entityOnly(isEntityMode, ENTITY_NARROW_DUE)), sortable: true },
-    { id: 'assignee', header: t.projects.tasks.headerAssignee, width: cn('w-[120px]', entityOnly(isEntityMode, ENTITY_HIDE_WHEN_NARROW)), sortable: true },
+    { id: 'task', header: '', width: cn('min-w-[200px] flex-1', byMode(isEntityMode, ENTITY_NARROW_TITLE, PROJECT_NARROW_TITLE)) },
+    { id: 'status', header: t.projects.tasks.headerStatus, width: cn('w-[120px]', byMode(isEntityMode, ENTITY_HIDE_WHEN_COMPACT, PROJECT_NARROW_STATUS)), sortable: true },
+    { id: 'priority', header: t.projects.tasks.headerPriority, width: cn('w-[100px]', byMode(isEntityMode, ENTITY_NARROW_PRIORITY, PROJECT_NARROW_PRIORITY)), sortable: true },
+    { id: 'dueDate', header: t.projects.tasks.headerDue, width: cn('w-[100px]', byMode(isEntityMode, ENTITY_NARROW_DUE, PROJECT_NARROW_DUE)), sortable: true },
+    { id: 'assignee', header: t.projects.tasks.headerAssignee, width: cn('w-[120px]', byMode(isEntityMode, ENTITY_HIDE_WHEN_NARROW, PROJECT_HIDE_WHEN_NARROW)), sortable: true },
   ], [t, isEntityMode]);
 
   // Render a single task row (reused for top-level and subtask rows). `depth`
@@ -1749,7 +1761,7 @@ export function TasksClient({
           // Phones: let the metadata columns wrap under the title instead of
           // running past the viewport edge (the list container clips overflow).
           "relative flex items-center gap-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer group max-md:flex-wrap max-md:gap-x-3 max-md:gap-y-1.5",
-          entityOnly(isEntityMode, ENTITY_NARROW_GAP),
+          byMode(isEntityMode, ENTITY_NARROW_GAP, PROJECT_NARROW_GAP),
           !isSubtask && "border-b border-gray-200/70 dark:border-border",
           isVisuallyDone && !isCompleting && "opacity-50",
           isCompleting && "task-completing-inner"
@@ -1777,7 +1789,7 @@ export function TasksClient({
         </div>
 
         {/* Task Title */}
-        <div className={cn("min-w-[200px] flex-1 flex items-center gap-2 max-md:min-w-0 max-md:basis-[calc(100%-2rem)]", entityOnly(isEntityMode, ENTITY_NARROW_TITLE))}>
+        <div className={cn("min-w-[200px] flex-1 flex items-center gap-2 max-md:min-w-0 max-md:basis-[calc(100%-2rem)]", byMode(isEntityMode, ENTITY_NARROW_TITLE, PROJECT_NARROW_TITLE))}>
           {task.number != null && (
             <TaskNumberBadge number={task.number} className="h-[18px] flex-shrink-0 py-0" />
           )}
@@ -1813,12 +1825,12 @@ export function TasksClient({
         </div>
 
         {/* Attachments & Subtask count */}
-        <div className={cn("w-[60px] flex justify-end gap-1 max-md:w-auto max-md:empty:hidden", entityOnly(isEntityMode, ENTITY_HIDE_WHEN_COMPACT))}>
+        <div className={cn("w-[60px] flex justify-end gap-1 max-md:w-auto max-md:empty:hidden", byMode(isEntityMode, ENTITY_HIDE_WHEN_COMPACT, PROJECT_HIDE_WHEN_NARROW))}>
           <TaskCountBadges task={task} />
         </div>
 
         {/* Status */}
-        <div className={cn("relative z-[1] w-[120px] max-md:w-auto", entityOnly(isEntityMode, ENTITY_HIDE_WHEN_COMPACT))}>
+        <div className={cn("relative z-[1] w-[120px] max-md:w-auto", byMode(isEntityMode, ENTITY_HIDE_WHEN_COMPACT, PROJECT_NARROW_STATUS))}>
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className={cn("-translate-y-[1.5px] inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 transition-shadow", statusFallback.color, statusFallback.bg)}>
@@ -1838,7 +1850,7 @@ export function TasksClient({
         </div>
 
         {/* Priority */}
-        <div className={cn("relative z-[1] w-[100px] max-md:w-auto", entityOnly(isEntityMode, ENTITY_NARROW_PRIORITY))}>
+        <div className={cn("relative z-[1] w-[100px] max-md:w-auto", byMode(isEntityMode, ENTITY_NARROW_PRIORITY, PROJECT_NARROW_PRIORITY))}>
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className={cn("-translate-y-[1.5px] inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 transition-shadow", priority.color, priority.bg)}>
@@ -1862,7 +1874,7 @@ export function TasksClient({
         </div>
 
         {/* Due Date */}
-        <div className={cn("relative z-[1] w-[100px] max-md:w-auto", entityOnly(isEntityMode, ENTITY_NARROW_DUE))}>
+        <div className={cn("relative z-[1] w-[100px] max-md:w-auto", byMode(isEntityMode, ENTITY_NARROW_DUE, PROJECT_NARROW_DUE))}>
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className="h-auto text-sm cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 rounded px-1 py-0.5 transition-shadow">
@@ -1897,7 +1909,7 @@ export function TasksClient({
         </div>
 
         {/* Assignee(s) */}
-        <div className={cn("relative z-[1] w-[120px] max-md:w-auto", entityOnly(isEntityMode, ENTITY_HIDE_WHEN_NARROW))}>
+        <div className={cn("relative z-[1] w-[120px] max-md:w-auto", byMode(isEntityMode, ENTITY_HIDE_WHEN_NARROW, PROJECT_HIDE_WHEN_NARROW))}>
           <Popover>
             <PopoverTrigger asChild>
               <Button
@@ -1923,11 +1935,16 @@ export function TasksClient({
         </div>
 
         {/* Actions - only show for users with write permission */}
-        <div className={cn("relative z-[1] w-[40px] flex justify-end", entityOnly(isEntityMode, ENTITY_NARROW_ACTIONS))}>
+        <div className={cn("relative z-[1] w-[40px] flex justify-end", byMode(isEntityMode, ENTITY_NARROW_ACTIONS, PROJECT_NARROW_ACTIONS))}>
           {canWrite && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label={t.projects.tasks.rowActions.replace('{name}', task.title)}
+                  className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent"
+                >
                   <EllipsisVertical className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
@@ -2091,14 +2108,14 @@ export function TasksClient({
           items={sortedTasks.map(t => t.id)}
           strategy={verticalListSortingStrategy}
         >
-          <EntityContainerScope enabled={isEntityMode}>
+          <EntityContainerScope>
           <EntityList<Task>
             items={sortedTasks}
             onDisplayedItemsChange={reportDisplayedTasks}
             isLoading={false}
             error={null}
             headerColumns={headerColumns}
-            columnGap={isEntityMode ? `gap-4 ${ENTITY_NARROW_GAP}` : undefined}
+            columnGap={isEntityMode ? `gap-4 ${ENTITY_NARROW_GAP}` : `gap-4 ${PROJECT_NARROW_GAP}`}
             filters={filterConfigs}
             groups={groupConfigs}
             maxFilters={5}
@@ -2317,7 +2334,15 @@ export function TasksClient({
         open={pendingDeleteId !== null}
         onOpenChange={(open) => { if (!open) setPendingDeleteId(null); }}
         title={st('sweep.entities.deleteTask')}
-        description={st('sweep.entities.deleteTaskConfirmDescription')}
+        description={(() => {
+          // Name the task (a top-level row or a subtask shown under one).
+          const pending = pendingDeleteId
+            ? [...tasks, ...Object.values(inlineSubtasks).flat()].find((task) => task.id === pendingDeleteId)
+            : undefined;
+          return pending?.title
+            ? st('sweep.entities.deleteTaskConfirmNamed', { name: pending.title })
+            : st('sweep.entities.deleteTaskConfirmDescription');
+        })()}
         confirmLabel={st('sweep.entities.deleteTask')}
         cancelLabel={st('common.actions.cancel')}
         variant="destructive"

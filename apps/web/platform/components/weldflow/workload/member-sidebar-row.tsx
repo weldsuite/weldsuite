@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
+import { initials } from '@/components/record-comments/comment-parts';
 
 export interface MemberSidebarRowProps {
   name: string;
@@ -49,7 +50,8 @@ export function MemberSidebarRow({
         </span>
         <Avatar className="-ml-1 h-[30px] w-[30px]">
           {image ? <AvatarImage src={image} /> : null}
-          <AvatarFallback className="text-xs">{(name || '?').slice(0, 2)}</AvatarFallback>
+          {/* The initials of the first two words, as the other avatars show them ("Ann Lee" → "AL"). */}
+          <AvatarFallback className="text-xs">{initials(name)}</AvatarFallback>
         </Avatar>
         <span className="-ml-1 block min-w-0 flex-1 -space-y-px">
           <span className="block truncate text-sm font-medium">{name}</span>

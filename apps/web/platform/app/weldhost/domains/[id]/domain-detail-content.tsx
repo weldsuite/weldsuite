@@ -525,7 +525,7 @@ export function DomainDetailContent({
         </div>
       </div>
 
-      {/* Body — main column with tabs + content + 750px sidebar */}
+      {/* Body — main column with tabs + content + details sidebar */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* Left: tabs and content */}
         <div className="flex-1 flex flex-col min-h-0 min-w-0">
@@ -734,7 +734,8 @@ export function DomainDetailContent({
                         </p>
                       </div>
                       <Switch
-                        checked={autoRenew}
+                        // An external domain renews at its own registrar, never here: off.
+                        checked={!isExternalDomain && autoRenew}
                         onCheckedChange={setAutoRenew}
                         disabled={isExternalDomain}
                       />
@@ -768,8 +769,10 @@ export function DomainDetailContent({
           </div>
         </div>
 
-        {/* Right Sidebar — 750px, mirrors /crm/customers/[id] sidebar exactly */}
-        <div className="w-[750px] flex-shrink-0 bg-background flex flex-col">
+        {/* Right Sidebar. A fixed 750px left the main column 198px at a 1280px
+            window (TASK-1433): narrower, and only from lg up, where the tabs
+            and the DNS records still get most of the room. */}
+        <div className="hidden lg:flex w-80 xl:w-96 flex-shrink-0 bg-background flex-col">
           <div>
             <PageTabs
               tabs={[{ id: 'details', label: td.details, icon: ListCollapse }]}
@@ -835,6 +838,10 @@ function YesNo({ enabled, td }: { enabled: boolean; td: CommonTranslations }) {
 type DomainDetailTranslations = ReturnType<typeof useI18n>['t']['host']['domainDetail'];
 type CommonTranslations = ReturnType<typeof useI18n>['t']['host']['common'];
 
+function NotApplicable({ td }: Readonly<{ td: DomainDetailTranslations }>) {
+  return <StatusPill kind="muted">{td.notApplicable}</StatusPill>;
+}
+
 function DomainSidebarDetails({
   domain,
   dnsZone,
@@ -850,6 +857,8 @@ function DomainSidebarDetails({
   const fullDomain = domain.fullDomain || `${domain.name}.${domain.tld}`;
   const days = daysUntil(domain.expiresAt);
   const statusKind = domainStatusKind(domain.status);
+  // Its own registrar renews and locks an external domain, not WeldSuite.
+  const isExternal = isExternalDomainRegistrar(domain.registrar);
 
   const nameservers: string[] =
     (Array.isArray(domain.nameservers) && domain.nameservers.length > 0
@@ -968,7 +977,7 @@ function DomainSidebarDetails({
         <div className="flex items-center gap-3">
           <RefreshCcw className="h-4 w-4 text-muted-foreground" />
           <span className="text-sm text-muted-foreground w-32">{td.autoRenew}</span>
-          <YesNo enabled={!!domain.autoRenew} td={tc} />
+          {isExternal ? <NotApplicable td={td} /> : <YesNo enabled={!!domain.autoRenew} td={tc} />}
         </div>
         <div className="flex items-center gap-3">
           <ShieldCheck className="h-4 w-4 text-muted-foreground" />
@@ -988,7 +997,7 @@ function DomainSidebarDetails({
         <div className="flex items-center gap-3">
           <Lock className="h-4 w-4 text-muted-foreground" />
           <span className="text-sm text-muted-foreground w-32">{td.transferLock}</span>
-          <YesNo enabled={!!domain.locked} td={tc} />
+          {isExternal ? <NotApplicable td={td} /> : <YesNo enabled={!!domain.locked} td={tc} />}
         </div>
       </div>
 

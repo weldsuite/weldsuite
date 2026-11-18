@@ -5,11 +5,13 @@ import { fireEvent, render, screen } from '@testing-library/react';
 const state = vi.hoisted(() => ({
   navigate: vi.fn(),
   members: [] as Array<Record<string, string>>,
+  dms: [] as Array<{ otherMembers: Array<{ userId: string }>; lastMessageAt: string | null }>,
 }));
 
 vi.mock('@tanstack/react-router', () => ({ useNavigate: () => state.navigate }));
 vi.mock('@/hooks/queries/use-weldchat-queries', () => ({
   useWorkspaceMembers: () => ({ data: { data: state.members }, isLoading: false }),
+  useDmChannels: () => ({ data: { data: state.dms } }),
 }));
 vi.mock('@/contexts/presence-context', () => ({ usePresence: () => ({ presenceMap: {} }) }));
 vi.mock('@/contexts/breadcrumb-context', () => ({ useBreadcrumbs: () => {} }));
@@ -38,6 +40,7 @@ beforeEach(() => {
     { id: 'mbr_ann', userId: 'user_ann', name: 'Ann', email: 'ann@example.com', status: 'ACTIVE' },
     { id: 'mbr_bob', userId: 'invited_bob@example.com', name: 'Bob', email: 'bob@example.com', status: 'PENDING' },
   ];
+  state.dms = [];
 });
 
 describe('WeldChat directory', () => {
@@ -58,5 +61,22 @@ describe('WeldChat directory', () => {
     expect(row?.textContent).toContain('Invited');
     fireEvent.click(name);
     expect(state.navigate).not.toHaveBeenCalled();
+  });
+
+  it('tells two people with the same name apart by their address', () => {
+    state.members = [
+      { id: 'mbr_a', userId: 'user_a', name: 'Sam', email: 'sam@one.example', status: 'ACTIVE' },
+      { id: 'mbr_b', userId: 'user_b', name: 'Sam', email: 'sam@two.example', status: 'ACTIVE' },
+    ];
+    render(<DirectoriesPage />);
+    expect(screen.getByText('sam@one.example')).toBeTruthy();
+    expect(screen.getByText('sam@two.example')).toBeTruthy();
+  });
+
+  it('shows the last message in the DM as last activity', () => {
+    state.dms = [{ otherMembers: [{ userId: 'user_ann' }], lastMessageAt: new Date(Date.now() - 5 * 60_000).toISOString() }];
+    render(<DirectoriesPage />);
+    const row = screen.getByText('Ann').closest('button');
+    expect(row?.textContent).toContain('sweep.weldchat.relativeTime.minutesAgo');
   });
 });

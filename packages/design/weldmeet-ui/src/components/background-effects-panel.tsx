@@ -92,11 +92,27 @@ const ABSTRACT_BACKGROUNDS = [
   { label: 'Minimal Lines', url: 'https://images.unsplash.com/photo-1553356084-58ef4a67b2a7?w=1920&q=80' },
 ];
 
+/** The stock galleries, loaded from images.unsplash.com. */
+const STOCK_GALLERIES = [
+  { title: 'Professional', images: PROFESSIONAL_BACKGROUNDS },
+  { title: 'Nature', images: NATURE_BACKGROUNDS },
+  { title: 'Cozy home', images: COZY_BACKGROUNDS },
+  { title: 'City', images: CITY_BACKGROUNDS },
+  { title: 'Abstract', images: ABSTRACT_BACKGROUNDS },
+];
+
 export interface BackgroundEffectsPanelProps {
   backgroundType: VirtualBackgroundType;
   backgroundValue: string | null;
   isLoading?: boolean;
   isOpen: boolean;
+  /**
+   * Offer the stock backgrounds (default true). They load from
+   * images.unsplash.com, so a deployment that must not contact third parties
+   * (the EU and self-hosted editions) turns them off: blur and an uploaded
+   * image stay.
+   */
+  stockImages?: boolean;
   localParticipant?: MeetingPeer;
   onApplyBlur: (intensity?: number) => void | Promise<void>;
   onApplyImage: (url: string) => void | Promise<void>;
@@ -179,6 +195,7 @@ export function BackgroundEffectsPanel({
   backgroundValue,
   isLoading = false,
   isOpen,
+  stockImages = true,
   localParticipant,
   onApplyBlur,
   onApplyImage,
@@ -292,45 +309,15 @@ export function BackgroundEffectsPanel({
             </div>
           </div>
 
-          {/* Professional */}
-          <div className="p-4 border-b">
-            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Professional</span>
-            <div className="mt-3">
-              <BackgroundGrid images={PROFESSIONAL_BACKGROUNDS} backgroundType={backgroundType} backgroundValue={backgroundValue} isLoading={isLoading} onApplyImage={onApplyImage} />
+          {/* Stock galleries: Professional, Nature, Cozy home, City, Abstract */}
+          {stockImages && STOCK_GALLERIES.map((gallery, index) => (
+            <div key={gallery.title} className={cn('p-4', index < STOCK_GALLERIES.length - 1 && 'border-b')}>
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{gallery.title}</span>
+              <div className="mt-3">
+                <BackgroundGrid images={gallery.images} backgroundType={backgroundType} backgroundValue={backgroundValue} isLoading={isLoading} onApplyImage={onApplyImage} />
+              </div>
             </div>
-          </div>
-
-          {/* Nature */}
-          <div className="p-4 border-b">
-            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Nature</span>
-            <div className="mt-3">
-              <BackgroundGrid images={NATURE_BACKGROUNDS} backgroundType={backgroundType} backgroundValue={backgroundValue} isLoading={isLoading} onApplyImage={onApplyImage} />
-            </div>
-          </div>
-
-          {/* Cozy home */}
-          <div className="p-4 border-b">
-            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Cozy home</span>
-            <div className="mt-3">
-              <BackgroundGrid images={COZY_BACKGROUNDS} backgroundType={backgroundType} backgroundValue={backgroundValue} isLoading={isLoading} onApplyImage={onApplyImage} />
-            </div>
-          </div>
-
-          {/* City */}
-          <div className="p-4 border-b">
-            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">City</span>
-            <div className="mt-3">
-              <BackgroundGrid images={CITY_BACKGROUNDS} backgroundType={backgroundType} backgroundValue={backgroundValue} isLoading={isLoading} onApplyImage={onApplyImage} />
-            </div>
-          </div>
-
-          {/* Abstract */}
-          <div className="p-4">
-            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Abstract</span>
-            <div className="mt-3">
-              <BackgroundGrid images={ABSTRACT_BACKGROUNDS} backgroundType={backgroundType} backgroundValue={backgroundValue} isLoading={isLoading} onApplyImage={onApplyImage} />
-            </div>
-          </div>
+          ))}
         </div>
       </div>
     </div>

@@ -214,10 +214,10 @@ function IntegrationCard({
         <CardDescription className="text-xs line-clamp-2">{def.description}</CardDescription>
         <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
           <span>
-            {ti.actionCount.replace('{count}', String(def.actions.length))}
+            {(def.actions.length === 1 ? ti.actionCountOne : ti.actionCount).replace('{count}', String(def.actions.length))}
           </span>
           <span>
-            {ti.triggerCount.replace('{count}', String(def.triggers.length))}
+            {(def.triggers.length === 1 ? ti.triggerCountOne : ti.triggerCount).replace('{count}', String(def.triggers.length))}
           </span>
         </div>
         {hasError && connection?.lastError && (

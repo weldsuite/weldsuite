@@ -20,7 +20,7 @@ import { Textarea } from '@weldsuite/ui/components/textarea';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrAttendanceRecord, HrAttendanceStatus } from '@weldsuite/app-api-client/domains/weldhr';
 import { useCreateHrAttendance, useHrEmployee, useUpdateHrAttendance } from '@/hooks/queries/use-weldhr-queries';
-import { EmployeePicker, errorMessage, formatDate, instantAt, minutesAfter, todayIso } from '../../components/shared';
+import { EmployeePicker, errorMessage, formatDate, formatMinutes, instantAt, minutesAfter, todayIso } from '../../components/shared';
 import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 
@@ -149,6 +149,12 @@ export function AttendanceRecordDialog({
               {endsNextDay && <p className="text-xs text-muted-foreground">{t('weldhr.attendance.records.form.nextDay')}</p>}
             </div>
           </div>
+          {/* An overnight record is easy to make by swapping the times: say what it adds up to (TASK-1471). */}
+          {endsNextDay && spanMinutes !== null && (
+            <InfoBanner variant="warning">
+              {t('weldhr.attendance.records.form.nextDayWarning', { duration: formatMinutes(spanMinutes) })}
+            </InfoBanner>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <div className="min-w-0 space-y-1.5">

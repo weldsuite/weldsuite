@@ -164,6 +164,29 @@ describe('WeldKnow page title', () => {
     expect(fakeEditor.focus).toHaveBeenCalled();
   });
 
+  it('shows a rename made from the sidebar without a reload', () => {
+    page.title = 'Onboarding Guide';
+    const { rerender } = render(<PageView pageId="kpag_1" />);
+    page = { ...page, title: 'Day One' };
+    rerender(<PageView pageId="kpag_1" />);
+
+    expect(titleField().value).toBe('Day One');
+    // The rename is now the saved title: leaving the field saves nothing over it.
+    fireEvent.blur(titleField());
+    expect(updateMetaMutate).not.toHaveBeenCalled();
+  });
+
+  it('keeps a title being typed when the stored title changes underneath it', () => {
+    page.title = 'Onboarding Guide';
+    const { rerender } = render(<PageView pageId="kpag_1" />);
+    titleField().focus();
+    fireEvent.change(titleField(), { target: { value: 'Onboarding Guide v2' } });
+    page = { ...page, title: 'Day One' };
+    rerender(<PageView pageId="kpag_1" />);
+
+    expect(titleField().value).toBe('Onboarding Guide v2');
+  });
+
   it('a locked page neither focuses nor edits the title', () => {
     page.isLocked = true;
     render(<PageView pageId="kpag_1" />);

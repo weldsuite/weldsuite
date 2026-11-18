@@ -49,6 +49,24 @@ describe('useDraftAutosave', () => {
     expect(mocks.deleteAsync).not.toHaveBeenCalled();
   });
 
+  it('neither saves nor restores a draft while there is no channel (TASK-1461)', async () => {
+    mocks.drafts = [{ id: 'd_empty', channelId: '', threadParentMessageId: null, content: 'other screen', attachments: null }];
+    const onRestore = vi.fn();
+    const { rerender, unmount } = renderHook(
+      ({ content }: { content: string }) =>
+        useDraftAutosave({ channelId: '', content, attachments: [], onRestore }),
+      { initialProps: { content: '' } },
+    );
+    await vi.advanceTimersByTimeAsync(600);
+    expect(onRestore).not.toHaveBeenCalled();
+    rerender({ content: 'e2e-b' });
+    await vi.advanceTimersByTimeAsync(600);
+    unmount();
+    await vi.advanceTimersByTimeAsync(600);
+    expect(mocks.upsertAsync).not.toHaveBeenCalled();
+    expect(mocks.deleteAsync).not.toHaveBeenCalled();
+  });
+
   it('saves typed text after the debounce', async () => {
     const { rerender } = render('');
     rerender({ content: 'hello' });

@@ -25,6 +25,7 @@ export const welddocs = {
     untitled: 'Untitled document',
     rename: 'Rename',
     renamePrompt: 'Document name',
+    moreActions: 'Actions for {name}',
     delete: 'Delete',
     deleteTitle: 'Delete document?',
     deletePermanently: '"{name}" will be deleted. This cannot be undone.',

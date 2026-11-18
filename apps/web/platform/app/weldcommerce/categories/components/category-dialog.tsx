@@ -14,6 +14,7 @@ import {
   type CommerceCategory,
 } from '@/hooks/queries/use-commerce-queries';
 import { Button } from '@weldsuite/ui/components/button';
+import { FieldError } from '@weldsuite/ui/components/field';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { Textarea } from '@weldsuite/ui/components/textarea';
@@ -21,6 +22,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { toast } from 'sonner';
 import { getTranslations } from '@/lib/i18n';
+import { commerceSchemaOptions, optionalNumber, optionalText } from '../../lib/form';
 
 type FormValues = z.input<typeof createProductCategorySchema>;
 
@@ -50,7 +52,7 @@ export function CategoryDialog({
   const { data: tree } = useCommerceCategoryTree();
 
   const form = useForm<FormValues>({
-    resolver: zodResolver(createProductCategorySchema),
+    resolver: zodResolver(createProductCategorySchema, commerceSchemaOptions()),
     defaultValues: category
       ? {
           name: category.name,
@@ -62,6 +64,7 @@ export function CategoryDialog({
         }
       : { name: '', isActive: true },
   });
+  const { errors } = form.formState;
 
   // A category can't be its own parent. Its descendants are excluded too:
   // re-parenting under your own child is the cycle the API rejects, and an
@@ -101,31 +104,39 @@ export function CategoryDialog({
         <DialogHeader>
           <DialogTitle>{isEdit ? t.categories.editTitle : t.categories.newTitle}</DialogTitle>
         </DialogHeader>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-3">
+        <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-3" noValidate>
           <div className="grid gap-1.5">
             <Label htmlFor="name">{t.fields.name}</Label>
-            <Input id="name" {...form.register('name')} />
-            {form.formState.errors.name && (
-              <p className="text-xs text-destructive">{String(form.formState.errors.name.message ?? '')}</p>
-            )}
+            <Input id="name" aria-invalid={!!errors.name || undefined} {...form.register('name')} />
+            <FieldError className="text-xs" errors={[errors.name]} />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-1.5">
               <Label htmlFor="slug">{t.fields.slug}</Label>
-              <Input id="slug" {...form.register('slug')} />
+              {/* Blank: the API derives the slug from the name. */}
+              <Input id="slug" aria-invalid={!!errors.slug || undefined} {...form.register('slug', optionalText)} />
+              <FieldError className="text-xs" errors={[errors.slug]} />
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="position">{t.fields.position}</Label>
-              <Input id="position" type="number" {...form.register('position', { valueAsNumber: true })} />
+              <Input
+                id="position"
+                type="number"
+                step="1"
+                aria-invalid={!!errors.position || undefined}
+                {...form.register('position', optionalNumber)}
+              />
+              <FieldError className="text-xs" errors={[errors.position]} />
             </div>
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="parentId">{t.fields.parent}</Label>
             <Select
               defaultValue={category?.parentId ?? NO_PARENT}
-              onValueChange={(v) => form.setValue('parentId', v === NO_PARENT ? undefined : v)}
+              // `null` (not undefined) so an edit can move a category back to the top level.
+              onValueChange={(v) => form.setValue('parentId', v === NO_PARENT ? null : v)}
             >
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger id="parentId"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value={NO_PARENT}>{t.categories.noParent}</SelectItem>
                 {parentOptions.map((c) => (
@@ -143,6 +154,7 @@ export function CategoryDialog({
           <div className="grid gap-1.5">
             <Label htmlFor="description">{t.fields.description}</Label>
             <Textarea id="description" rows={3} {...form.register('description')} />
+            <FieldError className="text-xs" errors={[errors.description]} />
           </div>
           <p className="text-xs text-muted-foreground">{t.categories.automatedHint}</p>
           <DialogFooter>

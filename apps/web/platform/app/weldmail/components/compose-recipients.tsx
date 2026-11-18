@@ -367,6 +367,7 @@ function ToRecipientsInput({
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
+                aria-label={t.mail.a11y.recipientOptions.replace('{email}', email)}
                 onClick={(e) => e.stopPropagation()}
                 onKeyDown={(e) => {
                   if (e.key !== 'Backspace' && e.key !== 'Delete') return;

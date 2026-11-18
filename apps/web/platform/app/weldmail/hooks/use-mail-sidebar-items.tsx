@@ -48,6 +48,7 @@ import { Label } from '@weldsuite/ui/components/label';
 import { Switch } from '@weldsuite/ui/components/switch';
 import { Textarea } from '@weldsuite/ui/components/textarea';
 import { Slider } from '@weldsuite/ui/components/slider';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import {
   Tooltip,
   TooltipContent,
@@ -81,6 +82,7 @@ import { getLabelColor } from '@/components/shared/conversation-list';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
+import { isFeatureAvailable } from '@/lib/edition';
 import { DEFAULT_LABEL_COLOR, LABEL_COLORS, type LabelColorValue } from '@/app/weldmail/lib/label-colors';
 
 function KeywordTagInput({
@@ -246,6 +248,8 @@ export function useMailSidebarItems(isActive: boolean): {
   // Edit label dialog state
   const [showEditLabelDialog, setShowEditLabelDialog] = useState(false);
   const [editingLabel, setEditingLabel] = useState<MailTypes.Label | null>(null);
+  // The label whose deletion waits for confirmation.
+  const [deletingLabel, setDeletingLabel] = useState<MailTypes.Label | null>(null);
   const [editLabelName, setEditLabelName] = useState('');
   const [editLabelColor, setEditLabelColor] = useState('');
   const [editAiEnabled, setEditAiEnabled] = useState(false);
@@ -533,6 +537,23 @@ export function useMailSidebarItems(isActive: boolean): {
     if (!resolvedAccountId) return '#';
     return `/weldmail/${resolvedAccountId}${path}`;
   };
+  const labelPath = (label: MailTypes.Label) => getMailUrl(`/${encodeURIComponent(label.name.toLowerCase())}`);
+
+  // The mails keep everything else; only the label goes. Its own view closes.
+  const handleDeleteLabel = async () => {
+    const label = deletingLabel;
+    if (!label?.id) return;
+    try {
+      await mailLabels.delete(label.id);
+      setLocalLabels((prev) => prev.filter((l) => l.id !== label.id));
+      void queryClient.invalidateQueries({ queryKey: mailKeys.labelsAll() });
+      toast.success(t.mail.settingsLabels.labelDeletedSuccessfully);
+      setDeletingLabel(null);
+      if (pathname === labelPath(label)) router.push(getMailUrl('/inbox'));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t.mail.settingsLabels.failedToDeleteLabel);
+    }
+  };
 
   const importantMailboxItems: Array<{
     title: string;
@@ -648,7 +669,7 @@ export function useMailSidebarItems(isActive: boolean): {
       <div key={`labels-content-${resolvedAccountId || 'none'}`}>
         <SidebarMenu>
           {localLabels.map((label) => {
-            const labelHref = getMailUrl(`/${encodeURIComponent(label.name.toLowerCase())}`);
+            const labelHref = labelPath(label);
             const isLabelActive = pathname === labelHref;
             const color = getLabelColor(label.name, label.color ? { [label.name]: label.color } : undefined);
             const labelKey = label.name.toLowerCase();
@@ -663,7 +684,7 @@ export function useMailSidebarItems(isActive: boolean): {
                 <SidebarMenuButton
                   asChild
                   isActive={isLabelActive}
-                  className="transition-[width,height] group-hover/label:bg-sidebar-accent group-hover/label:text-sidebar-accent-foreground group-hover/label:pr-7 group-has-[[data-state=open]]/label:bg-sidebar-accent group-has-[[data-state=open]]/label:text-sidebar-accent-foreground group-has-[[data-state=open]]/label:pr-7"
+                  className="transition-[width,height] group-hover/label:bg-sidebar-accent group-hover/label:text-sidebar-accent-foreground group-hover/label:pr-7 group-focus-within/label:pr-7 group-has-[[data-state=open]]/label:bg-sidebar-accent group-has-[[data-state=open]]/label:text-sidebar-accent-foreground group-has-[[data-state=open]]/label:pr-7"
                 >
                   <Link
                     href={labelHref}
@@ -686,7 +707,7 @@ export function useMailSidebarItems(isActive: boolean): {
                     </span>
                     <span className="truncate">{label.name}</span>
                     {label.count > 0 && (
-                      <span className="ml-auto px-1 text-xs font-medium tabular-nums text-sidebar-foreground group-hover/label:hidden group-has-[[data-state=open]]/label:hidden">{label.count}</span>
+                      <span className="ml-auto px-1 text-xs font-medium tabular-nums text-sidebar-foreground group-hover/label:hidden group-focus-within/label:hidden group-has-[[data-state=open]]/label:hidden">{label.count}</span>
                     )}
                   </Link>
                 </SidebarMenuButton>
@@ -695,7 +716,7 @@ export function useMailSidebarItems(isActive: boolean): {
                     <Button aria-label={t.mail.a11y.labelOptions}
                       variant="ghost"
                       size="icon"
-                      className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 hover:bg-black/[0.05] dark:hover:bg-black/20 data-[state=open]:bg-black/[0.05] dark:data-[state=open]:bg-black/20 rounded-md hidden group-hover/label:flex data-[state=open]:flex"
+                      className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 hover:bg-black/[0.05] dark:hover:bg-black/20 data-[state=open]:bg-black/[0.05] dark:data-[state=open]:bg-black/20 rounded-md hidden group-hover/label:flex group-focus-within/label:flex data-[state=open]:flex"
                       onClick={(e) => e.stopPropagation()}
                     >
                       <MoreVertical className="h-3.5 w-3.5" />
@@ -709,9 +730,7 @@ export function useMailSidebarItems(isActive: boolean): {
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
                       variant="destructive"
-                      onClick={() => {
-                        // TODO: delete label via core-api
-                      }}
+                      onClick={() => setDeletingLabel(label)}
                     >
                       <Trash2 className="h-3.5 w-3.5 mr-0.5" />
                       {t.mail.sidebar.delete}
@@ -869,7 +888,8 @@ export function useMailSidebarItems(isActive: boolean): {
             </div>
           </div>
 
-          <div className="pt-4 mt-2">
+          {/* AI auto-labeling runs on WeldMail's AI (`mail-ai`). */}
+          <div className="pt-4 mt-2" hidden={!isFeatureAvailable('mail-ai')}>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
                 <Label className="flex items-center gap-2">
@@ -877,7 +897,7 @@ export function useMailSidebarItems(isActive: boolean): {
                   {t.mail.sidebar.agentAutoLabeling}
                 </Label>
               </div>
-              <Switch checked={editAiEnabled} onCheckedChange={setEditAiEnabled} />
+              <Switch checked={editAiEnabled} onCheckedChange={setEditAiEnabled} aria-label={t.mail.sidebar.agentAutoLabeling} />
             </div>
 
             <div className={`grid transition-all duration-300 ease-in-out ${editAiEnabled ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
@@ -993,8 +1013,8 @@ export function useMailSidebarItems(isActive: boolean): {
             </div>
           </div>
 
-          {/* Agent Auto-Labeling Configuration */}
-          <div className="pt-4 mt-2">
+          {/* Agent Auto-Labeling Configuration: runs on WeldMail's AI (`mail-ai`). */}
+          <div className="pt-4 mt-2" hidden={!isFeatureAvailable('mail-ai')}>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
                 <Label className="flex items-center gap-2">
@@ -1012,7 +1032,7 @@ export function useMailSidebarItems(isActive: boolean): {
                   </TooltipContent>
                 </Tooltip>
               </div>
-              <Switch checked={aiEnabled} onCheckedChange={setAiEnabled} />
+              <Switch checked={aiEnabled} onCheckedChange={setAiEnabled} aria-label={t.mail.sidebar.agentAutoLabeling} />
             </div>
 
             <div className={`grid transition-all duration-300 ease-in-out ${aiEnabled ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
@@ -1104,6 +1124,19 @@ export function useMailSidebarItems(isActive: boolean): {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    <ConfirmDialog
+      open={deletingLabel !== null}
+      onOpenChange={(open) => {
+        if (!open) setDeletingLabel(null);
+      }}
+      title={t.mail.settingsLabels.confirmDeleteTitle}
+      description={t.mail.settingsLabels.confirmDeleteDescription.replace('{name}', deletingLabel?.name ?? '')}
+      confirmLabel={t.mail.settingsLabels.delete}
+      cancelLabel={t.mail.sidebar.cancel}
+      variant="destructive"
+      onConfirm={handleDeleteLabel}
+    />
     </>
   );
 

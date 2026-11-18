@@ -323,6 +323,9 @@ export function PhoneNumberSettingsClient({
   const router = useRouter();
   const ts = getTranslations('settings');
   const tp = ts.phoneNumbers;
+  // Where numbers can't be bought or ported, say so rather than "activate first".
+  let noNumbersHint = isConfigured ? tp.noNumbersConfigured : tp.noNumbersUnconfigured;
+  if (!isFeatureAvailable('phone-number-purchase')) noNumbersHint = tp.noNumbersPurchaseUnavailable;
   const [phoneNumbers, setPhoneNumbers] = useState(initialPhoneNumbers);
   const [selectedNumber, setSelectedNumber] = useState<VoipPhoneNumber | null>(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
@@ -550,11 +553,7 @@ export function PhoneNumberSettingsClient({
                 <TableRow>
                   <TableCell colSpan={columns.length} className="h-24 text-center">
                     <p className="text-sm font-medium">{tp.noNumbers}</p>
-                    <p className="text-xs mt-1 text-muted-foreground">
-                      {isConfigured
-                        ? tp.noNumbersConfigured
-                        : tp.noNumbersUnconfigured}
-                    </p>
+                    <p className="text-xs mt-1 text-muted-foreground">{noNumbersHint}</p>
                   </TableCell>
                 </TableRow>
               )}

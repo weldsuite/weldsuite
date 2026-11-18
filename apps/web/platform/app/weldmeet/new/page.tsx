@@ -436,7 +436,8 @@ export default function NewMeetingPage() {
               defaultTitle={scheduleSeed?.title}
               defaultDescription={scheduleSeed?.description}
               defaultGuests={scheduleDefaultGuests}
-              defaultWeldMeet={!!scheduleSeed}
+              // Scheduled from WeldMeet: the event is a meeting, so it gets a WeldMeet link.
+              defaultWeldMeet
               calendars={calendars}
               defaultCalendarId={calendars[0]?.id}
               onClose={closeSchedule}

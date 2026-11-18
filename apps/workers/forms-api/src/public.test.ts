@@ -905,6 +905,22 @@ describe('POST /sessions/submit', () => {
     expect(await db.select().from(schema.formResponses).where(eq(schema.formResponses.status, 'completed'))).toHaveLength(0);
   });
 
+  it('counts only the time it saw between start and submit: forged timings do not help, waiting does', async () => {
+    const w = newWorld({ FORMS_MIN_FILL_MS: '60000' });
+    const { publicId } = await publish(simpleDefinition(), {}, w);
+    const p = portal(w);
+    holdClock();
+    const session = await start(p, publicId);
+    // A script on a brand-new session that claims a day on the form.
+    const forged = await submit(p, session, { b_name: 'Bot' }, { timings: { b_name: 86_400_000 } });
+    expect([forged.status, (await errorOf(forged)).code]).toEqual([400, 'SUBMISSION_REJECTED']);
+    // A quick respondent: the page started the session at the first answer and submits once the minimum has passed.
+    vi.setSystemTime(new Date('2026-06-01T09:01:01.000Z'));
+    const res = await submit(p, session, { b_name: 'Ada' }, { timings: { b_name: 1_000 } });
+    expect(res.status).toBe(200);
+    expect(await db.select().from(schema.formResponses).where(eq(schema.formResponses.status, 'completed'))).toHaveLength(1);
+  });
+
   it('moves uploads to the form folder, refuses another response\'s file and drops unused ones', async () => {
     const { form, publicId } = await publish(uploadDefinition());
     const p = portal();

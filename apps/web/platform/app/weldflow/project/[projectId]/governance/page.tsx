@@ -321,14 +321,14 @@ function ReportActions({
   onError: () => void;
 }>) {
   const copy = useCopy();
-  const { t } = useI18n();
+  const { t, plural } = useI18n();
   const refresh = useRefreshStatusReport();
   const publish = usePublishStatusReport();
   const discard = useDeleteStatusReport();
   const create = useCreateStatusReport();
   const [confirming, setConfirming] = useState<'discard' | 'publish' | null>(null);
   const draft = report.status === 'draft';
-  const publishLabel = fill(copy.report.publishTo, { count: report.resolvedRecipients.length });
+  const publishLabel = plural(report.resolvedRecipients.length, copy.report.publishTo);
   return (
     <>
       {editable ? (
@@ -409,14 +409,15 @@ function ReportEditor({ id, manage, onGone, onOpen }: Readonly<{ id: string; man
 
   return (
     <div className="flex flex-col">
-      {/* The report's header row: the standard toolbar row, as a list's top bar and the analytics report header. */}
-      <div className="flex h-[53px] shrink-0 items-center justify-between gap-4 border-b border-border px-3 pt-2 pb-2 md:px-4">
+      {/* The report's header row: the standard toolbar row, as a list's top bar and the analytics report header.
+          On a narrow page (the project chat open) the actions wrap under the title instead of covering it. */}
+      <div className="flex min-h-[53px] shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border px-3 py-2 md:px-4">
         <div className="flex min-w-0 items-center gap-2">
           <h2 className="shrink-0 text-sm font-medium">{report.period}</h2>
           <ListPill className="shrink-0 bg-muted text-foreground/80">{copy.status[report.status]}</ListPill>
           <p className="hidden truncate text-sm text-muted-foreground md:block">{headerNote}</p>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <ReportActions
             id={id}
             report={report}

@@ -5,7 +5,7 @@ import { StatusDot } from '@weldsuite/ui/components/status-dot';
 import { usePresence } from '@/contexts/presence-context';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useNavigate } from '@tanstack/react-router';
-import { useWorkspaceMembers } from '@/hooks/queries/use-weldchat-queries';
+import { useDmChannels, useWorkspaceMembers } from '@/hooks/queries/use-weldchat-queries';
 import { getTranslations } from '@/lib/i18n';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { cn } from '@/lib/utils';
@@ -66,6 +66,20 @@ export default function DirectoriesPage() {
   const { data: membersData, isLoading: membersLoading } = useWorkspaceMembers();
   const rawMembers = useMemo(() => membersData?.data ?? [], [membersData]);
 
+  // "Last activity" is the last message in your DM with them: the members list
+  // carries no activity of its own.
+  const { data: dmsData } = useDmChannels();
+  const lastDmMessageAt = useMemo(() => {
+    const byUser = new Map<string, Date>();
+    for (const dm of dmsData?.data ?? []) {
+      const others = dm.otherMembers ?? [];
+      const [other] = others;
+      if (!other || others.length !== 1 || !dm.lastMessageAt) continue;
+      byUser.set(other.userId, new Date(dm.lastMessageAt));
+    }
+    return byUser;
+  }, [dmsData]);
+
   const items: DirectoryItem[] = useMemo(() => {
     const allPeople: DirectoryItem[] = rawMembers.map((m) => ({
       id: `person:${m.id}`,
@@ -74,7 +88,7 @@ export default function DirectoriesPage() {
       picture: m.picture,
       status: m.status,
       userId: m.userId ?? m.id,
-      lastMessageAt: m.lastMessageAt ? new Date(m.lastMessageAt) : null,
+      lastMessageAt: lastDmMessageAt.get(m.userId ?? m.id) ?? (m.lastMessageAt ? new Date(m.lastMessageAt) : null),
       isInvited: isPendingInvitee(m),
     }));
 
@@ -88,7 +102,7 @@ export default function DirectoriesPage() {
             (p.email ?? '').toLowerCase().includes(q),
         )
       : allPeople;
-  }, [rawMembers, debouncedSearch, st]);
+  }, [rawMembers, lastDmMessageAt, debouncedSearch, st]);
 
   const headerColumns: HeaderColumn[] = useMemo(() => [
     { id: 'name', header: t.directoriesPage?.nameHeader ?? 'Name', width: 'flex-1 min-w-0' },
@@ -119,6 +133,10 @@ export default function DirectoriesPage() {
             <span className="text-sm font-medium text-gray-900 dark:text-foreground block truncate">
               {item.name}
             </span>
+            {/* Two people can share a name; the address tells them apart. */}
+            {item.email && item.email !== item.name && (
+              <span className="text-xs text-muted-foreground block truncate">{item.email}</span>
+            )}
           </span>
         </span>
 
@@ -171,6 +189,7 @@ export default function DirectoriesPage() {
       error={null}
       headerColumns={headerColumns}
       filters={[]}
+      hideFilter
       renderRow={renderRow}
       searchPlaceholder={t.directoriesPage?.searchPlaceholder ?? 'Search directories...'}
       searchFields={['name', 'email']}

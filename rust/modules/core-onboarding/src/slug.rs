@@ -61,6 +61,7 @@ const RESERVED_SLUGS: &[&str] = &[
     "weldreach",
     "weldsheets",
     "weldsign",
+    "weldsocial",
     "weldstash",
     "assets",
     "email",

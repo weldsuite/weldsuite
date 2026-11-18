@@ -763,6 +763,7 @@ mod tests {
                 weldsuite_db::WorkspaceConfig::default(),
             )),
             identity: None,
+            plan_seat_limits: true,
         }
     }
 

@@ -79,6 +79,7 @@ pub(crate) async fn test_integration(ctx: &Ctx, row: &Value) -> FormsResult<Valu
     let access = load_creator_access(&ctx.db, ctx.env(), text(row, "createdByUserId")).await?;
     let template = TemplateContext {
         env: ctx.env(),
+        clerk_org_id: &ctx.clerk_org_id,
         form: &form,
         response: &response,
         definition: &definition,

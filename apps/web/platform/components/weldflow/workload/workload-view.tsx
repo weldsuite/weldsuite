@@ -44,6 +44,7 @@ import { Label } from '@weldsuite/ui/components/label';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useDateLocale } from '@/lib/i18n/date-locale';
 import { dailyLoad, loadCategory, spreadTaskLoad } from './workload-math';
+import { initials } from '@/components/record-comments/comment-parts';
 import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
 
 // Internal types derived from API data
@@ -1232,7 +1233,7 @@ export function WorkloadView({ initialData, error, projectId, leading }: Readonl
                     </span>
                     <Avatar className="h-6 w-6">
                       {member.image && <AvatarImage src={member.image} />}
-                      <AvatarFallback className="text-[10px]">{member.name.slice(0, 2)}</AvatarFallback>
+                      <AvatarFallback className="text-[10px]">{initials(member.name)}</AvatarFallback>
                     </Avatar>
                     <span className="text-sm font-medium flex-1 truncate">{member.name}</span>
                     <span className={cn(

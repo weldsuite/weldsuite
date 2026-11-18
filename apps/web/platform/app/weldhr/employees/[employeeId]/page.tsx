@@ -3,6 +3,7 @@
 import { useCallback, useState } from 'react';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import { MoreHorizontal } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@weldsuite/ui/components/button';
 import {
   DropdownMenu,
@@ -121,7 +122,7 @@ export default function WeldHrEmployeeDetailPage() {
           (canUpdate || canDelete) && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm">
+                <Button variant="outline" size="sm" aria-label={t('weldhr.common.actions')}>
                   <MoreHorizontal className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
@@ -168,6 +169,7 @@ export default function WeldHrEmployeeDetailPage() {
           onConfirm={async () => {
             await deleteEmployee.mutateAsync(employeeId);
             setDialog(null);
+            toast.success(t('weldhr.employees.detail.deletedToast'));
             void navigate({ to: '/weldhr/employees' });
           }}
         />

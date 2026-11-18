@@ -349,8 +349,10 @@ fn read_order_tax(issues: &mut Issues, fields: &Map<String, Value>) -> (bool, Ta
     )
 }
 
-/// `createOrderSchema` (`.passthrough()`; `updateOrderSchema` is the same,
-/// every field already optional): the body as it came.
+/// `createOrderBodySchema` (`createOrderSchema`, `.passthrough()`, with
+/// `currency` held to `z.string().length(3)`, the three characters the column
+/// stores; `updateOrderBodySchema` is the same, every field already
+/// optional): the body as it came.
 fn read_order(issues: &mut Issues, fields: &Map<String, Value>) -> Map<String, Value> {
     issues.text_with(
         fields,
@@ -366,12 +368,11 @@ fn read_order(issues: &mut Issues, fields: &Map<String, Value>) -> Map<String, V
         Presence::Optional,
         Text::length(None, Some(30)),
     );
-    issues.text_with(
-        fields,
-        "currency",
-        Presence::Optional,
-        Text::length(None, Some(10)),
-    );
+    if let Field::Set(currency) =
+        issues.text_with(fields, "currency", Presence::Optional, Text::default())
+    {
+        issues.string_length("currency", 3, currency.encode_utf16().count());
+    }
     for key in ["subtotal", "taxTotal", "total"] {
         issues.string_or_number(fields, key, Presence::Optional);
     }

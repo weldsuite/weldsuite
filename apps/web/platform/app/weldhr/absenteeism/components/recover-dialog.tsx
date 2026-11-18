@@ -50,6 +50,7 @@ export function RecoverDialog({
         toast.success(t('weldhr.absenteeism.form.recoveredToast'));
       } else {
         await recoverAbsence.mutateAsync({ id: absence.id, endDate });
+        toast.success(t('weldhr.absenteeism.form.recoveredOtherToast', { name: employeeName ?? '' }));
       }
       onClose();
     } catch (err) {

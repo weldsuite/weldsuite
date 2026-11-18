@@ -523,6 +523,7 @@ function ScreenShareOptionsMenu({
         <Button
           variant={isScreenSharing ? 'default' : 'secondary'}
           size="icon"
+          aria-label="Screen share options"
           className={cn(
             "group/arrow relative h-12 w-[30px] rounded-none rounded-r-[18px] border-0 px-0 hidden md:flex items-center justify-center transition-colors",
             isScreenSharing

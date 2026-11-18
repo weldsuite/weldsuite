@@ -257,7 +257,8 @@ export function AppAccessRequestDialog({ app, open, onOpenChange, onSubmitted }:
                       <FormLabel>{t('reach.access.form.listSource')}</FormLabel>
                       <Select value={field.value} onValueChange={field.onChange}>
                         <FormControl>
-                          <SelectTrigger className="w-full">
+                          {/* The answers are long: let the chosen one wrap instead of clipping it. */}
+                          <SelectTrigger className="w-full min-h-9 py-1.5 text-left whitespace-normal data-[size=default]:h-auto *:data-[slot=select-value]:line-clamp-none">
                             <SelectValue />
                           </SelectTrigger>
                         </FormControl>

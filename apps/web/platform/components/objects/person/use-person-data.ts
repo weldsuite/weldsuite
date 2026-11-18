@@ -19,7 +19,7 @@ import { useTopic } from '@weldsuite/realtime/react';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { isModuleOffered } from '@/lib/edition';
 import { invalidateOnboardingChecklist } from '@/hooks/queries/use-onboarding-checklist';
-import { buildQueryString } from '@weldsuite/api-client';
+import { buildQueryString, isApiError } from '@weldsuite/api-client';
 import type {
   Person,
   CreatePersonInput,
@@ -317,7 +317,10 @@ export function useUpdatePerson() {
     },
     onError: (err) => {
       console.error('[People] update failed:', err);
-      toast.error(t('sweep.entities.updatePersonFailed'));
+      // A refused value (400): say why, the API's message names the field (TASK-1463).
+      toast.error(t('sweep.entities.updatePersonFailed'), {
+        description: isApiError(err) && err.status === 400 ? err.message : undefined,
+      });
     },
   });
 }

@@ -1,6 +1,7 @@
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Building2, User } from 'lucide-react';
 import type { ColumnDef } from '@/components/panel-entity-list';
+import { LIST_PRIMARY_COLUMN } from '@/app/weldcommerce/products/config/product-columns';
 import { getTranslations } from '@/lib/i18n';
 import type { CustomerRow } from './customer-row';
 
@@ -10,7 +11,7 @@ export function buildCustomerColumns(): ColumnDef<CustomerRow>[] {
     {
       id: 'name',
       header: t.fields.name,
-      width: 'flex-1',
+      width: LIST_PRIMARY_COLUMN,
       render: (c) => (
         <span className="flex items-center gap-2 min-w-0">
           {c.kind === 'company' ? (
@@ -25,7 +26,7 @@ export function buildCustomerColumns(): ColumnDef<CustomerRow>[] {
     {
       id: 'kind',
       header: t.fields.type,
-      width: 'w-[120px]',
+      width: 'hidden @5xl/list:block w-[120px]',
       render: (c) => (
         <Badge variant="outline">
           {c.kind === 'company' ? t.customers.kindCompany : t.customers.kindPerson}
@@ -35,19 +36,19 @@ export function buildCustomerColumns(): ColumnDef<CustomerRow>[] {
     {
       id: 'email',
       header: t.fields.email,
-      width: 'w-[220px]',
+      width: 'hidden @lg/list:block w-[220px]',
       render: (c) => <span className="text-muted-foreground truncate block">{c.email ?? '—'}</span>,
     },
     {
       id: 'phone',
       header: t.fields.phone,
-      width: 'w-[150px]',
+      width: 'hidden @4xl/list:block w-[150px]',
       render: (c) => <span className="text-muted-foreground">{c.phone ?? '—'}</span>,
     },
     {
       id: 'subtitle',
       header: t.customers.roleOrIndustry,
-      width: 'w-[170px]',
+      width: 'hidden @6xl/list:block w-[170px]',
       render: (c) => (
         <span className="text-muted-foreground truncate block">{c.subtitle ?? '—'}</span>
       ),
@@ -55,7 +56,7 @@ export function buildCustomerColumns(): ColumnDef<CustomerRow>[] {
     {
       id: 'status',
       header: t.fields.status,
-      width: 'w-[130px]',
+      width: 'hidden @2xl/list:block w-[130px]',
       render: (c) =>
         c.status ? (
           <Badge variant="outline" className="capitalize">

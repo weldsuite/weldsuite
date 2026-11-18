@@ -19,7 +19,13 @@ import { ErrorState } from '@weldsuite/ui/components/error-banner';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@weldsuite/ui/components/sheet';
 import { SoftBadge, type SoftTone } from '@weldsuite/ui/components/soft-badge';
+import { useEntitySheet } from '@/components/entity-sheet';
+import { VALID_TYPES } from '@/components/entity-sheet/url-param';
+import type { EntitySheetType } from '@/components/entity-sheet/types';
+import { usePerson } from '@/components/objects/person/use-person-data';
+import { isModuleOffered } from '@/lib/edition';
 import { useI18n } from '@/lib/i18n/provider';
+import { Link } from '@/lib/router';
 import {
   saveBlob,
   useDeleteFormResponse,
@@ -50,7 +56,9 @@ export function ResponseDrawer({
   const response = query.data;
 
   let body: ReactNode;
-  if (query.isLoading) body = <PageLoader fullScreen={false} className="min-h-60" />;
+  // Closing (also after a delete): nothing to load, and no error to flash while the sheet slides away.
+  if (responseId === null) body = null;
+  else if (query.isLoading) body = <PageLoader fullScreen={false} className="min-h-60" />;
   else if (query.error || !response) body = <ErrorState message={td.loadFailed} onRetry={() => void query.refetch()} />;
   else body = <DrawerBody form={form} response={response} onDeleted={onClose} />;
 
@@ -61,7 +69,7 @@ export function ResponseDrawer({
           <SheetTitle>
             {response?.number != null ? format(td.title, { number: response.number }) : td.titleNoNumber}
           </SheetTitle>
-          <SheetDescription className="sr-only">{td.title}</SheetDescription>
+          <SheetDescription className="sr-only">{td.description}</SheetDescription>
         </SheetHeader>
         <div className="px-4 pb-6">{body}</div>
       </SheetContent>
@@ -167,8 +175,8 @@ function DrawerBody({
       <Section title={td.respondent}>
         <Rows
           rows={[
-            [td.respondent, respondent ?? (form.settings.hideMemberIdentity ? tr.responses.anonymous : dash)],
-            ...(response.personId ? ([[td.person, response.personId]] as Array<[string, ReactNode]>) : []),
+            [td.answeredBy, respondent ?? (form.settings.hideMemberIdentity ? tr.responses.anonymous : dash)],
+            ...(response.personId ? ([[td.person, <PersonLink key="person" id={response.personId} />]] as Array<[string, ReactNode]>) : []),
           ]}
         />
       </Section>
@@ -209,11 +217,7 @@ function DrawerBody({
                     </Button>
                   )}
                 </div>
-                {action.entityType && action.entityId && (
-                  <p className="text-xs text-muted-foreground">
-                    {action.entityType} · {action.entityId}
-                  </p>
-                )}
+                {action.entityType && action.entityId && <ActionEntity type={action.entityType} id={action.entityId} />}
                 {action.error && <p className="break-words text-xs text-destructive">{action.error}</p>}
                 {action.attempts > 1 && <p className="text-xs text-muted-foreground">{format(td.attempts, { count: action.attempts })}</p>}
               </li>
@@ -299,6 +303,40 @@ function AnswerList({
         );
       })}
     </dl>
+  );
+}
+
+/** A CRM person by name, linking to their panel; the id until (or unless) the name loads. */
+function PersonLink({ id }: Readonly<{ id: string }>) {
+  const { data } = usePerson(id, isModuleOffered('crm'));
+  return (
+    <Link href={`/weldcrm/people?stack=person:${encodeURIComponent(id)}:panel`} className="text-primary hover:underline">
+      {data?.data?.displayName || id}
+    </Link>
+  );
+}
+
+/** What an integration made: a person by name, a record the entity sheet can show as a link, else its type and id. */
+function ActionEntity({ type, id }: Readonly<{ type: string; id: string }>) {
+  const { open } = useEntitySheet();
+  if (type === 'person') {
+    return (
+      <p className="text-xs">
+        <PersonLink id={id} />
+      </p>
+    );
+  }
+  if (VALID_TYPES.has(type)) {
+    return (
+      <button type="button" className="text-xs text-primary hover:underline" onClick={() => open(type as EntitySheetType, id)}>
+        {type} · {id}
+      </button>
+    );
+  }
+  return (
+    <p className="text-xs text-muted-foreground">
+      {type} · {id}
+    </p>
   );
 }
 

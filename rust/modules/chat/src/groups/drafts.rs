@@ -126,8 +126,10 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
 }
 
 /// `createChatDraftSchema` (passthrough): the body as validated, every key kept.
+/// The route narrows `channelId` to `.min(1)`: an empty id is no channel, and
+/// every composer that failed to resolve its channel would share that draft.
 fn read_draft(issues: &mut Issues, body: &Map<String, Value>) -> Map<String, Value> {
-    let _ = issues.text(body, "channelId", Presence::Nullish, None, None);
+    let _ = issues.text(body, "channelId", Presence::Nullish, Some(1), None);
     let _ = issues.text(body, "body", Presence::Optional, None, None);
     body.clone()
 }

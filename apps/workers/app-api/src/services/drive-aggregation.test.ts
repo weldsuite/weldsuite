@@ -251,7 +251,7 @@ describe('purging a document or spreadsheet removes its R2 snapshots too', () =>
     const folderId = generateId('fld');
     await db.insert(schema.folders).values({ id: folderId, name: 'Gone', deletedAt: new Date() });
     const { docFile, sheetFile } = await seedTrashedSnapshots('folder-purge', folderId);
-    await purgeFolder(db, folderId);
+    await purgeFolder(db, [folderId]);
     expect(await db.select().from(schema.files).where(eq(schema.files.folderId, folderId))).toEqual([]);
     expect(await db.select().from(schema.docs).where(eq(schema.docs.fileId, docFile))).toEqual([]);
     expect(await db.select().from(schema.sheets).where(eq(schema.sheets.fileId, sheetFile))).toEqual([]);

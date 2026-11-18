@@ -28,6 +28,7 @@ export const weldboard = {
     untitled: 'Naamloos bord',
     rename: 'Naam wijzigen',
     renamePrompt: 'Naam van het bord',
+    moreActions: 'Acties voor {name}',
     duplicate: 'Kopie maken',
     copyOf: 'Kopie van {name}',
     delete: 'Verwijderen',

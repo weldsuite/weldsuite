@@ -131,6 +131,61 @@ describe('/api/chat-bookmarks · owner boundary', () => {
     expect((await res.json() as { data: { alreadyExists: boolean } }).data.alreadyExists).toBe(true);
   });
 
+  it('hides a bookmark whose channel was deleted (list, total and detail)', async () => {
+    const CAROL = 'user_carol_bk';
+    const now = new Date();
+    const goneChannelId = generateId('ch');
+    const goneMessageId = generateId('cmsg');
+    const goneBookmarkId = generateId('cbk');
+    await db.insert(schema.chatChannels).values({
+      id: goneChannelId,
+      name: 'bk-gone',
+      slug: `bk-gone-${goneChannelId}`,
+      type: 'public',
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: now,
+    });
+    await db.insert(schema.chatMessages).values({
+      id: goneMessageId,
+      channelId: goneChannelId,
+      authorId: ALICE,
+      authorName: 'Alice',
+      content: 'in a deleted channel',
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.chatBookmarks).values({
+      id: goneBookmarkId,
+      userId: CAROL,
+      messageId: goneMessageId,
+      channelId: goneChannelId,
+      createdAt: now,
+    });
+    await db.insert(schema.chatBookmarks).values({
+      id: generateId('cbk'),
+      userId: CAROL,
+      messageId,
+      channelId,
+      createdAt: now,
+    });
+
+    const { request } = createTestApp('/api/chat-bookmarks', chatBookmarksRoutes, {
+      context: { userId: CAROL, permissions: permissions('messages:read'), tenantDb: db },
+    });
+    const res = await request('/api/chat-bookmarks');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      data: Array<{ channelId: string }>;
+      pagination: { totalCount: number };
+    };
+    expect(body.data.map((b) => b.channelId)).toEqual([channelId]);
+    expect(body.pagination.totalCount).toBe(1);
+
+    const detail = await request(`/api/chat-bookmarks/${goneBookmarkId}`);
+    expect(detail.status).toBe(404);
+  });
+
   it('GET /:id 404s another user’s bookmark', async () => {
     const [bobBk] = await db
       .select()

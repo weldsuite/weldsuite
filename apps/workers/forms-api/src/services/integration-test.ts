@@ -43,7 +43,7 @@ export async function testIntegration(ctx: WorkspaceCtx, row: IntegrationRow): P
   const definition = version ? formDefinitionSchema.safeParse(version.definition) : null;
   if (!form || !definition?.success) return { ok: false, message: 'The form of the latest response could not be read.' };
 
-  const template = { env: ctx.env, form, response, definition: definition.data };
+  const template = { env: ctx.env, clerkOrgId: ctx.clerkOrgId, form, response, definition: definition.data };
   const prefix = `Response #${response.number ?? '?'}:`;
   try {
     const access = await loadCreatorAccess(ctx.db, ctx.env, row.createdByUserId);

@@ -1,4 +1,4 @@
-import { useState, useSyncExternalStore, type ReactNode } from 'react';
+import { useContext, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { Button } from '@weldsuite/ui/components/button';
@@ -22,6 +22,7 @@ import { insertTableAtCaret, tableContext } from './model/table-actions';
 import { TableMenuItems } from './table-menu';
 import { CloseMenuContext, TablePicker } from './table-picker';
 import { PARAGRAPH_STYLES, ZOOMS } from './toolbar';
+import { ReturnFocusContext, useCloseAutoFocus } from './ui';
 import { useDocDownload } from '../use-doc-files';
 
 /** File, Edit, View, Insert, Format, Tools and Help, as in Google Docs. */
@@ -314,6 +315,7 @@ function styleShortcut(id: string): string | undefined {
 
 function TopMenu({ label, children }: { label: string; children: ReactNode }) {
   const [open, setOpen] = useState(false);
+  const onCloseAutoFocus = useCloseAutoFocus();
   return (
     <DropdownMenu modal={false} open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
@@ -321,7 +323,7 @@ function TopMenu({ label, children }: { label: string; children: ReactNode }) {
           {label}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="min-w-60" onCloseAutoFocus={(e) => e.preventDefault()}>
+      <DropdownMenuContent align="start" className="min-w-60" onCloseAutoFocus={onCloseAutoFocus}>
         <CloseMenuContext.Provider value={() => setOpen(false)}>{children}</CloseMenuContext.Provider>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -347,6 +349,11 @@ function Item({
   disabled?: boolean;
   inset?: boolean;
 }) {
+  const returnFocus = useContext(ReturnFocusContext);
+  const select = () => {
+    onSelect();
+    returnFocus();
+  };
   const content = (
     <>
       {children}
@@ -355,13 +362,13 @@ function Item({
   );
   if (checked === undefined) {
     return (
-      <DropdownMenuItem inset={inset} onSelect={onSelect} disabled={disabled}>
+      <DropdownMenuItem inset={inset} onSelect={select} disabled={disabled}>
         {content}
       </DropdownMenuItem>
     );
   }
   return (
-    <DropdownMenuCheckboxItem checked={checked} onSelect={onSelect} disabled={disabled}>
+    <DropdownMenuCheckboxItem checked={checked} onSelect={select} disabled={disabled}>
       {content}
     </DropdownMenuCheckboxItem>
   );

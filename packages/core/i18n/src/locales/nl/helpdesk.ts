@@ -476,7 +476,7 @@ export const helpdesk = {
       activityReview: 'Beoordeling',
       openMenu: 'Menu openen',
       // Standaard broodkruimels layout
-      helpdeskBreadcrumb: 'Helpdesk',
+      helpdeskBreadcrumb: 'WeldDesk',
     },
 
     // Tickets
@@ -2367,6 +2367,10 @@ export const helpdesk = {
       reportDuplicated: 'Rapport gedupliceerd',
       failedToDeleteReport: 'Rapport verwijderen mislukt',
       failedToDuplicateReport: 'Rapport dupliceren mislukt',
+      chart: 'grafiek',
+      deleteReportTitle: 'Rapport verwijderen',
+      deleteReportDescription: '"{title}" verwijderen? Dit kan niet ongedaan worden gemaakt.',
+      deleteChartDescription: '"{title}" uit dit rapport verwijderen? Dit kan niet ongedaan worden gemaakt.',
       analyticsReport: 'Analyserapport',
       // Rapportweergave
       selectReport: 'Selecteer rapport...',
@@ -2703,7 +2707,7 @@ export const helpdesk = {
 
     // AI Agenten (WeldAgent configuratie)
     aiAgents: {
-      helpdeskBreadcrumb: 'Helpdesk',
+      helpdeskBreadcrumb: 'WeldDesk',
       agentDisabled: 'AI-agent is uitgeschakeld',
       agentDisabledPreview: 'Schakel de agent in om de chat-widget te bekijken',
       online: 'Online',
@@ -2917,6 +2921,8 @@ export const helpdesk = {
       failedToUpdateSavedReply: 'Opgeslagen antwoord bijwerken mislukt',
       savedReplyDeleted: 'Opgeslagen antwoord verwijderd',
       failedToDeleteSavedReply: 'Opgeslagen antwoord verwijderen mislukt',
+      failedToCreateSavedReply: 'Opgeslagen antwoord aanmaken mislukt',
+      failedToCreateTicketType: 'Tickettype aanmaken mislukt',
     },
 
     // Settings - integrations
@@ -3280,7 +3286,7 @@ export const helpdesk = {
       unknownCustomer: 'Onbekend',
       noSubject: 'Geen onderwerp',
       // broodkruimel
-      helpdeskBreadcrumb: 'Helpdesk',
+      helpdeskBreadcrumb: 'WeldDesk',
       ticketsBreadcrumb: 'Tickets',
       // ticket-detail-client.tsx
       ticketDetailTitle: 'Ticketdetails',
@@ -3746,7 +3752,7 @@ export const helpdesk = {
 
     // Tickettypen-instellingenpagina (ticket-types-settings.tsx)
     ticketTypesPage: {
-      helpdeskBreadcrumb: 'Helpdesk',
+      helpdeskBreadcrumb: 'WeldDesk',
       settingsBreadcrumb: 'Instellingen',
       breadcrumb: 'Tickettypen',
       title: 'Tickettypen',
@@ -3762,6 +3768,9 @@ export const helpdesk = {
       deleteConfirm: 'Verwijderen',
       fieldCount: '{count} veld',
       fieldCountPlural: '{count} velden',
+      toggleTypeAria: '{name} in- of uitschakelen',
+      editTypeAria: '{name} bewerken',
+      deleteTypeAria: '{name} verwijderen',
     },
 
     // Tickettype-editor (ticket-type-editor.tsx)
@@ -3816,7 +3825,7 @@ export const helpdesk = {
 
     // Opgeslagen antwoorden-instellingenpagina (saved-replies-settings.tsx)
     savedRepliesPage: {
-      helpdeskBreadcrumb: 'Helpdesk',
+      helpdeskBreadcrumb: 'WeldDesk',
       settingsBreadcrumb: 'Instellingen',
       breadcrumb: 'Opgeslagen antwoorden',
       title: 'Opgeslagen antwoorden',
@@ -3943,7 +3952,7 @@ export const helpdesk = {
 
     // Detailpagina teamlid
     memberDetailPage: {
-      helpdeskBreadcrumb: 'Helpdesk',
+      helpdeskBreadcrumb: 'WeldDesk',
       teamsBreadcrumb: 'Teams',
       teamBreadcrumb: 'Team',
       supportTeamBreadcrumb: 'Ondersteuningsteam',
@@ -4417,6 +4426,10 @@ export const helpdesk = {
       deleted: 'Spraakagent verwijderd',
       saveFailed: 'Spraakagent opslaan mislukt',
       deleteFailed: 'Verwijderen mislukt',
+      deleteTitle: 'Spraakagent verwijderen',
+      deleteDescription: '"{name}" verwijderen? Dit kan niet ongedaan worden gemaakt.',
+      deleteConfirm: 'Verwijderen',
+      deleteAria: '{name} verwijderen',
     },
 
     phoneSettingsPage: {
@@ -4428,6 +4441,7 @@ export const helpdesk = {
       provisionPrefix: 'Richt nummers in onder',
       phoneNumbersLink: 'Telefoonnummers',
       provisionSuffix: ' en synchroniseer ze daarna hier voor inkomende routering.',
+      provisionUnavailable: 'In deze editie kun je nog geen telefoonnummers kopen of porteren.',
       inboundAction: 'Actie bij inkomend gesprek',
       actionAiAgent: 'AI-spraakagent',
       actionForward: 'Doorverbinden naar nummer',
@@ -4587,6 +4601,11 @@ export const helpdesk = {
       positionRight: 'Rechts',
       positionLeft: 'Links',
       defaultGreeting: 'Hoi — waarmee kunnen we je helpen?',
+      enabledHint: 'Als dit uit staat, verschijnt de widget niet op je website.',
+      greetingLabel: 'Begroeting',
+      colorLabel: 'Merkkleur',
+      positionLabel: 'Positie',
+      widgetActionsAria: 'Acties voor {name}',
       officeHours: 'Openingstijden',
       officeHoursEnabled: 'Openingstijden gebruiken',
       officeHoursDescription: 'Buiten deze tijden toont de widget je afwezigheidsbericht en vraagt bezoekers om hun e-mailadres.',

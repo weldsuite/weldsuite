@@ -85,7 +85,7 @@ import { writeAccountingAudit } from '@weldsuite/books-domain/accounting-guards'
 import { validateGstin } from '@weldsuite/books-domain/jurisdictions/in';
 import { nlAdapter } from '@weldsuite/books-domain/jurisdictions/nl';
 import { validateCnpjOrCpf, validateCpf } from '@weldsuite/books-domain/jurisdictions/br';
-import { checkVatNumberFormat, ibanProblem, IBAN_LENGTHS, normalizeIban } from '@weldsuite/books-domain/identifiers';
+import { checkVatNumberFormat, invalidIbanMessage } from '@weldsuite/books-domain/identifiers';
 import { resolveEntityId } from '../../lib/entity-context';
 import { normalizePostalAddress } from '@weldsuite/books-domain/accounting-address';
 import {
@@ -1160,20 +1160,9 @@ function checkVatFormat(data: ContactPayload, storedBilling?: unknown): void {
   if (check.prefix && check.formatted) data.vatNumber = check.formatted;
 }
 
-/** Why an IBAN was rejected, in words for the form. */
-function ibanProblemReason(problem: NonNullable<ReturnType<typeof ibanProblem>>, countryCode: string): string {
-  if (problem === 'country_length') return `an IBAN from ${countryCode} has ${IBAN_LENGTHS[countryCode]} characters`;
-  if (problem === 'checksum') return 'the check digits do not match';
-  return 'it should be two letters, two digits and the account number';
-}
-
 function checkIbanFormat(data: ContactPayload): void {
-  const iban = data.iban?.trim();
-  if (!iban) return;
-  const problem = ibanProblem(iban);
-  if (!problem) return;
-  const reason = ibanProblemReason(problem, normalizeIban(iban).slice(0, 2));
-  throw new ContactIdentityError('badRequest', `"${iban}" is not a valid IBAN: ${reason}`, { field: 'iban' });
+  const invalid = invalidIbanMessage(data.iban);
+  if (invalid) throw new ContactIdentityError('badRequest', invalid, { field: 'iban' });
 }
 
 /**

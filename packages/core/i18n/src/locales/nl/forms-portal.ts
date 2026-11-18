@@ -64,6 +64,13 @@ export const formsPortal: typeof en = {
     retry: 'Opnieuw proberen',
   },
 
+  submit: {
+    rejected: 'Je antwoorden zijn niet geaccepteerd. Wacht een paar seconden en verstuur ze opnieuw.',
+    rateLimited: 'Er worden nu te veel antwoorden verstuurd. Wacht een minuut en probeer het opnieuw.',
+    alreadySubmitted: 'Deze antwoorden zijn al verstuurd.',
+    failed: 'Je antwoorden konden niet worden verstuurd. Probeer het opnieuw.',
+  },
+
   verify: {
     emailTitle: 'Bevestig je e-mailadres',
     emailBody: 'Dit formulier vraagt om een bevestigd e-mailadres. We sturen je een code van 6 cijfers.',

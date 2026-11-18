@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { EllipsisVertical, Pencil, Trash2 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
+import { PromptDialog } from '@weldsuite/ui/components/prompt-dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@weldsuite/ui/components/dropdown-menu';
 import { EntityList, type HeaderColumn } from '@/components/entity-list';
 import { RowOverlayButton } from '@/components/shared/row-overlay-button';
@@ -24,6 +25,8 @@ export interface OfficeFileListLabels {
   columns: { name: string; updated: string; created: string };
   rename: string;
   renamePrompt: string;
+  /** The row menu button's name, with `{name}`. */
+  moreActions: string;
   delete: string;
   deleteTitle: string;
   deleteDescription: string;
@@ -72,6 +75,7 @@ export function OfficeFileList<T extends OfficeFile>({
 }: OfficeFileListProps<T>) {
   const { format } = useI18n();
   const [deleting, setDeleting] = useState<T | null>(null);
+  const [renaming, setRenaming] = useState<T | null>(null);
 
   const headerColumns: HeaderColumn[] = useMemo(
     () => [
@@ -110,7 +114,7 @@ export function OfficeFileList<T extends OfficeFile>({
                   <Button
                     variant="ghost"
                     size="sm"
-                    aria-label={name}
+                    aria-label={format(labels.moreActions, { name })}
                     className="h-7 w-7 p-0 text-gray-400 opacity-0 hover:text-gray-600 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
                   >
                     <EllipsisVertical className="h-3.5 w-3.5" />
@@ -118,12 +122,7 @@ export function OfficeFileList<T extends OfficeFile>({
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   {canRename && (
-                    <DropdownMenuItem
-                      onSelect={() => {
-                        const next = window.prompt(labels.renamePrompt, file.name)?.trim();
-                        if (next && next !== file.name) onRename(file, next);
-                      }}
-                    >
+                    <DropdownMenuItem onSelect={() => setRenaming(file)}>
                       <Pencil className="mr-0.5 h-4 w-4" />
                       {labels.rename}
                     </DropdownMenuItem>
@@ -141,7 +140,7 @@ export function OfficeFileList<T extends OfficeFile>({
         </div>
       );
     },
-    [labels, onOpen, onRename, onDelete],
+    [labels, onOpen, onRename, onDelete, format],
   );
 
   return (
@@ -166,6 +165,16 @@ export function OfficeFileList<T extends OfficeFile>({
           action: onCreate ? { label: createLabel, onClick: onCreate } : undefined,
         }}
         noResultsState={{ title: labels.noResultsTitle, description: labels.noResultsDescription }}
+      />
+      <PromptDialog
+        open={!!renaming}
+        onOpenChange={(o) => !o && setRenaming(null)}
+        title={labels.rename}
+        label={labels.renamePrompt}
+        defaultValue={renaming?.name ?? ''}
+        onConfirm={(name) => {
+          if (renaming && name !== renaming.name) onRename?.(renaming, name);
+        }}
       />
       <ConfirmDialog
         open={!!deleting}

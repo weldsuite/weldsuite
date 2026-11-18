@@ -62,6 +62,14 @@ export const formsPortal = {
     retry: 'Try again',
   },
 
+  /** Why a submit was refused (a failure without an answer from the server uses `renderer.submitFailed`). */
+  submit: {
+    rejected: 'Your answers were not accepted. Wait a few seconds and send them again.',
+    rateLimited: 'Too many answers are being sent right now. Wait a minute and try again.',
+    alreadySubmitted: 'These answers were already sent.',
+    failed: 'Your answers could not be sent. Please try again.',
+  },
+
   verify: {
     emailTitle: 'Verify your email address',
     emailBody: 'This form asks for a verified email address. We will send you a 6-digit code.',

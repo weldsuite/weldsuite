@@ -57,6 +57,15 @@ export interface GridColumnDef<TEntity> {
    * typed text is that part alone. The value is the part's text.
    */
   locationPart?: 'city' | 'state' | 'country';
+  /**
+   * Deletes what the column shows (a custom field's attribute), after the
+   * caller confirms it. Without it, "Delete column" only removes a column
+   * that lives in the grid alone; a column backed by stored data is hidden.
+   */
+  onDelete?: () => void;
+  /** `number` / `currency` columns: the lowest and highest value the editor accepts. */
+  min?: number;
+  max?: number;
   /** `currency` columns: the ISO code to format the value in (defaults to "$"). */
   getCurrency?: (entity: TEntity) => string | null | undefined;
   favoriteField?: string; // Entity field name for star toggle (used in company columns)
@@ -99,6 +108,13 @@ export interface EntityGridConfig<TEntity> {
   entityName: string; // e.g., 'Customer'
   gridViewName?: string; // Override for grid view persistence key (defaults to entityName.toLowerCase())
   entityNamePlural: string; // e.g., 'Customers'
+  /**
+   * Empty-state title and hint, for a grid that only ever lists some of its
+   * entities (e.g. people with a phone number), where "No people yet" would be
+   * wrong. Default: the generic "No {entities} yet".
+   */
+  emptyTitle?: string;
+  emptyHint?: string;
   columns: GridColumnDef<TEntity>[];
   getEntityId: (entity: TEntity) => string;
   getEntityName: (entity: TEntity) => string;

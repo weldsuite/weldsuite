@@ -162,6 +162,20 @@ describe('forms', () => {
     expect(after!.settings).toMatchObject({ closedMessage: 'Back in June', collectPartial: true });
   });
 
+  it('refuses dates that close the form before it opens, also when only one of them changes', async () => {
+    const form = await createForm();
+    const patch = (revision: number, settings: Record<string, unknown>) => forms().request(`${FORMS}/${form.id}`, json({ revision, settings }, 'PATCH'));
+    const inverted = await patch(1, { opensAt: '2027-01-10T10:00:00+01:00', closesAt: '2027-01-01T10:00:00+01:00' });
+    expect(inverted.status).toBe(400);
+    expect(await inverted.json()).toMatchObject({ error: { code: 'BAD_REQUEST', details: { field: 'closesAt' } } });
+
+    const saved = await data<FormDetail>(await patch(1, { opensAt: '2027-01-01T10:00:00+01:00', closesAt: '2027-01-10T10:00:00+01:00' }));
+    expect(saved.revision).toBe(2);
+    const later = await patch(2, { opensAt: '2027-02-01T10:00:00+01:00' });
+    expect(later.status).toBe(400);
+    expect((await data<FormDetail>(await patch(2, { closesAt: null }))).settings).toMatchObject({ opensAt: '2027-01-01T10:00:00+01:00', closesAt: null });
+  });
+
   it('lists with search, status and a cursor, and duplicates a form as a new draft', async () => {
     await createForm('Alpha');
     await createForm('Beta');

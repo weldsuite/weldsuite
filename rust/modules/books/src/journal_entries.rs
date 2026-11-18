@@ -25,8 +25,8 @@ use weldsuite_books_domain::http::{
 };
 use weldsuite_books_domain::js::{parse_float, parse_int, to_fixed};
 use weldsuite_books_domain::posting::{
-    PostError, ReverseArgs, assert_dimensions_belong_to_entity, assert_projects_exist,
-    post_draft_journal_entry, reverse_journal_entry,
+    PostError, ReverseArgs, assert_accounts_active, assert_dimensions_belong_to_entity,
+    assert_projects_exist, post_draft_journal_entry, reverse_journal_entry,
 };
 use weldsuite_books_domain::tables::{JOURNAL_ENTRIES, JOURNAL_LINES};
 use weldsuite_catalogs::entity_events::{
@@ -350,6 +350,13 @@ async fn create_entry(
     assert_projects_exist(db, data.lines.iter().map(|l| l.project_id.clone()))
         .await
         .map_err(posting_refusal)?;
+    assert_accounts_active(
+        db,
+        &entity_id,
+        data.lines.iter().map(|l| l.account_id.clone()),
+    )
+    .await
+    .map_err(posting_refusal)?;
 
     let entry_number = next_entity_number(db, &entity_id, SequenceType::Journal)
         .await?

@@ -78,6 +78,8 @@ export function MeetingIntelligenceHeader({
           variant="outline"
           size="icon"
           onClick={onBack}
+          aria-label={t('common.actions.back')}
+          title={t('common.actions.back')}
           className="-ml-2 h-8 w-8"
         >
           <ChevronLeft className="h-4 w-4" />
@@ -119,6 +121,7 @@ export function MeetingIntelligenceHeader({
             onClick={action.onClick}
             disabled={action.disabled}
             title={action.label}
+            aria-label={action.showLabel ? undefined : action.label}
           >
             {action.icon}
             {action.showLabel && action.label}
@@ -126,7 +129,7 @@ export function MeetingIntelligenceHeader({
         ))}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon-sm" className="data-[state=open]:bg-accent">
+            <Button variant="ghost" size="icon-sm" className="data-[state=open]:bg-accent" aria-label={t('common.actions.openMenu')} title={t('common.actions.openMenu')}>
               <MoreVertical className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>

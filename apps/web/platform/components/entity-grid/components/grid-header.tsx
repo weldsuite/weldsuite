@@ -318,7 +318,9 @@ export function GridHeader() {
                         </>
                       )}
 
-                      {column.isCustom && (
+                      {/* Only where it really deletes: a grid-only column, or a custom
+                          field the page can delete. A stored field's column has Hide above. */}
+                      {column.isCustom && (column.onDelete || column.isEnrichField || column.id.startsWith('custom_')) && (
                         <>
                           <div className="h-px bg-gray-200 dark:bg-accent mx-1" />
                           <CommandGroup className="px-1 py-1">
@@ -327,7 +329,7 @@ export function GridHeader() {
                               className="text-red-600 focus:text-red-600 focus:bg-red-50 dark:focus:bg-red-950 data-[selected=true]:bg-red-50 data-[selected=true]:text-red-600 dark:data-[selected=true]:bg-red-950 dark:data-[selected=true]:text-red-400"
                             >
                               <Trash2 className="text-red-600" />
-                              <span>{t('sweep.entities.deleteColumn')}</span>
+                              <span>{t(column.onDelete ? 'sweep.entities.deleteAttribute' : 'sweep.entities.deleteColumn')}</span>
                             </CommandItem>
                           </CommandGroup>
                         </>

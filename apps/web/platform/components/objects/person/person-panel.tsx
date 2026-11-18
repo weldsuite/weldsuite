@@ -63,12 +63,14 @@ import { SendForSignatureItem } from '@/app/weldsign/start/send-for-signature-it
 import { useComposeSafe } from '@/contexts/compose-context';
 import {
   PropertyRow,
+  isPhoneNumber,
   MemberPropertyRow,
   StatusPropertyRow,
   TagsPropertyRow,
 } from '@/components/objects/_shared/property-row';
 import { useCustomerStatusOptions } from '@/hooks/queries/use-weldcrm-customer-statuses';
 import { collectKnownTags } from '@/components/objects/_shared/known-tags';
+import { ArchivedRecordBanner } from '@/components/objects/_shared/archived-record-banner';
 import { SelectPropertyRow } from '@/components/objects/_shared/select-property-row';
 import { AddressPropertyRow } from '@/components/objects/_shared/address-property-row';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
@@ -250,7 +252,7 @@ export function PersonActions({
           <TooltipContent>{st('sweep.entities.composeEmail')}</TooltipContent>
         </Tooltip>
       )}
-      {phone && (
+      {phone && isPhoneNumber(phone) && (
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
@@ -356,12 +358,14 @@ function PersonDetailsTab({
         icon={Bookmark}
         label={st('sweep.entities.fieldFirstName')}
         value={person.firstName}
+        maxLength={100}
         onSave={(v) => onUpdateField({ firstName: v })}
       />
       <PropertyRow
         icon={Bookmark}
         label={st('sweep.entities.fieldLastName')}
         value={person.lastName}
+        maxLength={100}
         onSave={(v) => onUpdateField({ lastName: v })}
       />
       <PropertyRow
@@ -781,6 +785,15 @@ export function PersonPanel(props: Readonly<ObjectPanelComponentProps>) {
       contentClassName={tabBodyClassName(mode)}
       avatar={<PersonAvatar person={person} onUpload={(url) => handleUpdateField({ avatarUrl: url })} />}
       title={<PersonTitle person={person} />}
+      subheader={
+        person?.archivedAt ? (
+          <ArchivedRecordBanner
+            message={st('sweep.entities.personArchivedBanner')}
+            onUnarchive={handleArchiveToggle}
+            pending={unarchiveMut.isPending}
+          />
+        ) : undefined
+      }
       actions={
         <PersonActions
           person={person}

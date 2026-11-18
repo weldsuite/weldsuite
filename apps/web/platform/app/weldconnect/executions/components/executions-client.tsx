@@ -28,7 +28,7 @@ import { cn } from '@/lib/utils';
 import {
   isActiveExecutionStatus,
   isCancellableExecutionStatus,
-  isWorkflowInactiveError,
+  retryErrorMessage,
   useCancelExecution,
   useInfiniteExecutions,
   useRetryExecution,
@@ -44,9 +44,12 @@ import {
   formatExecutionDuration,
   getExecutionDuration,
   getStepsProgress,
+  isRunWorkflowDeleted,
   isTestExecution,
   normalizeExecutionStatus,
+  runWorkflowName,
   shortExecutionId,
+  type KnownWorkflows,
 } from '../execution-utils';
 import {
   apiFiltersFromPills,
@@ -74,6 +77,8 @@ interface ExecutionRow {
   completedAt: string | null;
   createdAt: string;
   isTest: boolean;
+  /** The workflow was deleted: the run can't be retried. */
+  workflowDeleted: boolean;
 }
 
 const progressBarColorByStatus: Record<string, string> = {
@@ -121,12 +126,13 @@ function formatRelativeTime(
   return translate('sweep.weldconnect.executionsClient.daysAgoShort', { count: Math.floor(diffMins / 1440) });
 }
 
-function toRow(execution: WorkflowExecution, workflowName: string): ExecutionRow {
+function toRow(execution: WorkflowExecution, known: KnownWorkflows, unknownWorkflow: string): ExecutionRow {
   const { completed, total } = getStepsProgress(execution);
   return {
     id: execution.id,
     workflowId: execution.workflowId,
-    workflowName,
+    workflowName: runWorkflowName(execution, known, unknownWorkflow),
+    workflowDeleted: isRunWorkflowDeleted(execution, known),
     status: normalizeExecutionStatus(execution.status),
     triggerType: execution.triggerType || 'manual',
     triggeredBy: execution.triggeredBy,
@@ -220,11 +226,7 @@ export function ExecutionsClient() {
         toast.success(t.weldconnect.executions.toasts.retried);
       },
       onError: (err) => {
-        toast.error(
-          isWorkflowInactiveError(err)
-            ? t.weldconnect.executions.toasts.workflowInactive
-            : t.weldconnect.executions.toasts.retryFailed,
-        );
+        toast.error(retryErrorMessage(err, t.weldconnect.executions.toasts));
       },
     });
   }, [retryExecution, closePendingAction, t]);
@@ -263,12 +265,20 @@ export function ExecutionsClient() {
   );
   const totalCount = data?.pages.at(-1)?.pagination?.totalCount ?? loadedExecutions.length;
 
+  // A run shows its workflow's current name (a rename reaches its old runs),
+  // and a workflow missing from the full list was deleted.
+  const knownWorkflows = useMemo<KnownWorkflows>(
+    () => ({
+      names: workflowNames,
+      complete: workflowsQuery.isSuccess && workflowsQuery.data?.pagination?.hasMore === false,
+    }),
+    [workflowNames, workflowsQuery.isSuccess, workflowsQuery.data],
+  );
+
   const rows = useMemo(() => {
     const unknownWorkflow = t.weldconnect.executionDetail.unknownWorkflow;
-    return loadedExecutions.map((execution) =>
-      toRow(execution, execution.workflowName ?? workflowNames.get(execution.workflowId) ?? unknownWorkflow),
-    );
-  }, [loadedExecutions, workflowNames, t]);
+    return loadedExecutions.map((execution) => toRow(execution, knownWorkflows, unknownWorkflow));
+  }, [loadedExecutions, knownWorkflows, t]);
 
   // "is not" pills cannot be sent to the API, so they narrow the loaded rows here.
   const visibleRows = useMemo(() => {
@@ -351,8 +361,8 @@ export function ExecutionsClient() {
     const triggeredByName = isManual && execution.triggeredBy
       ? memberNames.get(execution.triggeredBy)
       : undefined;
-    // The retry endpoint only accepts failed runs.
-    const canRetry = execution.status === 'failed';
+    // The retry endpoint only accepts failed runs of a workflow that still exists.
+    const canRetry = execution.status === 'failed' && !execution.workflowDeleted;
     const canCancel = isCancellableExecutionStatus(execution.status);
     const openDetails = () => router.push(`/weldconnect/executions/${execution.id}`);
 

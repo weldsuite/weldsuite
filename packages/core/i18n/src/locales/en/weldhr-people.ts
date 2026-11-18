@@ -55,6 +55,9 @@ export const weldhrPeople = {
       emailRequired: 'Email is required',
       emailInvalid: 'Enter a valid email address',
       phoneInvalid: 'Enter a phone number with digits only, such as +31 20 123 4567',
+      endBeforeStart: 'The end date cannot be before the start date',
+      probationBeforeStart: 'Probation cannot end before the start date',
+      birthInFuture: 'The date of birth cannot be in the future',
     },
     create: {
       employer: 'Employer',
@@ -128,8 +131,9 @@ export const weldhrPeople = {
       },
       deleteConfirm: {
         title: 'Delete employee',
-        description: 'Delete {name}? This cannot be undone.',
+        description: 'Delete the HR record of {name}? Their workspace account stays. This cannot be undone.',
       },
+      deletedToast: 'Employee deleted',
       tabs: {
         overview: 'Overview',
         personal: 'Personal',
@@ -156,6 +160,7 @@ export const weldhrPeople = {
       edit: {
         title: 'Edit employee',
         failed: 'Could not save this employee.',
+        savedToast: 'Employee saved',
       },
       personalTab: {
         title: 'Personal data',
@@ -164,6 +169,7 @@ export const weldhrPeople = {
         hide: 'Hide',
         loadFailed: 'Could not load personal data.',
         saveFailed: 'Could not save personal data.',
+        savedToast: 'Personal data saved',
         fields: {
           dateOfBirth: 'Date of birth',
           nationalId: 'National ID',

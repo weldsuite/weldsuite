@@ -244,9 +244,9 @@ export async function validateInvoiceForFinalize(
   let missingEntityFields: string[] = [];
 
   if (hasAdapter(entity.jurisdictionCode)) {
-    const requirements = getAdapter(entity.jurisdictionCode).getInvoiceRequirements(
-      entity.locale ?? undefined,
-    );
+    // The message is English, so it names the fields in English too ("VAT number", not "BTW-nummer"):
+    // the required fields are the same in every language of the jurisdiction.
+    const requirements = getAdapter(entity.jurisdictionCode).getInvoiceRequirements('en');
     const missing = missingEntityInvoiceFields(entity, requirements);
     missingEntityFields = missingEntityInvoiceFieldCodes(entity, requirements);
     if (missing.length > 0) {

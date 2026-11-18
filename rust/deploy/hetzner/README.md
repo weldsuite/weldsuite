@@ -69,7 +69,10 @@ differ.
 - A **domain** at an EU DNS provider (Hetzner DNS works).
 - **Object storage**:
   - Hetzner Object Storage bucket(s) for files: the private bucket
-    (`FILES_BUCKET_PRIVATE`) and S3 keys for it;
+    (`FILES_BUCKET_PRIVATE`) and S3 keys for it, and the public bucket
+    (`FILES_BUCKET_PUBLIC`: avatars, product images, social media, chat
+    attachments; private at Hetzner too, the server serves it) next to it
+    with the same keys;
   - a bucket at a **second EU provider** for Postgres backups, and its keys.
 - A **secret store** outside the cluster: a KV version 2 store (mount
   `secret`) behind the HashiCorp Vault API. WeldSuite's clusters each have

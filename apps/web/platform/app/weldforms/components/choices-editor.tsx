@@ -10,6 +10,7 @@ import { createChoice, type FormChoice } from '@weldsuite/forms-engine';
 import { Button } from '@weldsuite/ui/components/button';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
+import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 import { Input } from '@weldsuite/ui/components/input';
 import { Textarea } from '@weldsuite/ui/components/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@weldsuite/ui/components/tooltip';
@@ -23,6 +24,19 @@ export function parsePastedChoices(text: string): string[] {
     .split(/\r?\n/)
     .map((line) => line.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, '').trim())
     .filter((line) => line !== '');
+}
+
+/** Labels more than one option has (compared trimmed, ignoring case), as first written. */
+export function duplicateLabels(choices: readonly FormChoice[]): string[] {
+  const seen = new Map<string, { label: string; count: number }>();
+  for (const choice of choices) {
+    const key = choice.label.trim().toLowerCase();
+    if (key === '') continue;
+    const entry = seen.get(key);
+    if (entry) entry.count += 1;
+    else seen.set(key, { label: choice.label.trim(), count: 1 });
+  }
+  return [...seen.values()].filter((e) => e.count > 1).map((e) => e.label);
 }
 
 interface Props {
@@ -43,6 +57,8 @@ export function ChoicesEditor({ choices, onChange, max, min = 1, pictures, scori
   const tc = t.weldforms.choices;
   const [pasting, setPasting] = useState(false);
   const [pasted, setPasted] = useState('');
+  const duplicates = duplicateLabels(choices);
+  const isDuplicate = (label: string) => duplicates.some((d) => d.toLowerCase() === label.trim().toLowerCase());
 
   const patch = (index: number, change: Partial<FormChoice>, key?: string) =>
     onChange(
@@ -76,6 +92,7 @@ export function ChoicesEditor({ choices, onChange, max, min = 1, pictures, scori
                 onChange={(e) => patch(index, { label: e.target.value }, `choice:${choice.id}`)}
                 placeholder={`${tc.option} ${index + 1}`}
                 aria-label={`${tc.option} ${index + 1}`}
+                aria-invalid={isDuplicate(choice.label) || undefined}
                 maxLength={500}
                 disabled={disabled}
                 className="h-8"
@@ -112,6 +129,7 @@ export function ChoicesEditor({ choices, onChange, max, min = 1, pictures, scori
           </li>
         ))}
       </ul>
+      {duplicates.length > 0 && <InfoBanner variant="warning">{tc.duplicateLabels.replace('{labels}', duplicates.join(', '))}</InfoBanner>}
       <div className="flex flex-wrap gap-2">
         <Button type="button" variant="outline" size="sm" onClick={add} disabled={disabled || choices.length >= max}>
           <Plus className="size-4" />

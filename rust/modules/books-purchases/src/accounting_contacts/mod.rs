@@ -27,9 +27,7 @@ use weldsuite_books_domain::http::{
     BooksState, Caller, Query, Refusal, Reply, created, json_of, no_content, now, ok, paged, reply,
     validate,
 };
-use weldsuite_books_domain::identifiers::{
-    check_vat_number_format, iban_length, iban_problem, normalize_iban,
-};
+use weldsuite_books_domain::identifiers::{check_vat_number_format, invalid_iban_message};
 use weldsuite_books_domain::jurisdictions::{br, india, js_trim, nl};
 use weldsuite_books_domain::tables::{BILLS, COMPANIES, INVOICES, PARTIES, PEOPLE, TAX_ID_REVEALS};
 use weldsuite_books_domain::vendor_tax::{
@@ -643,25 +641,10 @@ fn check_identifier_formats(
             }
         }
     }
-    if let Field::Set(raw) = &data.iban {
-        let iban = js_trim(raw);
-        if !iban.is_empty()
-            && let Some(problem) = iban_problem(iban)
-        {
-            let country: String = normalize_iban(iban).chars().take(2).collect();
-            let reason = match problem {
-                "country_length" => format!(
-                    "an IBAN from {country} has {} characters",
-                    iban_length(&country).map_or_else(|| "undefined".to_owned(), |n| n.to_string())
-                ),
-                "checksum" => "the check digits do not match".to_owned(),
-                _ => "it should be two letters, two digits and the account number".to_owned(),
-            };
-            return Err(bad_request(
-                format!("\"{iban}\" is not a valid IBAN: {reason}"),
-                Some(json!({ "field": "iban" })),
-            ));
-        }
+    if let Field::Set(raw) = &data.iban
+        && let Some(message) = invalid_iban_message(raw)
+    {
+        return Err(bad_request(message, Some(json!({ "field": "iban" }))));
     }
     check_kvk_format(data, stored_billing)
 }

@@ -253,7 +253,15 @@ export default function DesignTab() {
             <DialogTitle>{td.saveAsNew}</DialogTitle>
             <DialogDescription>{td.saveAsNewDescription}</DialogDescription>
           </DialogHeader>
-          <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={255} placeholder={td.themeNamePlaceholder} aria-label={td.themeName} autoFocus />
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && name.trim() !== '' && !createTheme.isPending && void saveAsNew()}
+            maxLength={255}
+            placeholder={td.themeNamePlaceholder}
+            aria-label={td.themeName}
+            autoFocus
+          />
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => setNaming(false)}>
               {t.common.actions.cancel}

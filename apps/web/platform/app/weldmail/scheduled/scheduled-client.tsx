@@ -15,6 +15,7 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { mailApi } from '../lib/api-client';
 import { useNotifySendError } from '../lib/use-notify-send-error';
+import { useCancelScheduledEmail } from '../components/cancel-scheduled-dialog';
 import { useScheduledEmails } from '@/hooks/queries/use-mail-queries';
 import { useQueryClient } from '@tanstack/react-query';
 import { useI18n } from '@/lib/i18n/provider';
@@ -57,19 +58,8 @@ export function ScheduledClient() {
     }
   };
 
-  const handleCancel = async (id: string) => {
-    try {
-      const result = await mailApi.scheduled.cancel(id);
-      if (result.success) {
-        toast.success(t.mail.scheduled.scheduledEmailCancelled);
-        qc.invalidateQueries({ queryKey: ['mail'] });
-      } else {
-        toast.error(result.error || t.mail.scheduled.failedToCancel);
-      }
-    } catch {
-      toast.error(t.mail.scheduled.failedToCancelScheduled);
-    }
-  };
+  // Cancelling asks first and puts the mail back in Drafts.
+  const cancelScheduled = useCancelScheduledEmail();
 
   const getRecipients = (to: ScheduledEmail['to']): string => {
     if (!to || !Array.isArray(to)) return t.mail.shared.unknown;
@@ -143,14 +133,16 @@ export function ScheduledClient() {
               variant="ghost"
               onClick={() => handleSendNow(email.id)}
               title={t.mail.scheduled.sendNow}
+              aria-label={t.mail.scheduled.sendNow}
             >
               <Send className="h-4 w-4" />
             </Button>
             <Button
               size="sm"
               variant="ghost"
-              onClick={() => handleCancel(email.id)}
+              onClick={() => cancelScheduled.requestCancel(email.accountId, email.id)}
               title={t.mail.scheduled.cancel}
+              aria-label={t.mail.scheduled.cancel}
             >
               <Trash className="h-4 w-4" />
             </Button>
@@ -228,6 +220,7 @@ export function ScheduledClient() {
           </div>
         </Card>
       )}
+      {cancelScheduled.dialog}
     </div>
   );
 }

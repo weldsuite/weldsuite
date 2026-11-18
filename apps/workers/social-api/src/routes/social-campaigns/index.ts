@@ -18,6 +18,17 @@ import { schema } from '@weldsuite/worker-kit/db';
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.socialCampaigns;
 
+/**
+ * The schedule as Drizzle writes it: a date string (the dialog's `yyyy-mm-dd`,
+ * or an ISO date-time) becomes a `Date`, and an empty one clears the date.
+ */
+function scheduleDates(data: Record<string, unknown>): void {
+  for (const key of ['startDate', 'endDate']) {
+    const value = data[key];
+    if (typeof value === 'string') data[key] = value === '' ? null : new Date(value);
+  }
+}
+
 app.get('/', requirePermission('campaigns:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
@@ -73,7 +84,9 @@ app.get('/:id', requirePermission('campaigns:read'), async (c) => {
 
 app.post('/', requirePermission('campaigns:create'), zValidator('json', createSocialCampaignSchema), async (c) => {
   const db = c.get('tenantDb');
-  const data = c.req.valid('json') as Record<string, any>;
+  // createdByUserId is NOT NULL and server-owned: the caller, whatever the body says.
+  const data: Record<string, unknown> = { ...c.req.valid('json'), createdByUserId: c.get('userId') };
+  scheduleDates(data);
   const id = generateId('scm');
   const now = new Date();
   try {
@@ -101,6 +114,7 @@ app.patch('/:id', requirePermission('campaigns:update'), zValidator('json', upda
     if (!existing) return error.notFound(c, 'Social campaign', id);
     const update: Record<string, any> = { updatedAt: new Date() };
     for (const [k, v] of Object.entries(data)) if (v !== undefined) update[k] = v;
+    scheduleDates(update);
     await db.update(t).set(update).where(and(eq(t.id, id), isNull(t.deletedAt)));
     publishEntityEvent({
       c,

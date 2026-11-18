@@ -1223,6 +1223,7 @@ export const crm = {
 
     renameDialog: {
       title: 'Rename List',
+      titlePipeline: 'Rename pipeline',
       nameLabel: 'Name',
       cancel: 'Cancel',
       rename: 'Rename',
@@ -2262,6 +2263,9 @@ export const crm = {
       emptyTitle: 'No {entity} yet',
       emptyHint: 'Add your first {entity} to get started.',
       newEntity: 'New {entity}',
+      noMatchesTitle: 'No {entity} match your filters',
+      noMatchesHint: 'Try another search, or clear the filters.',
+      clearFilters: 'Clear filters',
       personSingular: 'person',
       personPlural: 'people',
       companySingular: 'company',
@@ -2340,6 +2344,9 @@ export const crm = {
       priorityFallback: 'Priority',
       labelsFallback: 'Labels',
       durationFallback: 'Duration',
+      durationLabel: 'Time estimate: {duration}',
+      repeatFallback: 'Repeat',
+      close: 'Close',
       dueDateFallback: 'Due date',
       assigneesFallback: 'Assignees',
       unassigned: 'Unassigned',

@@ -37,7 +37,7 @@ export interface BaseOptions {
   publicId: string;
   /** Where the form is served; default `https://forms.weldsuite.org`. */
   baseUrl?: string;
-  /** Values for the form's hidden fields; only names the form declares are used. */
+  /** Values for the form's hidden fields, or answers that prefill questions by their reference; other names are ignored. */
   hidden?: Record<string, string>;
   onReady?: () => void;
   onSubmit?: (event: SubmitEvent) => void;

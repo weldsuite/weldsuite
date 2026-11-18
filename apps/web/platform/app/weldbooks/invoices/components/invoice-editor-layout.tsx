@@ -60,16 +60,18 @@ export function InvoiceEditorLayout({
 
   return (
     <form onSubmit={onSubmit} className="flex h-full min-h-0 flex-col" suppressHydrationWarning>
-      <header className="flex flex-shrink-0 items-center gap-2 border-b border-border px-4 py-2.5">
+      {/* On a phone the actions wrap under the title instead of running off the screen. */}
+      <header className="flex flex-shrink-0 flex-wrap items-center gap-2 border-b border-border px-4 py-2.5">
         <Button asChild type="button" variant="ghost" size="icon-sm" className="size-7 -ml-1">
           <Link href={backLink} aria-label={backText} title={backText}>
             <ChevronLeft className="size-4 text-muted-foreground" />
           </Link>
         </Button>
         <h1 className="min-w-0 truncate text-[15px] font-medium text-foreground">{title}</h1>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
           {headerActions}
-          <Button asChild type="button" variant="outline" size="sm" className="shadow-none">
+          {/* The back arrow cancels as well: on a phone the room goes to the save buttons. */}
+          <Button asChild type="button" variant="outline" size="sm" className="hidden shadow-none sm:inline-flex">
             <Link href={backLink} aria-disabled={isPending}>
               {t('sweep.entities.cancel')}
             </Link>

@@ -146,10 +146,21 @@ describe('edition flags', () => {
     });
     const hrefs = settingsCommands(en, new Set(['weldcrm'])).map((command) => command.href);
     expect(hrefs).toContain('/settings/team');
-    expect(hrefs).toContain('/settings/api-keys');
-    for (const hidden of ['/settings/sso', '/settings/plans', '/settings/billing', '/settings/webhooks', '/settings/integrations', '/settings/apps/phone-numbers', '/settings/apps/weldcrm']) {
+    // API keys only work once the deployment names its public API (TASK-1418).
+    for (const hidden of ['/settings/api-keys', '/settings/sso', '/settings/plans', '/settings/billing', '/settings/webhooks', '/settings/integrations', '/settings/apps/phone-numbers', '/settings/apps/weldcrm']) {
       expect(hrefs, hidden).not.toContain(hidden);
     }
+  });
+
+  it('lists API keys once the deployment names its public API', () => {
+    setRuntimeConfig({
+      backend: 'rust',
+      modules: ['core'],
+      unavailableFeatures: ['sso-connections', 'billing', 'credit-top-up'],
+      env: { VITE_EXTERNAL_API_URL: 'https://api.example.eu' },
+    });
+    const hrefs = settingsCommands(en, new Set()).map((command) => command.href);
+    expect(hrefs).toContain('/settings/api-keys');
   });
 
   it('keeps the billing page for the credit top-up when Stripe billing is unavailable', () => {
