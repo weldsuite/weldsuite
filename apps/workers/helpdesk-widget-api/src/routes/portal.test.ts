@@ -19,6 +19,7 @@ import { createMemoryKv } from '@weldsuite/worker-kit/testing/d1';
 import type { TicketTypeField } from '@weldsuite/db/schema';
 import type { Env, Variables } from '../index';
 import { generateId } from '../lib/id';
+import { publishVisitorMessage } from '../lib/desk-live';
 
 // pglite builds the tenant schema on first use, slowly on a busy CI runner.
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 120_000 });
@@ -509,6 +510,22 @@ describe('service catalogue', () => {
     const events = await db.select().from(schema.deskMessages).where(eq(schema.deskMessages.conversationId, detail.id));
     expect(events.filter((m) => m.metadata?.eventType === 'fulfilment_started')).toHaveLength(1);
     expect(detail.messages).toHaveLength(1);
+  });
+
+  it('publishes the created event of a request with the attributes the item set, as an agent change does', async () => {
+    const session = await signIn('event@other.test');
+    vi.mocked(publishVisitorMessage).mockClear();
+    const created = await post('/catalog/dcat_headset/requests', { title: 'Headset for Kim' }, session);
+    expect(created.status).toBe(201);
+    await vi.waitFor(() => expect(publishVisitorMessage).toHaveBeenCalledTimes(1));
+    const [, , conversation, , , event, changes] = vi.mocked(publishVisitorMessage).mock.calls[0]!;
+    expect(event).toBe('created');
+    expect(conversation.id).toBe(created.body!.data.id);
+    expect(changes).toEqual({
+      ticketTypeId: { old: null, new: SIMPLE_TYPE },
+      priority: { old: null, new: 'urgent' },
+      departmentId: { old: null, new: 'dept_cat' },
+    });
   });
 
   it('checks the form of the item like any request', async () => {

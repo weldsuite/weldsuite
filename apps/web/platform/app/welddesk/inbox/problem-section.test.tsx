@@ -162,4 +162,16 @@ describe('ProblemSection', () => {
     expect(screen.queryByTestId('desk-problem-create')).toBeNull();
     expect(screen.queryByTestId('desk-problem-link')).toBeNull();
   });
+
+  it('offers to create, link and unlink only with conversations:update', () => {
+    state.perms = new Set(['problems:read', 'problems:create']);
+    const { unmount } = render(<ProblemSection conversation={ticket} />);
+    expect(screen.queryByTestId('desk-problem-create')).toBeNull();
+    expect(screen.queryByTestId('desk-problem-link')).toBeNull();
+    unmount();
+
+    state.linked = problem;
+    render(<ProblemSection conversation={ticket} />);
+    expect(screen.queryByTestId('desk-problem-unlink')).toBeNull();
+  });
 });

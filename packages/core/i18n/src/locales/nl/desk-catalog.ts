@@ -45,6 +45,8 @@ export const deskCatalog = {
       deleted: 'Item verwijderd',
       saveFailed: 'Opslaan is mislukt. Probeer het opnieuw.',
       orderFailed: 'De volgorde wijzigen is mislukt. Probeer het opnieuw.',
+      inUseOne: 'Voor dit item wacht 1 aanvraag op goedkeuring. Beslis eerst over die aanvraag, of zet het item uit.',
+      inUseOther: 'Voor dit item wachten {count} aanvragen op goedkeuring. Beslis eerst over die aanvragen, of zet het item uit.',
     },
     delete: {
       title: 'Dit item verwijderen?',
@@ -160,6 +162,8 @@ export const deskCatalog = {
     decidedBy: 'Beslist door {name}',
     approve: 'Goedkeuren',
     reject: 'Afwijzen',
+    createTasks: 'Taken aanmaken',
+    createTasksHint: 'De taken van dit item zijn nog niet aangemaakt.',
     decision: {
       approveTitle: 'Deze aanvraag goedkeuren',
       rejectTitle: 'Deze aanvraag afwijzen',
@@ -175,6 +179,9 @@ export const deskCatalog = {
       approved: 'Aanvraag goedgekeurd',
       rejected: 'Aanvraag afgewezen',
       failed: 'Er ging iets mis. Probeer het opnieuw.',
+      tasksCreatedOne: '1 taak aangemaakt',
+      tasksCreatedOther: '{count} taken aangemaakt',
+      tasksNone: 'Er ontbrak geen enkele taak',
     },
     refusals: {
       already_request: 'Dit ticket is al een serviceaanvraag.',
@@ -183,6 +190,10 @@ export const deskCatalog = {
       item_inactive: 'Dit item staat uit.',
       not_pending: 'Er wacht geen goedkeuring, of die is zojuist beslist.',
       not_approver: 'Alleen de goedkeurder van deze stap kan die beslissen.',
+      not_request: 'Dit ticket is geen serviceaanvraag.',
+      not_approved: 'Deze aanvraag is niet goedgekeurd.',
+      already_started: 'De taken van deze aanvraag zijn al aangemaakt.',
+      item_missing: 'Het catalogusitem van deze aanvraag bestaat niet meer.',
     },
   },
   approvals: {

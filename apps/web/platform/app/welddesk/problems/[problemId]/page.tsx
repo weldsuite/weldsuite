@@ -62,8 +62,7 @@ const draftOf = (problem: DeskProblem): Draft => ({
 });
 
 /** The fields of the texts the agent changed, as a patch (an emptied text clears the field). */
-function draftPatch(problem: DeskProblem, draft: Draft): DeskProblemUpdate {
-  const saved = draftOf(problem);
+function draftPatch(saved: Draft, draft: Draft): DeskProblemUpdate {
   const patch: DeskProblemUpdate = {};
   if (draft.title !== saved.title) patch.title = draft.title.trim();
   for (const field of TEXT_FIELDS) {
@@ -80,9 +79,37 @@ function formatDateTime(iso: string | null): string | null {
 
 type ProblemLabels = ReturnType<typeof getTranslations<'deskProblems'>>;
 
-/** Follow the server, but never overwrite what is being typed. */
-function followServer(problem: DeskProblem, current: Draft | null): Draft {
-  return current && Object.keys(draftPatch(problem, current)).length > 0 ? current : draftOf(problem);
+/**
+ * The texts being edited: the problem they belong to, the server values they
+ * were loaded from (`baseline`: what "changed" is measured against) and the
+ * edited copy.
+ */
+interface DraftState {
+  problemId: string;
+  baseline: Draft;
+  draft: Draft;
+}
+
+const freshDraft = (problem: DeskProblem): DraftState => {
+  const baseline = draftOf(problem);
+  return { problemId: problem.id, baseline, draft: baseline };
+};
+
+const changedFields = (state: DraftState): (keyof Draft)[] =>
+  (Object.keys(state.baseline) as (keyof Draft)[]).filter((key) => state.draft[key] !== state.baseline[key]);
+
+/**
+ * The state after the server sent `problem`: another problem starts from
+ * scratch (nothing of the previous draft carries over); the same one follows
+ * the server in every text the agent has not touched, and never overwrites
+ * what is being typed.
+ */
+function followServer(problem: DeskProblem, current: DraftState | null): DraftState {
+  if (current?.problemId !== problem.id) return freshDraft(problem);
+  const baseline = draftOf(problem);
+  const draft: Draft = { ...baseline };
+  for (const key of changedFields(current)) draft[key] = current.draft[key];
+  return { problemId: problem.id, baseline, draft };
 }
 
 /** Why a change was refused, in the reader's language, else the server's message, else `fallback`. */
@@ -125,6 +152,8 @@ interface ProblemActionsProps {
   problem: DeskProblem;
   t: ProblemLabels;
   canUpdate: boolean;
+  /** Sharing writes a note or reply on the linked tickets: problems:update and conversations:update. */
+  canShare: boolean;
   canDelete: boolean;
   canWriteArticle: boolean;
   updating: boolean;
@@ -140,6 +169,7 @@ function ProblemActions({
   problem,
   t,
   canUpdate,
+  canShare,
   canDelete,
   canWriteArticle,
   updating,
@@ -164,7 +194,7 @@ function ProblemActions({
           ))}
         </SelectContent>
       </Select>
-      {canUpdate && (
+      {canShare && (
         <Button variant="outline" size="sm" onClick={onShare} data-testid="desk-problem-share-open">
           <Send className="mr-1.5 h-4 w-4" />
           {td.actions.share}
@@ -230,6 +260,7 @@ export default function DeskProblemPage() {
   const { problemId = '' } = useParams<{ problemId: string }>();
   const router = useRouter();
   const canUpdate = useCan('problems:update');
+  const canWriteTickets = useCan('conversations:update');
   const canDelete = useCan('problems:delete');
   const canWriteArticle = useCan('articles:create');
   const { data: problem, isLoading, isError, error, refetch } = useDeskProblem(problemId);
@@ -238,7 +269,7 @@ export default function DeskProblemPage() {
   const update = useUpdateDeskProblem();
   const createArticle = useCreateDeskProblemArticle();
   const remove = useDeleteDeskProblem();
-  const [draft, setDraft] = useState<Draft | null>(null);
+  const [state, setState] = useState<DraftState | null>(null);
   const [sharing, setSharing] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -250,11 +281,13 @@ export default function DeskProblemPage() {
 
   useEffect(() => {
     if (!problem) return;
-    setDraft((current) => followServer(problem, current));
+    setState((current) => followServer(problem, current));
   }, [problem]);
 
-  if (isLoading || (problem && !draft)) return <PageLoader />;
-  if (isError || !problem || !draft) {
+  // The draft of the problem that was open before is not this one's: wait for the reset.
+  const active = state && problem && state.problemId === problem.id ? state : null;
+  if (isLoading || (problem && !active)) return <PageLoader />;
+  if (isError || !problem || !active) {
     return (
       <ProblemLoadError error={error} t={t} onBack={() => router.push('/welddesk/problems')} onRetry={() => void refetch()} />
     );
@@ -262,7 +295,9 @@ export default function DeskProblemPage() {
 
   const refusalText = (err: unknown, fallback: string) => refusalMessage(t.refusals, err, fallback);
 
-  const patch = draftPatch(problem, draft);
+  const { draft, baseline } = active;
+  const setDraft = (next: Draft) => setState({ ...active, draft: next });
+  const patch = draftPatch(baseline, draft);
   const dirty = Object.keys(patch).length > 0;
   const titleEmpty = draft.title.trim() === '';
   const locked = !canUpdate || update.isPending;
@@ -272,7 +307,7 @@ export default function DeskProblemPage() {
       { id: problem.id, patch },
       {
         onSuccess: (res) => {
-          setDraft(draftOf(res.data));
+          setState(freshDraft(res.data));
           toast.success(td.saved);
         },
         onError: (err) => toast.error(refusalText(err, td.saveFailed)),
@@ -284,7 +319,7 @@ export default function DeskProblemPage() {
     update.mutate(
       { id: problem.id, patch: { ...patch, status } },
       {
-        onSuccess: (res) => setDraft(draftOf(res.data)),
+        onSuccess: (res) => setState(freshDraft(res.data)),
         onError: (err) => toast.error(refusalText(err, td.statusFailed)),
       },
     );
@@ -341,6 +376,7 @@ export default function DeskProblemPage() {
             problem={problem}
             t={t}
             canUpdate={canUpdate}
+            canShare={canUpdate && canWriteTickets}
             canDelete={canDelete}
             canWriteArticle={canWriteArticle}
             updating={update.isPending}
@@ -418,12 +454,12 @@ export default function DeskProblemPage() {
           dirty={dirty}
           titleEmpty={titleEmpty}
           saving={update.isPending}
-          onDiscard={() => setDraft(draftOf(problem))}
+          onDiscard={() => setState(freshDraft(problem))}
           onSave={save}
         />
       )}
 
-      <ProblemIncidentsCard problem={problem} canUpdate={canUpdate} />
+      <ProblemIncidentsCard problem={problem} canUpdate={canUpdate && canWriteTickets} />
 
       <ShareWorkaroundDialog problem={problem} open={sharing} onOpenChange={setSharing} />
       <ConfirmDialog

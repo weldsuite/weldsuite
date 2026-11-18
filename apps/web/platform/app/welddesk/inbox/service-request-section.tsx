@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { Check, ConciergeBell, X } from 'lucide-react';
+import { Check, ConciergeBell, ListChecks, X } from 'lucide-react';
 import { useCan } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
@@ -18,6 +18,7 @@ import {
   deskCatalogErrorMessage,
   deskCatalogRefusal,
   useAttachDeskCatalogItem,
+  useCreateDeskRequestTasks,
   useDecideDeskApproval,
   useDeskCatalogItems,
   useDeskConversationRequest,
@@ -214,6 +215,7 @@ export function ServiceRequestSection({
   const { user } = useUser();
   const { data: request, isLoading, isError } = useDeskConversationRequest(conversation.id);
   const decide = useDecideDeskApproval();
+  const createTasks = useCreateDeskRequestTasks();
   const [deciding, setDeciding] = useState<DeskApprovalDecision | null>(null);
   const [picking, setPicking] = useState(false);
 
@@ -257,6 +259,26 @@ export function ServiceRequestSection({
         },
       },
     );
+  };
+
+  // Approved, or no approval needed, and the item's tasks were never created (the run after the answer failed).
+  // An item without tasks has nothing to create, so it never asks.
+  const tasksMissing =
+    canUpdate &&
+    request.item !== null &&
+    request.item.fulfilmentTaskCount > 0 &&
+    (request.approvalStatus === null || request.approvalStatus === 'approved') &&
+    !request.fulfilmentStarted;
+
+  const runFulfilment = () => {
+    createTasks.mutate(conversation.id, {
+      onSuccess: (result) => {
+        const created = result?.created ?? 0;
+        if (created === 0) toast.success(t.toast.tasksNone);
+        else toast.success(created === 1 ? t.toast.tasksCreatedOne : t.toast.tasksCreatedOther.replace('{count}', String(created)));
+      },
+      onError: (err) => toast.error(failureMessage(err, t)),
+    });
   };
 
   return (
@@ -310,6 +332,23 @@ export function ServiceRequestSection({
           <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => setDeciding('rejected')} data-testid="desk-request-reject">
             <X className="mr-1 h-3.5 w-3.5" />
             {t.reject}
+          </Button>
+        </div>
+      )}
+
+      {tasksMissing && (
+        <div className="space-y-1 pt-1" data-testid="desk-request-tasks-missing">
+          <p className="text-xs text-muted-foreground">{t.createTasksHint}</p>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 px-2 text-xs"
+            onClick={runFulfilment}
+            disabled={createTasks.isPending}
+            data-testid="desk-request-create-tasks"
+          >
+            <ListChecks className="mr-1 h-3.5 w-3.5" />
+            {t.createTasks}
           </Button>
         </div>
       )}

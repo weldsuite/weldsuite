@@ -23,6 +23,8 @@ import { useTicketTypes } from '@/hooks/queries/use-helpdesk-queries';
 import { useDeskTeamMembers, useDeskTeams } from '@/hooks/queries/use-desk-routing-queries';
 import {
   deskCatalogErrorMessage,
+  deskCatalogRefusal,
+  deskCatalogRefusalCount,
   useCreateDeskCatalogItem,
   useDeleteDeskCatalogItem,
   useDeskCatalogItems,
@@ -116,6 +118,13 @@ export function CatalogSettings() {
       toast.success(t.toast.deleted);
       setDeleting(null);
     } catch (err) {
+      if (deskCatalogRefusal(err) === 'has_pending_requests') {
+        // Requests of this item wait for a decision: the item stays, the dialog closes.
+        const count = deskCatalogRefusalCount(err) ?? 0;
+        toast.error(count === 1 ? t.toast.inUseOne : t.toast.inUseOther.replace('{count}', String(count)));
+        setDeleting(null);
+        return;
+      }
       toast.error(deskCatalogErrorMessage(err) ?? t.toast.saveFailed);
     }
   };

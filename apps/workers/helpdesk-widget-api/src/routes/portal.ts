@@ -79,6 +79,7 @@ import { error, success } from '../lib/response';
 import { generateId } from '../lib/id';
 import {
   autoAssignConversation,
+  deskCreatedChanges,
   isPublicMessage,
   notifyTeamOfVisitorMessage,
   publishVisitorMessage,
@@ -383,7 +384,15 @@ function announceVisitorMessage(
   c.executionCtx.waitUntil(
     visitorDisplayName(db, visitor.id, visitor).then((visitorName) =>
       Promise.all([
-        publishVisitorMessage(c.env, orgId, conversation, message, visitorName, opts.isNew ? 'created' : 'updated'),
+        publishVisitorMessage(
+          c.env,
+          orgId,
+          conversation,
+          message,
+          visitorName,
+          opts.isNew ? 'created' : 'updated',
+          opts.isNew ? deskCreatedChanges(conversation) : undefined,
+        ),
         autoAssignConversation(c.env, db, orgId, conversation, opts.isNew).then((current) =>
           opts.teamAlreadyWaiting
             ? undefined

@@ -7,6 +7,7 @@
 import { Children, isValidElement, type ReactElement, type ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { toast } from 'sonner';
 import type { DeskCatalogItem } from '@weldsuite/core-api-client/schemas/desk-catalog';
 
 const state = vi.hoisted(() => ({
@@ -15,6 +16,7 @@ const state = vi.hoisted(() => ({
   create: vi.fn<(input: Record<string, unknown>) => Promise<unknown>>(),
   update: vi.fn<(input: Record<string, unknown>) => Promise<unknown>>(),
   remove: vi.fn<(id: string) => Promise<unknown>>(),
+  refusal: null as { reason: string; count: number } | null,
 }));
 
 vi.mock('@/lib/i18n', async () => {
@@ -48,6 +50,8 @@ vi.mock('@/hooks/queries/use-desk-routing-queries', () => ({
 }));
 vi.mock('@/hooks/queries/use-desk-catalog-queries', () => ({
   deskCatalogErrorMessage: () => null,
+  deskCatalogRefusal: () => state.refusal?.reason ?? null,
+  deskCatalogRefusalCount: () => state.refusal?.count ?? null,
   useDeskCatalogItems: () => ({ data: state.items, isLoading: false, isError: false, refetch: vi.fn() }),
   useCreateDeskCatalogItem: () => ({ mutateAsync: state.create, isPending: false }),
   useUpdateDeskCatalogItem: () => ({ mutateAsync: state.update, isPending: false }),
@@ -112,6 +116,9 @@ const item = (id: string, extra: Partial<DeskCatalogItem> = {}): DeskCatalogItem
 });
 
 beforeEach(() => {
+  state.refusal = null;
+  vi.mocked(toast.error).mockClear();
+  vi.mocked(toast.success).mockClear();
   state.perms = new Set(['welddesk:settings:update']);
   state.items = [
     item('a', {
@@ -178,6 +185,25 @@ describe('the item list', () => {
     expect(await screen.findByText(/"Laptop" is removed from the help center/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
     await waitFor(() => expect(state.remove).toHaveBeenCalledWith('a'));
+  });
+
+  it('says why an item with requests waiting for approval was not deleted', async () => {
+    state.refusal = { reason: 'has_pending_requests', count: 3 };
+    state.remove.mockRejectedValueOnce(new Error('conflict'));
+    render(<CatalogSettings />);
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Laptop' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('3 requests waiting for approval')));
+    expect(toast.success).not.toHaveBeenCalled();
+  });
+
+  it('says it in the singular for one request', async () => {
+    state.refusal = { reason: 'has_pending_requests', count: 1 };
+    state.remove.mockRejectedValueOnce(new Error('conflict'));
+    render(<CatalogSettings />);
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Laptop' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('1 request waiting for approval')));
   });
 
   it('is read-only without welddesk:settings:update', () => {

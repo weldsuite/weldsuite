@@ -900,8 +900,18 @@ export type DeskRequestApprovalView = Pick<
 >;
 
 export interface DeskConversationRequest {
-  /** The item the request was made from; null when it was deleted since. */
-  item: { id: string; name: string; category: string | null; icon: string | null; deliveryEstimate: string | null } | null;
+  /**
+   * The item the request was made from; null when it was deleted since.
+   * `fulfilmentTaskCount` is how many tasks the item creates once approved.
+   */
+  item: {
+    id: string;
+    name: string;
+    category: string | null;
+    icon: string | null;
+    deliveryEstimate: string | null;
+    fulfilmentTaskCount: number;
+  } | null;
   approvalStatus: DeskRequestApprovalStatus | null;
   /** The request's steps, in order. */
   approvals: DeskRequestApprovalView[];
@@ -928,6 +938,7 @@ export async function getDeskConversationRequest(db: AnyDb, conversationId: stri
       category: items.category,
       icon: items.icon,
       deliveryEstimate: items.deliveryEstimate,
+      fulfilmentTaskCount: sql<number>`jsonb_array_length(${items.fulfilmentTasks})`.mapWith(Number),
     })
     .from(items)
     .where(eq(items.id, conversation.catalogItemId))

@@ -1043,7 +1043,8 @@ pub async fn conversation_request(
     }
     let item: Option<Value> = sqlx::query_scalar(
         "select jsonb_build_object('id', id, 'name', name, 'category', category, 'icon', icon,
-                                   'deliveryEstimate', delivery_estimate)
+                                   'deliveryEstimate', delivery_estimate,
+                                   'fulfilmentTaskCount', jsonb_array_length(fulfilment_tasks))
            from desk_catalog_items where id = $1 limit 1",
     )
     .bind(&item_id)

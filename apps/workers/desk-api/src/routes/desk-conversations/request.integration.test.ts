@@ -206,7 +206,7 @@ describe('PUT /api/desk/conversations/:id/catalog-item without approval steps', 
     expect(types(data.messages)).toEqual(['attributes_changed']);
     // The tasks are made after the answer: they are not there yet.
     expect(data.request).toEqual({
-      item: { id: 'dcat_plain', name: 'Headset', category: null, icon: null, deliveryEstimate: null },
+      item: { id: 'dcat_plain', name: 'Headset', category: null, icon: null, deliveryEstimate: null, fulfilmentTaskCount: 2 },
       approvalStatus: null,
       approvals: [],
       fulfilmentStarted: false,

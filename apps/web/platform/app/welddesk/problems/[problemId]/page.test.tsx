@@ -16,6 +16,7 @@ interface MutateOptions {
 
 const state = vi.hoisted(() => ({
   problem: {} as unknown,
+  problemId: 'dprob_1',
   perms: new Set<string>(),
   push: vi.fn<(href: string) => void>(),
   toastError: vi.fn<(message: string) => void>(),
@@ -34,7 +35,7 @@ vi.mock('@weldsuite/permissions/react', () => ({ useCan: (key: string) => state.
 vi.mock('@/lib/router', () => ({
   Link: ({ href, children }: { href: string; children: ReactNode }) => <a href={href}>{children}</a>,
   useRouter: () => ({ push: state.push }),
-  useParams: () => ({ problemId: 'dprob_1' }),
+  useParams: () => ({ problemId: state.problemId }),
 }));
 vi.mock('@/contexts/breadcrumb-context', () => ({ useBreadcrumbs: () => undefined }));
 vi.mock('@/lib/api/use-app-api', () => ({ useAppApiClient: () => ({ getClient: vi.fn() }), useAppApi: () => ({}) }));
@@ -58,7 +59,9 @@ vi.mock('@/hooks/queries/use-desk-problem-queries', async (importOriginal) => ({
 }));
 
 // The cards below the form have their own tests and queries.
-vi.mock('../problem-incidents-card', () => ({ ProblemIncidentsCard: () => <div data-testid="incidents-card" /> }));
+vi.mock('../problem-incidents-card', () => ({
+  ProblemIncidentsCard: ({ canUpdate }: { canUpdate: boolean }) => <div data-testid="incidents-card" data-can-update={String(canUpdate)} />,
+}));
 vi.mock('../share-workaround-dialog', () => ({
   ShareWorkaroundDialog: ({ open }: { open: boolean }) => (open ? <div data-testid="share-dialog" /> : null),
 }));
@@ -125,7 +128,8 @@ const field = (name: string) => screen.getByTestId(`desk-problem-${name}`) as HT
 
 beforeEach(() => {
   state.problem = problem();
-  state.perms = new Set(['problems:read', 'problems:update', 'problems:delete', 'articles:create']);
+  state.problemId = 'dprob_1';
+  state.perms = new Set(['problems:read', 'problems:update', 'problems:delete', 'articles:create', 'conversations:update']);
   for (const mock of [state.push, state.toastError, state.toastSuccess, state.update, state.article, state.remove]) mock.mockReset();
   state.remove.mockResolvedValue(undefined);
 });
@@ -235,5 +239,101 @@ describe('DeskProblemPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Confirm delete' }));
     await vi.waitFor(() => expect(state.push).toHaveBeenCalledWith('/welddesk/problems'));
     expect(state.remove).toHaveBeenCalledWith('dprob_1');
+  });
+});
+
+describe('permissions on what writes to tickets', () => {
+  const card = () => screen.getByTestId('incidents-card').getAttribute('data-can-update');
+
+  it('links and unlinks tickets only with problems:update and conversations:update', () => {
+    const { unmount } = render(<DeskProblemPage />);
+    expect(card()).toBe('true');
+    unmount();
+
+    state.perms = new Set(['problems:read', 'problems:update']);
+    const second = render(<DeskProblemPage />);
+    expect(card()).toBe('false');
+    second.unmount();
+
+    state.perms = new Set(['problems:read', 'conversations:update']);
+    render(<DeskProblemPage />);
+    expect(card()).toBe('false');
+  });
+
+  it('offers sharing the workaround only with both permissions', () => {
+    state.perms = new Set(['problems:read', 'problems:update']);
+    const { unmount } = render(<DeskProblemPage />);
+    expect(screen.queryByTestId('desk-problem-share-open')).toBeNull();
+    unmount();
+
+    state.perms = new Set(['problems:read', 'conversations:update']);
+    const second = render(<DeskProblemPage />);
+    expect(screen.queryByTestId('desk-problem-share-open')).toBeNull();
+    second.unmount();
+
+    state.perms = new Set(['problems:read', 'problems:update', 'conversations:update']);
+    render(<DeskProblemPage />);
+    expect(screen.getByTestId('desk-problem-share-open')).toBeTruthy();
+  });
+});
+
+describe('the draft', () => {
+  it('starts afresh when the route moves to another problem', () => {
+    const { rerender } = render(<DeskProblemPage />);
+    fireEvent.change(field('workaround'), { target: { value: 'Use PayPal' } });
+    expect(screen.getByText('Unsaved changes')).toBeTruthy();
+
+    state.problemId = 'dprob_2';
+    state.problem = problem({ id: 'dprob_2', problemNumber: 8, title: 'Search is slow', description: 'Takes ten seconds', workaround: null });
+    rerender(<DeskProblemPage />);
+
+    expect(screen.getByText('Problem #8')).toBeTruthy();
+    expect(field('workaround').value).toBe('');
+    expect(field('description').value).toBe('Takes ten seconds');
+    expect(screen.queryByText('Unsaved changes')).toBeNull();
+    expect((screen.getByTestId('desk-problem-save') as HTMLButtonElement).disabled).toBe(true);
+    // Saving there sends nothing of the first problem's draft.
+    fireEvent.change(field('rootCause'), { target: { value: 'Missing index' } });
+    fireEvent.click(screen.getByTestId('desk-problem-save'));
+    expect(state.update.mock.calls[0]![0]).toEqual({ id: 'dprob_2', patch: { rootCause: 'Missing index' } });
+  });
+
+  it('follows the server in the texts that were not touched, and keeps what is being typed', () => {
+    const { rerender } = render(<DeskProblemPage />);
+    fireEvent.change(field('workaround'), { target: { value: 'Use PayPal' } });
+
+    state.problem = problem({ description: 'Changed by a colleague', workaround: 'Their workaround' });
+    rerender(<DeskProblemPage />);
+
+    expect(field('description').value).toBe('Changed by a colleague');
+    expect(field('workaround').value).toBe('Use PayPal');
+    fireEvent.click(screen.getByTestId('desk-problem-save'));
+    // Only the text the agent edited is sent, not the colleague's change.
+    expect(state.update.mock.calls[0]![0].patch).toEqual({ workaround: 'Use PayPal' });
+  });
+
+  it('is clean again once it matches what the server holds', () => {
+    const { rerender } = render(<DeskProblemPage />);
+    fireEvent.change(field('workaround'), { target: { value: 'Use PayPal' } });
+    expect(screen.getByText('Unsaved changes')).toBeTruthy();
+
+    state.problem = problem({ workaround: 'Use PayPal' });
+    rerender(<DeskProblemPage />);
+    expect(screen.queryByText('Unsaved changes')).toBeNull();
+  });
+
+  it('is reset to the saved problem after a save, and discarding goes back to the server value', () => {
+    render(<DeskProblemPage />);
+    fireEvent.change(field('description'), { target: { value: 'Typed' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }));
+    expect(field('description').value).toBe('The pay button does nothing');
+    expect(screen.queryByText('Unsaved changes')).toBeNull();
+
+    fireEvent.change(field('description'), { target: { value: 'Typed again' } });
+    fireEvent.click(screen.getByTestId('desk-problem-save'));
+    act(() => state.update.mock.calls[0]![1].onSuccess?.({ data: problem({ description: 'Typed again' }) }));
+    // The query has not refetched yet: the draft is the saved problem, not a leftover.
+    expect(screen.queryByText('Unsaved changes')).toBeNull();
+    expect(field('description').value).toBe('Typed again');
   });
 });

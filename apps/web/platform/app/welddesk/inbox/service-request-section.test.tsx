@@ -6,6 +6,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { toast } from 'sonner';
 import type { DeskConversation } from '@/hooks/queries/use-desk-queries';
 import type { DeskWorkspaceMember } from '@/hooks/queries/use-desk-workspace-members';
 
@@ -22,6 +23,7 @@ const state = vi.hoisted(() => ({
   userId: 'user_me',
   decide: vi.fn<(input: { conversationId: string; decision: string; comment?: string }, callbacks: Callbacks) => void>(),
   attach: vi.fn<(input: { conversationId: string; catalogItemId: string }, callbacks: Callbacks) => void>(),
+  createTasks: vi.fn<(conversationId: string, callbacks: Callbacks) => void>(),
 }));
 
 vi.mock('@/lib/i18n', async () => {
@@ -39,6 +41,7 @@ vi.mock('@/hooks/queries/use-desk-catalog-queries', () => ({
   useDeskCatalogItems: () => ({ data: state.items, isLoading: false, isError: false }),
   useDecideDeskApproval: () => ({ mutate: state.decide, isPending: false }),
   useAttachDeskCatalogItem: () => ({ mutate: state.attach, isPending: false }),
+  useCreateDeskRequestTasks: () => ({ mutate: state.createTasks, isPending: false }),
 }));
 
 import { ServiceRequestSection } from './service-request-section';
@@ -62,9 +65,10 @@ const step = (index: number, extra: Record<string, unknown> = {}) => ({
 });
 
 const request = (approvals: unknown[], approvalStatus: string | null = 'pending') => ({
-  item: { id: 'dcat_1', name: 'Laptop', category: 'Hardware', icon: null, deliveryEstimate: '3 days' },
+  item: { id: 'dcat_1', name: 'Laptop', category: 'Hardware', icon: null, deliveryEstimate: '3 days', fulfilmentTaskCount: 2 },
   approvalStatus,
   approvals,
+  fulfilmentStarted: true,
 });
 
 const renderSection = (value: Partial<DeskConversation> = {}) =>
@@ -78,6 +82,9 @@ beforeEach(() => {
   state.userId = 'user_me';
   state.decide.mockReset();
   state.attach.mockReset();
+  state.createTasks.mockReset();
+  vi.mocked(toast.error).mockClear();
+  vi.mocked(toast.success).mockClear();
 });
 
 afterEach(() => cleanup());
@@ -107,7 +114,7 @@ describe('a service request', () => {
   });
 
   it('shows an item that was deleted, and a request without approval', () => {
-    state.request = { item: null, approvalStatus: null, approvals: [] };
+    state.request = { item: null, approvalStatus: null, approvals: [], fulfilmentStarted: false };
     renderSection();
     expect(screen.getByText('Removed from the catalogue')).toBeInTheDocument();
     expect(screen.getByTestId('desk-service-request-state')).toHaveTextContent('No approval needed');
@@ -220,5 +227,74 @@ describe('a conversation that is no request', () => {
     renderSection();
     fireEvent.click(screen.getByTestId('desk-service-request-make'));
     expect(await screen.findByText('The catalogue has no items yet.')).toBeInTheDocument();
+  });
+});
+
+describe('creating the tasks again', () => {
+  const unstarted = (approvalStatus: string | null) => ({ ...request([], approvalStatus), fulfilmentStarted: false });
+
+  it('offers the button on an approved request whose tasks were never created', () => {
+    state.perms = new Set(['conversations:update']);
+    state.request = unstarted('approved');
+    renderSection();
+    fireEvent.click(screen.getByTestId('desk-request-create-tasks'));
+    expect(state.createTasks).toHaveBeenCalledTimes(1);
+    expect(state.createTasks.mock.calls[0]![0]).toBe('dconv_1');
+  });
+
+  it('offers it on a request that needs no approval', () => {
+    state.perms = new Set(['conversations:update']);
+    state.request = unstarted(null);
+    renderSection();
+    expect(screen.getByTestId('desk-request-create-tasks')).toBeInTheDocument();
+  });
+
+  it('is not there while approval is pending or after a rejection', () => {
+    state.perms = new Set(['conversations:update']);
+    for (const status of ['pending', 'rejected']) {
+      state.request = unstarted(status);
+      const { unmount } = renderSection();
+      expect(screen.queryByTestId('desk-request-create-tasks')).not.toBeInTheDocument();
+      unmount();
+    }
+  });
+
+  it('is not there once the tasks were created, or without conversations:update', () => {
+    state.perms = new Set(['conversations:update']);
+    state.request = request([], 'approved');
+    const { unmount } = renderSection();
+    expect(screen.queryByTestId('desk-request-create-tasks')).not.toBeInTheDocument();
+    unmount();
+
+    state.perms = new Set();
+    state.request = unstarted('approved');
+    renderSection();
+    expect(screen.queryByTestId('desk-request-create-tasks')).not.toBeInTheDocument();
+  });
+
+  it('is not there when the item was removed', () => {
+    state.perms = new Set(['conversations:update']);
+    state.request = { item: null, approvalStatus: null, approvals: [], fulfilmentStarted: false };
+    renderSection();
+    expect(screen.queryByTestId('desk-request-create-tasks')).not.toBeInTheDocument();
+  });
+
+  it('is not there when the item creates no tasks', () => {
+    state.perms = new Set(['conversations:update']);
+    const base = unstarted('approved');
+    state.request = { ...base, item: { ...base.item, fulfilmentTaskCount: 0 } };
+    renderSection();
+    expect(screen.queryByTestId('desk-request-create-tasks')).not.toBeInTheDocument();
+  });
+
+  it('says how many tasks it created, and the refusal when the server refuses', () => {
+    state.perms = new Set(['conversations:update']);
+    state.request = unstarted('approved');
+    renderSection();
+    fireEvent.click(screen.getByTestId('desk-request-create-tasks'));
+    state.createTasks.mock.calls[0]![1].onSuccess?.({ created: 2 });
+    state.createTasks.mock.calls[0]![1].onError?.({ reason: 'already_started' });
+    expect(toast.success).toHaveBeenCalledWith('2 tasks created');
+    expect(toast.error).toHaveBeenCalledWith('The tasks of this request were created already.');
   });
 });

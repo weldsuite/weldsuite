@@ -43,6 +43,8 @@ export const deskCatalog = {
       deleted: 'Item deleted',
       saveFailed: 'Saving failed. Try again.',
       orderFailed: 'Changing the order failed. Try again.',
+      inUseOne: 'This item has 1 request waiting for approval. Decide that request first, or switch the item off instead.',
+      inUseOther: 'This item has {count} requests waiting for approval. Decide those requests first, or switch the item off instead.',
     },
     delete: {
       title: 'Delete this item?',
@@ -158,6 +160,8 @@ export const deskCatalog = {
     decidedBy: 'Decided by {name}',
     approve: 'Approve',
     reject: 'Reject',
+    createTasks: 'Create the tasks',
+    createTasksHint: 'The tasks of this item were not created yet.',
     decision: {
       approveTitle: 'Approve this request',
       rejectTitle: 'Reject this request',
@@ -173,6 +177,9 @@ export const deskCatalog = {
       approved: 'Request approved',
       rejected: 'Request rejected',
       failed: 'Something went wrong. Try again.',
+      tasksCreatedOne: '1 task created',
+      tasksCreatedOther: '{count} tasks created',
+      tasksNone: 'No tasks were missing',
     },
     refusals: {
       already_request: 'This ticket is already a service request.',
@@ -181,6 +188,10 @@ export const deskCatalog = {
       item_inactive: 'This item is switched off.',
       not_pending: 'No approval is waiting, or it was just decided.',
       not_approver: 'Only the approver of this step can decide it.',
+      not_request: 'This ticket is not a service request.',
+      not_approved: 'This request is not approved.',
+      already_started: 'The tasks of this request were created already.',
+      item_missing: 'The catalogue item of this request no longer exists.',
     },
   },
   approvals: {

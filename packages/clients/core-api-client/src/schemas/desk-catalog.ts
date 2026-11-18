@@ -161,6 +161,8 @@ export const deskConversationRequestSchema = z
         category: z.string().nullable(),
         icon: z.string().nullable(),
         deliveryEstimate: z.string().nullable(),
+        /** How many tasks the item creates once the request is approved. */
+        fulfilmentTaskCount: z.number().int(),
       })
       .strict()
       .nullable(),

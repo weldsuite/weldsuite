@@ -2,8 +2,9 @@
  * WeldDesk service catalogue (desk-api).
  *
  * - `/api/desk/catalog`: the items (settings) and the pending approvals.
- * - `/api/desk/conversations/:id/{request,catalog-item,approval}`: the service
- *   request a conversation is, making it one, deciding its steps.
+ * - `/api/desk/conversations/:id/{request,catalog-item,approval,fulfilment}`: the
+ *   service request a conversation is, making it one, deciding its steps and
+ *   creating its tasks again when that never finished.
  *
  * The rules live in `@weldsuite/db/lib/desk-catalog`; a refusal answers 409
  * with `details.reason`, a field problem 400 with `details.field`.
@@ -17,6 +18,7 @@ import type {
   DeskCatalogItem,
   DeskConversationRequest,
   DeskPendingApproval,
+  DeskRequestFulfilment,
   UpdateDeskCatalogItemInput,
 } from '@weldsuite/core-api-client/schemas/desk-catalog';
 import { useAppApiClient } from '@/lib/api/use-app-api';
@@ -47,6 +49,14 @@ export function deskCatalogRefusal(err: unknown): string | null {
   const body = err.body as { error?: { details?: { reason?: unknown } } } | undefined;
   const reason = body?.error?.details?.reason;
   return typeof reason === 'string' ? reason : 'conflict';
+}
+
+/** How many requests stand in the way of a refusal that counts them (`details.count`), or null. */
+export function deskCatalogRefusalCount(err: unknown): number | null {
+  if (!isApiError(err) || err.status !== 409) return null;
+  const body = err.body as { error?: { details?: { count?: unknown } } } | undefined;
+  const count = body?.error?.details?.count;
+  return typeof count === 'number' ? count : null;
 }
 
 /** The server's message for a failure, when it sent one (a form problem names its field). */
@@ -186,6 +196,20 @@ export function useDecideDeskApproval() {
         decision,
         ...(comment?.trim() ? { comment: comment.trim() } : {}),
       });
+    },
+    onSuccess: refresh,
+  });
+}
+
+/** Create the tasks of an approved request whose tasks were never created; answers how many it created. */
+export function useCreateDeskRequestTasks() {
+  const { getClient } = useAppApiClient();
+  const refresh = useRefreshAfterRequestChange();
+  return useMutation({
+    mutationFn: async (conversationId: string) => {
+      const client = await getClient();
+      const res = await client.post<{ data: DeskRequestFulfilment }>(`/desk/conversations/${conversationId}/fulfilment`, {});
+      return res.data;
     },
     onSuccess: refresh,
   });
