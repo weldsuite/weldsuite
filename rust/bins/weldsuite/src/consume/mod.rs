@@ -62,7 +62,7 @@
 
 mod config;
 mod panel_state;
-mod panel_writer;
+pub(crate) mod panel_writer;
 
 use std::process::ExitCode;
 use std::sync::Arc;

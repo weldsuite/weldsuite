@@ -1,16 +1,19 @@
-//! Our catalog (`pg_catalog.rs`), the writer's fenced append, and the
-//! nightly upkeep's whole-table operations: erasure across the four tables,
-//! retention over every workspace, and the orphan sweep.
+//! Our catalog (`pg_catalog.rs`), the writer's fenced append, commits whose
+//! answer is lost, and the nightly upkeep's whole-table operations: erasure
+//! across the four tables, retention over every workspace, and the orphan
+//! sweep.
 
 use arrow_array::{Array, Int64Array, RecordBatch};
-use iceberg::{Catalog, ErrorKind, MetadataLocation, NamespaceIdent, TableIdent};
+use iceberg::{Catalog, ErrorKind, MetadataLocation, NamespaceIdent, TableCreation, TableIdent};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 
 use super::fixture::{TestLake, events, file_url, fixture, test_lake, test_pool};
+use crate::pg_catalog::{CommitFault, is_commit_unknown};
 use crate::{
-    Erasure, Lakehouse, LakehouseConfig, LakehouseError, ListedFile, PanelTable, rows_to_batch,
+    Erasure, Lakehouse, LakehouseConfig, LakehouseError, ListedFile, PanelTable, SwapOutcome,
+    rows_to_batch,
 };
 
 async fn count(lake: &TestLake, sql: &str) -> i64 {
@@ -101,18 +104,16 @@ async fn the_catalog_keeps_namespaces_and_tables_and_swaps_only_from_the_current
         .expect("a location")
         .expect("the table");
     let next = MetadataLocation::from_str_checked(&current).to_string();
-    assert!(
-        !catalog
-            .swap_metadata(&ident, "s3://elsewhere/metadata.json", &next)
-            .await
-            .expect("a swap")
-    );
-    assert!(
+    assert!(matches!(
         catalog
-            .swap_metadata(&ident, &current, &current)
-            .await
-            .expect("a swap")
-    );
+            .swap_metadata(&ident, "s3://elsewhere/metadata.json", &next)
+            .await,
+        SwapOutcome::Lost
+    ));
+    assert!(matches!(
+        catalog.swap_metadata(&ident, &current, &current).await,
+        SwapOutcome::Swapped
+    ));
 
     // A second catalog name on the same database sees none of it.
     let pool = test_pool().await.expect("the database");
@@ -219,6 +220,388 @@ async fn a_table_another_writer_committed_to_is_not_appended_to() {
         data.iter().all(|path| referenced.contains(path)),
         "unreferenced data files: {data:?}"
     );
+}
+
+/// Makes the catalog's next commit fail as `fault` does, and (with
+/// `settle_fails`) every read that would settle it.
+fn fail_next_commit(lake: &Lakehouse, fault: CommitFault, settle_fails: bool) {
+    let mut faults = lake.catalog().faults();
+    faults.commit = Some(fault);
+    faults.settle_fails = settle_fails;
+}
+
+fn settle_again(lake: &Lakehouse) {
+    lake.catalog().faults().settle_fails = false;
+}
+
+/// The files under `<table>/<sub>` the table's metadata doesn't name.
+async fn unreferenced(lake: &TestLake, table: PanelTable, sub: &str) -> Vec<String> {
+    let referenced = lake.lake.referenced_files(table).await.expect("references");
+    files_under(lake.dir(), &format!("{}/{sub}", table.name()))
+        .into_iter()
+        .filter(|path| !referenced.contains(path))
+        .collect()
+}
+
+#[tokio::test]
+async fn an_append_whose_answer_is_lost_after_it_landed_is_committed() {
+    let lake = test_lake!();
+    let rows = events();
+    let first = batch(&lake.lake, PanelTable::Events, &rows[..10]).await;
+    lake.lake
+        .append_after(PanelTable::Events, &[first], 10, None)
+        .await
+        .expect("an append")
+        .expect("a commit");
+
+    fail_next_commit(&lake.lake, CommitFault::AnswerLostLanded, false);
+    let second = batch(&lake.lake, PanelTable::Events, &rows[10..20]).await;
+    let outcome = lake
+        .lake
+        .append_after(PanelTable::Events, &[second], 20, Some(10))
+        .await
+        .expect("landed: committed")
+        .expect("a commit");
+    assert_eq!(
+        lake.lake
+            .last_stream_seq(PanelTable::Events)
+            .await
+            .expect("seq"),
+        Some(20)
+    );
+    // Its data files are all there, and the table reads.
+    let table = lake.lake.load(PanelTable::Events).await.expect("events");
+    for path in &outcome.data_files {
+        assert!(
+            table.file_io().exists(path).await.expect("exists"),
+            "{path}"
+        );
+    }
+    assert_eq!(
+        count(&lake, "SELECT count(*) FROM panel.events_v1").await,
+        20
+    );
+    // The writer goes on from there.
+    let third = batch(&lake.lake, PanelTable::Events, &rows[20..30]).await;
+    lake.lake
+        .append_after(PanelTable::Events, &[third], 30, Some(20))
+        .await
+        .expect("an append")
+        .expect("a commit");
+    assert_eq!(
+        count(&lake, "SELECT count(*) FROM panel.events_v1").await,
+        30
+    );
+}
+
+#[tokio::test]
+async fn an_append_that_did_not_land_cleans_up_and_can_be_retried() {
+    let lake = test_lake!();
+    let rows = events();
+    let first = batch(&lake.lake, PanelTable::Events, &rows[..10]).await;
+    lake.lake
+        .append_after(PanelTable::Events, &[first], 10, None)
+        .await
+        .expect("an append")
+        .expect("a commit");
+    let second = batch(&lake.lake, PanelTable::Events, &rows[10..20]).await;
+    let metadata_before = files_under(lake.dir(), "events_v1/metadata")
+        .into_iter()
+        .filter(|path| path.ends_with(".metadata.json"))
+        .count();
+    for fault in [
+        CommitFault::ConnectionDrops,
+        CommitFault::AnswerLostNotLanded,
+    ] {
+        fail_next_commit(&lake.lake, fault, false);
+        let error = lake
+            .lake
+            .append_after(
+                PanelTable::Events,
+                std::slice::from_ref(&second),
+                20,
+                Some(10),
+            )
+            .await
+            .expect_err("not committed");
+        assert!(
+            !matches!(
+                error,
+                LakehouseError::Conflict(_) | LakehouseError::CommitUnknown(_)
+            ),
+            "{fault:?}: {error}"
+        );
+        assert_eq!(
+            lake.lake
+                .last_stream_seq(PanelTable::Events)
+                .await
+                .expect("seq"),
+            Some(10),
+            "{fault:?}"
+        );
+        // What it wrote is gone: its data files and its metadata file.
+        let strays = unreferenced(&lake, PanelTable::Events, "data").await;
+        assert!(strays.is_empty(), "{fault:?}: {strays:?}");
+        let metadata_after = files_under(lake.dir(), "events_v1/metadata")
+            .into_iter()
+            .filter(|path| path.ends_with(".metadata.json"))
+            .count();
+        assert_eq!(metadata_after, metadata_before, "{fault:?}");
+    }
+    // The writer's retry commits.
+    lake.lake
+        .append_after(PanelTable::Events, &[second], 20, Some(10))
+        .await
+        .expect("an append")
+        .expect("a commit");
+    assert_eq!(
+        count(&lake, "SELECT count(*) FROM panel.events_v1").await,
+        20
+    );
+}
+
+#[tokio::test]
+async fn an_append_whose_outcome_is_unknown_deletes_nothing() {
+    let lake = test_lake!();
+    let rows = events();
+    let first = batch(&lake.lake, PanelTable::Events, &rows[..10]).await;
+    lake.lake
+        .append_after(PanelTable::Events, &[first], 10, None)
+        .await
+        .expect("an append")
+        .expect("a commit");
+
+    // It landed, and nothing could tell.
+    fail_next_commit(&lake.lake, CommitFault::AnswerLostLanded, true);
+    let second = batch(&lake.lake, PanelTable::Events, &rows[10..20]).await;
+    let error = lake
+        .lake
+        .append_after(PanelTable::Events, &[second], 20, Some(10))
+        .await
+        .expect_err("unknown");
+    assert!(matches!(error, LakehouseError::CommitUnknown(_)), "{error}");
+    settle_again(&lake.lake);
+    // The table holds it, and every file it names is there.
+    assert_eq!(
+        lake.lake
+            .last_stream_seq(PanelTable::Events)
+            .await
+            .expect("seq"),
+        Some(20)
+    );
+    assert_eq!(
+        count(&lake, "SELECT count(*) FROM panel.events_v1").await,
+        20
+    );
+
+    // It didn't land, and nothing could tell: the table is as it was, and
+    // the files stay for the orphan sweep.
+    fail_next_commit(&lake.lake, CommitFault::AnswerLostNotLanded, true);
+    let third = batch(&lake.lake, PanelTable::Events, &rows[20..30]).await;
+    let error = lake
+        .lake
+        .append_after(PanelTable::Events, &[third], 30, Some(20))
+        .await
+        .expect_err("unknown");
+    assert!(matches!(error, LakehouseError::CommitUnknown(_)), "{error}");
+    settle_again(&lake.lake);
+    assert_eq!(
+        lake.lake
+            .last_stream_seq(PanelTable::Events)
+            .await
+            .expect("seq"),
+        Some(20)
+    );
+    assert_eq!(
+        count(&lake, "SELECT count(*) FROM panel.events_v1").await,
+        20
+    );
+    let kept = unreferenced(&lake, PanelTable::Events, "data").await;
+    assert!(
+        !kept.is_empty(),
+        "the unknown commit's data files: {kept:?}"
+    );
+}
+
+/// The rows as small files of `events_v1`, eight rows each.
+async fn small_files(lake: &Lakehouse, rows: &[Value]) {
+    for chunk in rows.chunks(8) {
+        lake.append_rows(PanelTable::Events, chunk, Some(1))
+            .await
+            .expect("an append");
+    }
+}
+
+/// The table's current metadata file.
+async fn metadata_file(lake: &Lakehouse, table: PanelTable) -> String {
+    lake.catalog()
+        .metadata_location(&table.ident())
+        .await
+        .expect("a location")
+        .expect("the table")
+}
+
+#[tokio::test]
+async fn a_replace_whose_answer_is_lost_is_committed_cleaned_or_kept() {
+    let lake = test_lake!();
+    let day: Vec<Value> = events()
+        .into_iter()
+        .filter(|row| {
+            row["workspace_id"] == "ws_1"
+                && row["ts"]
+                    .as_str()
+                    .is_some_and(|ts| ts.starts_with("2026-11-01"))
+        })
+        .collect();
+    let nov_1 = Some(20_758);
+    let rows = i64::try_from(day.len()).expect("rows");
+
+    // Landed: the compaction is committed.
+    small_files(&lake.lake, &day).await;
+    fail_next_commit(&lake.lake, CommitFault::AnswerLostLanded, false);
+    lake.lake
+        .compact_partition(PanelTable::Events, "ws_1", nov_1)
+        .await
+        .expect("landed: committed")
+        .expect("a compaction");
+    assert_eq!(
+        count(&lake, "SELECT count(*) FROM panel.events_v1").await,
+        rows
+    );
+
+    // Not landed: an error, the table as it was, the new files gone.
+    small_files(&lake.lake, &day).await;
+    let before = lake.lake.load(PanelTable::Events).await.expect("events");
+    fail_next_commit(&lake.lake, CommitFault::AnswerLostNotLanded, false);
+    let error = lake
+        .lake
+        .compact_partition(PanelTable::Events, "ws_1", nov_1)
+        .await
+        .expect_err("not committed");
+    assert!(matches!(error, LakehouseError::Catalog(_)), "{error}");
+    let after = lake.lake.load(PanelTable::Events).await.expect("events");
+    assert_eq!(after.metadata_location(), before.metadata_location());
+    let strays = unreferenced(&lake, PanelTable::Events, "data").await;
+    assert!(strays.is_empty(), "{strays:?}");
+
+    // Landed, and nothing could tell: an error, and the table reads (its
+    // new files were kept).
+    fail_next_commit(&lake.lake, CommitFault::AnswerLostLanded, true);
+    let error = lake
+        .lake
+        .compact_partition(PanelTable::Events, "ws_1", nov_1)
+        .await
+        .expect_err("unknown");
+    assert!(matches!(error, LakehouseError::CommitUnknown(_)), "{error}");
+    settle_again(&lake.lake);
+    let compacted = lake.lake.load(PanelTable::Events).await.expect("events");
+    assert_ne!(compacted.metadata_location(), before.metadata_location());
+    assert_eq!(
+        count(&lake, "SELECT count(*) FROM panel.events_v1").await,
+        rows * 2
+    );
+}
+
+#[tokio::test]
+async fn a_lost_answer_is_settled_by_where_the_table_points_and_its_history() {
+    let lake = test_lake!();
+    let catalog = lake.lake.catalog();
+    let ident = PanelTable::Events.ident();
+    let a = metadata_file(&lake.lake, PanelTable::Events).await;
+    let rows = events();
+    lake.lake
+        .append_rows(PanelTable::Events, &rows[..5], Some(5))
+        .await
+        .expect("an append");
+    let b = metadata_file(&lake.lake, PanelTable::Events).await;
+    lake.lake
+        .append_rows(PanelTable::Events, &rows[5..10], Some(10))
+        .await
+        .expect("an append");
+    let c = metadata_file(&lake.lake, PanelTable::Events).await;
+    let never = "file:/nowhere/00009-never.metadata.json";
+    // (expected, new) → whether it landed.
+    let cases: [(Option<&str>, &str, Option<bool>); 6] = [
+        // The table points at it.
+        (Some(&b), &c, Some(true)),
+        (None, &c, Some(true)),
+        // It still points at what the commit expected.
+        (Some(&c), never, Some(false)),
+        // A later commit came on top of it.
+        (Some(&a), &b, Some(true)),
+        // A later commit came on top of what it expected instead.
+        (Some(&b), never, Some(false)),
+        // Neither is in the history.
+        (Some("file:/old"), never, None),
+    ];
+    for (expected, new, want) in cases {
+        let got = catalog
+            .landed(&ident, expected, new)
+            .await
+            .expect("an answer");
+        assert_eq!(got, want, "{expected:?} → {new}");
+    }
+}
+
+#[tokio::test]
+async fn a_table_whose_creation_lost_its_answer_is_settled_too() {
+    let lake = test_lake!();
+    let catalog = lake.lake.catalog();
+    let panel = NamespaceIdent::new("panel".to_owned());
+    let creation = |name: &str| TableCreation {
+        name: name.to_owned(),
+        ..PanelTable::Events.creation().expect("a creation")
+    };
+    let ident = |name: &str| TableIdent::new(panel.clone(), name.to_owned());
+
+    fail_next_commit(&lake.lake, CommitFault::AnswerLostLanded, false);
+    catalog
+        .create_table(&panel, creation("landed"))
+        .await
+        .expect("landed: made");
+    catalog
+        .load_table(&ident("landed"))
+        .await
+        .expect("it loads");
+
+    // Failed before its COMMIT: not made, its metadata file deleted.
+    fail_next_commit(&lake.lake, CommitFault::ConnectionDrops, false);
+    catalog
+        .create_table(&panel, creation("lost"))
+        .await
+        .expect_err("not made");
+    assert!(!catalog.table_exists(&ident("lost")).await.expect("exists"));
+    let left = files_under(lake.dir(), "lost");
+    assert!(left.is_empty(), "{left:?}");
+
+    // Its COMMIT's answer lost and no row there: an insert still in flight
+    // can't be waited for, so that is unknown, and the file stays (the
+    // orphan sweep of the table made next takes it).
+    fail_next_commit(&lake.lake, CommitFault::AnswerLostNotLanded, false);
+    let error = catalog
+        .create_table(&panel, creation("gone"))
+        .await
+        .expect_err("unknown");
+    assert!(is_commit_unknown(&error), "{error}");
+    assert!(!catalog.table_exists(&ident("gone")).await.expect("exists"));
+    assert_eq!(files_under(lake.dir(), "gone").len(), 1);
+    catalog
+        .create_table(&panel, creation("gone"))
+        .await
+        .expect("made again");
+
+    fail_next_commit(&lake.lake, CommitFault::AnswerLostLanded, true);
+    let error = catalog
+        .create_table(&panel, creation("unknown"))
+        .await
+        .expect_err("unknown");
+    assert!(is_commit_unknown(&error), "{error}");
+    settle_again(&lake.lake);
+    // Its metadata file was kept: the table it made loads.
+    catalog
+        .load_table(&ident("unknown"))
+        .await
+        .expect("it loads");
 }
 
 #[tokio::test]

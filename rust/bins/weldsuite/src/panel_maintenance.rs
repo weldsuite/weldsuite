@@ -10,6 +10,16 @@
 //!    id requested again during the run stays pending. The ids it covered
 //!    then leave the project's erased list (`clearErased`), which opens the
 //!    tenant database of those workspaces only, never the others.
+//!    Only ids requested before the rows collected until then are in the
+//!    tables are taken ([`erasure_cutoff`]): `panel-writer` holds rows up to
+//!    its flush interval (`PANEL_WRITER_FLUSH_SECONDS`) before committing
+//!    them, so an id must be older than that plus a margin, and when the
+//!    writer is behind (a table's committed `weldsuite.stream-seq` short of
+//!    its feed, [`WriterLag`], read from NATS) older than the oldest row it
+//!    hasn't committed, less the margin. Otherwise rows collected before the
+//!    request but committed after the rewrite would survive it, and come
+//!    back once the id left the erased list. The later ids wait for a later
+//!    night; with NATS configured but out of reach, none is taken.
 //! 2. **Retention.** Each workspace's day partitions past its plan's window
 //!    are dropped from `events_v1` and `replay_chunks_v1`: 366 days on Free
 //!    (or no plan), 762 otherwise, the window Global's queries use
@@ -118,7 +128,8 @@ pub(crate) fn first_kept_day(now: OffsetDateTime, days: i64) -> i32 {
     i32::try_from(cutoff.div_euclid(86_400)).unwrap_or(i32::MIN)
 }
 
-/// How long snapshots and orphans are kept.
+/// How long snapshots and orphans are kept, and how long an erasure waits
+/// for the writer.
 #[derive(Debug, Clone)]
 pub(crate) struct MaintenanceSettings {
     /// Snapshots older than this are expired (a query reads a snapshot it
@@ -128,6 +139,13 @@ pub(crate) struct MaintenanceSettings {
     pub(crate) retain_snapshots: usize,
     /// Unreferenced files younger than this stay.
     pub(crate) orphan_min_age: Duration,
+    /// How long `panel-writer` holds rows before committing them
+    /// (`PANEL_WRITER_FLUSH_SECONDS`).
+    pub(crate) writer_flush_after: Duration,
+    /// What an erasure waits beyond it, and before the oldest row the writer
+    /// hasn't committed: the clocks of the collector, NATS and Postgres, and
+    /// a commit's own time.
+    pub(crate) erasure_margin: Duration,
 }
 
 impl Default for MaintenanceSettings {
@@ -136,8 +154,115 @@ impl Default for MaintenanceSettings {
             snapshot_age: Duration::from_hours(24),
             retain_snapshots: 10,
             orphan_min_age: ORPHAN_MIN_AGE,
+            writer_flush_after: crate::consume::panel_writer::WriterSettings::default().flush_after,
+            erasure_margin: Duration::from_mins(10),
         }
     }
+}
+
+/// The erasure requests a run takes: those made before this. The writer
+/// has committed every row collected before it when it is older than the
+/// writer's flush interval and the margin, and than the oldest row the
+/// writer hasn't committed (`oldest_uncommitted`, when it is behind) less
+/// the margin.
+pub(crate) fn erasure_cutoff(
+    now: OffsetDateTime,
+    settings: &MaintenanceSettings,
+    oldest_uncommitted: Option<OffsetDateTime>,
+) -> OffsetDateTime {
+    let flushed = now - settings.writer_flush_after - settings.erasure_margin;
+    oldest_uncommitted.map_or(flushed, |oldest| {
+        flushed.min(oldest - settings.erasure_margin)
+    })
+}
+
+/// How far `panel-writer` is behind its feeds.
+pub(crate) trait WriterLag: Send + Sync {
+    /// When the oldest row on the five feeds that its table hasn't
+    /// committed was published; `None` when every table holds its feed.
+    fn oldest_uncommitted<'a>(
+        &'a self,
+        lake: &'a Lakehouse,
+    ) -> BoxFuture<'a, Result<Option<OffsetDateTime>, String>>;
+}
+
+/// The writer's lag read from the install's NATS (connected per run).
+pub(crate) struct NatsWriterLag {
+    pub(crate) nats: weldsuite_adapters_oss::NatsOptions,
+    pub(crate) streams: crate::panel_store::PanelStreams,
+}
+
+impl WriterLag for NatsWriterLag {
+    fn oldest_uncommitted<'a>(
+        &'a self,
+        lake: &'a Lakehouse,
+    ) -> BoxFuture<'a, Result<Option<OffsetDateTime>, String>> {
+        Box::pin(async move {
+            let bus = weldsuite_adapters_oss::JetStreamEventBus::connect(&self.nats)
+                .await
+                .map_err(|error| format!("NATS: {error}"))?;
+            let feeds = crate::consume::panel_writer::feeds(&self.streams);
+            oldest_uncommitted(bus.context(), lake, &feeds).await
+        })
+    }
+}
+
+/// When the oldest message of `feeds` that its table hasn't committed was
+/// published: per feed, the first message on its subjects after the
+/// table's committed sequence (from the stream's start when the table has
+/// none, or the stream was made anew below it, as the writer reads it).
+pub(crate) async fn oldest_uncommitted(
+    jetstream: &async_nats::jetstream::Context,
+    lake: &Lakehouse,
+    feeds: &[crate::consume::panel_writer::Feed],
+) -> Result<Option<OffsetDateTime>, String> {
+    use crate::consume::panel_writer::{Start, start};
+    use async_nats::jetstream::ErrorCode;
+    use async_nats::jetstream::context::GetStreamErrorKind;
+    use async_nats::jetstream::stream::RawMessageErrorKind;
+    let mut oldest: Option<OffsetDateTime> = None;
+    for feed in feeds {
+        let table = feed.table.name();
+        let committed = lake
+            .last_stream_seq(feed.table)
+            .await
+            .map_err(|error| format!("{table}: {error}"))?;
+        let mut stream = match jetstream.get_stream(&feed.stream).await {
+            Ok(stream) => stream,
+            // Never made: nothing on it is waiting for the table.
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    GetStreamErrorKind::JetStream(error)
+                        if error.error_code() == ErrorCode::STREAM_NOT_FOUND
+                ) =>
+            {
+                continue;
+            }
+            Err(error) => return Err(format!("{}: {error}", feed.stream)),
+        };
+        let last = stream
+            .info()
+            .await
+            .map_err(|error| format!("{}: {error}", feed.stream))?
+            .state
+            .last_sequence;
+        let from = match start(committed, last) {
+            Start::After(seq) => seq + 1,
+            Start::All => 1,
+        };
+        match stream
+            .get_first_raw_message_by_subject(&feed.subject, from)
+            .await
+        {
+            Ok(message) => {
+                oldest = Some(oldest.map_or(message.time, |at| at.min(message.time)));
+            }
+            Err(error) if matches!(error.kind(), RawMessageErrorKind::NoMessageFound) => {}
+            Err(error) => return Err(format!("{table}'s feed {}: {error}", feed.subject)),
+        }
+    }
+    Ok(oldest)
 }
 
 /// Releases erased ids once their rows are rewritten: the project state's
@@ -222,6 +347,9 @@ pub(crate) struct NightPorts<'a> {
     /// The replays bucket in the panel bucket (`PanelBucketReplays`);
     /// `None`: nothing expires there.
     pub(crate) replays: Option<&'a dyn DynFileStore>,
+    /// How far the writer is behind (NATS); `None` (no NATS, so no
+    /// writer): the erasure cutoff is the flush interval's alone.
+    pub(crate) lag: Option<&'a dyn WriterLag>,
 }
 
 /// One run. Returns its report (what `weldsuite cron` prints).
@@ -240,11 +368,37 @@ pub(crate) async fn run(
     let projects = ports.projects;
     let mut errors: Vec<String> = Vec::new();
 
-    // 1. Erasure.
+    // 1. Erasure, of the ids whose rows the writer has committed.
     let mut erased = ErasureCounts::default();
     let mut applied_ids = 0_u64;
-    match pending_erasures(master, now).await {
-        Ok(by_workspace) => {
+    let cutoff = match ports.lag {
+        None => Ok(erasure_cutoff(now, settings, None)),
+        Some(lag) => lag.oldest_uncommitted(lake).await.map(|oldest| {
+            let cutoff = erasure_cutoff(now, settings, oldest);
+            if let Some(oldest) = oldest
+                && cutoff < erasure_cutoff(now, settings, None)
+            {
+                tracing::warn!(
+                    oldest_uncommitted = weldsuite_events::iso_timestamp(oldest),
+                    "panel-maintenance: the writer is behind; later erasure requests wait"
+                );
+            }
+            cutoff
+        }),
+    };
+    let pending = match cutoff {
+        Ok(cutoff) => pending_erasures(master, cutoff)
+            .await
+            .map(|pending| (cutoff, pending))
+            .map_err(|error| format!("reading the erasure ledger: {error}")),
+        Err(error) => Err(format!(
+            "erasure: the writer's progress is unknown, so no request is taken this run: {error}"
+        )),
+    };
+    let mut requested_before = None;
+    match pending {
+        Ok((cutoff, by_workspace)) => {
+            requested_before = Some(weldsuite_events::iso_timestamp(cutoff));
             for erasure in by_workspace.into_values() {
                 match lake.erase_people(&erasure).await {
                     Ok(counts) => {
@@ -252,7 +406,7 @@ pub(crate) async fn run(
                         erased.identities += counts.identities;
                         erased.people += counts.people;
                         erased.replay_chunks += counts.replay_chunks;
-                        match mark_applied(master, &erasure, now).await {
+                        match mark_applied(master, &erasure, cutoff).await {
                             Ok(covered) => {
                                 applied_ids += covered
                                     .values()
@@ -281,7 +435,7 @@ pub(crate) async fn run(
                 }
             }
         }
-        Err(error) => errors.push(format!("reading the erasure ledger: {error}")),
+        Err(error) => errors.push(error),
     }
 
     // 2. Retention.
@@ -379,6 +533,7 @@ pub(crate) async fn run(
     }
     json!({
         "erased": {
+            "requestedBefore": requested_before,
             "ids": applied_ids,
             "events": erased.events,
             "identities": erased.identities,
@@ -398,17 +553,18 @@ pub(crate) async fn run(
     })
 }
 
-/// The ledger's pending ids requested up to `now`, by workspace.
+/// The ledger's pending ids requested up to `cutoff` ([`erasure_cutoff`]),
+/// by workspace.
 async fn pending_erasures(
     master: &PgPool,
-    now: OffsetDateTime,
+    cutoff: OffsetDateTime,
 ) -> Result<BTreeMap<String, Erasure>, sqlx::Error> {
     let rows: Vec<Pending> = sqlx::query_as(
         "select workspace_id, project_id, erased_id from panel_erasure_ledger \
          where applied_at is null and requested_at <= $1::timestamptz \
          order by workspace_id, project_id, erased_id",
     )
-    .bind(weldsuite_events::iso_timestamp(now))
+    .bind(weldsuite_events::iso_timestamp(cutoff))
     .fetch_all(master)
     .await?;
     let mut by_workspace: BTreeMap<String, Erasure> = BTreeMap::new();
@@ -428,12 +584,12 @@ async fn pending_erasures(
 }
 
 /// Marks the erasure's ids applied, except those requested again after
-/// `started` (the rewrite didn't cover what came after it began). Returns
-/// the ids it marked, by project.
+/// `cutoff` (the rewrite covers only what was committed before that).
+/// Returns the ids it marked, by project.
 async fn mark_applied(
     master: &PgPool,
     erasure: &Erasure,
-    started: OffsetDateTime,
+    cutoff: OffsetDateTime,
 ) -> Result<BTreeMap<String, Vec<String>>, sqlx::Error> {
     let mut covered = BTreeMap::new();
     for (project, ids) in &erasure.ids_by_project {
@@ -447,7 +603,7 @@ async fn mark_applied(
         .bind(&erasure.workspace_id)
         .bind(project)
         .bind(&ids)
-        .bind(weldsuite_events::iso_timestamp(started))
+        .bind(weldsuite_events::iso_timestamp(cutoff))
         .fetch_all(master)
         .await?;
         if !marked.is_empty() {
@@ -832,11 +988,13 @@ mod tests {
                 }
             }
         }
-        // u-1 is erased in ws_biz; a request that comes after the run starts
-        // waits for the next one.
+        // u-1 is erased in ws_biz; a request the writer may not have
+        // committed the rows of yet (five minutes old), and one that comes
+        // after the run starts, wait for a later one.
         for (id, when) in [
             ("u-1", now - time::Duration::hours(1)),
             ("u-2", now + time::Duration::hours(1)),
+            ("u-3", now - time::Duration::minutes(5)),
         ] {
             sqlx::query(
                 "insert into panel_erasure_ledger (workspace_id, project_id, erased_id, requested_at) \
@@ -897,8 +1055,234 @@ mod tests {
         .expect("the ledger");
         assert_eq!(
             pending,
-            [("u-1".to_owned(), true), ("u-2".to_owned(), false)]
+            [
+                ("u-1".to_owned(), true),
+                ("u-2".to_owned(), false),
+                ("u-3".to_owned(), false)
+            ]
         );
+        scratch.finish().await;
+    }
+
+    #[test]
+    fn an_erasure_waits_for_the_writer_s_flush_and_its_lag() {
+        use crate::consume::panel_writer::flush_after_from;
+        let now = OffsetDateTime::from_unix_timestamp(1_795_003_200).expect("2026-11-18 12:00");
+        let minutes = time::Duration::minutes;
+        let settings = MaintenanceSettings::default();
+        // The writer's flush interval (5 minutes) and the margin (10).
+        assert_eq!(erasure_cutoff(now, &settings, None), now - minutes(15));
+        // A row younger than that is the writer's usual buffer.
+        assert_eq!(
+            erasure_cutoff(now, &settings, Some(now - minutes(1))),
+            now - minutes(15)
+        );
+        // Behind: before its oldest row not committed, less the margin.
+        assert_eq!(
+            erasure_cutoff(now, &settings, Some(now - minutes(120))),
+            now - minutes(130)
+        );
+        // A longer flush interval waits longer.
+        let slow = MaintenanceSettings {
+            writer_flush_after: Duration::from_mins(30),
+            ..MaintenanceSettings::default()
+        };
+        assert_eq!(erasure_cutoff(now, &slow, None), now - minutes(40));
+        // The interval the cron reads, as `consume` does.
+        assert_eq!(flush_after_from(&|_| None), Duration::from_mins(5));
+        assert_eq!(
+            flush_after_from(&|_| Some("60".to_owned())),
+            Duration::from_secs(60)
+        );
+        for wrong in ["0", "soon", "-5"] {
+            assert_eq!(
+                flush_after_from(&|_| Some(wrong.to_owned())),
+                Duration::from_mins(5)
+            );
+        }
+    }
+
+    /// A writer that is behind until a given time, caught up, or out of
+    /// reach.
+    struct FixedLag(Result<Option<OffsetDateTime>, String>);
+
+    impl WriterLag for FixedLag {
+        fn oldest_uncommitted<'a>(
+            &'a self,
+            _lake: &'a Lakehouse,
+        ) -> BoxFuture<'a, Result<Option<OffsetDateTime>, String>> {
+            Box::pin(std::future::ready(self.0.clone()))
+        }
+    }
+
+    /// Against a scratch master: requests are taken only once the writer
+    /// has committed the rows collected before them.
+    #[tokio::test]
+    async fn erasure_takes_only_requests_whose_rows_the_writer_has_committed() {
+        use crate::panel_test_support::ScratchPanel;
+        let Some(scratch) = ScratchPanel::new().await else {
+            return;
+        };
+        let master = &scratch.master;
+        let now = OffsetDateTime::now_utc();
+        for (id, minutes) in [("u-old", 180), ("u-mid", 90), ("u-new", 5)] {
+            sqlx::query(
+                "insert into panel_erasure_ledger (workspace_id, project_id, erased_id, requested_at) \
+                 values ('ws_lag', 'pnp_lag', $1, $2::timestamptz)",
+            )
+            .bind(id)
+            .bind(weldsuite_events::iso_timestamp(
+                now - time::Duration::minutes(minutes),
+            ))
+            .execute(master)
+            .await
+            .expect("a ledger row");
+        }
+        let lister = DiskLister(scratch.dir().to_path_buf());
+        let night = |lag: FixedLag| {
+            let lister = &lister;
+            let lake = &scratch.lake;
+            async move {
+                run(
+                    master,
+                    lake,
+                    lister,
+                    now,
+                    &MaintenanceSettings::default(),
+                    NightPorts {
+                        lag: Some(&lag),
+                        ..NightPorts::default()
+                    },
+                )
+                .await
+            }
+        };
+        let applied = || async {
+            sqlx::query_scalar::<_, String>(
+                "select erased_id from panel_erasure_ledger \
+                 where workspace_id = 'ws_lag' and applied_at is not null order by erased_id",
+            )
+            .fetch_all(master)
+            .await
+            .expect("the ledger")
+        };
+
+        // The writer's progress unknown (NATS out of reach): none is taken.
+        let report = night(FixedLag(Err("NATS: connection refused".to_owned()))).await;
+        let errors = report["errors"].to_string();
+        assert!(errors.contains("progress is unknown"), "{report}");
+        let none = applied().await;
+        assert!(none.is_empty(), "{none:?}");
+
+        // Two hours behind: only the request older than its oldest row
+        // (less the margin).
+        let report = night(FixedLag(Ok(Some(now - time::Duration::hours(2))))).await;
+        assert_eq!(report["errors"], json!([]), "{report}");
+        assert_eq!(applied().await, ["u-old"]);
+
+        // Caught up: the rest older than the flush interval and the margin.
+        let report = night(FixedLag(Ok(None))).await;
+        assert_eq!(report["errors"], json!([]), "{report}");
+        assert_eq!(applied().await, ["u-mid", "u-old"]);
+        scratch.finish().await;
+    }
+
+    /// Against throwaway Postgres and NATS: the lag is the publish time of
+    /// the first row on a feed after its table's committed sequence.
+    #[tokio::test]
+    async fn the_writer_s_lag_is_its_oldest_row_not_committed() {
+        use crate::consume::panel_writer::Feed;
+        use crate::panel_test_support::{ScratchPanel, event, unique};
+        let Ok(nats) = std::env::var("WELDSUITE_TEST_NATS_URL") else {
+            eprintln!("skipped: WELDSUITE_TEST_NATS_URL is not set");
+            return;
+        };
+        let Some(scratch) = ScratchPanel::new().await else {
+            return;
+        };
+        let bus = weldsuite_adapters_oss::JetStreamEventBus::connect(
+            &weldsuite_adapters_oss::NatsOptions {
+                url: nats,
+                ..weldsuite_adapters_oss::NatsOptions::default()
+            },
+        )
+        .await
+        .expect("nats");
+        let js = bus.context().clone();
+        let tag = unique("t");
+        let subject = format!("panel.events{tag}.v1");
+        let stream = format!("TEST_PANEL_EVENTS_{tag}");
+        js.get_or_create_stream(weldsuite_adapters_oss::panel_events_stream_config(
+            &stream,
+            &subject,
+            Duration::from_hours(1),
+        ))
+        .await
+        .expect("the stream");
+        let feeds = [Feed {
+            table: PanelTable::Events,
+            stream: stream.clone(),
+            subject: format!("{subject}.>"),
+        }];
+        let lag = || oldest_uncommitted(&js, &scratch.lake, &feeds);
+        assert_eq!(lag().await, Ok(None), "nothing published");
+        // A stream never made holds nothing to wait for.
+        let unmade = [Feed {
+            table: PanelTable::Identities,
+            stream: format!("TEST_PANEL_UNMADE_{tag}"),
+            subject: format!("panel.identities{tag}.v1.>"),
+        }];
+        assert_eq!(
+            oldest_uncommitted(&js, &scratch.lake, &unmade).await,
+            Ok(None)
+        );
+
+        let mut published = Vec::new();
+        for n in 0..3 {
+            let ack = js
+                .publish(format!("{subject}.ws_1"), format!("{{\"n\":{n}}}").into())
+                .await
+                .expect("a publish")
+                .await
+                .expect("stored");
+            let message = js
+                .get_stream(&stream)
+                .await
+                .expect("the stream")
+                .get_raw_message(ack.sequence)
+                .await
+                .expect("the message");
+            published.push((ack.sequence, message.time));
+        }
+        // Nothing committed: the first row.
+        assert_eq!(lag().await, Ok(Some(published[0].1)));
+        // Committed through the second: the third.
+        let row = event(
+            "ws_1",
+            "pnp_1",
+            "e1",
+            "a-1",
+            "s-1",
+            "2026-11-18T10:00:00.000Z",
+        );
+        scratch
+            .lake
+            .append_rows(
+                PanelTable::Events,
+                std::slice::from_ref(&row),
+                Some(published[1].0),
+            )
+            .await
+            .expect("an append");
+        assert_eq!(lag().await, Ok(Some(published[2].1)));
+        // Through the third: caught up.
+        scratch
+            .lake
+            .append_rows(PanelTable::Events, &[row], Some(published[2].0))
+            .await
+            .expect("an append");
+        assert_eq!(lag().await, Ok(None));
+        let _ = js.delete_stream(&stream).await;
         scratch.finish().await;
     }
 }

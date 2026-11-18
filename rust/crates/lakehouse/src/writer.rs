@@ -7,7 +7,10 @@
 //! [`Lakehouse::append_after`] is the writer's commit. It is fenced on that
 //! sequence: of two writers that both believe they hold a table (a lease
 //! that ran out under a long pause), only the one that read the current
-//! sequence commits; the other gets [`LakehouseError::Conflict`].
+//! sequence commits; the other gets [`LakehouseError::Conflict`]. A commit
+//! whose outcome the catalog can't tell is [`LakehouseError::CommitUnknown`]
+//! with its data files kept: the writer starts over from the sequence the
+//! table then holds, so its rows are neither lost nor written twice.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -35,7 +38,7 @@ use std::sync::Arc;
 
 use crate::catalog::Lakehouse;
 use crate::error::{LakehouseError, Result};
-use crate::pg_catalog::PgCatalog;
+use crate::pg_catalog::{PgCatalog, is_commit_unknown};
 use crate::replace::delete_quietly;
 use crate::rows::rows_to_batch;
 use crate::tables::PanelTable;
@@ -118,8 +121,13 @@ impl Lakehouse {
     /// when it took the table, or committed last). Losing the swap to another
     /// commit retries on top of it (a maintenance replace, an expiry); a
     /// sequence that moved is [`LakehouseError::Conflict`], and nothing is
-    /// committed. On any failure the data files written are deleted again.
-    /// Nothing to write is no commit.
+    /// committed. A commit whose database call failed but landed is the
+    /// commit. On a failure the data files written are deleted again, except
+    /// when whether the commit landed is unknown
+    /// ([`LakehouseError::CommitUnknown`]): then they stay (the table may
+    /// name them; the orphan sweep takes them if not), and the caller must
+    /// read the table's sequence again before writing on. Nothing to write
+    /// is no commit.
     pub async fn append_after(
         &self,
         table: PanelTable,
@@ -158,7 +166,7 @@ impl Lakehouse {
             .map_err(LakehouseError::from);
         let committed = match committed {
             Ok(tx) => tx.commit(&fence).await.map_err(|error| {
-                if fence.tripped.load(Ordering::Relaxed) {
+                if fence.tripped.load(Ordering::Relaxed) && !is_commit_unknown(&error) {
                     moved(table, expected, None)
                 } else {
                     error.into()
@@ -174,6 +182,7 @@ impl Lakehouse {
                     .unwrap_or_default(),
                 data_files: paths,
             })),
+            Err(error @ LakehouseError::CommitUnknown(_)) => Err(error),
             Err(error) => {
                 delete_quietly(current.file_io(), &paths).await;
                 Err(error)

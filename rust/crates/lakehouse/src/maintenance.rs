@@ -1,8 +1,9 @@
 //! Table upkeep on [`Lakehouse::replace_files`]: compaction, erasure and
 //! retention; then snapshot expiry, deleting the files no remaining snapshot
 //! references, and the orphan sweep (files under a table that no metadata
-//! references at all: what a writer that crashed before its commit, or a
-//! commit that failed and couldn't clean up, left behind).
+//! references at all: what a writer that crashed before its commit, a
+//! commit that failed and couldn't clean up, or a commit whose outcome was
+//! unknown and didn't land, left behind).
 //!
 //! Rewrites stream: a file's rows go from the reader through a filter into
 //! the new files batch by batch, so compacting a busy day or erasing a
@@ -500,7 +501,9 @@ impl Lakehouse {
     }
 
     /// Commits `change`; if that fails, deletes the data files it would have
-    /// added (nothing references them).
+    /// added (nothing references them), except when whether it landed is
+    /// unknown ([`LakehouseError::CommitUnknown`]): then the table may name
+    /// them, and the orphan sweep takes them if it doesn't.
     async fn commit_or_clean(
         &self,
         table: PanelTable,
@@ -509,6 +512,7 @@ impl Lakehouse {
     ) -> Result<ReplaceOutcome> {
         match self.replace_files(table, &change).await {
             Ok(outcome) => Ok(outcome),
+            Err(error @ LakehouseError::CommitUnknown(_)) => Err(error),
             Err(error) => {
                 let added: Vec<String> = change
                     .add

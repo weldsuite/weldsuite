@@ -92,7 +92,10 @@
 //!   database only to mail a notice. Nothing without `VALKEY_URL` or while
 //!   panel is not served.
 //! - `panel-maintenance` (nightly, 02:45 UTC): WeldPanel's table upkeep
-//!   (`crate::panel_maintenance`): the erasures in `panel_erasure_ledger`,
+//!   (`crate::panel_maintenance`): the erasures in `panel_erasure_ledger`
+//!   whose rows panel-writer has committed (requested more than
+//!   `PANEL_WRITER_FLUSH_SECONDS` plus ten minutes ago, and before the
+//!   oldest row it hasn't committed, read from NATS when `NATS_URL` is set),
 //!   retention by plan, compaction, snapshot expiry and the orphan sweep.
 //!   Nothing without `S3_BUCKET_PANEL`.
 //! - `panel-schedule` (every 10 minutes): WeldPanel's alerts, scheduled reports
@@ -421,7 +424,8 @@ async fn panel_usage(config: Config) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// `panel-maintenance`: one night's upkeep of WeldPanel's tables; nothing
-/// without the panel bucket. Reads the master database only.
+/// without the panel bucket. Reads the master database, and NATS (when
+/// configured) for how far panel-writer is behind before an erasure.
 async fn panel_maintenance(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let Some(store) = config.infra.panel.clone() else {
         println!(
@@ -459,16 +463,45 @@ async fn panel_maintenance(config: Config) -> Result<(), Box<dyn std::error::Err
         valkey,
         clock: crate::panel_project::system_clock(),
     };
+    // How far panel-writer is behind its feeds, for the erasure's cutoff:
+    // NATS as `consume` reaches it. Without NATS nothing writes the tables.
+    let lag = config
+        .infra
+        .nats_url
+        .as_ref()
+        .map(|url| crate::panel_maintenance::NatsWriterLag {
+            nats: weldsuite_adapters_oss::NatsOptions {
+                url: url.clone(),
+                user: config.infra.nats_user.clone(),
+                token: config.infra.nats_token.clone(),
+                name: Some("weldsuite-cron".to_owned()),
+            },
+            streams: crate::panel_store::PanelStreams {
+                events: config.infra.nats_panel_stream.clone(),
+                events_subject: config.infra.nats_panel_subject.clone(),
+                state: config.infra.nats_panel_state_stream.clone(),
+                max_age: std::time::Duration::ZERO,
+            },
+        });
+    let settings = crate::panel_maintenance::MaintenanceSettings {
+        writer_flush_after: crate::consume::panel_writer::flush_after_from(&|name| {
+            std::env::var(name).ok()
+        }),
+        ..crate::panel_maintenance::MaintenanceSettings::default()
+    };
     let started = std::time::Instant::now();
     let report = crate::panel_maintenance::run(
         &master,
         &lake,
         &lister,
         time::OffsetDateTime::now_utc(),
-        &crate::panel_maintenance::MaintenanceSettings::default(),
+        &settings,
         crate::panel_maintenance::NightPorts {
             projects: Some(&projects),
             replays: Some(&replays),
+            lag: lag
+                .as_ref()
+                .map(|lag| lag as &dyn crate::panel_maintenance::WriterLag),
         },
     )
     .await;

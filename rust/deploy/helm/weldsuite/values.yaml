@@ -1356,9 +1356,10 @@ cron:
       schedule: "*/5 * * * *"
       activeDeadlineSeconds: 240
     # WeldPanel's table upkeep (config.panel): the erasures waiting in
-    # panel_erasure_ledger, retention by plan, compaction, snapshot expiry
-    # and the orphan-file sweep. Reads the master database only; does
-    # nothing without the panel bucket.
+    # panel_erasure_ledger whose rows panel-writer has committed, retention
+    # by plan, compaction, snapshot expiry and the orphan-file sweep. Reads
+    # the master database, and NATS for how far panel-writer is behind;
+    # does nothing without the panel bucket.
     panel-maintenance:
       enabled: true
       schedule: "45 2 * * *"

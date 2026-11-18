@@ -17,7 +17,11 @@
 //!   reading it and recreating the table's consumer to start right after it,
 //!   so whatever a previous writer buffered and didn't commit comes again,
 //!   in stream order, and nothing committed comes twice. The commit is
-//!   fenced on that sequence ([`Lakehouse::append_after`]).
+//!   fenced on that sequence ([`Lakehouse::append_after`]). A commit that
+//!   failed is retried from the buffer; one whose outcome the catalog
+//!   can't tell (`LakehouseError::CommitUnknown`: the database failed on
+//!   its `COMMIT` and again when asked) restarts the session instead, which
+//!   reads the sequence again, so its rows are neither lost nor doubled.
 //! - **One writer per table.** A lease in Valkey (`ValkeyLease`); the other
 //!   replicas stand by and try again every third of its time to live.
 //! - **Bad rows** (not JSON, not an object, a column of the wrong type) go
@@ -56,7 +60,7 @@ pub(crate) const DLQ_SUBJECT: &str = "panel-dlq";
 
 /// Rows committed, by table.
 const ROWS_METRIC: &str = "weldsuite_panel_writer_rows_total";
-/// Commits by table and outcome (`ok`, `failed`, `fenced`).
+/// Commits by table and outcome (`ok`, `failed`, `fenced`, `unknown`).
 const COMMITS_METRIC: &str = "weldsuite_panel_writer_commits_total";
 
 /// How the writer batches.
@@ -88,6 +92,17 @@ impl Default for WriterSettings {
             lease_ttl: Duration::from_secs(30),
         }
     }
+}
+
+/// The flush interval `PANEL_WRITER_FLUSH_SECONDS` sets (a positive whole
+/// number of seconds), else the default: what the nightly erasure waits
+/// for (`crate::panel_maintenance::erasure_cutoff`), read from the
+/// environment the cron jobs share with `consume`.
+pub(crate) fn flush_after_from(lookup: &impl Fn(&str) -> Option<String>) -> Duration {
+    lookup("PANEL_WRITER_FLUSH_SECONDS")
+        .and_then(|raw| raw.parse::<u64>().ok())
+        .filter(|seconds| *seconds > 0)
+        .map_or(WriterSettings::default().flush_after, Duration::from_secs)
 }
 
 /// One table's feed: the stream and the subjects its rows come on.
@@ -324,9 +339,17 @@ impl std::fmt::Display for SessionEnd {
 }
 
 impl From<LakehouseError> for SessionEnd {
+    /// A fenced commit, or one whose outcome is unknown, starts over: the
+    /// next session reads the table's sequence again and the consumer
+    /// follows it, so rows that landed are skipped and rows that didn't
+    /// come again (retrying the buffer on the old sequence could do
+    /// neither).
     fn from(error: LakehouseError) -> Self {
         match error {
             LakehouseError::Conflict(reason) => Self::Restart(reason),
+            LakehouseError::CommitUnknown(reason) => {
+                Self::Restart(format!("whether the commit landed is unknown: {reason}"))
+            }
             other => Self::Failed(other.to_string()),
         }
     }
@@ -679,6 +702,7 @@ impl PanelWriter {
         let label = match &outcome {
             Ok(_) => "ok",
             Err(LakehouseError::Conflict(_)) => "fenced",
+            Err(LakehouseError::CommitUnknown(_)) => "unknown",
             Err(_) => "failed",
         };
         metrics::counter!(COMMITS_METRIC, "table" => table.name(), "outcome" => label).increment(1);
@@ -853,6 +877,26 @@ mod tests {
             consumer_config(&spec, &settings, Start::All).deliver_policy,
             consumer::DeliverPolicy::All
         );
+    }
+
+    #[test]
+    fn a_commit_whose_outcome_is_unknown_starts_the_session_over() {
+        // Retrying the buffer on the old sequence would either lose the rows
+        // (the commit landed: fenced, then skipped) or keep failing; a new
+        // session reads the table's sequence first.
+        let unknown = SessionEnd::from(LakehouseError::CommitUnknown("lost answer".to_owned()));
+        assert!(
+            matches!(&unknown, SessionEnd::Restart(reason) if reason.contains("lost answer")),
+            "{unknown}"
+        );
+        assert!(matches!(
+            SessionEnd::from(LakehouseError::Conflict("fenced".to_owned())),
+            SessionEnd::Restart(_)
+        ));
+        assert!(matches!(
+            SessionEnd::from(LakehouseError::Timeout),
+            SessionEnd::Failed(_)
+        ));
     }
 
     #[test]

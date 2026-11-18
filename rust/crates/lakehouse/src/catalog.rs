@@ -18,7 +18,7 @@ use iceberg::{Catalog, ErrorKind, NamespaceIdent, TableIdent};
 use sqlx::PgPool;
 
 use crate::error::Result;
-use crate::pg_catalog::PgCatalog;
+use crate::pg_catalog::{PgCatalog, SwapOutcome};
 use crate::tables::{NAMESPACE, PanelTable};
 
 /// The catalog name the install's tables are registered under.
@@ -194,17 +194,16 @@ impl Lakehouse {
     }
 
     /// Points the table at `new_location` if it still points at `expected`:
-    /// the same compare-and-swap every commit makes. False when another
-    /// commit got there first.
+    /// the same compare-and-swap every commit makes, a failed database call
+    /// settled ([`SwapOutcome`]).
     pub(crate) async fn swap_metadata(
         &self,
         ident: &TableIdent,
         expected: &str,
         new_location: &str,
-    ) -> Result<bool> {
-        Ok(self
-            .catalog
+    ) -> SwapOutcome {
+        self.catalog
             .swap_metadata(ident, expected, new_location)
-            .await?)
+            .await
     }
 }

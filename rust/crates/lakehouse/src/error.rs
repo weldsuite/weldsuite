@@ -19,6 +19,11 @@ pub enum LakehouseError {
     /// The table changed under a commit in a way a retry can't fix (a file
     /// to remove is gone), or the retries ran out.
     Conflict(String),
+    /// Whether a commit landed is unknown: the catalog database failed while
+    /// committing it, and again when asked (or the table's history didn't
+    /// say). Nothing the commit wrote was deleted (the orphan sweep takes
+    /// it if no commit names it); read the table again before going on.
+    CommitUnknown(String),
     /// A query ran longer than its limit.
     Timeout,
 }
@@ -32,6 +37,7 @@ impl fmt::Display for LakehouseError {
             Self::Arrow(error) => write!(f, "arrow: {error}"),
             Self::Rows(message) => write!(f, "rows: {message}"),
             Self::Conflict(message) => write!(f, "commit conflict: {message}"),
+            Self::CommitUnknown(message) => write!(f, "commit outcome unknown: {message}"),
             Self::Timeout => f.write_str("the query ran out of time"),
         }
     }
@@ -44,14 +50,20 @@ impl std::error::Error for LakehouseError {
             Self::Catalog(error) => Some(error),
             Self::Query(error) => Some(error),
             Self::Arrow(error) => Some(error),
-            Self::Rows(_) | Self::Conflict(_) | Self::Timeout => None,
+            Self::Rows(_) | Self::Conflict(_) | Self::CommitUnknown(_) | Self::Timeout => None,
         }
     }
 }
 
 impl From<iceberg::Error> for LakehouseError {
+    /// A [`crate::PgCatalog`] commit whose outcome is unknown, come through
+    /// the library's `Transaction::commit`, is [`Self::CommitUnknown`].
     fn from(error: iceberg::Error) -> Self {
-        Self::Iceberg(error)
+        if crate::pg_catalog::is_commit_unknown(&error) {
+            Self::CommitUnknown(error.to_string())
+        } else {
+            Self::Iceberg(error)
+        }
     }
 }
 

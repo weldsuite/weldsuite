@@ -16,7 +16,10 @@
 //! - new metadata, swapped in with the catalog's compare-and-swap. Losing
 //!   the swap to a concurrent commit (an append) starts over on the new
 //!   state, so its files are kept; a file to remove that is gone (another
-//!   maintenance run) is a [`LakehouseError::Conflict`].
+//!   maintenance run) is a [`LakehouseError::Conflict`]. A database failure
+//!   is settled by the catalog (`SwapOutcome`): landed is the commit, not
+//!   landed deletes what the attempt wrote and fails, and unknown fails
+//!   with [`LakehouseError::CommitUnknown`], deleting nothing.
 //!
 //! When upstream ships `RewriteFiles`, this switches to it.
 
@@ -37,6 +40,7 @@ use uuid::Uuid;
 
 use crate::catalog::Lakehouse;
 use crate::error::{LakehouseError, Result};
+use crate::pg_catalog::SwapOutcome;
 use crate::tables::PanelTable;
 use crate::writer::{STREAM_SEQ_PROPERTY, stream_seq_of};
 
@@ -102,14 +106,28 @@ impl Lakehouse {
                 return Err(error.into());
             }
             before_swap(attempt).await?;
-            if self
+            match self
                 .swap_metadata(&ident, &base, &location.to_string())
-                .await?
+                .await
             {
-                return Ok(ReplaceOutcome {
-                    snapshot_id: staged.snapshot_id,
-                    attempts: attempt,
-                });
+                SwapOutcome::Swapped => {
+                    return Ok(ReplaceOutcome {
+                        snapshot_id: staged.snapshot_id,
+                        attempts: attempt,
+                    });
+                }
+                SwapOutcome::Lost => {}
+                SwapOutcome::Failed(error) => {
+                    delete_quietly(current.file_io(), &written).await;
+                    return Err(error.into());
+                }
+                // Kept: the table may name them now.
+                SwapOutcome::Unknown(reason) => {
+                    return Err(LakehouseError::CommitUnknown(format!(
+                        "{}: {reason}",
+                        table.name()
+                    )));
+                }
             }
             tracing::info!(
                 table = table.name(),

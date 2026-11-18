@@ -38,7 +38,7 @@ pub use maintenance::{
     Erasure, ErasureCounts, ExpireOutcome, ListedFile, ORPHAN_MIN_AGE, OrphanSweep,
     SMALL_FILE_BYTES, partitions, workspaces_in,
 };
-pub use pg_catalog::PgCatalog;
+pub use pg_catalog::{PgCatalog, SwapOutcome};
 pub use query::{QueryEngine, QueryLimits, QueryResult};
 pub use replace::{ReplaceFiles, ReplaceOutcome};
 pub use rows::{check_row, rows_to_batch};
