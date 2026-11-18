@@ -585,11 +585,11 @@ mod tests {
 
     const KEY: &str = "wsk_0123456789abcdef";
 
-    /// `Basic base64(user:password)`, as a client sends it.
-    fn basic(user: &str, password: &str) -> String {
+    /// `Basic base64(user:rest)`, as a client sends it: `rest` is whatever
+    /// follows the first colon (the API key, for the feed).
+    fn basic(user: &str, rest: &str) -> String {
         use base64::Engine;
-        let encoded =
-            base64::engine::general_purpose::STANDARD.encode(format!("{user}:{password}"));
+        let encoded = base64::engine::general_purpose::STANDARD.encode(format!("{user}:{rest}"));
         format!("Basic {encoded}")
     }
 

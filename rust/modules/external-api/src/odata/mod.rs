@@ -53,6 +53,9 @@ const JSON_TYPE: &str = "application/json;odata.metadata=minimal";
 const ROOT_PATH: &str = "/v1/odata";
 const WRITE_ALLOW: &str = "GET, HEAD, OPTIONS";
 const ODATA_VERSION: HeaderName = HeaderName::from_static("odata-version");
+/// `nosniff`: a browser never reads an answer as anything but what its
+/// Content-Type says (an error message repeats text from the request).
+const CONTENT_TYPE_OPTIONS: HeaderName = HeaderName::from_static("x-content-type-options");
 
 /// The worker's routes: everything at and below `/v1/odata`.
 pub(crate) fn routes(router: Router<ExternalApiState>) -> Router<ExternalApiState> {
@@ -87,6 +90,7 @@ fn respond(status: StatusCode, content_type: &'static str, body: String) -> Resp
     let headers = response.headers_mut();
     headers.insert(CONTENT_TYPE, HeaderValue::from_static(content_type));
     headers.insert(ODATA_VERSION, HeaderValue::from_static("4.0"));
+    headers.insert(CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
     response
 }
 
@@ -96,7 +100,7 @@ fn json(status: StatusCode, body: String) -> Response {
 }
 
 /// Read-only: anything that would write is a 405. Every answer of the feed,
-/// a refusal of the scope included, carries `OData-Version`.
+/// a refusal of the scope included, carries `OData-Version` and `nosniff`.
 async fn read_only(request: Request, next: Next) -> Response {
     let mut response = if matches!(
         *request.method(),
@@ -114,9 +118,9 @@ async fn read_only(request: Request, next: Next) -> Response {
             .insert(ALLOW, HeaderValue::from_static(WRITE_ALLOW));
         response
     };
-    response
-        .headers_mut()
-        .insert(ODATA_VERSION, HeaderValue::from_static("4.0"));
+    let headers = response.headers_mut();
+    headers.insert(ODATA_VERSION, HeaderValue::from_static("4.0"));
+    headers.insert(CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
     response
 }
 

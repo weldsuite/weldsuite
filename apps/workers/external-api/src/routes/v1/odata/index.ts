@@ -31,12 +31,24 @@ const JSON_TYPE = 'application/json;odata.metadata=minimal';
 const ROOT_PATH = '/v1/odata';
 const WRITE_ALLOW = 'GET, HEAD, OPTIONS';
 
-function respond(c: Context<HonoEnv>, body: string, contentType: string, status: 200 | 400 | 404 | 405 | 415 | 501 = 200) {
-  return c.body(body, status, { 'Content-Type': contentType, 'OData-Version': '4.0' });
+/**
+ * Every answer of the feed: its OData version, and `nosniff`, so a browser
+ * that is sent to a feed URL never reads an answer as anything but what its
+ * Content-Type says (an error message repeats text from the request).
+ */
+const feedHeaders = (contentType: string) => ({
+  'Content-Type': contentType,
+  'OData-Version': '4.0',
+  'X-Content-Type-Options': 'nosniff',
+});
+
+/** The CSDL and `$count`: text this service wrote itself, never text from the request. */
+function respond(c: Context<HonoEnv>, body: string, contentType: 'application/xml' | 'text/plain') {
+  return c.body(body, 200, feedHeaders(contentType));
 }
 
 function jsonResponse(c: Context<HonoEnv>, payload: unknown, status: 200 | 400 | 404 | 405 | 415 | 501 = 200) {
-  return respond(c, JSON.stringify(payload), JSON_TYPE, status);
+  return c.json(payload, status, feedHeaders(JSON_TYPE));
 }
 
 function errorResponse(c: Context<HonoEnv>, error: ODataError) {
@@ -117,6 +129,7 @@ const app = new Hono<HonoEnv>();
 // Read-only: anything that would write is a 405 (after the key layer, so a missing key is still a 401).
 app.use('*', async (c, next) => {
   c.header('OData-Version', '4.0');
+  c.header('X-Content-Type-Options', 'nosniff');
   if (c.req.method !== 'GET' && c.req.method !== 'HEAD' && c.req.method !== 'OPTIONS') {
     c.header('Allow', WRITE_ALLOW);
     return jsonResponse(c, { error: { code: 'MethodNotAllowed', message: 'The OData feed is read-only.' } }, 405);

@@ -196,6 +196,7 @@ describe('service document and metadata', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('Content-Type')).toMatch(/^application\/xml/);
     expect(res.headers.get('OData-Version')).toBe('4.0');
+    expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff');
     const xml = await res.text();
     assertWellFormed(xml);
     expect(xml).toBe(metadataXml());
@@ -789,6 +790,9 @@ describe('errors, scope and headers', () => {
     expect(failed.headers.get('Content-Type')).toBe('application/json;odata.metadata=minimal');
     const denied = await appWith(['crm:*']).request('/v1/odata/Teams');
     expect(denied.headers.get('OData-Version')).toBe('4.0');
+    // A refusal repeats nothing it could be mistaken for, and is still not to be sniffed.
+    expect(denied.headers.get('X-Content-Type-Options')).toBe('nosniff');
+    expect(failed.headers.get('X-Content-Type-Options')).toBe('nosniff');
   });
 
   it('is listed on GET /v1', async () => {
