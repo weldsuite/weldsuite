@@ -129,6 +129,8 @@ export async function masterInventory(query: Query): Promise<MasterInventory> {
       const id = String(r.id);
       const m = members.get(id);
       const hasDatabase = Boolean(r.neon_project_id) || Boolean(r.has_database_url);
+      let placement: WorkspaceRow['placement'] = 'none';
+      if (hasDatabase) placement = r.shared_project_id ? 'shared' : 'dedicated';
       return {
         id,
         planSlug: str(r.plan_slug),
@@ -143,7 +145,7 @@ export async function masterInventory(query: Query): Promise<MasterInventory> {
         partnerManaged: Boolean(r.partner_managed),
         hasStripeSubscription: Boolean(r.has_stripe_subscription),
         purchasedSeats: num(r.purchased_seats),
-        placement: !hasDatabase ? 'none' : r.shared_project_id ? 'shared' : 'dedicated',
+        placement,
         region: str(r.region),
         membersActive: m?.active ?? 0,
         membersPending: m?.pending ?? 0,
@@ -421,6 +423,26 @@ type ClerkUser = {
   enterprise_accounts?: unknown[];
 };
 
+type ClerkCount = 'withPassword' | 'withTotp' | 'withBackupCodes' | 'withTwoFactor' | 'banned' | 'withPasskeys' | 'withEnterpriseAccount';
+
+/** Adds one Clerk user to the counts; a user with two Google links counts once for Google. */
+function tallyClerkUser(out: ClerkInventory, user: ClerkUser): void {
+  const flags: Array<[boolean, ClerkCount]> = [
+    [Boolean(user.password_enabled), 'withPassword'],
+    [Boolean(user.totp_enabled), 'withTotp'],
+    [Boolean(user.backup_code_enabled), 'withBackupCodes'],
+    [Boolean(user.two_factor_enabled), 'withTwoFactor'],
+    [Boolean(user.banned), 'banned'],
+    [(user.passkeys?.length ?? 0) > 0, 'withPasskeys'],
+    [(user.saml_accounts?.length ?? 0) + (user.enterprise_accounts?.length ?? 0) > 0, 'withEnterpriseAccount'],
+  ];
+  out.users += 1;
+  for (const [on, key] of flags) if (on) out[key] += 1;
+  for (const provider of new Set((user.external_accounts ?? []).map((a) => a.provider ?? '(unknown)'))) {
+    out.externalProviders[provider] = (out.externalProviders[provider] ?? 0) + 1;
+  }
+}
+
 const CLERK_API = 'https://api.clerk.com/v1';
 const CLERK_PAGE = 500;
 
@@ -451,19 +473,7 @@ export async function clerkInventory(secretKey: string, fetchFn: typeof fetch = 
   await probe(errors, 'clerk users', undefined, async () => {
     for (let offset = 0; ; offset += CLERK_PAGE) {
       const page = (await get(`/users?limit=${CLERK_PAGE}&offset=${offset}&order_by=created_at`)) as ClerkUser[];
-      for (const user of page) {
-        out.users += 1;
-        if (user.password_enabled) out.withPassword += 1;
-        if (user.totp_enabled) out.withTotp += 1;
-        if (user.backup_code_enabled) out.withBackupCodes += 1;
-        if (user.two_factor_enabled) out.withTwoFactor += 1;
-        if (user.banned) out.banned += 1;
-        if ((user.passkeys?.length ?? 0) > 0) out.withPasskeys += 1;
-        if ((user.saml_accounts?.length ?? 0) + (user.enterprise_accounts?.length ?? 0) > 0) out.withEnterpriseAccount += 1;
-        for (const provider of new Set((user.external_accounts ?? []).map((a) => a.provider ?? '(unknown)'))) {
-          out.externalProviders[provider] = (out.externalProviders[provider] ?? 0) + 1;
-        }
-      }
+      for (const user of page) tallyClerkUser(out, user);
       if (page.length < CLERK_PAGE) break;
     }
   });
@@ -545,14 +555,18 @@ export interface GlobalInventory {
 const MB = 1024 * 1024;
 const mb = (bytes: number): string => (bytes / MB).toFixed(1);
 const sum = (values: number[]): number => values.reduce((a, b) => a + b, 0);
-const entries = (map: Record<string, number>): string =>
-  Object.entries(map)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([k, v]) => `${k} ${v}`)
-    .join(', ') || '—';
 
-function storage(t: TenantInventory | null): number {
-  return t ? t.storageBytes.files + t.storageBytes.projectFiles + t.storageBytes.mailAttachments : 0;
+/** `a 1, b 2`, sorted by key, or a dash when empty. */
+function entries(map: Record<string, number>): string {
+  const parts = Object.entries(map)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${k} ${v}`);
+  return parts.length > 0 ? parts.join(', ') : '—';
+}
+
+/** ` (ws_a, ws_b)` to follow a count, or nothing for an empty list. */
+function idList(ids: string[]): string {
+  return ids.length > 0 ? ' (' + ids.join(', ') + ')' : '';
 }
 
 function mergeCounts(maps: Array<Record<string, number>>): Record<string, number> {
@@ -561,106 +575,205 @@ function mergeCounts(maps: Array<Record<string, number>>): Record<string, number
   return out;
 }
 
+function tally<T>(items: T[], key: (item: T) => string): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const item of items) out[key(item)] = (out[key(item)] ?? 0) + 1;
+  return out;
+}
+
+function storage(t: TenantInventory | null): number {
+  return t ? t.storageBytes.files + t.storageBytes.projectFiles + t.storageBytes.mailAttachments : 0;
+}
+
+function workspaceState(m: WorkspaceRow | undefined): string {
+  if (!m) return '?';
+  if (m.deleted) return 'deleted';
+  if (m.deletionScheduled) return 'deleting';
+  return m.isActive ? 'active' : 'inactive';
+}
+
+function totalsSection(inv: GlobalInventory, tenants: TenantInventory[], live: WorkspaceRow[]): string[] {
+  const { master } = inv;
+  const partnerManaged = master.workspaces.filter((w) => w.partnerManaged).length;
+  return [
+    '## Totals',
+    '',
+    `- Workspaces: ${master.workspaces.length} (${live.length} active and not deleted)`,
+    `- Users: ${master.users.total} (${master.users.active} active)`,
+    `- Tenant databases read: ${tenants.length}; total size ${mb(sum(tenants.map((t) => t.databaseBytes)))} MB`,
+    `- Files recorded in tenant tables: ${mb(sum(tenants.map((t) => storage(t))))} MB (R2's own totals are in the Cloudflare dashboard)`,
+    `- Placement: ${entries(tally(master.workspaces, (w) => w.placement))}`,
+    `- Partners: ${master.partners}; partner-managed workspaces: ${partnerManaged}`,
+    `- Credit balances: ${master.credits.workspacesWithBalance} workspaces, ${master.credits.totalBalance} in total`,
+    `- Database moves by status: ${entries(master.databaseMoves)}`,
+    '',
+  ];
+}
+
+function ssoLines(inv: GlobalInventory): string[] {
+  const on = inv.master.sso.filter((s) => s.enabled);
+  const named = on.map((s) => s.workspaceId + ' (' + (s.provider ?? '?') + ')');
+  const list = named.length > 0 ? ': ' + named.join(', ') : '';
+  const lines = [`1. **SSO.** ${on.length} workspace(s) with SSO enabled${list}.`];
+  const saml = inv.clerk?.samlConnections;
+  if (saml) {
+    const enterprise = inv.clerk?.withEnterpriseAccount ?? 0;
+    lines.push(`   Clerk SAML connections: ${saml.total} (${saml.active} active); users with an enterprise account: ${enterprise}.`);
+  }
+  return lines;
+}
+
+function clerkLine(clerk: ClerkInventory | null): string {
+  if (!clerk) return '2. **Clerk.** Not read (no `CLERK_SECRET_KEY`, or `--skip-clerk`).';
+  return (
+    `2. **Clerk.** ${clerk.users} users: ${clerk.withPassword} with a password, ${clerk.withTotp} with TOTP, ` +
+    `${clerk.withBackupCodes} with backup codes, ${clerk.withPasskeys} with passkeys, ${clerk.banned} banned. ` +
+    `Social links: ${entries(clerk.externalProviders)}.`
+  );
+}
+
+function mailStoreLine(inv: GlobalInventory): string {
+  if (!inv.mailStoreChecked) {
+    return '4. **Mailbox store modes.** Not read (set `MAIL_STORE_ADMIN_URL`, `OUTBOUND_ADMIN_SECRET`, `MAIL_STORE_ADMIN_EMAIL`).';
+  }
+  const modes = mergeCounts(inv.workspaces.map((w) => w.mailStoreModes ?? {}));
+  const objectBacked = inv.workspaces
+    .filter((w) => (w.mailStoreModes?.object ?? 0) + (w.mailStoreModes?.['object-only'] ?? 0) > 0)
+    .map((w) => w.id);
+  const list = objectBacked.length > 0 ? objectBacked.join(', ') : 'none';
+  return `4. **Mailbox store modes.** ${entries(modes)}. Workspaces with mailboxes in Durable Objects: ${list}.`;
+}
+
+function portalsLine(inv: GlobalInventory): string {
+  const commerce = inv.workspaces.filter((w) => w.tenant?.portals.commercePortalEnabled).map((w) => w.id);
+  const project = inv.workspaces.filter((w) => (w.tenant?.portals.projectPortalStakeholders ?? 0) > 0).map((w) => w.id);
+  return (
+    `6. **Portals.** Commerce portal enabled in ${commerce.length} workspace(s)${idList(commerce)}; ` +
+    `project portal stakeholders in ${project.length}${idList(project)}. The sites renderer has no backend to check.`
+  );
+}
+
+function plansLines(master: MasterInventory, live: WorkspaceRow[]): string[] {
+  const byPlan = entries(tally(live, (w) => w.planSlug ?? '(none)'));
+  const byStatus = entries(tally(live, (w) => w.subscriptionStatus ?? '(none)'));
+  const stripe = live.filter((w) => w.hasStripeSubscription).length;
+  const lines = [`7. **Plans.** Workspaces by plan: ${byPlan}. By subscription status: ${byStatus}. With a Stripe subscription: ${stripe}.`];
+  for (const p of master.plans) {
+    const name = p.slug ?? p.id;
+    lines.push(`   - \`${name}\`: ${p.currency ?? '?'} ${p.priceMonthly}/month, ${p.priceYearly}/year, ${p.pricePerUser}/user`);
+  }
+  return lines;
+}
+
+function apiLine(inv: GlobalInventory): string {
+  const users = inv.workspaces
+    .filter((w) => (w.tenant?.apiKeys.workspaceKeysUsed30d ?? 0) + (w.tenant?.apiKeys.personalKeysUsed30d ?? 0) > 0)
+    .map((w) => w.id);
+  const oauth = inv.clerk?.oauthApplications ?? 'not read';
+  return (
+    `8. **API and MCP.** Workspaces with an API key used in the last 30 days: ${users.length}${idList(users)}. ` +
+    `WeldApps tokens used in 30 days: ${inv.master.weldApps.tokensUsed30d}. Clerk OAuth applications (MCP clients): ${oauth}.`
+  );
+}
+
+function openQuestionsSection(inv: GlobalInventory, live: WorkspaceRow[]): string[] {
+  const placed = inv.master.workspaces.filter((w) => w.placement !== 'none');
+  const regions = tally(placed, (w) => w.region ?? '(unknown)');
+  return [
+    '## Open questions',
+    '',
+    ...ssoLines(inv),
+    clerkLine(inv.clerk),
+    '3. **DNSSEC.** Not covered here.',
+    mailStoreLine(inv),
+    `5. **Regions.** ${entries(regions)}.`,
+    portalsLine(inv),
+    ...plansLines(inv.master, live),
+    apiLine(inv),
+    '',
+  ];
+}
+
+function whatMovesSection(master: MasterInventory, tenants: TenantInventory[]): string[] {
+  const total = (pick: (t: TenantInventory) => number): number => sum(tenants.map(pick));
+  const integrations = mergeCounts(
+    tenants.flatMap((t) => t.integrations.map((i) => ({ [i.provider + ' (' + i.status + ')']: i.count }))),
+  );
+  const domains = total((t) => t.helpcenter.customDomains);
+  const verified = total((t) => t.helpcenter.customDomainsVerified);
+  return [
+    '## What else moves',
+    '',
+    `- Custom mail domains: ${total((t) => t.mail.customDomains)}; free weldmail addresses: ${total((t) => t.mail.weldmailAddresses)}; ` +
+      `mailboxes: ${total((t) => t.mail.accounts)}; messages (estimate): ${total((t) => t.mail.messagesEstimate)}`,
+    `- Help center custom domains: ${domains} (${verified} verified); registry: ${entries(master.helpcenterDomains)}`,
+    `- Phone numbers: ${entries(mergeCounts(tenants.map((t) => t.phoneNumbers)))}`,
+    `- Paid WeldApps installs: ${master.weldApps.paidInstalls}; WeldApps OAuth clients: ${master.weldApps.oauthClients}`,
+    `- Connected integrations: ${entries(integrations)}`,
+    `- Pending scheduled work: ${entries(mergeCounts(tenants.map((t) => t.pending)))}`,
+    '',
+  ];
+}
+
+const INACTIVE_STATUS = /error|inactive|disconnected|revoked/i;
+
+function tenantCells(t: TenantInventory | null): string[] {
+  if (!t) return ['—', '—', '—', '—', '0', '0', '—'];
+  const live = t.integrations.filter((i) => !INACTIVE_STATUS.test(i.status));
+  return [
+    mb(t.databaseBytes),
+    mb(storage(t)),
+    String(t.mail.customDomains),
+    String(t.helpcenter.customDomains),
+    String(sum(Object.values(t.phoneNumbers))),
+    String(sum(live.map((i) => i.count))),
+    String(t.apiKeys.workspaceKeysUsed30d + t.apiKeys.personalKeysUsed30d),
+  ];
+}
+
+function workspaceRow(w: WorkspaceReport, m: WorkspaceRow | undefined): string {
+  const placement = m ? [m.placement, m.region].filter(Boolean).join(', ') : '—';
+  const errors = (w.tenant?.errors.length ?? 0) + (w.tenantSkipped ? 1 : 0);
+  const cells = [
+    '`' + w.id + '`',
+    m?.planSlug ?? '—',
+    workspaceState(m),
+    placement,
+    String(m?.membersActive ?? 0),
+    ...tenantCells(w.tenant),
+    errors > 0 ? String(errors) : '',
+  ];
+  return `| ${cells.join(' | ')} |`;
+}
+
+function errorsSection(inv: GlobalInventory): string[] {
+  const errors = [...inv.master.errors.map((e) => `master: ${e}`), ...(inv.clerk?.errors ?? []).map((e) => `clerk: ${e}`)];
+  for (const w of inv.workspaces) {
+    if (w.tenantSkipped) errors.push(`${w.id}: ${w.tenantSkipped}`);
+    for (const e of w.tenant?.errors ?? []) errors.push(`${w.id}: ${e}`);
+  }
+  return ['## Errors', '', ...(errors.length > 0 ? errors.map((e) => `- ${e}`) : ['None.']), ''];
+}
+
 /** The report as Markdown: totals, the answers to the plan's open questions, then one row per workspace. */
 export function formatInventoryReport(inv: GlobalInventory): string {
-  const { master } = inv;
-  const byId = new Map(master.workspaces.map((w) => [w.id, w]));
-  const live = master.workspaces.filter((w) => w.isActive && !w.deleted);
+  const byId = new Map(inv.master.workspaces.map((w) => [w.id, w]));
+  const live = inv.master.workspaces.filter((w) => w.isActive && !w.deleted);
   const tenants = inv.workspaces.map((w) => w.tenant).filter((t): t is TenantInventory => t !== null);
-  const lines: string[] = [];
-  const push = (...l: string[]) => lines.push(...l);
-
-  push(`# Global inventory`, '', `Generated ${inv.generatedAt}. Read-only; counts only, no names, addresses or domains.`, '');
-
-  push('## Totals', '');
-  push(`- Workspaces: ${master.workspaces.length} (${live.length} active and not deleted)`);
-  push(`- Users: ${master.users.total} (${master.users.active} active)`);
-  push(`- Tenant databases read: ${tenants.length}; total size ${mb(sum(tenants.map((t) => t.databaseBytes)))} MB`);
-  push(`- Files recorded in tenant tables: ${mb(sum(tenants.map((t) => storage(t))))} MB (R2's own totals are in the Cloudflare dashboard)`);
-  push(`- Placement: ${entries(mergeCounts(master.workspaces.map((w) => ({ [w.placement]: 1 }))))}`);
-  push(`- Partners: ${master.partners}; partner-managed workspaces: ${master.workspaces.filter((w) => w.partnerManaged).length}`);
-  push(`- Credit balances: ${master.credits.workspacesWithBalance} workspaces, ${master.credits.totalBalance} in total`);
-  push(`- Database moves by status: ${entries(master.databaseMoves)}`, '');
-
-  push('## Open questions', '');
-  const ssoOn = master.sso.filter((s) => s.enabled);
-  push(`1. **SSO.** ${ssoOn.length} workspace(s) with SSO enabled${ssoOn.length ? `: ${ssoOn.map((s) => `${s.workspaceId} (${s.provider ?? '?'})`).join(', ')}` : ''}.`);
-  if (inv.clerk?.samlConnections) {
-    push(`   Clerk SAML connections: ${inv.clerk.samlConnections.total} (${inv.clerk.samlConnections.active} active); users with an enterprise account: ${inv.clerk.withEnterpriseAccount}.`);
-  }
-  if (inv.clerk) {
-    const c = inv.clerk;
-    push(
-      `2. **Clerk.** ${c.users} users: ${c.withPassword} with a password, ${c.withTotp} with TOTP, ${c.withBackupCodes} with backup codes, ` +
-        `${c.withPasskeys} with passkeys, ${c.banned} banned. Social links: ${entries(c.externalProviders)}.`,
-    );
-  } else {
-    push('2. **Clerk.** Not read (no `CLERK_SECRET_KEY`, or `--skip-clerk`).');
-  }
-  push('3. **DNSSEC.** Not covered here.');
-  if (inv.mailStoreChecked) {
-    const modes = mergeCounts(inv.workspaces.map((w) => w.mailStoreModes ?? {}));
-    const objectBacked = inv.workspaces.filter((w) => (w.mailStoreModes?.object ?? 0) + (w.mailStoreModes?.['object-only'] ?? 0) > 0);
-    push(`4. **Mailbox store modes.** ${entries(modes)}. Workspaces with mailboxes in Durable Objects: ${objectBacked.map((w) => w.id).join(', ') || 'none'}.`);
-  } else {
-    push('4. **Mailbox store modes.** Not read (set `MAIL_STORE_ADMIN_URL`, `OUTBOUND_ADMIN_SECRET`, `MAIL_STORE_ADMIN_EMAIL`).');
-  }
-  const regions = mergeCounts(master.workspaces.filter((w) => w.placement !== 'none').map((w) => ({ [w.region ?? '(unknown)']: 1 })));
-  push(`5. **Regions.** ${entries(regions)}.`);
-  const commerce = inv.workspaces.filter((w) => w.tenant?.portals.commercePortalEnabled);
-  const project = inv.workspaces.filter((w) => (w.tenant?.portals.projectPortalStakeholders ?? 0) > 0);
-  push(
-    `6. **Portals.** Commerce portal enabled in ${commerce.length} workspace(s)${commerce.length ? ` (${commerce.map((w) => w.id).join(', ')})` : ''}; ` +
-      `project portal stakeholders in ${project.length}${project.length ? ` (${project.map((w) => w.id).join(', ')})` : ''}. The sites renderer has no backend to check.`,
-  );
-  push(`7. **Plans.** Workspaces by plan: ${entries(mergeCounts(live.map((w) => ({ [w.planSlug ?? '(none)']: 1 }))))}. ` +
-    `By subscription status: ${entries(mergeCounts(live.map((w) => ({ [w.subscriptionStatus ?? '(none)']: 1 }))))}. ` +
-    `With a Stripe subscription: ${live.filter((w) => w.hasStripeSubscription).length}.`);
-  for (const p of master.plans) {
-    push(`   - \`${p.slug ?? p.id}\`: ${p.currency ?? '?'} ${p.priceMonthly}/month, ${p.priceYearly}/year, ${p.pricePerUser}/user`);
-  }
-  const apiUsers = inv.workspaces.filter((w) => (w.tenant?.apiKeys.workspaceKeysUsed30d ?? 0) + (w.tenant?.apiKeys.personalKeysUsed30d ?? 0) > 0);
-  push(
-    `8. **API and MCP.** Workspaces with an API key used in the last 30 days: ${apiUsers.length}${apiUsers.length ? ` (${apiUsers.map((w) => w.id).join(', ')})` : ''}. ` +
-      `WeldApps tokens used in 30 days: ${master.weldApps.tokensUsed30d}. Clerk OAuth applications (MCP clients): ${inv.clerk?.oauthApplications ?? 'not read'}.`,
+  return [
+    '# Global inventory',
     '',
-  );
-
-  push('## What else moves', '');
-  push(`- Custom mail domains: ${sum(tenants.map((t) => t.mail.customDomains))}; free weldmail addresses: ${sum(tenants.map((t) => t.mail.weldmailAddresses))}; mailboxes: ${sum(tenants.map((t) => t.mail.accounts))}; messages (estimate): ${sum(tenants.map((t) => t.mail.messagesEstimate))}`);
-  push(`- Help center custom domains: ${sum(tenants.map((t) => t.helpcenter.customDomains))} (${sum(tenants.map((t) => t.helpcenter.customDomainsVerified))} verified); registry: ${entries(master.helpcenterDomains)}`);
-  push(`- Phone numbers: ${entries(mergeCounts(tenants.map((t) => t.phoneNumbers)))}`);
-  push(`- Paid WeldApps installs: ${master.weldApps.paidInstalls}; WeldApps OAuth clients: ${master.weldApps.oauthClients}`);
-  const integrationTotals = mergeCounts(tenants.flatMap((t) => t.integrations.map((i) => ({ [`${i.provider} (${i.status})`]: i.count }))));
-  push(`- Connected integrations: ${entries(integrationTotals)}`);
-  push(`- Pending scheduled work: ${entries(mergeCounts(tenants.map((t) => t.pending)))}`, '');
-
-  push('## Workspaces', '');
-  push('| Workspace | Plan | State | Placement | Members | DB MB | Files MB | Mail domains | Help center domains | Phones | Integrations | API keys used 30d | Errors |');
-  push('|---|---|---|---|---|---|---|---|---|---|---|---|---|');
-  for (const w of inv.workspaces) {
-    const m = byId.get(w.id);
-    const t = w.tenant;
-    const state = m ? (m.deleted ? 'deleted' : m.deletionScheduled ? 'deleting' : m.isActive ? 'active' : 'inactive') : '?';
-    const phones = t ? sum(Object.values(t.phoneNumbers)) : 0;
-    const integrations = t ? sum(t.integrations.filter((i) => !/error|inactive|disconnected|revoked/i.test(i.status)).map((i) => i.count)) : 0;
-    const errors = (t?.errors.length ?? 0) + (w.tenantSkipped ? 1 : 0);
-    push(
-      `| \`${w.id}\` | ${m?.planSlug ?? '—'} | ${state} | ${m ? `${m.placement}${m.region ? `, ${m.region}` : ''}` : '—'} | ${m?.membersActive ?? 0} | ` +
-        `${t ? mb(t.databaseBytes) : '—'} | ${t ? mb(storage(t)) : '—'} | ${t?.mail.customDomains ?? '—'} | ${t?.helpcenter.customDomains ?? '—'} | ` +
-        `${phones} | ${integrations} | ${t ? t.apiKeys.workspaceKeysUsed30d + t.apiKeys.personalKeysUsed30d : '—'} | ${errors || ''} |`,
-    );
-  }
-  push('');
-
-  const allErrors = [
-    ...master.errors.map((e) => `master: ${e}`),
-    ...(inv.clerk?.errors ?? []).map((e) => `clerk: ${e}`),
-    ...inv.workspaces.flatMap((w) => [
-      ...(w.tenantSkipped ? [`${w.id}: ${w.tenantSkipped}`] : []),
-      ...(w.tenant?.errors ?? []).map((e) => `${w.id}: ${e}`),
-    ]),
-  ];
-  push('## Errors', '', ...(allErrors.length ? allErrors.map((e) => `- ${e}`) : ['None.']), '');
-  return lines.join('\n');
+    `Generated ${inv.generatedAt}. Read-only; counts only, no names, addresses or domains.`,
+    '',
+    ...totalsSection(inv, tenants, live),
+    ...openQuestionsSection(inv, live),
+    ...whatMovesSection(inv.master, tenants),
+    '## Workspaces',
+    '',
+    '| Workspace | Plan | State | Placement | Members | DB MB | Files MB | Mail domains | Help center domains | Phones | Integrations | API keys used 30d | Errors |',
+    '|---|---|---|---|---|---|---|---|---|---|---|---|---|',
+    ...inv.workspaces.map((w) => workspaceRow(w, byId.get(w.id))),
+    '',
+    ...errorsSection(inv),
+  ].join('\n');
 }
