@@ -250,7 +250,8 @@ mod tests {
                 "panel.identities.v1.>",
                 "panel.people.v1.>",
                 "panel.groups.v1.>",
-                "panel.replays.v1.>"
+                "panel.replays.v1.>",
+                "panel.ops.v1.>"
             ]
         );
         assert_eq!(events.max_age, Duration::from_hours(7 * 24));

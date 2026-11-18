@@ -4,11 +4,12 @@
 //! catalog does there by itself. In order, each step on its own (one that
 //! fails is reported and the next runs):
 //!
-//! 1. **Erasure.** The ids `panel_erasure_ledger` holds (master database;
-//!    never a tenant database) are erased from events, identity links,
-//!    profiles and the recording chunk index, a workspace at a time, and
-//!    their rows marked applied. An id requested again during the run stays
-//!    pending.
+//! 1. **Erasure.** The ids `panel_erasure_ledger` holds (master database)
+//!    are erased from events, identity links, profiles and the recording
+//!    chunk index, a workspace at a time, and their rows marked applied. An
+//!    id requested again during the run stays pending. The ids it covered
+//!    then leave the project's erased list (`clearErased`), which opens the
+//!    tenant database of those workspaces only, never the others.
 //! 2. **Retention.** Each workspace's day partitions past its plan's window
 //!    are dropped from `events_v1` and `replay_chunks_v1`: 366 days on Free
 //!    (or no plan), 762 otherwise, the window Global's queries use
@@ -31,7 +32,8 @@ use weldsuite_lakehouse::{
     Erasure, ErasureCounts, Lakehouse, ListedFile, ORPHAN_MIN_AGE, PanelTable, SMALL_FILE_BYTES,
     partitions, workspaces_in,
 };
-use weldsuite_ports::{BoxFuture, FileStore};
+use weldsuite_panel::{PanelProjectState, ProjectRef};
+use weldsuite_ports::{BoxFuture, FileStore, PortError};
 
 use crate::panel_store::PanelStoreConfig;
 
@@ -76,6 +78,26 @@ impl Default for MaintenanceSettings {
             retain_snapshots: 10,
             orphan_min_age: ORPHAN_MIN_AGE,
         }
+    }
+}
+
+/// Releases erased ids once their rows are rewritten: the project state's
+/// `clearErased` (`crate::panel_project::TenantProjectState` in the cron).
+pub(crate) trait ErasedIds: Send + Sync {
+    fn clear<'a>(
+        &'a self,
+        project: ProjectRef<'a>,
+        ids: &'a [String],
+    ) -> BoxFuture<'a, Result<(), PortError>>;
+}
+
+impl<T: PanelProjectState + ?Sized> ErasedIds for T {
+    fn clear<'a>(
+        &'a self,
+        project: ProjectRef<'a>,
+        ids: &'a [String],
+    ) -> BoxFuture<'a, Result<(), PortError>> {
+        self.clear_erased(project, ids)
     }
 }
 
@@ -131,7 +153,9 @@ struct Pending {
     erased_id: String,
 }
 
-/// One run. Returns its report (what `weldsuite cron` prints).
+/// One run. Returns its report (what `weldsuite cron` prints). `projects`
+/// releases the erased ids a rewrite covered (the tenant tables); `None`
+/// leaves them excluded.
 #[allow(
     clippy::too_many_lines,
     reason = "the five steps, in order, each reporting on its own"
@@ -142,6 +166,7 @@ pub(crate) async fn run(
     lister: &dyn Lister,
     now: OffsetDateTime,
     settings: &MaintenanceSettings,
+    projects: Option<&dyn ErasedIds>,
 ) -> Value {
     let mut errors: Vec<String> = Vec::new();
 
@@ -158,15 +183,27 @@ pub(crate) async fn run(
                         erased.people += counts.people;
                         erased.replay_chunks += counts.replay_chunks;
                         match mark_applied(master, &erasure, now).await {
-                            Ok(rows) => applied_ids += rows,
+                            Ok(covered) => {
+                                applied_ids += covered
+                                    .values()
+                                    .map(|ids| u64::try_from(ids.len()).unwrap_or(u64::MAX))
+                                    .sum::<u64>();
+                                if let Some(projects) = projects
+                                    && let Err(error) =
+                                        release(master, projects, &erasure.workspace_id, &covered)
+                                            .await
+                                {
+                                    errors.push(format!(
+                                        "erasure in {}: releasing the erased ids: {error}",
+                                        erasure.workspace_id
+                                    ));
+                                }
+                            }
                             Err(error) => errors.push(format!(
                                 "erasure in {}: marking the ledger: {error}",
                                 erasure.workspace_id
                             )),
                         }
-                        // Step 4: the tenant's exclusion list (what
-                        // `clearErased` does to the PanelProject object on
-                        // Global) is released here, for this workspace only.
                     }
                     Err(error) => {
                         errors.push(format!("erasure in {}: {error}", erasure.workspace_id));
@@ -315,29 +352,74 @@ async fn pending_erasures(
 }
 
 /// Marks the erasure's ids applied, except those requested again after
-/// `started` (the rewrite didn't cover what came after it began).
+/// `started` (the rewrite didn't cover what came after it began). Returns
+/// the ids it marked, by project.
 async fn mark_applied(
     master: &PgPool,
     erasure: &Erasure,
     started: OffsetDateTime,
-) -> Result<u64, sqlx::Error> {
-    let mut applied = 0;
+) -> Result<BTreeMap<String, Vec<String>>, sqlx::Error> {
+    let mut covered = BTreeMap::new();
     for (project, ids) in &erasure.ids_by_project {
         let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
-        applied += sqlx::query(
+        let mut marked: Vec<String> = sqlx::query_scalar(
             "update panel_erasure_ledger set applied_at = now() \
              where workspace_id = $1 and project_id = $2 and erased_id = any($3) \
-             and applied_at is null and requested_at <= $4::timestamptz",
+             and applied_at is null and requested_at <= $4::timestamptz \
+             returning erased_id",
         )
         .bind(&erasure.workspace_id)
         .bind(project)
         .bind(&ids)
         .bind(weldsuite_events::iso_timestamp(started))
-        .execute(master)
-        .await?
-        .rows_affected();
+        .fetch_all(master)
+        .await?;
+        if !marked.is_empty() {
+            marked.sort();
+            covered.insert(project.clone(), marked);
+        }
     }
-    Ok(applied)
+    Ok(covered)
+}
+
+/// `clearErased` of each project's covered ids (Global's `finish` step):
+/// queries stop excluding them. A project whose release fails has its ids
+/// put back to pending, so the next run rewrites and releases them again.
+async fn release(
+    master: &PgPool,
+    projects: &dyn ErasedIds,
+    workspace_id: &str,
+    covered: &BTreeMap<String, Vec<String>>,
+) -> Result<(), String> {
+    let mut failed = Vec::new();
+    for (project_id, ids) in covered {
+        let project = ProjectRef {
+            workspace_id,
+            project_id,
+        };
+        if let Err(error) = projects.clear(project, ids).await {
+            let reverted = sqlx::query(
+                "update panel_erasure_ledger set applied_at = null \
+                 where workspace_id = $1 and project_id = $2 and erased_id = any($3)",
+            )
+            .bind(workspace_id)
+            .bind(project_id)
+            .bind(ids)
+            .execute(master)
+            .await;
+            failed.push(match reverted {
+                Ok(_) => format!("{project_id}: {error}"),
+                Err(revert) => {
+                    format!("{project_id}: {error} (and the ledger kept them applied: {revert})")
+                }
+            });
+        }
+    }
+    if failed.is_empty() {
+        Ok(())
+    } else {
+        Err(failed.join("; "))
+    }
 }
 
 /// Each workspace with rows in the day-partitioned tables, and the first
@@ -425,6 +507,28 @@ mod tests {
             day(first_kept_day(midnight, 1)),
             Date::from_calendar_date(2026, Month::November, 17).expect("a date")
         );
+    }
+
+    /// Records what `clearErased` was asked to release.
+    #[derive(Default)]
+    struct Released(std::sync::Mutex<Vec<(String, String, Vec<String>)>>);
+
+    impl ErasedIds for Released {
+        fn clear<'a>(
+            &'a self,
+            project: ProjectRef<'a>,
+            ids: &'a [String],
+        ) -> BoxFuture<'a, Result<(), PortError>> {
+            self.0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push((
+                    project.workspace_id.to_owned(),
+                    project.project_id.to_owned(),
+                    ids.to_vec(),
+                ));
+            Box::pin(std::future::ready(Ok(())))
+        }
     }
 
     /// Lists the scratch store's files on disk, all of them old.
@@ -532,17 +636,28 @@ mod tests {
         std::fs::create_dir_all(stray.parent().expect("a folder")).expect("a folder");
         std::fs::write(&stray, "stray").expect("a stray file");
 
+        let released = Released::default();
         let report = run(
             master,
             &scratch.lake,
             &DiskLister(scratch.dir().to_path_buf()),
             now,
             &MaintenanceSettings::default(),
+            Some(&released),
         )
         .await;
         assert_eq!(report["errors"], json!([]), "{report}");
         // Erasure first: u-1's four rows in ws_biz.
         assert_eq!(report["erased"]["ids"], 1, "{report}");
+        // Only what the rewrite covered leaves the project's erased list.
+        assert_eq!(
+            released.0.into_inner().expect("released"),
+            [(
+                "ws_biz".to_owned(),
+                "pnp_ws_biz".to_owned(),
+                vec!["u-1".to_owned()]
+            )]
+        );
         assert_eq!(report["erased"]["events"], 4, "{report}");
         // Then retention: Free loses its 400- and 800-day rows (4), business
         // its 800-day one (u-2's), the unknown workspace its 800-day ones (2).

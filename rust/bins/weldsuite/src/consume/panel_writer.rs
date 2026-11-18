@@ -226,14 +226,17 @@ pub(crate) fn arrival(
     Arrival::New
 }
 
-/// Step 4's hook: people, identity and group rows also update the
-/// workspace's tenant state (what the `PanelProject` Durable Object holds on
-/// Global: latest profiles, identity links, groups), opening only the
-/// producing workspace's database. Called after the table's commit and
+/// A hook on the rows a commit wrote, run after the table's commit and
 /// before the acknowledgement. It must be idempotent, must not hold the
 /// table up for one workspace's failure, and must cope with a missed call:
 /// a crash between the commit and the call leaves the rows committed, and
 /// the next session skips them.
+///
+/// The tenant state (what the `PanelProject` Durable Object holds on
+/// Global) is not kept here: the `identities_v1`, `people_v1` and
+/// `groups_v1` rows are what applying the collector's calls writes, so the
+/// calls are applied first, by the `panel-state` subscriber
+/// (`super::panel_state`), and these tables only receive its rows.
 pub(crate) trait TenantState: Send + Sync {
     /// Whether rows of `table` go to it (the writer then keeps them as JSON
     /// beside the Arrow batch).
@@ -242,7 +245,7 @@ pub(crate) trait TenantState: Send + Sync {
     fn committed<'a>(&'a self, table: PanelTable, rows: &'a [Value]) -> BoxFuture<'a, ()>;
 }
 
-/// Until step 4: the tables only.
+/// The tables only.
 pub(crate) struct NoTenantState;
 
 impl TenantState for NoTenantState {
@@ -715,7 +718,7 @@ fn row_of(message: &jetstream::Message) -> Result<Value, String> {
 }
 
 /// One fetch of up to `max` messages within `wait`, read to its end.
-async fn fetch(
+pub(super) async fn fetch(
     consumer: &consumer::PullConsumer,
     max: usize,
     wait: Duration,
@@ -742,7 +745,7 @@ async fn fetch(
 }
 
 /// Renews the lease every `every`; `lost` turns true when it can't.
-async fn keep_lease(lease: ValkeyLease, every: Duration, lost: watch::Sender<bool>) {
+pub(super) async fn keep_lease(lease: ValkeyLease, every: Duration, lost: watch::Sender<bool>) {
     let mut ticker = tokio::time::interval(every.max(Duration::from_millis(100)));
     ticker.tick().await;
     let mut misses = 0;
@@ -769,7 +772,7 @@ async fn keep_lease(lease: ValkeyLease, every: Duration, lost: watch::Sender<boo
 }
 
 /// Stops a task when dropped.
-struct AbortOnDrop(tokio::task::JoinHandle<()>);
+pub(super) struct AbortOnDrop(pub(super) tokio::task::JoinHandle<()>);
 
 impl Drop for AbortOnDrop {
     fn drop(&mut self) {

@@ -120,6 +120,34 @@ impl ScratchPanel {
     }
 }
 
+/// The tenant schema (`WELDSUITE_TEST_TENANT_URL`: a database built from
+/// the journaled migrations by `scripts/rust-test-db.ts`, shared by the
+/// tests). Tests keep to projects of their own.
+pub(crate) struct ScratchTenant {
+    pub(crate) pool: PgPool,
+}
+
+impl ScratchTenant {
+    /// `None` (the test skips) without `WELDSUITE_TEST_TENANT_URL`.
+    pub(crate) async fn new() -> Option<Self> {
+        let Ok(url) = std::env::var("WELDSUITE_TEST_TENANT_URL") else {
+            eprintln!("skipped: WELDSUITE_TEST_TENANT_URL is not set");
+            return None;
+        };
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(8)
+            .connect(&url)
+            .await
+            .expect("the tenant database");
+        Some(Self { pool })
+    }
+
+    /// Closes the pool.
+    pub(crate) async fn finish(self) {
+        self.pool.close().await;
+    }
+}
+
 /// `url` with its database replaced by `name`.
 fn with_database(url: &str, name: &str) -> String {
     let (base, query) = url

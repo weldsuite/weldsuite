@@ -631,9 +631,9 @@ fn panel_state(state: &AppState) -> weldsuite_panel::PanelState {
             .filter(|url| !url.is_empty()),
         // Conformance builds run the test's Basin and `PANEL_PROJECT`, per request.
         sql: state.panel_sql.clone().filter(|_| !conformance),
-        // The tenant-table adapter is not built yet: queries answer 503, as
-        // panel-api does without `PANEL_PROJECT`.
-        project_state: None,
+        // The tenant tables and the live view (`crate::panel_project`);
+        // conformance builds run the test's `PANEL_PROJECT`, per request.
+        project_state: state.panel_project_state.clone().filter(|_| !conformance),
         // Global's replays bucket inside the panel bucket; conformance
         // builds use the test's `PANEL_REPLAYS`, per request.
         replays: state

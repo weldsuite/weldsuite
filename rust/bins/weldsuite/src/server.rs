@@ -103,6 +103,19 @@ pub(crate) struct AppState {
     /// WeldPanel's analytics engine (`crate::panel_sql`): DataFusion over the
     /// panel store, `None` without `S3_BUCKET_PANEL`.
     pub(crate) panel_sql: Option<Arc<dyn weldsuite_panel::AnalyticsSql>>,
+    /// What Global keeps in the `PanelProject` Durable Object, for the panel
+    /// routes (`crate::panel_project::TenantProjectState`): the tenant tables
+    /// and the live view. `None` in conformance builds (the test's, per
+    /// request).
+    pub(crate) panel_project_state: Option<Arc<dyn weldsuite_panel::PanelProjectState>>,
+    /// The collector's side (`crate::panel_project::CollectorProjectState`):
+    /// calls on NATS, the live view and the lists it reads in Valkey; `None`
+    /// without Valkey or NATS.
+    #[allow(
+        dead_code,
+        reason = "the collector's people, groups and live view read it once they are ported"
+    )]
+    pub(crate) panel_collector_state: Option<Arc<dyn weldsuite_panel::PanelProjectState>>,
     /// What conformance builds record instead of publishing.
     #[cfg(feature = "conformance")]
     pub(crate) recorders: crate::conformance::Recorders,
@@ -645,6 +658,8 @@ mod tests {
             ai: None,
             sandboxes: None,
             panel_sql: None,
+            panel_project_state: None,
+            panel_collector_state: None,
             #[cfg(feature = "conformance")]
             recorders: crate::conformance::Recorders::default(),
             #[cfg(feature = "conformance")]

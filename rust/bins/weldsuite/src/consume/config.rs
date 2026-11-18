@@ -28,7 +28,7 @@
 //! | `FEATURE_FLAGS`, `FEATURE_FLAGS_REFRESH_SECONDS` | as for `serve`: where `reach-send` reads the `weldreach-sending` kill switch, and the warmup subscribers `weldreach-warmup` |
 //! | `PORT`, `HOST`, `ENVIRONMENT`, `LOG_FORMAT`, `RUST_LOG` | probes (`/livez`, `/readyz`, `/health`) and logs |
 //! | `METRICS_ADDR` | as for `serve`: `GET /metrics` on a listener of its own (default `0.0.0.0:9464`; `off` or empty turns it off) |
-//! | `S3_BUCKET_PANEL` (+ the `S3_*` settings) | WeldPanel's store (`crate::panel_store`); set, the `panel-writer` subscriber runs by default (it needs `VALKEY_URL` for its per-table lease) |
+//! | `S3_BUCKET_PANEL` (+ the `S3_*` settings) | WeldPanel's store (`crate::panel_store`); set, the `panel-writer` and `panel-state` subscribers run by default (they need `VALKEY_URL` for their leases; `panel-state` keeps the collector's lists there, under `VALKEY_CACHE_PREFIX`) |
 //! | `NATS_PANEL_EVENTS_STREAM`, `NATS_PANEL_EVENTS_SUBJECT`, `NATS_PANEL_STATE_STREAM`, `NATS_PANEL_EVENTS_MAX_AGE_DAYS` | the streams `panel-writer` reads; with `NATS_ENSURE_STREAMS` it creates or updates them (an existing `PANEL_EVENTS` gets the max age), with `PANEL_DLQ` for bad rows |
 //! | `PANEL_WRITER_FLUSH_BYTES`, `PANEL_WRITER_FLUSH_SECONDS`, `PANEL_WRITER_MAX_PENDING` | when `panel-writer` commits: at this many bytes of messages (default 64 MiB) or when the oldest is this old (default 300), holding at most this many unacknowledged (default 200000) |
 //! | `HOSTNAME` | the pod, named as the leases' holder |
@@ -71,6 +71,10 @@ pub(crate) const REACH_WARMUP_ENGAGE: &str = "reach-warmup-engage";
 /// WeldPanel's rows into its Iceberg tables (ADR EVT-019): on the
 /// `PANEL_EVENTS` and `PANEL_STATE` streams the collector publishes to.
 pub(crate) const PANEL_WRITER: &str = "panel-writer";
+
+/// The collector's `PanelProject` calls (`panel.ops.v1.<ws>` on
+/// `PANEL_STATE`) into the tenant tables (ADR PANEL-004 on Kubernetes).
+pub(crate) const PANEL_STATE: &str = "panel-state";
 
 /// The `panel-writer` subscriber's settings (`S3_BUCKET_PANEL` set).
 #[derive(Clone, Debug)]
@@ -447,6 +451,7 @@ impl ConsumeConfig {
                 .chain(reach_warmup.then_some(REACH_WARMUP_SEND))
                 .chain(reach_warmup.then_some(REACH_WARMUP_ENGAGE))
                 .chain(panel.is_some().then_some(PANEL_WRITER))
+                .chain(panel.is_some().then_some(PANEL_STATE))
                 .map(str::to_owned)
                 .collect(),
             Some(list) => list
@@ -464,16 +469,14 @@ impl ConsumeConfig {
                 }
                 continue;
             }
-            if id == PANEL_WRITER {
+            if id == PANEL_WRITER || id == PANEL_STATE {
                 if panel.is_none() {
-                    problems
-                        .push("CONSUME_SUBSCRIBERS: panel-writer needs S3_BUCKET_PANEL".to_owned());
+                    problems.push(format!("CONSUME_SUBSCRIBERS: {id} needs S3_BUCKET_PANEL"));
                 }
                 if lookup("VALKEY_URL").is_none() {
-                    problems.push(
-                        "panel-writer needs VALKEY_URL: one replica writes a table at a time under a lease there"
-                            .to_owned(),
-                    );
+                    problems.push(format!(
+                        "{id} needs VALKEY_URL: one replica works at a time, under a lease there"
+                    ));
                 }
                 continue;
             }
@@ -797,6 +800,8 @@ mod tests {
         ])
         .expect("valid");
         assert!(with.subscribers.iter().any(|s| s == PANEL_WRITER));
+        // The collector's project state is applied beside it.
+        assert!(with.subscribers.iter().any(|s| s == PANEL_STATE));
         let panel = with.panel.expect("the writer's settings");
         assert_eq!(panel.settings.flush_after, Duration::from_secs(60));
         assert_eq!(panel.settings.flush_bytes, 64 * 1024 * 1024);
@@ -813,8 +818,12 @@ mod tests {
             ("PANEL_WRITER_MAX_PENDING", "lots"),
         ])
         .expect_err("no valkey");
-        assert_eq!(error.0.len(), 2, "{error}");
+        // The bad number, and each subscriber's lease.
+        assert_eq!(error.0.len(), 3, "{error}");
         let error = config(&[base[0], base[1], ("CONSUME_SUBSCRIBERS", "panel-writer")])
+            .expect_err("no bucket");
+        assert_eq!(error.0.len(), 2, "{error}");
+        let error = config(&[base[0], base[1], ("CONSUME_SUBSCRIBERS", "panel-state")])
             .expect_err("no bucket");
         assert_eq!(error.0.len(), 2, "{error}");
     }

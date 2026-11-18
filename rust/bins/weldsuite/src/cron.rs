@@ -343,6 +343,26 @@ async fn panel_maintenance(config: Config) -> Result<(), Box<dyn std::error::Err
     let lake = store.lakehouse(master.clone())?;
     lake.ensure_tables().await?;
     let lister = crate::panel_maintenance::S3Lister::new(store)?;
+    // The erased ids a rewrite covered leave their project's list: the
+    // tenant databases of the workspaces with erasures applied, only.
+    let workspaces = Arc::new(Workspaces::new(
+        master.clone(),
+        config.keyring.clone(),
+        config.workspaces.clone(),
+    ));
+    let valkey = match &config.infra.valkey_url {
+        Some(url) => Some(crate::panel_project::PanelValkey::new(
+            weldsuite_adapters_oss::connect_valkey(url).await?,
+            config.infra.valkey_cache_prefix.clone(),
+        )),
+        None => None,
+    };
+    let projects = crate::panel_project::TenantProjectState {
+        pools: Arc::new(crate::panel_project::WorkspaceTenantPools(workspaces)),
+        rows: crate::panel_project::rows::RowSink::new(None),
+        valkey,
+        clock: crate::panel_project::system_clock(),
+    };
     let started = std::time::Instant::now();
     let report = crate::panel_maintenance::run(
         &master,
@@ -350,6 +370,7 @@ async fn panel_maintenance(config: Config) -> Result<(), Box<dyn std::error::Err
         &lister,
         time::OffsetDateTime::now_utc(),
         &crate::panel_maintenance::MaintenanceSettings::default(),
+        Some(&projects),
     )
     .await;
     let failed = report["errors"]

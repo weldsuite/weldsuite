@@ -207,8 +207,10 @@ config:
   # (nothing writes the tables, panel-maintenance does nothing). Set, consume
   # runs the panel-writer subscriber (it needs VALKEY_URL for its per-table
   # lease; give consume about 1Gi more memory: it buffers up to 64 MB of rows
-  # per table between commits). With bundle.objectStorage the bucket is
-  # objectStorage.buckets.panel instead.
+  # per table between commits) and panel-state (the collector's people,
+  # identity and group calls into the tenant tables, under a lease too).
+  # With bundle.objectStorage the bucket is objectStorage.buckets.panel
+  # instead.
   panel:
     bucket: ""
     # How long PANEL_EVENTS and PANEL_STATE keep rows: how long the writer

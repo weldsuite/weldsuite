@@ -44,6 +44,12 @@
 //!   `panel-writer` subscriber commits them to WeldPanel's Iceberg tables
 //!   (`panel_writer`, ADR EVT-019), one replica per table under a Valkey
 //!   lease. Bad rows go to `PANEL_DLQ`.
+//! - **WeldPanel's project state** `PANEL_STATE` (`panel.ops.v1.<ws>`): the
+//!   calls the collector makes where panel-ingest calls the `PanelProject`
+//!   Durable Object. The `panel-state` subscriber applies them to the
+//!   producing workspace's tenant tables in stream order and publishes the
+//!   rows they write back to `PANEL_STATE` (`panel_state`), one replica
+//!   under a Valkey lease. Dead letters go to `PANEL_DLQ`.
 //!
 //! The process serves `/livez`, `/readyz` (master database and NATS answer,
 //! not draining) and `/health` on `PORT`, and `/metrics` on `METRICS_ADDR`
@@ -55,6 +61,7 @@
 //! the same deadline.
 
 mod config;
+mod panel_state;
 mod panel_writer;
 
 use std::process::ExitCode;
@@ -85,8 +92,8 @@ use weldsuite_subscribers::{
 
 pub(crate) use config::ConsumeConfig;
 use config::{
-    MAIL_INBOUND, MAIL_SENDING_EVENTS, MailInboundConfig, MailSendingEventsConfig, PANEL_WRITER,
-    REACH_SEND, REACH_WARMUP_ENGAGE, REACH_WARMUP_SEND,
+    MAIL_INBOUND, MAIL_SENDING_EVENTS, MailInboundConfig, MailSendingEventsConfig, PANEL_STATE,
+    PANEL_WRITER, REACH_SEND, REACH_WARMUP_ENGAGE, REACH_WARMUP_SEND,
 };
 
 type Error = Box<dyn std::error::Error>;
@@ -434,6 +441,52 @@ async fn panel_writer(
     Ok((writer, feeds))
 }
 
+/// The `panel-state` subscriber: the tenant databases through the
+/// workspaces, the rows back to the bus, the collector's lists and the
+/// lease in Valkey.
+async fn panel_state(
+    panel: &config::PanelWriterConfig,
+    config: &ConsumeConfig,
+    workspaces: &Arc<Workspaces>,
+    services: &Services,
+) -> Result<
+    (
+        Arc<panel_state::StateApplier>,
+        weldsuite_adapters_oss::ValkeyLease,
+    ),
+    Error,
+> {
+    let url = config
+        .valkey_url
+        .as_deref()
+        .ok_or("panel-state needs VALKEY_URL")?;
+    let valkey = connect_valkey(url).await?;
+    let settings = panel_state::ApplierSettings::default();
+    let lease = weldsuite_adapters_oss::ValkeyLease::new(
+        valkey.clone(),
+        format!("weldsuite:lease:{}", panel_state::DURABLE),
+        &panel.holder,
+        settings.lease_ttl,
+    );
+    let applier = Arc::new(panel_state::StateApplier {
+        jetstream: services.bus.context().clone(),
+        stream: panel.streams.state.clone(),
+        filter: panel_state::all_operations(),
+        pools: Arc::new(crate::panel_project::WorkspaceTenantPools(Arc::clone(
+            workspaces,
+        ))),
+        rows: crate::panel_project::rows::RowSink::new(Some(
+            Arc::new(services.bus.clone()) as Arc<dyn weldsuite_ports::DynEventBus>
+        )),
+        valkey: Some(crate::panel_project::PanelValkey::new(
+            valkey,
+            config.valkey_cache_prefix.clone(),
+        )),
+        settings,
+    });
+    Ok((applier, lease))
+}
+
 /// What the probes look at.
 #[derive(Clone)]
 struct Probe {
@@ -671,11 +724,16 @@ async fn ensure_queue_streams(
             config.stream_replicas,
         ));
     }
-    if let Some(panel) = config.panel.as_ref().filter(|_| runs(&[PANEL_WRITER])) {
+    if let Some(panel) = config
+        .panel
+        .as_ref()
+        .filter(|_| runs(&[PANEL_WRITER, PANEL_STATE]))
+    {
         // `serve` creates both streams as they are and never changes them;
         // with NATS_ENSURE_STREAMS this updates an existing one, so the
-        // events stream gets its max age (NATS_PANEL_EVENTS_MAX_AGE_DAYS)
-        // and the replicas here.
+        // events stream gets its max age (NATS_PANEL_EVENTS_MAX_AGE_DAYS),
+        // the state stream the operations' subject (`panel.ops.v1.>`), and
+        // both the replicas here.
         streams.extend(panel.streams.configs(config.stream_replicas));
         streams.push(dead_letter_stream_config(
             panel_writer::DLQ_STREAM,
@@ -878,6 +936,12 @@ async fn consume(config: ConsumeConfig) -> Result<(), Error> {
         }
         _ => None,
     };
+    let panel_state = match config.panel.as_ref() {
+        Some(panel) if config.subscribers.iter().any(|s| s == PANEL_STATE) => {
+            Some(panel_state(panel, &config, &workspaces, &services).await?)
+        }
+        _ => None,
+    };
     let Services {
         bus,
         http,
@@ -987,6 +1051,14 @@ async fn consume(config: ConsumeConfig) -> Result<(), Error> {
         );
         names.push(PANEL_WRITER.to_owned());
         tasks.extend(writer.spawn(feeds, &stopping));
+    }
+    if let Some((applier, lease)) = panel_state {
+        tracing::info!(
+            stream = applier.stream,
+            "consume: applying WeldPanel's project state"
+        );
+        names.push(PANEL_STATE.to_owned());
+        tasks.push(applier.spawn(lease, &stopping));
     }
     if names.iter().any(|name| name == "webhooks") && config.webhook_retry_sweep {
         tasks.push(tokio::spawn(webhook_retry_sweeps(
