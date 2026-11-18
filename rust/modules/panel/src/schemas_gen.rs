@@ -13,6 +13,261 @@ use weldsuite_zod::{Keys, Lit, N, S, Z};
 
 use crate::hooks;
 
+/// `addPanelDashboardTileSchema`.
+pub(crate) const ADD_PANEL_DASHBOARD_TILE: Z = Z::Union(&[
+    Z::Obj(
+        &[
+            ("kind", Z::Opt(&Z::Lit(Lit::Str("report")))),
+            ("reportId", Z::Str(&[S::Min(1, None), S::Max(30, None)])),
+            ("layout", PANEL_TILE_LAYOUT),
+        ],
+        Keys::Strip,
+    ),
+    Z::Obj(
+        &[
+            ("kind", Z::Lit(Lit::Str("text"))),
+            ("text", PANEL_TILE_TEXT),
+            ("layout", PANEL_TILE_LAYOUT),
+        ],
+        Keys::Strip,
+    ),
+]);
+
+/// `createPanelAnnotationSchema`.
+pub(crate) const CREATE_PANEL_ANNOTATION: Z = Z::Obj(
+    &[
+        ("projectId", Z::Str(&[S::Min(1, None), S::Max(30, None)])),
+        (
+            "reportId",
+            Z::Opt(&Z::Nul(&Z::Str(&[S::Min(1, None), S::Max(30, None)]))),
+        ),
+        (
+            "occurredAt",
+            Z::Str(&[S::Datetime {
+                offset: true,
+                msg: None,
+            }]),
+        ),
+        (
+            "label",
+            Z::Str(&[S::Trim, S::Min(1, None), S::Max(200, None)]),
+        ),
+        (
+            "description",
+            Z::Opt(&Z::Nul(&Z::Str(&[S::Max(2000, None)]))),
+        ),
+    ],
+    Keys::Strip,
+);
+
+/// `createPanelCohortSchema`.
+pub(crate) const CREATE_PANEL_COHORT: Z = Z::Obj(
+    &[
+        ("projectId", Z::Str(&[S::Min(1, None), S::Max(30, None)])),
+        (
+            "name",
+            Z::Str(&[S::Trim, S::Min(1, None), S::Max(255, None)]),
+        ),
+        (
+            "description",
+            Z::Opt(&Z::Nul(&Z::Str(&[S::Max(2000, None)]))),
+        ),
+        ("filter", PANEL_COHORT_FILTER),
+    ],
+    Keys::Strip,
+);
+
+/// `createPanelCommentSchema`.
+pub(crate) const CREATE_PANEL_COMMENT: Z = Z::Obj(
+    &[
+        ("targetType", Z::Enum(&["report", "dashboard"], None)),
+        ("targetId", Z::Str(&[S::Min(1, None), S::Max(30, None)])),
+        (
+            "body",
+            Z::Str(&[S::Trim, S::Min(1, None), S::Max(5000, None)]),
+        ),
+    ],
+    Keys::Strip,
+);
+
+/// `createPanelComputedPropertySchema`.
+pub(crate) const CREATE_PANEL_COMPUTED_PROPERTY: Z = Z::Obj(
+    &[
+        ("projectId", Z::Str(&[S::Min(1, None), S::Max(30, None)])),
+        (
+            "name",
+            Z::Str(&[S::Trim, S::Min(1, None), S::Max(255, None)]),
+        ),
+        (
+            "description",
+            Z::Opt(&Z::Nul(&Z::Str(&[S::Max(2000, None)]))),
+        ),
+        ("definition", PANEL_COMPUTED_PROPERTY_DEFINITION),
+    ],
+    Keys::Strip,
+);
+
+/// `createPanelCustomEventSchema`.
+pub(crate) const CREATE_PANEL_CUSTOM_EVENT: Z = Z::Obj(
+    &[
+        ("projectId", Z::Str(&[S::Min(1, None), S::Max(30, None)])),
+        (
+            "name",
+            Z::Str(&[S::Trim, S::Min(1, None), S::Max(255, None)]),
+        ),
+        (
+            "description",
+            Z::Opt(&Z::Nul(&Z::Str(&[S::Max(2000, None)]))),
+        ),
+        ("definition", PANEL_CUSTOM_EVENT_DEFINITION),
+    ],
+    Keys::Strip,
+);
+
+/// `createPanelDashboardSchema`.
+pub(crate) const CREATE_PANEL_DASHBOARD: Z = Z::Obj(
+    &[
+        ("projectId", Z::Str(&[S::Min(1, None), S::Max(30, None)])),
+        (
+            "name",
+            Z::Str(&[S::Trim, S::Min(1, None), S::Max(255, None)]),
+        ),
+        (
+            "description",
+            Z::Opt(&Z::Nul(&Z::Str(&[S::Max(2000, None)]))),
+        ),
+        (
+            "visibility",
+            Z::Def(&Z::Enum(&["private", "workspace"], None), "\"private\""),
+        ),
+        ("filters", Z::Opt(&Z::Nul(&PANEL_DASHBOARD_FILTERS))),
+    ],
+    Keys::Strip,
+);
+
+/// `createPanelDashboardFromTemplateSchema`.
+pub(crate) const CREATE_PANEL_DASHBOARD_FROM_TEMPLATE: Z = Z::Obj(
+    &[
+        ("projectId", Z::Str(&[S::Min(1, None), S::Max(30, None)])),
+        (
+            "template",
+            Z::Enum(
+                &[
+                    "website-overview",
+                    "acquisition",
+                    "product-health",
+                    "performance",
+                    "engagement",
+                ],
+                None,
+            ),
+        ),
+        (
+            "name",
+            Z::Opt(&Z::Str(&[S::Trim, S::Min(1, None), S::Max(255, None)])),
+        ),
+        (
+            "visibility",
+            Z::Def(&Z::Enum(&["private", "workspace"], None), "\"private\""),
+        ),
+        ("locale", Z::Opt(&Z::Enum(&["en", "nl"], None))),
+    ],
+    Keys::Strip,
+);
+
+/// `createPanelGroupTypeSchema`.
+pub(crate) const CREATE_PANEL_GROUP_TYPE: Z = Z::Obj(
+    &[
+        ("projectId", Z::Str(&[S::Min(1, None), S::Max(30, None)])),
+        ("groupType", PANEL_GROUP_TYPE),
+        (
+            "nameSingular",
+            Z::Str(&[S::Trim, S::Min(1, None), S::Max(100, None)]),
+        ),
+        (
+            "namePlural",
+            Z::Str(&[S::Trim, S::Min(1, None), S::Max(100, None)]),
+        ),
+        (
+            "crmMatchProperty",
+            Z::Opt(&Z::Nul(&PANEL_GROUP_MATCH_PROPERTY)),
+        ),
+    ],
+    Keys::Strip,
+);
+
+/// `createPanelKeySchema`.
+pub(crate) const CREATE_PANEL_KEY: Z = Z::Obj(
+    &[(
+        "name",
+        Z::Str(&[S::Trim, S::Min(1, None), S::Max(100, None)]),
+    )],
+    Keys::Strip,
+);
+
+/// `createPanelMetricTreeSchema`.
+pub(crate) const CREATE_PANEL_METRIC_TREE: Z = Z::Obj(
+    &[
+        ("projectId", Z::Str(&[S::Min(1, None), S::Max(30, None)])),
+        (
+            "name",
+            Z::Str(&[S::Trim, S::Min(1, None), S::Max(255, None)]),
+        ),
+        (
+            "description",
+            Z::Opt(&Z::Nul(&Z::Str(&[S::Max(2000, None)]))),
+        ),
+        (
+            "visibility",
+            Z::Def(&Z::Enum(&["private", "workspace"], None), "\"private\""),
+        ),
+        ("nodes", PANEL_METRIC_TREE_NODES),
+    ],
+    Keys::Strip,
+);
+
+/// `createPanelReportSchema`.
+pub(crate) const CREATE_PANEL_REPORT: Z = Z::Refine(
+    &Z::Obj(
+        &[
+            ("projectId", Z::Str(&[S::Min(1, None), S::Max(30, None)])),
+            (
+                "name",
+                Z::Str(&[S::Trim, S::Min(1, None), S::Max(255, None)]),
+            ),
+            (
+                "description",
+                Z::Opt(&Z::Nul(&Z::Str(&[S::Max(2000, None)]))),
+            ),
+            (
+                "visibility",
+                Z::Def(&Z::Enum(&["private", "workspace"], None), "\"private\""),
+            ),
+            ("spec", PANEL_REPORT_SPEC),
+        ],
+        Keys::Strip,
+    ),
+    hooks::refine_create_panel_report,
+);
+
+/// `createPanelShareLinkSchema`.
+pub(crate) const CREATE_PANEL_SHARE_LINK: Z = Z::Obj(
+    &[
+        ("targetType", Z::Enum(&["report", "dashboard"], None)),
+        ("targetId", Z::Str(&[S::Min(1, None), S::Max(30, None)])),
+        ("allowEmbed", Z::Def(&Z::Bool, "false")),
+        ("allowDateChange", Z::Def(&Z::Bool, "false")),
+        (
+            "expiresAt",
+            Z::Opt(&Z::Nul(&Z::Str(&[S::Datetime {
+                offset: true,
+                msg: None,
+            }]))),
+        ),
+    ],
+    Keys::Strip,
+);
+
 /// `flowsSpecSchema`.
 pub(crate) const FLOWS_SPEC: Z = Z::Obj(
     &[
@@ -354,6 +609,44 @@ pub(crate) const PANEL_AGGREGATE_BY: Z = Z::Union(&[
     Z::Lit(Lit::Str("person")),
     Z::Obj(&[("groupType", PANEL_GROUP_TYPE)], Keys::Strip),
 ]);
+
+/// `panelAnnotationListQuerySchema`.
+pub(crate) const PANEL_ANNOTATION_LIST_QUERY: Z = Z::Obj(
+    &[
+        ("projectId", Z::Str(&[S::Min(1, None), S::Max(30, None)])),
+        (
+            "from",
+            Z::Opt(&Z::Union(&[
+                Z::Str(&[S::Datetime {
+                    offset: true,
+                    msg: None,
+                }]),
+                Z::Str(&[S::Regex(
+                    "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+                    Some("Use YYYY-MM-DD"),
+                )]),
+            ])),
+        ),
+        (
+            "to",
+            Z::Opt(&Z::Union(&[
+                Z::Str(&[S::Datetime {
+                    offset: true,
+                    msg: None,
+                }]),
+                Z::Str(&[S::Regex(
+                    "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+                    Some("Use YYYY-MM-DD"),
+                )]),
+            ])),
+        ),
+        (
+            "reportId",
+            Z::Opt(&Z::Str(&[S::Min(1, None), S::Max(30, None)])),
+        ),
+    ],
+    Keys::Strip,
+);
 
 /// `panelBreakdownSchema`.
 pub(crate) const PANEL_BREAKDOWN: Z = Z::Disc(
@@ -698,6 +991,18 @@ pub(crate) const PANEL_CUSTOM_EVENT_MATCH: Z = Z::Obj(
         (
             "filters",
             Z::Def(&Z::Arr(&PANEL_FILTER, None, Some((20, None))), "[]"),
+        ),
+    ],
+    Keys::Strip,
+);
+
+/// `panelDashboardFiltersSchema`.
+pub(crate) const PANEL_DASHBOARD_FILTERS: Z = Z::Obj(
+    &[
+        ("dateRange", Z::Opt(&PANEL_DATE_RANGE)),
+        (
+            "filters",
+            Z::Def(&Z::Arr(&PANEL_FILTER, None, Some((10, None))), "[]"),
         ),
     ],
     Keys::Strip,
@@ -1052,16 +1357,110 @@ pub(crate) const PANEL_FUNNEL_STEP: Z = Z::Obj(
     Keys::Strip,
 );
 
+/// `panelGroupMatchPropertySchema`.
+pub(crate) const PANEL_GROUP_MATCH_PROPERTY: Z = Z::Refine(
+    &Z::Str(&[S::Trim, S::Min(1, None), S::Max(64, None)]),
+    hooks::refine_panel_group_match_property,
+);
+
 /// `panelGroupTypeSchema`.
 pub(crate) const PANEL_GROUP_TYPE: Z = Z::Str(&[S::Regex(
     "^[a-z][a-z0-9_]{0,31}$",
     Some("Use lower-case letters, digits and _"),
 )]);
 
+/// `panelGroupTypeListQuerySchema`.
+pub(crate) const PANEL_GROUP_TYPE_LIST_QUERY: Z = Z::Obj(
+    &[("projectId", Z::Str(&[S::Min(1, None), S::Max(30, None)]))],
+    Keys::Strip,
+);
+
+/// `panelMetricTreeMetricSchema`.
+pub(crate) const PANEL_METRIC_TREE_METRIC: Z = Z::Union(&[
+    Z::Obj(
+        &[("reportId", Z::Str(&[S::Min(1, None), S::Max(30, None)]))],
+        Keys::Strip,
+    ),
+    Z::Obj(&[("spec", PANEL_SINGLE_SERIES_TRENDS_SPEC)], Keys::Strip),
+]);
+
+/// `panelMetricTreeNodeSchema`.
+pub(crate) const PANEL_METRIC_TREE_NODE: Z = Z::Obj(
+    &[
+        (
+            "id",
+            Z::Str(&[S::Regex(
+                "^[A-Za-z0-9_-]{1,40}$",
+                Some("Use letters, digits, - and _"),
+            )]),
+        ),
+        (
+            "label",
+            Z::Str(&[S::Trim, S::Min(1, None), S::Max(100, None)]),
+        ),
+        ("parentId", Z::Nul(&Z::Str(&[S::Max(40, None)]))),
+        (
+            "relation",
+            Z::Nul(&Z::Enum(&["sum", "product", "influence"], None)),
+        ),
+        ("metric", PANEL_METRIC_TREE_METRIC),
+    ],
+    Keys::Strip,
+);
+
+/// `panelMetricTreeNodesSchema`.
+pub(crate) const PANEL_METRIC_TREE_NODES: Z = Z::Refine(
+    &Z::Arr(&PANEL_METRIC_TREE_NODE, Some((1, None)), Some((25, None))),
+    hooks::refine_panel_metric_tree_nodes,
+);
+
+/// `panelPathRuleInputSchema`.
+pub(crate) const PANEL_PATH_RULE_INPUT: Z = Z::Obj(
+    &[
+        (
+            "pattern",
+            Z::Refine(&Z::Str(&[]), hooks::refine_panel_path_rule_input_pattern),
+        ),
+        (
+            "replacement",
+            Z::Refine(
+                &Z::Str(&[]),
+                hooks::refine_panel_path_rule_input_replacement,
+            ),
+        ),
+        (
+            "description",
+            Z::Opt(&Z::Nul(&Z::Str(&[S::Max(500, None)]))),
+        ),
+    ],
+    Keys::Strip,
+);
+
 /// `panelPropertyKeySchema`.
 pub(crate) const PANEL_PROPERTY_KEY: Z = Z::Refine(
     &Z::Str(&[S::Max(65, None)]),
     hooks::refine_panel_property_key,
+);
+
+/// `panelPublicResultsSchema`.
+pub(crate) const PANEL_PUBLIC_RESULTS: Z = Z::Obj(
+    &[
+        (
+            "tileId",
+            Z::Opt(&Z::Str(&[S::Min(1, None), S::Max(30, None)])),
+        ),
+        (
+            "dateRange",
+            Z::Opt(&Z::Obj(
+                &[(
+                    "preset",
+                    Z::Enum(&["today", "7d", "30d", "90d", "12m"], None),
+                )],
+                Keys::Strip,
+            )),
+        ),
+    ],
+    Keys::Strip,
 );
 
 /// `panelQuerySpecSchema`.
@@ -1080,6 +1479,75 @@ pub(crate) const PANEL_QUERY_SPEC: Z = Z::Union(&[
     IMPACT_SPEC,
     SIGNAL_SPEC,
 ]);
+
+/// `panelReportSpecSchema`.
+pub(crate) const PANEL_REPORT_SPEC: Z = Z::Union(&[
+    WEB_SPEC,
+    TRENDS_SPEC,
+    FUNNEL_SPEC,
+    RETENTION_SPEC,
+    FLOWS_SPEC,
+    STICKINESS_SPEC,
+    LIFECYCLE_SPEC,
+    VITALS_SPEC,
+    IMPACT_SPEC,
+    SIGNAL_SPEC,
+]);
+
+/// `panelSingleSeriesTrendsSpecSchema`.
+pub(crate) const PANEL_SINGLE_SERIES_TRENDS_SPEC: Z =
+    Z::Refine(&TRENDS_SPEC, hooks::refine_panel_single_series_trends_spec);
+
+/// `panelTargetQuerySchema`.
+pub(crate) const PANEL_TARGET_QUERY: Z = Z::Obj(
+    &[
+        ("targetType", Z::Enum(&["report", "dashboard"], None)),
+        ("targetId", Z::Str(&[S::Min(1, None), S::Max(30, None)])),
+    ],
+    Keys::Strip,
+);
+
+/// `panelTileLayoutSchema`.
+pub(crate) const PANEL_TILE_LAYOUT: Z = Z::Obj(
+    &[
+        (
+            "x",
+            Z::Num(&[
+                N::Int(None),
+                N::Min(0.0, true, None),
+                N::Max(23.0, true, None),
+            ]),
+        ),
+        (
+            "y",
+            Z::Num(&[
+                N::Int(None),
+                N::Min(0.0, true, None),
+                N::Max(1000.0, true, None),
+            ]),
+        ),
+        (
+            "w",
+            Z::Num(&[
+                N::Int(None),
+                N::Min(1.0, true, None),
+                N::Max(24.0, true, None),
+            ]),
+        ),
+        (
+            "h",
+            Z::Num(&[
+                N::Int(None),
+                N::Min(1.0, true, None),
+                N::Max(24.0, true, None),
+            ]),
+        ),
+    ],
+    Keys::Strip,
+);
+
+/// `panelTileTextSchema`.
+pub(crate) const PANEL_TILE_TEXT: Z = Z::Str(&[S::Trim, S::Min(1, None), S::Max(5000, None)]);
 
 /// `panelTrendFormulaSchema`.
 pub(crate) const PANEL_TREND_FORMULA: Z = Z::Obj(
@@ -1343,6 +1811,34 @@ pub(crate) const SESSIONS_SPEC: Z = Z::Obj(
     Keys::Strip,
 );
 
+/// `setPanelDashboardLayoutSchema`.
+pub(crate) const SET_PANEL_DASHBOARD_LAYOUT: Z = Z::Obj(
+    &[(
+        "tiles",
+        Z::Arr(
+            &Z::Obj(
+                &[
+                    ("id", Z::Str(&[S::Min(1, None), S::Max(30, None)])),
+                    ("layout", PANEL_TILE_LAYOUT),
+                ],
+                Keys::Strip,
+            ),
+            None,
+            Some((100, None)),
+        ),
+    )],
+    Keys::Strip,
+);
+
+/// `setPanelPathRulesSchema`.
+pub(crate) const SET_PANEL_PATH_RULES: Z = Z::Obj(
+    &[(
+        "rules",
+        Z::Arr(&PANEL_PATH_RULE_INPUT, None, Some((30, None))),
+    )],
+    Keys::Strip,
+);
+
 /// `signalSpecSchema`.
 pub(crate) const SIGNAL_SPEC: Z = Z::Obj(
     &[
@@ -1434,6 +1930,32 @@ pub(crate) const STICKINESS_SPEC: Z = Z::Obj(
     Keys::Strip,
 );
 
+/// `testPanelPathRulesSchema`.
+pub(crate) const TEST_PANEL_PATH_RULES: Z = Z::Refine(
+    &Z::Obj(
+        &[
+            (
+                "projectId",
+                Z::Opt(&Z::Str(&[S::Min(1, None), S::Max(30, None)])),
+            ),
+            (
+                "rules",
+                Z::Opt(&Z::Arr(&PANEL_PATH_RULE_INPUT, None, Some((30, None)))),
+            ),
+            (
+                "paths",
+                Z::Arr(
+                    &Z::Str(&[S::Max(2048, None)]),
+                    Some((1, None)),
+                    Some((50, None)),
+                ),
+            ),
+        ],
+        Keys::Strip,
+    ),
+    hooks::refine_test_panel_path_rules,
+);
+
 /// `trendsSpecSchema`.
 pub(crate) const TRENDS_SPEC: Z = Z::Refine(
     &Z::Obj(
@@ -1493,6 +2015,158 @@ pub(crate) const TRENDS_SPEC: Z = Z::Refine(
     hooks::refine_trends_spec,
 );
 
+/// `updatePanelAnnotationSchema`.
+pub(crate) const UPDATE_PANEL_ANNOTATION: Z = Z::Refine(
+    &Z::Obj(
+        &[
+            (
+                "reportId",
+                Z::Opt(&Z::Nul(&Z::Str(&[S::Min(1, None), S::Max(30, None)]))),
+            ),
+            (
+                "occurredAt",
+                Z::Opt(&Z::Str(&[S::Datetime {
+                    offset: true,
+                    msg: None,
+                }])),
+            ),
+            (
+                "label",
+                Z::Opt(&Z::Str(&[S::Trim, S::Min(1, None), S::Max(200, None)])),
+            ),
+            (
+                "description",
+                Z::Opt(&Z::Nul(&Z::Str(&[S::Max(2000, None)]))),
+            ),
+        ],
+        Keys::Strip,
+    ),
+    hooks::refine_update_panel_annotation,
+);
+
+/// `updatePanelCohortSchema`.
+pub(crate) const UPDATE_PANEL_COHORT: Z = Z::Refine(
+    &Z::Obj(
+        &[
+            (
+                "name",
+                Z::Opt(&Z::Str(&[S::Trim, S::Min(1, None), S::Max(255, None)])),
+            ),
+            (
+                "description",
+                Z::Opt(&Z::Nul(&Z::Str(&[S::Max(2000, None)]))),
+            ),
+            ("filter", Z::Opt(&PANEL_COHORT_FILTER)),
+        ],
+        Keys::Strip,
+    ),
+    hooks::refine_update_panel_cohort,
+);
+
+/// `updatePanelCommentSchema`.
+pub(crate) const UPDATE_PANEL_COMMENT: Z = Z::Obj(
+    &[(
+        "body",
+        Z::Str(&[S::Trim, S::Min(1, None), S::Max(5000, None)]),
+    )],
+    Keys::Strip,
+);
+
+/// `updatePanelComputedPropertySchema`.
+pub(crate) const UPDATE_PANEL_COMPUTED_PROPERTY: Z = Z::Refine(
+    &Z::Obj(
+        &[
+            (
+                "name",
+                Z::Opt(&Z::Str(&[S::Trim, S::Min(1, None), S::Max(255, None)])),
+            ),
+            (
+                "description",
+                Z::Opt(&Z::Nul(&Z::Str(&[S::Max(2000, None)]))),
+            ),
+            ("definition", Z::Opt(&PANEL_COMPUTED_PROPERTY_DEFINITION)),
+        ],
+        Keys::Strip,
+    ),
+    hooks::refine_update_panel_computed_property,
+);
+
+/// `updatePanelCustomEventSchema`.
+pub(crate) const UPDATE_PANEL_CUSTOM_EVENT: Z = Z::Refine(
+    &Z::Obj(
+        &[
+            (
+                "name",
+                Z::Opt(&Z::Str(&[S::Trim, S::Min(1, None), S::Max(255, None)])),
+            ),
+            (
+                "description",
+                Z::Opt(&Z::Nul(&Z::Str(&[S::Max(2000, None)]))),
+            ),
+            ("definition", Z::Opt(&PANEL_CUSTOM_EVENT_DEFINITION)),
+        ],
+        Keys::Strip,
+    ),
+    hooks::refine_update_panel_custom_event,
+);
+
+/// `updatePanelDashboardSchema`.
+pub(crate) const UPDATE_PANEL_DASHBOARD: Z = Z::Refine(
+    &Z::Obj(
+        &[
+            (
+                "name",
+                Z::Opt(&Z::Str(&[S::Trim, S::Min(1, None), S::Max(255, None)])),
+            ),
+            (
+                "description",
+                Z::Opt(&Z::Nul(&Z::Str(&[S::Max(2000, None)]))),
+            ),
+            (
+                "visibility",
+                Z::Opt(&Z::Enum(&["private", "workspace"], None)),
+            ),
+            ("filters", Z::Opt(&Z::Nul(&PANEL_DASHBOARD_FILTERS))),
+        ],
+        Keys::Strip,
+    ),
+    hooks::refine_update_panel_dashboard,
+);
+
+/// `updatePanelDashboardTileSchema`.
+pub(crate) const UPDATE_PANEL_DASHBOARD_TILE: Z = Z::Refine(
+    &Z::Obj(
+        &[
+            ("layout", Z::Opt(&PANEL_TILE_LAYOUT)),
+            ("text", Z::Opt(&PANEL_TILE_TEXT)),
+        ],
+        Keys::Strip,
+    ),
+    hooks::refine_update_panel_dashboard_tile,
+);
+
+/// `updatePanelGroupTypeSchema`.
+pub(crate) const UPDATE_PANEL_GROUP_TYPE: Z = Z::Refine(
+    &Z::Obj(
+        &[
+            (
+                "nameSingular",
+                Z::Opt(&Z::Str(&[S::Trim, S::Min(1, None), S::Max(100, None)])),
+            ),
+            (
+                "namePlural",
+                Z::Opt(&Z::Str(&[S::Trim, S::Min(1, None), S::Max(100, None)])),
+            ),
+            (
+                "crmMatchProperty",
+                Z::Opt(&Z::Nul(&PANEL_GROUP_MATCH_PROPERTY)),
+            ),
+        ],
+        Keys::Strip,
+    ),
+    hooks::refine_update_panel_group_type,
+);
+
 /// `updatePanelLexiconSchema`.
 pub(crate) const UPDATE_PANEL_LEXICON: Z = Z::Refine(
     &Z::Obj(
@@ -1510,6 +2184,52 @@ pub(crate) const UPDATE_PANEL_LEXICON: Z = Z::Refine(
         Keys::Strip,
     ),
     hooks::refine_update_panel_lexicon,
+);
+
+/// `updatePanelMetricTreeSchema`.
+pub(crate) const UPDATE_PANEL_METRIC_TREE: Z = Z::Refine(
+    &Z::Obj(
+        &[
+            (
+                "name",
+                Z::Opt(&Z::Str(&[S::Trim, S::Min(1, None), S::Max(255, None)])),
+            ),
+            (
+                "description",
+                Z::Opt(&Z::Nul(&Z::Str(&[S::Max(2000, None)]))),
+            ),
+            (
+                "visibility",
+                Z::Opt(&Z::Enum(&["private", "workspace"], None)),
+            ),
+            ("nodes", Z::Opt(&PANEL_METRIC_TREE_NODES)),
+        ],
+        Keys::Strip,
+    ),
+    hooks::refine_update_panel_metric_tree,
+);
+
+/// `updatePanelReportSchema`.
+pub(crate) const UPDATE_PANEL_REPORT: Z = Z::Refine(
+    &Z::Obj(
+        &[
+            (
+                "name",
+                Z::Opt(&Z::Str(&[S::Trim, S::Min(1, None), S::Max(255, None)])),
+            ),
+            (
+                "description",
+                Z::Opt(&Z::Nul(&Z::Str(&[S::Max(2000, None)]))),
+            ),
+            (
+                "visibility",
+                Z::Opt(&Z::Enum(&["private", "workspace"], None)),
+            ),
+            ("spec", Z::Opt(&PANEL_REPORT_SPEC)),
+        ],
+        Keys::Strip,
+    ),
+    hooks::refine_update_panel_report,
 );
 
 /// `vitalsSpecSchema`.

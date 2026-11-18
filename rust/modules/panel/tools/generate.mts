@@ -36,6 +36,7 @@ const MODULES = [
   '@weldsuite/app-api-client/schemas/weldpanel-query',
   '@weldsuite/app-api-client/schemas/weldpanel-collab',
   '@weldsuite/app-api-client/schemas/weldpanel-objects',
+  '@weldsuite/app-api-client/schemas/weldpanel-groups',
 ];
 
 /** The schemas to generate, by export name. */
@@ -45,6 +46,42 @@ const ROOTS = [
   'panelCustomEventDefinitionSchema',
   'panelComputedPropertyDefinitionSchema',
   'updatePanelLexiconSchema',
+  // Saved objects (reports, dashboards, cohorts) and secret keys.
+  'createPanelReportSchema',
+  'updatePanelReportSchema',
+  'panelReportSpecSchema',
+  'createPanelDashboardSchema',
+  'updatePanelDashboardSchema',
+  'panelDashboardFiltersSchema',
+  'addPanelDashboardTileSchema',
+  'updatePanelDashboardTileSchema',
+  'setPanelDashboardLayoutSchema',
+  'createPanelCohortSchema',
+  'updatePanelCohortSchema',
+  'createPanelKeySchema',
+  // Definitions, collaboration and sharing.
+  'createPanelCustomEventSchema',
+  'updatePanelCustomEventSchema',
+  'createPanelComputedPropertySchema',
+  'updatePanelComputedPropertySchema',
+  'setPanelPathRulesSchema',
+  'testPanelPathRulesSchema',
+  'createPanelAnnotationSchema',
+  'updatePanelAnnotationSchema',
+  'panelAnnotationListQuerySchema',
+  'createPanelCommentSchema',
+  'updatePanelCommentSchema',
+  'panelTargetQuerySchema',
+  'createPanelDashboardFromTemplateSchema',
+  'panelMetricTreeNodesSchema',
+  'createPanelMetricTreeSchema',
+  'updatePanelMetricTreeSchema',
+  'createPanelShareLinkSchema',
+  'panelPublicResultsSchema',
+  // Group types.
+  'createPanelGroupTypeSchema',
+  'updatePanelGroupTypeSchema',
+  'panelGroupTypeListQuerySchema',
 ];
 
 /* eslint-disable @typescript-eslint/no-explicit-any */

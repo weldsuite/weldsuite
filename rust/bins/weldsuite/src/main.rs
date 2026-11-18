@@ -41,6 +41,7 @@ mod migrate;
 mod monitoring;
 mod mta;
 mod panel_maintenance;
+mod panel_saved;
 mod panel_sql;
 mod panel_store;
 #[cfg(test)]

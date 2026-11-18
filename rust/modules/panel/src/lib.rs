@@ -33,18 +33,33 @@
 //! TypeScript workers'; their tests run against this crate in the `panel`
 //! conformance suites (`rust/conformance/suites.json`).
 
+mod annotations;
+mod cohorts;
 pub mod collector;
+mod comments;
+mod dashboards;
+mod definitions;
 mod domain;
 pub mod engine;
+mod group_types;
 mod hooks;
 mod js;
+mod keys;
 mod lexicon;
+mod metric_trees;
+mod path_rules;
 pub mod project_state;
 mod projects;
+pub mod public_share;
 mod query;
 mod query_context;
 mod registry;
+mod reports;
+mod saved;
+mod saved_routes;
 mod schemas_gen;
+mod share_links;
+mod templates;
 
 use std::sync::Arc;
 
@@ -68,7 +83,7 @@ use weldsuite_events::{EntityEventPublisher, EventContext, publish_entity_event}
 use weldsuite_kit::validation::{Issues, json_body};
 use weldsuite_kit::{ApiError, RequestEnv};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
-use weldsuite_ports::{DynCache, OutboundHttp, RequestCache};
+use weldsuite_ports::{DynCache, DynRealtimePublisher, OutboundHttp, RequestCache};
 
 pub use collector::{
     BusSink, CacheSalt, CacheUsage, CollectorState, EventSink, RequestCollector, SaltSource,
@@ -76,6 +91,15 @@ pub use collector::{
 };
 pub use engine::{AnalyticsSql, BasinSql};
 pub use project_state::{PanelProjectState, ProjectRef, RequestProjectState};
+pub use public_share::{
+    CacheShareRateLimit, OpenedWorkspace, RequestShareRateLimit, RequestWorkspaceTenants,
+    ShareRateLimit, WorkspaceTenants,
+};
+pub use saved_routes::{
+    annotations_router, cohorts_router, comments_router, computed_properties_router,
+    custom_events_router, dashboards_router, group_types_router, metric_trees_router,
+    path_rules_router, public_share_router, reports_router, share_links_router,
+};
 
 /// What the project routes share.
 #[derive(Clone)]
@@ -99,6 +123,14 @@ pub struct PanelState {
     /// queries answer 503, as panel-api without `PANEL_PROJECT`. A
     /// request's [`RequestProjectState`] (conformance) wins.
     pub project_state: Option<Arc<dyn PanelProjectState>>,
+    /// In-app notifications (`REALTIME`): a comment's target owner is told.
+    pub realtime: Option<Arc<dyn DynRealtimePublisher>>,
+    /// Opens the workspace behind a public share link. A request's
+    /// [`RequestWorkspaceTenants`] (conformance) wins.
+    pub tenants: Option<Arc<dyn WorkspaceTenants>>,
+    /// Proxies in front of the server (`TRUSTED_PROXIES`): which
+    /// `X-Forwarded-For` entry is the visitor of a public link.
+    pub trusted_proxies: usize,
 }
 
 impl std::fmt::Debug for PanelState {
@@ -110,6 +142,9 @@ impl std::fmt::Debug for PanelState {
             .field("collector_url", &self.collector_url)
             .field("sql", &self.sql.is_some())
             .field("project_state", &self.project_state.is_some())
+            .field("realtime", &self.realtime.is_some())
+            .field("tenants", &self.tenants.is_some())
+            .field("trusted_proxies", &self.trusted_proxies)
             .finish()
     }
 }
@@ -148,6 +183,15 @@ where
             post(projects::rotate_token).route_layer(manage()),
         )
         .route("/{id}/install", get(projects::install).route_layer(read()))
+        // Secret keys sit under their project (`routes/keys`).
+        .route(
+            "/{id}/keys",
+            get(keys::list).post(keys::create).route_layer(manage()),
+        )
+        .route(
+            "/{id}/keys/{key_id}",
+            axum::routing::delete(keys::revoke).route_layer(manage()),
+        )
         .with_state(state)
 }
 
@@ -191,6 +235,8 @@ pub(crate) struct Caller {
     pub(crate) user_id: String,
     /// `c.get('workspaceId')`: `workspaces.id`; empty without one.
     pub(crate) workspace_id: String,
+    /// The Clerk org id (`c.get('clerkOrgId')`): the hub in-app notifications go to.
+    pub(crate) clerk_org_id: Option<String>,
     pub(crate) events: EventContext,
     env: Option<RequestEnv>,
     cache: Option<Arc<dyn DynCache>>,
@@ -330,6 +376,7 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
                 db: tenant.db.clone(),
                 user_id: auth.user_id.clone(),
                 workspace_id: tenant.workspace_id.clone(),
+                clerk_org_id: tenant.clerk_org_id.clone(),
                 events: EventContext::for_request(auth, tenant),
                 env: extensions.get::<RequestEnv>().cloned(),
                 cache: extensions

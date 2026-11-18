@@ -68,7 +68,7 @@ fn text<'a>(row: &'a Value, key: &str) -> &'a str {
 }
 
 /// `registryFor(c)`: null without a workspace (`error.orgRequired`).
-fn registry_for(caller: &Caller, state: &PanelState) -> Result<Registry, Box<Response>> {
+pub(crate) fn registry_for(caller: &Caller, state: &PanelState) -> Result<Registry, Box<Response>> {
     if caller.workspace_id.is_empty() {
         return Err(Box::new(ApiError::org_required().into_response()));
     }
@@ -443,6 +443,7 @@ pub(crate) async fn update_settings(
         Err(response) => return *response,
     };
     let (status, settings) = patch;
+    let status_changes = status.is_some();
     let updated: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(
         "update panel_projects as p set
            status = coalesce($2, p.status),
@@ -459,15 +460,22 @@ pub(crate) async fn update_settings(
     match updated {
         Ok(Some(row)) => {
             let project = weldsuite_db::js_row(row);
-            synced(
+            if let Err(error) = registry.sync(&project, None).await {
+                return unexpected(&error, "update project settings");
+            }
+            // Secret keys follow the project's status: a paused project stops /v1/* too.
+            if status_changes
+                && let Err(error) = crate::keys::sync_key_records(&registry, &project, false).await
+            {
+                return unexpected(&error, "update project settings");
+            }
+            caller.publish(
                 &state,
-                &caller,
-                &registry,
-                project,
-                None,
-                "update project settings",
-            )
-            .await
+                PANEL_PROJECT_UPDATED,
+                text(&project, "id"),
+                &event_data(&project),
+            );
+            Data(dto(&project)).into_response()
         }
         Ok(None) => ApiError::not_found("Project", Some(&id)).into_response(),
         Err(error) => unexpected(&error, "update project settings"),
@@ -508,10 +516,17 @@ pub(crate) async fn remove(
             .fetch_optional(&caller.db)
             .await;
             return match earlier {
-                Ok(Some(row)) => match registry.remove(&weldsuite_db::js_row(row)).await {
-                    Ok(()) => ApiError::not_found("Project", Some(&id)).into_response(),
-                    Err(error) => unexpected(&error, "delete project"),
-                },
+                Ok(Some(row)) => {
+                    let earlier = weldsuite_db::js_row(row);
+                    let removed = match registry.remove(&earlier).await {
+                        Ok(()) => crate::keys::sync_key_records(&registry, &earlier, true).await,
+                        Err(error) => Err(error),
+                    };
+                    match removed {
+                        Ok(()) => ApiError::not_found("Project", Some(&id)).into_response(),
+                        Err(error) => unexpected(&error, "delete project"),
+                    }
+                }
                 Ok(None) => ApiError::not_found("Project", Some(&id)).into_response(),
                 Err(error) => unexpected(&error, "delete project"),
             };
@@ -519,6 +534,9 @@ pub(crate) async fn remove(
         Err(error) => return unexpected(&error, "delete project"),
     };
     if let Err(error) = registry.remove(&project).await {
+        return unexpected(&error, "delete project");
+    }
+    if let Err(error) = crate::keys::sync_key_records(&registry, &project, true).await {
         return unexpected(&error, "delete project");
     }
     caller.publish(

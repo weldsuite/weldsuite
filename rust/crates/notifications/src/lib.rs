@@ -14,6 +14,7 @@
 //! [`create_and_deliver`] logs a warning where it would hand the mail over;
 //! the WeldChat helpers exclude email anyway, as in TypeScript.
 
+mod preview;
 mod push;
 
 use std::sync::Arc;
@@ -27,6 +28,7 @@ use weldsuite_ports::{
     RealtimePublisher,
 };
 
+pub use preview::{notification_preview, strip_markdown};
 pub use push::{
     ApnsConfig, CallCancelReason, ExpoResult, cancel_incoming_call_push, send_expo_push,
 };
