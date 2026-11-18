@@ -7,6 +7,7 @@ import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel
 import { useDeleteCompany } from '@/components/objects/company/use-company-data';
 import { useDeletePerson } from '@/components/objects/person/use-person-data';
 import { getTranslations } from '@/lib/i18n';
+import { useConfirmDelete } from '../../lib/use-confirm-delete';
 import { buildCustomerColumns } from '../config/customer-columns';
 import type { CustomerRow } from '../config/customer-row';
 import { CustomerDialog } from './customer-dialog';
@@ -41,17 +42,20 @@ export function CustomersList({
 
   const columns = useMemo(() => buildCustomerColumns(), []);
 
-  const handleDelete = async (row: CustomerRow) => {
-    if (!confirm(t.customers.confirmDelete)) return;
-    try {
-      // Route to the object the row actually came from.
-      if (row.kind === 'company') await deleteCompany.mutateAsync(row.id);
-      else await deletePerson.mutateAsync(row.id);
-      toast.success(t.customers.toastDeleted);
-    } catch (err) {
-      toast.error((err as Error).message || t.common.deleteFailed);
-    }
-  };
+  const confirmDelete = useConfirmDelete<CustomerRow>({
+    title: t.customers.confirmDelete,
+    name: (row) => row.displayName,
+    onDelete: async (row) => {
+      try {
+        // Route to the object the row actually came from.
+        if (row.kind === 'company') await deleteCompany.mutateAsync(row.id);
+        else await deletePerson.mutateAsync(row.id);
+        toast.success(t.customers.toastDeleted);
+      } catch (err) {
+        toast.error((err as Error).message || t.common.deleteFailed);
+      }
+    },
+  });
 
   return (
     <>
@@ -64,7 +68,7 @@ export function CustomersList({
         onRowClick={(c) => openObjectPanel({ type: c.kind, id: c.id })}
         objectPanel={{ type: (c) => c.kind }}
         onEdit={setEditing}
-        onDelete={handleDelete}
+        onDelete={confirmDelete.request}
         searchQuery={search}
         onSearchChange={onSearchChange}
         searchPlaceholder={t.customers.searchPlaceholder}
@@ -82,7 +86,9 @@ export function CustomersList({
           description: t.customers.sharedWithCrm,
           action: { label: t.customers.newButton, onClick: () => setCreateOpen(true) },
         }}
+        noResultsState={{ title: t.customers.noResults, description: t.common.noResultsHint }}
       />
+      {confirmDelete.dialog}
 
       {createOpen && <CustomerDialog open={createOpen} onOpenChange={setCreateOpen} />}
       {editing && (

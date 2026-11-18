@@ -24,6 +24,9 @@ describe('GET /c/:token', () => {
       consentMode: 'none',
       maskingLevel: 'strict',
       excludedUrls: ['/admin/*'],
+      recordingSampleRate: 0.5,
+      recordingBlocked: false,
+      snapshot: null,
     });
   });
 

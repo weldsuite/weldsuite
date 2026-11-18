@@ -13,10 +13,11 @@
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.1",
+    "@weldsuite/core-domain": "workspace:*",
     "@weldsuite/db": "workspace:*",
     "@weldsuite/entity-events": "workspace:*",
     "drizzle-orm": "^0.45.2",
-    "hono": "^4.13.13"
+    "hono": "^4.13.16"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250110.0",

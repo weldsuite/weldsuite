@@ -1,6 +1,7 @@
+import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import type { z } from 'zod';
+import { z } from 'zod';
 import { createOrderSchema, type CreateOrderInput } from '@weldsuite/core-api-client/schemas/orders';
 import {
   useCreateCommerceOrder,
@@ -9,36 +10,34 @@ import {
 } from '@/hooks/queries/use-commerce-queries';
 import { useCompanies } from '@/components/objects/company/use-company-data';
 import { Button } from '@weldsuite/ui/components/button';
+import { FieldError } from '@weldsuite/ui/components/field';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { toast } from 'sonner';
 import { getTranslations } from '@/lib/i18n';
+import { CURRENCY_CODE, commerceSchemaOptions, currencyInput, optionalNumber } from '../../lib/form';
+import { useCommerceDefaults } from '../../lib/use-commerce-defaults';
 import { ORDER_STATUS_OPTIONS, orderStatusLabel } from '../config/order-columns';
 
-type FormValues = z.input<typeof createOrderSchema>;
+/**
+ * The API's order schema as this form fills it: the currency is a required
+ * three-letter code (the column holds three characters, and an order without
+ * one shows a bare amount), and the amounts are numbers of zero or more.
+ */
+const orderFormSchema = createOrderSchema.extend({
+  currency: z.string().regex(CURRENCY_CODE),
+  subtotal: z.number().min(0).optional(),
+  taxTotal: z.number().min(0).optional(),
+  total: z.number().min(0).optional(),
+});
+
+type FormValues = z.input<typeof orderFormSchema>;
 /** What the resolver hands `onSubmit` — already parsed, so no second parse. */
-type SubmitValues = z.output<typeof createOrderSchema>;
+type SubmitValues = z.output<typeof orderFormSchema>;
 
 const NO_CUSTOMER = '__none__';
-
-/**
- * `valueAsNumber` turns an empty input into NaN, which an optional Zod number
- * rejects — and because `handleSubmit` then never calls `onSubmit`, the user
- * sees a Save button that silently does nothing. Map blank to undefined so the
- * field reads as "not provided".
- */
-const optionalNumber = { setValueAs: (v: unknown) => (v === '' || v == null ? undefined : Number(v)) };
-
-/**
- * Without this, `handleSubmit` blocks on a validation failure and nothing on
- * screen changes — the Save button just appears dead.
- */
-function FieldError({ message }: Readonly<{ message?: string }>) {
-  if (!message) return null;
-  return <p className="text-xs text-destructive">{message}</p>;
-}
 
 export function OrderDialog({
   open,
@@ -54,23 +53,31 @@ export function OrderDialog({
   const isEdit = !!order;
   const create = useCreateCommerceOrder();
   const update = useUpdateCommerceOrder();
+  const defaults = useCommerceDefaults();
   const { data: companies } = useCompanies({ limit: 100 });
 
   const form = useForm<FormValues>({
-    resolver: zodResolver(createOrderSchema),
+    resolver: zodResolver(orderFormSchema, commerceSchemaOptions()),
     defaultValues: order
       ? {
           orderNumber: order.orderNumber ?? undefined,
           customerId: order.customerId ?? undefined,
           status: order.status ?? 'pending',
-          currency: order.currency ?? undefined,
+          currency: order.currency || '',
           subtotal: order.subtotal != null ? Number(order.subtotal) : undefined,
           taxTotal: order.taxTotal != null ? Number(order.taxTotal) : undefined,
           total: order.total != null ? Number(order.total) : undefined,
         }
-      : { status: 'pending' },
+      : { status: 'pending', currency: defaults.currency ?? '' },
   });
   const { errors } = form.formState;
+
+  // A new order is in the workspace's currency. The entities may arrive after
+  // the form mounted; a currency the person already typed is kept.
+  useEffect(() => {
+    if (isEdit || !defaults.currency) return;
+    if (!form.getValues('currency')) form.setValue('currency', defaults.currency);
+  }, [isEdit, defaults.currency, form]);
 
   const onSubmit = async (values: SubmitValues) => {
     try {
@@ -97,12 +104,12 @@ export function OrderDialog({
         <DialogHeader>
           <DialogTitle>{isEdit ? t.orders.editTitle : t.orders.newTitle}</DialogTitle>
         </DialogHeader>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-3">
+        <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-3" noValidate>
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-1.5">
               <Label htmlFor="orderNumber">{t.fields.orderNumber}</Label>
-              <Input id="orderNumber" {...form.register('orderNumber')} />
-              <FieldError message={errors.orderNumber?.message} />
+              <Input id="orderNumber" aria-invalid={!!errors.orderNumber || undefined} {...form.register('orderNumber')} />
+              <FieldError className="text-xs" errors={[errors.orderNumber]} />
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="status">{t.fields.status}</Label>
@@ -110,7 +117,7 @@ export function OrderDialog({
                 defaultValue={order?.status ?? 'pending'}
                 onValueChange={(v) => form.setValue('status', v)}
               >
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger id="status"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {ORDER_STATUS_OPTIONS.map((s) => (
                     <SelectItem key={s} value={s}>{orderStatusLabel(s)}</SelectItem>
@@ -123,9 +130,10 @@ export function OrderDialog({
             <Label htmlFor="customerId">{t.fields.customer}</Label>
             <Select
               defaultValue={order?.customerId ?? NO_CUSTOMER}
-              onValueChange={(v) => form.setValue('customerId', v === NO_CUSTOMER ? undefined : v)}
+              // `null` (not undefined) so an edit can take the customer off an order.
+              onValueChange={(v) => form.setValue('customerId', v === NO_CUSTOMER ? null : v)}
             >
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger id="customerId"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value={NO_CUSTOMER}>{t.orders.noCustomer}</SelectItem>
                 {(companies?.data ?? []).map((c) => (
@@ -133,29 +141,59 @@ export function OrderDialog({
                 ))}
               </SelectContent>
             </Select>
-            <FieldError message={errors.customerId?.message} />
+            <FieldError className="text-xs" errors={[errors.customerId]} />
           </div>
           <div className="grid grid-cols-3 gap-3">
             <div className="grid gap-1.5">
               <Label htmlFor="subtotal">{t.fields.subtotal}</Label>
-              <Input id="subtotal" type="number" step="0.01" {...form.register('subtotal', optionalNumber)} />
-              <FieldError message={errors.subtotal?.message} />
+              <Input
+                id="subtotal"
+                type="number"
+                step="0.01"
+                min="0"
+                aria-invalid={!!errors.subtotal || undefined}
+                {...form.register('subtotal', optionalNumber)}
+              />
+              <FieldError className="text-xs" errors={[errors.subtotal]} />
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="taxTotal">{t.fields.tax}</Label>
-              <Input id="taxTotal" type="number" step="0.01" {...form.register('taxTotal', optionalNumber)} />
-              <FieldError message={errors.taxTotal?.message} />
+              <Input
+                id="taxTotal"
+                type="number"
+                step="0.01"
+                min="0"
+                aria-invalid={!!errors.taxTotal || undefined}
+                {...form.register('taxTotal', optionalNumber)}
+              />
+              <FieldError className="text-xs" errors={[errors.taxTotal]} />
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="total">{t.fields.total}</Label>
-              <Input id="total" type="number" step="0.01" {...form.register('total', optionalNumber)} />
-              <FieldError message={errors.total?.message} />
+              <Input
+                id="total"
+                type="number"
+                step="0.01"
+                min="0"
+                aria-invalid={!!errors.total || undefined}
+                {...form.register('total', optionalNumber)}
+              />
+              <FieldError className="text-xs" errors={[errors.total]} />
             </div>
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="currency">{t.fields.currency}</Label>
-            <Input id="currency" placeholder="EUR" {...form.register('currency')} />
-            <FieldError message={errors.currency?.message} />
+            <Input
+              id="currency"
+              maxLength={3}
+              autoComplete="off"
+              className="uppercase"
+              placeholder={defaults.currency ?? 'EUR'}
+              aria-invalid={!!errors.currency || undefined}
+              {...form.register('currency', currencyInput)}
+            />
+            {/* The code check has no message of its own; name what is expected. */}
+            <FieldError className="text-xs">{errors.currency ? t.validation.currencyCode : null}</FieldError>
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>

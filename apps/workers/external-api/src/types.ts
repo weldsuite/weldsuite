@@ -47,6 +47,8 @@ export interface Env extends Pick<OutboundGuardEnv, 'OUTBOUND_LEDGER' | 'OUTBOUN
   HELPDESK_WORKFLOW?: Fetcher;
   /** board-api's BoardsInternal entrypoint: the deprecated /v1/whiteboards on WeldBoard boards. */
   BOARDS_INTERNAL?: Fetcher;
+  /** panel-api's PanelApiInternal entrypoint: WeldPanel's read API behind /v1/panel. Unset (Rust editions) = 503. */
+  PANEL_INTERNAL?: Fetcher;
   /**
    * R2 bucket shared with app-api's STORAGE binding: user-app bundles, and
    * WeldMail attachments (downloads, API uploads, sent copies).
@@ -65,7 +67,7 @@ export interface Env extends Pick<OutboundGuardEnv, 'OUTBOUND_LEDGER' | 'OUTBOUN
   /** KV cache for recipient MX lookups (mail-api's namespace, so the cache is shared). Also the mailbox directory cache in `object`/`object-only` mode (design §6). */
   WORKSPACE_CACHE?: KVNamespace;
 
-  // --- Mailbox store (docs/plans/weldmail-mailbox-store-design.md) --------
+  // --- Mailbox store (weldsuite-documentation/plans/weldmail-mailbox-store-design.md) --------
   // Read by `@weldsuite/mail-domain/store`'s `getWorkspaceMail`
   // (`lib/mail-store-context.ts`). Unset ⇒ `resolveMailStoreMode` treats the
   // workspace as `postgres`, so these three go unread until mail-api's
@@ -81,7 +83,7 @@ export interface Env extends Pick<OutboundGuardEnv, 'OUTBOUND_LEDGER' | 'OUTBOUN
   // `OUTBOUND_LEDGER`, `OUTBOUND_PLATFORM` and `OUTBOUND_BACKSTOP` come from
   // `OutboundGuardEnv` (Env extends them): the Durable Objects are hosted by
   // mail-api and bound with `script_name`. All optional, the guard fails open.
-  // docs/plans/weldmail-outbound-abuse.md.
+  // weldsuite-documentation/plans/weldmail-outbound-abuse.md.
   /**
    * Neon connection string of the master DB. Only the guard reads it here (the
    * sender-ownership check against `mail_account_registry`); auth goes through

@@ -22,6 +22,7 @@ import {
   useUpdateSocialSettings,
   useSocialTimezones,
 } from '@/hooks/queries/use-social-queries';
+import { toastError } from '@/app/social/lib/feedback';
 
 const settingsSchema = z.object({
   defaultTimezone: z.string().optional(),
@@ -70,9 +71,9 @@ export function SocialGeneralSettings() {
   const onSubmit = async (data: SettingsForm) => {
     try {
       await updateSettings.mutateAsync(data as Record<string, unknown>);
-      toast.success(t.social.actions.save);
-    } catch {
-      // ignore
+      toast.success(t.social.messages.settingsSaved);
+    } catch (err) {
+      toastError(t.social.messages.settingsSaveFailed, err);
     }
   };
 

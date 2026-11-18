@@ -1,7 +1,7 @@
 /**
  * Access tab (`legal_entities:manage`): the Restricted switch and the members
  * with their role inside this entity. See "Per-entity access" in
- * docs/plans/legal-entities.md.
+ * weldsuite-documentation/plans/legal-entities.md.
  */
 
 import { useMemo, useState, type ReactNode } from 'react';

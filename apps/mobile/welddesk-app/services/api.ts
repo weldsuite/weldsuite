@@ -19,8 +19,6 @@ import type {
   DeskMessage,
 } from '@/types/desk';
 
-export { APP_API_URL as API_URL } from './app-api';
-
 let staticToken: string | null = null;
 let refreshCallback: (() => Promise<string | null>) | null = null;
 

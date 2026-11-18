@@ -4,6 +4,7 @@ import { useAuth, useUser, useOrganizationList } from '@/lib/auth';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { track } from '@/lib/analytics';
 import { workspacePath } from '@/lib/workspace-url';
+import { peekPendingOrganization } from '@/lib/pending-organization';
 import {
   useOnboardingStatus,
   useDatabaseStatus,
@@ -22,6 +23,9 @@ export function OnboardingPageClient({ detectedCountry }: Readonly<{ detectedCou
   // and they'd be shown the full wizard despite already belonging to an org.
   const orgList = useOrganizationList({ userMemberships: true });
   const [isActivatingOrg, setIsActivatingOrg] = useState(false);
+  // A workspace this tab just created (the wizard, or the create dialog on an
+  // OIDC provider, which comes back here to show its provisioning).
+  const [pendingOrgId] = useState(() => peekPendingOrganization());
 
   useEffect(() => {
     if (!isLoaded || orgId) return;
@@ -29,14 +33,15 @@ export function OnboardingPageClient({ detectedCountry }: Readonly<{ detectedCou
     if (!memberships || memberships.length === 0) return;
     if (!orgList.setActive) return;
     setIsActivatingOrg(true);
-    const joinedOrgId = memberships[0].organization.id;
+    const pending = memberships.find((m) => m.organization.id === pendingOrgId);
+    const joinedOrgId = (pending ?? memberships[0]).organization.id;
     orgList.setActive({ organization: joinedOrgId })
       .then(() => { window.location.href = workspacePath(joinedOrgId, '/'); })
       .catch(() => { setIsActivatingOrg(false); });
     // orgList is a new object every render; depending on the whole object
     // would re-run this effect on every render instead of only on data change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoaded, orgId, orgList.userMemberships?.data, orgList.setActive]);
+  }, [isLoaded, orgId, orgList.userMemberships?.data, orgList.setActive, pendingOrgId]);
 
   useEffect(() => {
     if (isLoaded && !orgId) {
@@ -70,7 +75,11 @@ export function OnboardingPageClient({ detectedCountry }: Readonly<{ detectedCou
       window.location.href = workspacePath(orgId, '/');
       return null;
     }
-    return <ProvisioningScreen />;
+    // Creating it already started provisioning; starting it again (the
+    // screen's fallback for a reload of an older, stuck workspace) would run
+    // a second job, and the onboard behind it falls back to the person's
+    // first organization, which needn't be this one.
+    return <ProvisioningScreen skipRetry={orgId === pendingOrgId} />;
   }
 
   // No org yet - show wizard

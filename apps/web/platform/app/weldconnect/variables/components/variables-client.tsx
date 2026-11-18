@@ -2,6 +2,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useI18n } from '@/lib/i18n/provider';
+import { formatMediumDate } from '@/lib/i18n/date-locale';
 import { DropdownMenuItem, DropdownMenuSeparator } from '@weldsuite/ui/components/dropdown-menu';
 import {
   Key,
@@ -93,7 +94,7 @@ function formatValue(variable: Variable): string {
 }
 
 export function VariablesClient({ initialVariables, isLoading = false, workflowNames }: Readonly<VariablesClientProps>) {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const vc = t.weldconnect.variablesClient;
 
   useBreadcrumbs([
@@ -208,7 +209,8 @@ export function VariablesClient({ initialVariables, isLoading = false, workflowN
 
         <ConnectRowCell width={COLUMN_WIDTHS.type}>
           <StatusChip tone="gray">
-            <span className="capitalize">{variable.type}</span>
+            {/* A secret is stored as a string, but what matters is that it's a secret. */}
+            <span className="capitalize">{variable.isSecret ? t.weldconnect.variables.dialog.secret : variable.type}</span>
           </StatusChip>
         </ConnectRowCell>
 
@@ -222,11 +224,11 @@ export function VariablesClient({ initialVariables, isLoading = false, workflowN
         </ConnectRowCell>
 
         <ConnectRowCell width={COLUMN_WIDTHS.created} className="xl:flex">
-          <RowDate>{new Date(variable.createdAt).toLocaleDateString()}</RowDate>
+          <RowDate>{formatMediumDate(variable.createdAt, language)}</RowDate>
         </ConnectRowCell>
       </ConnectListRow>
     );
-  }, [t, workflowNames]);
+  }, [t, language, workflowNames]);
 
   return (
     <>

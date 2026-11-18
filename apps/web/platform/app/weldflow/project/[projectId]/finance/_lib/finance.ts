@@ -83,18 +83,8 @@ export interface Curve {
 
 const toNumber = (value: string | null): number | null => (value === null ? null : Number(value));
 
-/**
- * The curve points: one per weekly snapshot, the current figures as the last
- * point, and a dashed forecast from today to the project's end. A caller
- * without finance rights gets the same curve in percent of the budget.
- */
-export function buildCurve(
-  snapshots: readonly FinanceSnapshot[],
-  finance: ProjectFinance,
-  endMs: number | null,
-  now: number,
-): Curve {
-  const percent = !finance.canSeeAmounts;
+/** One point per weekly snapshot before today, oldest first. */
+function snapshotPoints(snapshots: readonly FinanceSnapshot[], percent: boolean, now: number): CurvePoint[] {
   const points: CurvePoint[] = [];
   for (const snapshot of snapshots) {
     const t = weekStartMs(snapshot.week);
@@ -110,25 +100,55 @@ export function buildCurve(
           },
     );
   }
-  points.sort((a, b) => a.t - b.t);
+  return points.sort((a, b) => a.t - b.t);
+}
 
+/** Today's figures as a point on the curve's scale. */
+function currentPoint(finance: ProjectFinance, percent: boolean, now: number): CurvePoint {
+  if (percent) return { t: now, planned: finance.percent.planned, earned: finance.percent.earned, actual: finance.percent.spent };
   const figures = finance.figures;
-  const current: CurvePoint = percent
-    ? { t: now, planned: finance.percent.planned, earned: finance.percent.earned, actual: finance.percent.spent }
-    : {
-        t: now,
-        planned: toNumber(figures.plannedValue),
-        earned: toNumber(figures.earnedValue),
-        actual: toNumber(figures.actual),
-      };
-  const forecast = percent ? finance.percent.forecast : toNumber(figures.forecast);
+  return { t: now, planned: toNumber(figures.plannedValue), earned: toNumber(figures.earnedValue), actual: toNumber(figures.actual) };
+}
+
+/** Nothing on the start date, and the plan at the budget on the end date (when the end comes after the start). */
+function addPlanEnds(points: CurvePoint[], budget: number | null, startMs: number | null, endMs: number | null): void {
+  if (startMs !== null && startMs < points[0].t) points.push({ t: startMs, planned: 0, earned: 0, actual: 0 });
+  if (budget === null || endMs === null || (startMs !== null && endMs <= startMs)) return;
+  const atEnd = points.find((p) => p.t === endMs);
+  if (!atEnd) points.push({ t: endMs, planned: budget });
+  else if (atEnd.planned === undefined || atEnd.planned === null) atEnd.planned = budget;
+}
+
+/**
+ * The curve points: one per weekly snapshot, the current figures as the last
+ * point, and a dashed forecast from today to the project's end. A caller
+ * without finance rights gets the same curve in percent of the budget.
+ *
+ * Every line starts at nothing on the project's start date and the plan
+ * reaches the budget on its end date, both true by definition. Without them a
+ * project whose snapshots began after it started (the weekly snapshots only
+ * exist from when Finance was first opened) drew flat lines over a few days.
+ */
+export function buildCurve(
+  snapshots: readonly FinanceSnapshot[],
+  finance: ProjectFinance,
+  endMs: number | null,
+  now: number,
+  startMs: number | null = null,
+): Curve {
+  const percent = !finance.canSeeAmounts;
+  const points = snapshotPoints(snapshots, percent, now);
+  const current = currentPoint(finance, percent, now);
+  points.push(current);
+  const forecast = percent ? finance.percent.forecast : toNumber(finance.figures.forecast);
   if (forecast !== null && endMs !== null && endMs > now) {
     current.forecast = current.actual ?? null;
-    points.push(current, { t: endMs, forecast });
-  } else {
-    points.push(current);
+    points.push({ t: endMs, forecast });
   }
-  let budget = toNumber(figures.budget);
+  let budget = toNumber(finance.figures.budget);
   if (percent) budget = finance.percent.spent === null ? null : 100;
+
+  addPlanEnds(points, budget, startMs, endMs);
+  points.sort((a, b) => a.t - b.t);
   return { points, budget, forecast, today: now, percent };
 }

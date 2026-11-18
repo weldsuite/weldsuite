@@ -13,7 +13,7 @@
  *
  * A partner-managed workspace ignores its plan: its limit is the licence's
  * `maxSeats` (null = unlimited), the same number billing-worker writes to Clerk
- * (docs/plans/reseller-licensing.md).
+ * (weldsuite-documentation/plans/reseller-licensing.md).
  */
 
 import { eq } from 'drizzle-orm';

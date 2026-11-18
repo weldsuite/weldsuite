@@ -287,7 +287,7 @@ export const weldbooksUs1099 = {
 
   // 1099 Center
   center: {
-    title: '1099 Center',
+    title: '1099-centrum',
     subtitle: 'Zie wie een 1099 krijgt, vul aan wat ontbreekt, dien de formulieren in en stuur de ontvangers hun kopie.',
     noAccess: 'Je hebt geen toestemming om de 1099-aangifte te bekijken.',
     usOnly: '1099-aangifte is voor Amerikaanse entiteiten. Kies een Amerikaanse entiteit om dit te gebruiken.',

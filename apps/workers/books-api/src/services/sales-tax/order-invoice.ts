@@ -1,6 +1,6 @@
 /**
  * The invoice lines of a commerce order for a US entity (the sales tax engine
- * calculates them; docs/plans/weldbooks-us.md §2).
+ * calculates them; weldsuite-documentation/plans/weldbooks-us.md §2).
  *
  * One line per order item, shipping as a line of its own with tax code
  * `shipping`, and any order-level discount the items don't already carry

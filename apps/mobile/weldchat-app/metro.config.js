@@ -14,7 +14,12 @@ config.watchFolders = [
   // Metro can only bundle files whose symlink target is inside a watched folder.
   path.resolve(monorepoRoot, 'packages/clients/api-client'),
   path.resolve(monorepoRoot, 'packages/clients/app-api-client'),
+  path.resolve(monorepoRoot, 'packages/clients/mobile-platform'),
+  path.resolve(monorepoRoot, 'packages/core/api-modules'),
   path.resolve(monorepoRoot, 'packages/core/text'),
+  // Calls on LiveKit (Kubernetes editions): the shared LiveKit client and the
+  // video-provider switch, `providers/*` only (no web UI is imported).
+  path.resolve(monorepoRoot, 'packages/design/weldmeet-ui'),
 ];
 
 config.resolver.nodeModulesPaths = [

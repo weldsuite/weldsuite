@@ -98,6 +98,163 @@ pub(crate) fn as_text(value: &Value) -> String {
     }
 }
 
+/// A JSON value as JavaScript holds it after `JSON.parse`: numbers are
+/// doubles and an object's keys keep their order (array-index keys first).
+/// `serde_json::Value` sorts the keys, which changes what `JSON.stringify`
+/// would write.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum Json {
+    Null,
+    Bool(bool),
+    Number(f64),
+    String(String),
+    Array(Vec<Json>),
+    Object(Vec<(String, Json)>),
+}
+
+impl Json {
+    /// `JSON.parse(text)`; `None` when `text` is not JSON.
+    pub(crate) fn parse(text: &str) -> Option<Self> {
+        serde_json::from_str(text).ok()
+    }
+
+    /// `value[key]` of an object; `None` for a missing key and for anything
+    /// that is not an object.
+    pub(crate) fn get(&self, key: &str) -> Option<&Self> {
+        match self {
+            Self::Object(entries) => entries.iter().find(|(k, _)| k == key).map(|(_, v)| v),
+            _ => None,
+        }
+    }
+
+    /// JavaScript truthiness.
+    pub(crate) fn truthy(&self) -> bool {
+        match self {
+            Self::Null => false,
+            Self::Bool(flag) => *flag,
+            Self::Number(number) => *number != 0.0 && !number.is_nan(),
+            Self::String(text) => !text.is_empty(),
+            Self::Array(_) | Self::Object(_) => true,
+        }
+    }
+
+    /// `JSON.stringify(value)`.
+    pub(crate) fn stringify(&self) -> String {
+        let mut out = String::new();
+        self.write(&mut out);
+        out
+    }
+
+    fn write(&self, out: &mut String) {
+        match self {
+            Self::Null => out.push_str("null"),
+            Self::Bool(flag) => out.push_str(if *flag { "true" } else { "false" }),
+            // `JSON.stringify(Infinity)` is `null`.
+            Self::Number(number) if !number.is_finite() => out.push_str("null"),
+            Self::Number(number) => out.push_str(&number_text(*number)),
+            Self::String(text) => out.push_str(&quote(text)),
+            Self::Array(items) => {
+                out.push('[');
+                for (index, item) in items.iter().enumerate() {
+                    if index > 0 {
+                        out.push(',');
+                    }
+                    item.write(out);
+                }
+                out.push(']');
+            }
+            Self::Object(entries) => {
+                out.push('{');
+                for (index, (key, value)) in entries.iter().enumerate() {
+                    if index > 0 {
+                        out.push(',');
+                    }
+                    out.push_str(&quote(key));
+                    out.push(':');
+                    value.write(out);
+                }
+                out.push('}');
+            }
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Json {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct JsonVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for JsonVisitor {
+            type Value = Json;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("a JSON value")
+            }
+
+            fn visit_unit<E>(self) -> Result<Json, E> {
+                Ok(Json::Null)
+            }
+
+            fn visit_bool<E>(self, flag: bool) -> Result<Json, E> {
+                Ok(Json::Bool(flag))
+            }
+
+            // Every JavaScript number is a double: an integer past 2^53
+            // loses its last digits there too.
+            #[allow(clippy::cast_precision_loss)]
+            fn visit_i64<E>(self, number: i64) -> Result<Json, E> {
+                Ok(Json::Number(number as f64))
+            }
+
+            #[allow(clippy::cast_precision_loss)]
+            fn visit_u64<E>(self, number: u64) -> Result<Json, E> {
+                Ok(Json::Number(number as f64))
+            }
+
+            fn visit_f64<E>(self, number: f64) -> Result<Json, E> {
+                Ok(Json::Number(number))
+            }
+
+            fn visit_str<E>(self, text: &str) -> Result<Json, E> {
+                Ok(Json::String(text.to_owned()))
+            }
+
+            fn visit_string<E>(self, text: String) -> Result<Json, E> {
+                Ok(Json::String(text))
+            }
+
+            fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<Json, A::Error> {
+                let mut items = Vec::new();
+                while let Some(item) = seq.next_element::<Json>()? {
+                    items.push(item);
+                }
+                Ok(Json::Array(items))
+            }
+
+            fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Json, A::Error> {
+                let mut entries: Vec<(String, Json)> = Vec::new();
+                while let Some((key, value)) = map.next_entry::<String, Json>()? {
+                    // A repeated key keeps its first position and the last value.
+                    if let Some(slot) = entries.iter_mut().find(|(k, _)| *k == key) {
+                        slot.1 = value;
+                    } else {
+                        entries.push((key, value));
+                    }
+                }
+                Ok(Json::Object(crate::event::js_key_order(entries)))
+            }
+        }
+
+        deserializer.deserialize_any(JsonVisitor)
+    }
+}
+
+/// `JSON.stringify(text)`: the string quoted and escaped. (`serde_json`
+/// escapes what JavaScript escapes: the quote, the backslash and the C0
+/// controls, as `\b \t \n \f \r` or `\u00xx`.)
+pub(crate) fn quote(text: &str) -> String {
+    serde_json::to_string(text).unwrap_or_else(|_| "\"\"".to_owned())
+}
+
 /// A string as UTF-16 units, the way JavaScript indexes it.
 pub(crate) fn units(text: &str) -> Vec<u16> {
     text.encode_utf16().collect()

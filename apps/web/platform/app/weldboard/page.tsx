@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCan } from '@weldsuite/permissions/react';
+import { useCreateIntent } from '@/hooks/use-create-intent';
 import { Upload } from 'lucide-react';
 import { Board, applyOp, newId, placeFragment, type BuiltInTemplate } from '@weldsuite/board-engine';
 import type { ImportBoardInput } from '@weldsuite/app-api-client/schemas/boards';
@@ -41,6 +42,7 @@ export default function WeldBoardHome() {
   const createBlank = () => {
     if (!create.isPending) void createBoard();
   };
+  useCreateIntent(createBlank, { ready: canCreate });
 
   if (recent.isLoading) return <PageLoader fullScreen={false} />;
 

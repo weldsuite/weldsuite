@@ -72,7 +72,9 @@ export type TeamFormError =
   | { field: 'name' }
   | { field: 'sortOrder' }
   | { field: 'afterMinutes'; index: number }
-  | { field: 'escalateToId'; index: number };
+  | { field: 'escalateToId'; index: number }
+  /** The rule escalates to the team's manager, and the team has none: it could never fire. */
+  | { field: 'manager'; index: number };
 
 const WHOLE = /^\d+$/;
 const SIGNED_WHOLE = /^-?\d+$/;
@@ -84,6 +86,7 @@ export function validateTeamValues(values: TeamFormValues): TeamFormError | null
     const after = rule.afterMinutes.trim();
     if (!WHOLE.test(after) || Number(after) > 525_600) return { field: 'afterMinutes', index };
     if (rule.escalateTo === 'specific_agent' && !rule.escalateToId) return { field: 'escalateToId', index };
+    if (rule.escalateTo === 'manager' && !values.managerMemberId) return { field: 'manager', index };
   }
   return null;
 }

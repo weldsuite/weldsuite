@@ -234,6 +234,12 @@ export function AnalyticsListClient({
               placeholder={t.projects.analyticsReports.titlePlaceholder}
               value={formData.title}
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormData({ ...formData, title: e.target.value })}
+              // Enter creates the report, as the Create button does.
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter' || e.nativeEvent.isComposing || isLoading || !formData.title.trim()) return;
+                e.preventDefault();
+                void handleCreate();
+              }}
             />
           </div>
           <div className="space-y-2">

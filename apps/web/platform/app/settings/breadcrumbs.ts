@@ -26,6 +26,7 @@ const BREADCRUMB_LABEL_OVERRIDES: Record<string, string> = {
   weldsign: 'WeldSign',
   weldpanel: 'WeldPanel',
   weldmerge: 'WeldMerge',
+  weldforms: 'WeldForms',
   weldsuite: 'WeldSuite',
   weldcommerce: 'WeldCommerce',
   weldsocial: 'WeldSocial',
@@ -49,6 +50,7 @@ export interface BreadcrumbMenuLabels {
   apiKeys: string;
   webhooks: string;
   sso: string;
+  ai: string;
   customFields: string;
   objectTemplates: string;
   integrations: string;
@@ -83,6 +85,7 @@ function getSegmentLabels(menu: BreadcrumbMenuLabels): Record<string, string> {
     'api-keys': menu.apiKeys,
     webhooks: menu.webhooks,
     sso: menu.sso,
+    ai: menu.ai,
     'custom-fields': menu.customFields,
     'object-templates': menu.objectTemplates,
     integrations: menu.integrations,
@@ -113,6 +116,10 @@ function invoiceTemplateSegments(pathParts: string[], menu: BreadcrumbMenuLabels
     { label: menu.editInvoiceTemplate },
   ];
 }
+
+// Trail paths that have no page of their own: their segment is shown without
+// a link (`/settings/apps` would be a 404; the sidebar lists the apps).
+const PATHS_WITHOUT_PAGE = new Set(['/settings/apps']);
 
 // Whether path segment `i` is an id that adds nothing to the trail.
 function isIdSegment(pathParts: string[], i: number): boolean {
@@ -179,11 +186,11 @@ export function buildBreadcrumbSegments(
   for (let i = 1; i < pathParts.length; i++) {
     if (isIdSegment(pathParts, i)) continue;
     const label = segmentLabel(pathParts, i, menu, pageLabels);
-    if (i === pathParts.length - 1) {
+    const href = '/' + pathParts.slice(0, i + 1).join('/');
+    if (i === pathParts.length - 1 || PATHS_WITHOUT_PAGE.has(href)) {
       segments.push({ label });
     } else {
-      const path = '/' + pathParts.slice(0, i + 1).join('/');
-      segments.push({ label, href: SEGMENT_HREFS[path] ?? path });
+      segments.push({ label, href: SEGMENT_HREFS[href] ?? href });
     }
   }
   return segments;

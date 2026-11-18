@@ -17,7 +17,7 @@ import { appFromPathname } from '@/lib/apps/current-app';
 import { getApiOrigins } from '@/lib/api/public-env';
 import { stripWorkspacePrefix } from '@/lib/workspace-url';
 
-function requestUrl(input: RequestInfo | URL): string {
+export function requestUrl(input: RequestInfo | URL): string {
   if (typeof input === 'string') return input;
   if (input instanceof URL) return input.href;
   return input.url;

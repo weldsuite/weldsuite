@@ -1,8 +1,9 @@
 //! The enrichment actions an enrichment column runs per lead, by its type
-//! (`packages/domains/data/src/enrichment/actions`): `ai` (stubbed, as AI
-//! is on the worker), `email_finder` (Findymail or Prospeo, through the
-//! [`OutboundHttp`] port) and `phone_finder` (the number a company lists on
-//! its own website, read through [`WebPages`]).
+//! (`packages/domains/data/src/enrichment/actions`): `ai` (the column's
+//! prompt on `weldsuite_ai`, feature `data`; without AI the worker's stub),
+//! `email_finder` (Findymail or Prospeo, through the [`OutboundHttp`] port)
+//! and `phone_finder` (the number a company lists on its own website, read
+//! through [`WebPages`]).
 
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
@@ -11,6 +12,7 @@ use std::time::{Duration, Instant};
 
 use regex::Regex;
 use serde_json::{Map, Value, json};
+use weldsuite_ai::{Ai, AiCall, AiError, ChatRequest, Feature, Task, Tier};
 use weldsuite_ports::{BoxFuture, HttpRequest, OutboundHttp};
 
 use crate::js::{is_js_space, js_lowercase, js_string, js_trim};
@@ -52,6 +54,21 @@ pub(crate) struct ActionContext<'a> {
     pub(crate) lead: &'a Value,
     /// Other columns' done values for this lead, by lowercased name.
     pub(crate) siblings: &'a HashMap<String, String>,
+    /// The model the `ai` action calls; `None` with AI off.
+    pub(crate) ai: Option<&'a AiModel>,
+}
+
+/// The model of a run's `ai` cells: the install's AI and who the run is
+/// for (the wallet and the workspace's AI settings).
+pub(crate) struct AiModel {
+    pub(crate) ai: Ai,
+    /// `workspaces.id` (the run's Clerk org id when the master database
+    /// can't say).
+    pub(crate) workspace_id: String,
+    pub(crate) user_id: String,
+    /// The workspace's AI settings; `None` runs on the install's defaults.
+    pub(crate) tenant: Option<weldsuite_db::PgPool>,
+    pub(crate) master: Option<weldsuite_db::PgPool>,
 }
 
 impl ActionContext<'_> {
@@ -75,7 +92,7 @@ pub(crate) async fn run_action(
     ctx: &ActionContext<'_>,
 ) -> Result<ActionResult, String> {
     match kind {
-        "ai" => Ok(ai(ctx)),
+        "ai" => ai(ctx).await,
         "email_finder" => email_finder(ctx).await,
         "phone_finder" => phone_finder(ctx).await,
         other => Err(format!("Unknown action type: {other}")),
@@ -134,22 +151,92 @@ pub(crate) fn resolve_template(
 
 // ── ai ──────────────────────────────────────────────────────────────────────
 
-/// The `ai` action, stubbed: AI is not available, so the cell is done and
-/// empty (`aiAction`).
-fn ai(ctx: &ActionContext<'_>) -> ActionResult {
+/// What the model is told about every `ai` cell; the column's prompt, its
+/// `{{tokens}}` filled from the lead, is the request.
+const AI_SYSTEM: &str = "You fill in one cell of a lead list for a sales team. Answer the request with the value for this lead only: no preamble, no quotes, no explanation, at most a short paragraph. When the lead's details don't tell you, answer with nothing rather than guess.";
+/// The ledger's `op` of an `ai` cell.
+const AI_OP: &str = "welddata_ai";
+/// An answer's length when the column doesn't set `maxTokens`, and the most it may.
+const AI_DEFAULT_MAX_TOKENS: u32 = 1024;
+const AI_MAX_TOKENS: u32 = 4096;
+
+/// What a failed `ai` cell shows.
+fn ai_failure(error: &AiError) -> String {
+    match error {
+        AiError::Unavailable => "AI is currently unavailable".to_owned(),
+        AiError::ModelNotAllowed { model } => {
+            format!("The model {model} is not allowed in this workspace")
+        }
+        AiError::InsufficientCredits { .. } => "Insufficient credits".to_owned(),
+        AiError::Provider { .. } | AiError::Invalid(_) | AiError::Database(_) => {
+            tracing::warn!(%error, "[ai] AI enrichment failed");
+            "The AI request failed".to_owned()
+        }
+    }
+}
+
+/// The `ai` action: the column's prompt (`config.prompt`, its `{{tokens}}`
+/// filled from the lead) on the free tier of the `data` feature, or the
+/// column's own `config.model` when the workspace allows it, at most
+/// `config.maxTokens`, charged as `welddata_ai` with the lead as the
+/// reference. Without AI the worker's stub: the cell is done and empty
+/// (`aiAction`). `config.webSearch` is not offered on the Kubernetes editions.
+async fn ai(ctx: &ActionContext<'_>) -> Result<ActionResult, String> {
     let prompt = ctx
         .config_value("prompt")
         .and_then(Value::as_str)
         .unwrap_or_default();
     let resolved = resolve_template(prompt, ctx.lead, ctx.siblings);
-    tracing::warn!(
-        lead = ctx.lead_text("id").unwrap_or_default(),
-        "[ai] AI is currently unavailable — skipping AI enrichment column for lead"
-    );
-    ActionResult::of(
-        "",
-        json!({ "unavailable": true, "promptResolved": !js_trim(&resolved).is_empty() }),
-    )
+    let lead_id = ctx.lead_text("id").unwrap_or_default();
+    let Some(model) = ctx.ai else {
+        tracing::warn!(
+            lead = lead_id,
+            "[ai] AI is currently unavailable — skipping AI enrichment column for lead"
+        );
+        return Ok(ActionResult::of(
+            "",
+            json!({ "unavailable": true, "promptResolved": !js_trim(&resolved).is_empty() }),
+        ));
+    };
+    if js_trim(&resolved).is_empty() {
+        return Ok(ActionResult::of("", json!({ "promptResolved": false })));
+    }
+    let mut call = AiCall::new(&model.workspace_id, Feature::Data, Task::Draft, Tier::Free)
+        .user(&model.user_id)
+        .master(model.master.clone())
+        .stored_model(ctx.config_value("model").and_then(Value::as_str))
+        .op(AI_OP);
+    if let Some(tenant) = &model.tenant {
+        call = call.tenant(tenant.clone());
+    }
+    if !lead_id.is_empty() {
+        call = call.reference(lead_id);
+    }
+    model
+        .ai
+        .assert_credits(&call)
+        .await
+        .map_err(|error| ai_failure(&error))?;
+    let max_tokens = ctx
+        .config_value("maxTokens")
+        .and_then(Value::as_f64)
+        .filter(|max| max.is_finite() && *max >= 1.0)
+        .map_or(AI_DEFAULT_MAX_TOKENS, |max| {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let max = max.min(f64::from(AI_MAX_TOKENS)) as u32;
+            max
+        });
+    let request = ChatRequest::system_user(AI_SYSTEM, resolved).max_tokens(max_tokens);
+    let response = model
+        .ai
+        .chat(&call, request)
+        .await
+        .map_err(|error| ai_failure(&error))?;
+    Ok(ActionResult {
+        value: js_trim(&response.text).to_owned(),
+        data: Some(json!({ "promptResolved": true, "ai": response.served.meta() })),
+        credits_used: Some(response.credits),
+    })
 }
 
 // ── email finder ────────────────────────────────────────────────────────────
@@ -704,5 +791,101 @@ mod tests {
         assert!(!is_public("10.1.2.3".parse().expect("ip")));
         assert!(!is_public("169.254.169.254".parse().expect("ip")));
         assert!(is_public("93.184.216.34".parse().expect("ip")));
+    }
+
+    struct NoPages;
+
+    impl WebPages for NoPages {
+        fn fetch<'a>(&'a self, _url: &'a str) -> BoxFuture<'a, Option<String>> {
+            Box::pin(std::future::ready(None))
+        }
+    }
+
+    fn model(fake: weldsuite_ai::FakeProvider) -> AiModel {
+        let mut problems = Vec::new();
+        let config = weldsuite_ai::AiConfig::from_lookup(
+            &|name| match name {
+                "AI_DEFAULT_PROVIDER" => Some("mistral".to_owned()),
+                "MISTRAL_API_KEY" => Some("mistral-key".to_owned()),
+                _ => None,
+            },
+            &mut problems,
+        );
+        AiModel {
+            ai: Ai::fake(config, fake),
+            workspace_id: "ws_data".to_owned(),
+            user_id: "user_1".to_owned(),
+            tenant: None,
+            master: None,
+        }
+    }
+
+    async fn run_ai(config: &Value, ai: Option<&AiModel>) -> Result<ActionResult, String> {
+        let keys = ActionKeys::default();
+        let http = weldsuite_ai::FakeProvider::new().outbound();
+        let lead = json!({ "id": "wdlead_1", "name": "Ada Lovelace", "companyName": "Engines" });
+        let siblings = HashMap::new();
+        let ctx = ActionContext {
+            keys: &keys,
+            http: &http,
+            pages: &NoPages,
+            config,
+            lead: &lead,
+            siblings: &siblings,
+            ai,
+        };
+        run_action("ai", &ctx).await
+    }
+
+    #[tokio::test]
+    async fn an_ai_cell_asks_the_model_with_the_filled_in_prompt() {
+        let fake = weldsuite_ai::FakeProvider::new().reply_text("  Chief engineer  ");
+        let model = model(fake.clone());
+        let config =
+            json!({ "prompt": "Job title of {{name}} at {{companyName}}?", "maxTokens": 50 });
+        let result = run_ai(&config, Some(&model))
+            .await
+            .expect("the cell is done");
+        assert_eq!(result.value, "Chief engineer");
+        assert_eq!(
+            result.data.as_ref().map(|d| d["ai"]["provider"].clone()),
+            Some(json!("mistral"))
+        );
+        let body = &fake.calls()[0].body;
+        assert_eq!(
+            body["messages"][1]["content"],
+            "Job title of Ada Lovelace at Engines?"
+        );
+        assert_eq!(body["max_tokens"], 50);
+        assert_eq!(body["messages"][0]["content"], AI_SYSTEM);
+    }
+
+    #[tokio::test]
+    async fn an_ai_cell_without_a_prompt_or_without_ai_calls_no_model() {
+        let fake = weldsuite_ai::FakeProvider::new();
+        let model = model(fake.clone());
+        let blank = run_ai(&json!({ "prompt": "{{unknown}}" }), Some(&model))
+            .await
+            .expect("done");
+        assert_eq!(blank.value, "");
+        assert_eq!(blank.data, Some(json!({ "promptResolved": false })));
+        let off = run_ai(&json!({ "prompt": "Hi {{name}}" }), None)
+            .await
+            .expect("done");
+        assert_eq!(
+            off.data,
+            Some(json!({ "unavailable": true, "promptResolved": true }))
+        );
+        assert!(fake.calls().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_failed_model_call_is_an_error_cell() {
+        let fake = weldsuite_ai::FakeProvider::new()
+            .reply_status(400, "bad")
+            .reply_status(400, "bad");
+        let model = model(fake);
+        let failed = run_ai(&json!({ "prompt": "Hi {{name}}" }), Some(&model)).await;
+        assert_eq!(failed, Err("The AI request failed".to_owned()));
     }
 }

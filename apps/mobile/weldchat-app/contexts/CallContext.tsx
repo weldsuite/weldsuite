@@ -2,8 +2,9 @@
  * WeldChat mobile call context.
  *
  * Mirrors the platform's `weldchat-call-context.tsx` for the mobile client.
- * Cloudflare RealtimeKit handles the actual WebRTC media (in `CallHost`);
- * this context owns:
+ * The server's video provider handles the actual WebRTC media (in `CallHost`):
+ * Cloudflare RealtimeKit on WeldSuite cloud, LiveKit on the Kubernetes
+ * editions (ADR CHAT-008). Nothing here depends on which; this context owns:
  *   - incoming-call signaling — realtime `call_incoming` on
  *     `chat.user.${userId}`, plus Expo push (`chat_incoming_call`) via
  *     `incoming-call-bridge` when the socket is asleep in background;
@@ -11,8 +12,8 @@
  *     for unanswered DM rings the user may have missed;
  *   - the call lifecycle (start / join / accept / decline / leave) over the
  *     shared app-api `/chat-calls/*` endpoints;
- *   - the joinable `session` (callId + RealtimeKit authToken) that `CallHost`
- *     consumes to connect to the SFU.
+ *   - the joinable `session` (callId + the provider's join token) that
+ *     `CallHost` consumes to connect to the SFU.
  */
 
 import React, {
@@ -25,7 +26,8 @@ import React, {
   useState,
 } from 'react';
 import { AppState, Platform, Vibration } from 'react-native';
-import { useAuth } from '@clerk/expo';
+import { useAuth } from '@weldsuite/mobile-platform/auth';
+import { isFeatureAvailable } from '@weldsuite/mobile-platform/edition';
 import { useTopic } from '@weldsuite/realtime/react';
 import type { WorkspaceEvent } from '@weldsuite/realtime/types';
 import { apiUrl, appApi } from '@/services/app-api';
@@ -68,11 +70,12 @@ export interface IncomingCall {
   callerAvatar?: string;
 }
 
-/** A joined call ready for the RealtimeKit RN client to consume. */
+/** A joined call ready for the call client (`CallHost`) to consume. */
 export interface CallSession {
   callId: string;
   channelId: string;
   callType: CallType;
+  /** Join token for the server's video provider: RealtimeKit's or LiveKit's. */
   authToken: string;
   /** Direct (1:1) call → drives the WhatsApp-style "calling" screen. */
   isDirect?: boolean;
@@ -648,7 +651,7 @@ export function CallProvider({ children }: Readonly<{ children: React.ReactNode 
   );
 
   useEffect(() => {
-    if (!userId || !isNativeCallsAvailable) return;
+    if (!userId || !isNativeCallsAvailable || !isFeatureAvailable('chat-calls')) return;
     configureNativeCalls(apiUrl('/public/chat-calls/decline'));
     const unsubscribe = addCallActionListener(handleNativeAction);
     // Answer on a closed app: the tap happened before JS (and auth) was up.

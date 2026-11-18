@@ -1,0 +1,30 @@
+# Probes the public hosts (../probes.yaml) the way a customer reaches them:
+# the public DNS name, through the Hetzner load balancer and Traefik, with the
+# certificate checked. One small pod.
+fullnameOverride: blackbox-exporter
+replicas: 1
+config:
+  modules:
+    # 2xx over HTTPS, valid certificate, redirects followed.
+    https_2xx:
+      prober: http
+      timeout: 10s
+      http:
+        method: GET
+        preferred_ip_protocol: ip4
+        follow_redirects: true
+        fail_if_not_ssl: true
+        valid_status_codes: []
+resources:
+  requests:
+    cpu: 10m
+    memory: 24Mi
+  limits:
+    memory: 64Mi
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]

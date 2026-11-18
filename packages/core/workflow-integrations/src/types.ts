@@ -61,7 +61,7 @@ export interface ApiKeyConfig {
  * `workflow_integrations.settings` carries whatever identifies the
  * installation (GitHub: `installationId`); there is nothing in `credentials`
  * or `oauthTokens` to decrypt. See "Provider pattern" in
- * docs/plans/weldconnect.md for why GitHub reuses WeldFlow's existing GitHub
+ * weldsuite-documentation/plans/weldconnect.md for why GitHub reuses WeldFlow's existing GitHub
  * App install instead of adding a second, separate OAuth app.
  */
 export interface AppInstallationConfig {

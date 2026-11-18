@@ -19,7 +19,7 @@ use weldsuite_ports::{
 };
 
 use crate::actions::{
-    ActionContext, ActionKeys, ActionResult, WebPages, config_of, known_action, run_action,
+    ActionContext, ActionKeys, ActionResult, AiModel, WebPages, config_of, known_action, run_action,
 };
 use crate::js::js_lowercase;
 use crate::now;
@@ -90,6 +90,11 @@ pub struct WelddataEnrichJob {
     /// Company websites, for the phone finder.
     pub pages: Arc<dyn WebPages>,
     pub keys: ActionKeys,
+    /// The install's AI, for `ai` columns; `None` with AI off (the cells are
+    /// done and empty, as the worker's stub leaves them).
+    pub ai: Option<weldsuite_ai::Ai>,
+    /// The master database: the `ai` cells' credit wallet.
+    pub master: Option<PgPool>,
 }
 
 /// The column a run is for.
@@ -193,9 +198,40 @@ async fn sibling_values(
 }
 
 impl WelddataEnrichJob {
+    /// The model of a run's `ai` cells, for the run's workspace and member;
+    /// `None` with AI off or for another kind of column.
+    async fn ai_model(&self, db: &PgPool, params: &EnrichParams, kind: &str) -> Option<AiModel> {
+        let ai = self.ai.clone().filter(|ai| ai.enabled() && kind == "ai")?;
+        // The run carries the Clerk org id; the AI settings are keyed by `workspaces.id`.
+        let workspace_id = match &self.master {
+            Some(master) => weldsuite_core_domain::credits::resolve_internal_workspace_id(
+                master,
+                &params.workspace_id,
+            )
+            .await
+            .ok()
+            .flatten(),
+            None => None,
+        };
+        Some(AiModel {
+            ai,
+            workspace_id: workspace_id.unwrap_or_else(|| params.workspace_id.clone()),
+            user_id: params.user_id.clone(),
+            tenant: Some(db.clone()),
+            master: self.master.clone(),
+        })
+    }
+
     /// One lead: its cell `running`, the action, then `done` or `error`.
-    async fn run_lead(&self, db: &PgPool, params: &EnrichParams, column: &Column, lead_id: &str) {
-        if let Err(message) = self.try_lead(db, params, column, lead_id).await {
+    async fn run_lead(
+        &self,
+        db: &PgPool,
+        params: &EnrichParams,
+        column: &Column,
+        lead_id: &str,
+        ai: Option<&AiModel>,
+    ) {
+        if let Err(message) = self.try_lead(db, params, column, lead_id, ai).await {
             let written = write_cell(db, &column.id, lead_id, &CellWrite::error(&message)).await;
             if let Err(error) = written {
                 tracing::warn!(%error, "welddata-enrich: writing an error cell failed");
@@ -209,6 +245,7 @@ impl WelddataEnrichJob {
         params: &EnrichParams,
         column: &Column,
         lead_id: &str,
+        ai: Option<&AiModel>,
     ) -> Result<(), String> {
         let lead: Option<Value> = sqlx::query_scalar(
             "select to_jsonb(t) from welddata_leads t where t.id = $1 and t.deleted_at is null limit 1",
@@ -239,6 +276,7 @@ impl WelddataEnrichJob {
             config: &column.config,
             lead: &lead,
             siblings: &siblings,
+            ai,
         };
         let ActionResult {
             value,
@@ -292,16 +330,17 @@ impl Job for WelddataEnrichJob {
                 kind,
                 config: config_of(config.as_ref()),
             };
+            let model = self.ai_model(&db, &params, &column.kind).await;
             let retry = StepRetry::exponential(2, Duration::from_secs(5));
             for (index, chunk) in params.lead_ids.chunks(CHUNK).enumerate() {
                 let name = format!("chunk-{index}");
-                let (db, params, column) = (&db, &params, &column);
+                let (db, params, column, model) = (&db, &params, &column, model.as_ref());
                 step(ctx, &name, retry, || async move {
                     for batch in chunk.chunks(CONCURRENCY) {
                         join_all(
                             batch
                                 .iter()
-                                .map(|lead_id| self.run_lead(db, params, column, lead_id)),
+                                .map(|lead_id| self.run_lead(db, params, column, lead_id, model)),
                         )
                         .await;
                     }

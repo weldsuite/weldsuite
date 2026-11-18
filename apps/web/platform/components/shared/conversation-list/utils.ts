@@ -6,6 +6,7 @@ import {
   startOfWeek,
   differenceInCalendarWeeks,
 } from 'date-fns';
+import { formatLocalized } from '@/lib/i18n/date-locale';
 
 const AVATAR_COLORS = [
   '#4F46E5', '#7C3AED', '#EC4899', '#EF4444', '#F97316',
@@ -59,7 +60,8 @@ function getDateLabel(date: Date, now: Date = new Date()): string {
 // Row timestamp: the time for today's items, the date for anything else
 // (with the year once it's no longer the current year).
 export function formatListDate(date: Date): string {
-  if (isToday(date)) return format(date, 'h:mm a');
+  // The time in the UI language's own clock (1:21 AM in English, 01:21 in Dutch), as the reading pane shows it.
+  if (isToday(date)) return formatLocalized(date, 'p');
   return isThisYear(date) ? format(date, 'MMM d') : format(date, 'MMM d, yyyy');
 }
 

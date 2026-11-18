@@ -12,7 +12,7 @@
  * as WELDAGENT_JOB and re-exported from agent-api's src/index.ts); chat-api
  * binds it cross-script to hand off WeldChat room replies. app-api keeps its
  * old `weldagent-job*` names and re-exports this class only while their
- * in-flight instances drain (docs/plans/app-api-module-split.md, "Workflows
+ * in-flight instances drain (weldsuite-documentation/plans/app-api-module-split.md, "Workflows
  * draining in app-api").
  */
 

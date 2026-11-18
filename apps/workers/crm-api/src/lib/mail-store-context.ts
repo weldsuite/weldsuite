@@ -2,7 +2,7 @@
  * Thin per-worker wrapper around the shared `getWorkspaceMail` glue
  * (`@weldsuite/mail-domain/store/hono`), typed against crm-api's own
  * `Env`/`Variables`. crm-api's only mail-store consumer today is `GET
- * /api/people/recent-correspondents` (docs/plans/weldmail-mailbox-store-
+ * /api/people/recent-correspondents` (weldsuite-documentation/plans/weldmail-mailbox-store-
  * design.md, task D7): it needs one mailbox's `recentAddresses`, after its
  * own `checkAccountAccess` (MAIL-003) has already allowed the caller. The
  * two adapters over the factory's `GetWorkspaceMailOptions` (the

@@ -347,6 +347,20 @@ describe('ledger foundations', () => {
     expect(invoice.status).toBe('overdue');
   });
 
+  it('the daily sweep marks partially paid invoices past due as overdue, and leaves a partial one not yet due', async () => {
+    const late = await createInvoice('2026-07-01', '50', '2026-07-15');
+    const notYet = await createInvoice('2026-08-20', '50', '2026-10-15');
+    for (const id of [late, notYet]) {
+      await call('/api/invoices', invoicesRoutes, `/api/invoices/${id}/finalize`, 'POST');
+      await db.update(schema.invoices).set({ status: 'partial', amountPaid: '10.00', balanceDue: '40.00' }).where(eq(schema.invoices.id, id));
+    }
+    await sweepTenant(db, new Date('2026-09-01T03:00:00Z'));
+    const [overdue] = await db.select().from(schema.invoices).where(eq(schema.invoices.id, late));
+    expect(overdue.status).toBe('overdue');
+    const [stillPartial] = await db.select().from(schema.invoices).where(eq(schema.invoices.id, notYet));
+    expect(stillPartial.status).toBe('partial');
+  });
+
   it('the catch-up books a legacy sent invoice, previewing first and keeping its status', async () => {
     const legacy = await createInvoice('2026-07-05');
     await db.update(schema.invoices).set({ status: 'paid' }).where(eq(schema.invoices.id, legacy));

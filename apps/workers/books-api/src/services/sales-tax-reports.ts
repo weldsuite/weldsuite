@@ -1,5 +1,5 @@
 /**
- * Sales tax reports (docs/plans/weldbooks-us.md §6 and §10): liability by
+ * Sales tax reports (weldsuite-documentation/plans/weldbooks-us.md §6 and §10): liability by
  * agency and jurisdiction tied to the ledger, taxable and exempt sales,
  * exceptions, expiring and missing exemption certificates, and the
  * reconciliation of provider engines.

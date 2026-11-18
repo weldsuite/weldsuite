@@ -2,6 +2,8 @@
 import React from 'react';
 import { Star } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { useTranslations } from '@weldsuite/i18n/client';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
 import { Button } from '@weldsuite/ui/components/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
@@ -32,6 +34,7 @@ import {
 import { formatCurrency, formatPercent } from '../utils/calculations';
 import { UrlLink, toHref } from './url-link';
 import { asText } from '@weldsuite/text';
+import { numberRangeError } from '../utils/number-range';
 
 interface GridCellProps<TEntity> {
   entity: TEntity;
@@ -387,6 +390,18 @@ interface NumberCellSpec {
   display: (value: unknown, currencyCode?: string | null) => string | null;
 }
 
+/** The symbol of an ISO currency (EUR → €), for the editor's prefix. */
+function currencySymbol(currencyCode: string | null | undefined): string | undefined {
+  if (!currencyCode) return undefined;
+  try {
+    return new Intl.NumberFormat(undefined, { style: 'currency', currency: currencyCode })
+      .formatToParts(0)
+      .find((part) => part.type === 'currency')?.value;
+  } catch {
+    return currencyCode;
+  }
+}
+
 /** A money amount in its own currency, compact (€12.5K). */
 function formatMoneyCompact(value: number, currencyCode: string): string {
   try {
@@ -423,13 +438,22 @@ function renderNumberCell(type: NumberCellType, ctx: CellRenderCtx) {
   return (
     <EditableCell
       ctx={ctx}
-      renderEditor={() => (
-        <Editor
-          value={typeof value === 'number' && value > 0 ? value : ''}
-          onCommit={ctx.commitNumber}
-          onCancel={ctx.handleCancel}
-        />
-      )}
+      renderEditor={() =>
+        type === 'currency' ? (
+          <CurrencyEditor
+            value={typeof value === 'number' && value > 0 ? value : ''}
+            onCommit={ctx.commitNumber}
+            onCancel={ctx.handleCancel}
+            currency={currencySymbol(ctx.currencyCode)}
+          />
+        ) : (
+          <Editor
+            value={typeof value === 'number' && value > 0 ? value : ''}
+            onCommit={ctx.commitNumber}
+            onCancel={ctx.handleCancel}
+          />
+        )
+      }
     >
       <span className={className}>{display(value, ctx.currencyCode)}</span>
     </EditableCell>
@@ -721,6 +745,7 @@ export const GridCell = React.memo(function GridCell<TEntity>({
     getEditValue,
   } = useGridRowContext<TEntity>();
 
+  const t = useTranslations();
   const compact = !!config.fillViewport;
   const entityId = config.getEntityId(entity);
   const value = column.getValue(entity);
@@ -764,6 +789,12 @@ export const GridCell = React.memo(function GridCell<TEntity>({
 
   const commitNumber = (finalValue: unknown) => {
     const newValue = Number.parseFloat(asText(finalValue ?? '')) || 0;
+    const rangeError = numberRangeError(newValue, column, t);
+    if (rangeError) {
+      toast.error(rangeError);
+      setEditingCellValue(null);
+      return;
+    }
     if (newValue !== value) persistValue(newValue);
     setEditingCellValue(null);
   };

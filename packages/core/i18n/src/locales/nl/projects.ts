@@ -1440,7 +1440,6 @@ export const projects = {
         phases: 'Fasen en poorten',
         close: 'Project afsluiten',
         reviews: 'Mijn beoordelingen',
-        templates: 'Sjablonen',
         capacity: 'Capaciteit',
         intake: 'Intake',
         roadmap: 'Roadmap',
@@ -1494,8 +1493,6 @@ export const projects = {
       analytics: 'Analyse',
       myReviews: 'Mijn beoordelingen',
       myReviewsBadge: '{count} beoordelingen wachten op u',
-      templates: 'Sjablonen',
-      capacity: 'Capaciteit',
       intake: 'Intake',
       newSubProject: 'Nieuw Subproject',
       duplicate: 'Dupliceren',
@@ -2289,6 +2286,7 @@ export const projects = {
     workload: {
       projects: 'Projecten',
       title: 'Werklast',
+      timeline: 'Tijdlijn',
       teamWorkload: 'Team Werkdruk',
       capacity: 'Capaciteit',
       allocation: 'Toewijzing',
@@ -2300,6 +2298,7 @@ export const projects = {
       projects: 'Projecten',
       title: 'Taken',
       task: 'Taak',
+      rowActions: 'Acties voor {name}',
       newTask: 'Nieuwe Taak',
       createTask: 'Taak Aanmaken',
       taskName: 'Taaknaam',
@@ -2480,6 +2479,7 @@ export const projects = {
       // actions
       actionOpen: 'Openen',
       actionDelete: 'Verwijderen',
+      rowActions: 'Acties voor {name}',
       // toolbar
       searchPlaceholder: 'Projecten zoeken...',
       newProject: 'Nieuw project',

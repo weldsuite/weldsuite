@@ -1,5 +1,5 @@
 /**
- * Online W-9 requests: /api/w9-requests (docs/plans/weldbooks-us.md, phase 7).
+ * Online W-9 requests: /api/w9-requests (weldsuite-documentation/plans/weldbooks-us.md, phase 7).
  *
  *   POST /             {partyId, email?, expiresInDays?}  creates a request and its link
  *   GET  /             requests (?partyId=&status=), newest first

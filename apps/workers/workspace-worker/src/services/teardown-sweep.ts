@@ -83,7 +83,7 @@ async function retryTeardown(
     // logged, counted, and left for the next run — so it never blocks the rest
     // of this batch, but it also means `deleteWorkspaceDatabase` below is
     // skipped this round: the Neon teardown must never run ahead of the mail
-    // destroy (design §7, docs/plans/weldmail-mailbox-store-design.md).
+    // destroy (design §7, weldsuite-documentation/plans/weldmail-mailbox-store-design.md).
     await destroyWorkspaceMail(env, db, workspaceId);
 
     const result = await provisioning.deleteWorkspaceDatabase(db, workspaceId);

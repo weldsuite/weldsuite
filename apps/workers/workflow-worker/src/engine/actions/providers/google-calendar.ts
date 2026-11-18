@@ -1,6 +1,6 @@
 /**
  * Google Calendar outbound action (`google_calendar.create_event`) — see
- * "Provider pattern" in docs/plans/weldconnect.md.
+ * "Provider pattern" in weldsuite-documentation/plans/weldconnect.md.
  */
 
 import type { ActionHandler } from '../../types';

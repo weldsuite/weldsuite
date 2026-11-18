@@ -12,10 +12,19 @@
  * Authorization code + PKCE (`oidc-client-ts`), a public client: register a
  * "User Agent" / SPA application with redirect URI
  * `https://<platform>/auth/sso-callback` and post-logout URI
- * `https://<platform>/`. Sign-in and sign-up happen on the provider's pages;
- * `/auth/login` and `/auth/register` only redirect there. The person comes
+ * `https://<platform>/`. Sign-in and sign-up happen on the provider's pages
+ * (`/auth/login` and `/auth/register` only redirect there), or, with
+ * `"signIn": "platform"`, on WeldSuite's own screens: the provider's sign-in
+ * for this application then points back at `/auth/login`, and the screens
+ * talk to the backend's `/api/sign-in` (`./sign-in-api.ts`, ADR SEC-016).
+ * Either way the redirect, the code exchange and the tokens are the same. The person comes
  * from the ID token's profile claims; workspaces and the active one from the
  * org claim and the organization-scoped token requests in `session.ts`.
+ *
+ * Inside the desktop shell (`options.browserSignIn`) the page never leaves for
+ * the provider: `redirectToSignIn()` lands on the sign-in screen, whose button
+ * signs in through the system browser (`signInWithBrowser`, RFC 8252; see
+ * `./browser-sign-in.ts`).
  *
  * ## Running it locally against Zitadel
  *
@@ -51,6 +60,8 @@ import type {
   AuthUser,
   OrganizationListState,
   OrganizationState,
+  RedirectToSignInOptions,
+  SetActiveParams,
   UserState,
 } from '../types';
 import type { OidcOrganization } from './claims';
@@ -65,6 +76,19 @@ const NOT_LOADED = {
 } as const;
 
 const SIGNED_OUT = { isLoaded: true, isSignedIn: false, userId: null, orgId: null, orgSlug: null } as const;
+
+/**
+ * The desktop shell: "sign in" from anywhere lands on the sign-in screen,
+ * which opens the system browser from a button, never on its own (the app
+ * also starts at login, minimised).
+ */
+async function openSignInScreen(options?: RedirectToSignInOptions): Promise<void> {
+  if (typeof window === 'undefined') return;
+  const path = options?.intent === 'sign-up' ? '/auth/register' : '/auth/login';
+  const returnTo = options?.returnTo;
+  const query = returnTo && returnTo !== '/' ? `?callbackUrl=${encodeURIComponent(returnTo)}` : '';
+  window.location.assign(`${path}${query}`);
+}
 
 const EMPTY_MEMBERSHIPS = {
   data: undefined,
@@ -82,8 +106,9 @@ export function createOidcAuth(config: OidcSessionConfig, options?: OidcSessionO
   const getToken = () => session.getToken();
   const signOut = (opts?: { redirectUrl?: string }) => session.signOut(opts?.redirectUrl);
   const reload = () => session.reload();
-  const setActive = ({ organization }: { organization: string | null }) =>
-    session.setActiveOrganization(organization);
+  const revalidate = () => session.reloadWorkspaces();
+  const setActive = ({ organization, returnTo }: SetActiveParams) =>
+    session.setActiveOrganization(organization, returnTo);
 
   // Derived objects are cached per snapshot so hooks hand out stable references.
   let cachedFor: OidcSnapshot | null = null;
@@ -148,7 +173,19 @@ export function createOidcAuth(config: OidcSessionConfig, options?: OidcSessionO
       user,
       organization: { isLoaded: snapshot.isLoaded, organization: snapshot.isLoaded ? active : undefined },
       list: snapshot.isLoaded
-        ? { isLoaded: true, setActive, userMemberships: { ...EMPTY_MEMBERSHIPS, data: memberships } }
+        ? {
+            isLoaded: true,
+            setActive,
+            userMemberships: {
+              ...EMPTY_MEMBERSHIPS,
+              data: memberships,
+              // Names, slugs and new workspaces are on their way: a `/w/{slug}`
+              // URL waits for them rather than reading as an unknown workspace.
+              isLoading: snapshot.isLoadingWorkspaces,
+              isFetching: snapshot.isLoadingWorkspaces,
+              revalidate,
+            },
+          }
         : { isLoaded: false, setActive: undefined, userMemberships: EMPTY_MEMBERSHIPS },
     };
     return derived;
@@ -168,8 +205,12 @@ export function createOidcAuth(config: OidcSessionConfig, options?: OidcSessionO
     useOrganization: () => useSnapshot().organization,
     useOrganizationList: () => useSnapshot().list,
     getToken: () => session.getToken(),
-    redirectToSignIn: (opts) => session.signIn(opts),
+    redirectToSignIn: session.signsInThroughBrowser ? openSignInScreen : (opts) => session.signIn(opts),
+    signInWithBrowser: session.signsInThroughBrowser ? (opts) => session.signIn(opts) : undefined,
+    cancelBrowserSignIn: session.signsInThroughBrowser ? () => session.cancelSignIn() : undefined,
     completeSignIn: () => session.completeSignIn(),
     accountUrl: session.accountUrl,
+    platformSignIn: config.signIn === 'platform',
+    getActiveOrgId: () => session.getSnapshot().activeOrgId,
   };
 }

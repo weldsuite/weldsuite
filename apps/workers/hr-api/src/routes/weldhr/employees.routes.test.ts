@@ -353,6 +353,26 @@ describe('POST /employees', () => {
     });
     expect(dates.status).toBe(400);
     expect((await errorOf(dates)).message).toBe('Employment: end date is before start date');
+
+    // TASK-1471: a probation end before the start, and a birth date in the future.
+    const probation = await admin().send('POST', '/employees', {
+      firstName: 'Bob',
+      lastName: 'B',
+      email: 'bob@example.com',
+      startDate: '2026-11-17',
+      probationEndDate: '2025-06-01',
+    });
+    expect(probation.status).toBe(400);
+    expect((await errorOf(probation)).message).toBe('Probation: end date is before start date');
+
+    const born = await admin().send('POST', '/employees', {
+      firstName: 'Bob',
+      lastName: 'B',
+      email: 'bob@example.com',
+      sensitive: { dateOfBirth: '2999-01-01' },
+    });
+    expect(born.status).toBe(400);
+    expect((await errorOf(born)).message).toBe('Date of birth cannot be in the future');
   });
 
   it('needs employees:create', async () => {
@@ -453,6 +473,14 @@ describe('PATCH /employees/:employeeId', () => {
     expect((await errorOf(location)).message).toBe('One of the work locations does not exist');
   });
 
+  it('refuses a probation end before the start date (TASK-1471)', async () => {
+    expect((await admin().send('PATCH', '/employees/hremp_ann', { startDate: '2026-11-17' })).status).toBe(200);
+    const early = await admin().send('PATCH', '/employees/hremp_ann', { probationEndDate: '2025-06-01' });
+    expect(early.status).toBe(400);
+    expect((await errorOf(early)).message).toBe('Probation: end date is before start date');
+    expect((await admin().send('PATCH', '/employees/hremp_ann', { probationEndDate: '2027-05-17' })).status).toBe(200);
+  });
+
   it('is a 404 for an unknown employee and needs employees:update', async () => {
     expect((await admin().send('PATCH', '/employees/hremp_nope', { jobTitle: 'X' })).status).toBe(404);
     expect((await as('employees:read').send('PATCH', '/employees/hremp_ann', { jobTitle: 'X' })).status).toBe(403);
@@ -533,6 +561,9 @@ describe('/employees/:employeeId/sensitive', () => {
   it('refuses without employees:sensitive, an invalid body and an unknown employee', async () => {
     expect((await as('employees:read', 'employees:update').get('/employees/hremp_ann/sensitive', { write: true })).status).toBe(403);
     expect((await as('employees:update').send('PUT', '/employees/hremp_ann/sensitive', { notes: 'x' })).status).toBe(403);
+    const future = await admin().send('PUT', '/employees/hremp_ann/sensitive', { dateOfBirth: '2999-01-01' });
+    expect(future.status).toBe(400);
+    expect((await errorOf(future)).message).toBe('Date of birth cannot be in the future');
     const invalid = await admin().send('PUT', '/employees/hremp_ann/sensitive', { personalEmail: 'nope', salaryCurrency: 'EURO' });
     expect(invalid.status).toBe(400);
     expect((await errorOf(invalid)).message).toBe(

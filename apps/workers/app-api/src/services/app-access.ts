@@ -15,7 +15,7 @@
  * Staff-only fields (`reviewNotes`, `reviewedBy`, the Stripe columns) never
  * leave this module: `toAppAccessView` is the only shape callers return.
  *
- * See docs/plans/weldreach.md ("Access and gating").
+ * See weldsuite-documentation/plans/weldreach.md ("Access and gating").
  */
 
 import { and, eq, inArray } from 'drizzle-orm';

@@ -95,6 +95,21 @@ describe('opportunities service · pglite integration', () => {
     expect(reopened?.row.actualCloseDate).toBeNull();
   });
 
+  it('between open stages the probability follows the stage, unless it was set by hand (TASK-1462)', async () => {
+    const first = await seedStage({ probability: 20 });
+    const second = await seedStage({ probability: 60 });
+    const third = await seedStage({ probability: 80 });
+    const { id } = await createOpportunity(db, { name: 'Follow Me', customerId: 'cust_1' }, 'user_1');
+
+    expect((await moveOpportunityStage(db, id, first, 'user_1'))?.row.probability).toBe(20);
+    expect((await moveOpportunityStage(db, id, second, 'user_1'))?.row.probability).toBe(60);
+
+    await db.update(schema.crmOpportunities).set({ probability: 45 }).where(eq(schema.crmOpportunities.id, id));
+    const moved = await moveOpportunityStage(db, id, third, 'user_1');
+    expect(moved?.row.status).toBe('open');
+    expect(moved?.row.probability).toBe(45);
+  });
+
   it('throws UnknownPipelineStageError for a stage that does not exist', async () => {
     const { id } = await createOpportunity(db, { name: 'Bad Stage', customerId: 'cust_1' }, 'user_1');
     await expect(moveOpportunityStage(db, id, 'stg_missing', 'user_1')).rejects.toBeInstanceOf(

@@ -33,10 +33,10 @@ describe('buildBreadcrumbSegments', () => {
     expect(segments.at(-1)?.label).toBe(nl.settings.menu.businessSettings);
   });
 
-  it('keeps the weld* overrides and links the parent segments', () => {
+  it('keeps the weld* overrides; Apps has no page of its own, so no link (TASK-1427)', () => {
     expect(buildBreadcrumbSegments('/settings/apps/weldcrm', en.settings.title, en.settings.menu)).toEqual([
       { label: en.settings.title, href: '/settings' },
-      { label: 'Apps', href: '/settings/apps' },
+      { label: 'Apps' },
       { label: 'WeldCRM' },
     ]);
   });
@@ -44,7 +44,7 @@ describe('buildBreadcrumbSegments', () => {
   it('keeps the WeldHR override', () => {
     expect(buildBreadcrumbSegments('/settings/apps/weldhr', en.settings.title, en.settings.menu)).toEqual([
       { label: en.settings.title, href: '/settings' },
-      { label: 'Apps', href: '/settings/apps' },
+      { label: 'Apps' },
       { label: 'WeldHR' },
     ]);
   });
@@ -88,7 +88,7 @@ describe('buildBreadcrumbSegments for WeldDesk settings pages', () => {
   it('names a WeldDesk page by its own title, under WeldDesk', () => {
     expect(buildBreadcrumbSegments('/settings/apps/welddesk/email', en.settings.title, en.settings.menu, pageLabels)).toEqual([
       { label: en.settings.title, href: '/settings' },
-      { label: en.settings.menu.apps, href: '/settings/apps' },
+      { label: en.settings.menu.apps },
       { label: 'WeldDesk', href: '/settings/apps/welddesk' },
       { label: 'Email' },
     ]);
@@ -99,7 +99,7 @@ describe('buildBreadcrumbSegments for WeldDesk settings pages', () => {
       buildBreadcrumbSegments('/settings/apps/welddesk/chat-widget/wgt_123', en.settings.title, en.settings.menu, pageLabels),
     ).toEqual([
       { label: en.settings.title, href: '/settings' },
-      { label: en.settings.menu.apps, href: '/settings/apps' },
+      { label: en.settings.menu.apps },
       { label: 'WeldDesk', href: '/settings/apps/welddesk' },
       { label: 'Chat widget', href: '/settings/apps/welddesk/chat-widget' },
     ]);
@@ -112,7 +112,7 @@ describe('buildBreadcrumbSegments for WeldDesk settings pages', () => {
       }),
     ).toEqual([
       { label: en.settings.title, href: '/settings' },
-      { label: en.settings.menu.apps, href: '/settings/apps' },
+      { label: en.settings.menu.apps },
       { label: 'WeldBooks', href: '/settings/apps/weldbooks' },
       { label: 'Payment runs', href: '/settings/apps/weldbooks?tab=payment-runs' },
     ]);

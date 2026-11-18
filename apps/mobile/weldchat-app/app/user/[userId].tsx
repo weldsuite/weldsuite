@@ -13,7 +13,8 @@ import {
 } from 'react-native';
 import { Image } from 'expo-image';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { useAuth } from '@clerk/expo';
+import { useAuth } from '@weldsuite/mobile-platform/auth';
+import { useEditionFeature } from '@weldsuite/mobile-platform/edition';
 import {
   AlertCircle,
   ChartNoAxesGantt,
@@ -76,6 +77,8 @@ export default function UserDetailsScreen() {
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(colors, insets.top, insets.bottom), [colors, insets.top, insets.bottom]);
   const { startCall } = useCall();
+  // Calls run on RealtimeKit, which the Kubernetes servers don't have.
+  const callsAvailable = useEditionFeature('chat-calls');
 
   const [profile, setProfile] = useState<MemberProfile | null>(null);
   const [presence, setPresence] = useState<MemberPresence | null>(null);
@@ -163,11 +166,13 @@ export default function UserDetailsScreen() {
       actions.push({ label: t.member.composeEmail, run: () => void Linking.openURL(`mailto:${email}`) });
     }
     if (!isSelf) {
-      actions.push(
-        { label: t.member.call, run: () => void call('voice') },
-        { label: t.member.videoCall, run: () => void call('video') },
-        { label: t.member.openChat, run: () => void openChat() },
-      );
+      if (callsAvailable) {
+        actions.push(
+          { label: t.member.call, run: () => void call('voice') },
+          { label: t.member.videoCall, run: () => void call('video') },
+        );
+      }
+      actions.push({ label: t.member.openChat, run: () => void openChat() });
     }
     if (actions.length === 0) return;
     if (Platform.OS === 'ios') {

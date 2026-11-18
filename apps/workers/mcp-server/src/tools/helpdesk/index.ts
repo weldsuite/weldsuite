@@ -160,7 +160,9 @@ export const helpdeskTools: ToolDefinition[] = [
   {
     name: 'update_conversation',
     scope: 'conversations:write',
-    description: 'Close or reopen a WeldDesk inbox conversation, or assign it to a teammate (null unassigns).',
+    description:
+      'Close or reopen a WeldDesk inbox conversation, assign it to a teammate (null unassigns), ' +
+      'or set its ticket fields: type, priority, tags, team, impact and urgency.',
     inputSchema: {
       id: z.string().describe('The conversation — its subject or number, or the id from an earlier search'),
       ...updateDeskConversationShape,

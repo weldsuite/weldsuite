@@ -420,11 +420,7 @@ async fn create_mailbox(
             "The domain is not active yet. Wait until it is connected.",
         ));
     };
-    let existing: i64 = sqlx::query_scalar(
-        "select count(*) from reach_mailboxes where status <> 'deleted' and deleted_at is null",
-    )
-    .fetch_one(db)
-    .await?;
+    let existing = live_inbox_count(db).await?;
     if existing >= limits.max_mailboxes {
         return Err(ReachError::new(
             403,
@@ -433,7 +429,9 @@ async fn create_mailbox(
         )
         .with_details(json!({ "limit": limits.max_mailboxes, "current": existing })));
     }
-    if billing_status == "canceled" && existing > 0 {
+    // With inboxes on the plan's charge, `canceled` means the plan ended:
+    // plan billing refuses the inbox itself (402 `PAID_PLAN_REQUIRED`).
+    if billing_status == "canceled" && existing > 0 && state.inbox_billing.is_none() {
         return Err(ReachError::new(
             402,
             "BILLING_CANCELED",
@@ -1056,4 +1054,14 @@ async fn delete_one(
         }
         .await,
     )
+}
+
+/// The workspace's inboxes that count (every one not deleted): what an
+/// inbox subscription bills.
+pub async fn live_inbox_count(db: &PgPool) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar(
+        "select count(*) from reach_mailboxes where status <> 'deleted' and deleted_at is null",
+    )
+    .fetch_one(db)
+    .await
 }

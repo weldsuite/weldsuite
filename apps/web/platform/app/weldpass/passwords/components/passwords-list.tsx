@@ -18,6 +18,7 @@ import { Link, Navigate, useNavigate, useSearch } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { ChevronLeft, LockKeyhole, Lock, SearchX, ShieldCheck } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
+import { ErrorState } from '@weldsuite/ui/components/error-banner';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type {
   WeldPassItem,
@@ -37,6 +38,7 @@ import {
 } from '@/hooks/queries/use-weldpass-passwords-queries';
 import { formatDateTime } from '@/lib/utils';
 import { emptyIcon, usePassBreadcrumbs } from '../../components/page-kit';
+import { errorMessage, isKeyUnavailable } from '../../components/shared';
 import { ImportDialog } from './import-dialog';
 import { ItemDetailDialog } from './item-detail-dialog';
 import { ItemFormDialog } from './item-form-dialog';
@@ -288,6 +290,11 @@ export function PasswordsList({ vaultId: scopedVaultId }: Readonly<{ vaultId?: s
   // A vault that is gone (deleted, left, or a stale link) has no inside to show.
   if (scopedVaultId && vaultsQuery.isSuccess && !scopedVault) {
     return <Navigate to="/weldpass/passwords/vaults" replace />;
+  }
+
+  // The server can't open vaults at all (its root key): say so, not "failed to load".
+  if (isKeyUnavailable(error)) {
+    return <ErrorState className="m-4" message={errorMessage(error, '')} />;
   }
 
   return (

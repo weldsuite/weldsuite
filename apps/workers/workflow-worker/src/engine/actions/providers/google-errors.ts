@@ -1,7 +1,7 @@
 /**
  * Shared Google API error classification for every Google provider action
  * (Sheets, Gmail, Calendar) — see "Provider pattern" in
- * docs/plans/weldconnect.md. Every Discovery-based Google API (Sheets v4,
+ * weldsuite-documentation/plans/weldconnect.md. Every Discovery-based Google API (Sheets v4,
  * Calendar v3, Gmail v1) returns the same JSON error envelope:
  * `{ error: { code, message, status, errors: [{ reason, message }] } }`.
  *

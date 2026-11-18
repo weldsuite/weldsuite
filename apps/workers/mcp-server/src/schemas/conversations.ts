@@ -11,6 +11,8 @@ import { z } from 'zod';
 export const DESK_CHANNELS = ['messenger', 'email', 'phone', 'whatsapp', 'sms', 'api'] as const;
 export const DESK_CONVERSATION_STATES = ['open', 'closed'] as const;
 export const DESK_PRIORITIES = ['low', 'medium', 'high', 'urgent'] as const;
+export const DESK_IMPACTS = ['low', 'medium', 'high'] as const;
+export const DESK_URGENCIES = ['low', 'medium', 'high'] as const;
 export const DESK_MAX_TAGS = 20;
 export const DESK_MAX_TAG_LENGTH = 50;
 
@@ -66,6 +68,11 @@ export const openDeskConversationSchema = z.object({
   priority: z.enum(DESK_PRIORITIES).optional().describe('low, medium, high or urgent'),
   tags: z.array(z.string().trim().min(1).max(DESK_MAX_TAG_LENGTH)).max(DESK_MAX_TAGS).optional(),
   departmentId: z.string().max(30).optional().describe('The team'),
+  impact: z
+    .enum(DESK_IMPACTS)
+    .optional()
+    .describe('How much is affected: low, medium or high. With the priority matrix on, impact and urgency set the priority'),
+  urgency: z.enum(DESK_URGENCIES).optional().describe('How soon it needs fixing: low, medium or high'),
 });
 
 export const updateDeskConversationShape = {
@@ -85,6 +92,8 @@ export const updateDeskConversationShape = {
     .describe('Replaces the whole tag list'),
   departmentId: z.string().max(30).nullable().optional().describe('The team, or null to clear'),
   customFields: z.record(z.string().max(100), z.unknown()).optional().describe("The type's custom fields, by slug"),
+  impact: z.enum(DESK_IMPACTS).nullable().optional().describe('low, medium or high; null clears'),
+  urgency: z.enum(DESK_URGENCIES).nullable().optional().describe('low, medium or high; null clears'),
 };
 
 export const addDeskConversationMessageSchema = z.object({

@@ -102,7 +102,7 @@ impl UsageCounter for Namespace {
         events: u64,
     ) -> BoxFuture<'a, Result<(), PortError>> {
         Box::pin(async move {
-            self.call(workspace_id, "add", json!([day, events]))
+            self.call(workspace_id, "add", json!([day, events, workspace_id]))
                 .await
                 .map(|_| ())
         })

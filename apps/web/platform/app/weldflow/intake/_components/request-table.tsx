@@ -2,7 +2,7 @@ import type { IntakeFunnel, ProjectRequest, ProjectRequestStatus } from '@weldsu
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
-import { intlLocaleOf } from '../../capacity/_lib/capacity';
+import { intlLocaleOf } from '../../workload/capacity/_lib/capacity';
 import { STATUS_CLASS, formatMoney, needsText } from '../_lib/intake';
 
 const FUNNEL: Array<{ status: Exclude<ProjectRequestStatus, 'converted'>; dot: string }> = [

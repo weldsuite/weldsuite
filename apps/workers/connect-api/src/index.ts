@@ -6,7 +6,7 @@
  * webhook, the GitHub App install callback and workflow-worker's internal
  * create_customer action.
  *
- * Split out of app-api (docs/plans/app-api-module-split.md). It serves the
+ * Split out of app-api (weldsuite-documentation/plans/app-api-module-split.md). It serves the
  * same /api/<object> paths app-api served for this module; the prefixes it
  * owns are listed in @weldsuite/api-modules and checked by its ownership test.
  */
@@ -102,7 +102,7 @@ export default {
 // topology: the routes below accept `internalTrusted` instead of the
 // INTERNAL_API_SECRET check. Only the internal routers are mounted here, at the
 // same paths as on the public app; the public secret-guarded mounts above stay
-// until every caller uses the entrypoint (docs/plans/app-api-module-split.md,
+// until every caller uses the entrypoint (weldsuite-documentation/plans/app-api-module-split.md,
 // rollout item 7).
 const internalApp = createModuleApi<Env, Variables>({ service: 'connect-api' });
 internalApp.use('*', async (c, next) => {

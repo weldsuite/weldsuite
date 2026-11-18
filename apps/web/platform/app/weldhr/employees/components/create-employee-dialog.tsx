@@ -220,6 +220,8 @@ export function CreateEmployeeDialog({
   function switchMode(next: Mode) {
     setChosenMode(next);
     setFailure(null);
+    // Errors from the other side's empty submit do not apply here (TASK-1471).
+    form.clearErrors();
     if (next === 'invite') {
       setSelectedUserId(undefined);
       form.reset({ ...form.getValues(), firstName: '', lastName: '', email: '', phone: '', jobTitle: '' });
@@ -237,6 +239,7 @@ export function CreateEmployeeDialog({
     form.setValue('email', member.email ?? '');
     form.setValue('phone', member.phone ?? '');
     form.setValue('jobTitle', member.title ?? '');
+    form.clearErrors(['firstName', 'lastName', 'email', 'phone', 'jobTitle']);
   }
 
   function employeeFields(values: FormValues) {

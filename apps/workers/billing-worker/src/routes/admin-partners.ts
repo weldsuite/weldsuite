@@ -3,7 +3,7 @@
  * `/api/internal/admin/partners/*` (mounted by routes/admin.ts, so it shares
  * the `x-admin-secret` + acting-admin auth).
  *
- * Reseller licensing, docs/plans/reseller-licensing.md. Request bodies are the
+ * Reseller licensing, weldsuite-documentation/plans/reseller-licensing.md. Request bodies are the
  * shared Zod schemas of `@weldsuite/app-api-client/schemas/partners`.
  *
  * Like every admin write, a partner write needs an `x-request-id` (the Stripe

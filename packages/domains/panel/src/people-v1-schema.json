@@ -1,0 +1,11 @@
+{
+  "fields": [
+    { "name": "workspace_id", "type": "string", "required": true },
+    { "name": "project_id", "type": "string", "required": true },
+    { "name": "user_id", "type": "string", "required": true },
+    { "name": "version", "type": "int64", "required": true },
+    { "name": "ts", "type": "timestamp", "required": true },
+    { "name": "properties", "type": "string", "required": true },
+    { "name": "deleted", "type": "bool", "required": true }
+  ]
+}

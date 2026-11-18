@@ -19,8 +19,6 @@ export const flowPortfolio = {
     skillsHint: 'Scheid vaardigheden met komma’s',
   },
   capacity: {
-    title: 'Capaciteit',
-    subtitle: 'Geboekte uren per persoon over alle projecten, tegenover hun contracturen',
     requestPerson: 'Iemand aanvragen',
     weeks: 'Weken',
     weeksOption: '{weeks} weken vanaf {from}',
@@ -29,15 +27,6 @@ export const flowPortfolio = {
     skill: 'Vaardigheid',
     allSkills: 'Alle vaardigheden',
     showTentative: 'Voorlopige boekingen tonen',
-    summary: {
-      booked: 'Team geboekt',
-      bookedNote: '{people} personen · {booked} van {capacity} uur',
-      overbooked: 'Overboekte persoonsweken',
-      overbookedNote: 'Meer dan 100% van de contracturen',
-      openRequests: 'Openstaande resourceaanvragen',
-      oldest: 'Oudste wacht al {days} dagen',
-      noOpen: 'Niets in de wacht',
-    },
     heatmap: {
       title: 'Geboekt per week',
       unit: '% van de contracturen',
@@ -45,6 +34,8 @@ export const flowPortfolio = {
       group: 'Vaardigheidsgroep',
       noSkill: 'Geen vaardigheid',
       people: '{count} personen',
+      peopleHeader: 'Personen',
+      contractHours: 'Contracturen',
       hoursPerWeek: '{hours} u/week',
       show: 'Projecten van {name} tonen',
       hide: 'Projecten van {name} verbergen',

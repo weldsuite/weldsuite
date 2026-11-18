@@ -329,12 +329,14 @@ export function MeetingToolsPanel({
   const listed = (keys: MeetingToolKey[]) =>
     keys.filter((key) => isToolListed(key, tools) && (!onlyTools || onlyTools.includes(key))).map(toToolItem);
 
+  // Recording is the host's call: everyone else sees the row, but cannot use it.
+  // The host without the handlers has no recording in this deployment: no row.
+  const hostOnlyRecordRow = showRecord && !recordTool && !recordingAvailable;
   const items: ToolItem[] = [
     ...listed(TOOL_ORDER_BEFORE_RECORD),
-    // Recording is the host's call: everyone else sees the row, but cannot use it.
-    ...(recordTool || !showRecord
-      ? []
-      : [{ key: 'record', label: 'Record', description: 'Capture the meeting', icon: Circle, badge: labels.hostOnly }]),
+    ...(hostOnlyRecordRow
+      ? [{ key: 'record', label: labels.rows.record, description: labels.rows.recordDescription, icon: Circle, badge: labels.hostOnly }]
+      : []),
     ...listed(TOOL_ORDER_AFTER_RECORD),
   ];
 

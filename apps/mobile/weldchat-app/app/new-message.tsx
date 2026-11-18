@@ -19,7 +19,7 @@ import { useSharedValue } from 'react-native-reanimated';
 import { Hash, Lock, Check } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
-import { useAuth } from '@clerk/expo';
+import { useAuth } from '@weldsuite/mobile-platform/auth';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { BRAND } from '@/lib/brand';
@@ -48,12 +48,14 @@ import { SheetHeader } from '@/components/ui/SheetHeader';
 import type { ThemeColors } from '@/lib/theme-colors';
 
 import { appApi } from '@/services/app-api';
+import { isPendingInvitee } from '@weldsuite/app-api-client/schemas/chat-dm';
 
 interface WorkspaceMember {
   userId: string;
   name: string | null;
   email: string | null;
   picture: string | null;
+  status?: string | null;
 }
 
 interface ChannelRow {
@@ -173,7 +175,8 @@ export default function NewMessageScreen() {
   // Searching: what matches. Otherwise everyone and every channel, after
   // (and without repeating) the recent ones.
   const peopleList = useMemo<Recipient[]>(() => {
-    const others = members.filter((m) => m.userId !== userId);
+    // Invitees can be messaged once they accept (chat-api refuses a DM before then).
+    const others = members.filter((m) => m.userId !== userId && !isPendingInvitee(m));
     if (term) {
       return others
         .filter((m) => m.name?.toLowerCase().includes(term) || m.email?.toLowerCase().includes(term))

@@ -7,6 +7,7 @@ import { StatusDot, STATUS_LABELS, type PresenceStatus } from '@weldsuite/ui/com
 import { usePresence } from '@/contexts/presence-context';
 import { useWeldChatCall } from '@/contexts/weldchat-call-context';
 import { useDmByUser } from '@/hooks/queries/use-weldchat-queries';
+import { canMessageMember } from '@/app/weldchat/lib/dm-availability';
 import { isFeatureAvailable, isModuleOffered } from '@/lib/edition';
 import { toast } from 'sonner';
 import { useNavigate } from '@tanstack/react-router';
@@ -23,7 +24,9 @@ export function TeamMemberPanelHeader({ profile, onClose, isSelf }: Readonly<Tea
   const t = useTranslations();
   const { getStatus } = usePresence();
   const { startCall } = useWeldChatCall();
-  const dmQuery = useDmByUser(isSelf ? '' : profile.userId);
+  // Someone who hasn't accepted their invitation can't be messaged or called yet.
+  const canChat = !isSelf && isModuleOffered('chat') && canMessageMember(profile);
+  const dmQuery = useDmByUser(canChat ? profile.userId : '');
   const navigate = useNavigate();
   const now = useNow(30_000);
 
@@ -99,7 +102,7 @@ export function TeamMemberPanelHeader({ profile, onClose, isSelf }: Readonly<Tea
         </div>
 
         {/* Message and calls are WeldChat's (edition flags, 4.F3). */}
-        {!isSelf && isModuleOffered('chat') && (
+        {canChat && (
           <div className="flex shrink-0 gap-1">
             <Button
               size="icon"

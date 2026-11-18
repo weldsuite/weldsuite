@@ -55,6 +55,9 @@ export const weldhrPeople = {
       emailRequired: 'E-mailadres is verplicht',
       emailInvalid: 'Vul een geldig e-mailadres in',
       phoneInvalid: 'Vul een telefoonnummer met alleen cijfers in, zoals +31 20 123 4567',
+      endBeforeStart: 'De einddatum kan niet voor de startdatum liggen',
+      probationBeforeStart: 'De proeftijd kan niet voor de startdatum eindigen',
+      birthInFuture: 'De geboortedatum kan niet in de toekomst liggen',
     },
     create: {
       employer: 'Werkgever',
@@ -128,8 +131,9 @@ export const weldhrPeople = {
       },
       deleteConfirm: {
         title: 'Medewerker verwijderen',
-        description: '{name} verwijderen? Dit kan niet ongedaan worden gemaakt.',
+        description: 'Het HR-dossier van {name} verwijderen? Het werkruimteaccount blijft bestaan. Dit kan niet ongedaan worden gemaakt.',
       },
+      deletedToast: 'Medewerker verwijderd',
       tabs: {
         overview: 'Overzicht',
         personal: 'Persoonlijk',
@@ -156,6 +160,7 @@ export const weldhrPeople = {
       edit: {
         title: 'Medewerker bewerken',
         failed: 'Deze medewerker kon niet worden opgeslagen.',
+        savedToast: 'Medewerker opgeslagen',
       },
       personalTab: {
         title: 'Persoonlijke gegevens',
@@ -164,6 +169,7 @@ export const weldhrPeople = {
         hide: 'Verbergen',
         loadFailed: 'Persoonlijke gegevens konden niet worden geladen.',
         saveFailed: 'Persoonlijke gegevens konden niet worden opgeslagen.',
+        savedToast: 'Persoonlijke gegevens opgeslagen',
         fields: {
           dateOfBirth: 'Geboortedatum',
           nationalId: 'Rijksregisternummer',

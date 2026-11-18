@@ -3,8 +3,7 @@ import { useEffect, Fragment } from 'react';
 import { Link } from '@/lib/router';
 import { SidebarTrigger } from '@weldsuite/ui/components/sidebar';
 import { Button } from '@weldsuite/ui/components/button';
-import { Bell, Calendar } from 'lucide-react';
-import { useUpcomingCalendarEvents, type CalendarEvent } from '@/hooks/queries/use-calendar-queries';
+import { Bell } from 'lucide-react';
 import { useUnifiedNotifications } from '@/contexts/unified-notification-context';
 import { useCalendarDrawerOpen } from '@/hooks/use-calendar-drawer-open';
 import { useNotificationsPanelOpen } from '@/hooks/use-notifications-panel-open';
@@ -85,8 +84,7 @@ export function BreadcrumbHeader({
   calendarOpen,
 }: Readonly<BreadcrumbHeaderProps>) {
   const { t } = useI18n();
-  // Edition flags (4.F3): the calendar and agent buttons need their modules.
-  const calendarOffered = isModuleOffered('calendar');
+  // Edition flags (4.F3): the agent button needs its module.
   const agentOffered = isModuleOffered('agent');
   // WeldAgent open state — read from sessionStorage-backed hook so every BreadcrumbHeader instance
   // is in sync with the global MobileNavProvider, even after navigation between apps.
@@ -99,13 +97,12 @@ export function BreadcrumbHeader({
   // Calendar + notifications drawer state — shared, broadcast-backed hooks so the
   // header buttons and the in-flow `DrawerHost` (which actually renders the
   // drawers) stay in sync. Persisted to sessionStorage so a drawer survives
-  // navigation between apps.
+  // navigation between apps. The header has no calendar button; opening another
+  // drawer still closes a calendar drawer left open earlier in the session.
   const [showCalendar, setShowCalendar] = useCalendarDrawerOpen();
   const [showNotifications, setShowNotifications] = useNotificationsPanelOpen();
   const { unreadCount: notificationUnreadCount } = useUnifiedNotifications();
   useSidebarBadges();
-  const { data: todayEventsData } = useUpcomingCalendarEvents({ days: 1 });
-  const todayEventCount = todayEventsData?.data?.filter((e: CalendarEvent) => e.status !== 'cancelled').length ?? 0;
 
   const toggleWeldAgent = () => {
     const newState = !showWeldAgent;
@@ -129,25 +126,6 @@ export function BreadcrumbHeader({
     if (onWeldAgentToggle) {
       onWeldAgentToggle(newState);
     }
-  };
-
-  const toggleCalendar = () => {
-    const newState = !showCalendar;
-    // Opening the calendar closes WeldAgent, notifications, and any detail panel
-    // so the row only ever shows one drawer at a time.
-    if (newState) {
-      if (showWeldAgent) {
-        setShowWeldAgent(false);
-        onWeldAgentToggle?.(false);
-      }
-      if (showNotifications) {
-        setShowNotifications(false);
-        onNotificationsToggle?.(false);
-      }
-      window.dispatchEvent(new CustomEvent('close-detail-panels'));
-    }
-    setShowCalendar(newState);
-    onCalendarToggle?.(newState);
   };
 
   const toggleNotifications = () => {
@@ -208,7 +186,7 @@ export function BreadcrumbHeader({
               narrow one it takes the room the search and buttons leave and
               truncates inside it. */}
           {segments.length > 0 && (
-            <Breadcrumb className={cn("hidden md:flex min-w-0 overflow-hidden", !hideSearch ? "flex-1 @min-[1000px]:flex-none @min-[1000px]:max-w-[calc(50%-280px)]" : "max-w-[40%]")}>
+            <Breadcrumb className={cn("hidden md:flex min-w-0 overflow-hidden", !hideSearch ? "flex-1 @min-[1200px]:flex-none @min-[1200px]:max-w-[calc(50%-280px)]" : "max-w-[40%]")}>
               <BreadcrumbList className="flex-nowrap overflow-hidden">
                 {buildCrumbEntries(segments).map(({ segment, key: crumbKey, isFirst, isLast }) => {
 
@@ -219,7 +197,7 @@ export function BreadcrumbHeader({
                     // then collides → React "two children with the same key" warning.
                     <Fragment key={crumbKey}>
                       {!isFirst && <BreadcrumbSeparator className="shrink-0" />}
-                      <BreadcrumbItem className={cn("min-w-0", isLast ? "truncate" : "shrink-0")}>
+                      <BreadcrumbItem className={cn("min-w-0", isLast ? "max-w-[320px] shrink-0" : "shrink")}>
                         {isLast || !segment.href ? (
                           <BreadcrumbPage className="truncate max-w-[500px]">
                             {segment.label}
@@ -239,34 +217,13 @@ export function BreadcrumbHeader({
           {/* Centered over the header when it is wide enough, otherwise in the row
               at a width that follows the header (140px to 448px). */}
           {!hideSearch && (
-            <div className="hidden md:block w-[clamp(140px,30cqw,448px)] shrink-0 @min-[1000px]:absolute @min-[1000px]:left-1/2 @min-[1000px]:-translate-x-1/2 @min-[1000px]:w-[448px]">
+            <div className="hidden md:block w-[clamp(140px,30cqw,448px)] shrink-0 @min-[1200px]:absolute @min-[1200px]:left-1/2 @min-[1200px]:-translate-x-1/2 @min-[1200px]:w-[448px]">
               <CommandPaletteTrigger />
             </div>
           )}
 
           {/* Right Actions - hidden on mobile, WeldAgent is in MobileHeader */}
           <div className="ml-auto hidden md:flex shrink-0 items-center gap-2">
-            {calendarOffered && (
-              <Button
-                onClick={toggleCalendar}
-                data-testid="calendar-toggle"
-                aria-label={t.sweep.shared.calendar}
-                variant="outline"
-                size="sm"
-                className={cn(
-                  "shadow-none relative",
-                  showCalendar && "bg-primary text-primary-foreground border-primary hover:bg-primary/90 hover:text-primary-foreground"
-                )}
-              >
-                <Calendar className="h-4 w-4" />
-                {todayEventCount > 0 && !showCalendar && (
-                  <span
-                    data-testid="calendar-today-badge"
-                    className="absolute -top-[3px] -right-[3px] z-10 h-[9px] w-[9px] rounded-full bg-red-500 border border-red-600 ring-2 ring-background pointer-events-none"
-                  />
-                )}
-              </Button>
-            )}
             <Button
               onClick={toggleNotifications}
               data-testid="notifications-bell"
@@ -279,7 +236,8 @@ export function BreadcrumbHeader({
               )}
             >
               <Bell className="h-4 w-4" />
-              {notificationUnreadCount > 0 && !showNotifications && (
+              {/* Stays while the panel is open, so the unread state stays visible. */}
+              {notificationUnreadCount > 0 && (
                 <span
                   data-testid="notifications-unread-badge"
                   className="absolute -top-[3px] -right-[3px] z-10 h-[9px] w-[9px] rounded-full bg-red-500 border border-red-600 ring-2 ring-background pointer-events-none"

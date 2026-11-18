@@ -378,6 +378,33 @@ pub trait Job: Send + Sync + 'static {
     ) -> BoxFuture<'a, Result<(), JobError>>;
 }
 
+/// Runs of a job, by `job` (its [`Job::name`]) and `outcome` (`ok` or
+/// `error`). The alert rules and dashboards read this name: don't rename it.
+pub const JOB_RUNS_METRIC: &str = "weldsuite_job_runs_total";
+
+/// How long a run took, by `job` (seconds; the binary sets its buckets).
+pub const JOB_DURATION_METRIC: &str = "weldsuite_job_duration_seconds";
+
+/// Count one run of `job` that took `elapsed`: [`JOB_RUNS_METRIC`] and
+/// [`JOB_DURATION_METRIC`]. A no-op unless the process installed a metrics
+/// recorder (`METRICS_ADDR`).
+pub fn record_job_run(job: &'static str, succeeded: bool, elapsed: Duration) {
+    let outcome = if succeeded { "ok" } else { "error" };
+    metrics::counter!(JOB_RUNS_METRIC, "job" => job, "outcome" => outcome).increment(1);
+    metrics::histogram!(JOB_DURATION_METRIC, "job" => job).record(elapsed.as_secs_f64());
+}
+
+/// Run `job` and record the run ([`record_job_run`]): what every adapter
+/// calls. On Restate a job that sleeps or waits is suspended and replayed
+/// later; only the attempt that finishes is counted, and its time is that
+/// attempt's (the replay and what follows), not the time spent waiting.
+pub async fn run_job(job: &dyn Job, ctx: &dyn JobContext, payload: Value) -> Result<(), JobError> {
+    let started = std::time::Instant::now();
+    let result = job.run(ctx, payload).await;
+    record_job_run(job.name(), result.is_ok(), started.elapsed());
+    result
+}
+
 /// The jobs this process can run, by name. Cheap to clone; the adapters hold
 /// one from the start and modules register into it once their state exists.
 #[derive(Clone, Default)]

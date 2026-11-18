@@ -1,7 +1,6 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { Loader2, Megaphone, Edit, Trash2, Plus } from 'lucide-react';
 import { format as formatDate } from 'date-fns';
-import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { Button } from '@weldsuite/ui/components/button';
@@ -31,6 +30,7 @@ import {
   useDeleteSocialCampaign,
 } from '@/hooks/queries/use-social-queries';
 import type { SocialCampaign } from '@weldsuite/app-api-client/domains/social';
+import { toastError } from '../lib/feedback';
 
 const statusVariants: Record<string, 'default' | 'secondary' | 'outline' | 'destructive'> = {
   draft: 'secondary',
@@ -63,6 +63,7 @@ const emptyForm: CampaignForm = {
 export function CampaignsClient() {
   const { t } = useI18n();
   const st = useTranslations();
+  const fieldId = useId();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editCampaign, setEditCampaign] = useState<SocialCampaign | null>(null);
   const [form, setForm] = useState<CampaignForm>(emptyForm);
@@ -101,8 +102,8 @@ export function CampaignsClient() {
         await createCampaign.mutateAsync(form as unknown as Record<string, unknown>);
       }
       setDialogOpen(false);
-    } catch {
-      toast.error(t.social.campaigns.createCampaign);
+    } catch (err) {
+      toastError(t.social.messages.campaignSaveFailed, err);
     }
   };
 
@@ -168,12 +169,18 @@ export function CampaignsClient() {
                     )}
                   </div>
                   <div className="flex gap-1 shrink-0">
-                    <Button size="sm" variant="ghost" onClick={() => openEdit(campaign)}>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      aria-label={t.social.campaigns.editCampaign}
+                      onClick={() => openEdit(campaign)}
+                    >
                       <Edit className="h-4 w-4" />
                     </Button>
                     <Button
                       size="sm"
                       variant="ghost"
+                      aria-label={t.social.campaigns.deleteCampaign}
                       className="text-destructive hover:text-destructive"
                       onClick={() => handleDelete(campaign.id)}
                       disabled={deleteCampaign.isPending}
@@ -197,12 +204,17 @@ export function CampaignsClient() {
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-1.5">
-              <Label>{t.social.campaigns.campaignName}</Label>
-              <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+              <Label htmlFor={`${fieldId}-name`}>{t.social.campaigns.campaignName}</Label>
+              <Input
+                id={`${fieldId}-name`}
+                value={form.name}
+                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+              />
             </div>
             <div className="space-y-1.5">
-              <Label>{st('sweep.miscA.socialCampaigns.description')}</Label>
+              <Label htmlFor={`${fieldId}-description`}>{st('sweep.miscA.socialCampaigns.description')}</Label>
               <Textarea
+                id={`${fieldId}-description`}
                 value={form.description}
                 onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
                 rows={2}
@@ -210,17 +222,18 @@ export function CampaignsClient() {
             </div>
             <div className="flex gap-4">
               <div className="space-y-1.5 flex-1">
-                <Label>{st('sweep.miscA.socialCampaigns.color')}</Label>
+                <Label htmlFor={`${fieldId}-color`}>{st('sweep.miscA.socialCampaigns.color')}</Label>
                 <Input
+                  id={`${fieldId}-color`}
                   type="color"
                   value={form.color}
                   onChange={(e) => setForm((f) => ({ ...f, color: e.target.value }))}
                 />
               </div>
               <div className="space-y-1.5 flex-1">
-                <Label>{st('sweep.miscA.socialCampaigns.status')}</Label>
+                <Label htmlFor={`${fieldId}-status`}>{st('sweep.miscA.socialCampaigns.status')}</Label>
                 <Select value={form.status} onValueChange={(v) => setForm((f) => ({ ...f, status: v }))}>
-                  <SelectTrigger>
+                  <SelectTrigger id={`${fieldId}-status`}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -235,16 +248,18 @@ export function CampaignsClient() {
             </div>
             <div className="flex gap-4">
               <div className="space-y-1.5 flex-1">
-                <Label>{t.social.campaigns.startDate}</Label>
+                <Label htmlFor={`${fieldId}-start`}>{t.social.campaigns.startDate}</Label>
                 <Input
+                  id={`${fieldId}-start`}
                   type="date"
                   value={form.startDate}
                   onChange={(e) => setForm((f) => ({ ...f, startDate: e.target.value }))}
                 />
               </div>
               <div className="space-y-1.5 flex-1">
-                <Label>{t.social.campaigns.endDate}</Label>
+                <Label htmlFor={`${fieldId}-end`}>{t.social.campaigns.endDate}</Label>
                 <Input
+                  id={`${fieldId}-end`}
                   type="date"
                   value={form.endDate}
                   onChange={(e) => setForm((f) => ({ ...f, endDate: e.target.value }))}

@@ -1,11 +1,15 @@
 /**
- * The writes behind `POST /e`, run in `waitUntil` after the 204: events to the
- * Basin stream, the day's count to PanelUsage, the install-check timestamp to KV.
+ * The writes behind `POST /e`, run in `waitUntil` after the 204: group profile
+ * operations to the project object (./groups), events to the Basin stream, the
+ * day's count to PanelUsage, the install-check timestamp to KV.
  */
 
 import type { PanelProjectRecord } from '@weldsuite/panel-domain/registry';
 import type { EventBatch } from '@weldsuite/panel-domain/wire';
 import type { Env } from '../env';
+import { limitGroups } from './groups';
+import { trackLive } from './live';
+import { applyBatchPeople } from './profiles';
 import { buildEventRows, consentedAnonId } from './rows';
 import { touchSeen } from './seen';
 import { utcDate } from './time';
@@ -60,15 +64,31 @@ export async function collectEvents(env: Env, accepted: AcceptedBatch): Promise<
 
   // Counting and the install check never fail the write that already happened.
   const bookkeeping = await Promise.allSettled([
-    env.PANEL_USAGE.get(env.PANEL_USAGE.idFromName(project.workspaceId)).add(utcDate(receivedAt), rows.length),
+    env.PANEL_USAGE.get(env.PANEL_USAGE.idFromName(project.workspaceId)).add(utcDate(receivedAt), rows.length, project.workspaceId),
     touchSeen(env.WORKSPACE_CACHE, project.projectId, receivedAt),
+    trackLive(env, project.projectId, rows, receivedAt),
   ]);
   for (const result of bookkeeping) {
-    if (result.status === 'rejected') logFailure('Usage count or seen marker', project, result.reason);
+    if (result.status === 'rejected') logFailure('Usage count, seen marker or live view', project, result.reason);
   }
 }
 
 /** For the route's `waitUntil`: a failed write is logged, not thrown into the runtime. */
-export function collectInBackground(env: Env, accepted: AcceptedBatch): Promise<void> {
-  return collectEvents(env, accepted).catch((error) => logFailure('Event write', accepted.project, error));
+export async function collectInBackground(env: Env, accepted: AcceptedBatch): Promise<void> {
+  // Group operations first: they may give a type its slot, which decides the events' `$group_` properties.
+  // Like people operations, they are applied only from a batch sent with consent (ADR PANEL-006).
+  let batch = accepted.batch;
+  const groupOps = batch.consent ? (batch.groups ?? []) : [];
+  try {
+    batch = { ...batch, events: await limitGroups(env, accepted.project, batch.events, groupOps, accepted.receivedAt) };
+  } catch (error) {
+    logFailure('Group update', accepted.project, error);
+  }
+  // Independent: a stream that refuses the rows must not lose an identify, and the other way round.
+  await Promise.all([
+    collectEvents(env, { ...accepted, batch }).catch((error) => logFailure('Event write', accepted.project, error)),
+    applyBatchPeople(env, accepted.project, accepted.batch, accepted.receivedAt).catch((error) =>
+      logFailure('People update', accepted.project, error),
+    ),
+  ]);
 }

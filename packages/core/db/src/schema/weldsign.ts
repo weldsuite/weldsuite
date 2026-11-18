@@ -15,7 +15,7 @@
  * Signing links are routed through the master `sign_link_registry`
  * (weldsign-links.ts).
  *
- * See docs/plans/weldsign.md.
+ * See weldsuite-documentation/plans/weldsign.md.
  */
 
 import {

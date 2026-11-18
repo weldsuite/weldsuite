@@ -279,6 +279,12 @@ export const common = {
       addToGroup: '{group} toevoegen',
       unreadInGroup: '{count} ongelezen',
       mentionsInGroup: '{count} vermeldingen',
+      moreActionsFor: 'Meer acties voor {name}',
+      dragInstructions: 'Sleep met de muis om de volgorde te wijzigen.',
+      dragStart: '{item} opgepakt.',
+      dragOver: '{item} staat boven {target}.',
+      dragEnd: '{item} is neergezet op {target}.',
+      dragCancel: '{item} is teruggezet.',
     },
     /** Display names for the colour and icon pickers (keys are the lowercase identifiers). */
     coloredSquare: {
@@ -476,7 +482,7 @@ export const common = {
       unavailableTitle: 'Niet beschikbaar in deze editie',
       unavailableDescription: 'Dit deel van WeldSuite zit niet in deze editie, dus hier is niets te zien.',
       backHome: 'Terug naar home',
-      desktopSignInUnavailable: 'Inloggen in de desktop-app is niet beschikbaar in deze editie. Gebruik WeldSuite in je browser.',
+      desktopSignInUnavailable: 'Deze editie gebruikt deze pagina niet. Log in vanuit de WeldSuite-desktop-app zelf: die opent je browser voor je.',
     },
     time: {
       justNow: 'Zojuist',
@@ -597,6 +603,7 @@ export const common = {
         nameHint: 'Je kunt dit later wijzigen in de werkruimte-instellingen.',
         locationSettings: 'Land en gegevensopslag',
         locationHint: 'We hebben een locatie voorgesteld op basis van je browsertaal. Controleer deze als je gegevens in een specifieke regio wilt opslaan.',
+        countryHint: 'We hebben een land voorgesteld op basis van je browsertaal. Pas het aan als je bedrijf ergens anders gevestigd is.',
         chooseApps: 'Apps kiezen',
         appsRequired: 'Kies minimaal één app om mee te beginnen. Je kunt er later meer toevoegen via de App Store.',
         appsLater: 'Je kunt later apps toevoegen via de App Store.',
@@ -751,6 +758,7 @@ export const common = {
         failedToProcessInvitation: 'Uitnodiging verwerken mislukt',
         failedToAcceptInvitation: 'Uitnodiging accepteren mislukt',
         failedToLoadDetails: 'Uitnodigingsgegevens laden mislukt.',
+        verifyEmailFirst: 'Bevestig je e-mailadres en open de uitnodigingslink daarna opnieuw.',
       },
     },
     auth: {
@@ -762,8 +770,12 @@ export const common = {
         retry: 'Opnieuw inloggen',
         managedTitle: 'Beheerd door je identiteitsprovider',
         managedDescription: 'Je wachtwoord, tweestapsverificatie, passkeys en sessies worden beheerd door de identiteitsprovider van je organisatie, niet in WeldSuite.',
-        openAccount: 'Accountinstellingen openen',
+        openAccount: 'Inloggen en beveiliging beheren',
         invitationsManaged: 'Lidmaatschap van werkruimtes wordt beheerd door de identiteitsprovider van je organisatie. Vraag je beheerder om toegang.',
+        accountLocked: 'Dit account is geblokkeerd. Probeer het later opnieuw of neem contact op met je beheerder.',
+        tooManyAttempts: 'Te veel pogingen. Wacht een paar minuten en probeer het opnieuw.',
+        emailTaken: 'Er bestaat al een account met dit e-mailadres. Log in met dat account.',
+        signUpDisabled: 'Registreren is niet mogelijk. Vraag je beheerder om een uitnodiging.',
       },
       error: {
         alertTitle: 'Fout',
@@ -823,6 +835,7 @@ export const common = {
         subtitle: 'Voer de code uit uw e-mail in en maak een nieuw wachtwoord aan.',
         resetCodeLabel: 'Herstelcode',
         resetCodePlaceholder: '6-cijferige code invoeren',
+        resetCodePlaceholderAny: 'Voer de code uit uw e-mail in',
         newPasswordLabel: 'Nieuw wachtwoord',
         newPasswordPlaceholder: 'Maak een nieuw wachtwoord aan',
         confirmPasswordLabel: 'Nieuw wachtwoord bevestigen',
@@ -839,6 +852,8 @@ export const common = {
         signIn: 'Aanmelden',
         requirements: {
           atLeast8Chars: 'Minimaal 8 tekens',
+          atLeastChars: 'Minimaal {count} tekens',
+          oneSymbol: 'Één symbool',
           oneUppercase: 'Één hoofdletter',
           oneLowercase: 'Één kleine letter',
           oneNumber: 'Één cijfer',
@@ -986,6 +1001,23 @@ export const common = {
           title: 'Aanmelding overdracht mislukt',
           tryAgain: 'Opnieuw proberen',
           failedToComplete: 'Desktop-aanmelding voltooien mislukt.',
+        },
+        browser: {
+          signInTitle: 'Inloggen bij WeldSuite',
+          signUpTitle: 'Maak je WeldSuite-account aan',
+          subtitle: 'Je gaat verder in je browser en komt daarna terug in dit venster.',
+          continue: 'Verder in je browser',
+          waiting: 'Rond het af in je browser…',
+          waitingHint: 'Ging je browser niet open? Annuleer en probeer het opnieuw.',
+          cancel: 'Annuleren',
+          timedOut: 'Inloggen duurde te lang. Probeer het opnieuw.',
+          failed: 'Inloggen is niet gelukt. Probeer het opnieuw.',
+          callback: {
+            successTitle: 'Je bent ingelogd',
+            successBody: 'Je kunt dit tabblad sluiten en teruggaan naar de WeldSuite-app.',
+            failureTitle: 'Inloggen is niet gelukt',
+            failureBody: 'Sluit dit tabblad en probeer het opnieuw in de WeldSuite-app.',
+          },
         },
       },
       ssoCallback: {
@@ -1283,6 +1315,10 @@ export const common = {
             'claude-haiku-5-5': {
               label: 'Claude Haiku 5.5',
               description: 'Snelst, laagste kosten',
+            },
+            default: {
+              label: 'Standaard van de werkruimte',
+              description: 'Het model dat je beheerder voor agents koos',
             },
           },
         },

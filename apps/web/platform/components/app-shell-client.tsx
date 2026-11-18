@@ -19,6 +19,13 @@ const GlobalPinnedNote = lazy(() =>
 const GlobalCallPanel = lazy(() =>
   import('@/components/weldcrm/calls/global-call-panel').then((m) => ({ default: m.GlobalCallPanel })),
 );
+// WeldDesk phone: the member's own softphone login and the incoming-call card.
+const DeskSoftphoneBridge = lazy(() =>
+  import('@/components/welddesk/phone/desk-softphone-bridge').then((m) => ({ default: m.DeskSoftphoneBridge })),
+);
+const DeskIncomingCallCard = lazy(() =>
+  import('@/components/welddesk/phone/desk-incoming-call-card').then((m) => ({ default: m.DeskIncomingCallCard })),
+);
 const GlobalFloatingVideo = lazy(() =>
   import('@/components/weldcrm/calls/global-floating-video').then((m) => ({ default: m.GlobalFloatingVideo })),
 );
@@ -75,14 +82,15 @@ const MeetingPiPWidget = lazy(() =>
 
 /**
  * /auth, /onboarding and /invite bootstrap their own org context; the public
- * /w9 form has none at all.
+ * /w9 form and WeldPanel share links (/s/panel) have none at all.
  */
 function bootstrapsOwnOrg(pathname: string): boolean {
   return (
     pathname.startsWith('/auth/') ||
     pathname === '/onboarding' ||
     pathname.startsWith('/invite') ||
-    pathname.startsWith('/w9/')
+    pathname.startsWith('/w9/') ||
+    pathname.startsWith('/s/')
   );
 }
 
@@ -299,6 +307,13 @@ export function AppShellClient({ children }: Readonly<AppShellClientProps>) {
                               stays visible and stoppable from any module. */}
                           <GlobalTimerWidget />
                           <GlobalCallPanel />
+                          {/* Edition flags: the phone talks to call-api. */}
+                          {isModuleOffered('call') && (
+                            <>
+                              <DeskSoftphoneBridge />
+                              <DeskIncomingCallCard />
+                            </>
+                          )}
                           <GlobalFloatingCall />
                           <GlobalFloatingVideo />
                           <CallOverlay />

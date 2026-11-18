@@ -1,7 +1,7 @@
 /**
  * WeldReach (cold email outreach) on the public API: /v1/reach/*
  *
- * docs/plans/weldreach-external-api.md. One router, a file per object, mounted
+ * weldsuite-documentation/plans/weldreach-external-api.md. One router, a file per object, mounted
  * at `/reach` in `routes/v1/index.ts`. Scopes are the permission objects:
  * reach_campaigns, reach_prospects, reach_settings (suppressions), reach_inbox
  * (`read`, and `reply` by name) and reach_mailboxes (read only).

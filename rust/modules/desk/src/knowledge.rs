@@ -88,7 +88,8 @@ fn suggestions_query(query: Option<&str>) -> Result<(Option<String>, Option<f64>
     Ok((q, limit))
 }
 
-/// `suggestDeskArticles(db, search, limit, baseUrl)`.
+/// `suggestDeskArticles(db, search, limit, baseUrl)`: a version counts only
+/// while its original is published and shareable too.
 async fn suggest(
     db: &weldsuite_db::PgPool,
     search: &Search,
@@ -108,7 +109,11 @@ async fn suggest(
     )> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "select t.id, t.title, t.slug, t.excerpt, t.visibility, t.locale from helpdesk_articles t
              where t.status = 'published' and t.deleted_at is null
-               and t.visibility in ('public', 'logged_in', 'groups') and {matches}
+               and t.visibility in ('public', 'logged_in', 'groups')
+               and (t.translation_of_id is null or exists (select 1 from helpdesk_articles o
+                 where o.id = t.translation_of_id and o.status = 'published' and o.deleted_at is null
+                   and o.visibility in ('public', 'logged_in', 'groups')))
+               and {matches}
              order by {rank} desc, t.updated_at desc, t.id desc limit $3"
     )))
     .bind(search.websearch.as_deref())

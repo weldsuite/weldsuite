@@ -13,7 +13,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { CheckSquare, Plus } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
 import { Chip } from '@weldsuite/mobile-ui/components/Chip';
 import { EmptyState } from '@weldsuite/mobile-ui/components/EmptyState';
 import { IconButton } from '@weldsuite/mobile-ui/components/IconButton';
@@ -37,7 +37,7 @@ export default function TasksScreen() {
   const { colors } = useTheme();
   const { t } = useI18n();
   const toast = useToast();
-  const { user } = useClerkAuth();
+  const { user } = useAuthSession();
   const params = useLocalSearchParams<{ new?: string }>();
 
   const [searchTerm, setSearchTerm] = useState('');

@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 
 const auth = vi.hoisted(() => ({ userId: 'user_me' }));
+const callContext = vi.hoisted(() => ({ callId: null as string | null, joinCall: vi.fn() }));
 
 vi.mock('@clerk/clerk-react', () => ({ useAuth: () => auth }));
 vi.mock('@/lib/i18n/provider', () => ({
@@ -15,6 +16,11 @@ vi.mock('@/lib/i18n/provider', () => ({
           startedVideo: '{name} started a video call',
           missedVoiceFrom: 'Missed voice call from {name}',
           missedVideoFrom: 'Missed video call from {name}',
+          voiceCall: 'Voice call',
+          videoCall: 'Video call',
+          missedVoiceCall: 'Missed voice call',
+          missedVideoCall: 'Missed video call',
+          join: 'Join',
           missedCall: 'Missed call',
           callEnded: 'Call ended',
           noAnswer: 'No answer',
@@ -36,14 +42,15 @@ vi.mock('./message-actions', () => ({ MessageActions: () => null }));
 vi.mock('./message-context-menu', () => ({ MessageContextMenu: ({ children }: { children: unknown }) => children }));
 vi.mock('./file-preview', () => ({ FilePreview: () => null }));
 vi.mock('@tanstack/react-router', () => ({ Link: () => null }));
+vi.mock('@/contexts/weldchat-call-context', () => ({ useWeldChatCallOptional: () => callContext }));
 
 import { MessageItem } from './message-item';
 import type { CallSummary } from '../lib/call-history';
 
 const startNotice = { id: 'msg_1', type: 'system' as const, content: 'Gert started a voice call', createdAt: '2026-10-23T09:00:00Z' };
 
-function renderCall(call: CallSummary, hasActiveCall = false) {
-  render(<MessageItem message={startNotice} call={call} hasActiveCall={hasActiveCall} />);
+function renderCall(call: CallSummary, hasActiveCall = false, extra: { isDm?: boolean; activeCallId?: string } = {}) {
+  render(<MessageItem message={startNotice} call={call} hasActiveCall={hasActiveCall} {...extra} />);
   return screen.getByTestId('chat-call-notice');
 }
 
@@ -57,6 +64,8 @@ const base: CallSummary = {
 afterEach(() => {
   cleanup();
   auth.userId = 'user_me';
+  callContext.callId = null;
+  callContext.joinCall.mockReset();
 });
 
 describe('call notice row', () => {
@@ -64,7 +73,7 @@ describe('call notice row', () => {
     auth.userId = 'user_gert';
     const row = renderCall({ ...base, outcome: 'missed', duration: 0 });
     expect(row.dataset.callState).toBe('noAnswer');
-    expect(row.textContent).toContain('You started a voice call');
+    expect(row.textContent).toContain('Voice call');
     expect(row.textContent).toContain('No answer');
     expect(row.textContent).not.toContain('Missed');
   });
@@ -73,6 +82,12 @@ describe('call notice row', () => {
     const row = renderCall({ ...base, outcome: 'missed', duration: 0 });
     expect(row.dataset.callState).toBe('missed');
     expect(row.textContent).toContain('Missed voice call from Gert');
+  });
+
+  it('leaves the name out in a DM, where the direction icon says who called', () => {
+    const row = renderCall({ ...base, outcome: 'missed', duration: 0 }, false, { isDm: true });
+    expect(row.textContent).toContain('Missed voice call');
+    expect(row.textContent).not.toContain('Gert');
   });
 
   it('shows how long an answered call took, and when it started', () => {
@@ -89,5 +104,17 @@ describe('call notice row', () => {
     const live = renderCall(base, true);
     expect(live.dataset.callState).toBe('live');
     expect(live.textContent).toContain('Live');
+  });
+
+  it('offers Join on a live call you are not in', () => {
+    renderCall(base, true, { activeCallId: 'call_1' });
+    fireEvent.click(screen.getByRole('button', { name: 'Join' }));
+    expect(callContext.joinCall).toHaveBeenCalledWith('call_1');
+  });
+
+  it('has no Join while you are already in that call', () => {
+    callContext.callId = 'call_1';
+    renderCall(base, true, { activeCallId: 'call_1' });
+    expect(screen.queryByRole('button', { name: 'Join' })).toBeNull();
   });
 });

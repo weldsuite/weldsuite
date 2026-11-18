@@ -27,7 +27,7 @@
  * consistent. Route handlers must not hand-roll participant merges.
  *
  * Lives in a package because meet-api (joining a meeting leaves chat calls)
- * and chat-api both run it (docs/plans/app-api-module-split.md).
+ * and chat-api both run it (weldsuite-documentation/plans/app-api-module-split.md).
  */
 
 import { and, eq, inArray, sql } from 'drizzle-orm';

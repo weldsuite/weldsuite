@@ -135,8 +135,12 @@ export const weldbooksUsBanking = {
     undoImport: 'Undo import',
     undoImportTitle: 'Undo this import?',
     undoImportDescription: 'Removes the transactions this import added and takes them off the balance. Transactions you already reconciled stay.',
-    undoImportDone: '{deleted} transactions removed.',
-    undoImportKept: '{deleted} transactions removed, {kept} reconciled ones kept.',
+    undoImportDone: '{removed}.',
+    undoImportKept: '{removed}, {kept}.',
+    undoImportRemovedOne: '1 transaction removed',
+    undoImportRemovedMany: '{count} transactions removed',
+    undoImportKeptOne: '1 reconciled one kept',
+    undoImportKeptMany: '{count} reconciled ones kept',
     undoImportFailed: 'The import could not be undone.',
   },
 
@@ -175,7 +179,7 @@ export const weldbooksUsBanking = {
   csvEditor: {
     title: 'CSV layout',
     description:
-      'US banks do not share one CSV format. Check how this file is read before you import it: the preview below updates as you change the layout.',
+      'Banks do not share one CSV format. Check how this file is read before you import it: the preview below updates as you change the layout.',
     serverWarnings: {
       noDate: 'No date column was found. Pick one below.',
       noAmount: 'No amount column was found. Pick one below.',

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import stubBundle from '../testing/sdk-bundle-stub';
+import vitalsStub from '../testing/vitals-bundle-stub';
 import { call, makeEnv } from '../testing/fakes';
 
 describe('GET /s.js', () => {
@@ -45,5 +46,16 @@ describe('GET /s.js', () => {
     const testEnv = makeEnv();
     await call(testEnv, { method: 'GET', path: '/s.js' });
     expect(testEnv.kv.get).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET /v.js', () => {
+  it('serves the web vitals plugin bundle, cacheable for an hour', async () => {
+    const res = await call(makeEnv(), { method: 'GET', path: '/v.js' });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Content-Type')).toContain('application/javascript');
+    expect(res.headers.get('Cache-Control')).toBe('public, max-age=3600');
+    expect(await res.text()).toBe(vitalsStub);
   });
 });

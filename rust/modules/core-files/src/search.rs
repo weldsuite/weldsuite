@@ -4,17 +4,25 @@
 //! (exact 1.0, prefix 0.9, substring 0.6; e-mail columns 1.0 / 0.7 / 0.3).
 //! Types the caller may not read are left out, not refused.
 
+use std::sync::Arc;
+
 use axum::body::Bytes;
 use axum::extract::State;
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use http::{HeaderMap, StatusCode};
 use serde_json::{Map, Value, json};
-use weldsuite_core_domain::drive_access::{DriveFileRef, file_visible, load_drive_access_for_user};
+use weldsuite_core_domain::drive_access::{
+    VisibleFiles, load_drive_access_for_user, visible_files,
+};
 use weldsuite_db::PgPool;
+use weldsuite_kit::ApiError;
 use weldsuite_kit::validation::{Issues, Number, Presence, Text};
 use weldsuite_permissions::has_any_app_permission;
+use weldsuite_ports::DynCache;
+use weldsuite_subscribers::search::ai::{WorkspaceEmbeddings, index_model};
+use weldsuite_subscribers::search::backfill::{BackfillCursor, backfill_batch};
 
-use crate::understanding::{apply_permitted_types, understand_query};
+use crate::understanding::{ModelTier, apply_permitted_types, understand_query_with};
 use crate::{Caller, CoreFilesState, answer, encode_uri_component, json_response, validate};
 
 /// A searchable record type (`SEARCH_ENTITY_TYPES`), in the canonical order
@@ -26,29 +34,49 @@ pub(crate) enum SearchType {
     Lead,
     Opportunity,
     Ticket,
+    Conversation,
     Article,
     KnowledgePage,
     Product,
     Order,
+    Warehouse,
     Invoice,
     Bill,
     Project,
     Task,
     MergeIssue,
     MergePullRequest,
+    Document,
     Sheet,
     Board,
+    Form,
+    SignEnvelope,
+    DriveFile,
+    Meeting,
+    ChatChannel,
+    ReachCampaign,
+    DataList,
+    PanelProject,
+    Workflow,
+    Agent,
     Domain,
 }
 
 /// Every type with the permission that lets a caller search it
-/// (`ENTITY_REGISTRY`), in canonical order.
-const REGISTRY: [(SearchType, &str, &str); 18] = [
+/// (`ENTITY_REGISTRY`), in canonical order (`CANONICAL_ORDER`, which the
+/// registry follows too). Where an object is shared between several apps the
+/// key names the app the module's own routes are checked in.
+const REGISTRY: [(SearchType, &str, &str); 31] = [
     (SearchType::Contact, "contact", "contacts:read"),
     (SearchType::Customer, "customer", "contacts:read"),
     (SearchType::Lead, "lead", "leads:read"),
     (SearchType::Opportunity, "opportunity", "opportunities:read"),
     (SearchType::Ticket, "ticket", "tickets:read"),
+    (
+        SearchType::Conversation,
+        "conversation",
+        "conversations:read",
+    ),
     (SearchType::Article, "article", "articles:read"),
     (
         SearchType::KnowledgePage,
@@ -57,6 +85,7 @@ const REGISTRY: [(SearchType, &str, &str); 18] = [
     ),
     (SearchType::Product, "product", "products:read"),
     (SearchType::Order, "order", "orders:read"),
+    (SearchType::Warehouse, "warehouse", "warehouses:read"),
     (SearchType::Invoice, "invoice", "invoices:read"),
     (SearchType::Bill, "bill", "bills:read"),
     (SearchType::Project, "project", "projects:read"),
@@ -67,14 +96,45 @@ const REGISTRY: [(SearchType, &str, &str); 18] = [
         "merge_pull_request",
         "merge_pull_requests:read",
     ),
+    (SearchType::Document, "document", "docs:read"),
     (SearchType::Sheet, "sheet", "sheets:read"),
     (SearchType::Board, "board", "boards:read"),
+    (SearchType::Form, "form", "forms:read"),
+    (
+        SearchType::SignEnvelope,
+        "sign_envelope",
+        "sign_envelopes:read",
+    ),
+    (SearchType::DriveFile, "drive_file", "welddrive:files:read"),
+    (SearchType::Meeting, "meeting", "weldmeet:meetings:read"),
+    (
+        SearchType::ChatChannel,
+        "chat_channel",
+        "weldchat:channels:read",
+    ),
+    (
+        SearchType::ReachCampaign,
+        "reach_campaign",
+        "reach_campaigns:read",
+    ),
+    (SearchType::DataList, "data_list", "prospects:read"),
+    (
+        SearchType::PanelProject,
+        "panel_project",
+        "panel_projects:read",
+    ),
+    (
+        SearchType::Workflow,
+        "workflow",
+        "weldconnect:workflows:read",
+    ),
+    (SearchType::Agent, "agent", "weldagent:read"),
     (SearchType::Domain, "domain", "domains:read"),
 ];
 
 /// `SEARCH_ENTITY_TYPES`: the names `types` accepts, in the schema's own
 /// order (the enum's message lists them so), which is not the canonical one.
-const ENTITY_TYPES: [&str; 18] = [
+pub(crate) const ENTITY_TYPES: [&str; 31] = [
     "contact",
     "customer",
     "lead",
@@ -93,6 +153,19 @@ const ENTITY_TYPES: [&str; 18] = [
     "domain",
     "merge_issue",
     "merge_pull_request",
+    "document",
+    "form",
+    "drive_file",
+    "conversation",
+    "meeting",
+    "sign_envelope",
+    "warehouse",
+    "workflow",
+    "agent",
+    "reach_campaign",
+    "chat_channel",
+    "data_list",
+    "panel_project",
 ];
 
 impl SearchType {
@@ -110,7 +183,7 @@ impl SearchType {
             .map_or("", |(_, _, permission)| permission)
     }
 
-    fn parse(name: &str) -> Option<Self> {
+    pub(crate) fn parse(name: &str) -> Option<Self> {
         REGISTRY
             .iter()
             .find(|(_, n, _)| *n == name)
@@ -156,6 +229,19 @@ pub(crate) fn build_result_url(
         SearchType::Domain => format!("/weldhost/domains/{id}"),
         SearchType::MergeIssue => format!("/weldmerge/issues/{encoded}"),
         SearchType::MergePullRequest => format!("/weldmerge/pull-requests/{encoded}"),
+        SearchType::Document => format!("/welddocs/{id}"),
+        SearchType::Form => format!("/weldforms/{id}"),
+        SearchType::DriveFile => format!("/welddrive?file={encoded}"),
+        SearchType::Conversation => format!("/welddesk/inbox/{id}"),
+        SearchType::Meeting => format!("/weldmeet/{id}"),
+        SearchType::SignEnvelope => format!("/weldsign/{id}"),
+        SearchType::Warehouse => format!("/weldstash/warehouses?stack=warehouse:{encoded}"),
+        SearchType::Workflow => format!("/weldconnect/workflows/{id}"),
+        SearchType::Agent => format!("/agents/{id}"),
+        SearchType::ReachCampaign => format!("/weldreach/campaigns/{id}"),
+        SearchType::ChatChannel => format!("/weldchat/{id}"),
+        SearchType::DataList => format!("/welddata/lists/{id}"),
+        SearchType::PanelProject => format!("/weldpanel/projects/{id}"),
     }
 }
 
@@ -423,6 +509,187 @@ const MERGE_PULL_REQUESTS: &str = "select jsonb_build_object('row', row, 'score'
         or ($6::int is not null and p.number = $6))) s
   order by score desc, provider_updated_at desc, id desc limit $4";
 
+/// `scoreText(col)`: 1.0 exact, 0.9 prefix, 0.6 substring, on `$1`, `$2`, `$3`.
+macro_rules! score {
+    ($col:literal) => {
+        concat!(
+            "case when lower(",
+            $col,
+            ") = $1 then 1.0 when lower(",
+            $col,
+            ") like $2 then 0.9
+             when lower(",
+            $col,
+            ") like $3 then 0.6 else 0 end"
+        )
+    };
+}
+
+/// WeldDesk conversations by title, customer, e-mail or number (`$5`, the
+/// number a query names, as for pull requests). Every conversation, as
+/// desk-api's inbox lists them.
+const CONVERSATIONS: &str = concat!(
+    "select jsonb_build_object('row', row, 'score', score) from (
+    select id, updated_at, greatest(",
+    score!("title"),
+    ",",
+    score!("name"),
+    ",
+        case when lower(email) = $1 then 1.0 when lower(email) like $2 then 0.7
+             when lower(email) like $3 then 0.3 else 0 end,
+        case when $5::int is not null and conversation_number = $5 then 1.0 else 0 end) as score,
+      jsonb_build_object('id', id, 'title', title, 'name', name, 'email', email,
+        'conversationNumber', conversation_number) as row
+    from desk_conversations
+    where lower(title) like $3 or lower(name) like $3 or lower(email) like $3
+      or ($5::int is not null and conversation_number = $5)) s
+  order by score desc, updated_at desc, id desc limit $4"
+);
+
+/// WeldStash warehouses by name or code.
+const WAREHOUSES: &str = concat!(
+    "select jsonb_build_object('row', row, 'score', score) from (
+    select id, updated_at, greatest(",
+    score!("name"),
+    ",",
+    score!("code"),
+    ") as score,
+      jsonb_build_object('id', id, 'name', name, 'code', code, 'city', city) as row
+    from warehouses
+    where deleted_at is null and (lower(name) like $3 or lower(code) like $3)) s
+  order by score desc, updated_at desc, id desc limit $4"
+);
+
+/// WeldConnect workflows by name, without the CRM sequences that share the table.
+const WORKFLOWS: &str = concat!(
+    "select jsonb_build_object('row', row, 'score', score) from (
+    select id, updated_at, ",
+    score!("name"),
+    " as score,
+      jsonb_build_object('id', id, 'name', name, 'status', status) as row
+    from workflows
+    where deleted_at is null and lower(name) like $3
+      and not jsonb_exists(coalesce(tags, '[]'::jsonb), '__type:sequence')) s
+  order by score desc, updated_at desc, id desc limit $4"
+);
+
+/// WeldReach campaigns by name.
+const REACH_CAMPAIGNS: &str = concat!(
+    "select jsonb_build_object('row', row, 'score', score) from (
+    select id, updated_at, ",
+    score!("name"),
+    " as score,
+      jsonb_build_object('id', id, 'name', name, 'status', status) as row
+    from reach_campaigns
+    where deleted_at is null and lower(name) like $3) s
+  order by score desc, updated_at desc, id desc limit $4"
+);
+
+/// WeldData lists by name.
+const DATA_LISTS: &str = concat!(
+    "select jsonb_build_object('row', row, 'score', score) from (
+    select id, updated_at, ",
+    score!("name"),
+    " as score,
+      jsonb_build_object('id', id, 'name', name, 'description', description) as row
+    from welddata_lists
+    where deleted_at is null and lower(name) like $3) s
+  order by score desc, updated_at desc, id desc limit $4"
+);
+
+/// WeldPanel tracked projects by name.
+const PANEL_PROJECTS: &str = concat!(
+    "select jsonb_build_object('row', row, 'score', score) from (
+    select id, updated_at, ",
+    score!("name"),
+    " as score,
+      jsonb_build_object('id', id, 'name', name, 'kind', kind, 'status', status) as row
+    from panel_projects
+    where deleted_at is null and lower(name) like $3) s
+  order by score desc, updated_at desc, id desc limit $4"
+);
+
+/// WeldForms forms by title: `$5` the caller holds `forms:manage`, `$6` the
+/// caller. Anyone else sees the forms open to the workspace, their own and
+/// those they are on the access list of.
+const FORMS: &str = concat!(
+    "select jsonb_build_object('row', row, 'score', score) from (
+    select id, updated_at, ",
+    score!("title"),
+    " as score,
+      jsonb_build_object('id', id, 'title', title, 'status', status) as row
+    from forms
+    where lower(title) like $3
+      and ($5::bool or access = 'workspace' or owner_user_id = $6
+        or id in (select form_id from form_access where user_id = $6))) s
+  order by score desc, updated_at desc, id desc limit $4"
+);
+
+/// WeldMeet meetings by title: `$5` the caller holds `meetings:scope:all`,
+/// `$6` the caller (organisers see their own).
+const MEETINGS: &str = concat!(
+    "select jsonb_build_object('row', row, 'score', score) from (
+    select id, updated_at, ",
+    score!("title"),
+    " as score,
+      jsonb_build_object('id', id, 'title', title, 'status', status) as row
+    from meetings
+    where deleted_at is null and lower(title) like $3
+      and ($5::bool or organizer_id = $6)) s
+  order by score desc, updated_at desc, id desc limit $4"
+);
+
+/// WeldSign signature requests by title: `$5` the caller holds
+/// `sign_envelopes:manage`, `$6` the caller, `$7` their e-mail address (a sent
+/// request with a recipient there is theirs too).
+const SIGN_ENVELOPES: &str = concat!(
+    "select jsonb_build_object('row', row, 'score', score) from (
+    select id, updated_at, ",
+    score!("title"),
+    " as score,
+      jsonb_build_object('id', id, 'title', title, 'status', status) as row
+    from sign_envelopes
+    where kind = 'envelope' and deleted_at is null and lower(title) like $3
+      and ($5::bool or sender_user_id = $6
+        or ($7::text is not null and status <> 'draft'
+            and id in (select envelope_id from sign_recipients where email = $7)))) s
+  order by score desc, updated_at desc, id desc limit $4"
+);
+
+/// WeldChat channels by name: public ones, and the private ones `$5` (the
+/// caller) has joined. Direct messages and record channels are no channels here.
+const CHAT_CHANNELS: &str = concat!(
+    "select jsonb_build_object('row', row, 'score', score) from (
+    select c.id, c.updated_at, ",
+    score!("c.name"),
+    " as score,
+      jsonb_build_object('id', c.id, 'name', c.name, 'topic', c.topic,
+        'description', c.description) as row
+    from chat_channels c
+    where c.deleted_at is null and lower(c.name) like $3
+      and (c.type = 'public'
+        or (c.type = 'private' and exists (select 1 from chat_channel_members m
+            where m.channel_id = c.id and m.user_id = $5)))) s
+  order by score desc, updated_at desc, id desc limit $4"
+);
+
+/// WeldAgent agents by name: `$5` the caller holds `weldagent:manage`, `$6`
+/// the caller (`agentVisibleTo`: their own, the workspace's, and the `members`
+/// agents they are listed on).
+const AGENTS: &str = concat!(
+    "select jsonb_build_object('row', row, 'score', score) from (
+    select a.id, a.updated_at, ",
+    score!("a.name"),
+    " as score,
+      jsonb_build_object('id', a.id, 'name', a.name, 'description', a.description) as row
+    from weldagent_agents a
+    where a.deleted_at is null and lower(a.name) like $3
+      and ($5::bool or a.owner_id = $6 or a.visibility = 'workspace'
+        or (a.visibility = 'members' and exists (select 1 from weldagent_agent_members m
+            where m.agent_id = a.id and m.user_id = $6)))) s
+  order by score desc, updated_at desc, id desc limit $4"
+);
+
 /// `a || b || …`: the first non-empty string, else `None`.
 fn first<'a>(values: &[Option<&'a str>]) -> Option<&'a str> {
     values.iter().flatten().copied().find(|v| !v.is_empty())
@@ -577,6 +844,60 @@ fn describe(kind: SearchType, row: &Value) -> (String, Option<String>) {
             None,
         ),
         SearchType::Board => (first(&[s("name")]).unwrap_or("Board").to_owned(), None),
+        SearchType::Document => (first(&[s("name")]).unwrap_or("Document").to_owned(), None),
+        SearchType::DriveFile => (first(&[s("name")]).unwrap_or("File").to_owned(), None),
+        SearchType::Form => (
+            first(&[s("title")]).unwrap_or("Form").to_owned(),
+            owned(first(&[s("status")])),
+        ),
+        SearchType::Conversation => {
+            let number = match &row["conversationNumber"] {
+                Value::Number(number) => number.to_string(),
+                _ => "null".to_owned(),
+            };
+            let title = first(&[s("title"), s("name"), s("email")])
+                .map_or_else(|| format!("Conversation #{number}"), str::to_owned);
+            let subtitle = with_suffix(&format!("#{number}"), first(&[s("name"), s("email")]));
+            (title, Some(subtitle))
+        }
+        SearchType::Meeting => (
+            first(&[s("title")]).unwrap_or("Meeting").to_owned(),
+            owned(first(&[s("status")])),
+        ),
+        SearchType::SignEnvelope => (
+            first(&[s("title")])
+                .unwrap_or("Signature request")
+                .to_owned(),
+            owned(first(&[s("status")])),
+        ),
+        SearchType::Warehouse => (
+            first(&[s("name")]).unwrap_or("Warehouse").to_owned(),
+            owned(first(&[s("code"), s("city")])),
+        ),
+        SearchType::Workflow => (
+            first(&[s("name")]).unwrap_or("Workflow").to_owned(),
+            owned(first(&[s("status")])),
+        ),
+        SearchType::Agent => (
+            first(&[s("name")]).unwrap_or("Agent").to_owned(),
+            first(&[s("description")]).map(excerpt),
+        ),
+        SearchType::ReachCampaign => (
+            first(&[s("name")]).unwrap_or("Campaign").to_owned(),
+            owned(first(&[s("status")])),
+        ),
+        SearchType::ChatChannel => (
+            first(&[s("name")]).unwrap_or("Channel").to_owned(),
+            first(&[s("topic"), s("description")]).map(excerpt),
+        ),
+        SearchType::DataList => (
+            first(&[s("name")]).unwrap_or("List").to_owned(),
+            first(&[s("description")]).map(excerpt),
+        ),
+        SearchType::PanelProject => (
+            first(&[s("name")]).unwrap_or("Project").to_owned(),
+            Some(with_suffix(s("kind").unwrap_or_default(), s("status"))),
+        ),
         SearchType::MergeIssue => {
             let key = s("key").unwrap_or("null");
             (
@@ -650,13 +971,61 @@ fn group(kind: SearchType, rows: &[Value], limit: usize) -> Value {
     })
 }
 
+/// Who is searching (`SearchCaller`): the user (`None`: no one, so the types
+/// that are visible per person return nothing), a permission check against
+/// the same any-app subject that gates the types themselves, and the caller's
+/// WeldDrive visibility, loaded once for every Drive-backed type of a search.
+struct Searcher<'a> {
+    user_id: Option<&'a str>,
+    can: &'a (dyn Fn(&str) -> bool + Sync),
+    drive: Drive,
+}
+
+/// The caller's WeldDrive visibility, as far as it has been loaded.
+enum Drive {
+    Unloaded,
+    /// An admin sees every file.
+    Admin,
+    Limited(VisibleFiles),
+}
+
+impl Searcher<'_> {
+    /// `visibleFilesCondition` for this caller (`None`: an admin sees every file).
+    async fn visible_files(&mut self, db: &PgPool) -> Result<Option<VisibleFiles>, sqlx::Error> {
+        if matches!(self.drive, Drive::Unloaded) {
+            let access = load_drive_access_for_user(db, self.user_id).await?;
+            self.drive = match visible_files(&access) {
+                Some(visible) => Drive::Limited(visible),
+                None => Drive::Admin,
+            };
+        }
+        Ok(match &self.drive {
+            Drive::Limited(visible) => Some(visible.clone()),
+            Drive::Unloaded | Drive::Admin => None,
+        })
+    }
+}
+
+/// The term with its patterns escaped, so a typed `_` or `%` matches itself
+/// (`likeTerms`). The older types bind it as typed, as TypeScript does.
+fn escaped_term(q: &str, limit: usize) -> Term {
+    let lower = q.to_lowercase();
+    let escaped = escape_like(&lower);
+    Term {
+        prefix: format!("{escaped}%"),
+        contains: format!("%{escaped}%"),
+        lower,
+        limit: i64::try_from(limit + 1).unwrap_or(i64::MAX),
+    }
+}
+
 /// The rows of one type, each `{ row, score }`.
 async fn search_rows(
     db: &PgPool,
     kind: SearchType,
     q: &str,
     limit: usize,
-    user_id: Option<&str>,
+    who: &mut Searcher<'_>,
 ) -> Result<Vec<Value>, sqlx::Error> {
     let lower = q.to_lowercase();
     let term = Term {
@@ -683,11 +1052,183 @@ async fn search_rows(
         SearchType::MergeIssue | SearchType::MergePullRequest => {
             return search_merge(db, kind, q, &term).await;
         }
-        SearchType::Sheet => return search_files(db, FileKind::Sheet, q, limit, user_id).await,
-        SearchType::Board => return search_files(db, FileKind::Board, q, limit, user_id).await,
+        SearchType::Sheet => return search_files(db, FileKind::Sheet, q, limit, who).await,
+        SearchType::Board => return search_files(db, FileKind::Board, q, limit, who).await,
+        SearchType::Document => return search_files(db, FileKind::Document, q, limit, who).await,
+        SearchType::DriveFile => return search_files(db, FileKind::File, q, limit, who).await,
+        SearchType::Warehouse => return fetch(db, WAREHOUSES, &escaped_term(q, limit)).await,
+        SearchType::Workflow => return fetch(db, WORKFLOWS, &escaped_term(q, limit)).await,
+        SearchType::ReachCampaign => {
+            return fetch(db, REACH_CAMPAIGNS, &escaped_term(q, limit)).await;
+        }
+        SearchType::DataList => return fetch(db, DATA_LISTS, &escaped_term(q, limit)).await,
+        SearchType::PanelProject => {
+            return fetch(db, PANEL_PROJECTS, &escaped_term(q, limit)).await;
+        }
+        SearchType::Conversation => {
+            // The number a query names ("#42"), as for pull requests.
+            return fetch_with(
+                db,
+                CONVERSATIONS,
+                &escaped_term(q, limit),
+                vec![Arg::Int(pull_request_number(q))],
+            )
+            .await;
+        }
+        SearchType::Form => return search_forms(db, q, limit, who).await,
+        SearchType::Meeting => return search_meetings(db, q, limit, who).await,
+        SearchType::SignEnvelope => return search_sign_envelopes(db, q, limit, who).await,
+        SearchType::ChatChannel => return search_chat_channels(db, q, limit, who).await,
+        SearchType::Agent => return search_agents(db, q, limit, who).await,
     };
     let rows = fetch(db, sql, &term).await?;
     Ok(rows)
+}
+
+/// An extra bind, `$5` on.
+enum Arg {
+    Bool(bool),
+    Text(Option<String>),
+    Int(Option<i32>),
+}
+
+/// [`fetch`] with more binds.
+async fn fetch_with(
+    db: &PgPool,
+    sql: &'static str,
+    term: &Term,
+    more: Vec<Arg>,
+) -> Result<Vec<Value>, sqlx::Error> {
+    let mut query = sqlx::query_scalar(sql)
+        .bind(&term.lower)
+        .bind(&term.prefix)
+        .bind(&term.contains)
+        .bind(term.limit);
+    for arg in more {
+        query = match arg {
+            Arg::Bool(value) => query.bind(value),
+            Arg::Text(value) => query.bind(value),
+            Arg::Int(value) => query.bind(value),
+        };
+    }
+    query.fetch_all(db).await
+}
+
+/// Forms by title (`searchForms`): `forms:manage` sees every form, anyone else
+/// those open to the workspace, their own and their access list's.
+async fn search_forms(
+    db: &PgPool,
+    q: &str,
+    limit: usize,
+    who: &Searcher<'_>,
+) -> Result<Vec<Value>, sqlx::Error> {
+    let Some(user) = who.user_id else {
+        return Ok(Vec::new());
+    };
+    let manage = (who.can)("forms:manage");
+    fetch_with(
+        db,
+        FORMS,
+        &escaped_term(q, limit),
+        vec![Arg::Bool(manage), Arg::Text(Some(user.to_owned()))],
+    )
+    .await
+}
+
+/// Meetings by title (`searchMeetings`): the organiser's own, unless the caller
+/// holds `meetings:scope:all`.
+async fn search_meetings(
+    db: &PgPool,
+    q: &str,
+    limit: usize,
+    who: &Searcher<'_>,
+) -> Result<Vec<Value>, sqlx::Error> {
+    let all = (who.can)("weldmeet:meetings:scope:all");
+    if who.user_id.is_none() && !all {
+        return Ok(Vec::new());
+    }
+    let user = who.user_id.map(str::to_owned);
+    fetch_with(
+        db,
+        MEETINGS,
+        &escaped_term(q, limit),
+        vec![Arg::Bool(all), Arg::Text(user)],
+    )
+    .await
+}
+
+/// Signature requests by title (`searchSignEnvelopes`): the sender's own and
+/// the sent ones with a recipient at the caller's e-mail address (the one their
+/// member row holds), unless the caller holds `sign_envelopes:manage`.
+async fn search_sign_envelopes(
+    db: &PgPool,
+    q: &str,
+    limit: usize,
+    who: &Searcher<'_>,
+) -> Result<Vec<Value>, sqlx::Error> {
+    let manage = (who.can)("sign_envelopes:manage");
+    if who.user_id.is_none() && !manage {
+        return Ok(Vec::new());
+    }
+    let mut email: Option<String> = None;
+    if let (false, Some(user)) = (manage, who.user_id) {
+        let member: Option<Option<String>> = sqlx::query_scalar(
+            "select email from workspace_members where user_id = $1 and deleted_at is null limit 1",
+        )
+        .bind(user)
+        .fetch_optional(db)
+        .await?;
+        email = member.flatten().map(|email| email.to_lowercase());
+    }
+    let user = who.user_id.map(str::to_owned);
+    fetch_with(
+        db,
+        SIGN_ENVELOPES,
+        &escaped_term(q, limit),
+        vec![Arg::Bool(manage), Arg::Text(user), Arg::Text(email)],
+    )
+    .await
+}
+
+/// Channels by name (`searchChatChannels`): public ones and the private ones
+/// the caller has joined.
+async fn search_chat_channels(
+    db: &PgPool,
+    q: &str,
+    limit: usize,
+    who: &Searcher<'_>,
+) -> Result<Vec<Value>, sqlx::Error> {
+    let Some(user) = who.user_id else {
+        return Ok(Vec::new());
+    };
+    fetch_with(
+        db,
+        CHAT_CHANNELS,
+        &escaped_term(q, limit),
+        vec![Arg::Text(Some(user.to_owned()))],
+    )
+    .await
+}
+
+/// Agents by name (`searchAgents`): `agentVisibleTo` for the caller.
+async fn search_agents(
+    db: &PgPool,
+    q: &str,
+    limit: usize,
+    who: &Searcher<'_>,
+) -> Result<Vec<Value>, sqlx::Error> {
+    let manage = (who.can)("weldagent:manage");
+    if who.user_id.is_none() && !manage {
+        return Ok(Vec::new());
+    }
+    let user = who.user_id.unwrap_or_default().to_owned();
+    fetch_with(
+        db,
+        AGENTS,
+        &escaped_term(q, limit),
+        vec![Arg::Bool(manage), Arg::Text(Some(user))],
+    )
+    .await
 }
 
 /// Tasks also match by number: "TASK-1042", "#1042" or "1042".
@@ -759,46 +1300,82 @@ fn escape_like(text: &str) -> String {
     out
 }
 
-/// The record tables that are Drive files, searched by their file's name.
+/// What is searched by the name of its Drive file.
 #[derive(Clone, Copy)]
 enum FileKind {
     Sheet,
     Board,
+    Document,
+    /// The Drive uploads themselves, not the files behind the other three.
+    File,
 }
 
 impl FileKind {
-    /// The table, joined to `files` as `f` on `s.file_id`.
-    fn table(self) -> &'static str {
+    /// The rows, with the file as `f` (and the record as `s`, but for files).
+    fn source(self) -> &'static str {
         match self {
-            Self::Sheet => "sheets",
-            Self::Board => "whiteboards",
+            Self::Sheet => "sheets s join files f on f.id = s.file_id",
+            Self::Board => "whiteboards s join files f on f.id = s.file_id",
+            Self::Document => "docs s join files f on f.id = s.file_id",
+            Self::File => "files f",
+        }
+    }
+
+    /// The id a result carries.
+    fn id(self) -> &'static str {
+        match self {
+            Self::File => "f.id",
+            _ => "s.id",
+        }
+    }
+
+    /// When the record last changed.
+    fn changed(self) -> &'static str {
+        match self {
+            Self::File => "f.updated_at",
+            _ => "greatest(s.updated_at, f.updated_at)",
+        }
+    }
+
+    /// What else makes a row one of this kind: a document has a checkpoint
+    /// (older ones of WeldFlow do not), a file is none of the record kinds.
+    fn only(self) -> &'static str {
+        match self {
+            Self::Document => " and s.snapshot_key is not null",
+            Self::File => {
+                " and not exists (select 1 from docs d where d.file_id = f.id)
+                  and not exists (select 1 from sheets d where d.file_id = f.id)
+                  and not exists (select 1 from whiteboards d where d.file_id = f.id)"
+            }
+            _ => "",
         }
     }
 }
 
-/// Spreadsheets or boards, by the name of their Drive file, as far as the
-/// WeldDrive rules let `user_id` see them (`searchSheets`, `searchBoards`).
-/// Without a user, none.
+/// Spreadsheets, boards, documents or files, by the name of their Drive file,
+/// as far as the WeldDrive rules let the caller see them (`searchSheets`,
+/// `searchBoards`, `searchDocuments`, `searchFiles`). Without a user, none.
 async fn search_files(
     db: &PgPool,
     kind: FileKind,
     q: &str,
     limit: usize,
-    user_id: Option<&str>,
+    who: &mut Searcher<'_>,
 ) -> Result<Vec<Value>, sqlx::Error> {
-    // The table comes from the closed `FileKind` set, never from input.
-    let table = kind.table();
-    let Some(user_id) = user_id else {
+    if who.user_id.is_none() {
         return Ok(Vec::new());
-    };
+    }
+    let (from, id, only) = (kind.source(), kind.id(), kind.only());
     let term = q.to_lowercase();
     let escaped = escape_like(&term);
     let contains = format!("%{escaped}%");
     let starts_with = format!("{escaped}%");
     // Most keystrokes match nothing: skip the access rules until a row does.
+    // The tables come from the closed `FileKind` set, never from input.
     let candidate: Option<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select s.id from {table} s join files f on f.id = s.file_id
-         where f.deleted_at is null and f.entity_type is null and lower(f.file_name) like $1
+        "select {id} from {from}
+         where f.deleted_at is null and f.entity_type is null{only}
+           and lower(f.file_name) like $1
          limit 1"
     )))
     .bind(&contains)
@@ -807,33 +1384,43 @@ async fn search_files(
     if candidate.is_none() {
         return Ok(Vec::new());
     }
-    let access = load_drive_access_for_user(db, Some(user_id)).await?;
-    let rows: Vec<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+    // `visibleFilesCondition` on `files f`, bound as `$4` (admin) … `$8` (open folders).
+    let visible = who.visible_files(db).await?;
+    let admin = visible.is_none();
+    let visible = visible.unwrap_or_default();
+    let changed = kind.changed();
+    let limit = i64::try_from(limit + 1).unwrap_or(i64::MAX);
+    sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "select jsonb_build_object(
-                'row', jsonb_build_object('id', s.id, 'name', f.file_name),
+                'row', jsonb_build_object('id', {id}, 'name', f.file_name),
                 'score', case when lower(f.file_name) = $1 then 1.0
                               when lower(f.file_name) like $2 then 0.9
-                              when lower(f.file_name) like $3 then 0.6 else 0 end,
-                'file', jsonb_build_object('id', f.id, 'uploadedById', f.uploaded_by_id,
-                    'folderId', f.folder_id, 'generalAccess', f.general_access,
-                    'entityType', f.entity_type))
-         from {table} s join files f on f.id = s.file_id
-         where f.deleted_at is null and f.entity_type is null and lower(f.file_name) like $3
+                              when lower(f.file_name) like $3 then 0.6 else 0 end)
+         from {from}
+         where f.deleted_at is null and f.entity_type is null{only}
+           and lower(f.file_name) like $3
+           and ($4::bool or f.entity_type is not null
+             or ($5::text is not null and f.uploaded_by_id = $5)
+             or f.id = any($6::text[]) or f.folder_id = any($7::text[])
+             or (f.general_access <> 'restricted'
+                 and (f.folder_id is null or f.folder_id = any($8::text[]))))
          order by case when lower(f.file_name) = $1 then 1.0
                        when lower(f.file_name) like $2 then 0.9
                        when lower(f.file_name) like $3 then 0.6 else 0 end desc,
-                  greatest(s.updated_at, f.updated_at) desc, s.id desc"
+                  {changed} desc, {id} desc
+         limit $9"
     )))
     .bind(&term)
     .bind(&starts_with)
     .bind(&contains)
+    .bind(admin)
+    .bind(&visible.user_id)
+    .bind(&visible.file_share_ids)
+    .bind(&visible.granted_folder_ids)
+    .bind(&visible.open_folder_ids)
+    .bind(limit)
     .fetch_all(db)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .filter(|row| file_visible(&access, &DriveFileRef::from_row(&row["file"])))
-        .take(limit + 1)
-        .collect())
+    .await
 }
 
 // ── Member apps ────────────────────────────────────────────────────────────
@@ -955,7 +1542,7 @@ fn read_input(issues: &mut Issues, body: &Map<String, Value>) -> SearchInput {
 }
 
 pub(crate) async fn search(
-    State(_state): State<CoreFilesState>,
+    State(state): State<CoreFilesState>,
     caller: Caller,
     headers: HeaderMap,
     body: Bytes,
@@ -971,7 +1558,25 @@ pub(crate) async fn search(
                 })
             };
             let permitted: Vec<SearchType> = SearchType::all().filter(|t| allowed(*t)).collect();
-            let parsed = understand_query(&input.q);
+            // Structure the query first ("Invoice from Acme Corp" becomes
+            // invoices matching "Acme Corp"). Never fails: no AI, an empty
+            // wallet or a refusal all leave the raw query.
+            let tier = ModelTier {
+                ai: caller.ai(&state),
+                call: {
+                    let call = ModelTier::call(&caller.workspace_id)
+                        .tenant(caller.db.clone())
+                        .master(caller.master(&state));
+                    match &caller.user_id {
+                        Some(user) => call.user(user),
+                        None => call,
+                    }
+                },
+                cache: caller.cache(&state),
+                // The parse cache stays under the Clerk org id, as TypeScript keeps it.
+                cache_workspace: caller.clerk_org_id.clone().unwrap_or_default(),
+            };
+            let parsed = understand_query_with(&input.q, &tier).await;
             let scoped = match &input.types {
                 Some(types) if !types.is_empty() => types.clone(),
                 _ => apply_permitted_types(&parsed, &permitted),
@@ -986,15 +1591,19 @@ pub(crate) async fn search(
                 term => term,
             };
             let mut groups = Vec::with_capacity(filtered.len());
+            // `SearchCaller`: no user, no per-person records (an empty id is no user).
+            let can = |key: &str| {
+                caller.permissions.as_ref().is_some_and(|permissions| {
+                    has_any_app_permission(permissions.resolved(), &[key], None)
+                })
+            };
+            let mut who = Searcher {
+                user_id: caller.user_id.as_deref().filter(|id| !id.is_empty()),
+                can: &can,
+                drive: Drive::Unloaded,
+            };
             for kind in &filtered {
-                let rows = search_rows(
-                    &caller.db,
-                    *kind,
-                    term,
-                    input.limit,
-                    caller.user_id.as_deref(),
-                )
-                .await?;
+                let rows = search_rows(&caller.db, *kind, term, input.limit, &mut who).await?;
                 groups.push((*kind, group(*kind, &rows, input.limit)));
             }
             // Products link to WeldStash when that is the app the member has.
@@ -1041,6 +1650,111 @@ pub(crate) async fn search(
         }
         .await,
         "Failed to run search",
+    )
+}
+
+// ── POST /api/search/reindex ───────────────────────────────────────────────
+
+/// `REINDEX_LOCK_PREFIX`: the advisory lease, per workspace.
+const REINDEX_LOCK_PREFIX: &str = "search-reindex-lock:";
+/// Longer than one page, short enough to heal after a crash.
+const REINDEX_LOCK_TTL: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// `reindexInputSchema`: `{ cursor?: { entityType, afterId } | null }`.
+fn read_reindex(issues: &mut Issues, body: &Map<String, Value>) -> Option<BackfillCursor> {
+    issues
+        .nested(body, "cursor", Presence::Nullish, |issues, fields| {
+            let entity_type = issues
+                .choice(fields, "entityType", Presence::Required, &ENTITY_TYPES)
+                .into_option();
+            let after_id = issues
+                .text(fields, "afterId", Presence::Nullable, None, None)
+                .into_option();
+            BackfillCursor {
+                entity_type: entity_type.unwrap_or_default(),
+                after_id,
+            }
+        })
+        .into_option()
+}
+
+/// `acquireReindexLease(env, orgId)`: whether this walk may run. Advisory,
+/// as TypeScript's: a cache that can't be read lets the walk run rather than
+/// block an admin action.
+async fn acquire_reindex_lease(cache: Option<&Arc<dyn DynCache>>, key: &str) -> bool {
+    let Some(cache) = cache else {
+        return true;
+    };
+    match cache.get_boxed(key).await {
+        Ok(Some(held)) if !held.is_empty() => false,
+        Ok(_) => {
+            let now = weldsuite_events::iso_timestamp(time::OffsetDateTime::now_utc());
+            if let Err(error) = cache.put_boxed(key, &now, Some(REINDEX_LOCK_TTL)).await {
+                tracing::debug!(%error, "[app-api/search] reindex lease unavailable");
+            }
+            true
+        }
+        Err(_) => true,
+    }
+}
+
+/// `POST /api/search/reindex` (`settings:general:update`): one page of the
+/// semantic backfill, its embeddings through the install's AI
+/// (`search-index`, the indexer's own code: [`backfill_batch`]), charged to
+/// the workspace once per page. The caller loops on the returned cursor
+/// until `done`; two walks of one workspace at once get a 409.
+pub(crate) async fn reindex(
+    State(state): State<CoreFilesState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    answer(
+        async {
+            let cursor = validate(&headers, &body, read_reindex)?;
+            let embeddings = caller
+                .ai(&state)
+                .and_then(|ai| index_model(&ai).map(|model| (ai, model)));
+            let Some((ai, model)) = embeddings else {
+                tracing::error!("[app-api/search] reindex: AI is not configured");
+                return Ok(json_response(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    json!({ "error": { "code": "AI_NOT_CONFIGURED", "message": "AI gateway is not configured" } }),
+                ));
+            };
+            let cache = caller.cache(&state);
+            let key = format!(
+                "{REINDEX_LOCK_PREFIX}{}",
+                caller.clerk_org_id.as_deref().unwrap_or_default()
+            );
+            if !acquire_reindex_lease(cache.as_ref(), &key).await {
+                return Ok(json_response(
+                    StatusCode::CONFLICT,
+                    json!({ "error": { "code": "REINDEX_IN_PROGRESS", "message": "A reindex is already running for this workspace" } }),
+                ));
+            }
+            let embedder = WorkspaceEmbeddings::new(ai, model, &caller.workspace_id);
+            let cursor = cursor.unwrap_or_else(BackfillCursor::initial);
+            let progress = backfill_batch(&caller.db, &embedder, &cursor).await;
+            embedder.settle(caller.master(&state).as_ref()).await;
+            if let Some(cache) = &cache {
+                let _ = cache.delete_boxed(&key).await;
+            }
+            match progress {
+                Ok(progress) => Ok(json_response(
+                    StatusCode::OK,
+                    json!({ "data": progress.to_json() }),
+                )),
+                Err(error) => {
+                    tracing::error!(%error, "[app-api/search] reindex batch failed");
+                    Ok(ApiError::internal()
+                        .with_message("Failed to run reindex batch")
+                        .into_response())
+                }
+            }
+        }
+        .await,
+        "Failed to run reindex batch",
     )
 }
 
@@ -1091,6 +1805,133 @@ mod tests {
         for (_, name, _) in REGISTRY {
             assert!(ENTITY_TYPES.contains(&name), "{name}");
         }
+    }
+
+    #[test]
+    fn the_registry_is_in_canonical_order_and_named_by_the_schema() {
+        let names: Vec<&str> = REGISTRY.iter().map(|(_, name, _)| *name).collect();
+        assert_eq!(
+            names,
+            [
+                "contact",
+                "customer",
+                "lead",
+                "opportunity",
+                "ticket",
+                "conversation",
+                "article",
+                "knowledge_page",
+                "product",
+                "order",
+                "warehouse",
+                "invoice",
+                "bill",
+                "project",
+                "task",
+                "merge_issue",
+                "merge_pull_request",
+                "document",
+                "sheet",
+                "board",
+                "form",
+                "sign_envelope",
+                "drive_file",
+                "meeting",
+                "chat_channel",
+                "reach_campaign",
+                "data_list",
+                "panel_project",
+                "workflow",
+                "agent",
+                "domain",
+            ]
+        );
+    }
+
+    #[test]
+    fn other_modules_results() {
+        for (kind, id, url) in [
+            (SearchType::Document, "doc_1", "/welddocs/doc_1"),
+            (SearchType::Form, "frm_1", "/weldforms/frm_1"),
+            (SearchType::DriveFile, "fil 1", "/welddrive?file=fil%201"),
+            (SearchType::Conversation, "dcv_1", "/welddesk/inbox/dcv_1"),
+            (SearchType::Meeting, "mtg_1", "/weldmeet/mtg_1"),
+            (SearchType::SignEnvelope, "sgn_1", "/weldsign/sgn_1"),
+            (
+                SearchType::Warehouse,
+                "whs_1",
+                "/weldstash/warehouses?stack=warehouse:whs_1",
+            ),
+            (
+                SearchType::Workflow,
+                "wfl_1",
+                "/weldconnect/workflows/wfl_1",
+            ),
+            (SearchType::Agent, "agt_1", "/agents/agt_1"),
+            (
+                SearchType::ReachCampaign,
+                "rcmp_1",
+                "/weldreach/campaigns/rcmp_1",
+            ),
+            (SearchType::ChatChannel, "chn_1", "/weldchat/chn_1"),
+            (SearchType::DataList, "wdl_1", "/welddata/lists/wdl_1"),
+            (
+                SearchType::PanelProject,
+                "pnp_1",
+                "/weldpanel/projects/pnp_1",
+            ),
+        ] {
+            assert_eq!(build_result_url(kind, id, None), url);
+        }
+        let (title, subtitle) = describe(
+            SearchType::Conversation,
+            &json!({ "title": null, "name": "Zeta Corp", "email": null, "conversationNumber": 4202 }),
+        );
+        assert_eq!(title, "Zeta Corp");
+        assert_eq!(subtitle.as_deref(), Some("#4202 · Zeta Corp"));
+        let (title, subtitle) = describe(
+            SearchType::Conversation,
+            &json!({ "title": "", "name": "", "email": null, "conversationNumber": 7 }),
+        );
+        assert_eq!(title, "Conversation #7");
+        assert_eq!(subtitle.as_deref(), Some("#7"));
+        let (title, subtitle) = describe(
+            SearchType::Warehouse,
+            &json!({ "name": "Zeta", "code": "", "city": "Rotterdam" }),
+        );
+        assert_eq!(
+            (title.as_str(), subtitle.as_deref()),
+            ("Zeta", Some("Rotterdam"))
+        );
+        let (_, subtitle) = describe(
+            SearchType::PanelProject,
+            &json!({ "name": "Site", "kind": "website", "status": "active" }),
+        );
+        assert_eq!(subtitle.as_deref(), Some("website · active"));
+        let (_, subtitle) = describe(
+            SearchType::ChatChannel,
+            &json!({ "name": "general", "topic": null, "description": "All things" }),
+        );
+        assert_eq!(subtitle.as_deref(), Some("All things"));
+        let (title, subtitle) = describe(
+            SearchType::SignEnvelope,
+            &json!({ "title": "", "status": "sent" }),
+        );
+        assert_eq!(
+            (title.as_str(), subtitle.as_deref()),
+            ("Signature request", Some("sent"))
+        );
+        let (title, subtitle) = describe(SearchType::Document, &json!({ "name": "" }));
+        assert_eq!((title.as_str(), subtitle), ("Document", None));
+    }
+
+    #[test]
+    fn typed_patterns_match_themselves() {
+        let term = escaped_term("50%_A", 5);
+        assert_eq!(term.lower, "50%_a");
+        assert_eq!(term.prefix, "50\\%\\_a%");
+        assert_eq!(term.contains, "%50\\%\\_a%");
+        assert_eq!(term.limit, 6);
     }
 
     #[test]

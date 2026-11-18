@@ -4,7 +4,7 @@
  * Pure TypeScript with no dependencies besides our own collab and zip/xml
  * packages, so the same code runs in the browser, in the DocRoom Durable
  * Object and in any worker that reads or writes documents. See
- * docs/plans/welddocs.md.
+ * weldsuite-documentation/plans/welddocs.md.
  */
 
 export { LINE_BREAK, OBJECT, PARA, TAB, cleanStoryText, isStoryText, splitsSurrogate } from './model/chars';

@@ -35,6 +35,12 @@ export function pagesHeight(tops: readonly number[]): number {
   return tops[tops.length - 1]! + PAD_TOP;
 }
 
+/** Focus is on nothing, or in a toolbar drop-down or popover (a menu, the table grid, the colours). */
+export function focusIsNowhereOrInPopup(): boolean {
+  const active = document.activeElement;
+  return !active || active === document.body || !!active.closest('[role="menu"], [data-radix-popper-content-wrapper]');
+}
+
 /**
  * The pages, stacked and centred, rendered only near the viewport. Typing
  * goes into a hidden textarea kept at the caret, so the browser's input
@@ -105,6 +111,15 @@ export function PageView({ controller, scrollRef }: { controller: DocController;
   useEffect(() => {
     inputRef.current?.focus({ preventScroll: true });
   }, []);
+
+  // A toolbar or menu command hands typing back at once (`returnFocus`), unless
+  // something else took focus meanwhile (a dialog, the find bar).
+  useEffect(() => {
+    controller.setFocusTarget(() => {
+      if (focusIsNowhereOrInPopup()) inputRef.current?.focus({ preventScroll: true });
+    });
+    return () => controller.setFocusTarget(null);
+  }, [controller]);
 
   // A command from a menu or a dialog leaves focus nowhere once that closes: take it back, so typing goes on.
   useEffect(() => {

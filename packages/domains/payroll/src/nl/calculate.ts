@@ -1,7 +1,7 @@
 /**
  * The Dutch payslip: gross to net for one employee and one monthly period.
  *
- * Scope (v1, docs/plans/weldhr-payroll.md "Build"): employers without a CAO,
+ * Scope (v1, weldsuite-documentation/plans/weldhr-payroll.md "Build"): employers without a CAO,
  * insured (non-sector-fund) pension, DGA payroll, monthly pay, white table and
  * special-reward table (green special-reward table only for the
  * transitievergoeding), holiday allowance, company car, travel and home-working

@@ -15,6 +15,7 @@
 //! tag's own origin is a collector, at the root of every host.
 
 mod ip_filter;
+mod proxy;
 mod rows;
 mod url;
 mod user_agent;
@@ -47,8 +48,11 @@ use weldsuite_ports::{
 
 pub use visitor::{CacheSalt, CacheUsage};
 
-use crate::domain::{ProjectRecord, is_allowed_origin, is_project_token, project_key, seen_key};
-use crate::js::Js;
+use crate::domain::{
+    ProjectRecord, is_allowed_origin, is_project_token, parse_quota_state, project_key, quota_key,
+    seen_key,
+};
+use crate::js::{Js, number_value};
 use rows::{Geo, RowSource, build_event_rows, consented_anon_id, iso_millis, parse_millis};
 use visitor::{cookieless_visitor_id, utc_date};
 use wire::{EventBatch, MAX_BATCH_BYTES, parse_event_batch};
@@ -159,7 +163,10 @@ pub struct CollectorState {
     pub sink: Option<Arc<dyn EventSink>>,
     pub environment: String,
     pub sdk: Option<Arc<SdkBundle>>,
-    /// How many proxies in front append to `X-Forwarded-For`.
+    /// How many proxies in front append to `X-Forwarded-For`. The collector
+    /// doesn't read it: like panel-ingest it takes the first hop, which a
+    /// site's own proxy (forwarding beacons first-party) sets to the
+    /// visitor's address (`proxy::client_ip`).
     pub trusted_proxies: usize,
     seen: Arc<SeenThrottle>,
 }
@@ -487,6 +494,21 @@ async fn load_project(
     Ok(ProjectRecord::parse(Some(&record)))
 }
 
+/// The workspace's quota state (`panel:quota:<workspace>`); missing,
+/// unreadable or unknown is `ok`, so a cache hiccup never drops events.
+async fn quota_state(ctx: &Ctx, state: &CollectorState, workspace_id: &str) -> &'static str {
+    let Some(cache) = ctx.cache(state) else {
+        return "ok";
+    };
+    match cache.get(&quota_key(workspace_id)).await {
+        Ok(raw) => parse_quota_state(raw.as_deref()),
+        Err(error) => {
+            tracing::error!(%error, "[panel-ingest] Quota lookup failed for workspace {workspace_id}");
+            "ok"
+        }
+    }
+}
+
 /// `GET /c/:token`: what the SDK needs before it collects anything.
 async fn config(
     State(state): State<CollectorState>,
@@ -510,11 +532,25 @@ async fn config(
         return response;
     };
     let setting = |key: &str| project.settings.get(key).cloned().unwrap_or(Value::Null);
+    // `Math.min(Math.max(Number(x) || 0, 0), 1)`.
+    let sample_rate = project
+        .settings
+        .get("recordingSampleRate")
+        .and_then(Value::as_f64)
+        .filter(|rate| rate.is_finite())
+        .unwrap_or(0.0)
+        .clamp(0.0, 1.0);
+    let quota = quota_state(&ctx, &state, &project.workspace_id).await;
+    // Heatmap snapshots are a Global-edition feature (recordings and their
+    // R2 bucket): a Kubernetes edition never asks the SDK for one.
     let mut response = axum::Json(json!({
         "autocapture": setting("autocapture"),
         "consentMode": setting("consentMode"),
         "maskingLevel": setting("maskingLevel"),
         "excludedUrls": setting("excludedUrls"),
+        "recordingSampleRate": number_value(sample_rate),
+        "recordingBlocked": sample_rate == 0.0 || quota != "ok",
+        "snapshot": null,
     }))
     .into_response();
     response.headers_mut().insert(
@@ -522,26 +558,6 @@ async fn config(
         HeaderValue::from_static("public, max-age=300"),
     );
     response
-}
-
-/// The client's address: the `X-Forwarded-For` entry the ingress appended
-/// (`trusted_proxies` from the right). On Global, Cloudflare sets
-/// `CF-Connecting-IP`; nothing in front of this server does, so a client
-/// could send any, and it is ignored. Empty when there is none.
-fn client_ip(headers: &HeaderMap, trusted_proxies: usize) -> String {
-    let hops: Vec<&str> = headers
-        .get_all("x-forwarded-for")
-        .iter()
-        .filter_map(|value| value.to_str().ok())
-        .flat_map(|value| value.split(','))
-        .map(str::trim)
-        .filter(|hop| !hop.is_empty())
-        .collect();
-    hops.len()
-        .checked_sub(trusted_proxies.max(1))
-        .and_then(|at| hops.get(at))
-        .map(|ip| (*ip).to_owned())
-        .unwrap_or_default()
 }
 
 /// The request body as text, at most `limit` bytes (`readTextLimited`);
@@ -655,7 +671,7 @@ async fn events(
         );
     }
 
-    let ip = client_ip(&headers, state.trusted_proxies);
+    let ip = proxy::client_ip(&headers);
     let user_agent = headers
         .get("user-agent")
         .and_then(|value| value.to_str().ok())
@@ -667,6 +683,10 @@ async fn events(
     if dropped {
         return StatusCode::NO_CONTENT.into_response();
     }
+    // Past the plan's allowance with no wallet to pay for more: accepted, not counted.
+    if quota_state(&ctx, &state, &project.workspace_id).await == "events_blocked" {
+        return StatusCode::NO_CONTENT.into_response();
+    }
 
     let accepted = Accepted {
         project,
@@ -674,6 +694,7 @@ async fn events(
         received_at: ctx.now_ms(),
         ip,
         user_agent,
+        geo: proxy::request_geo(&headers),
     };
     let ports = ctx.ports(&state);
     let cache = ctx.cache(&state);
@@ -690,9 +711,10 @@ struct Accepted {
     project: ProjectRecord,
     batch: EventBatch,
     received_at: i64,
-    /// Used for the cookieless hash only, never stored.
+    /// Used for the cookieless hash and the IP filter only, never stored.
     ip: String,
     user_agent: String,
+    geo: Geo,
 }
 
 /// Failures are logged with ids and counts only, never request data.
@@ -719,6 +741,7 @@ async fn collect(
         received_at,
         ip,
         user_agent,
+        geo,
     } = accepted;
     // Events that need a cookieless id are left out when the salt is
     // unavailable: an id built without it would be stable across days.
@@ -748,7 +771,7 @@ async fn collect(
         batch: &batch,
         received_at,
         user_agent: user_agent::parse_user_agent(&user_agent),
-        geo: Geo::default(),
+        geo,
         cookieless_id,
     });
     if rows.is_empty() {

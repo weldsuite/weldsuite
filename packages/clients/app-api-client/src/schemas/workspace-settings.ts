@@ -185,7 +185,11 @@ export const deleteWorkspaceResultSchema = z.object({ deleted: z.boolean() });
 
 const nullableText = z.string().nullable();
 
-/** A `workspace_settings` row (GET / and PUT /); GET answers null before the first save. */
+/**
+ * A `workspace_settings` row (GET / and PUT /). Before the first save GET
+ * answers {@link workspaceBusinessProfileSchema} when the workspace has a
+ * default legal entity, and null when it has none.
+ */
 export const workspaceSettingsSchema = z.object({
   id: z.string(),
   theme: nullableText,
@@ -224,3 +228,34 @@ export const workspaceSettingsSchema = z.object({
 });
 
 export type WorkspaceSettingsRow = z.infer<typeof workspaceSettingsSchema>;
+
+/**
+ * GET / before the first save, when a default legal entity exists: that
+ * entity's business fields, so the form shows them and its first save keeps
+ * them (TASK-1464). There is no settings row yet, so no id or preferences.
+ */
+export const workspaceBusinessProfileSchema = workspaceSettingsSchema
+  .pick({
+    legalName: true,
+    tradingName: true,
+    contactFirstName: true,
+    contactLastName: true,
+    email: true,
+    phone: true,
+    addressLine1: true,
+    addressLine2: true,
+    city: true,
+    state: true,
+    postalCode: true,
+    country: true,
+    vatNumber: true,
+    registrationNumber: true,
+    logoUrl: true,
+    websiteUrl: true,
+    primaryColor: true,
+    accentColor: true,
+  })
+  .strict();
+
+/** What GET / answers: the row, the default entity's profile before the first save, or null. */
+export const workspaceSettingsReadSchema = z.union([workspaceSettingsSchema, workspaceBusinessProfileSchema]).nullable();

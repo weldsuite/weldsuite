@@ -1,6 +1,6 @@
 /**
  * WeldReach inbox billing: one Stripe subscription per workspace, one price
- * ($8 per inbox per month, docs/plans/weldreach.md "Billing"), quantity = the
+ * ($8 per inbox per month, weldsuite-documentation/plans/weldreach.md "Billing"), quantity = the
  * number of inboxes. The subscription id and its status live on the master
  * `workspace_app_access` row of the workspace's `weldreach` access.
  *

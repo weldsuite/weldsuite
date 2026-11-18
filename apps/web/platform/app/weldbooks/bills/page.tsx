@@ -56,37 +56,38 @@ export default function BillsPage() {
     {
       id: 'number',
       header: tbp.colNumber,
-      width: 'min-w-[200px] flex-1 gap-2',
+      width: 'min-w-0 flex-1 gap-2 @2xl/list:min-w-[200px]',
       render: (bill) => <RowTitle>{bill.billNumber ?? '—'}</RowTitle>,
     },
     {
       id: 'supplier',
       header: tbp.colSupplier,
-      width: 'w-[200px]',
+      width: 'hidden shrink-0 @4xl/list:flex w-[200px]',
       render: (bill) => <ContactCell name={bill.contactName} />,
     },
     {
       id: 'issueDate',
       header: tbp.colDate,
-      width: 'w-[120px]',
+      width: 'hidden shrink-0 @4xl/list:flex w-[120px]',
       render: (bill) => <RowDate>{formatDate(bill.issueDate)}</RowDate>,
     },
     {
       id: 'dueDate',
       header: tbp.colDueDate,
-      width: 'w-[120px]',
+      width: 'hidden shrink-0 @6xl/list:flex w-[120px]',
       render: (bill) => <RowDate>{formatDate(bill.dueDate)}</RowDate>,
     },
     {
       id: 'total',
       header: tbp.colTotal,
-      width: 'w-[130px]',
+      width: 'shrink-0 w-[130px]',
       render: (bill) => <RowAmount>{formatMoney(bill.total ?? bill.totalAmount, bill.currency)}</RowAmount>,
     },
     {
       id: 'status',
       header: tbp.colStatus,
-      width: 'w-[110px]',
+      // On a phone the number and the total get the row; the status shows from 512px of list width.
+      width: 'hidden shrink-0 @lg/list:flex w-[110px]',
       render: (bill) => <StatusChip status={bill.status}>{tsl[bill.status] ?? bill.status}</StatusChip>,
     },
   ];

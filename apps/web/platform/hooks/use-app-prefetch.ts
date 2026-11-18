@@ -81,7 +81,7 @@ const PREFETCHERS: Record<string, Prefetcher> = {
 
   // Warms accounts, then — once we know which mailbox the user would land on
   // — its first Inbox page and labels too, plus the label route's chunk, so a
-  // click lands on an already-warm page (docs/plans/weldmail-mailbox-storage.md
+  // click lands on an already-warm page (weldsuite-documentation/plans/weldmail-mailbox-storage.md
   // phase 1 item 8). The unified inbox has no single mailbox to warm; its own
   // route prefetch (label-route-prefetch.ts) covers that case on navigation.
   //

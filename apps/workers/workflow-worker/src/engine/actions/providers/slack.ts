@@ -1,7 +1,7 @@
 /**
  * Slack outbound actions (`slack.*`) — the reference third-party provider.
  * Google (Sheets, Gmail, Calendar) and GitHub follow the same shape; see
- * "Provider pattern" in docs/plans/weldconnect.md.
+ * "Provider pattern" in weldsuite-documentation/plans/weldconnect.md.
  */
 
 import type { ActionHandler } from '../../types';

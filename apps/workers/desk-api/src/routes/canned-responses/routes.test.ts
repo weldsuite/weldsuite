@@ -24,10 +24,9 @@ describeCrud(BASE, {
   gates: { read: 'tickets:read', create: 'tickets:create', update: 'tickets:update', delete: 'tickets:delete' },
   // Another agent's personal responses: listed by GET /, never found by /search.
   seed: (n) => ({ name: `Canned ${n}`, content: `Body ${n}`, scope: 'personal', agentId: 'user_crud' }),
-  // The schema wants `body`, the column is `content`: only a passthrough `content` stores.
+  // The schema asks for `content`, the column the platform sends and reads.
   valid: {
     name: 'Greeting',
-    body: 'alias only',
     content: 'Hello {{customer.name}}',
     subject: 'Hi',
     shortcut: '/hi',
@@ -35,18 +34,19 @@ describeCrud(BASE, {
     departmentId: null,
     isShared: true,
   },
-  unstorable: { name: 'No content', body: 'only the alias' },
   invalid: [
     {},
-    { body: 'x' },
-    { name: '', body: 'x' },
+    { content: 'x' },
+    { name: '', content: 'x' },
     { name: 'x' },
-    { name: 'x', body: 5 },
-    { name: 'x', body: 'x', shortcut: 'x'.repeat(51) },
-    { name: 'x', body: 'x', category: 'x'.repeat(101) },
-    { name: 'x', body: 'x', subject: 'x'.repeat(501) },
-    { name: 'x', body: 'x', isShared: 'yes' },
-    { name: 'x', body: 'x', departmentId: 3 },
+    // The old `body` name is no column: without `content` the body is refused.
+    { name: 'x', body: 'x' },
+    { name: 'x', content: 5 },
+    { name: 'x', content: 'x', shortcut: 'x'.repeat(51) },
+    { name: 'x', content: 'x', category: 'x'.repeat(101) },
+    { name: 'x', content: 'x', subject: 'x'.repeat(501) },
+    { name: 'x', content: 'x', isShared: 'yes' },
+    { name: 'x', content: 'x', departmentId: 3 },
   ],
   patch: { name: 'Greeting 2', subject: 'Hello there', category: 'General' },
   invalidPatch: { isShared: 'no' },

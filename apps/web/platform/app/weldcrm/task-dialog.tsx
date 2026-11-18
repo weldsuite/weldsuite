@@ -592,10 +592,18 @@ function DurationPopover({
   onChange,
 }: Readonly<{ duration: number | null; onChange: (duration: number | null) => void }>) {
   const tCrm = getTranslations('crm');
+  // A set estimate shows only "30m": the name and tooltip say what it is.
+  const estimateLabel = duration == null ? undefined : tCrm.taskDialog.durationLabel.replace('{duration}', formatMinutes(duration));
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="outline" size="sm" className={cn("h-7 text-xs font-normal gap-1", duration != null && "bg-cyan-100 text-cyan-800 border-cyan-200 hover:bg-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-400 dark:border-cyan-800")}>
+        <Button
+          variant="outline"
+          size="sm"
+          aria-label={estimateLabel}
+          title={estimateLabel}
+          className={cn("h-7 text-xs font-normal gap-1", duration != null && "bg-cyan-100 text-cyan-800 border-cyan-200 hover:bg-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-400 dark:border-cyan-800")}
+        >
           {duration != null ? formatMinutes(duration) : tCrm.taskDialog.durationFallback}
         </Button>
       </PopoverTrigger>
@@ -933,10 +941,18 @@ function RepeatPopover({
   onIntervalChange: (interval: number) => void;
   onUnitChange: (unit: RepeatUnitValue) => void;
 }>) {
+  const tCrm = getTranslations('crm');
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="outline" size="sm" className={cn("h-[30px] gap-1 px-2", repeat && "bg-indigo-100 text-indigo-800 border-indigo-200 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400 dark:border-indigo-800")}>
+        <Button
+          variant="outline"
+          size="sm"
+          // Icon-only until a repeat is set.
+          aria-label={repeat ? undefined : tCrm.taskDialog.repeatFallback}
+          title={tCrm.taskDialog.repeatFallback}
+          className={cn("h-[30px] gap-1 px-2", repeat && "bg-indigo-100 text-indigo-800 border-indigo-200 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400 dark:border-indigo-800")}
+        >
           <Repeat2 className="h-3.5 w-3.5" />
           {repeat && (
             <span className="text-xs">
@@ -1418,6 +1434,7 @@ export function TaskDialog({
             size="icon"
             className="h-6 w-6 translate-x-[4px] hover:ring-[3px] hover:ring-accent dark:hover:ring-accent"
             onClick={handleClose}
+            aria-label={tCrm.taskDialog.close}
           >
             <X className="h-3.5 w-3.5 !text-gray-500 dark:!text-gray-400" strokeWidth={2.5} />
           </Button>

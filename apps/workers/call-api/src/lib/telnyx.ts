@@ -49,6 +49,17 @@ function resolveTelnyxUrl(endpoint: string): string {
   return url.toString();
 }
 
+/** A Telnyx REST answer outside 2xx; `status` is the HTTP status. */
+export class TelnyxApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = 'TelnyxApiError';
+  }
+}
+
 export async function telnyxRequest<T>(
   env: TelnyxEnv,
   endpoint: string,
@@ -74,7 +85,7 @@ export async function telnyxRequest<T>(
   if (!response.ok) {
     const err = (await response.json().catch(() => ({}))) as Record<string, any>;
     const errorMsg = err?.errors?.[0]?.detail || err?.errors?.[0]?.title || response.statusText;
-    throw new Error(`Telnyx API error: ${response.status} - ${errorMsg}`);
+    throw new TelnyxApiError(`Telnyx API error: ${response.status} - ${errorMsg}`, response.status);
   }
 
   if (response.status === 204) return {} as T;
@@ -145,11 +156,22 @@ export async function telnyxTransfer(
 export async function telnyxRecordStart(
   env: TelnyxEnv,
   callControlId: string,
-  opts?: { channels?: 'single' | 'dual'; format?: 'mp3' | 'wav' },
+  opts?: {
+    channels?: 'single' | 'dual';
+    format?: 'mp3' | 'wav';
+    /** A beep before recording starts (voicemail). */
+    playBeep?: boolean;
+    /** Longest recording, seconds. */
+    maxLength?: number;
+    clientState?: string;
+  },
 ): Promise<unknown> {
   return callControlAction(env, callControlId, 'record_start', {
     channels: opts?.channels ?? 'dual',
     format: opts?.format ?? 'mp3',
+    ...(opts?.playBeep ? { play_beep: true } : {}),
+    ...(opts?.maxLength ? { max_length: opts.maxLength } : {}),
+    ...(opts?.clientState ? { client_state: opts.clientState } : {}),
   });
 }
 
@@ -184,6 +206,176 @@ export async function telnyxAiAssistantStop(
   callControlId: string,
 ): Promise<unknown> {
   return callControlAction(env, callControlId, 'ai_assistant_stop', {});
+}
+
+/** The three ids Telnyx answers a dial with. */
+export interface TelnyxDialed {
+  callControlId: string | null;
+  callLegId: string | null;
+  callSessionId: string | null;
+}
+
+/**
+ * `POST /v2/calls`: dial `to` (E.164 or `sip:<username>@sip.telnyx.com`) on a
+ * Call Control connection. `clientState` rides on every webhook of the new leg.
+ */
+export async function telnyxDial(
+  env: TelnyxEnv,
+  args: {
+    connectionId: string;
+    to: string;
+    from: string;
+    timeoutSecs?: number;
+    clientState?: string;
+  },
+): Promise<TelnyxDialed> {
+  const resp = await telnyxRequest<{
+    data?: { call_control_id?: string; call_leg_id?: string; call_session_id?: string };
+  }>(env, '/calls', {
+    method: 'POST',
+    body: JSON.stringify({
+      connection_id: args.connectionId,
+      to: args.to,
+      from: args.from,
+      ...(args.timeoutSecs ? { timeout_secs: args.timeoutSecs } : {}),
+      ...(args.clientState ? { client_state: args.clientState } : {}),
+    }),
+  });
+  return {
+    callControlId: resp.data?.call_control_id ?? null,
+    callLegId: resp.data?.call_leg_id ?? null,
+    callSessionId: resp.data?.call_session_id ?? null,
+  };
+}
+
+/** Bridge this call to another call (`otherCallControlId`). Takes a queued call out of its queue. */
+export async function telnyxBridge(
+  env: TelnyxEnv,
+  callControlId: string,
+  otherCallControlId: string,
+): Promise<unknown> {
+  return callControlAction(env, callControlId, 'bridge', { call_control_id: otherCallControlId });
+}
+
+export interface TelnyxSpeakOptions {
+  voice?: string;
+  language?: string;
+  clientState?: string;
+}
+
+export async function telnyxSpeak(
+  env: TelnyxEnv,
+  callControlId: string,
+  payload: string,
+  opts?: TelnyxSpeakOptions,
+): Promise<unknown> {
+  return callControlAction(env, callControlId, 'speak', {
+    payload,
+    voice: opts?.voice ?? 'female',
+    ...(opts?.language ? { language: opts.language } : {}),
+    ...(opts?.clientState ? { client_state: opts.clientState } : {}),
+  });
+}
+
+/** Speak a prompt and collect keypad digits; the result arrives as `call.gather.ended`. */
+export async function telnyxGatherUsingSpeak(
+  env: TelnyxEnv,
+  callControlId: string,
+  args: {
+    payload: string;
+    voice?: string;
+    language?: string;
+    minimumDigits: number;
+    maximumDigits: number;
+    maximumTries: number;
+    timeoutMillis: number;
+    validDigits: string;
+    invalidPayload?: string;
+    clientState?: string;
+  },
+): Promise<unknown> {
+  return callControlAction(env, callControlId, 'gather_using_speak', {
+    payload: args.payload,
+    voice: args.voice ?? 'female',
+    ...(args.language ? { language: args.language } : {}),
+    minimum_digits: args.minimumDigits,
+    maximum_digits: args.maximumDigits,
+    maximum_tries: args.maximumTries,
+    timeout_millis: args.timeoutMillis,
+    valid_digits: args.validDigits,
+    ...(args.invalidPayload ? { invalid_payload: args.invalidPayload } : {}),
+    ...(args.clientState ? { client_state: args.clientState } : {}),
+  });
+}
+
+export async function telnyxPlaybackStart(
+  env: TelnyxEnv,
+  callControlId: string,
+  args: { audioUrl: string; loop?: boolean; clientState?: string },
+): Promise<unknown> {
+  return callControlAction(env, callControlId, 'playback_start', {
+    audio_url: args.audioUrl,
+    ...(args.loop ? { loop: 'infinity' } : {}),
+    ...(args.clientState ? { client_state: args.clientState } : {}),
+  });
+}
+
+export async function telnyxPlaybackStop(env: TelnyxEnv, callControlId: string): Promise<unknown> {
+  return callControlAction(env, callControlId, 'playback_stop', {});
+}
+
+/**
+ * Park the call in a Telnyx queue. `maxWaitTimeSecs` is the caller's wait
+ * limit: the queue answers `call.dequeued` (reason `timeout`) when it runs out.
+ */
+export async function telnyxEnqueue(
+  env: TelnyxEnv,
+  callControlId: string,
+  args: { queueName: string; maxWaitTimeSecs?: number; clientState?: string },
+): Promise<unknown> {
+  return callControlAction(env, callControlId, 'enqueue', {
+    queue_name: args.queueName,
+    ...(args.maxWaitTimeSecs ? { max_wait_time_secs: args.maxWaitTimeSecs } : {}),
+    ...(args.clientState ? { client_state: args.clientState } : {}),
+  });
+}
+
+// ============================================================================
+// Telephony credentials (one per member softphone)
+// ============================================================================
+
+/** `POST /v2/telephony_credentials`: a SIP credential on the WebRTC connection. */
+export async function telnyxCreateCredential(
+  env: TelnyxEnv,
+  args: { connectionId: string; name: string },
+): Promise<{ id: string; sipUsername: string }> {
+  const resp = await telnyxRequest<{ data?: { id?: string; sip_username?: string } }>(env, '/telephony_credentials', {
+    method: 'POST',
+    body: JSON.stringify({ connection_id: args.connectionId, name: args.name }),
+  });
+  const id = resp.data?.id;
+  const sipUsername = resp.data?.sip_username;
+  if (!id || !sipUsername) throw new Error('Telnyx credential answer has no id or sip_username');
+  return { id, sipUsername };
+}
+
+/** `POST /v2/telephony_credentials/{id}/token`: a short-lived WebRTC login JWT (the answer is plain text). */
+export async function telnyxCredentialToken(env: TelnyxEnv, credentialId: string): Promise<string> {
+  const apiKey = env.TELNYX_API_KEY;
+  if (!apiKey) throw new Error('Telnyx API key is not configured');
+  const response = await fetch(resolveTelnyxUrl(`/telephony_credentials/${encodeURIComponent(credentialId)}/token`), {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}` },
+  });
+  if (!response.ok) {
+    throw new TelnyxApiError(`Telnyx API error: ${response.status} - ${response.statusText}`, response.status);
+  }
+  return response.text();
+}
+
+/** `DELETE /v2/telephony_credentials/{id}` (best-effort cleanup of an unused credential). */
+export async function telnyxDeleteCredential(env: TelnyxEnv, credentialId: string): Promise<void> {
+  await telnyxRequest(env, `/telephony_credentials/${encodeURIComponent(credentialId)}`, { method: 'DELETE' });
 }
 
 // ============================================================================

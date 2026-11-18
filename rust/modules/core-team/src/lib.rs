@@ -65,6 +65,12 @@ pub struct CoreTeamState {
     /// The identity provider; `None` answers as the workers do when Clerk
     /// cannot be reached.
     pub identity: Option<Arc<dyn Identity>>,
+    /// Whether a plan's member limit applies: only where plans can be
+    /// bought (Global's Stripe, or Mollie with `BILLING_PROVIDER=mollie`).
+    /// Without billing a workspace could never grow past its plan's limit,
+    /// so there is none (`weldsuite-documentation` editions doc: seats come
+    /// from the licence; a partner licence's cap still applies).
+    pub plan_seat_limits: bool,
 }
 
 impl std::fmt::Debug for CoreTeamState {
@@ -146,6 +152,17 @@ group_router!(
     /// `/api/workspaces`: the workspaces the caller belongs to.
     workspaces
 );
+
+/// `/api/workspaces` in membership mode (`OIDC_WORKSPACE_SOURCE=header`):
+/// behind the session only, since a client lists the workspaces before it
+/// names one, and each entry's `id` is `workspaces.id` (what
+/// `X-Weld-Workspace` takes). Mounted instead of [`workspaces`].
+pub fn workspace_directory<S>(state: CoreTeamState) -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    groups::workspaces::directory_router().with_state(state)
+}
 
 /// `/api/account`: account deletion. Behind the session only, no workspace.
 pub fn account<S>(state: CoreTeamState) -> Router<S>

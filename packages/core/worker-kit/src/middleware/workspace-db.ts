@@ -8,7 +8,7 @@
  *
  * `workspaceId` is `workspaces.id`. `clerkOrgId` is the workspace's Clerk org id
  * (the session token's org), for Clerk calls and for the stores still keyed by
- * it until they move (docs/plans/workspace-id-standardization.md, ADR SEC-011).
+ * it until they move (weldsuite-documentation/plans/workspace-id-standardization.md, ADR SEC-011).
  */
 
 import { createMiddleware } from 'hono/factory';

@@ -6,7 +6,6 @@ import { useCan } from '@weldsuite/permissions/react';
 import { isApiError } from '@weldsuite/api-client';
 import { DOC_CONNECT_PATH, type DocSessionMode } from '@weldsuite/app-api-client/schemas/docs';
 import type { DocPeer } from '@weldsuite/docs-engine';
-import { Users } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { ShareDialog, type DriveShareTarget } from '@/app/welddrive/components/share-dialog';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
@@ -204,16 +203,15 @@ export function LiveDoc({ docId }: { docId: string }) {
       status={status}
       canRename={canEdit && !!record.data?.canEdit}
       onRename={onRename}
-      headerExtra={
+      headerExtra={<PeerAvatars peers={peers} onSelect={(peer) => controller.goToPeer(peer)} />}
+      share={
         <>
-          <PeerAvatars peers={peers} onSelect={(peer) => controller.goToPeer(peer)} />
           {record.data && (
             <Button
               size="sm"
-              className="h-8 gap-1.5"
+              className="h-8"
               onClick={() => setShareTarget({ kind: 'item', fileId: record.data.fileId, name: name || tw.home.untitled, link: `${window.location.origin}/welddocs/${encodeURIComponent(docId)}` })}
             >
-              <Users className="size-4" />
               {tw.editor.share}
             </Button>
           )}

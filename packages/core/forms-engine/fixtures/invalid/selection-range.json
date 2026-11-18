@@ -1,0 +1,67 @@
+{
+  "name": "Minimum above maximum, and a maximum above the number of choices",
+  "definition": {
+    "blocks": [
+      {
+        "id": "b_1",
+        "ref": "first",
+        "type": "multiple_choice",
+        "title": "First",
+        "properties": {
+          "multiple": true,
+          "minSelections": 3,
+          "maxSelections": 2,
+          "choices": [
+            {
+              "id": "c_1",
+              "label": "One"
+            },
+            {
+              "id": "c_2",
+              "label": "Two"
+            },
+            {
+              "id": "c_3",
+              "label": "Three"
+            },
+            {
+              "id": "c_4",
+              "label": "Four"
+            }
+          ]
+        }
+      },
+      {
+        "id": "b_2",
+        "ref": "second",
+        "type": "picture_choice",
+        "title": "Second",
+        "properties": {
+          "multiple": true,
+          "maxSelections": 5,
+          "choices": [
+            {
+              "id": "c_1",
+              "label": "One"
+            },
+            {
+              "id": "c_2",
+              "label": "Two"
+            }
+          ]
+        }
+      }
+    ],
+    "endings": [
+      {
+        "id": "e_end",
+        "ref": "end",
+        "title": "End"
+      }
+    ]
+  },
+  "expectIssues": [
+    "selection_range",
+    "selection_range"
+  ]
+}

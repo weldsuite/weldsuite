@@ -78,6 +78,11 @@ const COLORS = {
   pending: '#f59e0b',
 };
 
+/** "1 successful execution", "3 successful executions". */
+function countText(count: number, one: string, other: string): string {
+  return (count === 1 ? one : other).replace('{count}', String(count));
+}
+
 export function AnalyticsDashboardClient({
   isLoading = false,
   stats,
@@ -159,7 +164,7 @@ export function AnalyticsDashboardClient({
             <CardContent>
               <div className="text-2xl font-bold text-green-600">{successRate}%</div>
               <p className="text-xs text-muted-foreground mt-1">
-                {t.weldconnect.analytics.stats.successfulExecutions.replace('{count}', String(stats?.successfulExecutions || 0))}
+                {countText(stats?.successfulExecutions || 0, t.weldconnect.analytics.stats.successfulExecutionsOne, t.weldconnect.analytics.stats.successfulExecutions)}
               </p>
             </CardContent>
           </Card>
@@ -174,7 +179,7 @@ export function AnalyticsDashboardClient({
             <CardContent>
               <div className="text-2xl font-bold text-red-600">{stats?.failedExecutions || 0}</div>
               <p className="text-xs text-muted-foreground mt-1">
-                {t.weldconnect.analytics.stats.unacknowledgedErrors.replace('{count}', String(errorStats?.unacknowledged || 0))}
+                {countText(errorStats?.unacknowledged || 0, t.weldconnect.analytics.stats.unacknowledgedErrorsOne, t.weldconnect.analytics.stats.unacknowledgedErrors)}
               </p>
             </CardContent>
           </Card>

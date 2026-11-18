@@ -60,6 +60,8 @@ import { FieldBuilder } from '@weldsuite/ui/components/workflow-canvas/parts/fie
 import { FilterBuilder, type FilterCondition } from '@weldsuite/ui/components/workflow-canvas/parts/filter-builder';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { useAiModelOptions } from '@/hooks/queries/use-ai-settings-queries';
+import { AiMetaBadge } from '@/components/ai/ai-meta-badge';
 import { useChannels } from '@/hooks/queries/use-weldchat-queries';
 import {
   useWorkflowIntegrations,
@@ -1402,7 +1404,7 @@ function PostChatMessageForm({
 
 /**
  * slack.post_message — the first third-party provider step (reference for
- * Google/GitHub; see "Provider pattern" in docs/plans/weldconnect.md).
+ * Google/GitHub; see "Provider pattern" in weldsuite-documentation/plans/weldconnect.md).
  * Connection picker only shown when more than one Slack workspace is
  * connected; the channel picker loads from the chosen connection
  * (conversations.list via connect-api) and is disabled until one is chosen.
@@ -1763,7 +1765,7 @@ function GithubCreateCommentForm({
 // Google provider forms — google_sheets.append_row / update_row,
 // gmail.send_email, google_calendar.create_event. Same shape as Slack's
 // (SlackPostMessageForm above); see "Provider pattern" in
-// docs/plans/weldconnect.md. All three Google products share one OAuth app
+// weldsuite-documentation/plans/weldconnect.md. All three Google products share one OAuth app
 // but connect as separate workflow_integrations rows, so each form queries
 // `useWorkflowIntegrations({ type: '<product>', status: 'connected' })`
 // independently.
@@ -2586,7 +2588,7 @@ function CreateConversationForm({
   const acf = t.weldconnect.actionConfigForm;
   const cf = acf.conversationFields;
   const variableProps = { triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups };
-  const textInput = (key: 'title' | 'name' | 'email' | 'externalId') => (
+  const textInput = (key: 'title' | 'name' | 'email' | 'externalId' | 'priority' | 'tags' | 'teamId' | 'ticketTypeId' | 'state') => (
     <VariableInput
       value={(config[key] as string | undefined) || ''}
       onChange={(v) => onChange({ ...config, [key]: v })}
@@ -2626,6 +2628,99 @@ function CreateConversationForm({
         {textInput('externalId')}
         <p className="text-xs text-muted-foreground mt-1">{cf.externalIdDesc}</p>
       </FormField>
+
+      <FormField label={cf.labels.priority} description={cf.priorityDesc}>
+        {textInput('priority')}
+      </FormField>
+
+      <FormField label={cf.labels.tags} description={cf.tagsDesc}>
+        {textInput('tags')}
+      </FormField>
+
+      <FormField label={cf.labels.teamId} description={cf.teamIdDesc}>
+        {textInput('teamId')}
+      </FormField>
+
+      <FormField label={cf.labels.ticketTypeId} description={cf.ticketTypeIdDesc}>
+        {textInput('ticketTypeId')}
+      </FormField>
+
+      <FormField label={cf.labels.state} description={cf.stateDesc}>
+        {textInput('state')}
+      </FormField>
+    </div>
+  );
+}
+
+const ALERT_SOURCES = ['auto', 'splunk', 'datadog', 'grafana'] as const;
+const ALERT_PRIORITIES = ['low', 'medium', 'high', 'urgent'] as const;
+
+/**
+ * parse_alert: reads a Splunk, Datadog or Grafana alert (by default the body
+ * of the webhook that started the workflow) into ticket fields for the next
+ * step — see apps/workers/workflow-worker/src/engine/actions/alerts.ts.
+ */
+function ParseAlertForm({
+  config,
+  onChange,
+  triggerType,
+  steps = [],
+  workflowVariables = [],
+  extraVariableGroups,
+  excludeGroups,
+}: VariableStepFormProps) {
+  const { t } = useI18n();
+  const pf = t.weldconnect.actionConfigForm.parseAlertFields;
+  const variableProps = { triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups };
+
+  return (
+    <div className="space-y-4">
+      <FormField label={pf.labels.payload} description={pf.payloadDesc}>
+        <VariableInput
+          value={(config.payload as string | undefined) || ''}
+          onChange={(v) => onChange({ ...config, payload: v })}
+          placeholder={pf.placeholders.payload}
+          {...variableProps}
+        />
+      </FormField>
+
+      <FormField label={pf.labels.source} description={pf.sourceDesc}>
+        <Select
+          value={(config.source as string | undefined) || 'auto'}
+          onValueChange={(v) => onChange({ ...config, source: v })}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {ALERT_SOURCES.map((source) => (
+              <SelectItem key={source} value={source}>
+                {pf.sources[source]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </FormField>
+
+      <FormField label={pf.labels.defaultPriority} description={pf.defaultPriorityDesc}>
+        <Select
+          value={(config.defaultPriority as string | undefined) || 'medium'}
+          onValueChange={(v) => onChange({ ...config, defaultPriority: v })}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {ALERT_PRIORITIES.map((priority) => (
+              <SelectItem key={priority} value={priority}>
+                {pf.priorities[priority]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </FormField>
+
+      <p className="text-xs text-muted-foreground">{pf.outputHint}</p>
     </div>
   );
 }
@@ -4089,6 +4184,42 @@ function CollectCustomerInfoForm({ config, onChange }: Readonly<{
 // Config field names (`prompt`, `systemPrompt`, `model`, `temperature`,
 // `maxTokens`) match exactly what the engine reads first.
 // ============================================================================
+// The model of an AI step. On a Kubernetes install with AI settings the choice is
+// the workspace's allowed models for WeldConnect, each with where it is processed
+// (`GET /api/ai-settings`); elsewhere (Global) it is the free-text model id it has always been.
+const AI_STEP_DEFAULT_MODEL = '__default__';
+
+export function AiStepModelInput({
+  value,
+  onChange,
+  placeholder,
+}: Readonly<{ value: string | undefined; onChange: (model: string | undefined) => void; placeholder: string }>) {
+  const { t } = useI18n();
+  const models = useAiModelOptions('connect');
+  if (!models) {
+    return <Input value={value || ''} onChange={(e) => onChange(e.target.value || undefined)} placeholder={placeholder} />;
+  }
+  const selected = value && models.some((m) => m.id === value) ? value : AI_STEP_DEFAULT_MODEL;
+  return (
+    <Select value={selected} onValueChange={(v) => onChange(v === AI_STEP_DEFAULT_MODEL ? undefined : v)}>
+      <SelectTrigger>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value={AI_STEP_DEFAULT_MODEL}>{t.settings.ai.picker.workspaceDefault}</SelectItem>
+        {models.map((m) => (
+          <SelectItem key={m.id} value={m.id}>
+            <span className="flex items-center gap-2">
+              {m.label}
+              <AiMetaBadge ai={{ provider: m.provider, region: m.region }} hideIcon />
+            </span>
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
 function AiGenerateForm({
   config,
   onChange,
@@ -4130,9 +4261,9 @@ function AiGenerateForm({
       </FormField>
 
       <FormField label={acf.model} description={acf.modelDesc}>
-        <Input
-          value={(config.model as string | undefined) || ''}
-          onChange={(e) => onChange({ ...config, model: e.target.value || undefined })}
+        <AiStepModelInput
+          value={config.model as string | undefined}
+          onChange={(model) => onChange({ ...config, model })}
           placeholder={st('sweep.weldflow.actionConfig.recommendedDefaultPlaceholder')}
         />
       </FormField>
@@ -4243,9 +4374,9 @@ function AiClassifyForm({
       </FormField>
 
       <FormField label={acf.model} description={acf.modelDesc}>
-        <Input
-          value={(config.model as string | undefined) || ''}
-          onChange={(e) => onChange({ ...config, model: e.target.value || undefined })}
+        <AiStepModelInput
+          value={config.model as string | undefined}
+          onChange={(model) => onChange({ ...config, model })}
           placeholder={st('sweep.weldflow.actionConfig.recommendedDefaultPlaceholder')}
         />
       </FormField>
@@ -4433,6 +4564,7 @@ const VARIABLE_STEP_FORMS = new Map<string, ComponentType<VariableStepFormProps>
   ['post_chat_message', PostChatMessageForm],
   ['slack.post_message', SlackPostMessageForm],
   ['create_conversation', CreateConversationForm],
+  ['parse_alert', ParseAlertForm],
   // WeldMerge
   ['merge.create_issue', MergeCreateIssueForm],
   ['merge.update_issue', MergeUpdateIssueForm],

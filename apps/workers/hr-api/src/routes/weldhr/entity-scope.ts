@@ -1,5 +1,5 @@
 /**
- * Per-entity access for the WeldHR routes (docs/plans/legal-entities.md,
+ * Per-entity access for the WeldHR routes (weldsuite-documentation/plans/legal-entities.md,
  * "Per-entity access"). `legalEntityContext` (index.ts) resolves the request's
  * entity and swaps in the member's entity role; this file turns that into the
  * two things the routes need:

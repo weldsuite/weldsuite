@@ -12,7 +12,7 @@ Task ids are task numbers like `TASK-734` (the task's `Number` field), not inter
 
 Steps:
 
-1. Run Definition-of-Done checks (see CLAUDE.md):
+1. Run Definition-of-Done checks (see AGENTS.md):
    - `pnpm lint` in the changed workspace(s)
    - `pnpm build` of the touched app(s)
    - `git status` clean (no stray files)

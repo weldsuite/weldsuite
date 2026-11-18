@@ -19,7 +19,7 @@
  */
 
 import { and, asc, desc, eq, isNull, or, sql } from 'drizzle-orm';
-import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
+import type { TenantDb } from './any-db';
 import * as schema from '../schema';
 import type { IdGenerator } from './mail-contacts';
 import type { DeskConversation } from '../schema/desk-conversations';
@@ -30,7 +30,7 @@ import { autoAssignDeskConversation, deskTeamMemberIds, type DeskAssigneePicker 
 import { deskEscalationsDueFor, loadDeskRunningBreach, type DeskEscalationDue } from './desk-escalation-check';
 import { refreshDeskSla } from './desk-sla';
 
-type AnyDb = PgDatabase<PgQueryResultHKT, typeof schema>;
+type AnyDb = TenantDb;
 
 const conversations = schema.deskConversations;
 const departments = schema.helpdeskDepartments;
@@ -38,9 +38,35 @@ const departments = schema.helpdeskDepartments;
 /** Rules one sweep fires on a conversation at most (each re-derived after the last). */
 const MAX_FIRINGS = 5;
 
-/** The public message `notifyCustomer` posts. */
-export const DESK_ESCALATION_CUSTOMER_MESSAGE =
-  'Your request has been escalated so the right people can help. We will get back to you as soon as possible.';
+/** The public message `notifyCustomer` posts, by language (a tag's primary subtag). */
+export const DESK_ESCALATION_CUSTOMER_MESSAGES: Readonly<Record<string, string>> = {
+  en: 'Your request has been escalated so the right people can help. We will get back to you as soon as possible.',
+  nl: 'Je verzoek is doorgezet, zodat de juiste mensen je kunnen helpen. We komen zo snel mogelijk bij je terug.',
+};
+
+/** The English notice: what a language without a text of its own gets. */
+export const DESK_ESCALATION_CUSTOMER_MESSAGE = DESK_ESCALATION_CUSTOMER_MESSAGES.en!;
+
+/**
+ * The notice for a language tag (`nl`, `nl-BE`, `NL_nl`): its own text, else
+ * English. A customer who writes German gets English, not the workspace's
+ * Dutch.
+ */
+export function deskEscalationCustomerMessage(language: string | null | undefined): string {
+  const primary = (language ?? '').trim().toLowerCase().split(/[-_]/)[0] ?? '';
+  return DESK_ESCALATION_CUSTOMER_MESSAGES[primary] ?? DESK_ESCALATION_CUSTOMER_MESSAGE;
+}
+
+/**
+ * The language the customer is told in: the conversation's (detected by
+ * inbox translation), else the workspace's (`workspace_settings.language`).
+ */
+async function customerLanguage(db: AnyDb, conversation: DeskConversation): Promise<string | null> {
+  if (conversation.language?.trim()) return conversation.language;
+  const s = schema.workspaceSettings;
+  const [row] = await db.select({ language: s.language }).from(s).where(isNull(s.deletedAt)).limit(1);
+  return row?.language ?? null;
+}
 
 export interface DeskEscalationStep {
   conversation: DeskConversation;
@@ -201,7 +227,7 @@ async function fire(db: AnyDb, ctx: FireContext, conversation: DeskConversation,
       conversationId: current.id,
       kind: 'message',
       authorType: 'system',
-      body: DESK_ESCALATION_CUSTOMER_MESSAGE,
+      body: deskEscalationCustomerMessage(await customerLanguage(db, current)),
       metadata: { escalation: true },
     });
     current = notice.conversation;

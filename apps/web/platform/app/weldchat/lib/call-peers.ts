@@ -34,3 +34,55 @@ export function currentPeers<T extends CallPeer>(joined: readonly T[], self: Cal
   }
   return [...latest.values()];
 }
+
+/** A `chat_calls.participants` entry, as the join answers carry them. */
+export interface CallParticipantEntry {
+  userId?: string | null;
+  leftAt?: string | null;
+}
+
+/**
+ * Who the server counts in the call: everyone with an entry they have not
+ * left. Every join writes a fresh entry, so one open entry is enough.
+ */
+export function usersInCall(participants: readonly CallParticipantEntry[] | undefined): string[] {
+  const inCall = new Set<string>();
+  for (const entry of participants ?? []) {
+    if (entry.userId && !entry.leftAt) inCall.add(entry.userId);
+  }
+  return [...inCall];
+}
+
+/** Why a member without a tile of their own is shown anyway. */
+export type WaitingState = 'ringing' | 'connecting';
+
+/**
+ * The members to show as a placeholder tile while they are not in the media
+ * room, and why. The caller sees everyone they rang as ringing. Anyone else
+ * rang nobody: they see only the people already in the call whose connection
+ * has not come up yet, as connecting. Before, the one answering a DM call saw
+ * the caller as "ringing" whenever the caller's connection was slow or failed,
+ * which read as the caller calling them back.
+ */
+export function waitingMembers<M extends { userId?: string }>({
+  members,
+  inRoom,
+  isCallInitiator,
+  inCall,
+}: {
+  /** The channel's other members. */
+  members: readonly M[];
+  /** The ids (user and app) of the peers in the media room. */
+  inRoom: ReadonlySet<string>;
+  isCallInitiator: boolean;
+  /** `usersInCall` of the call as the user joined it (unused for the caller). */
+  inCall: readonly string[];
+}): Array<{ member: M; state: WaitingState }> {
+  const waiting: Array<{ member: M; state: WaitingState }> = [];
+  for (const member of members) {
+    if (!member.userId || inRoom.has(member.userId)) continue;
+    if (isCallInitiator) waiting.push({ member, state: 'ringing' });
+    else if (inCall.includes(member.userId)) waiting.push({ member, state: 'connecting' });
+  }
+  return waiting;
+}

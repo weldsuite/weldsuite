@@ -17,6 +17,7 @@ use http::HeaderMap;
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::address::normalize_postal_address;
 use weldsuite_books_domain::books_row;
+use weldsuite_books_domain::dates::days_in_month;
 use weldsuite_books_domain::entity_context::{
     SequenceType, next_entity_number, resolve_entity_base_currency, resolve_entity_id,
 };
@@ -409,6 +410,30 @@ fn js_date(text: &str) -> Result<String, Refusal> {
     js::js_date(text).ok_or_else(|| Refusal::Internal("Invalid time value".to_owned()))
 }
 
+/// `dayOf(value)`: the calendar day (UTC) of a date, `YYYY-MM-DD`, or `None`
+/// for none or an invalid one.
+fn day_of(value: Option<&str>) -> Option<String> {
+    let iso = js::js_date(value.filter(|v| !v.is_empty())?)?;
+    iso.get(..10).map(str::to_owned)
+}
+
+/// `recurringDatesError(nextIssueDate, endDate)`: an end date before the next
+/// issue date would end the schedule before its first invoice.
+fn recurring_dates_error(next_issue_date: Option<&str>, end_date: Option<&str>) -> Option<Refusal> {
+    let (Some(next), Some(end)) = (day_of(next_issue_date), day_of(end_date)) else {
+        return None;
+    };
+    (end < next)
+        .then(|| Refusal::bad_request("The end date can not be before the next issue date."))
+}
+
+/// A body's text field, when it is a non-empty string (`data.x || fallback`).
+fn filled<'a>(data: &'a Map<String, Value>, key: &str) -> Option<&'a str> {
+    data.get(key)
+        .and_then(Value::as_str)
+        .filter(|v| !v.is_empty())
+}
+
 async fn create(
     caller: Caller,
     State(state): State<BooksState>,
@@ -426,6 +451,11 @@ async fn create(
             let Some(entity_id) = resolve_entity_id(&caller).await? else {
                 return Err(Refusal::bad_request("No accounting entity resolved"));
             };
+            if let Some(refusal) =
+                recurring_dates_error(filled(&data, "nextIssueDate"), filled(&data, "endDate"))
+            {
+                return Err(refusal);
+            }
             let at = now();
             let id = generate_id("ri");
             let mut row = Map::new();
@@ -486,6 +516,14 @@ async fn update(
             let Some(rec) = load(db, &id).await? else {
                 return Err(Refusal::not_found("Recurring invoice", &id));
             };
+            // The dates after the change: a new end date or next issue date
+            // is checked against the other.
+            if let Some(refusal) = recurring_dates_error(
+                filled(&data, "nextIssueDate").or_else(|| text(&rec, "nextIssueDate")),
+                filled(&data, "endDate").or_else(|| text(&rec, "endDate")),
+            ) {
+                return Err(refusal);
+            }
             let mut update = data.clone();
             update.insert("updatedAt".into(), json!(now()));
             if let Some(next) = data
@@ -627,10 +665,11 @@ pub(crate) fn next_schedule_date(from_ms: i64, frequency: &str) -> i64 {
     let time = from_ms.rem_euclid(DAY_MS);
     let (y, m, d) = js::civil_from_days(days);
     let add_months = |months: i64| {
-        // `setMonth`: the day overflows into the next month, as in JavaScript.
+        // The day is clamped to the last day of the target month: 31 Jan plus
+        // a month is 28/29 Feb, not 3 Mar.
         let total = y * 12 + (m - 1) + months;
         let (ny, nm) = (total.div_euclid(12), total.rem_euclid(12) + 1);
-        js::days_from_civil(ny, nm, 1) + (d - 1)
+        js::days_from_civil(ny, nm, d.min(days_in_month(ny, nm)))
     };
     let new_days = match frequency {
         "weekly" => days + 7,
@@ -778,31 +817,65 @@ async fn generate_on(
     let at_ms = js::millis_of(&at).unwrap_or(0);
     let entity_id = text(rec, "entityId").unwrap_or_default().to_owned();
     let current_next = text(rec, "nextIssueDate").unwrap_or_default().to_owned();
-    let next_ms = next_schedule_date(
-        js::millis_of(&current_next).unwrap_or(0),
-        text(rec, "frequency").unwrap_or_default(),
-    );
-    let next_iso = js::iso_from_millis(next_ms).unwrap_or_default();
-    let ended = text(rec, "endDate")
-        .and_then(js::millis_of)
-        .is_some_and(|end| next_ms > end);
-    let status: &'static str = if ended { "completed" } else { "active" };
 
-    // claimPeriod: only the run that still sees the old nextIssueDate wins.
-    let claimed: Option<String> = sqlx::query_scalar(
-        "update recurring_invoices set next_issue_date = $1::timestamp, status = $2, updated_at = $3::timestamp \
-         where id = $4 and next_issue_date = $5::timestamp returning id",
-    )
-    .bind(&next_iso)
-    .bind(status)
-    .bind(&at)
-    .bind(text(rec, "id").unwrap_or_default())
-    .bind(&current_next)
-    .fetch_optional(db)
-    .await
-    .map_err(SalesError::from)?;
-    if claimed.is_none() {
-        return Err(GenerateError::AlreadyGenerated);
+    // A next issue date past the end date leaves no period to invoice,
+    // "Generate now" included: the schedule is completed (as it is after its
+    // last period) and nothing is made.
+    if let (Some(end_day), Some(next_day)) =
+        (day_of(text(rec, "endDate")), day_of(Some(&current_next)))
+        && next_day > end_day
+    {
+        sqlx::query(
+            "update recurring_invoices set status = 'completed', updated_at = $1::timestamp \
+             where id = $2 and status = 'active'",
+        )
+        .bind(&at)
+        .bind(text(rec, "id").unwrap_or_default())
+        .execute(db)
+        .await
+        .map_err(SalesError::from)?;
+        return Err(
+            SalesError::posting(format!("This recurring invoice ended on {end_day}.")).into(),
+        );
+    }
+
+    let current_ms = js::millis_of(&current_next).unwrap_or(0);
+    // A period is due once its date is today or past: it is consumed. "Generate
+    // now" on a schedule whose next date is still ahead makes an extra invoice
+    // and leaves the schedule alone. Either way the invoice is dated today: a
+    // schedule resumed after a pause must not back-date into closed periods.
+    let period_due = current_ms.div_euclid(DAY_MS) <= at_ms.div_euclid(DAY_MS);
+    let next_ms = if period_due {
+        next_schedule_date(current_ms, text(rec, "frequency").unwrap_or_default())
+    } else {
+        current_ms
+    };
+    let next_iso = js::iso_from_millis(next_ms).unwrap_or_default();
+    let ended = period_due
+        && text(rec, "endDate")
+            .and_then(js::millis_of)
+            .is_some_and(|end| next_ms > end);
+    let status: &'static str = if ended { "completed" } else { "active" };
+    let issue_at = at.clone();
+    let issue_ms = at_ms;
+
+    if period_due {
+        // claimPeriod: only the run that still sees the old nextIssueDate wins.
+        let claimed: Option<String> = sqlx::query_scalar(
+            "update recurring_invoices set next_issue_date = $1::timestamp, status = $2, updated_at = $3::timestamp \
+             where id = $4 and next_issue_date = $5::timestamp returning id",
+        )
+        .bind(&next_iso)
+        .bind(status)
+        .bind(&at)
+        .bind(text(rec, "id").unwrap_or_default())
+        .bind(&current_next)
+        .fetch_optional(db)
+        .await
+        .map_err(SalesError::from)?;
+        if claimed.is_none() {
+            return Err(GenerateError::AlreadyGenerated);
+        }
     }
 
     let raw = rec
@@ -888,7 +961,7 @@ async fn generate_on(
         document_id: Some(invoice_id.clone()),
         document_number: Some(invoice_number.clone()),
         contact_id: Some(contact_id.clone()),
-        issue_date: IssueDate::Instant(at.clone()),
+        issue_date: IssueDate::Instant(issue_at.clone()),
         currency: Some(currency.clone()),
         billing_address: billing.clone(),
         shipping_address: shipping.clone(),
@@ -919,7 +992,7 @@ async fn generate_on(
         .map_err(SalesError::from)?;
     let totals = &drafted.calc;
     #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
-    let due = js::iso_from_millis(at_ms + (terms * DAY_MS as f64) as i64).unwrap_or_default();
+    let due = js::iso_from_millis(issue_ms + (terms * DAY_MS as f64) as i64).unwrap_or_default();
 
     let or_null = |value: &Value| match value.as_str().filter(|v| !v.is_empty()) {
         Some(v) => json!(v),
@@ -937,7 +1010,7 @@ async fn generate_on(
         json!(display_name.filter(|n| !n.is_empty())),
     );
     invoice.insert("contactEmail".into(), Value::Null);
-    invoice.insert("issueDate".into(), json!(at));
+    invoice.insert("issueDate".into(), json!(issue_at));
     invoice.insert("dueDate".into(), json!(due));
     invoice.insert("currency".into(), json!(currency));
     invoice.extend(invoice_tax_columns(totals));
@@ -1118,5 +1191,71 @@ pub async fn generate_recurring_invoice_as_system(
         }),
         Err(GenerateError::AlreadyGenerated) => Err(SystemGenerateError::AlreadyGenerated),
         Err(GenerateError::Sales(error)) => Err(SystemGenerateError::Failed(error.message())),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ms(y: i64, m: i64, d: i64) -> i64 {
+        js::days_from_civil(y, m, d) * DAY_MS
+    }
+
+    #[test]
+    fn month_end_clamps_to_the_last_day_of_the_month() {
+        // 31 Jan monthly is 28 Feb (29 in a leap year), never 3 Mar.
+        assert_eq!(
+            next_schedule_date(ms(2026, 1, 31), "monthly"),
+            ms(2026, 2, 28)
+        );
+        assert_eq!(
+            next_schedule_date(ms(2028, 1, 31), "monthly"),
+            ms(2028, 2, 29)
+        );
+        assert_eq!(
+            next_schedule_date(ms(2026, 11, 30), "quarterly"),
+            ms(2027, 2, 28)
+        );
+        assert_eq!(
+            next_schedule_date(ms(2028, 2, 29), "yearly"),
+            ms(2029, 2, 28)
+        );
+        assert_eq!(
+            next_schedule_date(ms(2026, 8, 31), "biannually"),
+            ms(2027, 2, 28)
+        );
+    }
+
+    #[test]
+    fn an_end_date_before_the_next_issue_date_is_refused() {
+        assert!(recurring_dates_error(Some("2026-12-01"), Some("2026-11-01")).is_some());
+        assert!(recurring_dates_error(Some("2026-12-01"), Some("2026-12-01")).is_none());
+        assert!(recurring_dates_error(Some("2026-12-01T00:00:00.000Z"), None).is_none());
+        assert!(recurring_dates_error(Some("2026-12-01"), Some("")).is_none());
+        assert_eq!(
+            day_of(Some("2026-11-01T00:00:00.000Z")).as_deref(),
+            Some("2026-11-01")
+        );
+    }
+
+    #[test]
+    fn other_dates_step_by_the_frequency() {
+        assert_eq!(
+            next_schedule_date(ms(2026, 1, 15), "monthly"),
+            ms(2026, 2, 15)
+        );
+        assert_eq!(
+            next_schedule_date(ms(2026, 12, 15), "monthly"),
+            ms(2027, 1, 15)
+        );
+        assert_eq!(
+            next_schedule_date(ms(2026, 1, 15), "weekly"),
+            ms(2026, 1, 22)
+        );
+        assert_eq!(
+            next_schedule_date(ms(2026, 1, 15), "biweekly"),
+            ms(2026, 1, 29)
+        );
     }
 }

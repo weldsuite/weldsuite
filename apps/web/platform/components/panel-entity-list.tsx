@@ -81,6 +81,12 @@ export interface PanelEntityListProps<T extends { id: string }> {
    * renders its own toolbar elsewhere. The page then filters `items` itself.
    */
   hideTopBar?: boolean;
+  /** Drop the Filter button, for a list with nothing to filter on (its popover would be empty). */
+  hideFilter?: boolean;
+  /** Classes for the top bar (Filter, search, create button). */
+  topBarClassName?: string;
+  /** Puts the column header and rows in a box with these classes (see `EntityList`). */
+  listClassName?: string;
 
   hasMore?: boolean;
   isLoadingMore?: boolean;
@@ -117,6 +123,9 @@ export function PanelEntityList<T extends { id: string }>({
   actionButtons,
   leftActionButtons,
   hideTopBar,
+  hideFilter,
+  topBarClassName,
+  listClassName,
   hasMore,
   isLoadingMore,
   onLoadMore,
@@ -156,8 +165,10 @@ export function PanelEntityList<T extends { id: string }>({
       {onRowClick ? (
         <RowOverlayButton label={t.actions.view} onClick={() => onRowClick(item)} />
       ) : null}
+      {/* `min-w-0` first, so a column that sets its own minimum (the flexible
+          name column) keeps it instead of being squeezed to nothing. */}
       {columns.map((column) => (
-        <div key={column.id} className={cn(column.width, 'min-w-0', onRowClick && ROW_CELL_PASSTHROUGH)}>
+        <div key={column.id} className={cn('min-w-0', column.width, onRowClick && ROW_CELL_PASSTHROUGH)}>
           {column.render(item, {
             onEdit: () => onEdit?.(item),
             onDelete: () => onDelete?.(item),
@@ -174,8 +185,9 @@ export function PanelEntityList<T extends { id: string }>({
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100"
-                aria-label={t.actions.view}
+                // Shown on hover, and whenever it has keyboard focus or its menu is open; always on touch screens.
+                className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100 [@media(hover:none)]:opacity-100"
+                aria-label={t.actions.title}
               >
                 <EllipsisVertical className="h-4 w-4" />
               </Button>
@@ -215,6 +227,10 @@ export function PanelEntityList<T extends { id: string }>({
   );
 
   return (
+    // Container for the `@…/list` column breakpoints: a column can hide by the
+    // width the list really has, not the viewport's (which stays wide while an
+    // object panel is open). Same as `WeldbooksEntityList`.
+    <div className="@container/list w-full min-w-0">
     <EntityList<T>
       items={items}
       isLoading={isLoading}
@@ -227,13 +243,19 @@ export function PanelEntityList<T extends { id: string }>({
       searchQuery={searchQuery}
       onSearchChange={onSearchChange}
       searchPlaceholder={searchPlaceholder}
-      searchFields={searchFields}
+      // EntityList only shows its desktop search box when `searchFields` is set,
+      // and ignores the fields when the search is controlled. A server-searched
+      // list passes a placeholder so its search box shows on desktop too.
+      searchFields={searchFields ?? (onSearchChange ? (['id'] as (keyof T)[]) : undefined)}
       activeFilters={activeFilters}
       onFiltersChange={onFiltersChange}
       createButton={createButton}
       actionButtons={actionButtons}
       leftActionButtons={leftActionButtons}
       hideTopBar={hideTopBar}
+      hideFilter={hideFilter}
+      topBarClassName={topBarClassName}
+      listClassName={listClassName}
       hasMore={hasMore}
       isLoadingMore={isLoadingMore}
       onLoadMore={onLoadMore}
@@ -241,6 +263,7 @@ export function PanelEntityList<T extends { id: string }>({
       emptyState={emptyState}
       noResultsState={noResultsState}
     />
+    </div>
   );
 }
 

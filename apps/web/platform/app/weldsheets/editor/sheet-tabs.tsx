@@ -1,4 +1,4 @@
-import { useState, useSyncExternalStore } from 'react';
+import { useRef, useState, useSyncExternalStore } from 'react';
 import { Plus } from 'lucide-react';
 import { formatValue } from '@weldsuite/sheets-engine';
 import {
@@ -24,6 +24,8 @@ export function SheetTabs({ controller }: { controller: SheetController }) {
   const tt = t.weldsheets.tabs;
   const sheets = controller.engine.workbook.sheets;
   const [renaming, setRenaming] = useState<string | null>(null);
+  /** The sheet whose Rename was picked in its menu, renamed once the menu has closed. */
+  const renameAfterMenu = useRef<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
 
@@ -93,8 +95,24 @@ export function SheetTabs({ controller }: { controller: SheetController }) {
                   )}
                 </div>
               </ContextMenuTrigger>
-              <ContextMenuContent>
-                <ContextMenuItem onSelect={() => setRenaming(sheet.id)}>{tt.rename}</ContextMenuItem>
+              <ContextMenuContent
+                onCloseAutoFocus={(e) => {
+                  // Rename opens the tab's field once the menu is gone: closing, the menu hands
+                  // the focus back to the grid, and the field (opened earlier) lost it.
+                  const id = renameAfterMenu.current;
+                  if (!id) return;
+                  renameAfterMenu.current = null;
+                  e.preventDefault();
+                  setRenaming(id);
+                }}
+              >
+                <ContextMenuItem
+                  onSelect={() => {
+                    renameAfterMenu.current = sheet.id;
+                  }}
+                >
+                  {tt.rename}
+                </ContextMenuItem>
                 <ContextMenuItem onSelect={() => controller.duplicateSheet(sheet.id)}>{tt.duplicate}</ContextMenuItem>
                 <ContextMenuItem disabled={sheets.length <= 1} onSelect={() => setDeleting(sheet.id)}>
                   {tt.delete}

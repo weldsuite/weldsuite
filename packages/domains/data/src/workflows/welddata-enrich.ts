@@ -11,7 +11,7 @@
  * Hosted in data-api under the workflow names `welddata-enrich-v2[-dev]`
  * (bound as WELDDATA_ENRICH and re-exported from data-api's src/index.ts).
  * app-api keeps its old `welddata-enrich*` names and re-exports this class
- * only while their in-flight instances drain (docs/plans/app-api-module-split.md,
+ * only while their in-flight instances drain (weldsuite-documentation/plans/app-api-module-split.md,
  * "Workflows draining in app-api").
  */
 

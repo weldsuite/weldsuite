@@ -82,6 +82,7 @@ import { useAuth } from '@/lib/auth';
 import { usePermissionsMaybe } from '@weldsuite/permissions/react';
 import { APP_REGISTRY } from '@/lib/apps/app-registry';
 import { useTheme } from '@/hooks/use-theme';
+import { isPendingInvitee } from '@/app/weldchat/lib/dm-availability';
 
 // ─── Unified Type ────────────────────────────────────────────────────
 
@@ -207,9 +208,12 @@ const getExpandedTabItems = (t: Translate): PageTab[] => [
   { id: 'working-hours', label: t('projects.memberDetails.tabs.workingHours'), icon: Clock },
 ];
 
-/** Edition flags (4.F3): the messages tab is a WeldChat DM. */
-function shouldHideMessages(hideMessages: boolean | undefined): boolean {
-  return Boolean(hideMessages) || !isModuleOffered('chat');
+/**
+ * Edition flags (4.F3): the messages tab is a WeldChat DM. Someone who hasn't
+ * accepted their invitation has none yet.
+ */
+function shouldHideMessages(hideMessages: boolean | undefined, member: TeamMemberDetail | null): boolean {
+  return Boolean(hideMessages) || !isModuleOffered('chat') || isPendingInvitee(member ?? {});
 }
 
 /**
@@ -217,13 +221,14 @@ function shouldHideMessages(hideMessages: boolean | undefined): boolean {
  * can't offer (edition flags, 4.F3): no compose panel without WeldMail, no DM
  * without WeldChat.
  */
-function useMemberContactActions(onClose: () => void) {
+function useMemberContactActions(onClose: () => void, member: TeamMemberDetail | null) {
   const composeContext = useComposeSafe();
   const navigate = useNavigate();
   const composeEmail = composeContext
     ? (email: string) => composeContext.openCompose({ to: email })
     : undefined;
-  const openChat = isModuleOffered('chat')
+  // No DM with an invitee; the expanded view's chat button and sidebar hang off this too.
+  const openChat = isModuleOffered('chat') && !isPendingInvitee(member ?? {})
     ? (userId: string) => {
         navigate({ to: '/weldchat/dm/$userId', params: { userId } });
         onClose();
@@ -342,7 +347,7 @@ export function TeamMemberDetailsPanel({
   onCollapse,
 }: Readonly<TeamMemberDetailsPanelProps>) {
   const t = useTranslations();
-  const hideMessages = shouldHideMessages(hideMessagesProp);
+  const hideMessages = shouldHideMessages(hideMessagesProp, member);
   const width = '480px';
   const widthNum = 480;
   const { getClient } = useAppApiClient();
@@ -565,7 +570,7 @@ export function TeamMemberDetailsPanel({
 
   useEffect(() => () => clearNavTimer(), [clearNavTimer]);
 
-  const { composeEmail, openChat } = useMemberContactActions(onClose);
+  const { composeEmail, openChat } = useMemberContactActions(onClose, member);
 
   const isPending = member?.status === 'PENDING';
   const isOwner = member?.role === 'OWNER';
@@ -806,7 +811,7 @@ export function TeamMemberDetailsPanel({
             <MemberHeaderIdentity member={member} />
 
             <div className="flex items-center gap-0.5 md:gap-1 flex-shrink-0">
-              <MemberCallButtons userId={member.userId} />
+              <MemberCallButtons member={member} />
 
               {composeEmail && (
                 <Button
@@ -1071,7 +1076,7 @@ function ExpandedMemberContent({
           </div>
 
           <div className="flex items-center gap-0.5 md:gap-1">
-            <MemberCallButtons userId={member.userId} />
+            <MemberCallButtons member={member} />
 
             {onComposeEmail && (
               <Button
@@ -1660,8 +1665,11 @@ function MemberHeaderIdentity({ member }: Readonly<{ member: TeamMemberDetail }>
   );
 }
 
-function MemberCallButtons({ userId }: Readonly<{ userId?: string | null }>) {
+function MemberCallButtons({ member }: Readonly<{ member: Pick<TeamMemberDetail, 'userId' | 'status'> }>) {
   const t = useTranslations();
+  // A call runs in the DM, and there is none with someone who hasn't accepted
+  // their invitation: resolving it would only get chat-api's 409.
+  const userId = isPendingInvitee(member) ? null : member.userId;
   const dmQuery = useDmByUser(userId ?? '');
   const { startCall } = useWeldChatCall();
   const dmChannelId: string | undefined = dmQuery.data?.data?.id;

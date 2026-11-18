@@ -17,6 +17,10 @@ interface GridTableProps {
   isFetchingMore?: boolean;
   /** Set when the grid shows the members of a list: the empty state then points at the list, not the whole entity. */
   listName?: string;
+  /** The search the rows were fetched with (the grid's `search` URL param). */
+  activeSearch?: string;
+  /** Clears that search; the empty state's "Clear filters" calls it. */
+  onClearSearch?: () => void;
 }
 
 /** Lower-case entity nouns for the empty state; Person and Company come from the locale. */
@@ -34,9 +38,68 @@ function getEntityNouns(
   return { singular: entityName.toLowerCase(), plural: (entityNamePlural || `${entityName}s`).toLowerCase() };
 }
 
-export function GridTable({ onLoadMore, hasMore, isFetchingMore, listName }: Readonly<GridTableProps>) {
+interface GridEmptyMessageProps {
+  isFiltered: boolean;
+  listName?: string;
+  onClearFilters: () => void;
+  entityNameLower: string;
+  entityNamePluralLower: string;
+}
+
+/** The empty state's text: no matches for the filters or search, an empty list, or no records yet. */
+function GridEmptyMessage({
+  isFiltered,
+  listName,
+  onClearFilters,
+  entityNameLower,
+  entityNamePluralLower,
+}: Readonly<GridEmptyMessageProps>) {
   const t = useTranslations();
-  const { config, state, filteredEntities, calculateTableWidth, getVisibleColumns, actions } = useGridContext();
+  const { config } = useGridContext();
+  if (isFiltered) {
+    return (
+      <>
+        <h3 className="text-[15px] font-semibold text-foreground mb-1.5 max-w-[320px]">
+          {t('crm.entityGrid.noMatchesTitle', { entity: entityNamePluralLower })}
+        </h3>
+        <p className="text-sm text-muted-foreground max-w-[320px] leading-relaxed mb-5">
+          {t('crm.entityGrid.noMatchesHint')}
+        </p>
+        <Button variant="outline" onClick={onClearFilters} className="h-8 text-sm px-3 shadow-none">
+          {t('crm.entityGrid.clearFilters')}
+        </Button>
+      </>
+    );
+  }
+  if (listName) {
+    return (
+      <h3 className="text-[15px] font-semibold text-foreground mb-1.5 max-w-[320px]">
+        {config.entityName === 'Person' ? t('crm.listPage.emptyPeople') : t('crm.listPage.emptyCompanies')}
+      </h3>
+    );
+  }
+  return (
+    <>
+      <h3 className="text-[15px] font-semibold text-foreground mb-1.5">
+        {config.emptyTitle ?? t('crm.entityGrid.emptyTitle', { entity: entityNamePluralLower })}
+      </h3>
+      <p className="text-sm text-muted-foreground max-w-[320px] leading-relaxed mb-5">
+        {config.emptyHint ?? t('crm.entityGrid.emptyHint', { entity: entityNameLower })}
+      </p>
+    </>
+  );
+}
+
+export function GridTable({ onLoadMore, hasMore, isFetchingMore, listName, activeSearch = '', onClearSearch }: Readonly<GridTableProps>) {
+  const t = useTranslations();
+  const { config, state, filteredEntities, calculateTableWidth, getVisibleColumns, actions, setFilters } = useGridContext();
+  // An empty result of a filter or search is not an empty workspace: say so,
+  // and offer to clear them instead of "Add your first …" (TASK-1463).
+  const isFiltered = state.filters.length > 0 || activeSearch !== '';
+  const clearFilters = () => {
+    setFilters([]);
+    if (activeSearch) onClearSearch?.();
+  };
   const { selectedRows, optimisticUpdates, openPopover } = state;
   const tableScrollRef = useRef<HTMLDivElement>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
@@ -139,21 +202,14 @@ export function GridTable({ onLoadMore, hasMore, isFetchingMore, listName }: Rea
               <line x1="101" y1="8" x2="101" y2="88" className="stroke-gray-200/90 dark:stroke-white/15" strokeWidth="0.75" />
             </svg>
           </EmptyStateIllustration>
-          {listName ? (
-            <h3 className="text-[15px] font-semibold text-foreground mb-1.5 max-w-[320px]">
-              {config.entityName === 'Person' ? t('crm.listPage.emptyPeople') : t('crm.listPage.emptyCompanies')}
-            </h3>
-          ) : (
-            <>
-              <h3 className="text-[15px] font-semibold text-foreground mb-1.5">
-                {t('crm.entityGrid.emptyTitle', { entity: entityNamePluralLower })}
-              </h3>
-              <p className="text-sm text-muted-foreground max-w-[320px] leading-relaxed mb-5">
-                {t('crm.entityGrid.emptyHint', { entity: entityNameLower })}
-              </p>
-            </>
-          )}
-          {actions.onCreateEntity && (
+          <GridEmptyMessage
+            isFiltered={isFiltered}
+            listName={listName}
+            onClearFilters={clearFilters}
+            entityNameLower={entityNameLower}
+            entityNamePluralLower={entityNamePluralLower}
+          />
+          {actions.onCreateEntity && !isFiltered && (
             <Button
               onClick={actions.onCreateEntity}
               className="h-8 text-sm px-3 gap-1.5 shadow-none"

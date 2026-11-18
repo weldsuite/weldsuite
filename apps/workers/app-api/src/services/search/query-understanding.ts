@@ -176,6 +176,34 @@ const TYPE_KEYWORD_MAP: Record<string, SearchEntityType> = {
   rekenblad: 'sheet', rekenbladen: 'sheet',
   // board
   board: 'board', boards: 'board', whiteboard: 'board', whiteboards: 'board',
+  // document (WeldDocs)
+  document: 'document', documents: 'document', doc: 'document', docs: 'document',
+  documenten: 'document',
+  // form (WeldForms)
+  form: 'form', forms: 'form', formulier: 'form', formulieren: 'form',
+  // file (WeldDrive)
+  file: 'drive_file', files: 'drive_file', bestand: 'drive_file', bestanden: 'drive_file',
+  // conversation (WeldDesk)
+  conversation: 'conversation', conversations: 'conversation',
+  gesprek: 'conversation', gesprekken: 'conversation',
+  // meeting (WeldMeet)
+  meeting: 'meeting', meetings: 'meeting', vergadering: 'meeting', vergaderingen: 'meeting',
+  // sign_envelope (WeldSign)
+  envelope: 'sign_envelope', envelopes: 'sign_envelope',
+  envelop: 'sign_envelope', enveloppen: 'sign_envelope',
+  // warehouse (WeldStash)
+  warehouse: 'warehouse', warehouses: 'warehouse', magazijn: 'warehouse', magazijnen: 'warehouse',
+  // workflow (WeldConnect)
+  workflow: 'workflow', workflows: 'workflow',
+  // agent (WeldAgent)
+  agent: 'agent', agents: 'agent', agenten: 'agent',
+  // reach_campaign (WeldReach)
+  campaign: 'reach_campaign', campaigns: 'reach_campaign',
+  campagne: 'reach_campaign', campagnes: 'reach_campaign',
+  // chat_channel (WeldChat)
+  channel: 'chat_channel', channels: 'chat_channel', kanaal: 'chat_channel', kanalen: 'chat_channel',
+  // data_list (WeldData). Not "list": that stays a function word ("list my invoices").
+  lists: 'data_list', lijst: 'data_list', lijsten: 'data_list',
   // merge_issue, merge_pull_request (WeldMerge)
   issue: 'merge_issue', issues: 'merge_issue',
   pr: 'merge_pull_request', prs: 'merge_pull_request',

@@ -6,7 +6,7 @@
  * Inbound mail has its own filter (mail-inbound-worker spam-filter.ts), which
  * leans on SPF/DKIM/DMARC results that don't exist for mail we send. This one
  * looks for what cold outreach, bulk mail and phishing say, in English and
- * Dutch. See docs/plans/weldmail-outbound-abuse.md.
+ * Dutch. See weldsuite-documentation/plans/weldmail-outbound-abuse.md.
  */
 
 import { htmlToText } from '../text';

@@ -3,21 +3,25 @@
 //! files), linked to a bill or rejected. Every state change is written to
 //! the accounting audit log.
 //!
-//! OCR (`POST /:id/process`) runs on Workers AI on Global, which the
-//! Kubernetes editions don't have (`books-ocr` in `unavailableFeatures`): the
-//! route keeps its refusals (no session ids, unknown document, a tax form)
-//! and answers 503 where it would call the model. Matching a stored OCR
-//! result to a contact (`/rematch`) needs no AI and is served.
+//! OCR (`POST /:id/process`) reads the stored file through `weldsuite_ai`
+//! under the `books-ocr` feature (`crate::ocr`): Mistral OCR on the EU
+//! edition, the workspace's opted-in provider when its admin routed the
+//! feature there. Without an AI provider (`books-ocr` is then listed in
+//! `unavailableFeatures`) the route keeps its refusals (no session ids,
+//! unknown document, a tax form) and answers 503 `ai_unavailable` where it
+//! would call the model. Matching a stored OCR result to a contact
+//! (`/rematch`) needs no AI.
 
 use std::sync::Arc;
 
 use axum::Router;
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
 use serde_json::{Map, Value, json};
+use weldsuite_ai::{Ai, AiCall, AiError, Feature, Task, Tier};
 use weldsuite_books_domain::guards::{AuditInput, write_accounting_audit};
 use weldsuite_books_domain::http::{
     BooksState, Caller, Query, Refusal, Reply, created, no_content, now, ok, reply, validate,
@@ -31,7 +35,7 @@ use weldsuite_kit::{ApiError, generate_id};
 use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
-use crate::ocr::match_vendor_to_contact;
+use crate::ocr::{OCR_OP, OcrFailure, load_ocr_file, match_vendor_to_contact, read_document};
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -282,7 +286,22 @@ async fn is_tax_form_document(db: &sqlx::PgPool, doc: &Value) -> Result<bool, sq
     Ok(found)
 }
 
-async fn process(caller: Caller, Path(id): Path<String>) -> Response {
+/// Sets the document's status (the `processing` mark, the `failed` one).
+async fn set_status(db: &sqlx::PgPool, id: &str, status: &str) -> Result<(), sqlx::Error> {
+    sqlx::query("update documents set status = $2, updated_at = $3::timestamp where id = $1")
+        .bind(id)
+        .bind(status)
+        .bind(now())
+        .execute(db)
+        .await?;
+    Ok(())
+}
+
+async fn process(
+    caller: Caller,
+    State(state): State<BooksState>,
+    Path(id): Path<String>,
+) -> Response {
     if caller.clerk_org_id.is_none() || caller.user().is_none() {
         return Refusal::from(ApiError::unauthorized()).respond("");
     }
@@ -295,13 +314,100 @@ async fn process(caller: Caller, Path(id): Path<String>) -> Response {
                 "Tax forms such as W-9s and exemption certificates are never sent to OCR.",
             ));
         }
-        // The model runs on Workers AI (Global only): see the module docs.
-        Err(Refusal::unavailable(
-            "Document OCR is not available in this edition of WeldSuite.",
-        ))
+        // No AI provider on this install: see the module docs.
+        let Some(ai) = caller.ai(&state) else {
+            return Err(AiError::Unavailable.into_api_error().into());
+        };
+        set_status(&caller.db, &id, "processing").await?;
+        match read_and_store(&caller, &state, &ai, &doc, &id).await {
+            Ok(response) => Ok(response),
+            Err(failure) => {
+                set_status(&caller.db, &id, "failed").await?;
+                Err(failure.into_api_error().into())
+            }
+        }
     }
     .await;
     reply(result, "Failed to process document")
+}
+
+/// The inner `try` of `POST /:id/process`: read the file, store the result
+/// and the matched contact, audit and announce it. `meta.ai` names the
+/// model that read it.
+async fn read_and_store(
+    caller: &Caller,
+    state: &BooksState,
+    ai: &Ai,
+    doc: &Value,
+    id: &str,
+) -> Result<Response, OcrFailure> {
+    let failed = |error: sqlx::Error| OcrFailure::Failed(error.to_string());
+    let db = &caller.db;
+    let file = load_ocr_file(
+        &caller.buckets(state),
+        text(doc, "fileKey").unwrap_or_default(),
+        text(doc, "mimeType"),
+        &[
+            caller.clerk_org_id.as_deref(),
+            Some(caller.workspace_id.as_str()),
+        ],
+    )
+    .await?;
+    let call = AiCall::new(
+        caller.workspace_id.as_str(),
+        Feature::BooksOcr,
+        Task::Ocr,
+        Tier::Free,
+    )
+    .user(caller.user_id.as_str())
+    .tenant(db.clone())
+    .master(caller.master(state))
+    .op(OCR_OP)
+    .reference(id);
+    let (ocr_result, served) = read_document(ai, &call, file, text(doc, "fileName")).await?;
+    let matched = match_vendor_to_contact(db, &ocr_result)
+        .await
+        .map_err(failed)?;
+    let now = now();
+    sqlx::query(
+        "update documents set status = 'processed', ocr_result = $2::jsonb, \
+         ocr_processed_at = $3::timestamp, ocr_model = $4, matched_contact_id = $5, \
+         updated_at = $3::timestamp where id = $1",
+    )
+    .bind(id)
+    .bind(&ocr_result)
+    .bind(&now)
+    .bind(&served.model)
+    .bind(&matched)
+    .execute(db)
+    .await
+    .map_err(failed)?;
+    let mut changes = Map::new();
+    changes.insert(
+        "status".into(),
+        change(doc.get("status"), &json!("processed")),
+    );
+    changes.insert(
+        "matchedContactId".into(),
+        change(doc.get("matchedContactId"), &json!(matched)),
+    );
+    write_accounting_audit(caller, db, audit(doc, id, "processed", Some(changes))).await;
+    caller.publish(
+        state,
+        ACCOUNTING_DOCUMENT_UPDATED,
+        id,
+        json!({ "id": id, "status": "processed", "matchedContactId": matched }),
+    );
+    Ok(axum::Json(json!({
+        "data": {
+            "id": id,
+            "status": "processed",
+            "ocrResult": ocr_result,
+            "matchedContactId": matched,
+        },
+        "meta": { "ai": served.meta() },
+    }))
+    .into_response())
 }
 
 // ── POST /:id/rematch, /:id/create-bill ─────────────────────────────────────

@@ -10,6 +10,7 @@ publish.workspace = true
 
 [dependencies]
 weldsuite-ads-domain = { workspace = true }
+weldsuite-ai = { workspace = true }
 weldsuite-auth = { workspace = true }
 weldsuite-calendar-domain = { workspace = true }
 weldsuite-catalogs = { workspace = true }

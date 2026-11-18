@@ -550,14 +550,14 @@ describe('accounting entity header', () => {
       createClientApi: jest.Mock;
     };
     const opts = createClientApi.mock.calls[0][0] as {
-      getExtraHeaders: () => Record<string, string>;
+      getExtraHeaders: () => Promise<Record<string, string>>;
     };
 
     // Every request says which app's permissions apply; the entity header joins it once one is selected.
-    expect(opts.getExtraHeaders()).toEqual({ 'X-Weld-App': 'weldbooks' });
+    await expect(opts.getExtraHeaders()).resolves.toEqual({ 'X-Weld-App': 'weldbooks' });
 
     api.setAccountingEntityId('ent_2');
-    expect(opts.getExtraHeaders()).toEqual({
+    await expect(opts.getExtraHeaders()).resolves.toEqual({
       'X-Weld-App': 'weldbooks',
       'X-Accounting-Entity-Id': 'ent_2',
     });

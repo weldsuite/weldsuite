@@ -61,7 +61,7 @@ describe('mcp-server · authMiddleware · Clerk AuthInfo', () => {
 
     expect(res.status).toBe(401);
     expect(res.headers.get('WWW-Authenticate')).toBe(
-      'Bearer resource_metadata="https://mcp.test/.well-known/oauth-protected-resource"',
+      'Bearer resource_metadata="https://mcp.test/.well-known/oauth-protected-resource/mcp"',
     );
     expect(await res.json()).toEqual({
       jsonrpc: '2.0',

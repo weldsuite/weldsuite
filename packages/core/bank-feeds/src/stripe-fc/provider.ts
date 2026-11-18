@@ -12,7 +12,7 @@
  *
  * Not live-tested: the registration for live `transactions` access, the sign of
  * credit-card balances and per-issuer card coverage are open items in
- * docs/plans/weldbooks-us-research/bank-feeds.md.
+ * weldsuite-documentation/plans/weldbooks-us-research/bank-feeds.md.
  */
 
 import { FeedProviderError, WebhookVerificationError } from '../errors';

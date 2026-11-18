@@ -4,8 +4,15 @@
  * Phase 1 (collect): projects, their settings and the install page. Reports,
  * funnels and recordings add their own sections in later phases.
  */
+import { weldpanelAnalytics } from './weldpanel-analytics';
+import { weldpanelObserve } from './weldpanel-observe';
+import { weldpanelCollab } from './weldpanel-collab';
+import { weldpanelExplore } from './weldpanel-explore';
+
 export const weldpanel = {
   title: 'WeldPanel',
+  /** Analytics pages (phases 2-3), see weldpanel-analytics.ts. */
+  analytics: weldpanelAnalytics,
   breadcrumb: {
     home: 'WeldPanel',
     projects: 'Projects',
@@ -35,6 +42,10 @@ export const weldpanel = {
     patternInvalid: 'Start with a slash, like /admin/* or /checkout/success.',
     patternDuplicate: 'That pattern is already in the list.',
     tooManyPatterns: 'Add at most 50 patterns.',
+    ipInvalid: 'Enter an IPv4 or IPv6 address, or a range like 203.0.113.0/24.',
+    ipDuplicate: 'That address is already in the list.',
+    tooManyIps: 'Add at most 50 addresses.',
+    sampleRateInvalid: 'Enter a whole number from 0 to 100.',
   },
 
   /** The editor behind "allowed domains" and "excluded pages". */
@@ -107,6 +118,10 @@ export const weldpanel = {
     },
     anySite: 'Any site',
     moreDomains: '+{count} more',
+    // Where the deployment has no analytics store (the `panel-analytics` edition feature).
+    editionNoticeTitle: 'Collection only on this edition',
+    editionNotice:
+      "WeldPanel collects page views and events from your sites and apps here. The analytics views (traffic, funnels, retention, recordings and heatmaps) and server-side tracking aren't available on this edition yet.",
   },
 
   project: {
@@ -192,7 +207,7 @@ export const weldpanel = {
     },
     maskingLabel: 'Masking',
     maskingDescription:
-      'What is hidden. It applies to the text of captured elements now, and to session recordings, which arrive in a later phase. Password fields are always masked.',
+      'What is hidden in session recordings and in the text captured for clicked elements. Password fields are always masked.',
     masking: {
       strict: {
         label: 'Strict',
@@ -212,6 +227,19 @@ export const weldpanel = {
       'Pages whose path matches a pattern are not tracked. * matches any characters, for example /admin/* or /checkout/success.',
     excludedPlaceholder: '/admin/*',
     excludedNone: 'No pages are excluded.',
+    recordingRateLabel: 'Recording sample rate',
+    recordingRateSuffix: '% of consented sessions',
+    recordingRateDescription:
+      'The share of consented sessions that are recorded, from 0 to 100 percent. Sessions without consent are never recorded.',
+    recordingRateValue: '{percent}% of consented sessions',
+    aiLabel: 'AI summaries of recordings',
+    aiDescription:
+      'Write a short summary of each recording. Summaries use workspace credits and only see masked content.',
+    ipFiltersLabel: 'Excluded IP addresses',
+    ipFiltersDescription:
+      'Traffic from these IP addresses or CIDR ranges is dropped, for example your office. Addresses are compared and never stored.',
+    ipFiltersPlaceholder: '203.0.113.0/24',
+    ipFiltersNone: 'No IP addresses are excluded.',
     readOnlyNote: 'Only people who can manage WeldPanel projects can change these settings.',
     save: 'Save settings',
     saving: 'Saving…',
@@ -265,4 +293,10 @@ export const weldpanel = {
     },
     cancel: 'Cancel',
   },
+  /** Users, recordings, heatmaps, frustration, live, keys and usage (phases 3-7), see weldpanel-observe.ts. */
+  observe: weldpanelObserve,
+  /** Collaboration, monitoring, data out and the public share page, see weldpanel-collab.ts. */
+  collab: weldpanelCollab,
+  /** Analysis pages and builder upgrades of the gaps PR, see weldpanel-explore.ts. */
+  explore: weldpanelExplore,
 };

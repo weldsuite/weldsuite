@@ -2,7 +2,7 @@
  * Who sends what, and when: the pure planning half of the send engine.
  *
  * Everything here works on plain data (no database, no clock of its own), so
- * the rules from docs/plans/weldreach.md ("Sending engine") are unit-testable:
+ * the rules from weldsuite-documentation/plans/weldreach.md ("Sending engine") are unit-testable:
  *
  * - a mailbox sends at most ONE email per tick, only while `active`, only
  *   under min(ramp, daily cap), and only after its minimum gap (+ random-looking

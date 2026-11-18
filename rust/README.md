@@ -18,25 +18,45 @@ tenant database → licence and read-only → feature flags → permission →
 envelope) with entity events, realtime and cache behind ports;
 `weldsuite consume` runs the event subscribers on NATS JetStream, and
 `weldsuite migrate` and `weldsuite cron <job>` the migrations and the
-scheduled jobs. `RUST_PORTED_MODULES` (`@weldsuite/api-modules`) has twenty-six
+scheduled jobs. `RUST_PORTED_MODULES` (`@weldsuite/api-modules`) has twenty-eight
 modules, each with conformance suites that reach every route:
 
-- **core**: everything app-api serves except `/api/billing` (Stripe stays
-  Global-only), `/api/partner` and `/public/partner-territories` (the partner
+- **core**: everything app-api serves except `/api/partner` and
+  `/public/partner-territories` (the partner
   portal) and `/api/internal` (staff); signup and provisioning on Zitadel and
-  CloudNativePG (`/api/onboarding`, `workspace.provision`)
+  CloudNativePG (`/api/onboarding`, `workspace.provision`); buying credits
+  through Mollie instead of Stripe (`POST /api/credits/checkout`, Mollie's
+  webhook at `/api/webhooks/mollie`, `modules/core-platform/src/topup`); the
+  workspace AI settings at `/api/ai-settings` (Rust only, mounted when the
+  install has AI: `modules/core-platform/src/groups/ai_settings.rs`, see "AI");
+  plan billing on Mollie (ADR BILL-014) where `BILLING_PROVIDER=mollie`:
+  app-api's `/api/billing` with its shapes (`modules/core-billing`; Global's
+  is Stripe, so these routes have no conformance twin and are tested against
+  a recorded Mollie, `tests/billing_db.rs`), the pay links at
+  `/public/billing/pay/:token`, one Mollie webhook for plans and credit
+  top-ups (`bins/weldsuite/src/billing.rs`), invoices issued by WeldBooks in
+  WeldSuite's own workspace, and `weldsuite cron billing-renewals`, our own
+  scheduler for the mandates (see "Plan billing")
 - **know**, **sign** (member side, lifecycle, `sign.finalize`, the signer
   portal's operations at `/public/sign-portal`, ADR FE-017), **pass**,
   **calendar**, **crm**, **flow**, **mail** (and its inbound path: Haraka
   as the MX, the `mail.inbound` subscriber in place of mail-inbound-worker,
-  ADR MAIL-010, see "Inbound mail" below), **chat**, **desk** (with the
+  ADR MAIL-010, see "Inbound mail" below), **chat** (with its voice and
+  video calls at `/api/chat-calls` on the same video provider as WeldMeet:
+  join tokens from `crates/video-rooms`, the call lifecycle in
+  `crates/chat-domain` (`calls`), the 25-second ring timeout as the
+  `chat.call-ring-timeout` job, and the lock-screen decline at
+  `/public/chat-calls/decline`), **desk** (with the
   helpdesk widget API at `/public/helpdesk-widget`, and the helpdesk
   workflow engine, `helpdesk-workflow-worker`, in process: its
   `ConversationWorkflow` is the `desk.conversation-workflow` job and its
   `AssignmentRouter` keeps each workspace's round robin on Valkey;
   `crates/desk-domain/src/workflow`; the SLA engine, `crates/desk-domain/src/sla.rs`,
   re-derives a conversation's clocks on every write and `weldsuite cron
-  desk-sla-sweep` announces warnings and breaches) and **stash** (the WMS, with the
+  desk-sla-sweep` announces warnings and breaches; the reports' CSV exports,
+  the wallboard and the phone report, and the scheduled report emails, which
+  `weldsuite cron desk-report-sweep` sends on the customer mail relay behind
+  the outbound guard) and **stash** (the WMS, with the
   pick-list ship action's Sendcloud announcement over outbound HTTP)
 - **ads** (WeldAds: Meta connections, ad accounts and campaigns, synced
   with Meta's Marketing API through the outbound HTTP port; the shared sync
@@ -79,7 +99,12 @@ modules, each with conformance suites that reach every route:
 - **call** (WeldCall, telephony on Telnyx: calls and their prepaid minutes,
   call intelligence (phone numbers, the WebRTC token, statistics, call
   transcriptions), the WeldDesk phone channel's voice agents (Telnyx AI
-  assistants) and inbound routes, number porting with its documents in the
+  assistants) and inbound routes (an AI agent, a forward, the team's agents
+  rung in their browsers on a softphone credential each, with the waiting
+  queue, voicemail and a keypad menu: `desk_phone_inbound`, `_queue`,
+  `_ring`, `_legs` and `_softphone` in `modules/call/src`, as the worker's
+  services are split; the queue's events go out on the realtime port and
+  who is online is read from live presence), number porting with its documents in the
   `STORAGE` bucket, telephony (searching and syncing the account's numbers,
   addresses, ordering requirements, the price list), and the Telnyx webhook
   at `/public/webhooks/telnyx`, its Ed25519 signatures checked as on Global:
@@ -110,11 +135,16 @@ modules, each with conformance suites that reach every route:
   RealtimeKit, which conformance compares, or LiveKit, which
   `VIDEO_PROVIDER`/`LIVEKIT_URL` select. RealtimeKit's signed webhooks are
   served as on Global; LiveKit's (`/api/webhooks/livekit`, Rust only) track
-  presence and the end of a room, with no recorder or AI events. Not served:
-  WeldChat calls in "one live call at a time" (no chat calls on Kubernetes),
-  the transcript, summary, recording-copy and backfill Workflows (the routes
-  answer as the worker without the binding does), and the recordings bucket;
-  see `meet-transcription` and `meet-recordings` below)
+  presence and the end of a room, with no recorder or AI events. Both end
+  WeldChat calls whose room emptied and mark who left them, and "one live
+  call at a time" spans meetings and WeldChat calls both ways. The
+  `MEETING_AI` Workflow ("transcribe afterwards" over the stored MP3 in
+  frame-aligned chunks, and the summary of a transcript, each charged per
+  meeting minute) is the `meet.meeting-ai` job on `crates/ai` (Voxtral, and
+  the summarize task's model) when an AI provider is configured. Not served:
+  the recording-copy and backfill Workflows (the routes answer as the worker
+  without the binding does), and the recordings bucket, so there is nothing
+  to transcribe yet; see `meet-transcription` and `meet-recordings` below)
 - **reach** (WeldReach, cold-email outreach: access, settings, domains
   connected to Mailpool through its Cloudflare integration with the DNS
   guards over DNS-over-HTTPS, mailboxes provisioned at Mailpool and entered
@@ -173,8 +203,10 @@ modules, each with conformance suites that reach every route:
   markers live in the cache with their TTL) and the depreciation due. hr's
   pay run journal posts in process (`books_domain::payroll`); the
   integration workers' bank feed endpoints are `books_domain::bank_feeds`,
-  for when those workers are ported. Not ported: document OCR (Workers AI)
-  and filing through Digipoort, both in `unavailableFeatures`)
+  for when those workers are ported. Document OCR reads the file through
+  `crates/ai` (Mistral OCR with a document annotation; `books-ocr` is listed
+  unavailable only without an AI provider). Not ported: filing through
+  Digipoort, in `unavailableFeatures`)
 - **docs** (WeldDocs: documents as WeldDrive files, room sessions, the live
   snapshot, version history with restore). Live editing runs in the
   collab-rooms service, the workers' own `DocRoom` on Node beside this
@@ -220,9 +252,15 @@ modules, each with conformance suites that reach every route:
   salt of the cookieless visitor hash (the `PanelSalt` Durable Object) and
   the per-workspace daily counts (`PanelUsage`) live in Valkey, the salt
   claimed by the first pod and expiring as the object's alarm deletes it;
-  the client address is the ingress's `X-Forwarded-For` entry, and there is
-  no geo (Cloudflare's `request.cf`), so `country`, `region` and `city` stay
-  null. A project record missing from the cache is read from the master
+  the client address is the first `X-Forwarded-For` hop, as panel-ingest
+  reads it (a site's first-party proxy passes the visitor's there), and the
+  geo comes from a proxy's `X-WeldPanel-Country`/`-Region`/`-City` or
+  Vercel's `x-vercel-ip-*` headers, else `country`, `region` and `city`
+  stay null (Cloudflare's `request.cf` has no equivalent here); there is no
+  per-address rate limit (panel-ingest's Workers rate limiting). Mobile
+  batches (`lib: "mobile"`) take their place and device columns from their
+  `$` properties, and group operations are accepted and ignored like
+  people's. A project record missing from the cache is read from the master
   registry. Nothing reads the events yet: reports, recordings and people
   are later WeldPanel phases, and their store (a consumer of the stream
   into Postgres or a columnar store) comes with them)
@@ -235,6 +273,31 @@ modules, each with conformance suites that reach every route:
   ingest (`crates/connect-domain`), provider webhook registration and ingest,
   and the WeldBooks to Moneybird push. Not ported: AI workflow generation
   and AI steps (`weldconnect-ai`)
+- **forms** (WeldForms, built in both backends from the first route, ADR
+  FORMS-001: the forms engine `@weldsuite/forms-engine` held equal by its
+  fixtures; forms with their revisions (409 `REVISION_CONFLICT`), templates
+  (`catalogs/forms-templates.json`, `pnpm rust:catalogs`), publishing with
+  versions, the public link in the master `form_link_registry` and the
+  content screen, restricted forms, folders, themes, workspace settings, the
+  monthly response quota (`crates/core-domain` plan limits), media, the
+  members-only fill page, and the respondent side at `/public/forms` behind
+  `FORMS_PORTAL_SECRET` (ADR FORMS-002): the public cache, views, sessions
+  (HMAC tokens byte for byte the worker's), codes through the outbound guard,
+  ALTCHA or Turnstile (ADR FORMS-005), progress, uploads and submit. What
+  Global keeps in KV and the `FormCounters` Durable Object lives on the cache
+  port (Valkey: atomic counters for views, rate limits and wrong codes);
+  responses with answer filters in SQL, the summary and insights, CSV and
+  XLSX exports, the GDPR erase and a person's responses across forms;
+  invitations (personal links in the master `form_invitation_registry`,
+  through the outbound guard, source `forms`) with reminders by hand and on
+  the `forms_reminders` due index, and the daily digest on `forms_digest`
+  (`weldsuite cron forms-reminders`, `forms-digest`); integrations with
+  their dry run; `ProcessResponseWorkflow` is the `forms.process-response`
+  job with its steps: CRM, Desk and Flow (as the member who set the
+  integration up, through `crates/crm-domain`, `desk-domain`,
+  `flow-domain`), the notifications, the receipt and the quota notices. The
+  AI routes answer 503 `ai_unavailable` (ADR AI-011). The engine is `crates/forms-engine`, which WeldSheets' rules
+  for the `form_responses` connected table read too)
 
 The integration workers (`integration-webhook-worker`, `integration-sync-worker`)
 have no module id; `modules/integrations` serves their parts that are ported at the
@@ -243,7 +306,10 @@ ingress host, at the server), with conformance suites named `integrations: …`:
 
 - **bank feeds**: `POST /webhooks/bank-feeds/:provider` (Stripe Financial Connections'
   HMAC with `STRIPE_FC_WEBHOOK_SECRET`, Plaid's ES256 token with its key fetched from
-  Plaid and cached; Ponto and Enable Banking are polled, so refused), forwarding to
+  Plaid and cached; Ponto's RS512 token with `PONTO_APPLICATION_ID`, its key fetched from
+  Ibanity's webhooks API over the Ponto mTLS certificate and cached, the events keyed by
+  the Ponto organization a link indexes; Enable Banking, and Ponto without the id, are
+  polled, so refused), forwarding to
   WeldBooks' internal bank-connection routes in process (`books.rs`, once books is in
   `RUST_PORTED_MODULES`; until then the forward fails as without `BOOKS_INTERNAL` and
   the delivery is still acknowledged), and `weldsuite cron bank-feed-due` (the master
@@ -374,12 +440,17 @@ statements (`tables_gen.rs`); rerun it when a schema or a table changes. Not
 yet: mail (8 groups), custom-objects and reach.
 
 The MCP server (`mcp-server`, `modules/mcp`, design in `docs/mcp-server.md`)
-is served at `/mcp` on the same host, with its OAuth discovery documents at
+is served at `/mcp` (with the EU values on a host of its own, `mcp.<domain>`,
+set by `config.mcp.serverUrl`), with its OAuth discovery documents at
 `/.well-known/oauth-protected-resource` and
 `/.well-known/oauth-authorization-server` (the issuer's metadata passed
-through). The bearer token is an access token the server's own session
+through: Clerk's RFC 8414 document, or an OIDC provider's OpenID
+configuration, with the scopes its tokens need advertised). The bearer token
+is an access token the server's own session
 verifier accepts (`AUTH_PROVIDER=oidc`: the issuer's, the organization from
-`OIDC_ORG_CLAIM`); the member's effective permissions in that workspace are
+`OIDC_ORG_CLAIM`; Zitadel registers no client by itself, so each MCP client
+is an app registered there first, and an account in several workspaces
+can't sign in yet); the member's effective permissions in that workspace are
 the authority, and each workspace has a per-minute limit by plan on the
 cache's counters. Its tools are the TypeScript server's catalog, generated
 from the worker itself (`modules/mcp/tools/generate.mts`: `tools/list`'s
@@ -396,18 +467,23 @@ worker's endpoint tests against both.
 
 Features this backend lacks inside the modules it serves are listed in
 `/config.json` as `unavailableFeatures` (`bins/weldsuite/src/edition.rs`), so
-the platform hides them: SSO connections, billing, credit top-up, paid apps,
+the platform hides them: SSO connections, billing (without
+`BILLING_PROVIDER=mollie`), WeldReach inbox billing (likewise), credit
+top-up (without Mollie), paid apps,
 desktop sign-in, analytics, search reindex, company logos, mail domains, free
-`weldmail.com` addresses, mail AI, chat calls, help center custom domains,
+`weldmail.com` addresses, mail AI, help center custom domains,
 sending the loonaangifte over Digipoort, WeldBooks document OCR, filing VAT
 returns through Digipoort, buying or porting phone numbers, buying or
 renewing domains, WeldMeet transcripts and summaries and recordings,
 WeldConnect's AI (`weldconnect-ai`: the editor's Generate with AI, AI steps), and
 WeldAgent's AI (`agent-ai`: the assistant chat, agent runs, routine tests
 and teach mode, on Claude Managed Agents and `@weldsuite/ai` on Global).
-One follows the deployment rather than the code: `collab-rooms` (WeldDocs,
+Two follow the deployment rather than the code: `collab-rooms` (WeldDocs,
 WeldSheets and WeldBoard, hidden altogether) when no collab-rooms service is configured
-(`COLLAB_ROOMS_URLS`, the chart's `collabRooms.enabled: false`).
+(`COLLAB_ROOMS_URLS`, the chart's `collabRooms.enabled: false`), and
+`chat-calls` (WeldChat's call buttons) when no video provider is
+(`LIVEKIT_URL` with `LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET`, the chart's
+`config.video`).
 Routes left out on purpose are in their suite's `excludedRoutes`, with the
 reason. Not ported yet (P8):
 agent, and the rest of the edge workers (the rest of `external-api` and
@@ -446,14 +522,19 @@ rust/
                         their test doubles, in-process jobs
   crates/events/        @weldsuite/entity-events: the hub message and the fire-and-forget publisher
   crates/subscribers/   the hub subscribers `consume` runs: audit log, search index, outgoing webhooks, realtime;
+                        audit log streams (audit_streams.rs: the SIEM push the audit subscriber makes a few
+                        seconds after each batch, once its rows have settled, Splunk HEC or an HTTPS collector;
+                        safe_url.rs: the URL rules of a stream);
                         tests/fixtures from `pnpm rust:subscriber-fixtures` (the TypeScript consumers on pglite)
   crates/mail-inbound/  mail-inbound-worker's port (MAIL-010): postal-mime's parser, the Authentication-Results read,
                         spam and promotion scoring, thread matching, the registry lookup, the Postgres mailbox store's
                         ingest, mail rules, notifications, the WeldDesk and WeldBooks inboxes; the `RCPT TO` check
                         `serve` answers and the `mail.inbound` subscriber `consume` runs; tests/fixtures from
                         `pnpm rust:mail-inbound-fixtures` (the worker's own code, on pglite where it writes)
+  crates/sandbox/       WeldAgent's sandbox on Kubernetes: gVisor pods through the Kubernetes API, the client of the agent
+                        in them, SearXNG search, the sandbox and web tools, the isolation check (see "AI")
   crates/adapters-oss/  open-source adapters: Valkey cache + pub/sub, NATS JetStream, Restate jobs, flags in the master DB,
-                        files over the S3 API, system mail over SMTP, IMAP (async-imap), identity on Zitadel, workspace databases on
+                        files over the S3 API, system mail over SMTP, IMAP (async-imap), identity on Zitadel or WeldID, workspace databases on
                         CloudNativePG shards; `realtime.rs` is the realtime backplane's wire format on Valkey (stamped
                         events, replay log, presence)
   crates/realtime/      the realtime WebSocket gateway in `serve` (the realtime-worker's hubs and rooms, every pod,
@@ -529,6 +610,11 @@ rust/
                         and WeldConnect's `merge.*` actions and WeldAgent's tools on its internal router
                         (`across.rs`, `workflow_action`); its GitHub and provider event intake
                         answers the integration workers' webhooks in process, `MERGE_INTERNAL`),
+                        modules/forms (WeldForms: the member routes, results, exports,
+                        invitations, integrations, the respondent side at /public/forms, codes,
+                        sessions and counters on the cache port, the forms.process-response job
+                        and its steps, the reminder and digest sweeps; the engine is
+                        crates/forms-engine),
                         modules/books (the WeldBooks ledger) and one crate per books area,
                         modules/books-sales, -purchases, -banking, -sales-tax, -reports and
                         -tax, with crates/books-domain (everything two areas or another module
@@ -546,17 +632,22 @@ rust/
                         modules/core-files (app-api files, folders, drive, search, storage),
                         modules/core-objects (WeldObjects, custom fields, object templates, grid views),
                         modules/core-team (team, roles, settings, legal entities, preferences, app catalog),
-                        modules/core-platform (notifications, audit logs, appstore, API keys, credits,
-                        dashboard, support, SSO, auth sessions), modules/core-apps (WeldApps and its
+                        modules/core-platform (notifications, audit logs and audit log streams, appstore,
+                        API keys, credits, dashboard, support, SSO, auth sessions), modules/core-apps (WeldApps and its
                         gateway, the CLI and desktop sign-in routes), modules/core-onboarding (signup:
-                        /api/onboarding, the workspace.provision job, the identity sync, the deletion sweeps)
+                        /api/onboarding, the workspace.provision job, the identity sync, the deletion sweeps),
+                        modules/core-signin (/api/sign-in: the backend of the platform's own sign-in
+                        screens on an OIDC provider, as its login client; no TypeScript twin, ADR SEC-016)
   deploy/helm/weldsuite the Helm chart (collabRooms: WeldDocs', WeldSheets' and WeldBoard's rooms, apps/tools/collab-rooms)
   docs/collab-rooms.md  how the collaborative rooms run on Kubernetes
   deploy/haraka/        the MX image (MAIL-010): Haraka with three plugins, the RCPT TO check, DMARC + Authentication-Results,
                         and the hand-off to the mail bucket and NATS
+  deploy/sandbox/       WeldAgent's sandbox image (AI-012 phase 5): Python, Node.js, Chromium, an X desktop, and the agent
+                        (agent/) crates/sandbox talks to; see "WeldAgent's sandbox" under "AI"
   deploy/kind/          the kind smoke test: Postgres (migrated by the chart's Job), Valkey, NATS, RustFS (S3), Restate, the chart, a signed request, a job, a message over SMTP
-  deploy/hetzner/       OpenTofu for the EU cluster on Hetzner (Talos), the runbook and the monthly drill
-  deploy/flux/          Flux GitOps for that cluster: CloudNativePG, NATS, Valkey, Restate, Zitadel, the app
+  deploy/hetzner/       OpenTofu for a cluster on Hetzner (Talos) and the install guide
+  deploy/flux/          Flux GitOps for that cluster: CloudNativePG, NATS, Valkey, Restate, Zitadel, the app, and an
+                        example cluster (WeldSuite's own clusters and runbooks are in its private deploy repository)
   deploy/validate.sh    checks the two above without a cloud account (CI: Rust · deploy config)
 ```
 
@@ -664,6 +755,11 @@ scripts and the self-hosted operator. The commands' rules and writes are in
   names the person acting (`--as <email>` or `WELDSUITE_ACTOR`), who must have
   an active row; a `viewer` only reads, and only a `superadmin` changes the
   list. The first superadmin is added without `--as` while the list is empty.
+  A row names two accounts of the person (ADR SEC-018): `staff add` fills
+  `user_id` with their platform account, for the WeldApps review gate (one
+  with that email that is in a workspace; adding them again catches up), and
+  the admin console fills `console_subject` with their staff account on their
+  first sign-in there.
 - **`access`**: workspaces' access to apps on request only, WeldReach
   (ADR REACH-003): `list`, `show`, `approve`, `reject`, `suspend`, `unsuspend`,
   `revoke` and `limits`, with the console's rules (the table is in
@@ -671,6 +767,13 @@ scripts and the self-hosted operator. The commands' rules and writes are in
   workspace's database and emails the requester; rejecting emails the
   reason (`SMTP_URL`, with `PLATFORM_URL` for the links). What can't be done
   is printed as a warning.
+- **`billing`**: plan billing on Mollie (ADR BILL-014, "Plan billing"):
+  `show` (plan, seats, period, the Mollie account, the latest charges and
+  invoices), `comp` and `uncomp` (BILL-011's complimentary plan, with
+  `--plan`, `--seats`, `--until`), `refund <bpy_…|tr_…> [--amount <cents>]`
+  through Mollie (the credit note is made in WeldBooks, in the issuer
+  workspace) and `retry-now` (charge a past-due workspace's open charge
+  again). `bins/weldsuite/src/admin_billing.rs`.
 - Every change needs `--reason`, runs in one transaction with its row in
   `admin_audit_events` (`actor_user_id` `cli`), refusals included, and
   `--dry-run` shows it without writing. `--json` prints JSON.
@@ -701,11 +804,13 @@ Built images for the test clusters: the "Rust images" workflow
 (`.github/workflows/rust-images.yml`) pushes
 `ghcr.io/weldsuite/weldsuite`, `ghcr.io/weldsuite/weldsuite-sign-portal` and
 `ghcr.io/weldsuite/weldsuite-collab-rooms`, amd64, tagged
-`sha-<12 characters of the commit>`, on every push to `develop` or a
+`sha-<12 characters of the commit>`, on every push to `main` or a
 `deploy/*` branch that changes what the images are built from. A push to
-`develop` also moves the tag `develop`. Production runs releases: the
-"Rust release" workflow (`.github/workflows/rust-release.yml`) promotes one
-of those builds to a version, `X.Y.Z`, with the same image digests and the
+`main` also moves the tag `main` and publishes the chart as
+`<base>-main.<run>`; the EU test cluster follows the newest one. Production
+runs releases: the "Rust release" workflow
+(`.github/workflows/rust-release.yml`) promotes one of those builds, a commit
+on `main`, to a version, `X.Y.Z`, with the same image digests and the
 chart of the same commit (`deploy/hetzner/README.md`, "Releases").
 
 The image carries the platform SPA, built with `VITE_RUNTIME_CONFIG=on`, in
@@ -721,7 +826,8 @@ share one origin and the app finds the API through `/config.json`
 `weldsuite cron <job>` runs one scheduled job and exits, with the same
 environment (the chart's CronJobs, `cron.jobs` in its values): `sign-lifecycle`
 every 15 minutes, `desk-sla-sweep` every minute (WeldDesk's SLA warnings
-and breaches), `reach-send-sweep` every minute (WeldReach's sends: queued
+and breaches), `desk-report-sweep` every minute (WeldDesk's scheduled report
+emails), `reach-send-sweep` every minute (WeldReach's sends: queued
 on NATS for `weldsuite consume`'s `reach-send` with `REACH_SEND_QUEUE=nats`,
 which the chart sets with `consume.enabled`, else sent by the job itself),
 `reach-warmup-sweep` hourly and `reach-slot-reconciliation` daily (WeldReach's
@@ -740,22 +846,39 @@ scheduled runs, started on Restate; skipped without `RESTATE_INGRESS_URL`) and
 books is not served), `connector-catchup` every 15 minutes and `moneybird-push`
 every 5 (WeldConnect's connectors; nothing while connect is not served), and
 `merge-digest-sweep` hourly (WeldMerge's daily WeldChat digests over the `merge_digest`
-due index; nothing while merge is not served). The server reads environment variables only (`bins/weldsuite/src/config.rs`):
+due index; nothing while merge is not served), `mail-outbound-ledgers` every 5
+minutes (WeldMail's outbound ledgers' alarms; skipped without `VALKEY_URL`),
+`calendar-replan` daily at 04:00 UTC, `flow-file-purge`, `flow-approval-due`
+and `flow-benefit-measure` daily at 03:30 UTC, as on Global, and
+`forms-reminders` and `forms-digest` every 15 minutes (WeldForms' invitation
+reminders and daily response digest over the `forms_reminders` and
+`forms_digest` due index; nothing while forms is not served). The server reads
+environment variables only (`bins/weldsuite/src/config.rs`).
+At start it logs a "Global default" warning for every setting still on a value
+that assumes the Global edition (`global_defaults` in `config.rs`: Clerk
+sign-in, no public URL, public objects on Global's bucket host, mail from
+`mail.weldsuite.org`, no video service); an EU or self-hosted install should
+log none.
 
 | Variable | |
 |---|---|
 | `DATABASE_URL_MASTER` | master database (required) |
+| `PUBLIC_URL` | the install's public origin (`https://weldsuite.example.com`). The chart's `config.publicUrl` sets it and fills each URL setting that names this host and isn't in `extraEnv`: `PUBLIC_APP_URL`, `APP_URL`, `PLATFORM_URL`, `APP_API_PUBLIC_URL`, `PUBLIC_API_URL`, `CONNECT_API_URL`, `CONNECTOR_WEBHOOK_BASE_URL`, `WEBHOOK_BASE_URL`, `PANEL_COLLECTOR_URL` (`PUBLIC_URL_SETTINGS` in `config.rs`). Unset, links in mail, OAuth redirects and webhook registrations name Global's hosts. `PUBLIC_APP_URL` is also the platform WeldSign's mail links to |
 | `DATABASE_URL_PERSONAL`, `PERSONAL_DB_MAX_CONNECTIONS` | personal-api's shared personal database (optional; set, `/personal-api` is served) and its pool size (default 5) |
-| `AUTH_PROVIDER` | `clerk` (default) or `oidc` (ADR SEC-012) |
+| `AUTH_PROVIDER` | `clerk` (the binary's default, for conformance and the dev setups) or `oidc` (ADR SEC-012; the chart's default) |
 | `CLERK_JWT_KEY`, `CLERK_JWKS_FILE`, `CLERK_JWKS_URL` or `CLERK_SECRET_KEY` | with `clerk`: session token keys: a PEM, a JWKS file, a JWKS URL, or Clerk's Backend API (one is required) |
 | `OIDC_ISSUER`, `OIDC_AUDIENCE` | with `oidc` (both required): the issuer (`iss`, and where discovery reads `/.well-known/openid-configuration`) and the accepted audiences, comma separated (Zitadel: the project id) |
 | `OIDC_ORG_CLAIM` | the claim naming the session's organization (default `urn:zitadel:iam:org:id`; Zitadel's project-roles claim works too). Its value is matched against `workspaces.clerk_org_id`, which holds the provider's organization id on Kubernetes, or `workspaces.id` |
 | `OIDC_JWKS_URL`, `OIDC_WEB_CLIENT_ID` | fetch the keys here instead of through discovery; the platform's PKCE client id for `/config.json` (both optional) |
+| `OIDC_MOBILE_CLIENT_ID`, `OIDC_DESKTOP_CLIENT_ID` | the mobile apps' and the desktop app's public native clients for `/config.json` (`mobileClientId`, `desktopClientId`; optional). The desktop app signs in through the system browser with the loopback redirect `http://127.0.0.1/callback` on any port (RFC 8252, `apps/desktop/docs/auth-handoff.md`); without its client it signs in inside its window with the web client |
+| `OIDC_WORKSPACE_SOURCE` | `claim` (default; `header` with `IDENTITY_PROVIDER=weldid`): the workspace is the token's `OIDC_ORG_CLAIM`. `header`: membership mode (self-hosted plan E1): the provider only authenticates, every request names its workspace in `X-Weld-Workspace` (`workspaces.id`, its slug or its organization id), and the user must be an active member in the master `user_workspaces` (`crates/db/src/membership.rs`; no header: `ORG_REQUIRED`, not a member: 403). `/config.json` then sends provider-neutral scopes, `audienceScope`, `organizationScope` and `orgClaim` `null`, and `workspaceSource: "header"`; `GET /api/workspaces` needs no workspace and names each by `workspaces.id` |
+| `OIDC_SIGN_IN`, `ZITADEL_LOGIN_TOKEN`, `PLATFORM_URL` | `platform`: the platform shows its own sign-in screens (the ones Global shows) and the server is Zitadel's login client behind them at `/api/sign-in` (`modules/core-signin`, ADR SEC-016); `/config.json` then says `auth.signIn: "platform"`. Needs `ZITADEL_*`, and a service user with the `IAM_LOGIN_CLIENT` role: `ZITADEL_LOGIN_TOKEN`, else `ZITADEL_SERVICE_TOKEN`. `PLATFORM_URL` is where the links in its emails open the platform (unset: Zitadel's own pages). Invitations are accepted there too, on `/invite` at `PUBLIC_APP_URL` (`/api/sign-in/invitation/accept`). Attempts are counted in Valkey (`VALKEY_URL`; unset: per process). Unset or `provider`: the provider's own pages, and no `/api/sign-in` |
 | `DATABASE_ENCRYPTION_KEY`, `DATABASE_ENCRYPTION_KEY_V2` | open encrypted `workspaces.database_url`; open the Sendcloud secret a workspace stored for WeldStash's ship action; seal and open WeldAds' Meta tokens (`encryptField`); open WeldCommerce's store connection, Sendcloud and sales tax engine credentials; seal and open WeldBooks' stored credentials, tax ids and bank account numbers |
+| `MOLLIE_API_KEY`, `MOLLIE_WEBHOOK_URL`, `MOLLIE_REDIRECT_URL`, `MOLLIE_API_URL` | Buying credits (the `credit-top-up` feature; unset key: unavailable, and `POST /api/credits/checkout` answers as without billing-worker): Mollie's API key, where Mollie posts payment changes (default `<PUBLIC_API_URL>/api/webhooks/mollie`, else `APP_API_PUBLIC_URL`, `PUBLIC_URL`), where a checkout returns when the client names no address (default `<PUBLIC_APP_URL>/settings/billing?credits=success`, else `PUBLIC_URL`), and the API's base URL (tests). A key without a webhook or return address stops the start. Packages are master `credit_packages` rows priced in EUR; pending checkouts are kept a week in Valkey (or this process) for the return page |
 | `TELNYX_API_KEY`, `TELNYX_CONNECTION_ID`, `TELNYX_SIP_CONNECTION_ID`, `TELNYX_PUBLIC_KEY` | WeldCall: Telnyx's API key (unset: the phone service is not activated), the Call Control connection numbers are synced from and the WebRTC credential connection, and the account's Ed25519 public key `/public/webhooks/telnyx` checks every webhook with (unset: every webhook is refused, 401). The voice agent's tool tokens are signed with the API key |
 | `APP_API_PUBLIC_URL` | WeldDesk, WeldCall and WeldConnect: this server's public base URL, for the URLs a third party calls back on (OAuth redirects, the voice agent's `lookup_crm` tool, the CRM providers' webhooks and Google Calendar watch channels); by `ENVIRONMENT` otherwise |
 | `COMMERCE_PORTAL_URL` | WeldCommerce: the B2B order portal's origin, for the links in its sign-in mail and the portal URL its settings show (default by `ENVIRONMENT`: `https://orders.weldsuite.org` in production, `https://orders-test.weldsuite.org` in test, else `http://localhost:3021`) |
-| `PLATFORM_URL`, `BOOKS_API_URL`, `DIGIPOORT_MODE`, `BANK_FEED_PROVIDERS`, `BANK_FEED_WEBHOOK_URL`, `PLAID_CLIENT_ID`/`_SECRET`/`_ENV`/`_COUNTRY_CODES`/`_REDIRECT_URI`, `STRIPE_FC_SECRET_KEY`/`_API_VERSION`, `PONTO_CLIENT_ID`/`_CLIENT_SECRET`, `PONTO_MTLS_CERT`/`_KEY`, `PONTO_SIGNATURE_CERT_ID`, `PONTO_SIGNATURE_KEY`, `ENABLE_BANKING_APP_ID`/`_PRIVATE_KEY`, `FIELD_ENCRYPTION_AAD_WRITES` | WeldBooks: the platform origin for W-9 links, this API's public URL for Focus NFe's webhook, Digipoort's mode (`simulated`, the only one without PKIoverheid certificates), the bank feed providers on offer and their webhook URL, each provider's credentials (Ponto's mTLS client certificate and key as PEM, and for a live Ponto application the signature certificate's id from Isabel's developer portal and its unencrypted private key as PEM, which sign every Ponto request; the sandbox takes them unsigned), and the field-encryption AAD switch the workers share. Stripe Tax, Avalara, Gusto and Focus NFe use the credentials a workspace stores (sealed with `DATABASE_ENCRYPTION_KEY`). The daily `books-sweep` keeps the tax reminders' markers in Valkey: without `VALKEY_URL` it sends none |
+| `PLATFORM_URL`, `BOOKS_API_URL`, `DIGIPOORT_MODE`, `BANK_FEED_PROVIDERS`, `BANK_FEED_WEBHOOK_URL`, `PLAID_CLIENT_ID`/`_SECRET`/`_ENV`/`_COUNTRY_CODES`/`_REDIRECT_URI`, `STRIPE_FC_SECRET_KEY`/`_API_VERSION`, `PONTO_CLIENT_ID`/`_CLIENT_SECRET`/`_ENV`/`_APPLICATION_ID`, `PONTO_MTLS_CERT`/`_KEY`, `PONTO_SIGNATURE_CERT_ID`, `PONTO_SIGNATURE_KEY`, `ENABLE_BANKING_APP_ID`/`_PRIVATE_KEY`, `FIELD_ENCRYPTION_AAD_WRITES` | WeldBooks: the platform origin for W-9 links, this API's public URL for Focus NFe's webhook, Digipoort's mode (`simulated`, the only one without PKIoverheid certificates), the bank feed providers on offer and their webhook URL, each provider's credentials (Ponto's mTLS client certificate and key as PEM, `PONTO_ENV=sandbox` for a sandbox application, whose people authorize on the sandbox's own page, `PONTO_APPLICATION_ID` (the application's id in Isabel's developer portal) to turn on Ponto's webhooks, which then poll each connection once a day instead of every six hours, and optionally the signature certificate's id from Isabel's developer portal and its unencrypted private key as PEM, which then sign every Ponto request; Ponto requires signatures for payments only; Ponto's "sync now" sends the member's address, the `X-Forwarded-For` entry `TRUSTED_PROXIES` from the right, as Ponto API v2 requires, and waits up to 15 seconds for Ponto's synchronizations, while `bank-feed-due` only reads what Ponto's own four daily syncs fetched), and the field-encryption AAD switch the workers share. Starting a bank link asks for a second factor verified in the last 10 minutes only with Clerk sign-in; with `AUTH_PROVIDER=oidc` that step-up is off for now, as Zitadel's access tokens carry no `auth_time` or `amr` and the platform has no OIDC step-up yet. Stripe Tax, Avalara, Gusto and Focus NFe use the credentials a workspace stores (sealed with `DATABASE_ENCRYPTION_KEY`). The daily `books-sweep` keeps the tax reminders' markers in Valkey: without `VALKEY_URL` it sends none |
 | `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET` | WeldAds: the Meta app ad connections authorize (unset: connecting answers 500 `Facebook OAuth is not configured`); the OAuth callback page is on `PUBLIC_APP_URL` (default `https://app.weldsuite.org`). The OAuth state lives in Valkey, or in this process without it |
 | `POSTPEER_API_KEY`, `POSTPEER_BASE_URL`, `POSTPEER_APP_IDS`, `POSTPEER_WEBHOOK_SECRET` | WeldSocial: PostPeer's API key (unset: connecting and publishing answer 400 `Social publishing is not configured`), its base URL (default `https://api.postpeer.dev/v1`), the BYOK OAuth apps as a JSON object of platform → app id, and the secret PostPeer signs its delivery webhooks with (unset: every delivery is refused). Publishing charges the workspace's prepaid credits (2 per platform) |
 | `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY`, `CONNECT_API_URL` | WeldConnect: the GitHub App (WeldFlow's repositories and Projects, the workflow GitHub integration; unset: those routes answer 500 `GitHub App is not configured`) and the public origin of the workflow webhook URLs (default by `ENVIRONMENT`). The install state is signed with `CLERK_SECRET_KEY`, else `INTERNAL_API_SECRET`; the install callback lands on `PUBLIC_APP_URL`. `SLACK_CLIENT_ID`/`SLACK_CLIENT_SECRET` and `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`: the workflow integrations' OAuth apps |
@@ -769,14 +892,14 @@ due index; nothing while merge is not served). The server reads environment vari
 | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` (or `CF_ACCOUNT_ID`) | WeldHost: Cloudflare's API for DNS zones and records (and the legacy Cloudflare Registrar's rows); unset: the DNS record routes and the ownership check answer 500 `Cloudflare integration is not configured.` |
 | `CLERK_AUTHORIZED_PARTIES` | extra origins allowed as `azp` |
 | `PERMISSIONS_APP_ENFORCE` | `true` refuses per-app denials instead of logging them |
-| `VIDEO_PROVIDER`, `LIVEKIT_URL`, `LIVEKIT_API_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `LIVEKIT_TOKEN_TTL_SECONDS` | WeldMeet's video provider (`crates/video-rooms`): `livekit` (the default once `LIVEKIT_URL` is set) or `realtimekit` (`CF_ACCOUNT_ID`, `CF_REALTIME_APP_ID`, `CF_REALTIME_APP_SECRET`). `LIVEKIT_URL` is what browsers connect to and what `/config.json` gives the platform (`videoProvider`, `videoUrl`); `LIVEKIT_API_URL` the API when it is reached elsewhere (in the cluster); the key pair signs join tokens and admin calls and verifies `/api/webhooks/livekit`; tokens can be used for `LIVEKIT_TOKEN_TTL_SECONDS` (600). See "WeldMeet on LiveKit" below |
+| `VIDEO_PROVIDER`, `LIVEKIT_URL`, `LIVEKIT_API_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `LIVEKIT_TOKEN_TTL_SECONDS` | WeldMeet's video provider (`crates/video-rooms`): `livekit` (the default once `LIVEKIT_URL` is set) or `realtimekit` (`CF_ACCOUNT_ID`, `CF_REALTIME_APP_ID`, `CF_REALTIME_APP_SECRET`). `LIVEKIT_URL` is what browsers connect to and what `/config.json` gives the platform (`videoProvider`, `videoUrl`); `LIVEKIT_API_URL` the API when it is reached elsewhere (in the cluster); the key pair signs join tokens and admin calls and verifies `/api/webhooks/livekit`; tokens can be used for `LIVEKIT_TOKEN_TTL_SECONDS` (600). Without the chosen provider's credentials (`weldsuite_video_rooms::configured`), `/config.json` leaves `meet` out of `modules`, so the platform hides WeldMeet. See "WeldMeet on LiveKit" below |
 | `VALKEY_URL`, `VALKEY_CACHE_PREFIX`, `VALKEY_REALTIME_PREFIX` | cache, realtime publish and the WebSocket gateway (optional; without it, upload tokens live in the server process, enough for one replica only, and the gateway is off) |
 | `REALTIME_PUBLIC_URL` | the gateway URL `/config.json` gives the frontends (default: the request's own origin with `/ws`) |
 | `REALTIME_MAX_CONNECTIONS`, `REALTIME_MAX_CONNECTIONS_PER_USER`, `REALTIME_MAX_SUBSCRIPTIONS`, `REALTIME_MAX_MESSAGE_BYTES`, `REALTIME_SEND_QUEUE` | gateway limits per pod (20,000 sockets, 100 per person, 2,000 topics per socket, 1 MiB messages, 1,024 queued messages before a slow client is dropped) |
 | `REALTIME_INTERNAL_SECRET` | `x-internal-secret` of `/publish/*` and `/internal/presence` (optional; unset refuses them) |
 | `VALKEY_DESK_ASSIGNMENT_PREFIX` | WeldDesk: where the `AssignmentRouter` keeps each workspace's rotation and recent picks on Valkey (default `weldsuite:desk-assignment:`), so auto-assignment's round robin holds across pods. Without `VALKEY_URL` they live in the server process (one replica's worth) |
 | `STRIPE_CONNECT_WEBHOOK_SECRET` | The Stripe connector's ingress: the signing secret of the platform's Connect webhook endpoint (`POST /webhooks/stripe-connect`; unset: 503). `STRIPE_SECRET_KEY` and `STRIPE_CONNECT_CLIENT_ID` are the platform key OAuth Stripe connections are read with and the Connect OAuth app; `MONEYBIRD_CLIENT_ID`/`MONEYBIRD_CLIENT_SECRET` the Moneybird OAuth app; `CONNECTOR_WEBHOOK_BASE_URL` the public origin stores deliver their webhooks to (default by `ENVIRONMENT`) |
-| `STRIPE_FC_WEBHOOK_SECRET` | The bank feed receiver: the signing secret of Stripe Financial Connections' webhook endpoint (unset: every Stripe FC delivery is refused, 401). Plaid's deliveries are checked with `PLAID_CLIENT_ID`/`PLAID_SECRET`/`PLAID_ENV` (unset: 404) |
+| `STRIPE_FC_WEBHOOK_SECRET` | The bank feed receiver: the signing secret of Stripe Financial Connections' webhook endpoint (unset: every Stripe FC delivery is refused, 401). Plaid's deliveries are checked with `PLAID_CLIENT_ID`/`PLAID_SECRET`/`PLAID_ENV` (unset: 404), Ponto's with `PONTO_APPLICATION_ID` and the `PONTO_MTLS_CERT`/`_KEY` certificate (without the id: refused, 401; neither it nor the OAuth client: 404) |
 | `GITHUB_APP_SLUG`, `GITHUB_APP_CLIENT_ID`/`_SECRET`, `GITLAB_OAUTH_CLIENT_ID`/`_SECRET`, `BITBUCKET_OAUTH_CLIENT_ID`/`_SECRET`, `AZURE_DEVOPS_CLIENT_ID`/`_SECRET`, `APP_URL`, `WEBHOOK_BASE_URL` | WeldMerge: the GitHub App's install page (unset: `install-url` answers 503) and its user authorization for members, the OAuth apps of GitLab.com, Bitbucket Cloud and Azure DevOps (unset: their authorize URLs answer 503), the platform origin OAuth and the App's setup redirect land on (`/weldmerge/oauth/callback`; required for OAuth), and the public origin provider webhooks deliver to (`${WEBHOOK_BASE_URL}/webhooks/merge/<provider>/<key>`). Tokens are sealed with `DATABASE_ENCRYPTION_KEY`; the install state is signed with `CLERK_SECRET_KEY`, else `INTERNAL_API_SECRET`; the OAuth state lives in Valkey, or in this process without it |
 | `CF_ACCOUNT_ID` (or `CLOUDFLARE_ACCOUNT_ID`), `AI_GATEWAY_API_TOKEN` (else `CLOUDFLARE_API_TOKEN`, `CF_API_TOKEN`), `CF_AI_GATEWAY`, `CF_AIG_TOKEN`, `AI_FALLBACK_MODEL` | WeldMerge: a release's notes written by the model on the Cloudflare AI Gateway's OpenAI-compatible endpoint (`@weldsuite/ai`'s settings: the account, its token, the gateway id (default `default`), a separate gateway token, and the model a refused third-party call falls back to, `none` to disable). Unset account: `generate-notes` answers 503. With the master database the call is charged to the workspace's prepaid credits |
 | `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET` | The GitHub App: its id and private key (PKCS#1 or PKCS#8 PEM) for installation tokens (unset: the GitHub jobs fail at `acquire-token`, as on Global), and the App-level secret `POST /webhooks/github` checks each delivery with (else the connection's own; neither: 401) |
@@ -792,12 +915,18 @@ due index; nothing while merge is not served). The server reads environment vari
 | `WELDPASS_ROOT_KEY`, `WELDPASS_ROOT_KEY_V2` | WeldPass: the root key that wraps every vault's key (64 hex characters, the workers' value, so either backend opens the other's vaults), and the new one while a rotation is in flight. Unset: the vault routes answer 500 `CRYPTO_ERROR`. Losing it makes every stored secret unrecoverable |
 | `COLLAB_ROOMS_URLS`, `COLLAB_ROOMS_SECRET` | WeldDocs', WeldSheets' and WeldBoard's live editing (`docs/collab-rooms.md`): every collab-rooms pod's URL, comma separated (the chart lists them), and the `x-internal-secret` both ways. A room's calls and its socket go to the pod that wins rendezvous hashing on the room id. Unset: every route that needs a room or an engine (create, import, convert, session, live snapshot, export, versions, connected tables' refreshes) answers 503, and `/config.json` lists `collab-rooms` as unavailable, so the platform hides WeldDocs, WeldSheets and WeldBoard |
 | `SIGN_PORTAL_SECRET` | WeldSign: the key the signer portal sends with every call to `/public/sign-portal` (ADR FE-017); unset refuses those calls (503) |
+| `FORMS_PORTAL_SECRET`, `FORMS_PORTAL_URL`, `FORMS_SESSION_SECRET` | WeldForms: the key the forms portal sends with every call to `/public/forms` (`X-Forms-Portal-Key`, ADR FORMS-002; unset refuses them, 503), the portal's origin for public links (`<url>/f/<publicId>`, default `https://forms.weldsuite.org`; the chart's `config.forms.portalUrl`), and the key of respondent sessions, verification tokens and the keyed hashes of IPs, browser keys and codes (the workers' value, so a session either backend issued opens on the other; unset: the session routes answer 503) |
+| `BOT_CHECK_PROVIDER`, `ALTCHA_HMAC_KEY`, `TURNSTILE_SECRET_KEY`, `TURNSTILE_SITE_KEY` | WeldForms' bot check (ADR FORMS-005): `altcha` (the chart's default: self-hosted proof of work, its challenges signed with `ALTCHA_HMAC_KEY`, `GET /public/forms/altcha/challenge`), `turnstile` (Cloudflare's siteverify over HTTP) or `none` (the default without the chart, local development). The cache (Valkey) holds the public cache, seeds, codes and the forms' counters; without it this process does (one replica) |
+| `FORMS_MIN_FILL_MS` | WeldForms: the minimum time between a session's start and its submit (default 1500), lowered by the worker's tests |
 | `MAIL_INBOUND_SECRET` | WeldMail: the key Haraka sends (`Authorization: Bearer`) with the `RCPT TO` check, `POST /internal/mail-inbound/recipients` (MAIL-010); unset refuses it (503, Haraka answers 451) |
 | `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET_PRIVATE`, `S3_BUCKET_PUBLIC`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE` | files: the private bucket and the legacy public one (optional; any S3 store: RustFS, Garage, Ceph RGW, Hetzner, AWS) |
 | `RESTATE_INGRESS_URL`, `RESTATE_ADMIN_URL`, `RESTATE_DEPLOYMENT_URI`, `JOBS_PORT` | durable jobs on Restate: start through the ingress; each pod serves the jobs service on `JOBS_PORT` (9080) and registers `RESTATE_DEPLOYMENT_URI` with the admin API at start. Unset: jobs run in the server process and a restart loses them |
-| `S3_PUBLIC_URL` | the public bucket's own URL (the workers' `R2_PUBLIC_URL`), for Drive rows that store only a key (optional) |
+| `S3_PUBLIC_URL` | the public bucket's own URL (the workers' `R2_PUBLIC_URL`, chart `config.files.publicUrl`), for public objects (avatars, logos, published documents) and Drive rows that store only a key. Unset, those links name Global's test bucket host, as the TypeScript routes do |
+| `S3_ENSURE_BUCKETS` | `true`: create the private and public buckets at start when the store doesn't have them (the chart's bundled object store, `bundle.objectStorage`) |
+| `S3_PUBLIC_VIA_SERVER` | `true`: serve the public bucket's objects at `/api/storage/public/<key>` to anyone, for an object store with no public endpoint of its own (the bundled one, unless `config.files.publicUrl` names one; the chart then points `S3_PUBLIC_URL` there). Unset, that route answers only local development, as in TypeScript |
 | `STORAGE_SIGNING_KEY` | signs the files cookie and the signed URLs that open private objects (`/api/storage`); the same value as app-api's, so either backend accepts the other's. Unset: `POST /api/storage/access` and `/sign` answer 503, and a private object opens only with a session token |
-| `ZITADEL_API_URL`, `ZITADEL_SERVICE_TOKEN`, `ZITADEL_PROJECT_ID`, `ZITADEL_HOST`, `ZITADEL_INVITE_URL_TEMPLATE` | the identity provider's management API (`crates/adapters-oss/src/zitadel.rs`): a service user's token (`IAM_OWNER`), the WeldSuite project, the `Host` for an in-cluster URL, the invite link (optional; unset: no identity provider) |
+| `ZITADEL_API_URL`, `ZITADEL_SERVICE_TOKEN`, `ZITADEL_PROJECT_ID`, `ZITADEL_HOST`, `ZITADEL_INVITE_URL_TEMPLATE` | the identity provider's management API (`crates/adapters-oss/src/zitadel.rs`): a service user's token (`IAM_OWNER`), the WeldSuite project, the `Host` for an in-cluster URL, the invite link (optional; unset: the platform's `/invite` with `OIDC_SIGN_IN=platform`, else Zitadel's page) |
+| `IDENTITY_PROVIDER`, `WELDID_ADMIN_URL`, `WELDID_CLIENT_ID`, `WELDID_CLIENT_KEY` | `zitadel` or `weldid` (unset: Zitadel when `ZITADEL_*` is set). `weldid` (`crates/adapters-oss/src/weldid.rs`): users and sessions through WeldID's admin API at `WELDID_ADMIN_URL` (in-cluster; sent with `OIDC_ISSUER`'s host), as the `private_key_jwt` client `WELDID_CLIENT_ID` signing with the ES256 key `WELDID_CLIENT_KEY` (PEM, a Secret); workspaces, memberships and the seat limit from WeldSuite's own tables; `identity-sync` reads WeldID's event feed (watermark `identity_sync.weldid_watermark`). Needs `AUTH_PROVIDER=oidc`, `OIDC_SIGN_IN=provider` (WeldID shows its own screens) and header mode; `/config.json` names `accountUrl` (`{OIDC_ISSUER}/account`). Invitations answer unavailable until the master table for pending invitations exists |
 | `TENANT_SHARDS`, `TENANT_REGION`, `FIELD_ENCRYPTION_AAD_WRITES` | new workspace databases on CloudNativePG shards (a JSON list, `crates/adapters-oss/src/cnpg.rs`), their region, and sealing their URLs as v3. With shards and Zitadel set the server serves `/api/onboarding` and runs `workspace.provision` (optional) |
 | `PARTNER_PORTAL_URL` | the reseller portal named in a territory request's email (default `https://partner.weldsuite.org`) |
 | `SPA_DIR` | serve the built SPA in this directory for every path the routes don't answer; the image sets `/srv/spa`, empty serves the API alone |
@@ -809,6 +938,7 @@ due index; nothing while merge is not served). The server reads environment vari
 | `TEST_FIXTURES_TOKEN` | unlocks `X-Test-Flags` in `development`/`test` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME` | export traces over OTLP/HTTP (optional) |
 | `PORT`, `HOST` | listen address (default `0.0.0.0:8080`) |
+| `METRICS_ADDR` | Prometheus metrics, `GET /metrics`, on a listener of their own, never the API's port (default `0.0.0.0:9464`; `off` or empty turns it off). `serve`, `consume` and `mta` serve it, `cron` runs don't; names, labels and buckets in `bins/weldsuite/src/monitoring.rs` (chart `metrics`) |
 | `TRUSTED_PROXIES` | how many proxies in front of the server append to `X-Forwarded-For` (default 1, the ingress controller; 2 with a CDN the ingress trusts): the client's address, which the helpdesk widget's rate limit keys on, is that many entries from the right. `CF-Connecting-IP` is not trusted on Kubernetes |
 | `ENVIRONMENT`, `LOG_FORMAT` (`json`/`text`), `RUST_LOG` | reporting and logs |
 | `DATABASE_MASTER_MAX_CONNECTIONS`, `TENANT_POOL_MAX_CONNECTIONS`, `TENANT_POOLS_MAX`, `WORKSPACE_CACHE_TTL_SECONDS` | pools and the workspace cache |
@@ -907,6 +1037,221 @@ off, the waiting room with admit, host mute and remove, end for all, and the
 webhook keeping the session. v1.9 servers are too old for the pinned client
 (its `/rtc/v1` signalling and negotiation time out).
 
+## AI
+
+Global runs every model call through `@weldsuite/ai` and the Cloudflare AI
+Gateway. The Kubernetes editions run them through `crates/ai`
+(`weldsuite-ai`, ADR AI-012, `weldsuite-documentation/plans/eu-ai-mistral.md`): Mistral as the
+EU edition's install provider (chat, structured output, OCR, embeddings,
+transcription), a self-hosted install's own OpenAI-compatible endpoint
+(`compat`), and Anthropic and OpenAI only for workspaces whose admin opts in,
+labelled "outside the EU".
+
+- **Configuration** (`crates/ai/src/config.rs`, chart `config.ai`):
+  `AI_DEFAULT_PROVIDER` (`mistral`, `compat`, or empty: AI off),
+  `AI_MISTRAL_BASE_URL`, `AI_OPTIN_ANTHROPIC` / `AI_OPTIN_OPENAI` (key sources
+  workspaces may use: `weldsuite`, `own`), `AI_ANTHROPIC_BASE_URL`,
+  `AI_OPENAI_BASE_URL`, `AI_COMPAT_BASE_URL` / `_REGION` / `_MODEL` /
+  `_EMBED_MODEL`, `AI_FALLBACK_MODEL`, `AI_CREDIT_GATE`, `AI_BILLING`,
+  `AI_WORKSPACE_CONCURRENCY`; the keys `MISTRAL_API_KEY`, `ANTHROPIC_API_KEY`,
+  `OPENAI_API_KEY`, `AI_COMPAT_API_KEY` and `AI_KEYS_ENCRYPTION_KEY` (64 hex,
+  seals workspaces' own keys). `serve`, `consume` and every cron job read it
+  with their other settings, and an inconsistent combination stops the start
+  with every problem named: an install provider without its key or endpoint,
+  a key source a provider can't serve, a fallback model outside the EU.
+- **`/config.json`** carries `ai: { defaultProvider, providers: [{ id,
+  region, keySources }] }` when a provider is configured. Without one the AI
+  features (`edition.rs`, `AI_FEATURES`: `mail-ai`, `weldconnect-ai`,
+  `books-ocr`, `desk-ai`, `forms-ai`, `search-reindex`, `assistant-ai`,
+  `agent-ai`) are listed as unavailable and WeldAgent's module isn't offered.
+  `meet-transcription` stays listed while there are no recordings, and
+  `agent-sandbox` while the install has no sandbox (below).
+- **Roles.** `serve` builds one `weldsuite_ai::Ai` (`bins/weldsuite/src/ai.rs`)
+  over a plain HTTP client, with the workspaces' AI settings cached in Valkey,
+  and keeps it in `AppState::ai`; `consume` builds its own the same way, and a
+  cron job that needs one calls `crate::ai::build(&config.ai, infra.cache.clone())?`.
+  Durable jobs run inside `serve`, on its `AppState`.
+- **In a route** take the request's AI first, then the app's:
+  `crate::ai::for_request(state.ai.as_ref(), &parts.extensions)` in this crate;
+  in a module crate whose state holds `ai: Option<weldsuite_ai::Ai>`,
+  `parts.extensions.get::<weldsuite_ai::Ai>().or(state.ai.as_ref()).filter(|ai| ai.enabled()).cloned()`.
+  `None` answers as the worker without its model (503 `ai_unavailable`, or
+  the route's own fallback). A release build never puts an `Ai` on a request.
+- **Workspace settings** (`/api/ai-settings`, core platform, Rust only: no
+  TypeScript twin and no conformance suite; mounted only when `AppState::ai`
+  is set). `GET` (any member) answers the effective policy the settings page
+  and every model picker read: providers with region, key sources and who
+  enabled them, the default, and per feature its override, effective target
+  and allowed models; `ai:manage` also gets each provider's key status (hint,
+  `ok`/`failing`, last error) and `canManage`. `PUT` (`ai:manage`) takes
+  `providers`, `defaultProvider` and `featureOverrides`: only Anthropic and
+  OpenAI can be switched, with a key source the install offers; enabling one
+  outside the EU needs `acknowledgedOutsideEu` (400
+  `OUTSIDE_EU_NOT_ACKNOWLEDGED`) and emails the workspace owners
+  (`ai.provider-enabled`, naming who; a mail failure is logged, never
+  raised); the default must be enabled; overrides are checked with
+  `policy::allows` (a fixed feature or a disabled provider is a 400);
+  disabling keeps the own key; `own` keys may be chosen before one is stored
+  (the provider just isn't routed to). `PUT|POST|DELETE /keys/:provider[/test]`
+  check, seal (AAD-bound to workspace and provider), test and remove an own
+  key (422 `AI_KEY_REJECTED` when the provider refuses it, 404 without a
+  key); `GET /usage` is this and last month per provider and feature. Events
+  `ai_settings:updated`, `ai_provider_key:set`, `ai_provider_key:removed`; a
+  key is never in a response, an event, a log line or an error.
+- **`weldsuite doctor`** checks the configuration and the master database,
+  then each provider key the install holds (a model list, free) and the
+  install provider's default chat models (one token each, unmetered;
+  `--no-model-calls` skips them).
+
+**Conformance.** Both backends call one mock model, answered by the test's
+`fetch` stub:
+
+- `@weldsuite/ai/testing` (`packages/core/ai/src/testing/mock-model.ts`):
+  `createMockModel({ chat, ocr, transcription, jev })` answers
+  OpenAI-compatible `/chat/completions` (text, JSON for a `json_schema`, tool
+  calls, SSE), Anthropic's `/messages`, `/embeddings`, Mistral's `/ocr` and
+  `/audio/transcriptions`, and Workers AI's `/run` at `MOCK_AI_BASE_URL`.
+- The test gives the worker `mock.env` (`AI_TEST_BASE_URL`, which sends every
+  `@weldsuite/ai` call to the mock instead of the gateway; never set in a
+  deployed environment) and `vi.stubGlobal('fetch', mock.fetch)`.
+- A conformance build puts an `Ai` on every request (`conformance.rs`,
+  `crate::ai::conformance`): with `AI_TEST_BASE_URL` in the test's env, Mistral
+  as the install provider at that URL (Anthropic and OpenAI too, opted in with
+  both key sources), fake keys, the credit gate on, and its HTTP through the
+  test's outbound bridge; without it, AI off. A test may set `AI_CREDIT_GATE`,
+  `AI_BILLING` and `AI_OPTIN_*` for the Rust side.
+- The harness leaves the calls to the mock out of the compared outbound calls
+  (the backends ask different models in their own shapes) and drops the
+  `meta.ai` label from the compared JSON; the routes' answers, writes and side
+  effects are compared as usual. Answer by request (`chat: (request) => …`),
+  never by call order: the stub serves both runs. A route whose test only
+  works with `vi.mock('@weldsuite/ai')` stays in `excludedRoutes` and is
+  covered by Rust tests on `weldsuite_ai::FakeProvider`.
+
+### WeldAgent's sandbox
+
+On Global, Claude Managed Agents run an agent's sandbox (`computer:use`) and
+web tools (`browser:use`) at Anthropic. The Kubernetes editions run them on
+the install's own cluster: `crates/sandbox` (`weldsuite-sandbox`), the image
+`rust/deploy/sandbox`, the chart's `sandbox` and `searxng` sections
+(`weldsuite-documentation/plans/eu-ai-mistral.md`, phase 5, "The EU sandbox").
+
+- **Pods.** One per agent conversation (or run) in the `weldsuite-sandbox`
+  namespace, under gVisor (`RuntimeClass gvisor`), with no service-account
+  token, a read-only root, CPU/memory/disk limits, an idle timeout (the agent
+  in the pod exits) and a hard lifetime (`activeDeadlineSeconds`). The
+  server creates, reuses and deletes them through the Kubernetes REST API
+  (`kube.rs`, the in-cluster token; the chart's Role allows pods
+  get/list/create/delete in that namespace only, and its admission policy
+  admits only the sandbox's pod shape). `weldsuite cron sandbox-cleanup`
+  deletes what is done.
+- **Fail closed.** Before the first sandbox of a process (and hourly) is
+  handed out, the agent in it tries to reach the metadata service and the
+  Kubernetes API; if anything answers, the namespace's NetworkPolicy isn't
+  enforced and no sandbox is handed out (`service.rs`). `weldsuite doctor`
+  runs the same check in a throwaway sandbox.
+- **The agent in the pod** (`rust/deploy/sandbox/agent`, Node without
+  dependencies): commands, files under `/workspace`, Python/JavaScript, page
+  fetches as text, Chromium over the DevTools protocol, an X desktop for
+  computer use, and the isolation self-test, behind a per-pod token
+  (`HMAC(SANDBOX_TOKEN_SECRET, pod name)`; the pod holds only its digest).
+  `node --test test/*.test.mjs` there.
+- **Tools** (`tools.rs`, registered by `weldsuite-agent` behind the grants):
+  `computer_exec`, `computer_read_file`, `computer_write_file`,
+  `computer_list_files`, `computer_run_code`, `computer_use` (only when the
+  turn's model has the `computer_use` capability: the Claude 5.5 models and
+  GPT-5, never Mistral), `web_search` (the cluster's SearXNG), `web_fetch`,
+  `browser_open`, `browser_act`, `browser_close` (from the pod, never from
+  the server). Outputs are data: cleaned, capped, web text marked untrusted,
+  screenshots returned as images. The loop runs them with
+  `tools::execute_tool_with` and a `tools::SandboxAccess` for the turn.
+- **Configuration** (`crates/sandbox/src/config.rs`, chart `sandbox`):
+  `SANDBOX_ENABLED`, `SANDBOX_NAMESPACE`, `SANDBOX_IMAGE`,
+  `SANDBOX_RUNTIME_CLASS`, `SANDBOX_CPU` / `_CPU_REQUEST` / `_MEMORY` /
+  `_DISK`, `SANDBOX_IDLE_TIMEOUT_SECONDS`, `SANDBOX_MAX_LIFETIME_SECONDS`,
+  `SANDBOX_MAX_PER_WORKSPACE`, `SANDBOX_MAX_TOTAL`, `SANDBOX_DNS`,
+  `SANDBOX_EGRESS_PROBES`, `SANDBOX_NODE_SELECTOR`, `SANDBOX_TOLERATIONS`,
+  `SANDBOX_REQUIRE_ISOLATION`, the secret `SANDBOX_TOKEN_SECRET`, and
+  `SEARXNG_URL` (chart `searxng`). Without `SANDBOX_ENABLED` the grants aren't
+  offered and `/config.json` lists `agent-sandbox` as unavailable.
+
+## Plan billing
+
+The EU edition sells plans and seats through Mollie (ADR BILL-014; Global
+keeps Stripe). `BILLING_PROVIDER=mollie` turns it on: `/config.json` then
+offers `billing` and says `billingProvider: "mollie"`, which switches the
+platform to Mollie's flows (payment methods by hosted checkout, the
+checkout return page, billing details before checkout). A self-hosted
+install leaves it off: its seats and modules come from its licence.
+
+- **The record is master.** Plan, seats, cycle, period and status stay on
+  `workspaces`; `billing_accounts` holds the Mollie customer, the default
+  mandate, the seat price the period was bought at, the monthly anchor and
+  what waits for the period end. `billing_payments` (provider `mollie`) has
+  one row per intended charge, written before Mollie is called and keyed so
+  a retry never charges twice; its id is Mollie's idempotency key.
+- **Prices** are the master `plans` rows in EUR, excluding VAT:
+  `price_monthly` per seat per month, `price_yearly` per seat per year (0:
+  twelve months). A paid plan priced at 0 is on request. Paid plans should
+  have `included_users = 0`: a workspace billed through Mollie may have
+  exactly the seats it bought (`weldsuite-core-team`'s seat limit), within
+  `max_users`.
+- **Checkout** (`POST /api/billing/checkout`) needs the billing details
+  (Settings → Business: name, address, country; 400
+  `BILLING_DETAILS_REQUIRED` otherwise) and is a first payment on Mollie's
+  hosted checkout; paying starts the period, stores the mandate, grants the
+  plan's monthly credits and writes the seat cap.
+- **Changes**: more seats or a dearer plan are charged now, prorated by day
+  (today included), on the mandate (or a hosted checkout when it can't be
+  charged); fewer seats, a cheaper plan and another cycle wait for the
+  period end; cancelling ends the plan then. Nothing is refunded for part of
+  a period.
+- **VAT** per customer, from the issuer's country (`BILLING_SELLER_COUNTRY`,
+  NL): the domestic rate; 0% reverse charge for an EU business whose VAT
+  number VIES accepts (while VIES can't be reached, VAT is charged);
+  the customer country's rate through OSS for other EU customers; none
+  outside the EU. Rates: `modules/core-billing/src/vat.rs`.
+- **Invoices** are WeldBooks invoices in WeldSuite's own workspace
+  (`BILLING_ISSUER_WORKSPACE_ID`, entity `BILLING_ISSUER_ENTITY_ID` or its
+  first), issued as the system user once a payment is paid (never before,
+  so an abandoned checkout leaves nothing to credit), with the payment
+  recorded and the printable invoice copied into the files bucket
+  (`/api/billing/invoices/:id/document`). The issuer needs the entity set
+  up (address, VAT number, invoice numbering); an invoice it can't issue is
+  retried by the renewal job and never skipped.
+- **`weldsuite cron billing-renewals`** (hourly, chart
+  `cron.jobs.billing-renewals`): charges every anchor that came (the plan
+  when its period ends, after the change scheduled for then; the monthly
+  plan credits on every anchor, yearly plans included), ends comps
+  (BILL-011) and past-due plans, sends the reminders, and issues invoices
+  still owed.
+- **Past due**: a charge that fails makes the plan `past_due` and emails the
+  billing owners (the billing email and the organization admins) a signed
+  pay link (`BILLING_PAY_LINK_KEY`, `/public/billing/pay/:token`); halfway
+  through the grace period (`BILLING_GRACE_DAYS`, 14) a reminder, then the
+  plan ends on Free (`applySubscriptionEnded`). Saving a new payment method
+  charges the open amount again at once.
+- **Staff**: `weldsuite admin billing show|comp|uncomp|refund|retry-now`
+  (see "Staff work").
+
+Settings: `BILLING_PROVIDER`, `MOLLIE_API_KEY` (and the top-up's
+`MOLLIE_WEBHOOK_URL`, `MOLLIE_API_URL`), `BILLING_ISSUER_WORKSPACE_ID`,
+`BILLING_ISSUER_ENTITY_ID`, `BILLING_PAY_LINK_KEY`, `BILLING_SELLER_COUNTRY`,
+`BILLING_GRACE_DAYS`, `BILLING_RETURN_URL`, and `PUBLIC_URL` for the links.
+`BILLING_PROVIDER=mollie` with one missing stops the start. Chart:
+`config.billing` and `cron.jobs.billing-renewals`. Credit top-ups join plan
+billing: a package's price is before VAT, so `POST /api/credits/checkout`
+needs the billing details, charges the price plus VAT against a `credits`
+charge (`modules/core-billing/src/top_up.rs`, handed to the top-up as its
+`TopUpBilling`), and a paid top-up is invoiced like a plan charge.
+WeldReach inboxes ride on the plan's charge (`modules/core-billing/src/addons.rs`,
+handed to the reach module as its `InboxBilling`, and to the renewal job as
+its `AddonSource`): €8.00 each per month before VAT, every live inbox on each
+anchor, one added between anchors at once for the rest of the month, none
+refunded, and only with a paid plan (402 `PAID_PLAN_REQUIRED`). When the plan
+ends they pause (WeldReach's billing status `canceled`) until a paid plan or a
+comp resumes them. Not yet on Mollie: domains, phone numbers, paid apps and the SSO add-on.
+
 ## Inbound mail
 
 On Global, Cloudflare Email Routing hands each message to
@@ -953,8 +1298,10 @@ On Global, Cloudflare Email Routing hands each message to
 Differences from Global, on purpose: one delivery per message with every
 accepted recipient as the envelope (Cloudflare calls the worker once per
 recipient, so its helpdesk and accounting fan-out ran once per recipient);
-no consumer WeldMail (MAIL-008), no mailbox Durable Object (MAIL-010), no
-Jev auto-labels (Workers AI; mail AI is an unavailable feature). Parity:
+no consumer WeldMail (MAIL-008), no mailbox Durable Object (MAIL-010), and
+the auto-labels as one structured `classify` call on `weldsuite-ai` in place
+of Global's Jev questions (`crates/mail-inbound/src/auto_label.rs`; none
+without AI). Parity:
 `crates/mail-inbound/tests/parity.rs` against fixtures the worker's own code
 wrote (`pnpm rust:mail-inbound-fixtures`, checked in CI).
 

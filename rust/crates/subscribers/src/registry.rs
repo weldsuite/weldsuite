@@ -85,7 +85,7 @@ pub const SUBSCRIBERS: [Subscriber; 7] = [
         batch_size: 10,
         batch_timeout_seconds: 5,
         concurrency: 1,
-        ported: false,
+        ported: true,
     },
     Subscriber {
         id: "realtime",

@@ -87,7 +87,8 @@ id = "748b8f38937f4807b3978cacb17e1880"
 
 # D1 schedule index — local `wrangler dev` emulates this against a local SQLite
 # copy; the id points at the test database so remote-mode dev shares it.
-# Schema migrations live in ./migrations/d1 (applied by deploy.yml).
+# Schema migrations live in ./migrations/d1 (applied by the deploy:
+# .github/actions/deploy-d1-migrations, run by weldsuite-deploy).
 [[d1_databases]]
 binding = "SCHEDULE_INDEX"
 database_name = "weldsuite-schedule-index-test"

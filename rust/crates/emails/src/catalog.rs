@@ -14,6 +14,26 @@ use crate::{EmailBrand, EmailLocale};
 /// writes one that is not listed here.
 const TEMPLATE_FILES: &[(&str, &str)] = &[
     (
+        "ai.provider-enabled",
+        include_str!("../../../catalogs/emails/templates/ai.provider-enabled.json"),
+    ),
+    (
+        "auth.password-reset",
+        include_str!("../../../catalogs/emails/templates/auth.password-reset.json"),
+    ),
+    (
+        "auth.sign-in-code",
+        include_str!("../../../catalogs/emails/templates/auth.sign-in-code.json"),
+    ),
+    (
+        "auth.verify-email",
+        include_str!("../../../catalogs/emails/templates/auth.verify-email.json"),
+    ),
+    (
+        "billing.dunning",
+        include_str!("../../../catalogs/emails/templates/billing.dunning.json"),
+    ),
+    (
         "calendar.event.cancel",
         include_str!("../../../catalogs/emails/templates/calendar.event.cancel.json"),
     ),
@@ -38,12 +58,40 @@ const TEMPLATE_FILES: &[(&str, &str)] = &[
         include_str!("../../../catalogs/emails/templates/calendar.event.update.json"),
     ),
     (
+        "desk.report",
+        include_str!("../../../catalogs/emails/templates/desk.report.json"),
+    ),
+    (
         "flow.portal-invitation",
         include_str!("../../../catalogs/emails/templates/flow.portal-invitation.json"),
     ),
     (
         "flow.status-report",
         include_str!("../../../catalogs/emails/templates/flow.status-report.json"),
+    ),
+    (
+        "forms.code",
+        include_str!("../../../catalogs/emails/templates/forms.code.json"),
+    ),
+    (
+        "forms.digest",
+        include_str!("../../../catalogs/emails/templates/forms.digest.json"),
+    ),
+    (
+        "forms.invite",
+        include_str!("../../../catalogs/emails/templates/forms.invite.json"),
+    ),
+    (
+        "forms.quota",
+        include_str!("../../../catalogs/emails/templates/forms.quota.json"),
+    ),
+    (
+        "forms.receipt",
+        include_str!("../../../catalogs/emails/templates/forms.receipt.json"),
+    ),
+    (
+        "forms.response",
+        include_str!("../../../catalogs/emails/templates/forms.response.json"),
     ),
     (
         "hr.bank-changed",
@@ -92,6 +140,10 @@ const TEMPLATE_FILES: &[(&str, &str)] = &[
     (
         "sign.voided",
         include_str!("../../../catalogs/emails/templates/sign.voided.json"),
+    ),
+    (
+        "workspace.invitation",
+        include_str!("../../../catalogs/emails/templates/workspace.invitation.json"),
     ),
 ];
 const LAYOUTS: &str = include_str!("../../../catalogs/emails/layouts.json");

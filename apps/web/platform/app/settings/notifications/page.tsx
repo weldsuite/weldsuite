@@ -18,7 +18,6 @@ import {
   Headphones,
   Users,
   FolderKanban,
-  Package,
   Workflow,
   CalendarClock,
   MessageSquare,
@@ -55,13 +54,13 @@ import {
   useUpdateTaskDigestSettings,
 } from '@/hooks/queries/use-task-digest-queries';
 
-// Module definitions
+// Module definitions. No "parcel" row: no app is called WeldParcel and nothing
+// sends notifications under that module (TASK-1427).
 const NOTIFICATION_MODULES = [
   { key: 'helpdesk', icon: Headphones, appCode: 'welddesk' },
   { key: 'crm', icon: Users, appCode: 'weldcrm' },
   { key: 'mail', icon: Mail, appCode: 'weldmail' },
   { key: 'projects', icon: FolderKanban, appCode: 'weldflow' },
-  { key: 'parcel', icon: Package, appCode: 'parcel' },
   { key: 'task', icon: Workflow, appCode: 'weldconnect' },
   { key: 'weldchat', icon: MessageSquare, appCode: 'weldchat' },
   { key: 'digest', icon: CalendarClock, appCode: 'weldcalendar' },
@@ -257,7 +256,6 @@ export default function NotificationsSettingsPage() {
       crm: ts.modules.crm,
       mail: ts.modules.mail,
       projects: ts.modules.projects,
-      parcel: ts.modules.parcel,
       task: ts.modules.workflows,
       weldchat: ts.modules.weldchat,
       digest: ts.modules.dailyDigest,
@@ -276,7 +274,7 @@ export default function NotificationsSettingsPage() {
   }, [
     channelsDisabled,
     ts.modules.helpdesk, ts.modules.crm, ts.modules.mail,
-    ts.modules.projects, ts.modules.parcel, ts.modules.workflows, ts.modules.weldchat,
+    ts.modules.projects, ts.modules.workflows, ts.modules.weldchat,
     ts.modules.dailyDigest, preferences?.modulePreferences,
   ]);
 

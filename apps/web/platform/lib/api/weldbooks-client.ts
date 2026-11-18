@@ -56,12 +56,34 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
   };
 }
 
-function formatErrorMessage(body: unknown, status: number): string {
+/**
+ * The issues of a refused request body: `@hono/zod-validator` (and the Rust
+ * server after it) answers `{ error: { issues: [{ path, message }], name: 'ZodError' } }`.
+ * Each issue reads "field: message", so "Expected string, received number" says where.
+ */
+function zodIssuesMessage(issues: unknown[]): string | null {
+  const messages = issues
+    .map((issue) => {
+      const { message, path } = (issue ?? {}) as { message?: unknown; path?: unknown };
+      if (typeof message !== 'string' || !message) return null;
+      const field = Array.isArray(path) ? path.filter((p) => typeof p === 'string' || typeof p === 'number').join('.') : '';
+      return field ? `${field}: ${message}` : message;
+    })
+    .filter((m): m is string => m !== null);
+  return messages.length > 0 ? messages.join('. ') : null;
+}
+
+export function formatErrorMessage(body: unknown, status: number): string {
   const record = body && typeof body === 'object' ? (body as Record<string, unknown>) : undefined;
   const errorValue = record?.error ?? record?.message;
   if (typeof errorValue === 'string') return errorValue;
-  if (errorValue && typeof errorValue === 'object' && typeof (errorValue as Record<string, unknown>).message === 'string') {
-    return (errorValue as Record<string, unknown>).message as string;
+  if (errorValue && typeof errorValue === 'object') {
+    const error = errorValue as Record<string, unknown>;
+    if (typeof error.message === 'string') return error.message;
+    if (Array.isArray(error.issues)) {
+      const issues = zodIssuesMessage(error.issues);
+      if (issues) return issues;
+    }
   }
   return `Request failed with status ${status}`;
 }

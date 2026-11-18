@@ -183,7 +183,19 @@ export function useUpdateHrEmployee() {
 
 export function useDeleteHrEmployee() {
   const { weldhr } = useAppApi();
-  return useHrMutation((id: string) => weldhr.deleteEmployee(id));
+  const qc = useQueryClient();
+  return useMutation<unknown, Error, string>({
+    mutationFn: (id: string) => weldhr.deleteEmployee(id),
+    // Refresh everything but the deleted record: refetching it answers 404 (with
+    // retries) while the page still waits on this mutation (TASK-1471).
+    onSuccess: (_result, id) => {
+      const gone = weldhrKeys.employee(id);
+      return qc.invalidateQueries({
+        queryKey: weldhrKeys.all,
+        predicate: (query) => !gone.every((part, i) => query.queryKey[i] === part),
+      });
+    },
+  });
 }
 
 export function useUpdateHrEmployeeSensitive() {

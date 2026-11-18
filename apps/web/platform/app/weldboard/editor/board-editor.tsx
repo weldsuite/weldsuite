@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { toast } from 'sonner';
-import { Frame, Keyboard, Maximize, MoreHorizontal, Scan } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, Frame, Keyboard, Maximize, MoreHorizontal, Presentation, Scan, Users } from 'lucide-react';
 import { canVoteOn, castVoteOp, keyAllowed, keyBetween, newId, type BoardElement, type BuiltInTemplate, type Point, type RecordRef, type RecordView } from '@weldsuite/board-engine';
 import { Button } from '@weldsuite/ui/components/button';
 import {
@@ -12,9 +12,10 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
+import { PromptDialog } from '@weldsuite/ui/components/prompt-dialog';
 import { TooltipProvider } from '@weldsuite/ui/components/tooltip';
 import { useI18n } from '@/lib/i18n/provider';
-import { ContextToolbar, type ContextActions } from './context-toolbar';
+import { ContextToolbar, SelectionContextMenu, type ContextActions } from './context-toolbar';
 import { CropDialog } from './crop-dialog';
 import { copyAsImage, exportBoard, type ExportFormat } from './export';
 import type { BoardController } from './model/board-controller';
@@ -77,6 +78,8 @@ export interface BoardEditorProps {
   recordVersion?: number;
   onRecords?: () => void;
   onAi?: () => void;
+  /** Bottom centre of the board: the AI island. */
+  island?: ReactNode;
   context?: Partial<ContextActions>;
   votes?: Map<string, number>;
   commentCounts?: Map<string, number>;
@@ -106,6 +109,9 @@ export function BoardEditor(props: BoardEditorProps) {
   const te = t.weldboard.editor;
   const ia = useMemo(() => new Interactions(c), [c]);
   const [minimap, setMinimap] = useState(false);
+  // Where the right-click menu is open (canvas pixels), or null.
+  const [menuAt, setMenuAt] = useState<Point | null>(null);
+  const closeMenu = useCallback(() => setMenuAt(null), []);
   /** The editor's own panel on the right; one at a time. */
   const [sidePanel, setSidePanel] = useState<'frames' | 'facilitate' | null>(null);
   const togglePanel = (next: 'frames' | 'facilitate') => setSidePanel((open) => (open === next ? null : next));
@@ -119,6 +125,15 @@ export function BoardEditor(props: BoardEditorProps) {
   const filePicker = useRef<HTMLInputElement>(null);
   const [finding, setFinding] = useState(false);
   const [cropping, setCropping] = useState<string | null>(null);
+  const [linkDraft, setLinkDraft] = useState<string | null>(null);
+  const [altFor, setAltFor] = useState<string | null>(null);
+  // The ⋯ menu on a phone: its main list, or the export choices swapped in.
+  const [moreView, setMoreView] = useState<'main' | 'export'>('main');
+  const moreMenu = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    // The item that swapped the list is gone: keep the keyboard in the menu.
+    moreMenu.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+  }, [moreView]);
   const imageAt = useRef<Point | null>(null);
   const presentation = usePresentation(c);
   // Votes and fading come from the board's voting round, unless the page says otherwise.
@@ -261,9 +276,11 @@ export function BoardEditor(props: BoardEditorProps) {
     }
   };
 
-  const openLink = () => {
-    const url = window.prompt(te.style.linkPrompt, c.selected[0]?.link ?? 'https://')?.trim();
-    if (url === undefined) return;
+  const openLink = () => setLinkDraft(c.selected[0]?.link ?? '');
+
+  const saveLink = (typed: string) => {
+    // "example.com" is meant as a web address; only web and mail links are kept.
+    const url = typed && !/^[a-z][a-z\d+.-]*:/i.test(typed) ? `https://${typed}` : typed;
     const safe = url && /^(https?:|mailto:)/i.test(url) ? url.slice(0, 2048) : null;
     if (c.editing) {
       setMark(c, 'a', safe);
@@ -301,16 +318,34 @@ export function BoardEditor(props: BoardEditorProps) {
     'comment-only': te.status.commentOnly,
   };
 
+  const togglePresenting = () => (presentation.presenting ? presentation.stop() : present());
+  const canFacilitate = !presentation.presenting && (!c.readOnly || c.canComment);
+
+  const exportItems = (
+    <>
+      <DropdownMenuItem onSelect={() => void doExport('png')}>{te.export.png}</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => void doExport('svg')}>{te.export.svg}</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => void doExport('pdf')}>{te.export.pdf}</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => void doExport('pdf-frames')}>{te.export.pdfFrames}</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => void doExport('json')}>{te.export.json}</DropdownMenuItem>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem
+        onSelect={() =>
+          void copyAsImage({ controller: c, name: props.name, loadImage: props.loadImage, only: c.selection.size ? new Set(c.selection) : undefined }).then((ok) => ok && toast.success(te.export.copied))
+        }
+      >
+        {te.export.copyImage}
+      </DropdownMenuItem>
+    </>
+  );
+
   const context: ContextActions = {
     onLink: openLink,
     onRenameFrame: (id) => setRenaming(id),
     onPresentFrom: (id) => present(id),
     onExportSelection: () => void doExport('png', new Set(c.selection)),
     onCrop: (id) => setCropping(id),
-    onAltText: (id) => {
-      const alt = window.prompt(te.actions.altTextPrompt, c.board.get(id)?.alt ?? '');
-      if (alt !== null) c.apply({ type: 'set', id, patch: { alt: alt.slice(0, 1000) || null } });
-    },
+    onAltText: (id) => setAltFor(id),
     ...props.context,
   };
 
@@ -349,88 +384,115 @@ export function BoardEditor(props: BoardEditorProps) {
             <div className="flex shrink-0 items-center gap-2">
               {props.facilitation}
               {props.headerExtra}
-              {!presentation.presenting && (!c.readOnly || c.canComment) && (
-                <FacilitateButton controller={c} open={sidePanel === 'facilitate'} onToggle={() => togglePanel('facilitate')} />
+              {canFacilitate && (
+                <FacilitateButton className="hidden sm:inline-flex" controller={c} open={sidePanel === 'facilitate'} onToggle={() => togglePanel('facilitate')} />
               )}
-              <Button size="sm" variant="outline" className="h-8" onClick={() => (presentation.presenting ? presentation.stop() : present())}>
+              <Button size="sm" variant="outline" className="hidden h-8 sm:inline-flex" onClick={togglePresenting}>
                 {presentation.presenting ? te.present.stop : te.present.start}
               </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button size="sm" variant="outline" className="h-8">
+                  <Button size="sm" variant="outline" className="hidden h-8 sm:inline-flex">
                     {te.export.title}
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onSelect={() => void doExport('png')}>{te.export.png}</DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => void doExport('svg')}>{te.export.svg}</DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => void doExport('pdf')}>{te.export.pdf}</DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => void doExport('pdf-frames')}>{te.export.pdfFrames}</DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => void doExport('json')}>{te.export.json}</DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onSelect={() =>
-                      void copyAsImage({ controller: c, name: props.name, loadImage: props.loadImage, only: c.selection.size ? new Set(c.selection) : undefined }).then((ok) => ok && toast.success(te.export.copied))
-                    }
-                  >
-                    {te.export.copyImage}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
+                <DropdownMenuContent align="end">{exportItems}</DropdownMenuContent>
               </DropdownMenu>
               {props.onShare && (
                 <Button size="sm" className="h-8" onClick={props.onShare}>
                   {te.share}
                 </Button>
               )}
-              <DropdownMenu>
+              <DropdownMenu onOpenChange={(open) => !open && setMoreView('main')}>
                 <DropdownMenuTrigger asChild>
                   <Button size="icon" variant="outline" className="size-8" aria-label={te.actions.more}>
                     <MoreHorizontal className="size-4" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onSelect={() => togglePanel('frames')}>
-                    <Frame className="mr-2 size-4" />
-                    {te.frames.title}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => c.zoomToFit()}>
-                    <Maximize className="mr-2 size-4" />
-                    {te.zoom.fit}
-                    <DropdownMenuShortcut>Shift+1</DropdownMenuShortcut>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem disabled={c.selection.size === 0} onSelect={() => c.zoomToSelection()}>
-                    <Scan className="mr-2 size-4" />
-                    {te.zoom.selection}
-                    <DropdownMenuShortcut>Shift+2</DropdownMenuShortcut>
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuCheckboxItem
-                    checked={c.showGrid}
-                    onCheckedChange={(v) => {
-                      c.showGrid = !!v;
-                      c.changed();
-                    }}
-                  >
-                    {te.zoom.grid}
-                  </DropdownMenuCheckboxItem>
-                  <DropdownMenuCheckboxItem checked={minimap} onCheckedChange={(v) => setMinimap(!!v)}>
-                    {te.zoom.minimap}
-                  </DropdownMenuCheckboxItem>
-                  <DropdownMenuCheckboxItem
-                    checked={c.showAuthors}
-                    onCheckedChange={(v) => {
-                      c.showAuthors = !!v;
-                      c.changed();
-                    }}
-                  >
-                    {te.showAuthors}
-                  </DropdownMenuCheckboxItem>
-                  {props.menuExtra}
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onSelect={() => setShortcuts(true)}>
-                    <Keyboard className="mr-2 size-4" />
-                    {te.shortcuts.open}
-                  </DropdownMenuItem>
+                <DropdownMenuContent ref={moreMenu} align="end">
+                  {moreView === 'export' ? (
+                    <>
+                      <DropdownMenuItem
+                        onSelect={(e) => {
+                          e.preventDefault();
+                          setMoreView('main');
+                        }}
+                      >
+                        <ChevronLeft className="mr-2 size-4" />
+                        {te.export.title}
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      {exportItems}
+                    </>
+                  ) : (
+                    <>
+                      {/* On a phone the header has room for Share only: the rest is here. */}
+                      {canFacilitate && (
+                        <DropdownMenuItem className="sm:hidden" onSelect={() => togglePanel('facilitate')}>
+                          <Users className="mr-2 size-4" />
+                          {te.facilitation}
+                        </DropdownMenuItem>
+                      )}
+                      <DropdownMenuItem className="sm:hidden" onSelect={togglePresenting}>
+                        <Presentation className="mr-2 size-4" />
+                        {presentation.presenting ? te.present.stop : te.present.start}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="sm:hidden"
+                        onSelect={(e) => {
+                          e.preventDefault();
+                          setMoreView('export');
+                        }}
+                      >
+                        <Download className="mr-2 size-4" />
+                        {te.export.title}
+                        <ChevronRight className="ml-auto size-4" />
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator className="sm:hidden" />
+                      <DropdownMenuItem onSelect={() => togglePanel('frames')}>
+                        <Frame className="mr-2 size-4" />
+                        {te.frames.title}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => c.zoomToFit()}>
+                        <Maximize className="mr-2 size-4" />
+                        {te.zoom.fit}
+                        <DropdownMenuShortcut>Shift+1</DropdownMenuShortcut>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem disabled={c.selection.size === 0} onSelect={() => c.zoomToSelection()}>
+                        <Scan className="mr-2 size-4" />
+                        {te.zoom.selection}
+                        <DropdownMenuShortcut>Shift+2</DropdownMenuShortcut>
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuCheckboxItem
+                        checked={c.showGrid}
+                        onCheckedChange={(v) => {
+                          c.showGrid = !!v;
+                          c.changed();
+                        }}
+                      >
+                        {te.zoom.grid}
+                      </DropdownMenuCheckboxItem>
+                      <DropdownMenuCheckboxItem checked={minimap} onCheckedChange={(v) => setMinimap(!!v)}>
+                        {te.zoom.minimap}
+                      </DropdownMenuCheckboxItem>
+                      <DropdownMenuCheckboxItem
+                        checked={c.showAuthors}
+                        onCheckedChange={(v) => {
+                          c.showAuthors = !!v;
+                          c.changed();
+                        }}
+                      >
+                        {te.showAuthors}
+                      </DropdownMenuCheckboxItem>
+                      {props.menuExtra}
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onSelect={() => setShortcuts(true)}>
+                        <Keyboard className="mr-2 size-4" />
+                        {te.shortcuts.open}
+                      </DropdownMenuItem>
+                    </>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
@@ -438,7 +500,7 @@ export function BoardEditor(props: BoardEditorProps) {
 
           {/* Tools */}
           {!presentation.presenting && (
-            <div className="flex h-12 shrink-0 items-center gap-0.5 overflow-x-auto border-b bg-muted/30 px-2">
+            <div className="flex h-12 shrink-0 items-center gap-0.5 overflow-x-auto border-b bg-muted/30 px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               <UndoRedo controller={c} />
               <Divider />
               <Toolbar controller={c} onImage={() => {
@@ -460,7 +522,7 @@ export function BoardEditor(props: BoardEditorProps) {
               recordVersion={props.recordVersion}
               onFiles={(files, at) => void insertImages(files, at)}
               onPasteUrl={(url, at) => void pasteUrl(url, at)}
-              keyActions={{ openShortcuts: () => setShortcuts(true), openLink, openFind: () => setFinding(true), togglePresent: () => (presentation.presenting ? presentation.stop() : present()) }}
+              keyActions={{ openShortcuts: () => setShortcuts(true), openLink, openFind: () => setFinding(true), togglePresent: togglePresenting }}
               votes={props.votes ?? voting.votes}
               commentCounts={props.commentCounts}
               activeComment={props.activeComment}
@@ -471,6 +533,7 @@ export function BoardEditor(props: BoardEditorProps) {
                 if (name !== null && name !== c.board.get(id)?.name) c.apply({ type: 'set', id, patch: { name: name.slice(0, 200) } });
               }}
               labels={{ renameFrame: te.renameFrame, board: te.canvas }}
+              onContextMenu={(screen) => setMenuAt(!presentation.presenting && ia.contextMenu(screen) ? screen : null)}
             />
 
             {props.banner && <div className="pointer-events-none absolute inset-x-0 top-3 z-30 flex justify-center">{props.banner}</div>}
@@ -507,8 +570,12 @@ export function BoardEditor(props: BoardEditorProps) {
 
             {/* Context toolbar over the selection */}
             {!presentation.presenting && <ContextToolbar controller={c} actions={context} />}
+            <SelectionContextMenu controller={c} actions={context} at={menuAt} onClose={closeMenu} />
 
-            {/* Bottom centre: presenting controls */}
+            {/* Bottom centre: the AI island, or the presenting controls */}
+            {props.island && !presentation.presenting && (
+              <div className="pointer-events-none absolute inset-x-0 bottom-4 z-20 flex justify-center px-4">{props.island}</div>
+            )}
             <div className="pointer-events-none absolute inset-x-0 bottom-3 z-20 flex justify-center gap-2">
               <PresentControls presentation={presentation} />
             </div>
@@ -537,6 +604,28 @@ export function BoardEditor(props: BoardEditorProps) {
         <ShortcutsDialog open={shortcuts} onOpenChange={setShortcuts} />
         <TemplatesDialog open={templates} onOpenChange={setTemplates} onPick={pickTemplate} />
         <CropDialog controller={c} element={cropping ? (c.board.get(cropping) ?? null) : null} loadImage={props.loadImage} onClose={() => setCropping(null)} />
+        <PromptDialog
+          open={linkDraft !== null}
+          onOpenChange={(open) => !open && setLinkDraft(null)}
+          title={te.style.linkTitle}
+          label={te.style.linkPrompt}
+          type="url"
+          placeholder="https://"
+          defaultValue={linkDraft ?? ''}
+          allowEmpty
+          onConfirm={saveLink}
+        />
+        <PromptDialog
+          open={altFor !== null}
+          onOpenChange={(open) => !open && setAltFor(null)}
+          title={te.actions.altText}
+          label={te.actions.altTextPrompt}
+          defaultValue={(altFor && c.board.get(altFor)?.alt) || ''}
+          allowEmpty
+          onConfirm={(alt) => {
+            if (altFor && c.board.get(altFor)) c.apply({ type: 'set', id: altFor, patch: { alt: alt.slice(0, 1000) || null } });
+          }}
+        />
       </SavedColorsContext.Provider>
     </TooltipProvider>
   );

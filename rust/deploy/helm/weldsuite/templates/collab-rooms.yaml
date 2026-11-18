@@ -1,8 +1,8 @@
 {{- if .Values.collabRooms.enabled }}
-{{- if and (not .Values.secret.existingSecret) (not (hasKey .Values.secret.values "COLLAB_ROOMS_SECRET")) }}
-{{- fail "collabRooms.enabled needs COLLAB_ROOMS_SECRET in the Secret (secret.values or secret.existingSecret): the rooms and the server share it" }}
+{{- if and (not .Values.secret.existingSecret) (not (hasKey .Values.secret.values "COLLAB_ROOMS_SECRET")) (not .Values.secret.generate) }}
+{{- fail "collabRooms.enabled needs COLLAB_ROOMS_SECRET in the Secret (secret.values or secret.existingSecret, or generated with secret.generate): the rooms and the server share it" }}
 {{- end }}
-{{- if not .Values.config.files.endpoint }}
+{{- if not (or .Values.config.files.endpoint .Values.bundle.objectStorage) }}
 {{- fail "collabRooms.enabled needs config.files (S3): the rooms keep their storage and checkpoints in the private bucket" }}
 {{- end }}
 # WeldDocs', WeldSheets' and WeldBoard's rooms (rust/docs/collab-rooms.md): the
@@ -81,6 +81,26 @@ spec:
               value: {{ .Values.config.environment | quote }}
             - name: NODE_OPTIONS
               value: {{ printf "--max-old-space-size=%v" .Values.collabRooms.heapMegabytes | quote }}
+            {{- if .Values.bundle.objectStorage }}
+            {{- /* The bundled object store, as the server reaches it (weldsuite.bundleEnv). */}}
+            - name: S3_ENDPOINT
+              value: {{ printf "http://%s:9000" (include "weldsuite.objectStorage.fullname" .) | quote }}
+            - name: S3_REGION
+              value: "us-east-1"
+            - name: S3_BUCKET_PRIVATE
+              value: {{ .Values.objectStorage.buckets.private | quote }}
+            - name: S3_BUCKET_PUBLIC
+              value: {{ .Values.objectStorage.buckets.public | quote }}
+            - name: S3_FORCE_PATH_STYLE
+              value: "true"
+            {{- range $key := list "S3_ACCESS_KEY_ID" "S3_SECRET_ACCESS_KEY" }}
+            - name: {{ $key }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.secret.generatedName }}
+                  key: {{ $key }}
+            {{- end }}
+            {{- else }}
             {{- with .Values.config.files }}
             - name: S3_ENDPOINT
               value: {{ .endpoint | quote }}
@@ -95,21 +115,21 @@ spec:
             - name: S3_FORCE_PATH_STYLE
               value: {{ .forcePathStyle | toString | quote }}
             {{- end }}
-            # From the server's Secret: only what the rooms use.
-            {{- range $key := list "COLLAB_ROOMS_SECRET" "DATABASE_URL_MASTER" }}
+            {{- range $key := list "S3_ACCESS_KEY_ID" "S3_SECRET_ACCESS_KEY" }}
             - name: {{ $key }}
               valueFrom:
-                secretKeyRef:
-                  name: {{ include "weldsuite.secretName" $ }}
-                  key: {{ $key }}
+                {{- include "weldsuite.secretKeyRef" (dict "root" $ "key" $key "optional" true) | nindent 16 }}
             {{- end }}
-            {{- range $key := list "S3_ACCESS_KEY_ID" "S3_SECRET_ACCESS_KEY" "DATABASE_ENCRYPTION_KEY" "DATABASE_ENCRYPTION_KEY_V2" }}
+            {{- end }}
+            # From the server's Secrets: only what the rooms use.
+            - name: COLLAB_ROOMS_SECRET
+              valueFrom:
+                {{- include "weldsuite.secretKeyRef" (dict "root" . "key" "COLLAB_ROOMS_SECRET") | nindent 16 }}
+            {{- include "weldsuite.masterDatabaseEnv" $ | nindent 12 }}
+            {{- range $key := list "DATABASE_ENCRYPTION_KEY" "DATABASE_ENCRYPTION_KEY_V2" }}
             - name: {{ $key }}
               valueFrom:
-                secretKeyRef:
-                  name: {{ include "weldsuite.secretName" $ }}
-                  key: {{ $key }}
-                  optional: true
+                {{- include "weldsuite.secretKeyRef" (dict "root" $ "key" $key "optional" true) | nindent 16 }}
             {{- end }}
           startupProbe:
             httpGet: { path: /healthz, port: http }

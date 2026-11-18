@@ -333,12 +333,17 @@ export const platformSyncMap: EntitySyncMap = {
   legal_entity: inv(['legal-entities'], ['accounting', 'entities'], ['weldhr']),
   legal_entity_bank_account: inv(['legal-entities'], ['accounting', 'bank-accounts']),
   legal_entity_member: inv(['legal-entities'], ['accounting', 'entities'], ['weldhr']),
+  // Settings → Activity → Log streaming (the SIEM destinations).
+  audit_log_stream: inv(['audit-log-streams']),
+  // Settings → AI (EU and self-hosted editions).
+  ai_settings: inv(['ai-settings']),
+  ai_provider_key: inv(['ai-settings']),
   // Phase 3 gaps — API/agent surfaces today; provisional kebab prefixes match
   // accountingKeys style until dedicated list hooks land.
   purchase_order: inv(['accounting', 'purchase-orders']),
   fiscal_period: inv(['accounting', 'fiscal-periods']),
   fx_rate: inv(['accounting', 'fx-rates']),
-  // US accounting (docs/plans/weldbooks-us.md).
+  // US accounting (weldsuite-documentation/plans/weldbooks-us.md).
   sales_tax_agency: inv(['accounting', 'sales-tax-setup'], ['accounting', 'sales-tax-center']),
   sales_tax_jurisdiction: inv(['accounting', 'sales-tax-setup']),
   sales_tax_zone: inv(['accounting', 'sales-tax-setup']),
@@ -443,6 +448,8 @@ export const platformSyncMap: EntitySyncMap = {
   helpdesk_folder: inv(['helpdesk', 'folders'], ['helpdesk', 'help-folders']),
   helpdesk_news: inv(['helpdesk', 'news']),
   helpdesk_settings: inv(['helpdesk', 'settings']),
+  // Scheduled report emails: the list refreshes when someone else changes a schedule.
+  helpdesk_report_schedule: inv(['helpdesk', 'reports', 'schedules']),
   helpdesk_ticket_type: inv(['helpdesk', 'ticket-types']),
   helpdesk_widget: inv(['helpdesk', 'widgets'], ['helpdesk', 'widget', 'settings']),
   helpdesk_workflow: inv(['helpdesk-automation']),
@@ -585,6 +592,32 @@ export const platformSyncMap: EntitySyncMap = {
   // WeldPanel — the root of use-weldpanel-queries.ts. The payload has ids,
   // name, kind and status only, so a change refetches the mounted projects.
   panel_project: inv(['weldpanel']),
+  // Saved objects refresh their own branch of weldpanelKeys. Dashboards show
+  // reports on their tiles, so a report change refreshes them too; secret keys
+  // sit under the project detail.
+  panel_report: inv(['weldpanel', 'reports'], ['weldpanel', 'dashboards']),
+  panel_dashboard: inv(['weldpanel', 'dashboards']),
+  panel_cohort: inv(['weldpanel', 'cohorts']),
+  panel_event_definition: inv(['weldpanel', 'lexicon']),
+  panel_heatmap_page: inv(['weldpanel', 'heatmap-pages']),
+  panel_key: inv(['weldpanel', 'projects']),
+  // Data definitions (use-weldpanel-analysis-queries.ts). Custom events,
+  // computed properties and path rules change what a spec compiles to, so the
+  // cached query results refresh with them.
+  panel_custom_event: inv(['weldpanel', 'custom-events'], ['weldpanel', 'query']),
+  panel_computed_property: inv(['weldpanel', 'computed-properties'], ['weldpanel', 'query']),
+  panel_path_rule: inv(['weldpanel', 'path-rules'], ['weldpanel', 'query']),
+  panel_group_type: inv(['weldpanel', 'group-types'], ['weldpanel', 'groups']),
+  panel_metric_tree: inv(['weldpanel', 'metric-trees']),
+  // Collaboration and monitoring (use-weldpanel-collab-queries.ts). Domains
+  // sit under the project detail.
+  panel_annotation: inv(['weldpanel', 'annotations']),
+  panel_comment: inv(['weldpanel', 'comments']),
+  panel_share_link: inv(['weldpanel', 'share-links']),
+  panel_alert: inv(['weldpanel', 'alerts']),
+  panel_subscription: inv(['weldpanel', 'subscriptions']),
+  panel_export: inv(['weldpanel', 'exports']),
+  panel_custom_domain: inv(['weldpanel', 'projects']),
 
   // WeldMerge — the root of use-weldmerge-queries.ts. Every object shares the
   // root: issues, teams, labels, cycles, comments, connections, repositories and
@@ -598,6 +631,17 @@ export const platformSyncMap: EntitySyncMap = {
   merge_connection: inv(['weldmerge']),
   merge_repository: inv(['weldmerge']),
   merge_pull_request: inv(['weldmerge']),
+
+  // WeldForms: weldformsKeys.all in use-weldforms-queries.ts. Every object
+  // shares the root: lists, the builder's form, themes, responses, invitations
+  // and integrations all refetch when anything in the module changes. The
+  // builder ignores a refetch of the form while it holds unsaved edits.
+  form: inv(['weldforms']),
+  form_folder: inv(['weldforms']),
+  form_theme: inv(['weldforms']),
+  form_response: inv(['weldforms']),
+  form_invitation: inv(['weldforms']),
+  form_integration: inv(['weldforms']),
   // Releases, issue record links and chat subscriptions live under the same
   // root (use-weldmerge-across-queries.ts keys them under weldmergeKeys.all).
   merge_release: inv(['weldmerge']),

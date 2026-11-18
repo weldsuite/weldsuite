@@ -1,0 +1,59 @@
+# The public hosts, probed the way a customer reaches them: public DNS, the
+# load balancer, Traefik, the certificate, the app (the blackbox exporter,
+# monitoring/values/blackbox-exporter.yaml). /readyz fails when the server
+# can't reach its database or NATS. A cluster adds its own sites (group
+# "site", alert SiteDown) in its cluster folder. auth. is Zitadel's health
+# check by default; a cluster that signs in with WeldID sets
+# AUTH_PROBE_PATH to /.well-known/openid-configuration (`:=`: optional).
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: platform
+  namespace: monitoring
+spec:
+  interval: 30s
+  scrapeTimeout: 15s
+  module: https_2xx
+  prober:
+    url: blackbox-exporter.monitoring.svc:9115
+  targets:
+    staticConfig:
+      static:
+        - https://app.${DOMAIN}/readyz
+        - https://api.${DOMAIN}/readyz
+        - https://auth.${DOMAIN}${AUTH_PROBE_PATH:=/debug/healthz}
+        - https://sign.${DOMAIN}/healthz
+        # The MCP server's host routes only MCP paths, so no /readyz: its
+        # discovery document, served without a token.
+        - https://mcp.${DOMAIN}/.well-known/oauth-protected-resource/mcp
+      labels:
+        group: platform
+---
+# The cluster's secret store (rust/deploy/hetzner/secret-store), outside the
+# cluster: OpenBao's health check answers 200 only while it is unsealed and
+# active (503 sealed, 501 not initialised, 429 standby), and Caddy lets it
+# through from anywhere. SECRET_STORE_URL is the cluster's setting, and
+# optional: `:=` makes a missing one empty, since Flux substitutes strictly on
+# WeldSuite's clusters and an unset name fails the whole layer. Empty, the
+# target is only the path, which the relabeling drops: no store, no probe.
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: secret-store
+  namespace: monitoring
+spec:
+  interval: 60s
+  scrapeTimeout: 15s
+  module: https_2xx
+  prober:
+    url: blackbox-exporter.monitoring.svc:9115
+  targets:
+    staticConfig:
+      static:
+        - ${SECRET_STORE_URL:=}/v1/sys/health
+      labels:
+        group: secret-store
+      relabelingConfigs:
+        - sourceLabels: [__param_target]
+          regex: https://.+
+          action: keep

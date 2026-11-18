@@ -7,11 +7,10 @@ name: SonarJS
 # were already there are left out (scripts/lint-sonar-new.mjs). New findings
 # become annotations on the PR diff and a table in the job summary.
 #
-# This replaced the SonarQube Cloud scan (sonarqube.yml). That scan analysed
-# the entire monorepo with type information on every PR, and its analyser ran
-# out of its 11 GB heap on the 16 GB runner before it finished. ESLint parses
-# one file at a time without building TypeScript programs, so memory stays flat
-# however big the repo gets.
+# The full SonarQube Cloud analysis runs next to it (sonarqube.yml), on the
+# changed files only. This job is the quick, local-reproducible subset: the
+# same rule family as plain ESLint, which `pnpm lint:sonar:new` runs on your
+# machine without a Sonar token.
 #
 # The full backlog is not reported here; run `pnpm lint:sonar` locally for it.
 #

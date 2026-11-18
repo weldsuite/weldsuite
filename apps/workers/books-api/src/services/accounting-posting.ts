@@ -179,6 +179,32 @@ async function assertAccountsBelongToEntity(db: Database, entityId: string, acco
 }
 
 /**
+ * A manual entry can not book to a deactivated account of the entity (the
+ * deactivate dialog promises that). Documents and reversals are not checked:
+ * a correction of an old booking must still reach the account it was made on.
+ */
+export async function assertAccountsActive(db: Database, entityId: string, accountIds: string[]): Promise<void> {
+  const unique = [...new Set(accountIds.filter(Boolean))];
+  if (unique.length === 0) return;
+  const inactive = await db
+    .select({ code: schema.accounts.code, name: schema.accounts.name })
+    .from(schema.accounts)
+    .where(
+      and(
+        eq(schema.accounts.entityId, entityId),
+        inArray(schema.accounts.id, unique),
+        isNull(schema.accounts.deletedAt),
+        eq(schema.accounts.isActive, false),
+      ),
+    )
+    .orderBy(schema.accounts.code);
+  if (inactive.length > 0) {
+    const names = inactive.map((a) => `${a.code} ${a.name}`).join(', ');
+    throw new PostingError(`Account ${names} is inactive and can not be booked to. Reactivate it first.`);
+  }
+}
+
+/**
  * Class and location ids on lines must be values of that dimension in this
  * entity. A dimension value that was deactivated still counts (history).
  */
@@ -558,6 +584,7 @@ export async function postDraftJournalEntry(
     userId: args.userId,
   });
   await assertAccountsBelongToEntity(db, entry.entityId, lines.map((l) => l.accountId));
+  await assertAccountsActive(db, entry.entityId, lines.map((l) => l.accountId));
 
   const now = new Date();
   const taxDate = entry.date.toISOString().slice(0, 10);

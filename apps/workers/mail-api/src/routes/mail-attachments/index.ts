@@ -21,7 +21,7 @@
  * existence leak").
  *
  * Every read/write goes through `workspaceMailFromContext`'s `store`/`access`
- * (design docs/plans/weldmail-mailbox-store-design.md, task D2).
+ * (design weldsuite-documentation/plans/weldmail-mailbox-store-design.md, task D2).
  *
  * Entity events: `mail_attachment:created | updated | deleted`.
  */

@@ -2,7 +2,7 @@
  * One mapping from `MailSendError` to an HTTP response for every mail-api
  * route that sends (compose, reply, forward, scheduled send-now).
  *
- * The outbound guard's codes (docs/plans/weldmail-outbound-abuse.md) keep
+ * The outbound guard's codes (weldsuite-documentation/plans/weldmail-outbound-abuse.md) keep
  * their own code in the body so clients can explain them; `Retry-After` is set
  * when the limit clears on its own.
  */

@@ -15,8 +15,8 @@ use crate::bad_debt::{
 };
 use crate::currency::calculate_fx_gain_loss;
 use crate::document_posting::{
-    PaymentAllocationInput, PaymentPostingInput, amount_of, build_payment_posting, filled, owned,
-    settle, text,
+    PaymentAllocationInput, PaymentPostingInput, amount_of, build_payment_posting, filled,
+    find_default_bank_account, owned, settle, text,
 };
 use crate::entity_context::resolve_entity_base_currency;
 use crate::fx::{
@@ -548,6 +548,8 @@ struct PaymentWrite {
     currency: String,
     exchange_rate: String,
     payment_method: Option<&'static str>,
+    /// The bank account the money moved through: the one given, else the default one.
+    bank_account_id: Option<String>,
     check_status: Option<String>,
     withheld: f64,
     allocations: Vec<PaymentAllocationInput>,
@@ -598,7 +600,7 @@ fn payment_statements(w: PaymentWrite) -> AlsoWrite {
                 ("billId", single.map_or(Value::Null, |a| opt(&a.bill_id))),
                 ("contactId", json!(w.contact_id)),
                 ("counterpartyId", json!(w.contact_id)),
-                ("bankAccountId", opt(&input.bank_account_id)),
+                ("bankAccountId", opt(&w.bank_account_id)),
                 ("bankTransactionId", opt(&input.bank_transaction_id)),
                 ("paymentRunId", opt(&input.payment_run_id)),
                 (
@@ -861,6 +863,17 @@ pub async fn record_payment(
         .and_then(|a| a["id"].as_str())
         .map(str::to_owned);
     let to_undeposited = deposits_undeposited(&input, payment_method, undeposited_funds.is_some())?;
+    // With no bank account given, the money went through the entity's default
+    // one (see `resolve_money_account`): keep it on the payment.
+    let mut bank_account_id = input.bank_account_id.clone().filter(|id| !id.is_empty());
+    if bank_account_id.is_none()
+        && !to_undeposited
+        && !(payment_method == Some("cash") && accounts.by_subtype("cash").is_some())
+        && let Some((default_id, ledger)) = find_default_bank_account(db, &input.entity_id).await?
+        && accounts.by_id(ledger.as_deref()).is_some()
+    {
+        bank_account_id = Some(default_id);
+    }
     let lines = build_payment_posting(
         db,
         &PaymentPostingInput {
@@ -943,6 +956,7 @@ pub async fn record_payment(
         currency: currency.clone(),
         exchange_rate,
         payment_method,
+        bank_account_id,
         check_status,
         withheld,
         allocations: allocations.clone(),

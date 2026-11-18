@@ -26,6 +26,12 @@ export interface MultiSelectOption {
   value: string
   /** Human-readable label shown in the list and chips; also what search matches on. */
   label: string
+  /**
+   * Optional second line under the label in the list (an email, say), also
+   * matched by the search and shown as the chip's tooltip. Tells apart
+   * options that share a label.
+   */
+  description?: string
   /** Optional leading icon rendered in the list and chip. */
   icon?: React.ReactNode
   /** Disable selecting/deselecting this option. */
@@ -158,6 +164,7 @@ export function MultiSelect({
                   <Badge
                     key={v}
                     variant="secondary"
+                    title={option?.description}
                     className={cn("gap-1 pr-1 font-normal", chipClassName)}
                   >
                     {option?.icon}
@@ -189,9 +196,15 @@ export function MultiSelect({
         className={cn("w-[--radix-popover-trigger-width] p-0", contentClassName)}
         align="start"
       >
+        {/*
+          Each item's cmdk value is the option's value, which is unique: with
+          the label as the value, two options with the same label were one item
+          to cmdk (both highlighted at once). Search matches the keywords, the
+          label and description, never the value.
+        */}
         <Command
-          filter={(itemValue, search) =>
-            itemValue.toLowerCase().includes(search.toLowerCase()) ? 1 : 0
+          filter={(_itemValue, search, keywords) =>
+            (keywords ?? []).join(" ").toLowerCase().includes(search.toLowerCase()) ? 1 : 0
           }
         >
           {searchable && <CommandInput placeholder={searchPlaceholder} />}
@@ -203,14 +216,24 @@ export function MultiSelect({
                 return (
                   <CommandItem
                     key={option.value}
-                    value={option.label}
+                    value={option.value}
+                    keywords={option.description ? [option.label, option.description] : [option.label]}
                     disabled={option.disabled}
                     onSelect={() => toggle(option.value)}
                     className="gap-2"
                   >
                     <Checkbox checked={isSelected} className="pointer-events-none" />
                     {option.icon}
-                    <span className="flex-1 truncate">{option.label}</span>
+                    {option.description ? (
+                      <span className="flex min-w-0 flex-1 flex-col">
+                        <span className="truncate">{option.label}</span>
+                        <span className="text-muted-foreground truncate text-xs">
+                          {option.description}
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="flex-1 truncate">{option.label}</span>
+                    )}
                   </CommandItem>
                 )
               })}

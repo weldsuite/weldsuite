@@ -279,6 +279,12 @@ export const common = {
       addToGroup: 'Add {group}',
       unreadInGroup: '{count} unread',
       mentionsInGroup: '{count} mentions',
+      moreActionsFor: 'More actions for {name}',
+      dragInstructions: 'Drag with the mouse to reorder.',
+      dragStart: 'Picked up {item}.',
+      dragOver: '{item} is over {target}.',
+      dragEnd: '{item} was dropped on {target}.',
+      dragCancel: '{item} was put back.',
     },
     /** Display names for the colour and icon pickers (keys are the lowercase identifiers). */
     coloredSquare: {
@@ -476,7 +482,7 @@ export const common = {
       unavailableTitle: 'Not available in this edition',
       unavailableDescription: "This part of WeldSuite isn't offered in this edition, so there is nothing to show here.",
       backHome: 'Back to home',
-      desktopSignInUnavailable: "Signing in to the desktop app isn't available in this edition. Use WeldSuite in your browser instead.",
+      desktopSignInUnavailable: "This edition doesn't use this page. Sign in from the WeldSuite desktop app itself: it opens your browser for you.",
     },
     time: {
       justNow: 'Just now',
@@ -597,6 +603,7 @@ export const common = {
         nameHint: 'You can change this later in workspace settings.',
         locationSettings: 'Country and data storage',
         locationHint: 'We suggested a location using your browser language. Check it here if you need your data stored in a specific region.',
+        countryHint: 'We suggested a country using your browser language. Change it if your company is based elsewhere.',
         chooseApps: 'Choose apps',
         appsRequired: 'Pick at least one app to start with. You can add more later from the App Store.',
         appsLater: 'You can add apps later from the App Store.',
@@ -751,6 +758,7 @@ export const common = {
         failedToProcessInvitation: 'Failed to process invitation',
         failedToAcceptInvitation: 'Failed to accept invitation',
         failedToLoadDetails: 'Failed to load invitation details.',
+        verifyEmailFirst: 'Verify your email address, then open the invitation link again.',
       },
     },
     auth: {
@@ -762,8 +770,12 @@ export const common = {
         retry: 'Sign in again',
         managedTitle: 'Managed by your identity provider',
         managedDescription: 'Your password, two-factor authentication, passkeys and sessions are managed by your organization\'s identity provider, not in WeldSuite.',
-        openAccount: 'Open account settings',
+        openAccount: 'Manage sign-in and security',
         invitationsManaged: 'Workspace membership is managed by your organization\'s identity provider. Ask your administrator for access.',
+        accountLocked: 'This account is locked. Try again later or contact your administrator.',
+        tooManyAttempts: 'Too many attempts. Wait a few minutes and try again.',
+        emailTaken: 'An account with this email address already exists. Sign in instead.',
+        signUpDisabled: 'Sign-up is not open. Ask your administrator for an invitation.',
       },
       error: {
         alertTitle: 'Error',
@@ -823,6 +835,7 @@ export const common = {
         subtitle: 'Enter the code from your email and create a new password.',
         resetCodeLabel: 'Reset code',
         resetCodePlaceholder: 'Enter 6-digit code',
+        resetCodePlaceholderAny: 'Enter the code from your email',
         newPasswordLabel: 'New password',
         newPasswordPlaceholder: 'Create a new password',
         confirmPasswordLabel: 'Confirm new password',
@@ -839,6 +852,8 @@ export const common = {
         signIn: 'Sign in',
         requirements: {
           atLeast8Chars: 'At least 8 characters',
+          atLeastChars: 'At least {count} characters',
+          oneSymbol: 'One symbol',
           oneUppercase: 'One uppercase letter',
           oneLowercase: 'One lowercase letter',
           oneNumber: 'One number',
@@ -986,6 +1001,26 @@ export const common = {
           title: 'Sign-in handoff failed',
           tryAgain: 'Try again',
           failedToComplete: 'Failed to complete desktop sign-in.',
+        },
+        // Inside the desktop app on the EU and self-hosted editions: sign-in
+        // happens in the system browser, which then comes back to the app.
+        browser: {
+          signInTitle: 'Sign in to WeldSuite',
+          signUpTitle: 'Create your WeldSuite account',
+          subtitle: "You'll continue in your browser, then come back to this window.",
+          continue: 'Continue in your browser',
+          waiting: 'Finish in your browser…',
+          waitingHint: "Didn't see your browser open? Cancel and try again.",
+          cancel: 'Cancel',
+          timedOut: 'Signing in took too long. Try again.',
+          failed: "Signing in didn't complete. Try again.",
+          // The page the browser shows once it is back.
+          callback: {
+            successTitle: "You're signed in",
+            successBody: 'You can close this tab and go back to the WeldSuite app.',
+            failureTitle: "Signing in didn't complete",
+            failureBody: 'Close this tab and try again in the WeldSuite app.',
+          },
         },
       },
       ssoCallback: {
@@ -1283,6 +1318,10 @@ export const common = {
             'claude-haiku-5-5': {
               label: 'Claude Haiku 5.5',
               description: 'Fastest, lowest cost',
+            },
+            default: {
+              label: 'Workspace default',
+              description: 'The model your admin set for agents',
             },
           },
         },

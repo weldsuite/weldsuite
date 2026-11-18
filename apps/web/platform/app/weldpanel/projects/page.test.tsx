@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
 import { en } from '@weldsuite/i18n/locales/en';
 import { nl } from '@weldsuite/i18n/locales/nl';
+import { setRuntimeConfig } from '@/lib/runtime-config';
 import { makeProject } from '../test-fixtures';
 import WeldPanelProjectsPage from './page';
 
@@ -17,6 +18,7 @@ const state = vi.hoisted(() => ({
   push: vi.fn(),
 }));
 
+vi.mock('@/hooks/use-create-intent', () => ({ useCreateIntent: () => undefined }));
 vi.mock('@/lib/i18n/provider', async () => {
   const { en: english } = await import('@weldsuite/i18n/locales/en');
   const { nl: dutch } = await import('@weldsuite/i18n/locales/nl');
@@ -38,10 +40,11 @@ vi.mock('@/components/panel-entity-list', () => ({
     columns: { id: string; header: string; render: (item: never) => ReactNode }[];
     onRowClick?: (item: never) => void;
     createButton?: { label: string; onClick: () => void };
+    hideFilter?: boolean;
     emptyState: { title: string; description: string; action?: { label: string; onClick: () => void } };
   }) => (
     <div>
-      <div data-testid="header">{props.columns.map((col) => col.header).join('|')}</div>
+      <div data-testid="header" data-hide-filter={String(!!props.hideFilter)}>{props.columns.map((col) => col.header).join('|')}</div>
       {props.createButton && <button onClick={props.createButton.onClick}>{props.createButton.label}</button>}
       {props.items.length === 0 && (
         <div data-testid="empty">
@@ -136,6 +139,27 @@ describe('WeldPanel projects', () => {
     state.isLoading = true;
     render(<WeldPanelProjectsPage />);
     expect(screen.getByText(en.common.labels.loading)).toBeTruthy();
+  });
+
+  it('offers no Filter button: there is nothing to filter projects on', () => {
+    state.projects = [makeProject()];
+    render(<WeldPanelProjectsPage />);
+    expect(screen.getByTestId('header').getAttribute('data-hide-filter')).toBe('true');
+  });
+
+  it('says what this edition offers when it has no analytics store (panel-analytics)', () => {
+    state.projects = [makeProject()];
+    render(<WeldPanelProjectsPage />);
+    expect(screen.queryByText(tp.editionNoticeTitle)).toBeNull();
+
+    setRuntimeConfig({ backend: 'rust', edition: 'eu', modules: ['core', 'panel'], unavailableFeatures: ['panel-analytics'] });
+    try {
+      render(<WeldPanelProjectsPage />);
+      expect(screen.getByText(tp.editionNoticeTitle)).toBeTruthy();
+      expect(screen.getByText(tp.editionNotice)).toBeTruthy();
+    } finally {
+      setRuntimeConfig(null);
+    }
   });
 
   it('renders in Dutch', () => {

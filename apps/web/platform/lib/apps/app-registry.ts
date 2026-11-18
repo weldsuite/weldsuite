@@ -29,6 +29,7 @@ import {
   Signature,
   ChartSpline,
   GitPullRequest,
+  ClipboardList,
   type LucideIcon,
 } from 'lucide-react';
 import type { AppLogo } from '@/components/app-sidebar-layout';
@@ -105,18 +106,19 @@ export const APP_REGISTRY: Record<string, AppAssets> = {
     logo: makeLogo('weldflow'),
     sidebarIconClass: 'h-7 w-7',
   },
-  // WeldConnect. Icon-only logo: the wordmark files it shipped with still read
-  // "WeldTask" (the module's old name), so they are gone until a WeldConnect
-  // wordmark is drawn in the brand typeface. Surfaces fall back to icon + name.
+  // WeldConnect. Icon-only logo like WeldSheets: a filled square with two
+  // workflow steps and the connector between them cut out.
+  // `?v=2`: same immutable /assets/* caching as WeldBooks below, the redrawn
+  // mark needs a new URL or browsers keep the old one.
   weldconnect: {
     lucideIcon: Zap,
     shortName: 'Automations',
-    icon: '/assets/images/weldconnect/icon.svg',
+    icon: '/assets/images/weldconnect/icon.svg?v=2',
     logo: {
-      iconLight: '/assets/images/weldconnect/logo-light.png',
-      iconDark: '/assets/images/weldconnect/logo-dark.png',
+      iconLight: '/assets/images/weldconnect/logo-light.svg?v=2',
+      iconDark: '/assets/images/weldconnect/logo-dark.svg?v=2',
     },
-    sidebarIconClass: 'h-[27px] w-[27px]',
+    sidebarIconClass: 'h-6 w-6 object-contain',
   },
   weldhost: {
     lucideIcon: Globe,
@@ -167,26 +169,41 @@ export const APP_REGISTRY: Record<string, AppAssets> = {
     },
     sidebarIconClass: 'h-6 w-6 object-contain',
   },
-  // WeldPanel. Icon-only logo like WeldPass: a rising line with a cursor dot,
-  // analytics and the recordings behind them.
+  // WeldPanel. Icon-only logo like WeldSheets: a filled square with three
+  // rising columns cut out.
+  // `?v=2`: same immutable /assets/* caching as WeldBooks below, the redrawn
+  // mark needs a new URL or browsers keep the old one.
   weldpanel: {
     lucideIcon: ChartSpline,
     shortName: 'Analytics',
-    icon: '/assets/images/weldpanel/icon.svg',
+    icon: '/assets/images/weldpanel/icon.svg?v=2',
     logo: {
-      iconLight: '/assets/images/weldpanel/logo-light.svg',
-      iconDark: '/assets/images/weldpanel/logo-dark.svg',
+      iconLight: '/assets/images/weldpanel/logo-light.svg?v=2',
+      iconDark: '/assets/images/weldpanel/logo-dark.svg?v=2',
     },
     sidebarIconClass: 'h-6 w-6 object-contain',
   },
-  // WeldMerge. Icon-only logo: a git merge glyph in the brand violet.
+  // WeldForms. Icon-only logo like WeldSheets: a filled square with two
+  // checked answer rows cut out. `?v=2` as for WeldPanel.
+  weldforms: {
+    lucideIcon: ClipboardList,
+    shortName: 'Forms',
+    icon: '/assets/images/weldforms/icon.svg?v=2',
+    logo: {
+      iconLight: '/assets/images/weldforms/logo-light.svg?v=2',
+      iconDark: '/assets/images/weldforms/logo-dark.svg?v=2',
+    },
+    sidebarIconClass: 'h-6 w-6 object-contain',
+  },
+  // WeldMerge. Icon-only logo like WeldSheets: a filled square with a merging
+  // branch cut out. `?v=2` as for WeldPanel.
   weldmerge: {
     lucideIcon: GitPullRequest,
     shortName: 'Code',
-    icon: '/assets/images/weldmerge/icon.svg',
+    icon: '/assets/images/weldmerge/icon.svg?v=2',
     logo: {
-      iconLight: '/assets/images/weldmerge/logo-light.svg',
-      iconDark: '/assets/images/weldmerge/logo-dark.svg',
+      iconLight: '/assets/images/weldmerge/logo-light.svg?v=2',
+      iconDark: '/assets/images/weldmerge/logo-dark.svg?v=2',
     },
     sidebarIconClass: 'h-6 w-6 object-contain',
   },
@@ -205,15 +222,15 @@ export const APP_REGISTRY: Record<string, AppAssets> = {
     },
     sidebarIconClass: 'h-6 w-6 object-contain',
   },
-  // WeldBoard (whiteboards). Icon-only logo like WeldPass: a filled square
-  // with a sticky note and a connector to a node cut out.
+  // WeldBoard (whiteboards). Icon-only logo like WeldSheets: a filled square
+  // with a freehand scribble cut out. `?v=2` as for WeldPanel.
   weldboard: {
     lucideIcon: StickyNote,
     shortName: 'Boards',
-    icon: '/assets/images/weldboard/icon.svg',
+    icon: '/assets/images/weldboard/icon.svg?v=2',
     logo: {
-      iconLight: '/assets/images/weldboard/logo-light.svg',
-      iconDark: '/assets/images/weldboard/logo-dark.svg',
+      iconLight: '/assets/images/weldboard/logo-light.svg?v=2',
+      iconDark: '/assets/images/weldboard/logo-dark.svg?v=2',
     },
     sidebarIconClass: 'h-6 w-6 object-contain',
   },
@@ -301,18 +318,18 @@ export const APP_REGISTRY: Record<string, AppAssets> = {
       iconDark: '/assets/images/welddata/logo-dark.svg',
     },
   },
-  // WeldBooks. Icon-only logo like weldcommerce/weldknow: Lucide's book-text,
-  // filled, with its two text lines cut out — wordmark variants need the brand
+  // WeldBooks. Icon-only logo like WeldPass: Lucide's coins as bare lines at
+  // Lucide's own 2 stroke, no square — wordmark variants need the brand
   // typeface and can be added later.
-  // `?v=3`: public/_headers serves /assets/* as immutable for a year, so each
+  // `?v=6`: public/_headers serves /assets/* as immutable for a year, so each
   // redrawn mark needs a new URL or browsers keep the previous one.
   weldbooks: {
     lucideIcon: BookText,
     shortName: 'Accounting',
-    icon: '/assets/images/weldbooks/icon.svg?v=3',
+    icon: '/assets/images/weldbooks/icon.svg?v=6',
     logo: {
-      iconLight: '/assets/images/weldbooks/logo-light.svg?v=3',
-      iconDark: '/assets/images/weldbooks/logo-dark.svg?v=3',
+      iconLight: '/assets/images/weldbooks/logo-light.svg?v=6',
+      iconDark: '/assets/images/weldbooks/logo-dark.svg?v=6',
     },
     sidebarIconClass: 'h-6 w-6 object-contain',
   },
@@ -331,18 +348,18 @@ export const APP_REGISTRY: Record<string, AppAssets> = {
     lucideIcon: Megaphone,
     shortName: 'Ads',
   },
-  // WeldKnow (workspace wiki / knowledge base). Icon-only logo like welddata:
-  // Lucide's square-chart-gantt, filled, with its three bars cut out —
+  // WeldKnow (workspace wiki / knowledge base). Icon-only logo like WeldSheets:
+  // a filled square with three book spines cut out, the last one leaning —
   // wordmark variants need the brand typeface and can be added later.
-  // `?v=2`: same immutable /assets/* caching as WeldBooks above, the redrawn
-  // mark needs a new URL or browsers keep the old book with a bookmark.
+  // `?v=3`: same immutable /assets/* caching as WeldBooks above, the redrawn
+  // mark needs a new URL or browsers keep the previous one.
   weldknow: {
     lucideIcon: SquareChartGantt,
     shortName: 'Knowledge',
-    icon: '/assets/images/weldknow/icon.svg?v=2',
+    icon: '/assets/images/weldknow/icon.svg?v=3',
     logo: {
-      iconLight: '/assets/images/weldknow/logo-light.svg?v=2',
-      iconDark: '/assets/images/weldknow/logo-dark.svg?v=2',
+      iconLight: '/assets/images/weldknow/logo-light.svg?v=3',
+      iconDark: '/assets/images/weldknow/logo-dark.svg?v=3',
     },
     sidebarIconClass: 'h-6 w-6 object-contain',
   },

@@ -22,18 +22,54 @@ import {
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import type { Env, Variables } from '../types';
 import projectsRoutes from './projects';
+import reportsRoutes from './reports';
+import dashboardsRoutes from './dashboards';
+import cohortsRoutes from './cohorts';
+import customEventsRoutes from './custom-events';
+import computedPropertiesRoutes from './computed-properties';
+import annotationsRoutes from './annotations';
+import commentsRoutes from './comments';
+import metricTreesRoutes from './metric-trees';
+import shareLinksRoutes from './share-links';
 
 const ROUTES_DIR = __dirname;
 
 /** Route dirs intentionally excluded from entity-event coverage. */
-const EXEMPT_ROUTES = new Set<string>([]);
+const EXEMPT_ROUTES = new Set<string>([
+  // POST /api/panel/query only reads: a typed spec in, rows out, nothing is written.
+  'query',
+  // POST /api/panel/metric-tree-values runs the nodes' queries; it writes nothing.
+  'metric-tree-values',
+  // Tracked-visitor data never goes on the entity bus (EVT-005): profiles, erasure (the Durable
+  // Object keeps the trail), recordings, favourites, AI summaries and the live view.
+  'people',
+  'sessions',
+  'insights',
+  'live',
+  // heatmaps (panel_heatmap_page) and keys (panel_key) are config objects and publish; they are
+  // not in the standard-shape lists below because they are mounted at /pages and under a project.
+]);
 
 const AUTH_CASES: AuthGateCase<Env, Variables>[] = [
   { mount: '/api/panel/projects', router: projectsRoutes, prefix: 'panel_projects' },
+  { mount: '/api/panel/reports', router: reportsRoutes, prefix: 'panel_reports' },
+  { mount: '/api/panel/dashboards', router: dashboardsRoutes, prefix: 'panel_reports' },
+  { mount: '/api/panel/cohorts', router: cohortsRoutes, prefix: 'panel_reports' },
+  { mount: '/api/panel/custom-events', router: customEventsRoutes, prefix: 'panel_reports' },
+  { mount: '/api/panel/computed-properties', router: computedPropertiesRoutes, prefix: 'panel_reports' },
+  { mount: '/api/panel/annotations', router: annotationsRoutes, prefix: 'panel_reports' },
+  { mount: '/api/panel/comments', router: commentsRoutes, prefix: 'panel_reports' },
+  { mount: '/api/panel/metric-trees', router: metricTreesRoutes, prefix: 'panel_reports' },
+  // Share links are revoked (DELETE), never changed.
+  { mount: '/api/panel/share-links', router: shareLinksRoutes, prefix: 'panel_reports', skipPatch: true },
 ];
 
 const LIST_CASES: ListSweepCase<Env, Variables>[] = [
   { mount: '/api/panel/projects', router: projectsRoutes, permission: 'panel_projects:read' },
+  { mount: '/api/panel/reports', router: reportsRoutes, permission: 'panel_reports:read' },
+  { mount: '/api/panel/dashboards', router: dashboardsRoutes, permission: 'panel_reports:read' },
+  { mount: '/api/panel/cohorts', router: cohortsRoutes, permission: 'panel_reports:read' },
+  { mount: '/api/panel/metric-trees', router: metricTreesRoutes, permission: 'panel_reports:read' },
 ];
 
 describe('entity-event coverage', () => {

@@ -37,6 +37,7 @@ import {
   type DeskReportsOverview,
 } from '@/hooks/queries/use-desk-reports-queries';
 import { formatDuration, formatPercent, reportLabel } from '../lib/report-labels';
+import { ReportShareActions } from '../schedules/report-share-actions';
 
 type ReportsT = ReturnType<typeof useI18n>['t']['helpdesk']['reports'];
 
@@ -343,6 +344,7 @@ export default function DeskReportsOverviewPage() {
               ))}
             </SelectContent>
           </Select>
+          <ReportShareActions range={range} />
           <Button variant="outline" size="sm" onClick={() => router.push('/welddesk/reports/custom')}>
             {tr.customTitle}
           </Button>

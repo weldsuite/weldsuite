@@ -29,6 +29,8 @@ export const suggestArticlesHandler: StepHandler = {
           and(
             eq(schema.helpdeskArticles.status, 'published'),
             isNull(schema.helpdeskArticles.deletedAt),
+            // The step answers a customer: only what anyone may read (ADR DESK-014).
+            eq(schema.helpdeskArticles.visibility, 'public'),
             matchesQuery,
           ),
         )

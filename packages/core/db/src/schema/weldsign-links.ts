@@ -8,7 +8,7 @@
  *
  * The tenant `sign_recipients` row stays the source of truth; this table only
  * routes. Voiding, expiry, a corrected recipient email and completion set
- * `revoked_at`, which stops the link at once. See docs/plans/weldsign.md.
+ * `revoked_at`, which stops the link at once. See weldsuite-documentation/plans/weldsign.md.
  */
 
 import { pgTable, varchar, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core';

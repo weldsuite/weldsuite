@@ -100,7 +100,7 @@ describe('weldagent parity routes', () => {
 
   it('keys the routine index on the Clerk org id, not workspaces.id', async () => {
     // The D1 index is read back by the hourly sweep with the org id
-    // (docs/plans/workspace-id-standardization.md), so a write under `ws_…` would orphan it.
+    // (weldsuite-documentation/plans/workspace-id-standardization.md), so a write under `ws_…` would orphan it.
     const statements: Array<{ sql: string; args: unknown[] }> = [];
     const scheduleIndex = {
       prepare: (sql: string) => ({ bind: (...args: unknown[]) => ({ sql, args }) }),
@@ -180,6 +180,32 @@ describe('weldagent parity routes', () => {
     });
     expect((await teammate('/api/weldagent/templates/export', json({ agentId: agent.id }))).status).toBe(404);
     expect((await teammate(`/api/weldagent/teach/${session.id}/stop`, json({}))).status).toBe(404);
+  });
+
+  it('installs a template only with grants the installer holds', async () => {
+    const holder = permissions('weldagent:read', 'weldagent:create', 'weldagent:update', 'computer:use');
+    const member = permissions('weldagent:read', 'weldagent:create', 'weldagent:update');
+    const as = (userId: string, granted: ReturnType<typeof permissions>) =>
+      createTestApp('/api/weldagent', weldagentRoutes, { context: { userId, permissions: granted, tenantDb: db } })
+        .request;
+    const json = (body: unknown) => ({
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const created = await as('user_holder', holder)(
+      '/api/weldagent/agents',
+      json({ name: 'Sandbox Bot', systemPrompt: 'Run code.', permissions: ['computer:use'] }),
+    );
+    const { data: agent } = (await created.json()) as { data: { id: string } };
+    const exported = await as('user_holder', holder)('/api/weldagent/templates/export', json({ agentId: agent.id }));
+    const { data: template } = (await exported.json()) as { data: { id: string } };
+
+    // The template's grant is not the installer's to give.
+    const refused = await as('user_member', member)('/api/weldagent/templates/install', json({ templateId: template.id }));
+    expect(refused.status).toBe(403);
+    const ok = await as('user_holder', holder)('/api/weldagent/templates/install', json({ templateId: template.id }));
+    expect(ok.status).toBe(201);
   });
 
   it('exposes pure helpers', () => {

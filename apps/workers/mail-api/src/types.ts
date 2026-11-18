@@ -47,7 +47,7 @@ export interface Env extends KitEnv {
    *  (class re-exported from src/index.ts, @weldsuite/mail-domain) under the
    *  `send-scheduled-email-v3*` workflow names — app-api's old
    *  `send-scheduled-email-v2*` names keep draining
-   *  (docs/plans/app-api-module-split.md). */
+   *  (weldsuite-documentation/plans/app-api-module-split.md). */
   SEND_SCHEDULED_EMAIL?: Workflow<{
     workspaceId: string;
     userId: string;
@@ -70,7 +70,7 @@ export interface Env extends KitEnv {
   /** Gateway auth token (`cf-aig-authorization`), for "Authenticated" gateways. */
   CF_AIG_TOKEN?: string;
 
-  // --- Outbound guard (docs/plans/weldmail-outbound-abuse.md) ---------------
+  // --- Outbound guard (weldsuite-documentation/plans/weldmail-outbound-abuse.md) ---------------
   /** Per-workspace sending ledger; the class is hosted here (src/index.ts). */
   OUTBOUND_LEDGER?: DurableObjectNamespace<OutboundLedger>;
   /** Platform-wide daily budget against the Cloudflare quota; hosted here. */
@@ -90,7 +90,7 @@ export interface Env extends KitEnv {
   /** Shared secret the admin console sends to /internal/outbound/*. */
   OUTBOUND_ADMIN_SECRET?: string;
 
-  // --- Mailbox store (docs/plans/weldmail-mailbox-store-design.md) --------
+  // --- Mailbox store (weldsuite-documentation/plans/weldmail-mailbox-store-design.md) --------
   /** One SQLite Durable Object per mailbox; always reached through `.jurisdiction('eu')` (ADR MAIL-009). Hosted here. */
   MAILBOX_STORE?: DurableObjectNamespace<MailboxStoreObject>;
   /** One SQLite Durable Object per workspace (correspondents + address index); always `.jurisdiction('eu')`. Hosted here. */

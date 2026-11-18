@@ -17,6 +17,7 @@ import { useI18n } from '@/lib/i18n/provider';
 import { isFeatureAvailable } from '@/lib/edition';
 import { withPendingInput } from '@/app/weldmail/components/compose-recipients';
 import { ComposeSurface } from '@/app/weldmail/components/compose-surface';
+import type { ComposeAiOptions } from '@/app/weldmail/components/compose-ai-island';
 import {
   MAX_EMAIL_SIZE_BYTES,
   MailAttachmentUploadError,
@@ -269,14 +270,14 @@ function useAiDraft({
     }
   };
 
-  const generateAiDraft = async (prompt: string): Promise<boolean> => {
+  const generateAiDraft = async (prompt: string, options: ComposeAiOptions): Promise<boolean> => {
     // No `/mail-ai` on the Kubernetes editions; the compose surface hides its AI bar there.
     if (!isFeatureAvailable('mail-ai')) return false;
     try {
       const client = await getClient();
       const result = await client.post<{ success: boolean; data: { subject: string; body: string } }>(
         '/mail-ai/draft',
-        { prompt, accountId: accountId || undefined, replyToMessageId: inReplyTo || undefined }
+        { prompt, accountId: accountId || undefined, replyToMessageId: inReplyTo || undefined, ...options }
       );
       if (result.success && result.data) {
         applyDraft(result.data);
@@ -667,6 +668,7 @@ export default function ComposePage(props: ComposePageProps = {}) {
       onAttachedFilesChange={setAttachedFiles}
       scheduledTime={scheduledTime}
       onScheduledTimeChange={setScheduledTime}
+      isReply={!!inReplyTo}
       onAiGenerate={ai.generateAiDraft}
       onSend={() => void handleSend()}
       isSending={isSending}

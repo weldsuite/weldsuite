@@ -24,7 +24,9 @@ import {
   useSalesChannelTargets,
   type SalesChannelListingStatus,
 } from '@/hooks/queries/use-commerce-queries';
-import { getTranslations } from '@/lib/i18n';
+import { getLocale, getTranslations } from '@/lib/i18n';
+import { plural } from '@/lib/i18n/plural';
+import { Link } from '@/lib/router';
 import { cn } from '@/lib/utils';
 
 export interface AddSalesChannelPayload {
@@ -115,7 +117,12 @@ export function SalesChannelPickerDialog({
         <div className="max-h-[320px] overflow-y-auto rounded-md border">
           {isLoading && <p className="p-4 text-sm text-muted-foreground">{t.common.loading}</p>}
           {!isLoading && rows.length === 0 && (
-            <p className="p-4 text-sm text-muted-foreground">{t.products.noSalesChannelTargets}</p>
+            <div className="grid gap-2 p-4 text-sm">
+              <p className="text-muted-foreground">{t.products.noSalesChannelTargets}</p>
+              <Link href="/weldconnect/connectors" className="font-medium text-primary underline-offset-4 hover:underline">
+                {t.products.connectStore}
+              </Link>
+            </div>
           )}
           {!isLoading &&
             rows.map((target) => {
@@ -165,9 +172,9 @@ export function SalesChannelPickerDialog({
             />
           </div>
           <div className="grid gap-1.5">
-            <Label>{t.products.salesChannelListingStatus}</Label>
+            <Label htmlFor="sales-channel-listing-status">{t.products.salesChannelListingStatus}</Label>
             <Select value={listingStatus} onValueChange={(v) => setListingStatus(v as SalesChannelListingStatus)}>
-              <SelectTrigger>
+              <SelectTrigger id="sales-channel-listing-status">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -185,7 +192,9 @@ export function SalesChannelPickerDialog({
           </Button>
           <Button type="button" disabled={selected.size === 0 || isSaving} onClick={handleConfirm}>
             {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            {t.linking.addSelected.replace('{count}', String(selected.size))}
+            {selected.size === 0
+              ? t.products.addSalesChannel
+              : plural(selected.size, t.products.addToStoresCount, getLocale())}
           </Button>
         </DialogFooter>
       </DialogContent>

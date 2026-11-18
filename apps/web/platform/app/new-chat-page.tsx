@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Sparkles } from 'lucide-react';
 import { getRouteApi, useNavigate } from '@tanstack/react-router';
 import { BreadcrumbHeader } from '@/components/breadcrumb-header';
+import { AssistantAiBadge } from '@/components/ai/assistant-ai-badge';
 import { ModuleContent } from '@/components/layout/module-content';
 import { AgentChatInput } from '@/components/weldagent/agent-chat-input';
 import { AssistantMessage, TypingIndicator, UserMessage } from '@/components/weldagent/chat/chat-message';
@@ -190,6 +191,7 @@ function ChatSession() {
           { label: 'WeldSuite', href: '/' },
           { label: tHome.breadcrumbNewChat, href: '/new-chat' },
         ]}
+        actions={<AssistantAiBadge />}
       />
       <ModuleContent className="flex flex-col overflow-hidden">
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden">

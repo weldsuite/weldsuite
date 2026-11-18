@@ -13,7 +13,7 @@
 import { weldbooksApi } from '../weldbooks-client';
 import type { PostalAddress } from '@/components/address/postal-address';
 import type { StoredAccountingAddress } from '@/lib/weldbooks/address';
-import type { BillDetail, InvoiceDetail } from './weldbooks';
+import type { BillDetail, InvoiceDetail, Payment } from './weldbooks';
 
 export type TaxDocumentKind = 'invoice' | 'estimate' | 'credit_memo' | 'bill';
 export type TaxUse = 'business' | 'personal';
@@ -246,6 +246,10 @@ export interface BillItemTaxFields {
 type BillItemRow = BillDetail['items'][number];
 
 export interface BillTaxFields {
+  /** Payments made against the bill, including those allocated to it from a payment run or a bank line. */
+  payments?: Array<Payment & { allocatedAmount?: string | null }>;
+  /** The supplier's default expense account: what a line with no account of its own is booked to. */
+  defaultExpenseAccount?: { id: string; code: string; name: string } | null;
   deliveryAddress?: StoredAccountingAddress | null;
   taxBreakdown?: TaxBreakdownRow[] | null;
   taxWarnings?: string[] | null;

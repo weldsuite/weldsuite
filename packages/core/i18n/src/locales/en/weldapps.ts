@@ -91,6 +91,7 @@ export const weldapps = {
     'reach_inbox:read': 'Read replies to your WeldReach campaigns',
     'reach_inbox:reply': 'Answer WeldReach replies from your outreach mailboxes',
     'reach_mailboxes:read': 'See your WeldReach mailboxes and domains',
+    'panel:read': 'Read your WeldPanel analytics: reports, dashboards and tracked people',
   },
   manage: {
     title: 'Developer console',

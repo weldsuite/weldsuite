@@ -1,6 +1,6 @@
 
 import { useTranslations } from '@weldsuite/i18n/client';
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, type ReactNode } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -54,6 +54,7 @@ import { WorkspaceNameSection } from './workspace-name-section';
 import { DeleteWorkspaceSection } from './delete-workspace-section';
 import { useCurrentMember } from '@/hooks/use-current-member';
 import { getLogoInitial } from './logo-initial';
+import { businessSettingsPayload, type BusinessSettingsFormValues } from './business-settings-payload';
 
 interface VatMessages {
   /** Shown with `{country}` / `{example}` filled in when the number does not fit an EU/GB format. */
@@ -62,20 +63,28 @@ interface VatMessages {
   taxIdInvalid: string;
 }
 
+// Contact person and address are optional, as in Settings › Legal entities and
+// the API: a save of the company details alone must not be blocked (TASK-1425).
 function getBusinessSettingsSchema(st: ReturnType<typeof useTranslations>, vat: VatMessages) {
   return z.object({
     timezone: z.string().optional(),
     legalName: z.string().optional(),
     tradingName: z.string().optional(),
-    contactFirstName: z.string().min(1, st('sweep.settings.business.validation.firstNameRequired')),
-    contactLastName: z.string().min(1, st('sweep.settings.business.validation.lastNameRequired')),
-    email: z.string().email(st('sweep.settings.business.validation.validEmailRequired')),
-    phone: z.string().min(1, st('sweep.settings.business.validation.phoneRequired')),
-    addressLine1: z.string().min(1, st('sweep.settings.business.validation.addressRequired')),
+    contactFirstName: z.string().optional(),
+    contactLastName: z.string().optional(),
+    email: z
+      .string()
+      .optional()
+      .refine(
+        (value) => !value?.trim() || z.string().email().safeParse(value.trim()).success,
+        st('sweep.settings.business.validation.validEmailRequired'),
+      ),
+    phone: z.string().optional(),
+    addressLine1: z.string().optional(),
     addressLine2: z.string().optional(),
-    city: z.string().min(1, st('sweep.settings.business.validation.cityRequired')),
+    city: z.string().optional(),
     state: z.string().optional(),
-    postalCode: z.string().min(1, st('sweep.settings.business.validation.postalCodeRequired')),
+    postalCode: z.string().optional(),
     countryCode: z.string().min(2, st('sweep.settings.business.validation.countryRequired')).max(2),
     taxId: z.string().optional(),
     registrationNumber: z.string().optional(),
@@ -252,10 +261,11 @@ interface WorkspaceBusinessSettingsData {
   logoUrl?: string | null;
 }
 
-export function BusinessSettingsForm() {
+export function BusinessSettingsForm({ notice }: Readonly<{ notice?: ReactNode }> = {}) {
   const { t, format } = useI18n();
   const st = useTranslations();
   const ts = t.settings.generalSettings;
+  const example = (value: string) => format(ts.examplePlaceholder, { example: value });
   const { data: settingsData, isLoading } = useWorkspaceSettings();
   const { data: member } = useCurrentMember();
   const { organization } = useOrganization();
@@ -263,6 +273,8 @@ export function BusinessSettingsForm() {
   const isSaving = updateMutation.isPending;
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [timezoneOpen, setTimezoneOpen] = useState(false);
+  // What the API returned, before the form's defaults: a save sends only what differs from it.
+  const loadedValues = useRef<BusinessSettingsFormValues>({ countryCode: '' });
 
   const form = useForm<BusinessSettingsValues>({
     resolver: zodResolver(
@@ -293,8 +305,8 @@ export function BusinessSettingsForm() {
   useEffect(() => {
     if (settingsData?.data) {
       const ws = settingsData.data as WorkspaceBusinessSettingsData;
-      form.reset({
-        timezone: ws.timezone || 'Europe/Amsterdam',
+      const loaded: BusinessSettingsFormValues = {
+        timezone: ws.timezone || '',
         legalName: ws.legalName || '',
         tradingName: ws.tradingName || '',
         contactFirstName: ws.contactFirstName || '',
@@ -306,9 +318,15 @@ export function BusinessSettingsForm() {
         city: ws.city || '',
         state: ws.state || '',
         postalCode: ws.postalCode || '',
-        countryCode: ws.country || 'NL',
+        countryCode: ws.country || '',
         taxId: ws.vatNumber || '',
         registrationNumber: ws.registrationNumber || '',
+      };
+      loadedValues.current = loaded;
+      form.reset({
+        ...loaded,
+        timezone: loaded.timezone || 'Europe/Amsterdam',
+        countryCode: loaded.countryCode || 'NL',
       });
       setLogoUrl(ws.logoUrl || null);
     }
@@ -335,23 +353,11 @@ export function BusinessSettingsForm() {
 
   const onSubmit = async (data: BusinessSettingsValues) => {
     try {
-      await updateMutation.mutateAsync({
-        timezone: data.timezone,
-        legalName: data.legalName || null,
-        tradingName: data.tradingName || null,
-        contactFirstName: data.contactFirstName,
-        contactLastName: data.contactLastName,
-        email: data.email,
-        phone: data.phone,
-        addressLine1: data.addressLine1,
-        addressLine2: data.addressLine2 || null,
-        city: data.city,
-        state: data.state || null,
-        postalCode: data.postalCode,
-        country: data.countryCode,
-        vatNumber: data.taxId || null,
-        registrationNumber: data.registrationNumber || null,
-      });
+      // Only the fields the member changed: an untouched field never clears
+      // what the default legal entity holds (TASK-1464).
+      const payload = businessSettingsPayload(data, loadedValues.current);
+      if (Object.keys(payload).length > 0) await updateMutation.mutateAsync(payload);
+      loadedValues.current = data;
       form.reset(data);
       toast.success(t.settings.messages.settingsSaved);
       return true;
@@ -370,9 +376,18 @@ export function BusinessSettingsForm() {
   });
   const blocked = status === 'blocked';
 
+  // A blocked save says so: the field errors may be below the fold (TASK-1425).
+  const onInvalid = () => {
+    toast.error(ts.validation.checkFields);
+  };
+
   const handleSaveAndProceed = async () => {
     const isValid = await form.trigger();
-    if (!isValid) return;
+    if (!isValid) {
+      if (reset) reset();
+      onInvalid();
+      return;
+    }
     const data = form.getValues();
     const success = await onSubmit(data);
     if (success && proceed) {
@@ -386,12 +401,14 @@ export function BusinessSettingsForm() {
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+      <form onSubmit={form.handleSubmit(onSubmit, onInvalid)} className="space-y-8">
         {/* Page Header */}
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">{ts.title}</h1>
           <p className="text-muted-foreground">{ts.description}</p>
         </div>
+
+        {notice}
 
         {/* Workspace name */}
         <WorkspaceNameSection />
@@ -523,7 +540,7 @@ export function BusinessSettingsForm() {
                   <FormItem>
                     <FormLabel>{ts.legalName}</FormLabel>
                     <FormControl>
-                      <Input placeholder="Acme Corporation B.V." {...field} />
+                      <Input placeholder={example('Acme Corporation B.V.')} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -536,7 +553,7 @@ export function BusinessSettingsForm() {
                   <FormItem>
                     <FormLabel>{ts.tradingName}</FormLabel>
                     <FormControl>
-                      <Input placeholder="Acme Corp" {...field} />
+                      <Input placeholder={example('Acme Corp')} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -551,7 +568,7 @@ export function BusinessSettingsForm() {
                   <FormItem>
                     <FormLabel>{ts.vatTaxId}</FormLabel>
                     <FormControl>
-                      <Input placeholder={vatPlaceholderForCountry(form.watch('countryCode'))} {...field} />
+                      <Input placeholder={example(vatPlaceholderForCountry(form.watch('countryCode')))} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -564,7 +581,7 @@ export function BusinessSettingsForm() {
                   <FormItem>
                     <FormLabel>{ts.registrationNumber}</FormLabel>
                     <FormControl>
-                      <Input placeholder="KVK 12345678" {...field} />
+                      <Input placeholder={example('KVK 12345678')} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -588,7 +605,7 @@ export function BusinessSettingsForm() {
                   <FormItem>
                     <FormLabel>{ts.firstName}</FormLabel>
                     <FormControl>
-                      <Input placeholder="Jan" {...field} />
+                      <Input placeholder={example('Jan')} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -601,7 +618,7 @@ export function BusinessSettingsForm() {
                   <FormItem>
                     <FormLabel>{ts.lastName}</FormLabel>
                     <FormControl>
-                      <Input placeholder="de Vries" {...field} />
+                      <Input placeholder={example('de Vries')} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -616,7 +633,7 @@ export function BusinessSettingsForm() {
                   <FormItem>
                     <FormLabel>{ts.email}</FormLabel>
                     <FormControl>
-                      <Input type="email" placeholder="info@example.nl" {...field} />
+                      <Input type="email" placeholder={example('info@example.nl')} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -629,7 +646,7 @@ export function BusinessSettingsForm() {
                   <FormItem>
                     <FormLabel>{ts.phone}</FormLabel>
                     <FormControl>
-                      <Input placeholder="+31 20 123 4567" {...field} />
+                      <Input placeholder={example('+31 20 123 4567')} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -652,7 +669,7 @@ export function BusinessSettingsForm() {
                 <FormItem>
                   <FormLabel>{ts.address}</FormLabel>
                   <FormControl>
-                    <Input placeholder="Keizersgracht 100" {...field} />
+                    <Input placeholder={example('Keizersgracht 100')} {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -665,7 +682,7 @@ export function BusinessSettingsForm() {
                 <FormItem>
                   <FormLabel>{ts.addressLine2}</FormLabel>
                   <FormControl>
-                    <Input placeholder={ts.addressLine2Placeholder} {...field} />
+                    <Input placeholder={example(ts.addressLine2Placeholder)} {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -679,7 +696,7 @@ export function BusinessSettingsForm() {
                   <FormItem>
                     <FormLabel>{ts.postalCode}</FormLabel>
                     <FormControl>
-                      <Input placeholder="1015 AA" {...field} />
+                      <Input placeholder={example('1015 AA')} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -692,7 +709,7 @@ export function BusinessSettingsForm() {
                   <FormItem>
                     <FormLabel>{ts.city}</FormLabel>
                     <FormControl>
-                      <Input placeholder="Amsterdam" {...field} />
+                      <Input placeholder={example('Amsterdam')} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -707,7 +724,7 @@ export function BusinessSettingsForm() {
                   <FormItem>
                     <FormLabel>{ts.provinceState}</FormLabel>
                     <FormControl>
-                      <Input placeholder="Noord-Holland" {...field} />
+                      <Input placeholder={example('Noord-Holland')} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

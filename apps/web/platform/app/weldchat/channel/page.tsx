@@ -8,7 +8,7 @@ import { usePreviewMode } from '@/contexts/preview-mode-context';
 import { useMessageDeepLink } from '../lib/message-search';
 import { dmRedirectTarget } from '../lib/dm-redirect';
 import { useQueryClient } from '@tanstack/react-query';
-import { useChannel, useMarkChannelAsRead, weldchatKeys, mergeMessageIntoCache, updateMessageInCache, removeMessageFromCache } from '@/hooks/queries/use-weldchat-queries';
+import { useChannel, isChannelGoneError, useMarkChannelAsRead, weldchatKeys, mergeMessageIntoCache, updateMessageInCache, removeMessageFromCache } from '@/hooks/queries/use-weldchat-queries';
 import type { ChatChannel, ChatMessage } from '@/hooks/queries/use-weldchat-queries';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useWeldChatRoom } from '@/hooks/weldchat/use-weldchat-room';
@@ -65,7 +65,7 @@ export default function ChannelPage() {
   const { userId: currentUserId } = useAuth();
   // The preview mirror (`/preview/weldchat/*`) has no DM routes to hand over to.
   const inPreview = usePreviewMode() !== null;
-  const { data, isLoading } = useChannel(channelId);
+  const { data, isLoading, error: channelError } = useChannel(channelId);
   const queryClient = useQueryClient();
   const { mutate: markAsRead } = useMarkChannelAsRead();
   const { setActiveChannelId } = useChatContext();
@@ -131,7 +131,10 @@ export default function ChannelPage() {
 
   const { status: callStatus, channelId: callChannelId, isFullscreen, isPiP } = useWeldChatCall();
 
-  const channel = data?.data;
+  // Deleted while open (here or by someone else): the query keeps its last good
+  // data, which would leave the header, list and composer up, polling and
+  // sending into a channel that no longer exists. Show it as not found instead.
+  const channel = isChannelGoneError(channelError) ? undefined : data?.data;
   const isDmChannel = channel?.type === 'dm' && !inPreview;
 
   // A DM is shown by the DM routes (header, member panel), never by this channel

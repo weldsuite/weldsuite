@@ -3,7 +3,7 @@
  * account display data (every `mail_accounts` column except credentials) and
  * label definitions, read on every mail open so an object-mode mailbox never
  * touches Postgres for them (design §6,
- * docs/plans/weldmail-mailbox-store-design.md). This module only holds the
+ * weldsuite-documentation/plans/weldmail-mailbox-store-design.md). This module only holds the
  * key format, the version read and the writer-facing bump — building and
  * reading the directory entry itself lives in `@weldsuite/mail-domain`'s
  * `store/directory.ts` (a later task), which is the only thing that writes

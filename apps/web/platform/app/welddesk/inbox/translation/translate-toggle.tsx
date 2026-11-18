@@ -44,7 +44,7 @@ export function TranslateToggle({
   const same = sameLanguage(language, target);
 
   return (
-    <div className="hidden md:flex items-center gap-1 flex-shrink-0" data-testid="desk-inbox-translate">
+    <div className="flex items-center gap-1 flex-shrink-0" data-testid="desk-inbox-translate">
       {language && (
         <span
           className="rounded-md border border-border px-1.5 py-0.5 text-[11px] font-medium uppercase text-muted-foreground"

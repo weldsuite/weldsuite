@@ -2,7 +2,7 @@
  * The ledger every financial report reads, on accrual or cash basis.
  *
  * The journal itself is always accrual. Cash basis is computed at report time
- * from payments, the way QuickBooks does it (docs/plans/weldbooks-us.md §10):
+ * from payments, the way QuickBooks does it (weldsuite-documentation/plans/weldbooks-us.md §10):
  *
  *   - invoices, credit notes, bills and write-offs are not income or expense
  *     when they are issued; their receivable / payable lines drop out;

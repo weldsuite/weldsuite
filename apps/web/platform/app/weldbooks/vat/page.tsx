@@ -26,7 +26,7 @@ import {
 } from '@/components/accounting/weldbooks-row-cells';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
-import { vatStatusTone } from '@/components/objects/vat-return/vat-return-model';
+import { vatStatusTone, vatTotalToneClass } from '@/components/objects/vat-return/vat-return-model';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useCurrentAccountingEntity } from '@/hooks/use-current-accounting-entity';
@@ -52,13 +52,6 @@ interface VatReturnRow {
   periodLabel: string | null;
   status: string;
   rubrieken?: Record<string, number> | null;
-}
-
-/** Box 5g: red only when there is VAT to pay, green for a refund; nothing to pay stays neutral. */
-function totalTone(r5g: number): string {
-  if (r5g > 0) return 'text-red-600';
-  if (r5g < 0) return 'text-green-600';
-  return '';
 }
 
 /** Why the typed-in dates can't be filed, or null. */
@@ -235,40 +228,41 @@ export default function VatReturnsPage() {
     {
       id: 'period',
       header: tv.colPeriod,
-      width: 'min-w-[200px] flex-1 gap-2',
+      // Narrow list (a record panel open, a phone): the period, the total and the status stay.
+      width: 'min-w-0 flex-1 gap-2 @2xl/list:min-w-[200px]',
       render: (vr) => <RowTitle>{vr.periodLabel || periodRange(vr.periodStart, vr.periodEnd)}</RowTitle>,
     },
     {
       id: 'type',
       header: tv.colType,
-      width: 'w-[120px]',
+      width: 'hidden shrink-0 @4xl/list:flex w-[120px]',
       render: (vr) => <RowText>{periodTypeLabel(vr.periodType)}</RowText>,
     },
     {
       id: 'r5a',
       header: tv.colR5a,
-      width: 'w-[130px]',
+      width: 'hidden shrink-0 @3xl/list:flex w-[130px]',
       render: (vr) => <RowAmount>{fmt(vr.rubrieken?.r5a)}</RowAmount>,
     },
     {
       id: 'r5b',
       header: tv.colR5b,
-      width: 'w-[130px]',
+      width: 'hidden shrink-0 @3xl/list:flex w-[130px]',
       render: (vr) => <RowAmount>{fmt(vr.rubrieken?.r5b)}</RowAmount>,
     },
     {
       id: 'r5g',
       header: tv.colR5g,
-      width: 'w-[130px]',
+      width: 'shrink-0 w-[130px]',
       render: (vr) => {
         const r5g = vr.rubrieken?.r5g ?? 0;
-        return <RowAmount className={`font-medium ${totalTone(r5g)}`}>{fmt(r5g)}</RowAmount>;
+        return <RowAmount className={`font-medium ${vatTotalToneClass(r5g)}`}>{fmt(r5g)}</RowAmount>;
       },
     },
     {
       id: 'status',
       header: tv.colStatus,
-      width: 'w-[110px]',
+      width: 'shrink-0 w-[110px]',
       render: (vr) => statusChip(vr.status),
     },
   ];
@@ -277,25 +271,25 @@ export default function VatReturnsPage() {
     {
       id: 'period',
       header: tv.colPeriod,
-      width: 'min-w-[200px] flex-1 gap-2',
+      width: 'min-w-0 flex-1 gap-2 @2xl/list:min-w-[200px]',
       render: (d) => <RowTitle>{d.periodLabel || periodRange(d.periodStart, d.periodEnd)}</RowTitle>,
     },
     {
       id: 'total',
       header: tv.icpColTotal,
-      width: 'w-[150px]',
+      width: 'shrink-0 w-[130px]',
       render: (d) => <RowAmount>{fmt(d.totalAmount)}</RowAmount>,
     },
     {
       id: 'status',
       header: tv.colStatus,
-      width: 'w-[110px]',
+      width: 'shrink-0 w-[110px]',
       render: (d) => statusChip(d.status),
     },
     {
       id: 'actions',
       header: '',
-      width: 'w-[150px] justify-end gap-2',
+      width: 'shrink-0 w-[150px] justify-end gap-2',
       render: (d) =>
         d.status === 'calculated' || d.status === 'reviewed' ? (
           <>
@@ -320,10 +314,13 @@ export default function VatReturnsPage() {
   ];
 
   return (
-    <>
+    // One scroll for the whole page: the two lists keep their natural height instead of shrinking into clipped regions.
+    <div className="h-full min-h-0 overflow-y-auto">
       {/* BTW-aangiftes */}
+      <div className="flex-none shrink-0">
       {showIcp ? <h2 className="px-4 pt-4 text-sm font-semibold sm:px-6">{tv.returnsTitle}</h2> : null}
       <WeldbooksEntityList<VatReturnRow>
+        emptyStateClassName="min-h-0 py-10"
         items={returns}
         isLoading={false}
         columns={returnColumns}
@@ -342,15 +339,17 @@ export default function VatReturnsPage() {
           action: { label: tv.listNewReturn, onClick: openVatDialog },
         }}
       />
+      </div>
 
       {/* EC Sales List (ICP) — only where the jurisdiction has it */}
       {showIcp ? (
-        <>
+        <div className="flex-none shrink-0">
           <div className="px-4 pt-6 sm:px-6">
             <h2 className="text-sm font-semibold">{tv.icpTitle}</h2>
             <p className="mt-1 text-sm text-muted-foreground">{tv.icpDesc}</p>
           </div>
           <WeldbooksEntityList<IcpDeclaration>
+            emptyStateClassName="min-h-0 py-10"
             items={icpDeclarations}
             isLoading={false}
             columns={icpColumns}
@@ -367,7 +366,7 @@ export default function VatReturnsPage() {
               action: { label: tv.icpNew, onClick: openIcpDialog },
             }}
           />
-        </>
+        </div>
       ) : null}
 
       <Dialog open={showDialog} onOpenChange={setShowDialog}>
@@ -413,6 +412,6 @@ export default function VatReturnsPage() {
           if (icpToDelete) await deleteIcp.mutateAsync(icpToDelete).catch(() => undefined);
         }}
       />
-    </>
+    </div>
   );
 }

@@ -84,6 +84,7 @@ export function FormulaBar({ controller, inputRef }: Props) {
         ref={inputRef}
         value={value}
         rows={1}
+        wrap="off"
         onFocus={onFocus}
         onChange={onChange}
         onKeyDown={onKeyDown}
@@ -93,7 +94,7 @@ export function FormulaBar({ controller, inputRef }: Props) {
         aria-label={t.weldsheets.editor.formulaBar}
         aria-autocomplete="list"
         readOnly={controller.readOnly}
-        className="min-w-0 flex-1 resize-none bg-transparent px-2 py-[6px] font-mono text-[13px] leading-5 outline-none"
+        className="min-w-0 flex-1 resize-none overflow-hidden bg-transparent px-2 py-[5px] font-mono text-[13px] leading-5 outline-none"
       />
       {anchor !== undefined && editing && (
         <FormulaAssistPopup
@@ -115,12 +116,12 @@ function popupLeft(input: HTMLTextAreaElement | null, text: string, index: numbe
   const ctx = measureCanvas.getContext('2d');
   const style = getComputedStyle(input);
   const padding = Number.parseFloat(style.paddingLeft) || 0;
-  const lineWidth = Math.max(1, input.clientWidth - 2 * padding);
   let x = 0;
   if (ctx) {
     ctx.font = style.font;
     const line = text.slice(text.lastIndexOf('\n', index - 1) + 1, index);
-    x = ctx.measureText(line).width % lineWidth;
+    // The bar does not wrap: the text scrolls sideways under the caret (scrollLeft below).
+    x = ctx.measureText(line).width;
   }
   const barWidth = input.parentElement?.clientWidth ?? input.offsetLeft + input.clientWidth;
   return Math.max(0, Math.min(input.offsetLeft + padding + x - input.scrollLeft, barWidth - POPUP_WIDTH - 8));

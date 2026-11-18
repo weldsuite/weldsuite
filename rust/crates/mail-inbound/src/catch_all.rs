@@ -2,7 +2,7 @@
 //! catch-all on a custom domain (MAIL-002). Pure.
 
 /// `SHARED_WELDMAIL_APEXES`: shared domains never get a catch-all.
-const SHARED_WELDMAIL_APEXES: [&str; 2] = ["weldmail.com", "weldmail.org"];
+const SHARED_WELDMAIL_APEXES: [&str; 3] = ["weldmail.com", "weldmail.org", "weldmail.eu"];
 
 /// `catchAllRegistryEmail(domain)`.
 pub fn catch_all_registry_email(domain: &str) -> String {

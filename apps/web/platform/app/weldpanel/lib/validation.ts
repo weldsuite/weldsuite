@@ -19,6 +19,7 @@ export type ValidationStrings = ReturnType<typeof useI18n>['t']['weldpanel']['va
 
 export const MAX_DOMAINS = 20;
 export const MAX_EXCLUDED_URLS = 50;
+export const MAX_IP_FILTERS = 50;
 
 /**
  * What someone pastes into "allowed domains" is often a whole address
@@ -41,6 +42,43 @@ export function parseDomain(raw: string): string | null {
 export function parseUrlPattern(raw: string): string | null {
   const result = panelUrlPatternSchema.safeParse(raw);
   return result.success ? result.data : null;
+}
+
+const IPV4 = /^((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$/;
+const HEX_GROUP = /^[0-9a-f]{1,4}$/i;
+
+function isIpv6(text: string): boolean {
+  if (!/^[0-9a-f:.]+$/i.test(text) || !text.includes(':')) return false;
+  const halves = text.split('::');
+  if (halves.length > 2) return false;
+  // An embedded IPv4 tail (::ffff:1.2.3.4) counts as two groups.
+  const groups = halves.flatMap((half) => (half === '' ? [] : half.split(':')));
+  let count = 0;
+  for (const [index, group] of groups.entries()) {
+    if (index === groups.length - 1 && group.includes('.')) {
+      if (!IPV4.test(group)) return false;
+      count += 2;
+    } else if (HEX_GROUP.test(group)) {
+      count += 1;
+    } else {
+      return false;
+    }
+  }
+  return halves.length === 2 ? count < 8 : count === 8;
+}
+
+/**
+ * The entry for an IPv4 or IPv6 address or a CIDR range (`203.0.113.0/24`,
+ * `2001:db8::/32`), or `null`. Checked by shape only; the collector does the matching.
+ */
+export function parseIpFilter(raw: string): string | null {
+  const text = raw.trim();
+  const [address = '', prefix, ...extra] = text.split('/');
+  if (extra.length > 0 || address === '') return null;
+  const v4 = IPV4.test(address);
+  if (!v4 && !isIpv6(address)) return null;
+  if (prefix !== undefined && (!/^\d{1,3}$/.test(prefix) || Number(prefix) > (v4 ? 32 : 128))) return null;
+  return text.length <= 64 ? text : null;
 }
 
 /** A string the contract schema accepts as it is, failing with our message. */
@@ -67,6 +105,14 @@ export function buildPrivacyFormSchema(v: ValidationStrings) {
     consentMode: z.enum(PANEL_CONSENT_MODES),
     maskingLevel: z.enum(PANEL_MASKING_LEVELS),
     excludedUrls: z.array(accepted(parseUrlPattern, v.patternInvalid)).max(MAX_EXCLUDED_URLS, v.tooManyPatterns),
+    ipFilters: z.array(accepted(parseIpFilter, v.ipInvalid)).max(MAX_IP_FILTERS, v.tooManyIps),
+    /** Whole percent of consented sessions that are recorded; the API takes a 0 to 1 share. */
+    recordingSamplePercent: z
+      .number({ required_error: v.sampleRateInvalid, invalid_type_error: v.sampleRateInvalid })
+      .int(v.sampleRateInvalid)
+      .min(0, v.sampleRateInvalid)
+      .max(100, v.sampleRateInvalid),
+    aiEnabled: z.boolean(),
   });
 }
 export type PrivacyFormValues = z.infer<ReturnType<typeof buildPrivacyFormSchema>>;

@@ -39,6 +39,8 @@ export const WORKFLOW_BINDINGS = [
   'EXECUTE_WORKFLOW',
   // WeldConnect's CRM sync (connect-api's /api/integrations), hosted by integration-webhook-worker.
   'CRM_SYNC',
+  // WeldForms: what runs after a response is submitted (forms-api's ProcessResponseWorkflow).
+  'PROCESS_RESPONSE',
 ] as const;
 
 interface WorkflowLike {

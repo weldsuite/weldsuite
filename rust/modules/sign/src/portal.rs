@@ -456,6 +456,7 @@ impl Portal {
                 state.portal_url.as_ref(),
             ),
             environment: env_value(self.env.as_ref(), "ENVIRONMENT", state.environment.as_ref()),
+            app_url: env_value(self.env.as_ref(), "PUBLIC_APP_URL", state.app_url.as_ref()),
         }
     }
 
@@ -1261,6 +1262,7 @@ mod tests {
             jobs: None,
             portal_url: None,
             environment: None,
+            app_url: None,
         };
         PortalState::new(sign, None, secret.map(Arc::from))
     }

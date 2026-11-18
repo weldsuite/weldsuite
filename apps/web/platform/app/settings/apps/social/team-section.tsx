@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { Loader2, Users, Plus, Trash2, Edit } from 'lucide-react';
-import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { Button } from '@weldsuite/ui/components/button';
@@ -29,6 +28,7 @@ import {
   useDeleteSocialTeamMember,
 } from '@/hooks/queries/use-social-queries';
 import type { SocialTeamMember } from '@weldsuite/app-api-client/domains/social';
+import { toastError } from '@/app/social/lib/feedback';
 
 const roles = ['owner', 'admin', 'manager', 'editor', 'contributor', 'viewer'];
 
@@ -75,8 +75,8 @@ export function SocialTeamSettings() {
         await createMember.mutateAsync(form as unknown as Record<string, unknown>);
       }
       setDialogOpen(false);
-    } catch {
-      toast.error(t.social.team.inviteMember);
+    } catch (err) {
+      toastError(t.social.messages.teamMemberSaveFailed, err);
     }
   };
 

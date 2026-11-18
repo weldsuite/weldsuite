@@ -22,6 +22,7 @@ import {
   keyAllowed,
   normalize,
   selectionBounds,
+  unbatch,
   type BoardElement,
   type BoardPeer,
   type BoardPresence,
@@ -261,8 +262,9 @@ export class BoardController {
   // ---------------------------------------------------------------- selection
 
   select(ids: Iterable<string>): void {
+    this.endEditing();
     this.selection = new Set(ids);
-    this.editing = null;
+    this.pruneSelection();
     this.changed();
   }
 
@@ -285,7 +287,7 @@ export class BoardController {
     this.tool = tool;
     this.toolLocked = locked;
     if (isDrawingTool(tool)) this.toolOptions = { ...this.toolOptions, drawingTool: tool };
-    this.editing = null;
+    this.endEditing();
     this.transient = {};
     this.changed();
   }
@@ -418,9 +420,31 @@ export class BoardController {
 
   stopEditing(): void {
     if (!this.editing) return;
+    this.endEditing();
+    this.changed();
+  }
+
+  /** Ends text editing: seals its undo step and drops the box if it was left empty. */
+  private endEditing(): void {
+    if (!this.editing) return;
+    const { id } = this.editing;
     this.history.seal();
     this.editing = null;
-    this.changed();
+    this.removeIfEmptyText(id);
+  }
+
+  /**
+   * A text box left without any text is invisible on the board, so it goes
+   * when editing stops. One that was only just made leaves no undo step
+   * behind, so undo never brings back an empty box.
+   */
+  private removeIfEmptyText(id: string): void {
+    const el = this.board.get(id);
+    if (this.readOnly || !el || el.type !== 'text' || el.text?.text.trim()) return;
+    const last = this.history.undoStack[this.history.undoStack.length - 1];
+    const justMade = !!last && unbatch(last.op).every((o) => o.type === 'create' && o.elements.every((e) => e.id === id));
+    if (justMade) this.history.undoStack.pop();
+    this.apply(deleteOps(this.board, [id]), { select: [], undoable: !justMade });
   }
 
   /** The editing element's text layout, in board units. */

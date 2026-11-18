@@ -18,7 +18,7 @@ vi.mock('@weldsuite/permissions/react', () => ({
   usePermissions: () => ({ can: (permission: string) => permissions.has(permission) }),
 }));
 vi.mock('@/lib/weldbooks/use-jurisdiction', () => ({
-  useCurrentJurisdiction: () => ({ code: 'US', isError: false }),
+  useCurrentJurisdiction: () => ({ code: 'US', isError: false, isResolved: true }),
 }));
 vi.mock('@/lib/weldbooks/use-weldbooks-format', () => ({
   useWeldbooksFormat: () => ({

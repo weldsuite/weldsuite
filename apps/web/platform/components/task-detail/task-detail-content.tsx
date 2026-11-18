@@ -554,7 +554,7 @@ export interface TaskDetailContentProps {
    * Legacy wholesale-array callback (writes the full list). Still used by any
    * consumer that stores attachments as a blob. Prefer the explicit
    * add/remove callbacks below, which back attachments with real `files` rows
-   * (docs/custom-fields-blob-extraction.md).
+   * (weldsuite-documentation/plans/custom-fields-blob-extraction.md).
    */
   onAttachmentsChange?: (attachments: TaskAttachment[]) => void;
   /** Persist one just-uploaded attachment (creates a files row). Takes precedence over onAttachmentsChange. */

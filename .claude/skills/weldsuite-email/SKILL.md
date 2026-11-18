@@ -11,7 +11,7 @@ sent through **Cloudflare Email Service** from `notifications@mail.weldsuite.org
 Not in scope: WeldMail, helpdesk replies and workflow `send_email` actions. Those
 send user-written mail from a workspace's own address.
 
-Migration plan and status: `docs/plans/system-email-cloudflare.md`.
+Migration plan and status: `weldsuite-documentation/plans/system-email-cloudflare.md`.
 
 ## Map
 

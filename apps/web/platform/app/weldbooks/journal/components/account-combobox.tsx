@@ -23,6 +23,10 @@ export interface AccountComboboxProps {
   emptyText: string;
   disabled?: boolean;
   className?: string;
+  /** When given, the list starts with a row of this text that clears the choice (an empty id). */
+  clearLabel?: string;
+  /** Accessible name of the picker; without it the button is named by its visible text. */
+  'aria-label'?: string;
 }
 
 /** The chart of accounts as a search box: type part of a code or name to narrow a long chart down. */
@@ -35,6 +39,8 @@ export function AccountCombobox({
   emptyText,
   disabled,
   className,
+  clearLabel,
+  'aria-label': ariaLabel,
 }: Readonly<AccountComboboxProps>) {
   const [open, setOpen] = useState(false);
   const sorted = useMemo(
@@ -56,6 +62,7 @@ export function AccountCombobox({
           variant="outline"
           role="combobox"
           aria-expanded={open}
+          aria-label={ariaLabel}
           disabled={disabled}
           className={cn('w-full justify-between font-normal', !selected && 'text-muted-foreground', className)}
         >
@@ -69,6 +76,12 @@ export function AccountCombobox({
           <CommandList>
             <CommandEmpty>{emptyText}</CommandEmpty>
             <CommandGroup>
+              {clearLabel ? (
+                <CommandItem value={`__clear__ ${clearLabel}`} onSelect={() => choose('')}>
+                  <Check className={cn('mr-2 h-4 w-4', value === '' ? 'opacity-100' : 'opacity-0')} aria-hidden />
+                  <span className="truncate text-muted-foreground">{clearLabel}</span>
+                </CommandItem>
+              ) : null}
               {sorted.map((account) => (
                 <CommandItem
                   key={account.id}

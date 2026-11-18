@@ -168,19 +168,15 @@ describe('useProjectsSidebarItems: general pages', () => {
       en.projects.sidebar.allProjects,
       en.projects.sidebar.workload,
       en.projects.sidebar.intake,
-      en.projects.sidebar.capacity,
-      en.projects.sidebar.templates,
       en.projects.sidebar.analytics,
     ]);
   });
 
-  it('gates Intake and Capacity on portfolio:read and Templates on projects:read', async () => {
+  it('gates Intake on portfolio:read', async () => {
     render(<GeneralPagesHarness />);
     await act(async () => {});
     const permissionOf = (title: string) => screen.getByText(title).getAttribute('data-permission');
     expect(permissionOf(en.projects.sidebar.intake)).toBe('portfolio:read');
-    expect(permissionOf(en.projects.sidebar.capacity)).toBe('portfolio:read');
-    expect(permissionOf(en.projects.sidebar.templates)).toBe('projects:read');
     expect(permissionOf(en.projects.sidebar.myReviews)).toBe('');
   });
 
@@ -214,8 +210,6 @@ describe('useProjectsSidebarItems: general pages', () => {
     expect(titles).toEqual(expect.arrayContaining([
       en.projects.sidebar.myReviews,
       en.projects.sidebar.intake,
-      en.projects.sidebar.capacity,
-      en.projects.sidebar.templates,
       en.projects.sidebar.analytics,
     ]));
   });
@@ -232,12 +226,12 @@ describe('useProjectsSidebarItems: general pages', () => {
     await act(async () => {});
     const titles = screen.getAllByRole('listitem').map((li) => li.textContent);
     expect(titles).not.toContain(en.projects.sidebar.intake);
-    expect(titles).toContain(en.projects.sidebar.capacity);
+    expect(titles).toContain(en.projects.sidebar.analytics);
   });
 
   it('does not re-add a page for a user who has already seen all of them', async () => {
     window.localStorage.setItem('visibleGeneralPages', JSON.stringify(['my-tasks']));
-    window.localStorage.setItem('seenGeneralPages', JSON.stringify(['analytics', 'reviews', 'intake', 'capacity', 'templates']));
+    window.localStorage.setItem('seenGeneralPages', JSON.stringify(['analytics', 'reviews', 'intake']));
     render(<GeneralPagesHarness />);
     await act(async () => {});
     expect(screen.getAllByRole('listitem').map((li) => li.textContent)).toEqual([en.projects.sidebar.myTasks]);

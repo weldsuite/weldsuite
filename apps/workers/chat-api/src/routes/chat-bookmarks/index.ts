@@ -12,7 +12,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
@@ -66,9 +66,13 @@ app.get('/', requirePermission('messages:read'), async (c) => {
   const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
 
   // Owner boundary: a bookmark is private to its author. Always scope to the
-  // caller — never trust a body/query-supplied userId.
-  const conditions: any[] = [eq(t.userId, userId)];
+  // caller — never trust a body/query-supplied userId. A deleted channel takes
+  // its saved messages with it: the channel row is only soft-deleted, so the
+  // bookmarks that point into it are hidden here.
+  const conditions: any[] = [eq(t.userId, userId), isNull(schema.chatChannels.deletedAt)];
   if (q.channelId !== undefined && q.channelId !== '') conditions.push(eq(t.channelId, q.channelId));
+  // The total counts every page: everything but the cursor.
+  const countWhere = and(...conditions);
   if (q.cursor) {
     const [cur] = await db
       .select({ createdAt: t.createdAt, id: t.id })
@@ -79,9 +83,7 @@ app.get('/', requirePermission('messages:read'), async (c) => {
       );
     }
   }
-  const where = conditions.length ? and(...conditions) : undefined;
-  const filterConditions = q.cursor ? conditions.slice(0, -1) : conditions;
-  const countWhere = filterConditions.length ? and(...filterConditions) : undefined;
+  const where = and(...conditions);
 
   try {
     const [rows, countRes] = await Promise.all([
@@ -93,7 +95,11 @@ app.get('/', requirePermission('messages:read'), async (c) => {
         .where(where)
         .orderBy(desc(t.createdAt), desc(t.id))
         .limit(limit + 1),
-      db.select({ count: sql<number>`count(*)` }).from(t).where(countWhere),
+      db
+        .select({ count: sql<number>`count(*)` })
+        .from(t)
+        .leftJoin(schema.chatChannels, eq(t.channelId, schema.chatChannels.id))
+        .where(countWhere),
     ]);
     const hasMore = rows.length > limit;
     const data = hasMore ? rows.slice(0, limit) : rows;
@@ -116,7 +122,7 @@ app.get('/:id', requirePermission('messages:read'), async (c) => {
       .from(t)
       .leftJoin(schema.chatMessages, eq(t.messageId, schema.chatMessages.id))
       .leftJoin(schema.chatChannels, eq(t.channelId, schema.chatChannels.id))
-      .where(and(eq(t.id, id), eq(t.userId, userId)))
+      .where(and(eq(t.id, id), eq(t.userId, userId), isNull(schema.chatChannels.deletedAt)))
       .limit(1);
     if (!row) return error.notFound(c, 'Chat bookmark', id);
     return success(c, row);

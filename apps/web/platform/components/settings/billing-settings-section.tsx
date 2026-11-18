@@ -1,7 +1,7 @@
 
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useI18n } from '@/lib/i18n/provider';
-import { useEffect, useState, memo, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, memo, type ReactNode } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import { Button } from '@weldsuite/ui/components/button';
 import { Badge } from '@weldsuite/ui/components/badge';
@@ -38,13 +38,21 @@ import {
   resolvePlanKey,
   yearlyPriceOf,
 } from './plan-features';
-import { useAvailableApps } from '@/hooks/queries/use-settings-queries';
+import { useAvailableApps, useWorkspaceSettings } from '@/hooks/queries/use-settings-queries';
 import { AppIcon } from '@/components/app-icon';
 import type { BillingInvoiceResponse } from '@/lib/api/domains/billing';
 import type { PartnerPublicInfo, PartnerTerritoryErrorDetails } from '@weldsuite/app-api-client/schemas/partners';
 import { PartnerContactLinks, PartnerLogo } from '@/components/partner/partner-contact';
 import { TerritoryDialog } from '@/components/partner/territory-screen';
 import { territoryErrorDetails } from '@/lib/partner/api-errors';
+import { useBillingDetailsGate } from '@/hooks/use-billing-details-gate';
+import { useInvoiceLinkClick } from '@/hooks/use-invoice-document';
+import { billingProvider } from '@/lib/edition';
+import { BillingDetailsDialog } from '@/app/settings/billing/billing-details-dialog';
+import {
+  billingDetailsFromSettings,
+  type WorkspaceBillingSettings,
+} from '@/app/settings/billing/billing-details';
 
 type InvoiceInfo = BillingInvoiceResponse;
 
@@ -321,6 +329,7 @@ const CheckoutDialog = memo(function CheckoutDialog({
   const [sliderIndex, setSliderIndex] = useState(0);
   const [checkoutBillingCycle, setCheckoutBillingCycle] = useState<'monthly' | 'annually'>('annually');
   const t = useTranslations();
+  const { t: i18n } = useI18n();
 
   // Reset state when plan changes
   useEffect(() => {
@@ -552,7 +561,11 @@ const CheckoutDialog = memo(function CheckoutDialog({
                         <Info className="h-3.5 w-3.5 text-muted-foreground" />
                       </TooltipTrigger>
                       <TooltipContent side="top">
-                        <p className="text-xs">{t('sweep.settings.billing.checkout.finalPriceNotice')}</p>
+                        <p className="text-xs">
+                          {billingProvider() === 'mollie'
+                            ? i18n.settings.billing.mollie.excludingVat
+                            : t('sweep.settings.billing.checkout.finalPriceNotice')}
+                        </p>
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
@@ -1191,6 +1204,9 @@ function PlansView({
 
       {/* Pricing Header Bar */}
       <PlansHeaderBar isAnnual={isAnnual} onToggleAnnual={onToggleAnnual} annualSavingText={annualSavingText} />
+      {billingProvider() === 'mollie' && (
+        <p className="text-xs text-muted-foreground -mt-4">{i18n.settings.billing.mollie.excludingVat}</p>
+      )}
 
       {/* Pricing Cards with decorative lines */}
       <div className="relative overflow-visible">
@@ -1302,6 +1318,7 @@ function InvoiceDetailView({
   onBack: () => void;
 }>) {
   const t = useTranslations();
+  const onInvoiceLinkClick = useInvoiceLinkClick();
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-2">
@@ -1357,7 +1374,12 @@ function InvoiceDetailView({
 
           {invoice.pdfUrl && (
             <Button variant="outline" className="w-full" asChild>
-              <a href={invoice.pdfUrl} target="_blank" rel="noopener noreferrer">
+              <a
+                href={invoice.pdfUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => onInvoiceLinkClick(e, invoice.pdfUrl ?? '')}
+              >
                 <Download className="h-4 w-4 mr-2" />
                 {t('sweep.settings.billing.downloadInvoice')}
               </a>
@@ -1697,6 +1719,7 @@ function RecentInvoicesSection({
 }
 
 function InvoiceHistorySection({ invoices }: Readonly<{ invoices: InvoiceInfo[] }>) {
+  const onInvoiceLinkClick = useInvoiceLinkClick();
   const t = useTranslations();
   return (
     <div>
@@ -1739,6 +1762,7 @@ function InvoiceHistorySection({ invoices }: Readonly<{ invoices: InvoiceInfo[] 
                     href={invoice.pdfUrl}
                     target="_blank"
                     rel="noopener noreferrer"
+                    onClick={(e) => onInvoiceLinkClick(e, invoice.pdfUrl ?? '')}
                     className="text-muted-foreground hover:text-foreground transition-colors"
                   >
                     <Download className="h-4 w-4" />
@@ -1909,6 +1933,14 @@ export function BillingSettingsSection() {
   // A partner serves the caller's country: it sells WeldSuite there, not us.
   const [partnerManaged, setPartnerManaged] = useState<PartnerPublicInfo | null>(null);
   const [territory, setTerritory] = useState<PartnerTerritoryErrorDetails | null>(null);
+  const { t: i18n, format: fillText } = useI18n();
+  // Mollie asks for complete billing details before a checkout: the dialog opens and the checkout is retried once they are saved.
+  const detailsGate = useBillingDetailsGate(i18n.settings.billing.mollie.billingDetailsRequired);
+  const { data: settingsData } = useWorkspaceSettings();
+  const billingDetails = useMemo(
+    () => billingDetailsFromSettings(settingsData?.data as WorkspaceBillingSettings | null | undefined),
+    [settingsData],
+  );
 
   // React Query hooks
   const { data: limitsData } = usePlanLimits();
@@ -2058,30 +2090,57 @@ export function BillingSettingsSection() {
         seats: seats,
         cycle: billingCycle === 'annually' ? 'yearly' : 'monthly',
       });
-
-      if (result.url) {
-        // Redirect to Stripe Checkout
-        window.location.href = result.url;
-        return;
-      } else if (result.success) {
-        // Free plan change (no checkout needed)
-        toast.success(t('sweep.settings.billing.toasts.planChanged', { name: plan.name }));
-        await loadData();
-        setError(null);
-      } else {
-        setError(t('sweep.settings.billing.errors.changePlanFailed'));
-      }
+      if (await followCheckoutResult(plan, result)) return;
     } catch (err) {
-      // 409 PARTNER_TERRITORY: no checkout was created, a partner sells WeldSuite here.
-      const territoryDetails = territoryErrorDetails(err);
-      if (territoryDetails) {
-        setTerritory(territoryDetails);
-      } else {
-        setError(err instanceof Error ? err.message : t('sweep.settings.billing.errors.changePlanFailed'));
-      }
+      handleCheckoutError(err, plan, seats, billingCycle);
     }
     setProcessing(false);
     setSelectedPlan(null);
+  };
+
+  // A checkout's answer: redirect to pay, or confirm the change. True when the page navigates away.
+  const followCheckoutResult = async (
+    plan: Billing.BillingPlan,
+    result: Awaited<ReturnType<typeof changePlanMutation.mutateAsync>>,
+  ): Promise<boolean> => {
+    // The hosted checkout (Stripe Checkout, or Mollie's), or the difference a
+    // running Mollie subscription has to pay first.
+    const redirect = result.url ?? (result.paymentRequired ? result.paymentUrl : undefined);
+    if (redirect) {
+      window.location.href = redirect;
+      return true;
+    }
+    if (!result.success) {
+      setError(t('sweep.settings.billing.errors.changePlanFailed'));
+      return false;
+    }
+    // Mollie: a change that waits for the period end has not happened yet.
+    toast.success(
+      result.scheduled && result.effectiveAt
+        ? fillText(i18n.settings.billing.mollie.planScheduled, { date: format(new Date(result.effectiveAt), 'do MMM yyyy') })
+        : t('sweep.settings.billing.toasts.planChanged', { name: plan.name }),
+    );
+    await loadData();
+    setError(null);
+    return false;
+  };
+
+  // A refused checkout: billing details first (Mollie's 400
+  // BILLING_DETAILS_REQUIRED, retried once the dialog saves), a partner's
+  // territory (409 PARTNER_TERRITORY: no checkout was created), or the error.
+  const handleCheckoutError = (
+    err: unknown,
+    plan: Billing.BillingPlan,
+    seats: number,
+    billingCycle: 'monthly' | 'annually',
+  ): void => {
+    if (detailsGate.intercept(err, () => void handleConfirmCheckout(plan, seats, billingCycle))) return;
+    const territoryDetails = territoryErrorDetails(err);
+    if (territoryDetails) {
+      setTerritory(territoryDetails);
+    } else {
+      setError(err instanceof Error ? err.message : t('sweep.settings.billing.errors.changePlanFailed'));
+    }
   };
 
   const handleOpenManageSeats = () => {
@@ -2099,6 +2158,13 @@ export function BillingSettingsSection() {
         // Redirect to Stripe hosted invoice page for payment
         window.location.href = result.paymentUrl;
         return;
+      } else if (result.success && result.effectiveAt) {
+        // Mollie: a decrease waits for the period end, so do not claim it changed now
+        toast.success(
+          fillText(i18n.settings.billing.mollie.seatsScheduled, { date: format(new Date(result.effectiveAt), 'do MMM yyyy') }),
+        );
+        setManageSeatsOpen(false);
+        await loadData();
       } else if (result.success) {
         toast.success(t('sweep.settings.billing.toasts.seatsUpdated', { count: manageSeatCount }));
         setManageSeatsOpen(false);
@@ -2168,6 +2234,10 @@ export function BillingSettingsSection() {
           open={territory !== null}
           onOpenChange={(open) => !open && setTerritory(null)}
           details={territory}
+        />
+        <BillingDetailsDialog
+          {...detailsGate.dialogProps}
+          details={billingDetails}
         />
       </>
     );

@@ -1,9 +1,16 @@
-import { app, BrowserWindow, WebContentsView, Tray, Menu, ipcMain, shell, nativeImage, desktopCapturer, session, Notification } from 'electron';
+import { app, BrowserWindow, WebContentsView, Tray, Menu, ipcMain, shell, nativeImage, desktopCapturer, session, Notification, net } from 'electron';
 import electronUpdater from 'electron-updater';
 const { autoUpdater } = electronUpdater;
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadSettings, saveSettings, loadSettingsSync, getSettings, applySettings, DEFAULT_SETTINGS, type DesktopSettings } from './settings';
+import {
+  LoopbackSignIn,
+  checkAuthorizationRequest,
+  issuerFromRuntimeConfig,
+  readPageText,
+  type LoopbackOutcome,
+} from './loopback-sign-in';
 
 process.on('uncaughtException', (err) => {
   console.error('[weldsuite-desktop] uncaughtException:', err);
@@ -81,8 +88,51 @@ let rendererPickerReady = false;
 let pickerRequestSeq = 0;
 const pendingSourcePicks = new Map<number, (sourceId: string | null) => void>();
 
+// The sign-in waiting in the system browser (OIDC editions; one at a time),
+// with the issuer origin the app's /config.json named when it started.
+let browserSignIn: LoopbackSignIn | null = null;
+let browserSignInIssuer: string | null = null;
+
+/**
+ * The OIDC issuer's origin, read by this process from the app's own
+ * `/config.json`. Null when it can't be read or names no OIDC issuer.
+ */
+async function readIssuerOrigin(): Promise<string | null> {
+  try {
+    const response = await net.fetch(new URL('/config.json', APP_URL).toString());
+    if (!response.ok) return null;
+    return issuerFromRuntimeConfig(await response.json());
+  } catch {
+    return null;
+  }
+}
+
 function appWebContents(): Electron.WebContents | null {
   return appView?.webContents ?? null;
+}
+
+/**
+ * The app's own page: the app view's main frame, on APP_URL's origin. A link
+ * that took the view to another site keeps the preload, so the bridge alone
+ * proves nothing; sign-in answers only this page.
+ */
+function fromAppPage(event: Electron.IpcMainInvokeEvent): boolean {
+  const wc = appWebContents();
+  if (!wc || event.sender !== wc) return false;
+  const frame = event.senderFrame;
+  if (!frame || frame !== wc.mainFrame) return false;
+  try {
+    return new URL(frame.url).origin === new URL(APP_URL).origin;
+  } catch {
+    return false;
+  }
+}
+
+/** End the sign-in waiting in the browser: its page is gone, or another replaced it. */
+function cancelBrowserSignIn() {
+  browserSignIn?.cancel();
+  browserSignIn = null;
+  browserSignInIssuer = null;
 }
 
 console.log('[weldsuite-desktop] main starting, pid=', process.pid);
@@ -250,6 +300,8 @@ function createMainWindow() {
   // with it. Fires before the new document's scripts run, so the fresh app
   // re-registers after this.
   appView.webContents.on('did-navigate', resetSourcePicker);
+  // So does a sign-in it was waiting for: nothing is left to redeem the code.
+  appView.webContents.on('did-navigate', cancelBrowserSignIn);
 
   appView.webContents.on('did-navigate', pushNavState);
   appView.webContents.on('did-navigate-in-page', pushNavState);
@@ -273,6 +325,7 @@ function createMainWindow() {
 
   mainWindow.on('closed', () => {
     resetSourcePicker();
+    cancelBrowserSignIn();
     mainWindow = null;
     appView = null;
   });
@@ -429,6 +482,69 @@ function registerIpc() {
     url.searchParams.set('return_to', opts.returnTo ?? returnTo);
     shell.openExternal(url.toString());
     return { url: url.toString(), returnTo };
+  });
+
+  // Sign-in on the OIDC editions (docs/auth-handoff.md, "OIDC editions"):
+  // the page builds the authorization request and redeems the code; this
+  // side opens a one-shot loopback listener and the system browser, and
+  // hands back the callback URL once its `state` matches. No token passes here.
+  ipcMain.handle('weldsuite:oidc-sign-in:start', async (event) => {
+    if (!fromAppPage(event)) throw new Error('weldsuite:oidc-sign-in answers the WeldSuite app only');
+    cancelBrowserSignIn();
+    // The browser is only ever sent to this issuer, whatever the page asks.
+    const issuer = await readIssuerOrigin();
+    if (!issuer) throw new Error("weldsuite:oidc-sign-in needs an OIDC issuer in the app's /config.json");
+    const flow = await LoopbackSignIn.open();
+    browserSignIn = flow;
+    browserSignInIssuer = issuer;
+    return { id: flow.id, redirectUri: flow.redirectUri };
+  });
+
+  ipcMain.handle(
+    'weldsuite:oidc-sign-in:authorize',
+    async (event, opts: { id?: unknown; url?: unknown; page?: unknown } = {}): Promise<LoopbackOutcome> => {
+      if (!fromAppPage(event)) return { status: 'failed', reason: 'invalid_request' };
+      const flow = browserSignIn;
+      const issuer = browserSignInIssuer;
+      if (!flow || !issuer || opts?.id !== flow.id || flow.expecting) return { status: 'failed', reason: 'unknown_sign_in' };
+      const url = typeof opts.url === 'string' ? opts.url : '';
+      const checked = checkAuthorizationRequest(url, flow.redirectUri, issuer);
+      if (!checked) {
+        cancelBrowserSignIn();
+        return { status: 'failed', reason: 'invalid_request' };
+      }
+      const outcome = flow.expect(checked.state, readPageText(opts.page));
+      // The checked URL, rebuilt on the issuer's origin: never the page's
+      // string. Its scheme and host are checked against the issuer once more,
+      // right at the call, as an allowlist.
+      const target = new URL(checked.url);
+      const issuerUrl = new URL(issuer);
+      const allowedSchemes = [issuerUrl.protocol];
+      const allowedHosts = [issuerUrl.hostname];
+      try {
+        if (
+          allowedSchemes.includes(target.protocol) &&
+          allowedHosts.includes(target.hostname) &&
+          target.port === issuerUrl.port
+        ) {
+          await shell.openExternal(target.href);
+        } else {
+          flow.fail('browser');
+        }
+      } catch {
+        flow.fail('browser');
+      }
+      const result = await outcome;
+      if (browserSignIn === flow) browserSignIn = null;
+      if (result.status === 'callback') focusMainWindow();
+      return result;
+    },
+  );
+
+  ipcMain.handle('weldsuite:oidc-sign-in:cancel', (event, id: unknown) => {
+    if (!fromAppPage(event)) return false;
+    if (browserSignIn && browserSignIn.id === id) cancelBrowserSignIn();
+    return true;
   });
 
   ipcMain.handle('weldsuite:reload-app', () => {

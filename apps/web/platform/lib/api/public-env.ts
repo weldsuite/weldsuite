@@ -94,7 +94,7 @@ export function getPartnerPortalUrl(): string {
 
 // ── Per-module API hosts ────────────────────────────────────────────────────
 // app-api is being split into one worker per module
-// (docs/plans/app-api-module-split.md). Paths stay the same; only the host
+// (weldsuite-documentation/plans/app-api-module-split.md). Paths stay the same; only the host
 // changes. `VITE_API_MODULES` (e.g. `pass,host`, or `all` / `all,-crm`) lists the modules the SPA
 // calls directly on `<module>-api(-test).weldsuite.org`. Everything else keeps
 // going to app-api, which forwards moved modules, so an empty list behaves
@@ -148,8 +148,9 @@ export function getApiOrigins(): string[] {
 export function getRealtimeUrl(): string {
   const runtimeUrl = runtimeOverride('VITE_REALTIME_URL');
   if (runtimeUrl) return runtimeUrl;
-  const origin = spaOrigin();
-  if (isRustBackend() && origin) return `${origin.replace(/^http/, 'ws')}/ws`;
+  // The Rust backend serves realtime only where /config.json says so (`realtimeUrl`);
+  // without it realtime is off, and callers get '' instead of a socket that is refused.
+  if (isRustBackend()) return '';
   const envUrl = publicEnv('VITE_REALTIME_URL');
   const host = spaHostname();
   if (!host || isLocalHostname(host)) {
@@ -159,7 +160,7 @@ export function getRealtimeUrl(): string {
   return hostedRealtimeUrl(host);
 }
 
-/** Realtime worker origin without the `/ws` path (RoomClient URLs). */
+/** Realtime worker origin without the `/ws` path (RoomClient URLs); '' when realtime is off. */
 export function getRealtimeWsOrigin(): string {
   return getRealtimeUrl().replace(/\/ws\/?$/, '');
 }

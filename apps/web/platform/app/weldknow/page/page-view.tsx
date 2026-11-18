@@ -135,6 +135,20 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
     }
   }, [page?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // A rename made elsewhere (the sidebar's Rename, another tab) changes the
+  // stored title: show it, unless this field holds an edit of its own that is
+  // being typed or still saving. Our own saves echo back equal and change nothing.
+  const storedTitle = page?.title;
+  useEffect(() => {
+    if (storedTitle === undefined) return;
+    const loaded = editableTitle(storedTitle);
+    if (loaded.trim() === savedTitleRef.current.trim()) return;
+    if (titleSaveTimeout.current || updateMeta.isPending) return;
+    if (document.activeElement === titleRef.current) return;
+    savedTitleRef.current = loaded;
+    setTitle(loaded);
+  }, [storedTitle]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // The title wraps instead of scrolling sideways: grow the textarea with its text.
   const fitTitleHeight = useCallback(() => {
     const el = titleRef.current;
@@ -204,6 +218,7 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
   const flushTitleSave = useCallback(
     (nextTitle: string) => {
       if (titleSaveTimeout.current) clearTimeout(titleSaveTimeout.current);
+      titleSaveTimeout.current = null;
       if (nextTitle.trim() === savedTitleRef.current.trim()) return;
       savedTitleRef.current = nextTitle;
       updateMeta.mutate(

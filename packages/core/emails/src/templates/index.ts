@@ -6,8 +6,14 @@
  */
 
 import workspaceDeletion from './admin/workspace-deletion';
+import aiProviderEnabled from './ai/provider-enabled';
+import billingDunning from './billing/dunning';
+import authPasswordReset from './auth/password-reset';
+import authSignInCode from './auth/sign-in-code';
+import authVerifyEmail from './auth/verify-email';
 import booking from './booking/booking';
 import calendarEvent from './calendar/event';
+import deskReport from './desk/report';
 import flowDigest from './flow/digest';
 import flowPortalInvitation from './flow/portal-invitation';
 import flowStatusReport from './flow/status-report';
@@ -18,11 +24,21 @@ import enterpriseInquiry from './internal/enterprise-inquiry';
 import outboundAbuseAlert from './internal/outbound-abuse-alert';
 import meetInvitation from './meet/invitation';
 import notification from './notifications/notification';
+import panelUsage from './panel/usage';
+import panelAlert from './panel/alert';
+import panelReportDigest from './panel/report-digest';
+import panelExportFailing from './panel/export-failing';
 import partnerDunning from './partner/dunning';
 import partnerInvitation from './partner/invitation';
 import portalSignIn from './portal/sign-in';
 import reachAccessApproved from './reach/access-approved';
 import reachAccessRejected from './reach/access-rejected';
+import formsCode from './forms/code';
+import formsDigest from './forms/digest';
+import formsInvite from './forms/invite';
+import formsQuota from './forms/quota';
+import formsReceipt from './forms/receipt';
+import formsResponse from './forms/response';
 import signCode from './sign/code';
 import signCompleted from './sign/completed';
 import signDeclined from './sign/declined';
@@ -37,8 +53,12 @@ export const templates = {
   'meet.invitation': meetInvitation,
   booking,
   'workspace.invitation': workspaceInvitation,
+  'auth.verify-email': authVerifyEmail,
+  'auth.sign-in-code': authSignInCode,
+  'auth.password-reset': authPasswordReset,
   notification,
   'task.assigned': taskAssigned,
+  'desk.report': deskReport,
   'flow.digest': flowDigest,
   'flow.status-report': flowStatusReport,
   'flow.portal-invitation': flowPortalInvitation,
@@ -53,12 +73,24 @@ export const templates = {
   'internal.outbound-abuse-alert': outboundAbuseAlert,
   'reach.access-approved': reachAccessApproved,
   'reach.access-rejected': reachAccessRejected,
+  'forms.code': formsCode,
+  'forms.invite': formsInvite,
+  'forms.receipt': formsReceipt,
+  'forms.response': formsResponse,
+  'forms.digest': formsDigest,
+  'forms.quota': formsQuota,
+  'panel.usage': panelUsage,
+  'panel.alert': panelAlert,
+  'panel.report-digest': panelReportDigest,
+  'panel.export-failing': panelExportFailing,
   'sign.request': signRequest,
   'sign.code': signCode,
   'sign.completed': signCompleted,
   'sign.declined': signDeclined,
   'sign.voided': signVoided,
   'sign.expired': signExpired,
+  'ai.provider-enabled': aiProviderEnabled,
+  'billing.dunning': billingDunning,
 };
 
 export type TemplateId = keyof typeof templates;
@@ -68,8 +100,17 @@ export type TemplateProps<Id extends TemplateId> =
   (typeof templates)[Id] extends { previews: Record<string, { props: infer P }> } ? P : never;
 
 export type { WorkspaceDeletionEmailProps } from './admin/workspace-deletion';
+export type { AiProviderEnabledEmailProps } from './ai/provider-enabled';
+export type { BillingDunningEmailProps, BillingDunningKind } from './billing/dunning';
 export type { BookingEmailKind, BookingEmailProps, BookingLocation } from './booking/booking';
 export type { CalendarEventEmailProps, CalendarEventKind } from './calendar/event';
+export type {
+  DeskReportAgent,
+  DeskReportChart,
+  DeskReportEmailProps,
+  DeskReportKpi,
+  DeskReportKpiKey,
+} from './desk/report';
 export type { DigestTask, FlowDigestEmailProps } from './flow/digest';
 export type { FlowPortalInvitationEmailProps } from './flow/portal-invitation';
 export type { FlowStatusReportEmailProps } from './flow/status-report';
@@ -80,11 +121,21 @@ export type { OutboundAbuseAlertEmailProps } from './internal/outbound-abuse-ale
 export type { EnterpriseInquiryEmailProps } from './internal/enterprise-inquiry';
 export type { MeetInvitationEmailProps } from './meet/invitation';
 export type { NotificationEmailProps } from './notifications/notification';
+export type { PanelUsageEmailKind, PanelUsageEmailProps } from './panel/usage';
+export type { PanelAlertEmailProps } from './panel/alert';
+export type { PanelDigestBlock, PanelDigestFigure, PanelDigestRow, PanelReportDigestEmailProps } from './panel/report-digest';
+export type { PanelExportFailingEmailProps } from './panel/export-failing';
 export type { PartnerDunningEmailProps, PartnerDunningStage } from './partner/dunning';
 export type { PartnerInvitationEmailProps } from './partner/invitation';
 export type { PortalSignInEmailProps } from './portal/sign-in';
 export type { ReachAccessApprovedEmailProps } from './reach/access-approved';
 export type { ReachAccessRejectedEmailProps } from './reach/access-rejected';
+export type { FormsCodeEmailProps } from './forms/code';
+export type { FormsDigestEmailProps } from './forms/digest';
+export type { FormsInviteEmailProps } from './forms/invite';
+export type { FormsQuotaEmailProps } from './forms/quota';
+export type { FormsReceiptEmailProps } from './forms/receipt';
+export type { FormsResponseEmailProps } from './forms/response';
 export type { SignCodeEmailProps } from './sign/code';
 export type { SignCompletedEmailProps } from './sign/completed';
 export type { SignDeclinedEmailProps } from './sign/declined';

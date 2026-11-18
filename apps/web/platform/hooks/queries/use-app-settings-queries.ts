@@ -93,7 +93,7 @@ export function useMailAppSettings() {
         mailAccounts
           .list({ limit: 100, scope: 'manage' })
           .catch(() => ({ data: [] as MailAccountRow[] })),
-        // Custom mail domains are not served on the Kubernetes editions (`mail-domains`).
+        // Custom mail domains: a Kubernetes edition without an MX lacks them (`mail-domains`).
         isFeatureAvailable('mail-domains')
           ? mailDomains.list().catch(() => ({ data: [] as MailDomainRow[] }))
           : Promise.resolve({ data: [] as MailDomainRow[] }),

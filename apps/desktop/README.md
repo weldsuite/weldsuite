@@ -62,6 +62,12 @@ if (window.weldsuiteDesktop?.isDesktop) {
 Typings live at `apps/web/platform/types/weldsuite-desktop.d.ts` and must stay
 in lockstep with `src/preload/index.ts`.
 
+Sign-in goes through the system browser on every edition
+([`docs/auth-handoff.md`](docs/auth-handoff.md)): a Clerk ticket by deep link
+on Global, and on the OIDC editions (EU, self-hosted) a loopback redirect to
+`src/main/loopback-sign-in.ts` (`oidcSignIn` on the bridge, 0.3.0 and later).
+`pnpm --filter desktop test` runs the main process's unit tests.
+
 The platform is served live, so it also runs inside **every shell already
 installed**, including ones older than the preload you're editing. A bridge
 method added after a shell release must be optional in the platform typings

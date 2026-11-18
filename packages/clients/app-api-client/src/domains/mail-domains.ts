@@ -53,7 +53,8 @@ export interface MailDomainRow {
 export interface MailDomainDkimRecord {
   selector: string;
   dnsRecord: string;
-  provider: 'cloudflare';
+  /** `cloudflare` on Global; `mta` or `manual` on the Kubernetes editions. */
+  provider: string;
 }
 
 export function createMailDomainsApi(api: ClientApi) {

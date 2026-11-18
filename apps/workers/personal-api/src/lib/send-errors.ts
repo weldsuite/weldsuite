@@ -7,7 +7,7 @@
  * outbound guard (`SENDING_LIMITED`, `FIRST_CONTACT_LIMITED`, ...) or by
  * Cloudflare itself. Statuses follow `outboundDenialStatus` (403 staff or
  * ownership, 422 the message itself, 429 a window is full); `Retry-After` is
- * set whenever a retry can succeed. docs/plans/weldmail-outbound-abuse.md.
+ * set whenever a retry can succeed. weldsuite-documentation/plans/weldmail-outbound-abuse.md.
  */
 
 import type { Context } from 'hono';

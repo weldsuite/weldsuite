@@ -1,5 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
+import { toast } from 'sonner';
 
 const mocks = vi.hoisted(() => ({
   send: vi.fn(),
@@ -108,6 +109,7 @@ vi.mock('@/lib/i18n/provider', () => ({
           sendMessage: 'Send message',
           uploading: 'Uploading',
           uploadFailed: 'Upload failed',
+          sendFailed: 'Send failed',
           cancel: 'Cancel',
           stopRecording: 'Stop',
           sendVoiceClip: 'Send voice clip',
@@ -225,6 +227,18 @@ describe('MessageInput: mention popup and Enter', () => {
       content: 'hi <@user_1>',
       mentions: ['user_1'],
     });
+  });
+
+  it('says so when a message could not be sent', () => {
+    const toastError = vi.spyOn(toast, 'error');
+    const { container } = render(<MessageInput channelId="ch_1" />);
+    const editor = editorOf(container);
+    type(editor, 'hello');
+    fireEvent.keyDown(editor, { key: 'Enter' });
+    const options = mocks.send.mock.calls[0][1] as { onError: () => void };
+    options.onError();
+    expect(toastError).toHaveBeenCalledWith('Send failed');
+    toastError.mockRestore();
   });
 
   it('Enter without a popup sends as before', () => {

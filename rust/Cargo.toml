@@ -19,7 +19,9 @@ publish = false
 # Shared dependency versions go here; crates use `dep = { workspace = true }`.
 [workspace.dependencies]
 weldsuite-adapters-oss = { path = "crates/adapters-oss" }
+weldsuite-ai = { path = "crates/ai" }
 weldsuite-ads = { path = "modules/ads" }
+weldsuite-agent = { path = "modules/agent" }
 weldsuite-ads-domain = { path = "crates/ads-domain" }
 weldsuite-auth = { path = "crates/auth" }
 weldsuite-call = { path = "modules/call" }
@@ -42,9 +44,11 @@ weldsuite-commerce-domain = { path = "crates/commerce-domain" }
 weldsuite-connect-domain = { path = "crates/connect-domain" }
 weldsuite-connect = { path = "modules/connect" }
 weldsuite-core-apps = { path = "modules/core-apps" }
+weldsuite-core-billing = { path = "modules/core-billing" }
 weldsuite-core-domain = { path = "crates/core-domain" }
 weldsuite-core-objects = { path = "modules/core-objects" }
 weldsuite-core-onboarding = { path = "modules/core-onboarding" }
+weldsuite-core-signin = { path = "modules/core-signin" }
 weldsuite-core-files = { path = "modules/core-files" }
 weldsuite-core-platform = { path = "modules/core-platform" }
 weldsuite-core-team = { path = "modules/core-team" }
@@ -60,6 +64,8 @@ weldsuite-events = { path = "crates/events" }
 weldsuite-external-api = { path = "modules/external-api" }
 weldsuite-flow = { path = "modules/flow" }
 weldsuite-flow-domain = { path = "crates/flow-domain" }
+weldsuite-forms = { path = "modules/forms" }
+weldsuite-forms-engine = { path = "crates/forms-engine" }
 weldsuite-host = { path = "modules/host" }
 weldsuite-hr = { path = "modules/hr" }
 weldsuite-integrations = { path = "modules/integrations" }
@@ -82,6 +88,7 @@ weldsuite-panel = { path = "modules/panel" }
 weldsuite-pass = { path = "modules/pass" }
 weldsuite-payroll-domain = { path = "crates/payroll-domain" }
 weldsuite-migrations = { path = "crates/migrations" }
+weldsuite-mollie = { path = "crates/mollie" }
 weldsuite-sign = { path = "modules/sign" }
 weldsuite-social = { path = "modules/social" }
 weldsuite-staff-domain = { path = "crates/staff-domain" }
@@ -97,6 +104,7 @@ weldsuite-video-rooms = { path = "crates/video-rooms" }
 weldsuite-realtime = { path = "crates/realtime" }
 weldsuite-reach = { path = "modules/reach" }
 weldsuite-reach-domain = { path = "crates/reach-domain" }
+weldsuite-sandbox = { path = "crates/sandbox" }
 
 aes-gcm = { version = "0.11.1", default-features = false, features = ["aes", "alloc"] }
 async-imap = { version = "0.12.0", default-features = false, features = ["runtime-tokio"] }
@@ -121,6 +129,10 @@ opentelemetry = { version = "0.33.1", default-features = false, features = ["tra
 opentelemetry-otlp = { version = "0.33.1", default-features = false, features = ["http-proto", "reqwest-blocking-client", "trace"] }
 opentelemetry_sdk = { version = "0.33.1", default-features = false, features = ["trace"] }
 lopdf = { version = "0.46.0", default-features = false }
+# Prometheus metrics (`GET /metrics` on `METRICS_ADDR`): the facade for every
+# crate that records, the exporter for the binary only.
+metrics = { version = "0.24.6", default-features = false }
+metrics-exporter-prometheus = { version = "0.18.3", default-features = false }
 png = "0.18.1"
 # Pix QR codes on Brazilian invoices: Nayuki's generator, which uqr ports (books-domain).
 qrcodegen = "1.8.0"
@@ -180,3 +192,14 @@ debug = "line-tables-only"
 lto = "thin"
 codegen-units = 1
 strip = true
+
+# The image `Rust · image and chart` builds on a pull request (ci.yml, the
+# CARGO_PROFILE build argument of rust/Dockerfile). Thin LTO with one codegen
+# unit made that build 20 to 40 minutes whenever the Rust layer missed the
+# cache; a pull request's image only has to deploy and pass the kind smoke
+# test. Pushes to main still build `release`, the profile that ships.
+[profile.ci-image]
+inherits = "release"
+lto = false
+codegen-units = 16
+opt-level = 1

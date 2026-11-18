@@ -187,9 +187,22 @@ export function PhaseEditor({ open, onOpenChange, projectId, phases, deliverable
   const remove = useDeletePhase();
   const reorder = useReorderPhases();
 
+  const newDraft = (count: number): PhaseDraft => ({
+    key: `new-${count}-${Date.now()}`,
+    name: copy.newPhaseName,
+    start: '',
+    end: '',
+    criteria: [],
+    passed: false,
+    gateRequested: false,
+    removed: false,
+  });
+
   useEffect(() => {
-    if (open) setDrafts(draftsOf(phases));
-    // Reopening starts from what is stored.
+    if (!open) return;
+    // Reopening starts from what is stored; a lifecycle without phases starts with one to fill in.
+    const stored = draftsOf(phases);
+    setDrafts(stored.length > 0 ? stored : [newDraft(0)]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
@@ -252,6 +265,9 @@ export function PhaseEditor({ open, onOpenChange, projectId, phases, deliverable
                   </div>
                 )}
               </div>
+              {/* Why Save is off: said next to the field, not left to guess. */}
+              {draft.name.trim() === '' && <p role="alert" className="text-xs text-destructive">{copy.nameRequired}</p>}
+              {draft.start && draft.end && draft.end < draft.start && <p role="alert" className="text-xs text-destructive">{copy.endBeforeStart}</p>}
               <div className="grid gap-2">
                 <div className="text-xs font-medium text-muted-foreground">{copy.criteria}</div>
                 {draft.gateRequested && !draft.passed && <p className="text-xs text-muted-foreground">{copy.lockedCriteria}</p>}
@@ -278,16 +294,7 @@ export function PhaseEditor({ open, onOpenChange, projectId, phases, deliverable
             </fieldset>
           ))}
           <div>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() =>
-                setDrafts((all) => [
-                  ...all,
-                  { key: `new-${all.length}-${Date.now()}`, name: copy.newPhaseName, start: '', end: '', criteria: [], passed: false, gateRequested: false, removed: false },
-                ])
-              }
-            >
+            <Button type="button" variant="outline" onClick={() => setDrafts((all) => [...all, newDraft(all.length)])}>
               <Plus aria-hidden className="size-4" />
               {copy.add}
             </Button>

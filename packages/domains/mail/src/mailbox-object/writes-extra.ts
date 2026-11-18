@@ -10,7 +10,7 @@
  * `applyToEach`, `refreshThread`, `folderKeysOfRow`, `bumpLabelCounts`,
  * `bumpThreadLabelMatch`, `labelPatch`, `insertAttachmentRow`, `baseResult`)
  * instead of re-deriving label/folder semantics — those stay B1's one
- * implementation of docs/plans/weldmail-mailbox-store-design.md §3.2.
+ * implementation of weldsuite-documentation/plans/weldmail-mailbox-store-design.md §3.2.
  *
  * Judgment calls made in this file (flagged for later tasks):
  *   - `inbound.finalize`'s `isRead`/`isFlagged`/`isSpam`/`deleted` fields are

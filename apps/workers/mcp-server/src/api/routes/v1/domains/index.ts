@@ -34,7 +34,7 @@ type TenantDb = HonoEnv['Variables']['tenantDb'];
 /**
  * A WeldHost domain connected to WeldReach carries Mailpool's mail records.
  * host-api refuses to delete it or move its DNS until it is disconnected in
- * WeldReach (docs/plans/weldreach.md); the public API must not be a way around
+ * WeldReach (weldsuite-documentation/plans/weldreach.md); the public API must not be a way around
  * that. A tenant without the WeldReach tables has no connected domains.
  */
 async function isUsedByWeldReach(db: TenantDb, domainId: string): Promise<boolean> {

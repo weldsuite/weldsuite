@@ -35,7 +35,7 @@ import {
   type MeetingRoomViewProps,
 } from '@weldsuite/weldmeet-ui';
 import { useI18n } from '@/lib/i18n/provider';
-import { currentPeers, peerKey } from '../lib/call-peers';
+import { currentPeers, peerKey, waitingMembers } from '../lib/call-peers';
 import { createPeerChimes } from '../lib/peer-chimes';
 import { ChannelChatPanel } from './channel-chat-panel';
 
@@ -135,6 +135,7 @@ function ChatMeetingRoomAdapter() {
     applyImage,
     removeBackground,
     isCallInitiator,
+    callMemberIds,
   } = useWeldChatCall();
 
   const { t } = useI18n();
@@ -378,14 +379,15 @@ function ChatMeetingRoomAdapter() {
   // Discord-style outgoing call: recipients who haven't picked up yet are shown
   // as synthetic "ringing" tiles in the SAME grid as a joined call. Replaced by
   // their real RTK tile the moment they join (matched by userId). DM/group only.
+  // Whoever answers sees the caller as "connecting" until the caller's
+  // connection is up, never as ringing (see waitingMembers).
   const ringingPlaceholders = useMemo((): MeetingPeer[] => {
     if (!isDmOrGroup || ringingExpired) return [];
-    const joinedKeys = new Set(
+    const inRoom = new Set(
       participants.slice(1).flatMap((p) => [p?.userId, p?.customParticipantId].filter(Boolean) as string[]),
     );
-    return otherMembers
-      .filter((m) => m.userId && !joinedKeys.has(m.userId))
-      .map((m) => ({
+    return waitingMembers({ members: otherMembers, inRoom, isCallInitiator, inCall: callMemberIds }).map(
+      ({ member: m, state }) => ({
         id: `calling:${m.userId}`,
         userId: m.userId,
         name: m.name || m.email,
@@ -394,9 +396,10 @@ function ChatMeetingRoomAdapter() {
         videoEnabled: false,
         screenShareEnabled: false,
         ringing: true,
-        ringingLabel: t.weldchat.calling.ringing,
-      }));
-  }, [isDmOrGroup, ringingExpired, participants, otherMembers, t]);
+        ringingLabel: state === 'ringing' ? t.weldchat.calling.ringing : t.weldchat.calling.connecting,
+      }),
+    );
+  }, [isDmOrGroup, ringingExpired, participants, otherMembers, isCallInitiator, callMemberIds, t]);
 
   const allParticipants = useMemo(
     (): MeetingPeer[] => [...(participantsWithSelfScreenShare as MeetingPeer[]), ...ringingPlaceholders],

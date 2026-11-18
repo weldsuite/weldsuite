@@ -80,7 +80,7 @@ describe('AgedReportView', () => {
 
     const current = bucketCard('Current');
     expect(within(current).getByText('$50.00')).toBeInTheDocument();
-    expect(within(current).getByText('1 documents')).toBeInTheDocument();
+    expect(within(current).getByText('1 document')).toBeInTheDocument();
     const middle = bucketCard('31-60 days');
     expect(within(middle).getByText('$100.00')).toBeInTheDocument();
   });
@@ -98,7 +98,7 @@ describe('AgedReportView', () => {
 
     const middle = bucketCard('31-60 days');
     expect(within(middle).getByText('$100.00')).toBeInTheDocument();
-    expect(within(middle).getByText('1 documents')).toBeInTheDocument();
+    expect(within(middle).getByText('1 document')).toBeInTheDocument();
     // Payables name the counterparty with the jurisdiction's word and link to bills.
     expect(screen.getAllByText('Vendor').length).toBeGreaterThan(0);
     expect(screen.getByRole('link', { name: 'INV-1' })).toHaveAttribute('href', '/weldbooks/bills/doc_1');

@@ -9,6 +9,7 @@ import { ConversationPane } from './conversation-pane';
 import { EmptyConversationPane } from './empty-conversation-pane';
 import { useDeskInboxLive } from '@/hooks/welddesk/use-desk-live';
 import { useDebounce } from '@/hooks/use-debounce';
+import { DeskWaitingCalls } from '@/components/welddesk/phone/desk-waiting-calls';
 
 const RESERVED_INBOX_SEGMENTS = new Set([
   'all',
@@ -95,20 +96,25 @@ export function InboxPage({ conversationId, channel }: Readonly<InboxPageProps>)
     <InboxLayout>
       <DeskSplitLayout
         list={
-          <ConversationList
-            filters={filters}
-            state={state}
-            onStateChange={setState}
-            sort={sort}
-            onSortChange={setSort}
-            assigneeFilter={assigneeFilter}
-            onAssigneeFilterChange={setAssigneeFilter}
-            ticketFilters={ticketFilters}
-            onTicketFiltersChange={setTicketFilters}
-            onSearchChange={setSearch}
-            selectedId={selectedId}
-            onSelect={handleSelect}
-          />
+          <div className="flex h-full min-h-0 flex-col">
+            <DeskWaitingCalls />
+            <div className="min-h-0 flex-1">
+              <ConversationList
+                filters={filters}
+                state={state}
+                onStateChange={setState}
+                sort={sort}
+                onSortChange={setSort}
+                assigneeFilter={assigneeFilter}
+                onAssigneeFilterChange={setAssigneeFilter}
+                ticketFilters={ticketFilters}
+                onTicketFiltersChange={setTicketFilters}
+                onSearchChange={setSearch}
+                selectedId={selectedId}
+                onSelect={handleSelect}
+              />
+            </div>
+          </div>
         }
         detail={
           selectedId ? (

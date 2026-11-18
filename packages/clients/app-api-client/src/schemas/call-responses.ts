@@ -50,6 +50,11 @@ export const voipCallSchema = z.object({
   opportunityId: nullableText,
   activityId: nullableText,
   deskConversationId: nullableText,
+  queueEnteredAt: timestamp.nullable(),
+  agentAnsweredAt: timestamp.nullable(),
+  answeredByUserId: nullableText,
+  outcome: z.enum(['answered', 'abandoned', 'missed', 'voicemail']).nullable(),
+  departmentId: nullableText,
   creditsConsumed: z.number().int().nullable(),
   creditTransactionId: nullableText,
   aiSummary: nullableText,
@@ -156,17 +161,80 @@ export const callTranscriptionStatusSchema = z.union([
   }),
 ]);
 
+const menuDigit = z.enum(['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '*', '#']);
+
+/** One keypad choice of a menu route. */
+export const deskPhoneMenuChoiceResponseSchema = z.object({
+  digit: menuDigit,
+  label: z.string().optional(),
+  action: z.enum(['ai_agent', 'agents', 'forward', 'voicemail']),
+  voiceAgentId: z.string().optional(),
+  departmentId: z.string().nullable().optional(),
+  forwardToE164: z.string().optional(),
+});
+
+/** `desk_phone_routes.options`: only the keys that were set are present. */
+export const deskPhoneRouteOptionsResponseSchema = z.object({
+  greeting: z.string().optional(),
+  language: z.string().optional(),
+  departmentId: z.string().nullable().optional(),
+  ringSeconds: z.number().int().optional(),
+  maxWaitSeconds: z.number().int().optional(),
+  whenUnanswered: z.enum(['voicemail', 'hangup']).optional(),
+  voicemailGreeting: z.string().optional(),
+  menu: z
+    .object({
+      prompt: z.string(),
+      choices: z.array(deskPhoneMenuChoiceResponseSchema),
+      fallbackDigit: menuDigit.nullable().optional(),
+    })
+    .optional(),
+});
+
 /** A WeldDesk phone route (`toRouteJson`). */
 export const deskPhoneRouteSchema = z.object({
   id: z.string(),
   createdAt: timestamp,
   updatedAt: timestamp,
   voipPhoneNumberId: z.string(),
-  action: z.enum(['ai_agent', 'forward', 'hangup']),
+  action: z.enum(['ai_agent', 'forward', 'hangup', 'agents', 'voicemail', 'menu']),
   voiceAgentId: nullableText,
   forwardToE164: nullableText,
   schedule: z.record(z.unknown()).nullable(),
+  options: deskPhoneRouteOptionsResponseSchema.nullable(),
 });
+
+/** `GET|PUT /api/desk/phone/softphone`: the member's softphone. */
+export const deskSoftphoneSchema = z.object({
+  /** Telnyx key and SIP connection are set. */
+  configured: z.boolean(),
+  /** The member's "take calls" switch. */
+  available: z.boolean(),
+  /** The member has their own telephony credential. */
+  registered: z.boolean(),
+  sipUsername: nullableText,
+});
+
+/** `POST /api/desk/phone/softphone/token`. */
+export const deskSoftphoneTokenSchema = z.object({
+  token: z.string().nullable(),
+  configured: z.boolean(),
+  sipUsername: nullableText,
+});
+
+/** One caller of `GET /api/desk/phone/queue`. */
+export const deskPhoneQueueItemSchema = z.object({
+  callId: z.string(),
+  conversationId: nullableText,
+  fromNumber: z.string(),
+  callerName: nullableText,
+  departmentId: nullableText,
+  waitingSince: timestamp,
+  ringing: z.boolean(),
+});
+
+/** `POST /api/desk/phone/queue/:callId/pickup`. */
+export const deskPhonePickupSchema = z.object({ callId: z.string(), ringing: z.literal(true) });
 
 /** `{ ok: true }`. */
 export const okSchema = z.object({ ok: z.literal(true) });

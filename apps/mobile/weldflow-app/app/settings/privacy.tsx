@@ -8,9 +8,9 @@ import {
   Alert,
   Linking,
 } from 'react-native';
-import { useUser } from '@clerk/expo';
+import { useHostedSignIn, useUser } from '@weldsuite/mobile-platform/auth';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
 import { ChevronRight } from 'lucide-react-native';
 
 import { Screen, ScreenHeader } from '@/components/screen';
@@ -19,12 +19,20 @@ import { useI18n } from '@/lib/i18n';
 
 export default function PrivacyScreen() {
   const { colors } = useTheme();
-  const { user: clerkUser } = useUser();
-  const { user, signOut } = useClerkAuth();
+  const { user: authUser } = useUser();
+  const hosted = useHostedSignIn();
+  const { user, signOut } = useAuthSession();
   const { t } = useI18n();
   const [deletingAccount, setDeletingAccount] = useState(false);
 
+  // Clerk deletes the account in the app; on another server the person does it at the provider.
+  const canDeleteAccount = !!authUser?.delete || !!hosted?.accountUrl;
+
   const handleDeleteAccount = () => {
+    if (!authUser?.delete) {
+      if (hosted?.accountUrl) void Linking.openURL(hosted.accountUrl);
+      return;
+    }
     Alert.alert(
       'Delete Account',
       'This action cannot be undone. Your account, profile, and access to all workspaces will be permanently removed.\n\nAre you absolutely sure?',
@@ -43,10 +51,10 @@ export default function PrivacyScreen() {
                   text: 'I Understand, Delete',
                   style: 'destructive',
                   onPress: async () => {
-                    if (!clerkUser) return;
+                    if (!authUser?.delete) return;
                     setDeletingAccount(true);
                     try {
-                      await clerkUser.delete();
+                      await authUser.delete();
                       await signOut().catch(() => {});
                     } catch (error) {
                       console.error('Error deleting account:', error);
@@ -87,6 +95,7 @@ export default function PrivacyScreen() {
         </SectionCard>
 
         <SectionCard title={t.settings.account}>
+          {canDeleteAccount && (
           <Pressable
             onPress={handleDeleteAccount}
             disabled={deletingAccount}
@@ -101,6 +110,7 @@ export default function PrivacyScreen() {
               </Text>
             )}
           </Pressable>
+          )}
         </SectionCard>
       </ScrollView>
     </Screen>

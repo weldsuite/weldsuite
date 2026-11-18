@@ -16,7 +16,7 @@
  * The mails go out from WeldSuite's own address but carry the organizer's
  * title and description to anyone, so `sendInvitationEmails` runs each batch
  * through the outbound mail guard first (`@weldsuite/mail-domain/outbound`,
- * source `meet`; docs/plans/weldmail-outbound-abuse.md). A refusal skips the
+ * source `meet`; weldsuite-documentation/plans/weldmail-outbound-abuse.md). A refusal skips the
  * batch and is logged: the attendees stay saved, and the response reports
  * `emailSent: false` for each of them.
  */

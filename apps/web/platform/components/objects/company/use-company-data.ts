@@ -324,7 +324,11 @@ export function useUpdateCompany() {
         return;
       }
       console.error('[Companies] update failed:', err);
-      toast.error(t('sweep.entities.updateCompanyFailed'));
+      // A refused value (400): say why — the API's message names the field
+      // ("Employees must be a number or a range…"), TASK-1463.
+      toast.error(t('sweep.entities.updateCompanyFailed'), {
+        description: isApiError(err) && err.status === 400 ? err.message : undefined,
+      });
     },
   });
 }

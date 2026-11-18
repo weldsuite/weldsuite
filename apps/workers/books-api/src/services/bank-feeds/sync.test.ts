@@ -589,9 +589,36 @@ describe('connection health', () => {
 
   it('passes the stored credentials to the provider and asks for a refresh on demand', async () => {
     const provider = new FakeProvider();
-    await syncConnection(makeContext(db, provider), CONNECTION, { refresh: true });
+    await syncConnection(makeContext(db, provider), CONNECTION, { refresh: true, customerIp: '203.0.113.9' });
     expect(provider.refreshed).toBe(1);
+    // The member's address, which Ponto needs to synchronize.
+    expect(provider.refreshOptions).toEqual([{ customerIp: '203.0.113.9' }]);
     expect(provider.syncCalls[0]?.credentials).toEqual({ accessToken: 'access-secret-1' });
+  });
+
+  it('stores the consent end the provider reports now over the one the link stored', async () => {
+    const provider = new FakeProvider('plaid', DATE_RANGE_LIKE);
+    await db.update(schema.bankConnections).set({ consentExpiresAt: new Date(Date.now() + 5 * 86_400_000) }).where(eq(schema.bankConnections.id, CONNECTION));
+    // Reauthorized in Ponto: the end moved half a year on.
+    const renewed = new Date(Date.now() + 180 * 86_400_000);
+    renewed.setUTCMilliseconds(0);
+    provider.script = [page({ consentExpiresAt: renewed.toISOString() })];
+
+    expect((await syncConnection(makeContext(db, provider), CONNECTION)).status).toBe('active');
+    const [connection] = await db.select().from(schema.bankConnections).where(eq(schema.bankConnections.id, CONNECTION));
+    expect(connection?.consentExpiresAt?.toISOString()).toBe(renewed.toISOString());
+  });
+
+  it('keeps credentials the provider rotated before the sync failed', async () => {
+    const provider = new FakeProvider('plaid', DATE_RANGE_LIKE);
+    provider.script = [new FeedProviderError('plaid', 'transient', 'plaid responded 503', { status: 503 })];
+    provider.pending = { accessToken: 'at-2', refreshToken: 'rt-2' };
+
+    const outcome = await syncConnection(makeContext(db, provider), CONNECTION);
+
+    expect(outcome).toMatchObject({ retryable: true });
+    const [connection] = await db.select().from(schema.bankConnections).where(eq(schema.bankConnections.id, CONNECTION));
+    expect(await openCredentials(connection?.credentialsEncrypted ?? null, TEST_KEYRING)).toEqual({ accessToken: 'at-2', refreshToken: 'rt-2' });
   });
 
   it('skips disconnected and unknown connections', async () => {

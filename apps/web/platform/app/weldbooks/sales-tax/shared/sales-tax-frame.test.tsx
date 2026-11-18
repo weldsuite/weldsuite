@@ -64,7 +64,7 @@ describe('SalesTaxGate', () => {
       </SalesTaxGate>,
     );
 
-    expect(screen.getByText('Sales tax is not available for this entity')).toBeInTheDocument();
+    expect(screen.getByText("Sales Tax isn't available for these entities")).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Back to the dashboard' })).toHaveAttribute('href', '/weldbooks/dashboard');
     expect(screen.queryByText('The screen')).not.toBeInTheDocument();
   });
@@ -79,17 +79,18 @@ describe('SalesTaxGate', () => {
 
     expect(screen.getByText('Loading jurisdiction')).toBeInTheDocument();
     expect(screen.queryByText('The screen')).not.toBeInTheDocument();
-    expect(screen.queryByText('Sales tax is not available for this entity')).not.toBeInTheDocument();
+    expect(screen.queryByText(/isn't available for/)).not.toBeInTheDocument();
   });
 
-  it('lets the API answer when the jurisdictions cannot be loaded', () => {
+  it('shows an error state when the jurisdictions cannot be loaded', () => {
     jurisdiction.current = { features: { salesTax: false }, isResolved: false, isError: true };
     renderWithProviders(
       <SalesTaxGate>
         <p>The screen</p>
       </SalesTaxGate>,
     );
-    expect(screen.getByText('The screen')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(screen.queryByText('The screen')).not.toBeInTheDocument();
   });
 });
 
@@ -127,7 +128,7 @@ describe('SalesTaxFrame', () => {
       </SalesTaxFrame>,
     );
 
-    expect(screen.getByText('Sales tax is not available for this entity')).toBeInTheDocument();
+    expect(screen.getByText("Sales Tax isn't available for these entities")).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Overview' })).not.toBeInTheDocument();
     expect(screen.queryByText('Body')).not.toBeInTheDocument();
   });

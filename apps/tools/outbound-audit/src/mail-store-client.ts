@@ -2,7 +2,7 @@
  * mail-api's mail-store staff API, reached over plain HTTPS: this tool runs
  * locally against Neon, not inside a Cloudflare Worker, so it cannot address
  * a mailbox's Durable Object directly
- * (docs/plans/weldmail-mailbox-store-design.md §9 task E2). Two calls:
+ * (weldsuite-documentation/plans/weldmail-mailbox-store-design.md §9 task E2). Two calls:
  *
  *  - `GET /internal/mail-store/status/all?workspaceId=` — the stored
  *    `MailStoreMode` of every mailbox in the workspace, to decide per

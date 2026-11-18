@@ -1,5 +1,4 @@
 import { Folder, MoreVertical, Pencil, Trash2, FolderInput, Copy, UserPlus } from 'lucide-react';
-import { Button } from '@weldsuite/ui/components/button';
 import { cn } from '@/lib/utils';
 import type { DriveFolder } from '@/lib/api/domains/welddrive';
 import {
@@ -10,12 +9,13 @@ import {
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import { useI18n } from '@/lib/i18n/provider';
-import { DriveRestrictedIcon } from './drive-file-card';
+import { DriveRestrictedIcon, onCardKeyDown } from './drive-file-card';
 
 interface DriveFolderCardProps {
   folder: DriveFolder;
   isSelected?: boolean;
-  onClick: (e: React.MouseEvent) => void;
+  /** A click, or Enter / Space on the focused card. */
+  onClick: (e: React.MouseEvent | React.KeyboardEvent) => void;
   onDoubleClick?: () => void;
   onRename?: (folder: DriveFolder) => void;
   onDuplicate?: (folder: DriveFolder) => void;
@@ -29,12 +29,15 @@ export function DriveFolderCard({ folder, isSelected, onClick, onDoubleClick, on
   // A viewer opens the folder; changing it is for its owner and editors.
   const canChange = folder.accessRole !== 'viewer';
   return (
-    <Button
-      variant="ghost"
+    // A div acting as a button, not a <button>: the ⋮ menu inside it is a button of its own.
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onClick}
       onDoubleClick={onDoubleClick}
+      onKeyDown={(e) => onCardKeyDown(e, onClick)}
       className={cn(
-        "group relative flex flex-col rounded-lg border bg-card text-card-foreground transition-colors overflow-hidden text-left w-full",
+        "group relative flex flex-col rounded-lg border bg-card text-card-foreground transition-colors overflow-hidden text-left w-full cursor-pointer outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
         isSelected
           ? 'border-primary bg-primary/5 dark:bg-primary/10'
           : 'hover:bg-accent/50',
@@ -61,9 +64,9 @@ export function DriveFolderCard({ folder, isSelected, onClick, onDoubleClick, on
         <div className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
           <DropdownMenu>
             <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-              <div className="p-0.5 rounded-md hover:bg-muted cursor-pointer">
+              <button type="button" className="p-0.5 rounded-md hover:bg-muted cursor-pointer" aria-label={t.common.actions.openMenu}>
                 <MoreVertical className="h-4 w-4 text-muted-foreground" />
-              </div>
+              </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48" sideOffset={4} onClick={(e) => e.stopPropagation()}>
               {onShare && (
@@ -102,6 +105,6 @@ export function DriveFolderCard({ folder, isSelected, onClick, onDoubleClick, on
           </DropdownMenu>
         </div>
       </div>
-    </Button>
+    </div>
   );
 }

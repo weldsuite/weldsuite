@@ -6,7 +6,7 @@
  * by `accountId` for the compose-resume UI.
  *
  * Every read/write goes through `workspaceMailFromContext`'s `store`/`access`
- * (design docs/plans/weldmail-mailbox-store-design.md, task D2): the store's
+ * (design weldsuite-documentation/plans/weldmail-mailbox-store-design.md, task D2): the store's
  * `draft.create`/`draft.update`/`draft.delete` ops call the exact same
  * `@weldsuite/mail-domain/drafts` functions this route used to call directly
  * in `postgres` mode, and `getDraft`/`listDrafts` wrap the same reads, so

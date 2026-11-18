@@ -79,6 +79,22 @@ export async function documentContactFields(
 }
 
 /**
+ * Fill `contactEmail` on a document stored without one, from the contact's
+ * current address (the PDF does the same). An invoice keeps the email its
+ * contact had when it was created, so one created before the customer had an
+ * address, or by a path that copies none (recurring runs), would otherwise
+ * show no address to send it to.
+ */
+export async function withContactEmail<T extends { contactId: string | null; contactEmail: string | null }>(
+  db: Database,
+  row: T,
+): Promise<T> {
+  if (row.contactEmail?.trim() || !row.contactId) return row;
+  const { email } = await loadContactSnapshot(db, row.contactId);
+  return email ? { ...row, contactEmail: email } : row;
+}
+
+/**
  * Fill `contactName` on documents stored without one (created before the
  * routes copied it), from the contacts' current names. One query for the lot.
  */

@@ -12,7 +12,9 @@
         "EXPO_PUBLIC_APP_API_URL": "https://app-api-test.weldsuite.org",
         "EXPO_PUBLIC_REALTIME_URL": "wss://realtime-test.weldsuite.org",
         "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_ZGVmaW5pdGUtZWFnbGUtMy5jbGVyay5hY2NvdW50cy5kZXYk",
-        "EXPO_PUBLIC_API_MODULES": "all"
+        "EXPO_PUBLIC_API_MODULES": "all",
+        "EXPO_PUBLIC_SERVER_PICKER": "on",
+        "EXPO_PUBLIC_EU_SERVER_URL": "https://app.test.weldsuite.eu"
       }
     },
     "preview": {
@@ -22,7 +24,9 @@
         "EXPO_PUBLIC_APP_API_URL": "https://app-api-test.weldsuite.org",
         "EXPO_PUBLIC_REALTIME_URL": "wss://realtime-test.weldsuite.org",
         "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_ZGVmaW5pdGUtZWFnbGUtMy5jbGVyay5hY2NvdW50cy5kZXYk",
-        "EXPO_PUBLIC_API_MODULES": "all"
+        "EXPO_PUBLIC_API_MODULES": "all",
+        "EXPO_PUBLIC_SERVER_PICKER": "on",
+        "EXPO_PUBLIC_EU_SERVER_URL": "https://app.test.weldsuite.eu"
       }
     },
     "production": {
@@ -32,7 +36,8 @@
         "EXPO_PUBLIC_APP_API_URL": "https://app-api.weldsuite.org",
         "EXPO_PUBLIC_REALTIME_URL": "wss://realtime.weldsuite.org",
         "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_live_Y2xlcmsud2VsZHN1aXRlLm9yZyQ",
-        "EXPO_PUBLIC_API_MODULES": "all"
+        "EXPO_PUBLIC_API_MODULES": "all",
+        "EXPO_PUBLIC_SERVER_PICKER": "off"
       }
     }
   },

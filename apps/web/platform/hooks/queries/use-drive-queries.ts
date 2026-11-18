@@ -40,6 +40,7 @@ export interface DriveItemRef {
 
 // ── File Queries (Generic Store) ────────────────────────────────────────
 
+/** Drive files matching `params`; no params, no request (the page lists from one source at a time). */
 export function useDriveFiles(params?: DriveFilesParams) {
   const { files } = useAppApi();
   return useQuery({
@@ -49,6 +50,7 @@ export function useDriveFiles(params?: DriveFilesParams) {
       data: UnifiedFile[];
       pagination: PaginationMeta;
     }>,
+    enabled: params !== undefined,
   });
 }
 
@@ -91,11 +93,13 @@ export function useAllDriveFolders(enabled = true) {
 
 // ── Aggregation Queries ─────────────────────────────────────────────────
 
+/** Files from every source (`/api/drive/all`); no params, no request. */
 export function useAllFiles(params?: DriveFilesParams) {
   const { drive } = useAppApi();
   return useQuery({
     queryKey: driveKeys.aggregated(params),
     queryFn: () => drive.all((params ?? {}) as DriveFilesParams) as Promise<DriveFilesResponse>,
+    enabled: params !== undefined,
   });
 }
 

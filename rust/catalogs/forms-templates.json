@@ -1,0 +1,1243 @@
+[
+  {
+    "category": "contact",
+    "definition": {
+      "blocks": [
+        {
+          "id": "b_contact",
+          "properties": {
+            "fields": {
+              "company": {
+                "enabled": true,
+                "required": false
+              },
+              "email": {
+                "enabled": true,
+                "required": true
+              },
+              "firstName": {
+                "enabled": true,
+                "required": true
+              },
+              "lastName": {
+                "enabled": true,
+                "required": true
+              },
+              "phone": {
+                "enabled": true,
+                "required": false
+              }
+            }
+          },
+          "ref": "contact",
+          "required": true,
+          "title": "How can we reach you?",
+          "type": "contact_info"
+        },
+        {
+          "id": "b_subject",
+          "properties": {
+            "maxLength": 200
+          },
+          "ref": "subject",
+          "required": true,
+          "title": "What is your message about?",
+          "type": "short_text"
+        },
+        {
+          "id": "b_message",
+          "properties": {
+            "maxLength": 5000
+          },
+          "ref": "message",
+          "required": true,
+          "title": "Your message",
+          "type": "long_text"
+        }
+      ],
+      "endingRules": [],
+      "endings": [
+        {
+          "description": "We will get back to you within one working day.",
+          "id": "e_thanks",
+          "ref": "thank_you",
+          "showAnswers": false,
+          "showScore": false,
+          "title": "Thanks for getting in touch!"
+        }
+      ],
+      "hidden": [],
+      "logic": [],
+      "presentation": {
+        "allowBack": true,
+        "language": "en",
+        "layout": "conversational",
+        "progressBar": "percentage",
+        "showQuestionNumbers": true
+      },
+      "schemaVersion": 1,
+      "variables": [],
+      "welcome": null
+    },
+    "description": {
+      "en": "Let visitors send you a message with their contact details.",
+      "nl": "Laat bezoekers een bericht sturen met hun contactgegevens."
+    },
+    "id": "contact-form",
+    "name": {
+      "en": "Contact form",
+      "nl": "Contactformulier"
+    }
+  },
+  {
+    "category": "feedback",
+    "definition": {
+      "blocks": [
+        {
+          "id": "b_nps",
+          "properties": {
+            "labels": {
+              "left": "Not likely",
+              "right": "Very likely"
+            }
+          },
+          "ref": "recommend",
+          "required": true,
+          "title": "How likely are you to recommend us to a friend or colleague?",
+          "type": "nps"
+        },
+        {
+          "id": "b_liked",
+          "properties": {},
+          "ref": "what_went_well",
+          "required": false,
+          "title": "Great to hear! What do you like most about us?",
+          "type": "long_text"
+        },
+        {
+          "id": "b_wrong",
+          "properties": {},
+          "ref": "what_went_wrong",
+          "required": true,
+          "title": "Sorry to hear that. What went wrong?",
+          "type": "long_text"
+        },
+        {
+          "id": "b_follow_up",
+          "properties": {},
+          "ref": "follow_up",
+          "required": true,
+          "title": "May we contact you about your answers?",
+          "type": "yes_no"
+        },
+        {
+          "id": "b_email",
+          "properties": {},
+          "ref": "email",
+          "required": true,
+          "title": "What is your email address?",
+          "type": "email"
+        }
+      ],
+      "endingRules": [],
+      "endings": [
+        {
+          "id": "e_thanks",
+          "ref": "thank_you",
+          "showAnswers": false,
+          "showScore": false,
+          "title": "Thank you for your feedback!"
+        }
+      ],
+      "hidden": [],
+      "logic": [
+        {
+          "blockId": "b_nps",
+          "calculations": [],
+          "jumps": [
+            {
+              "id": "j_detractor",
+              "to": {
+                "id": "b_wrong",
+                "type": "block"
+              },
+              "when": {
+                "conditions": [
+                  {
+                    "left": {
+                      "id": "b_nps",
+                      "type": "field"
+                    },
+                    "operator": "less_or_equal",
+                    "right": {
+                      "type": "constant",
+                      "value": 6
+                    }
+                  }
+                ],
+                "op": "and"
+              }
+            }
+          ],
+          "otherwise": null
+        },
+        {
+          "blockId": "b_liked",
+          "calculations": [],
+          "jumps": [],
+          "otherwise": {
+            "id": "b_follow_up",
+            "type": "block"
+          }
+        },
+        {
+          "blockId": "b_follow_up",
+          "calculations": [],
+          "jumps": [
+            {
+              "id": "j_no_contact",
+              "to": {
+                "id": "e_thanks",
+                "type": "ending"
+              },
+              "when": {
+                "conditions": [
+                  {
+                    "left": {
+                      "id": "b_follow_up",
+                      "type": "field"
+                    },
+                    "operator": "is",
+                    "right": {
+                      "type": "constant",
+                      "value": false
+                    }
+                  }
+                ],
+                "op": "and"
+              }
+            }
+          ],
+          "otherwise": null
+        }
+      ],
+      "presentation": {
+        "allowBack": true,
+        "language": "en",
+        "layout": "conversational",
+        "progressBar": "percentage",
+        "showQuestionNumbers": true
+      },
+      "schemaVersion": 1,
+      "variables": [],
+      "welcome": {
+        "buttonText": "Start",
+        "description": "A few quick questions, it takes about a minute.",
+        "title": "Tell us how we did"
+      }
+    },
+    "description": {
+      "en": "Measure your Net Promoter Score and ask unhappy customers what went wrong.",
+      "nl": "Meet je Net Promoter Score en vraag ontevreden klanten wat er misging."
+    },
+    "id": "customer-feedback",
+    "name": {
+      "en": "Customer feedback (NPS)",
+      "nl": "Klanttevredenheid (NPS)"
+    }
+  },
+  {
+    "category": "events",
+    "definition": {
+      "blocks": [
+        {
+          "id": "b_attendee",
+          "properties": {
+            "fields": {
+              "company": {
+                "enabled": true,
+                "required": false
+              },
+              "email": {
+                "enabled": true,
+                "required": true
+              },
+              "firstName": {
+                "enabled": true,
+                "required": true
+              },
+              "lastName": {
+                "enabled": true,
+                "required": true
+              },
+              "phone": {
+                "enabled": false,
+                "required": false
+              }
+            }
+          },
+          "ref": "attendee",
+          "required": true,
+          "title": "Who is coming?",
+          "type": "contact_info"
+        },
+        {
+          "id": "b_guests",
+          "properties": {
+            "decimals": 0,
+            "max": 5,
+            "min": 0
+          },
+          "ref": "guests",
+          "required": false,
+          "title": "How many guests are you bringing?",
+          "type": "number"
+        },
+        {
+          "id": "b_dietary",
+          "properties": {
+            "allowOther": true,
+            "choices": [
+              {
+                "id": "c_none",
+                "label": "None"
+              },
+              {
+                "id": "c_vegetarian",
+                "label": "Vegetarian"
+              },
+              {
+                "id": "c_vegan",
+                "label": "Vegan"
+              },
+              {
+                "id": "c_gluten_free",
+                "label": "Gluten-free"
+              }
+            ],
+            "multiple": true,
+            "randomize": false
+          },
+          "ref": "dietary",
+          "required": true,
+          "title": "Do you have any dietary requirements?",
+          "type": "multiple_choice"
+        },
+        {
+          "id": "b_consent",
+          "properties": {},
+          "ref": "consent",
+          "required": true,
+          "title": "I agree that my details are used to organise this event.",
+          "type": "legal"
+        }
+      ],
+      "endingRules": [],
+      "endings": [
+        {
+          "description": "We look forward to seeing you.",
+          "id": "e_registered",
+          "ref": "registered",
+          "showAnswers": false,
+          "showScore": false,
+          "title": "You're on the list!"
+        }
+      ],
+      "hidden": [],
+      "logic": [],
+      "presentation": {
+        "allowBack": true,
+        "language": "en",
+        "layout": "conversational",
+        "progressBar": "percentage",
+        "showQuestionNumbers": true
+      },
+      "schemaVersion": 1,
+      "variables": [],
+      "welcome": null
+    },
+    "description": {
+      "en": "Collect sign-ups with contact details, dietary needs and consent.",
+      "nl": "Verzamel inschrijvingen met contactgegevens, dieetwensen en toestemming."
+    },
+    "id": "event-registration",
+    "name": {
+      "en": "Event registration",
+      "nl": "Inschrijving evenement"
+    }
+  },
+  {
+    "category": "hr",
+    "definition": {
+      "blocks": [
+        {
+          "id": "b_position",
+          "properties": {
+            "alphabetical": false,
+            "choices": [
+              {
+                "id": "c_engineer",
+                "label": "Software engineer"
+              },
+              {
+                "id": "c_designer",
+                "label": "Product designer"
+              },
+              {
+                "id": "c_success",
+                "label": "Customer success manager"
+              },
+              {
+                "id": "c_open",
+                "label": "Open application"
+              }
+            ],
+            "randomize": false
+          },
+          "ref": "position",
+          "required": true,
+          "title": "Which position are you applying for?",
+          "type": "dropdown"
+        },
+        {
+          "id": "b_applicant",
+          "properties": {
+            "fields": {
+              "company": {
+                "enabled": false,
+                "required": false
+              },
+              "email": {
+                "enabled": true,
+                "required": true
+              },
+              "firstName": {
+                "enabled": true,
+                "required": true
+              },
+              "lastName": {
+                "enabled": true,
+                "required": true
+              },
+              "phone": {
+                "enabled": true,
+                "required": false
+              }
+            }
+          },
+          "ref": "applicant",
+          "required": true,
+          "title": "Your details",
+          "type": "contact_info"
+        },
+        {
+          "id": "b_portfolio",
+          "properties": {},
+          "ref": "portfolio",
+          "required": false,
+          "title": "A link to your LinkedIn profile or portfolio",
+          "type": "website"
+        },
+        {
+          "id": "b_cv",
+          "properties": {
+            "accept": "documents",
+            "maxFiles": 1,
+            "maxSizeMb": 10
+          },
+          "ref": "cv",
+          "required": true,
+          "title": "Upload your CV",
+          "type": "file_upload"
+        },
+        {
+          "id": "b_motivation",
+          "properties": {
+            "maxLength": 3000
+          },
+          "ref": "motivation",
+          "required": true,
+          "title": "Why do you want to join us?",
+          "type": "long_text"
+        }
+      ],
+      "endingRules": [],
+      "endings": [
+        {
+          "description": "We read every application and will get back to you within two weeks.",
+          "id": "e_thanks",
+          "ref": "thank_you",
+          "showAnswers": false,
+          "showScore": false,
+          "title": "Thanks for applying!"
+        }
+      ],
+      "hidden": [],
+      "logic": [],
+      "presentation": {
+        "allowBack": true,
+        "language": "en",
+        "layout": "conversational",
+        "progressBar": "percentage",
+        "showQuestionNumbers": true
+      },
+      "schemaVersion": 1,
+      "variables": [],
+      "welcome": null
+    },
+    "description": {
+      "en": "Receive applications with a CV, a portfolio link and a motivation.",
+      "nl": "Ontvang sollicitaties met cv, portfoliolink en motivatie."
+    },
+    "id": "job-application",
+    "name": {
+      "en": "Job application",
+      "nl": "Sollicitatie"
+    }
+  },
+  {
+    "category": "education",
+    "definition": {
+      "blocks": [
+        {
+          "id": "b_q1",
+          "properties": {
+            "allowOther": false,
+            "choices": [
+              {
+                "id": "c_q1_venus",
+                "label": "Venus",
+                "score": 0
+              },
+              {
+                "correct": true,
+                "id": "c_q1_mercury",
+                "label": "Mercury",
+                "score": 1
+              },
+              {
+                "id": "c_q1_mars",
+                "label": "Mars",
+                "score": 0
+              }
+            ],
+            "multiple": false,
+            "randomize": false
+          },
+          "ref": "closest_planet",
+          "required": true,
+          "title": "Which planet is closest to the sun?",
+          "type": "multiple_choice"
+        },
+        {
+          "id": "b_q2",
+          "properties": {
+            "allowOther": false,
+            "choices": [
+              {
+                "id": "c_q2_seven",
+                "label": "7",
+                "score": 0
+              },
+              {
+                "correct": true,
+                "id": "c_q2_eight",
+                "label": "8",
+                "score": 1
+              },
+              {
+                "id": "c_q2_nine",
+                "label": "9",
+                "score": 0
+              }
+            ],
+            "multiple": false,
+            "randomize": false
+          },
+          "ref": "planet_count",
+          "required": true,
+          "title": "How many planets are in the solar system?",
+          "type": "multiple_choice"
+        },
+        {
+          "id": "b_q3",
+          "properties": {
+            "allowOther": false,
+            "choices": [
+              {
+                "id": "c_q3_jupiter",
+                "label": "Jupiter",
+                "score": 0
+              },
+              {
+                "correct": true,
+                "id": "c_q3_mars",
+                "label": "Mars",
+                "score": 1
+              },
+              {
+                "id": "c_q3_saturn",
+                "label": "Saturn",
+                "score": 0
+              }
+            ],
+            "multiple": false,
+            "randomize": false
+          },
+          "ref": "red_planet",
+          "required": true,
+          "title": "Which planet is known as the Red Planet?",
+          "type": "multiple_choice"
+        }
+      ],
+      "endingRules": [
+        {
+          "endingId": "e_perfect",
+          "id": "j_perfect",
+          "when": {
+            "conditions": [
+              {
+                "left": {
+                  "name": "score",
+                  "type": "variable"
+                },
+                "operator": "greater_or_equal",
+                "right": {
+                  "type": "constant",
+                  "value": 3
+                }
+              }
+            ],
+            "op": "and"
+          }
+        },
+        {
+          "endingId": "e_good",
+          "id": "j_good",
+          "when": {
+            "conditions": [
+              {
+                "left": {
+                  "name": "score",
+                  "type": "variable"
+                },
+                "operator": "greater_or_equal",
+                "right": {
+                  "type": "constant",
+                  "value": 1
+                }
+              }
+            ],
+            "op": "and"
+          }
+        },
+        {
+          "endingId": "e_try_again",
+          "id": "j_try_again",
+          "when": {
+            "conditions": [
+              {
+                "left": {
+                  "name": "score",
+                  "type": "variable"
+                },
+                "operator": "less_than",
+                "right": {
+                  "type": "constant",
+                  "value": 1
+                }
+              }
+            ],
+            "op": "and"
+          }
+        }
+      ],
+      "endings": [
+        {
+          "description": "You got {{var:score}} out of 3.",
+          "id": "e_perfect",
+          "ref": "perfect",
+          "showAnswers": true,
+          "showScore": true,
+          "title": "Perfect!"
+        },
+        {
+          "description": "You got {{var:score}} out of 3.",
+          "id": "e_good",
+          "ref": "good_effort",
+          "showAnswers": true,
+          "showScore": true,
+          "title": "Good effort!"
+        },
+        {
+          "description": "You got {{var:score}} out of 3. Have another go!",
+          "id": "e_try_again",
+          "ref": "try_again",
+          "showAnswers": true,
+          "showScore": true,
+          "title": "Try again"
+        }
+      ],
+      "hidden": [],
+      "logic": [],
+      "presentation": {
+        "allowBack": true,
+        "language": "en",
+        "layout": "conversational",
+        "progressBar": "percentage",
+        "showQuestionNumbers": true
+      },
+      "schemaVersion": 1,
+      "variables": [],
+      "welcome": {
+        "buttonText": "Start the quiz",
+        "title": "How well do you know the solar system?"
+      }
+    },
+    "description": {
+      "en": "A scored quiz that shows the score and the right answers at the end.",
+      "nl": "Een quiz met punten die aan het eind de score en de juiste antwoorden toont."
+    },
+    "id": "knowledge-quiz",
+    "name": {
+      "en": "Knowledge quiz",
+      "nl": "Kennisquiz"
+    }
+  },
+  {
+    "category": "sales",
+    "definition": {
+      "blocks": [
+        {
+          "id": "b_size",
+          "properties": {
+            "allowOther": false,
+            "choices": [
+              {
+                "id": "c_size_1",
+                "label": "1 to 10",
+                "score": 0
+              },
+              {
+                "id": "c_size_2",
+                "label": "11 to 50",
+                "score": 1
+              },
+              {
+                "id": "c_size_3",
+                "label": "51 to 200",
+                "score": 2
+              },
+              {
+                "id": "c_size_4",
+                "label": "More than 200",
+                "score": 3
+              }
+            ],
+            "multiple": false,
+            "randomize": false
+          },
+          "ref": "company_size",
+          "required": true,
+          "title": "How many people work at your company?",
+          "type": "multiple_choice"
+        },
+        {
+          "id": "b_budget",
+          "properties": {
+            "allowOther": false,
+            "choices": [
+              {
+                "id": "c_budget_1",
+                "label": "Under 1,000 euros",
+                "score": 0
+              },
+              {
+                "id": "c_budget_2",
+                "label": "1,000 to 10,000 euros",
+                "score": 2
+              },
+              {
+                "id": "c_budget_3",
+                "label": "Over 10,000 euros",
+                "score": 3
+              },
+              {
+                "id": "c_budget_4",
+                "label": "Not sure yet",
+                "score": 1
+              }
+            ],
+            "multiple": false,
+            "randomize": false
+          },
+          "ref": "budget",
+          "required": true,
+          "title": "What is your budget for this project?",
+          "type": "multiple_choice"
+        },
+        {
+          "id": "b_timeline",
+          "properties": {
+            "allowOther": false,
+            "choices": [
+              {
+                "id": "c_time_now",
+                "label": "Right away",
+                "score": 2
+              },
+              {
+                "id": "c_time_quarter",
+                "label": "Within three months",
+                "score": 1
+              },
+              {
+                "id": "c_time_later",
+                "label": "Just exploring",
+                "score": 0
+              }
+            ],
+            "multiple": false,
+            "randomize": false
+          },
+          "ref": "timeline",
+          "required": true,
+          "title": "When would you like to start?",
+          "type": "multiple_choice"
+        },
+        {
+          "id": "b_contact",
+          "properties": {
+            "fields": {
+              "company": {
+                "enabled": true,
+                "required": false
+              },
+              "email": {
+                "enabled": true,
+                "required": true
+              },
+              "firstName": {
+                "enabled": true,
+                "required": true
+              },
+              "lastName": {
+                "enabled": true,
+                "required": true
+              },
+              "phone": {
+                "enabled": true,
+                "required": false
+              }
+            }
+          },
+          "ref": "contact",
+          "required": true,
+          "title": "Where can we reach you?",
+          "type": "contact_info"
+        },
+        {
+          "id": "b_goals",
+          "properties": {},
+          "ref": "goals",
+          "required": false,
+          "title": "What would you like to achieve?",
+          "type": "long_text"
+        }
+      ],
+      "endingRules": [
+        {
+          "endingId": "e_demo",
+          "id": "j_demo",
+          "when": {
+            "conditions": [
+              {
+                "left": {
+                  "name": "score",
+                  "type": "variable"
+                },
+                "operator": "greater_or_equal",
+                "right": {
+                  "type": "constant",
+                  "value": 5
+                }
+              }
+            ],
+            "op": "and"
+          }
+        }
+      ],
+      "endings": [
+        {
+          "id": "e_thanks",
+          "ref": "thank_you",
+          "showAnswers": false,
+          "showScore": false,
+          "title": "Thanks! We will be in touch."
+        },
+        {
+          "description": "You look like a great fit. A specialist will call you within one working day.",
+          "id": "e_demo",
+          "ref": "book_demo",
+          "showAnswers": false,
+          "showScore": false,
+          "title": "Let's talk!"
+        },
+        {
+          "description": "Our self-service plans are a great place to start.",
+          "id": "e_self_service",
+          "ref": "self_service",
+          "showAnswers": false,
+          "showScore": false,
+          "title": "Thanks for your interest!"
+        }
+      ],
+      "hidden": [],
+      "logic": [
+        {
+          "blockId": "b_budget",
+          "calculations": [],
+          "jumps": [
+            {
+              "id": "j_small",
+              "to": {
+                "id": "e_self_service",
+                "type": "ending"
+              },
+              "when": {
+                "conditions": [
+                  {
+                    "left": {
+                      "id": "b_size",
+                      "type": "field"
+                    },
+                    "operator": "any_of",
+                    "right": {
+                      "type": "constant",
+                      "value": [
+                        "c_size_1"
+                      ]
+                    }
+                  },
+                  {
+                    "left": {
+                      "id": "b_budget",
+                      "type": "field"
+                    },
+                    "operator": "any_of",
+                    "right": {
+                      "type": "constant",
+                      "value": [
+                        "c_budget_1"
+                      ]
+                    }
+                  }
+                ],
+                "op": "and"
+              }
+            }
+          ],
+          "otherwise": null
+        }
+      ],
+      "presentation": {
+        "allowBack": true,
+        "language": "en",
+        "layout": "conversational",
+        "progressBar": "percentage",
+        "showQuestionNumbers": true
+      },
+      "schemaVersion": 1,
+      "variables": [],
+      "welcome": null
+    },
+    "description": {
+      "en": "Score leads on company size, budget and timing, and route them to the right ending.",
+      "nl": "Scoor leads op bedrijfsgrootte, budget en timing en stuur ze naar het juiste eindscherm."
+    },
+    "id": "lead-qualification",
+    "name": {
+      "en": "Lead qualification",
+      "nl": "Leadkwalificatie"
+    }
+  },
+  {
+    "category": "operations",
+    "definition": {
+      "blocks": [
+        {
+          "id": "b_requester",
+          "properties": {
+            "fields": {
+              "company": {
+                "enabled": false,
+                "required": false
+              },
+              "email": {
+                "enabled": true,
+                "required": true
+              },
+              "firstName": {
+                "enabled": true,
+                "required": true
+              },
+              "lastName": {
+                "enabled": true,
+                "required": true
+              },
+              "phone": {
+                "enabled": true,
+                "required": false
+              }
+            }
+          },
+          "ref": "requester",
+          "required": true,
+          "title": "Who needs help?",
+          "type": "contact_info"
+        },
+        {
+          "id": "b_category",
+          "properties": {
+            "alphabetical": false,
+            "choices": [
+              {
+                "id": "c_hardware",
+                "label": "Hardware"
+              },
+              {
+                "id": "c_software",
+                "label": "Software"
+              },
+              {
+                "id": "c_access",
+                "label": "Access and accounts"
+              },
+              {
+                "id": "c_network",
+                "label": "Network and wifi"
+              },
+              {
+                "id": "c_other",
+                "label": "Something else"
+              }
+            ],
+            "randomize": false
+          },
+          "ref": "category",
+          "required": true,
+          "title": "What do you need help with?",
+          "type": "dropdown"
+        },
+        {
+          "id": "b_priority",
+          "properties": {
+            "end": 5,
+            "labels": {
+              "left": "It can wait",
+              "right": "I can't work"
+            },
+            "start": 1
+          },
+          "ref": "priority",
+          "required": true,
+          "title": "How urgent is it?",
+          "type": "opinion_scale"
+        },
+        {
+          "description": "What happened, and what did you expect to happen?",
+          "id": "b_description",
+          "properties": {},
+          "ref": "description",
+          "required": true,
+          "title": "Describe the problem",
+          "type": "long_text"
+        },
+        {
+          "id": "b_attachments",
+          "properties": {
+            "accept": "any",
+            "maxFiles": 3,
+            "maxSizeMb": 10
+          },
+          "ref": "attachments",
+          "required": false,
+          "title": "Screenshots or other files",
+          "type": "file_upload"
+        }
+      ],
+      "endingRules": [],
+      "endings": [
+        {
+          "description": "The IT team will pick it up shortly.",
+          "id": "e_received",
+          "ref": "received",
+          "showAnswers": false,
+          "showScore": false,
+          "title": "Request received"
+        }
+      ],
+      "hidden": [],
+      "logic": [],
+      "presentation": {
+        "allowBack": true,
+        "language": "en",
+        "layout": "conversational",
+        "progressBar": "percentage",
+        "showQuestionNumbers": true
+      },
+      "schemaVersion": 1,
+      "variables": [],
+      "welcome": null
+    },
+    "description": {
+      "en": "Let colleagues report IT problems with a category, urgency and screenshots.",
+      "nl": "Laat collega's IT-problemen melden met categorie, urgentie en schermafbeeldingen."
+    },
+    "id": "it-request",
+    "name": {
+      "en": "IT request",
+      "nl": "IT-verzoek"
+    }
+  },
+  {
+    "category": "hr",
+    "definition": {
+      "blocks": [
+        {
+          "id": "b_intro",
+          "properties": {},
+          "ref": "intro",
+          "title": "Your answers are shared with HR as a group total only.",
+          "type": "statement"
+        },
+        {
+          "id": "b_workload",
+          "properties": {
+            "end": 5,
+            "labels": {
+              "left": "Strongly disagree",
+              "right": "Strongly agree"
+            },
+            "start": 1
+          },
+          "ref": "workload",
+          "required": true,
+          "title": "My workload is manageable.",
+          "type": "opinion_scale"
+        },
+        {
+          "id": "b_recognition",
+          "properties": {
+            "end": 5,
+            "labels": {
+              "left": "Strongly disagree",
+              "right": "Strongly agree"
+            },
+            "start": 1
+          },
+          "ref": "recognition",
+          "required": true,
+          "title": "I feel recognised for my work.",
+          "type": "opinion_scale"
+        },
+        {
+          "id": "b_growth",
+          "properties": {
+            "end": 5,
+            "labels": {
+              "left": "Strongly disagree",
+              "right": "Strongly agree"
+            },
+            "start": 1
+          },
+          "ref": "growth",
+          "required": true,
+          "title": "I see opportunities to grow here.",
+          "type": "opinion_scale"
+        },
+        {
+          "id": "b_page_team",
+          "ref": "page_team",
+          "title": "Your team",
+          "type": "page_break"
+        },
+        {
+          "id": "b_team",
+          "properties": {
+            "end": 5,
+            "labels": {
+              "left": "Strongly disagree",
+              "right": "Strongly agree"
+            },
+            "start": 1
+          },
+          "ref": "teamwork",
+          "required": true,
+          "title": "My team works well together.",
+          "type": "opinion_scale"
+        },
+        {
+          "id": "b_manager",
+          "properties": {
+            "end": 5,
+            "labels": {
+              "left": "Strongly disagree",
+              "right": "Strongly agree"
+            },
+            "start": 1
+          },
+          "ref": "manager",
+          "required": true,
+          "title": "My manager supports me.",
+          "type": "opinion_scale"
+        },
+        {
+          "id": "b_page_open",
+          "ref": "page_open",
+          "title": "Anything else",
+          "type": "page_break"
+        },
+        {
+          "id": "b_improve",
+          "properties": {},
+          "ref": "improve",
+          "required": false,
+          "title": "What one thing would make your work better?",
+          "type": "long_text"
+        }
+      ],
+      "endingRules": [],
+      "endings": [
+        {
+          "id": "e_thanks",
+          "ref": "thank_you",
+          "showAnswers": false,
+          "showScore": false,
+          "title": "Thanks for sharing!"
+        }
+      ],
+      "hidden": [],
+      "logic": [],
+      "presentation": {
+        "allowBack": true,
+        "language": "en",
+        "layout": "classic",
+        "progressBar": "proportion",
+        "showQuestionNumbers": true
+      },
+      "schemaVersion": 1,
+      "variables": [],
+      "welcome": null
+    },
+    "description": {
+      "en": "A short recurring survey on workload, recognition, growth and teamwork.",
+      "nl": "Een korte terugkerende peiling over werkdruk, waardering, groei en samenwerking."
+    },
+    "id": "employee-pulse",
+    "name": {
+      "en": "Employee pulse survey",
+      "nl": "Medewerkerspeiling"
+    }
+  }
+]
