@@ -48,10 +48,21 @@
 //! ([`PanelState::replays`]). An erasure waits for the table rewrite in the
 //! master `panel_erasure_ledger` ([`MasterErasureLedger`]).
 //!
+//! Root cause and metric tree values ([`insights_router`],
+//! [`metric_tree_values_router`]) run on the same engine; AI summaries of
+//! recordings and root-cause narratives on the install's AI
+//! ([`PanelState::ai`], Mistral on EU), metered on the credit wallet. Usage
+//! ([`usage_router`]) settles the month's overage where the install bills
+//! plans ([`PanelState::bill_overage`], [`usage_settlement`]). The internal
+//! read API ([`internal_v1_router`]) hands the platform's read handlers to
+//! in-process callers.
+//!
 //! Paths, bodies, status codes, messages and side effects are the
 //! TypeScript workers'; their tests run against this crate in the `panel`
 //! conformance suites (`rust/conformance/suites.json`).
 
+mod ai_summaries;
+mod analysis_routes;
 mod annotations;
 mod cohorts;
 pub mod collector;
@@ -61,15 +72,19 @@ mod definitions;
 mod domain;
 pub mod engine;
 pub mod erasure;
+mod explain;
 mod group_types;
 mod groups;
 mod heatmaps;
 mod hooks;
+mod internal_v1;
 mod js;
 mod keys;
 mod lexicon;
 mod live;
+mod metric_tree_values;
 mod metric_trees;
+mod panel_ai;
 mod path_rules;
 mod people;
 pub mod project_state;
@@ -83,9 +98,12 @@ mod reports;
 mod saved;
 mod saved_routes;
 mod schemas_gen;
+mod session_timeline;
 mod sessions;
 mod share_links;
 mod templates;
+mod usage;
+pub mod usage_settlement;
 mod visitor_routes;
 
 use std::sync::Arc;
@@ -112,16 +130,18 @@ use weldsuite_kit::{ApiError, RequestEnv};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_ports::{DynCache, DynRealtimePublisher, OutboundHttp, RequestCache};
 
+pub use analysis_routes::{insights_router, metric_tree_values_router, usage_router};
 pub use collector::{
     Bundles, BusSink, CacheRateLimiter, CacheSalt, CacheUsage, CollectorState, EventSink, Limit,
     PanelBucketReplays, RateLimiter, RequestCollector, SaltSource, ScriptBundle, UsageCounter,
 };
 pub use engine::{AnalyticsSql, BasinSql};
 pub use erasure::{EraseMessage, ErasureQueue, MasterErasureLedger, RequestErasureQueue};
+pub use internal_v1::internal_v1_router;
 pub use project_state::{PanelProjectState, ProjectRef, RequestProjectState};
 pub use public_share::{
-    CacheShareRateLimit, OpenedWorkspace, RequestShareRateLimit, RequestWorkspaceTenants,
-    ShareRateLimit, WorkspaceTenants,
+    CacheShareRateLimit, FoundWorkspace, OpenedWorkspace, RequestShareRateLimit,
+    RequestWorkspaceTenants, ShareRateLimit, WorkspaceTenants,
 };
 pub use saved_routes::{
     annotations_router, cohorts_router, comments_router, computed_properties_router,
@@ -166,6 +186,14 @@ pub struct PanelState {
     /// Proxies in front of the server (`TRUSTED_PROXIES`): which
     /// `X-Forwarded-For` entry is the visitor of a public link.
     pub trusted_proxies: usize,
+    /// The install's AI (`weldsuite_ai`, Mistral on EU): AI summaries and
+    /// root-cause narratives. `None` (or off) answers as panel-api without
+    /// its gateway. A request's own (conformance) wins.
+    pub ai: Option<weldsuite_ai::Ai>,
+    /// The install bills plans (`billing`): overage is charged to the
+    /// credit wallet and an unpaid block blocks the collector. Without it
+    /// nothing is charged and the quota stays `ok`.
+    pub bill_overage: bool,
 }
 
 impl std::fmt::Debug for PanelState {
@@ -181,6 +209,8 @@ impl std::fmt::Debug for PanelState {
             .field("realtime", &self.realtime.is_some())
             .field("tenants", &self.tenants.is_some())
             .field("trusted_proxies", &self.trusted_proxies)
+            .field("ai", &self.ai.is_some())
+            .field("bill_overage", &self.bill_overage)
             .finish()
     }
 }
@@ -282,6 +312,9 @@ pub(crate) struct Caller {
     outbound: Option<OutboundHttp>,
     /// The request's project state (conformance: the test's `PANEL_PROJECT`).
     project_state: Option<RequestProjectState>,
+    /// The request's AI (conformance: on with the test's mock model, off
+    /// without it).
+    ai: Option<weldsuite_ai::Ai>,
 }
 
 impl Caller {
@@ -297,6 +330,16 @@ impl Caller {
             return Some(Arc::new(BasinSql::new(http, token, account_id, bucket)));
         }
         state.sql.clone()
+    }
+
+    /// The AI a call runs on: the request's (conformance), then the
+    /// state's; `None` when it is off.
+    pub(crate) fn ai(&self, state: &PanelState) -> Option<weldsuite_ai::Ai> {
+        self.ai
+            .as_ref()
+            .or(state.ai.as_ref())
+            .filter(|ai| ai.enabled())
+            .cloned()
     }
 
     /// `c.env.PANEL_PROJECT`: the test's (conformance), else the state's.
@@ -422,6 +465,7 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
                 headers: parts.headers.clone(),
                 outbound: extensions.get::<OutboundHttp>().cloned(),
                 project_state: extensions.get::<RequestProjectState>().cloned(),
+                ai: extensions.get::<weldsuite_ai::Ai>().cloned(),
             })
         } else {
             tracing::error!("panel: a route without the session or tenant layer");

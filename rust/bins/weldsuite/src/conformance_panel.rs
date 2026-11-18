@@ -644,4 +644,46 @@ impl weldsuite_panel::WorkspaceTenants for TestWorkspaces {
             Ok(opened(body["suspended"].as_bool() == Some(true)))
         })
     }
+
+    /// What the test's `getWorkspaceContextForOrg` finds: its ids, and the
+    /// context's tenant database (the one such a lookup hands out).
+    fn find<'a>(
+        &'a self,
+        reference: &'a str,
+    ) -> BoxFuture<'a, Result<Option<weldsuite_panel::FoundWorkspace>, PortError>> {
+        Box::pin(async move {
+            let found = |id: String, clerk_org_id: Option<String>, suspended: bool| {
+                Some(weldsuite_panel::FoundWorkspace {
+                    id,
+                    clerk_org_id,
+                    db: self.db.clone(),
+                    suspended,
+                })
+            };
+            let Some(bridge) = &self.bridge else {
+                return Ok((reference == self.workspace_id)
+                    .then(|| found(reference.to_owned(), None, false))
+                    .flatten());
+            };
+            let response = self
+                .client
+                .post(format!("{bridge}/workspace"))
+                .header("content-type", "application/json")
+                .body(json!({ "reference": reference }).to_string())
+                .send()
+                .await
+                .map_err(PortError::backend)?;
+            if response.status() == reqwest::StatusCode::NOT_FOUND {
+                return Ok(None);
+            }
+            let text = response.text().await.map_err(PortError::backend)?;
+            let body: Value = serde_json::from_str(&text).map_err(PortError::Json)?;
+            let text_of = |key: &str| body[key].as_str().map(str::to_owned);
+            Ok(found(
+                text_of("id").unwrap_or_else(|| reference.to_owned()),
+                text_of("clerkOrgId"),
+                body["suspended"].as_bool() == Some(true),
+            ))
+        })
+    }
 }

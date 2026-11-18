@@ -616,7 +616,10 @@ rust/
                         (reports and their versions, dashboards and templates, cohorts, custom
                         events, computed properties, path rules, group types, annotations,
                         comments, metric trees, share links and their public `/public/panel/share`
-                        routes, one file per group), and the public
+                        routes, one file per group), root cause, metric tree values, usage (with
+                        the overage settlement, `usage_settlement.rs`), AI summaries of
+                        recordings on the install's AI (`panel_ai.rs`), the internal read API
+                        (`internal_v1.rs`, mounted in conformance builds), and the public
                         collector in `collector/`: the wire format, rows, URLs, user agents,
                         IP filters, the cookieless visitor id, the scripts, recordings and
                         snapshots, the server API, the rate limits),

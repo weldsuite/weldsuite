@@ -3625,7 +3625,17 @@
         "src/routes/people.test.ts",
         "src/routes/groups.test.ts",
         "src/routes/sessions.test.ts",
-        "src/routes/heatmaps.test.ts"
+        "src/routes/heatmaps.test.ts",
+        "src/routes/summaries.test.ts"
+      ],
+      "coverage": [
+        "/api/panel/people",
+        "/api/panel/groups",
+        "/api/panel/group-types",
+        "/api/panel/sessions",
+        "/api/panel/heatmaps",
+        "/api/panel/live",
+        "/api/panel/insights/summarise"
       ],
       "paths": [
         "apps/workers/panel-api/src/",
@@ -3633,24 +3643,84 @@
         "packages/clients/app-api-client/src/schemas/weldpanel-query.ts",
         "packages/clients/app-api-client/src/schemas/weldpanel-objects.ts",
         "packages/clients/app-api-client/src/schemas/weldpanel-groups.ts",
+        "packages/core/ai/src/testing/",
         "packages/core/worker-kit/src/basin.ts",
         "packages/core/worker-kit/src/testing/conformance-schemas-panel-visitors.ts",
+        "packages/core/worker-kit/src/testing/conformance-schemas-panel-analysis.ts",
         "packages/core/worker-kit/src/testing/pipeline-bridge.ts",
         "packages/core/worker-kit/src/testing/bucket-bridge.ts",
         "packages/core/worker-kit/src/testing/conformance-binary.ts",
         "rust/modules/panel/",
+        "rust/crates/ai/",
         "rust/crates/panel-domain/",
         "rust/crates/zod/"
+      ]
+    },
+    {
+      "name": "panel: analysis",
+      "module": "panel",
+      "workspace": "apps/workers/panel-api",
+      "tests": [
+        "src/routes/analysis.test.ts"
       ],
-      "excludedRoutes": [
-        {
-          "route": "GET /api/panel/sessions/:id/summary",
-          "reason": "Served by Rust (the cached summary), but its test is src/routes/summaries.test.ts, which also generates summaries with AI (the POST below); it joins a suite when WeldPanel's AI summaries are ported."
-        },
-        {
-          "route": "POST /api/panel/sessions/:id/summary",
-          "reason": "An AI summary (services/ai-summaries.ts): not ported yet; its test is src/routes/summaries.test.ts, which joins a suite when WeldPanel's AI summaries are ported."
-        }
+      "coverage": [
+        "/api/panel/insights/explain",
+        "/api/panel/metric-tree-values"
+      ],
+      "paths": [
+        "apps/workers/panel-api/src/",
+        "packages/domains/panel/src/",
+        "packages/clients/app-api-client/src/schemas/weldpanel-query.ts",
+        "packages/clients/app-api-client/src/schemas/weldpanel-collab.ts",
+        "packages/clients/app-api-client/src/schemas/weldpanel-analysis.ts",
+        "packages/core/ai/src/testing/",
+        "packages/core/worker-kit/src/basin.ts",
+        "packages/core/worker-kit/src/testing/conformance-schemas-panel-analysis.ts",
+        "rust/modules/panel/",
+        "rust/crates/ai/",
+        "rust/crates/panel-domain/",
+        "rust/crates/zod/"
+      ]
+    },
+    {
+      "name": "panel: usage",
+      "module": "panel",
+      "workspace": "apps/workers/panel-api",
+      "tests": [
+        "src/routes/usage/usage.test.ts"
+      ],
+      "paths": [
+        "apps/workers/panel-api/src/routes/usage/",
+        "apps/workers/panel-api/src/services/",
+        "packages/domains/panel/src/",
+        "packages/clients/app-api-client/src/schemas/weldpanel-objects.ts",
+        "packages/core/credits/src/",
+        "packages/core/worker-kit/src/basin.ts",
+        "packages/core/worker-kit/src/testing/conformance-schemas-panel-analysis.ts",
+        "rust/modules/panel/",
+        "rust/crates/core-domain/src/credits.rs",
+        "rust/crates/panel-domain/"
+      ]
+    },
+    {
+      "name": "panel: internal",
+      "module": "panel",
+      "workspace": "apps/workers/panel-api",
+      "tests": [
+        "src/routes/internal-v1.test.ts",
+        "src/index.test.ts"
+      ],
+      "coverage": [
+        "/internal/panel/v1/:workspaceId/reports/:id/results"
+      ],
+      "paths": [
+        "apps/workers/panel-api/src/",
+        "packages/domains/panel/src/",
+        "packages/core/worker-kit/src/testing/workspace-bridge.ts",
+        "packages/core/worker-kit/src/testing/conformance-schemas-panel-analysis.ts",
+        "rust/modules/panel/",
+        "rust/bins/weldsuite/src/conformance_panel.rs",
+        "rust/crates/panel-domain/"
       ]
     },
     {

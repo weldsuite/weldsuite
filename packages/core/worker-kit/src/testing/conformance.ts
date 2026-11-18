@@ -408,6 +408,11 @@ const WRITING_READS: RegExp[] = [
   /^\/api\/welddata\/filters(\?|$)/,
   // WeldData: a list's cells, its stuck running ones timed out first.
   /^\/api\/welddata\/lists\/[^/?]+\/cells(\?|$)/,
+  // WeldPanel: usage settles the month again while the collector is blocked
+  // (the master row, the wallet, the quota state in KV).
+  /^\/api\/panel\/usage(\?|$)/,
+  // WeldPanel's read API: a saved report's run, cached in KV on a miss.
+  /^\/internal\/panel\/v1\/[^/?]+\/reports\/[^/?]+\/results(\?|$)/,
   // WeldBooks: the workspace's accounting settings row, created on first read.
   /^\/api\/accounting-settings(\?|$)/,
   // WeldBooks payment runs: the NACHA file marks its run exported, and it, the

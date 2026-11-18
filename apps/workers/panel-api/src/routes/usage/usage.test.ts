@@ -6,23 +6,28 @@
  * numbers come from the master row and the plan (an unknown plan is Free); the
  * per-project split comes from Basin and is zeros without it; and reading while
  * the collector is blocked settles again, so a top-up lifts the block.
+ *
+ * The master database is shared with the Rust backend in conformance mode
+ * (`context.masterDb`, `conformanceMasterDb`): a read that settles writes it,
+ * and the test then reads Rust's writes. Basin statements are per run (`RUNS`).
  */
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { grantCredits } from '@weldsuite/credits';
-import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { conformanceMasterDb, createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { masterSchema, schema, type AnyMasterDatabase, type Database } from '@weldsuite/worker-kit/db';
 import { quotaKvKey } from '@weldsuite/panel-domain/registry';
 import { DEFAULT_PANEL_SETTINGS } from '@weldsuite/panel-domain/settings';
 import type { PanelUsageDto } from '@weldsuite/app-api-client/schemas/weldpanel-objects';
+import { RUNS } from '../../test-support/fakes';
 
 const state = vi.hoisted(() => ({ master: null as unknown }));
 
 vi.mock('@weldsuite/worker-kit/db', async (orig) => {
   const actual = await orig<typeof import('@weldsuite/worker-kit/db')>();
-  return { ...actual, getMasterDb: () => state.master };
+  return { ...actual, getMasterDb: () => conformanceMasterDb(state.master) };
 });
 
 import usageRoutes from './index';
@@ -90,7 +95,7 @@ const BASIN = { R2_SQL_API_TOKEN: 't', CF_ACCOUNT_ID: 'acc', PANEL_BASIN_BUCKET:
 
 function app(workspaceId: string, grants: string[] = ['panel_projects:manage'], env: Record<string, unknown> = {}) {
   return createTestApp(BASE, usageRoutes, {
-    context: { permissions: permissions(...grants), tenantDb: db, userId: 'user_alice', orgId: 'org_x', workspaceId, clerkOrgId: 'org_x' },
+    context: { permissions: permissions(...grants), tenantDb: db, masterDb: master as unknown as Database, userId: 'user_alice', orgId: 'org_x', workspaceId, clerkOrgId: 'org_x' },
     env: { WORKSPACE_CACHE: kv, ...env },
     moduleApiErrors: true,
   });
@@ -180,7 +185,7 @@ describe('the usage DTO', () => {
       { projectId: 'pnp_u_d', name: 'Shop', events: 900, recordings: 0 },
       { projectId: 'pnp_u_c', name: 'Docs site', events: 40, recordings: 2 },
     ]);
-    expect(queries).toHaveLength(2);
+    expect(queries).toHaveLength(2 * RUNS);
     for (const sql of queries) {
       expect(sql).toContain(`workspace_id = '${ws}'`);
       expect(sql).toContain("TIMESTAMP '2026-11-01 00:00:00'");

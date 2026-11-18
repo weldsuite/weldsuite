@@ -37,6 +37,7 @@ const MODULES = [
   '@weldsuite/app-api-client/schemas/weldpanel-collab',
   '@weldsuite/app-api-client/schemas/weldpanel-objects',
   '@weldsuite/app-api-client/schemas/weldpanel-groups',
+  '@weldsuite/app-api-client/schemas/weldpanel-analysis',
 ];
 
 /** The schemas to generate, by export name. */
@@ -82,6 +83,12 @@ const ROOTS = [
   'createPanelGroupTypeSchema',
   'updatePanelGroupTypeSchema',
   'panelGroupTypeListQuerySchema',
+  // Analysis (root cause, metric tree values) and AI summaries.
+  'explainPanelChangeSchema',
+  'panelMetricTreeValuesSchema',
+  'panelSavedMetricTreeValuesSchema',
+  'generatePanelSessionSummarySchema',
+  'summarisePanelSetSchema',
 ];
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
