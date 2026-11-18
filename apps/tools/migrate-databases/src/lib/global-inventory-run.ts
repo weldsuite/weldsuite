@@ -134,11 +134,12 @@ export async function runGlobalInventory(options: InventoryRunOptions): Promise<
       options.only ? [options.only] : [],
     )) as unknown as ConnectionRow[];
 
-    const workspaces: WorkspaceReport[] = [];
-    for (const [i, row] of rows.entries()) {
+    // One tenant database at a time, on purpose: each opens its own connection.
+    const workspaces = await rows.reduce<Promise<WorkspaceReport[]>>(async (done, row, i) => {
+      const reports = await done;
       log(`[${i + 1}/${rows.length}] ${row.id}`);
-      workspaces.push(await inventoryWorkspace(row, ctx));
-    }
+      return [...reports, await inventoryWorkspace(row, ctx)];
+    }, Promise.resolve([]));
 
     const clerkKey = options.skipClerk ? undefined : env.CLERK_SECRET_KEY;
     if (clerkKey) log('Reading Clerk…');

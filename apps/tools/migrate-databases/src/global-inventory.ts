@@ -25,14 +25,16 @@ const arg = (name: string): string | undefined => {
   return i >= 0 ? process.argv[i + 1] : undefined;
 };
 
-runGlobalInventory({
-  env: process.env,
-  outDir: path.resolve(arg('--out') ?? 'inventory-out'),
-  only: arg('--only'),
-  skipClerk: process.argv.includes('--skip-clerk'),
-  skipMailStore: process.argv.includes('--skip-mail-store'),
-  log: (line) => console.log(line),
-}).catch((err: unknown) => {
+try {
+  await runGlobalInventory({
+    env: process.env,
+    outDir: path.resolve(arg('--out') ?? 'inventory-out'),
+    only: arg('--only'),
+    skipClerk: process.argv.includes('--skip-clerk'),
+    skipMailStore: process.argv.includes('--skip-mail-store'),
+    log: (line) => console.log(line),
+  });
+} catch (err) {
   console.error(sanitizeError(err));
   process.exit(1);
-});
+}

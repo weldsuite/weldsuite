@@ -22,7 +22,8 @@ function num(value: unknown): number {
 }
 
 function str(value: unknown): string | null {
-  return value === null || value === undefined ? null : String(value);
+  if (value === null || value === undefined) return null;
+  return typeof value === 'object' ? JSON.stringify(value) : String(value);
 }
 
 /** An error message with any connection string removed. */
@@ -331,14 +332,20 @@ export async function tenantInventory(query: Query): Promise<TenantInventory> {
     },
   );
 
-  const integrations: IntegrationRow[] = [];
-  for (const source of INTEGRATION_SOURCES) {
-    const rows = await probe(errors, source.table, [] as Record<string, unknown>[], () =>
-      query(
-        `select ${source.provider} as provider, ${source.status} as status, count(*) as n
-           from ${source.table} where ${source.where} group by 1, 2`,
+  // One connection queues these anyway; Promise.all just keeps the loop free of awaits.
+  const perSource = await Promise.all(
+    INTEGRATION_SOURCES.map(async (source) => ({
+      source,
+      rows: await probe(errors, source.table, [] as Record<string, unknown>[], () =>
+        query(
+          `select ${source.provider} as provider, ${source.status} as status, count(*) as n
+             from ${source.table} where ${source.where} group by 1, 2`,
+        ),
       ),
-    );
+    })),
+  );
+  const integrations: IntegrationRow[] = [];
+  for (const { source, rows } of perSource) {
     for (const r of rows) {
       integrations.push({
         source: source.table,
@@ -508,7 +515,7 @@ export function mailStoreAdminFromEnv(env: NodeJS.ProcessEnv): MailStoreAdmin | 
   const adminEmail = env.MAIL_STORE_ADMIN_EMAIL?.trim();
   if (!baseUrl || !secret || !adminEmail) return null;
   let end = baseUrl.length;
-  while (end > 0 && baseUrl.charCodeAt(end - 1) === 47 /* '/' */) end -= 1;
+  while (end > 0 && baseUrl.codePointAt(end - 1) === 47 /* '/' */) end -= 1;
   return { baseUrl: baseUrl.slice(0, end), secret, adminEmail };
 }
 
