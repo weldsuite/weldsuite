@@ -501,8 +501,9 @@ describe('payroll emails', () => {
     expect(h.mails.map((m) => m.to).sort()).toEqual(people.map((p) => p.email).sort());
     const text = mimeText(h.mails[0]!.raw);
     expect(text).toContain('loonstrook');
-    expect(text).not.toContain('2400');
-    expect(text).not.toContain('3000');
+    // Whole amounts only (2400, 2.400, 2,400): the raw message's random Message-ID and boundary are hex and can hold the digits.
+    expect(text).not.toMatch(/\b2[.,]?400\b/);
+    expect(text).not.toMatch(/\b3[.,]?000\b/);
   });
 });
 
