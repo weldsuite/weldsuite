@@ -68,6 +68,9 @@ const ROUTE_REQUIREMENTS: ReadonlyArray<readonly [prefix: string, requirement: E
   ['/settings/weldcrm', { modules: ['crm'] }],
   // WeldCommerce's settings page is its customer portal's.
   ['/settings/apps/weldcommerce', { modules: ['commerce'], feature: 'commerce-portal' }],
+  // WeldPanel's settings (usage, exports, API) need the analytics backend,
+  // which the Kubernetes editions lack: they serve only the Projects pages.
+  ['/settings/apps/weldpanel', { modules: ['panel'], feature: 'panel-analytics' }],
 ];
 
 function matchesPrefix(pathname: string, prefix: string): boolean {

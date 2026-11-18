@@ -31,7 +31,7 @@ function WeldbooksSettingsTabs() {
   const activeTab: WeldbooksSettingsTab = requested === 'dimensions' || usTabs ? requested : 'dimensions';
 
   function setTab(tab: string) {
-    navigate({ to: '/settings/apps/weldbooks', search: tab === 'dimensions' ? {} : { tab } });
+    void navigate({ to: '/settings/apps/weldbooks', search: tab === 'dimensions' ? {} : { tab } });
   }
 
   const tabs: PageTab[] = [

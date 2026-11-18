@@ -94,6 +94,7 @@ import { isHrefOffered, isRouteOffered } from '@/lib/edition-routes';
 import { withCreateIntent } from '@/hooks/use-create-intent';
 import { menuPermissionAllows, type MenuPermission } from './menu-permission';
 import { MODULE_CONFIGS } from './module-sidebar-configs';
+import { resolveAppCode } from '@/lib/apps/app-registry';
 
 export type PaletteIcon = ComponentType<{ className?: string }>;
 export type PaletteGroup = 'actions' | 'navigation' | 'settings';
@@ -756,11 +757,13 @@ export function settingsCommands(
     { code: 'weldhr', title: search.weldhrSettings, keywords: `${search.weldhrSettings} ${search.configureWeldhr} weldhr payroll pay schedules`, href: '/settings/apps/weldhr' },
     { code: 'social', title: 'WeldSocial', keywords: 'weldsocial social publishing timezone approval team settings', href: '/settings/apps/social' },
   ];
-  // Canonical codes, as in the Settings side nav: a workspace still installed
-  // under a legacy code (`accounting`, `commerce`) gets its app's entry too.
-  const installedApps = new Set([...installed].map((code) => normalizeAppCode(code) ?? code));
+  // The same matching as the Settings side nav (`resolveAppCode`): a workspace
+  // still installed under a legacy code (`accounting`, `commerce`) gets its
+  // app's entry, and `social` and `parcel` stay themselves (`normalizeAppCode`
+  // would fold `parcel` into WeldStash).
+  const installedApps = new Set([...installed].map(resolveAppCode));
   for (const app of appSettings) {
-    if (!installedApps.has(app.code)) continue;
+    if (!installedApps.has(resolveAppCode(app.code))) continue;
     links.push({
       id: `settings-app:${app.code}`,
       title: app.title,

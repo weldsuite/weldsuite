@@ -97,6 +97,13 @@ describe('WeldPanel settings: data export and API access', () => {
     expect(screen.getByText('Last error: AccessDenied')).toBeTruthy();
   });
 
+  it('says which project the exports belong to, since Settings has no WeldPanel header', () => {
+    render(<WeldPanelSettingsPage />);
+    const picker = screen.getByTestId('weldpanel-settings-project');
+    expect(within(picker).getByText(en.weldpanel.analytics.projectBar.label)).toBeTruthy();
+    expect(within(picker).getByRole('combobox').textContent).toContain('Marketing site');
+  });
+
   it('tests the connection of a saved export with its stored key', async () => {
     state.test.mockResolvedValue({ ok: true, wrote: true, deleted: true, error: null });
     render(<WeldPanelSettingsPage />);

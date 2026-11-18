@@ -15,6 +15,7 @@ import { useRouter } from '@/lib/router';
 import { ExportsView } from '@/app/weldpanel/exports/exports-view';
 import { ApiAccessView } from '@/app/weldpanel/settings/api-access-view';
 import { UsageView } from '@/app/weldpanel/settings/usage-view';
+import { ProjectPicker } from './project-picker';
 import { SETTINGS_TABS, type SettingsTab } from './search';
 
 export default function WeldPanelSettingsPage() {
@@ -41,7 +42,8 @@ export default function WeldPanelSettingsPage() {
           <TabsContent value="usage">
             <UsageView />
           </TabsContent>
-          <TabsContent value="exports">
+          <TabsContent value="exports" className="space-y-4">
+            <ProjectPicker />
             <ExportsView />
           </TabsContent>
           <TabsContent value="api">

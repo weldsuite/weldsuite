@@ -54,6 +54,15 @@ describe('route availability', () => {
     expect(isRouteOffered('/settings/apps/phone-numbers')).toBe(true);
   });
 
+  it('hides the WeldCommerce and WeldPanel settings without the backend behind them', () => {
+    expect(routeRequirement('/settings/apps/weldcommerce')).toEqual({ modules: ['commerce'], feature: 'commerce-portal' });
+    expect(routeRequirement('/settings/apps/weldpanel?tab=exports')).toEqual({ modules: ['panel'], feature: 'panel-analytics' });
+    setRuntimeConfig({ backend: 'rust', modules: ['commerce', 'panel'], unavailableFeatures: ['commerce-portal', 'panel-analytics'] });
+    expect(isRouteOffered('/settings/apps/weldcommerce')).toBe(false);
+    expect(isRouteOffered('/settings/apps/weldpanel')).toBe(false);
+    expect(isRouteOffered('/weldpanel/projects')).toBe(true);
+  });
+
   it('needs only core for platform pages', () => {
     for (const path of ['/', '/settings', '/settings/team', '/appstore', '/apps/my-app', '/objects/machines', '/documents/f_1', '/settings/apps/weldsuite']) {
       expect(routeRequirement(path), path).toBeNull();

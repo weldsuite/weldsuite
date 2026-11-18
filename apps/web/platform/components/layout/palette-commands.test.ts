@@ -134,6 +134,13 @@ describe('visibleCommands', () => {
     expect(hrefs).toContain('/settings/apps/weldcommerce');
   });
 
+  it('matches app codes the way the Settings side nav does', () => {
+    expect(settingsCommands(en, new Set(['social'])).map((command) => command.href)).toContain('/settings/apps/social');
+    expect(settingsCommands(en, new Set(['parcel'])).map((command) => command.href)).toContain('/settings/apps/parcel');
+    // WeldStash is not Parcel, whatever the permission aliases say.
+    expect(settingsCommands(en, new Set(['weldstash'])).map((command) => command.href)).not.toContain('/settings/apps/parcel');
+  });
+
   it('requires every word in the query to match', () => {
     const commands = settingsCommands(en, new Set());
     expect(visibleCommands(commands, 'team members').some((command) => command.href === '/settings/team')).toBe(true);

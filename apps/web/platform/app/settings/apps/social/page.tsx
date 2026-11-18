@@ -33,7 +33,9 @@ export default function WeldSocialSettingsPage() {
       <PageTabs
         tabs={tabs}
         activeTab={activeTab}
-        onTabChange={(tab) => navigate({ to: '/settings/apps/social', search: tab === 'general' ? {} : { tab } })}
+        onTabChange={(tab) => {
+          void navigate({ to: '/settings/apps/social', search: tab === 'general' ? {} : { tab } });
+        }}
       />
       <div className="mt-6">
         {activeTab === 'general' && <SocialGeneralSettings />}

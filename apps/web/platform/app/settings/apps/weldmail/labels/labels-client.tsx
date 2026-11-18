@@ -498,7 +498,7 @@ export function LabelsClient({ initialLabels, accountId }: Readonly<LabelsClient
                           title={t.mail.settingsLabels[color.key]}
                         >
                           {newLabelColor === color.value && (
-                            <svg className="w-3.5 h-3.5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                            <svg aria-hidden="true" className="w-3.5 h-3.5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                               <polyline points="20 6 9 17 4 12" />
                             </svg>
                           )}

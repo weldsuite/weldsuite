@@ -201,7 +201,9 @@ export default function PaymentSettingsPage() {
           <Label htmlFor="settings-account" className="text-xs text-muted-foreground">{ts.switchAccount}</Label>
           <Select
             value={bankAccountId}
-            onValueChange={(value) => navigate({ to: '/settings/apps/weldbooks/payment-runs/$bankAccountId', params: { bankAccountId: value } })}
+            onValueChange={(value) => {
+              void navigate({ to: '/settings/apps/weldbooks/payment-runs/$bankAccountId', params: { bankAccountId: value } });
+            }}
           >
             <SelectTrigger id="settings-account">
               <SelectValue />

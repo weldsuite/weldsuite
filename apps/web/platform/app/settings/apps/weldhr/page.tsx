@@ -37,7 +37,7 @@ export default function WeldHrSettingsPage() {
   const defaultTab = allowed[0];
 
   function setTab(tab: string) {
-    navigate({
+    void navigate({
       to: '/settings/apps/weldhr',
       search: tab === defaultTab ? {} : { tab },
     });
