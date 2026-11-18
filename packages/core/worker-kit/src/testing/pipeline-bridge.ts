@@ -1,8 +1,8 @@
 /**
- * Conformance mode's stream bindings: a test's Cloudflare Pipelines stream
- * (`PANEL_EVENTS`, a fake with `send(records)`) served over HTTP, so the
- * Rust server's event writes reach the same fake. The Rust side is
- * `rust/bins/weldsuite/src/conformance_panel.rs`.
+ * Conformance mode's stream bindings: a test's Cloudflare Pipelines streams
+ * (`PANEL_EVENTS`, `PANEL_REPLAY_CHUNKS`, fakes with `send(records)`) served
+ * over HTTP, so the Rust server's row writes reach the same fakes. The Rust
+ * side is `rust/bins/weldsuite/src/conformance_panel.rs`.
  *
  *   POST /send { binding, records }
  *     → binding.send(records)
@@ -18,7 +18,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { serveOnLoopback } from './bucket-bridge';
 
 /** The stream bindings the bridge serves. */
-export const PIPELINE_BINDINGS = ['PANEL_EVENTS'] as const;
+export const PIPELINE_BINDINGS = ['PANEL_EVENTS', 'PANEL_REPLAY_CHUNKS'] as const;
 
 interface PipelineLike {
   send(records: unknown[]): Promise<unknown>;

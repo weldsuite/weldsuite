@@ -32,6 +32,157 @@ pub(crate) fn parse_quota_state(raw: Option<&str>) -> &'static str {
     }
 }
 
+/// `panel:key:<sha256 hex of the secret key>` → the key record (JSON),
+/// written by panel-api when a secret key (`wps_…`) is created, deleted when
+/// it is revoked; the master `panel_key_registry` row is the source of
+/// truth.
+pub(crate) fn key_key(key_hash: &str) -> String {
+    format!("panel:key:{key_hash}")
+}
+
+/// `panel:snapshot-request:<projectId>` → the heatmap snapshot the project
+/// waits for (JSON), written by panel-api.
+pub(crate) fn snapshot_request_key(project_id: &str) -> String {
+    format!("panel:snapshot-request:{project_id}")
+}
+
+/// `v === 1`, as JavaScript compares a parsed number.
+fn is_version_one(value: Option<&Value>) -> bool {
+    value.and_then(Value::as_f64) == Some(1.0)
+}
+
+/// A parsed key record (`parseKeyRecord`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct KeyRecord {
+    pub(crate) key_id: String,
+    pub(crate) workspace_id: String,
+    pub(crate) project_id: String,
+    /// `active` or `paused`; missing means active.
+    pub(crate) status: Option<String>,
+}
+
+impl KeyRecord {
+    /// `parseKeyRecord(raw)`: null for a missing, malformed or
+    /// unknown-version record.
+    pub(crate) fn parse(raw: Option<&str>) -> Option<Self> {
+        let raw = raw.filter(|raw| !raw.is_empty())?;
+        let value: Value = serde_json::from_str(raw).ok()?;
+        let object = value.as_object()?;
+        if !is_version_one(object.get("v")) {
+            return None;
+        }
+        let text = |key: &str| object.get(key).and_then(Value::as_str).map(str::to_owned);
+        Some(Self {
+            key_id: text("keyId")?,
+            workspace_id: text("workspaceId")?,
+            project_id: text("projectId")?,
+            status: text("status").filter(|status| status == "active" || status == "paused"),
+        })
+    }
+
+    /// The record as panel-api writes it.
+    pub(crate) fn to_value(&self) -> Value {
+        let mut record = json!({
+            "v": 1,
+            "keyId": self.key_id,
+            "workspaceId": self.workspace_id,
+            "projectId": self.project_id,
+        });
+        if let Some(status) = &self.status {
+            record["status"] = json!(status);
+        }
+        record
+    }
+}
+
+/// `DEVICE_CLASSES`: the viewport width classes heatmaps are grouped by.
+pub(crate) fn is_device_class(value: &str) -> bool {
+    matches!(value, "desktop" | "tablet" | "mobile")
+}
+
+/// `PAGE_GROUP_ID`: `/^[\w-]{1,64}$/`, as it ends up in an object key and
+/// a query string.
+pub(crate) fn is_page_group_id(value: &str) -> bool {
+    (1..=64).contains(&value.len())
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
+/// `parseSnapshotRequest(raw)`: `{ pageGroupId, urlPattern, deviceClass }`,
+/// or null for a missing or malformed request.
+pub(crate) fn parse_snapshot_request(raw: Option<&str>) -> Option<Value> {
+    let raw = raw.filter(|raw| !raw.is_empty())?;
+    let value: Value = serde_json::from_str(raw).ok()?;
+    let object = value.as_object()?;
+    let page_group_id = object
+        .get("pageGroupId")
+        .and_then(Value::as_str)
+        .filter(|id| is_page_group_id(id))?;
+    let url_pattern = object
+        .get("urlPattern")
+        .and_then(Value::as_str)
+        .filter(|pattern| !pattern.is_empty())?;
+    let device_class = object
+        .get("deviceClass")
+        .and_then(Value::as_str)
+        .filter(|class| is_device_class(class))?;
+    Some(json!({
+        "pageGroupId": page_group_id,
+        "urlPattern": url_pattern,
+        "deviceClass": device_class,
+    }))
+}
+
+/// `replayChunkKey(...)`:
+/// `<tier>/<workspace>/<project>/<yyyy-mm-dd>/<session>/<seq>.json.gz`,
+/// `day` the chunk's own UTC start day.
+pub(crate) fn replay_chunk_key(
+    tier: &str,
+    workspace_id: &str,
+    project_id: &str,
+    day: &str,
+    session_id: &str,
+    seq: u64,
+) -> String {
+    format!("{tier}/{workspace_id}/{project_id}/{day}/{session_id}/{seq}.json.gz")
+}
+
+/// `heatmapSnapshotKey(...)`: one masked full snapshot per page group and
+/// device class, overwritten when a newer one arrives.
+pub(crate) fn heatmap_snapshot_key(
+    workspace_id: &str,
+    project_id: &str,
+    page_group_id: &str,
+    device_class: &str,
+) -> String {
+    format!("snapshots/{workspace_id}/{project_id}/{page_group_id}/{device_class}.json.gz")
+}
+
+/// `String(value)` of a JSON value, as a template literal writes it.
+pub(crate) fn js_string(value: &Value) -> String {
+    match value {
+        Value::Null => "null".to_owned(),
+        Value::Bool(flag) => flag.to_string(),
+        Value::Number(number) => number
+            .as_f64()
+            .map_or_else(|| number.to_string(), crate::js::number_text),
+        Value::String(text) => text.clone(),
+        Value::Array(items) => items
+            .iter()
+            .map(|item| {
+                if item.is_null() {
+                    String::new()
+                } else {
+                    js_string(item)
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(","),
+        Value::Object(_) => "[object Object]".to_owned(),
+    }
+}
+
 /// `DEFAULT_PANEL_SETTINGS`, in its key order.
 pub(crate) fn default_settings() -> Vec<(&'static str, Value)> {
     vec![
@@ -101,16 +252,26 @@ pub(crate) struct ProjectRecord {
     pub(crate) status: String,
     pub(crate) allowed_domains: Vec<String>,
     pub(crate) settings: Value,
+    /// `replayTier`: the retention tier new recording chunks go to,
+    /// written by panel-api's billing; missing (or null) means `30d`.
+    pub(crate) replay_tier: Option<Value>,
 }
 
 impl ProjectRecord {
+    /// `project.replayTier ?? '30d'`, as the chunk key writes it.
+    pub(crate) fn replay_tier(&self) -> String {
+        self.replay_tier
+            .as_ref()
+            .map_or_else(|| "30d".to_owned(), js_string)
+    }
+
     /// `parseProjectRecord(raw)` then `withSettingDefaults`: null for a
     /// missing, malformed or unknown-version record.
     pub(crate) fn parse(raw: Option<&str>) -> Option<Self> {
         let raw = raw.filter(|raw| !raw.is_empty())?;
         let value: Value = serde_json::from_str(raw).ok()?;
         let object = value.as_object()?;
-        if object.get("v") != Some(&json!(1)) {
+        if !is_version_one(object.get("v")) {
             return None;
         }
         let project_id = object.get("projectId")?.as_str()?.to_owned();
@@ -125,6 +286,10 @@ impl ProjectRecord {
                 .to_owned(),
             allowed_domains: strings(object.get("allowedDomains")),
             settings: with_setting_defaults(object.get("settings")),
+            replay_tier: object
+                .get("replayTier")
+                .filter(|tier| !tier.is_null())
+                .cloned(),
         })
     }
 
@@ -223,6 +388,81 @@ mod tests {
         assert!(!is_allowed_origin(Some("null"), &domains));
         assert!(!is_allowed_origin(None, &domains));
         assert!(is_allowed_origin(None, &[]));
+    }
+
+    #[test]
+    fn key_records_read_as_panel_api_writes_them() {
+        let record = KeyRecord::parse(Some(
+            r#"{"v":1,"keyId":"pnk_1","workspaceId":"ws_1","projectId":"pnp_1","status":"paused"}"#,
+        ))
+        .expect("a record");
+        assert_eq!(record.status.as_deref(), Some("paused"));
+        assert_eq!(
+            KeyRecord::parse(Some(&record.to_value().to_string())),
+            Some(record)
+        );
+        let unknown_status = KeyRecord::parse(Some(
+            r#"{"v":1.0,"keyId":"pnk_1","workspaceId":"ws_1","projectId":"pnp_1","status":"gone"}"#,
+        ))
+        .expect("a record");
+        assert_eq!(unknown_status.status, None);
+        for bad in [
+            r#"{"v":2,"keyId":"pnk_1","workspaceId":"ws_1","projectId":"pnp_1"}"#,
+            r#"{"v":1,"workspaceId":"ws_1","projectId":"pnp_1"}"#,
+            "null",
+            "not json",
+            "",
+        ] {
+            assert_eq!(KeyRecord::parse(Some(bad)), None, "{bad}");
+        }
+        assert_eq!(key_key("abc"), "panel:key:abc");
+    }
+
+    #[test]
+    fn snapshot_requests_need_a_page_group_a_pattern_and_a_device_class() {
+        let request = json!({ "pageGroupId": "pnh_products", "urlPattern": "/products/*", "deviceClass": "tablet" });
+        assert_eq!(
+            parse_snapshot_request(Some(&request.to_string())),
+            Some(request)
+        );
+        for bad in [
+            json!({ "pageGroupId": "../x", "urlPattern": "/", "deviceClass": "desktop" }),
+            json!({ "pageGroupId": "pnh_1", "urlPattern": "", "deviceClass": "desktop" }),
+            json!({ "pageGroupId": "pnh_1", "urlPattern": "/", "deviceClass": "phone" }),
+            json!(null),
+        ] {
+            assert_eq!(
+                parse_snapshot_request(Some(&bad.to_string())),
+                None,
+                "{bad}"
+            );
+        }
+        assert_eq!(
+            snapshot_request_key("pnp_1"),
+            "panel:snapshot-request:pnp_1"
+        );
+    }
+
+    #[test]
+    fn object_keys_have_global_s_layout() {
+        assert_eq!(
+            replay_chunk_key("30d", "ws_1", "pnp_1", "2026-10-27", "s-1", 3),
+            "30d/ws_1/pnp_1/2026-10-27/s-1/3.json.gz"
+        );
+        assert_eq!(
+            heatmap_snapshot_key("ws_1", "pnp_1", "pnh_products", "mobile"),
+            "snapshots/ws_1/pnp_1/pnh_products/mobile.json.gz"
+        );
+        let tier = |extra: &str| {
+            ProjectRecord::parse(Some(&format!(
+                r#"{{"v":1,"projectId":"p","workspaceId":"w"{extra}}}"#
+            )))
+            .expect("a record")
+            .replay_tier()
+        };
+        assert_eq!(tier(""), "30d");
+        assert_eq!(tier(r#","replayTier":null"#), "30d");
+        assert_eq!(tier(r#","replayTier":"90d""#), "90d");
     }
 
     #[test]

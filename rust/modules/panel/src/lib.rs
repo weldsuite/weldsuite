@@ -1,7 +1,8 @@
 //! WeldPanel (product analytics): panel-api's project routes
 //! (`apps/workers/panel-api`, `/api/panel/projects`) and the public collector
-//! panel-ingest serves on Global (`apps/workers/panel-ingest`: `/s.js`,
-//! `/c/:token`, `POST /e`), with `@weldsuite/panel-domain`'s rules.
+//! panel-ingest serves on Global (`apps/workers/panel-ingest`: the SDK and
+//! its plugins, `/c/:token`, `POST /e`, `/r`, `/snap`, `/v1/track` and
+//! `/v1/import`), with `@weldsuite/panel-domain`'s rules.
 //!
 //! The tenant `panel_projects` row is the source of truth. Every change
 //! also writes the master `panel_project_registry` row and the cache record
@@ -13,13 +14,23 @@
 //! - the events stream (a Pipelines binding feeding the Basin table
 //!   `panel.events_v1`): one message per row on a `JetStream` stream, subject
 //!   `panel.events.v1.<workspace>`, through [`EventSink`];
+//! - the recording chunk index (the stream behind `panel.replay_chunks_v1`):
+//!   subject `panel.replays.v1.<workspace>` of the `PANEL_STATE` stream,
+//!   also an [`EventSink`];
+//! - the private EU replays bucket (recording chunks and heatmap
+//!   snapshots): the install's panel bucket (`S3_BUCKET_PANEL`), the same keys,
+//!   recordings under `replays/` ([`PanelBucketReplays`]);
 //! - `PanelSalt`, the global Durable Object holding each UTC day's random
 //!   salt of the cookieless visitor hash: the cache (Valkey), the salt
 //!   claimed by the first pod that needs it and kept two days ([`SaltSource`]);
-//! - `PanelUsage`, events counted per workspace and UTC day: atomic counters
-//!   in the cache ([`UsageCounter`]);
-//! - KV: the cache. The cache is not durable storage, so a project record
-//!   missing from it is read from the master registry and put back.
+//! - `PanelUsage`, events and recordings counted per workspace and UTC day:
+//!   atomic counters in the cache ([`UsageCounter`]);
+//! - the per-IP rate-limiting bindings: counters in the cache
+//!   ([`RateLimiter`]);
+//! - KV: the cache. The cache is not durable storage, so a project or
+//!   secret key record missing from it is read from the master registry and
+//!   put back. The quota state (`panel:quota:<workspace>`) is read from the
+//!   cache, where the usage settlement writes it.
 //!
 //! Reports (`/api/panel/query`, `/api/panel/lexicon`) compile a typed spec
 //! with `weldsuite-panel-domain` and run it on the analytics engine
@@ -71,8 +82,8 @@ use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_ports::{DynCache, OutboundHttp, RequestCache};
 
 pub use collector::{
-    BusSink, CacheSalt, CacheUsage, CollectorState, EventSink, RequestCollector, SaltSource,
-    UsageCounter,
+    Bundles, BusSink, CacheRateLimiter, CacheSalt, CacheUsage, CollectorState, EventSink, Limit,
+    PanelBucketReplays, RateLimiter, RequestCollector, SaltSource, ScriptBundle, UsageCounter,
 };
 pub use engine::{AnalyticsSql, BasinSql};
 pub use project_state::{PanelProjectState, ProjectRef, RequestProjectState};

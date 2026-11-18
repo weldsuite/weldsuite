@@ -93,6 +93,8 @@ pub(crate) fn infra(tracker: TaskTracker) -> (Infra, Recorders) {
         sso: None,
         provisioner: None,
         panel_events_subject: weldsuite_adapters_oss::DEFAULT_PANEL_EVENTS_SUBJECT.to_owned(),
+        // The collector takes the test's `PANEL_REPLAYS` per request.
+        panel_files: None,
     };
     (infra, recorders)
 }
@@ -262,6 +264,10 @@ struct TestContext {
     /// `conformance_panel`).
     #[serde(default)]
     pipelines: HashMap<String, String>,
+    /// Its rate-limiting bindings over HTTP (`{ EVENTS_RATE_LIMIT: url }`,
+    /// `conformance_panel`).
+    #[serde(default)]
+    rate_limits: HashMap<String, String>,
     /// The MCP server's member session (mcp-server's harness), or none.
     #[serde(default)]
     mcp_session: Option<weldsuite_mcp::McpSession>,
@@ -427,9 +433,20 @@ impl Pools {
         ));
         // And the GitHub App webhook's project syncs.
         extensions.insert(self.workflows.github_sync_runs(&context.workflows));
-        // WeldPanel's collector: the test's events stream, salt and usage
-        // objects, each one it binds.
-        extensions.insert(self.panel.collector(&context.ledgers, &context.pipelines));
+        // WeldPanel's collector: the test's streams, salt and usage objects,
+        // replays bucket and rate limits, each one it binds.
+        extensions.insert(
+            self.panel
+                .collector(crate::conformance_panel::PanelBindings {
+                    ledgers: &context.ledgers,
+                    pipelines: &context.pipelines,
+                    rate_limits: &context.rate_limits,
+                    replays: context
+                        .files
+                        .get("PANEL_REPLAYS")
+                        .map(|url| self.buckets.store(url)),
+                }),
+        );
         // WeldPanel's project state (`PanelProject`): the test's
         // `PANEL_PROJECT` namespace, or none.
         extensions.insert(self.panel.project_state(&context.ledgers));

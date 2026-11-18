@@ -15,7 +15,7 @@ const MAX_GEO: usize = 100;
 /// `request.headers.get(name)`: every value of the header joined with
 /// `, `, each byte a character as a `ByteString` reads it; `None` when the
 /// request has none.
-fn header(headers: &HeaderMap, name: &str) -> Option<String> {
+pub(crate) fn header(headers: &HeaderMap, name: &str) -> Option<String> {
     let values: Vec<String> = headers
         .get_all(name)
         .iter()
@@ -24,19 +24,56 @@ fn header(headers: &HeaderMap, name: &str) -> Option<String> {
     (!values.is_empty()).then(|| values.join(", "))
 }
 
-/// The visitor's address: the first (leftmost) hop of `X-Forwarded-For`,
-/// which is the visitor's own when a first-party proxy forwards the beacon.
-/// Empty when there is none. A client can name any address there; it is
-/// used for the cookieless hash and the IP filter only, never stored.
-pub(crate) fn client_ip(headers: &HeaderMap) -> String {
-    header(headers, "x-forwarded-for")
-        .and_then(|hops| {
-            hops.split(',')
-                .map(js_trim)
-                .find(|hop| !hop.is_empty())
-                .map(str::to_owned)
-        })
-        .unwrap_or_default()
+/// Who sent a browser request (`requestAddresses`): the visitor as far as
+/// we can tell, and the address that opened the connection to us (the
+/// customer's proxy, when there is one).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct Addresses {
+    /// The first (leftmost) hop of `X-Forwarded-For`, which is the
+    /// visitor's own when a first-party proxy forwards the beacon; else the
+    /// connecting address. A client can name any address there; it is used
+    /// for the cookieless hash, the IP filter and the rate limit only,
+    /// never stored.
+    pub(crate) client: String,
+    pub(crate) connecting: String,
+}
+
+/// Where the connecting address comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Edge {
+    /// Cloudflare's `CF-Connecting-IP`, as panel-ingest reads it: the test
+    /// harness (conformance) plays the edge and sets it.
+    Cloudflare,
+    /// The `X-Forwarded-For` hop this many from the right: the proxies in
+    /// front of this server (the ingress) append theirs. `CF-Connecting-IP`
+    /// is not read: nothing in front of this server sets it, so a client
+    /// could.
+    TrustedProxies(usize),
+}
+
+/// The request's [`Addresses`].
+pub(crate) fn request_addresses(headers: &HeaderMap, edge: Edge) -> Addresses {
+    let forwarded = header(headers, "x-forwarded-for").unwrap_or_default();
+    let hops: Vec<&str> = forwarded
+        .split(',')
+        .map(js_trim)
+        .filter(|hop| !hop.is_empty())
+        .collect();
+    let connecting = match edge {
+        Edge::Cloudflare => header(headers, "cf-connecting-ip").unwrap_or_default(),
+        Edge::TrustedProxies(trusted) => hops
+            .len()
+            .checked_sub(trusted.max(1))
+            .and_then(|at| hops.get(at))
+            .map(|hop| (*hop).to_owned())
+            .unwrap_or_default(),
+    };
+    Addresses {
+        client: hops
+            .first()
+            .map_or_else(|| connecting.clone(), |hop| (*hop).to_owned()),
+        connecting,
+    }
 }
 
 /// One geo value: percent-decoded (kept as sent when that fails, as
@@ -114,6 +151,10 @@ mod tests {
         }
     }
 
+    fn client_ip(headers: &HeaderMap) -> String {
+        request_addresses(headers, Edge::TrustedProxies(1)).client
+    }
+
     #[test]
     fn takes_the_first_forwarded_hop() {
         assert_eq!(
@@ -141,6 +182,39 @@ mod tests {
         assert_eq!(
             client_ip(&headers(&[("cf-connecting-ip", "203.0.113.7")])),
             ""
+        );
+    }
+
+    #[test]
+    fn the_connecting_address_is_the_trusted_proxy_s_hop() {
+        let proxied = headers(&[("x-forwarded-for", "198.51.100.9, 203.0.113.7")]);
+        assert_eq!(
+            request_addresses(&proxied, Edge::TrustedProxies(1)),
+            Addresses {
+                client: "198.51.100.9".to_owned(),
+                connecting: "203.0.113.7".to_owned(),
+            }
+        );
+        assert_eq!(
+            request_addresses(&proxied, Edge::TrustedProxies(2)).connecting,
+            "198.51.100.9"
+        );
+        assert_eq!(
+            request_addresses(&proxied, Edge::TrustedProxies(3)).connecting,
+            ""
+        );
+        // A forged CF-Connecting-IP counts only where Cloudflare is the edge.
+        let direct = headers(&[("cf-connecting-ip", "203.0.113.7")]);
+        assert_eq!(
+            request_addresses(&direct, Edge::TrustedProxies(1)),
+            Addresses::default()
+        );
+        assert_eq!(
+            request_addresses(&direct, Edge::Cloudflare),
+            Addresses {
+                client: "203.0.113.7".to_owned(),
+                connecting: "203.0.113.7".to_owned(),
+            }
         );
     }
 

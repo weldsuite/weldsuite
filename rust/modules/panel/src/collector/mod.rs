@@ -8,22 +8,34 @@
 //!
 //!   GET  /health      the worker's health answer (under `/public/panel` only)
 //!   GET  /s.js        the browser SDK bundle (`PANEL_SDK_FILE`)
+//!   GET  /rec.js      its recording plugin (`PANEL_RECORDER_FILE`)
+//!   GET  /v.js        its web vitals plugin (`PANEL_VITALS_FILE`)
 //!   GET  /c/:token    the client config
 //!   POST /e           an event batch → the events stream
+//!   POST /r           a recording chunk → the panel bucket, its row → the chunk index
+//!   POST /snap        a heatmap page snapshot → the panel bucket
+//!   POST /v1/track    server-side events (secret key)
+//!   POST /v1/import   historical events (secret key)
 //!
 //! The server serves these under `/public/panel` and, so that the script
 //! tag's own origin is a collector, at the root of every host.
 
+mod bundles;
 mod ip_filter;
+mod limits;
 mod proxy;
+mod recordings;
+mod replays_store;
 mod rows;
+mod server;
 mod url;
 mod user_agent;
 mod visitor;
 mod wire;
+mod wire_server;
 
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 use std::time::Duration;
 
 use axum::Router;
@@ -37,22 +49,27 @@ use http::request::Parts;
 use http::{HeaderMap, HeaderValue, Method, StatusCode};
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 use time::OffsetDateTime;
 use weldsuite_db::{MasterDb, PgPool};
 use weldsuite_events::EntityEventPublisher;
 use weldsuite_kit::RequestEnv;
 use weldsuite_ports::{
-    BoxFuture, BusMessage, Cache, DynCache, DynEventBus, EventBus, PortError, RequestCache,
+    BoxFuture, BusMessage, Cache, DynCache, DynEventBus, DynFileStore, EventBus, PortError,
+    RequestCache,
 };
 
+pub use bundles::{Bundles, ScriptBundle};
+pub use limits::{CacheRateLimiter, Limit, RateLimiter};
+pub use replays_store::PanelBucketReplays;
 pub use visitor::{CacheSalt, CacheUsage};
 
 use crate::domain::{
-    ProjectRecord, is_allowed_origin, is_project_token, parse_quota_state, project_key, quota_key,
-    seen_key,
+    ProjectRecord, is_allowed_origin, is_project_token, parse_quota_state, parse_snapshot_request,
+    project_key, quota_key, seen_key, snapshot_request_key,
 };
 use crate::js::{Js, number_value};
+use limits::rate_limited;
+use proxy::{Addresses, Edge, request_addresses};
 use rows::{Geo, RowSource, build_event_rows, consented_anon_id, iso_millis, parse_millis};
 use visitor::{cookieless_visitor_id, utc_date};
 use wire::{EventBatch, MAX_BATCH_BYTES, parse_event_batch};
@@ -62,7 +79,8 @@ pub trait SaltSource: Send + Sync {
     fn today(&self, now_ms: i64) -> BoxFuture<'_, Result<String, PortError>>;
 }
 
-/// `PanelUsage.add(day, events)` of one workspace.
+/// `PanelUsage.add(day, events)` and `PanelUsage.addRecordings(day,
+/// recordings)` of one workspace.
 pub trait UsageCounter: Send + Sync {
     fn add<'a>(
         &'a self,
@@ -70,27 +88,57 @@ pub trait UsageCounter: Send + Sync {
         day: &'a str,
         events: u64,
     ) -> BoxFuture<'a, Result<(), PortError>>;
+
+    fn add_recordings<'a>(
+        &'a self,
+        workspace_id: &'a str,
+        day: &'a str,
+        recordings: u64,
+    ) -> BoxFuture<'a, Result<(), PortError>>;
 }
 
-/// `PANEL_EVENTS.send(rows)`: the `events_v1` stream.
+/// `<stream>.send(rows)`: the `events_v1` stream (`PANEL_EVENTS`), or the
+/// `replay_chunks_v1` one (`PANEL_REPLAY_CHUNKS`).
 pub trait EventSink: Send + Sync {
     fn send<'a>(&'a self, rows: &'a [Value]) -> BoxFuture<'a, Result<(), PortError>>;
 }
 
-/// The events stream on the event bus (a NATS `JetStream` stream): one message per
-/// row on `<prefix>.<workspace>`, its id `<project>:<event_id>`, so a batch
-/// the SDK sends again inside the stream's duplicate window is not stored
-/// twice.
+/// A stream on the event bus (a NATS `JetStream` stream): one message per
+/// row on `<prefix>.<workspace>`, with an id the row decides, so a row sent
+/// again inside the stream's duplicate window is not stored twice.
 pub struct BusSink {
     bus: Arc<dyn DynEventBus>,
     subject_prefix: String,
+    id: fn(&Value) -> String,
+}
+
+fn row_text<'a>(row: &'a Value, key: &str) -> &'a str {
+    row.get(key).and_then(Value::as_str).unwrap_or_default()
 }
 
 impl BusSink {
+    /// The events stream (`panel.events.v1`): ids `<project>:<event_id>`.
     pub fn new(bus: Arc<dyn DynEventBus>, subject_prefix: impl Into<String>) -> Self {
         Self {
             bus,
             subject_prefix: subject_prefix.into(),
+            id: |row| {
+                format!(
+                    "{}:{}",
+                    row_text(row, "project_id"),
+                    row_text(row, "event_id")
+                )
+            },
+        }
+    }
+
+    /// The recording chunk index (`panel.replays.v1`, `PANEL_STATE`): ids
+    /// are the chunk's object key, one per session and sequence number.
+    pub fn replay_chunks(bus: Arc<dyn DynEventBus>, subject_prefix: impl Into<String>) -> Self {
+        Self {
+            bus,
+            subject_prefix: subject_prefix.into(),
+            id: |row| row_text(row, "r2_key").to_owned(),
         }
     }
 }
@@ -101,11 +149,9 @@ impl EventSink for BusSink {
             let messages = rows
                 .iter()
                 .map(|row| {
-                    let field =
-                        |key: &str| row.get(key).and_then(Value::as_str).unwrap_or_default();
                     BusMessage::json(
-                        format!("{}.{}", self.subject_prefix, field("workspace_id")),
-                        format!("{}:{}", field("project_id"), field("event_id")),
+                        format!("{}.{}", self.subject_prefix, row_text(row, "workspace_id")),
+                        (self.id)(row),
                         row,
                     )
                 })
@@ -121,33 +167,24 @@ impl EventSink for BusSink {
     }
 }
 
-/// The test's stream and Durable Objects (conformance): each one the test
-/// binds, or none, as the worker runs without the bindings it lacks.
+/// What the collector writes to and counts on, each one optional, as the
+/// worker runs without the bindings it lacks: the app state's on this
+/// install, the test's in conformance (a request extension, which wins).
 #[derive(Clone, Default)]
 pub struct RequestCollector {
+    /// `PANEL_SALT`.
     pub salt: Option<Arc<dyn SaltSource>>,
+    /// `PANEL_USAGE`.
     pub usage: Option<Arc<dyn UsageCounter>>,
+    /// `PANEL_EVENTS`.
     pub sink: Option<Arc<dyn EventSink>>,
-}
-
-/// The browser SDK bundle and its strong validator.
-#[derive(Debug, Clone)]
-pub struct SdkBundle {
-    text: String,
-    etag: String,
-}
-
-impl SdkBundle {
-    /// The bundle at `path` (`pnpm --filter @weldsuite/panel-sdk build`'s
-    /// `dist/panel.global.js`), or `None` when it can't be read.
-    pub fn load(path: &str) -> Option<Self> {
-        let text = std::fs::read_to_string(path).ok()?;
-        let digest = hex::encode(Sha256::digest(text.as_bytes()));
-        Some(Self {
-            etag: format!("\"{}\"", &digest[..32]),
-            text,
-        })
-    }
+    /// `PANEL_REPLAY_CHUNKS`: the `replay_chunks_v1` rows of `POST /r`.
+    pub chunks: Option<Arc<dyn EventSink>>,
+    /// `PANEL_REPLAYS`: the bucket recording chunks and heatmap snapshots
+    /// go to (the panel bucket here).
+    pub replays: Option<Arc<dyn DynFileStore>>,
+    /// The per-IP rate limits (`EVENTS_RATE_LIMIT`, …).
+    pub limits: Option<Arc<dyn RateLimiter>>,
 }
 
 /// What the collector shares.
@@ -156,43 +193,39 @@ pub struct CollectorState {
     /// Background work runs on its tracker, as `waitUntil` does.
     pub events: EntityEventPublisher,
     pub cache: Option<Arc<dyn DynCache>>,
-    /// The master registry, read when the cache has no record for a token.
+    /// The master registry, read when the cache has no record for a token
+    /// or a secret key.
     pub master: Option<PgPool>,
-    pub salt: Option<Arc<dyn SaltSource>>,
-    pub usage: Option<Arc<dyn UsageCounter>>,
-    pub sink: Option<Arc<dyn EventSink>>,
+    /// The streams, objects, bucket and limits of this install.
+    pub ports: RequestCollector,
     pub environment: String,
-    pub sdk: Option<Arc<SdkBundle>>,
-    /// How many proxies in front append to `X-Forwarded-For`. The collector
-    /// doesn't read it: like panel-ingest it takes the first hop, which a
-    /// site's own proxy (forwarding beacons first-party) sets to the
-    /// visitor's address (`proxy::client_ip`).
+    pub bundles: Bundles,
+    /// How many proxies in front append to `X-Forwarded-For`: the hop that
+    /// many from the right is the address that connected to them (the
+    /// connecting address of a request a customer's proxy forwarded). The
+    /// visitor's address is the first hop, which a site's own proxy sets
+    /// (`proxy::request_addresses`).
     pub trusted_proxies: usize,
     seen: Arc<SeenThrottle>,
 }
 
 impl CollectorState {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         events: EntityEventPublisher,
         cache: Option<Arc<dyn DynCache>>,
         master: Option<PgPool>,
-        salt: Option<Arc<dyn SaltSource>>,
-        usage: Option<Arc<dyn UsageCounter>>,
-        sink: Option<Arc<dyn EventSink>>,
+        ports: RequestCollector,
         environment: String,
-        sdk: Option<Arc<SdkBundle>>,
+        bundles: Bundles,
         trusted_proxies: usize,
     ) -> Self {
         Self {
             events,
             cache,
             master,
-            salt,
-            usage,
-            sink,
+            ports,
             environment,
-            sdk,
+            bundles,
             trusted_proxies,
             seen: Arc::new(SeenThrottle::default()),
         }
@@ -204,33 +237,49 @@ impl std::fmt::Debug for CollectorState {
         f.debug_struct("CollectorState")
             .field("cache", &self.cache.is_some())
             .field("master", &self.master.is_some())
-            .field("sink", &self.sink.is_some())
-            .field("sdk", &self.sdk.is_some())
+            .field("sink", &self.ports.sink.is_some())
+            .field("chunks", &self.ports.chunks.is_some())
+            .field("replays", &self.ports.replays.is_some())
+            .field("limits", &self.ports.limits.is_some())
+            .field("bundles", &self.bundles)
             .finish_non_exhaustive()
     }
 }
 
-/// `/health`, `/s.js`, `/c/{token}` and `/e`, with the collector's CORS and
-/// its 404, to nest under `/public/panel`.
+/// The collector's routes, with its CORS and its 404, to nest under
+/// `/public/panel`.
 pub fn router(state: CollectorState) -> Router {
     Router::new()
         .route("/health", get(health))
-        .route("/s.js", get(script))
+        .route("/s.js", get(bundles::sdk))
+        .route("/rec.js", get(bundles::recorder))
+        .route("/v.js", get(bundles::vitals))
         .route("/c/{token}", get(config))
         .route("/e", post(events))
+        .route("/r", post(recordings::chunk))
+        .route("/snap", post(recordings::snapshot))
+        .route("/v1/track", post(server::track))
+        .route("/v1/import", post(server::import))
         .fallback(not_found)
         .method_not_allowed_fallback(not_found)
         .layer(axum::middleware::from_fn(cors))
         .with_state(state)
 }
 
-/// `/s.js`, `/c/{token}` and `/e` at the root of every host: the snippet's
-/// script tag makes its own origin the collector.
+/// The same routes (but `/health`) at the root of every host: the
+/// snippet's script tag makes its own origin the collector, and the server
+/// SDK posts to that origin too.
 pub fn root_router(state: CollectorState) -> Router {
     Router::new()
-        .route("/s.js", get(script).options(preflight))
+        .route("/s.js", get(bundles::sdk).options(preflight))
+        .route("/rec.js", get(bundles::recorder).options(preflight))
+        .route("/v.js", get(bundles::vitals).options(preflight))
         .route("/c/{token}", get(config).options(preflight))
         .route("/e", post(events).options(preflight))
+        .route("/r", post(recordings::chunk).options(preflight))
+        .route("/snap", post(recordings::snapshot).options(preflight))
+        .route("/v1/track", post(server::track).options(preflight))
+        .route("/v1/import", post(server::import).options(preflight))
         .layer(axum::middleware::from_fn(cors))
         .with_state(state)
 }
@@ -274,11 +323,18 @@ impl Ctx {
         if self.conformance() {
             return self.ports.clone().unwrap_or_default();
         }
-        RequestCollector {
-            salt: state.salt.clone(),
-            usage: state.usage.clone(),
-            sink: state.sink.clone(),
-        }
+        state.ports.clone()
+    }
+
+    /// Who sent the request: in conformance the harness plays Cloudflare's
+    /// edge (`CF-Connecting-IP`), here the trusted proxies in front.
+    fn addresses(&self, state: &CollectorState, headers: &HeaderMap) -> Addresses {
+        let edge = if self.conformance() {
+            Edge::Cloudflare
+        } else {
+            Edge::TrustedProxies(state.trusted_proxies)
+        };
+        request_addresses(headers, edge)
     }
 
     /// Now, or the test's clock (`CONFORMANCE_NOW`).
@@ -378,6 +434,32 @@ fn went_wrong(error: &dyn std::fmt::Display, what: &str) -> Response {
     )
 }
 
+/// Over a per-IP limit: 429, try again in ten seconds.
+fn too_many() -> Response {
+    let mut response = reject(
+        StatusCode::TOO_MANY_REQUESTS,
+        "rate_limited",
+        "Too many requests",
+    );
+    response
+        .headers_mut()
+        .insert("retry-after", HeaderValue::from_static("10"));
+    response
+}
+
+/// `warnOnce(key, message)`: one log line per problem per process, so a
+/// missing optional binding is visible without a line per request.
+fn warn_once(key: &str, message: &str) {
+    static WARNED: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Mutex::default);
+    if WARNED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .insert(key.to_owned())
+    {
+        tracing::warn!("[panel-ingest] {message}");
+    }
+}
+
 /// `GET /health`.
 async fn health(State(state): State<CollectorState>, ctx: Ctx) -> Response {
     let environment = if ctx.conformance() {
@@ -386,55 +468,6 @@ async fn health(State(state): State<CollectorState>, ctx: Ctx) -> Response {
         state.environment.clone()
     };
     axum::Json(json!({ "ok": true, "service": "panel-ingest", "environment": environment }))
-        .into_response()
-}
-
-/// `If-None-Match` is a list of validators or `*`; weak ones compare equal for GET.
-fn matches_etag(header: Option<&str>, current: &str) -> bool {
-    let Some(header) = header else {
-        return false;
-    };
-    if header.trim() == "*" {
-        return true;
-    }
-    header.split(',').any(|candidate| {
-        let candidate = candidate.trim();
-        candidate.strip_prefix("W/").unwrap_or(candidate) == current
-    })
-}
-
-/// `GET /s.js`: the same bundle for every project, cacheable for an hour.
-async fn script(State(state): State<CollectorState>, ctx: Ctx, headers: HeaderMap) -> Response {
-    let bundle = if ctx.conformance() {
-        ctx.env("PANEL_SDK_FILE")
-            .and_then(|path| SdkBundle::load(&path))
-            .map(Arc::new)
-    } else {
-        state.sdk.clone()
-    };
-    let Some(bundle) = bundle else {
-        return reject(
-            StatusCode::NOT_FOUND,
-            "not_found",
-            "The WeldPanel SDK bundle is not installed on this server",
-        );
-    };
-    let cache_headers = [
-        ("cache-control", "public, max-age=3600".to_owned()),
-        ("etag", bundle.etag.clone()),
-    ];
-    let if_none_match = headers
-        .get("if-none-match")
-        .and_then(|value| value.to_str().ok());
-    if matches_etag(if_none_match, &bundle.etag) {
-        return (StatusCode::NOT_MODIFIED, cache_headers).into_response();
-    }
-    (
-        StatusCode::OK,
-        cache_headers,
-        [(CONTENT_TYPE, "application/javascript; charset=utf-8")],
-        bundle.text.clone(),
-    )
         .into_response()
 }
 
@@ -509,6 +542,20 @@ async fn quota_state(ctx: &Ctx, state: &CollectorState, workspace_id: &str) -> &
     }
 }
 
+/// The heatmap snapshot the project waits for
+/// (`panel:snapshot-request:<project>`), or null.
+async fn snapshot_request(
+    ctx: &Ctx,
+    state: &CollectorState,
+    project_id: &str,
+) -> Result<Value, PortError> {
+    let Some(cache) = ctx.cache(state) else {
+        return Ok(Value::Null);
+    };
+    let raw = cache.get(&snapshot_request_key(project_id)).await?;
+    Ok(parse_snapshot_request(raw.as_deref()).unwrap_or(Value::Null))
+}
+
 /// `GET /c/:token`: what the SDK needs before it collects anything.
 async fn config(
     State(state): State<CollectorState>,
@@ -533,24 +580,38 @@ async fn config(
     };
     let setting = |key: &str| project.settings.get(key).cloned().unwrap_or(Value::Null);
     // `Math.min(Math.max(Number(x) || 0, 0), 1)`.
-    let sample_rate = project
-        .settings
-        .get("recordingSampleRate")
-        .and_then(Value::as_f64)
-        .filter(|rate| rate.is_finite())
-        .unwrap_or(0.0)
-        .clamp(0.0, 1.0);
-    let quota = quota_state(&ctx, &state, &project.workspace_id).await;
-    // Heatmap snapshots are a Global-edition feature (recordings and their
-    // R2 bucket): a Kubernetes edition never asks the SDK for one.
+    let rate = match project.settings.get("recordingSampleRate") {
+        Some(Value::Number(rate)) => rate.as_f64().unwrap_or(0.0),
+        Some(value @ (Value::String(_) | Value::Array(_))) => {
+            weldsuite_kit::validation::js_number(&crate::domain::js_string(value))
+        }
+        Some(Value::Bool(true)) => 1.0,
+        _ => 0.0,
+    };
+    let sample_rate = if rate.is_nan() {
+        0.0
+    } else {
+        rate.clamp(0.0, 1.0)
+    };
+    // The snapshot the project waits for, for a heatmap background.
+    let (quota, snapshot) = futures_util::join!(
+        quota_state(&ctx, &state, &project.workspace_id),
+        snapshot_request(&ctx, &state, &project.project_id),
+    );
+    let snapshot = match snapshot {
+        Ok(snapshot) => snapshot,
+        Err(error) => return went_wrong(&error, "GET /c"),
+    };
     let mut response = axum::Json(json!({
         "autocapture": setting("autocapture"),
         "consentMode": setting("consentMode"),
         "maskingLevel": setting("maskingLevel"),
         "excludedUrls": setting("excludedUrls"),
         "recordingSampleRate": number_value(sample_rate),
+        // Recordings are off by setting (rate 0) or by quota (any blocked
+        // state: events_blocked blocks them too).
         "recordingBlocked": sample_rate == 0.0 || quota != "ok",
-        "snapshot": null,
+        "snapshot": snapshot,
     }))
     .into_response();
     response.headers_mut().insert(
@@ -560,9 +621,9 @@ async fn config(
     response
 }
 
-/// The request body as text, at most `limit` bytes (`readTextLimited`);
-/// `None` when larger.
-async fn read_text_limited(headers: &HeaderMap, body: Body, limit: usize) -> Option<String> {
+/// The request body, at most `limit` bytes (`readBytesLimited`); `None`
+/// when larger, or when its `Content-Length` says so.
+async fn read_bytes_limited(headers: &HeaderMap, body: Body, limit: usize) -> Option<Vec<u8>> {
     let declared = headers
         .get(CONTENT_LENGTH)
         .and_then(|value| value.to_str().ok())
@@ -585,7 +646,7 @@ async fn read_text_limited(headers: &HeaderMap, body: Body, limit: usize) -> Opt
         };
         seen += data.len();
         if too_large || seen > limit {
-            if seen > DRAIN_CAP {
+            if seen > limit.saturating_add(DRAIN_CAP) {
                 break;
             }
             continue;
@@ -595,12 +656,19 @@ async fn read_text_limited(headers: &HeaderMap, body: Body, limit: usize) -> Opt
     if too_large || seen > limit {
         return None;
     }
+    Some(bytes)
+}
+
+/// The request body as text, at most `limit` bytes (`readTextLimited`);
+/// `None` when larger.
+async fn read_text_limited(headers: &HeaderMap, body: Body, limit: usize) -> Option<String> {
+    let bytes = read_bytes_limited(headers, body, limit).await?;
     // `TextDecoder` drops a byte order mark and replaces what isn't UTF-8.
     let bytes = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&bytes);
     Some(String::from_utf8_lossy(bytes).into_owned())
 }
 
-/// How much of a too-large body is read and dropped before the 413.
+/// How much more than the limit is read and dropped before the 413.
 const DRAIN_CAP: usize = 1024 * 1024;
 
 /// `POST /e`: a batch of events. Everything that can be decided from the
@@ -613,6 +681,14 @@ async fn events(
     headers: HeaderMap,
     body: Body,
 ) -> Response {
+    // The per-IP limits come first, before the body is read and the cache
+    // is asked, so a flood costs as little as possible.
+    let ports = ctx.ports(&state);
+    let addresses = ctx.addresses(&state, &headers);
+    if events_limited(&ports, &addresses).await {
+        return too_many();
+    }
+
     let content_type = headers
         .get(CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
@@ -671,7 +747,7 @@ async fn events(
         );
     }
 
-    let ip = proxy::client_ip(&headers);
+    let ip = addresses.client;
     let user_agent = headers
         .get("user-agent")
         .and_then(|value| value.to_str().ok())
@@ -696,7 +772,6 @@ async fn events(
         user_agent,
         geo: proxy::request_geo(&headers),
     };
-    let ports = ctx.ports(&state);
     let cache = ctx.cache(&state);
     let seen = Arc::clone(&state.seen);
     state
@@ -704,6 +779,16 @@ async fn events(
         .tracker()
         .spawn(async move { collect(accepted, ports, cache, seen).await });
     StatusCode::NO_CONTENT.into_response()
+}
+
+/// `POST /e`'s limits: per client address, and behind a proxy (or with a
+/// forged `X-Forwarded-For`, where the client address is not the connecting
+/// one) per connecting address too, with a 50 times higher ceiling.
+async fn events_limited(ports: &RequestCollector, addresses: &Addresses) -> bool {
+    let limits = ports.limits.as_ref();
+    rate_limited(limits, Limit::Events, &addresses.client).await
+        || (addresses.connecting != addresses.client
+            && rate_limited(limits, Limit::EventsProxy, &addresses.connecting).await)
 }
 
 /// An accepted batch (`AcceptedBatch`).
@@ -719,10 +804,14 @@ struct Accepted {
 
 /// Failures are logged with ids and counts only, never request data.
 fn log_failure(what: &str, project: &ProjectRecord, error: &dyn std::fmt::Display) {
+    log_failure_for(what, &project.project_id, error);
+}
+
+/// [`log_failure`] by the project's id.
+fn log_failure_for(what: &str, project_id: &str, error: &dyn std::fmt::Display) {
     tracing::error!(
-        project = %project.project_id,
-        "[panel-ingest] {what} failed for project {}: {error}",
-        project.project_id
+        project = %project_id,
+        "[panel-ingest] {what} failed for project {project_id}: {error}",
     );
 }
 

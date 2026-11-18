@@ -114,7 +114,11 @@ pub(crate) fn feeds(streams: &PanelStreams) -> Vec<Feed> {
         state(PanelTable::Identities, "panel.identities.v1"),
         state(PanelTable::People, "panel.people.v1"),
         state(PanelTable::Groups, "panel.groups.v1"),
-        state(PanelTable::ReplayChunks, "panel.replays.v1"),
+        // The collector's `POST /r` publishes here (`BusSink::replay_chunks`).
+        state(
+            PanelTable::ReplayChunks,
+            weldsuite_adapters_oss::PANEL_REPLAYS_SUBJECT,
+        ),
     ]
 }
 

@@ -201,7 +201,8 @@ config:
     # server warns at start.
     publicUrl: ""
   # WeldPanel's store (ADR EVT-019): Iceberg tables in this bucket under lake/
-  # (recordings later under replays/), on config.files' endpoint and keys,
+  # (recordings under replays/, heatmap snapshots under snapshots/), on
+  # config.files' endpoint and keys,
   # their catalog in the master database. Empty: WeldPanel analytics is off
   # (nothing writes the tables, panel-maintenance does nothing). Set, consume
   # runs the panel-writer subscriber (it needs VALKEY_URL for its per-table

@@ -286,8 +286,11 @@ export function kvBucketUrl(kv: KvLike): Promise<string> {
   return bucketUrlFor(bucket);
 }
 
-/** The bucket bindings the Rust server can read through the bridge. */
-export const BUCKET_BINDINGS = ['PRIVATE_STORAGE', 'STORAGE', 'MEETING_RECORDINGS'] as const;
+/**
+ * The bucket bindings the Rust server can read through the bridge (WeldPanel's
+ * `PANEL_REPLAYS`: the collector's recording chunks and heatmap snapshots).
+ */
+export const BUCKET_BINDINGS = ['PRIVATE_STORAGE', 'STORAGE', 'MEETING_RECORDINGS', 'PANEL_REPLAYS'] as const;
 
 /** `{ PRIVATE_STORAGE: url, … }` for each bucket binding in `env`, or undefined when there is none. */
 export async function bucketUrls(env: Record<string, unknown>): Promise<Record<string, string> | undefined> {

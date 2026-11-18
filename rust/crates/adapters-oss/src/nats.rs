@@ -18,12 +18,15 @@ pub const DEFAULT_PANEL_EVENTS_SUBJECT: &str = "panel.events.v1";
 /// WeldPanel's other rows (`identities_v1`, `people_v1`, `groups_v1`,
 /// `replay_chunks_v1`), one subject prefix each.
 pub const DEFAULT_PANEL_STATE_STREAM: &str = "PANEL_STATE";
+/// The subject prefix of the recording chunk index (`replay_chunks_v1`
+/// rows from the collector's `POST /r`), on the state stream.
+pub const PANEL_REPLAYS_SUBJECT: &str = "panel.replays.v1";
 /// The state stream's subject prefixes, the workspace id the last token.
 pub const PANEL_STATE_SUBJECTS: [&str; 4] = [
     "panel.identities.v1",
     "panel.people.v1",
     "panel.groups.v1",
-    "panel.replays.v1",
+    PANEL_REPLAYS_SUBJECT,
 ];
 
 /// How to reach NATS.

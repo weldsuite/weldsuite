@@ -54,8 +54,9 @@ pub use http::ReqwestOutbound;
 pub use imap::AsyncImapConnector;
 pub use nats::{
     DEFAULT_ENTITY_EVENTS_STREAM, DEFAULT_PANEL_EVENTS_STREAM, DEFAULT_PANEL_EVENTS_SUBJECT,
-    DEFAULT_PANEL_STATE_STREAM, JetStreamEventBus, NatsOptions, PANEL_STATE_SUBJECTS,
-    entity_events_stream_config, panel_events_stream_config, panel_state_stream_config,
+    DEFAULT_PANEL_STATE_STREAM, JetStreamEventBus, NatsOptions, PANEL_REPLAYS_SUBJECT,
+    PANEL_STATE_SUBJECTS, entity_events_stream_config, panel_events_stream_config,
+    panel_state_stream_config,
 };
 pub use nats_consume::{
     Action, CONSUMER_MESSAGES_METRIC, ConsumerSpec, dead_letter_stream_config, dead_letter_subject,

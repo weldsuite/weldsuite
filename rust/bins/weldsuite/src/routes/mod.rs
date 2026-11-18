@@ -890,48 +890,76 @@ fn merge_internal_conformance(state: &AppState) -> Router<AppState> {
 }
 
 /// WeldPanel's public collector (panel-ingest on Global): under
-/// `/public/panel`, and `/s.js`, `/c/{token}` and `/e` at the root of every
-/// host, outside the server's first-party CORS (it answers any origin
-/// itself). Rows go to the events stream on the bus, the day's salt and
-/// counts to the cache. Conformance builds take the test's bindings.
+/// `/public/panel`, and at the root of every host, outside the server's
+/// first-party CORS (it answers any origin itself). Event rows go to the
+/// events stream on the bus, recording chunks to the panel bucket and their
+/// rows to the state stream, the day's salt, counts and rate limits to the
+/// cache. Conformance builds take the test's bindings.
 pub(crate) fn panel_collector(state: &AppState) -> Router {
     if !mounts("panel") {
         return Router::new();
     }
     let conformance = cfg!(feature = "conformance");
     let cache = (!conformance).then(|| upload_token_cache(state));
-    let sdk = std::env::var("PANEL_SDK_FILE")
-        .ok()
-        .filter(|path| !path.is_empty())
-        .unwrap_or_else(|| "/srv/panel/panel.global.js".to_owned());
-    let collector = weldsuite_panel::CollectorState::new(
-        state.infra.events.clone(),
-        cache.clone(),
-        (!conformance).then(|| state.workspaces.master().clone()),
-        cache.clone().map(|cache| {
+    // Conformance builds write to the test's streams and bucket only (per request).
+    let bus = state.infra.events.bus().filter(|_| !conformance);
+    let ports = weldsuite_panel::RequestCollector {
+        salt: cache.clone().map(|cache| {
             Arc::new(weldsuite_panel::CacheSalt::new(cache)) as Arc<dyn weldsuite_panel::SaltSource>
         }),
-        cache.map(|cache| {
+        usage: cache.clone().map(|cache| {
             Arc::new(weldsuite_panel::CacheUsage::new(cache))
                 as Arc<dyn weldsuite_panel::UsageCounter>
         }),
-        // Conformance builds write to the test's stream only (per request).
-        state
+        sink: bus.map(|bus| {
+            Arc::new(weldsuite_panel::BusSink::new(
+                Arc::clone(bus),
+                state.infra.panel_events_subject.clone(),
+            )) as Arc<dyn weldsuite_panel::EventSink>
+        }),
+        chunks: bus.map(|bus| {
+            Arc::new(weldsuite_panel::BusSink::replay_chunks(
+                Arc::clone(bus),
+                weldsuite_adapters_oss::PANEL_REPLAYS_SUBJECT,
+            )) as Arc<dyn weldsuite_panel::EventSink>
+        }),
+        // Global's replays bucket, inside the panel bucket.
+        replays: state
             .infra
-            .events
-            .bus()
+            .panel_files
+            .clone()
             .filter(|_| !conformance)
-            .map(|bus| {
-                Arc::new(weldsuite_panel::BusSink::new(
-                    Arc::clone(bus),
-                    state.infra.panel_events_subject.clone(),
-                )) as Arc<dyn weldsuite_panel::EventSink>
+            .map(|bucket| {
+                Arc::new(weldsuite_panel::PanelBucketReplays::new(bucket))
+                    as Arc<dyn weldsuite_ports::DynFileStore>
             }),
+        limits: cache.clone().map(|cache| {
+            Arc::new(weldsuite_panel::CacheRateLimiter::new(cache))
+                as Arc<dyn weldsuite_panel::RateLimiter>
+        }),
+    };
+    let bundle = |variable: &str, default: &str| {
+        std::env::var(variable)
+            .ok()
+            .filter(|path| !path.is_empty())
+            .unwrap_or_else(|| default.to_owned())
+    };
+    let bundles = if conformance {
+        weldsuite_panel::Bundles::default()
+    } else {
+        weldsuite_panel::Bundles::load(
+            &bundle("PANEL_SDK_FILE", "/srv/panel/panel.global.js"),
+            &bundle("PANEL_RECORDER_FILE", "/srv/panel/panel-recorder.global.js"),
+            &bundle("PANEL_VITALS_FILE", "/srv/panel/panel-vitals.global.js"),
+        )
+    };
+    let collector = weldsuite_panel::CollectorState::new(
+        state.infra.events.clone(),
+        cache,
+        (!conformance).then(|| state.workspaces.master().clone()),
+        ports,
         state.environment.clone(),
-        (!conformance)
-            .then(|| weldsuite_panel::collector::SdkBundle::load(&sdk))
-            .flatten()
-            .map(Arc::new),
+        bundles,
         state.trusted_proxies,
     );
     let prefixed = weldsuite_panel::collector::router(collector.clone());
