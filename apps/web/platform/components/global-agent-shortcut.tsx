@@ -72,8 +72,9 @@ export function GlobalAgentShortcut() {
   // Handle keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Cmd/Ctrl + J to toggle agent
-      if (matchesHotkey(e, HOTKEYS.toggleWeldAgent)) {
+      // Cmd/Ctrl + J to toggle agent, unless an editor already used the key
+      // (Ctrl+Shift+J justifies text in WeldDocs).
+      if (!e.defaultPrevented && matchesHotkey(e, HOTKEYS.toggleWeldAgent)) {
         e.preventDefault();
         toggleWeldAgent();
       }

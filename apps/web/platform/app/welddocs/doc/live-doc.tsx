@@ -8,7 +8,6 @@ import { DOC_CONNECT_PATH, type DocSessionMode } from '@weldsuite/app-api-client
 import type { DocPeer } from '@weldsuite/docs-engine';
 import { Button } from '@weldsuite/ui/components/button';
 import { ShareDialog, type DriveShareTarget } from '@/app/welddrive/components/share-dialog';
-import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useWorkspaceMemberDirectory } from '@/hooks/queries/use-settings-queries';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useAppApi } from '@/lib/api/use-app-api';
@@ -19,6 +18,7 @@ import { DocEditor } from '../editor/doc-editor';
 import { DocController } from '../editor/model/doc-controller';
 import { docsQueryKey, useDocMutations } from '../store/use-doc-store';
 import { MissingDoc, type DocStatus } from './doc-chrome';
+import { DocSkeleton } from './doc-skeleton';
 import { PeerAvatars } from './peer-avatars';
 import { VersionsPanel } from './versions-panel';
 import { CommentsPanel } from '../editor/comments-panel';
@@ -174,7 +174,7 @@ export function LiveDoc({ docId }: { docId: string }) {
 
   const missing = gone || (isApiError(record.error) && (record.error.status === 404 || record.error.status === 403));
   if (missing) return <MissingDoc message={controller ? tw.editor.removed : tw.home.notFound} />;
-  if (!controller) return <PageLoader fullScreen={false} />;
+  if (!controller) return <DocSkeleton />;
 
   const conn = connection.current;
   const offline = conn?.status === 'reconnecting';

@@ -3,7 +3,7 @@ import { Table } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@weldsuite/ui/components/dropdown-menu';
 import type { DocController } from './model/doc-controller';
 import { insertTableAtCaret } from './model/table-actions';
-import { BUTTON, WithTooltip } from './ui';
+import { BUTTON, MENU_EDGE_GAP, WithTooltip } from './ui';
 
 const MAX = 10;
 
@@ -26,7 +26,8 @@ export function TablePicker({ onPick }: { onPick: (rows: number, cols: number) =
               key={i}
               type="button"
               aria-label={`${r} × ${c}`}
-              className={`size-4 rounded-[2px] border ${on ? 'border-blue-500 bg-blue-500/20' : 'border-border bg-background'}`}
+              // The empty squares need a border that stands out from the menu in both themes.
+              className={`size-4 rounded-[2px] border ${on ? 'border-blue-500 bg-blue-500/20' : 'border-muted-foreground/40 bg-transparent'}`}
               onMouseEnter={() => setHover({ rows: r, cols: c })}
               onFocus={() => setHover({ rows: r, cols: c })}
               onClick={() => {
@@ -56,7 +57,7 @@ export function TableButton({ controller, label, disabled }: { controller: DocCo
           </button>
         </DropdownMenuTrigger>
       </WithTooltip>
-      <DropdownMenuContent align="start" onCloseAutoFocus={(e) => e.preventDefault()}>
+      <DropdownMenuContent align="start" collisionPadding={MENU_EDGE_GAP} onCloseAutoFocus={(e) => e.preventDefault()}>
         <CloseMenuContext.Provider value={() => setOpen(false)}>
           <TablePicker onPick={(rows, cols) => insertTableAtCaret(controller, rows, cols)} />
         </CloseMenuContext.Provider>

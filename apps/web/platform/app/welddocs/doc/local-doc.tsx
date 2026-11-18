@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { useCan } from '@weldsuite/permissions/react';
-import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { usePreviewMode } from '@/contexts/preview-mode-context';
 import { useI18n } from '@/lib/i18n/provider';
@@ -9,6 +8,7 @@ import { DocEditor } from '../editor/doc-editor';
 import { DocController } from '../editor/model/doc-controller';
 import { useDocMutations, useLocalDocStore } from '../store/use-doc-store';
 import { MissingDoc, type DocStatus } from './doc-chrome';
+import { DocSkeleton } from './doc-skeleton';
 
 const SAVE_DELAY_MS = 800;
 
@@ -107,7 +107,7 @@ export function LocalDoc({ docId }: { docId: string }) {
   });
 
   if (controller === 'missing') return <MissingDoc message={tw.home.notFound} />;
-  if (!loaded) return <PageLoader fullScreen={false} />;
+  if (!loaded) return <DocSkeleton />;
 
   let status: DocStatus = 'saved';
   if (!canUpdate) status = 'view-only';

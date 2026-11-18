@@ -107,6 +107,9 @@ export type EditMode = 'editing' | 'suggesting' | 'viewing';
 const UNDO_LIMIT = 300;
 /** Typing within this long of the last keystroke joins its undo step. */
 const TYPING_GROUP_MS = 1500;
+/** Up and Down look this far (points) past the caret's line for the next one: across the space between paragraphs. */
+const MAX_PARAGRAPH_GAP = 72;
+const GAP_STEP = 2;
 
 export type Movement = 'char' | 'word' | 'line' | 'lineEdge' | 'paragraph' | 'page' | 'document';
 
@@ -504,9 +507,13 @@ export class DocController {
     let pageIndex = rect.page;
     let y = dir > 0 ? rect.y + rect.height + 1 + step : rect.y - 1 - step;
     for (let tries = 0; tries < 3; tries++) {
-      const hit = hitTest(this.layout, pageIndex, x, y);
-      const reachable = hit && (hit.story === sel.story || (!extend && inFlow(hit.story) && inFlow(sel.story)));
-      if (hit && reachable && (hit.story !== sel.story || hit.pos !== sel.head)) return { story: hit.story, pos: hit.pos, affinity: hit.affinity };
+      // Space between paragraphs (above a table, say) still hits the caret's own line: look on past it.
+      for (let gap = 0; gap <= MAX_PARAGRAPH_GAP; gap += GAP_STEP) {
+        const hit = hitTest(this.layout, pageIndex, x, y + dir * gap);
+        const reachable = hit && (hit.story === sel.story || (!extend && inFlow(hit.story) && inFlow(sel.story)));
+        if (hit && reachable && (hit.story !== sel.story || hit.pos !== sel.head)) return { story: hit.story, pos: hit.pos, affinity: hit.affinity };
+        if (!hit || hit.story !== sel.story || hit.pos !== sel.head) break;
+      }
       // Past this page's content: continue on the next (or previous) page.
       pageIndex += dir;
       const next = this.pages[pageIndex];
@@ -577,6 +584,15 @@ export class DocController {
 
   get inHeaderOrFooter(): boolean {
     return headerSection(this.selection.story) !== null;
+  }
+
+  /** Back from a header or footer to the top of the text of the page it is on. */
+  leaveHeaderOrFooter(): void {
+    if (!this.inHeaderOrFooter) return;
+    const index = this.caretPage();
+    const column = this.pages[index]?.columns[0];
+    if (!column) return;
+    this.clickAt(index, column.x + 1, column.y + 1);
   }
 
   // ---------------------------------------------------------------- typing
@@ -892,6 +908,16 @@ export class DocController {
     this.emit();
   }
 
+  /** The text the comment being written is about: its selection, or the word at its caret (as the comment will take it). */
+  draftRange(): { story: string; from: number; to: number } | null {
+    if (!this.draft) return null;
+    const story = this.doc.stories.get(this.draft.story);
+    if (!story) return null;
+    let { from, to } = selectionRange(this.draft);
+    if (from === to) ({ from, to } = wordAt(story, from));
+    return from < to ? { story: this.draft.story, from, to } : null;
+  }
+
   cancelComment(): void {
     this.draft = null;
     this.emit();
@@ -993,14 +1019,21 @@ export class DocController {
     this.find.index = i < 0 ? 0 : i;
   }
 
+  /**
+   * The next (or previous) match becomes the current one, selected. The
+   * current match is always drawn as such, so the first Enter moves on from it.
+   */
   findStep(dir: 1 | -1): void {
     if (!this.find?.matches.length) return;
     const n = this.find.matches.length;
-    const current = this.find.matches[this.find.index]!;
-    const onIt = this.selection.story === current.story && selectionRange(this.selection).from === current.from && selectionRange(this.selection).to === current.to;
-    if (onIt) this.find.index = (this.find.index + dir + n) % n;
-    const m = this.find.matches[this.find.index]!;
-    this.setSelection({ story: m.story, anchor: m.from, head: m.to });
+    this.find.index = (this.find.index + dir + n) % n;
+    this.selectFindMatch();
+  }
+
+  /** Selects the current match. */
+  private selectFindMatch(): void {
+    const m = this.find?.matches[this.find.index];
+    if (m) this.setSelection({ story: m.story, anchor: m.from, head: m.to });
   }
 
   replaceCurrent(replacement: string): void {
@@ -1009,7 +1042,8 @@ export class DocController {
     const text = replacementFor(this.doc, this.find.query, this.find.options, m, replacement);
     const op = replaceRange(this.doc, m.story, m.from, m.to, text);
     this.apply({ op, selection: caretAt(m.story, m.from + text.length) });
-    this.findStep(1);
+    // The match after it is the current one now: select it, ready for the next Replace.
+    this.selectFindMatch();
   }
 
   replaceAll(replacement: string): number {
