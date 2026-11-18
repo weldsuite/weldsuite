@@ -7,9 +7,9 @@ import type { HrSelfOverview, HrSelfProfile } from '@weldsuite/app-api-client/do
 import { MyHrProvider } from './my-hr-context';
 import { MyHrRecord } from './my-hr-record';
 
-const mocks = vi.hoisted(() => ({ clock: vi.fn(), navigate: vi.fn(), toastError: vi.fn() }));
+const mocks = vi.hoisted(() => ({ clock: vi.fn(), navigate: vi.fn(), toastError: vi.fn(), position: vi.fn(), refetch: vi.fn() }));
 
-let overview: HrSelfOverview;
+let overview: HrSelfOverview | undefined;
 
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ to, children, className }: { to: string; children: ReactNode; className?: string }) => (
@@ -19,13 +19,18 @@ vi.mock('@tanstack/react-router', () => ({
   ),
   useNavigate: () => mocks.navigate,
 }));
+vi.mock('../../lib/geolocation', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/geolocation')>()),
+  getDevicePosition: () => mocks.position(),
+}));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: (message: string) => mocks.toastError(message) } }));
-vi.mock('@/app/weldcalendar/lib/calendar-format', () => ({
+vi.mock('@/app/weldcalendar/lib/calendar-format', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/app/weldcalendar/lib/calendar-format')>()),
   useTimeFormat: () => '24h',
   toTimeFormat: () => '24h',
 }));
 vi.mock('@/hooks/queries/use-weldhr-queries', () => ({
-  useMyHrOverview: () => ({ data: overview, isLoading: false, error: null, refetch: vi.fn() }),
+  useMyHrOverview: () => ({ data: overview, isLoading: false, error: overview ? null : new Error('Server unavailable'), refetch: mocks.refetch }),
   useMyHrClock: () => ({ mutateAsync: mocks.clock, isPending: false }),
 }));
 
@@ -64,13 +69,13 @@ function makeOverview(extra: Partial<HrSelfOverview> = {}): HrSelfOverview {
   } as HrSelfOverview;
 }
 
-function renderRecord(canClockIn = true) {
+function renderRecord(canClockIn = true, requiresLocation = false) {
   return render(
     <I18nProvider initialLanguage="en">
       <MyHrProvider
         value={{
           employee,
-          features: { selfClockIn: canClockIn, clockInRequiresLocation: false, leaveRequests: true, declarations: true },
+          features: { selfClockIn: canClockIn, clockInRequiresLocation: requiresLocation, leaveRequests: true, declarations: true },
         }}
       >
         <MyHrRecord employee={employee} canClockIn={canClockIn} />
@@ -84,6 +89,8 @@ describe('MyHrRecord', () => {
     mocks.clock.mockReset().mockResolvedValue({});
     mocks.navigate.mockReset();
     mocks.toastError.mockReset();
+    mocks.position.mockReset();
+    mocks.refetch.mockReset();
     overview = makeOverview();
   });
 
@@ -152,5 +159,67 @@ describe('MyHrRecord', () => {
 
     await user.click(screen.getByRole('tab', { name: /Upcoming shifts/ }));
     expect(screen.getByText('No upcoming shifts')).toBeInTheDocument();
+  });
+
+  it('shows since when someone is clocked in today, and clocks them out', async () => {
+    const since = new Date();
+    since.setHours(8, 30, 0, 0);
+    overview = makeOverview({ clock: { clockedIn: true, since: since.toISOString(), shiftId: null } });
+    const user = userEvent.setup();
+    renderRecord();
+
+    expect(screen.getByText('Clocked in since 08:30')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Clock out' }));
+    expect(mocks.clock).toHaveBeenCalledWith({ action: 'out' });
+  });
+
+  it('sends the device position where the workspace asks for it', async () => {
+    mocks.position.mockResolvedValue({ latitude: 52.37, longitude: 4.89, accuracy: 12 });
+    const user = userEvent.setup();
+    renderRecord(true, true);
+
+    await user.click(screen.getByRole('button', { name: 'Clock in' }));
+    expect(mocks.clock).toHaveBeenCalledWith({ action: 'in', location: { latitude: 52.37, longitude: 4.89, accuracy: 12 } });
+  });
+
+  it('explains a blocked position apart from a refusal by the server', async () => {
+    const { GeolocationError } = await import('../../lib/geolocation');
+    mocks.position.mockRejectedValue(new GeolocationError('denied'));
+    const user = userEvent.setup();
+    const { unmount } = renderRecord(true, true);
+
+    await user.click(screen.getByRole('button', { name: 'Clock in' }));
+    expect(mocks.toastError).toHaveBeenCalledWith(
+      'Location access is blocked. Allow it for this site in your browser settings to clock in or out.',
+    );
+    expect(mocks.clock).not.toHaveBeenCalled();
+    unmount();
+
+    mocks.clock.mockRejectedValue(new Error('Outside every work location'));
+    renderRecord();
+    await user.click(screen.getByRole('button', { name: 'Clock in' }));
+    expect(mocks.toastError).toHaveBeenLastCalledWith(expect.stringMatching(/Outside every work location|Could not update your clock/));
+  });
+
+  it('opens the schedule from an upcoming shift', async () => {
+    overview = makeOverview({
+      upcomingShifts: [{ id: 'sh_1', startsAt: '2026-12-01T08:00:00.000Z', endsAt: '2026-12-01T16:00:00.000Z', companyName: 'Acme' }],
+    });
+    const user = userEvent.setup();
+    renderRecord();
+
+    await user.click(screen.getByRole('tab', { name: /Upcoming shifts/ }));
+    await user.click(screen.getAllByRole('button').find((b) => /2026|Dec/.test(b.getAttribute('aria-label') ?? b.textContent ?? ''))!);
+    expect(mocks.navigate).toHaveBeenCalledWith({ to: '/weldhr/me/schedule' });
+  });
+
+  it('offers a retry when the overview could not load', async () => {
+    overview = undefined;
+    const user = userEvent.setup();
+    renderRecord();
+
+    expect(screen.getByText('Server unavailable')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(mocks.refetch).toHaveBeenCalled();
   });
 });
