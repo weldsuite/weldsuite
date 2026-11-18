@@ -326,6 +326,11 @@ is stale.
   you change a documented screen, update the copy and regenerate them in the
   same change: `pnpm --filter docs capture-screenshots:all` (skill
   `help-docs`).
+- **An app's settings live only in Settings → Apps**
+  (`/settings/apps/{appCode}`, listed in the Settings side nav): never inside
+  the app, never in the app's own sidebar, and no redirects from old paths.
+  See "App settings live in Settings, nowhere else" in
+  [`apps/web/platform/AGENTS.md`](apps/web/platform/AGENTS.md).
 
 ### Modern web guidance
 

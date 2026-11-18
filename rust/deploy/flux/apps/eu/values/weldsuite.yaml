@@ -128,25 +128,26 @@ config:
   # every AI feature runs there unless a workspace admin opts in to a
   # provider outside the EU. Keys in weldsuite-env: MISTRAL_API_KEY and
   # AI_KEYS_ENCRYPTION_KEY (seals the keys workspaces bring); the server
-  # doesn't start without them. Claude and ChatGPT are offered with the
-  # workspace's own key; set weldsuiteKey once WeldSuite's EU-edition
-  # accounts are open and ANTHROPIC_API_KEY / OPENAI_API_KEY are in the
-  # Secret. The credit gate (402 at an empty wallet) is on: the Mollie
-  # top-up lets a workspace buy credits.
+  # doesn't start without them. A workspace admin can opt in to Claude with
+  # WeldSuite's Anthropic key (ANTHROPIC_API_KEY, also required: the server
+  # doesn't start without it either) or the workspace's own key, and to
+  # ChatGPT with the workspace's own key; set openai.weldsuiteKey once
+  # WeldSuite's OpenAI account is open and OPENAI_API_KEY is in the Secret.
+  # Calls on WeldSuite's keys are charged in credits from the shared rate
+  # table. The credit gate (402 at an empty wallet) is on: the Mollie top-up
+  # lets a workspace buy credits.
   #
-  # OFF for now (2026-11-16): neither cluster's weldsuite-env has those two
-  # keys yet, and with AI on, serve and consume refused to start, so every
-  # build from 0.1.0-main.109 on failed its upgrade and rolled back. To turn
-  # it on, put the keys in both clusters' Secrets first, then set
-  # defaultProvider back to mistral and ownKey back to true for both
-  # opt-ins. An opt-in needs an install provider, so they stay off with it.
+  # Every key goes in both clusters' weldsuite-env before this reaches
+  # them: with AI on, serve and consume refuse to start
+  # without them, as every build from 0.1.0-main.109 did until AI was
+  # switched off on 2026-11-16.
   ai:
-    defaultProvider: ""
+    defaultProvider: mistral
     mistral:
       baseUrl: https://api.mistral.ai/v1
     optIn:
-      anthropic: { weldsuiteKey: false, ownKey: false }
-      openai: { weldsuiteKey: false, ownKey: false }
+      anthropic: { weldsuiteKey: true, ownKey: true }
+      openai: { weldsuiteKey: false, ownKey: true }
     creditGate: true
     billing: credits
   # Buying credits through Mollie (ADR OPS-012), on once MOLLIE_API_KEY is in
@@ -164,8 +165,8 @@ config:
 # SIGN_PORTAL_SECRET, FORMS_SESSION_SECRET, FORMS_PORTAL_SECRET, ALTCHA_HMAC_KEY,
 # WIDGET_TOKEN_SECRET, ZITADEL_SERVICE_TOKEN, TENANT_SHARDS,
 # COLLAB_ROOMS_SECRET, LIVEKIT_API_KEY + LIVEKIT_API_SECRET, MAIL_INBOUND_SECRET,
-# MISTRAL_API_KEY + AI_KEYS_ENCRYPTION_KEY and SANDBOX_TOKEN_SECRET (once
-# config.ai and the sandbox are on again), and optionally MOLLIE_API_KEY:
+# MISTRAL_API_KEY + AI_KEYS_ENCRYPTION_KEY + ANTHROPIC_API_KEY (config.ai),
+# SANDBOX_TOKEN_SECRET (once the sandbox is on again), and optionally MOLLIE_API_KEY:
 # secrets/weldsuite.yaml, from the store's values (secrets/store.example.yaml).
 # The MTA's keys are in weldsuite-mta (mta below).
 secret:

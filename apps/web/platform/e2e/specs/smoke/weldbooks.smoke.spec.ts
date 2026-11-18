@@ -4,7 +4,7 @@
  * leave no unexpected console errors.
  */
 
-import { test, expect } from '../../fixtures';
+import { test } from '../../fixtures';
 import { smokeRoute } from '../../helpers/smoke';
 
 const routes = [
@@ -47,13 +47,4 @@ test.describe('WeldBooks · smoke', () => {
       await smokeRoute(page, { path });
     });
   }
-
-  // The settings moved to the WeldBooks tab of the selected entity in Settings → Entities.
-  test('/weldbooks/settings opens the WeldBooks tab of the entity', async ({ page }) => {
-    await smokeRoute(page, {
-      path: '/weldbooks/settings',
-      expectedUrl: /\/settings\/entities\/[^/]+\/edit\?tab=weldbooks$/,
-    });
-    await expect(page.getByRole('tab', { name: /^weldbooks$/i })).toHaveAttribute('aria-selected', 'true');
-  });
 });

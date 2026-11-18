@@ -1,4 +1,5 @@
 import { Link } from '@tanstack/react-router';
+import { rememberSettingsReturn } from '@/lib/weldbooks/settings-links';
 import { AlertTriangle } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@weldsuite/ui/components/alert';
 import { useI18n } from '@/lib/i18n/provider';
@@ -31,8 +32,9 @@ export function MissingSettings({ missing, bankAccountId, title, canEdit }: Read
         </ul>
         {canEdit ? (
           <Link
-            to="/weldbooks/payment-runs/settings/$bankAccountId"
+            to="/settings/apps/weldbooks/payment-runs/$bankAccountId"
             params={{ bankAccountId }}
+            onClick={rememberSettingsReturn}
             className="mt-2 inline-block font-medium underline underline-offset-2"
           >
             {ts.openSettings}

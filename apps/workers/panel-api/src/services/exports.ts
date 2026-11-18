@@ -113,7 +113,7 @@ export function exportEventData(e: PanelExport) {
 }
 
 export function exportsPath(): string {
-  return '/weldpanel/settings?tab=exports';
+  return '/settings/apps/weldpanel?tab=exports';
 }
 
 /** When an export runs next; null while paused or deleted. */

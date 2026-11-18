@@ -34,7 +34,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { isDesktop } from '@/lib/desktop';
-import { getAppLogo, getAppLucideIcon } from '@/lib/apps/app-registry';
+import { getAppLogo, getAppLucideIcon, resolveAppCode } from '@/lib/apps/app-registry';
 import type { MenuGroupProps, MenuItemProps } from '@/components/app-sidebar-layout';
 import type { TranslationsType } from '@/lib/i18n/types';
 import { useInstalledApps } from '@/hooks/use-installed-apps';
@@ -53,17 +53,25 @@ function makeAppLogoIcon(appCode: string, name: string) {
   };
 }
 
+// Every installed app with settings gets one entry here, at
+// `/settings/apps/{appCode}`: this is the only place an app's settings are
+// reached from (never the app's own sidebar or pages, see AGENTS.md).
 // Built once so the icon components keep their identity across renders.
 const APP_SETTINGS_ITEMS = [
   { appCode: 'parcel', title: 'Parcel', href: '/settings/apps/parcel' },
+  { appCode: 'weldbooks', title: 'WeldBooks', href: '/settings/apps/weldbooks' },
   { appCode: 'weldcalendar', title: 'WeldCalendar', href: '/settings/apps/weldcalendar' },
+  { appCode: 'weldcommerce', title: 'WeldCommerce', href: '/settings/apps/weldcommerce' },
   { appCode: 'weldcrm', title: 'WeldCRM', href: '/settings/apps/weldcrm' },
   { appCode: 'welddesk', title: 'WeldDesk', href: '/settings/apps/welddesk' },
   { appCode: 'weldflow', title: 'WeldFlow', href: '/settings/apps/weldflow' },
+  { appCode: 'weldforms', title: 'WeldForms', href: '/settings/apps/weldforms' },
+  { appCode: 'weldhr', title: 'WeldHR', href: '/settings/apps/weldhr' },
   { appCode: 'weldmail', title: 'WeldMail', href: '/settings/apps/weldmail' },
   { appCode: 'weldmerge', title: 'WeldMerge', href: '/settings/apps/weldmerge' },
+  { appCode: 'weldpanel', title: 'WeldPanel', href: '/settings/apps/weldpanel' },
   { appCode: 'weldreach', title: 'WeldReach', href: '/settings/apps/weldreach' },
-  { appCode: 'weldhr', title: 'WeldHR', href: '/settings/apps/weldhr' },
+  { appCode: 'social', title: 'WeldSocial', href: '/settings/apps/social' },
 ].map(({ appCode, title, href }) => ({ appCode, title, href, icon: makeAppLogoIcon(appCode, title) }));
 
 /**
@@ -112,7 +120,8 @@ export function useSettingsSidebarItems(enabled: boolean) {
   const canManageAi = can('ai:manage');
 
   const installedAppCodes = React.useMemo(
-    () => new Set((apps ?? []).filter((app) => app.status === 'active').map((app) => app.appCode)),
+    // Canonical codes, so a workspace still on a legacy code (`accounting`, `commerce`) gets its entry.
+    () => new Set((apps ?? []).filter((app) => app.status === 'active').map((app) => resolveAppCode(app.appCode))),
     [apps],
   );
 

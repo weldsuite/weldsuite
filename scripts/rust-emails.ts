@@ -1362,31 +1362,46 @@ interface VariantContext {
   ph: (value: string, mode: Mode) => string;
 }
 
+type ListParts = Awaited<ReturnType<typeof listSentinels>>;
+
+/** The list's nested loops: each row body that carries an inner flag gets that inner list's loop. */
+function applyInnerLoops(derived: ListParts, list: ListSpec, where: string): void {
+  for (const inner of list.inner ?? []) {
+    for (const [key, body] of derived.content) {
+      if (key.split('+').includes(inner.flag)) derived.content.set(key, innerLoopHtml(body, inner, `${where} [${key}]`));
+    }
+    for (const [key, body] of derived.text) {
+      if (key.split('+').includes(inner.flag)) derived.text.set(key, innerLoopText(body, inner, `${where} [${key}] text`));
+    }
+  }
+}
+
+/** {@link brandVariant} for a variant with a list: the frame around one loop over the rows. */
+async function listBrandVariant(
+  ctx: VariantContext,
+  list: ListSpec,
+  brand: BrandKey,
+): Promise<{ variant: VariantParts; text: string }> {
+  const { spec, locale, flags, where, ph } = ctx;
+  const derived = await listSentinels(spec, list, locale, flags, brand, where);
+  applyInnerLoops(derived, list, where);
+  const variant: VariantParts = {
+    subject: ph(derived.shared.subject, 'plain'),
+    preview: ph(derived.shared.preview, 'plain'),
+    footer: derived.shared.footer === null ? null : ph(derived.shared.footer, 'plain'),
+    content:
+      ph(derived.frame.content[0], 'html') + loop(derived.content, 'html', (v) => ph(v, 'html')) + ph(derived.frame.content[1], 'html'),
+  };
+  return {
+    variant,
+    text: ph(derived.frame.text[0], 'text') + loop(derived.text, 'text', (v) => ph(v, 'text')) + ph(derived.frame.text[1], 'text'),
+  };
+}
+
 /** One brand's render of a variant, placeholders in: the brand-independent parts, and the text. */
 async function brandVariant(ctx: VariantContext, brand: BrandKey): Promise<{ variant: VariantParts; text: string }> {
   const { spec, list, locale, flags, where, ph } = ctx;
-  if (list) {
-    const derived = await listSentinels(spec, list, locale, flags, brand, where);
-    for (const inner of list.inner ?? []) {
-      for (const [key, body] of derived.content) {
-        if (key.split('+').includes(inner.flag)) derived.content.set(key, innerLoopHtml(body, inner, `${where} [${key}]`));
-      }
-      for (const [key, body] of derived.text) {
-        if (key.split('+').includes(inner.flag)) derived.text.set(key, innerLoopText(body, inner, `${where} [${key}] text`));
-      }
-    }
-    const variant: VariantParts = {
-      subject: ph(derived.shared.subject, 'plain'),
-      preview: ph(derived.shared.preview, 'plain'),
-      footer: derived.shared.footer === null ? null : ph(derived.shared.footer, 'plain'),
-      content:
-        ph(derived.frame.content[0], 'html') + loop(derived.content, 'html', (v) => ph(v, 'html')) + ph(derived.frame.content[1], 'html'),
-    };
-    return {
-      variant,
-      text: ph(derived.frame.text[0], 'text') + loop(derived.text, 'text', (v) => ph(v, 'text')) + ph(derived.frame.text[1], 'text'),
-    };
-  }
+  if (list) return listBrandVariant(ctx, list, brand);
   const parts = await sentinels(spec, locale, flags, brand, [], where);
   const variant: VariantParts = {
     subject: ph(parts.subject, 'plain'),

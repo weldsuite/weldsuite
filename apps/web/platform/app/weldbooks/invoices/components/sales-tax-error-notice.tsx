@@ -1,5 +1,6 @@
 import { AlertTriangle } from 'lucide-react';
 import { Link as TanStackLink } from '@tanstack/react-router';
+import { rememberSettingsReturn } from '@/lib/weldbooks/settings-links';
 import { Alert, AlertDescription } from '@weldsuite/ui/components/alert';
 import { Link } from '@/lib/router';
 import { salesTaxErrorCode, type SalesTaxErrorCode } from '@/lib/api/domains/weldbooks-sales-tax-preview';
@@ -80,9 +81,14 @@ export function SalesTaxErrorNotice({ error, invoiceId, className }: Readonly<Sa
             </TanStackLink>
           )}
           {(code === 'TAX_ENGINE_UNAVAILABLE' || code === 'USE_TAX_ENGINE_UNSUPPORTED') && (
-            <Link href="/weldbooks/sales-tax/settings" className={linkClass}>
+            <TanStackLink
+              to="/settings/apps/weldbooks"
+              search={{ tab: 'sales-tax' }}
+              onClick={rememberSettingsReturn}
+              className={linkClass}
+            >
               {texts.openSettings}
-            </Link>
+            </TanStackLink>
           )}
           {(code === 'TAX_RATES_NOT_CONFIGURED' || code === 'USE_TAX_ENGINE_UNSUPPORTED') && (
             <Link href="/weldbooks/sales-tax/agencies" className={linkClass}>

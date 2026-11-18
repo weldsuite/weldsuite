@@ -8,7 +8,7 @@
  *        it in `GET /user/installations`), reads the installation's account with the App JWT,
  *        records it (`recordGithubInstallation`: the master installation index, claimed for this
  *        workspace, and the merge_connections row), publishes merge_connection created/updated
- *        and redirects to `returnTo` (default /weldmerge/settings?tab=providers&installed=1).
+ *        and redirects to `returnTo` (default /settings/apps/weldmerge?tab=providers&installed=1).
  *
  * The state decides the workspace: the tenant DB is resolved from its
  * `workspaceId`. `installation_id` is GitHub's word only once a user token

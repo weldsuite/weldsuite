@@ -67,11 +67,6 @@ test.describe('WeldDesk · settings pages (Settings → Apps → WeldDesk)', () 
       await expect(page).toHaveURL(new RegExp(`/settings/apps/welddesk/${sub}$`));
     });
   }
-
-  test('an old WeldDesk settings URL redirects into Settings', async ({ page }) => {
-    await page.goto('/welddesk/settings/ticket-types');
-    await expect(page).toHaveURL(/\/settings\/apps\/welddesk\/ticket-types$/, { timeout: 15_000 });
-  });
 });
 
 test.describe('WeldDesk · saved replies — create button', () => {

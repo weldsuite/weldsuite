@@ -7,7 +7,6 @@ export const weldbooksUsPayments = {
     runs: 'Payment runs',
     checkRegister: 'Check register',
     positivePay: 'Positive Pay',
-    settings: 'Payment settings',
   },
 
   usOnly: {

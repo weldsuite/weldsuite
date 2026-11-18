@@ -42,7 +42,7 @@ describe('route availability', () => {
     expect(isRouteOffered('/weldmail/ai/smart-reply')).toBe(false);
     expect(isRouteOffered('/weldmail/domains')).toBe(false);
     expect(isRouteOffered('/weldmail/setup')).toBe(true);
-    expect(isRouteOffered('/weldmail/settings/labels')).toBe(true);
+    expect(isRouteOffered('/settings/apps/weldmail')).toBe(true);
   });
 
   it('hides buying and porting phone numbers without the feature, and only those', () => {
@@ -52,6 +52,15 @@ describe('route availability', () => {
     expect(isRouteOffered('/settings/apps/phone-numbers/new-number')).toBe(false);
     expect(isRouteOffered('/settings/apps/phone-numbers/port')).toBe(false);
     expect(isRouteOffered('/settings/apps/phone-numbers')).toBe(true);
+  });
+
+  it('hides the WeldCommerce and WeldPanel settings without the backend behind them', () => {
+    expect(routeRequirement('/settings/apps/weldcommerce')).toEqual({ modules: ['commerce'], feature: 'commerce-portal' });
+    expect(routeRequirement('/settings/apps/weldpanel?tab=exports')).toEqual({ modules: ['panel'], feature: 'panel-analytics' });
+    setRuntimeConfig({ backend: 'rust', modules: ['commerce', 'panel'], unavailableFeatures: ['commerce-portal', 'panel-analytics'] });
+    expect(isRouteOffered('/settings/apps/weldcommerce')).toBe(false);
+    expect(isRouteOffered('/settings/apps/weldpanel')).toBe(false);
+    expect(isRouteOffered('/weldpanel/projects')).toBe(true);
   });
 
   it('needs only core for platform pages', () => {

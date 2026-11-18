@@ -1,6 +1,6 @@
 /**
  * Raw data export of the current project, the "Data export" tab of the
- * WeldPanel settings (`/weldpanel/settings?tab=exports`, the link the
+ * WeldPanel settings (`/settings/apps/weldpanel?tab=exports`, the link the
  * "export failing" email carries). Needs `panel_projects:manage`, like the
  * settings page itself.
  */

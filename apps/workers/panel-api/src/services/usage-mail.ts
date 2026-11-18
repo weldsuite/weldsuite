@@ -47,7 +47,7 @@ export interface UsageMailDeps {
 
 /** Where the usage is shown in the platform. */
 export function usageUrl(env: Pick<Env, 'PLATFORM_URL'>, clerkOrgId: string | null): string {
-  return workspaceAppUrl((env.PLATFORM_URL || 'https://app.weldsuite.org').replace(/\/$/, ''), clerkOrgId, '/weldpanel/settings?tab=usage');
+  return workspaceAppUrl((env.PLATFORM_URL || 'https://app.weldsuite.org').replace(/\/$/, ''), clerkOrgId, '/settings/apps/weldpanel?tab=usage');
 }
 
 /** Returns how many owners were mailed. */

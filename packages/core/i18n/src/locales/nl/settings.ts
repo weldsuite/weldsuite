@@ -1928,6 +1928,20 @@ export const settings = {
       description: 'Hoe je agenda met ingeplande taken omgaat.',
     },
 
+    weldcommerce: {
+      title: 'WeldCommerce',
+      description: 'Het klantportaal waarop je zakelijke klanten inloggen.',
+    },
+
+    social: {
+      title: 'WeldSocial',
+      description: 'Standaarden voor publiceren en wie in je team mag posten.',
+      tabs: {
+        general: 'Algemeen',
+        team: 'Team',
+      },
+    },
+
     taskScheduling: {
       tab: 'Taken',
       autoScheduleLabel: 'Taken automatisch in mijn agenda inplannen',
@@ -1988,6 +2002,7 @@ export const settings = {
         accounts: 'Accounts',
         domains: 'Domeinen',
         signatures: 'Handtekeningen',
+        labels: 'Labels',
         limits: 'Verzendlimieten',
       },
       limits: {
