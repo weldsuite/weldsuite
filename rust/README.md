@@ -886,10 +886,17 @@ every 5 (WeldConnect's connectors; nothing while connect is not served), and
 due index; nothing while merge is not served), `mail-outbound-ledgers` every 5
 minutes (WeldMail's outbound ledgers' alarms; skipped without `VALKEY_URL`),
 `calendar-replan` daily at 04:00 UTC, `flow-file-purge`, `flow-approval-due`
-and `flow-benefit-measure` daily at 03:30 UTC, as on Global, and
+and `flow-benefit-measure` daily at 03:30 UTC, as on Global,
 `forms-reminders` and `forms-digest` every 15 minutes (WeldForms' invitation
 reminders and daily response digest over the `forms_reminders` and
-`forms_digest` due index; nothing while forms is not served). The server reads
+`forms_digest` due index; nothing while forms is not served), and
+`panel-schedule` every 10 minutes (WeldPanel's alerts, scheduled reports and
+raw exports that the master `panel_schedule_registry` lists as due, opening
+only those workspaces' tenant databases, as panel-api's cron does; mail goes
+out as system mail, Slack webhooks and the customers' S3 stores over a client
+that connects to public addresses only; custom collector domains are polled
+once a provider is configured, cert-manager in a later step; nothing while
+panel is not served). The server reads
 environment variables only (`bins/weldsuite/src/config.rs`).
 At start it logs a "Global default" warning for every setting still on a value
 that assumes the Global edition (`global_defaults` in `config.rs`: Clerk

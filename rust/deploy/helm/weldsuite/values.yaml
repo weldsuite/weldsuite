@@ -1306,6 +1306,15 @@ cron:
       enabled: true
       schedule: "45 2 * * *"
       activeDeadlineSeconds: 7200
+    # WeldPanel: the alerts, scheduled reports and raw exports the master
+    # panel_schedule_registry lists as due (only those workspaces' tenant
+    # databases are opened), and the custom collector domains still pending;
+    # every 10 minutes, as on Global. A run starts no new item after 8
+    # minutes. Does nothing while panel is not served.
+    panel-schedule:
+      enabled: true
+      schedule: "*/10 * * * *"
+      activeDeadlineSeconds: 570
     # WeldForms: the automatic invitation reminders and the daily response
     # digest, for the workspaces the forms_reminders / forms_digest due index
     # lists. Do nothing while forms is not served.

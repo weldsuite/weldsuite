@@ -41,6 +41,7 @@ mod migrate;
 mod monitoring;
 mod mta;
 mod panel_maintenance;
+mod panel_monitor;
 mod panel_project;
 mod panel_saved;
 mod panel_sql;

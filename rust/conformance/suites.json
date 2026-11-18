@@ -3724,6 +3724,31 @@
       ]
     },
     {
+      "name": "panel: monitor",
+      "module": "panel",
+      "workspace": "apps/workers/panel-api",
+      "tests": [
+        "src/routes/monitor.test.ts"
+      ],
+      "paths": [
+        "apps/workers/panel-api/src/",
+        "packages/domains/panel/src/",
+        "packages/clients/app-api-client/src/schemas/weldpanel-monitor.ts",
+        "packages/clients/app-api-client/src/schemas/weldpanel-query.ts",
+        "packages/core/emails/src/templates/panel/",
+        "packages/core/cloudflare-zones/src/custom-hostnames.ts",
+        "packages/core/worker-kit/src/testing/conformance-schemas-panel-monitor.ts",
+        "rust/modules/panel/",
+        "rust/crates/panel-domain/",
+        "rust/crates/emails/",
+        "rust/crates/notifications/",
+        "rust/crates/chat-domain/",
+        "rust/crates/zod/",
+        "rust/bins/weldsuite/src/panel_monitor.rs"
+      ],
+      "excludedRoutes": []
+    },
+    {
       "name": "mcp-server",
       "module": "mcp-server",
       "workspace": "apps/workers/mcp-server",

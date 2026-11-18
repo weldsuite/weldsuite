@@ -665,6 +665,35 @@ fn panel_state(state: &AppState) -> weldsuite_panel::PanelState {
     }
 }
 
+/// WeldPanel's projects with their custom domains, and the alerts,
+/// subscriptions and exports (`crate::panel_monitor`).
+fn panel_monitor(
+    router: Router<AppState>,
+    state: &AppState,
+    panel: &weldsuite_panel::PanelState,
+) -> Router<AppState> {
+    let monitor = crate::panel_monitor::monitor_state(state, panel.clone());
+    let gate = &state.permissions;
+    router
+        .nest(
+            "/panel/projects",
+            weldsuite_panel::router(panel.clone(), gate)
+                .merge(weldsuite_panel::domains_router(monitor.clone(), gate)),
+        )
+        .nest(
+            "/panel/alerts",
+            weldsuite_panel::alerts_router(monitor.clone(), gate),
+        )
+        .nest(
+            "/panel/subscriptions",
+            weldsuite_panel::subscriptions_router(monitor.clone(), gate),
+        )
+        .nest(
+            "/panel/exports",
+            weldsuite_panel::exports_router(monitor, gate),
+        )
+}
+
 /// WeldPanel (`weldsuite-panel`): panel-api's `/api/panel/projects` (with
 /// their secret keys), `/api/panel/query`, `/api/panel/lexicon` and the saved
 /// objects: reports, dashboards, cohorts, annotations, comments, custom
@@ -672,18 +701,15 @@ fn panel_state(state: &AppState) -> weldsuite_panel::PanelState {
 /// share links; and the visitor routes: people (with erasure), groups,
 /// sessions and recordings (with AI summaries), heatmaps and the live view;
 /// and the analysis routes: root cause and AI themes (`/panel/insights`),
-/// metric tree values and usage.
+/// metric tree values and usage; and the monitoring routes: alerts,
+/// subscriptions, exports and custom domains ([`panel_monitor`]).
 fn panel(router: Router<AppState>, state: &AppState) -> Router<AppState> {
     if !mounts("panel") {
         return router;
     }
     let panel = panel_state(state);
     let gate = &state.permissions;
-    router
-        .nest(
-            "/panel/projects",
-            weldsuite_panel::router(panel.clone(), gate),
-        )
+    panel_monitor(router, state, &panel)
         .nest(
             "/panel/query",
             weldsuite_panel::query_router(panel.clone(), gate),
