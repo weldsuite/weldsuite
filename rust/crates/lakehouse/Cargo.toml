@@ -1,0 +1,33 @@
+[package]
+name = "weldsuite-lakehouse"
+description = "WeldPanel's store on the Kubernetes editions (ADR EVT-019): Iceberg tables on S3, written from NATS, kept up (replace files, compaction, erasure, retention, expiry) and queried with DataFusion"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
+datafusion = { workspace = true }
+datafusion-functions-json = { workspace = true }
+futures-util = { workspace = true }
+iceberg = { workspace = true }
+iceberg-catalog-sql = { workspace = true }
+iceberg-datafusion = { workspace = true }
+iceberg-storage-opendal = { workspace = true }
+parquet = { workspace = true }
+serde_json = { workspace = true }
+sqlx-iceberg = { workspace = true }
+time = { workspace = true, features = ["parsing"] }
+tokio = { workspace = true, features = ["time"] }
+tracing = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true

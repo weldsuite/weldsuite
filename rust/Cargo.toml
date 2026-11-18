@@ -70,6 +70,7 @@ weldsuite-host = { path = "modules/host" }
 weldsuite-hr = { path = "modules/hr" }
 weldsuite-integrations = { path = "modules/integrations" }
 weldsuite-kit = { path = "crates/kit" }
+weldsuite-lakehouse = { path = "crates/lakehouse" }
 weldsuite-legal-entities = { path = "crates/legal-entities" }
 weldsuite-mcp = { path = "modules/mcp" }
 weldsuite-know = { path = "modules/know" }
@@ -107,6 +108,22 @@ weldsuite-reach-domain = { path = "crates/reach-domain" }
 weldsuite-sandbox = { path = "crates/sandbox" }
 
 aes-gcm = { version = "0.11.1", default-features = false, features = ["aes", "alloc"] }
+# WeldPanel's lakehouse (crates/lakehouse, ADR EVT-019). Pre-1.0 and breaking
+# every minor release, so pinned exactly and upgraded together on purpose:
+# iceberg-datafusion 0.11 pins DataFusion 54 and Arrow 58.
+arrow-array = "=58.4.2"
+arrow-schema = "=58.4.2"
+datafusion = "=54.2.0"
+datafusion-functions-json = "=0.54.2"
+iceberg = "=0.11.0"
+iceberg-catalog-sql = "=0.11.0"
+iceberg-datafusion = "=0.11.0"
+iceberg-storage-opendal = { version = "=0.11.0", default-features = false, features = ["opendal-fs", "opendal-s3"] }
+parquet = { version = "=58.4.2", default-features = false, features = ["arrow", "async", "zstd"] }
+# iceberg-catalog-sql 0.11 talks to its catalog through sqlx 0.8's `Any`
+# driver (the rest of the workspace is on 0.9): the drivers it may use are
+# enabled here, and the lakehouse's own compare-and-swap commit uses the same.
+sqlx-iceberg = { package = "sqlx", version = "=0.8.6", default-features = false, features = ["any", "postgres", "runtime-tokio", "tls-rustls-aws-lc-rs"] }
 async-imap = { version = "0.12.0", default-features = false, features = ["runtime-tokio"] }
 async-nats = { version = "0.51.0", default-features = false }
 aws-lc-rs = "1.19.0"

@@ -539,6 +539,9 @@ rust/
                         events, replay log, presence)
   crates/realtime/      the realtime WebSocket gateway in `serve` (the realtime-worker's hubs and rooms, every pod,
                         Valkey between them); mounted by bins/weldsuite/src/realtime.rs
+  crates/lakehouse/     WeldPanel's store (EVT-019): the five `panel.*_v1` Iceberg tables, the SQL catalog, appends
+                        with the NATS sequence, the replace-files commit (compaction, erasure, retention), expiry,
+                        and DataFusion over them; its tests need `WELDSUITE_TEST_DATABASE_URL` and run the SQL corpus
   crates/emails/        @weldsuite/emails: the exported templates rendered with minijinja, sendSystemEmail
   crates/desk-domain/   WeldDesk rules the desk modules share: webchat, assignment and the AssignmentRouter,
                         the inbox for writers outside it (inbox.rs, attributes.rs: WeldConnect's helpdesk steps
@@ -683,7 +686,7 @@ The integration tests need throwaway services and are skipped without them:
 
 | Variable | Service | Tests |
 |---|---|---|
-| `WELDSUITE_TEST_DATABASE_URL` | Postgres (a scratch database; its role creates databases for `weldsuite-migrations` and the CloudNativePG provisioner) | `weldsuite-db`, the flag table, the migration runner, the provisioner |
+| `WELDSUITE_TEST_DATABASE_URL` | Postgres (a scratch database; its role creates databases for `weldsuite-migrations` and the CloudNativePG provisioner) | `weldsuite-db`, the flag table, the migration runner, the provisioner, the lakehouse (its SQL catalog) |
 | `WELDSUITE_TEST_MASTER_URL`, `WELDSUITE_TEST_TENANT_URL` | Postgres with pgvector, built by `pnpm exec tsx scripts/rust-test-db.ts` from the journaled migrations | the SQL against the real schema |
 | `WELDSUITE_TEST_VALKEY_URL` | Valkey (`redis://…`) | cache and pub/sub adapters |
 | `WELDSUITE_TEST_NATS_URL` | NATS with JetStream (`nats://…`) | event bus adapter; with the tenant URL, the consume end-to-end test |
