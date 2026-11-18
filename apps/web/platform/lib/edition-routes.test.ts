@@ -24,7 +24,15 @@ describe('route availability', () => {
     expect(routeRequirement('/social/posts')).toEqual({ modules: ['social'] });
     expect(routeRequirement('/settings/apps/weldmail/signatures')).toEqual({ modules: ['mail'] });
     expect(routeRequirement('/agents/abc')).toEqual({ modules: ['agent'] });
-    expect(routeRequirement('/settings/billing')).toEqual({ feature: 'billing' });
+    expect(routeRequirement('/settings/billing')).toEqual({ anyFeature: ['billing', 'credit-top-up'] });
+  });
+
+  it('offers the billing page for the credit top-up alone', () => {
+    setRuntimeConfig({ backend: 'rust', modules: ['core'], unavailableFeatures: ['billing'] });
+    expect(isRouteOffered('/settings/billing')).toBe(true);
+    expect(isRouteOffered('/settings/plans')).toBe(false);
+    setRuntimeConfig({ backend: 'rust', modules: ['core'], unavailableFeatures: ['billing', 'credit-top-up'] });
+    expect(isRouteOffered('/settings/billing')).toBe(false);
   });
 
   it('hides the WeldMail pages of a feature the backend lacks, and only those', () => {
@@ -54,7 +62,16 @@ describe('route availability', () => {
 
   it('ignores a query string and hash', () => {
     expect(routeRequirement('/weldcrm?new=1')).toEqual({ modules: ['crm'] });
-    expect(routeRequirement('/settings/billing#invoices')).toEqual({ feature: 'billing' });
+    expect(routeRequirement('/settings/billing#invoices')).toEqual({ anyFeature: ['billing', 'credit-top-up'] });
+  });
+
+  it('offers /settings/ai only where the install runs AI', () => {
+    expect(isRouteOffered('/settings/ai')).toBe(false);
+    setRuntimeConfig({
+      ...EU_CONFIG,
+      ai: { defaultProvider: 'mistral', providers: [{ id: 'mistral', region: 'eu', keySources: ['weldsuite'] }] },
+    });
+    expect(isRouteOffered('/settings/ai')).toBe(true);
   });
 
   it('matches whole segments only', () => {
@@ -99,5 +116,26 @@ describe('route availability', () => {
   it('offers a page shared by two modules when either is served', () => {
     setRuntimeConfig({ backend: 'rust', modules: ['core', 'hr'] });
     expect(isRouteOffered('/settings/entities')).toBe(true);
+  });
+
+  it('hides the integrations whose syncs the backend lacks, and MCP servers without WeldAgent', () => {
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'connect'], unavailableFeatures: ['integration-sync'] });
+    expect(isRouteOffered('/settings/integrations')).toBe(true);
+    for (const path of ['/settings/integrations/attio', '/settings/integrations/sendcloud', '/settings/integrations/int_1']) {
+      expect(isRouteOffered(path), path).toBe(false);
+    }
+    expect(isRouteOffered('/settings/integrations/mcp-servers')).toBe(false);
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'connect', 'agent'], unavailableFeatures: ['integration-sync'] });
+    expect(isRouteOffered('/settings/integrations/mcp-servers')).toBe(true);
+    setRuntimeConfig(null);
+    expect(isRouteOffered('/settings/integrations/attio')).toBe(true);
+  });
+
+  it('offers API keys on a Kubernetes edition only once it names the public API', () => {
+    expect(isRouteOffered('/settings/api-keys')).toBe(true);
+    setRuntimeConfig({ backend: 'rust', modules: ['core'] });
+    expect(isRouteOffered('/settings/api-keys')).toBe(false);
+    setRuntimeConfig({ backend: 'rust', modules: ['core'], env: { VITE_EXTERNAL_API_URL: 'https://api.example.eu' } });
+    expect(isRouteOffered('/settings/api-keys')).toBe(true);
   });
 });

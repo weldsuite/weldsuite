@@ -23,7 +23,8 @@ commands:
   domains remove <domain>           stop signing for a domain
   queue                             recipients by pool and status
 
-Settings are environment variables (docs/plans/eu-mail-service.md).";
+Settings are MTA_* environment variables (crates/mta/src/config.rs; the Helm chart's
+values.yaml lists them).";
 
 fn log_format() -> LogFormat {
     match std::env::var("LOG_FORMAT").as_deref() {
@@ -63,11 +64,21 @@ fn serve() -> ExitCode {
             return ExitCode::from(78); // EX_CONFIG
         }
     };
+    // `METRICS_ADDR`, as for `serve`: the chart sets the node's private
+    // address, since the MTA runs on the host network.
+    let metrics_addr = match crate::monitoring::listen_addr_from_env() {
+        Ok(addr) => addr,
+        Err(error) => {
+            eprintln!("invalid configuration: {error}");
+            return ExitCode::from(78);
+        }
+    };
     let telemetry = crate::telemetry::init(log_format(), "info");
     let Some(runtime) = runtime() else {
         return ExitCode::FAILURE;
     };
     let code = runtime.block_on(async {
+        crate::monitoring::start(metrics_addr).await;
         let shutdown = CancellationToken::new();
         let signal = shutdown.clone();
         tokio::spawn(async move {

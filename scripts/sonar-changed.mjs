@@ -17,7 +17,9 @@
  *     workspace the branch touches, extending its tsconfig.json but listing
  *     only the changed files. TypeScript still follows their imports for type
  *     information, but never builds a program over a whole workspace.
- * The scanner reads it with -Dproject.settings=<that file>.
+ * The scanner reads it with -Dproject.settings=<that file>. It also writes
+ * .sonar-changed/coverage-sources.json, the changed files Sonar measures
+ * coverage on, which scripts/sonar-coverage.mjs runs the tests for.
  *
  * Sonar reports a PR's issues on the lines it changes only, so skipping the
  * unchanged files loses nothing there. The one thing it narrows is duplication:
@@ -136,6 +138,7 @@ const inSources = underRoot(list(props.get('sonar.sources')));
 const inTests = underRoot(list(props.get('sonar.tests')));
 const isExcluded = matcher(list(props.get('sonar.exclusions')));
 const isTest = matcher(list(props.get('sonar.test.inclusions')));
+const isCoverageExcluded = matcher(list(props.get('sonar.coverage.exclusions')));
 
 // ── Changed files ───────────────────────────────────────────────────────────
 
@@ -274,6 +277,13 @@ writeFileSync(
     property('sonar.inclusions', main) +
     property('sonar.test.inclusions', tests) +
     property('sonar.typescript.tsconfigPaths', tsconfigs),
+);
+
+// The changed source files Sonar measures coverage on, for
+// scripts/sonar-coverage.mjs: code, outside sonar.coverage.exclusions.
+writeFileSync(
+  path.join(repo, OUT_DIR, 'coverage-sources.json'),
+  `${JSON.stringify(main.filter(file => CODE_FILE.test(file) && !isCoverageExcluded(file)), null, 2)}\n`,
 );
 
 const total = main.length + tests.length;

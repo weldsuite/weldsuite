@@ -40,6 +40,8 @@ export function BooksEditor({ form, isUs, disabled, defaultYears }: Readonly<Boo
   const hasLedgerBook = rows.some((row) => row.book === 'book');
 
   const add = (kind: BookKind) => append({ ...emptyBook(kind), recoveryYears: defaultYears(kind) });
+  // Outside the US an asset has the ledger book only: no "(GAAP)" next to tax books it can't have.
+  const bookTitle = (kind: BookKind) => (!isUs && kind === 'book' ? tb.ledgerBook : fa.bookKinds[kind]);
 
   return (
     <div className="space-y-4" data-testid="books-editor">
@@ -52,7 +54,7 @@ export function BooksEditor({ form, isUs, disabled, defaultYears }: Readonly<Boo
         const macrs = isMacrsMethod(row.method);
         const needsYears = row.method !== 'expensed' && row.method !== 'none';
         const title =
-          row.book === 'state' && row.stateCode ? `${fa.bookKinds.state} ${row.stateCode.toUpperCase()}` : fa.bookKinds[row.book];
+          row.book === 'state' && row.stateCode ? `${fa.bookKinds.state} ${row.stateCode.toUpperCase()}` : bookTitle(row.book);
         return (
           <fieldset key={field.id} className="space-y-3 rounded-md border p-4" disabled={disabled}>
             <legend className="sr-only">{tb.rowTitle.replace('{number}', String(index + 1))}</legend>

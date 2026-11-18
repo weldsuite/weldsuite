@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { getTranslations } from '@/lib/i18n';
 import { Button } from '@weldsuite/ui/components/button';
+import { FieldError } from '@weldsuite/ui/components/field';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { Switch } from '@weldsuite/ui/components/switch';
@@ -10,9 +11,11 @@ import {
   useCommercePortalSettings,
   useUpdateCommercePortalSettings,
 } from '@/hooks/queries/use-commerce-queries';
+import { isPortalColor, isPortalLogoUrl } from '../lib/form';
 
 export default function WeldCommercePortalSettingsPage() {
   const t = getTranslations('commerce').module.portal;
+  const tv = getTranslations('commerce').module.validation;
   const settings = useCommercePortalSettings();
   const update = useUpdateCommercePortalSettings();
   const data = settings.data;
@@ -26,6 +29,12 @@ export default function WeldCommercePortalSettingsPage() {
   const logoUrl = logo ?? data?.logo ?? '';
   const primary = primaryColor ?? data?.primaryColor ?? '';
   const accent = accentColor ?? data?.accentColor ?? '';
+
+  // Checked once a save was tried, then live while the person fixes them.
+  const [checked, setChecked] = useState(false);
+  const logoInvalid = checked && !isPortalLogoUrl(logoUrl.trim());
+  const primaryInvalid = checked && !isPortalColor(primary.trim());
+  const accentInvalid = checked && !isPortalColor(accent.trim());
 
   async function save(patch: Record<string, unknown>) {
     try {
@@ -95,29 +104,56 @@ export default function WeldCommercePortalSettingsPage() {
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="portal-logo">{t.logo}</Label>
-            <Input id="portal-logo" value={logoUrl} onChange={(e) => setLogo(e.target.value)} />
+            <Input
+              id="portal-logo"
+              type="url"
+              placeholder="https://"
+              value={logoUrl}
+              aria-invalid={logoInvalid || undefined}
+              onChange={(e) => setLogo(e.target.value)}
+            />
+            <FieldError className="text-xs">{logoInvalid ? tv.invalidUrl : null}</FieldError>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="portal-primary">{t.primaryColor}</Label>
-              <Input id="portal-primary" value={primary} onChange={(e) => setPrimaryColor(e.target.value)} />
+              <Input
+                id="portal-primary"
+                placeholder="#1a73e8"
+                value={primary}
+                aria-invalid={primaryInvalid || undefined}
+                onChange={(e) => setPrimaryColor(e.target.value)}
+              />
+              <FieldError className="text-xs">{primaryInvalid ? tv.color : null}</FieldError>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="portal-accent">{t.accentColor}</Label>
-              <Input id="portal-accent" value={accent} onChange={(e) => setAccentColor(e.target.value)} />
+              <Input
+                id="portal-accent"
+                placeholder="#1a73e8"
+                value={accent}
+                aria-invalid={accentInvalid || undefined}
+                onChange={(e) => setAccentColor(e.target.value)}
+              />
+              <FieldError className="text-xs">{accentInvalid ? tv.color : null}</FieldError>
             </div>
           </div>
           <Button
             type="button"
             disabled={update.isPending}
-            onClick={() =>
-              save({
+            onClick={() => {
+              setChecked(true);
+              const logoValue = logoUrl.trim();
+              const primaryValue = primary.trim();
+              const accentValue = accent.trim();
+              if (!isPortalLogoUrl(logoValue) || !isPortalColor(primaryValue) || !isPortalColor(accentValue)) return;
+              void save({
                 displayName: name || null,
-                logo: logoUrl || null,
-                primaryColor: primary || null,
-                accentColor: accent || null,
-              })
-            }
+                logo: logoValue || null,
+                primaryColor: primaryValue || null,
+                accentColor: accentValue || null,
+              });
+            }}
           >
             {t.save}
           </Button>

@@ -1,5 +1,5 @@
 /**
- * ProcessResponse step: WeldCRM (ADR FORMS-006, docs/plans/weldforms.md,
+ * ProcessResponse step: WeldCRM (ADR FORMS-006, weldsuite-documentation/plans/weldforms.md,
  * "Integrations"). Per enabled `crm` integration, as the member who set it up:
  *
  *  - find the person by email in the CRM, or create one (a hidden mail identity
@@ -272,7 +272,7 @@ async function logActivity(
     .where(sql`${crmActivities.customFields}->>'formResponse' = ${key}`)
     .limit(1);
   if (existing) return;
-  const url = responseUrl(ctx.env, ctx.form.id, ctx.response.id);
+  const url = responseUrl(ctx.env, ctx.params.clerkOrgId, ctx.form.id, ctx.response.id);
   const subject = (mode === 'update' ? `Updated response to ${ctx.form.title}` : `Submitted ${ctx.form.title}`).slice(0, 255);
   const { id, eventData } = await createActivity(
     ctx.db,

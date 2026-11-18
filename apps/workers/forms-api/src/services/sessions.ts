@@ -1,5 +1,5 @@
 /**
- * Respondent sessions and verification tokens (docs/plans/weldforms.md,
+ * Respondent sessions and verification tokens (weldsuite-documentation/plans/weldforms.md,
  * "Respondent sessions").
  *
  * A session token is HMAC-signed with `FORMS_SESSION_SECRET` and bound to the
@@ -113,6 +113,17 @@ export async function readSeed(kv: KVNamespace, responseId: string): Promise<Ses
 
 export async function dropSeed(kv: KVNamespace, responseId: string): Promise<void> {
   await kv.delete(seedKey(responseId));
+}
+
+/**
+ * Too quick to be a person (ADR FORMS-005): less than `minFillMs` between the
+ * session's start and the submit, both as this server saw them. The block
+ * timings the page reports are never counted: they come from the respondent,
+ * so a script could claim any time it liked. The page starts the session at the
+ * first answer and waits out what is left of the minimum before it submits.
+ */
+export function submittedTooSoon(startedAt: number, minFillMs: number, now = Date.now()): boolean {
+  return now - startedAt < minFillMs;
 }
 
 // ---------------------------------------------------------------------------

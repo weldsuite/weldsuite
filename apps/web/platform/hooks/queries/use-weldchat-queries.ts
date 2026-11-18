@@ -17,11 +17,14 @@ import { useQuery, useMutation, useQueryClient, useInfiniteQuery, keepPreviousDa
 import { useAuth, useUser } from '@/lib/auth';
 import { toast } from 'sonner';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+import { isApiError } from '@weldsuite/api-client';
 import { isModuleOffered } from '@/lib/edition';
+import { isInvitationPendingError } from '@/app/weldchat/lib/dm-availability';
 import type { CreateChannelRequest, UpdateChannelRequest, SendMessageRequest, CreateDmRequest } from '@/lib/api/domains/weldchat';
 import type {
   RecordChatCallerState,
   RecordChatFilter,
+  RecordChatSort,
   RecordChatType,
   RecordChatTypeSummary,
 } from '@weldsuite/app-api-client/schemas/chat-entity-channels';
@@ -206,8 +209,8 @@ export const weldchatKeys = {
   clipTranscript: (channelId: string, messageId: string) => [...weldchatKeys.all, 'clip-transcript', channelId, messageId] as const,
   recordChats: () => [...weldchatKeys.all, 'record-chats'] as const,
   recordChatLists: () => [...weldchatKeys.recordChats(), 'list'] as const,
-  recordChatList: (type: RecordChatType | undefined, filter: RecordChatFilter, search: string) =>
-    [...weldchatKeys.recordChatLists(), type ?? 'all', filter, search] as const,
+  recordChatList: (type: RecordChatType | undefined, filter: RecordChatFilter, search: string, sort: RecordChatSort) =>
+    [...weldchatKeys.recordChatLists(), type ?? 'all', filter, search, sort] as const,
   recordChatSummary: () => [...weldchatKeys.recordChats(), 'summary'] as const,
 };
 
@@ -474,6 +477,15 @@ export interface FreshCheckOptions {
 const freshCheck = (fresh: boolean | undefined) =>
   fresh ? { retry: false, refetchOnMount: 'always' as const } : {};
 
+/**
+ * The channel no longer exists: `GET /channels/:id` answers 404 once it is
+ * deleted. TanStack Query keeps the last good `data` after a failed refetch, so
+ * a page must check this rather than `data` alone.
+ */
+export function isChannelGoneError(error: unknown): boolean {
+  return isApiError(error) && error.status === 404;
+}
+
 export function useChannel(channelId: string, { fresh }: FreshCheckOptions = {}) {
   const { getClient } = useAppApiClient();
   return useQuery({
@@ -483,6 +495,8 @@ export function useChannel(channelId: string, { fresh }: FreshCheckOptions = {})
       return client.get<{ data: ChatChannel }>(`/channels/${channelId}`);
     },
     enabled: !!channelId,
+    // A deleted channel stays deleted: settle on the 404 instead of retrying it.
+    retry: (failureCount, error) => !isChannelGoneError(error) && failureCount < 3,
     ...freshCheck(fresh),
   });
 }
@@ -539,12 +553,21 @@ export function useDeleteChannel() {
       const client = await getClient();
       return client.delete<unknown>(`/channels/${channelId}`);
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: weldchatKeys.channels() });
+    onSuccess: (_data, channelId) => {
+      // Forget the deleted channel before the lists refetch: `/weldchat` must
+      // not pick it as the default channel from the stale list, and its cached
+      // detail must not keep an open page showing it (a refetch would 404).
+      queryClient.setQueryData<ListEnvelope<ChatChannel>>(weldchatKeys.channels(), (prev) =>
+        prev?.data ? { ...prev, data: prev.data.filter((c) => c.id !== channelId) } : prev,
+      );
+      queryClient.removeQueries({ queryKey: weldchatKeys.channelDetail(channelId) });
+      // Saved messages from it are gone with it (the server drops them too).
+      void queryClient.invalidateQueries({ queryKey: weldchatKeys.bookmarks() });
+      void queryClient.invalidateQueries({ queryKey: weldchatKeys.channels() });
       // DMs are chat channels too and the sidebar deletes them through this
       // same mutation — without this the deleted conversation stays on screen
       // until a full refetch.
-      queryClient.invalidateQueries({ queryKey: weldchatKeys.dms() });
+      void queryClient.invalidateQueries({ queryKey: weldchatKeys.dms() });
     },
   });
 }
@@ -1314,6 +1337,8 @@ const RECORD_CHAT_PAGE = 25;
 
 export interface RecordChatsOptions {
   filter?: RecordChatFilter;
+  /** `unread` puts the caller's unread chats first (the records page). */
+  sort?: RecordChatSort;
   search?: string;
   enabled?: boolean;
   /**
@@ -1326,18 +1351,20 @@ export interface RecordChatsOptions {
 
 /**
  * Record chats of one type (all types when `type` is undefined), latest
- * activity first, paged by cursor. The sidebar groups use `following`.
+ * activity first unless `sort` says otherwise, paged by cursor. The sidebar
+ * groups use `following`.
  */
 export function useRecordChats(
   type: RecordChatType | undefined,
-  { filter = 'following', search = '', enabled = true, keepPrevious = false }: RecordChatsOptions = {},
+  { filter = 'following', sort = 'recent', search = '', enabled = true, keepPrevious = false }: RecordChatsOptions = {},
 ) {
   const { getClient } = useAppApiClient();
   return useInfiniteQuery({
-    queryKey: weldchatKeys.recordChatList(type, filter, search),
+    queryKey: weldchatKeys.recordChatList(type, filter, search, sort),
     queryFn: async ({ pageParam }) => {
       const client = await getClient();
       const qs = new URLSearchParams({ filter, limit: String(RECORD_CHAT_PAGE) });
+      if (sort !== 'recent') qs.set('sort', sort);
       if (type) qs.set('type', type);
       if (search) qs.set('search', search);
       if (pageParam) qs.set('cursor', pageParam);
@@ -1640,6 +1667,9 @@ export function useDmByUser(targetUserId: string, { fresh }: FreshCheckOptions =
     },
     // Edition flags (4.F3): team member panels (core) open a DM too.
     enabled: !!targetUserId && isModuleOffered('chat'),
+    // Someone who hasn't accepted their invitation stays that way for a while:
+    // answer at once rather than after three retries.
+    retry: (failureCount, error) => !isInvitationPendingError(error) && failureCount < 3,
     ...freshCheck(fresh),
   });
 

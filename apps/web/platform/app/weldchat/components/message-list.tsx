@@ -515,6 +515,7 @@ export function MessageList({
                 readBy={readByMap.get(message.id)}
                 isDm={isDm}
                 hasActiveCall={hasActiveCall && message.id === lastCallStartedId}
+                activeCallId={hasActiveCall && message.id === lastCallStartedId ? activeCallData?.data?.id : undefined}
                 call={callHistory.calls.get(message.id)}
               />
             </div>

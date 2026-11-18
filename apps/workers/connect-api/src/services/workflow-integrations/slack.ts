@@ -2,7 +2,7 @@
  * Slack-specific helpers for the generic `/api/workflow-integrations` surface
  * — the reference provider. A future provider (Google Sheets, GitHub, …) adds
  * its own small file here, keyed to one decrypted access token, never a Hono
- * context — see "Provider pattern" in docs/plans/weldconnect.md.
+ * context — see "Provider pattern" in weldsuite-documentation/plans/weldconnect.md.
  */
 
 export interface SlackChannelOption {

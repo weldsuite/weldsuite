@@ -55,6 +55,19 @@ describe('SheetController input', () => {
     expect(onOp).toHaveBeenCalledTimes(3);
   });
 
+  it('shows =TODAY() and the other date functions as a date, =NOW() with the time', () => {
+    const { ctl } = make();
+    ctl.setInput(0, 0, '=TODAY()');
+    ctl.setInput(1, 0, '=now()');
+    ctl.setInput(2, 0, '=DATE(2026,11,17)');
+    ctl.setInput(3, 0, '=A3+1');
+    const numFmt = (row: number) => ctl.engine.workbook.style(ctl.sheet, row, 0)?.numFmt;
+    expect(numFmt(0)).toBe('m/d/yyyy');
+    expect(numFmt(1)).toBe('m/d/yyyy h:mm:ss');
+    expect(ctl.displayText(2, 0).text).toBe('11/17/2026');
+    expect(numFmt(3)).toBeUndefined();
+  });
+
   it('shows the input text back in the editing locale', () => {
     const { ctl } = make('nl');
     ctl.setInput(0, 0, '1,5');

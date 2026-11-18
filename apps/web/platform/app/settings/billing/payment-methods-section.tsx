@@ -52,16 +52,18 @@ import { useTheme } from '@/hooks/use-theme';
 import { useWorkspaceUrl } from '@/hooks/use-workspace-url';
 import { useI18n } from '@/lib/i18n/provider';
 import { publicEnv } from '@/lib/runtime-config';
+import { billingProvider } from '@/lib/edition';
+import { apiErrorCode } from '@/lib/partner/api-errors';
 
 /**
  * Stripe.js is loaded once per page load and shared by every dialog mount.
  * `loadStripe` is deliberately called outside the component — calling it on
- * each render would re-inject the script tag.
+ * each render would re-inject the script tag. On the Mollie editions Stripe.js
+ * is never loaded: a method is added on Mollie's hosted checkout instead.
  */
 const publishableKey = publicEnv('VITE_STRIPE_PUBLISHABLE_KEY');
-const stripePromise: Promise<Stripe | null> | null = publishableKey
-  ? loadStripe(publishableKey)
-  : null;
+const stripePromise: Promise<Stripe | null> | null =
+  publishableKey && billingProvider() !== 'mollie' ? loadStripe(publishableKey) : null;
 
 /** Card brands Stripe returns, mapped to the labels printed on the card. */
 const CARD_BRAND_LABELS: Record<string, string> = {
@@ -179,6 +181,7 @@ function AddPaymentMethodForm({
 
 export function PaymentMethodsSection({ canManage }: Readonly<{ canManage: boolean }>) {
   const { t } = useI18n();
+  const isMollie = billingProvider() === 'mollie';
   const ts = t.settings.billing.paymentMethods;
   const { resolvedTheme } = useTheme();
 
@@ -275,6 +278,22 @@ export function PaymentMethodsSection({ canManage }: Readonly<{ canManage: boole
   }, []);
 
   const handleOpenDialog = async () => {
+    if (isMollie) {
+      // A hosted checkout creates the mandate (a card is €0), then returns to this
+      // page with `?checkout=bpy_…`, which the billing page reads.
+      try {
+        const { url } = await createSetupIntent.mutateAsync();
+        if (url) {
+          window.location.href = url;
+          return;
+        }
+      } catch {
+        // Falls through to the shared failure message.
+      }
+      toast.error(ts.addFailed);
+      return;
+    }
+
     if (!stripePromise) {
       toast.error(ts.stripeNotConfigured);
       return;
@@ -282,6 +301,10 @@ export function PaymentMethodsSection({ canManage }: Readonly<{ canManage: boole
 
     try {
       const { clientSecret: secret } = await createSetupIntent.mutateAsync();
+      if (!secret) {
+        toast.error(ts.addFailed);
+        return;
+      }
       setClientSecret(secret);
       setDialogOpen(true);
     } catch {
@@ -324,6 +347,11 @@ export function PaymentMethodsSection({ canManage }: Readonly<{ canManage: boole
       // A 400 on DELETE has exactly one cause: the API refuses to detach the
       // primary method while a subscription is billing against it. Keyed on
       // status rather than the message text, which is server-side English.
+      if (apiErrorCode(err) === 'MANDATE_IN_USE') {
+        // Mollie: the only mandate of a running plan. The server's message says why.
+        toast.error(err instanceof Error && err.message ? err.message : ts.removeInUse);
+        return;
+      }
       toast.error(isBadRequest(err) ? ts.removePrimaryBlocked : ts.removeFailed);
     }
   };
@@ -364,10 +392,14 @@ export function PaymentMethodsSection({ canManage }: Readonly<{ canManage: boole
               <span className="font-medium text-sm">
                 {formatBrand(method, ts.sepaDebit)}
               </span>
-              {method.last4 && (
-                <span className="font-mono text-sm text-muted-foreground">
-                  •••• {method.last4}
-                </span>
+              {method.label ? (
+                <span className="font-mono text-sm text-muted-foreground">{method.label}</span>
+              ) : (
+                method.last4 && (
+                  <span className="font-mono text-sm text-muted-foreground">
+                    •••• {method.last4}
+                  </span>
+                )
               )}
               {method.isDefault && (
                 <Badge variant="secondary" className="rounded-sm text-xs">
@@ -452,7 +484,10 @@ export function PaymentMethodsSection({ canManage }: Readonly<{ canManage: boole
           </Button>
         )}
       </div>
-      <p className="text-sm text-muted-foreground mb-4">{ts.description}</p>
+      <p className="text-sm text-muted-foreground mb-4">
+        {ts.description}
+        {isMollie && ` ${ts.addDescriptionMollie}`}
+      </p>
 
       <div className="overflow-hidden rounded-md border">
         <Table>

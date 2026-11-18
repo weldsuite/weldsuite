@@ -10,6 +10,11 @@ name: SonarQube
 # minutes and ran out of memory on this runner (ADR OPS-010), and a PR's issues
 # land only on the lines it changes anyway. Branches are not scanned.
 #
+# Coverage comes the same way: scripts/sonar-coverage.mjs runs the tests
+# related to the changed files (Vitest, in each workspace that has
+# @vitest/coverage-v8) and hands the scan their lcov, so "Coverage on New
+# Code" measures what those tests cover.
+#
 # The job fails when the quality gate fails (sonar.qualitygate.wait). It only
 # blocks merging once "SonarQube" is a required status check in branch
 # protection.
@@ -18,8 +23,6 @@ name: SonarQube
 #   - Project weldsuite_weldsuite, with Automatic Analysis turned OFF
 #     (Administration → Analysis Method); CI analysis is rejected otherwise.
 #   - The SONAR_TOKEN repository secret.
-#   - Quality gate: without imported coverage, drop any "Coverage on New Code"
-#     condition from the gate this project uses.
 
 on:
   pull_request:
@@ -54,6 +57,12 @@ jobs:
       - name: Changed files
         id: changed
         run: node scripts/sonar-changed.mjs HEAD^1
+
+      # Adds sonar.javascript.lcov.reportPaths to the settings above. Never
+      # fails the job on test failures: the unit test jobs report those.
+      - name: Coverage
+        if: steps.changed.outputs.files != '0'
+        run: node scripts/sonar-coverage.mjs
 
       - name: SonarQube Scan
         if: steps.changed.outputs.files != '0'

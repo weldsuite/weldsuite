@@ -2,7 +2,7 @@
  * Token resolution + refresh — exercised through a Google-typed integration
  * (google_sheets), the first provider in the catalog whose access token
  * actually expires (Slack bot tokens never do). See "Provider pattern" in
- * docs/plans/weldconnect.md.
+ * weldsuite-documentation/plans/weldconnect.md.
  */
 
 import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest';

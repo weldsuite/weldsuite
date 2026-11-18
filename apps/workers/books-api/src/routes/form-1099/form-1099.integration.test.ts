@@ -2,7 +2,7 @@
  * 1099 filings end to end (pglite): create, adjust, review, generate, the IRIS
  * file (the only place full TINs leave, with a reveal row per recipient), copies,
  * marking filed, a correction, and the IRS TIN matching round trip.
- * docs/plans/weldbooks-us.md section 8.
+ * weldsuite-documentation/plans/weldbooks-us.md section 8.
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';

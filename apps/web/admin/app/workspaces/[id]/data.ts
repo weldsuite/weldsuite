@@ -4,6 +4,7 @@ import { requireAdmin } from '@/lib/auth';
 import { getWorkspaceById, listWorkspaceMembers } from '@/lib/workspaces-data';
 import {
   getCreditsSummary,
+  getMollieBillingAccount,
   getWorkspaceBilling,
   listAuditEvents,
   listPlanOptions,
@@ -27,7 +28,7 @@ export async function loadWorkspaceDetailPage(input: { id: string }) {
   const workspace = await getWorkspaceById(input.id);
   if (!workspace) return null;
 
-  const [members, billing, plans, credits, invoices, payments, activity, snapshotState, ssoState, appAccess, outbound, database] = await Promise.all([
+  const [members, billing, plans, credits, invoices, payments, activity, snapshotState, ssoState, mollieBilling, appAccess, outbound, database] = await Promise.all([
     listWorkspaceMembers(workspace.id),
     getWorkspaceBilling(workspace.id),
     listPlanOptions(),
@@ -38,6 +39,8 @@ export async function loadWorkspaceDetailPage(input: { id: string }) {
     // Stripe, SSO and Neon are Global's; Kubernetes has none of them (lib/edition.ts).
     GLOBAL ? loadStripeSnapshot(identity, workspace.id) : NOT_CONFIGURED,
     GLOBAL ? loadSsoView(identity, workspace.id) : NOT_CONFIGURED,
+    // Plan billing on Mollie is Kubernetes's (ADR BILL-014); Global never writes billing_accounts.
+    GLOBAL ? null : getMollieBillingAccount(workspace.id),
     listWorkspaceAppAccess(workspace.id),
     getOutboundSummary(workspace.id),
     getWorkspaceDatabase(workspace.id),
@@ -67,6 +70,7 @@ export async function loadWorkspaceDetailPage(input: { id: string }) {
     activity,
     snapshotState,
     ssoState,
+    mollieBilling,
     appAccess,
     appUsage,
     outbound,

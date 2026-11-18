@@ -1,6 +1,6 @@
 # WeldSuite board-api worker — WeldBoard's API and board rooms.
 #
-# A module worker (docs/plans/app-api-module-split.md); app-api forwards
+# A module worker (weldsuite-documentation/plans/app-api-module-split.md); app-api forwards
 # /api/boards here for clients that still call it. Hosts:
 #   board-api.weldsuite.org       production
 #   board-api-test.weldsuite.org  test
@@ -58,7 +58,7 @@ remote = true
 # write customer files.
 #
 # One BoardRoom Durable Object per board orders its edits, keeps the op log
-# since the last checkpoint and holds the sockets (docs/plans/weldboard.md).
+# since the last checkpoint and holds the sockets (weldsuite-documentation/plans/weldboard.md).
 # R2, Durable Object bindings and migrations are NOT inherited by [env.*].
 [[r2_buckets]]
 binding = "PRIVATE_STORAGE"

@@ -1,4 +1,5 @@
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import type { ListLevel, ParaProps } from '@weldsuite/docs-engine';
 import { useI18n } from '@/lib/i18n/provider';
 import type { DocController } from './model/doc-controller';
 import { PX_PER_PT } from './view/page-view';
@@ -20,17 +21,23 @@ export function Ruler({ controller, scrollRef }: { controller: DocController; sc
   useSyncExternalStore(controller.subscribe, controller.getVersion);
   const { t } = useI18n();
   const tr = t.welddocs.ruler;
-  const [scroll, setScroll] = useState({ left: 0, width: 800 });
+  const rulerRef = useRef<HTMLDivElement>(null);
+  // `offset`: how far right of the ruler the pages' scroll area starts (the outline sits left of it).
+  const [scroll, setScroll] = useState({ left: 0, width: 800, offset: 0 });
   const [drag, setDrag] = useState<{ kind: Handle; value: number } | null>(null);
 
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const update = () => setScroll({ left: el.scrollLeft, width: el.clientWidth });
+    const update = () => {
+      const offset = el.getBoundingClientRect().left - (rulerRef.current?.getBoundingClientRect().left ?? 0);
+      setScroll({ left: el.scrollLeft, width: el.clientWidth, offset });
+    };
     update();
     el.addEventListener('scroll', update, { passive: true });
     const ro = new ResizeObserver(update);
     ro.observe(el);
+    if (rulerRef.current) ro.observe(rulerRef.current);
     return () => {
       el.removeEventListener('scroll', update);
       ro.disconnect();
@@ -43,15 +50,19 @@ export function Ruler({ controller, scrollRef }: { controller: DocController; sc
   const scale = controller.zoom * PX_PER_PT;
   const width = s.pageWidth * scale;
   const maxWidth = Math.max(...controller.pages.map((p) => p.width)) * scale;
-  const left = Math.max(16, (Math.max(scroll.width, maxWidth + 32) - width) / 2) - scroll.left;
+  // Lined up with the page, which is centred in the scroll area.
+  const left = scroll.offset + Math.max(16, (Math.max(scroll.width, maxWidth + 32) - width) / 2) - scroll.left;
   const para = controller.paragraph();
   const contentWidth = s.pageWidth - s.marginLeft - s.marginRight;
+  const listLevel = para.list ? controller.doc.lists.get(para.list.id)?.levels[para.list.level] : undefined;
+  // Where the text really is, not the stored indents: the markers sit on the lines the layout draws.
+  const drawn = drawnIndents(para, listLevel);
   const values: Record<Handle, number> = {
     marginLeft: s.marginLeft,
     marginRight: s.pageWidth - s.marginRight,
-    indentLeft: s.marginLeft + (para.indentLeft ?? 0),
-    indentFirst: s.marginLeft + (para.indentLeft ?? 0) + (para.indentFirst ?? 0),
-    indentRight: s.pageWidth - s.marginRight - (para.indentRight ?? 0),
+    indentLeft: s.marginLeft + drawn.left,
+    indentFirst: s.marginLeft + drawn.first,
+    indentRight: s.pageWidth - s.marginRight - drawn.right,
   };
   if (drag) values[drag.kind] = drag.value;
   // An indent marker sits on the nearest tick, centred on its 1px line (a tick is drawn from its x to x + 1).
@@ -79,7 +90,7 @@ export function Ruler({ controller, scrollRef }: { controller: DocController; sc
   };
 
   return (
-    <div className="relative h-6 shrink-0 overflow-hidden border-b bg-muted/30 select-none" aria-hidden>
+    <div ref={rulerRef} className="relative h-6 shrink-0 overflow-hidden border-b bg-muted/30 select-none" aria-hidden>
       <div className="absolute top-0 h-full bg-background" style={{ left, width }}>
         {rulerTicks(s.marginLeft, s.pageWidth, scale).map((tick) => (
           <RulerTick key={tick.at} tick={tick} />
@@ -95,6 +106,19 @@ export function Ruler({ controller, scrollRef }: { controller: DocController; sc
 }
 
 type Handle = 'marginLeft' | 'marginRight' | 'indentLeft' | 'indentFirst' | 'indentRight';
+
+/**
+ * Where the layout really starts and ends a paragraph's lines, in points from
+ * the margins: it keeps lines inside the margins (a negative indent is drawn
+ * at the margin) and lays out a list item by its list level, not by its own
+ * indents (the first line starts at the bullet).
+ */
+export function drawnIndents(para: ParaProps, listLevel?: Pick<ListLevel, 'indent' | 'hanging'>): { left: number; first: number; right: number } {
+  const right = Math.max(0, para.indentRight ?? 0);
+  if (listLevel) return { left: Math.max(0, listLevel.indent), first: Math.max(0, listLevel.indent - listLevel.hanging), right };
+  const left = para.indentLeft ?? 0;
+  return { left: Math.max(0, left), first: Math.max(0, left + (para.indentFirst ?? 0)), right };
+}
 
 interface Tick {
   /** Quarter centimetres from the left margin; negative inside it. */
@@ -168,17 +192,18 @@ function apply(controller: DocController, kind: Handle, value: number, contentWi
     case 'marginRight':
       controller.setSection({ marginRight: clamp(s.pageWidth - value, 0, s.pageWidth - s.marginLeft - 72) });
       return;
+    // Indents stop at the margins: the layout draws no text past them.
     case 'indentLeft': {
-      const next = clamp(value - s.marginLeft, -s.marginLeft, contentWidth - 36);
-      // The first line stays where it was.
-      controller.setParagraph({ indentLeft: round(next) || null, indentFirst: round(left + (para.indentFirst ?? 0) - next) || null });
+      const next = clamp(value - s.marginLeft, 0, contentWidth - 36);
+      // The first line stays where it was (and on the page).
+      controller.setParagraph({ indentLeft: round(next) || null, indentFirst: round(Math.max(-next, left + (para.indentFirst ?? 0) - next)) || null });
       return;
     }
     case 'indentFirst':
-      controller.setParagraph({ indentFirst: round(clamp(value - s.marginLeft - left, -left - s.marginLeft, contentWidth - left)) || null });
+      controller.setParagraph({ indentFirst: round(clamp(value - s.marginLeft - left, -left, contentWidth - left)) || null });
       return;
     case 'indentRight':
-      controller.setParagraph({ indentRight: round(clamp(s.pageWidth - s.marginRight - value, -s.marginRight, contentWidth - 36)) || null });
+      controller.setParagraph({ indentRight: round(clamp(s.pageWidth - s.marginRight - value, 0, contentWidth - 36)) || null });
       return;
   }
 }

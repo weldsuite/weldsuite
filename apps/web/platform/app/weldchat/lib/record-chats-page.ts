@@ -13,24 +13,47 @@ import { isRecordChatType, RECORD_CHAT_TYPES, type RecordChatType } from './reco
 
 export { RECORD_CHAT_FILTERS, type RecordChatFilter };
 
-/** The page's search params. Both are left out at their default (all types, following). */
+/**
+ * The chats the Filter menu picks between. Unread is not one of them: it is a
+ * switch of its own on top of any of these (`unread` in the URL).
+ */
+export const RECORD_CHAT_SCOPES = ['following', 'mentions', 'all'] as const satisfies readonly RecordChatFilter[];
+export type RecordChatScope = (typeof RECORD_CHAT_SCOPES)[number];
+
+/** The page's search params. All are left out at their default (all types, following, read and unread). */
 export interface RecordChatsSearch {
   type?: RecordChatType;
-  filter?: RecordChatFilter;
+  filter?: RecordChatScope;
+  unread?: true;
 }
 
-export const DEFAULT_RECORD_CHAT_FILTER: RecordChatFilter = 'following';
+export const DEFAULT_RECORD_CHAT_FILTER: RecordChatScope = 'following';
 
-function isRecordChatFilter(value: unknown): value is RecordChatFilter {
-  return typeof value === 'string' && (RECORD_CHAT_FILTERS as readonly string[]).includes(value);
+function isRecordChatScope(value: unknown): value is RecordChatScope {
+  return typeof value === 'string' && (RECORD_CHAT_SCOPES as readonly string[]).includes(value);
 }
 
-/** `validateSearch` of the route: unknown types and filters are dropped, not an error. */
+/**
+ * `validateSearch` of the route: unknown types and filters are dropped, not an
+ * error. `filter=unread`, from before Unread was a switch of its own, turns
+ * the switch on over the followed chats.
+ */
 export function parseRecordChatsSearch(search: Record<string, unknown>): RecordChatsSearch {
   const type = typeof search.type === 'string' && isRecordChatType(search.type) ? search.type : undefined;
   const filter =
-    isRecordChatFilter(search.filter) && search.filter !== DEFAULT_RECORD_CHAT_FILTER ? search.filter : undefined;
-  return { ...(type && { type }), ...(filter && { filter }) };
+    isRecordChatScope(search.filter) && search.filter !== DEFAULT_RECORD_CHAT_FILTER ? search.filter : undefined;
+  const unread = search.unread === true || search.unread === 'true' || search.filter === 'unread';
+  return { ...(type && { type }), ...(filter && { filter }), ...(unread && { unread: true as const }) };
+}
+
+/**
+ * The server filter for the menu's choice and the Unread switch. With the
+ * switch on, Following and All I can see list the same unread chats (a chat
+ * the caller does not follow has no read marker, so it is never unread), and
+ * Mentions stays as it is (a mention counts only until it is read).
+ */
+export function recordChatsListFilter(scope: RecordChatScope, unreadOnly: boolean): RecordChatFilter {
+  return unreadOnly && scope !== 'mentions' ? 'unread' : scope;
 }
 
 /**

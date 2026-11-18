@@ -1,5 +1,5 @@
 //! WeldSuite's own MTA as the sending service behind [`RelayDomains`] on the
-//! EU edition (ADR MAIL-011; the contract is `docs/plans/eu-mail-service.md`,
+//! EU edition (ADR MAIL-011; the contract is `weldsuite-documentation/plans/eu-mail-service.md`,
 //! "HTTP API"). Global has no counterpart: there `@weldsuite/worker-email`
 //! calls the Cloudflare Email Sending API.
 //!

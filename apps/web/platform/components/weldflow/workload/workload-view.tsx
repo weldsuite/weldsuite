@@ -26,6 +26,7 @@ import { cn } from '@/lib/utils';
 import { formatTaskNumber } from '@/lib/task-number';
 import { formatHoursDecimalAsHm } from '@/lib/format-hours';
 import { TaskNumberBadge } from '@/components/weldflow/task-number-badge';
+import { MemberSidebarRow } from './member-sidebar-row';
 import { formatDistance,
   addDays,
   eachDayOfInterval,
@@ -43,6 +44,7 @@ import { Label } from '@weldsuite/ui/components/label';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useDateLocale } from '@/lib/i18n/date-locale';
 import { dailyLoad, loadCategory, spreadTaskLoad } from './workload-math';
+import { initials } from '@/components/record-comments/comment-parts';
 import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
 
 // Internal types derived from API data
@@ -239,42 +241,24 @@ const TeamMemberSidebarItem = memo(({
   }, [tasks, member.id]);
 
   return (
-    <button
-      type="button"
-      aria-expanded={isExpanded}
-      className="w-full text-left border-b border-border/50 flex items-center gap-3 px-3 cursor-pointer hover:bg-secondary/50"
-      style={{ height: rowHeight }}
-      onClick={onToggle}
-    >
-      <span className="h-5 w-5 flex items-center justify-center text-muted-foreground rounded-[5px] hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
-        {isExpanded ? (
-          <ChevronDown className="h-3.5 w-3.5" />
-        ) : (
-          <ChevronRight className="h-3.5 w-3.5" />
-        )}
-      </span>
-      <Avatar className="h-[30px] w-[30px] -ml-1">
-        {member.image && <AvatarImage src={member.image} />}
-        <AvatarFallback className="text-xs">{(member.name ?? '?').slice(0, 2)}</AvatarFallback>
-      </Avatar>
-      <span className="block flex-1 min-w-0 -space-y-px -ml-1">
-        <span className="block text-sm font-medium truncate">{member.name}</span>
-        <span className="block text-xs text-muted-foreground">{member.role}</span>
-      </span>
-      <span className="block text-right space-y-0.5">
-        <span className={cn(
-          "block text-xs font-medium",
-          workloadTextClass(avgWorkload, member.hoursPerDay)
-        )}>
+    <MemberSidebarRow
+      name={member.name ?? ''}
+      image={member.image}
+      subtitle={member.role}
+      meta={
+        <span className={workloadTextClass(avgWorkload, member.hoursPerDay)}>
           {formatHoursDecimalAsHm(avgWorkload)} / {member.hoursPerDay}h
         </span>
-        <span className="block text-xs text-muted-foreground">
-          {memberTasks.length === 1
-            ? st('sweep.weldflow.workloadView.taskCountSingular')
-            : st('sweep.weldflow.workloadView.taskCount', { count: memberTasks.length })}
-        </span>
-      </span>
-    </button>
+      }
+      metaSecondary={
+        memberTasks.length === 1
+          ? st('sweep.weldflow.workloadView.taskCountSingular')
+          : st('sweep.weldflow.workloadView.taskCount', { count: memberTasks.length })
+      }
+      rowHeight={rowHeight}
+      isExpanded={isExpanded}
+      onToggle={onToggle}
+    />
   );
 });
 
@@ -1249,7 +1233,7 @@ export function WorkloadView({ initialData, error, projectId, leading }: Readonl
                     </span>
                     <Avatar className="h-6 w-6">
                       {member.image && <AvatarImage src={member.image} />}
-                      <AvatarFallback className="text-[10px]">{member.name.slice(0, 2)}</AvatarFallback>
+                      <AvatarFallback className="text-[10px]">{initials(member.name)}</AvatarFallback>
                     </Avatar>
                     <span className="text-sm font-medium flex-1 truncate">{member.name}</span>
                     <span className={cn(

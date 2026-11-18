@@ -13,17 +13,54 @@
 //! `fetch`, at the URL the worker derives from it, so both backends are
 //! compared on the same answers; a production request never leaves the
 //! cluster for Global.
+//!
+//! Where plans are billed through Mollie (ADR BILL-014, the EU edition) the
+//! binary hands the module an [`InboxBilling`]: inboxes ride on the plan's
+//! monthly charge (€8.00 each before VAT), an inbox added between anchors is
+//! charged for the rest of the month, and a deleted one isn't refunded.
 
 use serde_json::{Value, json};
-use weldsuite_ports::HttpRequest;
+use weldsuite_ports::{BoxFuture, HttpRequest};
 use weldsuite_reach_domain::ReachError;
 
 use crate::{Caller, ReachState};
 
+/// Inbox billing on the plan's Mollie charge (ADR BILL-014). The binary
+/// implements it over `weldsuite-core-billing` (module crates don't depend
+/// on each other); without it billing is off, as above.
+pub trait InboxBilling: Send + Sync {
+    /// `GET /status`: the `ReachBillingSummary` for a workspace with
+    /// `inboxes` live inboxes.
+    fn status<'a>(
+        &'a self,
+        workspace_id: &'a str,
+        inboxes: i64,
+    ) -> BoxFuture<'a, Result<Value, ReachError>>;
+
+    /// `POST /setup`: `{ url }`, a hosted checkout that saves a payment
+    /// method.
+    fn setup<'a>(
+        &'a self,
+        workspace_id: &'a str,
+        user_id: &'a str,
+    ) -> BoxFuture<'a, Result<Value, ReachError>>;
+
+    /// An inbox is being added, `inboxes_after` live inboxes with it: charges
+    /// it for the rest of the month. A refusal (no paid plan, no payment
+    /// method, a payment refused) stops the create.
+    fn add<'a>(
+        &'a self,
+        workspace_id: &'a str,
+        user_id: &'a str,
+        mailbox_id: &'a str,
+        inboxes_after: i64,
+    ) -> BoxFuture<'a, Result<(), ReachError>>;
+}
+
 const BASE: &str = "/api/billing/reach";
 
 /// Why a billing call failed.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) enum BillingError {
     /// `PaymentMethodRequiredError`.
     PaymentMethodRequired,
@@ -33,12 +70,15 @@ pub(crate) enum BillingError {
         code: Option<String>,
         message: String,
     },
+    /// Plan billing's refusal, answered as it is ([`InboxBilling::add`]).
+    Refused(ReachError),
 }
 
 impl BillingError {
     /// `mapReachError`.
     pub(crate) fn into_reach(self) -> ReachError {
         match self {
+            Self::Refused(error) => error,
             Self::PaymentMethodRequired => ReachError::new(
                 402,
                 "PAYMENT_METHOD_REQUIRED",
@@ -151,6 +191,10 @@ async fn send(
 
 /// `GET /status`; null when billing is off.
 pub(crate) async fn status(caller: &Caller, state: &ReachState) -> Result<Value, ReachError> {
+    if let Some(billing) = &state.inbox_billing {
+        let inboxes = crate::mailboxes::live_inbox_count(&caller.db).await?;
+        return billing.status(&caller.workspace_id, inboxes).await;
+    }
     if !enabled(caller) {
         return Ok(Value::Null);
     }
@@ -165,6 +209,10 @@ pub(crate) async fn setup(
     state: &ReachState,
     input: &Value,
 ) -> Result<Value, ReachError> {
+    // Mollie returns to the billing page; the return addresses are Stripe's.
+    if let Some(billing) = &state.inbox_billing {
+        return billing.setup(&caller.workspace_id, &caller.user_id).await;
+    }
     if !enabled(caller) {
         return Err(billing_off());
     }
@@ -181,6 +229,28 @@ pub(crate) async fn adjust_inboxes(
     delta: i64,
     mailbox_id: &str,
 ) -> Result<Value, BillingError> {
+    if let Some(billing) = &state.inbox_billing {
+        // A deleted inbox isn't refunded: the next anchor bills one fewer.
+        if delta > 0 {
+            let inboxes = crate::mailboxes::live_inbox_count(&caller.db)
+                .await
+                .map_err(|error| BillingError::Failed {
+                    status: 500,
+                    code: None,
+                    message: format!("inboxes not counted: {error}"),
+                })?;
+            billing
+                .add(
+                    &caller.workspace_id,
+                    &caller.user_id,
+                    mailbox_id,
+                    inboxes + delta,
+                )
+                .await
+                .map_err(BillingError::Refused)?;
+        }
+        return Ok(Value::Null);
+    }
     if !enabled(caller) {
         return Ok(Value::Null);
     }

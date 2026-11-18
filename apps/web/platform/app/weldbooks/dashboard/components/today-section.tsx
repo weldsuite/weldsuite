@@ -91,6 +91,7 @@ export function TodaySection({ dashboard }: Readonly<{ dashboard: Dashboard }>) 
 
         <ComparisonLineChart
           variant="hero"
+          sample={sample}
           points={ytd.points}
           label={metricLabels[activeMetric]}
           compareLabel={tc.lastYear}
@@ -115,9 +116,13 @@ function Balances({ dashboard }: Readonly<{ dashboard: Dashboard }>) {
 
   const base = dashboard.currency;
   const accounts = dashboard.bankAccounts ?? [];
-  const cash = accounts
-    .filter((a) => !a.currency || !base || a.currency === base)
-    .reduce((sum, a) => sum + Number(a.currentBalance ?? 0), 0);
+  // The ledger balance of the money accounts, when the API has it; else the sum of the bank accounts (older API).
+  const cash =
+    dashboard.cashBalance === undefined
+      ? accounts
+          .filter((a) => !a.currency || !base || a.currency === base)
+          .reduce((sum, a) => sum + Number(a.currentBalance ?? 0), 0)
+      : Number(dashboard.cashBalance);
   const receivables = dashboard.receivables;
   const payables = dashboard.payables;
   const overdue = Number(receivables?.overdue ?? 0);

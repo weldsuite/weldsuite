@@ -3,7 +3,7 @@
  * subscriptions, and the envelopes WeldConnect and WeldAgent use to call
  * merge-api. Zod v3.
  *
- * Design: docs/plans/weldmerge-phases-2-5.md.
+ * Design: weldsuite-documentation/plans/weldmerge-phases-2-5.md.
  */
 
 import { z } from 'zod';

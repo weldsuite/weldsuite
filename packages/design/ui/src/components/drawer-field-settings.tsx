@@ -47,7 +47,7 @@ export function DrawerFieldSettings({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" className="h-8 w-8" title={title}>
+        <Button variant="ghost" size="icon" className="h-8 w-8" title={title} aria-label={title}>
           <Settings2 className="h-4 w-4" />
         </Button>
       </DropdownMenuTrigger>

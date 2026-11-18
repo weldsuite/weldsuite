@@ -2,7 +2,7 @@
  * WeldMerge phase 3 contract: GitLab, Bitbucket and Azure DevOps. OAuth
  * connections, member accounts, and the forwarded provider webhook. Zod v3.
  *
- * Design: docs/plans/weldmerge-phases-2-5.md.
+ * Design: weldsuite-documentation/plans/weldmerge-phases-2-5.md.
  */
 
 import { z } from 'zod';

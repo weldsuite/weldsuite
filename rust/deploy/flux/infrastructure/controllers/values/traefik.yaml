@@ -5,6 +5,17 @@ deployment:
   replicas: 2
 service:
   type: NodePort
+  # Local, not the default Cluster: with Cluster, kube-proxy masquerades the
+  # load balancer's connections to a pod-network address (10.244.x.x), which
+  # isn't in the PROXY protocol's trustedIPs below, so Traefik drops the
+  # client's address from the header and every request seems to come from
+  # inside the cluster. The admin console's ipAllowList then refuses everyone,
+  # and WeldSign's evidence trail records the wrong address. With Local the
+  # connection keeps the load balancer's own (trusted) private address; nodes
+  # without a Traefik pod fail the load balancer's health check, so it sends
+  # traffic only to those with one.
+  spec:
+    externalTrafficPolicy: Local
 ports:
   web:
     nodePort: 30080

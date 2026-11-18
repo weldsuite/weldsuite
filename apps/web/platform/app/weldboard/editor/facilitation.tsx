@@ -127,7 +127,7 @@ function useBoardTimer(c: BoardController) {
  * while the panel is closed, so it rings when the timer runs out and shows
  * what is running: the clock, and the votes this person has left.
  */
-export function FacilitateButton({ controller: c, open, onToggle }: { controller: BoardController; open: boolean; onToggle: () => void }) {
+export function FacilitateButton({ controller: c, open, onToggle, className }: { controller: BoardController; open: boolean; onToggle: () => void; className?: string }) {
   useSyncExternalStore(c.subscribe, c.getVersion);
   const { t, format } = useI18n();
   const te = t.weldboard.editor;
@@ -147,7 +147,7 @@ export function FacilitateButton({ controller: c, open, onToggle }: { controller
   const myLeft = round?.status === 'open' && canTakePart ? votesLeft(c.board, c.options.userId) : null;
 
   return (
-    <Button size="sm" variant="outline" className={cn('h-8 gap-1.5', open && 'bg-accent')} aria-pressed={open} onClick={onToggle}>
+    <Button size="sm" variant="outline" className={cn('h-8 gap-1.5', open && 'bg-accent', className)} aria-pressed={open} onClick={onToggle}>
       {te.facilitation}
       {timer && <span className={cn('font-mono tabular-nums text-muted-foreground', left === 0 && 'text-destructive')}>{clock(left)}</span>}
       {myLeft !== null && <span className="text-muted-foreground">{myLeft ? format(te.voting.left, { count: myLeft }) : te.voting.noneLeft}</span>}

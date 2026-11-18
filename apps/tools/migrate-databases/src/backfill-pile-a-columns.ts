@@ -4,7 +4,7 @@
  * `custom_fields` blobs into their real columns, then strip the keys, so
  * `pnpm audit:blobs` reaches zero and Phase 4 can drop the blob columns.
  *
- * See docs/custom-fields-blob-extraction.md (Pile A). The Pile A CODE cutover
+ * See weldsuite-documentation/plans/custom-fields-blob-extraction.md (Pile A). The Pile A CODE cutover
  * already routes new writes to the real columns; this is the historical catch-up
  * for legacy rows (mostly written by the deleted api-worker before the cutover).
  *

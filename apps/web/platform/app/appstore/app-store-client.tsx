@@ -19,12 +19,26 @@ import { AppAccessRequestDialog } from './app-access-request-dialog';
 import { SoftBadge } from '@weldsuite/ui/components/soft-badge';
 import { accessBadgeTone, canRequestAccess, getAppAccessInfo, type AppAccessState } from './app-access-state';
 import { getConsolidatedCategory } from './app-categories';
+import {
+  APP_CATEGORY_FILTER,
+  APP_STATUS_FILTER,
+  APP_STATUS_INSTALLED,
+  APP_STATUS_NOT_INSTALLED,
+  isCompleteFilter,
+  matchesAppFilters,
+  matchesAppQuery,
+  userAppMatches,
+} from './app-search';
+import { SearchIconButton } from '@/components/entity-grid';
+import { FilterPills, type ActiveFilter, type FilterConfig } from '@/components/entity-list';
+import { EmptyState } from '@weldsuite/ui/components/empty-state';
+import { useUserAppStore } from '@/hooks/queries/use-user-apps-queries';
 
 interface AppStoreClientProps {
   initialApps: AvailableApp[];
   categories: string[];
   canManage?: boolean; // Only admins can install/uninstall apps
-  /** Shows the Developer console link under the categories. */
+  /** Shows the Developer console link next to the search. */
   canDevelop?: boolean;
 }
 
@@ -49,6 +63,21 @@ export function AppStoreClient({ initialApps, canManage = false, canDevelop = fa
   const [appToUninstall, setAppToUninstall] = useState<AvailableApp | null>(null);
   // On-request apps (WeldReach): the app whose access request form is open.
   const [appToRequest, setAppToRequest] = useState<AvailableApp | null>(null);
+  // The search field's text and the filter pills (status, category); both
+  // narrow the first-party apps and the WeldApps sections.
+  const [query, setQuery] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [filters, setFilters] = useState<ActiveFilter[]>([]);
+  const isSearching = query.trim() !== '';
+  const isFiltering = filters.some(isCompleteFilter);
+  const clearSearchAndFilters = () => {
+    setQuery('');
+    setSearchOpen(false);
+    setFilters([]);
+  };
+  // The WeldApps sections load the same (cached) list; read it here too so a
+  // search that only matches WeldApps doesn't show "No apps found".
+  const { data: userApps } = useUserAppStore();
 
   const installApp = useInstallApp();
   const uninstallApp = useUninstallApp();
@@ -134,11 +163,39 @@ export function AppStoreClient({ initialApps, canManage = false, canDevelop = fa
     'Finance': t.appstore.categoryFinance,
   };
 
-  // Group all apps by consolidated category for display
+  // The Filter button's fields: install status and category group.
+  const filterConfigs: FilterConfig[] = [
+    {
+      field: APP_STATUS_FILTER,
+      label: t.appstore.status,
+      options: [
+        { value: APP_STATUS_INSTALLED, label: t.appstore.installed },
+        { value: APP_STATUS_NOT_INSTALLED, label: t.appstore.notInstalled },
+      ],
+    },
+    {
+      field: APP_CATEGORY_FILTER,
+      label: t.appstore.category,
+      options: Object.entries(categoryLabel).map(([value, label]) => ({ value, label })),
+    },
+  ];
+
+  // Group the apps that match the search and filters by consolidated category
+  // for display. Categories without a match drop out of the list and the
+  // categories column.
   const { appsByCategory, consolidatedCategories } = React.useMemo(() => {
     const grouped: Record<string, AvailableApp[]> = {};
     apps.forEach((app) => {
       const consolidatedCategory = getConsolidatedCategory(app.category, app.code);
+      const matches =
+        matchesAppQuery(query, [
+          app.name,
+          app.code,
+          app.description,
+          app.category,
+          categoryLabel[consolidatedCategory],
+        ]) && matchesAppFilters(filters, { isInstalled: !!app.isInstalled, group: consolidatedCategory });
+      if (!matches) return;
       if (!grouped[consolidatedCategory]) {
         grouped[consolidatedCategory] = [];
       }
@@ -150,7 +207,13 @@ export function AppStoreClient({ initialApps, canManage = false, canDevelop = fa
     const sortedCategories = categoryOrder.filter(cat => grouped[cat]);
 
     return { appsByCategory: grouped, consolidatedCategories: sortedCategories };
-  }, [apps]);
+    // `categoryLabel` is rebuilt every render from the static translations.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apps, query, filters]);
+
+  const hasUserAppMatch = (userApps ?? []).some((app) => userAppMatches(app, query, filters));
+  const showNoResults =
+    (isSearching || isFiltering) && consolidatedCategories.length === 0 && !hasUserAppMatch;
 
   const scrollToCategory = (category: string) => {
     const element = document.getElementById(`category-${category.replaceAll(/\s+/g, '-').toLowerCase()}`);
@@ -187,17 +250,58 @@ export function AppStoreClient({ initialApps, canManage = false, canDevelop = fa
                 ))}
               </div>
             </div>
-            {/* At the very bottom of the column: pinned 24px above the window's bottom while scrolling. */}
-            {canDevelop && (
-              <Button asChild variant="outline" size="sm" className="sticky bottom-6 mt-auto w-fit">
-                <Link href="/apps/manage">{allT.weldapps.breadcrumb.myApps}</Link>
-              </Button>
-            )}
           </div>
 
           {/* Apps Content */}
           <div className="flex-1 p-4 md:p-6 md:pl-8">
-            <OfficialHostedAppsSection />
+            {/* Filter and search row above the cards, laid out like the settings
+                list toolbars (roles, activity): the filter pills on the left, the
+                list pages' (`GridToolbar`) magnifier search on the right.
+                `@container` sizes the open field the same way the toolbar does. */}
+            <div className="@container mb-6 flex items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-2">
+                <FilterPills
+                  filters={filters}
+                  filterConfigs={filterConfigs}
+                  maxFilters={2}
+                  onFiltersChange={setFilters}
+                  operatorLabels={{ is: allT.sweep.entities.operatorIs, 'is not': allT.sweep.entities.operatorIsNot }}
+                  labels={{ filter: allT.sweep.entities.filter, selectCondition: allT.sweep.entities.selectCondition }}
+                />
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <SearchIconButton
+                  value={query}
+                  onChange={setQuery}
+                  placeholder={t.appstore.searchPlaceholder}
+                  isOpen={searchOpen}
+                  onOpenChange={setSearchOpen}
+                />
+                {canDevelop && (
+                  <Button asChild variant="outline" size="sm" className="h-8 shadow-none">
+                    <Link href="/apps/manage">{allT.weldapps.breadcrumb.myApps}</Link>
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {showNoResults && (
+              <EmptyState
+                title={t.appstore.noResultsTitle}
+                description={
+                  isSearching
+                    ? format(t.appstore.noResultsDescription, { query: query.trim() })
+                    : t.appstore.noResultsFilters
+                }
+                action={
+                  <Button variant="outline" size="sm" onClick={clearSearchAndFilters}>
+                    {isFiltering ? t.appstore.clearFilters : t.appstore.clearSearch}
+                  </Button>
+                }
+              />
+            )}
+
+            <OfficialHostedAppsSection query={query} filters={filters} />
 
             {consolidatedCategories.map((category, index) => (
               <div
@@ -312,14 +416,7 @@ export function AppStoreClient({ initialApps, canManage = false, canDevelop = fa
               </div>
             ))}
 
-            <CustomAppsSection />
-
-            {/* Below md the categories column (and the page's top bar) is hidden, so the console link sits under the apps. */}
-            {canDevelop && (
-              <Button asChild variant="outline" size="sm" className="mt-8 md:hidden">
-                <Link href="/apps/manage">{allT.weldapps.breadcrumb.myApps}</Link>
-              </Button>
-            )}
+            <CustomAppsSection query={query} filters={filters} />
 
             <div className="pb-8" />
           </div>

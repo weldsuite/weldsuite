@@ -1,8 +1,16 @@
 //! `/api/workspaces` (`app-api/src/routes/workspaces`, `listUserWorkspaces`
 //! in `@weldsuite/core-domain/workspaces`): the workspaces the caller is an
 //! active member of, for the workspace switcher. A master-DB read behind the
-//! session and tenant layers, with no permission of its own; a failed read
-//! answers an empty list.
+//! session and tenant layers, with no permission of its own. A failed read
+//! answers 500, never an empty list: an empty list means the person belongs
+//! to no workspace, and the platform's OIDC session takes it as such.
+//!
+//! In membership mode (`OIDC_WORKSPACE_SOURCE=header`) the token names no
+//! workspace, so the list is what a client reads before it has picked one:
+//! [`directory_router`] serves it behind the session only, and each entry's
+//! `id` is `workspaces.id`, the value the client sends back in
+//! `X-Weld-Workspace`. In claim mode `id` stays the organization id
+//! (`clerk_org_id`), as the token's organization claim names it.
 
 use std::sync::Arc;
 
@@ -11,16 +19,31 @@ use axum::extract::State;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use serde_json::{Value, json};
-use weldsuite_kit::Data;
+use weldsuite_db::PgPool;
+use weldsuite_kit::{ApiError, Data};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
-use crate::{Caller, CoreTeamState};
+use crate::{AccountCaller, Caller, CoreTeamState};
 
 pub(crate) fn router<Q>(_gate: &Arc<PermissionGate<Q>>) -> Router<CoreTeamState>
 where
     Q: PermissionQueries + 'static,
 {
     Router::new().route("/", get(list))
+}
+
+/// The membership-mode list, behind the session only.
+pub(crate) fn directory_router() -> Router<CoreTeamState> {
+    Router::new().route("/", get(directory))
+}
+
+/// What an entry's `id` is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EntryId {
+    /// The organization id (`clerk_org_id`), else `workspaces.id`.
+    Organization,
+    /// `workspaces.id`, what `X-Weld-Workspace` takes.
+    Workspace,
 }
 
 type Row = (
@@ -32,37 +55,89 @@ type Row = (
     String,
 );
 
-async fn list(State(state): State<CoreTeamState>, caller: Caller) -> Response {
+/// One entry of the list.
+pub(crate) fn entry(row: Row, ids: EntryId) -> Value {
+    let (clerk_org_id, id, name, slug, image_url, role) = row;
+    let entry_id = match ids {
+        // Legacy rows without a Clerk org fall back to the id.
+        EntryId::Organization => clerk_org_id.unwrap_or_else(|| id.clone()),
+        EntryId::Workspace => id.clone(),
+    };
+    json!({
+        "id": entry_id,
+        "workspaceId": id,
+        "name": name,
+        "slug": slug,
+        "imageUrl": image_url,
+        "role": role,
+    })
+}
+
+async fn answer(master: &PgPool, user_id: &str, ids: EntryId) -> Response {
     let rows: Result<Vec<Row>, sqlx::Error> = sqlx::query_as(
         "select w.clerk_org_id, w.id, w.name, w.slug, w.image_url, uw.role
          from user_workspaces uw
          inner join workspaces w on uw.workspace_id = w.id
          where uw.user_id = $1 and uw.status = 'ACTIVE' and w.is_active = true",
     )
-    .bind(&caller.user_id)
-    .fetch_all(&caller.master(&state))
+    .bind(user_id)
+    .fetch_all(master)
     .await;
     match rows {
         Ok(rows) => {
-            let workspaces: Vec<Value> = rows
-                .into_iter()
-                .map(|(clerk_org_id, id, name, slug, image_url, role)| {
-                    json!({
-                        // Legacy rows without a Clerk org fall back to the id.
-                        "id": clerk_org_id.unwrap_or_else(|| id.clone()),
-                        "workspaceId": id,
-                        "name": name,
-                        "slug": slug,
-                        "imageUrl": image_url,
-                        "role": role,
-                    })
-                })
-                .collect();
+            let workspaces: Vec<Value> = rows.into_iter().map(|row| entry(row, ids)).collect();
             Data(Value::Array(workspaces)).into_response()
         }
         Err(error) => {
             tracing::error!(%error, "workspaces: list failed");
-            Data(json!([])).into_response()
+            ApiError::internal()
+                .with_message("Failed to list workspaces")
+                .into_response()
         }
+    }
+}
+
+async fn list(State(state): State<CoreTeamState>, caller: Caller) -> Response {
+    answer(
+        &caller.master(&state),
+        &caller.user_id,
+        EntryId::Organization,
+    )
+    .await
+}
+
+async fn directory(State(state): State<CoreTeamState>, caller: AccountCaller) -> Response {
+    answer(&caller.master(&state), &caller.user_id, EntryId::Workspace).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn row(clerk_org_id: Option<&str>) -> Row {
+        (
+            clerk_org_id.map(str::to_owned),
+            "ws_1".to_owned(),
+            "Acme".to_owned(),
+            "acme".to_owned(),
+            None,
+            "org:admin".to_owned(),
+        )
+    }
+
+    #[test]
+    fn claim_mode_names_the_organization_and_membership_mode_the_workspace() {
+        let claim = entry(row(Some("org_1")), EntryId::Organization);
+        assert_eq!(
+            claim,
+            json!({
+                "id": "org_1", "workspaceId": "ws_1", "name": "Acme", "slug": "acme",
+                "imageUrl": null, "role": "org:admin",
+            })
+        );
+        assert_eq!(entry(row(None), EntryId::Organization)["id"], "ws_1");
+        let header = entry(row(Some("org_1")), EntryId::Workspace);
+        assert_eq!(header["id"], "ws_1");
+        assert_eq!(header["workspaceId"], "ws_1");
     }
 }

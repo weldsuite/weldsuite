@@ -65,6 +65,26 @@ export const thirdParty = {
     flash: 'google-ai-studio/gemini-2.5-flash',
     pro: 'google-ai-studio/gemini-2.5-pro',
   },
+  /**
+   * Mistral: the EU edition's install provider (ADR AI-012), called directly
+   * by the Rust backend (`rust/crates/ai`), never through the gateway. Dated
+   * ids, because prices key on the id and the `-latest` aliases move. The
+   * task map is `PROVIDER_TASKS.mistral` in `catalog.ts`.
+   */
+  mistral: {
+    /** Mistral Small 4 (26.03): classify, translate, extraction. 256k ctx. */
+    small: 'mistral/mistral-small-2603',
+    /** Mistral Medium 3.5 (26.04): deprecated, retires 2027-04-30; Large 4 replaces it. */
+    medium: 'mistral/mistral-medium-3-5',
+    /** Mistral Large 4: summaries, drafts, the assistant. 1M ctx. */
+    large: 'mistral/mistral-large-4-0',
+    /** Mistral OCR 4.1: `POST /v1/ocr`, with document annotations. */
+    ocr: 'mistral/mistral-ocr-4-1',
+    /** Mistral Embed: 1024 dimensions (the search index's `EMBED_DIMENSIONS`). */
+    embed: 'mistral/mistral-embed-2312',
+    /** Voxtral Mini Transcribe 3 (public preview): `/v1/audio/transcriptions`. */
+    transcribe: 'mistral/voxtral-mini-transcribe-3-0',
+  },
 } as const;
 
 /**
@@ -119,6 +139,7 @@ type WorkersAiId = (typeof workersAi)[keyof typeof workersAi];
 type AnthropicId = (typeof thirdParty.anthropic)[keyof typeof thirdParty.anthropic];
 type OpenAiId = (typeof thirdParty.openai)[keyof typeof thirdParty.openai];
 type GoogleId = (typeof thirdParty.google)[keyof typeof thirdParty.google];
+type MistralId = (typeof thirdParty.mistral)[keyof typeof thirdParty.mistral];
 
 /** Known model ids (autocomplete), but any string is accepted. */
 export type ModelId =
@@ -126,4 +147,5 @@ export type ModelId =
   | AnthropicId
   | OpenAiId
   | GoogleId
+  | MistralId
   | (string & {});

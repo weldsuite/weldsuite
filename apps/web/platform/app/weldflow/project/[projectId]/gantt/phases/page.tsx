@@ -10,7 +10,6 @@ import { useAppApiClient } from '@/lib/api/use-app-api';
 import { useI18n } from '@/lib/i18n/provider';
 import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
 import { usePhaseGate, usePhases, useProjectSchedule } from '@/hooks/queries/use-project-schedule-queries';
-import { fill } from '../dependencies/_lib/format';
 import { GateCard } from './_components/gate-card';
 import { Lifecycle } from './_components/lifecycle';
 import { PastGates } from './_components/past-gates';
@@ -53,7 +52,7 @@ function LoadingState() {
 
 /** Gantt, Phases and gates: the lifecycle, the next gate with its criteria, who approves, and the gates that passed. */
 export default function PhasesPage() {
-  const { t } = useI18n();
+  const { t, plural } = useI18n();
   const copy = t.flowSchedule.phases;
   const params = useParams();
   const projectId = params.projectId as string;
@@ -104,7 +103,7 @@ export default function PhasesPage() {
     <div className="grid gap-4">
       <div className="flex flex-wrap items-center gap-3">
         <h2 className="text-base font-semibold">{copy.lifecycle}</h2>
-        {list.length > 0 && <span className="text-sm text-muted-foreground">{fill(copy.lifecycleSummary, { phases: list.length, gates: list.length })}</span>}
+        {list.length > 0 && <span className="text-sm text-muted-foreground">{plural(list.length, copy.lifecycleSummary)}</span>}
         <div className="flex-1" />
         {canManage && (
           <Button type="button" variant="outline" onClick={() => setEditing(true)}>

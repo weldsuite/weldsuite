@@ -73,8 +73,23 @@ fn internal_error(message: &str) -> Refusal {
 }
 
 /// Answer a handler's result, refusal or not.
-fn answer(result: Answer) -> Response {
+fn reply(result: Answer) -> Response {
     result.unwrap_or_else(IntoResponse::into_response)
+}
+
+/// Answer a socket route's result. A refused handshake is logged with the
+/// route, status and reason (never the URI or query: the token is in it), so
+/// an operator can see why a browser's socket failed.
+fn answer(route: &'static str, result: Answer) -> Response {
+    result.unwrap_or_else(|refusal| {
+        tracing::warn!(
+            route,
+            status = %refusal.0,
+            reason = %refusal.1,
+            "realtime: handshake refused"
+        );
+        refusal.into_response()
+    })
 }
 
 fn query(uri: &Uri) -> HashMap<String, String> {
@@ -165,7 +180,7 @@ async fn workspace_socket(
     headers: HeaderMap,
     upgrade: Upgrade,
 ) -> Response {
-    answer(workspace(gateway, &uri, &headers, upgrade).await)
+    answer("/ws", workspace(gateway, &uri, &headers, upgrade).await)
 }
 
 async fn workspace(
@@ -200,7 +215,10 @@ async fn personal_socket(
     headers: HeaderMap,
     upgrade: Upgrade,
 ) -> Response {
-    answer(personal(gateway, &uri, &headers, upgrade).await)
+    answer(
+        "/ws/personal",
+        personal(gateway, &uri, &headers, upgrade).await,
+    )
 }
 
 async fn personal(
@@ -237,7 +255,10 @@ async fn chat_socket(
     headers: HeaderMap,
     upgrade: Upgrade,
 ) -> Response {
-    answer(chat(gateway, channel_id, &uri, &headers, upgrade).await)
+    answer(
+        "/ws/chat",
+        chat(gateway, channel_id, &uri, &headers, upgrade).await,
+    )
 }
 
 async fn chat(
@@ -314,7 +335,10 @@ async fn support_socket(
     headers: HeaderMap,
     upgrade: Upgrade,
 ) -> Response {
-    answer(support(gateway, &workspace_id, &uri, &headers, upgrade).await)
+    answer(
+        "/ws/support",
+        support(gateway, &workspace_id, &uri, &headers, upgrade).await,
+    )
 }
 
 async fn support(
@@ -367,7 +391,10 @@ async fn conversation_socket(
     headers: HeaderMap,
     upgrade: Upgrade,
 ) -> Response {
-    answer(conversation(gateway, conversation_id, &uri, &headers, upgrade).await)
+    answer(
+        "/ws/conversation",
+        conversation(gateway, conversation_id, &uri, &headers, upgrade).await,
+    )
 }
 
 async fn conversation(
@@ -513,7 +540,7 @@ async fn publish_workspace(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    answer(publish_to_workspace(&gateway, &headers, &body).await)
+    reply(publish_to_workspace(&gateway, &headers, &body).await)
 }
 
 async fn publish_to_workspace(gateway: &Gateway, headers: &HeaderMap, body: &Bytes) -> Answer {
@@ -552,7 +579,7 @@ async fn publish_room(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    answer(publish_to_room(&gateway, &room, &id, &headers, &body).await)
+    reply(publish_to_room(&gateway, &room, &id, &headers, &body).await)
 }
 
 async fn publish_to_room(
@@ -579,7 +606,7 @@ async fn internal_presence(
     uri: Uri,
     headers: HeaderMap,
 ) -> Response {
-    answer(presence(&gateway, &uri, &headers).await)
+    reply(presence(&gateway, &uri, &headers).await)
 }
 
 async fn presence(gateway: &Gateway, uri: &Uri, headers: &HeaderMap) -> Answer {

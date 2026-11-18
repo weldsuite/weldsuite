@@ -25,6 +25,7 @@ export const welddocs = {
     untitled: 'Naamloos document',
     rename: 'Naam wijzigen',
     renamePrompt: 'Naam van het document',
+    moreActions: 'Acties voor {name}',
     delete: 'Verwijderen',
     deleteTitle: 'Document verwijderen?',
     deletePermanently: '"{name}" wordt verwijderd. Dit kan niet ongedaan worden gemaakt.',

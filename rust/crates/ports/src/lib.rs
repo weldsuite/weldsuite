@@ -20,6 +20,7 @@
 //! | [`BatchHandler`] | a Cloudflare Queues consumer (`queue(batch)`, `ack()`, `retry()`) | (call `handle` directly) |
 //! | [`Embeddings`] | Workers AI embeddings through the AI Gateway (`@weldsuite/ai`) | [`FakeEmbeddings`] |
 //! | [`ImapConnector`] | `@weldsuite/imap` over `cloudflare:sockets` (the WeldReach warmup network) | [`MemoryImap`] |
+//! | [`SsoDirectory`] | Clerk's SAML connections (ADR SEC-010); on Kubernetes WeldID's SSO connections (SEC-019) | [`MemorySsoDirectory`] |
 //!
 //! Every port is a trait with native `async fn`-style methods
 //! (`impl Future + Send`). Those are not object safe, so each also has a
@@ -49,6 +50,7 @@ pub mod outbound;
 pub mod presence;
 pub mod realtime;
 pub mod sign_in;
+pub mod sso;
 pub mod transport;
 pub mod video_rooms;
 
@@ -67,10 +69,11 @@ pub use files::{
 };
 pub use flags::{DefaultFlags, DynFlagSource, FlagContext, FlagSource, FlagSourceExt, StaticFlags};
 pub use identity::{
-    ChangeEvent, Identity, IdentityCall, IdentityChange, IdentityError, IdentityProvider,
-    IdentityResult, Invitation, ListPage, Listing, MemberUser, Membership, MemoryIdentity,
-    NewInvitation, NewMembership, NewOrganization, Organization, OrganizationChanges,
-    OrganizationRef, Session, User, UserChanges, UserProfile, merge_metadata, with_identity,
+    ChangeEvent, FeedEvent, FeedPage, Identity, IdentityCall, IdentityChange, IdentityError,
+    IdentityProvider, IdentityResult, Invitation, InvitationEmail, InvitationMailer, ListPage,
+    Listing, MemberUser, Membership, MemoryIdentity, NewInvitation, NewMembership, NewOrganization,
+    Organization, OrganizationChanges, OrganizationRef, Session, User, UserChanges, UserProfile,
+    merge_metadata, with_identity,
 };
 pub use imap::{
     ImapConfig, ImapConnector, ImapError, ImapErrorKind, ImapSession, MailboxInfo, MemoryImap,
@@ -78,22 +81,30 @@ pub use imap::{
 };
 pub use in_process_jobs::InProcessJobs;
 pub use jobs::{
-    DynJobs, Job, JobContext, JobError, JobRegistry, JobRequest, Jobs, NoopJob, PENDING_SIGNAL_TTL,
-    StepFn, StepRetry, step,
+    DynJobs, JOB_DURATION_METRIC, JOB_RUNS_METRIC, Job, JobContext, JobError, JobRegistry,
+    JobRequest, Jobs, NoopJob, PENDING_SIGNAL_TTL, StepFn, StepRetry, record_job_run, run_job,
+    step,
 };
 pub use ledger_store::{LedgerChanges, LedgerSnapshot, LedgerStore, MemoryLedgerStore};
 pub use mail::{
     DynSystemMail, MailAttachment, Mailbox, OutgoingMail, RecordingSystemMail, SentMail, SystemMail,
 };
-pub use outbound::{DynOutboundHttp, HttpRequest, HttpResponse, OutboundHttp, is_public_ip};
+pub use outbound::{
+    DynOutboundHttp, HttpBodyStream, HttpRequest, HttpResponse, HttpStreamResponse, OutboundHttp,
+    is_public_ip,
+};
 pub use presence::{DynPresence, PresenceReader};
 pub use realtime::{
     DynRealtimePublisher, LivePresence, RealtimeMessage, RealtimePublisher, RecordingRealtime, Room,
 };
 pub use sign_in::{
-    AuthMethods, AuthRequest, CodeFormat, CodeKind, LinkTemplate, MemorySignIn, MemoryUser,
-    NewUser, PasswordRules, Prompt, SessionRef, SessionState, SignInError, SignInProvider,
-    SignInResult, SignInSettings, SignInUser, UserStatus,
+    AuthMethods, AuthRequest, CodeDelivery, CodeFormat, CodeKind, LinkTemplate, MemorySignIn,
+    MemoryUser, NewUser, PasswordRules, Prompt, SessionRef, SessionState, SignInError,
+    SignInProvider, SignInResult, SignInSettings, SignInUser, UserStatus,
+};
+pub use sso::{
+    MemorySsoDirectory, NewSsoConnection, SamlCertificate, SamlDetails, SamlMetadata,
+    SsoConnection, SsoConnectionChanges, SsoDirectory, SsoDomain, SsoDomainStatus, SsoProtocol,
 };
 pub use transport::{
     Envelope, MailTransport, RecordingMailTransport, SentEnvelope, TransportFailure,

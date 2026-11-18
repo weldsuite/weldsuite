@@ -29,7 +29,7 @@ import type { ActionResult } from './workspaces';
 const { outboundMailPolicies: policies, outboundMailCases: cases, outboundMailEvents: events, workspaces } = masterSchema;
 
 /**
- * Staff actions on the outbound mail guard (docs/plans/weldmail-outbound-abuse.md,
+ * Staff actions on the outbound mail guard (weldsuite-documentation/plans/weldmail-outbound-abuse.md,
  * "Staff tooling"). Every action: `guardWrite()` (no read-only viewers), a
  * guarded master-DB write, a row in `outbound_mail_events` where the guard's
  * trail has a kind for it, and an admin audit row.

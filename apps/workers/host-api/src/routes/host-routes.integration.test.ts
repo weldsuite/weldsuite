@@ -310,9 +310,10 @@ describe('domains: external domains', () => {
     const res = await request('/api/domains/external', send('POST', { domain: '  Brand-New.Shop  ', registrar: 'Gandi' }));
     expect(res.status).toBe(201);
     const { data } = (await res.json()) as {
-      data: { fullDomain: string; status: string; registrar: string; verificationRecord: { name: string; type: string; value: string } };
+      data: { fullDomain: string; status: string; registrar: string; autoRenew: boolean; verificationRecord: { name: string; type: string; value: string } };
     };
-    expect(data).toMatchObject({ fullDomain: 'brand-new.shop', status: 'pending', registrar: 'Gandi' });
+    // Its outside registrar renews it, not WeldSuite (TASK-1433).
+    expect(data).toMatchObject({ fullDomain: 'brand-new.shop', status: 'pending', registrar: 'Gandi', autoRenew: false });
     expect(data.verificationRecord.name).toBe('_weldhost-verify.brand-new.shop');
     expect(data.verificationRecord.value).toMatch(/^weldhost-verify=[0-9a-f]{32}$/);
     const again = await request('/api/domains/external', send('POST', { domain: 'brand-new.shop' }));

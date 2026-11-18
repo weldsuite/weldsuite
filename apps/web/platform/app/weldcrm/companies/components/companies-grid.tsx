@@ -25,6 +25,7 @@ import {
 } from '@/hooks/queries/use-companies-queries';
 import { useCustomFields } from '@/hooks/use-custom-fields';
 import { customFieldsToGridColumns } from '@/components/custom-fields/to-grid-columns';
+import { useDeleteAttributeDialog } from '@/components/custom-fields/use-delete-attribute-dialog';
 import { customFieldsToImportFields } from '@/components/custom-fields/to-import-fields';
 import { useGridViewSettings, useCreateCustomField, type CreateCustomFieldData } from '@/hooks/queries/use-settings-queries';
 import { FieldDefinitionDialog } from '@/app/settings/custom-fields/field-definition-dialog';
@@ -152,12 +153,14 @@ export function CompaniesGrid({
   );
 
   const { data: customFieldDefs } = useCustomFields('company');
+  const { requestDelete: requestDeleteAttribute, dialog: deleteAttributeDialog } = useDeleteAttributeDialog();
   const customColumns = useMemo(
     () =>
       customFieldsToGridColumns<Company>(customFieldDefs, {
         getCustomFields: (c) => c.customFields as Record<string, unknown> | null | undefined,
+        onDeleteField: requestDeleteAttribute,
       }),
-    [customFieldDefs],
+    [customFieldDefs, requestDeleteAttribute],
   );
 
   // Built-in importable fields + any user-defined custom fields.
@@ -336,6 +339,7 @@ export function CompaniesGrid({
         />
       )}
       {companyDeleteDialog}
+      {deleteAttributeDialog}
       <QuickAddCompanyDialog open={isQuickAddOpen} onOpenChange={setIsQuickAddOpen} />
       <FieldDefinitionDialog
         open={isCreateAttributeOpen}

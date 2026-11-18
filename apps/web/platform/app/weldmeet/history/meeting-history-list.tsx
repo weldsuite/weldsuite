@@ -144,6 +144,8 @@ function newestRecordingPerMeeting(recordings: MeetingRecordingEntry[]): Map<str
 const DAY_MS = 86400000;
 
 interface DateBoundaries {
+  /** A cancelled meeting keeps the date it was planned for, which can be ahead. */
+  tomorrowStart: number;
   todayStart: number;
   yesterdayStart: number;
   thisWeekStart: number;
@@ -159,6 +161,7 @@ function getDateBoundaries(): DateBoundaries {
   const lastWeekStart = new Date(thisWeekStart.getTime() - 7 * DAY_MS);
   const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   return {
+    tomorrowStart: todayStart.getTime() + DAY_MS,
     todayStart: todayStart.getTime(),
     yesterdayStart: yesterdayStart.getTime(),
     thisWeekStart: thisWeekStart.getTime(),
@@ -191,7 +194,7 @@ function matchesDurationBucket(dur: number, value: string): boolean {
 
 function matchesDateBucket(time: number, value: string, b: DateBoundaries): boolean {
   switch (value) {
-    case 'today': return time >= b.todayStart;
+    case 'today': return time >= b.todayStart && time < b.tomorrowStart;
     case 'yesterday': return time >= b.yesterdayStart && time < b.todayStart;
     case 'this-week': return time >= b.thisWeekStart && time < b.yesterdayStart;
     case 'last-week': return time >= b.lastWeekStart && time < b.thisWeekStart;
@@ -360,6 +363,7 @@ export function MeetingHistoryList({ filter, className, emptyStateClassName }: R
   const groupConfigs: GroupConfig<MeetingWithRecording>[] = useMemo(() => {
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const tomorrow = new Date(today.getTime() + 86400000);
     const yesterday = new Date(today.getTime() - 86400000);
     const thisWeekStart = new Date(today.getTime() - today.getDay() * 86400000);
     const lastWeekStart = new Date(thisWeekStart.getTime() - 7 * 86400000);
@@ -368,7 +372,9 @@ export function MeetingHistoryList({ filter, className, emptyStateClassName }: R
     const getDate = (m: MeetingWithRecording) => new Date(getHistoryDateString(m)).getTime();
 
     return [
-      { id: 'today', label: t.historyPage.groups.today, sortOrder: 1, filter: (m) => getDate(m) >= today.getTime() },
+      // A meeting cancelled before it took place is dated by its planned start, which can be ahead.
+      { id: 'later', label: t.historyPage.groups.later, sortOrder: 0, filter: (m) => getDate(m) >= tomorrow.getTime() },
+      { id: 'today', label: t.historyPage.groups.today, sortOrder: 1, filter: (m) => getDate(m) >= today.getTime() && getDate(m) < tomorrow.getTime() },
       { id: 'yesterday', label: t.historyPage.groups.yesterday, sortOrder: 2, filter: (m) => getDate(m) >= yesterday.getTime() && getDate(m) < today.getTime() },
       { id: 'this-week', label: t.historyPage.groups.thisWeek, sortOrder: 3, filter: (m) => getDate(m) >= thisWeekStart.getTime() && getDate(m) < yesterday.getTime() },
       { id: 'last-week', label: t.historyPage.groups.lastWeek, sortOrder: 4, filter: (m) => getDate(m) >= lastWeekStart.getTime() && getDate(m) < thisWeekStart.getTime() },

@@ -35,6 +35,7 @@ import './weldbooks-contact';
 import './ledger-account';
 import './payment-run';
 import './payroll-run';
+import './hr-employee';
 import './vat-return';
 import './sales-tax-agency';
 import './tax-exemption-certificate';

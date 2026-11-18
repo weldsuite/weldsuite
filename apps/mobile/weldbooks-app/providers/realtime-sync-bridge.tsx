@@ -1,5 +1,5 @@
 import { RealtimeSyncBridge as SharedBridge } from '@weldsuite/mobile-realtime';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
 import { weldbooksSyncMap } from '@/lib/sync-map';
 
 /**
@@ -8,7 +8,7 @@ import { weldbooksSyncMap } from '@/lib/sync-map';
  * useQueryKeyInvalidation / useBooksRealtime.
  */
 export function RealtimeSyncBridge() {
-  const { user } = useClerkAuth();
+  const { user } = useAuthSession();
   return (
     <SharedBridge
       syncMap={weldbooksSyncMap}

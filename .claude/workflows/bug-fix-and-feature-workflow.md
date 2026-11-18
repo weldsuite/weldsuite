@@ -233,7 +233,7 @@ main ─────A───B───C───D─────────�
 
 ## Reading order for new team members
 
-1. `CLAUDE.md` (repo root), architecture + agent workflow
+1. `AGENTS.md` (repo root, plus the nested ones), architecture + agent workflow
 2. This file, the sequencing rules
 3. `.claude/workflows/bug-fix-queue.md`, the live ordered queue
 4. `.claude/agents/*`, what each specialist agent does

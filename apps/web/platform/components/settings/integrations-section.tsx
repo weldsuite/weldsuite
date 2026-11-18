@@ -13,6 +13,8 @@ import { useChannelIntegrations } from '@/hooks/queries/use-helpdesk-integration
 import { useGithubConnection } from '@/hooks/queries/use-github-queries'
 import { useConnectorCatalog } from '@/hooks/queries/use-connector-queries'
 import { useSendcloudSettings } from '@/hooks/queries/use-sendcloud-queries'
+import { isRouteOffered } from '@/lib/edition-routes'
+import { EmptyState } from "@weldsuite/ui/components/empty-state"
 
 type IntegrationListStrings = TranslationNamespaces['settings']['integrations']['list']
 
@@ -271,7 +273,10 @@ export function IntegrationsSection() {
     const connectorConnected = (provider: string) =>
       (connectorCatalogResult?.data ?? []).some((entry) => entry.provider === provider && entry.connectionCount > 0)
 
-    return integrationDefinitions.map(def => {
+    // Edition flags: only integrations whose page this deployment serves
+    // (`lib/edition-routes.ts`: syncs and webhooks the backend runs, MCP servers with WeldAgent).
+    const offered = integrationDefinitions.filter(def => isRouteOffered(def.href || `/settings/integrations/${def.id}`))
+    return offered.map(def => {
       let connected = false
       if (def.id === 'discord') connected = discordConnected
       else if (def.id === 'slack') connected = slackConnected
@@ -307,6 +312,14 @@ export function IntegrationsSection() {
 
   if (connectionsLoading || channelLoading) {
     return <PageLoader fullScreen={false} />
+  }
+
+  if (integrations.length === 0) {
+    return (
+      <div className="mx-auto w-full max-w-[1150px] p-6">
+        <EmptyState title={list.noneOfferedTitle} description={list.noneOfferedDescription} />
+      </div>
+    )
   }
 
   return (

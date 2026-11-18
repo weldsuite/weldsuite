@@ -13,7 +13,7 @@ import type { PartnerOnboardInput, PartnerRow, ResolvedPartnerMember } from '@we
 
 /**
  * Input of workspace-worker's `onboardPartnerWorkspace` RPC: a workspace
- * created for a reseller's customer (docs/plans/reseller-licensing.md). The
+ * created for a reseller's customer (weldsuite-documentation/plans/reseller-licensing.md). The
  * partner user is NOT made a member; `ownerEmail` is invited as the owner.
  */
 export type { PartnerOnboardInput };
@@ -30,7 +30,7 @@ export interface Env {
    * Modules that moved to their own worker and are forwarded there
    * (comma-separated ids from @weldsuite/api-modules, e.g. `pass,host`).
    * Each also needs its service binding (`PASS_API`, …); see
-   * @weldsuite/worker-kit/forward and docs/plans/app-api-module-split.md.
+   * @weldsuite/worker-kit/forward and weldsuite-documentation/plans/app-api-module-split.md.
    */
   API_FORWARD_MODULES?: string;
   DATABASE_URL_MASTER: string;
@@ -89,7 +89,7 @@ export interface Env {
   DATABASE_ENCRYPTION_KEY_V2?: string;
   NEON_DEFAULT_REGION?: string;
 
-  // --- Module workers (docs/plans/app-api-module-split.md) ---------------
+  // --- Module workers (weldsuite-documentation/plans/app-api-module-split.md) ---------------
   /** pass-api (WeldPass). Target of the forwarder for /api/weldpass. */
   PASS_API?: Fetcher;
   /** sheets-api (WeldSheets). Target of the forwarder for /api/sheets. */
@@ -271,7 +271,7 @@ export interface Env {
   /** Per-sender burst limit the guard falls back on when the ledger is unreachable. */
   OUTBOUND_BACKSTOP?: OutboundGuardEnv['OUTBOUND_BACKSTOP'];
 
-  // --- Mailbox store (docs/plans/weldmail-mailbox-store-design.md) --------
+  // --- Mailbox store (weldsuite-documentation/plans/weldmail-mailbox-store-design.md) --------
   /**
    * mail-api's mailbox Durable Object, bound by `script_name` (design §8).
    * Reached only through `@weldsuite/mail-domain/store`'s `getWorkspaceMail`
@@ -316,7 +316,7 @@ export interface Env {
   /** Migration switch: `resend` sends system email through Resend instead of
    *  the SEND_EMAIL binding (@weldsuite/emails workerTransport). Removed
    *  together with Resend at the end of the migration
-   *  (docs/plans/system-email-cloudflare.md). */
+   *  (weldsuite-documentation/plans/system-email-cloudflare.md). */
   EMAIL_TRANSPORT?: string;
   /** Absolute base URL for links in notification emails / push payloads,
    *  e.g. `https://app.weldsuite.org`. */

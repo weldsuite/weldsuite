@@ -1,9 +1,10 @@
-import { useState, useSyncExternalStore, type ReactNode } from 'react';
+import { useContext, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { Button } from '@weldsuite/ui/components/button';
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
@@ -16,11 +17,12 @@ import {
 import { usePreviewMode } from '@/contexts/preview-mode-context';
 import { useI18n } from '@/lib/i18n/provider';
 import type { DocController } from './model/doc-controller';
-import { MOD_LABEL } from './model/keyboard';
+import { FIND_SHORTCUT, MOD_LABEL, shortcutLabel, splitShortcut } from './model/keyboard';
 import { insertTableAtCaret, tableContext } from './model/table-actions';
 import { TableMenuItems } from './table-menu';
 import { CloseMenuContext, TablePicker } from './table-picker';
 import { PARAGRAPH_STYLES, ZOOMS } from './toolbar';
+import { MENU_EDGE_GAP, ReturnFocusContext, useCloseAutoFocus } from './ui';
 import { useDocDownload } from '../use-doc-files';
 
 /** File, Edit, View, Insert, Format, Tools and Help, as in Google Docs. */
@@ -111,7 +113,7 @@ export function Menubar({ controller, name, onRename }: { controller: DocControl
         <Item shortcut={`${MOD_LABEL}+A`} onSelect={() => controller.selectAll()}>
           {tm.selectAll}
         </Item>
-        <Item shortcut={`${MOD_LABEL}+H`} onSelect={() => controller.openFind()}>
+        <Item shortcut={FIND_SHORTCUT} onSelect={() => controller.openFind()}>
           {tm.findReplace}
         </Item>
       </TopMenu>
@@ -130,7 +132,7 @@ export function Menubar({ controller, name, onRename }: { controller: DocControl
           {tm.pageless}
         </Item>
         <DropdownMenuSub>
-          <DropdownMenuSubTrigger>{tm.zoom}</DropdownMenuSubTrigger>
+          <DropdownMenuSubTrigger inset>{tm.zoom}</DropdownMenuSubTrigger>
           <DropdownMenuSubContent>
             {ZOOMS.map((z) => (
               <Item key={z} checked={controller.zoom === z} onSelect={() => controller.setZoom(z)}>
@@ -188,10 +190,10 @@ export function Menubar({ controller, name, onRename }: { controller: DocControl
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>{tm.headersFooters}</DropdownMenuSubTrigger>
             <DropdownMenuSubContent>
-              <Item disabled={!!controller.doc.props.pageless} onSelect={() => controller.editHeader('header', controller.caretPage())}>
+              <Item inset disabled={!!controller.doc.props.pageless} onSelect={() => controller.editHeader('header', controller.caretPage())}>
                 {tm.header}
               </Item>
-              <Item disabled={!!controller.doc.props.pageless} onSelect={() => controller.editHeader('footer', controller.caretPage())}>
+              <Item inset disabled={!!controller.doc.props.pageless} onSelect={() => controller.editHeader('footer', controller.caretPage())}>
                 {tm.footer}
               </Item>
               <DropdownMenuSeparator />
@@ -313,6 +315,7 @@ function styleShortcut(id: string): string | undefined {
 
 function TopMenu({ label, children }: { label: string; children: ReactNode }) {
   const [open, setOpen] = useState(false);
+  const onCloseAutoFocus = useCloseAutoFocus();
   return (
     <DropdownMenu modal={false} open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
@@ -320,31 +323,59 @@ function TopMenu({ label, children }: { label: string; children: ReactNode }) {
           {label}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="min-w-60" onCloseAutoFocus={(e) => e.preventDefault()}>
+      {/* The menus sit at the toolbar's right end: each opens under its own
+          button, running leftwards, and keeps clear of the window's edge. */}
+      <DropdownMenuContent align="end" collisionPadding={MENU_EDGE_GAP} className="min-w-60" onCloseAutoFocus={onCloseAutoFocus}>
         <CloseMenuContext.Provider value={() => setOpen(false)}>{children}</CloseMenuContext.Provider>
       </DropdownMenuContent>
     </DropdownMenu>
   );
 }
 
+/**
+ * A menu command; one that is on or off (`checked` set) is a checkbox item.
+ * `inset` lines a plain command up with the checkbox items in its menu.
+ */
 function Item({
   children,
   onSelect,
   shortcut,
   checked,
   disabled,
+  inset,
 }: {
   children: ReactNode;
   onSelect: () => void;
   shortcut?: string;
   checked?: boolean;
   disabled?: boolean;
+  inset?: boolean;
 }) {
+  // A label that carries its shortcut in brackets (the toolbar's "Left align
+  // (Ctrl+Shift+L)") shows it at the right, like every other command here.
+  const split = typeof children === 'string' && !shortcut ? splitShortcut(children) : null;
+  const keys = shortcut ?? split?.shortcut;
+  const returnFocus = useContext(ReturnFocusContext);
+  const select = () => {
+    onSelect();
+    returnFocus();
+  };
+  const content = (
+    <>
+      {split ? split.name : children}
+      {keys && <DropdownMenuShortcut>{shortcutLabel(keys)}</DropdownMenuShortcut>}
+    </>
+  );
+  if (checked === undefined) {
+    return (
+      <DropdownMenuItem inset={inset} onSelect={select} disabled={disabled}>
+        {content}
+      </DropdownMenuItem>
+    );
+  }
   return (
-    <DropdownMenuItem onSelect={onSelect} disabled={disabled}>
-      <span className="w-4 text-center text-xs">{checked ? '✓' : ''}</span>
-      <span className="flex-1">{children}</span>
-      {shortcut && <DropdownMenuShortcut>{shortcut}</DropdownMenuShortcut>}
-    </DropdownMenuItem>
+    <DropdownMenuCheckboxItem checked={checked} onSelect={select} disabled={disabled}>
+      {content}
+    </DropdownMenuCheckboxItem>
   );
 }

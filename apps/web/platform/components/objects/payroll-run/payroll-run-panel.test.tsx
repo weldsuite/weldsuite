@@ -131,7 +131,7 @@ describe('PayrollRunPanel', () => {
   it('reverses a posted payroll from the menu, on the date chosen in the dialog', async () => {
     const user = userEvent.setup();
     renderPanel();
-    await user.click(screen.getByRole('button', { name: 'Open menu' }));
+    await user.click(screen.getByRole('button', { name: 'More actions' }));
     await user.click(await screen.findByTestId('reverse-open'));
 
     const dialog = await screen.findByRole('dialog');
@@ -145,7 +145,7 @@ describe('PayrollRunPanel', () => {
     query = { data: payroll({ status: 'reversed' }), isLoading: false, isError: false };
     renderPanel();
     expect(screen.getByText(/This payroll was reversed/)).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Open menu' }));
+    await user.click(screen.getByRole('button', { name: 'More actions' }));
     await screen.findByRole('menuitem', { name: 'Copy link' });
     expect(screen.queryByTestId('reverse-open')).not.toBeInTheDocument();
   });
@@ -154,7 +154,7 @@ describe('PayrollRunPanel', () => {
     const user = userEvent.setup();
     permissions.delete('journal:delete');
     renderPanel();
-    await user.click(screen.getByRole('button', { name: 'Open menu' }));
+    await user.click(screen.getByRole('button', { name: 'More actions' }));
     await screen.findByRole('menuitem', { name: 'Copy link' });
     expect(screen.queryByTestId('reverse-open')).not.toBeInTheDocument();
   });

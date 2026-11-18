@@ -1,17 +1,11 @@
 /**
  * Global Cmd+K search hook.
  * Calls POST /api/search via app-api.
- *
- * Types deliberately stay on the core-api schema: the app-api schema is
- * structurally identical but adds `knowledge_page` to the entity-type union,
- * which the platform's search UI maps (RESULT_TYPE_LABEL / RESULT_TYPE_ICON,
- * recents) don't cover yet. The UI degrades gracefully at runtime for unknown
- * types (`?? Search` / `?? group.type` fallbacks).
  */
 
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { useAppApi } from '@/lib/api/use-app-api';
-import type { SearchEntityType, SearchResponse } from '@weldsuite/core-api-client/schemas/search';
+import type { SearchEntityType, SearchResponse } from '@weldsuite/app-api-client/schemas/search';
 
 export interface UseGlobalSearchOptions {
   enabled?: boolean;

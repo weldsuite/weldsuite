@@ -335,6 +335,9 @@ export const platformSyncMap: EntitySyncMap = {
   legal_entity_member: inv(['legal-entities'], ['accounting', 'entities'], ['weldhr']),
   // Settings → Activity → Log streaming (the SIEM destinations).
   audit_log_stream: inv(['audit-log-streams']),
+  // Settings → AI (EU and self-hosted editions).
+  ai_settings: inv(['ai-settings']),
+  ai_provider_key: inv(['ai-settings']),
   // Settings → Apps → WeldDesk → Asset register (device import sources).
   asset_source: inv(['asset-sources']),
   // Phase 3 gaps — API/agent surfaces today; provisional kebab prefixes match
@@ -342,7 +345,7 @@ export const platformSyncMap: EntitySyncMap = {
   purchase_order: inv(['accounting', 'purchase-orders']),
   fiscal_period: inv(['accounting', 'fiscal-periods']),
   fx_rate: inv(['accounting', 'fx-rates']),
-  // US accounting (docs/plans/weldbooks-us.md).
+  // US accounting (weldsuite-documentation/plans/weldbooks-us.md).
   sales_tax_agency: inv(['accounting', 'sales-tax-setup'], ['accounting', 'sales-tax-center']),
   sales_tax_jurisdiction: inv(['accounting', 'sales-tax-setup']),
   sales_tax_zone: inv(['accounting', 'sales-tax-setup']),
@@ -591,6 +594,32 @@ export const platformSyncMap: EntitySyncMap = {
   // WeldPanel — the root of use-weldpanel-queries.ts. The payload has ids,
   // name, kind and status only, so a change refetches the mounted projects.
   panel_project: inv(['weldpanel']),
+  // Saved objects refresh their own branch of weldpanelKeys. Dashboards show
+  // reports on their tiles, so a report change refreshes them too; secret keys
+  // sit under the project detail.
+  panel_report: inv(['weldpanel', 'reports'], ['weldpanel', 'dashboards']),
+  panel_dashboard: inv(['weldpanel', 'dashboards']),
+  panel_cohort: inv(['weldpanel', 'cohorts']),
+  panel_event_definition: inv(['weldpanel', 'lexicon']),
+  panel_heatmap_page: inv(['weldpanel', 'heatmap-pages']),
+  panel_key: inv(['weldpanel', 'projects']),
+  // Data definitions (use-weldpanel-analysis-queries.ts). Custom events,
+  // computed properties and path rules change what a spec compiles to, so the
+  // cached query results refresh with them.
+  panel_custom_event: inv(['weldpanel', 'custom-events'], ['weldpanel', 'query']),
+  panel_computed_property: inv(['weldpanel', 'computed-properties'], ['weldpanel', 'query']),
+  panel_path_rule: inv(['weldpanel', 'path-rules'], ['weldpanel', 'query']),
+  panel_group_type: inv(['weldpanel', 'group-types'], ['weldpanel', 'groups']),
+  panel_metric_tree: inv(['weldpanel', 'metric-trees']),
+  // Collaboration and monitoring (use-weldpanel-collab-queries.ts). Domains
+  // sit under the project detail.
+  panel_annotation: inv(['weldpanel', 'annotations']),
+  panel_comment: inv(['weldpanel', 'comments']),
+  panel_share_link: inv(['weldpanel', 'share-links']),
+  panel_alert: inv(['weldpanel', 'alerts']),
+  panel_subscription: inv(['weldpanel', 'subscriptions']),
+  panel_export: inv(['weldpanel', 'exports']),
+  panel_custom_domain: inv(['weldpanel', 'projects']),
 
   // WeldMerge — the root of use-weldmerge-queries.ts. Every object shares the
   // root: issues, teams, labels, cycles, comments, connections, repositories and

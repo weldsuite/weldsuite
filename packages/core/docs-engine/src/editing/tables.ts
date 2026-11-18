@@ -75,6 +75,8 @@ export function mergeAnchor(t: TableData, row: number, col: number): { row: numb
 }
 
 const DEFAULT_WIDTH = 451;
+/** Space above a new table, so its top border does not touch the line above it (none at the top of a page). */
+export const NEW_TABLE_SPACE_BEFORE = 6;
 
 /**
  * Inserts a rows × cols table at the selection: into an empty paragraph as it
@@ -107,8 +109,9 @@ export function insertTable(doc: DocModel, sel: DocSelection, rows: number, cols
     if (!isEmptyObject(props)) content.paras = [[0, props]];
   }
   ops.push({ type: 'insert', story: sel.story, at, content });
-  // The table's own paragraph (the old mark, now after it) is a plain one.
-  const patch = replacingPatch(props, {});
+  // The table's own paragraph (the old mark, now after it) is a plain one,
+  // with a little space above the table.
+  const patch = replacingPatch<ParaProps>(props, { spaceBefore: NEW_TABLE_SPACE_BEFORE });
   if (!isEmptyObject(patch)) ops.push({ type: 'formatParagraphs', story: sel.story, at: para.end + content.text.length, runs: [[1, patch]] });
   return { op: batch(ops), selection: caretAt(cellStoryId(id, data.rows[0]!.id, data.cols[0]!.id), 0) };
 }

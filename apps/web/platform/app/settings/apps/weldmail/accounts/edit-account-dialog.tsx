@@ -69,10 +69,16 @@ export function EditAccountDialog({
   }, [open, defaultValues, form]);
 
   const onSubmit = async (values: EditAccountFormValues) => {
+    // An empty name would save nothing while saying it did: ask for one.
+    const displayName = values.displayName?.trim() ?? '';
+    if (!displayName) {
+      form.setError('displayName', { message: tea.displayNameRequired });
+      return;
+    }
     try {
       await updateAccount.mutateAsync({
         id: accountId,
-        displayName: values.displayName?.trim() || undefined,
+        displayName,
       });
       toast.success(tea.messages.updated);
       onOpenChange(false);

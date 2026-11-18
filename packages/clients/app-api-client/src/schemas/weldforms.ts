@@ -7,7 +7,7 @@
  * (ADR FORMS-002). The definition itself (blocks, logic, themes, answers) is
  * `@weldsuite/forms-engine`'s schema. The enums mirror
  * `packages/core/db/src/schema/weldforms.ts`; keep them in step.
- * See docs/plans/weldforms.md.
+ * See weldsuite-documentation/plans/weldforms.md.
  */
 
 import { z } from 'zod';

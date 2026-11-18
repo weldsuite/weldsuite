@@ -131,6 +131,7 @@ export const social = {
       platformComparison: 'Platform Comparison',
       dateRange: 'Date Range',
       exportReport: 'Export Report',
+      syncMetrics: 'Sync metrics',
     },
 
     accounts: {
@@ -249,5 +250,23 @@ export const social = {
       invalidScheduleTime: 'That schedule time could not be read — check the date and timezone',
       instagramNeedsMedia:
         'Instagram does not allow text-only posts. Add an image or video, or remove {accounts}.',
+      draftSaveFailed: 'The draft could not be saved',
+      scheduleFailed: 'The post could not be scheduled',
+      approvalFailed: 'The post could not be submitted for approval',
+      publishFailed: 'The post could not be published',
+      deleteFailed: 'The post could not be deleted',
+      uploadFailed: '{name} could not be uploaded',
+      mediaAddFailed: 'The image could not be added',
+      invalidMediaUrl: 'Enter a full image link that starts with https://',
+      campaignSaveFailed: 'The campaign could not be saved',
+      teamMemberSaveFailed: 'The team member could not be saved',
+      settingsSaved: 'Settings saved',
+      settingsSaveFailed: 'The settings could not be saved',
+      accountConnectFailed: 'The account could not be connected',
+      accountsSynced: 'Accounts synced',
+      accountsSyncFailed: 'The accounts could not be synced',
+      deleteDraftTitle: 'Delete this draft?',
+      deleteDraftDescription: 'The draft is removed for good. This cannot be undone.',
+      revisionRequested: 'Revision requested',
     },
   };

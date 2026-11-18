@@ -14,6 +14,7 @@ use super::steps::RunInfo;
 use super::{EngineDeps, engine_id, now_ms, now_text};
 use crate::js::{as_text, js_number, js_string, truthy};
 
+mod ai;
 mod alerts;
 mod comms;
 mod data;
@@ -93,10 +94,6 @@ pub(crate) struct ActionCtx<'a> {
 
 type ActionResult = Result<Value, ActionError>;
 
-/// The AI steps: Workers AI, which the Kubernetes editions lack
-/// (`weldconnect-ai` is unavailable there).
-const AI_STEPS: &[&str] = &["ai_generate", "ai_classify"];
-
 /// `executeAction(actionType, inputs, context)`.
 pub(crate) async fn execute_action(
     kind: &str,
@@ -157,9 +154,8 @@ pub(crate) async fn execute_action(
         "github.create_comment" => providers::github_create_comment(inputs, ctx).await,
         "asana.create_task" => providers::asana_create_task(inputs, ctx).await,
         "asana.update_task" => providers::asana_update_task(inputs, ctx).await,
-        _ if AI_STEPS.contains(&kind) => Err(ActionError::fatal(
-            "AI steps are not available on this deployment",
-        )),
+        "ai_generate" => ai::generate(inputs, ctx).await,
+        "ai_classify" => ai::classify(inputs, ctx).await,
         _ => Err(ActionError::fatal(&format!(
             "Step type \"{kind}\" is not supported by the workflow engine"
         ))),

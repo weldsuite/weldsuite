@@ -2,10 +2,12 @@ import { z } from 'zod';
 
 // `/api/canned-responses` — backed by `helpdesk_canned_responses`.
 
+// `content` is the column (and what reads return); this schema used to ask
+// for a `body` that no column holds, so a create from the platform got a 400.
 export const createCannedResponseSchema = z.object({
   name: z.string().min(1).max(255),
   subject: z.string().max(500).optional(),
-  body: z.string(),
+  content: z.string(),
   shortcut: z.string().max(50).optional(),
   category: z.string().max(100).optional(),
   departmentId: z.string().nullish(),

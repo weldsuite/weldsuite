@@ -40,7 +40,7 @@ spec:
       postInitTemplateSQL:
         - CREATE EXTENSION IF NOT EXISTS vector;
         - CREATE EXTENSION IF NOT EXISTS pg_trgm;
-  # Logins CloudNativePG keeps in step with their Secrets (secrets example).
+  # Logins CloudNativePG keeps in step with their Secrets (secrets/postgres.yaml).
   # `marketing`: the marketing site (apps/marketing) reads the edition's plan
   # prices from `plans` with it, through the master-r Service. It may read
   # those columns and nothing else, granted once per cluster (WeldSuite's

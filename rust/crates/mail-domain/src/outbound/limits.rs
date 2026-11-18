@@ -309,8 +309,9 @@ pub fn resolve_outbound_limits(
     apply_overrides(default_limits(trust), overrides)
 }
 
-/// `SHARED_WELDMAIL_APEXES`.
-pub const SHARED_WELDMAIL_APEXES: [&str; 2] = ["weldmail.com", "weldmail.org"];
+/// `SHARED_WELDMAIL_APEXES`: Global's (`weldmail.com`, `weldmail.org` on test)
+/// and the EU edition's free-address domain (`weldmail.eu`, MAIL-012).
+pub const SHARED_WELDMAIL_APEXES: [&str; 3] = ["weldmail.com", "weldmail.org", "weldmail.eu"];
 
 /// `isSharedWeldMailDomain(domain)`: a shared apex or a workspace subdomain
 /// of one.

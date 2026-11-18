@@ -10,7 +10,7 @@
  *
  * `suspended_at` (staff, after an abuse report) and `held_at` (the publish
  * content screen) stop a public form at once, without touching the tenant.
- * See docs/plans/weldforms.md.
+ * See weldsuite-documentation/plans/weldforms.md.
  */
 
 import { pgTable, varchar, text, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core';

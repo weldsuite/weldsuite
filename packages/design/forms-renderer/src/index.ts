@@ -11,6 +11,7 @@ export type {
   QuizResultItem,
   SubmitFieldErrors,
   SubmitPayload,
+  SubmitRefused,
   SubmitResult,
   UploadHandler,
 } from './types';

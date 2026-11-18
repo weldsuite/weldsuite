@@ -37,7 +37,7 @@ export interface BaseOptions {
   publicId: string;
   /** Where the form is served; default `https://forms.weldsuite.org`. */
   baseUrl?: string;
-  /** Values for the form's hidden fields; only names the form declares are used. */
+  /** Values for the form's hidden fields, or answers that prefill questions by their reference; other names are ignored. */
   hidden?: Record<string, string>;
   onReady?: () => void;
   onSubmit?: (event: SubmitEvent) => void;
@@ -514,8 +514,8 @@ export function createPopover(options: PopoverOptions): EmbedHandle {
       padding: '0 22px',
       border: '0',
       borderRadius: '26px',
-      background: options.buttonColor ?? '#2563eb',
-      color: options.buttonTextColor ?? '#ffffff',
+      background: options.buttonColor ?? '#171717',
+      color: options.buttonTextColor ?? '#fafafa',
       font: '600 15px/1 system-ui, sans-serif',
       cursor: 'pointer',
       boxShadow: '0 4px 14px rgba(0,0,0,0.3)',

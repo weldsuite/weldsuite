@@ -80,7 +80,7 @@ export async function startWooCommerceAppAuth(args: {
   returnUrl: string;
   requestOrigin?: string;
 }): Promise<{ authorizeUrl: string; connectionId: string } | { error: string; status: 400 }> {
-  if (!isAllowedConnectorReturnUrl(args.returnUrl)) {
+  if (!isAllowedConnectorReturnUrl(args.returnUrl, args.env.PUBLIC_APP_URL)) {
     return { error: 'Return URL is not a WeldSuite page', status: 400 };
   }
 
@@ -301,7 +301,7 @@ export async function startMoneybirdOAuth(args: {
   returnUrl: string;
   entityId?: string | null;
 }): Promise<{ authorizeUrl: string } | { error: string; status: 400 }> {
-  if (!isAllowedConnectorReturnUrl(args.returnUrl)) {
+  if (!isAllowedConnectorReturnUrl(args.returnUrl, args.env.PUBLIC_APP_URL)) {
     return { error: 'Return URL is not a WeldSuite page', status: 400 };
   }
   const app = moneybirdAppCredentials(args.env);

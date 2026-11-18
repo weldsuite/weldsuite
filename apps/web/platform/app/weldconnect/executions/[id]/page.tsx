@@ -11,6 +11,7 @@ import {
   useExecutionSteps,
   type ExecutionStep,
 } from '@/hooks/queries/use-automation-queries';
+import { useWorkflowDetail } from '@/hooks/use-workflow-editor-data';
 import { ExecutionDetailClient, type ExecutionStepView } from './execution-detail-client';
 import { extractExecutionError } from '../execution-utils';
 import { useI18n } from '@/lib/i18n/provider';
@@ -22,6 +23,9 @@ export default function ExecutionDetailPage() {
   const executionQuery = useExecution(id);
   const execution = executionQuery.data?.data;
   const isRunning = isActiveExecutionStatus(execution?.status);
+  // The run's workflow now: its current name, or a 404 when it was deleted.
+  const workflowQuery = useWorkflowDetail(execution?.workflowId ?? '', { enabled: !!execution?.workflowId });
+  const workflowDeleted = isApiError(workflowQuery.error) && workflowQuery.error.status === 404;
 
   // Steps and logs are only worth fetching (and polling) once the run itself exists.
   const stepsQuery = useExecutionSteps(id, !!execution, isRunning);
@@ -89,6 +93,7 @@ export default function ExecutionDetailPage() {
     <ExecutionDetailClient
       execution={executionWithSteps}
       initialLogs={logs}
+      workflow={{ name: workflowQuery.data?.name ?? null, deleted: workflowDeleted }}
     />
   );
 }

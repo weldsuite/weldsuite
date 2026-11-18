@@ -148,6 +148,7 @@ export default function MailSignaturesSettingsPage() {
         onOpenChange={(open) => !open && setDeleting(null)}
         title={ts.deleteTitle}
         description={ts.deleteDescription.replace('{name}', deleting?.name ?? '')}
+        confirmLabel={getTranslations('common').actions.delete}
         variant="destructive"
         loading={deleteSignature.isPending}
         onConfirm={confirmDelete}

@@ -25,6 +25,7 @@ import {
 } from 'lucide-react-native';
 import Svg, { Path } from 'react-native-svg';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
+import { useEditionFeature } from '@weldsuite/mobile-platform/edition';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { appApi } from '@/services/app-api';
 import { personalApi } from '@/services/personal-api';
@@ -55,8 +56,11 @@ export default function AddAccountScreen() {
   const { refreshLabels, refreshAccounts, hasPersonalAccount } = useMail();
   const { can, isLoading: permissionsLoading } = usePermissions();
 
-  const canCreateWorkspace = can('accounts:create');
-  const canAddPersonal = !hasPersonalAccount;
+  // Free @weldmail addresses and custom domains are WeldSuite cloud features; other servers may lack them.
+  const freeAddresses = useEditionFeature('mail-free-addresses');
+  const customDomains = useEditionFeature('mail-domains');
+  const canCreateWorkspace = can('accounts:create') && (freeAddresses || customDomains);
+  const canAddPersonal = !hasPersonalAccount && freeAddresses;
   const canStay = canCreateWorkspace || canAddPersonal;
   useEffect(() => {
     if (!permissionsLoading && !canStay) {
@@ -89,7 +93,7 @@ export default function AddAccountScreen() {
 
   // Fetch available domains on mount
   useEffect(() => {
-    if (!canCreateWorkspace) {
+    if (!canCreateWorkspace || !customDomains) {
       setLoadingDomains(false);
       return;
     }
@@ -102,7 +106,7 @@ export default function AddAccountScreen() {
       })
       .catch(() => {})
       .finally(() => setLoadingDomains(false));
-  }, [canCreateWorkspace]);
+  }, [canCreateWorkspace, customDomains]);
 
   // Fetch WeldMail domain when switching to form
   useEffect(() => {
@@ -264,6 +268,7 @@ export default function AddAccountScreen() {
 
   // ---------- Selection ----------
   const renderCustomDomainOption = () => {
+    if (!customDomains) return null;
     if (loadingDomains) {
       return (
         <View style={[styles.optionCard, styles.optionCardLoading, { backgroundColor: colors.card, borderColor: colors.divider }]}>
@@ -327,6 +332,7 @@ export default function AddAccountScreen() {
 
         {canCreateWorkspace ? (
           <>
+        {freeAddresses ? (
         <TouchableOpacity
           style={[styles.optionCard, { backgroundColor: colors.card, borderColor: colors.divider }]}
           onPress={() => setScreen('weldmail')}
@@ -341,6 +347,7 @@ export default function AddAccountScreen() {
           </View>
           <ChevronRight size={20} color={colors.muted} />
         </TouchableOpacity>
+        ) : null}
 
         {renderCustomDomainOption()}
           </>

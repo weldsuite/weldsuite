@@ -142,6 +142,11 @@ export function resolveEvaluateRequest(
     'Content-Type': 'application/json',
   };
 
+  // Tests only: the mock model's unified `run` (`AI_TEST_BASE_URL`, config.ts).
+  if (config.testBaseUrl) {
+    return { url: `${config.testBaseUrl}/run`, headers, wrapInModelInput: true };
+  }
+
   if (config.apiKey) {
     headers.Authorization = `Bearer ${config.apiKey}`;
     if (config.gateway) headers['cf-aig-gateway-id'] = config.gateway;

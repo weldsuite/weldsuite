@@ -26,7 +26,6 @@ export function Welcome({
         <button type="button" className="wf-button" data-wf-focus="" onClick={onStart}>
           {welcome.buttonText || labels.start}
         </button>
-        <span className="wf-hint wf-enter-hint">{labels.pressEnter}</span>
       </div>
     </div>
   );

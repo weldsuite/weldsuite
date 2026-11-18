@@ -119,14 +119,18 @@ async fn request_json(
     .await
 }
 
-/// The request `requestJson` sends: `Accept`, the body and its type.
+/// The request `requestJson` sends: `Accept` (JSON unless the call names
+/// its own), the body and its type.
 fn build_request(
     method: Option<&str>,
     url: &str,
     headers: Vec<(String, String)>,
     body: Body,
 ) -> HttpRequest {
-    let mut headers: Vec<(String, String)> = std::iter::once(pair("Accept", "application/json"))
+    let own_accept = headers.iter().any(|(k, _)| k == "Accept");
+    let mut headers: Vec<(String, String)> = (!own_accept)
+        .then(|| pair("Accept", "application/json"))
+        .into_iter()
         .chain(headers)
         .collect();
     let payload = match body {
@@ -229,8 +233,12 @@ pub struct StripeConfig {
 pub struct PontoConfig {
     pub client_id: String,
     pub client_secret: String,
-    /// The signature certificate a live application signs every request
-    /// with; None sends them unsigned, which only the sandbox accepts.
+    /// A sandbox application (`PONTO_ENV=sandbox`): it authorizes on the
+    /// sandbox's own page. The API host is the same; the mTLS certificate
+    /// decides which data answers.
+    pub sandbox: bool,
+    /// The signature certificate every request is signed with; None sends
+    /// them unsigned (Ponto requires signatures for payments only).
     pub signature: Option<PontoSignature>,
 }
 
@@ -246,6 +254,11 @@ pub struct FeedConfig {
     pub plaid: Option<PlaidConfig>,
     pub stripe: Option<StripeConfig>,
     pub ponto: Option<PontoConfig>,
+    /// `PONTO_APPLICATION_ID`: the Ponto application's id in Isabel's
+    /// developer portal, which its webhook signatures name. Set, Ponto's
+    /// webhooks are on (verified by the receiver even without the OAuth
+    /// client) and connections are polled once a day.
+    pub ponto_application_id: Option<String>,
     pub enable_banking: Option<EnableBankingConfig>,
     /// `BANK_FEED_PROVIDERS`.
     pub routing: Option<String>,
@@ -258,6 +271,7 @@ impl FeedConfig {
         let webhook_base = get("BANK_FEED_WEBHOOK_URL").map(|v| v.trim_end_matches('/').to_owned());
         let mut config = Self {
             routing: get("BANK_FEED_PROVIDERS"),
+            ponto_application_id: filled("PONTO_APPLICATION_ID"),
             ..Self::default()
         };
         if let (Some(client_id), Some(secret)) = (filled("PLAID_CLIENT_ID"), filled("PLAID_SECRET"))
@@ -291,6 +305,7 @@ impl FeedConfig {
             config.ponto = Some(PontoConfig {
                 client_id,
                 client_secret,
+                sandbox: get("PONTO_ENV").as_deref() == Some("sandbox"),
                 signature: match (
                     filled("PONTO_SIGNATURE_CERT_ID"),
                     filled("PONTO_SIGNATURE_KEY"),
@@ -431,8 +446,9 @@ pub fn capabilities(id: &str, config: &FeedConfig) -> Value {
             "regions": regions, "changeCursor": true, "webhooks": true, "pendingTransactions": true,
             "maxHistoryDays": 180, "onDemandRefresh": true, "accountTypes": ["depository", "credit", "loan"],
         }),
+        // Webhooks with an application id, which their signatures name.
         "ponto" => json!({
-            "regions": regions, "changeCursor": false, "webhooks": false, "pendingTransactions": false,
+            "regions": regions, "changeCursor": false, "webhooks": config.ponto_application_id.is_some(), "pendingTransactions": false,
             "maxHistoryDays": 540, "onDemandRefresh": true, "consentTtlDays": 180, "accountTypes": ["depository"],
         }),
         _ => json!({
@@ -466,6 +482,12 @@ pub struct Provider<'a> {
     ponto_http: Option<&'a OutboundHttp>,
     /// Ponto tokens refreshed during this request.
     refreshed: Mutex<HashMap<String, Value>>,
+    /// Ponto accounts a sync read, so the balances that follow need no
+    /// second call (None: the account left the integration).
+    details: Mutex<HashMap<String, Option<Map<String, Value>>>>,
+    /// The waits between looks at the synchronizations a Ponto refresh
+    /// started (tests wait for nothing).
+    poll_waits: Vec<u64>,
 }
 
 impl<'a> Provider<'a> {
@@ -503,7 +525,20 @@ impl<'a> Provider<'a> {
             http,
             ponto_http,
             refreshed: Mutex::default(),
+            details: Mutex::default(),
+            poll_waits: PONTO_REFRESH_POLL_MS.to_vec(),
         })
+    }
+
+    /// `pendingCredentials(providerConnectionId)`: credentials rotated here
+    /// that no sync result carried away yet (Ponto's refresh token works
+    /// once), for a sync that failed after the refresh.
+    pub fn pending_credentials(&self, provider_connection_id: &str) -> Option<Value> {
+        self.refreshed
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(provider_connection_id)
+            .cloned()
     }
 
     pub fn capabilities(&self) -> Value {
@@ -574,7 +609,14 @@ impl<'a> Provider<'a> {
         }
     }
 
-    pub async fn refresh(&self, stored: &StoredConnection) -> Result<(), FeedError> {
+    /// `refresh(connection, { customerIp })`: ask the provider to fetch fresh
+    /// data from the bank. `customer_ip` is the member's address, which Ponto
+    /// requires as evidence that the customer is present.
+    pub async fn refresh(
+        &self,
+        stored: &StoredConnection,
+        customer_ip: Option<&str>,
+    ) -> Result<(), FeedError> {
         match self.id {
             "plaid" => self
                 .plaid(
@@ -584,7 +626,7 @@ impl<'a> Provider<'a> {
                 .await
                 .map(|_| ()),
             "stripe_fc" => self.stripe_refresh(stored).await,
-            "ponto" => self.ponto_refresh(stored).await,
+            "ponto" => self.ponto_refresh(stored, customer_ip).await,
             _ => Ok(()),
         }
     }
@@ -1590,6 +1632,7 @@ impl Provider<'_> {
             has_more: false,
             account_statuses: Some(statuses),
             credentials: None,
+            consent_expires_at: None,
         })
     }
 
@@ -1655,6 +1698,52 @@ impl Provider<'_> {
 // ── Ponto ───────────────────────────────────────────────────────────────────
 
 const PONTO_API: &str = "https://api.ibanity.com/ponto-connect";
+/// A live application's authorization page.
+const PONTO_AUTHORIZE_URL: &str = "https://authorization.myponto.com/oauth2/auth";
+/// A sandbox application's authorization page (`PONTO_ENV=sandbox`).
+const PONTO_SANDBOX_AUTHORIZE_URL: &str = "https://sandbox-authorization.myponto.com/oauth2/auth";
+/// Account information, and a refresh token (`offline_access`) so the link
+/// outlives its first, 30-minute access token.
+const PONTO_SCOPE: &str = "ai offline_access";
+/// What "sync now" asks Ponto to fetch from the bank, per account.
+const PONTO_REFRESH_SUBTYPES: [&str; 2] = ["accountDetails", "accountTransactions"];
+/// The waits between looks at the synchronizations a refresh started, 15
+/// seconds in all.
+pub const PONTO_REFRESH_POLL_MS: [u64; 7] = [500, 1000, 1500, 2000, 3000, 3000, 4000];
+/// Ponto's resource endpoints answer JSON:API.
+const JSON_API: &str = "application/vnd.api+json";
+
+/// The accounts a connection reads: the mapped ones, else every account the
+/// link brought.
+fn ponto_account_ids(stored: &StoredConnection) -> Vec<String> {
+    stored
+        .account_ids
+        .clone()
+        .unwrap_or_else(|| string_list(stored.metadata.get("accountIds")))
+}
+
+/// A synchronization that is done, well or not.
+fn ponto_finished(synchronization: &Map<String, Value>) -> bool {
+    matches!(
+        st(rec(synchronization.get("attributes")).get("status")).as_deref(),
+        Some("success" | "error")
+    )
+}
+
+/// What an account's latest synchronization says about its bank
+/// authorization: expired, invalid or revoked at the bank all need the
+/// customer in Ponto (a reconnect). A technical failure is Ponto's to retry.
+fn ponto_authorization_problem(account: &Map<String, Value>) -> bool {
+    let latest = rec(rec(account.get("meta")).get("latestSynchronization"));
+    arr(rec(latest.get("attributes")).get("errors"))
+        .iter()
+        .any(|error| {
+            matches!(
+                st(rec(Some(error)).get("code")).as_deref(),
+                Some("authorizationExpired" | "authorizationInvalid" | "authorizationRevoked")
+            )
+        })
+}
 
 fn map_ponto_error(status: u16, body: &Map<String, Value>) -> Option<FeedError> {
     let first = rec(arr(body.get("errors")).first());
@@ -1705,7 +1794,11 @@ fn ponto_balance(raw: &Map<String, Value>) -> Option<FeedBalance> {
         account_id,
         current: decimal_to_minor(current, &currency).ok()?,
         currency,
-        as_of: st(attributes.get("synchronizedAt")).unwrap_or_else(now_iso),
+        // When Ponto last synchronized the account (`meta`; read from the
+        // attributes too, where older answers had it).
+        as_of: st(rec(raw.get("meta")).get("synchronizedAt"))
+            .or_else(|| st(attributes.get("synchronizedAt")))
+            .unwrap_or_else(now_iso),
     })
 }
 
@@ -1850,10 +1943,33 @@ impl Provider<'_> {
         self.ponto_request(
             None,
             url,
-            vec![pair("Authorization", format!("Bearer {access}"))],
+            vec![
+                pair("Accept", JSON_API),
+                pair("Authorization", format!("Bearer {access}")),
+            ],
             Body::None,
         )
         .await
+    }
+
+    /// One account as Ponto has it; None when it left the integration
+    /// (removed in Ponto).
+    async fn ponto_account_details(
+        &self,
+        account_id: &str,
+        access: &str,
+    ) -> Result<Option<Map<String, Value>>, FeedError> {
+        match self
+            .ponto_get(
+                &format!("{PONTO_API}/accounts/{}", encode(account_id)),
+                access,
+            )
+            .await
+        {
+            Ok(response) => Ok(Some(rec(response.get("data")))),
+            Err(error) if error.status == Some(404) => Ok(None),
+            Err(error) => Err(error),
+        }
     }
 
     /// The PKCE verifier derived from the state (HMAC of the client secret).
@@ -1874,13 +1990,18 @@ impl Provider<'_> {
         let state = base64url(&random);
         let verifier = self.ponto_verifier(&state);
         let challenge = base64url(&sha2::Sha256::digest(verifier.as_bytes()));
+        let authorize = if self.ponto_config().sandbox {
+            PONTO_SANDBOX_AUTHORIZE_URL
+        } else {
+            PONTO_AUTHORIZE_URL
+        };
         let url = format!(
-            "https://authorization.myponto.com/oauth2/auth{}",
+            "{authorize}{}",
             query_string(&[
                 pair("client_id", self.ponto_config().client_id.clone()),
                 pair("redirect_uri", input.redirect_url.clone()),
                 pair("response_type", "code"),
-                pair("scope", "ai"),
+                pair("scope", PONTO_SCOPE),
                 pair("state", state),
                 pair("code_challenge", challenge),
                 pair("code_challenge_method", "S256"),
@@ -1979,9 +2100,11 @@ impl Provider<'_> {
                 ])
                 .await?,
         )?;
-        let raw_accounts = self
-            .ponto_raw_accounts(tokens["accessToken"].as_str().unwrap_or_default())
-            .await?;
+        let access = tokens["accessToken"].as_str().unwrap_or_default();
+        // The Ponto organization: every webhook names it, so it routes them
+        // to this connection.
+        let organization_id = self.ponto_organization_id(access).await;
+        let raw_accounts = self.ponto_raw_accounts(access).await?;
         let mut accounts = Vec::new();
         let mut earliest: Option<String> = None;
         for raw in &raw_accounts {
@@ -1999,26 +2122,51 @@ impl Provider<'_> {
         let existing = input
             .get("connection")
             .and_then(StoredConnection::from_value);
+        let provider_connection_id = existing.as_ref().map_or_else(
+            || uuid::Uuid::new_v4().to_string(),
+            |c| c.provider_connection_id.clone(),
+        );
+        let mut metadata = Map::new();
+        metadata.insert(
+            "accountIds".to_owned(),
+            json!(
+                accounts
+                    .iter()
+                    .map(|a| a.provider_account_id.clone())
+                    .collect::<Vec<_>>()
+            ),
+        );
+        if let Some(organization_id) = &organization_id {
+            metadata.insert("organizationId".to_owned(), json!(organization_id));
+        }
         Ok((
             FeedConnection {
                 provider: "ponto".to_owned(),
-                provider_connection_id: existing.as_ref().map_or_else(
-                    || uuid::Uuid::new_v4().to_string(),
-                    |c| c.provider_connection_id.clone(),
-                ),
-                index_keys: None,
+                // The connection's own id keeps its due syncs; the
+                // organization's routes the webhooks.
+                index_keys: organization_id
+                    .map(|organization| vec![provider_connection_id.clone(), organization]),
+                provider_connection_id,
                 institution_id: None,
                 institution_name: Some("Ponto".to_owned()),
                 status: "active".to_owned(),
                 credentials: tokens,
                 cursor: existing.as_ref().map_or(Value::Null, |c| c.cursor.clone()),
                 consent_expires_at: earliest,
-                metadata: Some(
-                    json!({ "accountIds": accounts.iter().map(|a| a.provider_account_id.clone()).collect::<Vec<_>>() }),
-                ),
+                metadata: Some(Value::Object(metadata)),
             },
             accounts,
         ))
+    }
+
+    /// The organization the token is for (`/userinfo`'s `sub`); None when
+    /// Ponto does not say, which only costs the webhooks.
+    async fn ponto_organization_id(&self, access: &str) -> Option<String> {
+        self.ponto_get(&format!("{PONTO_API}/userinfo"), access)
+            .await
+            .ok()
+            .and_then(|response| st(response.get("sub")))
+            .filter(|sub| !sub.is_empty())
     }
 
     async fn ponto_sync(
@@ -2038,11 +2186,32 @@ impl Provider<'_> {
             stored.history_days.unwrap_or(540).min(540),
         );
         let mut upserts = Vec::new();
-        let ids = stored
-            .account_ids
-            .clone()
-            .unwrap_or_else(|| string_list(stored.metadata.get("accountIds")));
-        for account_id in ids {
+        let mut statuses = Map::new();
+        let mut consent: Option<String> = None;
+        for account_id in ponto_account_ids(stored) {
+            // The account first: whether Ponto can still reach the bank for
+            // it, and until when.
+            let details = self.ponto_account_details(&account_id, &access).await?;
+            self.details
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .insert(account_id.clone(), details.clone());
+            let Some(details) = details else {
+                // Taken out of the integration in Ponto: adding it back is a
+                // reconnect.
+                statuses.insert(account_id, json!("reauth_required"));
+                continue;
+            };
+            if ponto_authorization_problem(&details) {
+                statuses.insert(account_id.clone(), json!("reauth_required"));
+            }
+            if let Some(expires) =
+                st(rec(details.get("attributes")).get("authorizationExpirationExpectedAt"))
+                    .filter(|e| !e.is_empty())
+                && consent.as_ref().is_none_or(|c| expires < *c)
+            {
+                consent = Some(expires);
+            }
             let mut url = Some(format!(
                 "{PONTO_API}/accounts/{}/transactions{}",
                 encode(&account_id),
@@ -2078,7 +2247,9 @@ impl Provider<'_> {
         Ok(SyncResult {
             upserts,
             next_cursor: json!({ "through": to }),
+            account_statuses: Some(statuses),
             credentials: changed.then_some(tokens),
+            consent_expires_at: consent,
             ..SyncResult::default()
         })
     }
@@ -2087,51 +2258,113 @@ impl Provider<'_> {
         &self,
         stored: &StoredConnection,
     ) -> Result<Vec<FeedBalance>, FeedError> {
-        let (tokens, _) = self.ponto_ensure(stored).await?;
-        let access = tokens["accessToken"]
-            .as_str()
-            .unwrap_or_default()
-            .to_owned();
         let mut out = Vec::new();
-        let ids = stored
-            .account_ids
-            .clone()
-            .unwrap_or_else(|| string_list(stored.metadata.get("accountIds")));
-        for account_id in ids {
-            let response = self
-                .ponto_get(
-                    &format!("{PONTO_API}/accounts/{}", encode(&account_id)),
-                    &access,
-                )
-                .await?;
-            if let Some(balance) = ponto_balance(&rec(response.get("data"))) {
+        for account_id in ponto_account_ids(stored) {
+            // The sync just read the account; otherwise ask for it.
+            let cached = self
+                .details
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .remove(&account_id);
+            let raw = if let Some(raw) = cached {
+                raw
+            } else {
+                let (tokens, _) = self.ponto_ensure(stored).await?;
+                let access = tokens["accessToken"].as_str().unwrap_or_default();
+                self.ponto_account_details(&account_id, access).await?
+            };
+            if let Some(balance) = raw.as_ref().and_then(ponto_balance) {
                 out.push(balance);
             }
         }
         Ok(out)
     }
 
-    async fn ponto_refresh(&self, stored: &StoredConnection) -> Result<(), FeedError> {
+    /// "Sync now": ask Ponto to fetch the balance and transactions from the
+    /// bank and wait for it, so the read that follows has them. Ponto allows
+    /// this only with the customer present (their IP address), at most every
+    /// five minutes and 50 times a day per account; without the address
+    /// nothing is asked.
+    async fn ponto_refresh(
+        &self,
+        stored: &StoredConnection,
+        customer_ip: Option<&str>,
+    ) -> Result<(), FeedError> {
+        let Some(customer_ip) = customer_ip.map(str::trim).filter(|ip| !ip.is_empty()) else {
+            return Ok(());
+        };
         let (tokens, _) = self.ponto_ensure(stored).await?;
         let access = tokens["accessToken"]
             .as_str()
             .unwrap_or_default()
             .to_owned();
-        let ids = stored
-            .account_ids
-            .clone()
-            .unwrap_or_else(|| string_list(stored.metadata.get("accountIds")));
-        for account_id in ids {
-            self.ponto_request(
-                Some("POST"),
-                &format!("{PONTO_API}/synchronizations"),
-                vec![
-                    pair("Authorization", format!("Bearer {access}")),
-                    pair("Content-Type", "application/vnd.api+json"),
-                ],
-                Body::Json(json!({ "data": { "type": "synchronization", "attributes": { "resourceType": "account", "resourceId": account_id, "subtype": "accountTransactions" } } })),
-            )
-            .await?;
+        let mut started = Vec::new();
+        let mut refused: Option<FeedError> = None;
+        for account_id in ponto_account_ids(stored) {
+            for subtype in PONTO_REFRESH_SUBTYPES {
+                let attempt = self
+                    .ponto_request(
+                        Some("POST"),
+                        &format!("{PONTO_API}/synchronizations"),
+                        vec![
+                            pair("Accept", JSON_API),
+                            pair("Authorization", format!("Bearer {access}")),
+                            pair("Content-Type", JSON_API),
+                        ],
+                        Body::Json(json!({ "data": { "type": "synchronization", "attributes": {
+                            "resourceType": "account",
+                            "resourceId": account_id,
+                            "subtype": subtype,
+                            "customerIpAddress": customer_ip,
+                        } } })),
+                    )
+                    .await;
+                match attempt {
+                    Ok(response) => {
+                        let synchronization = rec(response.get("data"));
+                        if let Some(id) = st(synchronization.get("id"))
+                            && !ponto_finished(&synchronization)
+                        {
+                            started.push(id);
+                        }
+                    }
+                    // Too soon after the last one, or the day's limit: the
+                    // read takes what Ponto has.
+                    Err(error) if !matches!(error.kind, "reauth_required" | "revoked") => {
+                        refused.get_or_insert(error);
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+        }
+        self.ponto_wait_for(started.clone(), &access).await?;
+        match refused {
+            Some(error) if started.is_empty() => Err(error),
+            _ => Ok(()),
+        }
+    }
+
+    /// Poll the synchronizations until each is done, for 15 seconds at most.
+    async fn ponto_wait_for(&self, ids: Vec<String>, access: &str) -> Result<(), FeedError> {
+        let mut pending = ids;
+        for wait in &self.poll_waits {
+            if pending.is_empty() {
+                return Ok(());
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(*wait)).await;
+            let mut still = Vec::new();
+            for id in pending {
+                let response = self
+                    .ponto_get(
+                        &format!("{PONTO_API}/synchronizations/{}", encode(&id)),
+                        access,
+                    )
+                    .await?;
+                if !ponto_finished(&rec(response.get("data"))) {
+                    still.push(id);
+                }
+            }
+            pending = still;
         }
         Ok(())
     }
@@ -2673,7 +2906,10 @@ mod ponto_signing_tests {
         let provider = Provider::create("ponto", config, None, Some(&http)).expect("ponto");
         let balances = provider.get_balances(&stored()).await.expect("balances");
         assert_eq!(balances.len(), 1);
-        provider.refresh(&stored()).await.expect("refresh");
+        provider
+            .refresh(&stored(), Some("203.0.113.9"))
+            .await
+            .expect("refresh");
         provider.disconnect(&stored()).await.expect("disconnect");
         let requests = fake.requests.lock().expect("requests").clone();
         let paths: Vec<String> = requests
@@ -2685,6 +2921,7 @@ mod ponto_signing_tests {
             [
                 "POST /oauth2/token",
                 "GET /accounts/acc_1",
+                "POST /synchronizations",
                 "POST /synchronizations",
                 "POST /oauth2/revoke"
             ]
@@ -2725,5 +2962,379 @@ mod ponto_signing_tests {
             _ => None,
         });
         assert!(config.ponto.expect("ponto").signature.is_none());
+    }
+}
+
+#[cfg(test)]
+mod ponto_tests {
+    use std::sync::Arc;
+
+    use weldsuite_ports::{BoxFuture, DynOutboundHttp, HttpResponse, PortError};
+
+    use super::*;
+
+    type Respond = Box<dyn Fn(&str, &str, &Value) -> (u16, Value) + Send + Sync>;
+
+    /// Ponto's API answering through `respond(method, path, body)`; every
+    /// request is kept.
+    struct FakePonto {
+        requests: Mutex<Vec<HttpRequest>>,
+        respond: Respond,
+    }
+
+    impl DynOutboundHttp for FakePonto {
+        fn send(&self, request: HttpRequest) -> BoxFuture<'_, Result<HttpResponse, PortError>> {
+            Box::pin(async move {
+                let path = request
+                    .url
+                    .trim_start_matches(PONTO_API)
+                    .split('?')
+                    .next()
+                    .unwrap_or_default()
+                    .to_owned();
+                let body = request
+                    .body
+                    .as_deref()
+                    .and_then(|b| serde_json::from_slice(b).ok())
+                    .unwrap_or(Value::Null);
+                let (status, answer) = (self.respond)(&request.method, &path, &body);
+                self.requests.lock().expect("requests").push(request);
+                Ok(HttpResponse::new(status, answer.to_string().into_bytes()))
+            })
+        }
+    }
+
+    fn fake(
+        respond: impl Fn(&str, &str, &Value) -> (u16, Value) + Send + Sync + 'static,
+    ) -> Arc<FakePonto> {
+        Arc::new(FakePonto {
+            requests: Mutex::default(),
+            respond: Box::new(respond),
+        })
+    }
+
+    fn config(env: &'static str) -> FeedConfig {
+        FeedConfig::from_env(|name| match name {
+            "PONTO_CLIENT_ID" => Some("cid".to_owned()),
+            "PONTO_CLIENT_SECRET" => Some("csecret".to_owned()),
+            "PONTO_ENV" => Some(env.to_owned()),
+            _ => None,
+        })
+    }
+
+    fn stored(expires_at: &str, account_ids: &[&str]) -> StoredConnection {
+        StoredConnection {
+            provider: "ponto".to_owned(),
+            provider_connection_id: "conn_1".to_owned(),
+            credentials: json!({ "accessToken": "at-1", "refreshToken": "rt-1", "expiresAt": expires_at }),
+            cursor: Value::Null,
+            metadata: Map::new(),
+            history_days: Some(90),
+            account_ids: Some(account_ids.iter().map(|id| (*id).to_owned()).collect()),
+        }
+    }
+
+    const FRESH: &str = "2999-01-01T00:00:00.000Z";
+    const EXPIRED: &str = "2000-01-01T00:00:00.000Z";
+
+    fn account(id: &str, extra: Value) -> Value {
+        let mut account = json!({
+            "type": "account",
+            "id": id,
+            "attributes": {
+                "reference": "BE68539007547034", "referenceType": "IBAN", "currency": "EUR",
+                "subtype": "checking", "currentBalance": 1500.5,
+                "authorizationExpirationExpectedAt": "2027-04-01T00:00:00Z",
+            },
+        });
+        if let (Some(target), Value::Object(extra)) = (account.as_object_mut(), extra) {
+            target.extend(extra);
+        }
+        account
+    }
+
+    fn paths(fake: &FakePonto) -> Vec<String> {
+        fake.requests
+            .lock()
+            .expect("requests")
+            .iter()
+            .map(|r| {
+                format!(
+                    "{} {}",
+                    r.method,
+                    r.url
+                        .trim_start_matches(PONTO_API)
+                        .split('?')
+                        .next()
+                        .unwrap_or_default()
+                )
+            })
+            .collect()
+    }
+
+    fn provider<'a>(config: &'a FeedConfig, http: &'a OutboundHttp) -> Provider<'a> {
+        let mut provider = Provider::create("ponto", config, None, Some(http)).expect("ponto");
+        provider.poll_waits = vec![0; PONTO_REFRESH_POLL_MS.len()];
+        provider
+    }
+
+    #[tokio::test]
+    async fn the_link_asks_for_a_refresh_token_on_the_live_or_the_sandbox_page() {
+        for (env, page) in [
+            ("live", PONTO_AUTHORIZE_URL),
+            ("sandbox", PONTO_SANDBOX_AUTHORIZE_URL),
+        ] {
+            let config = config(env);
+            let http = OutboundHttp(fake(|_, _, _| (200, json!({}))) as Arc<dyn DynOutboundHttp>);
+            let session = provider(&config, &http)
+                .create_link_session(&LinkInput {
+                    redirect_url: "https://app.example/cb".to_owned(),
+                    ..LinkInput::default()
+                })
+                .await
+                .expect("session");
+            let url = url::Url::parse(session["url"].as_str().expect("url")).expect("a URL");
+            assert_eq!(
+                format!("{}{}", url.origin().ascii_serialization(), url.path()),
+                page
+            );
+            let scope = url
+                .query_pairs()
+                .find(|(k, _)| k == "scope")
+                .map(|(_, v)| v.into_owned());
+            assert_eq!(scope.as_deref(), Some("ai offline_access"));
+        }
+    }
+
+    #[tokio::test]
+    async fn a_sync_reads_each_account_first_its_consent_end_and_its_authorization() {
+        let lapsed = json!({ "meta": { "latestSynchronization": { "attributes": {
+            "status": "error", "errors": [{ "code": "authorizationExpired" }] } } } });
+        let fake = fake(move |_, path, _| match path {
+            "/accounts/acc_1" => (
+                200,
+                json!({ "data": account("acc_1", json!({ "meta": { "synchronizedAt": "2026-10-09T06:00:00Z" } })) }),
+            ),
+            "/accounts/acc_2" => (200, json!({ "data": account("acc_2", lapsed.clone()) })),
+            "/accounts/acc_3" => (404, json!({ "errors": [{ "code": "resourceNotFound" }] })),
+            "/accounts/acc_1/transactions" | "/accounts/acc_2/transactions" => {
+                (200, json!({ "data": [], "links": {} }))
+            }
+            _ => (500, json!({})),
+        });
+        let config = config("live");
+        let http = OutboundHttp(Arc::clone(&fake) as Arc<dyn DynOutboundHttp>);
+        let provider = provider(&config, &http);
+        let stored = stored(FRESH, &["acc_1", "acc_2", "acc_3"]);
+
+        let result = provider
+            .sync_transactions(&stored, &Value::Null)
+            .await
+            .expect("sync");
+        assert_eq!(
+            result.account_statuses,
+            Some(
+                serde_json::from_value(
+                    json!({ "acc_2": "reauth_required", "acc_3": "reauth_required" })
+                )
+                .expect("map")
+            )
+        );
+        assert_eq!(
+            result.consent_expires_at.as_deref(),
+            Some("2027-04-01T00:00:00Z")
+        );
+        // The balances reuse those reads.
+        let balances = provider.get_balances(&stored).await.expect("balances");
+        assert_eq!(balances.len(), 2);
+        assert_eq!(balances[0].as_of, "2026-10-09T06:00:00Z");
+        assert_eq!(
+            paths(&fake),
+            [
+                "GET /accounts/acc_1",
+                "GET /accounts/acc_1/transactions",
+                "GET /accounts/acc_2",
+                "GET /accounts/acc_2/transactions",
+                "GET /accounts/acc_3",
+            ]
+        );
+        let accept = fake.requests.lock().expect("requests")[0]
+            .headers
+            .iter()
+            .filter(|(name, _)| name == "Accept")
+            .map(|(_, value)| value.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(accept, ["application/vnd.api+json"]);
+    }
+
+    #[tokio::test]
+    async fn rotated_tokens_stay_with_the_provider_when_the_sync_fails_after_the_refresh() {
+        let fake = fake(|_, path, _| match path {
+            "/oauth2/token" => (
+                200,
+                json!({ "access_token": "at-2", "refresh_token": "rt-2", "expires_in": 1800 }),
+            ),
+            _ => (503, json!({})),
+        });
+        let config = config("live");
+        let http = OutboundHttp(Arc::clone(&fake) as Arc<dyn DynOutboundHttp>);
+        let provider = provider(&config, &http);
+        let error = provider
+            .sync_transactions(&stored(EXPIRED, &["acc_1"]), &Value::Null)
+            .await
+            .expect_err("Ponto is down");
+        assert_eq!(error.kind, "transient");
+        let pending = provider
+            .pending_credentials("conn_1")
+            .expect("rotated tokens");
+        assert_eq!(
+            (
+                pending["accessToken"].as_str(),
+                pending["refreshToken"].as_str()
+            ),
+            (Some("at-2"), Some("rt-2"))
+        );
+        assert!(provider.pending_credentials("conn_other").is_none());
+    }
+
+    #[tokio::test]
+    async fn a_refresh_needs_the_customer_and_waits_for_its_synchronizations() {
+        let looks = Arc::new(Mutex::new(0));
+        let counted = Arc::clone(&looks);
+        let fake = fake(move |method, path, body| match (method, path) {
+            ("POST", "/synchronizations") => {
+                let subtype = body["data"]["attributes"]["subtype"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_owned();
+                (
+                    200,
+                    json!({ "data": { "id": format!("sync_{subtype}"), "attributes": { "status": "pending" } } }),
+                )
+            }
+            ("GET", "/synchronizations/sync_accountDetails") => (
+                200,
+                json!({ "data": { "attributes": { "status": "success" } } }),
+            ),
+            ("GET", "/synchronizations/sync_accountTransactions") => {
+                let mut looks = counted.lock().expect("looks");
+                *looks += 1;
+                let status = if *looks < 2 { "running" } else { "success" };
+                (
+                    200,
+                    json!({ "data": { "attributes": { "status": status } } }),
+                )
+            }
+            _ => (500, json!({})),
+        });
+        let config = config("live");
+        let http = OutboundHttp(Arc::clone(&fake) as Arc<dyn DynOutboundHttp>);
+        let provider = provider(&config, &http);
+        let connection = stored(FRESH, &["acc_1"]);
+
+        // Without the member's address Ponto is not asked.
+        provider.refresh(&connection, None).await.expect("nothing");
+        provider
+            .refresh(&connection, Some(" "))
+            .await
+            .expect("nothing");
+        assert_eq!(paths(&fake), Vec::<String>::new());
+
+        provider
+            .refresh(&connection, Some("203.0.113.9"))
+            .await
+            .expect("refresh");
+        let requests = fake.requests.lock().expect("requests").clone();
+        let asked: Vec<Value> = requests
+            .iter()
+            .filter(|r| r.method == "POST")
+            .map(|r| {
+                serde_json::from_slice::<Value>(r.body.as_deref().unwrap_or_default())
+                    .expect("json")["data"]["attributes"]
+                    .clone()
+            })
+            .collect();
+        assert_eq!(
+            asked,
+            [
+                json!({ "resourceType": "account", "resourceId": "acc_1", "subtype": "accountDetails", "customerIpAddress": "203.0.113.9" }),
+                json!({ "resourceType": "account", "resourceId": "acc_1", "subtype": "accountTransactions", "customerIpAddress": "203.0.113.9" }),
+            ]
+        );
+        assert_eq!(
+            paths(&fake)[2..],
+            [
+                "GET /synchronizations/sync_accountDetails",
+                "GET /synchronizations/sync_accountTransactions",
+                "GET /synchronizations/sync_accountTransactions",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_link_reads_the_organization_and_is_indexed_by_it_for_the_webhooks() {
+        let fake = fake(|_, path, _| match path {
+            "/oauth2/token" => (
+                200,
+                json!({ "access_token": "at-1", "refresh_token": "rt-1", "expires_in": 1800 }),
+            ),
+            "/userinfo" => (200, json!({ "sub": "org_ponto_1" })),
+            "/accounts" => (
+                200,
+                json!({ "data": [account("acc_1", json!({}))], "links": {} }),
+            ),
+            _ => (500, json!({})),
+        });
+        let config = config("live");
+        let http = OutboundHttp(Arc::clone(&fake) as Arc<dyn DynOutboundHttp>);
+        let (connection, accounts) = provider(&config, &http)
+            .complete_link(
+                &json!({ "code": "c", "state": "s", "redirectUrl": "https://app.example/cb" }),
+            )
+            .await
+            .expect("linked");
+        assert_eq!(accounts.len(), 1);
+        assert_eq!(
+            connection.index_keys,
+            Some(vec![
+                connection.provider_connection_id.clone(),
+                "org_ponto_1".to_owned()
+            ])
+        );
+        assert_eq!(
+            connection.metadata,
+            Some(json!({ "accountIds": ["acc_1"], "organizationId": "org_ponto_1" }))
+        );
+        assert_eq!(
+            paths(&fake),
+            ["POST /oauth2/token", "GET /userinfo", "GET /accounts"]
+        );
+
+        // Webhooks only with the application id their signatures name.
+        assert_eq!(capabilities("ponto", &config)["webhooks"], json!(false));
+        let with_id = FeedConfig::from_env(|name| match name {
+            "PONTO_CLIENT_ID" => Some("cid".to_owned()),
+            "PONTO_CLIENT_SECRET" => Some("csecret".to_owned()),
+            "PONTO_APPLICATION_ID" => Some("app-1".to_owned()),
+            _ => None,
+        });
+        assert_eq!(capabilities("ponto", &with_id)["webhooks"], json!(true));
+    }
+
+    #[tokio::test]
+    async fn a_refused_refresh_fails_only_when_nothing_started() {
+        let fake = fake(|_, _, _| {
+            (
+                400,
+                json!({ "errors": [{ "code": "accountRecentlySynchronized" }] }),
+            )
+        });
+        let config = config("live");
+        let http = OutboundHttp(Arc::clone(&fake) as Arc<dyn DynOutboundHttp>);
+        let error = provider(&config, &http)
+            .refresh(&stored(FRESH, &["acc_1"]), Some("203.0.113.9"))
+            .await
+            .expect_err("too soon");
+        assert_eq!((error.kind, error.status), ("permanent", Some(400)));
     }
 }

@@ -1,7 +1,7 @@
 /**
  * What the page keeps in the browser. No cookies: in an embed on someone
  * else's site third-party cookies are blocked, while iframe storage is
- * partitioned and still works (docs/plans/weldforms.md, "Respondent sessions").
+ * partitioned and still works (weldsuite-documentation/plans/weldforms.md, "Respondent sessions").
  *
  * - `localStorage`, per form: the session token (resume within its 7 days) and
  *   a random browser key for the soft one-response-per-browser limit.

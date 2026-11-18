@@ -535,7 +535,7 @@ export const weldconnect = {
         description: 'Trigger from connected apps (Slack, Google Sheets, …)',
       },
       workflow_complete: {
-        name: 'Workflow Complete',
+        name: 'After another workflow',
         description: 'Trigger when another workflow finishes',
       },
       api: {
@@ -625,6 +625,7 @@ export const weldconnect = {
       retried: 'Retry started',
       retryFailed: 'Failed to retry execution',
       workflowInactive: 'Activate the workflow first, then retry this execution.',
+      workflowDeleted: "This run's workflow was deleted, so it can't run again.",
       cancelled: 'Execution cancelled',
       cancelFailed: 'Failed to cancel execution',
     },
@@ -754,6 +755,7 @@ export const weldconnect = {
       retried: 'Retry started',
       retryFailed: 'Failed to retry execution',
       workflowInactive: 'Activate the workflow first, then retry this execution.',
+      workflowDeleted: "This run's workflow was deleted, so it can't run again.",
     },
   },
 
@@ -1164,8 +1166,10 @@ export const weldconnect = {
       currentlyRunning: '{count} currently running',
       successRate: 'Success Rate',
       successfulExecutions: '{count} successful executions',
+      successfulExecutionsOne: '{count} successful execution',
       failedExecutions: 'Failed Executions',
       unacknowledgedErrors: '{count} unacknowledged errors',
+      unacknowledgedErrorsOne: '{count} unacknowledged error',
       avgDuration: 'Avg Duration',
       minMaxDuration: 'Min {min} · Max {max}',
       totalErrors: 'Total Errors',
@@ -1288,7 +1292,7 @@ export const weldconnect = {
   // Version history dialog (workflow settings "History" button)
   versionHistory: {
     title: 'Version history',
-    description: 'Every version WeldConnect saved when this workflow was activated, or changed while active.',
+    description: 'Every version saved when this workflow was activated, or changed while active.',
     close: 'Close',
     loadFailed: 'Could not load version history',
     retry: 'Try again',
@@ -2991,7 +2995,7 @@ export const weldconnect = {
     integrationEventDesc: 'Run when a connected app sends an event',
     schedule: 'Schedule',
     scheduleDesc: 'Run on a recurring schedule',
-    workflowComplete: 'Workflow Complete',
+    workflowComplete: 'After another workflow',
     workflowCompleteDesc: 'Run when another workflow finishes',
     webhook: 'Webhook',
     webhookDesc: 'Run when an HTTP request is received',
@@ -3065,7 +3069,9 @@ export const weldconnect = {
     notConnected: 'Not connected',
     error: 'Error',
     actionCount: '{count} actions',
+    actionCountOne: '{count} action',
     triggerCount: '{count} triggers',
+    triggerCountOne: '{count} trigger',
     disconnectConfirm: {
       title: 'Disconnect integration',
       description: 'Are you sure you want to disconnect this integration? Workflows using it may stop working.',

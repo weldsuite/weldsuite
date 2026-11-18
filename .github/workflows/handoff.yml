@@ -1,6 +1,6 @@
 name: Hand-off
 
-# ADR OPS-018 (docs/plans/main-only-private-deploys.md): when CI passes on a
+# ADR OPS-018 (weldsuite-documentation/plans/main-only-private-deploys.md): when CI passes on a
 # merge to main, hand the commit to the private repo
 # weldsuite/weldsuite-deploy, whose deploy-test workflow checks it again and
 # deploys it to test. This log names only the commit. Production is never

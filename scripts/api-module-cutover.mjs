@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * The app-api side of moving a module to its own worker
- * (docs/plans/app-api-module-split.md, step 5 of .claude/skills/extract-api-module):
+ * (weldsuite-documentation/plans/app-api-module-split.md, step 5 of .claude/skills/extract-api-module):
  *
  *   node scripts/api-module-cutover.mjs <module>
  *

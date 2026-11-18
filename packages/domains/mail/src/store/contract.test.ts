@@ -1,5 +1,5 @@
 /**
- * Contract suite (design task C5, docs/plans/weldmail-mailbox-store-design.md
+ * Contract suite (design task C5, weldsuite-documentation/plans/weldmail-mailbox-store-design.md
  * §9): the SAME scenarios, built only through `MailboxStore`'s own write API
  * (`apply`/`applyBatch`), run against `PostgresMailboxStore` (task B4, pglite)
  * and `ObjectMailboxStore` (task C2, the real `mailbox-object/{reads,writes}.ts`

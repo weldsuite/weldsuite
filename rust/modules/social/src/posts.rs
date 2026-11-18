@@ -145,6 +145,7 @@ static POSTS_CRUD: Crud = Crud {
     updated: ev::SOCIAL_POST_UPDATED,
     updated_event: post_updated,
     guard: None,
+    edit: None,
     deleted: ev::SOCIAL_POST_DELETED,
 };
 

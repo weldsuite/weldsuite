@@ -52,6 +52,8 @@ export interface ConversationListProps {
    * data set, not just the page that is loaded).
    */
   onSearchChange?: (query: string) => void;
+  /** Leave out the "N unread" chip under a multi-message row (the unread dot stays). */
+  hideUnreadCount?: boolean;
 }
 
 export interface ConversationListItemProps {
@@ -65,4 +67,6 @@ export interface ConversationListItemProps {
   onLabelDrop?: (labelData: { name: string; accountIds?: string[] }) => void;
   /** Reduced vertical padding/spacing for tight surfaces (e.g. home widgets). */
   compact?: boolean;
+  /** Leave out the "N unread" chip (the unread dot stays). */
+  hideUnreadCount?: boolean;
 }

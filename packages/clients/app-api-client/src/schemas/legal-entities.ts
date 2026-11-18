@@ -1,7 +1,7 @@
 /**
  * Legal entities (core, `/api/legal-entities`): request schemas and response
  * types shared by app-api, books-api, hr-api, the platform and mobile.
- * docs/plans/legal-entities.md. Zod v3.
+ * weldsuite-documentation/plans/legal-entities.md. Zod v3.
  */
 
 import { z } from 'zod';

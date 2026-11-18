@@ -5,7 +5,12 @@ import { renderWithProviders } from '@/app/weldbooks/sales-tax/setup/test-suppor
 
 const accounts = vi.hoisted(() => ({
   data: {
-    data: [{ id: 'acc_1', code: '6100', name: 'Office supplies', type: 'expense', currentBalance: '125.50', currency: 'EUR' }],
+    data: [
+      { id: 'acc_1', code: '6100', name: 'Office supplies', type: 'expense', normalSide: 'debit', currentBalance: '125.50', currency: 'EUR' },
+      // Revenue is stored debit minus credit: -865.00 is 865.00 of turnover.
+      { id: 'acc_2', code: '8000', name: 'Omzet', type: 'revenue', normalSide: 'credit', currentBalance: '-865.00', currency: 'EUR' },
+      { id: 'acc_3', code: '4699', name: 'Old costs', type: 'expense', normalSide: 'debit', isActive: false, currentBalance: '0.00', currency: 'EUR' },
+    ],
   },
   isLoading: false,
 }));
@@ -41,5 +46,14 @@ describe('ChartOfAccountsPage', () => {
     expect(panel.sync).toHaveBeenCalledWith('/weldbooks/accounts');
     await userEvent.click(await screen.findByRole('button', { name: '6100 Office supplies' }));
     expect(panel.open).toHaveBeenCalledWith({ type: 'ledger_account', id: 'acc_1' });
+  });
+
+  it('shows a credit account balance on its own side and marks inactive accounts', async () => {
+    renderWithProviders(<ChartOfAccountsPage />);
+
+    expect(await screen.findByText('$865')).toBeInTheDocument();
+    expect(screen.queryByText('$-865.00')).not.toBeInTheDocument();
+    expect(screen.getByText('$125.50')).toBeInTheDocument();
+    expect(screen.getAllByText('Inactive')).toHaveLength(1);
   });
 });

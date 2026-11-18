@@ -2,7 +2,7 @@
  * US sales tax through provider engines (pglite, recorded HTTP): Stripe Tax
  * and Avalara answer calculations, commit finalized invoices and reverse
  * credit memos; an engine that can't answer never lets zero tax post.
- * docs/plans/weldbooks-us.md §3, phases 3.1 and 3.2.
+ * weldsuite-documentation/plans/weldbooks-us.md §3, phases 3.1 and 3.2.
  *
  * The fake providers stub the global `fetch` and answer by URL and method
  * (every other call goes to the real `fetch`), so a conformance run sends the

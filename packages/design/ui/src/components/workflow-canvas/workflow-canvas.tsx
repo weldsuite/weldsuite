@@ -224,8 +224,14 @@ function computeAlignmentGuides(
   return { guides, snapX };
 }
 
-// Custom controls component with Lucide icons
-function CustomControls({ onResetLayout, labels }: Readonly<{ onResetLayout?: () => void; labels: Required<WorkflowCanvasLabels> }>) {
+/** Tooltips of the canvas's zoom controls. */
+export type CanvasControlsLabels = Pick<Required<WorkflowCanvasLabels>, 'zoomIn' | 'zoomOut' | 'resetLayout'>;
+
+/**
+ * The canvas's zoom in / zoom out / fit buttons, bottom right. Exported for
+ * other React Flow canvases drawn in the same style (the WeldForms flow).
+ */
+export function CanvasControls({ onResetLayout, labels }: Readonly<{ onResetLayout?: () => void; labels: CanvasControlsLabels }>) {
   const { zoomIn, zoomOut, fitView } = useReactFlow();
 
   return (
@@ -660,7 +666,7 @@ function WorkflowCanvasInner({
       >
         <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="currentColor" className="!text-muted-foreground/30" />
         <AlignmentGuidesOverlay guides={alignmentGuides} />
-        <CustomControls onResetLayout={handleResetLayout} labels={labels} />
+        <CanvasControls onResetLayout={handleResetLayout} labels={labels} />
       </ReactFlow>
     </div>
   );

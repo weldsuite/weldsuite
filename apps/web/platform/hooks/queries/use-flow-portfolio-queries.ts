@@ -139,8 +139,16 @@ export function useMemberNames() {
   const { data } = useAllTeamMembers({});
   return useMemo(() => {
     const names = new Map<string, string>();
-    for (const member of data ?? []) names.set(member.userId, member.name || member.userId);
-    return { nameOf: (id: string) => names.get(id) ?? id, options: [...names].map(([value, label]) => ({ value, label })) };
+    const pictures = new Map<string, string>();
+    for (const member of data ?? []) {
+      names.set(member.userId, member.name || member.userId);
+      if (member.picture) pictures.set(member.userId, member.picture);
+    }
+    return {
+      nameOf: (id: string) => names.get(id) ?? id,
+      pictureOf: (id: string) => pictures.get(id),
+      options: [...names].map(([value, label]) => ({ value, label })),
+    };
   }, [data]);
 }
 

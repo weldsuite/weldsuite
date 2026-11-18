@@ -36,6 +36,9 @@
 //! A workspace brand with the "Sent via WeldSuite" line turned off
 //! (`poweredBy: false`, white-label portals): no exported layout has it.
 
+pub mod ai;
+pub mod auth;
+pub mod billing;
 pub mod calendar;
 mod catalog;
 mod date;
@@ -51,6 +54,7 @@ pub mod reach;
 mod send;
 pub mod sign;
 mod when;
+pub mod workspace;
 #[rustfmt::skip]
 mod zone_names;
 

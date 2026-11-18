@@ -1,5 +1,5 @@
 /**
- * WeldForms moderation, the pure parts (docs/plans/weldforms.md, "Bot checks
+ * WeldForms moderation, the pure parts (weldsuite-documentation/plans/weldforms.md, "Bot checks
  * and abuse"). The master `form_link_registry` row decides whether a public
  * form answers: forms-api reads `suspended_at` and `held_at` on every public
  * request, so writing them takes effect at once.

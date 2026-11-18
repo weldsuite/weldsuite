@@ -124,6 +124,7 @@ async fn world() -> Option<World> {
         smtp: Arc::clone(&smtp) as Arc<dyn SmtpTransport>,
         imap: Arc::new(imap.clone()),
         flags: Arc::new(DefaultFlags),
+        ai: None,
     };
     Some(World {
         master,

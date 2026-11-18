@@ -229,7 +229,10 @@ export default function BookmarksPage() {
 
           <span className="w-[200px] flex-shrink-0 flex items-center gap-1.5 min-w-0 text-sm text-gray-600 dark:text-muted-foreground">
             <ConversationIcon className="h-3.5 w-3.5 flex-shrink-0" />
-            <span className="truncate">{conversationLabel(bk, dmLabels, page.directMessage)}</span>
+            {/* The # icon already marks a channel: its name goes without another "#". */}
+            <span className="truncate">
+              {!isDirectMessage(bk) && bk.channelName ? bk.channelName : conversationLabel(bk, dmLabels, page.directMessage)}
+            </span>
           </span>
 
           <span className="w-[120px] flex-shrink-0 text-sm text-gray-600 dark:text-muted-foreground">

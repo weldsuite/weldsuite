@@ -48,6 +48,13 @@
     "updated",
     "deleted"
   ],
+  "ai_provider_key": [
+    "set",
+    "removed"
+  ],
+  "ai_settings": [
+    "updated"
+  ],
   "analytics_chart": [
     "created",
     "updated",
@@ -905,7 +912,96 @@
     "cancelled",
     "completed"
   ],
+  "panel_alert": [
+    "created",
+    "updated",
+    "deleted",
+    "fired",
+    "resolved"
+  ],
+  "panel_annotation": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "panel_cohort": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "panel_comment": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "panel_computed_property": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "panel_custom_domain": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "panel_custom_event": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "panel_dashboard": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "panel_event_definition": [
+    "created",
+    "updated"
+  ],
+  "panel_export": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "panel_group_type": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "panel_heatmap_page": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "panel_key": [
+    "created",
+    "deleted"
+  ],
+  "panel_metric_tree": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "panel_path_rule": [
+    "created",
+    "updated",
+    "deleted"
+  ],
   "panel_project": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "panel_report": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "panel_share_link": [
+    "created",
+    "deleted"
+  ],
+  "panel_subscription": [
     "created",
     "updated",
     "deleted"

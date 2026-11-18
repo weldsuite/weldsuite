@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { apiUrl, getApiOriginForPath, getApiOrigins, getAppApiUrl, getRealtimeUrl } from './public-env';
+import { apiUrl, getApiOriginForPath, getApiOrigins, getAppApiUrl, getRealtimeUrl, getRealtimeWsOrigin } from './public-env';
 import { setRuntimeConfig } from '@/lib/runtime-config';
 
 describe('getAppApiUrl', () => {
@@ -138,6 +138,15 @@ describe('runtime config (/config.json)', () => {
     expect(getAppApiUrl()).toBe('https://weldsuite.example.eu');
     expect(getApiOriginForPath('/api/tickets')).toBe('https://weldsuite.example.eu');
     expect(getApiOrigins()).toEqual(['https://weldsuite.example.eu']);
-    expect(getRealtimeUrl()).toBe('wss://weldsuite.example.eu/ws');
+    // No realtimeUrl in /config.json: realtime is off, not a guessed ${origin}/ws.
+    expect(getRealtimeUrl()).toBe('');
+    expect(getRealtimeWsOrigin()).toBe('');
+  });
+
+  it('uses the realtime URL of /config.json on the Rust backend, and its origin for rooms', () => {
+    stubLocation('https://weldsuite.example.eu');
+    setRuntimeConfig({ backend: 'rust', modules: ['core'], realtimeUrl: 'wss://rt.example.eu/ws' });
+    expect(getRealtimeUrl()).toBe('wss://rt.example.eu/ws');
+    expect(getRealtimeWsOrigin()).toBe('wss://rt.example.eu');
   });
 });

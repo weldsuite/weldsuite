@@ -27,7 +27,7 @@ pub use weldsuite_catalogs::FIRST_PARTY_ORIGINS;
 /// page talks to several origins, and each pays its own preflights.
 pub const CORS_MAX_AGE_SECONDS: u64 = 86_400;
 
-const ALLOW_HEADERS: [&str; 10] = [
+const ALLOW_HEADERS: [&str; 11] = [
     "content-type",
     "authorization",
     "x-request-id",
@@ -43,6 +43,9 @@ const ALLOW_HEADERS: [&str; 10] = [
     // credit grants.
     "x-partner-id",
     "idempotency-key",
+    // Membership mode (`OIDC_WORKSPACE_SOURCE=header`, Kubernetes editions
+    // only): the request's workspace. Global never reads it.
+    "x-weld-workspace",
 ];
 
 const EXPOSE_HEADERS: [&str; 4] = [

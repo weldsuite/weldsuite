@@ -4,7 +4,7 @@
  * fields + workflow-set contact/conversation attributes) out of the
  * `custom_fields` blobs into the typed `custom_field_values` table.
  *
- * See docs/custom-fields-blob-extraction.md. Companion to the Phase 2 sweep
+ * See weldsuite-documentation/plans/custom-fields-blob-extraction.md. Companion to the Phase 2 sweep
  * (backfill-custom-field-values.ts). Two things make this one different:
  *
  *  1. TICKET SCOPING. Ticket definitions are scoped by `ticket_type_id`. A slug

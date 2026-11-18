@@ -43,7 +43,7 @@ binding = "STORAGE"
 bucket_name = "weldsuite-storage"
 
 # EU-jurisdiction bucket for mail bodies + raw MIME
-# (docs/plans/weldmail-mailbox-store-design.md decision 7). Created with
+# (weldsuite-documentation/plans/weldmail-mailbox-store-design.md decision 7). Created with
 # `wrangler r2 bucket create weldsuite-mail-dev --jurisdiction eu` (ops step).
 [[r2_buckets]]
 binding = "MAIL_STORAGE"

@@ -10,7 +10,7 @@
 # Bindings:
 #   SEND_EMAIL — Cloudflare Email Sending ([[send_email]])
 #   OUTBOUND_LEDGER / OUTBOUND_PLATFORM / OUTBOUND_BACKSTOP — the outbound mail
-#     guard (docs/plans/weldmail-outbound-abuse.md): mail-api's Durable Objects
+#     guard (weldsuite-documentation/plans/weldmail-outbound-abuse.md): mail-api's Durable Objects
 #     bound by name, plus a per-sender burst limit for when the ledger is down
 #
 # Infra (one-time): apex weldmail.com Email Routing catch-all → mail-inbound-worker
@@ -34,7 +34,7 @@ ENVIRONMENT = "development"
 [[send_email]]
 name = "SEND_EMAIL"
 
-# Outbound mail guard (docs/plans/weldmail-outbound-abuse.md): every send is
+# Outbound mail guard (weldsuite-documentation/plans/weldmail-outbound-abuse.md): every send is
 # checked against the account's OutboundLedger (ledger key personal:<accountId>),
 # a Durable Object hosted by mail-api and bound here by name. OUTBOUND_BACKSTOP
 # is the per-sender burst limit the guard falls back on when the ledger can't be
@@ -71,7 +71,7 @@ ENVIRONMENT = "test"
 name = "SEND_EMAIL"
 
 # Outbound mail guard (test): mail-api's Durable Objects and the shared
-# per-sender backstop (docs/plans/weldmail-outbound-abuse.md).
+# per-sender backstop (weldsuite-documentation/plans/weldmail-outbound-abuse.md).
 [[env.test.durable_objects.bindings]]
 name = "OUTBOUND_LEDGER"
 class_name = "OutboundLedger"
@@ -109,7 +109,7 @@ ENVIRONMENT = "production"
 name = "SEND_EMAIL"
 
 # Outbound mail guard (production): mail-api's Durable Objects and the shared
-# per-sender backstop (docs/plans/weldmail-outbound-abuse.md).
+# per-sender backstop (weldsuite-documentation/plans/weldmail-outbound-abuse.md).
 [[env.production.durable_objects.bindings]]
 name = "OUTBOUND_LEDGER"
 class_name = "OutboundLedger"

@@ -17,6 +17,7 @@ import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { SoftBadge } from '@weldsuite/ui/components/soft-badge';
 import { Link } from '@/lib/router';
 import { getTranslations } from '@/lib/i18n';
+import { isFeatureAvailable } from '@/lib/edition';
 import {
   useDeskPhoneNumbers,
   useDeskPhoneRoutes,
@@ -83,13 +84,18 @@ export function PhoneSettingsClient() {
         icon={Phone}
         title={tp.emptyTitle}
         description={
-          <>
-            {tp.provisionPrefix}{' '}
-            <Link href="/settings/apps/phone-numbers" className="underline underline-offset-2">
-              {tp.phoneNumbersLink}
-            </Link>
-            {tp.provisionSuffix}
-          </>
+          // Where numbers can't be bought or ported, don't send people to buy one.
+          isFeatureAvailable('phone-number-purchase') ? (
+            <>
+              {tp.provisionPrefix}{' '}
+              <Link href="/settings/apps/phone-numbers" className="underline underline-offset-2">
+                {tp.phoneNumbersLink}
+              </Link>
+              {tp.provisionSuffix}
+            </>
+          ) : (
+            tp.provisionUnavailable
+          )
         }
       />
     );

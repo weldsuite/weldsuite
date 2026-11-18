@@ -1,5 +1,5 @@
 /**
- * WeldBooks' extension of a core bank account (docs/plans/legal-entities.md).
+ * WeldBooks' extension of a core bank account (weldsuite-documentation/plans/legal-entities.md).
  *
  * The account itself (`bank_accounts`: holder, IBAN, routing and account
  * number, NACHA settings) is core and lives in ./legal-entities.ts. A row

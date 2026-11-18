@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
+import { formDefinitionSchema } from '@weldsuite/forms-engine'
+import { formsPortal } from '@weldsuite/i18n/locales/en/forms-portal'
 import { frameAncestors } from './csp'
-import { hiddenFromSearch, isSafeUrl, parseUserAgent, utmFromSearch } from './client/environment'
+import { ApiError } from './client/api'
+import { hiddenFromSearch, isSafeUrl, parseUserAgent, prefillFromSearch, utmFromSearch } from './client/environment'
+import { submitRefusal } from './client/submit-errors'
+import { MIN_FILL_MS, submitWaitMs } from './client/submit-timing'
 import { forwardedClientIp } from './forwarded-ip'
 import { parseInvitation } from './invitation'
 import { localeFromRequest } from './i18n'
@@ -12,6 +17,65 @@ describe('hiddenFromSearch', () => {
   })
   it('cuts long values', () => {
     expect(hiddenFromSearch(`?a=${'x'.repeat(2000)}`, ['a']).a).toHaveLength(1000)
+  })
+})
+
+describe('prefillFromSearch', () => {
+  const definition = formDefinitionSchema.parse({
+    blocks: [
+      { id: 'b_name', type: 'short_text', ref: 'what_is_your_name', title: 'Name', properties: {} },
+      { id: 'b_age', type: 'number', ref: 'age', title: 'Age', properties: {} },
+      { id: 'b_ok', type: 'yes_no', ref: 'customer', title: 'Customer?', properties: {} },
+      {
+        id: 'b_color',
+        type: 'multiple_choice',
+        ref: 'color',
+        title: 'Colors',
+        properties: { multiple: true, choices: [{ id: 'c_red', label: 'Red' }, { id: 'c_blue', label: 'Blue' }] },
+      },
+      { id: 'b_plan', type: 'dropdown', ref: 'plan', title: 'Plan', properties: { choices: [{ id: 'c_pro', label: 'Pro' }, { id: 'c_free', label: 'Free' }] } },
+      { id: 'b_terms', type: 'legal', ref: 'terms', title: 'Terms', properties: {} },
+    ],
+    endings: [{ id: 'e_done', ref: 'done', title: 'Thanks' }],
+  })
+
+  it('fills questions in by their reference', () => {
+    const search = '?what_is_your_name=Prefilled&age=42&customer=yes&color=red,Blue&plan=pro&terms=true&other=1'
+    expect(prefillFromSearch(search, definition)).toEqual({
+      b_name: 'Prefilled',
+      b_age: 42,
+      b_ok: true,
+      b_color: { choiceIds: ['c_red', 'c_blue'] },
+      b_plan: { choiceIds: ['c_pro'] },
+    })
+  })
+
+  it('ignores values that do not fit the question', () => {
+    expect(prefillFromSearch('?age=many&customer=maybe&color=Green&plan=&what_is_your_name=', definition)).toEqual({})
+  })
+})
+
+describe('submitRefusal', () => {
+  const t = formsPortal
+  it('keeps the connection message for a request without an answer', () => {
+    expect(submitRefusal(new ApiError(0, 'NETWORK', 'Network error'), t)).toBeNull()
+    expect(submitRefusal(new Error('boom'), t)).toBeNull()
+  })
+  it('says why forms-api refused the submit', () => {
+    expect(submitRefusal(new ApiError(400, 'SUBMISSION_REJECTED', 'x'), t)).toBe(t.submit.rejected)
+    expect(submitRefusal(new ApiError(429, 'RATE_LIMITED', 'x'), t)).toBe(t.submit.rateLimited)
+    expect(submitRefusal(new ApiError(403, 'FORM_CLOSED', 'x', { state: 'past_close_date' }), t)).toBe(
+      `${t.states.past_close_date.title}. ${t.states.past_close_date.body}`,
+    )
+    expect(submitRefusal(new ApiError(500, 'INTERNAL', 'x'), t)).toBe(t.submit.failed)
+  })
+})
+
+describe('submitWaitMs', () => {
+  it('waits out what is left of the minimum since the session started, and no more', () => {
+    expect(submitWaitMs(10_000, 10_080)).toBe(MIN_FILL_MS + 100 - 80)
+    expect(submitWaitMs(10_000, 10_000 + MIN_FILL_MS + 100)).toBe(0)
+    expect(submitWaitMs(10_000, 60_000)).toBe(0)
   })
 })
 

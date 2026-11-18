@@ -1,6 +1,6 @@
 /**
  * Shared types and helpers of the Sales Tax Center (per-agency returns,
- * docs/plans/weldbooks-us.md §5).
+ * weldsuite-documentation/plans/weldbooks-us.md §5).
  */
 
 import type { TaxReturnAdjustment } from '@weldsuite/db/schema';

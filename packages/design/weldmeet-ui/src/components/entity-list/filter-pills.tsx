@@ -377,10 +377,12 @@ export function FilterPills({
     }
   };
 
+  // Nothing to filter by: no Filter button, whose field menu would open empty.
+  const canAddFilter = filterConfigs.length > 0;
   let filterTrigger: ReactNode = null;
-  if (filters.length > 0 && filters.length < maxFilters) {
+  if (canAddFilter && filters.length > 0 && filters.length < maxFilters) {
     filterTrigger = <FilterAddButton aria-label={labels?.filter ?? 'Filter'} />;
-  } else if (filters.length === 0) {
+  } else if (canAddFilter && filters.length === 0) {
     filterTrigger = <FilterButton>{labels?.filter ?? 'Filter'}</FilterButton>;
   }
 

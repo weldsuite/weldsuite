@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Picks the per-module API workers (apps/workers/<module>-api, see
- * docs/plans/app-api-module-split.md) to deploy.
+ * weldsuite-documentation/plans/app-api-module-split.md) to deploy.
  *
  * The module list comes from @weldsuite/api-modules, so a new module worker
  * deploys without editing a workflow. A module worker is selected when:

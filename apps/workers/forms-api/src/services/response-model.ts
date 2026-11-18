@@ -2,7 +2,7 @@
  * What the results side shares: the versions of a form, the column model of
  * the responses table (merged across versions by block id), the response DTO
  * and the list conditions, including the answer filters evaluated in SQL on
- * the `answers` jsonb (docs/plans/weldforms.md, "Platform UI → Results").
+ * the `answers` jsonb (weldsuite-documentation/plans/weldforms.md, "Platform UI → Results").
  */
 
 import { and, asc, eq, ilike, or, sql, type SQL } from 'drizzle-orm';

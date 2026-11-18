@@ -8,7 +8,7 @@
  * Snooze metadata lives in dedicated `mail_messages` columns
  * (`snoozed_until`, `snoozed_at`, ...). It used to be tucked into the
  * `custom_fields` JSONB blob; migration 0169 gave it real columns and
- * this service was cut over (docs/custom-fields-blob-extraction.md).
+ * this service was cut over (weldsuite-documentation/plans/custom-fields-blob-extraction.md).
  *
  * Migration-window read fallback: a message snoozed by the OLD code path,
  * after the data extraction ran but before this cutover deployed, has its

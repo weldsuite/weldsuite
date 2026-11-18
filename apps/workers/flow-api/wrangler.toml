@@ -1,6 +1,6 @@
 # WeldSuite flow-api worker — the flow module's API.
 #
-# Split out of app-api (docs/plans/app-api-module-split.md). Serves the same
+# Split out of app-api (weldsuite-documentation/plans/app-api-module-split.md). Serves the same
 # /api/<object> paths app-api served for this module; only the host differs:
 #   flow-api.weldsuite.org        production
 #   flow-api-test.weldsuite.org   test
@@ -154,7 +154,7 @@ CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 AI_BYOK_PROVIDERS = "anthropic"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
 # On Cloudflare Email Service (mail.weldsuite.org). Set back to "resend" to
-# fall back without a code change (docs/plans/system-email-cloudflare.md).
+# fall back without a code change (weldsuite-documentation/plans/system-email-cloudflare.md).
 EMAIL_TRANSPORT = "cloudflare"
 
 [[env.test.flagship]]
@@ -247,7 +247,7 @@ CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 AI_BYOK_PROVIDERS = "anthropic"
 R2_PUBLIC_URL = "https://weldsuite-storage.weldsuite.org"
 # On Cloudflare Email Service (mail.weldsuite.org). Set back to "resend" to
-# fall back without a code change (docs/plans/system-email-cloudflare.md).
+# fall back without a code change (weldsuite-documentation/plans/system-email-cloudflare.md).
 EMAIL_TRANSPORT = "cloudflare"
 
 [[env.production.flagship]]

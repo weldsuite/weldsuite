@@ -30,6 +30,7 @@ import {
 } from '@/hooks/queries/use-social-queries';
 import type { SocialAccount, SocialPlatform } from '@weldsuite/app-api-client/domains/social';
 import { SocialPlatformIcon } from '@/components/social/social-platform-icon';
+import { toastError } from '../lib/feedback';
 
 const platforms = ['facebook', 'instagram', 'twitter', 'linkedin', 'tiktok'];
 
@@ -63,7 +64,7 @@ export function AccountsClient() {
         if (synced > 0) toast.success(t.social.messages.accountConnected);
         else toast.message(t.social.accounts.noAccounts);
       })
-      .catch(() => toast.error(t.social.accounts.error));
+      .catch((err: unknown) => toastError(t.social.messages.accountsSyncFailed, err));
     // Run once on mount; syncAccounts/t are stable for this purpose.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -85,9 +86,16 @@ export function AccountsClient() {
         // Full-page redirect so the provider returns the user to the app.
         window.location.href = url;
       }
-    } catch {
-      toast.error(t.social.accounts.connectAccount);
+    } catch (err) {
+      toastError(t.social.messages.accountConnectFailed, err);
     }
+  };
+
+  const syncAll = () => {
+    syncAccounts.mutate(undefined, {
+      onSuccess: () => toast.success(t.social.messages.accountsSynced),
+      onError: (err) => toastError(t.social.messages.accountsSyncFailed, err),
+    });
   };
 
   const handleDisconnect = async (id: string) => {
@@ -114,7 +122,7 @@ export function AccountsClient() {
         <div className="flex gap-2">
           <Button
             variant="outline"
-            onClick={() => syncAccounts.mutate()}
+            onClick={syncAll}
             disabled={syncAccounts.isPending}
           >
             <RefreshCw className={`h-4 w-4 mr-2 ${syncAccounts.isPending ? 'animate-spin' : ''}`} />

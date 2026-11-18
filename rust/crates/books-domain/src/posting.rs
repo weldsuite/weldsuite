@@ -270,6 +270,40 @@ async fn assert_accounts_belong_to_entity(
     }
 }
 
+/// `assertAccountsActive(db, entityId, accountIds)`: a manual entry can not
+/// book to a deactivated account of the entity (the deactivate dialog
+/// promises that). Documents and reversals are not checked: a correction of
+/// an old booking must still reach the account it was made on.
+pub async fn assert_accounts_active(
+    db: &PgPool,
+    entity_id: &str,
+    account_ids: impl IntoIterator<Item = String>,
+) -> Result<(), PostError> {
+    let ids = unique(account_ids.into_iter().filter(|id| !id.is_empty()));
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let inactive: Vec<(String, String)> = sqlx::query_as(
+        "select code, name from accounts where entity_id = $1 and id = any($2) \
+         and deleted_at is null and is_active = false order by code",
+    )
+    .bind(entity_id)
+    .bind(&ids)
+    .fetch_all(db)
+    .await?;
+    if inactive.is_empty() {
+        return Ok(());
+    }
+    let names: Vec<String> = inactive
+        .iter()
+        .map(|(code, name)| format!("{code} {name}"))
+        .collect();
+    Err(posting(format!(
+        "Account {} is inactive and can not be booked to. Reactivate it first.",
+        names.join(", ")
+    )))
+}
+
 /// `assertDimensionsBelongToEntity(db, entityId, lines)`: class and
 /// location ids on lines must be values of that dimension in this entity (a
 /// deactivated value still counts).
@@ -973,6 +1007,14 @@ pub async fn post_draft_journal_entry(
             .iter()
             .map(|l| text(l, "accountId").unwrap_or_default())
             .collect(),
+    )
+    .await?;
+    assert_accounts_active(
+        db,
+        &entity_id,
+        lines
+            .iter()
+            .map(|l| text(l, "accountId").unwrap_or_default()),
     )
     .await?;
 

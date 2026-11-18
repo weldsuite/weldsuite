@@ -54,6 +54,17 @@ export namespace Billing {
     cancelationEffectiveDate?: Date;
     trialEnd?: Date;
     currentUsage?: UsageSummary;
+    /** Mollie only (`billingProvider` in `/config.json`). */
+    provider?: 'mollie';
+    scheduledChange?: {
+      planId: string;
+      planName: string;
+      seats: number;
+      cycle: 'monthly' | 'yearly';
+      effectiveAt: string;
+    } | null;
+    /** Past due; `amount` in cents. */
+    outstanding?: { amount: number; currency: string; payUrl: string; since: string } | null;
   }
 
   // ==========================================

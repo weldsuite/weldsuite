@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
@@ -9,8 +9,13 @@ const env = vi.hoisted(() => ({
   generate: vi.fn(),
   pause: vi.fn(),
   resume: vi.fn(),
+  remove: vi.fn(),
+  onClose: vi.fn(),
   setMode: vi.fn(),
+  toast: { success: vi.fn(), error: vi.fn() },
 }));
+
+vi.mock('sonner', () => ({ toast: env.toast }));
 
 vi.mock('@weldsuite/permissions/react', () => ({ useCan: () => env.canUpdate }));
 vi.mock('@/hooks/use-workspace-url', () => ({ useWorkspaceUrl: () => (path: string) => `https://app.test${path}` }));
@@ -73,6 +78,7 @@ vi.mock('@/lib/api/domains/weldbooks', () => ({
     generateRecurringInvoice: env.generate,
     pauseRecurringInvoice: env.pause,
     resumeRecurringInvoice: env.resume,
+    deleteRecurringInvoice: env.remove,
   },
 }));
 vi.mock('@/lib/weldbooks/use-weldbooks-format', () => ({
@@ -89,6 +95,7 @@ vi.mock('@/app/weldbooks/recurring/components/recurring-invoice-form', () => ({
 import { panelOpen } from '@/components/objects/_shared/object-panel-test-mock';
 import { RecurringInvoicePanel } from './recurring-invoice-panel';
 import { renderWithProviders } from '@/app/weldbooks/invoices/components/test-utils';
+import { installPointerPolyfills } from '@/app/weldbooks/sales-tax/setup/test-support';
 
 const template = {
   currency: 'USD',
@@ -99,14 +106,19 @@ const template = {
 };
 
 async function renderPanel() {
-  const utils = renderWithProviders(<RecurringInvoicePanel id="ri_1" isOpen onClose={vi.fn()} />);
+  const utils = renderWithProviders(<RecurringInvoicePanel id="ri_1" isOpen onClose={env.onClose} />);
   // The template loads from the API: wait for its name, or for the not-found notice.
   await screen.findByText(env.recurring ? 'Retainer' : 'Recurring invoice not found.');
   return utils;
 }
 
 describe('RecurringInvoicePanel', () => {
+  beforeAll(installPointerPolyfills);
   beforeEach(() => {
+    env.remove.mockReset().mockResolvedValue(undefined);
+    env.onClose.mockReset();
+    env.toast.success.mockReset();
+    env.toast.error.mockReset();
     env.recurring = {
       id: 'ri_1',
       name: 'Retainer',
@@ -147,7 +159,7 @@ describe('RecurringInvoicePanel', () => {
     const user = userEvent.setup();
     await renderPanel();
 
-    await user.click(screen.getByRole('tab', { name: 'Template Items' }));
+    await user.click(screen.getByRole('tab', { name: 'Line items' }));
     expect(screen.getByText('Software as a service · Business use · Tax included')).toBeInTheDocument();
     expect(screen.getByText('2 × $49.50')).toBeInTheDocument();
     expect(screen.getByText('$99.00')).toBeInTheDocument();
@@ -160,7 +172,7 @@ describe('RecurringInvoicePanel', () => {
     env.recurring = { ...(env.recurring as object), templateData: { currency: 'USD', items: [] } };
     await renderPanel();
 
-    await user.click(screen.getByRole('tab', { name: 'Template Items' }));
+    await user.click(screen.getByRole('tab', { name: 'Line items' }));
     expect(screen.getByText('No template items')).toBeInTheDocument();
   });
 
@@ -180,6 +192,22 @@ describe('RecurringInvoicePanel', () => {
     expect(screen.queryByRole('button', { name: 'Resume' })).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Pause' }));
     expect(env.pause).toHaveBeenCalledWith('ri_1');
+    await waitFor(() => expect(env.toast.success).toHaveBeenCalledWith('Recurring invoice paused'));
+  });
+
+  it('deletes the template after a confirmation and closes the panel', async () => {
+    const user = userEvent.setup();
+    await renderPanel();
+
+    await user.click(screen.getByRole('button', { name: 'More actions' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('Delete Retainer?');
+    await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() => expect(env.remove).toHaveBeenCalledWith('ri_1'));
+    expect(env.toast.success).toHaveBeenCalledWith('Recurring invoice deleted');
+    expect(env.onClose).toHaveBeenCalled();
   });
 
   it('resumes a paused template and offers neither generating nor pausing', async () => {
@@ -187,7 +215,7 @@ describe('RecurringInvoicePanel', () => {
     env.recurring = { ...(env.recurring as object), status: 'paused' };
     await renderPanel();
 
-    expect(screen.queryByRole('button', { name: /Generate Now/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Generate now/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Pause' })).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Resume' }));
     expect(env.resume).toHaveBeenCalledWith('ri_1');
@@ -207,7 +235,7 @@ describe('RecurringInvoicePanel', () => {
     });
     await renderPanel();
 
-    await user.click(screen.getByRole('button', { name: /Generate Now/ }));
+    await user.click(screen.getByRole('button', { name: /Generate now/ }));
 
     const banner = await screen.findByTestId('finalize-error');
     expect(banner).toHaveTextContent('The sales tax engine could not calculate tax: the provider timed out.');
@@ -221,7 +249,7 @@ describe('RecurringInvoicePanel', () => {
     env.generate.mockRejectedValue(Object.assign(new Error('refused'), { code: 'TAX_RATES_NOT_CONFIGURED', status: 400 }));
     await renderPanel();
 
-    await user.click(screen.getByRole('button', { name: /Generate Now/ }));
+    await user.click(screen.getByRole('button', { name: /Generate now/ }));
 
     const notice = await screen.findByTestId('sales-tax-error');
     expect(within(notice).getByRole('link', { name: 'Open sales tax agencies' })).toBeInTheDocument();
@@ -234,7 +262,7 @@ describe('RecurringInvoicePanel', () => {
     });
     await renderPanel();
 
-    await user.click(screen.getByRole('button', { name: /Generate Now/ }));
+    await user.click(screen.getByRole('button', { name: /Generate now/ }));
 
     await waitFor(() => expect(screen.getByText(/INV-0009/)).toBeInTheDocument());
     expect(screen.queryByTestId('finalize-error')).not.toBeInTheDocument();
@@ -258,7 +286,7 @@ describe('RecurringInvoicePanel', () => {
     expect(env.setMode).toHaveBeenCalledWith('fullscreen');
     // The form replaces the tabs and the actions while it is open.
     expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Generate Now/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Generate now/ })).not.toBeInTheDocument();
   });
 
   it('offers no edit without permission', async () => {

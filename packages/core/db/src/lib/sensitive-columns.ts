@@ -54,6 +54,13 @@ export const SENSITIVE_COLUMNS = {
   reach_warmup_mailboxes: ['smtpCredentials', 'imapCredentials'],
   /** The SIEM collector's token (Splunk HEC token, or the auth header value); only the stream delivery decrypts it. */
   audit_log_streams: ['tokenEncrypted'],
+  /** A workspace's own AI provider key (AI_KEYS_ENCRYPTION_KEY); only the Rust backend decrypts it, to call the provider. */
+  ai_provider_keys: ['ciphertext'],
+  /** WeldPanel alert and scheduled-report Slack webhook URLs; only panel-api's delivery service decrypts them. */
+  panel_alerts: ['slackWebhookCiphertext'],
+  panel_subscriptions: ['slackWebhookCiphertext'],
+  /** The secret access key of a WeldPanel raw export's bucket; only panel-api's export runner decrypts it. */
+  panel_exports: ['secretCiphertext'],
   /** The client secret of the customer's own app registration (Intune); only the device import decrypts it. */
   asset_sources: ['secretEncrypted'],
 } as const satisfies Record<string, readonly string[]>;

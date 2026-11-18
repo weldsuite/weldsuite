@@ -1,8 +1,15 @@
 name: 'Setup Monorepo'
 description: 'Setup pnpm, Node.js, and install dependencies for the WeldSuite monorepo'
 
-# Ephemeral GitHub-hosted runners: use pnpm's setup-node cache + a turbo
-# cache restore. Do not rely on a warm disk between jobs.
+# Ephemeral GitHub-hosted runners: restore the pnpm store and the turbo cache.
+# Do not rely on a warm disk between jobs.
+#
+# Only runs that are not pull requests (pushes to main, manual runs) save
+# caches; a pull request restores what main saved and writes nothing. The
+# repository's Actions cache holds 10 GB, and when every pull request saved
+# its own copy of the pnpm store (~1 GB each) and its own Rust and turbo
+# caches, main's entries were evicted within the hour, so most jobs started
+# cold (November 2026: 11 GB in use, Rust · checks restoring nothing).
 
 inputs:
   node-version:
@@ -31,12 +38,39 @@ runs:
       uses: actions/setup-node@v4
       with:
         node-version: ${{ inputs.node-version }}
-        cache: pnpm
+
+    - name: Locate the pnpm store
+      id: pnpm-store
+      if: inputs.install-dependencies == 'true'
+      shell: bash
+      run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+    # Falls back to the newest store of any lockfile, so a lockfile change
+    # downloads only what changed instead of every package.
+    - name: Restore the pnpm store
+      id: pnpm-cache
+      if: inputs.install-dependencies == 'true'
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ steps.pnpm-store.outputs.path }}
+        key: pnpm-store-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
+        restore-keys: |
+          pnpm-store-${{ runner.os }}-${{ runner.arch }}-
 
     # Keyed by job id. A shared key made every job on the commit race to
     # save, and the fastest job (which never runs turbo) won with an empty
     # .turbo — so Build and Lint always restored ~0 bytes and rebuilt.
+    - name: Restore turbo cache
+      if: github.event_name == 'pull_request'
+      uses: actions/cache/restore@v4
+      with:
+        path: .turbo
+        key: turbo-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.job }}-${{ github.sha }}
+        restore-keys: |
+          turbo-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.job }}-
+
     - name: Cache turbo
+      if: github.event_name != 'pull_request'
       uses: actions/cache@v4
       with:
         path: .turbo
@@ -48,3 +82,17 @@ runs:
       if: inputs.install-dependencies == 'true'
       shell: bash
       run: pnpm install --frozen-lockfile
+
+    # Saved once per lockfile, by the first job to get here; the others find
+    # the key taken and skip. Pruned first, so a store restored from an older
+    # lockfile doesn't carry its unused packages forward.
+    - name: Prune the pnpm store
+      if: inputs.install-dependencies == 'true' && github.event_name != 'pull_request' && steps.pnpm-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: pnpm store prune
+    - name: Save the pnpm store
+      if: inputs.install-dependencies == 'true' && github.event_name != 'pull_request' && steps.pnpm-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ steps.pnpm-store.outputs.path }}
+        key: pnpm-store-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}

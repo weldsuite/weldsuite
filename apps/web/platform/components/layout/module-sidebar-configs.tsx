@@ -2,6 +2,7 @@ import type { ComponentType } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
   Inbox,
+  Radio,
   BarChart3,
   MonitorPlay,
   Users,
@@ -73,6 +74,7 @@ import {
   ShieldCheck,
   Radar,
   CalendarClock,
+  BellRing,
   Banknote,
   Wallet,
   FileSpreadsheet,
@@ -97,8 +99,17 @@ import {
   UserX,
   ChartSpline,
   GitPullRequest,
+  TrendingUp,
+  Filter,
+  GitBranch,
+  Flame,
+  MousePointerClick,
   CircleDot,
   Repeat,
+  Magnet,
+  Activity,
+  Network,
+  Gauge,
   Bug,
 } from 'lucide-react';
 import type { MenuGroupProps, AppLogo } from '@/components/app-sidebar-layout';
@@ -154,7 +165,10 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.navigation.moduleSidebar.weldcommerce.categories, href: '/weldcommerce/categories', icon: FolderTree, permission: 'categories:read' },
           { title: t.navigation.moduleSidebar.weldcommerce.orders, href: '/weldcommerce/orders', icon: ShoppingCart, permission: 'orders:read' },
           { title: t.navigation.moduleSidebar.weldcommerce.customers, href: '/weldcommerce/customers', icon: Building, permission: 'companies:read' },
-          { title: t.navigation.moduleSidebar.weldcommerce.portal, href: '/weldcommerce/settings', icon: Globe, permission: 'companies:read' },
+          // The customer portal has no deployment on some editions.
+          ...(isFeatureAvailable('commerce-portal')
+            ? [{ title: t.navigation.moduleSidebar.weldcommerce.portal, href: '/weldcommerce/settings', icon: Globe, permission: 'companies:read' }]
+            : []),
         ],
       },
     ],
@@ -249,21 +263,71 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
       },
     ],
   },
-  // WeldPanel (product analytics and session recordings). Insights, funnels,
-  // recordings and the rest join the menu phase by phase (docs/plans/weldpanel.md).
+  // WeldPanel (product analytics and session recordings). The analysis pages
+  // need Basin, which only Global has: the Kubernetes editions list just the
+  // projects (and their install page). Users, Recordings, Heatmaps and
+  // Frustration are separate pages gated on their own permissions
+  // (weldsuite-documentation/plans/weldpanel.md, "Permissions").
   weldpanel: {
     appName: 'WeldPanel',
     appIcon: ChartSpline,
     appLogo: getAppLogoConfig('weldpanel'),
-    getMenuItems: (t) => [
-      {
-        group: t.navigation.moduleSidebar.groups.general,
-        items: [
-          { title: t.navigation.moduleSidebar.weldpanel.overview, href: '/weldpanel', icon: ChartSpline, permission: 'panel_projects:read' },
-          { title: t.navigation.moduleSidebar.weldpanel.projects, href: '/weldpanel/projects', icon: Globe, permission: 'panel_projects:read' },
-        ],
-      },
-    ],
+    getMenuItems: (t) => {
+      const nav = t.navigation.moduleSidebar.weldpanel;
+      const projects = { title: nav.projects, href: '/weldpanel/projects', icon: Globe, permission: 'panel_projects:read' };
+      if (!isFeatureAvailable('panel-analytics')) return [{ group: t.navigation.moduleSidebar.groups.general, items: [projects] }];
+      return [
+        {
+          group: t.navigation.moduleSidebar.groups.general,
+          items: [{ title: nav.overview, href: '/weldpanel', icon: ChartSpline, permission: 'panel_projects:read' }],
+        },
+        {
+          group: nav.groups.analyse,
+          items: [
+            { title: nav.insights, href: '/weldpanel/insights', icon: TrendingUp, permission: 'panel_reports:read' },
+            { title: nav.funnels, href: '/weldpanel/funnels', icon: Filter, permission: 'panel_reports:read' },
+            { title: nav.retention, href: '/weldpanel/retention', icon: Repeat, permission: 'panel_reports:read' },
+            { title: nav.flows, href: '/weldpanel/flows', icon: GitBranch, permission: 'panel_reports:read' },
+            { title: nav.stickiness, href: '/weldpanel/stickiness', icon: Magnet, permission: 'panel_reports:read' },
+            { title: nav.lifecycle, href: '/weldpanel/lifecycle', icon: Activity, permission: 'panel_reports:read' },
+            { title: nav.impact, href: '/weldpanel/impact', icon: Rocket, permission: 'panel_reports:read' },
+            { title: nav.signal, href: '/weldpanel/signal', icon: Target, permission: 'panel_reports:read' },
+            { title: nav.metricTrees, href: '/weldpanel/metric-trees', icon: Network, permission: 'panel_reports:read' },
+            { title: nav.performance, href: '/weldpanel/performance', icon: Gauge, permission: 'panel_reports:read' },
+          ],
+        },
+        {
+          group: nav.groups.behaviour,
+          items: [
+            { title: nav.live, href: '/weldpanel/live', icon: Radio, permission: 'panel_reports:read' },
+            { title: nav.users, href: '/weldpanel/users', icon: Users, permission: 'panel_people:read' },
+            { title: nav.groupProfiles, href: '/weldpanel/groups', icon: Building2, permission: 'panel_people:read' },
+            { title: nav.recordings, href: '/weldpanel/recordings', icon: MonitorPlay, permission: 'panel_recordings:read' },
+            { title: nav.heatmaps, href: '/weldpanel/heatmaps', icon: Flame, permission: 'panel_reports:read' },
+            { title: nav.frustration, href: '/weldpanel/frustration', icon: MousePointerClick, permission: 'panel_reports:read' },
+          ],
+        },
+        {
+          group: nav.groups.saved,
+          items: [
+            { title: nav.reports, href: '/weldpanel/reports', icon: BarChart3, permission: 'panel_reports:read' },
+            { title: nav.dashboards, href: '/weldpanel/dashboards', icon: LayoutDashboard, permission: 'panel_reports:read' },
+            { title: nav.cohorts, href: '/weldpanel/cohorts', icon: UsersRound, permission: 'panel_reports:read' },
+            { title: nav.alerts, href: '/weldpanel/alerts', icon: BellRing, permission: 'panel_reports:read' },
+            { title: nav.subscriptions, href: '/weldpanel/subscriptions', icon: CalendarClock, permission: 'panel_reports:read' },
+          ],
+        },
+        {
+          group: nav.groups.setup,
+          items: [
+            projects,
+            { title: nav.lexicon, href: '/weldpanel/lexicon', icon: BookOpen, permission: 'panel_reports:read' },
+            { title: nav.data, href: '/weldpanel/data', icon: Database, permission: 'panel_reports:read' },
+            { title: nav.settings, href: '/weldpanel/settings', icon: Settings, permission: 'panel_projects:manage' },
+          ],
+        },
+      ];
+    },
   },
   // WeldMerge (pull requests and issues across git providers). Teams are picked
   // on the Issues page; the sidebar is a static list per module. Its settings

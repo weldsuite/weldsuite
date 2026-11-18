@@ -1,5 +1,5 @@
 /**
- * /api/weldhr/payroll/* — WeldHR payroll (docs/plans/weldhr-payroll.md).
+ * /api/weldhr/payroll/* — WeldHR payroll (weldsuite-documentation/plans/weldhr-payroll.md).
  *
  * Gated by the `weldhr-payroll` feature flag: without it every path here is a
  * 404. Permissions (packages/core/permissions/src/catalog.ts):

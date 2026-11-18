@@ -1,6 +1,6 @@
 # WeldSuite ads-api worker — the ads module's API.
 #
-# Split out of app-api (docs/plans/app-api-module-split.md). Serves the same
+# Split out of app-api (weldsuite-documentation/plans/app-api-module-split.md). Serves the same
 # /api/<object> paths app-api served for this module; only the host differs:
 #   ads-api.weldsuite.org        production
 #   ads-api-test.weldsuite.org   test

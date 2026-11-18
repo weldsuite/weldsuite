@@ -50,19 +50,8 @@ import {
   useDeleteMailLabel,
 } from '@/hooks/queries/use-mail-queries';
 import { useI18n } from '@/lib/i18n/provider';
-
-const LABEL_COLORS = [
-  { key: 'colorRed', value: '#EF4444' },
-  { key: 'colorOrange', value: '#F97316' },
-  { key: 'colorYellow', value: '#EAB308' },
-  { key: 'colorGreen', value: '#22C55E' },
-  { key: 'colorTeal', value: '#14B8A6' },
-  { key: 'colorBlue', value: '#3B82F6' },
-  { key: 'colorPurple', value: '#8B5CF6' },
-  { key: 'colorPink', value: '#EC4899' },
-] as const;
-
-type LabelColorValue = (typeof LABEL_COLORS)[number]['value'];
+import { isFeatureAvailable } from '@/lib/edition';
+import { DEFAULT_LABEL_COLOR, LABEL_COLORS, type LabelColorValue } from '@/app/weldmail/lib/label-colors';
 
 interface LabelsClientProps {
   initialLabels: Mail.Label[];
@@ -87,7 +76,7 @@ export function LabelsClient({ initialLabels, accountId }: Readonly<LabelsClient
   const [deleteLabel, setDeleteLabel] = useState<Mail.Label | null>(null);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [newLabelName, setNewLabelName] = useState('');
-  const [newLabelColor, setNewLabelColor] = useState<LabelColorValue>(LABEL_COLORS[5].value); // Default blue
+  const [newLabelColor, setNewLabelColor] = useState<LabelColorValue>(DEFAULT_LABEL_COLOR); // Default blue
 
   // AI Auto-Labeling state
   const [aiEnabled, setAiEnabled] = useState(false);
@@ -154,7 +143,7 @@ export function LabelsClient({ initialLabels, accountId }: Readonly<LabelsClient
           setIsCreateDialogOpen(false);
           // Reset form
           setNewLabelName('');
-          setNewLabelColor(LABEL_COLORS[5].value);
+          setNewLabelColor(DEFAULT_LABEL_COLOR);
           setAiEnabled(false);
           setAiKeywords('');
           setAiDescription('');
@@ -171,7 +160,7 @@ export function LabelsClient({ initialLabels, accountId }: Readonly<LabelsClient
   const handleOpenEditDialog = (label: Mail.Label) => {
     setEditDialogLabel(label);
     setEditDialogName(label.name);
-    setEditDialogColor(label.color || LABEL_COLORS[5].value);
+    setEditDialogColor(label.color || DEFAULT_LABEL_COLOR);
     setEditDialogAiEnabled(label.aiEnabled || false);
     setEditDialogAiKeywords(label.aiKeywords?.join(', ') || '');
     setEditDialogAiDescription(label.aiDescription || '');
@@ -493,7 +482,8 @@ export function LabelsClient({ initialLabels, accountId }: Readonly<LabelsClient
                     <Button aria-label={t.mail.a11y.labelColor}
                       type="button"
                       variant="ghost"
-                      className="w-9 h-9 rounded-md border border-input flex items-center justify-center flex-shrink-0 hover:bg-accent transition-colors"
+                      size="icon"
+                      className="rounded-md border border-input flex-shrink-0 hover:bg-accent transition-colors"
                     >
                       <div
                         className="w-5 h-5 rounded"
@@ -502,7 +492,7 @@ export function LabelsClient({ initialLabels, accountId }: Readonly<LabelsClient
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-2" align="start">
-                    <div className="grid grid-cols-4 gap-1.5">
+                    <div className="grid grid-cols-8 gap-1.5">
                       {LABEL_COLORS.map((color) => (
                         <Button
                           key={color.value}
@@ -510,12 +500,12 @@ export function LabelsClient({ initialLabels, accountId }: Readonly<LabelsClient
                           variant="ghost"
                           size="icon"
                           onClick={() => setNewLabelColor(color.value)}
-                          className="w-8 h-8 rounded-md flex items-center justify-center hover:scale-110 transition-transform"
+                          className="w-7 h-7 rounded-md flex items-center justify-center hover:scale-110 transition-transform"
                           style={{ backgroundColor: color.value }}
                           title={t.mail.settingsLabels[color.key]}
                         >
                           {newLabelColor === color.value && (
-                            <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                            <svg className="w-3.5 h-3.5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                               <polyline points="20 6 9 17 4 12" />
                             </svg>
                           )}
@@ -539,8 +529,8 @@ export function LabelsClient({ initialLabels, accountId }: Readonly<LabelsClient
               </div>
             </div>
 
-            {/* AI Auto-Labeling Configuration */}
-            <div className="border border-border/60 rounded-lg p-4 mt-4 bg-muted/25">
+            {/* AI Auto-Labeling Configuration: runs on WeldMail's AI (`mail-ai`). */}
+            <div className="border border-border/60 rounded-lg p-4 mt-4 bg-muted/25" hidden={!isFeatureAvailable('mail-ai')}>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5">
                   <Label className="flex items-center gap-2">
@@ -704,8 +694,8 @@ export function LabelsClient({ initialLabels, accountId }: Readonly<LabelsClient
               </Select>
             </div>
 
-            {/* AI Auto-Labeling Configuration */}
-            <div className="border border-border/60 rounded-lg p-4 mt-4 bg-muted/25">
+            {/* AI Auto-Labeling Configuration: runs on WeldMail's AI (`mail-ai`). */}
+            <div className="border border-border/60 rounded-lg p-4 mt-4 bg-muted/25" hidden={!isFeatureAvailable('mail-ai')}>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5">
                   <Label className="flex items-center gap-2">

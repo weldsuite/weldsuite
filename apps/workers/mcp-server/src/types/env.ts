@@ -67,6 +67,8 @@ export interface Env {
   HELPDESK_WORKFLOW?: Fetcher;
   /** board-api's BoardsInternal entrypoint: the deprecated /v1/whiteboards on WeldBoard boards. */
   BOARDS_INTERNAL?: Fetcher;
+  /** panel-api's PanelApiInternal entrypoint: WeldPanel's read API behind /v1/panel (the weldpanel_* tools). */
+  PANEL_INTERNAL?: Fetcher;
   /** R2 bucket for user-app bundles (shared with app-api's STORAGE binding). */
   STORAGE?: R2Bucket;
   /** Private uploads (no public domain); read via @weldsuite/worker-kit/storage. */
@@ -97,7 +99,7 @@ export interface Env {
   /** Cloudflare Flagship: the `weldreach-sending` kill switch `GET /v1/reach/access` reports, and (shared with the mailbox store) `resolveMailStoreMode`'s per-workspace flag. Unset: both default to their "off"/`postgres` behaviour. */
   FLAGSHIP?: FlagshipBinding;
 
-  // --- Mailbox store (docs/plans/weldmail-mailbox-store-design.md) --------
+  // --- Mailbox store (weldsuite-documentation/plans/weldmail-mailbox-store-design.md) --------
   // Read by `@weldsuite/mail-domain/store`'s `getWorkspaceMail`
   // (`src/api/lib/mail-store-context.ts`). Unset ⇒ `resolveMailStoreMode`
   // treats every workspace as `postgres`, so these three go unread until

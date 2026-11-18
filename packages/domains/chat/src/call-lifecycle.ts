@@ -11,7 +11,7 @@
  * killed-app callee gets a "missed call" after ring timeout / caller hangup.
  *
  * Shared by chat (chat-calls routes, still in app-api) and meet (the RTK
- * webhook in meet-api), hence a package (docs/plans/app-api-module-split.md).
+ * webhook in meet-api), hence a package (weldsuite-documentation/plans/app-api-module-split.md).
  *
  * Only an explicit hang-up-for-all or a decline ends a call unconditionally.
  * Everything automatic asks RealtimeKit first: see {@link endChatCallIfEmpty}.

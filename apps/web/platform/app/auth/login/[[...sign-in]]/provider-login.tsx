@@ -11,7 +11,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { Button } from '@weldsuite/ui/components/button';
-import { redirectToSignIn, useAuth } from '@/lib/auth';
+import { redirectToSignIn, useAuth, usesBrowserSignIn } from '@/lib/auth';
+import { BrowserSignInScreen } from '@/components/auth/browser-sign-in-screen';
 import {
   loadSignInRequest,
   resendEmailVerification,
@@ -42,7 +43,15 @@ export function ProviderLoginPage() {
   const verifyUser = searchParams.get('verifyUser');
   const verifyCode = searchParams.get('verifyCode');
   if (verifyUser && verifyCode) return <VerifyFromLink userId={verifyUser} code={verifyCode} returnTo={returnTo} />;
-  return <StartSignIn returnTo={returnTo} />;
+  return <SignInStart returnTo={returnTo} />;
+}
+
+/**
+ * The desktop shell signs in through the system browser, from a button
+ * (`BrowserSignInScreen`); a browser goes straight to the provider.
+ */
+function SignInStart({ returnTo }: Readonly<{ returnTo: string }>) {
+  return usesBrowserSignIn() ? <BrowserSignInScreen returnTo={returnTo} /> : <StartSignIn returnTo={returnTo} />;
 }
 
 /**
@@ -64,7 +73,7 @@ function VerifyFromLink({ userId, code, returnTo }: Readonly<{ userId: string; c
       .finally(() => setSettled(true));
   }, [userId, code]);
 
-  if (settled) return <StartSignIn returnTo={returnTo} />;
+  if (settled) return <SignInStart returnTo={returnTo} />;
   return <PageLoader label={t.auth.identityProvider.completing} />;
 }
 

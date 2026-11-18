@@ -1,6 +1,6 @@
 /**
  * Google Calendar integration (Google Workspace). Reuses the shared Google
- * OAuth client (see "Provider pattern" in docs/plans/weldconnect.md). Not to
+ * OAuth client (see "Provider pattern" in weldsuite-documentation/plans/weldconnect.md). Not to
  * be confused with the unrelated, pre-existing `google_calendar` two-way sync
  * integration owned by calendar-api (GOOGLE_CALENDAR_CLIENT_ID/SECRET,
  * services/integrations/connections.ts) — this one is WeldConnect's own

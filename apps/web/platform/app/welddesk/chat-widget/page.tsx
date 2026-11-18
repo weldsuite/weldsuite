@@ -3,6 +3,7 @@ import { useState, useCallback, useMemo } from 'react';
 import { useDeskWidgets, useCreateDeskWidget, useDeleteDeskWidget } from '@/hooks/queries/use-desk-queries';
 import { Button } from '@weldsuite/ui/components/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@weldsuite/ui/components/dialog';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { MessageSquare, EllipsisVertical, Trash2 } from 'lucide-react';
@@ -27,6 +28,7 @@ interface Widget {
 export default function ChatWidgetPage() {
   const { t } = useI18n();
   const tw = t.helpdesk.chatWidget;
+  const tcp = t.helpdesk.chatWidgetPage;
   const { data, isLoading } = useDeskWidgets();
   const createWidget = useCreateDeskWidget();
   const deleteWidget = useDeleteDeskWidget();
@@ -110,27 +112,30 @@ export default function ChatWidgetPage() {
           onClick={openWidget}
           className="absolute inset-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
         />
-        {/* Actions */}
+        {/* Actions: the last widget can be deleted too; the list then shows its empty state. */}
         <div className="relative z-10 w-[40px] flex justify-end">
-          {widgets.length > 1 && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent">
-                  <EllipsisVertical className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem className="text-red-600 focus:bg-red-50 focus:text-red-600 dark:focus:bg-red-950" onClick={() => setShowDeleteDialog(widget.widgetId)}>
-                  <Trash2 className="h-3.5 w-3.5 mr-0.5 text-red-600" />
-                  {tw.delete}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent"
+                aria-label={tcp.widgetActionsAria.replace('{name}', widget.widgetName)}
+              >
+                <EllipsisVertical className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem className="text-red-600 focus:bg-red-50 focus:text-red-600 dark:focus:bg-red-950" onClick={() => setShowDeleteDialog(widget.widgetId)}>
+                <Trash2 className="h-3.5 w-3.5 mr-0.5 text-red-600" />
+                {tw.delete}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
     );
-  }, [navigate, widgets.length, tw.delete]);
+  }, [navigate, tw.delete, tcp.widgetActionsAria]);
 
   return (
     <>
@@ -191,26 +196,17 @@ export default function ChatWidgetPage() {
       </Dialog>
 
       {/* Delete Confirmation Dialog */}
-      <Dialog open={!!showDeleteDialog} onOpenChange={() => setShowDeleteDialog(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{tw.deleteWidget}</DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-gray-500 dark:text-muted-foreground">
-            {tw.deleteWidgetConfirm}
-          </p>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowDeleteDialog(null)}>{tw.cancel}</Button>
-            <Button
-              variant="destructive"
-              onClick={() => showDeleteDialog && handleDelete(showDeleteDialog)}
-              disabled={deleteWidget.isPending}
-            >
-              {deleteWidget.isPending ? tw.deleting : tw.delete}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ConfirmDialog
+        open={!!showDeleteDialog}
+        onOpenChange={(next) => !next && setShowDeleteDialog(null)}
+        title={tw.deleteWidget}
+        description={tw.deleteWidgetConfirm}
+        confirmLabel={tw.delete}
+        cancelLabel={tw.cancel}
+        variant="destructive"
+        loading={deleteWidget.isPending}
+        onConfirm={() => (showDeleteDialog ? handleDelete(showDeleteDialog) : undefined)}
+      />
     </>
   );
 }

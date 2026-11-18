@@ -1,0 +1,175 @@
+# The platform as customers see it: the public hosts, the error rate, the
+# core workloads, NATS. severity: critical pages at any hour, warning is
+# quiet and waits for the morning (monitoring/values/kube-prometheus-stack.yaml,
+# Alertmanager). What to do: ALERTS.md.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: weldsuite-platform
+  namespace: monitoring
+spec:
+  groups:
+    - name: weldsuite-endpoints
+      rules:
+        - alert: EndpointDown
+          expr: probe_success{group="platform"} == 0
+          for: 3m
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $labels.instance }} has failed its probe for 3 minutes"
+            description: >-
+              The blackbox exporter can't get a 2xx from {{ $labels.instance }}
+              through the public DNS name and the load balancer. Customers
+              can't use it (auth.: nobody can sign in).
+            runbook_url: https://github.com/weldsuite/weldsuite/blob/main/rust/deploy/flux/infrastructure/monitoring-config/ALERTS.md#endpointdown
+        - alert: SiteDown
+          expr: probe_success{group="site"} == 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.instance }} has failed its probe for 5 minutes"
+            runbook_url: https://github.com/weldsuite/weldsuite/blob/main/rust/deploy/flux/infrastructure/monitoring-config/ALERTS.md#sitedown
+        - alert: ProbeCertificateExpiring
+          expr: (probe_ssl_earliest_cert_expiry - time()) < 7 * 86400
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "The certificate {{ $labels.instance }} serves expires in {{ $value | humanizeDuration }}"
+            runbook_url: https://github.com/weldsuite/weldsuite/blob/main/rust/deploy/flux/infrastructure/monitoring-config/ALERTS.md#certificateexpiring
+
+    - name: weldsuite-requests
+      rules:
+        # Traefik's counts per backend service: every service behind the
+        # ingress, from the first day, before the server's own metrics.
+        - alert: ApiErrorRate
+          expr: |
+            (
+              sum by (service) (rate(traefik_service_requests_total{code=~"5.."}[5m]))
+                / sum by (service) (rate(traefik_service_requests_total[5m]))
+            ) > 0.05
+            and sum by (service) (rate(traefik_service_requests_total[5m])) > 0.1
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $labels.service }} answers {{ $value | humanizePercentage }} of its requests with a 5xx"
+            runbook_url: https://github.com/weldsuite/weldsuite/blob/main/rust/deploy/flux/infrastructure/monitoring-config/ALERTS.md#apierrorrate
+        # The server's own counts per route (helm/weldsuite, metrics): which
+        # route is failing, once ApiErrorRate says something is.
+        - alert: ApiRouteErrors
+          expr: |
+            (
+              sum by (route) (rate(weldsuite_http_requests_total{status=~"5.."}[10m]))
+                / sum by (route) (rate(weldsuite_http_requests_total[10m]))
+            ) > 0.10
+            and sum by (route) (rate(weldsuite_http_requests_total[10m])) > 0.05
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.route }} answers {{ $value | humanizePercentage }} of its requests with a 5xx"
+            runbook_url: https://github.com/weldsuite/weldsuite/blob/main/rust/deploy/flux/infrastructure/monitoring-config/ALERTS.md#apirouteerrors
+        - alert: ApiLatencyHigh
+          expr: |
+            histogram_quantile(0.95,
+              sum by (le) (rate(weldsuite_http_request_duration_seconds_bucket{route!~"unmatched|static"}[5m]))
+            ) > 1
+            and sum(rate(weldsuite_http_requests_total{route!~"unmatched|static"}[5m])) > 0.1
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "The API's p95 latency is {{ $value | humanizeDuration }}"
+            runbook_url: https://github.com/weldsuite/weldsuite/blob/main/rust/deploy/flux/infrastructure/monitoring-config/ALERTS.md#apilatencyhigh
+        - alert: DatabasePoolExhausted
+          expr: |
+            max by (pod, pool) (weldsuite_db_pool_connections{state="in_use"})
+              / max by (pod, pool) (weldsuite_db_pool_max_connections) >= 0.95
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.pod }} uses {{ $value | humanizePercentage }} of its {{ $labels.pool }} connection pool"
+            runbook_url: https://github.com/weldsuite/weldsuite/blob/main/rust/deploy/flux/infrastructure/monitoring-config/ALERTS.md#databasepoolexhausted
+
+    - name: weldsuite-workloads
+      rules:
+        # The platform's own workloads, its sign-in and its ingress, and the
+        # Postgres poolers in front of every query.
+        - alert: CoreWorkloadDown
+          expr: |
+            (
+              kube_deployment_spec_replicas{namespace=~"weldsuite|zitadel|traefik|postgres"}
+                > kube_deployment_status_replicas_available{namespace=~"weldsuite|zitadel|traefik|postgres"}
+            )
+            or
+            (
+              kube_statefulset_replicas{namespace=~"weldsuite|zitadel"}
+                > kube_statefulset_status_replicas_ready{namespace=~"weldsuite|zitadel"}
+            )
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $labels.namespace }}/{{ $labels.deployment }}{{ $labels.statefulset }} has had fewer ready replicas than it wants for 10 minutes"
+            runbook_url: https://github.com/weldsuite/weldsuite/blob/main/rust/deploy/flux/infrastructure/monitoring-config/ALERTS.md#coreworkloaddown
+        - alert: WorkloadDegraded
+          expr: |
+            kube_deployment_spec_replicas{namespace=~"cnpg-system|cert-manager|monitoring|logging|marketing|livekit"}
+              > kube_deployment_status_replicas_available{namespace=~"cnpg-system|cert-manager|monitoring|logging|marketing|livekit"}
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.namespace }}/{{ $labels.deployment }} has had fewer ready replicas than it wants for 15 minutes"
+            runbook_url: https://github.com/weldsuite/weldsuite/blob/main/rust/deploy/flux/infrastructure/monitoring-config/ALERTS.md#workloaddegraded
+        - alert: ContainerOOMKilled
+          expr: |
+            (kube_pod_container_status_last_terminated_reason{reason="OOMKilled"} == 1)
+            and on (namespace, pod, container)
+            (increase(kube_pod_container_status_restarts_total[15m]) > 0)
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.namespace }}/{{ $labels.pod }} ({{ $labels.container }}) was killed for running out of memory"
+            runbook_url: https://github.com/weldsuite/weldsuite/blob/main/rust/deploy/flux/infrastructure/monitoring-config/ALERTS.md#containeroomkilled
+        - alert: MemoryNearLimit
+          expr: |
+            max by (namespace, pod, container) (container_memory_working_set_bytes{container!="", container!="POD"})
+              / max by (namespace, pod, container) (kube_pod_container_resource_limits{resource="memory"}) > 0.9
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.namespace }}/{{ $labels.pod }} ({{ $labels.container }}) uses {{ $value | humanizePercentage }} of its memory limit"
+            runbook_url: https://github.com/weldsuite/weldsuite/blob/main/rust/deploy/flux/infrastructure/monitoring-config/ALERTS.md#memorynearlimit
+
+    - name: weldsuite-nats
+      rules:
+        # `weldsuite consume` falling behind: a JetStream consumer whose
+        # pending count keeps growing. The exporter's metric name depends on
+        # its prefix flags, hence the name match.
+        - alert: ConsumerLagGrowing
+          expr: |
+            (deriv({__name__=~".*consumer_num_pending"}[15m]) > 0)
+            and ({__name__=~".*consumer_num_pending"} > 100)
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "JetStream consumer {{ $labels.consumer_name }} on {{ $labels.stream_name }} is falling behind ({{ $value }} pending)"
+            runbook_url: https://github.com/weldsuite/weldsuite/blob/main/rust/deploy/flux/infrastructure/monitoring-config/ALERTS.md#consumerlaggrowing
+        - alert: ConsumerErrors
+          expr: |
+            sum by (consumer) (rate(weldsuite_consumer_messages_total{outcome="error"}[10m]))
+              / sum by (consumer) (rate(weldsuite_consumer_messages_total[10m])) > 0.10
+            and sum by (consumer) (rate(weldsuite_consumer_messages_total[10m])) > 0.01
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Consumer {{ $labels.consumer }} fails {{ $value | humanizePercentage }} of its messages"
+            runbook_url: https://github.com/weldsuite/weldsuite/blob/main/rust/deploy/flux/infrastructure/monitoring-config/ALERTS.md#consumererrors

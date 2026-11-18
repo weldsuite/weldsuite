@@ -1,5 +1,5 @@
 /**
- * Economic nexus monitor (docs/plans/weldbooks-us.md §10, phase 6).
+ * Economic nexus monitor (weldsuite-documentation/plans/weldbooks-us.md §10, phase 6).
  *
  * Sales into each state are read from the tax ledger (every sales row, zero-tax
  * rows of states without a registration and marketplace-facilitated sales

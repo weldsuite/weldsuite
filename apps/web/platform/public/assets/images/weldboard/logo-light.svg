@@ -1,5 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- WeldBoard: a filled square with a sticky note, a connector and a node cut out. Padded to draw at 23px in a 24px slot, same as WeldSheets. -->
+<!-- WeldBoard: a filled square with a freehand scribble cut out. Padded to draw at 23px in a 24px slot, same as WeldSheets. -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="1.565 1.565 20.87 20.87">
-  <path fill="#d97706" fill-rule="evenodd" d="M5 2h14a3 3 0 0 1 3 3v14a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3V5a3 3 0 0 1 3-3ZM6 6h6v4.4L10.4 12H6ZM12 7.2h5.3v6.8h-1.6V8.8H12ZM14 16.5a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0Z"/>
+  <defs>
+    <mask id="weldboard-light-cut" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">
+      <rect width="24" height="24" fill="#fff"/>
+      <path d="M6.5 15.5c1.25-3.5 2.75-6 4.25-6s1 6 2.75 6 2.75-4.5 4-7" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </mask>
+  </defs>
+  <path fill="#d97706" mask="url(#weldboard-light-cut)" d="M5 2h14a3 3 0 0 1 3 3v14a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3V5a3 3 0 0 1 3-3Z"/>
 </svg>

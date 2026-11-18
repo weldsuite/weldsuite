@@ -23,7 +23,8 @@ import {
   DialogTitle,
 } from '@weldsuite/ui/components/dialog';
 import { useCommerceCategories } from '@/hooks/queries/use-commerce-queries';
-import { getTranslations } from '@/lib/i18n';
+import { getLocale, getTranslations } from '@/lib/i18n';
+import { plural } from '@/lib/i18n/plural';
 import { cn } from '@/lib/utils';
 
 export function CategoryPickerDialog({
@@ -140,7 +141,9 @@ export function CategoryPickerDialog({
           </Button>
           <Button type="button" disabled={selected.size === 0 || isSaving} onClick={handleConfirm}>
             {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            {t.linking.addSelected.replace('{count}', String(selected.size))}
+            {selected.size === 0
+              ? t.linking.addCategories
+              : plural(selected.size, t.linking.addToCategoriesCount, getLocale())}
           </Button>
         </DialogFooter>
       </DialogContent>

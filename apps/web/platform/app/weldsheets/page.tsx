@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 import { toast } from 'sonner';
 import { useNavigate } from '@tanstack/react-router';
 import { useCan } from '@weldsuite/permissions/react';
+import { useCreateIntent } from '@/hooks/use-create-intent';
 import { SHEET_IMPORT_MAX_BYTES } from '@weldsuite/app-api-client/schemas/sheets';
 import { ErrorState } from '@weldsuite/ui/components/error-banner';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
@@ -34,6 +35,7 @@ export default function WeldSheetsHome() {
     // A failed create leaves nothing to open.
     void create.mutateAsync({ name: th.untitled, firstTabName: th.firstTab }).then(open, () => undefined);
   };
+  useCreateIntent(createBlank, { ready: canCreate });
 
   if (sheets.isLoading) return <PageLoader fullScreen={false} />;
 

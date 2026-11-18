@@ -400,8 +400,14 @@ export const welddrive = {
       workspace_view: 'Anyone with WeldDrive access can open it. Only the owner and editors can change it.',
       restricted: 'Only the owner and the people added here can open it.',
     },
+    moduleAccessHints: {
+      workspace_edit: 'Everyone in the workspace can open and change it.',
+      workspace_view: 'Everyone in the workspace can open it. Only the owner and editors can change it.',
+      restricted: 'Only the owner and the people added here can open it.',
+    },
     restrictedByFolder: 'A folder above this one limits who can open it, whatever is set here.',
     adminNote: 'Workspace owners and admins can open everything in WeldDrive.',
+    moduleAdminNote: 'Workspace owners and admins can open everything.',
     viewOnlyNote: "You can view this but can't change who has access.",
     moduleFile: 'This file belongs to a record in another module, which decides who can open it. You can still copy its link.',
     restrictedBadge: 'Restricted',
@@ -479,6 +485,8 @@ export const welddrive = {
     itemsRestored: '{count} items restored',
     itemPermanentlyDeleted: '1 item permanently deleted',
     itemsPermanentlyDeleted: '{count} items permanently deleted',
+    otherModuleItemKept: '1 item belongs to another module and was not moved to trash. Delete it there.',
+    otherModuleItemsKept: '{count} items belong to other modules and were not moved to trash. Delete them there.',
   },
 
   confirmDialog: {

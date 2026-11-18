@@ -55,6 +55,10 @@ export const weldhrPeople = {
       emailRequired: 'Email is required',
       emailInvalid: 'Enter a valid email address',
       phoneInvalid: 'Enter a phone number with digits only, such as +31 20 123 4567',
+      weeklyHoursInvalid: 'Enter a number of hours between 0 and 168',
+      endBeforeStart: 'The end date cannot be before the start date',
+      probationBeforeStart: 'Probation cannot end before the start date',
+      birthInFuture: 'The date of birth cannot be in the future',
     },
     create: {
       employer: 'Employer',
@@ -98,6 +102,8 @@ export const weldhrPeople = {
       notLinked: 'This employee is not a workspace member yet. Link the member they are, or invite them: they are linked automatically once they accept.',
       invitePending: 'Invitation sent to {email}. This employee is linked to them automatically once they accept.',
       linkedAs: 'Linked to {name}',
+      notLinkedShort: 'Not linked',
+      invitePendingShort: 'Invitation sent',
       emailMatchHint: 'A team member with the same email was found: {name}.',
       invite: 'Invite to workspace',
       inviteTitle: 'Invite as workspace member',
@@ -128,8 +134,9 @@ export const weldhrPeople = {
       },
       deleteConfirm: {
         title: 'Delete employee',
-        description: 'Delete {name}? This cannot be undone.',
+        description: 'Delete the HR record of {name}? Their workspace account stays. This cannot be undone.',
       },
+      deletedToast: 'Employee deleted',
       tabs: {
         overview: 'Overview',
         personal: 'Personal',
@@ -153,9 +160,28 @@ export const weldhrPeople = {
           empty: 'No direct reports.',
         },
       },
+      // Short labels for the record panel's Details rows, whose label column is narrow.
+      fields: {
+        preferredName: 'Goes by',
+        manager: 'Manager',
+        employmentType: 'Contract',
+        employeeNumber: 'Emp. no.',
+        pronouns: 'Pronouns',
+        probationEndDate: 'Probation',
+        weeklyHours: 'Weekly hours',
+        workspaceAccount: 'Account',
+      },
+      reports: {
+        searchPlaceholder: 'Search direct reports…',
+        emptyTitle: 'No direct reports yet',
+        emptyDescription: 'Employees they manage show up here',
+        noResultsTitle: 'No direct reports found',
+        noResultsDescription: 'Try a different search',
+      },
       edit: {
         title: 'Edit employee',
         failed: 'Could not save this employee.',
+        savedToast: 'Employee saved',
       },
       personalTab: {
         title: 'Personal data',
@@ -164,6 +190,7 @@ export const weldhrPeople = {
         hide: 'Hide',
         loadFailed: 'Could not load personal data.',
         saveFailed: 'Could not save personal data.',
+        savedToast: 'Personal data saved',
         fields: {
           dateOfBirth: 'Date of birth',
           nationalId: 'National ID',

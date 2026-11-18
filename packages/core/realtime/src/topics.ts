@@ -93,3 +93,14 @@ const BARE_PERSONAL_TOPICS = new Set(['notification', 'mail', 'inbox', 'chat.use
 export function isBarePersonalTopic(topic: string): boolean {
   return BARE_PERSONAL_TOPICS.has(topic);
 }
+
+/**
+ * The topic to actually subscribe to for a sync-map key. A bare personal topic
+ * (`notification`, `mail`, …) is per-user, so it becomes `<topic>.<userId>`
+ * once the user is known and `null` (skip) until then; every other key is
+ * subscribed as is.
+ */
+export function resolveSyncTopic(topic: string, userId: string | null | undefined): string | null {
+  if (!isBarePersonalTopic(topic)) return topic;
+  return userId ? `${topic}.${userId}` : null;
+}

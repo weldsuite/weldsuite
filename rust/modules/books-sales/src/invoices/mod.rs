@@ -10,7 +10,7 @@
 
 mod actions;
 mod from_order;
-mod pdf;
+pub(crate) mod pdf;
 pub(crate) mod write;
 
 use std::collections::HashMap;
@@ -21,7 +21,7 @@ use axum::extract::{Path, State};
 use axum::response::Response;
 use axum::routing::{get, patch, post};
 use serde_json::{Map, Value, json};
-use weldsuite_books_domain::contacts::with_contact_names;
+use weldsuite_books_domain::contacts::{with_contact_email, with_contact_names};
 use weldsuite_books_domain::entity_context::resolve_entity_id;
 use weldsuite_books_domain::http::{BooksState, Caller, Refusal, Reply, now, ok, paged, reply};
 use weldsuite_books_domain::js::{self, parse_int};
@@ -194,12 +194,14 @@ async fn list_invoices(caller: &Caller) -> Reply {
     let to = q.present("to").map(js_date).transpose()?;
     let overdue = q.get("overdue") == Some("true");
     let term = q.present("search").map(|s| format!("%{s}%"));
+    // `type=invoice` is every invoice that is not a credit note (standard,
+    // proforma, correction): the invoice list, next to the credit notes list.
     let rows: Vec<Value> = sqlx::query_scalar(concat!(
         "select ",
         books_row!(invoices),
         " from invoices t where t.deleted_at is null and t.entity_id = $1 \
          and ($2::text is null or t.status = $2) \
-         and ($3::text is null or t.type = $3) \
+         and ($3::text is null or t.type = $3 or ($3 = 'invoice' and t.type <> 'credit_note')) \
          and ($4::text is null or t.contact_id = $4) \
          and ($5::timestamp is null or t.issue_date >= $5::timestamp) \
          and ($6::timestamp is null or t.issue_date <= $6::timestamp) \
@@ -224,7 +226,7 @@ async fn list_invoices(caller: &Caller) -> Reply {
     let total: i32 = sqlx::query_scalar(
         "select count(*)::int from invoices t where t.deleted_at is null and t.entity_id = $1 \
          and ($2::text is null or t.status = $2) \
-         and ($3::text is null or t.type = $3) \
+         and ($3::text is null or t.type = $3 or ($3 = 'invoice' and t.type <> 'credit_note')) \
          and ($4::text is null or t.contact_id = $4) \
          and ($5::timestamp is null or t.issue_date >= $5::timestamp) \
          and ($6::timestamp is null or t.issue_date <= $6::timestamp) \
@@ -348,10 +350,12 @@ async fn invoice_detail(caller: &Caller, id: &str) -> Reply {
             payment
         })
         .collect();
-    let mut named = with_contact_names(db, vec![invoice.clone()])
+    // Stored without the contact's name or email: the contact's current ones (the send dialog shows the email).
+    let named = with_contact_names(db, vec![invoice.clone()])
         .await?
         .pop()
         .unwrap_or(invoice);
+    let mut named = with_contact_email(db, named).await?;
 
     // Credit notes issued against this invoice.
     let credit_notes: Vec<Value> = if named["type"] == "credit_note" {

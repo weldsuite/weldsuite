@@ -31,7 +31,6 @@ import {
   IndentIncrease,
   RemoveFormatting,
   Plus,
-  ArrowUp,
 } from 'lucide-react';
 import { format, addDays, startOfDay } from 'date-fns';
 import { Button } from '@weldsuite/ui/components/button';
@@ -63,18 +62,28 @@ import {
   CommandList,
 } from '@weldsuite/ui/components/command';
 import { Calendar } from '@weldsuite/ui/components/calendar';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { runEditorCommand, isEditorCommandActive } from '@weldsuite/ui/lib/editor-commands';
 import { cn } from '@/lib/utils';
 import { MAIL_EDITOR_PARAGRAPH_CLASSES } from '../lib/editor-styles';
 import { useI18n } from '@/lib/i18n/provider';
 import { isFeatureAvailable } from '@/lib/edition';
-import { useMailAccounts } from '@/hooks/queries/use-mail-queries';
-import { WeldAgentIcon } from '@weldsuite/ui/components/weldagent-icon';
+import { toast } from 'sonner';
+import { useImproveEmailText, useMailAccounts } from '@/hooks/queries/use-mail-queries';
+import { useAiCreditsToast } from '@/hooks/use-ai-credits-toast';
+import { formatAiBody } from '@/app/weldmail/lib/format-ai-body';
+import { replaceBodyKeepingSignature, userWrittenText } from '@/app/weldmail/lib/signature';
+import {
+  ComposeAiIsland,
+  type ComposeAiOptions,
+  type ComposeAiRewrite,
+} from '@/app/weldmail/components/compose-ai-island';
 import { ComposeAttachButton } from '@/app/weldmail/components/compose-attach-button';
 import { RecipientsRow, StringRecipientsRow, type RecipientsRowHandle } from '@/app/weldmail/components/compose-recipients';
 import { ComposeLinkButton } from '@/app/weldmail/components/compose-link-button';
 import { SignaturePicker, useComposeSignature } from '@/app/weldmail/components/compose-signature';
 import type { SignatureMode } from '@/app/weldmail/lib/signature';
+import { unfilledPlaceholders } from '@/app/weldmail/lib/compose-placeholders';
 
 /**
  * Pairs each attachment with a stable content-based React key. The same file can
@@ -124,6 +133,17 @@ const TOOL_BUTTON =
 const FIELD_LABEL = 'w-[72px] flex-shrink-0 text-sm text-muted-foreground';
 // The recipient suggestions sit under the field, past the label column.
 const SUGGESTIONS_MENU = 'left-[72px] w-72';
+// A reply box has only the To row, so its label needs no column to line up with (Gmail).
+const FIELD_LABEL_INLINE = 'flex-shrink-0 pr-3 text-sm text-muted-foreground';
+const SUGGESTIONS_MENU_INLINE = 'left-0 w-72';
+// The reply type menu in place of "To": its icon lines up with the text under it.
+const RECIPIENTS_LABEL_SLOT = 'flex-shrink-0 -ml-2.5 pr-1';
+
+/** The field label and suggestions classes: a label column when there are From/Subject rows to line up with, inline otherwise. */
+function fieldLayout(showFromRow: boolean, showSubjectRow: boolean): { fieldLabel: string; suggestionsMenu: string } {
+  if (showFromRow || showSubjectRow) return { fieldLabel: FIELD_LABEL, suggestionsMenu: SUGGESTIONS_MENU };
+  return { fieldLabel: FIELD_LABEL_INLINE, suggestionsMenu: SUGGESTIONS_MENU_INLINE };
+}
 
 type MailAccountOption = NonNullable<ReturnType<typeof useMailAccounts>['data']>['data'][number];
 
@@ -345,11 +365,31 @@ export interface ComposeSurfaceProps {
   scheduledTime: Date | null;
   onScheduledTimeChange: (date: Date | null) => void;
 
+  /** Whether this is a reply (the AI island offers reply ideas then). */
+  isReply?: boolean;
   /** Generates content from the prompt; resolves to whether it wrote something. */
-  onAiGenerate: (prompt: string) => Promise<boolean>;
+  onAiGenerate: (prompt: string, options: ComposeAiOptions) => Promise<boolean>;
 
   onSend: () => void;
   isSending: boolean;
+
+  // Embedding the surface (the reply box under an email). Every switch keeps
+  // the full compose window as it is when left out.
+  /**
+   * Shown in place of "To" (the reply box's Reply ▾ menu). The header row then goes, and its
+   * buttons move to the end of the To row (Gmail).
+   */
+  recipientsLabel?: React.ReactNode;
+  showFromRow?: boolean;
+  showSubjectRow?: boolean;
+  /** The Cc / Bcc buttons on the To row. */
+  allowCcBcc?: boolean;
+  /** The schedule-send button in the toolbar. */
+  allowSchedule?: boolean;
+  /** Shown under the attached files (a forward's own files). */
+  bodyExtras?: React.ReactNode;
+  /** Replaces the toolbar, and hides the AI island while it shows (the Auto Draft bar). */
+  footerOverride?: React.ReactNode;
 }
 
 export function ComposeSurface({
@@ -388,13 +428,23 @@ export function ComposeSurface({
   onAttachedFilesChange,
   scheduledTime,
   onScheduledTimeChange,
+  isReply = false,
   onAiGenerate,
   onSend,
   isSending,
+  recipientsLabel,
+  showFromRow = true,
+  showSubjectRow = true,
+  allowCcBcc = true,
+  allowSchedule = true,
+  bodyExtras,
+  footerOverride,
 }: Readonly<ComposeSurfaceProps>) {
   const { t } = useI18n();
   // The AI bar and its button need `/mail-ai`, which the Kubernetes editions lack.
   const aiAvailable = isFeatureAvailable('mail-ai');
+  const { fieldLabel, suggestionsMenu } = fieldLayout(showFromRow, showSubjectRow);
+  const inlineHeader = recipientsLabel !== undefined;
   const signature = useComposeSignature({ editorRef, accountId, autoInsert: signatureMode, onChange: onBodyInput });
 
   const [fontSize, setFontSize] = useState('14');
@@ -407,12 +457,10 @@ export function ComposeSurface({
   const [isUnderline, setIsUnderline] = useState(false);
   const [isStrikethrough, setIsStrikethrough] = useState(false);
 
-  // AI input states
-  const [showAiInput, setShowAiInput] = useState(false);
-  const [aiPrompt, setAiPrompt] = useState('');
+  // A draft or rewrite from the AI island is running.
   const [isAiGenerating, setIsAiGenerating] = useState(false);
-  const aiInputRef = useRef<HTMLInputElement>(null);
-
+  const improveText = useImproveEmailText();
+  const handleAiCreditsError = useAiCreditsToast();
 
   const [variableMenuOpen, setVariableMenuOpen] = useState(false);
 
@@ -500,31 +548,42 @@ export function ComposeSurface({
     checkFormatting();
   };
 
-  // The icon row has one selected button at a time: opening the AI bar closes
-  // the formatting bar, and the other way round.
-  const handleOpenAiInput = () => {
-    setShowFormatting(false);
-    setShowAiInput(true);
-    setTimeout(() => aiInputRef.current?.focus(), 0);
-  };
-
-  const handleCloseAiInput = () => {
-    setShowAiInput(false);
-    setAiPrompt('');
-  };
-
   const handleToggleFormatting = () => {
     if (isAiGenerating) return;
-    if (!showFormatting) handleCloseAiInput();
     setShowFormatting((shown) => !shown);
   };
 
-  const handleAiGenerate = async () => {
-    const prompt = aiPrompt.trim();
-    if (!prompt || isAiGenerating) return;
+  const handleAiGenerate = async (prompt: string, options: ComposeAiOptions): Promise<boolean> => {
+    if (isAiGenerating) return false;
     setIsAiGenerating(true);
     try {
-      if (await onAiGenerate(prompt)) handleCloseAiInput();
+      return await onAiGenerate(prompt, options);
+    } finally {
+      setIsAiGenerating(false);
+    }
+  };
+
+  // What the user wrote, signature left out: the text the ⋮ menu rewrites.
+  const textToRewrite = () => (editorRef.current ? userWrittenText(editorRef.current.innerHTML).trim() : '');
+
+  const handleAiRewrite = async (action: ComposeAiRewrite): Promise<boolean> => {
+    const text = textToRewrite();
+    if (!text || isAiGenerating) return false;
+    setIsAiGenerating(true);
+    try {
+      const result = await improveText.mutateAsync({ text, action, accountId: accountId || undefined });
+      const rewritten = result.success ? result.data?.text : undefined;
+      const editor = editorRef.current;
+      if (!rewritten || !editor) {
+        toast.error(t.mail.composeAi.rewriteFailed);
+        return false;
+      }
+      replaceBodyKeepingSignature(editor, formatAiBody(rewritten));
+      onBodyInput(editor.innerHTML, editor.textContent ?? '');
+      return true;
+    } catch (err) {
+      if (!handleAiCreditsError(err)) toast.error(t.mail.composeAi.rewriteFailed);
+      return false;
     } finally {
       setIsAiGenerating(false);
     }
@@ -540,10 +599,19 @@ export function ComposeSurface({
     if (hasRecipient) setRecipientMissing(false);
   }, [hasRecipient]);
 
+  // Nothing fills `{{placeholders}}` in at send time: a mail that still has
+  // some asks before it goes, since the recipient would read them as written.
+  const [unfilled, setUnfilled] = useState<string[]>([]);
+
   const handleSend = () => {
     if (!hasRecipient) {
       setRecipientMissing(true);
       toFieldRef.current?.focus();
+      return;
+    }
+    const placeholders = unfilledPlaceholders(subject, editorRef.current?.textContent);
+    if (placeholders.length > 0) {
+      setUnfilled(placeholders);
       return;
     }
     onSend();
@@ -558,6 +626,62 @@ export function ComposeSurface({
     handleSend();
   };
 
+  // Minimize / pop out / full screen / close: in the header, or at the end of the To row.
+  const headerActions = (
+    <div className="flex items-center gap-0.5 flex-shrink-0">
+      {onMinimize && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className={cn(TOOL_BUTTON, hideMinimizeOnMobile && 'hidden md:inline-flex')}
+          data-testid={`${testIdPrefix}-minimize-btn`}
+          onClick={onMinimize}
+          title={t.mail.floatingCompose.minimize}
+          aria-label={t.mail.floatingCompose.minimize}
+        >
+          <Minus className="h-4 w-4" />
+        </Button>
+      )}
+      {onPopOut && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className={cn(TOOL_BUTTON, hideMinimizeOnMobile && 'hidden md:inline-flex')}
+          data-testid={`${testIdPrefix}-pop-out-btn`}
+          onClick={onPopOut}
+          title={t.mail.floatingCompose.popOut}
+          aria-label={t.mail.floatingCompose.popOut}
+        >
+          <PictureInPicture2 className="h-4 w-4" />
+        </Button>
+      )}
+      {onExpand && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className={TOOL_BUTTON}
+          data-testid={`${testIdPrefix}-expand-btn`}
+          onClick={onExpand}
+          title={t.mail.floatingCompose.expand}
+          aria-label={t.mail.floatingCompose.expand}
+        >
+          <Maximize className="size-[15px]" />
+        </Button>
+      )}
+      <Button
+        variant="ghost"
+        size="icon"
+        className={TOOL_BUTTON}
+        data-testid={`${testIdPrefix}-close-btn`}
+        onClick={onClose}
+        title={closeTitle ?? t.mail.floatingCompose.close}
+        aria-label={t.mail.floatingCompose.close}
+      >
+        <X className="h-4 w-4" />
+      </Button>
+    </div>
+  );
+
   return (
     <div
       className={cn('flex flex-col bg-background', className)}
@@ -566,61 +690,12 @@ export function ComposeSurface({
       onKeyDown={handleSendShortcut}
     >
       {/* Header */}
-      <div className={cn('flex items-center justify-between gap-3 h-[46px] pl-4 pr-2.5 border-b border-border flex-shrink-0', headerClassName)}>
-        <span className="text-sm font-medium text-foreground truncate min-w-0">{t.mail.floatingCompose.title}</span>
-        <div className="flex items-center gap-0.5 flex-shrink-0">
-          {onMinimize && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn(TOOL_BUTTON, hideMinimizeOnMobile && 'hidden md:inline-flex')}
-              data-testid={`${testIdPrefix}-minimize-btn`}
-              onClick={onMinimize}
-              title={t.mail.floatingCompose.minimize}
-              aria-label={t.mail.floatingCompose.minimize}
-            >
-              <Minus className="h-4 w-4" />
-            </Button>
-          )}
-          {onPopOut && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn(TOOL_BUTTON, hideMinimizeOnMobile && 'hidden md:inline-flex')}
-              data-testid={`${testIdPrefix}-pop-out-btn`}
-              onClick={onPopOut}
-              title={t.mail.floatingCompose.popOut}
-              aria-label={t.mail.floatingCompose.popOut}
-            >
-              <PictureInPicture2 className="h-4 w-4" />
-            </Button>
-          )}
-          {onExpand && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className={TOOL_BUTTON}
-              data-testid={`${testIdPrefix}-expand-btn`}
-              onClick={onExpand}
-              title={t.mail.floatingCompose.expand}
-              aria-label={t.mail.floatingCompose.expand}
-            >
-              <Maximize className="size-[15px]" />
-            </Button>
-          )}
-          <Button
-            variant="ghost"
-            size="icon"
-            className={TOOL_BUTTON}
-            data-testid={`${testIdPrefix}-close-btn`}
-            onClick={onClose}
-            title={closeTitle ?? t.mail.floatingCompose.close}
-            aria-label={t.mail.floatingCompose.close}
-          >
-            <X className="h-4 w-4" />
-          </Button>
+      {!inlineHeader && (
+        <div className={cn('flex items-center justify-between gap-3 h-[46px] pl-4 pr-2.5 border-b border-border flex-shrink-0', headerClassName)}>
+          <span className="text-sm font-medium text-foreground truncate min-w-0">{t.mail.floatingCompose.title}</span>
+          {headerActions}
         </div>
-      </div>
+      )}
 
 
       {/* Compose Content */}
@@ -628,12 +703,14 @@ export function ComposeSurface({
         <div className="bg-background flex-1 flex flex-col overflow-hidden">
           {/* From / To / Cc / Bcc / Subject */}
           <div className="px-4 pt-2 pb-1 flex-shrink-0">
-            <ComposeFromRow
-              accountId={accountId}
-              label={t.mail.floatingCompose.from}
-              onAccountChange={onAccountChange}
-              testId={`${testIdPrefix}-from-account`}
-            />
+            {showFromRow && (
+              <ComposeFromRow
+                accountId={accountId}
+                label={t.mail.floatingCompose.from}
+                onAccountChange={onAccountChange}
+                testId={`${testIdPrefix}-from-account`}
+              />
+            )}
 
             {/* To, with the Cc / Bcc buttons at its end. Each reveals its own row and
                 disappears once that row is shown. */}
@@ -643,37 +720,41 @@ export function ComposeSurface({
               setRecipients={setToRecipients}
               input={toInput}
               setInput={setToInput}
-              labelClassName={FIELD_LABEL}
-              menuClassName={SUGGESTIONS_MENU}
+              labelContent={recipientsLabel}
+              labelClassName={inlineHeader ? RECIPIENTS_LABEL_SLOT : fieldLabel}
+              menuClassName={suggestionsMenu}
               focusOnMount={startInTo}
               testId={`${testIdPrefix}-to-input`}
               handleRef={toFieldRef}
               error={recipientMissing ? t.mail.compose.recipientRequired : undefined}
               trailing={
-                (!showCc || !showBcc) && (
-                  <div className="flex items-center h-9 -mr-2 flex-shrink-0">
-                    {!showCc && (
-                      <Button
-                        variant="ghost"
-                        data-testid={`${testIdPrefix}-cc-toggle`}
-                        onClick={onShowCc}
-                        className="h-7 px-2 text-sm font-normal text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap"
-                      >
-                        {t.mail.compose.cc}
-                      </Button>
-                    )}
-                    {!showBcc && (
-                      <Button
-                        variant="ghost"
-                        data-testid={`${testIdPrefix}-bcc-toggle`}
-                        onClick={onShowBcc}
-                        className="h-7 px-2 text-sm font-normal text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap"
-                      >
-                        {t.mail.compose.bcc}
-                      </Button>
-                    )}
-                  </div>
-                )
+                <>
+                  {allowCcBcc && (!showCc || !showBcc) && (
+                    <div className="flex items-center h-9 -mr-2 flex-shrink-0">
+                      {!showCc && (
+                        <Button
+                          variant="ghost"
+                          data-testid={`${testIdPrefix}-cc-toggle`}
+                          onClick={onShowCc}
+                          className="h-7 px-2 text-sm font-normal text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap"
+                        >
+                          {t.mail.compose.cc}
+                        </Button>
+                      )}
+                      {!showBcc && (
+                        <Button
+                          variant="ghost"
+                          data-testid={`${testIdPrefix}-bcc-toggle`}
+                          onClick={onShowBcc}
+                          className="h-7 px-2 text-sm font-normal text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap"
+                        >
+                          {t.mail.compose.bcc}
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                  {inlineHeader && <div className="flex items-center h-9 ml-2 -mr-1.5 flex-shrink-0">{headerActions}</div>}
+                </>
               }
             />
 
@@ -683,8 +764,8 @@ export function ComposeSurface({
                 label={t.mail.compose.cc}
                 value={cc}
                 onChange={onCcChange}
-                labelClassName={FIELD_LABEL}
-                menuClassName={SUGGESTIONS_MENU}
+                labelClassName={fieldLabel}
+                menuClassName={suggestionsMenu}
                 focusOnMount={focusNewRows}
                 testId={`${testIdPrefix}-cc-input`}
               />
@@ -694,25 +775,27 @@ export function ComposeSurface({
                 label={t.mail.compose.bcc}
                 value={bcc}
                 onChange={onBccChange}
-                labelClassName={FIELD_LABEL}
-                menuClassName={SUGGESTIONS_MENU}
+                labelClassName={fieldLabel}
+                menuClassName={suggestionsMenu}
                 focusOnMount={focusNewRows}
                 testId={`${testIdPrefix}-bcc-input`}
               />
             )}
 
             {/* Subject Field */}
-            <div className="flex items-center min-h-9">
-              <span className={FIELD_LABEL}>{t.mail.compose.subject}</span>
-              <input
-                type="text"
-                aria-label={t.mail.compose.subject}
-                placeholder={t.mail.floatingCompose.subjectPlaceholder}
-                className="flex-1 min-w-0 text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent text-foreground placeholder:text-muted-foreground"
-                value={subject}
-                onChange={(e) => onSubjectChange(e.target.value)}
-              />
-            </div>
+            {showSubjectRow && (
+              <div className="flex items-center min-h-9">
+                <span className={FIELD_LABEL}>{t.mail.compose.subject}</span>
+                <input
+                  type="text"
+                  aria-label={t.mail.compose.subject}
+                  placeholder={t.mail.floatingCompose.subjectPlaceholder}
+                  className="flex-1 min-w-0 text-sm outline-none bg-transparent text-foreground placeholder:text-muted-foreground"
+                  value={subject}
+                  onChange={(e) => onSubjectChange(e.target.value)}
+                />
+              </div>
+            )}
           </div>
 
           {/* Message Body */}
@@ -743,7 +826,7 @@ export function ComposeSurface({
               data-testid={`${testIdPrefix}-body`}
               data-placeholder={t.mail.floatingCompose.writePlaceholder}
               className={cn(
-                "w-full min-h-[150px] px-4 text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent text-foreground [&:empty:before]:content-[attr(data-placeholder)] [&:empty:before]:text-muted-foreground [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:my-1",
+                "w-full min-h-[150px] px-4 text-sm outline-none bg-transparent text-foreground [&:empty:before]:content-[attr(data-placeholder)] [&:empty:before]:text-muted-foreground [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:my-1",
                 MAIL_EDITOR_PARAGRAPH_CLASSES,
                 isAiGenerating && "opacity-0"
               )}
@@ -822,366 +905,343 @@ export function ComposeSurface({
                 </div>
               </div>
             )}
+            {bodyExtras}
           </div>
+
+          {/* AI island: a sparkle pill under the body that opens into the prompt bar */}
+          {aiAvailable && !footerOverride && (
+            <div className="flex flex-shrink-0 justify-center px-4 pt-1 pb-3">
+              <ComposeAiIsland
+                isReply={isReply}
+                busy={isAiGenerating}
+                hasTextToRewrite={() => textToRewrite() !== ''}
+                onGenerate={handleAiGenerate}
+                onRewrite={handleAiRewrite}
+                testIdPrefix={testIdPrefix}
+              />
+            </div>
+          )}
         </div>
       </div>
 
 
-      {/* Footer */}
-      <div className="border-t border-border flex-shrink-0 relative">
-        {/* AI draft bar: toggled by the WeldAgent button, same spot and look as the formatting bar */}
-        {aiAvailable && showAiInput && (
-          <div className="px-3 pt-2">
-            <div className="flex items-center gap-1.5 rounded-lg bg-muted/60 pl-3 pr-1 py-1">
-              <input aria-label={t.mail.floatingCompose.aiPlaceholder}
-                ref={aiInputRef}
-                type="text"
-                value={aiPrompt}
-                onChange={(e) => setAiPrompt(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && aiPrompt.trim()) {
-                    e.preventDefault();
-                    void handleAiGenerate();
-                  }
-                  if (e.key === 'Escape') {
-                    handleCloseAiInput();
-                  }
-                }}
-                placeholder={t.mail.floatingCompose.aiPlaceholder}
-                className="flex-1 bg-transparent text-sm text-gray-900 dark:text-foreground placeholder:text-gray-400 dark:placeholder:text-muted-foreground outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50"
-              />
-              <Button aria-label={t.mail.a11y.generateDraft}
-                variant="ghost"
-                size="icon"
-                type="button"
-                onClick={() => {
-                  if (aiPrompt.trim()) {
-                    void handleAiGenerate();
-                  }
-                }}
-                disabled={!aiPrompt.trim() || isAiGenerating}
-                className="flex-shrink-0 h-7 w-7 flex items-center justify-center rounded-md bg-primary text-primary-foreground disabled:opacity-30 transition-opacity"
-              >
-                {isAiGenerating ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <ArrowUp className="h-3.5 w-3.5" />
-                )}
-              </Button>
-            </div>
-          </div>
-        )}
-        {/* Formatting bar: toggled by the "Aa" button, shown above the icon row */}
-        {showFormatting && (
-          <div className="px-3 pt-2">
-            <div className="inline-flex items-center gap-1 rounded-lg bg-muted/60 px-1 py-1 max-w-full flex-wrap">
-              {/* Undo / Redo */}
-              <Button variant="ghost" size="icon" onMouseDown={preventFocusLoss} onClick={handleUndo} className={TOOL_BUTTON} title={t.mail.toolbar.undo} aria-label={t.mail.toolbar.undo}>
-                <Undo2 className="h-4 w-4" />
-              </Button>
-              <Button variant="ghost" size="icon" onMouseDown={preventFocusLoss} onClick={handleRedo} className={TOOL_BUTTON} title={t.mail.toolbar.redo} aria-label={t.mail.toolbar.redo}>
-                <Redo2 className="h-4 w-4" />
-              </Button>
-              <div className="w-px h-4 bg-border" />
-              {/* Font Size */}
-              <Select value={fontSize} onValueChange={(value) => { setFontSize(value); focusEditor(); }}>
-                <SelectTrigger aria-label={t.mail.a11y.fontSize} className="h-7 data-[size=default]:h-7 w-[56px] text-[13.5px] text-muted-foreground bg-transparent dark:bg-transparent border-0 shadow-none hover:bg-muted px-2 rounded-md focus:outline-none">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="12">12</SelectItem>
-                  <SelectItem value="14">14</SelectItem>
-                  <SelectItem value="16">16</SelectItem>
-                  <SelectItem value="18">18</SelectItem>
-                  <SelectItem value="20">20</SelectItem>
-                </SelectContent>
-              </Select>
-              <div className="w-px h-4 bg-border" />
-              {/* Text Formatting */}
-              <Button variant="ghost" size="icon" onMouseDown={preventFocusLoss} onClick={handleBold} className={cn(TOOL_BUTTON, isBold && "bg-muted text-foreground")} title={t.mail.toolbar.bold}>
-                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                  <path d="M6 4h8a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z" />
-                  <path d="M6 12h9a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z" />
-                </svg>
-              </Button>
-              <Button variant="ghost" size="icon" onMouseDown={preventFocusLoss} onClick={handleItalic} className={cn(TOOL_BUTTON, isItalic && "bg-muted text-foreground")} title={t.mail.toolbar.italic}>
-                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                  <line x1="19" y1="4" x2="10" y2="4" />
-                  <line x1="14" y1="20" x2="5" y2="20" />
-                  <line x1="15" y1="4" x2="9" y2="20" />
-                </svg>
-              </Button>
-              <Button variant="ghost" size="icon" onMouseDown={preventFocusLoss} onClick={handleUnderline} className={cn(TOOL_BUTTON, isUnderline && "bg-muted text-foreground")} title={t.mail.toolbar.underline}>
-                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                  <path d="M6 3v7a6 6 0 0 0 6 6 6 6 0 0 0 6-6V3" />
-                  <line x1="4" y1="21" x2="20" y2="21" />
-                </svg>
-              </Button>
-              <Button variant="ghost" size="icon" onMouseDown={preventFocusLoss} onClick={handleStrikethrough} className={cn(TOOL_BUTTON, isStrikethrough && "bg-muted text-foreground")} title={t.mail.toolbar.strikethrough} aria-label={t.mail.toolbar.strikethrough}>
-                <Strikethrough className="h-4 w-4" />
-              </Button>
-              {/* Text colour */}
-              <Popover open={colorPickerOpen} onOpenChange={setColorPickerOpen}>
-                <PopoverTrigger asChild>
-                  <Button variant="ghost" size="icon" onMouseDown={preventFocusLoss} className={TOOL_BUTTON} title={t.mail.toolbar.textColor} aria-label={t.mail.toolbar.textColor}>
-                    <Baseline className="h-4 w-4" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-2" align="start" side="top" onCloseAutoFocus={(e) => e.preventDefault()}>
-                  <div className="grid grid-cols-4 gap-1.5">
-                    {TEXT_COLORS.map((color) => (
-                      <button
-                        key={color}
-                        type="button"
-                        onMouseDown={preventFocusLoss}
-                        onClick={() => handleTextColor(color)}
-                        className="h-6 w-6 rounded-md border border-border transition-transform hover:scale-110"
-                        style={{ backgroundColor: color }}
-                        aria-label={color}
-                      />
-                    ))}
-                  </div>
-                </PopoverContent>
-              </Popover>
-              <div className="w-px h-4 bg-border" />
-              {/* Alignment */}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" onMouseDown={preventFocusLoss} className={TOOL_BUTTON} title={t.mail.toolbar.align} aria-label={t.mail.toolbar.align}>
-                    <AlignLeft className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" side="top" onCloseAutoFocus={(e) => e.preventDefault()}>
-                  <DropdownMenuItem onSelect={() => handleAlign('justifyLeft')}>
-                    <AlignLeft className="h-4 w-4" />
-                    {t.mail.toolbar.alignLeft}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => handleAlign('justifyCenter')}>
-                    <AlignCenter className="h-4 w-4" />
-                    {t.mail.toolbar.alignCenter}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => handleAlign('justifyRight')}>
-                    <AlignRight className="h-4 w-4" />
-                    {t.mail.toolbar.alignRight}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-              {/* Lists */}
-              <Button variant="ghost" size="icon" onMouseDown={preventFocusLoss} onClick={handleBulletList} className={TOOL_BUTTON} title={t.mail.toolbar.bulletList}>
-                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <line x1="8" y1="6" x2="21" y2="6" />
-                  <line x1="8" y1="12" x2="21" y2="12" />
-                  <line x1="8" y1="18" x2="21" y2="18" />
-                  <circle cx="4" cy="6" r="1" fill="currentColor" />
-                  <circle cx="4" cy="12" r="1" fill="currentColor" />
-                  <circle cx="4" cy="18" r="1" fill="currentColor" />
-                </svg>
-              </Button>
-              <Button variant="ghost" size="icon" onMouseDown={preventFocusLoss} onClick={handleNumberedList} className={TOOL_BUTTON} title={t.mail.toolbar.numberedList}>
-                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <line x1="10" y1="6" x2="21" y2="6" />
-                  <line x1="10" y1="12" x2="21" y2="12" />
-                  <line x1="10" y1="18" x2="21" y2="18" />
-                  <path d="M4 6h1v4" />
-                  <path d="M4 10h2" />
-                  <path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1" />
-                </svg>
-              </Button>
-              <ComposeLinkButton editorRef={editorRef} className={TOOL_BUTTON} testId={`${testIdPrefix}-link-btn`} />
-              <Button variant="ghost" size="icon" onMouseDown={preventFocusLoss} onClick={handleOutdent} className={TOOL_BUTTON} title={t.mail.toolbar.indentLess} aria-label={t.mail.toolbar.indentLess}>
-                <IndentDecrease className="h-4 w-4" />
-              </Button>
-              <Button variant="ghost" size="icon" onMouseDown={preventFocusLoss} onClick={handleIndent} className={TOOL_BUTTON} title={t.mail.toolbar.indentMore} aria-label={t.mail.toolbar.indentMore}>
-                <IndentIncrease className="h-4 w-4" />
-              </Button>
-              <div className="w-px h-4 bg-border" />
-              <Button variant="ghost" size="icon" onMouseDown={preventFocusLoss} onClick={handleRemoveFormatting} className={TOOL_BUTTON} title={t.mail.toolbar.removeFormatting} aria-label={t.mail.toolbar.removeFormatting}>
-                <RemoveFormatting className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-        )}
-        <div className={cn('flex items-center justify-between gap-2 px-3 py-2', toolbarClassName)}>
-          {/* Editor tools */}
-          <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-            <Button
-              variant="ghost"
-              size="icon"
-              onMouseDown={preventFocusLoss}
-              onClick={handleToggleFormatting}
-              className={cn(TOOL_BUTTON, showFormatting && "bg-muted text-foreground")}
-              title={t.mail.compose.formatting}
-              aria-label={t.mail.compose.formatting}
-              aria-pressed={showFormatting}
-            >
-              <ALargeSmall className="h-4 w-4" />
-            </Button>
-            <ComposeAttachButton
-              className={TOOL_BUTTON}
-              icon={ImageIcon}
-              title={t.mail.toolbar.attachFile}
-              testId={`${testIdPrefix}-attach-input`}
-              onFilesSelected={(files) => onAttachedFilesChange((prev) => [...prev, ...files])}
-            />
-            {/* Variables: inserts a {{placeholder}} at the cursor */}
-            <Popover open={variableMenuOpen} onOpenChange={setVariableMenuOpen}>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onMouseDown={preventFocusLoss}
-                  className={TOOL_BUTTON}
-                  title={t.mail.toolbar.insertVariable}
-                  aria-label={t.mail.toolbar.insertVariable}
-                >
-                  <Variable className="h-4 w-4" />
+      {/* Footer (or what the embedding surface puts in its place) */}
+      {footerOverride ?? (
+        <div className="border-t border-border flex-shrink-0 relative">
+          {/* Formatting bar: toggled by the "Aa" button, shown above the icon row */}
+          {showFormatting && (
+            <div className="px-3 pt-2">
+              <div className="inline-flex items-center gap-1 rounded-lg bg-muted/60 px-1 py-1 max-w-full flex-wrap">
+                {/* Undo / Redo */}
+                <Button variant="ghost" size="icon" onMouseDown={preventFocusLoss} onClick={handleUndo} className={TOOL_BUTTON} title={t.mail.toolbar.undo} aria-label={t.mail.toolbar.undo}>
+                  <Undo2 className="h-4 w-4" />
                 </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-56 p-0" align="start" side="top" onCloseAutoFocus={(e) => e.preventDefault()}>
-                <Command>
-                  <CommandInput placeholder={t.mail.toolbar.searchVariables} />
-                  <CommandList>
-                    <CommandEmpty>{t.mail.toolbar.noVariablesFound}</CommandEmpty>
-                    <CommandGroup>
-                      {COMPOSE_VARIABLES.map((variable) => (
-                        <CommandItem
-                          key={variable.token}
-                          value={t.mail.toolbar.variables[variable.label]}
-                          keywords={[variable.token]}
-                          onSelect={() => handleInsertVariable(variable.token)}
-                        >
-                          {t.mail.toolbar.variables[variable.label]}
-                        </CommandItem>
-                      ))}
-                    </CommandGroup>
-                  </CommandList>
-                </Command>
-              </PopoverContent>
-            </Popover>
-
-            <SignaturePicker
-              className={TOOL_BUTTON}
-              signatures={signature.signatures}
-              getSelectedId={signature.getSelectedId}
-              onSelect={signature.select}
-              testId={`${testIdPrefix}-signature-btn`}
-            />
-
-            {/* Schedule send */}
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className={cn(TOOL_BUTTON, scheduledTime && 'bg-muted text-foreground')}
-                  data-testid={`${testIdPrefix}-schedule-btn`}
-                  title={scheduleLabel ?? t.mail.floatingCompose.schedule}
-                  aria-label={scheduleLabel ?? t.mail.floatingCompose.schedule}
-                >
-                  <Clock className="h-4 w-4" />
+                <Button variant="ghost" size="icon" onMouseDown={preventFocusLoss} onClick={handleRedo} className={TOOL_BUTTON} title={t.mail.toolbar.redo} aria-label={t.mail.toolbar.redo}>
+                  <Redo2 className="h-4 w-4" />
                 </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start" side="top">
-                <Calendar
-                  mode="single"
-                  selected={scheduledTime || undefined}
-                  defaultMonth={scheduledTime ?? undefined}
-                  onSelect={(date) => {
-                    if (date) onScheduledTimeChange(scheduleForDate(date, scheduledTime));
-                  }}
-                  disabled={(date) => date < startOfDay(new Date()) || date > addDays(new Date(), MAX_SCHEDULE_DAYS)}
-                  startMonth={new Date()}
-                  endMonth={addDays(new Date(), MAX_SCHEDULE_DAYS)}
-                  autoFocus
-                />
-                <div className="border-t border-border px-3 py-3">
-                  <div className="text-xs font-medium text-muted-foreground mb-2">{t.mail.floatingCompose.time}</div>
-                  <div className="flex items-center gap-2">
-                    <Select
-                      value={String(scheduledTime?.getHours() ?? new Date().getHours())}
-                      onValueChange={(value) => onScheduledTimeChange(scheduleWithHour(scheduledTime, value))}
-                    >
-                      <SelectTrigger className="w-[70px] h-9">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {availableHours(scheduledTime).map((i) => (
-                          <SelectItem key={i} value={String(i)}>
-                            {i.toString().padStart(2, '0')}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <span className="text-muted-foreground">:</span>
-                    <Select
-                      value={String(scheduledTime?.getMinutes() ?? Math.min(new Date().getMinutes() + 1, 59))}
-                      onValueChange={(value) => onScheduledTimeChange(scheduleWithMinute(scheduledTime, value))}
-                    >
-                      <SelectTrigger className="w-[70px] h-9">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {availableMinutes(scheduledTime).map((i) => (
-                          <SelectItem key={i} value={String(i)}>
-                            {i.toString().padStart(2, '0')}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  {scheduledTime && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => onScheduledTimeChange(null)}
-                      className="mt-2 -ml-2 h-7 px-2 text-xs text-muted-foreground"
-                    >
-                      {t.mail.floatingCompose.removeSchedule}
+                <div className="w-px h-4 bg-border" />
+                {/* Font Size */}
+                <Select value={fontSize} onValueChange={(value) => { setFontSize(value); focusEditor(); }}>
+                  <SelectTrigger aria-label={t.mail.a11y.fontSize} className="h-7 data-[size=default]:h-7 w-[56px] text-[13.5px] text-muted-foreground bg-transparent dark:bg-transparent border-0 shadow-none hover:bg-muted px-2 rounded-md focus:outline-none">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="12">12</SelectItem>
+                    <SelectItem value="14">14</SelectItem>
+                    <SelectItem value="16">16</SelectItem>
+                    <SelectItem value="18">18</SelectItem>
+                    <SelectItem value="20">20</SelectItem>
+                  </SelectContent>
+                </Select>
+                <div className="w-px h-4 bg-border" />
+                {/* Text Formatting */}
+                <Button variant="ghost" size="icon" onMouseDown={preventFocusLoss} onClick={handleBold} className={cn(TOOL_BUTTON, isBold && "bg-muted text-foreground")} title={t.mail.toolbar.bold}>
+                  <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <path d="M6 4h8a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z" />
+                    <path d="M6 12h9a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z" />
+                  </svg>
+                </Button>
+                <Button variant="ghost" size="icon" onMouseDown={preventFocusLoss} onClick={handleItalic} className={cn(TOOL_BUTTON, isItalic && "bg-muted text-foreground")} title={t.mail.toolbar.italic}>
+                  <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <line x1="19" y1="4" x2="10" y2="4" />
+                    <line x1="14" y1="20" x2="5" y2="20" />
+                    <line x1="15" y1="4" x2="9" y2="20" />
+                  </svg>
+                </Button>
+                <Button variant="ghost" size="icon" onMouseDown={preventFocusLoss} onClick={handleUnderline} className={cn(TOOL_BUTTON, isUnderline && "bg-muted text-foreground")} title={t.mail.toolbar.underline}>
+                  <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <path d="M6 3v7a6 6 0 0 0 6 6 6 6 0 0 0 6-6V3" />
+                    <line x1="4" y1="21" x2="20" y2="21" />
+                  </svg>
+                </Button>
+                <Button variant="ghost" size="icon" onMouseDown={preventFocusLoss} onClick={handleStrikethrough} className={cn(TOOL_BUTTON, isStrikethrough && "bg-muted text-foreground")} title={t.mail.toolbar.strikethrough} aria-label={t.mail.toolbar.strikethrough}>
+                  <Strikethrough className="h-4 w-4" />
+                </Button>
+                {/* Text colour */}
+                <Popover open={colorPickerOpen} onOpenChange={setColorPickerOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="ghost" size="icon" onMouseDown={preventFocusLoss} className={TOOL_BUTTON} title={t.mail.toolbar.textColor} aria-label={t.mail.toolbar.textColor}>
+                      <Baseline className="h-4 w-4" />
                     </Button>
-                  )}
-                </div>
-              </PopoverContent>
-            </Popover>
-
-            {/* AI Assistant */}
-            {aiAvailable && (
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-2" align="start" side="top" onCloseAutoFocus={(e) => e.preventDefault()}>
+                    <div className="grid grid-cols-4 gap-1.5">
+                      {TEXT_COLORS.map((color) => (
+                        <button
+                          key={color}
+                          type="button"
+                          onMouseDown={preventFocusLoss}
+                          onClick={() => handleTextColor(color)}
+                          className="h-6 w-6 rounded-md border border-border transition-transform hover:scale-110"
+                          style={{ backgroundColor: color }}
+                          aria-label={color}
+                        />
+                      ))}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+                <div className="w-px h-4 bg-border" />
+                {/* Alignment */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" onMouseDown={preventFocusLoss} className={TOOL_BUTTON} title={t.mail.toolbar.align} aria-label={t.mail.toolbar.align}>
+                      <AlignLeft className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" side="top" onCloseAutoFocus={(e) => e.preventDefault()}>
+                    <DropdownMenuItem onSelect={() => handleAlign('justifyLeft')}>
+                      <AlignLeft className="h-4 w-4" />
+                      {t.mail.toolbar.alignLeft}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => handleAlign('justifyCenter')}>
+                      <AlignCenter className="h-4 w-4" />
+                      {t.mail.toolbar.alignCenter}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => handleAlign('justifyRight')}>
+                      <AlignRight className="h-4 w-4" />
+                      {t.mail.toolbar.alignRight}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                {/* Lists */}
+                <Button variant="ghost" size="icon" onMouseDown={preventFocusLoss} onClick={handleBulletList} className={TOOL_BUTTON} title={t.mail.toolbar.bulletList}>
+                  <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <line x1="8" y1="6" x2="21" y2="6" />
+                    <line x1="8" y1="12" x2="21" y2="12" />
+                    <line x1="8" y1="18" x2="21" y2="18" />
+                    <circle cx="4" cy="6" r="1" fill="currentColor" />
+                    <circle cx="4" cy="12" r="1" fill="currentColor" />
+                    <circle cx="4" cy="18" r="1" fill="currentColor" />
+                  </svg>
+                </Button>
+                <Button variant="ghost" size="icon" onMouseDown={preventFocusLoss} onClick={handleNumberedList} className={TOOL_BUTTON} title={t.mail.toolbar.numberedList}>
+                  <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <line x1="10" y1="6" x2="21" y2="6" />
+                    <line x1="10" y1="12" x2="21" y2="12" />
+                    <line x1="10" y1="18" x2="21" y2="18" />
+                    <path d="M4 6h1v4" />
+                    <path d="M4 10h2" />
+                    <path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1" />
+                  </svg>
+                </Button>
+                <ComposeLinkButton editorRef={editorRef} className={TOOL_BUTTON} testId={`${testIdPrefix}-link-btn`} />
+                <Button variant="ghost" size="icon" onMouseDown={preventFocusLoss} onClick={handleOutdent} className={TOOL_BUTTON} title={t.mail.toolbar.indentLess} aria-label={t.mail.toolbar.indentLess}>
+                  <IndentDecrease className="h-4 w-4" />
+                </Button>
+                <Button variant="ghost" size="icon" onMouseDown={preventFocusLoss} onClick={handleIndent} className={TOOL_BUTTON} title={t.mail.toolbar.indentMore} aria-label={t.mail.toolbar.indentMore}>
+                  <IndentIncrease className="h-4 w-4" />
+                </Button>
+                <div className="w-px h-4 bg-border" />
+                <Button variant="ghost" size="icon" onMouseDown={preventFocusLoss} onClick={handleRemoveFormatting} className={TOOL_BUTTON} title={t.mail.toolbar.removeFormatting} aria-label={t.mail.toolbar.removeFormatting}>
+                  <RemoveFormatting className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
+          <div className={cn('flex items-center justify-between gap-2 px-3 py-2', toolbarClassName)}>
+            {/* Editor tools */}
+            <div className="flex items-center gap-1.5 flex-wrap min-w-0">
               <Button
                 variant="ghost"
                 size="icon"
                 onMouseDown={preventFocusLoss}
-                onClick={() => !isAiGenerating && (showAiInput ? handleCloseAiInput() : handleOpenAiInput())}
-                className={cn(TOOL_BUTTON, showAiInput && "bg-[#8d65ef]/10")}
-                title={t.mail.toolbar.aiAssistant}
+                onClick={handleToggleFormatting}
+                className={cn(TOOL_BUTTON, showFormatting && "bg-muted text-foreground")}
+                title={t.mail.compose.formatting}
+                aria-label={t.mail.compose.formatting}
+                aria-pressed={showFormatting}
               >
-                <WeldAgentIcon className={cn("h-4 w-4", showAiInput && "text-[#8d65ef]")} />
+                <ALargeSmall className="h-4 w-4" />
               </Button>
-            )}
-          </div>
-
-          {/* Send, or schedule at the chosen time */}
-          <div className="flex items-center gap-1.5 flex-shrink-0">
-            <Button
-              type="button"
-              data-testid={`${testIdPrefix}-send-btn`}
-              onClick={handleSend}
-              disabled={isSending}
-              size="sm"
-              className="ml-1 !px-3"
-              title="Ctrl+Enter"
-              aria-label={scheduleLabel}
-            >
-              {isSending && <Loader2 className="h-4 w-4 animate-spin" />}
-              <SendButtonLabel
-                scheduledTime={scheduledTime}
-                scheduleText={t.mail.floatingCompose.schedule}
-                sendText={t.mail.floatingCompose.sendEmail}
-                testId={`${testIdPrefix}-scheduled-time`}
+              <ComposeAttachButton
+                className={TOOL_BUTTON}
+                icon={ImageIcon}
+                title={t.mail.toolbar.attachFile}
+                testId={`${testIdPrefix}-attach-input`}
+                onFilesSelected={(files) => onAttachedFilesChange((prev) => [...prev, ...files])}
               />
-            </Button>
+              {/* Variables: inserts a {{placeholder}} at the cursor */}
+              <Popover open={variableMenuOpen} onOpenChange={setVariableMenuOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onMouseDown={preventFocusLoss}
+                    className={TOOL_BUTTON}
+                    title={t.mail.toolbar.insertVariable}
+                    aria-label={t.mail.toolbar.insertVariable}
+                  >
+                    <Variable className="h-4 w-4" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-56 p-0" align="start" side="top" onCloseAutoFocus={(e) => e.preventDefault()}>
+                  <Command>
+                    <CommandInput placeholder={t.mail.toolbar.searchVariables} />
+                    <CommandList>
+                      <CommandEmpty>{t.mail.toolbar.noVariablesFound}</CommandEmpty>
+                      <CommandGroup>
+                        {COMPOSE_VARIABLES.map((variable) => (
+                          <CommandItem
+                            key={variable.token}
+                            value={t.mail.toolbar.variables[variable.label]}
+                            keywords={[variable.token]}
+                            onSelect={() => handleInsertVariable(variable.token)}
+                          >
+                            {t.mail.toolbar.variables[variable.label]}
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+
+              <SignaturePicker
+                className={TOOL_BUTTON}
+                signatures={signature.signatures}
+                getSelectedId={signature.getSelectedId}
+                onSelect={signature.select}
+                testId={`${testIdPrefix}-signature-btn`}
+              />
+
+              {/* Schedule send */}
+              {allowSchedule && (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={cn(TOOL_BUTTON, scheduledTime && 'bg-muted text-foreground')}
+                      data-testid={`${testIdPrefix}-schedule-btn`}
+                      title={scheduleLabel ?? t.mail.floatingCompose.schedule}
+                      aria-label={scheduleLabel ?? t.mail.floatingCompose.schedule}
+                    >
+                      <Clock className="h-4 w-4" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start" side="top">
+                    <Calendar
+                      mode="single"
+                      selected={scheduledTime || undefined}
+                      defaultMonth={scheduledTime ?? undefined}
+                      onSelect={(date) => {
+                        if (date) onScheduledTimeChange(scheduleForDate(date, scheduledTime));
+                      }}
+                      disabled={(date) => date < startOfDay(new Date()) || date > addDays(new Date(), MAX_SCHEDULE_DAYS)}
+                      startMonth={new Date()}
+                      endMonth={addDays(new Date(), MAX_SCHEDULE_DAYS)}
+                      autoFocus
+                    />
+                    <div className="border-t border-border px-3 py-3">
+                      <div className="text-xs font-medium text-muted-foreground mb-2">{t.mail.floatingCompose.time}</div>
+                      <div className="flex items-center gap-2">
+                        <Select
+                          value={String(scheduledTime?.getHours() ?? new Date().getHours())}
+                          onValueChange={(value) => onScheduledTimeChange(scheduleWithHour(scheduledTime, value))}
+                        >
+                          <SelectTrigger className="w-[70px] h-9" aria-label={t.mail.a11y.scheduleHour}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {availableHours(scheduledTime).map((i) => (
+                              <SelectItem key={i} value={String(i)}>
+                                {i.toString().padStart(2, '0')}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <span className="text-muted-foreground">:</span>
+                        <Select
+                          value={String(scheduledTime?.getMinutes() ?? Math.min(new Date().getMinutes() + 1, 59))}
+                          onValueChange={(value) => onScheduledTimeChange(scheduleWithMinute(scheduledTime, value))}
+                        >
+                          <SelectTrigger className="w-[70px] h-9" aria-label={t.mail.a11y.scheduleMinute}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {availableMinutes(scheduledTime).map((i) => (
+                              <SelectItem key={i} value={String(i)}>
+                                {i.toString().padStart(2, '0')}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {scheduledTime && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => onScheduledTimeChange(null)}
+                          className="mt-2 -ml-2 h-7 px-2 text-xs text-muted-foreground"
+                        >
+                          {t.mail.floatingCompose.removeSchedule}
+                        </Button>
+                      )}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              )}
+            </div>
+
+            {/* Send, or schedule at the chosen time */}
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              <Button
+                type="button"
+                data-testid={`${testIdPrefix}-send-btn`}
+                onClick={handleSend}
+                disabled={isSending}
+                size="sm"
+                className="ml-1 !px-3"
+                title="Ctrl+Enter"
+                aria-label={scheduleLabel}
+              >
+                {isSending && <Loader2 className="h-4 w-4 animate-spin" />}
+                <SendButtonLabel
+                  scheduledTime={scheduledTime}
+                  scheduleText={t.mail.floatingCompose.schedule}
+                  sendText={t.mail.floatingCompose.sendEmail}
+                  testId={`${testIdPrefix}-scheduled-time`}
+                />
+              </Button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
+      <ConfirmDialog
+        open={unfilled.length > 0}
+        onOpenChange={(open) => {
+          if (!open) setUnfilled([]);
+        }}
+        title={t.mail.compose.unfilledPlaceholdersTitle}
+        description={t.mail.compose.unfilledPlaceholdersDescription.replace('{placeholders}', unfilled.join(', '))}
+        confirmLabel={t.mail.compose.sendAnyway}
+        cancelLabel={t.mail.compose.goBack}
+        onConfirm={() => {
+          setUnfilled([]);
+          onSend();
+        }}
+      />
     </div>
   );
 }

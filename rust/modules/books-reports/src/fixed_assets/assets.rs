@@ -191,7 +191,7 @@ pub(crate) fn resolve_asset_accounts(
         }
         fallback.map(account_id).ok_or_else(|| {
             bad(format!(
-                "Choose a {hint}: this chart of accounts has no default for it"
+                "Choose {hint}: this chart of accounts has no default for it. Pick one, or add it to the chart of accounts."
             ))
         })
     };
@@ -199,23 +199,24 @@ pub(crate) fn resolve_asset_accounts(
         asset: pick(
             asset,
             "assetAccountId",
-            account_for_role(accounts, "fixed_assets", &[])
+            // The codes: the NL template's accounts, for entities seeded before the roles were on them.
+            account_for_role(accounts, "fixed_assets", &["0200"])
                 .or_else(|| accounts.by_subtype("fixed_assets"))
                 .or_else(|| accounts.by_subtype("fixed_asset")),
-            "fixed asset account (assetAccountId)",
+            "a fixed asset account",
         )?,
         accumulated: pick(
             accumulated,
             "accumulatedDepreciationAccountId",
-            account_for_role(accounts, "accumulated_depreciation", &[]),
-            "accumulated depreciation account (accumulatedDepreciationAccountId)",
+            account_for_role(accounts, "accumulated_depreciation", &["0290"]),
+            "an accumulated depreciation account",
         )?,
         expense: pick(
             expense,
             "depreciationExpenseAccountId",
-            account_for_role(accounts, "depreciation_expense", &[])
+            account_for_role(accounts, "depreciation_expense", &["4700"])
                 .or_else(|| accounts.by_subtype("depreciation")),
-            "depreciation expense account (depreciationExpenseAccountId)",
+            "a depreciation expense account",
         )?,
     })
 }

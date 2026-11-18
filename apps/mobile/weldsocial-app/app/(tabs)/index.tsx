@@ -5,7 +5,7 @@ import { useObserve } from 'expo-observe';
 import { useRouter } from 'expo-router';
 import { Pencil, ChevronRight } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
 import { useWorkspace } from '@weldsuite/mobile-ui/contexts/WorkspaceContext';
 import { Spinner } from '@weldsuite/mobile-ui/components/Spinner';
 import { Banner } from '@weldsuite/mobile-ui/components/Banner';
@@ -31,7 +31,7 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { markInteractive } = useObserve();
-  const { user } = useClerkAuth();
+  const { user } = useAuthSession();
   const { currentWorkspace } = useWorkspace();
 
   const fetcher = useCallback(async (): Promise<DashboardData> => {

@@ -10,7 +10,7 @@
  * so these tests can be replayed against the Rust backend.
  */
 
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { createPgliteDb, createMasterPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { conformanceMasterDb, conformanceTenantDb, createTestApp } from '@weldsuite/worker-kit/testing';
@@ -64,6 +64,23 @@ beforeEach(async () => {
   await resetForms(db, master);
   await seedWorkspace(master);
 });
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+/**
+ * Holds the clock at one instant for a burst of requests. The rate limits
+ * count in fixed one-minute windows on the clock, so a burst that runs over a
+ * minute's end starts counting again and never reaches its limit; conformance
+ * sends every request to both backends, which makes that likely (main's CI
+ * run 43382326767). Conformance passes the held clock to Rust too
+ * (`CONFORMANCE_NOW`).
+ */
+function holdClock(): void {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-06-01T09:00:00.000Z'));
+}
 
 const FORMS = '/api/forms/forms';
 const PUBLIC = '/public/forms';
@@ -334,6 +351,7 @@ describe('POST /f/:publicId/view', () => {
   it('rate limits views per IP, since the view key is the browser\'s own choice', async () => {
     const { publicId } = await publish(simpleDefinition());
     const p = portal();
+    holdClock();
     for (let i = 0; i < 30; i++) expect((await p.post(`/f/${publicId}/view`, { viewKey: `script-key-${i}` })).status).toBe(200);
     const limited = await p.post(`/f/${publicId}/view`, { viewKey: 'script-key-30' });
     expect(limited.status).toBe(429);
@@ -404,6 +422,7 @@ describe('POST /f/:publicId/sessions', () => {
   it('rate limits sessions per IP and form', async () => {
     const { publicId } = await publish(simpleDefinition());
     const p = portal();
+    holdClock();
     for (let i = 0; i < 10; i++) expect((await p.post(`/f/${publicId}/sessions`, {})).status).toBe(201);
     const limited = await p.post(`/f/${publicId}/sessions`, {});
     expect(limited.status).toBe(429);
@@ -884,6 +903,22 @@ describe('POST /sessions/submit', () => {
     const quick = await submit(fast, session, { b_name: 'Too fast' });
     expect(quick.status).toBe(400);
     expect(await db.select().from(schema.formResponses).where(eq(schema.formResponses.status, 'completed'))).toHaveLength(0);
+  });
+
+  it('counts only the time it saw between start and submit: forged timings do not help, waiting does', async () => {
+    const w = newWorld({ FORMS_MIN_FILL_MS: '60000' });
+    const { publicId } = await publish(simpleDefinition(), {}, w);
+    const p = portal(w);
+    holdClock();
+    const session = await start(p, publicId);
+    // A script on a brand-new session that claims a day on the form.
+    const forged = await submit(p, session, { b_name: 'Bot' }, { timings: { b_name: 86_400_000 } });
+    expect([forged.status, (await errorOf(forged)).code]).toEqual([400, 'SUBMISSION_REJECTED']);
+    // A quick respondent: the page started the session at the first answer and submits once the minimum has passed.
+    vi.setSystemTime(new Date('2026-06-01T09:01:01.000Z'));
+    const res = await submit(p, session, { b_name: 'Ada' }, { timings: { b_name: 1_000 } });
+    expect(res.status).toBe(200);
+    expect(await db.select().from(schema.formResponses).where(eq(schema.formResponses.status, 'completed'))).toHaveLength(1);
   });
 
   it('moves uploads to the form folder, refuses another response\'s file and drops unused ones', async () => {

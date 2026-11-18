@@ -7,7 +7,7 @@
  * second OAuth app or a Personal Access Token — `getValidIntegrationToken`
  * (./token.ts) mints a fresh ~1h installation token on every call via
  * `@weldsuite/connect-domain/github/app-auth`. See "Provider pattern" in
- * docs/plans/weldconnect.md.
+ * weldsuite-documentation/plans/weldconnect.md.
  */
 
 import type { ActionHandler } from '../../types';

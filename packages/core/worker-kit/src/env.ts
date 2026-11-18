@@ -65,7 +65,7 @@ export type KitVariables = {
    * The Clerk org id of the request's workspace. For Clerk calls, and for the
    * stores still keyed by it (R2 prefixes, KV keys, D1 indexes, Durable Object
    * names, entity events, Workflow params) until each moves to `workspaceId`
-   * (docs/plans/workspace-id-standardization.md). Set by workspaceDbMiddleware
+   * (weldsuite-documentation/plans/workspace-id-standardization.md). Set by workspaceDbMiddleware
    * and by every other entry point that sets `workspaceId`.
    */
   clerkOrgId: string;

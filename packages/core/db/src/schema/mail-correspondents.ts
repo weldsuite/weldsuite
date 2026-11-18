@@ -7,7 +7,7 @@ import { pgTable, varchar, timestamp, integer, boolean, jsonb, index } from 'dri
  * a **first contact**: a recipient with no `firstInboundAt` never wrote to the
  * workspace. That share, and how often first contacts write back
  * (`repliedAfterFirstContact`), are the core cold-email signals
- * (docs/plans/weldmail-outbound-abuse.md).
+ * (weldsuite-documentation/plans/weldmail-outbound-abuse.md).
  *
  * Inbound side: a trigger on `mail_messages` (every insert that is not a SENT
  * copy) keeps `*Inbound*` current, so mail-inbound-worker, IMAP sync and

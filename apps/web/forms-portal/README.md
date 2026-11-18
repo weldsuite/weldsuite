@@ -5,7 +5,7 @@ Where people fill in a form (`forms.weldsuite.org/f/<publicId>`,
 TanStack Start on a Cloudflare Worker (FE-015), plus a Node build for the
 Kubernetes editions (FE-017). Tailwind v4 and `@weldsuite/ui` for the chrome;
 the form itself is `@weldsuite/forms-renderer`. No Clerk, no database, no
-tenant secrets (ADR FORMS-002). Plan: `docs/plans/weldforms.md`.
+tenant secrets (ADR FORMS-002). Plan: `weldsuite-documentation/plans/weldforms.md`.
 
 ## Routes
 
@@ -13,7 +13,7 @@ tenant secrets (ADR FORMS-002). Plan: `docs/plans/weldforms.md`.
 |---|---|
 | `/f/<publicId>` | the form, server rendered with its theme, Open Graph / Twitter tags, `frame-ancestors` from the form's allowed embed domains |
 | `/f/<publicId>?embed=<mode>` | the embed view (`inline`, `popup`, `slider`, `popover`, `fullpage`): only the password line as footer, postMessage to the host page |
-| `/f/<publicId>?<name>=<value>` | values for the hidden fields the form declares (others are dropped); `utm_*` and `?source=qr` are recorded |
+| `/f/<publicId>?<name>=<value>` | values for the hidden fields the form declares, and answers for questions named by their reference (text, number, date, yes/no and choice questions; `lib/client/environment.ts`); other names are dropped. `utm_*` and `?source=qr` are recorded |
 | `/i/<publicId>.<token>` | a personal invitation link (`/f/<publicId>?invitation=<token>` is the same) |
 | `/embed.js` | the embed SDK, bundled from `packages/sdk/forms-embed` by `vite-plugins/forms-embed.ts` |
 | `/api/*` | what the page's JavaScript calls; forwarded to forms-api `/public/forms/*` with the key, IP, country and browser (`lib/server/proxy.ts`, an allowlist of routes) |

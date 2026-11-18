@@ -4,8 +4,10 @@ import * as Device from 'expo-device';
 import * as Application from 'expo-application';
 import { Platform } from 'react-native';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
-import { useOrganizationList } from '@clerk/expo';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useOrganizationList } from '@weldsuite/mobile-platform/auth';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
+import { onLeaveServer } from '@weldsuite/mobile-platform/runtime';
+import { isNotificationForThisServer, isPushAvailable } from '@weldsuite/mobile-platform/edition';
 import { useRouter } from 'expo-router';
 import { appApi } from '@/services/app-api';
 import { personalApi } from '@/services/personal-api';
@@ -130,13 +132,28 @@ const NotificationContext = createContext<NotificationContextType>({
 export const useNotifications = () => useContext(NotificationContext);
 
 export function NotificationProvider({ children }: Readonly<{ children: React.ReactNode }>) {
-  const { user, organizationId } = useClerkAuth();
+  const { user, organizationId } = useAuthSession();
   const { setActive } = useOrganizationList();
   const router = useRouter();
   const [unreadCount, setUnreadCount] = useState(0);
   const [isConnected, setIsConnected] = useState(false);
   const [isPermissionGranted, setIsPermissionGranted] = useState(false);
   const cleanupRef = useRef<(() => void) | null>(null);
+
+  // Leaving this server (switching to another): stop it pushing to this device,
+  // on app-api and on personal-api, both of which belong to the server being left.
+  useEffect(
+    () =>
+      onLeaveServer('push-token', async (runtime) => {
+        if (!runtime.pushEnabled) return;
+        const deviceId = await getDeviceId();
+        await Promise.all([
+          appApi.pushTokens.unregister(deviceId).catch(() => {}),
+          personalApi.pushTokens.unregister(deviceId).catch(() => {}),
+        ]);
+      }),
+    [],
+  );
 
   const registerPushToken = useCallback(async (token: string) => {
     const deviceId = await getDeviceId();
@@ -164,6 +181,8 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
   }, []);
 
   const requestPermissions = useCallback(async (): Promise<boolean> => {
+    // Push reaches the apps on WeldSuite cloud only, until the content-free relay.
+    if (!isPushAvailable()) return false;
     if (!notifUtils || !hasProjectId) {
       console.warn('[Notifications] EAS project ID is not configured; skipping push registration');
       return false;
@@ -238,7 +257,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
     }
 
     const init = async () => {
-      if (!Notifications || !notifUtils) {
+      if (!Notifications || !notifUtils || !isPushAvailable()) {
         setIsConnected(false);
         return;
       }
@@ -287,6 +306,8 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
               string,
               unknown
             >;
+            // A notification left over from another server points at records this one doesn't have.
+            if (!isNotificationForThisServer(data)) return;
             const eventId = resolveEventDeepLink(data);
             if (!eventId) return;
             const tapOrgId = parseClerkOrgId(data.clerkOrgId);

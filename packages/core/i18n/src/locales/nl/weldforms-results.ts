@@ -131,7 +131,7 @@ export const weldformsResults = {
       snippetCopy: 'Code kopiëren',
       snippetCopied: 'Code gekopieerd',
       domainsHint:
-        'Alleen sites onder "Toegestane domeinen voor insluiten" in de formulierinstellingen mogen het insluiten; leeg betekent elke site.',
+        'Alleen sites onder "Toegestane domeinen" in de formulierinstellingen mogen het insluiten; leeg betekent elke site.',
     },
 
     email: {
@@ -390,6 +390,8 @@ export const weldformsResults = {
     drawer: {
       title: 'Antwoord {number}',
       titleNoNumber: 'Antwoord',
+      description: 'De antwoorden, details en integratieacties van één antwoord.',
+      answeredBy: 'Ingevuld door',
       answers: 'Antwoorden',
       unanswered: 'Niet beantwoord',
       hidden: 'Verborgen velden',
@@ -463,7 +465,10 @@ export const weldformsResults = {
     noAccessTitle: 'Je kunt koppelingen niet wijzigen',
     noAccessDescription: 'Je hebt toestemming nodig om dit formulier te bewerken om koppelingen in te stellen.',
     enabled: 'Ingeschakeld',
-    notSetUp: 'Niet ingesteld',
+    statusOn: 'Aan',
+    statusOff: 'Uit',
+    statusFailed: 'Laatste run mislukt',
+    categoryDevelopers: 'Ontwikkelaars',
     setUp: 'Instellen',
     save: 'Opslaan',
     saved: 'Koppeling opgeslagen',
@@ -498,6 +503,7 @@ export const weldformsResults = {
 
     crm: {
       title: 'WeldCRM',
+      creates: 'Persoon of lead',
       description: 'Maak of werk een persoon of lead bij op basis van de antwoorden.',
       actionPerson: 'personen aanmaken',
       target: 'Aanmaken of bijwerken',
@@ -549,6 +555,7 @@ export const weldformsResults = {
 
     desk: {
       title: 'WeldDesk',
+      creates: 'Ticket',
       description: 'Open een ticket voor elk antwoord.',
       actionPerson: 'tickets openen',
       inbox: 'Inbox',
@@ -565,6 +572,7 @@ export const weldformsResults = {
 
     flow: {
       title: 'WeldFlow',
+      creates: 'Taak',
       description: 'Maak een taak voor elk antwoord.',
       actionPerson: 'taken aanmaken',
       project: 'Project',
@@ -581,12 +589,14 @@ export const weldformsResults = {
 
     connect: {
       title: 'WeldConnect',
+      creates: 'Workflow',
       description:
         'Bouw een workflow met de trigger "Wanneer een formulier wordt verzonden" om antwoorden in de chat te plaatsen, e-mail te sturen, records bij te werken en meer.',
       open: 'WeldConnect openen',
     },
     webhooks: {
       title: 'Webhooks',
+      creates: 'Je eigen systemen',
       description: 'Stuur elk antwoord naar je eigen systemen met een webhook van de werkruimte voor formulierantwoorden.',
       open: 'Webhooks openen',
     },

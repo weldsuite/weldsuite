@@ -328,7 +328,7 @@ describe('SalesTaxAgencyPanel', () => {
   it('shows nothing of the agency for an entity that is not a US one', async () => {
     jurisdiction.salesTax = false;
     renderPanel();
-    expect(await screen.findByText(setup.common.usOnly)).toBeInTheDocument();
+    expect(await screen.findByText(/isn't available for/)).toBeInTheDocument();
     expect(api.get).not.toHaveBeenCalled();
   });
 

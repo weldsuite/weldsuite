@@ -1,5 +1,5 @@
 /**
- * AI routes — mounted at /api/forms (Global only; every route answers 503
+ * AI routes — mounted at /api/forms (Rust twin: rust/modules/forms/src/routes/ai.rs; every route answers 503
  * `ai_unavailable` while AI is not set up, and 402 `INSUFFICIENT_CREDITS` when
  * the workspace wallet is empty; each call is charged, ADR AI-005):
  *

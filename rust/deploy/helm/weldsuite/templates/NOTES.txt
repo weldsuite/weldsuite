@@ -6,3 +6,10 @@ Check it:
   curl http://localhost:8080/health
 
 Pods report ready once the master database answers (/readyz).
+{{- if .Values.metrics.enabled }}
+
+Prometheus metrics: GET /metrics on port {{ .Values.metrics.port }} (container port `metrics`) of the server,
+consume and MTA pods, never through the ingress:
+  kubectl -n {{ .Release.Namespace }} port-forward deployment/{{ include "weldsuite.fullname" . }} {{ .Values.metrics.port }}
+  curl http://localhost:{{ .Values.metrics.port }}/metrics
+{{- end }}

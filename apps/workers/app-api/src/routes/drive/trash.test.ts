@@ -207,6 +207,84 @@ describe('the trash', () => {
     expect((await ann().post('/api/drive/trash/restore/folder/fld_missing')).status).toBe(404);
   });
 
+  it('takes what is in a folder to the trash with it, and brings it back with it', async () => {
+    const outer = await data<{ id: string }>(await ann().post('/api/folders', { name: 'Folder A' }));
+    const inner = await data<{ id: string }>(await ann().post('/api/folders', { name: 'Drafts', parentId: outer.id }));
+    const top = await upload(ann(), 'in-folder-a.txt', outer.id);
+    const deep = await upload(ann(), 'in-drafts.txt', inner.id);
+    const before = await upload(ann(), 'trashed-before.txt', outer.id);
+    expect((await ann().delete(`/api/files/${before.id}`)).status).toBe(200);
+
+    expect((await ann().delete(`/api/folders/${outer.id}`)).status).toBe(200);
+    // Nothing in the folder stays live (it was listed at the root: TASK-1432)...
+    expect((await ann().get(`/api/files/${top.id}`)).status).toBe(404);
+    expect((await ann().get(`/api/files/${deep.id}`)).status).toBe(404);
+    expect((await ann().get(`/api/folders/${inner.id}`)).status).toBe(404);
+    // ...and the trash lists the folder, not each thing in it.
+    const trash = await data<{ files: { id: string }[]; folders: { id: string }[] }>(await ann().get('/api/drive/trash'));
+    expect(trash.folders.map((f) => f.id)).toContain(outer.id);
+    expect(trash.folders.map((f) => f.id)).not.toContain(inner.id);
+    for (const file of [top, deep, before]) expect(trash.files.map((f) => f.id)).not.toContain(file.id);
+
+    expect(await data(await ann().post(`/api/drive/trash/restore/folder/${outer.id}`))).toEqual({ restored: true });
+    expect((await ann().get(`/api/files/${top.id}`)).status).toBe(200);
+    expect((await ann().get(`/api/files/${deep.id}`)).status).toBe(200);
+    expect((await ann().get(`/api/folders/${inner.id}`)).status).toBe(200);
+    // A file trashed on its own before stays in the trash.
+    expect((await ann().get(`/api/files/${before.id}`)).status).toBe(404);
+    const after = await data<{ files: { id: string }[] }>(await ann().get('/api/drive/trash'));
+    expect(after.files.map((f) => f.id)).toContain(before.id);
+  });
+
+  it('leaves what the caller may not change where it is when they trash the folder', async () => {
+    // Ann's workspace folder, which Bob edits through general access.
+    const shared = await data<{ id: string }>(await ann().post('/api/folders', { name: 'Shared work' }));
+    const privateSub = await data<{ id: string }>(
+      await ann().post('/api/folders', { name: 'Private', parentId: shared.id }),
+    );
+    expect((await ann().patch(`/api/folders/${privateSub.id}`, { generalAccess: 'restricted' })).status).toBe(200);
+    const annSecret = await upload(ann(), 'ann-secret.txt', shared.id);
+    expect((await ann().patch(`/api/files/${annSecret.id}`, { generalAccess: 'restricted' })).status).toBe(200);
+    const bobs = await upload(bob(), 'bob-notes.txt', shared.id);
+
+    expect((await bob().delete(`/api/folders/${shared.id}`)).status).toBe(200);
+    // Bob could not change Ann's restricted file or folder, so they stay live...
+    expect((await ann().get(`/api/files/${annSecret.id}`)).status).toBe(200);
+    expect((await ann().get(`/api/folders/${privateSub.id}`)).status).toBe(200);
+    // ...and his own file went with the folder, and comes back with it.
+    expect((await bob().get(`/api/files/${bobs.id}`)).status).toBe(404);
+    expect(await data(await bob().post(`/api/drive/trash/restore/folder/${shared.id}`))).toEqual({ restored: true });
+    expect((await bob().get(`/api/files/${bobs.id}`)).status).toBe(200);
+  });
+
+  it('purges the folders trashed with a folder, and their files and objects, along with it', async () => {
+    const outer = await data<{ id: string }>(await ann().post('/api/folders', { name: 'Old projects' }));
+    const inner = await data<{ id: string }>(await ann().post('/api/folders', { name: 'Old drafts', parentId: outer.id }));
+    const deep = await upload(ann(), 'old-draft.txt', inner.id);
+    expect((await ann().delete(`/api/folders/${outer.id}`)).status).toBe(200);
+
+    expect(await data(await ann().delete(`/api/drive/trash/folder/${outer.id}`))).toEqual({ deleted: true });
+    // The subfolder doesn't surface at the top of the trash: it is gone, with its file and object.
+    const trash = await data<{ files: { id: string }[]; folders: { id: string }[] }>(await ann().get('/api/drive/trash'));
+    expect(trash.folders.map((f) => f.id)).not.toContain(inner.id);
+    expect((await ann().post(`/api/drive/trash/restore/folder/${inner.id}`)).status).toBe(404);
+    expect((await ann().post(`/api/drive/trash/restore/file/${deep.id}`)).status).toBe(404);
+    expect(objects.has(deep.fileKey)).toBe(false);
+  });
+
+  it('will not purge a folder whose subfolder holds a file the caller cannot change', async () => {
+    const outer = await data<{ id: string }>(await ann().post('/api/folders', { name: 'Shared archive' }));
+    const inner = await data<{ id: string }>(await ann().post('/api/folders', { name: 'Shared drafts', parentId: outer.id }));
+    const secret = await upload(ann(), 'ann-private-draft.txt', inner.id);
+    expect((await ann().patch(`/api/files/${secret.id}`, { generalAccess: 'restricted' })).status).toBe(200);
+    expect((await ann().delete(`/api/folders/${outer.id}`)).status).toBe(200);
+
+    // Bob edits the folders through general access but cannot see Ann's file.
+    expect((await bob().delete(`/api/drive/trash/folder/${outer.id}`)).status).toBe(403);
+    expect(objects.has(secret.fileKey)).toBe(true);
+    expect(await data(await ann().delete(`/api/drive/trash/folder/${outer.id}`))).toEqual({ deleted: true });
+  });
+
   it('empties what the caller may change', async () => {
     const file = await upload(ann(), 'empty-me.txt');
     expect((await ann().delete(`/api/files/${file.id}`)).status).toBe(200);

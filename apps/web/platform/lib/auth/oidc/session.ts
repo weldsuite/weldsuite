@@ -3,7 +3,10 @@
  * (authorization code + PKCE, a public client) and a small store React reads
  * through `useSyncExternalStore`.
  *
- * Workspaces follow ADR SEC-012 as the EU edition runs it on Zitadel:
+ * Workspaces follow one of two models, chosen by `/config.json`'s
+ * `auth.workspaceSource` (`claim`, the default, or `header`):
+ *
+ * **`claim`** (the EU edition on Zitadel; ADR SEC-012):
  *
  * 1. Sign-in asks for no organization. The token's roles claim then lists
  *    every organization that granted the person a role on the project: their
@@ -20,20 +23,48 @@
  * (`audienceScope`) so the project is in `aud`, which the backend checks
  * (`OIDC_AUDIENCE`). Refreshes reuse the granted scopes, so a refreshed token
  * stays on its workspace.
+ *
+ * The token only knows organization ids and generated domains. Names, slugs
+ * and workspaces created since the token was issued come from WeldSuite's
+ * own list (`workspaces.ts`), read once a person is signed in and kept in
+ * storage so the next page load has them at once.
+ *
+ * **`header`** (WeldID in membership mode, plan `weldid-auth-server.md`):
+ * WeldID's tokens name no workspace at all, so there is nothing to narrow and
+ * only one token ever exists. The workspace list comes entirely from
+ * WeldSuite's own directory (`workspaces.ts`); the active workspace is a
+ * locally stored choice, switched with no provider round trip; and every
+ * request to WeldSuite's own API origins is tagged `X-Weld-Workspace`
+ * (`workspaces.id`) by `lib/api/workspace-header.ts`, installed only in this
+ * mode.
+ *
+ * **Inside the desktop shell** (`options.browserSignIn`, either mode): the
+ * session belongs to the desktop app's own native client (`desktopClientId`)
+ * and this page never navigates to the provider. A sign-in opens the provider
+ * in the system browser, which comes back to a loopback listener of the
+ * shell (RFC 8252); this page then redeems the code itself
+ * (`./browser-sign-in.ts`). Refresh is the usual refresh-token grant. Signing
+ * out revokes the refresh token, forgets the session and opens the
+ * provider's sign-out in the browser, where its session cookie lives.
  */
 
-import { User, UserManager, WebStorageStateStore, type UserManagerSettings } from 'oidc-client-ts';
+import { OidcClient, User, UserManager, WebStorageStateStore, type UserManagerSettings } from 'oidc-client-ts';
+import { getLocale } from '@weldsuite/i18n';
 import type { OidcAuthConfig } from '@/lib/runtime-config';
+import { parseWorkspacePath, workspacePath } from '@/lib/workspace-url';
+import { sameOriginPath } from '../same-origin-path';
+import { loadWorkspacesFromApi, type LoadWorkspaces, type WorkspaceDirectoryEntry } from './workspaces';
 import { endProviderSession } from './sign-in-api';
+import { BrowserSignInError, type BrowserSignIn } from './browser-sign-in';
 import {
   activeOrganizationId,
+  DEFAULT_OIDC_SCOPES as SHARED_DEFAULT_OIDC_SCOPES,
   DEFAULT_ORG_CLAIM,
   organizationsFromClaims,
   personFromClaims,
   scopeFor,
   ZITADEL_AUDIENCE_SCOPE,
   ZITADEL_ORG_ROLES_SCOPE,
-  ZITADEL_ROLES_SCOPE,
   type Claims,
   type OidcOrganization,
   type OidcPerson,
@@ -41,8 +72,11 @@ import {
 
 /** The redirect URI to register at the provider: an existing route, so no new page is needed. */
 export const OIDC_CALLBACK_PATH = '/auth/sso-callback';
-export const DEFAULT_OIDC_SCOPES = ['openid', 'profile', 'email', 'offline_access', ZITADEL_ROLES_SCOPE];
+export const DEFAULT_OIDC_SCOPES = [...SHARED_DEFAULT_OIDC_SCOPES];
 const MEMBERSHIPS_KEY = 'weldsuite:oidc:memberships';
+const DIRECTORY_KEY = 'weldsuite:oidc:workspaces';
+/** `workspaceSource: "header"` only: the locally chosen active workspace. */
+const ACTIVE_WORKSPACE_KEY = 'weldsuite:oidc:activeWorkspace';
 
 export type OidcSessionConfig = OidcAuthConfig & { clientId: string };
 
@@ -51,6 +85,8 @@ export interface OidcSnapshot {
   person: OidcPerson | null;
   organizations: readonly OidcOrganization[];
   activeOrgId: string | null;
+  /** WeldSuite's workspace list is being read. */
+  isLoadingWorkspaces: boolean;
 }
 
 interface SignInState {
@@ -59,9 +95,22 @@ interface SignInState {
   orgId?: string;
 }
 
+/** The workspace list and the active one, as `publish` puts them in the snapshot. */
+type PublishedWorkspaces = Pick<OidcSnapshot, 'activeOrgId'> & { organizations: OidcOrganization[] };
+
 interface StoredMemberships {
   sub: string;
   organizations: OidcOrganization[];
+}
+
+interface StoredDirectory {
+  sub: string;
+  workspaces: WorkspaceDirectoryEntry[];
+}
+
+interface StoredActiveWorkspace {
+  sub: string;
+  id: string;
 }
 
 export interface OidcSessionOptions {
@@ -71,6 +120,29 @@ export interface OidcSessionOptions {
   storage?: Storage;
   /** Overrides for the UserManager (tests). */
   settings?: Partial<UserManagerSettings>;
+  /** Reads WeldSuite's workspace list; defaults to `GET /api/workspaces`. */
+  loadWorkspaces?: LoadWorkspaces;
+  /**
+   * The desktop shell's sign-in through the system browser
+   * (`desktopBrowserSignIn()`, `lib/desktop-auth.ts`); the config's
+   * `clientId` is then the desktop app's client. See the file comment.
+   */
+  browserSignIn?: BrowserSignIn;
+}
+
+/** What one authorization request asks for, whichever way it travels. */
+interface AuthorizationRequest {
+  state: SignInState;
+  scope: string | undefined;
+  prompt: string | undefined;
+  ui_locales: string;
+}
+
+/** 128 random bits, hex: the desktop sign-in's `nonce`. */
+function randomNonce(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 function safeStorage(storage: Storage | undefined): Storage | undefined {
@@ -82,9 +154,18 @@ function safeStorage(storage: Storage | undefined): Storage | undefined {
   }
 }
 
-/** Only paths on this origin are valid places to return to after sign-in. */
-function sameOriginPath(value: string | undefined): string {
-  return value?.startsWith('/') && !value.startsWith('//') ? value : '/';
+/**
+ * Where a person manages their password, 2FA and passkeys when the config
+ * names no `accountUrl`: Zitadel's self-service page under the issuer, like
+ * the other Zitadel defaults here. An empty `accountUrl` turns the link off
+ * (TASK-1427: Settings › Security had no way to reach it).
+ */
+export function defaultAccountUrl(issuer: string): string | undefined {
+  try {
+    return new URL('/ui/console/users/me', issuer).toString();
+  } catch {
+    return undefined;
+  }
 }
 
 function currentPath(): string {
@@ -96,33 +177,59 @@ export class OidcSession {
   readonly accountUrl: string | undefined;
   private readonly orgClaim: string;
   private readonly organizationScope: string;
+  private readonly workspaceSource: 'claim' | 'header';
   private readonly baseScope: string;
   private readonly storage: Storage | undefined;
   private readonly origin: string;
+  private readonly loadWorkspaces: LoadWorkspaces;
   /** WeldSuite's own sign-in screens: the backend holds the provider session in a cookie. */
   private readonly platformSignIn: boolean;
+  /** The desktop shell's system browser and loopback listener, when this page runs in it. */
+  private readonly browserSignIn: BrowserSignIn | null;
+  /** The browser sign-in under way, by the shell's id. */
+  private browserFlow: string | null = null;
+  private client: OidcClient | null = null;
   private user: User | null = null;
-  private snapshot: OidcSnapshot = { isLoaded: false, person: null, organizations: [], activeOrgId: null };
+  private snapshot: OidcSnapshot = {
+    isLoaded: false,
+    person: null,
+    organizations: [],
+    activeOrgId: null,
+    isLoadingWorkspaces: false,
+  };
   private readonly listeners = new Set<() => void>();
   private refreshing: Promise<User | null> | null = null;
   private initialised: Promise<void> | null = null;
+  /** The person and active workspace the directory was last read for. */
+  private directoryReadFor: string | null = null;
+  private directoryReading: Promise<void> | null = null;
 
   constructor(config: OidcSessionConfig, options: OidcSessionOptions = {}) {
     this.origin = options.origin ?? (typeof window === 'undefined' ? '' : window.location.origin);
     this.storage = safeStorage(options.storage);
+    this.loadWorkspaces = options.loadWorkspaces ?? loadWorkspacesFromApi;
     this.orgClaim = config.orgClaim ?? DEFAULT_ORG_CLAIM;
-    this.organizationScope = config.organizationScope ?? ZITADEL_ORG_ROLES_SCOPE;
-    const audienceScope = config.audienceScope ?? ZITADEL_AUDIENCE_SCOPE;
+    this.workspaceSource = config.workspaceSource ?? 'claim';
+    // `null` (WeldID: no such scope) and absent (Zitadel's default template)
+    // mean different things; `??` alone would treat them the same.
+    this.organizationScope = config.organizationScope === undefined ? ZITADEL_ORG_ROLES_SCOPE : (config.organizationScope ?? '');
+    const audienceScope = config.audienceScope === undefined ? ZITADEL_AUDIENCE_SCOPE : (config.audienceScope ?? '');
     const scopes = [...(config.scopes ?? DEFAULT_OIDC_SCOPES)];
     if (config.audience && audienceScope) scopes.push(scopeFor(audienceScope, { audience: config.audience }));
     this.baseScope = scopes.join(' ');
-    this.accountUrl = config.accountUrl;
+    // The Zitadel console default only where the provider is Zitadel: WeldID
+    // (workspace from a header) has no such page.
+    this.accountUrl =
+      config.accountUrl ?? (this.workspaceSource === 'claim' ? defaultAccountUrl(config.issuer) : undefined);
     this.platformSignIn = config.signIn === 'platform';
+    this.browserSignIn = options.browserSignIn ?? null;
     this.manager = new UserManager({
       authority: config.issuer,
       client_id: config.clientId,
       redirect_uri: `${this.origin}${OIDC_CALLBACK_PATH}`,
-      post_logout_redirect_uri: `${this.origin}/`,
+      // The desktop app signs out in the system browser, which then shows the
+      // provider's own page: its client registers no post-logout URI.
+      post_logout_redirect_uri: this.browserSignIn ? undefined : `${this.origin}/`,
       response_type: 'code',
       scope: this.baseScope,
       // Shared by every tab, like Clerk's session.
@@ -167,12 +274,69 @@ export class OidcSession {
   async signIn(options: { intent?: 'sign-in' | 'sign-up'; returnTo?: string; orgId?: string } = {}): Promise<void> {
     const state: SignInState = { returnTo: sameOriginPath(options.returnTo), orgId: options.orgId };
     const orgScope = options.orgId && this.organizationScope ? scopeFor(this.organizationScope, { orgId: options.orgId }) : '';
-    await this.manager.signinRedirect({
+    const request: AuthorizationRequest = {
       state,
       scope: orgScope ? `${this.baseScope} ${orgScope}` : undefined,
       // OIDC "Initiating User Registration": Zitadel and Keycloak open their sign-up form.
       prompt: options.intent === 'sign-up' ? 'create' : undefined,
+      // So WeldID's own sign-in pages render in the platform's current language.
+      ui_locales: getLocale(),
+    };
+    if (this.browserSignIn) {
+      await this.signInThroughBrowser(this.browserSignIn, request);
+      return;
+    }
+    await this.manager.signinRedirect(request);
+  }
+
+  /** Whether sign-in happens in the system browser (the desktop shell). */
+  get signsInThroughBrowser(): boolean {
+    return this.browserSignIn !== null;
+  }
+
+  /** Stop waiting for the browser; the sign-in then rejects as cancelled. */
+  cancelSignIn(): void {
+    const id = this.browserFlow;
+    if (id) void this.browserSignIn?.cancel(id).catch(() => undefined);
+  }
+
+  /**
+   * The desktop shell: the authorization request (state, nonce, PKCE S256,
+   * kept in oidc-client-ts's state store) opens in the system browser, which
+   * comes back to the shell's loopback listener; this page then redeems the
+   * code itself, so the verifier and the tokens never leave it. Resolves
+   * once the session is stored and the page is on its way to `returnTo`;
+   * rejects with `BrowserSignInError`.
+   */
+  private async signInThroughBrowser(browser: BrowserSignIn, request: AuthorizationRequest): Promise<void> {
+    const flow = await browser.start().catch(() => {
+      throw new BrowserSignInError('failed');
     });
+    this.browserFlow = flow.id;
+    try {
+      const signinRequest = await this.oidcClient().createSigninRequest({
+        ...request,
+        request_type: 'si:r',
+        redirect_uri: flow.redirectUri,
+        nonce: randomNonce(),
+      });
+      const callbackUrl = await browser.authorize(flow.id, signinRequest.url);
+      // Checks the state against the store, the nonce, and redeems the code
+      // with the verifier at the loopback redirect URI.
+      const returnTo = await this.completeSignIn(callbackUrl);
+      if (typeof window !== 'undefined') window.location.assign(returnTo);
+    } catch (err) {
+      await browser.cancel(flow.id).catch(() => undefined);
+      throw err instanceof BrowserSignInError ? err : new BrowserSignInError('failed');
+    } finally {
+      if (this.browserFlow === flow.id) this.browserFlow = null;
+    }
+  }
+
+  /** The UserManager's settings and metadata, for requests it has no method for. */
+  private oidcClient(): OidcClient {
+    this.client ??= new OidcClient(this.manager.settings, this.manager.metadataService);
+    return this.client;
   }
 
   /** Finish the redirect on the callback route; resolves to the path to continue on. */
@@ -190,6 +354,10 @@ export class OidcSession {
     // `/auth/login` would sign the same person straight back in.
     if (this.platformSignIn) await endProviderSession();
     const post = redirectUrl ? `${this.origin}${sameOriginPath(redirectUrl)}` : undefined;
+    if (this.browserSignIn) {
+      await this.signOutThroughBrowser(this.browserSignIn, post);
+      return;
+    }
     try {
       await this.manager.signoutRedirect(post ? { post_logout_redirect_uri: post } : undefined);
     } catch {
@@ -199,15 +367,86 @@ export class OidcSession {
     }
   }
 
-  /** Activate or switch workspace: a token requested for it (see the file comment). */
-  async setActiveOrganization(orgId: string | null): Promise<void> {
-    if (!orgId || orgId === this.snapshot.activeOrgId || !this.organizationScope) return;
-    await this.signIn({ returnTo: currentPath(), orgId });
+  /**
+   * The desktop shell: the app's own grant ends here (its refresh token
+   * revoked, the session forgotten), and the provider's sign-out opens in the
+   * system browser, where its session cookie lives. That request names the
+   * client only, never an `id_token_hint`: no token in a URL the browser keeps
+   * in its history. The provider then asks before ending the browser's
+   * session (WeldID's confirmation page); the app is signed out either way.
+   */
+  private async signOutThroughBrowser(browser: BrowserSignIn, post: string | undefined): Promise<void> {
+    await this.manager.revokeTokens(['refresh_token']).catch(() => undefined);
+    await this.manager.removeUser().catch(() => undefined);
+    try {
+      const request = await this.oidcClient().createSignoutRequest({ client_id: this.manager.settings.client_id });
+      await browser.openExternal(request.url);
+    } catch {
+      // No end-session endpoint, or no browser: the session is forgotten here.
+    }
+    if (typeof window !== 'undefined') window.location.assign(post ?? `${this.origin}/`);
+  }
+
+  /**
+   * Activate or switch workspace. `header`: a local choice only, like
+   * Clerk's in-place switch, `returnTo` ignored; the caller reloads if it
+   * must. `claim`: a token requested for it (see the file comment), coming
+   * back to `returnTo`, or else to `returnPathFor(orgId)`.
+   */
+  async setActiveOrganization(orgId: string | null, returnTo?: string): Promise<void> {
+    if (!orgId || orgId === this.snapshot.activeOrgId) return;
+    if (this.workspaceSource === 'header') {
+      const sub = this.snapshot.person?.id;
+      if (!sub) return;
+      this.rememberActiveWorkspace(sub, orgId);
+      this.publish(this.snapshot.isLoaded);
+      return;
+    }
+    if (!this.organizationScope) return;
+    // In the desktop shell this is a trip through the system browser, which
+    // the person may cancel: they then stay on the workspace they had.
+    await this.signIn({ returnTo: returnTo ?? this.returnPathFor(orgId), orgId }).catch((err: unknown) => {
+      if (!(err instanceof BrowserSignInError)) throw err;
+    });
   }
 
   /** Re-read the profile (refresh with the refresh token). */
   async reload(): Promise<void> {
     await this.refresh();
+  }
+
+  /** Read WeldSuite's workspace list again (after creating a workspace server-side). */
+  async reloadWorkspaces(): Promise<void> {
+    const person = this.snapshot.person;
+    if (!person) return;
+    this.directoryReadFor = null;
+    this.readDirectory(person.id, this.directoryOrgKey());
+    this.publish(this.snapshot.isLoaded);
+    await this.directoryReading;
+  }
+
+  /**
+   * The workspace the directory read is keyed to: `header` mode has one
+   * token for every workspace, so the read never depends on which is active.
+   */
+  private directoryOrgKey(): string | null {
+    return this.workspaceSource === 'header' ? null : this.snapshot.activeOrgId;
+  }
+
+  /**
+   * Where to come back after switching to `orgId`: this page, unless its URL
+   * names another workspace. That page belongs to the workspace it names,
+   * which the new token may not even list (the "Workspace not found" screen
+   * after creating one), so the switch lands on the new workspace's home.
+   */
+  private returnPathFor(orgId: string): string {
+    const here = currentPath();
+    const named = typeof window === 'undefined' ? null : parseWorkspacePath(window.location.pathname);
+    if (!named) return here;
+    const target = this.snapshot.organizations.find((o) => o.id === orgId);
+    const namesTarget =
+      named.ref === orgId || (!!target?.slug && target.slug.toLowerCase() === named.ref.toLowerCase());
+    return namesTarget ? here : workspacePath(target?.slug || orgId, '/');
   }
 
   private refresh(): Promise<User | null> {
@@ -239,9 +478,76 @@ export class OidcSession {
   private forgetMemberships(): void {
     try {
       this.storage?.removeItem(MEMBERSHIPS_KEY);
+      this.storage?.removeItem(DIRECTORY_KEY);
+      this.storage?.removeItem(ACTIVE_WORKSPACE_KEY);
     } catch {
       // Nothing stored.
     }
+  }
+
+  /** `header` mode: the locally chosen active workspace, for this person. */
+  private storedActiveWorkspace(sub: string): string | null {
+    try {
+      const raw = this.storage?.getItem(ACTIVE_WORKSPACE_KEY);
+      const parsed = raw ? (JSON.parse(raw) as StoredActiveWorkspace) : null;
+      return parsed?.sub === sub ? parsed.id : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private rememberActiveWorkspace(sub: string, id: string): void {
+    try {
+      this.storage?.setItem(ACTIVE_WORKSPACE_KEY, JSON.stringify({ sub, id } satisfies StoredActiveWorkspace));
+    } catch {
+      // Storage blocked: the choice lasts for this page only.
+    }
+  }
+
+  /** WeldSuite's workspace list from the last read, for this person. */
+  private storedDirectory(sub: string): WorkspaceDirectoryEntry[] {
+    try {
+      const raw = this.storage?.getItem(DIRECTORY_KEY);
+      const parsed = raw ? (JSON.parse(raw) as StoredDirectory) : null;
+      return parsed?.sub === sub && Array.isArray(parsed.workspaces) ? parsed.workspaces : [];
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * What a successful read said, an empty list included: the person belongs
+   * to no workspace (the backend answers an error, never `[]`, when its own
+   * read fails, and a failed read never gets here).
+   */
+  private rememberDirectory(sub: string, workspaces: WorkspaceDirectoryEntry[]): void {
+    try {
+      this.storage?.setItem(DIRECTORY_KEY, JSON.stringify({ sub, workspaces } satisfies StoredDirectory));
+    } catch {
+      // Storage blocked: names come back on the next read.
+    }
+  }
+
+  /**
+   * Read the list once per person and active workspace (a token without a
+   * workspace may be refused; the next one is asked again). Failures keep
+   * what is stored.
+   */
+  private readDirectory(sub: string, activeOrgId: string | null): void {
+    const key = `${sub}|${activeOrgId ?? ''}`;
+    if (this.directoryReadFor === key) return;
+    this.directoryReadFor = key;
+    const reading = (async () => {
+      const token = await this.getToken().catch(() => null);
+      const workspaces = token ? await this.loadWorkspaces(token).catch(() => null) : null;
+      if (workspaces && this.snapshot.person?.id === sub) this.rememberDirectory(sub, workspaces);
+    })();
+    this.directoryReading = reading;
+    void reading.finally(() => {
+      if (this.directoryReading !== reading) return;
+      this.directoryReading = null;
+      this.publish(this.snapshot.isLoaded);
+    });
   }
 
   /** The workspace list from the last unscoped token, for this person. */
@@ -262,21 +568,49 @@ export class OidcSession {
     this.publish(loaded);
   }
 
+  /**
+   * Header mode (WeldID): the token names no workspace, so the list and the
+   * active choice are WeldSuite's own, never the claims.
+   */
+  private headerWorkspaces(sub: string, loaded: boolean): PublishedWorkspaces {
+    const organizations = this.storedDirectory(sub).map(({ id, name, slug }) => ({ id, name, slug }));
+    let activeOrgId = this.storedActiveWorkspace(sub);
+    // One workspace: nothing to choose, same as the claim mode's auto-narrow.
+    if (!activeOrgId && organizations.length === 1) activeOrgId = organizations[0]!.id;
+    if (loaded) this.readDirectory(sub, null);
+    return { organizations, activeOrgId };
+  }
+
+  /** Claim mode: the token names the active workspace and some of the list. */
+  private claimWorkspaces(sub: string, claims: Claims, loaded: boolean): PublishedWorkspaces {
+    const activeOrgId = activeOrganizationId(claims, this.orgClaim);
+    // The stored list, plus whatever this token names (a narrowed token names one).
+    const merged = new Map(this.storedMemberships(sub).map((o) => [o.id, o]));
+    for (const org of organizationsFromClaims(claims, this.orgClaim)) if (!merged.has(org.id)) merged.set(org.id, org);
+    // WeldSuite's name and slug over the provider's domain; workspaces the
+    // token can't name yet (created since it was issued) join the list.
+    for (const { id, name, slug } of this.storedDirectory(sub)) merged.set(id, { id, name, slug });
+    if (loaded) this.readDirectory(sub, activeOrgId);
+    return { organizations: [...merged.values()], activeOrgId };
+  }
+
   private publish(loaded: boolean): void {
     const claims = (this.user?.profile ?? {}) as Claims;
     const person = this.user ? personFromClaims(claims) : null;
-    let organizations: OidcOrganization[] = [];
+    let workspaces: PublishedWorkspaces = { organizations: [], activeOrgId: null };
     if (person) {
-      // The stored list, plus whatever this token names (a narrowed token names one).
-      const merged = new Map(this.storedMemberships(person.id).map((o) => [o.id, o]));
-      for (const org of organizationsFromClaims(claims, this.orgClaim)) if (!merged.has(org.id)) merged.set(org.id, org);
-      organizations = [...merged.values()];
+      workspaces =
+        this.workspaceSource === 'header'
+          ? this.headerWorkspaces(person.id, loaded)
+          : this.claimWorkspaces(person.id, claims, loaded);
     }
+    const { organizations, activeOrgId } = workspaces;
     this.snapshot = {
       isLoaded: loaded,
       person,
       organizations,
-      activeOrgId: person ? activeOrganizationId(claims, this.orgClaim) : null,
+      activeOrgId,
+      isLoadingWorkspaces: this.directoryReading !== null,
     };
     for (const listener of this.listeners) listener();
   }

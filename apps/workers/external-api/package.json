@@ -35,7 +35,7 @@
     "@weldsuite/text": "workspace:*",
     "@weldsuite/worker-kit": "workspace:*",
     "drizzle-orm": "^0.45.2",
-    "hono": "4.13.13",
+    "hono": "4.13.16",
     "postgres": "^3.4.7",
     "zod": "^3.25.76"
   },
@@ -43,6 +43,7 @@
     "@cloudflare/workers-types": "^4.20250110.0",
     "@electric-sql/pglite": "^0.4.5",
     "@types/node": "^20",
+    "@vitest/coverage-v8": "^4.1.12",
     "@weldsuite/smtp": "workspace:*",
     "@weldsuite/typescript-config": "workspace:*",
     "typescript": "^5.9.2",

@@ -11,10 +11,11 @@
 //!    again after [`LOW_RATE_COOL_OFF_DAYS`] to be measured anew; a pause
 //!    with any other reason is never touched.
 //! 4. Cleanup of old warmup mail and old message rows ([`run_cleanup`]).
+//! 5. The corpus refresh ([`refresh_corpus`]): a new generated set when the
+//!    stored one is a month old, with the install's AI; without AI the
+//!    built-in set stays.
 //!
-//! The monthly corpus refresh does not run on these editions (it needs AI):
-//! the built-in corpus is the only one. Each step is independent: one
-//! failing is logged and the others still run.
+//! Each step is independent: one failing is logged and the others still run.
 
 use sqlx::PgPool;
 use weldsuite_reach_domain::warmup::{WARMUP_GATE_WINDOW_DAYS, WARMUP_MIN_DAYS};
@@ -23,6 +24,7 @@ use super::WarmupNetwork;
 use super::cleanup::{CleanupResult, run_cleanup};
 use super::clock::DAY_MS;
 use super::db::{is_warmup_enabled, ts};
+use super::generate::refresh_corpus;
 use super::pool_state::{LOW_INBOX_RATE_REASON, mark_reach_due};
 use super::stats::{RolledUpMailbox, roll_up_stats};
 
@@ -41,7 +43,7 @@ pub struct DailyResult {
     pub auto_paused: Vec<String>,
     pub resumed: Vec<String>,
     pub cleanup: Option<CleanupResult>,
-    /// Always false here: no AI, no corpus refresh.
+    /// Whether a new corpus was generated and stored.
     pub corpus_refreshed: bool,
 }
 
@@ -186,6 +188,7 @@ pub async fn run_daily(net: &WarmupNetwork, now: i64) -> DailyResult {
         resume_after_cool_off(master, now).await,
     );
     let cleanup = step("cleanup", None, run_cleanup(net, now).await.map(Some));
+    let corpus_refreshed = refresh_corpus(master, net.ai.as_ref(), now).await;
     tracing::info!(
         advanced,
         graduated,
@@ -194,6 +197,7 @@ pub async fn run_daily(net: &WarmupNetwork, now: i64) -> DailyResult {
         resumed = resumed.len(),
         cleaned = cleanup.map_or(0, |c| c.cleaned),
         rows_deleted = cleanup.map_or(0, |c| c.rows_deleted),
+        corpus_refreshed,
         "[reach-warmup] daily"
     );
     DailyResult {
@@ -204,6 +208,6 @@ pub async fn run_daily(net: &WarmupNetwork, now: i64) -> DailyResult {
         auto_paused,
         resumed,
         cleanup,
-        corpus_refreshed: false,
+        corpus_refreshed,
     }
 }

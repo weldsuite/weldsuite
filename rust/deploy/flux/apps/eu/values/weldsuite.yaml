@@ -31,6 +31,12 @@ config:
       # is the workspace, not for someone in several.)
       orgClaim: urn:zitadel:iam:org:project:${ZITADEL_PROJECT_ID}:roles
       webClientId: "${ZITADEL_WEB_CLIENT_ID}"
+      # The mobile apps' native application (runbook step 7, item 2b).
+      # Empty: the apps can't sign in to this cluster yet.
+      mobileClientId: "${ZITADEL_MOBILE_CLIENT_ID}"
+      # The desktop app's native application (runbook step 7, item 2c).
+      # Empty: the app signs in inside its window with the web application.
+      desktopClientId: "${ZITADEL_DESKTOP_CLIENT_ID:=}"
       # WeldSuite's own sign-in screens (the ones Global shows) rather than
       # Zitadel's, with the server as Zitadel's login client (ADR SEC-016).
       # They show once Zitadel's sign-in for the platform's application
@@ -47,6 +53,12 @@ config:
     endpoint: ${FILES_S3_ENDPOINT}
     region: ${FILES_S3_REGION}
     privateBucket: ${FILES_BUCKET_PRIVATE}
+    # Public uploads (avatars, product images, social media, chat
+    # attachments): a bucket next to the private one, same keys, private at
+    # Hetzner; the server serves it at https://app.${DOMAIN}/api/storage/public.
+    # Empty on a cluster whose settings don't name it: those uploads then
+    # answer "Storage is not configured".
+    publicBucket: ${FILES_BUCKET_PUBLIC:=}
     forcePathStyle: false
   # Durable jobs (sign's finalize, …) on the in-cluster Restate; each pod
   # registers its jobs endpoint with the admin API at start.
@@ -57,6 +69,10 @@ config:
   # Signing links point at the portal below.
   sign:
     portalUrl: https://sign.${DOMAIN}
+  # Form and invitation links point at the forms portal below. The bot check
+  # is ALTCHA's self-hosted proof of work (ADR FORMS-005, the chart's default).
+  forms:
+    portalUrl: https://forms.${DOMAIN}
   # Signup and team changes go to the in-cluster Zitadel's management API
   # as the weldsuite service user (ZITADEL_SERVICE_TOKEN in the Secret);
   # Zitadel picks its instance by the external domain.
@@ -84,17 +100,61 @@ config:
   # OAuth redirects and webhook registrations. The chart sets PUBLIC_URL and
   # every URL setting that names this host from it.
   publicUrl: https://app.${DOMAIN}
+  # The MCP server on a host of its own, as Global's mcp.weldsuite.org: AI
+  # clients connect to https://mcp.${DOMAIN}/mcp, and its OAuth discovery
+  # documents name that origin. The ingress below sends only the MCP paths
+  # there.
+  mcp:
+    serverUrl: https://mcp.${DOMAIN}
+  # AI on Mistral, in the EU (ADR AI-012, weldsuite-documentation/plans/eu-ai-mistral.md):
+  # every AI feature runs there unless a workspace admin opts in to a
+  # provider outside the EU. Keys in weldsuite-env: MISTRAL_API_KEY and
+  # AI_KEYS_ENCRYPTION_KEY (seals the keys workspaces bring); the server
+  # doesn't start without them. Claude and ChatGPT are offered with the
+  # workspace's own key; set weldsuiteKey once WeldSuite's EU-edition
+  # accounts are open and ANTHROPIC_API_KEY / OPENAI_API_KEY are in the
+  # Secret. The credit gate (402 at an empty wallet) is on: the Mollie
+  # top-up lets a workspace buy credits.
+  #
+  # OFF for now (2026-11-16): neither cluster's weldsuite-env has those two
+  # keys yet, and with AI on, serve and consume refused to start, so every
+  # build from 0.1.0-main.109 on failed its upgrade and rolled back. To turn
+  # it on, put the keys in both clusters' Secrets first, then set
+  # defaultProvider back to mistral and ownKey back to true for both
+  # opt-ins. An opt-in needs an install provider, so they stay off with it.
+  ai:
+    defaultProvider: ""
+    mistral:
+      baseUrl: https://api.mistral.ai/v1
+    optIn:
+      anthropic: { weldsuiteKey: false, ownKey: false }
+      openai: { weldsuiteKey: false, ownKey: false }
+    creditGate: true
+    billing: credits
+  # Buying credits through Mollie (ADR OPS-012), on once MOLLIE_API_KEY is in
+  # weldsuite-env: Mollie reports payments to
+  # https://app.${DOMAIN}/api/webhooks/mollie and checkouts return to the
+  # billing page, both from publicUrl. The packages on sale are the master
+  # credit_packages rows priced in EUR.
+  credits:
+    mollie:
+      webhookUrl: ""
+      redirectUrl: ""
 
 # DATABASE_URL_MASTER (through the master-pooler Pooler), DATABASE_ENCRYPTION_KEY,
-# VALKEY_URL, NATS_URL + NATS_TOKEN, S3 keys, SIGN_SESSION_SECRET,
-# SIGN_PORTAL_SECRET, WIDGET_TOKEN_SECRET, ZITADEL_SERVICE_TOKEN, TENANT_SHARDS,
-# COLLAB_ROOMS_SECRET, LIVEKIT_API_KEY + LIVEKIT_API_SECRET, MAIL_INBOUND_SECRET:
-# secrets/examples/secrets.example.yaml. The MTA's keys are in weldsuite-mta
-# (mta below).
+# WELDPASS_ROOT_KEY, VALKEY_URL, NATS_URL + NATS_TOKEN, S3 keys, SIGN_SESSION_SECRET,
+# SIGN_PORTAL_SECRET, FORMS_SESSION_SECRET, FORMS_PORTAL_SECRET, ALTCHA_HMAC_KEY,
+# WIDGET_TOKEN_SECRET, ZITADEL_SERVICE_TOKEN, TENANT_SHARDS,
+# COLLAB_ROOMS_SECRET, LIVEKIT_API_KEY + LIVEKIT_API_SECRET, MAIL_INBOUND_SECRET,
+# MISTRAL_API_KEY + AI_KEYS_ENCRYPTION_KEY and SANDBOX_TOKEN_SECRET (once
+# config.ai and the sandbox are on again), and optionally MOLLIE_API_KEY:
+# secrets/weldsuite.yaml, from the store's values (secrets/store.example.yaml).
+# The MTA's keys are in weldsuite-mta (mta below).
 secret:
   existingSecret: weldsuite-env
-  # The EU edition's keys live in its SOPS Secret, which a rebuilt cluster
-  # (the drill) gets back; a key the chart generated in the cluster wouldn't.
+  # The EU edition's keys live in its secret store, which a rebuilt cluster
+  # (the drill) reads again; a key the chart generated in the cluster wouldn't
+  # come back.
   generate: false
 
 # The platform (the SPA in the image) and its API on one origin, app.${DOMAIN};
@@ -142,11 +202,25 @@ ingress:
       paths:
         - path: /
           pathType: Prefix
+    # The MCP server (config.mcp): /mcp and its OAuth discovery documents,
+    # nothing else (any other path on this host is Traefik's 404).
+    - host: mcp.${DOMAIN}
+      paths:
+        - path: /mcp
+          pathType: Prefix
+        - path: /.well-known/oauth-protected-resource
+          pathType: Prefix
+        - path: /.well-known/oauth-authorization-server
+          pathType: Prefix
   tls:
     - secretName: weldsuite-api-tls
       hosts:
         - app.${DOMAIN}
         - api.${DOMAIN}
+    # Its own certificate, so app. and api. never wait on mcp.'s DNS.
+    - secretName: weldsuite-mcp-tls
+      hosts:
+        - mcp.${DOMAIN}
 
 # The WeldSign signer portal at sign.${DOMAIN} (ADR FE-017). Its image is the
 # `sign-portal` target of rust/Dockerfile, released with the server's.
@@ -173,20 +247,49 @@ signPortal:
         hosts:
           - sign.${DOMAIN}
 
+# The WeldForms respondent page at forms.${DOMAIN} (ADR FORMS-002): form links,
+# invitation links and /embed.js. Its image is the `forms-portal` target of
+# rust/Dockerfile, released with the server's. It calls the server's
+# /public/forms/* with FORMS_PORTAL_SECRET from weldsuite-env.
+formsPortal:
+  enabled: true
+  image:
+    repository: ghcr.io/weldsuite/weldsuite-forms-portal
+    tag: ${WELDSUITE_IMAGE_TAG}
+  # As the sign portal: only Traefik appends to X-Forwarded-For.
+  trustedProxies: 1
+  ingress:
+    enabled: true
+    className: traefik
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt
+    hosts:
+      - host: forms.${DOMAIN}
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: weldsuite-forms-tls
+        hosts:
+          - forms.${DOMAIN}
+
 # The staff admin console at admin.${DOMAIN} (ADR FE-018): access requests,
 # workspaces, the app catalog, warmup and outbound mail. Its image is the
 # `admin` target of rust/Dockerfile, released with the server's. Staff sign in
-# with Zitadel's `WeldSuite Staff` project and get in only with an active
-# admin_users row (`weldsuite admin staff add`, Hetzner runbook "Staff work").
-# Only ADMIN_CIDRS (cluster settings) reach it; the console's keys
-# (ADMIN_OIDC_CLIENT_ID, ADMIN_OIDC_CLIENT_SECRET, ADMIN_SESSION_SECRET) and
-# OUTBOUND_ADMIN_SECRET are in weldsuite-env. Without them nobody gets in.
+# with Zitadel's `WeldSuite Staff` project, with an account of the
+# `WeldSuite Staff` organization (ZITADEL_STAFF_ORG_ID, cluster settings), and
+# get in only with an active admin_users row (`weldsuite admin staff add`,
+# Hetzner runbook "Staff work"). Only ADMIN_CIDRS (cluster settings) reach it;
+# the console's keys (ADMIN_OIDC_CLIENT_ID, ADMIN_OIDC_CLIENT_SECRET,
+# ADMIN_SESSION_SECRET) and OUTBOUND_ADMIN_SECRET are in weldsuite-env.
+# Without them nobody gets in.
 admin:
   enabled: true
   image:
     repository: ghcr.io/weldsuite/weldsuite-admin
     tag: ${WELDSUITE_IMAGE_TAG}
   publicUrl: https://admin.${DOMAIN}
+  staffOrgId: "${ZITADEL_STAFF_ORG_ID}"
   platformUrl: https://app.${DOMAIN}
   allowedSourceRanges: ${ADMIN_CIDRS}
   ingress:
@@ -215,6 +318,35 @@ collabRooms:
     tag: ${WELDSUITE_IMAGE_TAG}
   replicaCount: 2
 
+# WeldAgent's sandbox, computer use and browsing on the EU edition's own
+# cluster (ADR AI-012 phase 5): gVisor pods in weldsuite-sandbox
+# (infrastructure/controllers/namespaces.yaml), released with the server's
+# image. Needs gVisor on the nodes (the gvisor extension in the Talos image,
+# hetzner/scripts/schematic.yaml) and a CNI that enforces NetworkPolicy:
+# until a new sandbox can't reach the metadata service or the Kubernetes API,
+# the server hands out none and says so in its log and `weldsuite doctor`
+# (rust/deploy/hetzner/README.md, "Agent sandbox"). SANDBOX_TOKEN_SECRET is in
+# the Secret.
+#
+# OFF for now (2026-11-16), with config.ai above: SANDBOX_TOKEN_SECRET is not in
+# either cluster's weldsuite-env, so serve and consume refused to start, and
+# the nodes run without gVisor (only runc), so no sandbox pod could start
+# anyway. Turn it on (and searxng below) after both are fixed, together with AI.
+sandbox:
+  enabled: false
+  image:
+    repository: ghcr.io/weldsuite/weldsuite-sandbox
+    tag: ${WELDSUITE_IMAGE_TAG}
+  # The nodes' public addresses: a pod could reach its own node's host ports
+  # on them. Add them when they are known (tofu output).
+  deniedCidrs: []
+
+# Web search for WeldAgent (web_search): SearXNG in the cluster, asked only by
+# the server; only the query leaves, to Qwant, Startpage, Mojeek and Wikipedia.
+# Off while WeldAgent's sandbox and AI are (above): nothing else asks it.
+searxng:
+  enabled: false
+
 autoscaling:
   enabled: true
   minReplicas: 2
@@ -229,9 +361,11 @@ resources:
     memory: 1Gi
 
 # The entity-event subscribers on the in-cluster JetStream: audit log,
-# outgoing webhooks and realtime fan-out (VALKEY_URL is in the Secret). The
-# search-index subscriber stays off until an embeddings endpoint (EU model
-# provider, or bge-m3 in the cluster) is chosen: set consume.embeddings then.
+# outgoing webhooks, realtime fan-out (VALKEY_URL is in the Secret) and the
+# semantic search index. The index's vectors come from config.ai: Mistral's
+# mistral-embed (1024 dimensions), metered as search-index per workspace and
+# batch, so consume.embeddings (for installs without AI) stays unset. While
+# config.ai is off, the search-index subscriber does not run (as before AI).
 consume:
   enabled: true
   replicaCount: 2
@@ -254,8 +388,8 @@ consume:
 # load balancer, so cert-manager's HTTP-01 issues its certificate through
 # Traefik. Haraka spools to the mail bucket (FILES_BUCKET_MAIL, made next to
 # the private one with the same keys) and consume stores the messages.
-# MAIL_INBOUND_SECRET is in weldsuite-env. No public bucket here, so
-# inbound attachments aren't kept yet (mailInbound.publicUrl).
+# MAIL_INBOUND_SECRET is in weldsuite-env. Inbound attachments are kept in
+# config.files' public bucket once the cluster names one (FILES_BUCKET_PUBLIC).
 mailInbound:
   enabled: true
   bucket: ${FILES_BUCKET_MAIL}
@@ -272,12 +406,12 @@ mailInbound:
       # Only nodes with a Haraka pod pass the load balancer's health check.
       externalTrafficPolicy: Local
 
-# The MTA (docs/plans/eu-mail-service.md): system and customer mail from the
+# The MTA (weldsuite-documentation/plans/eu-mail-service.md): system and customer mail from the
 # mail nodes' own addresses (hetzner mail_pools, one node each to start),
 # its queue in weldsuite_mta on master (clusters/example/configs). Bounces
 # and complaint reports come back to bounces.${DOMAIN}, whose MX are the mail
 # nodes. The server's SMTP_URL and MAIL_SMTP_URL point at it (wireServer).
-# Its keys are the weldsuite-mta Secret (secrets example); the bounce MX's
+# Its keys are the weldsuite-mta Secret (secrets/mta); the bounce MX's
 # certificate is self-signed for the mail nodes' names (the chart's default).
 # Before it sends: the port 25 unblock, DNS and the warm-up in the Hetzner
 # runbook, "Mail".

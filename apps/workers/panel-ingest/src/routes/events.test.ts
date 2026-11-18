@@ -511,7 +511,7 @@ describe('POST /e', () => {
       await call(testEnv, { body: batch });
       await call(testEnv, { body: wireBatch({ events: [wireEvent({ event_id: 'evt-cccccccc' })] }) });
 
-      expect(await usageOf(testEnv)).toEqual({ month: '2026-10', events: 3, days: { '2026-10-27': 3 } });
+      expect(await usageOf(testEnv)).toEqual({ month: '2026-10', events: 3, days: { '2026-10-27': 3 }, recordings: 0, recordingDays: {} });
     });
 
     it('keeps one count per workspace', async () => {

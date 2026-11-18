@@ -28,7 +28,7 @@ use super::clock::{
     DAY_MS, HOUR_MS, Rng, business_window, daily_target_for, js_round, local_date, new_threads_for,
     plan_day, shuffled, spread_times,
 };
-use super::corpus::{CorpusThread, corpus, render_corpus_message};
+use super::corpus::{CorpusThread, load_corpus, render_corpus_message};
 use super::db::{PoolMailbox, is_warmup_enabled, pool_columns, ts};
 use super::login_recheck::recheck_logins;
 use super::pairing::{PairingMailbox, PairingState, pair_key, pick_recipient, pick_thread_id};
@@ -163,7 +163,7 @@ async fn load_pair_history(
 struct PlanContext<'a> {
     master: &'a PgPool,
     now: i64,
-    threads: HashMap<&'static str, &'static CorpusThread>,
+    threads: HashMap<&'a str, &'a CorpusThread>,
     thread_ids: Vec<String>,
     /// Everyone who can receive.
     candidates: Vec<PairingMailbox>,
@@ -432,7 +432,7 @@ pub async fn run_planner(
         return Ok(result);
     }
 
-    let threads = corpus();
+    let threads = load_corpus(master).await;
     let mut ctx = PlanContext {
         master,
         now,

@@ -9,7 +9,10 @@ import { SsoActivateStep } from './sso-activate-step';
 import { SsoAddonCard } from './sso-addon-card';
 import { SsoConnectionStep } from './sso-connection-step';
 import { SsoDomainStep } from './sso-domain-step';
-import { ssoStatus, type SsoStatus } from './sso-view';
+import { SsoOidcConnectionStep } from './sso-oidc-connection-step';
+import { SsoOidcDomainsStep } from './sso-oidc-domains-step';
+import { SsoOidcSignInStep } from './sso-oidc-sign-in-step';
+import { oidcStatus, oidcView, ssoStatus, type SsoStatus } from './sso-view';
 import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 
 const STATUS_BADGE: Record<SsoStatus, 'success' | 'secondary' | 'outline'> = {
@@ -23,6 +26,10 @@ const STATUS_BADGE: Record<SsoStatus, 'success' | 'secondary' | 'outline'> = {
  * connect the identity provider, switch it on. Anyone with `sso:read` sees the
  * page; changing it takes `sso:manage` (the configuration says whether the
  * caller has it) and the add-on's billing takes `billing:manage`.
+ *
+ * On a Kubernetes edition with WeldID as the identity provider the backend
+ * answers `mode: 'weldid'`: then the steps are the OpenID Connect connection,
+ * its domains, and the sign-in settings (on, required, role for new members).
  */
 export default function SsoSettingsPage() {
   const { t } = useI18n();
@@ -59,7 +66,10 @@ export default function SsoSettingsPage() {
     );
   }
 
-  const status = ssoStatus(config);
+  // WeldID (Kubernetes editions): an OpenID Connect connection with its own
+  // domains; no add-on to buy and no SAML yet.
+  const oidc = oidcView(config);
+  const status = oidc ? oidcStatus(oidc) : ssoStatus(config);
   const statusLabel: Record<SsoStatus, string> = {
     active: ts.status.active,
     off: ts.status.off,
@@ -74,18 +84,28 @@ export default function SsoSettingsPage() {
           <h1 className="text-2xl font-semibold tracking-tight">{ts.title}</h1>
           <Badge variant={STATUS_BADGE[status]}>{statusLabel[status]}</Badge>
         </div>
-        <p className="text-muted-foreground">{ts.description}</p>
+        <p className="text-muted-foreground">{oidc ? ts.weldid.description : ts.description}</p>
       </div>
 
       {!canManage && <InfoBanner variant="neutral">{ts.readOnlyNotice}</InfoBanner>}
 
-      <SsoAddonCard />
+      {oidc ? (
+        <div className="space-y-4">
+          <SsoOidcConnectionStep config={config} oidc={oidc} canManage={canManage} />
+          <SsoOidcDomainsStep oidc={oidc} canManage={canManage} />
+          <SsoOidcSignInStep config={config} oidc={oidc} canManage={canManage} />
+        </div>
+      ) : (
+        <>
+          <SsoAddonCard />
 
-      <div className="space-y-4">
-        <SsoDomainStep config={config} canManage={canManage} />
-        <SsoConnectionStep config={config} canManage={canManage} />
-        <SsoActivateStep config={config} canManage={canManage} />
-      </div>
+          <div className="space-y-4">
+            <SsoDomainStep config={config} canManage={canManage} />
+            <SsoConnectionStep config={config} canManage={canManage} />
+            <SsoActivateStep config={config} canManage={canManage} />
+          </div>
+        </>
+      )}
     </div>
   );
 }

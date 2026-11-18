@@ -173,6 +173,35 @@ export {
   type AiUsage,
 } from './billing-rates.js';
 
+// The Kubernetes editions' AI catalog (ADR AI-012): providers, models, task
+// maps and features, exported to the Rust backend by `pnpm rust:catalogs`.
+export {
+  AI_CAPABILITIES,
+  AI_FEATURES,
+  AI_MODELS,
+  AI_PROVIDERS,
+  AI_TASKS,
+  COMPAT_CAPABILITIES,
+  PROVIDER_TASKS,
+  TASK_NEEDS,
+  aiFeature,
+  aiModel,
+  aiProvider,
+  featureNeeds,
+  modelHas,
+  taskModel,
+  type AiCapability,
+  type AiFeature,
+  type AiFeatureEntry,
+  type AiModelEntry,
+  type AiProviderEntry,
+  type AiProviderId,
+  type AiRegion,
+  type AiTask,
+  type AiTaskModels,
+  type AiTier,
+} from './catalog.js';
+
 import { createWeldAI, type WeldAI } from './gateway.js';
 import type { ModelId } from './models.js';
 

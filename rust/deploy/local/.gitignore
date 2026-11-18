@@ -1,2 +1,3 @@
-# The session key and the Postman environment with its tokens (mint-token.mjs).
+# The session key and the Postman environment with its tokens (mint-token.mjs),
+# and the EU test sign-in (auth.env, eu-test-auth.mjs).
 .local/

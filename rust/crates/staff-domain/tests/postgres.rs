@@ -491,3 +491,176 @@ async fn only_a_superadmin_changes_the_staff_list() {
     assert_eq!(rows, 2);
     f.clean_up().await;
 }
+
+/// The WeldApps review gate's lookup (`rust/modules/core-apps/src/apps.rs`).
+async fn review_gate_lets_in(master: &PgPool, user_id: &str) -> bool {
+    sqlx::query_scalar::<_, String>(
+        "select id from admin_users where user_id = $1 and is_active = true limit 1",
+    )
+    .bind(user_id)
+    .fetch_optional(master)
+    .await
+    .expect("review gate")
+    .is_some()
+}
+
+/// The admin console's lookup on the Kubernetes editions
+/// (`apps/web/admin/lib/server/staff-roster.ts`).
+async fn console_lets_in(master: &PgPool, subject: &str) -> bool {
+    sqlx::query_scalar::<_, String>(
+        "select email from admin_users where console_subject = $1 and is_active = true limit 1",
+    )
+    .bind(subject)
+    .fetch_optional(master)
+    .await
+    .expect("console")
+    .is_some()
+}
+
+/// ADR SEC-018: one person, a platform account and a separate staff account
+/// with the same email, both copied into master `users` by the identity sync.
+/// `staff add` names the platform account for the review gate and leaves the
+/// console's account to the console, so each gets in where it belongs.
+#[tokio::test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "one walk from adding a person through the console binding and back"
+)]
+async fn a_row_names_the_platform_account_and_the_console_account_apart() {
+    let Some(f) = fixture().await else { return };
+    let superadmin = staff::writer(&f.master, &f.superadmin)
+        .await
+        .expect("superadmin");
+    let email = format!("twin-{}@weldsuite.org", f.suffix);
+    // The staff account is the older one, so age alone would pick it.
+    let staff_account = format!("user_staff_{}", f.suffix);
+    let platform_account = format!("user_platform_{}", f.suffix);
+    for (id, age) in [(&staff_account, "1 day"), (&platform_account, "0 days")] {
+        sqlx::query(
+            "insert into users (id, email, created_at) values ($1, $2, now() - $3::interval)",
+        )
+        .bind(id)
+        .bind(email.to_uppercase())
+        .bind(age)
+        .execute(&f.master)
+        .await
+        .expect("user");
+    }
+    let new = NewStaff {
+        email: &email,
+        role: StaffRole::Superadmin,
+        name: None,
+    };
+
+    // Not in a workspace yet: no platform account to name, never the staff one.
+    let added = staff::add(&f.master, Some(&superadmin), &new, "joins the team", false)
+        .await
+        .expect("add");
+    assert_eq!(added.after.user_id, None);
+    assert_eq!(added.after.console_subject, None);
+
+    // They join a workspace with the platform account; adding again names it.
+    f.add_workspace("twin", None).await;
+    sqlx::query("insert into user_workspaces (id, user_id, workspace_id) values ($1, $2, $3)")
+        .bind(generate_id("uw"))
+        .bind(&platform_account)
+        .bind(f.workspace("twin"))
+        .execute(&f.master)
+        .await
+        .expect("membership");
+    let planned = staff::add(&f.master, Some(&superadmin), &new, "catch up", true)
+        .await
+        .expect("dry run");
+    assert!(!planned.applied);
+    assert_eq!(
+        planned.after.user_id.as_deref(),
+        Some(platform_account.as_str())
+    );
+    let added = staff::add(&f.master, Some(&superadmin), &new, "catch up", false)
+        .await
+        .expect("add again");
+    assert_eq!(
+        added.after.user_id.as_deref(),
+        Some(platform_account.as_str())
+    );
+    assert_eq!(added.after.console_subject, None);
+
+    // Their first console sign-in binds the staff account (what staff-roster.ts writes).
+    sqlx::query(
+        "update admin_users set console_subject = $2 where email = $1 and console_subject is null",
+    )
+    .bind(&email)
+    .bind(&staff_account)
+    .execute(&f.master)
+    .await
+    .expect("console binding");
+
+    // Each account gets in where it belongs, and only there.
+    assert!(review_gate_lets_in(&f.master, &platform_account).await);
+    assert!(!review_gate_lets_in(&f.master, &staff_account).await);
+    assert!(console_lets_in(&f.master, &staff_account).await);
+    assert!(!console_lets_in(&f.master, &platform_account).await);
+
+    // Adding again (a role change) keeps both.
+    let changed = staff::add(
+        &f.master,
+        Some(&superadmin),
+        &NewStaff {
+            role: StaffRole::Admin,
+            ..new.clone()
+        },
+        "steps back",
+        false,
+    )
+    .await
+    .expect("role change");
+    assert_eq!(
+        changed.after.user_id.as_deref(),
+        Some(platform_account.as_str())
+    );
+    assert_eq!(
+        changed.after.console_subject.as_deref(),
+        Some(staff_account.as_str())
+    );
+
+    // A row the console bound before SEC-018 holds the staff account in
+    // `user_id`; adding again puts the platform account there.
+    sqlx::query("update admin_users set user_id = $2 where email = $1")
+        .bind(&email)
+        .bind(&staff_account)
+        .execute(&f.master)
+        .await
+        .expect("legacy binding");
+    let healed = staff::add(&f.master, Some(&superadmin), &new, "fix the binding", false)
+        .await
+        .expect("heal");
+    assert_eq!(
+        healed.after.user_id.as_deref(),
+        Some(platform_account.as_str())
+    );
+    assert!(review_gate_lets_in(&f.master, &platform_account).await);
+    assert!(!review_gate_lets_in(&f.master, &staff_account).await);
+
+    // With no platform account left to name, the staff account is dropped
+    // from `user_id` rather than kept there.
+    sqlx::query("delete from user_workspaces where user_id = $1")
+        .bind(&platform_account)
+        .execute(&f.master)
+        .await
+        .expect("leave the workspace");
+    sqlx::query("update admin_users set user_id = $2 where email = $1")
+        .bind(&email)
+        .bind(&staff_account)
+        .execute(&f.master)
+        .await
+        .expect("legacy binding");
+    let cleared = staff::add(&f.master, Some(&superadmin), &new, "fix the binding", false)
+        .await
+        .expect("clear");
+    assert_eq!(cleared.after.user_id, None);
+    assert_eq!(
+        cleared.after.console_subject.as_deref(),
+        Some(staff_account.as_str())
+    );
+    f.clean_up().await;
+}

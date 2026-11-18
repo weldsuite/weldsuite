@@ -7,11 +7,14 @@
  * authentication + tenant resolution (the `/api/*` Clerk + workspace-db
  * middleware) rather than a single object permission prefix. No mutations,
  * so no entity events.
+ *
+ * A failed read answers 500, never an empty list: an empty list means the
+ * person belongs to no workspace, and the OIDC session takes it as such.
  */
 
 import { Hono } from 'hono';
 import type { Env, Variables } from '../../types';
-import { success } from '@weldsuite/worker-kit/response';
+import { error, success } from '@weldsuite/worker-kit/response';
 import { getMasterDb } from '@weldsuite/worker-kit/db';
 import { listUserWorkspaces } from '@weldsuite/core-domain/workspaces';
 
@@ -29,7 +32,7 @@ app.get('/', async (c) => {
     return success(c, workspaces);
   } catch (err) {
     console.error('[app-api/workspaces] list failed:', err);
-    return success(c, []);
+    return error.internal(c, 'Failed to list workspaces');
   }
 });
 

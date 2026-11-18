@@ -106,9 +106,29 @@ describe('conversational layout', () => {
   });
 
   it('shows progress along the path', () => {
-    renderForm({ definition: makeDefinition({ blocks: [nameBlock, ageBlock] }) });
-    expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('0');
-    expect(screen.getByText('0% completed')).toBeTruthy();
+    const { container } = renderForm({ definition: makeDefinition({ blocks: [nameBlock, ageBlock] }) });
+    const bar = screen.getByRole('progressbar') as HTMLProgressElement;
+    expect(bar.tagName).toBe('PROGRESS');
+    expect(bar.value).toBe(0);
+    expect(bar.max).toBe(100);
+    expect(bar.getAttribute('aria-valuetext')).toBe('0% completed');
+    expect(screen.queryByText('0% completed')).toBeNull();
+    // The drawn segments are decoration; the progress element is what screen readers read.
+    expect(container.querySelector('.wf-progress-track')?.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('draws one segment per question and fills the one on screen', () => {
+    const { container } = renderForm({ definition: makeDefinition({ blocks: [nameBlock, ageBlock, colorBlock] }) });
+    const segments = container.querySelectorAll('.wf-progress-segment');
+    expect(segments).toHaveLength(3);
+    expect([...segments].map((s) => s.hasAttribute('data-reached'))).toEqual([true, false, false]);
+  });
+
+  it('draws one continuous bar for a long form', () => {
+    const blocks = Array.from({ length: 16 }, (_, i) => ({ id: `b_q${i}`, ref: `q${i}`, type: 'short_text' as const, title: `Question ${i}` }));
+    const { container } = renderForm({ definition: makeDefinition({ blocks }) });
+    expect(container.querySelectorAll('.wf-progress-segment')).toHaveLength(1);
+    expect((container.querySelector('.wf-progress-bar') as HTMLElement).style.width).toBe('6.25%');
   });
 });
 
@@ -177,6 +197,15 @@ describe('live submit', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
     await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('Max 5 characters'));
     expect(screen.getByRole('heading', { name: /Your name/ })).toBeTruthy();
+  });
+
+  it('shows why the server refused a submit, and the connection message when it gave no reason', async () => {
+    const onSubmit = vi.fn().mockResolvedValueOnce({ refused: 'This form has closed.' }).mockRejectedValueOnce(new Error('offline'));
+    renderForm({ definition: makeDefinition({ blocks: [nameBlock] }), mode: 'live', onSubmit, initialAnswers: { b_name: 'Ada' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('This form has closed.'));
+    fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('Could not submit'));
   });
 
   it('reports progress per step', () => {

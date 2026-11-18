@@ -36,6 +36,7 @@ import {
   Track,
   type Participant,
   type RemoteParticipant,
+  type RoomOptions,
   type TrackPublication,
 } from 'livekit-client';
 import { Emitter } from './emitter';
@@ -43,6 +44,7 @@ import { LiveKitRoomService } from './room-service';
 import {
   CUSTOM_ID_ATTRIBUTE,
   WAITING_ATTRIBUTE,
+  customIdFromIdentity,
   parseMetadata,
   readLiveKitToken,
   type LiveKitTokenClaims,
@@ -117,7 +119,9 @@ export class LiveKitPeer {
   get customParticipantId(): string | undefined {
     const metadata = parseMetadata(this.participant.metadata);
     const fromMeta = typeof metadata.customParticipantId === 'string' ? metadata.customParticipantId : undefined;
-    return this.participant.attributes?.[CUSTOM_ID_ATTRIBUTE] ?? fromMeta;
+    // A token without the attribute still names the person in its identity,
+    // which keeps a rejoin (new identity, same person) one tile in the chat call.
+    return this.participant.attributes?.[CUSTOM_ID_ATTRIBUTE] ?? fromMeta ?? customIdFromIdentity(this.id);
   }
   get picture(): string | undefined {
     return pictureOf(parseMetadata(this.participant.metadata));
@@ -283,7 +287,7 @@ export class LiveKitSelf extends Emitter {
   get customParticipantId(): string | undefined {
     const { attributes, metadata } = this.meeting.claims;
     const fromMeta = typeof metadata.customParticipantId === 'string' ? metadata.customParticipantId : undefined;
-    return attributes[CUSTOM_ID_ATTRIBUTE] ?? fromMeta;
+    return attributes[CUSTOM_ID_ATTRIBUTE] ?? fromMeta ?? customIdFromIdentity(this.id);
   }
   get picture(): string | undefined {
     return pictureOf(this.meeting.claims.metadata);
@@ -412,6 +416,31 @@ export interface LiveKitMeetingOptions {
   fetchImpl?: (input: string, init: RequestInit) => Promise<Response>;
 }
 
+/**
+ * The `Room` every meeting and call connects with.
+ *
+ * Adaptive stream stays off. It sizes and pauses each remote video by the
+ * elements LiveKit's own `attach()` put it in, and this client never attaches:
+ * the UI shows the bare `MediaStreamTrack`s in its own `<video>` elements, as
+ * it does RealtimeKit's. With nothing attached, LiveKit counts every remote
+ * video as hidden and asks the server to stop sending it as soon as it starts,
+ * so a screen share froze on its first, still blurry, frames. The server now
+ * sends each viewer the best layer their connection carries; dynacast still
+ * stops the layers nobody receives.
+ */
+export function liveKitRoomOptions(audioCaptureDefaults: {
+  noiseSuppression: boolean;
+  echoCancellation: boolean;
+  autoGainControl: boolean;
+}): RoomOptions {
+  return {
+    adaptiveStream: false,
+    dynacast: true,
+    audioCaptureDefaults,
+    publishDefaults: { screenShareEncoding: { maxBitrate: 3_000_000, maxFramerate: 30 } },
+  };
+}
+
 /** The meeting client: what `RealtimeKitClient.init` returns, on LiveKit. */
 export class LiveKitMeeting {
   readonly room: Room;
@@ -429,14 +458,7 @@ export class LiveKitMeeting {
   constructor(private readonly options: LiveKitMeetingOptions) {
     this.claims = readLiveKitToken(options.token);
     this.wanted = { audio: options.defaults?.audio ?? true, video: options.defaults?.video ?? true };
-    this.room =
-      options.room ??
-      new Room({
-        adaptiveStream: true,
-        dynacast: true,
-        audioCaptureDefaults: this.audioCaptureOptions(),
-        publishDefaults: { screenShareEncoding: { maxBitrate: 3_000_000, maxFramerate: 30 } },
-      });
+    this.room = options.room ?? new Room(liveKitRoomOptions(this.audioCaptureOptions()));
     this.self = new LiveKitSelf(this);
     this.participants = new LiveKitParticipants(this);
     this.wire();

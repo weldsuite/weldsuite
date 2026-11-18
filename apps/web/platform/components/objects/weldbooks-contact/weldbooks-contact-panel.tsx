@@ -808,7 +808,7 @@ function FinancialSection({ contact, t }: Readonly<{ contact: Customer; t: Trans
           if (next === '') return { paymentTermsDays: null };
           const days = Number(next);
           if (!Number.isInteger(days) || days < 0) {
-            toast.error(tc.updateFailed, { description: tc.paymentTermsHelp });
+            toast.error(tc.updateFailed, { description: tc.paymentTermsInvalid });
             return null;
           }
           return { paymentTermsDays: days };

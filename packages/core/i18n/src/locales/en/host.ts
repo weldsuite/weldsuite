@@ -328,6 +328,48 @@ export const host = {
       saveFailed: 'Could not save the rates. Try again.',
     },
 
+    adminPanelPricing: {
+      navJumpTo: 'WeldPanel pricing',
+      navArea: 'WeldPanel pricing',
+      navGroup: 'WeldPanel',
+      navPage: 'Overage rates',
+      cardTitle: 'WeldPanel pricing',
+      cardDescription: 'Credits per block of events and recordings beyond the plan allowance',
+      title: 'WeldPanel pricing',
+      description:
+        'Credits charged from the prepaid credit wallet when a workspace uses more events or recordings than its plan includes in a month. Usage is charged in blocks: the first event past the allowance charges a whole block.',
+      effectiveHeading: 'Effective rates',
+      sourceCustom: 'Custom rates saved here',
+      sourceDefault: 'Built-in defaults (nothing saved yet)',
+      eventsLabel: 'Events',
+      recordingsLabel: 'Recordings',
+      eventsUnit: 'credits / 10,000 events',
+      recordingsUnit: 'credits / 100 recordings',
+      editHeading: 'Edit rates',
+      eventsInputLabel: 'Events (credits per 10,000)',
+      recordingsInputLabel: 'Recordings (credits per 100)',
+      inputHelp: 'A whole number above 0, at most {max}.',
+      exampleHeading: 'Example',
+      exampleLine:
+        '{events} events and {recordings} recordings over the allowance cost {eventsCredits} credits for events and {recordingsCredits} for recordings, {total} credits in total.',
+      exampleInvalid: 'Enter valid rates to see an example.',
+      allowancesNote:
+        'The allowance of each plan is not set here: it is built into WeldPanel (Free, Business, Scale and Enterprise).',
+      cacheNote:
+        'panel-api caches these rates for about 60 seconds, so a saved change can take up to a minute to apply to new charges.',
+      defaultsNote:
+        'Defaults: {events} credits per 10,000 events, {recordings} credits per 100 recordings.',
+      resetButton: 'Reset to defaults',
+      saveButton: 'Save rates',
+      saved: 'WeldPanel pricing saved',
+      lastUpdated: 'Last updated {at} by {by}',
+      neverUpdated: 'Never saved. The built-in defaults apply.',
+      unknownAdmin: 'unknown',
+      invalidRate: 'Enter a whole number above 0.',
+      rateOutOfRange: 'Rates cannot be higher than {max} credits per block.',
+      saveFailed: 'Could not save the rates. Try again.',
+    },
+
     // Domain availability checker
     availability: {
       enterDomain: 'Enter a domain name to check availability',
@@ -655,6 +697,8 @@ export const host = {
       copyFailed: 'Could not copy to clipboard',
       enabled: 'Enabled',
       disabled: 'Disabled',
+      // A setting an external domain keeps at its own registrar (auto-renew, transfer lock).
+      notApplicable: 'Not applicable',
       recordName: 'Name',
       recordNamePlaceholder: '@ or subdomain',
       ttlSeconds: 'TTL (seconds)',
@@ -792,6 +836,8 @@ export const host = {
       disableAutoRenew: 'Disable Auto-Renew',
       emptyTitle: 'No domains found',
       emptyDescription: 'Register your first domain to get started',
+      // Editions without domain purchase (EU): a domain registered elsewhere is the way in.
+      emptyDescriptionExternal: 'Add a domain you registered elsewhere to manage its DNS here',
       noResultsTitle: 'No domains found',
       noResultsDescription: "We couldn't find any domains matching your filter.",
     },

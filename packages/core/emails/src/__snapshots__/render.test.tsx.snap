@@ -56,6 +56,390 @@ Is dit een vergissing? Neem dan vóór die datum contact op met WeldSuite-suppor
 WeldSuite https://weldsuite.org"
 `;
 
+exports[`'ai.provider-enabled' / 'ownKey' / 'en' > matches the text snapshot 1`] = `
+"OpenAI was enabled for AI in "Acme Studio"
+
+AI settings
+
+OpenAI was enabled for AI
+
+Hi,
+
+tom@acme.example enabled OpenAI as an AI provider for Acme Studio. Features set to use it send their content to OpenAI, which processes it outside the EU.
+
+Provider: OpenAI
+
+Region: Outside the EU
+
+Paid with: The workspace’s own key
+
+Enabled by: tom@acme.example
+
+You get this email because you own the workspace. You can switch the provider off again in the AI settings.
+
+Open AI settings https://app.acme.example/settings/ai
+
+Or open this link: https://app.acme.example/settings/ai
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'ai.provider-enabled' / 'ownKey' / 'nl' > matches the text snapshot 1`] = `
+"OpenAI is ingeschakeld voor AI in "Acme Studio"
+
+AI-instellingen
+
+OpenAI is ingeschakeld voor AI
+
+Hoi,
+
+tom@acme.example heeft OpenAI ingeschakeld als AI-aanbieder voor Acme Studio. Functies die hem gebruiken sturen hun inhoud naar OpenAI, dat die buiten de EU verwerkt.
+
+Aanbieder: OpenAI
+
+Regio: Buiten de EU
+
+Betaald met: De eigen sleutel van de werkruimte
+
+Ingeschakeld door: tom@acme.example
+
+Je krijgt deze e-mail omdat je eigenaar van de werkruimte bent. Je kunt de aanbieder in de AI-instellingen weer uitschakelen.
+
+AI-instellingen openen https://app.acme.example/settings/ai
+
+Of open deze link: https://app.acme.example/settings/ai
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'ai.provider-enabled' / 'weldsuiteAccount' / 'en' > matches the text snapshot 1`] = `
+"Anthropic was enabled for AI in "Acme Studio"
+
+AI settings
+
+Anthropic was enabled for AI
+
+Hi Lisa,
+
+Tom Jansen enabled Anthropic as an AI provider for Acme Studio. Features set to use it send their content to Anthropic, which processes it outside the EU.
+
+Provider: Anthropic
+
+Region: Outside the EU
+
+Paid with: WeldSuite’s account, charged as AI credits
+
+Enabled by: Tom Jansen
+
+You get this email because you own the workspace. You can switch the provider off again in the AI settings.
+
+Open AI settings https://app.acme.example/settings/ai
+
+Or open this link: https://app.acme.example/settings/ai
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'ai.provider-enabled' / 'weldsuiteAccount' / 'nl' > matches the text snapshot 1`] = `
+"Anthropic is ingeschakeld voor AI in "Acme Studio"
+
+AI-instellingen
+
+Anthropic is ingeschakeld voor AI
+
+Hoi Lisa,
+
+Tom Jansen heeft Anthropic ingeschakeld als AI-aanbieder voor Acme Studio. Functies die hem gebruiken sturen hun inhoud naar Anthropic, dat die buiten de EU verwerkt.
+
+Aanbieder: Anthropic
+
+Regio: Buiten de EU
+
+Betaald met: Het account van WeldSuite, in rekening gebracht als AI-tegoed
+
+Ingeschakeld door: Tom Jansen
+
+Je krijgt deze e-mail omdat je eigenaar van de werkruimte bent. Je kunt de aanbieder in de AI-instellingen weer uitschakelen.
+
+AI-instellingen openen https://app.acme.example/settings/ai
+
+Of open deze link: https://app.acme.example/settings/ai
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'auth.password-reset' / 'default' / 'en' > matches the text snapshot 1`] = `
+"Reset your WeldSuite password
+
+Password reset
+
+Choose a new password
+
+We received a request to reset the password for tom@example.com.
+
+Reset password https://app.weldsuite.eu/auth/reset-password?userId=399&code=K7Q2XR
+
+Or open this link: https://app.weldsuite.eu/auth/reset-password?userId=399&code=K7Q2XR
+
+Or enter this code on the reset screen:
+
+K7Q2XR
+
+The link and code expire in 60 minutes.
+
+If you didn't ask for this, you can ignore this email. Your password stays the same.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'auth.password-reset' / 'default' / 'nl' > matches the text snapshot 1`] = `
+"Stel je WeldSuite-wachtwoord opnieuw in
+
+Wachtwoord opnieuw instellen
+
+Kies een nieuw wachtwoord
+
+We hebben een verzoek ontvangen om het wachtwoord van tom@example.com opnieuw in te stellen.
+
+Wachtwoord opnieuw instellen https://app.weldsuite.eu/auth/reset-password?userId=399&code=K7Q2XR
+
+Of open deze link: https://app.weldsuite.eu/auth/reset-password?userId=399&code=K7Q2XR
+
+Of vul deze code in op het scherm voor een nieuw wachtwoord:
+
+K7Q2XR
+
+De link en code verlopen over 60 minuten.
+
+Heb je hier niet om gevraagd? Dan kun je deze e-mail negeren. Je wachtwoord blijft hetzelfde.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'auth.sign-in-code' / 'default' / 'en' > matches the text snapshot 1`] = `
+"Your WeldSuite sign-in code: 482913
+
+Your sign-in code
+
+Sign in to WeldSuite
+
+Enter this code to finish signing in:
+
+482913
+
+The code expires in 5 minutes.
+
+If you didn't try to sign in, someone may know your password. Change it as soon as you can.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'auth.sign-in-code' / 'default' / 'nl' > matches the text snapshot 1`] = `
+"Je inlogcode voor WeldSuite: 482913
+
+Je inlogcode
+
+Inloggen bij WeldSuite
+
+Vul deze code in om het inloggen af te ronden:
+
+482913
+
+De code verloopt over 5 minuten.
+
+Probeerde jij niet in te loggen? Dan kent iemand misschien je wachtwoord. Wijzig het zo snel mogelijk.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'auth.verify-email' / 'default' / 'en' > matches the text snapshot 1`] = `
+"Confirm your email address for WeldSuite
+
+Confirm your email address
+
+Welcome to WeldSuite
+
+Confirm this address to finish setting up your account.
+
+Confirm email address https://app.weldsuite.eu/auth/login?verifyUser=399&verifyCode=K7Q2XR
+
+Or open this link: https://app.weldsuite.eu/auth/login?verifyUser=399&verifyCode=K7Q2XR
+
+Or enter this code on the sign-in screen:
+
+K7Q2XR
+
+The link and code expire in 60 minutes.
+
+If you didn't create a WeldSuite account, you can ignore this email.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'auth.verify-email' / 'default' / 'nl' > matches the text snapshot 1`] = `
+"Bevestig je e-mailadres voor WeldSuite
+
+Bevestig je e-mailadres
+
+Welkom bij WeldSuite
+
+Bevestig dit adres om het aanmaken van je account af te ronden.
+
+E-mailadres bevestigen https://app.weldsuite.eu/auth/login?verifyUser=399&verifyCode=K7Q2XR
+
+Of open deze link: https://app.weldsuite.eu/auth/login?verifyUser=399&verifyCode=K7Q2XR
+
+Of vul deze code in op het inlogscherm:
+
+K7Q2XR
+
+De link en code verlopen over 60 minuten.
+
+Heb je geen WeldSuite-account aangemaakt? Dan kun je deze e-mail negeren.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'billing.dunning' / 'ended' / 'en' > matches the text snapshot 1`] = `
+""Acme Studio" is now on the Free plan
+
+Billing
+
+Your plan ended
+
+A payment of € 90,75 for the Business plan of Acme Studio stayed open, so the workspace moved to the Free plan. Your data is kept. Choose a plan again to get your seats and features back.
+
+You get this email because you manage billing for the workspace.
+
+Choose a plan https://app.weldsuite.eu/settings/billing
+
+Or open this link: https://app.weldsuite.eu/settings/billing
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'billing.dunning' / 'ended' / 'nl' > matches the text snapshot 1`] = `
+""Acme Studio" staat nu op het gratis abonnement
+
+Facturatie
+
+Je abonnement is gestopt
+
+Een betaling van € 90,75 voor het Business-abonnement van Acme Studio bleef open, dus de werkruimte is overgezet op het gratis abonnement. Je gegevens blijven bewaard. Kies opnieuw een abonnement om je gebruikers en functies terug te krijgen.
+
+Je krijgt deze e-mail omdat je de facturatie van de werkruimte beheert.
+
+Kies een abonnement https://app.weldsuite.eu/settings/billing
+
+Of open deze link: https://app.weldsuite.eu/settings/billing
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'billing.dunning' / 'failed' / 'en' > matches the text snapshot 1`] = `
+"Payment failed for "Acme Studio"
+
+Billing
+
+Your payment didn’t go through
+
+We couldn’t collect € 90,75 for the Business plan of Acme Studio. Your plan keeps working until 28 november 2026. Pay before then to keep it.
+
+Workspace: Acme Studio
+
+Plan: Business
+
+Amount due: € 90,75
+
+Plan ends on: 28 november 2026
+
+Paying also saves the payment method for the next renewals. You get this email because you manage billing for the workspace.
+
+Pay now https://app.weldsuite.eu/public/billing/pay/token
+
+Or open this link: https://app.weldsuite.eu/public/billing/pay/token
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'billing.dunning' / 'failed' / 'nl' > matches the text snapshot 1`] = `
+"Betaling mislukt voor "Acme Studio"
+
+Facturatie
+
+Je betaling is niet gelukt
+
+We konden € 90,75 voor het Business-abonnement van Acme Studio niet innen. Je abonnement blijft werken tot 28 november 2026. Betaal voor die datum om het te houden.
+
+Werkruimte: Acme Studio
+
+Abonnement: Business
+
+Openstaand bedrag: € 90,75
+
+Abonnement stopt op: 28 november 2026
+
+Met de betaling sla je ook de betaalmethode op voor de volgende verlengingen. Je krijgt deze e-mail omdat je de facturatie van de werkruimte beheert.
+
+Nu betalen https://app.weldsuite.eu/public/billing/pay/token
+
+Of open deze link: https://app.weldsuite.eu/public/billing/pay/token
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'billing.dunning' / 'reminder' / 'en' > matches the text snapshot 1`] = `
+"Reminder: a payment is open for "Acme Studio"
+
+Billing
+
+Your payment is still open
+
+The Business plan of Acme Studio still has € 90,75 open. If it isn’t paid by 28 november 2026, the workspace moves to the Free plan.
+
+Workspace: Acme Studio
+
+Plan: Business
+
+Amount due: € 90,75
+
+Plan ends on: 28 november 2026
+
+You get this email because you manage billing for the workspace.
+
+Pay now https://app.weldsuite.eu/public/billing/pay/token
+
+Or open this link: https://app.weldsuite.eu/public/billing/pay/token
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'billing.dunning' / 'reminder' / 'nl' > matches the text snapshot 1`] = `
+"Herinnering: er staat een betaling open voor "Acme Studio"
+
+Facturatie
+
+Je betaling staat nog open
+
+Voor het Business-abonnement van Acme Studio staat nog € 90,75 open. Is dat op 28 november 2026 niet betaald, dan gaat de werkruimte over op het gratis abonnement.
+
+Werkruimte: Acme Studio
+
+Abonnement: Business
+
+Openstaand bedrag: € 90,75
+
+Abonnement stopt op: 28 november 2026
+
+Je krijgt deze e-mail omdat je de facturatie van de werkruimte beheert.
+
+Nu betalen https://app.weldsuite.eu/public/billing/pay/token
+
+Of open deze link: https://app.weldsuite.eu/public/billing/pay/token
+
+WeldSuite https://weldsuite.org"
+`;
+
 exports[`'booking' / 'cancelled' / 'en' > matches the text snapshot 1`] = `
 "Booking cancelled: 30 minute intro call on Wednesday, October 14, 2026
 
@@ -2140,6 +2524,606 @@ View task https://app.weldsuite.org/weldflow/tasks/123
 Of open deze link: https://app.weldsuite.org/weldflow/tasks/123
 
 Je ontvangt deze e-mail omdat e-mailmeldingen aan staan. · Meldingsinstellingen https://app.weldsuite.org/settings/notifications
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'panel.alert' / 'change' / 'en' > matches the text snapshot 1`] = `
+"Alert: Weekly visitors
+
+WeldPanel alert · Docs
+
+Weekly visitors is firing
+
+Pageviews was 12,400 for week of November 9, 2026: up 25% or more on the period before.
+
+Metric: Pageviews
+
+Value: 12,400
+
+Limit: 9,600
+
+Period: week of November 9, 2026
+
+Condition: up 25% or more on the period before
+
+Checked: Every week
+
+Open alert https://app.weldsuite.org/weldpanel/alerts?alert=pnal_3
+
+You get this because you are a recipient of this WeldPanel alert.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'panel.alert' / 'change' / 'nl' > matches the text snapshot 1`] = `
+"Melding: Weekly visitors
+
+WeldPanel-melding · Docs
+
+Weekly visitors gaat af
+
+Pageviews was 12.400 voor week van 9 november 2026: 25% of meer gestegen ten opzichte van de periode ervoor.
+
+Meetwaarde: Pageviews
+
+Waarde: 12.400
+
+Grens: 9.600
+
+Periode: week van 9 november 2026
+
+Voorwaarde: 25% of meer gestegen ten opzichte van de periode ervoor
+
+Gecontroleerd: Elke week
+
+Open melding https://app.weldsuite.org/weldpanel/alerts?alert=pnal_3
+
+Je krijgt dit omdat je ontvanger bent van deze WeldPanel-melding.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'panel.alert' / 'fired' / 'en' > matches the text snapshot 1`] = `
+"Alert: Signups dropped
+
+WeldPanel alert · Shop
+
+Signups dropped is firing
+
+Signed up was 42 for November 16, 2026: below 100.
+
+Metric: Signed up
+
+Value: 42
+
+Limit: 100
+
+Period: November 16, 2026
+
+Condition: below 100
+
+Checked: Every day
+
+Open alert https://app.weldsuite.org/weldpanel/alerts?alert=pnal_1
+
+You get this because you are a recipient of this WeldPanel alert.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'panel.alert' / 'fired' / 'nl' > matches the text snapshot 1`] = `
+"Melding: Signups dropped
+
+WeldPanel-melding · Shop
+
+Signups dropped gaat af
+
+Signed up was 42 voor 16 november 2026: onder 100.
+
+Meetwaarde: Signed up
+
+Waarde: 42
+
+Grens: 100
+
+Periode: 16 november 2026
+
+Voorwaarde: onder 100
+
+Gecontroleerd: Elke dag
+
+Open melding https://app.weldsuite.org/weldpanel/alerts?alert=pnal_1
+
+Je krijgt dit omdat je ontvanger bent van deze WeldPanel-melding.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'panel.alert' / 'resolved' / 'en' > matches the text snapshot 1`] = `
+"Resolved: Checkout errors
+
+WeldPanel alert · Shop
+
+Checkout errors is back to normal
+
+$exception was 3 for November 16, 2026 10:00, no longer outside the expected range (medium sensitivity).
+
+Metric: $exception
+
+Value: 3
+
+Limit: 18.5
+
+Period: November 16, 2026 10:00
+
+Condition: outside the expected range (medium sensitivity)
+
+Checked: Every hour
+
+Open alert https://app.weldsuite.org/weldpanel/alerts?alert=pnal_2
+
+You get this because you are a recipient of this WeldPanel alert.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'panel.alert' / 'resolved' / 'nl' > matches the text snapshot 1`] = `
+"Opgelost: Checkout errors
+
+WeldPanel-melding · Shop
+
+Checkout errors is weer normaal
+
+$exception was 3 voor 16 november 2026 10:00, niet langer buiten het verwachte bereik (gemiddelde gevoeligheid).
+
+Meetwaarde: $exception
+
+Waarde: 3
+
+Grens: 18,5
+
+Periode: 16 november 2026 10:00
+
+Voorwaarde: buiten het verwachte bereik (gemiddelde gevoeligheid)
+
+Gecontroleerd: Elk uur
+
+Open melding https://app.weldsuite.org/weldpanel/alerts?alert=pnal_2
+
+Je krijgt dit omdat je ontvanger bent van deze WeldPanel-melding.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'panel.alert' / 'test' / 'en' > matches the text snapshot 1`] = `
+"Test: Signups dropped
+
+WeldPanel alert · Shop
+
+Test message for Signups dropped
+
+This is a test. When the alert fires, its message arrives here like this one.
+
+Metric: Signed up
+
+Condition: above 1,000
+
+Checked: Every day
+
+Open alert https://app.weldsuite.org/weldpanel/alerts?alert=pnal_1
+
+You get this because you are a recipient of this WeldPanel alert.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'panel.alert' / 'test' / 'nl' > matches the text snapshot 1`] = `
+"Test: Signups dropped
+
+WeldPanel-melding · Shop
+
+Testbericht voor Signups dropped
+
+Dit is een test. Gaat de melding af, dan komt het bericht hier binnen zoals dit.
+
+Meetwaarde: Signed up
+
+Voorwaarde: boven 1.000
+
+Gecontroleerd: Elke dag
+
+Open melding https://app.weldsuite.org/weldpanel/alerts?alert=pnal_1
+
+Je krijgt dit omdat je ontvanger bent van deze WeldPanel-melding.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'panel.export-failing' / 'default' / 'en' > matches the text snapshot 1`] = `
+"WeldPanel export Events to S3 is failing
+
+WeldPanel export · Shop
+
+The export Events to S3 is failing
+
+The last 3 attempts to write to acme-analytics/weldpanel failed. WeldPanel keeps trying; nothing is skipped, so the export catches up once the destination accepts files again.
+
+Last error: AccessDenied: Access Denied
+
+Open exports https://app.weldsuite.org/weldpanel/settings?tab=exports
+
+You get this because you set up this export.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'panel.export-failing' / 'default' / 'nl' > matches the text snapshot 1`] = `
+"WeldPanel-export Events to S3 mislukt
+
+WeldPanel-export · Shop
+
+De export Events to S3 mislukt
+
+De laatste 3 pogingen om naar acme-analytics/weldpanel te schrijven zijn mislukt. WeldPanel blijft het proberen; er wordt niets overgeslagen, dus de export haalt de achterstand in zodra de bestemming weer bestanden aanneemt.
+
+Laatste fout: AccessDenied: Access Denied
+
+Open exports https://app.weldsuite.org/weldpanel/settings?tab=exports
+
+Je krijgt dit omdat je deze export hebt ingesteld.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'panel.export-failing' / 'noError' / 'en' > matches the text snapshot 1`] = `
+"WeldPanel export Daily people is failing
+
+WeldPanel export · App
+
+The export Daily people is failing
+
+The last 3 attempts to write to warehouse-raw failed. WeldPanel keeps trying; nothing is skipped, so the export catches up once the destination accepts files again.
+
+Open exports https://app.weldsuite.org/weldpanel/settings?tab=exports
+
+You get this because you set up this export.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'panel.export-failing' / 'noError' / 'nl' > matches the text snapshot 1`] = `
+"WeldPanel-export Daily people mislukt
+
+WeldPanel-export · App
+
+De export Daily people mislukt
+
+De laatste 3 pogingen om naar warehouse-raw te schrijven zijn mislukt. WeldPanel blijft het proberen; er wordt niets overgeslagen, dus de export haalt de achterstand in zodra de bestemming weer bestanden aanneemt.
+
+Open exports https://app.weldsuite.org/weldpanel/settings?tab=exports
+
+Je krijgt dit omdat je deze export hebt ingesteld.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'panel.report-digest' / 'dashboard' / 'en' > matches the text snapshot 1`] = `
+"Weekly product health: Product health
+
+WeldPanel scheduled report · App
+
+Product health
+
+The latest numbers from this dashboard.
+
+Signups https://app.weldsuite.org/weldpanel/insights?report=pnr_2
+
+Signed up: 312 · new
+
+Checkout funnel https://app.weldsuite.org/weldpanel/funnels?report=pnr_3
+
+Conversion: 23.1%
+
+Viewed cart — 1,200
+
+Paid — 277
+
+Retention
+
+This report could not be run.
+
+Paths
+
+No data in this period.
+
+Web vitals https://app.weldsuite.org/weldpanel/insights?report=pnr_4
+
+Open the report in WeldPanel to see it.
+
+2 more reports on the dashboard.
+
+Open in WeldPanel https://app.weldsuite.org/weldpanel/dashboards/pnd_1
+
+You get this because you are a recipient of the scheduled report Weekly product health.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'panel.report-digest' / 'dashboard' / 'nl' > matches the text snapshot 1`] = `
+"Weekly product health: Product health
+
+Geplande WeldPanel-rapportage · App
+
+Product health
+
+De laatste cijfers uit dit dashboard.
+
+Signups https://app.weldsuite.org/weldpanel/insights?report=pnr_2
+
+Signed up: 312 · nieuw
+
+Checkout funnel https://app.weldsuite.org/weldpanel/funnels?report=pnr_3
+
+Conversion: 23,1%
+
+Viewed cart — 1.200
+
+Paid — 277
+
+Retention
+
+Dit rapport kon niet worden uitgevoerd.
+
+Paths
+
+Geen gegevens in deze periode.
+
+Web vitals https://app.weldsuite.org/weldpanel/insights?report=pnr_4
+
+Open het rapport in WeldPanel om het te bekijken.
+
+Nog 2 rapporten op het dashboard.
+
+Open in WeldPanel https://app.weldsuite.org/weldpanel/dashboards/pnd_1
+
+Je krijgt dit omdat je ontvanger bent van de geplande rapportage Weekly product health.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'panel.report-digest' / 'report' / 'en' > matches the text snapshot 1`] = `
+"Monday traffic: Website overview
+
+WeldPanel scheduled report · Shop
+
+Website overview
+
+The latest numbers from this report.
+
+Visitors: 12,840 · +17%
+
+Pageviews: 40,112 · no change
+
+Bounce rate: 41.2% · -4.3%
+
+Top pages
+
+/ — 9,120
+
+/pricing — 3,310
+
+/blog/launch — 1,204
+
+Open in WeldPanel https://app.weldsuite.org/weldpanel?report=pnr_1
+
+You get this because you are a recipient of the scheduled report Monday traffic.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'panel.report-digest' / 'report' / 'nl' > matches the text snapshot 1`] = `
+"Monday traffic: Website overview
+
+Geplande WeldPanel-rapportage · Shop
+
+Website overview
+
+De laatste cijfers uit dit rapport.
+
+Visitors: 12.840 · +17%
+
+Pageviews: 40.112 · geen verandering
+
+Bounce rate: 41,2% · -4,3%
+
+Top pages
+
+/ — 9.120
+
+/pricing — 3.310
+
+/blog/launch — 1.204
+
+Open in WeldPanel https://app.weldsuite.org/weldpanel?report=pnr_1
+
+Je krijgt dit omdat je ontvanger bent van de geplande rapportage Monday traffic.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'panel.usage' / 'eventsBlocked' / 'en' > matches the text snapshot 1`] = `
+"WeldPanel is dropping events for Acme Staffing
+
+WeldPanel usage
+
+New events are being dropped
+
+Your credit wallet cannot cover the next block of usage and events are more than 10% over the allowance, so new events and recordings are dropped until the next month, a top-up or a plan upgrade. Dropped events cannot be recovered.
+
+Events: 55,000 of 50,000
+
+Recordings: 640 of 500
+
+The count starts again on Tuesday, December 1, 2026.
+
+View usage https://app.weldsuite.org/weldpanel/settings
+
+You get this because you are an owner of the workspace.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'panel.usage' / 'eventsBlocked' / 'nl' > matches the text snapshot 1`] = `
+"WeldPanel laat events vallen voor Acme Staffing
+
+WeldPanel-gebruik
+
+Nieuwe events worden niet meer opgeslagen
+
+Je tegoed kan het volgende blok gebruik niet dekken en je zit meer dan 10% boven de bundel, dus nieuwe events en opnames worden niet opgeslagen tot de volgende maand, een opwaardering of een upgrade. Gemiste events zijn niet terug te halen.
+
+Events: 55.000 van 50.000
+
+Opnames: 640 van 500
+
+De teller begint opnieuw op dinsdag 1 december 2026.
+
+Bekijk gebruik https://app.weldsuite.org/weldpanel/settings
+
+Je krijgt dit omdat je eigenaar van de werkruimte bent.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'panel.usage' / 'full' / 'en' > matches the text snapshot 1`] = `
+"Acme Staffing has used its WeldPanel allowance for this month
+
+WeldPanel usage
+
+You have used your monthly allowance
+
+Usage above the allowance is now charged from your credit wallet in blocks, so tracking keeps running.
+
+Events: 50,200 of 50,000
+
+Recordings: 310 of 500
+
+The count starts again on Tuesday, December 1, 2026.
+
+View usage https://app.weldsuite.org/weldpanel/settings
+
+You get this because you are an owner of the workspace.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'panel.usage' / 'full' / 'nl' > matches the text snapshot 1`] = `
+"Acme Staffing heeft de WeldPanel-bundel van deze maand gebruikt
+
+WeldPanel-gebruik
+
+Je hebt je maandelijkse bundel gebruikt
+
+Gebruik boven de bundel wordt nu in blokken van je tegoed afgeschreven, dus het meten gaat gewoon door.
+
+Events: 50.200 van 50.000
+
+Opnames: 310 van 500
+
+De teller begint opnieuw op dinsdag 1 december 2026.
+
+Bekijk gebruik https://app.weldsuite.org/weldpanel/settings
+
+Je krijgt dit omdat je eigenaar van de werkruimte bent.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'panel.usage' / 'near' / 'en' > matches the text snapshot 1`] = `
+"Acme Staffing has used 80% of its WeldPanel allowance
+
+WeldPanel usage
+
+You have used 80% of your monthly allowance
+
+Usage above the allowance is charged from your credit wallet in blocks, so tracking keeps running.
+
+Events: 40,000 of 50,000
+
+Recordings: 120 of 500
+
+The count starts again on Tuesday, December 1, 2026.
+
+View usage https://app.weldsuite.org/weldpanel/settings
+
+You get this because you are an owner of the workspace.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'panel.usage' / 'near' / 'nl' > matches the text snapshot 1`] = `
+"Acme Staffing heeft 80% van de WeldPanel-bundel gebruikt
+
+WeldPanel-gebruik
+
+Je hebt 80% van je maandelijkse bundel gebruikt
+
+Gebruik boven de bundel wordt in blokken van je tegoed afgeschreven, dus het meten gaat gewoon door.
+
+Events: 40.000 van 50.000
+
+Opnames: 120 van 500
+
+De teller begint opnieuw op dinsdag 1 december 2026.
+
+Bekijk gebruik https://app.weldsuite.org/weldpanel/settings
+
+Je krijgt dit omdat je eigenaar van de werkruimte bent.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'panel.usage' / 'replayBlocked' / 'en' > matches the text snapshot 1`] = `
+"WeldPanel stopped recording sessions for Acme Staffing
+
+WeldPanel usage
+
+New recordings have stopped
+
+Your credit wallet cannot cover the next block of usage, so no new recordings are made. Events are still counted. Top up your credits or upgrade your plan to continue.
+
+Events: 52,000 of 50,000
+
+Recordings: 640 of 500
+
+The count starts again on Tuesday, December 1, 2026.
+
+View usage https://app.weldsuite.org/weldpanel/settings
+
+You get this because you are an owner of the workspace.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'panel.usage' / 'replayBlocked' / 'nl' > matches the text snapshot 1`] = `
+"WeldPanel neemt geen sessies meer op voor Acme Staffing
+
+WeldPanel-gebruik
+
+Nieuwe opnames zijn gestopt
+
+Je tegoed kan het volgende blok gebruik niet dekken, dus er worden geen nieuwe opnames gemaakt. Events worden nog wel geteld. Waardeer je tegoed op of upgrade je abonnement om door te gaan.
+
+Events: 52.000 van 50.000
+
+Opnames: 640 van 500
+
+De teller begint opnieuw op dinsdag 1 december 2026.
+
+Bekijk gebruik https://app.weldsuite.org/weldpanel/settings
+
+Je krijgt dit omdat je eigenaar van de werkruimte bent.
 
 WeldSuite https://weldsuite.org"
 `;

@@ -25,7 +25,7 @@
 
 import { useEffect, useSyncExternalStore } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
 import { clearOrgCache } from '@/lib/offline/cache';
 import { clearOutbox } from '@/lib/offline/outbox';
 
@@ -75,7 +75,7 @@ async function hydrateLatch(): Promise<void> {
 }
 
 export function useCacheOrgId(): string | null {
-  const { organizationId, isSignedIn } = useClerkAuth();
+  const { organizationId, isSignedIn } = useAuthSession();
   const latched = useSyncExternalStore(subscribe, getSnapshot);
 
   // Hydrate the persisted latch exactly once per process so a cold start is

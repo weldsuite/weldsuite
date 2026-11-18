@@ -11,7 +11,7 @@
  * routes/chat-messages pin endpoints (mirrors api-worker routes/chat/messages.ts).
  * app-api keeps its old `unpin-expired-message-v2*` names and re-exports this
  * class only while their in-flight instances drain
- * (docs/plans/app-api-module-split.md, "Workflows draining in app-api").
+ * (weldsuite-documentation/plans/app-api-module-split.md, "Workflows draining in app-api").
  */
 
 import { WorkflowEntrypoint, WorkflowEvent, WorkflowStep } from 'cloudflare:workers';

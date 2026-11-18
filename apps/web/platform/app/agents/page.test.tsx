@@ -9,6 +9,7 @@ const state = vi.hoisted(() => ({
   lookup: { data: undefined, isSuccess: false, isError: false } as Lookup,
 }));
 
+vi.mock('@/hooks/use-create-intent', () => ({ useCreateIntent: () => undefined }));
 vi.mock('@/lib/router', () => ({
   useRouter: () => ({ replace: state.replace, push: vi.fn() }),
   useSearchParams: () => new URLSearchParams(state.conversation ? { conversation: state.conversation } : {}),

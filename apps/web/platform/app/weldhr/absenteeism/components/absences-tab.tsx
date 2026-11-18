@@ -133,7 +133,7 @@ export function AbsencesTab({ status }: Readonly<{ status: HrAbsenceStatus }>) {
           {
             id: 'recover',
             header: '',
-            width: 'w-[140px]',
+            width: 'w-[200px]',
             render: (r: HrAbsence) =>
               r.endDate === null ? (
                 <Button
@@ -147,7 +147,12 @@ export function AbsencesTab({ status }: Readonly<{ status: HrAbsenceStatus }>) {
                 >
                   {t('weldhr.absenteeism.reportRecovered')}
                 </Button>
-              ) : null,
+              ) : (
+                // Recovered, but the last sick day (today or later) has not passed yet (TASK-1471).
+                <span className="block truncate text-xs text-muted-foreground">
+                  {t('weldhr.absenteeism.recoveredMovesAfter', { date: formatDate(r.endDate) })}
+                </span>
+              ),
           },
         ]
       : []),

@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { BookmarkMinus, BookmarkPlus, Copy, EllipsisVertical, Pencil, Trash2 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
+import { PromptDialog } from '@weldsuite/ui/components/prompt-dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@weldsuite/ui/components/dropdown-menu';
 import { EntityList, EmptyStateIllustration, type GroupConfig, type HeaderColumn } from '@/components/entity-list';
 import { RowOverlayButton } from '@/components/shared/row-overlay-button';
@@ -47,6 +48,7 @@ export function BoardList({
   const { t, format } = useI18n();
   const th = t.weldboard.home;
   const [deleting, setDeleting] = useState<BoardMeta | null>(null);
+  const [renaming, setRenaming] = useState<BoardMeta | null>(null);
 
   const headerColumns: HeaderColumn[] = useMemo(
     () => [
@@ -93,7 +95,7 @@ export function BoardList({
                   <Button
                     variant="ghost"
                     size="sm"
-                    aria-label={name}
+                    aria-label={format(th.moreActions, { name })}
                     className="h-7 w-7 p-0 text-gray-400 opacity-0 hover:text-gray-600 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
                   >
                     <EllipsisVertical className="h-3.5 w-3.5" />
@@ -101,12 +103,7 @@ export function BoardList({
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   {canRename && (
-                    <DropdownMenuItem
-                      onSelect={() => {
-                        const next = window.prompt(th.renamePrompt, board.name)?.trim();
-                        if (next && next !== board.name) onRename(board, next);
-                      }}
-                    >
+                    <DropdownMenuItem onSelect={() => setRenaming(board)}>
                       <Pencil className="mr-0.5 h-4 w-4" />
                       {th.rename}
                     </DropdownMenuItem>
@@ -136,7 +133,7 @@ export function BoardList({
         </div>
       );
     },
-    [th, onOpen, onRename, onDuplicate, onToggleTemplate, onDelete, projectName],
+    [th, format, onOpen, onRename, onDuplicate, onToggleTemplate, onDelete, projectName],
   );
 
   return (
@@ -163,6 +160,16 @@ export function BoardList({
           action: onCreate ? { label: th.newBoard, onClick: onCreate } : undefined,
         }}
         noResultsState={{ title: th.noResultsTitle, description: th.noResultsDescription }}
+      />
+      <PromptDialog
+        open={!!renaming}
+        onOpenChange={(o) => !o && setRenaming(null)}
+        title={th.rename}
+        label={th.renamePrompt}
+        defaultValue={renaming?.name ?? ''}
+        onConfirm={(name) => {
+          if (renaming && name !== renaming.name) onRename?.(renaming, name);
+        }}
       />
       <ConfirmDialog
         open={!!deleting}

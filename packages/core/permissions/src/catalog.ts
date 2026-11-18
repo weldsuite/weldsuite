@@ -86,7 +86,7 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
   objectPermissions('roles',         'Roles & Permissions',  ['read', 'create', 'update', 'delete']),
   objectPermissions('apikeys',       'API Keys',             ['read', 'create', 'delete']),
   objectPermissions('billing',       'Billing',              ['read', 'manage']),
-  // Legal entities are core (docs/plans/legal-entities.md): registered in no
+  // Legal entities are core (weldsuite-documentation/plans/legal-entities.md): registered in no
   // app, like `team` and `roles`. WeldBooks' `entities` object stays for the
   // WeldBooks settings of an entity.
   {
@@ -122,6 +122,21 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
         key: 'sso:manage',
         label: 'Configure single sign-on',
         description: 'Verify the company domain, connect the identity provider and switch SSO on or off. Buying the SSO add-on also needs Manage billing.',
+      },
+    ],
+  },
+
+  // ── AI settings (EU and self-hosted editions, ADR AI-012) ─────────────
+  // Every member sees which AI provider is in use; changing it, enabling a
+  // provider outside the EU and storing the workspace's own keys needs this.
+  {
+    key: 'ai',
+    label: 'AI settings',
+    permissions: [
+      {
+        key: 'ai:manage',
+        label: 'Manage AI providers',
+        description: 'Choose the AI provider and models, enable providers outside the EU, store the workspace’s own provider keys and see AI usage.',
       },
     ],
   },
@@ -754,7 +769,7 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
   // Mailboxes cost money (a monthly Stripe line per inbox) and domains carry
   // the sender reputation, so `reach_mailboxes` writes are ADMIN by default.
   // The module itself is on request only: none of this works until WeldSuite
-  // staff approve the workspace (docs/plans/weldreach.md).
+  // staff approve the workspace (weldsuite-documentation/plans/weldreach.md).
   objectPermissions('reach_campaigns', 'Outreach campaigns'),
   objectPermissions('reach_prospects', 'Outreach prospects'),
   {
@@ -893,6 +908,8 @@ const LEGACY_ADMIN_PERMISSIONS: string[] = [
   'settings:working-hours:edit-self',
   // Single sign-on configuration (buying the add-on still takes billing:manage)
   'sso:read', 'sso:manage',
+  // AI settings (EU and self-hosted editions): which providers, own keys
+  'ai:manage',
   // Legal entities, including who sees which one
   'legal_entities:read', 'legal_entities:create', 'legal_entities:update', 'legal_entities:delete',
   'legal_entities:reveal', 'legal_entities:manage',

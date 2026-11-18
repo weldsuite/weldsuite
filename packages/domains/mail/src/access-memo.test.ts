@@ -1,6 +1,6 @@
 /**
  * pglite-backed tests for `isAdminOrOwner`'s per-db-handle memo (phase 1
- * item 4, docs/plans/weldmail-mailbox-storage.md): a route's own access check
+ * item 4, weldsuite-documentation/plans/weldmail-mailbox-storage.md): a route's own access check
  * and a service it calls (`checkAccountAccess`, then inside it
  * `threadListScope`) can both ask "is this user an admin or owner?" for one
  * request. The memo answers the second ask without a second

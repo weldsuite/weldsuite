@@ -1,6 +1,6 @@
 # WeldSuite reach-api worker — WeldReach (cold email outreach on Mailpool).
 #
-# docs/plans/weldreach.md. Owns /api/reach/* (behind apiAuth + the
+# weldsuite-documentation/plans/weldreach.md. Owns /api/reach/* (behind apiAuth + the
 # weldreach app-access gate) and /public/reach/* (Mailpool webhook, HMAC):
 #   reach-api.weldsuite.org        production
 #   reach-api-test.weldsuite.org   test

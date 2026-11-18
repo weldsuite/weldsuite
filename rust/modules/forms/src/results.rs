@@ -12,7 +12,9 @@ use weldsuite_kit::validation::js_number_of;
 use crate::common::{Ctx, FormsResult, all, day_of, iso, parse_ms, text};
 use crate::counters::Counters;
 use crate::engine::js::{js_round, number_value};
-use crate::engine::{Block, Field, FieldKind, display_answer, is_answered};
+use crate::engine::{
+    Block, EngineInput, Field, FieldKind, FormDefinition, compute_path, display_answer, is_answered,
+};
 use crate::response_model::{
     Bind, MAX_EXPORT_ROWS, ResponseFilter, VersionInfo, bind_all, field_title, load_versions,
     response_conditions,
@@ -448,6 +450,15 @@ fn bump(days: &mut BTreeMap<String, [i64; 3]>, day: String, slot: usize, by: i64
     days.entry(day).or_default()[slot] += by;
 }
 
+/// `branches(def)`: whether a definition's logic can take a respondent past
+/// blocks (a jump, or an `otherwise`).
+fn branches(definition: &FormDefinition) -> bool {
+    definition
+        .logic
+        .iter()
+        .any(|l| !l.jumps.is_empty() || l.otherwise.is_some())
+}
+
 /// `stops(version)`: the top-level blocks a respondent can leave on.
 fn stops(version: &VersionInfo) -> Vec<(String, String)> {
     version
@@ -486,17 +497,23 @@ pub(crate) async fn insights(
         .max(earliest);
     let versions = load_versions(&ctx.db, form_id).await?;
     let latest = versions.last();
+    // Answers are only needed to follow logic that can skip blocks.
+    let branching = versions.iter().any(|v| branches(&v.definition));
 
     let rows = all(
         &ctx.db,
         sqlx::query_scalar(
             "select jsonb_build_object('status', status, 'started_at', started_at, 'submitted_at', submitted_at, \
-             'duration_ms', duration_ms, 'last_block_id', last_block_id, 'source', metadata ->> 'source') \
+             'duration_ms', duration_ms, 'last_block_id', last_block_id, 'source', metadata ->> 'source', \
+             'version_id', version_id, \
+             'answers', case when $4 then answers else '{}'::jsonb end, \
+             'hidden', case when $4 then hidden else '{}'::jsonb end) \
              from form_responses where form_id = $1 and started_at >= $2::timestamptz and started_at <= $3::timestamptz",
         )
         .bind(form_id)
         .bind(iso(from))
-        .bind(iso(to)),
+        .bind(iso(to))
+        .bind(branching),
     )
     .await?;
 
@@ -561,6 +578,32 @@ pub(crate) async fn insights(
             *left_at.entry(block.to_owned()).or_default() += 1;
         }
     }
+    // A completed response reached the blocks on its path, worked out from its
+    // answers on its own version (a block its logic skipped does not count);
+    // without logic that skips, that is every block.
+    let mut passed: HashMap<String, usize> = HashMap::new();
+    let mut through_all = 0usize;
+    for r in &completed {
+        let definition = versions
+            .iter()
+            .find(|v| v.id == text(r, "versionId"))
+            .map(|v| &v.definition)
+            .filter(|d| branches(d));
+        let Some(definition) = definition else {
+            through_all += 1;
+            continue;
+        };
+        let path = compute_path(
+            definition,
+            EngineInput {
+                answers: r["answers"].as_object(),
+                hidden: r["hidden"].as_object(),
+            },
+        );
+        for id in path.path {
+            *passed.entry(id).or_default() += 1;
+        }
+    }
     let drop_off: Vec<Value> = blocks
         .iter()
         .enumerate()
@@ -569,7 +612,7 @@ pub(crate) async fn insights(
                 .iter()
                 .map(|(b, _)| left_at.get(b).copied().unwrap_or(0))
                 .sum();
-            let reached = completed.len() + beyond;
+            let reached = through_all + passed.get(id).copied().unwrap_or(0) + beyond;
             let left_here = left_at.get(id).copied().unwrap_or(0);
             let rate = if reached == 0 {
                 0.0

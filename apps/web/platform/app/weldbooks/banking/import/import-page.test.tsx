@@ -279,7 +279,7 @@ describe('Bank statement import page', () => {
     await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Undo import' }));
 
     expect(undoImport).toHaveBeenCalledWith(RESULT.batchId);
-    expect(await screen.findByTestId('import-undone')).toHaveTextContent('1 transactions removed, 1 reconciled ones kept.');
+    expect(await screen.findByTestId('import-undone')).toHaveTextContent('1 transaction removed, 1 reconciled one kept.');
     expect(screen.queryByRole('button', { name: 'Undo import' })).not.toBeInTheDocument();
   });
 

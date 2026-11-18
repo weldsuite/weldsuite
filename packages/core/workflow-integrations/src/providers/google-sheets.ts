@@ -1,6 +1,6 @@
 /**
  * Google Sheets integration definition (reference integration #2; see
- * "Provider pattern" in docs/plans/weldconnect.md).
+ * "Provider pattern" in weldsuite-documentation/plans/weldconnect.md).
  *
  * Auth: shared Google OAuth (see ./google). Actions call the Sheets v4 API.
  * The `new_row` trigger is poll-based (Sheets has no usable push channel) and

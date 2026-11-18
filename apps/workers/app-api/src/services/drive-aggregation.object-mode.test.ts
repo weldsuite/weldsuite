@@ -1,6 +1,6 @@
 /**
  * `aggregateAllFiles`/`aggregateStats`'s mail attachment source under the
- * mailbox store's `object` mode (docs/plans/weldmail-mailbox-store-design.md,
+ * mailbox store's `object` mode (weldsuite-documentation/plans/weldmail-mailbox-store-design.md,
  * task D6): list and count must come from `WorkspaceMailStore.
  * recentAttachments` (fanning out to the mailbox objects) instead of the
  * direct `mail_attachments` join, with the same access scoping

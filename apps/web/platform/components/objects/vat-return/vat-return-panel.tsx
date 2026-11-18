@@ -23,6 +23,7 @@ import {
   EllipsisVertical,
   Hash,
   Link as LinkIcon,
+  RefreshCw,
   Repeat,
   Scale,
   Send,
@@ -68,15 +69,20 @@ import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import {
   canDeleteVatReturn,
   canFileVatReturn,
+  canRecalculateVatReturn,
   isFiledVatReturn,
   vatStatusTone,
+  vatTotalToneClass,
   VAT_BOXES,
   VAT_TOTAL_KEYS,
 } from './vat-return-model';
+import { MarkVatFiledDialog } from './mark-vat-filed-dialog';
 import { getVatReturnTabs, type VatReturnTab } from './vat-return-tabs';
 import {
   useDeleteVatReturn,
   useFileVatReturn,
+  useMarkVatReturnFiled,
+  useRecalculateVatReturn,
   useVatFilingStatus,
   useVatReturn,
   useVatSuppletie,
@@ -121,14 +127,86 @@ function VatReturnTitle({ vr, t }: Readonly<{ vr?: VatReturn; t: Translations }>
 
 // ─── Actions ───────────────────────────────────────────────────────────────
 
+/** A date-only value renders as a date, a full timestamp as date and time. */
+function formatFiledAt(
+  filedAt: string | null | undefined,
+  formatDate: (value: string) => string,
+  formatDateTime: (value: string) => string,
+): string | null {
+  if (!filedAt) return null;
+  return filedAt.length <= 10 ? formatDate(filedAt) : formatDateTime(filedAt);
+}
+
+async function downloadVatReturnXml(id: string) {
+  const xml = await accountingApi.getVatReturnXml(id);
+  const blob = new Blob([xml], { type: 'application/xml' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `btw-aangifte-${id}.xml`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/** The primary action of a return that can be filed: file it to the tax office, or mark it as filed. */
+function VatFileButton({
+  digipoort,
+  filing,
+  onFile,
+  onMarkFiled,
+  t,
+}: Readonly<{ digipoort: boolean; filing: boolean; onFile: () => void; onMarkFiled: () => void; t: Translations }>) {
+  const st = useTranslations();
+  const tv = t.accounting.vat;
+  if (!digipoort) {
+    return (
+      <Button size="sm" className="mr-1 h-7" onClick={onMarkFiled}>
+        <CheckCircle2 className="h-3.5 w-3.5" />
+        {st('sweep.weldbooks.records.markFiled')}
+      </Button>
+    );
+  }
+  return (
+    <Button
+      size="sm"
+      className="mr-1 h-7"
+      title={tv.fileToTax}
+      aria-label={tv.fileToTax}
+      onClick={onFile}
+      disabled={filing}
+    >
+      <Send className="h-3.5 w-3.5" />
+      {filing ? tv.filing : tv.file}
+    </Button>
+  );
+}
+
+/** The menu item that recalculates an open return's boxes from the ledger. */
+function VatRecalculateItem({
+  recalculating,
+  onRecalculate,
+  t,
+}: Readonly<{ recalculating: boolean; onRecalculate: () => void; t: Translations }>) {
+  const tv = t.accounting.vat;
+  return (
+    <DropdownMenuItem onClick={onRecalculate} disabled={recalculating}>
+      <RefreshCw />
+      {recalculating ? tv.recalculating : tv.recalculate}
+    </DropdownMenuItem>
+  );
+}
+
 function VatReturnActions({
   vr,
   filing,
   checkingStatus,
   checkingCorrections,
+  recalculating,
   onFile,
+  onMarkFiled,
   onCheckStatus,
   onCheckCorrections,
+  onRecalculate,
   onDelete,
   t,
 }: Readonly<{
@@ -136,9 +214,12 @@ function VatReturnActions({
   filing: boolean;
   checkingStatus: boolean;
   checkingCorrections: boolean;
+  recalculating: boolean;
   onFile: () => void;
+  onMarkFiled: () => void;
   onCheckStatus: () => void;
   onCheckCorrections: () => void;
+  onRecalculate: () => void;
   onDelete: () => void;
   t: Translations;
 }>) {
@@ -150,35 +231,20 @@ function VatReturnActions({
 
   const handleXmlDownload = async () => {
     try {
-      const xml = await accountingApi.getVatReturnXml(vr.id);
-      const blob = new Blob([xml], { type: 'application/xml' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `btw-aangifte-${vr.id}.xml`;
-      a.click();
-      URL.revokeObjectURL(url);
+      await downloadVatReturnXml(vr.id);
     } catch (err) {
-      toast.error(err instanceof Error && err.message ? err.message : st('sweep.weldbooks.common.unknownError'));
+      toast.error((err instanceof Error ? err.message : '') || st('sweep.weldbooks.common.unknownError'));
     }
   };
 
   const filed = isFiledVatReturn(vr.status);
+  const digipoort = isFeatureAvailable('vat-digipoort');
+  const canFile = canFileVatReturn(vr.status) && can('reports:update');
 
   return (
     <div className="flex items-center gap-0.5">
-      {canFileVatReturn(vr.status) && can('reports:update') && isFeatureAvailable('vat-digipoort') ? (
-        <Button
-          size="sm"
-          className="mr-1 h-7"
-          title={tv.fileToTax}
-          aria-label={tv.fileToTax}
-          onClick={onFile}
-          disabled={filing}
-        >
-          <Send className="h-3.5 w-3.5" />
-          {filing ? tv.filing : tv.file}
-        </Button>
+      {canFile ? (
+        <VatFileButton digipoort={digipoort} filing={filing} onFile={onFile} onMarkFiled={onMarkFiled} t={t} />
       ) : null}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -186,13 +252,13 @@ function VatReturnActions({
             variant="ghost"
             size="icon-sm"
             className="size-7 data-[state=open]:bg-accent dark:data-[state=open]:bg-accent/50"
-            aria-label={t.common.actions.openMenu}
+            aria-label={st('sweep.entities.moreActions')}
           >
             <EllipsisVertical className="h-4 w-4 text-muted-foreground" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          {filed && isFeatureAvailable('vat-digipoort') ? (
+          {filed && digipoort ? (
             <DropdownMenuItem onClick={onCheckStatus} disabled={checkingStatus}>
               <ShieldCheck />
               {checkingStatus ? tv.checkingStatus : tv.checkStatus}
@@ -203,6 +269,9 @@ function VatReturnActions({
               <Repeat />
               {checkingCorrections ? tv.suppletieChecking : tv.suppletieButton}
             </DropdownMenuItem>
+          ) : null}
+          {canRecalculateVatReturn(vr) && can('reports:create') ? (
+            <VatRecalculateItem recalculating={recalculating} onRecalculate={onRecalculate} t={t} />
           ) : null}
           <DropdownMenuItem onClick={() => void handleXmlDownload()}>
             <Download />
@@ -242,10 +311,12 @@ function VatReturnDetailsTab({
   t: Translations;
 }>) {
   const { formatMoney, formatDate, formatDateTime } = useWeldbooksFormat();
+  const st = useTranslations();
   const statusLabels = useVatStatusLabels(t);
   const tv = t.accounting.vat;
   const rubrieken = vr.rubrieken ?? {};
   const total = rubrieken.r5g ?? 0;
+  const digipoort = isFeatureAvailable('vat-digipoort');
 
   return (
     <div className="@container p-4 space-y-4">
@@ -269,11 +340,7 @@ function VatReturnDetailsTab({
           icon={Scale}
           label={tv.colR5g}
           value={formatMoney(total)}
-          renderValue={(value) => (
-            <span className={total >= 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}>
-              {value}
-            </span>
-          )}
+          renderValue={(value) => <span className={vatTotalToneClass(total)}>{value}</span>}
         />
         <PanelRow
           icon={CircleDot}
@@ -297,19 +364,27 @@ function VatReturnDetailsTab({
             tabular
           />
         ) : null}
-        {vr.filingReference ? (
+        {vr.filingReference || vr.filedAt ? (
           <>
-            <PanelRow icon={Hash} label={tv.digipoortKenmerk} value={vr.filingReference} />
+            {vr.filingReference ? (
+              <PanelRow
+                icon={Hash}
+                label={digipoort ? tv.digipoortKenmerk : st('sweep.weldbooks.records.filingReference')}
+                value={vr.filingReference}
+              />
+            ) : null}
             <PanelRow
               icon={CalendarDays}
               label={tv.filedAt}
-              value={vr.filedAt ? formatDateTime(vr.filedAt) : null}
+              value={formatFiledAt(vr.filedAt, formatDate, formatDateTime)}
               tabular
             />
             <PanelRow icon={User} label={tv.filedBy} value={vr.filedBy} />
           </>
         ) : null}
       </div>
+
+      {canRecalculateVatReturn(vr) ? <p className="text-xs text-muted-foreground">{tv.recalculateHint}</p> : null}
 
       {vr.notes ? (
         <PanelSection title={tv.notesSection}>
@@ -393,8 +468,11 @@ export function VatReturnPanel(props: Readonly<ObjectPanelComponentProps>) {
   const vr = vatQuery.data?.data;
 
   const fileMutation = useFileVatReturn(id);
+  const markFiledMutation = useMarkVatReturnFiled(id);
+  const [markFiledOpen, setMarkFiledOpen] = useState(false);
   const deleteMutation = useDeleteVatReturn(id);
   const suppletieMutation = useVatSuppletie(id);
+  const recalculateMutation = useRecalculateVatReturn();
   const statusMutation = useVatFilingStatus(id);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -450,6 +528,15 @@ export function VatReturnPanel(props: Readonly<ObjectPanelComponentProps>) {
     });
   };
 
+  const handleRecalculate = () => {
+    if (!vr) return;
+    recalculateMutation.mutate(vr, {
+      onSuccess: () => toast.success(tv.recalculatedFromLedger),
+      onError: (err) =>
+        toast.error(tv.recalculateFailed, { description: err instanceof Error ? err.message : undefined }),
+    });
+  };
+
   const handleCheckStatus = () => {
     statusMutation.mutate(undefined, {
       onSuccess: (res) => toast.info(tv.statusResult.replace('{status}', String(res.data.status))),
@@ -476,7 +563,7 @@ export function VatReturnPanel(props: Readonly<ObjectPanelComponentProps>) {
       <VatReturnTabBody
         vr={vr}
         activeTab={activeTab}
-        filedNotice={fileMutation.isSuccess}
+        filedNotice={fileMutation.isSuccess || markFiledMutation.isSuccess}
         filingError={filingError}
         t={t}
       />
@@ -495,9 +582,12 @@ export function VatReturnPanel(props: Readonly<ObjectPanelComponentProps>) {
             filing={fileMutation.isPending}
             checkingStatus={statusMutation.isPending}
             checkingCorrections={suppletieMutation.isPending}
+            recalculating={recalculateMutation.isPending}
             onFile={() => fileMutation.mutate()}
+            onMarkFiled={() => setMarkFiledOpen(true)}
             onCheckStatus={handleCheckStatus}
             onCheckCorrections={handleCheckCorrections}
+            onRecalculate={handleRecalculate}
             onDelete={() => setConfirmDelete(true)}
             t={t}
           />
@@ -514,6 +604,24 @@ export function VatReturnPanel(props: Readonly<ObjectPanelComponentProps>) {
       >
         {body}
       </EntityDetailView>
+
+      <MarkVatFiledDialog
+        open={markFiledOpen}
+        onOpenChange={setMarkFiledOpen}
+        pending={markFiledMutation.isPending}
+        onSubmit={(values) =>
+          markFiledMutation.mutate(values, {
+            onSuccess: () => {
+              setMarkFiledOpen(false);
+              toast.success(st('sweep.weldbooks.records.markedFiled'));
+            },
+            onError: (err) =>
+              toast.error(st('sweep.weldbooks.records.markFiledFailed'), {
+                description: err instanceof Error ? err.message : undefined,
+              }),
+          })
+        }
+      />
 
       <ConfirmDialog
         open={confirmDelete}

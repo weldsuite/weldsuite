@@ -140,6 +140,7 @@ async fn a_planner_run_matches_typescript() {
         smtp: Arc::new(NoSmtp),
         imap: Arc::new(MemoryImap::new()),
         flags: Arc::new(DefaultFlags),
+        ai: None,
     };
     let sequence: Vec<f64> = serde_json::from_value(f["sequence"].clone()).expect("sequence");
     let now = epoch_ms(parse_iso(s(&f["now"]).expect("now")).expect("iso"));

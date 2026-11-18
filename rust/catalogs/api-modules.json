@@ -7,6 +7,7 @@
     "prefixes": [
       "/api/access-requests",
       "/api/account",
+      "/api/ai-settings",
       "/api/api-keys",
       "/api/app-catalog",
       "/api/appstore",
@@ -505,7 +506,7 @@
       "/api/chat-agent",
       "/api/weldagent"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "agent-api"
   },
   {
@@ -659,7 +660,8 @@
     "devPort": 8825,
     "id": "panel",
     "prefixes": [
-      "/api/panel"
+      "/api/panel",
+      "/public/panel"
     ],
     "rust": true,
     "worker": "panel-api"

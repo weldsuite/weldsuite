@@ -2,7 +2,8 @@
  * A small OpenID provider for the sign-in tests and for trying the Node build
  * locally: discovery, an authorization endpoint that signs in one configured
  * person without asking, a token endpoint that checks the client secret, the
- * redirect URI and PKCE, RS256 ID tokens, userinfo and end-session. Plain
+ * redirect URI and PKCE, RS256 ID tokens, userinfo (with Zitadel's
+ * resource-owner claim when its scope is asked for) and end-session. Plain
  * HTTP on 127.0.0.1. Not for anything but tests.
  */
 
@@ -14,6 +15,8 @@ export interface FakePerson {
   email: string;
   emailVerified: boolean;
   name: string;
+  /** The organization the account belongs to, as Zitadel's resource-owner claim. */
+  org?: string;
 }
 
 export interface FakeProviderOptions {
@@ -27,6 +30,7 @@ interface Grant {
   redirectUri: string;
   challenge: string;
   nonce: string;
+  scope: string;
 }
 
 export interface FakeProvider {
@@ -64,7 +68,7 @@ export async function startFakeProvider(options: FakeProviderOptions, port = 0):
   const jwk = { ...(await crypto.subtle.exportKey('jwk', keys.publicKey)), kid: 'k1', alg: 'RS256', use: 'sig' };
 
   const grants = new Map<string, Grant>();
-  const tokens = new Map<string, FakePerson>();
+  const tokens = new Map<string, { person: FakePerson; scope: string }>();
   let issuer = '';
 
   async function idToken(person: FakePerson, grant: Grant): Promise<string> {
@@ -95,6 +99,7 @@ export async function startFakeProvider(options: FakeProviderOptions, port = 0):
       redirectUri: q.get('redirect_uri')!,
       challenge: q.get('code_challenge')!,
       nonce: q.get('nonce')!,
+      scope: q.get('scope') ?? '',
     });
     const callback = new URL(q.get('redirect_uri')!);
     callback.searchParams.set('code', code);
@@ -135,7 +140,7 @@ export async function startFakeProvider(options: FakeProviderOptions, port = 0):
       (await sha256(form.get('code_verifier') ?? '')) === grant.challenge;
     if (!valid) return json(400, { error: 'invalid_grant' });
     const accessToken = crypto.randomUUID();
-    tokens.set(accessToken, provider.person);
+    tokens.set(accessToken, { person: provider.person, scope: grant.scope });
     return json(200, {
       access_token: accessToken,
       token_type: 'Bearer',
@@ -145,13 +150,16 @@ export async function startFakeProvider(options: FakeProviderOptions, port = 0):
   }
 
   function userinfo(req: IncomingMessage): Answer {
-    const person = tokens.get((req.headers.authorization ?? '').replace(/^Bearer /, ''));
-    if (!person) return json(401, { error: 'invalid_token' });
+    const token = tokens.get((req.headers.authorization ?? '').replace(/^Bearer /, ''));
+    if (!token) return json(401, { error: 'invalid_token' });
+    const { person, scope } = token;
+    const withOrg = person.org && scope.split(' ').includes('urn:zitadel:iam:user:resourceowner');
     return json(200, {
       sub: provider.faults.userinfoSub ?? person.sub,
       email: person.email,
       email_verified: person.emailVerified,
       name: person.name,
+      ...(withOrg ? { 'urn:zitadel:iam:user:resourceowner:id': person.org } : {}),
     });
   }
 

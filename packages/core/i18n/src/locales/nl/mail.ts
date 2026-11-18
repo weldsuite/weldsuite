@@ -41,6 +41,11 @@ export const mail = {
       generateDraft: 'Concept schrijven',
       labelName: 'Labelnaam',
       fontSize: 'Lettergrootte',
+      scheduleHour: 'Uur',
+      scheduleMinute: 'Minuut',
+      sizeComparison: 'Vergelijking van grootte',
+      sizeUnit: 'Eenheid van grootte',
+      recipientOptions: 'Opties voor {email}',
     },
 
     // Inbox
@@ -81,7 +86,49 @@ export const mail = {
       scheduleMessage: 'Verzending Plannen',
       addSignature: 'Handtekening Toevoegen',
       recipientRequired: 'Voeg minstens één ontvanger toe',
+      invalidRecipient: '{recipient} is geen geldig e-mailadres',
+      invalidRecipients: 'Dit zijn geen geldige e-mailadressen: {recipients}',
+      unfilledPlaceholdersTitle: 'Verzenden met lege plaatshouders?',
+      unfilledPlaceholdersDescription: '{placeholders} wordt precies zo verzonden: niets vult dit in. Ga terug om het te vervangen, of verzend toch.',
+      sendAnyway: 'Toch verzenden',
+      goBack: 'Terug',
     },
+
+    // The AI island at the bottom of the composer
+    composeAi: {
+      open: 'Schrijven met AI',
+      placeholder: 'Beschrijf de e-mail die u wilt schrijven…',
+      replyPlaceholder: 'Beschrijf het antwoord dat u wilt schrijven…',
+      write: 'Schrijven',
+      ideasLabel: 'Ideeën',
+      optionsLabel: 'Toon en lengte',
+      rewriteLabel: 'Herschrijf wat u hebt geschreven',
+      nothingToRewrite: 'Schrijf eerst iets om het te herschrijven',
+      rewriteFailed: 'De tekst kon niet worden herschreven. Probeer het opnieuw.',
+      tone: 'Toon',
+      length: 'Lengte',
+      automatic: 'Automatisch',
+      tones: { professional: 'Zakelijk', friendly: 'Vriendelijk', casual: 'Informeel' },
+      lengths: { short: 'Kort', medium: 'Gemiddeld', long: 'Lang' },
+      rewrites: {
+        improve: 'Verbeter de tekst',
+        shorten: 'Maak het korter',
+        expand: 'Maak het langer',
+        formalize: 'Maak het formeler',
+        make_friendly: 'Maak het vriendelijker',
+      },
+      ideas: {
+        meeting: 'Vraag om volgende week af te spreken',
+        followUp: 'Kom terug op mijn vorige e-mail',
+        introduce: 'Stel mezelf en ons bedrijf voor',
+        thanks: 'Bedank hen voor hun hulp',
+        accept: 'Zeg ja en bevestig de details',
+        decline: 'Zeg beleefd nee',
+        moreDetails: 'Vraag om meer details',
+        thankThem: 'Bedank hen',
+      },
+    },
+
 
     // Search
     search: {
@@ -181,6 +228,16 @@ export const mail = {
       failedToSend: 'Verzenden mislukt',
       failedToCancel: 'Annuleren mislukt',
       failedToCancelScheduled: 'Annuleren van geplande e-mail mislukt',
+      cancelConfirmTitle: 'Geplande e-mail annuleren?',
+      cancelConfirmDescription: 'De e-mail wordt niet verzonden. Hij gaat terug naar Concepten, waar je hem kunt bewerken of opnieuw kunt inplannen.',
+      cancelConfirmAction: 'Naar Concepten',
+      keepScheduled: 'Gepland laten',
+      movedToDrafts: 'Verzenden geannuleerd. De e-mail staat in Concepten.',
+      cancelDropsAttachments: {
+        one: 'De bijlage gaat niet mee: concepten kunnen nog geen bijlagen bevatten. Hij wordt met de geplande e-mail verwijderd, dus voeg hem opnieuw toe voordat je verzendt.',
+        other: 'De {count} bijlagen gaan niet mee: concepten kunnen nog geen bijlagen bevatten. Ze worden met de geplande e-mail verwijderd, dus voeg ze opnieuw toe voordat je verzendt.',
+      },
+      cancelConfirmActionWithoutAttachments: 'Naar Concepten zonder bijlagen',
     },
 
     // Snoozed
@@ -606,9 +663,9 @@ export const mail = {
       markedAsImportant: 'Gemarkeerd als belangrijk',
       starRemoved: 'Ster verwijderd',
       starAdded: 'Ster toegevoegd',
-      archivedMessages: '{n} bericht(en) gearchiveerd',
+      archivedMessages: { one: '{count} bericht gearchiveerd', other: '{count} berichten gearchiveerd' },
       failedToArchive: 'Archiveren van gesprek mislukt',
-      movedToTrash: '{n} bericht(en) verplaatst naar prullenbak',
+      movedToTrash: { one: '{count} bericht verplaatst naar prullenbak', other: '{count} berichten verplaatst naar prullenbak' },
       failedToMoveToTrash: 'Verplaatsen van gesprek naar prullenbak mislukt',
       markedConversationAsSpam: 'Gesprek gemarkeerd als spam',
       markedConversationAsNotSpam: 'Gesprek gemarkeerd als geen spam',
@@ -622,7 +679,13 @@ export const mail = {
       labelRemoved: '"{label}" verwijderd',
       labelAdded: '"{label}" toegevoegd',
       failedToUpdateLabels: 'Bijwerken van labels mislukt',
-      deletedPermanently: 'Permanent verwijderd',
+      deletedPermanently: { one: 'Bericht permanent verwijderd', other: '{count} berichten permanent verwijderd' },
+      failedToDeletePermanently: 'Permanent verwijderen mislukt',
+      deletePermanentlyTitle: 'Permanent verwijderen?',
+      deletePermanentlyDescription: {
+        one: 'Dit bericht wordt permanent verwijderd. Dit kan niet ongedaan worden gemaakt.',
+        other: 'De {count} berichten van dit gesprek in de prullenbak worden permanent verwijderd. Dit kan niet ongedaan worden gemaakt.',
+      },
       snoozeComingSoon: 'Uitstellen binnenkort beschikbaar',
       attachFile: 'Bestand bijvoegen',
       systemLabels: 'Systeemplabels',
@@ -710,6 +773,7 @@ export const mail = {
       expandToFullScreen: 'Uitvouwen naar volledig scherm',
       viewContactDetails: 'Contactgegevens bekijken',
       toWord: 'aan',
+      me: 'mij',
       markAsNotImportant: 'Markeren als niet belangrijk',
       markedAsNotImportant: 'Gemarkeerd als niet belangrijk',
       markDone: 'Markeren als gereed',
@@ -750,8 +814,8 @@ export const mail = {
       noLabels: 'Geen labels',
       labelRemovedToast: '"{name}" label verwijderd',
       labelAddedToast: '"{name}" label toegevoegd',
-      archivedMessages: '{n} bericht(en) gearchiveerd',
-      movedToTrash: '{n} bericht(en) naar prullenbak verplaatst',
+      archivedMessages: { one: '{count} bericht gearchiveerd', other: '{count} berichten gearchiveerd' },
+      movedToTrash: { one: '{count} bericht naar prullenbak verplaatst', other: '{count} berichten naar prullenbak verplaatst' },
       markedAsRead: 'Gemarkeerd als gelezen',
       markedAsUnread: 'Gemarkeerd als ongelezen',
       snoozed1Hour: 'Uitgesteld voor 1 uur',
@@ -958,6 +1022,14 @@ export const mail = {
       colorBlue: 'Blauw',
       colorPurple: 'Paars',
       colorPink: 'Roze',
+      colorAmber: 'Amber',
+      colorLime: 'Limoen',
+      colorEmerald: 'Smaragd',
+      colorCyan: 'Cyaan',
+      colorSky: 'Hemelsblauw',
+      colorIndigo: 'Indigo',
+      colorFuchsia: 'Fuchsia',
+      colorGray: 'Grijs',
     },
 
     // Settings - Labels page
@@ -1021,6 +1093,14 @@ export const mail = {
       colorBlue: 'Blauw',
       colorPurple: 'Paars',
       colorPink: 'Roze',
+      colorAmber: 'Amber',
+      colorLime: 'Limoen',
+      colorEmerald: 'Smaragd',
+      colorCyan: 'Cyaan',
+      colorSky: 'Hemelsblauw',
+      colorIndigo: 'Indigo',
+      colorFuchsia: 'Fuchsia',
+      colorGray: 'Grijs',
     },
 
     // Setup page
@@ -1031,7 +1111,7 @@ export const mail = {
       customDomainEmail: 'Eigen domein e-mail',
       createNewEmailAddress: 'Nieuw e-mailadres aanmaken',
       weldMailAddress: 'WeldMail-adres',
-      getFreeWeldMailAddress: 'Ontvang een gratis @weldmail.com adres',
+      getFreeWeldMailAddress: 'Ontvang een gratis WeldMail-adres',
       useYourOwnDomain: 'Gebruik uw eigen domein',
       chooseYourAddress: 'Kies uw adres',
       checkingAvailability: 'Beschikbaarheid controleren...',
@@ -1075,6 +1155,9 @@ export const mail = {
       weldHostRequiredDescription: 'Eigen e-maildomeinen worden beheerd door de WeldHost-app. Installeer deze om een domein toe te voegen of te kopen.',
       installWeldHost: 'WeldHost installeren',
       noActiveDomainsYet: 'U heeft nog geen actieve WeldHost-domeinen. Voeg er een toe of koop er een voordat u een eigen e-mailadres aanmaakt.',
+      noVerifiedDomainsYet: 'U heeft nog geen geverifieerd domein. Voeg eerst uw domein toe in de WeldMail-instellingen en publiceer de DNS-records.',
+      addDomainInSettings: 'Uw domein toevoegen',
+      addDomainInSettingsDescription: 'Stel het in via WeldMail-instellingen › Domeinen',
       addExistingDomain: 'Bestaand domein toevoegen',
       addExistingDomainDescription: 'Verbind een domein dat u al bezit via WeldHost',
       buyNewDomain: 'Nieuw domein kopen',
@@ -1272,7 +1355,7 @@ export const mail = {
     },
 
     // Uitgaande-mailbewaking: waarom een verzending is geweigerd, de banner zolang
-    // verzenden beperkt is (docs/plans/weldmail-outbound-abuse.md).
+    // verzenden beperkt is (weldsuite-documentation/plans/weldmail-outbound-abuse.md).
     sending: {
       errors: {
         sendingLimited: {

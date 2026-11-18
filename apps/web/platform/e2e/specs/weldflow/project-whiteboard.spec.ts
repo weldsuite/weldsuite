@@ -1,5 +1,5 @@
 /**
- * A WeldFlow project's whiteboard is a WeldBoard board (docs/plans/weldboard.md):
+ * A WeldFlow project's whiteboard is a WeldBoard board (weldsuite-documentation/plans/weldboard.md):
  * the project's Whiteboards tab creates one through board-api and opens it in
  * the WeldBoard editor, inside the project.
  *

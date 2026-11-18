@@ -1,6 +1,6 @@
 /**
  * WeldBooks recurring invoice template: the detail read the object panel shows,
- * and the mutations on it (create, edit, generate now, pause, resume). The list
+ * and the mutations on it (create, edit, generate now, pause, resume, delete). The list
  * read lives in `use-accounting-queries.ts`; every mutation invalidates
  * `accountingKeys.recurring`.
  */
@@ -57,6 +57,17 @@ export function usePauseRecurringInvoice() {
     mutationFn: (id: string) => accountingApi.pauseRecurringInvoice(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: accountingKeys.recurring.all });
+    },
+  });
+}
+
+/** Deletes the template: no more invoices are made from it; the ones it made stay. */
+export function useDeleteRecurringInvoice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => accountingApi.deleteRecurringInvoice(id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: accountingKeys.recurring.all });
     },
   });
 }

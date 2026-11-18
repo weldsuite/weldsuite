@@ -5,7 +5,7 @@
  * settings and usage, responses (list, summary, insights, export, erase),
  * invitations, integrations, subscriptions, AI, and members-only filling.
  * The respondent side (`/public/forms/*`) is forms-portal's, not this client's.
- * See docs/plans/weldforms.md.
+ * See weldsuite-documentation/plans/weldforms.md.
  */
 
 import type { ClientApi, DataResponse, ListResponse } from '../types';
