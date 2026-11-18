@@ -616,14 +616,11 @@ fn ads_state(state: &AppState) -> weldsuite_ads::AdsState {
     }
 }
 
-/// WeldPanel (`weldsuite-panel`): panel-api's `/api/panel/projects`,
-/// `/api/panel/query` and `/api/panel/lexicon`.
-fn panel(router: Router<AppState>, state: &AppState) -> Router<AppState> {
-    if !mounts("panel") {
-        return router;
-    }
+/// What WeldPanel's API routes share (`weldsuite-panel`), for the member
+/// routes and the public share routes alike.
+fn panel_state(state: &AppState) -> weldsuite_panel::PanelState {
     let conformance = cfg!(feature = "conformance");
-    let panel = weldsuite_panel::PanelState {
+    weldsuite_panel::PanelState {
         events: state.infra.events.clone(),
         // The collector reads the cache; without Valkey it lives in this
         // process (one replica's worth), as upload tokens do.
@@ -637,19 +634,87 @@ fn panel(router: Router<AppState>, state: &AppState) -> Router<AppState> {
         // The tenant-table adapter is not built yet: queries answer 503, as
         // panel-api does without `PANEL_PROJECT`.
         project_state: None,
-    };
+        // A comment's in-app notification. The conformance tests mock
+        // `createAndDeliverNotification`, so the Worker publishes nothing
+        // there; conformance builds write the notification without the publish.
+        realtime: state.infra.realtime.clone().filter(|_| !conformance),
+        // Public share links open their workspace here; conformance builds
+        // take the test's lookup from the request.
+        tenants: (!conformance).then(|| {
+            Arc::new(crate::cron::WorkspaceTenants(Arc::clone(&state.workspaces)))
+                as Arc<dyn weldsuite_panel::WorkspaceTenants>
+        }),
+        trusted_proxies: state.trusted_proxies,
+    }
+}
+
+/// WeldPanel (`weldsuite-panel`): panel-api's `/api/panel/projects` (with
+/// their secret keys), `/api/panel/query`, `/api/panel/lexicon` and the saved
+/// objects: reports, dashboards, cohorts, annotations, comments, custom
+/// events, computed properties, path rules, group types, metric trees and
+/// share links.
+fn panel(router: Router<AppState>, state: &AppState) -> Router<AppState> {
+    if !mounts("panel") {
+        return router;
+    }
+    let panel = panel_state(state);
+    let gate = &state.permissions;
     router
         .nest(
             "/panel/projects",
-            weldsuite_panel::router(panel.clone(), &state.permissions),
+            weldsuite_panel::router(panel.clone(), gate),
         )
         .nest(
             "/panel/query",
-            weldsuite_panel::query_router(panel.clone(), &state.permissions),
+            weldsuite_panel::query_router(panel.clone(), gate),
         )
         .nest(
             "/panel/lexicon",
-            weldsuite_panel::lexicon_router(panel, &state.permissions),
+            weldsuite_panel::lexicon_router(panel.clone(), gate),
+        )
+        .nest(
+            "/panel/reports",
+            weldsuite_panel::reports_router(panel.clone(), gate),
+        )
+        .nest(
+            "/panel/dashboards",
+            weldsuite_panel::dashboards_router(panel.clone(), gate),
+        )
+        .nest(
+            "/panel/cohorts",
+            weldsuite_panel::cohorts_router(panel.clone(), gate),
+        )
+        .nest(
+            "/panel/annotations",
+            weldsuite_panel::annotations_router(panel.clone(), gate),
+        )
+        .nest(
+            "/panel/comments",
+            weldsuite_panel::comments_router(panel.clone(), gate),
+        )
+        .nest(
+            "/panel/custom-events",
+            weldsuite_panel::custom_events_router(panel.clone(), gate),
+        )
+        .nest(
+            "/panel/computed-properties",
+            weldsuite_panel::computed_properties_router(panel.clone(), gate),
+        )
+        .nest(
+            "/panel/path-rules",
+            weldsuite_panel::path_rules_router(panel.clone(), gate),
+        )
+        .nest(
+            "/panel/group-types",
+            weldsuite_panel::group_types_router(panel.clone(), gate),
+        )
+        .nest(
+            "/panel/metric-trees",
+            weldsuite_panel::metric_trees_router(panel.clone(), gate),
+        )
+        .nest(
+            "/panel/share-links",
+            weldsuite_panel::share_links_router(panel, gate),
         )
 }
 
@@ -962,7 +1027,9 @@ pub(crate) fn panel_collector(state: &AppState) -> Router {
         bundles,
         state.trusted_proxies,
     );
-    let prefixed = weldsuite_panel::collector::router(collector.clone());
+    // panel-api's public share routes (`/public/panel/share`) sit beside the collector's.
+    let prefixed = weldsuite_panel::collector::router(collector.clone())
+        .merge(weldsuite_panel::public_share_router(panel_state(state)));
     #[cfg(feature = "conformance")]
     let prefixed = prefixed.layer(axum::middleware::from_fn_with_state(
         Arc::clone(&state.conformance_pools),

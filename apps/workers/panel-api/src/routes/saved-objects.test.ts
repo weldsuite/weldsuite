@@ -16,6 +16,7 @@ import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Hono } from 'hono';
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { conformanceTarget } from '@weldsuite/worker-kit/testing/conformance';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { DEFAULT_PANEL_SETTINGS } from '@weldsuite/panel-domain/settings';
@@ -29,6 +30,13 @@ import reportsRoutes from './reports';
 import dashboardsRoutes from './dashboards';
 import cohortsRoutes from './cohorts';
 import type { Env, Variables } from '../types';
+
+/**
+ * The id the queue (or a mock) saw for a row the request created: in
+ * conformance mode that is the TypeScript run's own row, with an id of its
+ * own (the test reads Rust's), so only its prefix is known.
+ */
+const minted = (id: string): unknown => (conformanceTarget() ? expect.stringMatching(new RegExp(`^${id.split('_')[0]}_`)) : id);
 
 const { panelProjects, panelReports, panelDashboards, panelDashboardTiles, panelCohorts } = schema;
 
@@ -108,7 +116,7 @@ describe('reports', () => {
     expect(report).toMatchObject({ projectId: 'pnp_a', kind: 'trends', name: 'Weekly visitors', visibility: 'private', ownerUserId: 'user_alice' });
     expect(report.id).toMatch(/^pnr_/);
     expect(events).toHaveLength(1);
-    expect(events[0]).toMatchObject({ entityType: 'panel_report', action: 'created', entityId: report.id });
+    expect(events[0]).toMatchObject({ entityType: 'panel_report', action: 'created', entityId: minted(report.id) });
     expect(JSON.stringify(events[0])).not.toContain('series');
   });
 

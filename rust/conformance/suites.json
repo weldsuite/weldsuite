@@ -3456,7 +3456,8 @@
       "module": "panel",
       "workspace": "apps/workers/panel-api",
       "tests": [
-        "src/routes/projects/projects.test.ts"
+        "src/routes/projects/projects.test.ts",
+        "src/routes/keys.test.ts"
       ],
       "paths": [
         "apps/workers/panel-api/src/",
@@ -3483,6 +3484,33 @@
         "packages/core/worker-kit/src/basin.ts",
         "rust/modules/panel/",
         "rust/crates/panel-domain/",
+        "rust/crates/zod/"
+      ]
+    },
+    {
+      "name": "panel: saved objects",
+      "module": "panel",
+      "workspace": "apps/workers/panel-api",
+      "tests": [
+        "src/routes/saved-objects.test.ts",
+        "src/routes/definitions.test.ts",
+        "src/routes/collab.test.ts",
+        "src/routes/dashboard-extras.test.ts",
+        "src/routes/share-links.test.ts"
+      ],
+      "paths": [
+        "apps/workers/panel-api/src/",
+        "packages/domains/panel/src/",
+        "packages/clients/app-api-client/src/schemas/weldpanel-query.ts",
+        "packages/clients/app-api-client/src/schemas/weldpanel-collab.ts",
+        "packages/clients/app-api-client/src/schemas/weldpanel-objects.ts",
+        "packages/clients/app-api-client/src/schemas/weldpanel-groups.ts",
+        "packages/core/notifications/src/",
+        "packages/core/worker-kit/src/testing/ledger-bridge.ts",
+        "packages/core/worker-kit/src/testing/workspace-bridge.ts",
+        "rust/modules/panel/",
+        "rust/crates/panel-domain/",
+        "rust/crates/notifications/",
         "rust/crates/zod/"
       ]
     },

@@ -43,6 +43,10 @@ export const LEDGER_BINDINGS = [
   // WeldPanel's per-project state (people, identities, groups, erased ids,
   // live view): `PanelProjectObjectApi`, named by the project id.
   'PANEL_PROJECT',
+  // WeldPanel's per-address limit on public share links: a Workers
+  // rate-limiting binding (`limit({ key })`), not a namespace, so its calls
+  // carry no name.
+  'PANEL_SHARE_RATE_LIMIT',
 ] as const;
 type LedgerBinding = (typeof LEDGER_BINDINGS)[number];
 
@@ -93,6 +97,21 @@ function isNamespaceLike(value: unknown): value is NamespaceLike {
   if (!value || typeof value !== 'object') return false;
   const ns = value as Record<string, unknown>;
   return typeof ns.idFromName === 'function' && typeof ns.get === 'function';
+}
+
+interface RateLimiterLike {
+  limit(options: unknown): unknown;
+}
+
+/** A Workers rate-limiting binding: `limit({ key })` and nothing to address. */
+function isRateLimiterLike(value: unknown): value is RateLimiterLike {
+  if (!value || typeof value !== 'object' || isNamespaceLike(value)) return false;
+  return typeof (value as Record<string, unknown>).limit === 'function';
+}
+
+/** A binding the bridge serves: a namespace, or a rate limiter. */
+function isBridged(value: unknown): boolean {
+  return isNamespaceLike(value) || isRateLimiterLike(value);
 }
 
 /** One call, as compared. */
@@ -162,13 +181,13 @@ async function handle(env: Record<string, unknown>, req: IncomingMessage, res: S
   }
   const call = (await readJson(req)) as LedgerCall;
   const ns = env[call.binding];
-  if (!LEDGER_BINDINGS.includes(call.binding as LedgerBinding) || !isNamespaceLike(ns)) {
+  if (!LEDGER_BINDINGS.includes(call.binding as LedgerBinding) || !isBridged(ns)) {
     res.writeHead(404).end();
     return;
   }
   if (!UNRECORDED_BINDINGS.has(call.binding) && !UNCOMPARED.has(call.binding)) rustCalls.push(masked(call));
   try {
-    const stub = ns.get(ns.idFromName(call.name));
+    const stub = isNamespaceLike(ns) ? ns.get(ns.idFromName(call.name)) : (ns as unknown as Record<string, unknown>);
     const method = stub[call.method];
     if (typeof method !== 'function') throw new Error(`no RPC method ${call.method}`);
     const args = Array.isArray(call.args) ? (decodeBridgeValue(call.args) as unknown[]) : [];
@@ -185,7 +204,7 @@ const bridges = new WeakMap<object, Promise<string>>();
 
 /** `{ OUTBOUND_LEDGER: url, … }` for the namespaces `env` has, or undefined. */
 export async function ledgerUrls(env: Record<string, unknown>): Promise<Record<string, string> | undefined> {
-  const present = LEDGER_BINDINGS.filter((name) => isNamespaceLike(env[name]));
+  const present = LEDGER_BINDINGS.filter((name) => isBridged(env[name]));
   if (present.length === 0) return undefined;
   let url = bridges.get(env);
   if (!url) {
@@ -206,11 +225,20 @@ export function recordTypeScriptLedgerCalls(env: Record<string, unknown>): {
   env: Record<string, unknown>;
   finish: () => LedgerCall[];
 } {
-  if (!LEDGER_BINDINGS.some((binding) => isNamespaceLike(env[binding]))) return { env, finish: () => [] };
+  if (!LEDGER_BINDINGS.some((binding) => isBridged(env[binding]))) return { env, finish: () => [] };
   const calls: LedgerCall[] = [];
   const wrapped: Record<string, unknown> = { ...env };
   for (const binding of LEDGER_BINDINGS) {
     const ns = env[binding];
+    if (isRateLimiterLike(ns)) {
+      wrapped[binding] = {
+        limit: (...args: unknown[]) => {
+          if (!UNCOMPARED.has(binding)) calls.push(masked({ binding, name: '', method: 'limit', args }));
+          return (ns.limit as (...a: unknown[]) => unknown).apply(ns, args);
+        },
+      };
+      continue;
+    }
     if (!isNamespaceLike(ns)) continue;
     wrapped[binding] = {
       idFromName: (name: string) => ({ name, id: ns.idFromName(name) }),

@@ -177,11 +177,15 @@ describe('computed properties', () => {
     expect(created.definition).toEqual(coalesce);
     expect((await api.request('/api/panel/computed-properties', json({ projectId: 'pnp_a', name: 'One', definition: { kind: 'coalesce', keys: [{ source: 'event', key: 'a' }] } }))).status).toBe(400);
     expect((await api.request('/api/panel/computed-properties', json({ projectId: 'pnp_a', name: 'SOURCE', definition: coalesce }))).status).toBe(409);
+    expect((await data<PanelComputedPropertyDto[]>(await api.request('/api/panel/computed-properties?projectId=pnp_a'))).map((p) => p.id)).toEqual([created.id]);
+    expect(await data<PanelComputedPropertyDto[]>(await api.request('/api/panel/computed-properties?projectId=pnp_b'))).toHaveLength(0);
+    expect(await data<PanelComputedPropertyDto>(await api.request(`/api/panel/computed-properties/${created.id}`))).toMatchObject({ name: 'Source', definition: coalesce });
 
     const changed = await api.request(`/api/panel/computed-properties/${created.id}`, json({ definition: { kind: 'formula', expression: '$lcp / 1000' } }, 'PATCH'));
     expect(await data<PanelComputedPropertyDto>(changed)).toMatchObject({ definition: { kind: 'formula', expression: '$lcp / 1000' } });
     expect((await api.request(`/api/panel/computed-properties/${created.id}`, json({ definition: { kind: 'formula', expression: '/' } }, 'PATCH'))).status).toBe(400);
     expect((await api.request(`/api/panel/computed-properties/${created.id}`, { method: 'DELETE' })).status).toBe(204);
+    expect((await api.request(`/api/panel/computed-properties/${created.id}`)).status).toBe(404);
     expect(events.map((e) => [e.entityType, e.action])).toEqual([
       ['panel_computed_property', 'created'],
       ['panel_computed_property', 'updated'],

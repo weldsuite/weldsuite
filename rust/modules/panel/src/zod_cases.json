@@ -1277,6 +1277,925 @@
           "description": null
         }
       }
+    },
+    {
+      "name": "a report, defaults filled in",
+      "schema": "CREATE_PANEL_REPORT",
+      "input": {
+        "projectId": "pnp_a",
+        "name": " Weekly ",
+        "spec": {
+          "kind": "trends",
+          "projectId": "pnp_a",
+          "series": [
+            {
+              "event": "$pageview"
+            }
+          ]
+        }
+      },
+      "output": {
+        "success": true,
+        "data": {
+          "projectId": "pnp_a",
+          "name": "Weekly",
+          "visibility": "private",
+          "spec": {
+            "projectId": "pnp_a",
+            "dateRange": {
+              "preset": "30d"
+            },
+            "timezone": "UTC",
+            "filters": [],
+            "kind": "trends",
+            "series": [
+              {
+                "event": "$pageview",
+                "math": "total",
+                "filters": []
+              }
+            ],
+            "interval": "day",
+            "compare": false
+          }
+        }
+      }
+    },
+    {
+      "name": "a report of a list kind",
+      "schema": "CREATE_PANEL_REPORT",
+      "input": {
+        "projectId": "pnp_a",
+        "name": "x",
+        "spec": {
+          "kind": "sessions",
+          "projectId": "pnp_a"
+        }
+      },
+      "output": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "invalid_union",
+              "unionErrors": [
+                {
+                  "issues": [
+                    {
+                      "received": "sessions",
+                      "code": "invalid_literal",
+                      "expected": "web",
+                      "path": [
+                        "spec",
+                        "kind"
+                      ],
+                      "message": "Invalid literal value, expected \"web\""
+                    }
+                  ],
+                  "name": "ZodError"
+                },
+                {
+                  "issues": [
+                    {
+                      "received": "sessions",
+                      "code": "invalid_literal",
+                      "expected": "trends",
+                      "path": [
+                        "spec",
+                        "kind"
+                      ],
+                      "message": "Invalid literal value, expected \"trends\""
+                    },
+                    {
+                      "code": "invalid_type",
+                      "expected": "array",
+                      "received": "undefined",
+                      "path": [
+                        "spec",
+                        "series"
+                      ],
+                      "message": "Required"
+                    }
+                  ],
+                  "name": "ZodError"
+                },
+                {
+                  "issues": [
+                    {
+                      "code": "invalid_type",
+                      "expected": "array",
+                      "received": "undefined",
+                      "path": [
+                        "spec",
+                        "steps"
+                      ],
+                      "message": "Required"
+                    },
+                    {
+                      "received": "sessions",
+                      "code": "invalid_literal",
+                      "expected": "funnel",
+                      "path": [
+                        "spec",
+                        "kind"
+                      ],
+                      "message": "Invalid literal value, expected \"funnel\""
+                    }
+                  ],
+                  "name": "ZodError"
+                },
+                {
+                  "issues": [
+                    {
+                      "received": "sessions",
+                      "code": "invalid_literal",
+                      "expected": "retention",
+                      "path": [
+                        "spec",
+                        "kind"
+                      ],
+                      "message": "Invalid literal value, expected \"retention\""
+                    },
+                    {
+                      "code": "invalid_type",
+                      "expected": "string",
+                      "received": "undefined",
+                      "path": [
+                        "spec",
+                        "firstEvent"
+                      ],
+                      "message": "Required"
+                    }
+                  ],
+                  "name": "ZodError"
+                },
+                {
+                  "issues": [
+                    {
+                      "received": "sessions",
+                      "code": "invalid_literal",
+                      "expected": "flows",
+                      "path": [
+                        "spec",
+                        "kind"
+                      ],
+                      "message": "Invalid literal value, expected \"flows\""
+                    },
+                    {
+                      "code": "invalid_type",
+                      "expected": "object",
+                      "received": "undefined",
+                      "path": [
+                        "spec",
+                        "anchor"
+                      ],
+                      "message": "Required"
+                    }
+                  ],
+                  "name": "ZodError"
+                },
+                {
+                  "issues": [
+                    {
+                      "received": "sessions",
+                      "code": "invalid_literal",
+                      "expected": "stickiness",
+                      "path": [
+                        "spec",
+                        "kind"
+                      ],
+                      "message": "Invalid literal value, expected \"stickiness\""
+                    },
+                    {
+                      "code": "invalid_type",
+                      "expected": "string",
+                      "received": "undefined",
+                      "path": [
+                        "spec",
+                        "event"
+                      ],
+                      "message": "Required"
+                    }
+                  ],
+                  "name": "ZodError"
+                },
+                {
+                  "issues": [
+                    {
+                      "received": "sessions",
+                      "code": "invalid_literal",
+                      "expected": "lifecycle",
+                      "path": [
+                        "spec",
+                        "kind"
+                      ],
+                      "message": "Invalid literal value, expected \"lifecycle\""
+                    },
+                    {
+                      "code": "invalid_type",
+                      "expected": "string",
+                      "received": "undefined",
+                      "path": [
+                        "spec",
+                        "event"
+                      ],
+                      "message": "Required"
+                    }
+                  ],
+                  "name": "ZodError"
+                },
+                {
+                  "issues": [
+                    {
+                      "received": "sessions",
+                      "code": "invalid_literal",
+                      "expected": "vitals",
+                      "path": [
+                        "spec",
+                        "kind"
+                      ],
+                      "message": "Invalid literal value, expected \"vitals\""
+                    }
+                  ],
+                  "name": "ZodError"
+                },
+                {
+                  "issues": [
+                    {
+                      "received": "sessions",
+                      "code": "invalid_literal",
+                      "expected": "impact",
+                      "path": [
+                        "spec",
+                        "kind"
+                      ],
+                      "message": "Invalid literal value, expected \"impact\""
+                    },
+                    {
+                      "code": "invalid_type",
+                      "expected": "string",
+                      "received": "undefined",
+                      "path": [
+                        "spec",
+                        "launchEvent"
+                      ],
+                      "message": "Required"
+                    },
+                    {
+                      "code": "invalid_type",
+                      "expected": "string",
+                      "received": "undefined",
+                      "path": [
+                        "spec",
+                        "launchDate"
+                      ],
+                      "message": "Required"
+                    },
+                    {
+                      "code": "invalid_type",
+                      "expected": "object",
+                      "received": "undefined",
+                      "path": [
+                        "spec",
+                        "metric"
+                      ],
+                      "message": "Required"
+                    }
+                  ],
+                  "name": "ZodError"
+                },
+                {
+                  "issues": [
+                    {
+                      "received": "sessions",
+                      "code": "invalid_literal",
+                      "expected": "signal",
+                      "path": [
+                        "spec",
+                        "kind"
+                      ],
+                      "message": "Invalid literal value, expected \"signal\""
+                    },
+                    {
+                      "code": "invalid_type",
+                      "expected": "object",
+                      "received": "undefined",
+                      "path": [
+                        "spec",
+                        "goal"
+                      ],
+                      "message": "Required"
+                    }
+                  ],
+                  "name": "ZodError"
+                }
+              ],
+              "path": [
+                "spec"
+              ],
+              "message": "Invalid input"
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "name": "a report with nothing to update",
+      "schema": "UPDATE_PANEL_REPORT",
+      "input": {
+        "other": 1
+      },
+      "output": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "custom",
+              "message": "Nothing to update",
+              "path": []
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "name": "a dashboard with filters",
+      "schema": "CREATE_PANEL_DASHBOARD",
+      "input": {
+        "projectId": "pnp_a",
+        "name": "x",
+        "filters": {
+          "dateRange": {
+            "from": "2026-02-01",
+            "to": "2026-01-01"
+          }
+        }
+      },
+      "output": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "custom",
+              "message": "`from` must not be after `to`",
+              "path": [
+                "filters",
+                "dateRange"
+              ]
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "name": "a text tile without text",
+      "schema": "ADD_PANEL_DASHBOARD_TILE",
+      "input": {
+        "kind": "text",
+        "layout": {
+          "x": 0,
+          "y": 0,
+          "w": 6,
+          "h": 4
+        }
+      },
+      "output": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "invalid_union",
+              "unionErrors": [
+                {
+                  "issues": [
+                    {
+                      "received": "text",
+                      "code": "invalid_literal",
+                      "expected": "report",
+                      "path": [
+                        "kind"
+                      ],
+                      "message": "Invalid literal value, expected \"report\""
+                    },
+                    {
+                      "code": "invalid_type",
+                      "expected": "string",
+                      "received": "undefined",
+                      "path": [
+                        "reportId"
+                      ],
+                      "message": "Required"
+                    }
+                  ],
+                  "name": "ZodError"
+                },
+                {
+                  "issues": [
+                    {
+                      "code": "invalid_type",
+                      "expected": "string",
+                      "received": "undefined",
+                      "path": [
+                        "text"
+                      ],
+                      "message": "Required"
+                    }
+                  ],
+                  "name": "ZodError"
+                }
+              ],
+              "path": [],
+              "message": "Invalid input"
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "name": "a report tile",
+      "schema": "ADD_PANEL_DASHBOARD_TILE",
+      "input": {
+        "reportId": "pnr_a",
+        "layout": {
+          "x": 30,
+          "y": 0,
+          "w": 6,
+          "h": 4
+        }
+      },
+      "output": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "too_big",
+              "maximum": 23,
+              "type": "number",
+              "inclusive": true,
+              "exact": false,
+              "message": "Number must be less than or equal to 23",
+              "path": [
+                "layout",
+                "x"
+              ]
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "name": "a tree with two roots",
+      "schema": "CREATE_PANEL_METRIC_TREE",
+      "input": {
+        "projectId": "pnp_a",
+        "name": "T",
+        "nodes": [
+          {
+            "id": "a",
+            "label": "a",
+            "parentId": null,
+            "relation": null,
+            "metric": {
+              "spec": {
+                "kind": "trends",
+                "projectId": "pnp_a",
+                "series": [
+                  {
+                    "event": "A"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "id": "b",
+            "label": "b",
+            "parentId": null,
+            "relation": null,
+            "metric": {
+              "spec": {
+                "kind": "trends",
+                "projectId": "pnp_a",
+                "series": [
+                  {
+                    "event": "A"
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "output": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "custom",
+              "message": "A tree has exactly one root",
+              "path": [
+                "nodes"
+              ]
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "name": "a tree with a cycle",
+      "schema": "CREATE_PANEL_METRIC_TREE",
+      "input": {
+        "projectId": "pnp_a",
+        "name": "T",
+        "nodes": [
+          {
+            "id": "r",
+            "label": "r",
+            "parentId": null,
+            "relation": null,
+            "metric": {
+              "spec": {
+                "kind": "trends",
+                "projectId": "pnp_a",
+                "series": [
+                  {
+                    "event": "A"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "id": "a",
+            "label": "a",
+            "parentId": "b",
+            "relation": "sum",
+            "metric": {
+              "spec": {
+                "kind": "trends",
+                "projectId": "pnp_a",
+                "series": [
+                  {
+                    "event": "A"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "id": "b",
+            "label": "b",
+            "parentId": "a",
+            "relation": "sum",
+            "metric": {
+              "spec": {
+                "kind": "trends",
+                "projectId": "pnp_a",
+                "series": [
+                  {
+                    "event": "A"
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "output": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "custom",
+              "message": "The nodes form a cycle",
+              "path": [
+                "nodes"
+              ]
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "name": "a tree node of two series",
+      "schema": "CREATE_PANEL_METRIC_TREE",
+      "input": {
+        "projectId": "pnp_a",
+        "name": "T",
+        "nodes": [
+          {
+            "id": "r",
+            "label": "r",
+            "parentId": null,
+            "relation": null,
+            "metric": {
+              "spec": {
+                "kind": "trends",
+                "projectId": "pnp_a",
+                "series": [
+                  {
+                    "event": "A"
+                  },
+                  {
+                    "event": "B"
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "output": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "custom",
+              "path": [
+                "nodes",
+                0,
+                "metric",
+                "spec",
+                "series"
+              ],
+              "message": "A metric is one series"
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "name": "a tree, defaults filled in",
+      "schema": "CREATE_PANEL_METRIC_TREE",
+      "input": {
+        "projectId": "pnp_a",
+        "name": "T",
+        "nodes": [
+          {
+            "id": "r",
+            "label": "r",
+            "parentId": null,
+            "relation": null,
+            "metric": {
+              "reportId": "pnr_a"
+            }
+          },
+          {
+            "id": "c",
+            "label": "c",
+            "parentId": "r",
+            "relation": "sum",
+            "metric": {
+              "spec": {
+                "kind": "trends",
+                "projectId": "pnp_a",
+                "series": [
+                  {
+                    "event": "A"
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "output": {
+        "success": true,
+        "data": {
+          "projectId": "pnp_a",
+          "name": "T",
+          "visibility": "private",
+          "nodes": [
+            {
+              "id": "r",
+              "label": "r",
+              "parentId": null,
+              "relation": null,
+              "metric": {
+                "reportId": "pnr_a"
+              }
+            },
+            {
+              "id": "c",
+              "label": "c",
+              "parentId": "r",
+              "relation": "sum",
+              "metric": {
+                "spec": {
+                  "projectId": "pnp_a",
+                  "dateRange": {
+                    "preset": "30d"
+                  },
+                  "timezone": "UTC",
+                  "filters": [],
+                  "kind": "trends",
+                  "series": [
+                    {
+                      "event": "A",
+                      "math": "total",
+                      "filters": []
+                    }
+                  ],
+                  "interval": "day",
+                  "compare": false
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "path rules the engine refuses",
+      "schema": "SET_PANEL_PATH_RULES",
+      "input": {
+        "rules": [
+          {
+            "pattern": "/(?=admin)",
+            "replacement": "$&"
+          },
+          {
+            "pattern": "/users/(\\d+",
+            "replacement": "x"
+          },
+          {
+            "pattern": "",
+            "replacement": "x"
+          }
+        ]
+      },
+      "output": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "custom",
+              "message": "Lookarounds and backreferences are not supported",
+              "path": [
+                "rules",
+                0,
+                "pattern"
+              ]
+            },
+            {
+              "code": "custom",
+              "message": "Use $1 or ${name} in the replacement, not $& or $` or $'",
+              "path": [
+                "rules",
+                0,
+                "replacement"
+              ]
+            },
+            {
+              "code": "custom",
+              "message": "Not a valid regular expression",
+              "path": [
+                "rules",
+                1,
+                "pattern"
+              ]
+            },
+            {
+              "code": "custom",
+              "message": "Enter a pattern",
+              "path": [
+                "rules",
+                2,
+                "pattern"
+              ]
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "name": "nothing to test rules with",
+      "schema": "TEST_PANEL_PATH_RULES",
+      "input": {
+        "paths": [
+          "/x"
+        ]
+      },
+      "output": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "custom",
+              "path": [
+                "rules"
+              ],
+              "message": "Send rules or a project"
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "name": "a share link in the past",
+      "schema": "CREATE_PANEL_SHARE_LINK",
+      "input": {
+        "targetType": "report",
+        "targetId": "pnr_a",
+        "expiresAt": "yesterday"
+      },
+      "output": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "invalid_string",
+              "validation": "datetime",
+              "message": "Invalid datetime",
+              "path": [
+                "expiresAt"
+              ]
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "name": "annotations by day",
+      "schema": "PANEL_ANNOTATION_LIST_QUERY",
+      "input": {
+        "projectId": "pnp_a",
+        "from": "2026-10-15",
+        "to": "2026-11"
+      },
+      "output": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "invalid_string",
+              "validation": "datetime",
+              "message": "Invalid datetime",
+              "path": [
+                "to"
+              ]
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "name": "a group type with a bad match",
+      "schema": "CREATE_PANEL_GROUP_TYPE",
+      "input": {
+        "projectId": "pnp_a",
+        "groupType": "team",
+        "nameSingular": "Team",
+        "namePlural": "Teams",
+        "crmMatchProperty": "do-main"
+      },
+      "output": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "custom",
+              "message": "Not a valid property key",
+              "path": [
+                "crmMatchProperty"
+              ]
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "name": "a group type with nothing to change",
+      "schema": "UPDATE_PANEL_GROUP_TYPE",
+      "input": {
+        "other": 1
+      },
+      "output": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "custom",
+              "message": "Nothing to change",
+              "path": []
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
     }
   ]
 }

@@ -446,3 +446,94 @@ impl RateLimiter for Limiter {
         })
     }
 }
+
+impl PanelBridges {
+    /// The workspace behind a public share link: what the test's
+    /// `getWorkspaceContextForOrg` answers (through the workspace bridge),
+    /// with its tenant database, the one such a test hands out.
+    pub(crate) fn share_workspaces(
+        &self,
+        db: weldsuite_db::PgPool,
+        workspace_id: &str,
+        bridge: Option<&str>,
+    ) -> weldsuite_panel::RequestWorkspaceTenants {
+        weldsuite_panel::RequestWorkspaceTenants(Arc::new(TestWorkspaces {
+            db,
+            workspace_id: workspace_id.to_owned(),
+            bridge: bridge.map(|bridge| bridge.trim_end_matches('/').to_owned()),
+            client: self.client.clone(),
+        }))
+    }
+
+    /// The test's `PANEL_SHARE_RATE_LIMIT`, or none (nothing is limited, as
+    /// the Worker without the binding).
+    pub(crate) fn share_rate_limit(
+        &self,
+        ledgers: &HashMap<String, String>,
+    ) -> weldsuite_panel::RequestShareRateLimit {
+        weldsuite_panel::RequestShareRateLimit(ledgers.get("PANEL_SHARE_RATE_LIMIT").map(
+            |bridge| {
+                Arc::new(Namespace {
+                    bridge: bridge.trim_end_matches('/').to_owned(),
+                    binding: "PANEL_SHARE_RATE_LIMIT",
+                    client: self.client.clone(),
+                }) as Arc<dyn weldsuite_panel::ShareRateLimit>
+            },
+        ))
+    }
+}
+
+/// `PANEL_SHARE_RATE_LIMIT.limit({ key })`: a rate-limiting binding, served
+/// by the ledger bridge without a name.
+impl weldsuite_panel::ShareRateLimit for Namespace {
+    fn limit<'a>(&'a self, key: &'a str) -> BoxFuture<'a, Result<bool, PortError>> {
+        Box::pin(async move {
+            let outcome = self.call("", "limit", json!([{ "key": key }])).await?;
+            Ok(outcome["success"].as_bool().unwrap_or(true))
+        })
+    }
+}
+
+/// The test's workspaces, as its share-link routes open them.
+struct TestWorkspaces {
+    db: weldsuite_db::PgPool,
+    /// The context's workspace: the only one there is without the bridge.
+    workspace_id: String,
+    bridge: Option<String>,
+    client: Client,
+}
+
+impl weldsuite_panel::WorkspaceTenants for TestWorkspaces {
+    fn open<'a>(
+        &'a self,
+        workspace_id: &'a str,
+    ) -> BoxFuture<'a, Result<Option<weldsuite_panel::OpenedWorkspace>, PortError>> {
+        Box::pin(async move {
+            let opened = |suspended: bool| {
+                Some(weldsuite_panel::OpenedWorkspace {
+                    db: self.db.clone(),
+                    suspended,
+                })
+            };
+            let Some(bridge) = &self.bridge else {
+                return Ok((workspace_id == self.workspace_id)
+                    .then(|| opened(false))
+                    .flatten());
+            };
+            let response = self
+                .client
+                .post(format!("{bridge}/workspace"))
+                .header("content-type", "application/json")
+                .body(json!({ "reference": workspace_id }).to_string())
+                .send()
+                .await
+                .map_err(PortError::backend)?;
+            if response.status() == reqwest::StatusCode::NOT_FOUND {
+                return Ok(None);
+            }
+            let text = response.text().await.map_err(PortError::backend)?;
+            let body: Value = serde_json::from_str(&text).map_err(PortError::Json)?;
+            Ok(opened(body["suspended"].as_bool() == Some(true)))
+        })
+    }
+}

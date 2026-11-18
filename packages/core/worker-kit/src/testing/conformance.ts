@@ -53,6 +53,7 @@ import { typeScriptSide } from './pglite-rollback';
 import { schemaFor } from './conformance-schemas';
 import { bucketUrls } from './bucket-bridge';
 import { kvUrls } from './kv-bridge';
+import { workspaceBridgeUrl } from './workspace-bridge';
 import { realtimeUrl } from './realtime-bridge';
 import { isolatedEnv } from './write-isolation';
 import { maskVolatile, maskVolatileEvents, maskVolatileOutbound, maskVolatileRealtime, maskVolatileText } from './conformance-volatile';
@@ -444,6 +445,8 @@ const WRITING_READS: RegExp[] = [
   /^\/public\/forms\/f\/[^/?]+(\?|$)/,
   // WeldPanel: the lexicon's names-seen scan, cached in KV on a miss.
   /^\/api\/panel\/lexicon(\?|$)/,
+  // WeldPanel: a public share link's page counts the view (at most once a minute).
+  /^\/public\/panel\/share\/[^/?]+(\?|$)/,
 ];
 
 interface ConformanceContext {
@@ -1352,6 +1355,9 @@ async function testContext(ctx: ConformanceContext, env: Record<string, unknown>
     pipelines: await pipelineUrls(env),
     // Its rate-limiting bindings (`EVENTS_RATE_LIMIT`, …).
     rateLimits: await rateLimitUrls(env),
+    // Its workspace lookup (`getWorkspaceContextForOrg`, mocked or not), for a
+    // public route that opens a workspace by reference (./workspace-bridge.ts).
+    workspaces: await workspaceBridgeUrl(env),
   };
 }
 

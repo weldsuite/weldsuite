@@ -609,10 +609,14 @@ rust/
                         registrar, DNS over HTTPS, the Realtime Register webhook),
                         modules/meet (WeldMeet, with crates/video-rooms: RealtimeKit and LiveKit
                         rooms, and LiveKit's webhook verification),
-                        modules/panel (WeldPanel: projects, the registry sync, queries and the
-                        lexicon on the analytics engine (`engine.rs`; DataFusion over the panel
-                        store in bins/weldsuite/src/panel_sql.rs) with the `PanelProject` state
-                        port (`project_state.rs`), and the public
+                        modules/panel (WeldPanel: projects and their secret keys, the registry
+                        sync, queries and the lexicon on the analytics engine (`engine.rs`;
+                        DataFusion over the panel store in bins/weldsuite/src/panel_sql.rs) with
+                        the `PanelProject` state port (`project_state.rs`), the saved objects
+                        (reports and their versions, dashboards and templates, cohorts, custom
+                        events, computed properties, path rules, group types, annotations,
+                        comments, metric trees, share links and their public `/public/panel/share`
+                        routes, one file per group), and the public
                         collector in `collector/`: the wire format, rows, URLs, user agents,
                         IP filters, the cookieless visitor id, the scripts, recordings and
                         snapshots, the server API, the rate limits),

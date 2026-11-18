@@ -22,6 +22,7 @@ const load = (specifier: string) => import(pathToFileURL(requireFrom.resolve(spe
 const query = await load('@weldsuite/app-api-client/schemas/weldpanel-query');
 const collab = await load('@weldsuite/app-api-client/schemas/weldpanel-collab');
 const objects = await load('@weldsuite/app-api-client/schemas/weldpanel-objects');
+const groups = await load('@weldsuite/app-api-client/schemas/weldpanel-groups');
 
 /** By the generated constant's name. */
 const SCHEMAS = {
@@ -30,7 +31,27 @@ const SCHEMAS = {
   PANEL_CUSTOM_EVENT_DEFINITION: collab.panelCustomEventDefinitionSchema,
   PANEL_COMPUTED_PROPERTY_DEFINITION: collab.panelComputedPropertyDefinitionSchema,
   UPDATE_PANEL_LEXICON: objects.updatePanelLexiconSchema,
+  CREATE_PANEL_REPORT: objects.createPanelReportSchema,
+  UPDATE_PANEL_REPORT: objects.updatePanelReportSchema,
+  CREATE_PANEL_DASHBOARD: objects.createPanelDashboardSchema,
+  ADD_PANEL_DASHBOARD_TILE: objects.addPanelDashboardTileSchema,
+  CREATE_PANEL_METRIC_TREE: collab.createPanelMetricTreeSchema,
+  SET_PANEL_PATH_RULES: collab.setPanelPathRulesSchema,
+  TEST_PANEL_PATH_RULES: collab.testPanelPathRulesSchema,
+  CREATE_PANEL_SHARE_LINK: collab.createPanelShareLinkSchema,
+  PANEL_ANNOTATION_LIST_QUERY: collab.panelAnnotationListQuerySchema,
+  CREATE_PANEL_GROUP_TYPE: groups.createPanelGroupTypeSchema,
+  UPDATE_PANEL_GROUP_TYPE: groups.updatePanelGroupTypeSchema,
 } as const;
+
+const node = (id: string, parentId: string | null, extra: Record<string, unknown> = {}) => ({
+  id,
+  label: id,
+  parentId,
+  relation: parentId === null ? null : 'sum',
+  metric: { spec: { kind: 'trends', projectId: 'pnp_a', series: [{ event: 'A' }] } },
+  ...extra,
+});
 
 const CASES: Array<[string, keyof typeof SCHEMAS, unknown]> = [
   ['an unknown kind', 'PANEL_QUERY_SPEC', { kind: 'nope', projectId: 'pnp_a' }],
@@ -93,6 +114,26 @@ const CASES: Array<[string, keyof typeof SCHEMAS, unknown]> = [
   ['a formula', 'PANEL_COMPUTED_PROPERTY_DEFINITION', { kind: 'formula', expression: '  price * quantity ' }],
   ['nothing to update', 'UPDATE_PANEL_LEXICON', { projectId: 'pnp_a', kind: 'event', name: 'x' }],
   ['a lexicon change', 'UPDATE_PANEL_LEXICON', { projectId: 'pnp_a', kind: 'property', name: 'plan', description: null }],
+  ['a report, defaults filled in', 'CREATE_PANEL_REPORT', { projectId: 'pnp_a', name: ' Weekly ', spec: { kind: 'trends', projectId: 'pnp_a', series: [{ event: '$pageview' }] } }],
+  ['a report of a list kind', 'CREATE_PANEL_REPORT', { projectId: 'pnp_a', name: 'x', spec: { kind: 'sessions', projectId: 'pnp_a' } }],
+  ['a report with nothing to update', 'UPDATE_PANEL_REPORT', { other: 1 }],
+  ['a dashboard with filters', 'CREATE_PANEL_DASHBOARD', { projectId: 'pnp_a', name: 'x', filters: { dateRange: { from: '2026-02-01', to: '2026-01-01' } } }],
+  ['a text tile without text', 'ADD_PANEL_DASHBOARD_TILE', { kind: 'text', layout: { x: 0, y: 0, w: 6, h: 4 } }],
+  ['a report tile', 'ADD_PANEL_DASHBOARD_TILE', { reportId: 'pnr_a', layout: { x: 30, y: 0, w: 6, h: 4 } }],
+  ['a tree with two roots', 'CREATE_PANEL_METRIC_TREE', { projectId: 'pnp_a', name: 'T', nodes: [node('a', null), node('b', null)] }],
+  ['a tree with a cycle', 'CREATE_PANEL_METRIC_TREE', { projectId: 'pnp_a', name: 'T', nodes: [node('r', null), node('a', 'b'), node('b', 'a')] }],
+  ['a tree node of two series', 'CREATE_PANEL_METRIC_TREE', { projectId: 'pnp_a', name: 'T', nodes: [node('r', null, { metric: { spec: { kind: 'trends', projectId: 'pnp_a', series: [{ event: 'A' }, { event: 'B' }] } } })] }],
+  ['a tree, defaults filled in', 'CREATE_PANEL_METRIC_TREE', { projectId: 'pnp_a', name: 'T', nodes: [node('r', null, { metric: { reportId: 'pnr_a' } }), node('c', 'r')] }],
+  [
+    'path rules the engine refuses',
+    'SET_PANEL_PATH_RULES',
+    { rules: [{ pattern: '/(?=admin)', replacement: '$&' }, { pattern: '/users/(\\d+', replacement: 'x' }, { pattern: '', replacement: 'x' }] },
+  ],
+  ['nothing to test rules with', 'TEST_PANEL_PATH_RULES', { paths: ['/x'] }],
+  ['a share link in the past', 'CREATE_PANEL_SHARE_LINK', { targetType: 'report', targetId: 'pnr_a', expiresAt: 'yesterday' }],
+  ['annotations by day', 'PANEL_ANNOTATION_LIST_QUERY', { projectId: 'pnp_a', from: '2026-10-15', to: '2026-11' }],
+  ['a group type with a bad match', 'CREATE_PANEL_GROUP_TYPE', { projectId: 'pnp_a', groupType: 'team', nameSingular: 'Team', namePlural: 'Teams', crmMatchProperty: 'do-main' }],
+  ['a group type with nothing to change', 'UPDATE_PANEL_GROUP_TYPE', { other: 1 }],
 ];
 
 const cases = [];

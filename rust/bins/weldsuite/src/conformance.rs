@@ -271,6 +271,11 @@ struct TestContext {
     /// The MCP server's member session (mcp-server's harness), or none.
     #[serde(default)]
     mcp_session: Option<weldsuite_mcp::McpSession>,
+    /// Its workspace lookup over HTTP (`workspace-bridge.ts`): a public
+    /// route that opens a workspace by reference (a WeldPanel share link's)
+    /// finds what the test's `getWorkspaceContextForOrg` finds.
+    #[serde(default)]
+    workspaces: Option<String>,
 }
 
 impl TestContext {
@@ -450,6 +455,16 @@ impl Pools {
         // WeldPanel's project state (`PanelProject`): the test's
         // `PANEL_PROJECT` namespace, or none.
         extensions.insert(self.panel.project_state(&context.ledgers));
+        // WeldPanel's public share links: the test's workspace lookup (its
+        // tenant database for what the lookup finds) and its rate limiter.
+        if let Ok(db) = self.get(&context.database_url) {
+            extensions.insert(self.panel.share_workspaces(
+                db,
+                &context.workspace_id,
+                context.workspaces.as_deref(),
+            ));
+        }
+        extensions.insert(self.panel.share_rate_limit(&context.ledgers));
         // WeldData's enrichment runs start on the test's `WELDDATA_ENRICH`, or nowhere.
         extensions.insert(weldsuite_data::RequestEnrichRuns(
             self.workflows.enrich_runs(&context.workflows),

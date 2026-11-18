@@ -6,6 +6,9 @@
 //! and paths.
 
 use serde_json::{Value, json};
+use weldsuite_panel_domain::schemas::collab::{
+    panel_path_pattern_problem, panel_path_replacement_problem,
+};
 use weldsuite_panel_domain::wire::{
     COMPUTED_PROPERTY_REF, CUSTOM_EVENT_NAME, CUSTOM_EVENT_REF, PROPERTY_KEY, SYSTEM_EVENT_NAME,
 };
@@ -279,6 +282,167 @@ pub(crate) fn refine_update_panel_lexicon(value: Option<&Value>, hook: &mut Hook
     }
 }
 
+/// `.partial().refine((v) => Object.keys(v).length > 0, 'Nothing to
+/// update')`: the parsed object holds a key.
+fn something_to_update(value: Option<&Value>, hook: &mut Hook) {
+    if value
+        .and_then(Value::as_object)
+        .is_some_and(serde_json::Map::is_empty)
+    {
+        hook.fail("Nothing to update");
+    }
+}
+
+/// `updatePanelReportSchema`.
+pub(crate) fn refine_update_panel_report(value: Option<&Value>, hook: &mut Hook) {
+    something_to_update(value, hook);
+}
+
+/// `updatePanelDashboardSchema`.
+pub(crate) fn refine_update_panel_dashboard(value: Option<&Value>, hook: &mut Hook) {
+    something_to_update(value, hook);
+}
+
+/// `updatePanelDashboardTileSchema`.
+pub(crate) fn refine_update_panel_dashboard_tile(value: Option<&Value>, hook: &mut Hook) {
+    something_to_update(value, hook);
+}
+
+/// `updatePanelCohortSchema`.
+pub(crate) fn refine_update_panel_cohort(value: Option<&Value>, hook: &mut Hook) {
+    something_to_update(value, hook);
+}
+
+/// `updatePanelCustomEventSchema`.
+pub(crate) fn refine_update_panel_custom_event(value: Option<&Value>, hook: &mut Hook) {
+    something_to_update(value, hook);
+}
+
+/// `updatePanelComputedPropertySchema`.
+pub(crate) fn refine_update_panel_computed_property(value: Option<&Value>, hook: &mut Hook) {
+    something_to_update(value, hook);
+}
+
+/// `updatePanelAnnotationSchema`.
+pub(crate) fn refine_update_panel_annotation(value: Option<&Value>, hook: &mut Hook) {
+    something_to_update(value, hook);
+}
+
+/// `updatePanelMetricTreeSchema`.
+pub(crate) fn refine_update_panel_metric_tree(value: Option<&Value>, hook: &mut Hook) {
+    something_to_update(value, hook);
+}
+
+/// `createPanelReportSchema`: a kind a report may have
+/// (`PANEL_REPORT_SPEC_KINDS`), at `spec`.
+pub(crate) fn refine_create_panel_report(value: Option<&Value>, hook: &mut Hook) {
+    let kind = text(field(field(value, "spec"), "kind")).unwrap_or_default();
+    if !crate::saved::REPORT_SPEC_KINDS.contains(&kind) {
+        hook.fail_at(&[json!("spec")], "Unsupported report kind");
+    }
+}
+
+/// `panelPathRuleInputSchema`'s pattern: `panelPathPatternProblem`.
+pub(crate) fn refine_panel_path_rule_input_pattern(value: Option<&Value>, hook: &mut Hook) {
+    if let Some(problem) = text(value).and_then(panel_path_pattern_problem) {
+        hook.fail(&problem);
+    }
+}
+
+/// `panelPathRuleInputSchema`'s replacement: `panelPathReplacementProblem`.
+pub(crate) fn refine_panel_path_rule_input_replacement(value: Option<&Value>, hook: &mut Hook) {
+    if let Some(problem) = text(value).and_then(panel_path_replacement_problem) {
+        hook.fail(&problem);
+    }
+}
+
+/// `testPanelPathRulesSchema`: rules, or a project to read them from.
+pub(crate) fn refine_test_panel_path_rules(value: Option<&Value>, hook: &mut Hook) {
+    if field(value, "rules").is_none() && field(value, "projectId").is_none() {
+        hook.fail_at(&[json!("rules")], "Send rules or a project");
+    }
+}
+
+/// `panelSingleSeriesTrendsSpecSchema`: one series.
+pub(crate) fn refine_panel_single_series_trends_spec(value: Option<&Value>, hook: &mut Hook) {
+    let series = field(value, "series")
+        .and_then(Value::as_array)
+        .map_or(0, Vec::len);
+    if series != 1 {
+        hook.fail_at(&[json!("series")], "A metric is one series");
+    }
+}
+
+/// `panelMetricTreeNodesSchema`: `panelMetricTreeProblem`.
+pub(crate) fn refine_panel_metric_tree_nodes(value: Option<&Value>, hook: &mut Hook) {
+    let nodes = value
+        .and_then(Value::as_array)
+        .map_or(&[][..], Vec::as_slice);
+    if let Some(problem) = metric_tree_problem(nodes) {
+        hook.fail(&problem);
+    }
+}
+
+/// `panelMetricTreeProblem(nodes)`: unique ids, one root without a
+/// relation, parents that exist, no cycles.
+pub(crate) fn metric_tree_problem(nodes: &[Value]) -> Option<String> {
+    let id = |node: &Value| text(node.get("id")).unwrap_or_default().to_owned();
+    let parent = |node: &Value| text(node.get("parentId")).map(str::to_owned);
+    let mut ids: Vec<String> = Vec::with_capacity(nodes.len());
+    for node in nodes {
+        let node_id = id(node);
+        if ids.contains(&node_id) {
+            return Some(format!("Two nodes have the id \"{node_id}\""));
+        }
+        ids.push(node_id);
+    }
+    let roots: Vec<&Value> = nodes.iter().filter(|n| parent(n).is_none()).collect();
+    if roots.len() != 1 {
+        return Some("A tree has exactly one root".to_owned());
+    }
+    if !roots[0].get("relation").is_some_and(Value::is_null) {
+        return Some("The root has no relation".to_owned());
+    }
+    // `new Map(nodes.map((n) => [n.id, n.parentId]))`: the ids are unique here.
+    let parent_of = |at: &str| nodes.iter().find(|n| id(n) == at).and_then(parent);
+    for node in nodes {
+        if let Some(parent_id) = parent(node)
+            && !ids.contains(&parent_id)
+        {
+            return Some(format!("Node \"{}\" has an unknown parent", id(node)));
+        }
+        let mut seen: Vec<String> = Vec::new();
+        let mut at = Some(id(node));
+        while let Some(current) = at {
+            if seen.contains(&current) {
+                return Some("The nodes form a cycle".to_owned());
+            }
+            at = parent_of(&current);
+            seen.push(current);
+        }
+    }
+    None
+}
+
+/// `panelGroupMatchPropertySchema`: a property key, `$` allowed.
+pub(crate) fn refine_panel_group_match_property(value: Option<&Value>, hook: &mut Hook) {
+    if let Some(key) = text(value)
+        && !property_key(key)
+    {
+        hook.fail("Not a valid property key");
+    }
+}
+
+/// `updatePanelGroupTypeSchema`: a name or the CRM match to change.
+pub(crate) fn refine_update_panel_group_type(value: Option<&Value>, hook: &mut Hook) {
+    if ["nameSingular", "namePlural", "crmMatchProperty"]
+        .iter()
+        .all(|key| field(value, key).is_none())
+    {
+        hook.fail("Nothing to change");
+    }
+}
+
 /// The generated schemas against Zod itself: `zod_cases.json` holds bodies
 /// with what `safeParseAsync` answered (`tools/zod-cases.mts`).
 #[cfg(test)]
@@ -287,8 +451,11 @@ mod tests {
     use weldsuite_zod::Z;
 
     use crate::schemas_gen::{
-        PANEL_COHORT_FILTER, PANEL_COMPUTED_PROPERTY_DEFINITION, PANEL_CUSTOM_EVENT_DEFINITION,
-        PANEL_QUERY_SPEC, UPDATE_PANEL_LEXICON,
+        ADD_PANEL_DASHBOARD_TILE, CREATE_PANEL_DASHBOARD, CREATE_PANEL_GROUP_TYPE,
+        CREATE_PANEL_METRIC_TREE, CREATE_PANEL_REPORT, CREATE_PANEL_SHARE_LINK,
+        PANEL_ANNOTATION_LIST_QUERY, PANEL_COHORT_FILTER, PANEL_COMPUTED_PROPERTY_DEFINITION,
+        PANEL_CUSTOM_EVENT_DEFINITION, PANEL_QUERY_SPEC, SET_PANEL_PATH_RULES,
+        TEST_PANEL_PATH_RULES, UPDATE_PANEL_GROUP_TYPE, UPDATE_PANEL_LEXICON, UPDATE_PANEL_REPORT,
     };
 
     fn schema(name: &str) -> &'static Z {
@@ -298,6 +465,17 @@ mod tests {
             "PANEL_CUSTOM_EVENT_DEFINITION" => &PANEL_CUSTOM_EVENT_DEFINITION,
             "PANEL_COMPUTED_PROPERTY_DEFINITION" => &PANEL_COMPUTED_PROPERTY_DEFINITION,
             "UPDATE_PANEL_LEXICON" => &UPDATE_PANEL_LEXICON,
+            "CREATE_PANEL_REPORT" => &CREATE_PANEL_REPORT,
+            "UPDATE_PANEL_REPORT" => &UPDATE_PANEL_REPORT,
+            "CREATE_PANEL_DASHBOARD" => &CREATE_PANEL_DASHBOARD,
+            "ADD_PANEL_DASHBOARD_TILE" => &ADD_PANEL_DASHBOARD_TILE,
+            "CREATE_PANEL_METRIC_TREE" => &CREATE_PANEL_METRIC_TREE,
+            "SET_PANEL_PATH_RULES" => &SET_PANEL_PATH_RULES,
+            "TEST_PANEL_PATH_RULES" => &TEST_PANEL_PATH_RULES,
+            "CREATE_PANEL_SHARE_LINK" => &CREATE_PANEL_SHARE_LINK,
+            "PANEL_ANNOTATION_LIST_QUERY" => &PANEL_ANNOTATION_LIST_QUERY,
+            "CREATE_PANEL_GROUP_TYPE" => &CREATE_PANEL_GROUP_TYPE,
+            "UPDATE_PANEL_GROUP_TYPE" => &UPDATE_PANEL_GROUP_TYPE,
             other => panic!("no schema {other}"),
         }
     }

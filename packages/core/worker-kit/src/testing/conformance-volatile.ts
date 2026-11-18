@@ -500,12 +500,40 @@ const ROUTES: VolatileRoute[] = [
   ...[
     { method: 'POST', route: '/api/panel/query' },
     { method: 'GET', route: '/api/panel/lexicon' },
+    { method: 'POST', route: '/public/panel/share/:token/results' },
   ].map(({ method, route }) => ({
     method,
     route,
     fields: [],
     outbound: [{ path: 'body.query', pattern: PANEL_CLOCK_TIMESTAMP, replacement: "TIMESTAMP '<now>'" }],
   })),
+  // WeldPanel: a new custom event's or computed property's `ref` is `@` and
+  // its new id.
+  ...['/api/panel/custom-events', '/api/panel/computed-properties'].map((route) => ({
+    method: 'POST',
+    route,
+    fields: [{ path: 'data.ref', pattern: /^@[a-z]+_[0-9a-z]{12,}$/g, replacement: '@<id>' }],
+  })),
+  // WeldPanel: a new secret key (`wps_` + 32 random hex) and a new share
+  // link's token (`wpsh_` + 32 random letters and digits) are drawn per run,
+  // and so are the prefixes shown (and published) to tell them apart and the
+  // link's URL, which ends in the token.
+  {
+    method: 'POST',
+    route: '/api/panel/projects/:id/keys',
+    fields: [{ path: 'data.prefix' }],
+    events: [{ path: 'data.prefix' }],
+  },
+  {
+    method: 'POST',
+    route: '/api/panel/share-links',
+    fields: [
+      { path: 'data.prefix' },
+      { path: 'data.token' },
+      { path: 'data.url', pattern: /\/s\/panel\/wpsh_[A-Za-z0-9]{32}$/g, replacement: '/s/panel/<token>' },
+    ],
+    events: [{ path: 'data.prefix' }],
+  },
 ];
 
 /** The value at a dot path, as text for ordering. */
