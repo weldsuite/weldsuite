@@ -11,8 +11,9 @@
  * - Pages split into sections use `HrTabsPage`: an underline `PageTabs` strip,
  *   then either a full-bleed list or content padded with `TabBody`
  *   (`@weldsuite/ui/components/page-layout`).
- * - Record pages use `DetailPage` + `DetailHeader` (`page-layout`) and
- *   `DetailTabs`, with `SectionCard` and `FieldGrid` for their sections.
+ * - Records open in the shared object panel, like the WeldCRM company: the
+ *   employee is `components/objects/hr-employee` (Details rows, icon tabs,
+ *   side panel ↔ fullscreen), opened from its list with `useObjectPanel`.
  * - Dashboards use `DashboardPage` (`page-layout`) + `KpiGrid`/`KpiCard`
  *   (`kpi-card`).
  * - Settings-style forms use `SettingsPage`, `SettingsSection` and
@@ -112,27 +113,6 @@ export function HrTabsPage({
     <div className="flex h-full min-h-0 flex-col">
       <PageTabs tabs={tabs} activeTab={activeTab} onTabChange={onTabChange} overflow="dropdown" />
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">{children}</div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Record (detail) pages
-// ---------------------------------------------------------------------------
-
-/** Underline tabs inside a `DetailPage` (same `PageTabs` as the rest of the platform). */
-export function DetailTabs({
-  tabs,
-  activeTab,
-  onTabChange,
-}: Readonly<{
-  tabs: PageTab[];
-  activeTab: string;
-  onTabChange: (tabId: string) => void;
-}>) {
-  return (
-    <div className="-mx-6">
-      <PageTabs tabs={tabs} activeTab={activeTab} onTabChange={onTabChange} overflow="dropdown" />
     </div>
   );
 }
