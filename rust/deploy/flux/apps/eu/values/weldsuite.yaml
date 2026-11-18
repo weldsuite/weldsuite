@@ -119,8 +119,8 @@ config:
   # table. The credit gate (402 at an empty wallet) is on: the Mollie top-up
   # lets a workspace buy credits.
   #
-  # Every key goes in the secret store (weldsuite/server) of both clusters
-  # before this reaches them: with AI on, serve and consume refuse to start
+  # Every key goes in both clusters' weldsuite-env before this reaches
+  # them: with AI on, serve and consume refuse to start
   # without them, as every build from 0.1.0-main.109 did until AI was
   # switched off on 2026-11-16.
   ai:
