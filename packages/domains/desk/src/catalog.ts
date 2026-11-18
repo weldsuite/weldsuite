@@ -8,7 +8,9 @@
  *     each announced like flow-api announces a task (`project_task created`,
  *     an assignment notification), and the timeline gets `fulfilment_started`.
  *     Idempotent per conversation, and a second run after a failure creates
- *     only the tasks the first one did not get to.
+ *     only the tasks the first one did not get to. A task's id follows from
+ *     the conversation and its template, and so does the event's, so runs
+ *     that overlap cannot create either twice.
  *   - `notifyDeskApprover`: the approver of a step that just opened hears about it.
  *
  * The rows are written by `@weldsuite/db/lib/desk-catalog`. Both functions
@@ -20,10 +22,11 @@
 
 import { createAndDeliverNotification, sendTaskAssignmentNotification, type NotificationEnv } from '@weldsuite/notifications';
 import { publishEntityEventRaw, type EntityEventPublisherEnv } from '@weldsuite/entity-events';
-import { createTask } from '@weldsuite/flow-domain/tasks';
+import { createTaskOnce } from '@weldsuite/flow-domain/tasks';
 import { taskAnalyticsPayload } from '@weldsuite/flow-domain/analytics-payload';
 import type { DeskConversation } from '@weldsuite/db/lib/desk';
 import {
+  deskFulfilmentTaskId,
   hasDeskFulfilmentStarted,
   listDeskRequestTasks,
   recordDeskRequestFulfilment,
@@ -76,19 +79,28 @@ export interface FulfilDeskCatalogRequestInput {
 
 type TaskTemplate = DeskCatalogItem['fulfilmentTasks'][number];
 
-/** One template's task: created, announced (`project_task created`) and its assignee told. Its id. */
+/**
+ * One template's task, under the id that follows from the conversation and
+ * the template: created, announced (`project_task created`) and its assignee
+ * told. False when the task was there already (another run made it): then
+ * nothing is written or announced.
+ */
 async function createFulfilmentTask(
   ctx: DeskCatalogContext,
   input: FulfilDeskCatalogRequestInput,
   template: TaskTemplate,
+  taskId: string,
   now: Date,
-): Promise<string> {
+): Promise<boolean> {
   const { db, conversation } = input;
   const actor = input.actorUserId ?? 'system';
-  const { row, assigneeIds } = await createTask(db, taskData(template, conversation, now), {
+  const made = await createTaskOnce(db, taskData(template, conversation, now), {
     projectId: null,
     userId: actor,
+    id: taskId,
   });
+  if (!made) return false;
+  const { row, assigneeIds } = made;
   await publishEntityEventRaw({
     env: ctx.env,
     workspaceId: ctx.clerkOrgId,
@@ -115,7 +127,7 @@ async function createFulfilmentTask(
       taskDescription: row.description ?? null,
     }).catch((err: unknown) => console.error('[desk-catalog] task assignment notification failed:', err));
   }
-  return row.id;
+  return true;
 }
 
 /**
@@ -141,6 +153,12 @@ async function tasksLeftBehind(db: Database, conversationId: string): Promise<Ma
  * can simply run again: a template whose title is already on a task linked to
  * the conversation (`sourceType = 'desk_conversation'`) is not created a
  * second time. Throws when it fails.
+ *
+ * Runs may overlap (the retry route while the run after an approval is still
+ * going, two retries at once). A task is created under `deskFulfilmentTaskId`
+ * and the event under `deskFulfilmentEventId`, so each exists once: the run
+ * that loses an insert creates and announces nothing for it. `created` counts
+ * what this run inserted.
  */
 export async function runDeskCatalogFulfilment(
   ctx: DeskCatalogContext,
@@ -161,16 +179,20 @@ export async function runDeskCatalogFulfilment(
       taskIds.push(kept);
       continue;
     }
-    taskIds.push(await createFulfilmentTask(ctx, input, template, now));
-    created += 1;
+    const taskId = await deskFulfilmentTaskId(conversation.id, template.id);
+    taskIds.push(taskId);
+    if (await createFulfilmentTask(ctx, input, template, taskId, now)) created += 1;
   }
 
-  const { conversation: after, message } = await recordDeskRequestFulfilment(db, {
+  const recorded = await recordDeskRequestFulfilment(db, {
     generateId: ctx.generateId,
     conversationId: conversation.id,
     authorId: actor,
     taskIds,
   });
+  // Another run recorded it: that run announces it.
+  if (!recorded) return { taskIds, created };
+  const { conversation: after, message } = recorded;
   await publishEntityEventRaw({
     env: ctx.env,
     workspaceId: ctx.clerkOrgId,

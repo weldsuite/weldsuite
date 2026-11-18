@@ -33,6 +33,7 @@
 mod tables;
 
 use serde_json::{Map, Value, json};
+use sha2::{Digest, Sha256};
 use weldsuite_db::PgPool;
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Field, js_trim};
@@ -1189,20 +1190,50 @@ pub async fn load_fulfilment_retry(
     Ok((conversation, item))
 }
 
+/// `seededId(prefix, seed)`: `<prefix>_` and the first 20 hex characters of
+/// the SHA-256 of `seed`. The same id for the same seed, on both backends.
+fn seeded_id(prefix: &str, seed: &str) -> String {
+    let digest = hex::encode(Sha256::digest(seed.as_bytes()));
+    format!("{prefix}_{}", &digest[..20])
+}
+
+/// `deskFulfilmentTaskId(conversationId, templateId)`: the id of the task
+/// one template creates for one request. It follows from the conversation
+/// and the template, so the task can exist once: a second fulfilment run
+/// (the retry route while the first run is still going, two retries at once)
+/// meets the primary key and creates nothing.
+pub fn fulfilment_task_id(conversation_id: &str, template_id: &str) -> String {
+    seeded_id(
+        "task",
+        &format!("desk-fulfilment:{conversation_id}:{template_id}"),
+    )
+}
+
+/// `deskFulfilmentEventId(conversationId)`: the id of a request's
+/// `fulfilment_started` event, one per conversation for the same reason.
+pub fn fulfilment_event_id(conversation_id: &str) -> String {
+    seeded_id(
+        "dmsg",
+        &format!("desk-fulfilment-started:{conversation_id}"),
+    )
+}
+
 /// `recordDeskRequestFulfilment(db, input)`: the internal
-/// `fulfilment_started` event, naming the request's tasks.
+/// `fulfilment_started` event, naming the request's tasks. `None` when the
+/// timeline has it already (another run recorded it): its id is
+/// [`fulfilment_event_id`], so it is written once.
 /// `author_id` is the member whose action started it; absent for the system.
 pub async fn record_fulfilment(
     db: &PgPool,
     conversation_id: &str,
     author_id: Option<&str>,
     task_ids: &[String],
-) -> Result<Appended, CatalogError> {
+) -> Result<Option<Appended>, CatalogError> {
     let author_id = author_id.filter(|id| !id.is_empty());
     let mut metadata = Map::new();
     metadata.insert("eventType".to_owned(), json!("fulfilment_started"));
     metadata.insert("taskIds".to_owned(), json!(task_ids));
-    append(
+    webchat::append_once(
         db,
         Append {
             conversation_id,
@@ -1218,13 +1249,36 @@ pub async fn record_fulfilment(
             metadata: Some(metadata),
             assignee_id: None,
         },
+        &fulfilment_event_id(conversation_id),
     )
     .await
+    .map_err(|error| match error {
+        AppendError::NotFound => CatalogError::ConversationNotFound(conversation_id.to_owned()),
+        AppendError::Write(error) => CatalogError::Write(error),
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fulfilment_ids_follow_from_the_conversation_and_the_template() {
+        // The values the TypeScript side pins (packages/domains/desk/src/catalog-pglite.test.ts).
+        assert_eq!(
+            fulfilment_task_id("dconv_1", "t1"),
+            "task_e6d07bdcfd072cf4374b"
+        );
+        assert_eq!(fulfilment_event_id("dconv_1"), "dmsg_a17d1f4acfa5004cb385");
+        assert_ne!(
+            fulfilment_task_id("dconv_1", "t1"),
+            fulfilment_task_id("dconv_1", "t2")
+        );
+        assert_ne!(
+            fulfilment_task_id("dconv_1", "t1"),
+            fulfilment_task_id("dconv_2", "t1")
+        );
+    }
 
     fn reason(conversation: &Value) -> Option<&'static str> {
         match assert_startable(conversation) {

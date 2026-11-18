@@ -26,7 +26,7 @@ use weldsuite_db::PgPool;
 use weldsuite_events::{EntityEvent, EntityEventPublisher, EventContext, EventSource, EventType};
 use weldsuite_flow_domain::analytics::task_analytics_payload;
 use weldsuite_flow_domain::js::iso_from_millis;
-use weldsuite_flow_domain::tasks::create_task;
+use weldsuite_flow_domain::tasks::create_task_once;
 use weldsuite_notifications::{NewNotification, Notifier, create_and_deliver};
 
 use crate::catalog;
@@ -201,6 +201,13 @@ fn kept(left: &mut HashMap<String, VecDeque<String>>, template: &Value) -> Optio
 /// to the conversation (`source_type = 'desk_conversation'`) is not created
 /// a second time.
 ///
+/// Runs may overlap (the retry route while the run after an approval is still
+/// going, two retries at once). A task is created under
+/// [`catalog::fulfilment_task_id`] and the event under
+/// [`catalog::fulfilment_event_id`], so each exists once: the run that loses
+/// an insert creates and announces nothing for it. `created` counts what this
+/// run inserted.
+///
 /// # Errors
 ///
 /// What stopped the run, as text for the log.
@@ -239,13 +246,20 @@ pub async fn run(
             task_ids.push(task_id);
             continue;
         }
-        created_count += 1;
-        let data = task_data(template, conversation, now);
-        let created = create_task(ctx.db, &data, None, actor)
-            .await
-            .map_err(|error| failed(&error))?;
-        let task_id = created.row["id"].as_str().unwrap_or_default().to_owned();
+        let task_id = catalog::fulfilment_task_id(
+            conversation_id,
+            template["id"].as_str().unwrap_or_default(),
+        );
         task_ids.push(task_id.clone());
+        let data = task_data(template, conversation, now);
+        let Some(created) = create_task_once(ctx.db, &data, None, actor, &task_id)
+            .await
+            .map_err(|error| failed(&error))?
+        else {
+            // Another run made it: that run announced it.
+            continue;
+        };
+        created_count += 1;
         publish(
             ctx,
             actor,
@@ -261,9 +275,17 @@ pub async fn run(
         }
     }
 
-    let recorded = catalog::record_fulfilment(ctx.db, conversation_id, actor_user_id, &task_ids)
-        .await
-        .map_err(|error| failed(&error))?;
+    let Some(recorded) =
+        catalog::record_fulfilment(ctx.db, conversation_id, actor_user_id, &task_ids)
+            .await
+            .map_err(|error| failed(&error))?
+    else {
+        // Another run recorded it: that run announces it.
+        return Ok(Some(Fulfilled {
+            task_ids,
+            created: created_count,
+        }));
+    };
     let after_id = recorded.conversation["id"].as_str().unwrap_or_default();
     publish(
         ctx,

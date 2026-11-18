@@ -52,7 +52,7 @@ import type { DeskAuthorType, DeskEventType, DeskMessage } from '../schema/desk-
 import type { DeskVisitor } from '../schema/desk-visitors';
 import type { HelpdeskTicketType } from '../schema/helpdesk-ticket-types';
 import type { IdGenerator } from './mail-contacts';
-import { appendDeskMessage, DeskConversationNotFoundError } from './desk';
+import { appendDeskMessage, DeskConversationNotFoundError, DeskMessageExistsError } from './desk';
 import { deskReaderOf } from './desk-articles';
 import { memberUserId } from './desk-escalation';
 import type { DeskLinkChange } from './desk-links';
@@ -1076,6 +1076,28 @@ export async function loadDeskFulfilmentRetry(
   return { conversation, item };
 }
 
+/** `<prefix>_` and the first 20 hex characters of the SHA-256 of `seed`: the same id for the same seed, on both backends. */
+async function seededId(prefix: string, seed: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(seed));
+  const hex = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+  return `${prefix}_${hex.slice(0, 20)}`;
+}
+
+/**
+ * The id of the task one template creates for one request. It follows from
+ * the conversation and the template, so the task can exist once: a second
+ * fulfilment run (the retry route while the first run is still going, two
+ * retries at once) meets the primary key and creates nothing.
+ */
+export function deskFulfilmentTaskId(conversationId: string, templateId: string): Promise<string> {
+  return seededId('task', `desk-fulfilment:${conversationId}:${templateId}`);
+}
+
+/** The id of a request's `fulfilment_started` event: one per conversation, for the same reason. */
+export function deskFulfilmentEventId(conversationId: string): Promise<string> {
+  return seededId('dmsg', `desk-fulfilment-started:${conversationId}`);
+}
+
 export interface RecordDeskRequestFulfilmentInput {
   generateId: IdGenerator;
   conversationId: string;
@@ -1084,16 +1106,29 @@ export interface RecordDeskRequestFulfilmentInput {
   taskIds: string[];
 }
 
-/** The internal `fulfilment_started` event, naming the request's tasks. */
-export function recordDeskRequestFulfilment(db: AnyDb, input: RecordDeskRequestFulfilmentInput): Promise<DeskLinkChange> {
-  return appendDeskMessage(db, {
-    generateId: input.generateId,
-    conversationId: input.conversationId,
-    kind: 'event',
-    authorType: input.authorId ? 'agent' : 'system',
-    authorId: input.authorId ?? null,
-    metadata: { eventType: 'fulfilment_started', taskIds: input.taskIds },
-  });
+/**
+ * The internal `fulfilment_started` event, naming the request's tasks. Null
+ * when the timeline has it already (another run recorded it): its id is
+ * `deskFulfilmentEventId`, so it is written once.
+ */
+export async function recordDeskRequestFulfilment(
+  db: AnyDb,
+  input: RecordDeskRequestFulfilmentInput,
+): Promise<DeskLinkChange | null> {
+  try {
+    return await appendDeskMessage(db, {
+      generateId: input.generateId,
+      messageId: await deskFulfilmentEventId(input.conversationId),
+      conversationId: input.conversationId,
+      kind: 'event',
+      authorType: input.authorId ? 'agent' : 'system',
+      authorId: input.authorId ?? null,
+      metadata: { eventType: 'fulfilment_started', taskIds: input.taskIds },
+    });
+  } catch (err) {
+    if (err instanceof DeskMessageExistsError) return null;
+    throw err;
+  }
 }
 
 // ============================================================================

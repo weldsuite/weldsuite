@@ -38,9 +38,33 @@ export async function createTask(
   data: Record<string, unknown>,
   opts: { projectId?: string | null; userId: string },
 ): Promise<CreateTaskResult> {
+  const created = await insertTask(db, data, opts);
+  if (!created) throw new Error('createTask: the generated task id is taken');
+  return created;
+}
+
+/**
+ * `createTask` for a task that must exist once: the caller names the id, and
+ * when a task with that id is already there nothing is written and the answer
+ * is null. The primary key decides, so two callers that run at the same time
+ * cannot both create it.
+ */
+export function createTaskOnce(
+  db: Database,
+  data: Record<string, unknown>,
+  opts: { projectId?: string | null; userId: string; id: string },
+): Promise<CreateTaskResult | null> {
+  return insertTask(db, data, opts);
+}
+
+async function insertTask(
+  db: Database,
+  data: Record<string, unknown>,
+  opts: { projectId?: string | null; userId: string; id?: string },
+): Promise<CreateTaskResult | null> {
   const t = schema.tasks;
   const projectId = (opts.projectId ?? (data.projectId as string | null | undefined) ?? null) as string | null;
-  const id = generateId('task');
+  const id = opts.id ?? generateId('task');
   const now = new Date();
   const number = await allocateTaskNumber(db);
   const stageId = data.stageId as string | undefined;
@@ -85,45 +109,50 @@ export async function createTask(
   const dueDate = data.dueDate as string | number | Date | undefined;
   const customFields = data.customFields as CustomFieldMap | null | undefined;
 
-  await db.insert(t).values({
-    id,
-    number,
-    projectId,
-    title: data.title,
-    description: data.description,
-    status: resolvedStatus,
-    stageId,
-    priority: priority ?? 'medium',
-    type: data.type ?? 'task',
-    assigneeId: primaryAssigneeId,
-    assigneeIds: assigneeIds.length > 0 ? assigneeIds : null,
-    reporterId: data.reporterId || opts.userId,
-    sprintId: data.sprintId,
-    milestoneId: data.milestoneId,
-    deliverableId: data.deliverableId,
-    parentTaskId: data.parentTaskId,
-    startDate: startDate ? new Date(startDate) : undefined,
-    dueDate: dueDate ? new Date(dueDate) : undefined,
-    estimatedHours: data.estimatedHours,
-    duration: data.duration,
-    storyPoints: data.storyPoints,
-    tags: data.tags,
-    labels: data.labels,
-    isBillable: data.isBillable ?? true,
-    customerId: data.customerId ?? null,
-    contactId: data.contactId ?? null,
-    personId: data.personId ?? null,
-    sourceType: data.sourceType ?? null,
-    sourceId: data.sourceId ?? null,
-    customFields,
-    dependsOn: data.dependsOn,
-    blocks: data.blocks,
-    repeat: data.repeat ?? null,
-    position: nextPosition,
-    progress: '0',
-    createdAt: now,
-    updatedAt: now,
-  } as unknown as typeof t.$inferInsert);
+  const inserted = await db
+    .insert(t)
+    .values({
+      id,
+      number,
+      projectId,
+      title: data.title,
+      description: data.description,
+      status: resolvedStatus,
+      stageId,
+      priority: priority ?? 'medium',
+      type: data.type ?? 'task',
+      assigneeId: primaryAssigneeId,
+      assigneeIds: assigneeIds.length > 0 ? assigneeIds : null,
+      reporterId: data.reporterId || opts.userId,
+      sprintId: data.sprintId,
+      milestoneId: data.milestoneId,
+      deliverableId: data.deliverableId,
+      parentTaskId: data.parentTaskId,
+      startDate: startDate ? new Date(startDate) : undefined,
+      dueDate: dueDate ? new Date(dueDate) : undefined,
+      estimatedHours: data.estimatedHours,
+      duration: data.duration,
+      storyPoints: data.storyPoints,
+      tags: data.tags,
+      labels: data.labels,
+      isBillable: data.isBillable ?? true,
+      customerId: data.customerId ?? null,
+      contactId: data.contactId ?? null,
+      personId: data.personId ?? null,
+      sourceType: data.sourceType ?? null,
+      sourceId: data.sourceId ?? null,
+      customFields,
+      dependsOn: data.dependsOn,
+      blocks: data.blocks,
+      repeat: data.repeat ?? null,
+      position: nextPosition,
+      progress: '0',
+      createdAt: now,
+      updatedAt: now,
+    } as unknown as typeof t.$inferInsert)
+    .onConflictDoNothing({ target: t.id })
+    .returning({ id: t.id });
+  if (inserted.length === 0) return null;
 
   // Phase 1 dual-write: mirror the customFields blob into the typed values table.
   await syncValuesForEntity(db, 'task', id, customFields);

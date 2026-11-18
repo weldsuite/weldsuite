@@ -127,17 +127,44 @@ fn json_column(data: &Map<String, Value>, key: &str) -> Option<Value> {
 }
 
 /// `createTask(db, data, { projectId, userId })`.
-#[allow(clippy::too_many_lines)] // the TypeScript function, one column at a time
 pub async fn create_task(
     db: &PgPool,
     data: &Map<String, Value>,
     project_id: Option<&str>,
     user_id: &str,
 ) -> Result<CreatedTask, CreateError> {
+    // A freshly generated id is never taken.
+    insert_task(db, data, project_id, user_id, None)
+        .await?
+        .ok_or(CreateError::Database(sqlx::Error::RowNotFound))
+}
+
+/// `createTaskOnce(db, data, { projectId, userId, id })`: `create_task` for a
+/// task that must exist once. The caller names the id, and when a task with
+/// that id is already there nothing is written: `None`. The primary key
+/// decides, so two callers that run at the same time cannot both create it.
+pub async fn create_task_once(
+    db: &PgPool,
+    data: &Map<String, Value>,
+    project_id: Option<&str>,
+    user_id: &str,
+    id: &str,
+) -> Result<Option<CreatedTask>, CreateError> {
+    insert_task(db, data, project_id, user_id, Some(id)).await
+}
+
+#[allow(clippy::too_many_lines)] // the TypeScript function, one column at a time
+async fn insert_task(
+    db: &PgPool,
+    data: &Map<String, Value>,
+    project_id: Option<&str>,
+    user_id: &str,
+    fixed_id: Option<&str>,
+) -> Result<Option<CreatedTask>, CreateError> {
     let project_id = project_id
         .map(str::to_owned)
         .or_else(|| text(data, "projectId").map(str::to_owned));
-    let id = generate_id("task");
+    let id = fixed_id.map_or_else(|| generate_id("task"), str::to_owned);
     let now = iso_timestamp(time::OffsetDateTime::now_utc());
     let number = allocate_task_number(db).await?;
     let stage_id = text(data, "stageId");
@@ -181,7 +208,7 @@ pub async fn create_task(
         .filter(|r| !r.is_empty())
         .unwrap_or(user_id);
 
-    sqlx::query(
+    let inserted = sqlx::query(
         "insert into tasks (id, number, project_id, title, description, status, stage_id, priority,
              type, assignee_id, assignee_ids, reporter_id, sprint_id, milestone_id, deliverable_id,
              parent_task_id, start_date, due_date, estimated_hours, duration, story_points, tags,
@@ -191,7 +218,8 @@ pub async fn create_task(
                  $17::timestamp, $18::timestamp, ($19::jsonb #>> '{}')::numeric,
                  ($20::jsonb #>> '{}')::int, ($21::jsonb #>> '{}')::int, $22, $23,
                  $24, $25, $26, $27, $28, $29, $30, $31, $32, '0', $33::timestamp, $33::timestamp,
-                 $34, $35)",
+                 $34, $35)
+         on conflict (id) do nothing",
     )
     .bind(&id)
     .bind(number)
@@ -234,11 +262,14 @@ pub async fn create_task(
     .bind(text(data, "sourceId"))
     .execute(db)
     .await?;
+    if inserted.rows_affected() == 0 {
+        return Ok(None);
+    }
 
     let row = read_back(db, &id)
         .await?
         .unwrap_or_else(|| json!({ "id": id }));
-    Ok(CreatedTask { row, assignee_ids })
+    Ok(Some(CreatedTask { row, assignee_ids }))
 }
 
 /// `findExistingOccurrence`: an open copy due on the same date already

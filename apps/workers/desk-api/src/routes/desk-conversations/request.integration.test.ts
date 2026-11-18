@@ -15,6 +15,7 @@ import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { isPublicDeskMessage, type DeskMessage } from '@weldsuite/db/lib/desk';
+import { deskFulfilmentEventId, deskFulfilmentTaskId } from '@weldsuite/db/lib/desk-catalog';
 import {
   deskConversationRequestChangeSchema,
   deskConversationRequestOrNullSchema,
@@ -189,6 +190,17 @@ beforeAll(async () => {
     updatedAt: at(21),
   });
   await seed('dconv_stalled', 922, { catalogItemId: 'dcat_one', approvalStatus: 'approved' });
+  // A request whose first task another run made (under the id every run gives it), renamed by an agent since.
+  await seed('dconv_taken', 930, { catalogItemId: 'dcat_plain', assigneeId: 'user_bob' });
+  await db.insert(schema.tasks).values({
+    id: await deskFulfilmentTaskId('dconv_taken', 't1'),
+    title: 'Order two headsets',
+    sourceType: 'desk_conversation',
+    sourceId: 'dconv_taken',
+    assigneeId: 'user_alice',
+    createdAt: at(23),
+    updatedAt: at(23),
+  });
 }, 60_000);
 
 describe('PUT /api/desk/conversations/:id/catalog-item without approval steps', () => {
@@ -449,6 +461,24 @@ describe('POST /api/desk/conversations/:id/fulfilment', () => {
     expect(await reason(again)).toBe('already_started');
     expect(await tasksOf('dconv_stalled')).toHaveLength(1);
     expect(await eventsOf('dconv_stalled', 'fulfilment_started')).toHaveLength(1);
+  });
+
+  it('gives a task and the timeline entry the id every run gives them, so neither is made twice', async () => {
+    const firstId = await deskFulfilmentTaskId('dconv_taken', 't1');
+    const secondId = await deskFulfilmentTaskId('dconv_taken', 't2');
+    const res = await retry('dconv_taken');
+    expect(res.status).toBe(200);
+    // The first task was there under its id (its title no longer matches the template): only the second is made.
+    expect(await res.json()).toEqual({ data: { created: 1 } });
+    const tasks = (await tasksOf('dconv_taken')).sort((a, b) => a.title.localeCompare(b.title));
+    expect(tasks.map((t) => [t.id, t.title])).toEqual([
+      [secondId, 'Hand it over'],
+      [firstId, 'Order two headsets'],
+    ]);
+    const events = await eventsOf('dconv_taken', 'fulfilment_started');
+    expect(events).toHaveLength(1);
+    expect(events[0]?.id).toBe(await deskFulfilmentEventId('dconv_taken'));
+    expect(events[0]?.metadata?.taskIds).toEqual([firstId, secondId]);
   });
 
   it('refuses what is not a request, not approved, started already or without its item', async () => {

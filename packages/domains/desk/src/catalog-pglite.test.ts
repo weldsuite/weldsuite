@@ -18,6 +18,8 @@ import {
   createDeskCatalogPortalRequest,
   decideDeskRequestApproval,
   deleteDeskCatalogItem,
+  deskFulfilmentEventId,
+  deskFulfilmentTaskId,
   DeskCatalogItemInUseError,
   DeskCatalogRefusedError,
   DeskCatalogRejectedError,
@@ -444,6 +446,47 @@ describe('fulfilDeskCatalogRequest', () => {
     } finally {
       spy.mockRestore();
     }
+  });
+
+  it('creates each task once and one timeline entry when two runs overlap', async () => {
+    // The retry route while the run after an approval is still going, or two retries at once.
+    await seedConversation('dconv_overlap', 9800, { assigneeId: 'user_a' });
+    notifications.assigned.mockClear();
+    const input = { db, conversation: { id: 'dconv_overlap', assigneeId: 'user_a' }, item, actorUserId: 'user_b' };
+    const runs = await Promise.all([runDeskCatalogFulfilment(ctx, input), runDeskCatalogFulfilment(ctx, input)]);
+
+    const tasks = await tasksOf('dconv_overlap');
+    expect(tasks.map((task) => task.title).sort()).toEqual(['First', 'Second']);
+    expect(tasks.map((task) => task.id).sort()).toEqual(
+      [await deskFulfilmentTaskId('dconv_overlap', 't1'), await deskFulfilmentTaskId('dconv_overlap', 't2')].sort(),
+    );
+    const events = await eventsOf('dconv_overlap', 'fulfilment_started');
+    expect(events.map((event) => event.id)).toEqual([await deskFulfilmentEventId('dconv_overlap')]);
+    // Between them the runs made each task once, and each assignee heard once.
+    expect(runs.reduce((sum, run) => sum + (run?.created ?? 0), 0)).toBe(2);
+    expect(notifications.assigned).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not make a task that is there under its id, even with another title', async () => {
+    await seedConversation('dconv_named', 9801);
+    await db.insert(schema.tasks).values({
+      id: await deskFulfilmentTaskId('dconv_named', 't1'),
+      title: 'Renamed since',
+      sourceType: 'desk_conversation',
+      sourceId: 'dconv_named',
+    });
+    notifications.assigned.mockClear();
+    const run = await runDeskCatalogFulfilment(ctx, { db, conversation: { id: 'dconv_named', assigneeId: null }, item });
+    expect(run?.created).toBe(1);
+    expect((await tasksOf('dconv_named')).map((task) => task.title).sort()).toEqual(['Renamed since', 'Second']);
+    // Nobody is told about the task that was there.
+    expect(notifications.assigned).not.toHaveBeenCalled();
+  });
+
+  it('derives the ids from the conversation and the template, the same on both backends', async () => {
+    // The Rust backend computes the same values (rust/crates/desk-domain/src/fulfilment.rs).
+    expect(await deskFulfilmentTaskId('dconv_1', 't1')).toBe('task_e6d07bdcfd072cf4374b');
+    expect(await deskFulfilmentEventId('dconv_1')).toBe('dmsg_a17d1f4acfa5004cb385');
   });
 
   it('leaves an item without tasks alone and never throws', async () => {
