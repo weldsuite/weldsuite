@@ -24,7 +24,9 @@
 //!   salt of the cookieless visitor hash: the cache (Valkey), the salt
 //!   claimed by the first pod that needs it and kept two days ([`SaltSource`]);
 //! - `PanelUsage`, events and recordings counted per workspace and UTC day:
-//!   atomic counters in the cache ([`UsageCounter`]);
+//!   atomic counters in the cache ([`UsageCounter`]), settled by
+//!   `weldsuite cron panel-usage` ([`usage_sweep`]) where the object's alarm
+//!   settled them;
 //! - the per-IP rate-limiting bindings: counters in the cache
 //!   ([`RateLimiter`]);
 //! - KV: the cache. The cache is not durable storage, so a project or
@@ -53,9 +55,11 @@
 //! recordings and root-cause narratives on the install's AI
 //! ([`PanelState::ai`], Mistral on EU), metered on the credit wallet. Usage
 //! ([`usage_router`]) settles the month's overage where the install bills
-//! plans ([`PanelState::bill_overage`], [`usage_settlement`]). The internal
-//! read API ([`internal_v1_router`]) hands the platform's read handlers to
-//! in-process callers.
+//! plans ([`PanelState::bill_overage`], [`usage_settlement`]) and mails the
+//! owners the notice that is due ([`usage_mail`]). The internal read API
+//! ([`internal_v1_router`]) hands the platform's read handlers to in-process
+//! callers; the internal settlement route ([`internal_usage_router`]) is
+//! served in conformance builds only, as the job settles in process.
 //!
 //! Paths, bodies, status codes, messages and side effects are the
 //! TypeScript workers'; their tests run against this crate in the `panel`
@@ -77,6 +81,7 @@ mod group_types;
 mod groups;
 mod heatmaps;
 mod hooks;
+mod internal_usage;
 mod internal_v1;
 mod js;
 mod keys;
@@ -103,7 +108,9 @@ mod sessions;
 mod share_links;
 mod templates;
 mod usage;
+pub mod usage_mail;
 pub mod usage_settlement;
+pub mod usage_sweep;
 mod visitor_routes;
 
 use std::sync::Arc;
@@ -128,7 +135,7 @@ use weldsuite_events::{EntityEventPublisher, EventContext, publish_entity_event}
 use weldsuite_kit::validation::{Issues, json_body};
 use weldsuite_kit::{ApiError, RequestEnv};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
-use weldsuite_ports::{DynCache, DynRealtimePublisher, OutboundHttp, RequestCache};
+use weldsuite_ports::{DynCache, DynRealtimePublisher, DynSystemMail, OutboundHttp, RequestCache};
 
 pub use analysis_routes::{insights_router, metric_tree_values_router, usage_router};
 pub use collector::{
@@ -138,13 +145,14 @@ pub use collector::{
 pub use domain::plan_replay_tier;
 pub use engine::{AnalyticsSql, BasinSql};
 pub use erasure::{EraseMessage, ErasureQueue, MasterErasureLedger, RequestErasureQueue};
+pub use internal_usage::internal_usage_router;
 pub use internal_v1::internal_v1_router;
 pub use project_state::{PanelProjectState, ProjectRef, RequestProjectState};
 pub use public_share::{
     CacheShareRateLimit, FoundWorkspace, OpenedWorkspace, RequestShareRateLimit,
     RequestWorkspaceTenants, ShareRateLimit, WorkspaceTenants,
 };
-pub use registry::{apply_replay_tier, replay_tiers};
+pub use registry::apply_replay_tier;
 pub use saved_routes::{
     annotations_router, cohorts_router, comments_router, computed_properties_router,
     custom_events_router, dashboards_router, group_types_router, metric_trees_router,
@@ -196,6 +204,10 @@ pub struct PanelState {
     /// credit wallet and an unpaid block blocks the collector. Without it
     /// nothing is charged and the quota stays `ok`.
     pub bill_overage: bool,
+    /// The install's system mail: the usage notices to a workspace's owners
+    /// ([`usage_mail`]). `None` sends none, as panel-api without a mail
+    /// binding.
+    pub mail: Option<Arc<dyn DynSystemMail>>,
 }
 
 impl std::fmt::Debug for PanelState {
@@ -213,6 +225,7 @@ impl std::fmt::Debug for PanelState {
             .field("trusted_proxies", &self.trusted_proxies)
             .field("ai", &self.ai.is_some())
             .field("bill_overage", &self.bill_overage)
+            .field("mail", &self.mail.is_some())
             .finish()
     }
 }

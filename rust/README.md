@@ -623,9 +623,12 @@ rust/
                         events, computed properties, path rules, group types, annotations,
                         comments, metric trees, share links and their public `/public/panel/share`
                         routes, one file per group), root cause, metric tree values, usage (with
-                        the overage settlement, `usage_settlement.rs`), AI summaries of
+                        the overage settlement, `usage_settlement.rs`, the `panel-usage` job's
+                        sweep over the collector's counters, `usage_sweep.rs`, and the owners'
+                        usage notices, `usage_mail.rs`), AI summaries of
                         recordings on the install's AI (`panel_ai.rs`), the internal read API
-                        (`internal_v1.rs`, mounted in conformance builds), and the public
+                        (`internal_v1.rs`) and settlement route (`internal_usage.rs`), both
+                        mounted in conformance builds only, and the public
                         collector in `collector/`: the wire format, rows, URLs, user agents,
                         IP filters, the cookieless visitor id, the scripts, recordings and
                         snapshots, the server API, the rate limits),
@@ -885,6 +888,11 @@ every 5 (WeldConnect's connectors; nothing while connect is not served), and
 `merge-digest-sweep` hourly (WeldMerge's daily WeldChat digests over the `merge_digest`
 due index; nothing while merge is not served), `mail-outbound-ledgers` every 5
 minutes (WeldMail's outbound ledgers' alarms; skipped without `VALKEY_URL`),
+`panel-usage` every 5 minutes (WeldPanel's events and recordings the collector
+counted in Valkey, settled into `panel_usage_monthly` with the overage charged
+where plans are billed, the quota state and the plan's replay tier for the
+collector, as the `PanelUsage` objects' alarms do on Global, and the usage
+notices mailed to the owners; skipped without `VALKEY_URL`),
 `calendar-replan` daily at 04:00 UTC, `flow-file-purge`, `flow-approval-due`
 and `flow-benefit-measure` daily at 03:30 UTC, as on Global, and
 `forms-reminders` and `forms-digest` every 15 minutes (WeldForms' invitation
@@ -1009,10 +1017,12 @@ nightly `weldsuite cron panel-maintenance` keeps the tables (erasure from
 orphan sweep), deletes what Global's R2 lifecycle rules delete from the
 replays bucket (recording chunks under `replays/30d/` and `replays/90d/`
 after 30 and 90 days, a favourite's `replays/keep/` copies after 396,
-heatmap snapshots after 90, each counted from when it was written) and,
-with `VALKEY_URL`, moves the collector's project records to the replay tier
-of their workspace's plan (`90d` on Scale and Enterprise, `30d` otherwise
-and without billing). Without the bucket WeldPanel analytics is off.
+heatmap snapshots after 90, each counted from when it was written). The
+collector's project records follow the replay tier of their workspace's plan
+(`90d` on Scale and Enterprise, `30d` otherwise and without billing): written
+with every registry write, and moved by the usage settlement of
+`weldsuite cron panel-usage`, as on Global. Without the bucket WeldPanel
+analytics is off.
 
 ## WeldMeet on LiveKit
 

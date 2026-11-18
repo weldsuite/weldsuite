@@ -289,28 +289,6 @@ pub async fn apply_replay_tier(
     Ok(true)
 }
 
-/// Every workspace with a live project, and the tier its plan writes to
-/// (`30d` without billing, as on Global without a plan).
-///
-/// # Errors
-///
-/// The master database failing.
-pub async fn replay_tiers(master: &PgPool) -> Result<Vec<(String, &'static str)>, sqlx::Error> {
-    let rows: Vec<(String, Option<String>)> = sqlx::query_as(
-        "select r.workspace_id, p.slug
-         from (select distinct workspace_id from panel_project_registry where deleted_at is null) r
-         left join workspaces w on w.id = r.workspace_id
-         left join plans p on p.id = w.plan_id
-         order by r.workspace_id",
-    )
-    .fetch_all(master)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .map(|(workspace_id, slug)| (workspace_id, plan_replay_tier(slug.as_deref())))
-        .collect())
-}
-
 /// An ISO timestamp field of a `js_row` (`toISOString()` form, which orders
 /// as text).
 fn iso<'a>(row: &'a Value, key: &str) -> &'a str {

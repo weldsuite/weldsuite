@@ -848,6 +848,34 @@ pub(crate) async fn public(
     run_reporting_route(request, next).await
 }
 
+/// Middleware, inside [`public`], for a route a worker serves only on its
+/// internal entrypoint (panel-api's `PanelApiInternal`): a test reaches it
+/// with its context, which [`public`] turned into the request's env; a
+/// request without one is the worker's public fetch handler's, which
+/// answers it as an unknown path.
+pub(crate) async fn internal_entrypoint_only(request: Request, next: Next) -> Response {
+    if request
+        .extensions()
+        .get::<weldsuite_kit::RequestEnv>()
+        .is_some()
+    {
+        return next.run(request).await;
+    }
+    let path = request
+        .extensions()
+        .get::<axum::extract::OriginalUri>()
+        .map_or_else(
+            || request.uri().path().to_owned(),
+            |uri| uri.path().to_owned(),
+        );
+    ApiError::new(
+        http::StatusCode::NOT_FOUND,
+        "NOT_FOUND",
+        format!("{path} not found"),
+    )
+    .into_response()
+}
+
 /// Middleware for public routes that open a workspace's tenant database
 /// themselves (WeldDesk's help center and OAuth callbacks): the test mocks
 /// `getTenantDbForWorkspace` to hand out its tenant database for every

@@ -106,6 +106,10 @@ const TEMPLATE_FILES: &[(&str, &str)] = &[
         include_str!("../../../catalogs/emails/templates/meet.invitation.json"),
     ),
     (
+        "panel.usage",
+        include_str!("../../../catalogs/emails/templates/panel.usage.json"),
+    ),
+    (
         "portal.sign-in",
         include_str!("../../../catalogs/emails/templates/portal.sign-in.json"),
     ),

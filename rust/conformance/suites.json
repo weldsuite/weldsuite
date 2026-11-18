@@ -3708,18 +3708,23 @@
       "workspace": "apps/workers/panel-api",
       "tests": [
         "src/routes/internal-v1.test.ts",
-        "src/index.test.ts"
+        "src/index.test.ts",
+        "src/internal.test.ts"
       ],
       "coverage": [
-        "/internal/panel/v1/:workspaceId/reports/:id/results"
+        "/internal/panel/v1/:workspaceId/reports/:id/results",
+        "/internal/panel/usage/settle"
       ],
       "paths": [
         "apps/workers/panel-api/src/",
         "packages/domains/panel/src/",
+        "packages/core/credits/src/",
         "packages/core/worker-kit/src/testing/workspace-bridge.ts",
         "packages/core/worker-kit/src/testing/conformance-schemas-panel-analysis.ts",
         "rust/modules/panel/",
+        "rust/bins/weldsuite/src/conformance.rs",
         "rust/bins/weldsuite/src/conformance_panel.rs",
+        "rust/crates/core-domain/src/credits.rs",
         "rust/crates/panel-domain/"
       ]
     },

@@ -19,7 +19,10 @@
 //!  4. For the current month, the state goes to the cache
 //!     (`panel:quota:<workspace>`, deleted for `ok`) for the collector, the
 //!     workspace's replay tier into its project records, and the usage
-//!     notice that is due is claimed on the row ([`UsageNotice`]).
+//!     notice that is due is claimed on the row ([`UsageNotice`]) for the
+//!     caller to mail ([`crate::usage_mail`]). Without billing there is no
+//!     notice: every one of them says that usage past the allowance is
+//!     charged to the wallet or that data is dropped, and neither happens.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -30,7 +33,8 @@ use weldsuite_db::PgPool;
 use weldsuite_panel_domain::js;
 use weldsuite_ports::{Cache, DynCache, PortError};
 
-use crate::domain::{project_key, quota_key};
+use crate::domain::quota_key;
+use crate::registry::apply_replay_tier;
 
 /// Overage is charged in blocks of this many events / recordings.
 pub const EVENT_BLOCK: i64 = 10_000;
@@ -260,6 +264,20 @@ pub fn quota_cache_key(workspace_id: &str) -> String {
 /// `monthOf(date)`: the UTC month, `YYYY-MM`.
 pub fn month_of(millis: i64) -> String {
     js::iso_string(millis).chars().take(7).collect()
+}
+
+/// The UTC start of `month` (`YYYY-MM`) moved by `months`, epoch
+/// milliseconds; `None` for a malformed month.
+pub fn month_start(month: &str, months: i64) -> Option<i64> {
+    let (year, month_no) = month.split_once('-')?;
+    let year: i64 = year.parse().ok()?;
+    let month_no: i64 = month_no.parse().ok()?;
+    Some(js::date_utc(year, month_no - 1 + months, 1))
+}
+
+/// `nextMonthStart(month)`: the start of the month after `month`, ISO.
+pub fn next_month_start(month: &str) -> Option<String> {
+    month_start(month, 1).map(js::iso_string)
 }
 
 /// The prices (`PanelPricing`): credits per 10,000 events and per 100
@@ -585,61 +603,6 @@ async fn plan_usage_notice(
     Ok(None)
 }
 
-/// `panel:tier:<workspaceId>`: the replay tier last written into the
-/// workspace's project records.
-fn tier_key(workspace_id: &str) -> String {
-    format!("panel:tier:{workspace_id}")
-}
-
-/// `applyReplayTier`: the workspace's replay tier into its live projects'
-/// collector records (`90d` written, `30d` the default and left out).
-async fn apply_replay_tier(
-    master: &PgPool,
-    cache: &Arc<dyn DynCache>,
-    workspace_id: &str,
-    tier: &str,
-) -> Result<(), SettlementError> {
-    if cache.get(&tier_key(workspace_id)).await?.as_deref() == Some(tier) {
-        return Ok(());
-    }
-    let tokens: Vec<String> = sqlx::query_scalar(
-        "select token from panel_project_registry where workspace_id = $1 and deleted_at is null",
-    )
-    .bind(workspace_id)
-    .fetch_all(master)
-    .await?;
-    for token in tokens {
-        let key = project_key(&token);
-        let Some(raw) = cache.get(&key).await? else {
-            continue;
-        };
-        let Ok(Value::Object(mut record)) = serde_json::from_str::<Value>(&raw) else {
-            continue;
-        };
-        let valid = record.get("v").and_then(Value::as_f64) == Some(1.0)
-            && record.get("projectId").is_some_and(Value::is_string)
-            && record.get("workspaceId").is_some_and(Value::is_string);
-        if !valid {
-            continue;
-        }
-        let current = record.get("replayTier").and_then(Value::as_str);
-        let wanted = (tier == "90d").then_some(tier);
-        if current == wanted {
-            continue;
-        }
-        if tier == "90d" {
-            record.insert("replayTier".to_owned(), json!(tier));
-        } else {
-            record.remove("replayTier");
-        }
-        cache
-            .put(&key, &Value::Object(record).to_string(), None)
-            .await?;
-    }
-    cache.put(&tier_key(workspace_id), tier, None).await?;
-    Ok(())
-}
-
 /// `settleUsage`: `None` when the workspace does not exist (nothing is
 /// stored or charged).
 #[allow(
@@ -741,9 +704,11 @@ pub async fn settle_usage(
                     .put(&quota_key(&input.workspace_id), quota, None)
                     .await?;
             }
+            // `applyReplayTier`: the plan's tier into the collector's records
+            // (`registry.rs`, one cache read while they are in step).
             if let Err(error) = apply_replay_tier(
                 deps.master,
-                cache,
+                cache.as_ref(),
                 &input.workspace_id,
                 workspace.limits.replay_tier,
             )
@@ -752,10 +717,13 @@ pub async fn settle_usage(
                 tracing::error!(%error, workspace = %input.workspace_id, "[panel-api] replay tier refresh failed");
             }
         }
-        match plan_usage_notice(deps.master, &workspace, &usage, quota, deps.now).await {
-            Ok(planned) => notice = planned,
-            Err(error) => {
-                tracing::error!(%error, workspace = %input.workspace_id, "[panel-api] usage notice failed");
+        // Without billing nothing is charged or dropped: no notice to send.
+        if deps.bill {
+            match plan_usage_notice(deps.master, &workspace, &usage, quota, deps.now).await {
+                Ok(planned) => notice = planned,
+                Err(error) => {
+                    tracing::error!(%error, workspace = %input.workspace_id, "[panel-api] usage notice failed");
+                }
             }
         }
     }
@@ -836,5 +804,22 @@ mod tests {
             }
         );
         assert_eq!(month_of(0), "1970-01");
+    }
+
+    #[test]
+    fn months_start_and_turn_over() {
+        assert_eq!(
+            next_month_start("2026-11").as_deref(),
+            Some("2026-12-01T00:00:00.000Z")
+        );
+        assert_eq!(
+            next_month_start("2026-12").as_deref(),
+            Some("2027-01-01T00:00:00.000Z")
+        );
+        assert_eq!(
+            month_start("2026-01", -1).map(month_of).as_deref(),
+            Some("2025-12")
+        );
+        assert_eq!(next_month_start("2026"), None);
     }
 }

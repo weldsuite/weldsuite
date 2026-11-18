@@ -662,6 +662,10 @@ fn panel_state(state: &AppState) -> weldsuite_panel::PanelState {
         // Overage is charged where plans are billed (`billing`); the
         // worker's tests charge, so conformance builds do.
         bill_overage: state.edition.plan_billing || conformance,
+        // The usage notices to a workspace's owners. The worker's tests bind
+        // no mail (`SEND_EMAIL`), so panel-api sends none there, and
+        // conformance builds neither.
+        mail: state.infra.mail.clone().filter(|_| !conformance),
     }
 }
 
@@ -773,16 +777,27 @@ fn panel(router: Router<AppState>, state: &AppState) -> Router<AppState> {
 /// panel-api's `PanelApiInternal` entrypoint): trusted by topology, so never
 /// on the server's listener; its callers run it in process
 /// (`weldsuite_panel::internal_v1_router`). Conformance builds serve it for
-/// the worker's tests, with the test's workspace lookup and bindings.
+/// the worker's tests, with the test's workspace lookup and bindings; and
+/// the usage settlement `PanelUsage` posts to (`/internal/panel/usage/settle`,
+/// which `weldsuite cron panel-usage` runs in process), only to a call that
+/// carries the test's context, as only the entrypoint serves it: the
+/// worker's public fetch handler answers it as an unknown path.
 #[cfg(feature = "conformance")]
 fn panel_internal_conformance(state: &AppState) -> Router<AppState> {
     if !mounts("panel") {
         return Router::new();
     }
-    Router::new().nest(
-        "/internal/panel/v1",
-        weldsuite_panel::internal_v1_router(panel_state(state), &state.permissions),
-    )
+    Router::new()
+        .nest(
+            "/internal/panel/v1",
+            weldsuite_panel::internal_v1_router(panel_state(state), &state.permissions),
+        )
+        .nest(
+            "/internal/panel/usage",
+            weldsuite_panel::internal_usage_router(panel_state(state)).route_layer(
+                axum::middleware::from_fn(crate::conformance::internal_entrypoint_only),
+            ),
+        )
 }
 
 /// WeldForms (`weldsuite-forms`): forms-api's `/api/forms`, with the
