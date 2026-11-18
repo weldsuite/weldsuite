@@ -327,6 +327,43 @@ is stale.
   same change: `pnpm --filter docs capture-screenshots:all` (skill
   `help-docs`).
 
+### Modern web guidance
+
+Web frontend code is checked against Modern Web Guidance, the Chrome team's
+skill in `.agents/skills/modern-web-guidance` and
+`.claude/skills/modern-web-guidance`. Do it on your own, before you write the
+code: the user doesn't have to ask for it, and you don't ask whether to.
+
+- **When:** any change to HTML, CSS or browser-side JavaScript/TypeScript in a
+  web frontend: the platform, `@weldsuite/ui`, the portals and sites, admin,
+  partner, developer, docs, the helpdesk widget, the WeldPass extension and
+  the hosted WeldApps. Not for backend, workers, Rust, SQL, CI, scripts,
+  test-only, config, copy or translation changes, or the Expo apps (React
+  Native has no DOM).
+- **Search** once per UI pattern or platform capability, with a 2–5 word
+  generic English query and no framework, product or module names:
+  `npx -y modern-web-guidance@latest search "light dismiss dialog"`
+  (`npx.cmd` in PowerShell).
+- **Retrieve** the guides that match:
+  `npx -y modern-web-guidance@latest retrieve "<id>,<id>"`. A large result is
+  saved to a temp file; read all of it.
+- **Apply it through our stack.** The guides are vanilla HTML/CSS/JS, and the
+  repo rules win where they differ: a pattern that belongs in a dialog,
+  popover, select or other shared component goes into `@weldsuite/ui` with its
+  story, not into a module; Tailwind v4; React 19.
+- **Check** the change against the guides before finishing, and end the reply
+  that delivers it with the `### Modern Web Guidance` section the skill
+  describes (or one sentence on what you searched and why nothing applied).
+- **Browser support** is Baseline Widely available, the skill's default and
+  Vite's build target, so there is no `.mwgrc`: newer features get the
+  guide's fallback. Don't run `set-baseline`, `set-allow-origin-trials` or
+  `set-allow-volatile-features` and don't edit `.mwgrc`; ask the user.
+- `legacy-scan` is only for a codebase-wide modernization audit someone asked
+  for.
+- The repo keeps only `SKILL.md`, the same plain file in both folders (no
+  link); the guides come from npm at run time. When the CLI says a newer
+  `SKILL.md` exists, copy it into both folders and update `skills-lock.json`.
+
 ### Kept in lockstep
 
 Change both sides in the same PR:
@@ -392,6 +429,8 @@ WeldSuite itself is the task tracker, through the WeldSuite MCP server
   checks a permission and validates input and output with Zod; every new
   mutation publishes an entity event.
 - New strings in `en` and `nl`.
+- Web frontend changes were checked against Modern Web Guidance (see "Modern
+  web guidance").
 - No stray `console.log`, `any` or `@ts-ignore`.
 - Schema changes are called out; no migration without approval.
 - A decision made, reversed or replaced has its ADR and design doc updated in
