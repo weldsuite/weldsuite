@@ -670,11 +670,26 @@ fn panel(router: Router<AppState>, state: &AppState) -> Router<AppState> {
         return router;
     }
     let panel = panel_state(state);
+    // Alerts, subscriptions, exports and custom domains (`crate::panel_monitor`).
+    let monitor = crate::panel_monitor::monitor_state(state, panel.clone());
     let gate = &state.permissions;
     router
         .nest(
             "/panel/projects",
-            weldsuite_panel::router(panel.clone(), gate),
+            weldsuite_panel::router(panel.clone(), gate)
+                .merge(weldsuite_panel::domains_router(monitor.clone(), gate)),
+        )
+        .nest(
+            "/panel/alerts",
+            weldsuite_panel::alerts_router(monitor.clone(), gate),
+        )
+        .nest(
+            "/panel/subscriptions",
+            weldsuite_panel::subscriptions_router(monitor.clone(), gate),
+        )
+        .nest(
+            "/panel/exports",
+            weldsuite_panel::exports_router(monitor, gate),
         )
         .nest(
             "/panel/query",

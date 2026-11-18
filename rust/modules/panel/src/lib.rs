@@ -70,6 +70,7 @@ mod keys;
 mod lexicon;
 mod live;
 mod metric_trees;
+pub mod monitor;
 mod path_rules;
 mod people;
 pub mod project_state;
@@ -118,6 +119,10 @@ pub use collector::{
 };
 pub use engine::{AnalyticsSql, BasinSql};
 pub use erasure::{EraseMessage, ErasureQueue, MasterErasureLedger, RequestErasureQueue};
+pub use monitor::{
+    CloudflareDomains, CollectorDomains, MonitorState, alerts_router, domains_router,
+    exports_router, subscriptions_router,
+};
 pub use project_state::{PanelProjectState, ProjectRef, RequestProjectState};
 pub use public_share::{
     CacheShareRateLimit, OpenedWorkspace, RequestShareRateLimit, RequestWorkspaceTenants,

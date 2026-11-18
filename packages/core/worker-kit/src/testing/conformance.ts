@@ -334,6 +334,10 @@ export const FORWARDED_ENV = [
   'PANEL_BASIN_BUCKET',
   'PANEL_RECORDER_FILE',
   'PANEL_VITALS_FILE',
+  // WeldPanel's custom collector domains: the Cloudflare for SaaS zone and the
+  // host customers CNAME to (CLOUDFLARE_API_TOKEN is forwarded above).
+  'PANEL_SAAS_ZONE_ID',
+  'PANEL_SAAS_CNAME_TARGET',
   // WeldMerge: the GitHub App's user authorization, the GitLab, Bitbucket and
   // Azure DevOps OAuth apps, and the public origin provider webhooks deliver to
   // (APP_URL, the keyring and the App's id, slug and key are forwarded above).

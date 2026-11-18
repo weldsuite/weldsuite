@@ -11,7 +11,9 @@ publish.workspace = true
 [dependencies]
 weldsuite-auth = { workspace = true }
 weldsuite-catalogs = { workspace = true }
+weldsuite-chat-domain = { workspace = true }
 weldsuite-db = { workspace = true }
+weldsuite-emails = { workspace = true }
 weldsuite-events = { workspace = true }
 weldsuite-kit = { workspace = true }
 weldsuite-notifications = { workspace = true }
@@ -24,9 +26,11 @@ bytes = { workspace = true }
 flate2 = { workspace = true }
 futures-util = { workspace = true }
 getrandom = { workspace = true }
+hmac = { workspace = true }
 hex = { workspace = true }
 http = { workspace = true }
 http-body-util = { workspace = true }
+jiff = { workspace = true }
 regex = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true, features = ["raw_value"] }

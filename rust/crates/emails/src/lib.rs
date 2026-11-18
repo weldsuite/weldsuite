@@ -49,6 +49,7 @@ pub mod forms;
 pub mod hr;
 pub mod ics;
 pub mod meet;
+pub mod panel_monitor;
 pub mod portal;
 pub mod reach;
 mod send;
