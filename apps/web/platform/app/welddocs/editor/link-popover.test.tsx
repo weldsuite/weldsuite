@@ -29,9 +29,9 @@ function fakeController({ selection = caretAt(BODY, 3), link = null as { url: st
 const asController = (fake: ReturnType<typeof fakeController>) => fake as unknown as DocController;
 
 describe('LinkEditor', () => {
-  let onClose: ReturnType<typeof vi.fn>;
+  let onClose = vi.fn<() => void>();
   beforeEach(() => {
-    onClose = vi.fn();
+    onClose = vi.fn<() => void>();
   });
 
   it('asks for the text and the address at a caret with no link, and adds both', async () => {
