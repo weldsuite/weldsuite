@@ -11,16 +11,16 @@ publish.workspace = true
 [dependencies]
 arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
+async-trait = { workspace = true }
 datafusion = { workspace = true }
 datafusion-functions-json = { workspace = true }
 futures-util = { workspace = true }
 iceberg = { workspace = true }
-iceberg-catalog-sql = { workspace = true }
 iceberg-datafusion = { workspace = true }
 iceberg-storage-opendal = { workspace = true }
 parquet = { workspace = true }
 serde_json = { workspace = true }
-sqlx-iceberg = { workspace = true }
+sqlx = { workspace = true }
 time = { workspace = true, features = ["parsing"] }
 tokio = { workspace = true, features = ["time"] }
 tracing = { workspace = true }

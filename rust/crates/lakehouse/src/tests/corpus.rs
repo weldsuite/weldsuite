@@ -4,6 +4,10 @@
 //! session over the seeded fixture, and its columns compared. The test fails
 //! listing every statement that doesn't run, with the error. Without the file
 //! it is skipped with a message (`PANEL_SQL_CORPUS` points elsewhere).
+//!
+//! Every statement runs, the cohort filters (`<person> IN (SELECT …)`)
+//! included: `in_subquery.rs` covers the two shapes DataFusion 54 can't
+//! plan on its own.
 
 use std::path::PathBuf;
 
@@ -20,62 +24,6 @@ fn corpus_path() -> PathBuf {
         PathBuf::from,
     )
 }
-
-/// Statements DataFusion 54 can't run, and why: both are cohort filters
-/// (`<person> IN (SELECT …)`). Each must still fail; one that runs is
-/// taken off the list.
-const KNOWN_GAPS: &[(&str, &str)] = &[
-    (
-        "panel-api:panel-api/people.ts/cohortPeople-any/people.cohort",
-        DUPLICATE_NAME,
-    ),
-    (
-        "compiler:query/sessions/cohort-any/sessions.list",
-        DUPLICATE_NAME,
-    ),
-    (
-        "compiler:query/trends/filters-cohort-any/trends.series",
-        DUPLICATE_NAME,
-    ),
-    (
-        "compiler:query/trends/filters-cohort-any/trends.totals",
-        DUPLICATE_NAME,
-    ),
-    (
-        "compiler:query/trends/filters-cohort-clamped-to-retention/trends.series",
-        DUPLICATE_NAME,
-    ),
-    (
-        "compiler:query/trends/filters-cohort-clamped-to-retention/trends.totals",
-        DUPLICATE_NAME,
-    ),
-    (
-        "compiler:query/trends/filters-cohort-negated/trends.series",
-        DUPLICATE_NAME,
-    ),
-    (
-        "compiler:query/trends/filters-cohort-negated/trends.totals",
-        DUPLICATE_NAME,
-    ),
-    (
-        "compiler:query/trends/filters-series/trends.series",
-        SUBQUERY_IN_AGGREGATE,
-    ),
-    (
-        "compiler:query/trends/filters-series/trends.totals",
-        SUBQUERY_IN_AGGREGATE,
-    ),
-];
-
-/// `x IN (SELECT …) OR x IN (SELECT …)` with the same non-column `x`
-/// (`COALESCE(i.user_id, e.distinct_id)`): `decorrelate_predicate_subquery`
-/// fails, "Projections require unique expression names".
-const DUPLICATE_NAME: &str = "two IN-subqueries on one expression under OR";
-
-/// `COUNT(DISTINCT CASE WHEN … x IN (SELECT …) … END)`: an IN-subquery in an
-/// aggregate's argument isn't decorrelated, "Physical plan does not support
-/// logical expression `InSubquery`".
-const SUBQUERY_IN_AGGREGATE: &str = "IN-subquery inside an aggregate";
 
 /// One statement of the corpus.
 struct Statement {
@@ -139,18 +87,9 @@ async fn every_corpus_statement_runs_on_datafusion() {
     );
     let mut failures = Vec::new();
     let mut column_mismatches = Vec::new();
-    let mut known = 0_usize;
     let mut with_rows = 0_usize;
     for statement in &statements {
-        let gap = KNOWN_GAPS
-            .iter()
-            .find(|(label, _)| *label == statement.label);
         match engine.query(&statement.sql).await {
-            Err(_) if gap.is_some() => known += 1,
-            Ok(_) if gap.is_some() => failures.push(format!(
-                "{}: runs now, take it off KNOWN_GAPS",
-                statement.label
-            )),
             Ok(result) => {
                 if result.batches.iter().any(|batch| batch.num_rows() > 0) {
                     with_rows += 1;
@@ -176,11 +115,10 @@ async fn every_corpus_statement_runs_on_datafusion() {
         }
     }
     eprintln!(
-        "corpus: {} statements, {} ran ({} returned rows), {} known gaps, {} failed, {} column mismatches",
+        "corpus: {} statements, {} ran ({} returned rows), {} failed, {} column mismatches",
         statements.len(),
-        statements.len() - failures.len() - known,
+        statements.len() - failures.len(),
         with_rows,
-        known,
         failures.len(),
         column_mismatches.len()
     );

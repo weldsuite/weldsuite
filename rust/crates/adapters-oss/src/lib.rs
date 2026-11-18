@@ -20,6 +20,7 @@
 //! | `DatabaseProvisioner` | [`CnpgProvisioner`] (CloudNativePG shards behind `PgBouncer`) | Neon provisioning |
 //! | `BatchHandler` (consuming) | [`run_consumer`] on a durable `JetStream` consumer | Queue consumers of the hub subscribers |
 //! | `Embeddings` | [`OpenAiEmbeddings`] (any OpenAI-compatible endpoint) | Workers AI through the AI Gateway |
+//! | (leases) | [`ValkeyLease`]: one holder at a time for a named piece of work | a Durable Object's single instance |
 //!
 //! Adapters take their settings as arguments; the server reads them from the
 //! environment.
@@ -38,6 +39,7 @@ mod s3;
 mod smtp;
 mod smtp_transport;
 mod valkey;
+mod valkey_lease;
 mod valkey_ledger;
 mod weldid;
 mod weldid_sso;
@@ -52,11 +54,12 @@ pub use http::ReqwestOutbound;
 pub use imap::AsyncImapConnector;
 pub use nats::{
     DEFAULT_ENTITY_EVENTS_STREAM, DEFAULT_PANEL_EVENTS_STREAM, DEFAULT_PANEL_EVENTS_SUBJECT,
-    JetStreamEventBus, NatsOptions, entity_events_stream_config, panel_events_stream_config,
+    DEFAULT_PANEL_STATE_STREAM, JetStreamEventBus, NatsOptions, PANEL_STATE_SUBJECTS,
+    entity_events_stream_config, panel_events_stream_config, panel_state_stream_config,
 };
 pub use nats_consume::{
     Action, CONSUMER_MESSAGES_METRIC, ConsumerSpec, dead_letter_stream_config, dead_letter_subject,
-    decide, ensure_consumer, run_consumer,
+    decide, ensure_consumer, publish_dead_letter, run_consumer,
 };
 pub use restate::{
     JOBS_SERVICE, JobCall, RestateJobs, SIGNALS_OBJECT, WeldsuiteJobSignals, WeldsuiteJobs,
@@ -66,6 +69,7 @@ pub use s3::{S3FileStore, S3Options};
 pub use smtp::SmtpMail;
 pub use smtp_transport::{SmtpMailTransport, refusal_code};
 pub use valkey::{ValkeyCache, ValkeyRealtime, connect_valkey};
+pub use valkey_lease::ValkeyLease;
 pub use valkey_ledger::ValkeyLedgerStore;
 pub use weldid::{
     INVITATION_DAYS, INVITATION_EMAIL_MISMATCH, INVITATION_EMAIL_UNVERIFIED, INVITATION_EXPIRED,

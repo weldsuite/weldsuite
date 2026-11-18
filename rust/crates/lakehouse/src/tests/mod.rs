@@ -6,3 +6,4 @@ mod corpus;
 mod fixture;
 mod lake;
 mod queries;
+mod store;

@@ -21,6 +21,8 @@ data:
   FILES_BUCKET_PRIVATE: example-files
   # WeldMail's inbound spool and raw messages (Haraka, mailInbound).
   FILES_BUCKET_MAIL: example-mail
+  # WeldPanel's Iceberg tables (config.panel, ADR EVT-019).
+  FILES_BUCKET_PANEL: example-panel
   # Zitadel (auth.${DOMAIN}): the WeldSuite project's id (the tokens'
   # audience) and the platform's web application's client id (PKCE). Made in
   # Zitadel's console after its first start (README, step 7).

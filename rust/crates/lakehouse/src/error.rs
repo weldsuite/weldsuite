@@ -8,8 +8,8 @@ use std::fmt;
 pub enum LakehouseError {
     /// The table format (iceberg-rust): metadata, manifests, data files, storage.
     Iceberg(iceberg::Error),
-    /// The catalog database (the compare-and-swap commit).
-    Catalog(sqlx_iceberg::Error),
+    /// The catalog database (the compare-and-swap commit, the ledger).
+    Catalog(sqlx::Error),
     /// Planning or running a query.
     Query(datafusion::error::DataFusionError),
     /// Building Arrow data.
@@ -55,8 +55,8 @@ impl From<iceberg::Error> for LakehouseError {
     }
 }
 
-impl From<sqlx_iceberg::Error> for LakehouseError {
-    fn from(error: sqlx_iceberg::Error) -> Self {
+impl From<sqlx::Error> for LakehouseError {
+    fn from(error: sqlx::Error) -> Self {
         Self::Catalog(error)
     }
 }

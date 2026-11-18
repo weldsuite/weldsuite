@@ -20,7 +20,7 @@ impl Drop for TestLake {
     }
 }
 
-fn file_url(path: &Path) -> String {
+pub(crate) fn file_url(path: &Path) -> String {
     let text = path.to_string_lossy().replace('\\', "/");
     if text.starts_with('/') {
         format!("file:{text}")
@@ -43,27 +43,77 @@ macro_rules! test_lake {
 }
 pub(crate) use test_lake;
 
+/// The catalog's tables as the master migration makes them
+/// (`packages/core/db/drizzle/master-migrations/0072_weldpanel_lakehouse.sql`),
+/// for a scratch database that hasn't run the migrations.
+const CATALOG_DDL: [&str; 2] = [
+    "CREATE TABLE IF NOT EXISTS iceberg_tables (
+        catalog_name varchar(255) NOT NULL,
+        table_namespace varchar(255) NOT NULL,
+        table_name varchar(255) NOT NULL,
+        metadata_location varchar(1000),
+        previous_metadata_location varchar(1000),
+        iceberg_type varchar(5),
+        CONSTRAINT iceberg_tables_pkey PRIMARY KEY (catalog_name, table_namespace, table_name)
+    )",
+    "CREATE TABLE IF NOT EXISTS iceberg_namespace_properties (
+        catalog_name varchar(255) NOT NULL,
+        namespace varchar(255) NOT NULL,
+        property_key varchar(255) NOT NULL,
+        property_value varchar(1000),
+        CONSTRAINT iceberg_namespace_properties_pkey PRIMARY KEY (catalog_name, namespace, property_key)
+    )",
+];
+
+/// A pool on the scratch Postgres (`WELDSUITE_TEST_DATABASE_URL`) with the
+/// catalog's tables, or `None` without the variable.
+pub(crate) async fn test_pool() -> Option<sqlx::PgPool> {
+    let url = std::env::var("WELDSUITE_TEST_DATABASE_URL").ok()?;
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(4)
+        .connect(&url)
+        .await
+        .expect("the test database");
+    for statement in CATALOG_DDL {
+        // Tests start in parallel: a lost race to create a table is fine.
+        if let Err(error) = sqlx::query(statement).execute(&pool).await {
+            assert!(is_unique_violation(&error), "the catalog's tables: {error}");
+        }
+    }
+    Some(pool)
+}
+
+/// `CREATE TABLE IF NOT EXISTS` racing itself fails on the type's unique
+/// index (`pg_type_typname_nsp_index`).
+fn is_unique_violation(error: &sqlx::Error) -> bool {
+    error
+        .as_database_error()
+        .and_then(sqlx::error::DatabaseError::code)
+        .is_some_and(|code| code == "23505")
+}
+
 impl TestLake {
-    /// The SQL catalog on Postgres (`WELDSUITE_TEST_DATABASE_URL`, a scratch
+    /// Our catalog on Postgres (`WELDSUITE_TEST_DATABASE_URL`, a scratch
     /// database; its two tables are made there) under a catalog name of its
     /// own, and the tables in a new temp dir. `None` without the variable.
-    ///
-    /// Not SQLite: iceberg-catalog-sql's sqlx 0.8 bundles a libsqlite3-sys
-    /// that cargo-deny rejects (a SQLite CVE fixed only in 0.39).
     pub(crate) async fn new() -> Option<Self> {
-        let catalog_url = std::env::var("WELDSUITE_TEST_DATABASE_URL").ok()?;
+        let pool = test_pool().await?;
         let dir =
             std::env::temp_dir().join(format!("weldsuite-lakehouse-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(dir.join("warehouse")).expect("a temp dir");
         let config = LakehouseConfig {
-            catalog_url,
             catalog_name: format!("test_{}", uuid::Uuid::new_v4().simple()),
             warehouse: file_url(&dir.join("warehouse")),
             storage: HashMap::new(),
         };
-        let lake = Lakehouse::connect(&config).await.expect("the catalog");
+        let lake = Lakehouse::new(pool, &config).expect("the catalog");
         lake.ensure_tables().await.expect("the tables");
         Some(Self { lake, dir })
+    }
+
+    /// The temp dir the tables are in.
+    pub(crate) fn dir(&self) -> &Path {
+        &self.dir
     }
 
     pub(crate) fn engine(&self) -> QueryEngine {

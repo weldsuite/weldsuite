@@ -163,11 +163,11 @@ async fn the_compilers_constructs_run_on_datafusion() {
     );
 }
 
-/// Cohort filters (`<person> IN (SELECT …)`) DataFusion 54 runs and can't
-/// (see `corpus.rs`'s `KNOWN_GAPS`). When the failing one runs, the
-/// compiler's SQL works as it is.
+/// Cohort filters (`<person> IN (SELECT …)`): in a filter, alone or under
+/// `OR`, and in an aggregate's argument (`in_subquery.rs` decorrelates that
+/// one; DataFusion 54 alone can't).
 #[tokio::test]
-async fn datafusion_54_and_in_subqueries() {
+async fn in_subqueries_run_in_filters_and_aggregates() {
     let lake = test_lake!();
     lake.seed().await;
     let engine = lake.engine();
@@ -186,18 +186,17 @@ async fn datafusion_54_and_in_subqueries() {
             .await
             .unwrap_or_else(|error| panic!("{sql}: {error}"));
     }
-    // An IN-subquery in an aggregate's argument isn't decorrelated.
+    // In an aggregate's argument: the people with a profile, not the others.
     let in_aggregate = format!(
-        "SELECT COUNT(DISTINCT CASE WHEN {person} IN (SELECT user_id FROM panel.people_v1) THEN {person} END) {from}"
+        "SELECT COUNT(DISTINCT CASE WHEN {person} IN (SELECT user_id FROM panel.people_v1 WHERE workspace_id = 'ws_1') THEN {person} END) AS known, \
+         COUNT(DISTINCT CASE WHEN {person} NOT IN (SELECT user_id FROM panel.people_v1 WHERE workspace_id = 'ws_1') THEN {person} END) AS unknown \
+         {from} WHERE e.workspace_id = 'ws_1'"
     );
-    let error = engine
+    let result = engine
         .query(&in_aggregate)
         .await
-        .expect_err("a DataFusion 54 gap");
-    assert!(error.to_string().contains("InSubquery"), "{error}");
-    // The other gap ("Projections require unique expression names" in
-    // decorrelate_predicate_subquery) needs the corpus's whole cohort
-    // statements; no smaller form reproduces it.
+        .unwrap_or_else(|error| panic!("{in_aggregate}: {error}"));
+    assert_eq!(render(&result.batches), ["3|1"]);
 }
 
 #[tokio::test]

@@ -12,11 +12,11 @@ use reqwest::header::{
     CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, ETAG, HeaderMap, RANGE,
 };
 use reqwest::{Client, Method, StatusCode, Url};
-use rusty_s3::actions::{DeleteObjectsResponse, ObjectIdentifier};
+use rusty_s3::actions::{DeleteObjectsResponse, ListObjectsV2, ObjectIdentifier};
 use rusty_s3::{Bucket, Credentials, S3Action, UrlStyle};
 use weldsuite_ports::{
-    ByteRange, FileStore, ObjectInfo, PortError, PutOptions, RangedObject, Stored, StoredObject,
-    is_safe_key, unsafe_key,
+    ByteRange, FileStore, ListedObject, ObjectInfo, PortError, PutOptions, RangedObject, Stored,
+    StoredObject, is_safe_key, unsafe_key,
 };
 
 /// How long a signed request stays valid. Each one is sent at once; the margin
@@ -193,6 +193,13 @@ fn etag_of(headers: &HeaderMap) -> Option<String> {
     let value = headers.get(ETAG)?.to_str().ok()?;
     let value = value.strip_prefix("W/").unwrap_or(value);
     Some(value.trim_matches('"').to_owned())
+}
+
+/// S3's `LastModified` (`2026-11-18T03:00:00.000Z`) in milliseconds since 1970.
+fn modified_ms(text: &str) -> Option<i64> {
+    text.parse::<jiff::Timestamp>()
+        .ok()
+        .map(jiff::Timestamp::as_millisecond)
 }
 
 /// `bytes <first>-<last>/<size>` from a 206's `Content-Range`.
@@ -403,6 +410,42 @@ impl FileStore for S3FileStore {
         }
         Ok(())
     }
+
+    /// `ListObjectsV2` under `prefix`, page after page (1,000 keys each).
+    async fn list(&self, prefix: &str) -> Result<Vec<ListedObject>, PortError> {
+        // A prefix may end in a slash; its segments must still be safe.
+        if !prefix.is_empty() {
+            Self::check(prefix.trim_end_matches('/'))?;
+        }
+        let mut listed = Vec::new();
+        let mut token: Option<String> = None;
+        loop {
+            let mut action = self.bucket.list_objects_v2(Some(&self.credentials));
+            action.with_prefix(prefix);
+            if let Some(token) = &token {
+                action.with_continuation_token(token.clone());
+            }
+            let url = action.sign(SIGNED_FOR);
+            let response = self.send(Method::GET, url, HeaderMap::new(), None).await?;
+            if !response.status().is_success() {
+                return Err(Self::refused(response, &format!("list {prefix}")).await);
+            }
+            let text = response.text().await.map_err(PortError::backend)?;
+            let page = ListObjectsV2::parse_response(&text).map_err(|error| {
+                PortError::backend(format!("S3 list objects response: {error}"))
+            })?;
+            listed.extend(page.contents.into_iter().map(|object| ListedObject {
+                last_modified_ms: object.last_modified.as_deref().and_then(modified_ms),
+                size: object.size.unwrap_or(0),
+                key: object.key,
+            }));
+            match page.next_continuation_token {
+                Some(next) => token = Some(next),
+                None => break,
+            }
+        }
+        Ok(listed)
+    }
 }
 
 #[cfg(test)]
@@ -486,6 +529,29 @@ mod tests {
         assert_eq!(etag_of(&weak).as_deref(), Some("abc"));
     }
 
+    #[test]
+    fn listings_carry_the_modification_time() {
+        assert_eq!(
+            modified_ms("2026-11-18T03:00:00.000Z"),
+            Some(1_794_970_800_000)
+        );
+        assert_eq!(modified_ms("yesterday"), None);
+        let page = ListObjectsV2::parse_response(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+  <Name>weldsuite-panel</Name><Prefix>lake/</Prefix><KeyCount>1</KeyCount><MaxKeys>1000</MaxKeys>
+  <IsTruncated>false</IsTruncated><EncodingType>url</EncodingType>
+  <Contents><Key>lake/panel/events_v1/data/a%3Db.parquet</Key><LastModified>2026-11-18T03:00:00.000Z</LastModified><ETag>"x"</ETag><Size>12</Size><StorageClass>STANDARD</StorageClass></Contents>
+</ListBucketResult>"#,
+        )
+        .expect("a page");
+        assert_eq!(
+            page.contents[0].key,
+            "lake/panel/events_v1/data/a=b.parquet"
+        );
+        assert!(page.next_continuation_token.is_none());
+    }
+
     #[tokio::test]
     async fn unsafe_keys_never_reach_the_store() {
         let store = store(true);
@@ -496,5 +562,6 @@ mod tests {
                 .await
                 .is_err()
         );
+        assert!(store.list("lake/../other/").await.is_err());
     }
 }

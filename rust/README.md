@@ -539,9 +539,14 @@ rust/
                         events, replay log, presence)
   crates/realtime/      the realtime WebSocket gateway in `serve` (the realtime-worker's hubs and rooms, every pod,
                         Valkey between them); mounted by bins/weldsuite/src/realtime.rs
-  crates/lakehouse/     WeldPanel's store (EVT-019): the five `panel.*_v1` Iceberg tables, the SQL catalog, appends
-                        with the NATS sequence, the replace-files commit (compaction, erasure, retention), expiry,
-                        and DataFusion over them; its tests need `WELDSUITE_TEST_DATABASE_URL` and run the SQL corpus
+  crates/lakehouse/     WeldPanel's store (EVT-019): the five `panel.*_v1` Iceberg tables, our own Iceberg catalog on
+                        the master database (`pg_catalog.rs`, tables from master migration 0072), appends fenced on the
+                        NATS sequence, the replace-files commit (compaction, erasure, retention), expiry, the orphan
+                        sweep, and DataFusion over them (`in_subquery.rs`: the cohort filters DataFusion 54 can't plan
+                        alone); its tests need `WELDSUITE_TEST_DATABASE_URL` and run the whole SQL corpus
+  crates/panel-domain/  @weldsuite/panel-domain/query: WeldPanel's report compiler (spec → SQL, byte for byte the
+                        TypeScript's), the runner behind an executor trait, the result shapes and the cache key;
+                        tests/corpus.rs compiles every `compiler` entry of the SQL corpus and compares
   crates/emails/        @weldsuite/emails: the exported templates rendered with minijinja, sendSystemEmail
   crates/desk-domain/   WeldDesk rules the desk modules share: webchat, assignment and the AssignmentRouter,
                         the inbox for writers outside it (inbox.rs, attributes.rs: WeldConnect's helpdesk steps
@@ -688,8 +693,8 @@ The integration tests need throwaway services and are skipped without them:
 |---|---|---|
 | `WELDSUITE_TEST_DATABASE_URL` | Postgres (a scratch database; its role creates databases for `weldsuite-migrations` and the CloudNativePG provisioner) | `weldsuite-db`, the flag table, the migration runner, the provisioner, the lakehouse (its SQL catalog) |
 | `WELDSUITE_TEST_MASTER_URL`, `WELDSUITE_TEST_TENANT_URL` | Postgres with pgvector, built by `pnpm exec tsx scripts/rust-test-db.ts` from the journaled migrations | the SQL against the real schema |
-| `WELDSUITE_TEST_VALKEY_URL` | Valkey (`redis://…`) | cache and pub/sub adapters |
-| `WELDSUITE_TEST_NATS_URL` | NATS with JetStream (`nats://…`) | event bus adapter; with the tenant URL, the consume end-to-end test |
+| `WELDSUITE_TEST_VALKEY_URL` | Valkey (`redis://…`) | cache and pub/sub adapters, the lease; with the next two, `panel-writer` |
+| `WELDSUITE_TEST_NATS_URL` | NATS with JetStream (`nats://…`) | event bus adapter; with the tenant URL, the consume end-to-end test; with Valkey and `WELDSUITE_TEST_DATABASE_URL`, `panel-writer` end to end |
 | `WELDSUITE_TEST_S3_ENDPOINT` (+ `_ACCESS_KEY_ID`, `_SECRET_ACCESS_KEY`) | an S3 store, e.g. `docker run -p 9000:9000 rustfs/rustfs:1.0.1` | S3 file store |
 | `WELDSUITE_TEST_RESTATE_INGRESS`, `_ADMIN`, `_ENDPOINT_HOST` | a Restate server, e.g. `docker run -p 8080:8080 -p 9070:9070 --add-host=host.docker.internal:host-gateway restatedev/restate:1.7.14`, with `host.docker.internal` as the host it reaches the test on | Restate jobs adapter |
 | `WELDSUITE_TEST_SMTP_URL` | an SMTP server, e.g. `docker run -p 1025:1025 axllent/mailpit:v1.31.6` (`smtp://127.0.0.1:1025`) | SMTP mail |
@@ -962,6 +967,17 @@ named in `CONSUME_SUBSCRIBERS` it needs the bucket), on its own stream:
 files), `S3_BUCKET_PUBLIC` and `R2_PUBLIC_URL` (else `S3_PUBLIC_URL`) for
 attachments and avatars, `NATS_MAIL_INBOUND_STREAM`/`_SUBJECT`/`_DLQ_STREAM`
 (`MAIL_INBOUND` on `mail.inbound`, dead letters in `MAIL_INBOUND_DLQ`).
+With `S3_BUCKET_PANEL` set (chart: `config.panel.bucket`) it also runs
+`panel-writer`: WeldPanel's rows from `PANEL_EVENTS` and `PANEL_STATE` into
+the Iceberg tables in that bucket (`lake/`), committed at
+`PANEL_WRITER_FLUSH_BYTES` (64 MiB) or `PANEL_WRITER_FLUSH_SECONDS` (300),
+each table by one replica at a time under a lease in Valkey (`VALKEY_URL` is
+required then); bad rows go to `PANEL_DLQ`. `NATS_PANEL_EVENTS_MAX_AGE_DAYS`
+(chart: 7) is how long both streams keep rows; with `NATS_ENSURE_STREAMS`
+consume applies it to an existing stream, which `serve` never changes. The
+nightly `weldsuite cron panel-maintenance` keeps the tables (erasure from
+`panel_erasure_ledger`, retention by plan, compaction, snapshot expiry, the
+orphan sweep). Without the bucket WeldPanel analytics is off.
 
 ## WeldMeet on LiveKit
 

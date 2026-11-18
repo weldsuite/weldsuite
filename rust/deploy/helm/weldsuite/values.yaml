@@ -200,6 +200,22 @@ config:
     # Unset, public object links point at Global's test bucket host, and the
     # server warns at start.
     publicUrl: ""
+  # WeldPanel's store (ADR EVT-019): Iceberg tables in this bucket under lake/
+  # (recordings later under replays/), on config.files' endpoint and keys,
+  # their catalog in the master database. Empty: WeldPanel analytics is off
+  # (nothing writes the tables, panel-maintenance does nothing). Set, consume
+  # runs the panel-writer subscriber (it needs VALKEY_URL for its per-table
+  # lease; give consume about 1Gi more memory: it buffers up to 64 MB of rows
+  # per table between commits). With bundle.objectStorage the bucket is
+  # objectStorage.buckets.panel instead.
+  panel:
+    bucket: ""
+    # How long PANEL_EVENTS and PANEL_STATE keep rows: how long the writer
+    # may be down without losing any. With config.nats.ensureStreams consume
+    # applies it to an existing stream too (the server only creates a
+    # missing one); without it, change an existing stream by hand:
+    # nats stream edit PANEL_EVENTS --max-age 7d.
+    eventsMaxAgeDays: 7
   # Durable jobs (the workers' Workflows) on Restate. Leave ingressUrl empty
   # to run jobs inside the server process instead (lost on a restart; fine
   # for a small self-hosted install). With Restate, every pod also serves the
@@ -515,6 +531,8 @@ objectStorage:
   buckets:
     private: weldsuite-private
     public: weldsuite-public
+    # WeldPanel's store (config.panel); empty: WeldPanel analytics is off.
+    panel: weldsuite-panel
   storage:
     size: 50Gi
     # The cluster's default StorageClass when empty.
@@ -1277,6 +1295,14 @@ cron:
       enabled: false
       schedule: "*/5 * * * *"
       activeDeadlineSeconds: 240
+    # WeldPanel's table upkeep (config.panel): the erasures waiting in
+    # panel_erasure_ledger, retention by plan, compaction, snapshot expiry
+    # and the orphan-file sweep. Reads the master database only; does
+    # nothing without the panel bucket.
+    panel-maintenance:
+      enabled: true
+      schedule: "45 2 * * *"
+      activeDeadlineSeconds: 7200
     # WeldForms: the automatic invitation reminders and the daily response
     # digest, for the workspaces the forms_reminders / forms_digest due index
     # lists. Do nothing while forms is not served.

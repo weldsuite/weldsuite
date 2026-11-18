@@ -16,7 +16,7 @@ use super::fixture::{TestLake, events, test_lake};
 use crate::maintenance::{live_files, read_files};
 use crate::rows::rows_to_batch;
 use crate::writer::write_data_files;
-use crate::{LakehouseError, PanelTable, ReplaceFiles, STREAM_SEQ_PROPERTY, partitions};
+use crate::{Erasure, LakehouseError, PanelTable, ReplaceFiles, STREAM_SEQ_PROPERTY, partitions};
 
 const NOV_1: i32 = 20_758;
 const NOV_3: i32 = 20_760;
@@ -524,30 +524,25 @@ async fn erasure_rewrites_one_workspace_without_the_person_s_rows() {
     .await;
     assert!(ws1_person > 0 && ws2_person > 0);
 
+    let erasure = Erasure::new("ws_1", "pnp_1", ids.clone());
     let outcome = lake
         .lake
         .erase(
             PanelTable::Events,
-            "ws_1",
+            &erasure,
             &["distinct_id", "anon_id", "user_id"],
-            &ids,
         )
         .await
         .expect("an erasure")
         .expect("rows to erase");
     assert_eq!(outcome.attempts, 1);
     lake.lake
-        .erase(PanelTable::People, "ws_1", &["user_id"], &ids)
+        .erase(PanelTable::People, &erasure, &["user_id"])
         .await
         .expect("people")
         .expect("a person");
     lake.lake
-        .erase(
-            PanelTable::Identities,
-            "ws_1",
-            &["anon_id", "user_id"],
-            &ids,
-        )
+        .erase(PanelTable::Identities, &erasure, &["anon_id", "user_id"])
         .await
         .expect("identities")
         .expect("a link");
@@ -617,9 +612,8 @@ async fn erasure_rewrites_one_workspace_without_the_person_s_rows() {
         lake.lake
             .erase(
                 PanelTable::Events,
-                "ws_1",
-                &["distinct_id", "anon_id", "user_id"],
-                &ids
+                &erasure,
+                &["distinct_id", "anon_id", "user_id"]
             )
             .await
             .expect("nothing")
@@ -717,9 +711,8 @@ async fn expiry_deletes_the_files_no_remaining_snapshot_references() {
     lake.lake
         .erase(
             PanelTable::Events,
-            "ws_2",
+            &Erasure::new("ws_2", "pnp_2", HashSet::from(["u-2".to_owned()])),
             &["distinct_id"],
-            &HashSet::from(["u-2".to_owned()]),
         )
         .await
         .expect("erasure")

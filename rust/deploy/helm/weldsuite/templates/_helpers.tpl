@@ -210,6 +210,15 @@ settings, which weldsuite.env adds.
   value: {{ trimSuffix "/" . | quote }}
 {{- end }}
 {{- end }}
+{{- if and .Values.config.panel.bucket (not .Values.bundle.objectStorage) }}
+{{- if not .Values.config.files.endpoint }}
+{{- fail "config.panel.bucket needs config.files.endpoint: the panel bucket is on the same object store" }}
+{{- end }}
+- name: S3_BUCKET_PANEL
+  value: {{ .Values.config.panel.bucket | quote }}
+{{- end }}
+- name: NATS_PANEL_EVENTS_MAX_AGE_DAYS
+  value: {{ .Values.config.panel.eventsMaxAgeDays | quote }}
 {{- with .Values.config.jobs }}
 {{- $ingressUrl := include "weldsuite.restate.ingressUrl" $ }}
 {{- $adminUrl := include "weldsuite.restate.adminUrl" $ }}
@@ -715,6 +724,10 @@ release's Secret.
   value: {{ .Values.objectStorage.buckets.private | quote }}
 - name: S3_BUCKET_PUBLIC
   value: {{ .Values.objectStorage.buckets.public | quote }}
+{{- with .Values.objectStorage.buckets.panel }}
+- name: S3_BUCKET_PANEL
+  value: {{ . | quote }}
+{{- end }}
 - name: S3_FORCE_PATH_STYLE
   value: "true"
 - name: S3_ACCESS_KEY_ID

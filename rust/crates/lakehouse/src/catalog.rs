@@ -1,70 +1,87 @@
-//! The catalog: Iceberg's SQL catalog (`iceberg-catalog-sql`) in a database
-//! (the master Postgres in production), and the tables' storage (the
-//! install's S3 bucket, or the local filesystem in tests).
+//! The store: WeldSuite's Iceberg catalog on the master Postgres
+//! ([`PgCatalog`], its two tables made by the master migration) and the
+//! tables' storage (the install's S3 bucket, or the local filesystem in
+//! tests).
 //!
-//! The SQL catalog keeps one row per table in `iceberg_tables`, pointing at
-//! the table's current metadata file; every commit is a compare-and-swap on
-//! that row's `metadata_location`. Appends and snapshot expiry go through
-//! the library's `Transaction`; the commits it can't make (replace files)
-//! are written here and swapped in with the same compare-and-swap
-//! ([`Lakehouse::swap_metadata`]), so the two kinds of commit exclude each
-//! other.
-//!
-//! The library runs `CREATE TABLE IF NOT EXISTS` for its two tables on
-//! every start and can't be told not to; with the tables already made by
-//! the master migration that is a no-op (the role still needs `CREATE` on
-//! the schema, since Postgres checks it before it sees the table exists).
-//! The DDL it expects, Postgres flavour (`VARCHAR` in both):
-//!
-//! ```sql
-//! CREATE TABLE iceberg_tables (
-//!     catalog_name VARCHAR(255) NOT NULL,
-//!     table_namespace VARCHAR(255) NOT NULL,
-//!     table_name VARCHAR(255) NOT NULL,
-//!     metadata_location VARCHAR(1000),
-//!     previous_metadata_location VARCHAR(1000),
-//!     iceberg_type VARCHAR(5),
-//!     PRIMARY KEY (catalog_name, table_namespace, table_name)
-//! );
-//! CREATE TABLE iceberg_namespace_properties (
-//!     catalog_name VARCHAR(255) NOT NULL,
-//!     namespace VARCHAR(255) NOT NULL,
-//!     property_key VARCHAR(255),
-//!     property_value VARCHAR(1000),
-//!     PRIMARY KEY (catalog_name, namespace, property_key)
-//! );
-//! ```
+//! Appends and snapshot expiry go through the library's `Transaction`, which
+//! commits through [`PgCatalog`]'s `update_table`; the commits the library
+//! can't make (replace files) are written here and swapped in with the same
+//! compare-and-swap ([`Lakehouse::swap_metadata`]), so the two kinds of
+//! commit exclude each other.
 
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 
 use iceberg::table::Table;
-use iceberg::{Catalog, CatalogBuilder, ErrorKind, NamespaceIdent, TableIdent};
-use iceberg_catalog_sql::{
-    SQL_CATALOG_PROP_BIND_STYLE, SQL_CATALOG_PROP_URI, SQL_CATALOG_PROP_WAREHOUSE, SqlBindStyle,
-    SqlCatalog, SqlCatalogBuilder,
-};
-use iceberg_storage_opendal::OpenDalResolvingStorageFactory;
-use sqlx_iceberg::AnyPool;
-use sqlx_iceberg::any::{AnyPoolOptions, install_default_drivers};
+use iceberg::{Catalog, ErrorKind, NamespaceIdent, TableIdent};
+use sqlx::PgPool;
 
 use crate::error::Result;
+use crate::pg_catalog::PgCatalog;
 use crate::tables::{NAMESPACE, PanelTable};
 
-/// Where the catalog and the tables are.
+/// The catalog name the install's tables are registered under.
+pub const CATALOG_NAME: &str = "weldsuite";
+
+/// Where the tables are.
 #[derive(Clone)]
 pub struct LakehouseConfig {
-    /// The catalog database: `postgres://…` (the master database; any URL
-    /// sqlx 0.8's `Any` driver takes works, tests use a scratch Postgres).
-    pub catalog_url: String,
-    /// The catalog's name, the `catalog_name` column (`weldsuite`).
+    /// The catalog's name, the `catalog_name` column ([`CATALOG_NAME`]).
     pub catalog_name: String,
     /// Where new tables go: `s3://<bucket>/lake` or `file:/…`.
     pub warehouse: String,
     /// Storage properties for S3: `s3.endpoint`, `s3.region`,
     /// `s3.access-key-id`, `s3.secret-access-key`, `s3.path-style-access`.
     pub storage: HashMap<String, String>,
+}
+
+/// Where the tables go in the bucket: `s3://<bucket>/lake`.
+pub const LAKE_PREFIX: &str = "lake";
+
+/// How to reach an S3-compatible store.
+#[derive(Clone)]
+pub struct S3Store {
+    /// `https://fsn1.your-objectstorage.com`, `http://rustfs:9000`, …
+    pub endpoint: String,
+    pub region: String,
+    pub bucket: String,
+    pub access_key_id: String,
+    pub secret_access_key: String,
+    /// Path-style URLs (RustFS, MinIO, Garage, endpoints reached by IP).
+    pub path_style: bool,
+}
+
+impl LakehouseConfig {
+    /// The install's tables in `s3://<bucket>/lake` under [`CATALOG_NAME`].
+    /// The SDK's own credential and region lookups (environment, profile
+    /// files, the EC2 metadata endpoint) are off: only these settings count.
+    pub fn s3(store: &S3Store) -> Self {
+        use iceberg::io::{
+            S3_ACCESS_KEY_ID, S3_DISABLE_CONFIG_LOAD, S3_DISABLE_EC2_METADATA, S3_ENDPOINT,
+            S3_PATH_STYLE_ACCESS, S3_REGION, S3_SECRET_ACCESS_KEY,
+        };
+        let storage = HashMap::from([
+            (S3_ENDPOINT.to_owned(), store.endpoint.clone()),
+            (S3_REGION.to_owned(), store.region.clone()),
+            (S3_ACCESS_KEY_ID.to_owned(), store.access_key_id.clone()),
+            (
+                S3_SECRET_ACCESS_KEY.to_owned(),
+                store.secret_access_key.clone(),
+            ),
+            (
+                S3_PATH_STYLE_ACCESS.to_owned(),
+                store.path_style.to_string(),
+            ),
+            (S3_DISABLE_CONFIG_LOAD.to_owned(), "true".to_owned()),
+            (S3_DISABLE_EC2_METADATA.to_owned(), "true".to_owned()),
+        ]);
+        Self {
+            catalog_name: CATALOG_NAME.to_owned(),
+            warehouse: format!("s3://{}/{LAKE_PREFIX}", store.bucket),
+            storage,
+        }
+    }
 }
 
 impl fmt::Debug for LakehouseConfig {
@@ -77,67 +94,51 @@ impl fmt::Debug for LakehouseConfig {
     }
 }
 
-/// The store: the catalog and a pool on its database for the commits the
-/// library can't make.
+/// The store. Cheap to clone.
+#[derive(Clone)]
 pub struct Lakehouse {
-    catalog: Arc<SqlCatalog>,
-    pool: AnyPool,
-    catalog_name: String,
-    dollar_binds: bool,
+    catalog: Arc<PgCatalog>,
+    warehouse: String,
 }
 
 impl fmt::Debug for Lakehouse {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Lakehouse")
-            .field("catalog_name", &self.catalog_name)
+            .field("catalog", &self.catalog)
             .finish_non_exhaustive()
     }
 }
 
 impl Lakehouse {
-    /// Connects to the catalog.
-    pub async fn connect(config: &LakehouseConfig) -> Result<Self> {
-        let dollar_binds = config.catalog_url.starts_with("postgres");
-        let bind_style = if dollar_binds {
-            SqlBindStyle::DollarNumeric
-        } else {
-            SqlBindStyle::QMark
-        };
-        let mut props = config.storage.clone();
-        props.insert(SQL_CATALOG_PROP_URI.to_owned(), config.catalog_url.clone());
-        props.insert(
-            SQL_CATALOG_PROP_WAREHOUSE.to_owned(),
+    /// The store on `pool` (the master database, where the migration made the
+    /// catalog's tables). Nothing is sent until the first call. Must be
+    /// called inside a tokio runtime.
+    pub fn new(pool: PgPool, config: &LakehouseConfig) -> Result<Self> {
+        let catalog = PgCatalog::new(
+            pool,
+            config.catalog_name.clone(),
             config.warehouse.clone(),
-        );
-        props.insert(
-            SQL_CATALOG_PROP_BIND_STYLE.to_owned(),
-            bind_style.to_string(),
-        );
-        let catalog = SqlCatalogBuilder::default()
-            .with_storage_factory(Arc::new(OpenDalResolvingStorageFactory::new()))
-            .load(config.catalog_name.clone(), props)
-            .await?;
-        install_default_drivers();
-        let pool = AnyPoolOptions::new()
-            .max_connections(2)
-            .connect(&config.catalog_url)
-            .await?;
+            &config.storage,
+        )?;
         Ok(Self {
             catalog: Arc::new(catalog),
-            pool,
-            catalog_name: config.catalog_name.clone(),
-            dollar_binds,
+            warehouse: config.warehouse.trim_end_matches('/').to_owned(),
         })
     }
 
     /// The Iceberg catalog, for the library's own operations.
-    pub fn catalog(&self) -> &SqlCatalog {
+    pub fn catalog(&self) -> &PgCatalog {
         &self.catalog
     }
 
     /// The catalog as a trait object (DataFusion's providers want one).
     pub fn catalog_arc(&self) -> Arc<dyn Catalog> {
         self.catalog.clone()
+    }
+
+    /// Where the tables are: `s3://<bucket>/lake`.
+    pub fn warehouse(&self) -> &str {
+        &self.warehouse
     }
 
     /// Creates the `panel` namespace and the five tables where missing (at
@@ -151,7 +152,7 @@ impl Lakehouse {
                 .await
             {
                 Ok(_) => {}
-                Err(error) if self.catalog.namespace_exists(&namespace).await? => {
+                Err(error) if error.kind() == ErrorKind::NamespaceAlreadyExists => {
                     tracing::debug!(%error, "namespace made by another pod");
                 }
                 Err(error) => return Err(error.into()),
@@ -167,10 +168,7 @@ impl Lakehouse {
                 .await
             {
                 Ok(_) => {}
-                Err(error)
-                    if error.kind() == ErrorKind::TableAlreadyExists
-                        || self.catalog.table_exists(&table.ident()).await? =>
-                {
+                Err(error) if error.kind() == ErrorKind::TableAlreadyExists => {
                     tracing::debug!(%error, table = table.name(), "table made by another pod");
                 }
                 Err(error) => return Err(error.into()),
@@ -184,33 +182,29 @@ impl Lakehouse {
         Ok(self.catalog.load_table(&table.ident()).await?)
     }
 
+    /// Where the table's files are: `s3://<bucket>/lake/panel/events_v1`.
+    pub async fn table_location(&self, table: PanelTable) -> Result<String> {
+        Ok(self
+            .load(table)
+            .await?
+            .metadata()
+            .location()
+            .trim_end_matches('/')
+            .to_owned())
+    }
+
     /// Points the table at `new_location` if it still points at `expected`:
-    /// the same compare-and-swap the SQL catalog commits with. False when
-    /// another commit got there first.
+    /// the same compare-and-swap every commit makes. False when another
+    /// commit got there first.
     pub(crate) async fn swap_metadata(
         &self,
         ident: &TableIdent,
         expected: &str,
         new_location: &str,
     ) -> Result<bool> {
-        let sql = if self.dollar_binds {
-            "UPDATE iceberg_tables SET metadata_location = $1, previous_metadata_location = $2 \
-             WHERE catalog_name = $3 AND table_namespace = $4 AND table_name = $5 \
-             AND metadata_location = $6"
-        } else {
-            "UPDATE iceberg_tables SET metadata_location = ?, previous_metadata_location = ? \
-             WHERE catalog_name = ? AND table_namespace = ? AND table_name = ? \
-             AND metadata_location = ?"
-        };
-        let result = sqlx_iceberg::query(sql)
-            .bind(new_location)
-            .bind(expected)
-            .bind(self.catalog_name.as_str())
-            .bind(ident.namespace().join("."))
-            .bind(ident.name())
-            .bind(expected)
-            .execute(&self.pool)
-            .await?;
-        Ok(result.rows_affected() == 1)
+        Ok(self
+            .catalog
+            .swap_metadata(ident, expected, new_location)
+            .await?)
     }
 }

@@ -42,6 +42,12 @@ pub fn rows_to_batch(schema: &SchemaRef, rows: &[Value]) -> Result<RecordBatch> 
     Ok(RecordBatch::try_new(schema.clone(), columns)?)
 }
 
+/// Whether one row fits `schema`: the error [`rows_to_batch`] gives for it
+/// alone (the writer's way to find the bad rows of a batch that failed).
+pub fn check_row(schema: &SchemaRef, row: &Value) -> Result<()> {
+    rows_to_batch(schema, std::slice::from_ref(row)).map(|_| ())
+}
+
 #[allow(clippy::too_many_lines)] // one arm per column type
 fn column(field: &Field, values: &[&Value]) -> Result<ArrayRef> {
     let name = field.name();

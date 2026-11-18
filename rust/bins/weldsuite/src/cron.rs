@@ -82,6 +82,10 @@
 //!   (`workspace-worker/src/services/deletion-sweep.ts`).
 //! - `workspace-teardown` (hourly): deleted workspaces whose database
 //!   teardown never finished (`services/teardown-sweep.ts`).
+//! - `panel-maintenance` (nightly, 02:45 UTC): WeldPanel's table upkeep
+//!   (`crate::panel_maintenance`): the erasures in `panel_erasure_ledger`,
+//!   retention by plan, compaction, snapshot expiry and the orphan sweep.
+//!   Nothing without `S3_BUCKET_PANEL`.
 //! - `sandbox-cleanup` (every 5 minutes): deletes WeldAgent's sandbox pods
 //!   that are done: their agent exited when idle, Kubernetes stopped them at
 //!   their lifetime, or they never started (`weldsuite_sandbox::Sandboxes::cleanup`).
@@ -143,7 +147,7 @@ impl weldsuite_forms::TenantResolver for WorkspaceTenants {
     }
 }
 
-const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, flow-approval-due, flow-benefit-measure, flow-status-reports, flow-finance-snapshot, books-sweep, domain-auto-renew, desk-sla-sweep, desk-report-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due, crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup, moneybird-push, merge-digest-sweep, forms-reminders, forms-digest, weldagent-routines, sandbox-cleanup, billing-renewals";
+const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, flow-approval-due, flow-benefit-measure, flow-status-reports, flow-finance-snapshot, books-sweep, domain-auto-renew, desk-sla-sweep, desk-report-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due, crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup, moneybird-push, merge-digest-sweep, forms-reminders, forms-digest, weldagent-routines, sandbox-cleanup, billing-renewals, panel-maintenance";
 
 /// `weldsuite cron <job>`.
 #[allow(clippy::too_many_lines)] // one arm per job
@@ -182,7 +186,8 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
         | "forms-digest"
         | "weldagent-routines"
         | "sandbox-cleanup"
-        | "billing-renewals"),
+        | "billing-renewals"
+        | "panel-maintenance"),
     ) = job
     else {
         eprintln!("usage: weldsuite cron <job>\n{JOBS}");
@@ -241,6 +246,7 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
             "weldagent-routines" => weldagent_routines(config).await,
             "sandbox-cleanup" => sandbox_cleanup(config).await,
             "billing-renewals" => Box::pin(billing_renewals(config)).await,
+            "panel-maintenance" => Box::pin(panel_maintenance(config)).await,
             _ => sign_lifecycle(config).await,
         }
     };
@@ -319,6 +325,41 @@ async fn forms_sweep(config: Config, job: &str) -> Result<(), Box<dyn std::error
     {
         tracing::warn!("stopped with publishes still in flight");
     }
+    Ok(())
+}
+
+/// `panel-maintenance`: one night's upkeep of WeldPanel's tables; nothing
+/// without the panel bucket. Reads the master database only.
+async fn panel_maintenance(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    let Some(store) = config.infra.panel.clone() else {
+        println!(
+            "{}",
+            serde_json::json!({ "job": "panel-maintenance", "result": { "skipped": "S3_BUCKET_PANEL is not set" } })
+        );
+        return Ok(());
+    };
+    let master =
+        weldsuite_db::master_pool(&config.master_database_url, config.master_max_connections)?;
+    let lake = store.lakehouse(master.clone())?;
+    lake.ensure_tables().await?;
+    let lister = crate::panel_maintenance::S3Lister::new(store)?;
+    let started = std::time::Instant::now();
+    let report = crate::panel_maintenance::run(
+        &master,
+        &lake,
+        &lister,
+        time::OffsetDateTime::now_utc(),
+        &crate::panel_maintenance::MaintenanceSettings::default(),
+    )
+    .await;
+    let failed = report["errors"]
+        .as_array()
+        .is_some_and(|errors| !errors.is_empty());
+    weldsuite_ports::record_job_run("panel.maintenance", !failed, started.elapsed());
+    println!(
+        "{}",
+        serde_json::json!({ "job": "panel-maintenance", "result": report })
+    );
     Ok(())
 }
 

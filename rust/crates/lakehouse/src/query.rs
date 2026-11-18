@@ -20,6 +20,7 @@ use iceberg_datafusion::IcebergStaticTableProvider;
 use tokio::sync::{Mutex, Semaphore};
 
 use crate::error::{LakehouseError, Result};
+use crate::in_subquery::InSubqueryMarks;
 use crate::like_escape::LikeEscapeToBackslash;
 use crate::tables::{NAMESPACE, PanelTable};
 
@@ -132,6 +133,8 @@ impl QueryEngine {
             .with_config(config)
             .with_runtime_env(runtime)
             .with_default_features()
+            // The cohort filters' `IN (SELECT …)` where DataFusion 54 can't run it.
+            .with_analyzer_rule(Arc::new(InSubqueryMarks))
             .with_optimizer_rule(Arc::new(LikeEscapeToBackslash))
             .build();
         let mut ctx = SessionContext::new_with_state(state);

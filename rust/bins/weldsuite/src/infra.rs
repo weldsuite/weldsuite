@@ -143,10 +143,18 @@ async fn event_bus(config: &InfraConfig) -> Result<Option<Arc<dyn DynEventBus>>,
             &config.nats_subject_prefix,
         ))
         .await?;
+        // Created here so the collector's publishes find them; `consume`
+        // (`panel-writer`) brings an existing one to the configured age.
+        let max_age = std::time::Duration::from_secs(config.nats_panel_max_age_days * 24 * 60 * 60);
         bus.ensure_stream(weldsuite_adapters_oss::panel_events_stream_config(
             &config.nats_panel_stream,
             &config.nats_panel_subject,
-            std::time::Duration::from_secs(config.nats_panel_max_age_days * 24 * 60 * 60),
+            max_age,
+        ))
+        .await?;
+        bus.ensure_stream(weldsuite_adapters_oss::panel_state_stream_config(
+            &config.nats_panel_state_stream,
+            max_age,
         ))
         .await?;
     }
@@ -173,7 +181,16 @@ async fn file_stores(config: &InfraConfig) -> Result<FileStores, Error> {
         .map(|options| S3FileStore::new(&options, client))
         .transpose()?;
     if files.ensure_buckets {
-        for store in std::iter::once(&private).chain(public.as_ref()) {
+        // WeldPanel's bucket too, on the same store (the bundled RustFS).
+        let panel = config
+            .panel
+            .as_ref()
+            .map(crate::panel_store::PanelStoreConfig::file_store)
+            .transpose()?;
+        for store in std::iter::once(&private)
+            .chain(public.as_ref())
+            .chain(panel.as_ref())
+        {
             if store.ensure_bucket().await? {
                 tracing::info!(bucket = store.bucket_name(), "created the bucket");
             }

@@ -372,6 +372,12 @@ pub(crate) struct InfraConfig {
     pub(crate) nats_panel_stream: String,
     pub(crate) nats_panel_subject: String,
     pub(crate) nats_panel_max_age_days: u64,
+    /// WeldPanel's other rows' stream (`NATS_PANEL_STATE_STREAM`, default
+    /// `PANEL_STATE`), kept as long as the events.
+    pub(crate) nats_panel_state_stream: String,
+    /// `S3_BUCKET_PANEL`: WeldPanel's store (`crate::panel_store`); unset,
+    /// WeldPanel analytics is off.
+    pub(crate) panel: Option<crate::panel_store::PanelStoreConfig>,
     /// `NATS_ENSURE_STREAMS=true`: create or update the stream at start.
     pub(crate) nats_ensure_streams: bool,
     pub(crate) flags: FlagSourceKind,
@@ -668,6 +674,7 @@ impl fmt::Debug for InfraConfig {
             .field("nats_stream", &self.nats_stream)
             .field("flags", &self.flags)
             .field("files", &self.files)
+            .field("panel", &self.panel)
             .field("jobs", &self.jobs)
             .field("smtp", &self.smtp_url.as_ref().map(|_| "<set>"))
             .field("system_email_from", &self.system_email_from)
@@ -722,6 +729,9 @@ impl InfraConfig {
             nats_panel_max_age_days: lookup("NATS_PANEL_EVENTS_MAX_AGE_DAYS")
                 .and_then(|days| days.parse().ok())
                 .unwrap_or(0),
+            nats_panel_state_stream: lookup("NATS_PANEL_STATE_STREAM")
+                .unwrap_or_else(|| weldsuite_adapters_oss::DEFAULT_PANEL_STATE_STREAM.to_owned()),
+            panel: crate::panel_store::PanelStoreConfig::from_lookup(lookup, problems),
             nats_ensure_streams: lookup("NATS_ENSURE_STREAMS").as_deref() == Some("true"),
             flags,
             flags_refresh: Duration::from_secs(refresh_seconds),

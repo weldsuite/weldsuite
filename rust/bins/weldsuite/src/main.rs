@@ -40,6 +40,10 @@ mod infra;
 mod migrate;
 mod monitoring;
 mod mta;
+mod panel_maintenance;
+mod panel_store;
+#[cfg(test)]
+mod panel_test_support;
 mod public_auth;
 mod reach;
 mod realtime;

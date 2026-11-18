@@ -54,6 +54,11 @@ config:
     region: ${FILES_S3_REGION}
     privateBucket: ${FILES_BUCKET_PRIVATE}
     forcePathStyle: false
+  # WeldPanel's store (ADR EVT-019): a Hetzner bucket made next to the
+  # others with the same keys. Empty until it exists: WeldPanel analytics
+  # stays off.
+  panel:
+    bucket: "${FILES_BUCKET_PANEL:=}"
   # Durable jobs (sign's finalize, …) on the in-cluster Restate; each pod
   # registers its jobs endpoint with the admin API at start.
   jobs:
