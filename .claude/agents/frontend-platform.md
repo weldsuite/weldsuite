@@ -63,6 +63,7 @@ Mutations wrapped in `useMutation` with query invalidation on success.
 - **i18n:** `@/lib/i18n` `getTranslations('namespace')`. Add new strings to both `en` and `nl` in `packages/core/i18n/src/locales/<locale>/` (TypeScript modules).
 - **Dark mode + responsive:** Every new screen works in both modes + mobile breakpoints.
 - **Confirm modals:** `ConfirmDialog` from `@weldsuite/ui/components/confirm-dialog`, no per-feature dialogs.
+- **Modern web guidance:** before writing HTML, CSS or browser code, run the `modern-web-guidance` skill (search, retrieve, apply, check) as root `AGENTS.md` → "Modern web guidance" describes. Don't wait to be asked.
 
 ## Testing
 
