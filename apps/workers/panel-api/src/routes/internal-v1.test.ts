@@ -1,7 +1,10 @@
 /**
  * The read API other workers reach over the PanelApiInternal entrypoint
  * (/internal/panel/v1/:workspaceId/*, for external-api's `/v1/panel` and the
- * MCP server), on a real tenant schema (pglite).
+ * MCP server), on real tenant and master schemas (pglite), with the fake
+ * Basin and project object, so the Rust backend answers the same tests in
+ * conformance mode. Who a call acts for is resolved from the workspace's
+ * members, as in production; the workspace lookup is the test's.
  *
  * What must not regress:
  *   1. Read-only: anything outside the allow-list (every write, the by-email
@@ -12,62 +15,62 @@
  */
 
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
-import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { conformanceMasterDb, conformanceTenantDb, createTestApp } from '@weldsuite/worker-kit/testing';
+import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { schema, type AnyMasterDatabase, type Database } from '@weldsuite/worker-kit/db';
 import { DEFAULT_PANEL_SETTINGS } from '@weldsuite/panel-domain/settings';
-import type { ParsedPanelQuerySpec } from '@weldsuite/app-api-client/schemas/weldpanel-query';
+import { BASIN_ENV, FakeBasin, FakeProjectState, memoryKv } from '../test-support/fakes';
 
-const state = vi.hoisted(() => ({ db: null as unknown, ran: [] as unknown[] }));
+const state = vi.hoisted(() => ({ db: null as unknown, master: null as unknown }));
 
 vi.mock('@weldsuite/worker-kit/db', async (orig) => {
   const actual = await orig<typeof import('@weldsuite/worker-kit/db')>();
   return {
     ...actual,
-    getMasterDb: () => ({}) as never,
+    getMasterDb: () => conformanceMasterDb(state.master) as never,
     getWorkspaceContextForOrg: async (_env: unknown, ref: string) => {
       if (ref !== 'ws_a') throw new Error('Workspace not found');
-      return { id: 'ws_a', clerkOrgId: 'org_a', db: state.db, suspended: false, licensedApps: null, readOnly: false, readOnlyReason: null };
+      return { id: 'ws_a', clerkOrgId: 'org_a', db: conformanceTenantDb(state.db), suspended: false, licensedApps: null, readOnly: false, readOnlyReason: null };
     },
   };
 });
-vi.mock('@weldsuite/permissions/server', async (orig) => {
-  const actual = await orig<typeof import('@weldsuite/permissions/server')>();
-  return {
-    ...actual,
-    resolveEffectivePermissions: async (_queries: unknown, userId: string) => ({
-      permissions: userId === 'user_alice' ? ['panel_projects:read', 'panel_reports:read', 'panel_reports:create', 'panel_reports:delete'] : [],
-      role: 'member',
-      roleId: null,
-      isOwner: false,
-    }),
-  };
-});
-vi.mock('../services/query-run', () => ({
-  queryRunDeps: () => ({}),
-  runCachedQuery: async (_deps: unknown, spec: ParsedPanelQuerySpec) => {
-    state.ran.push(spec);
-    return { result: { kind: spec.kind, result: { ok: true } }, dataAsOf: '2026-11-16T10:00:00.000Z', cached: false };
-  },
-}));
 
-import { internalApp } from '../internal';
+import internalV1Routes from './internal-v1';
 
-const { panelProjects, panelReports } = schema;
+const { panelProjects, panelReports, workspaceMembers } = schema;
 let db: Database;
+let master: AnyMasterDatabase;
+const basin = new FakeBasin();
+const object = new FakeProjectState();
 
 const SPEC = { kind: 'trends', projectId: 'pnp_a', series: [{ event: 'Signed up' }] };
+const BASE = '/internal/panel/v1';
 
 function call(path: string, headers: Record<string, string> = { 'x-weld-user': 'user_alice' }, init: RequestInit = {}) {
-  return internalApp.request(`/internal/panel/v1/ws_a${path}`, { ...init, headers: { 'Content-Type': 'application/json', ...headers } }, {} as never);
+  const app = createTestApp(BASE, internalV1Routes, {
+    // The session is the internal API's own (the headers); the test's context only carries the databases.
+    context: { tenantDb: db, masterDb: master as unknown as Database, workspaceId: 'ws_a', orgId: 'org_a', clerkOrgId: 'org_a' },
+    env: { WORKSPACE_CACHE: memoryKv(), PANEL_PROJECT: object.namespace(), ...BASIN_ENV } as never,
+    moduleApiErrors: true,
+  });
+  return app.request(`${BASE}/ws_a${path}`, { ...init, headers: { 'Content-Type': 'application/json', ...headers } });
 }
 
 beforeAll(async () => {
   db = (await createPgliteDb()).db;
+  master = (await createMasterPgliteDb()).db;
   state.db = db;
+  state.master = master;
+  // Alice is a member with WeldPanel's read and report permissions; anyone else is no one here.
+  await db.insert(workspaceMembers).values({
+    id: 'wm_alice',
+    userId: 'user_alice',
+    role: 'MEMBER',
+    permissions: ['panel_projects:read', 'panel_reports:read', 'panel_reports:create', 'panel_reports:delete'],
+  });
 }, 120_000);
 
 beforeEach(async () => {
-  state.ran = [];
   await db.delete(panelReports);
   await db.delete(panelProjects);
   await db.insert(panelProjects).values({ id: 'pnp_a', name: 'Shop', token: 'wpk_a', settings: DEFAULT_PANEL_SETTINGS, createdByUserId: 'user_alice' });
@@ -75,6 +78,9 @@ beforeEach(async () => {
     { id: 'pnr_shared', projectId: 'pnp_a', kind: 'trends', name: 'Shared', spec: SPEC, ownerUserId: 'user_bram', visibility: 'workspace' },
     { id: 'pnr_mine', projectId: 'pnp_a', kind: 'trends', name: 'Mine', spec: SPEC, ownerUserId: 'user_alice', visibility: 'private' },
   ]);
+  object.reset();
+  basin.reset();
+  basin.install();
 });
 
 describe('who it acts for', () => {
@@ -92,7 +98,12 @@ describe('who it acts for', () => {
 
   it('refuses a call that names no one, and an unknown workspace', async () => {
     expect((await call('/reports', {})).status).toBe(401);
-    const res = await internalApp.request('/internal/panel/v1/ws_zzz/reports', { headers: { 'x-weld-user': 'user_alice' } }, {} as never);
+    const app = createTestApp(BASE, internalV1Routes, {
+      context: { tenantDb: db, masterDb: master as unknown as Database, workspaceId: 'ws_a', orgId: 'org_a', clerkOrgId: 'org_a' },
+      env: { WORKSPACE_CACHE: memoryKv(), PANEL_PROJECT: object.namespace(), ...BASIN_ENV } as never,
+      moduleApiErrors: true,
+    });
+    const res = await app.request(`${BASE}/ws_zzz/reports`, { headers: { 'x-weld-user': 'user_alice' } });
     expect(res.status).toBe(404);
   });
 });
@@ -116,11 +127,22 @@ describe('read-only', () => {
 });
 
 describe('report results', () => {
-  it('runs the saved spec, optionally over another preset', async () => {
+  it('runs the saved spec, optionally over another preset, in the report’s own scope', async () => {
     const res = await call('/reports/pnr_shared/results?preset=7d');
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ data: { kind: 'trends', result: { ok: true }, dataAsOf: '2026-11-16T10:00:00.000Z', cached: false } });
-    expect(state.ran[0]).toMatchObject({ kind: 'trends', projectId: 'pnp_a', dateRange: { preset: '7d' } });
+    const body = (await res.json()) as {
+      data: { kind: string; cached: boolean; dataAsOf: string; result: { range: { from: string; to: string }; series: { label: string }[] } };
+    };
+    expect(body.data).toMatchObject({ kind: 'trends', cached: false });
+    expect(body.data.result.series.map((s) => s.label)).toEqual(['Signed up']);
+    // Seven days, today's included.
+    const days = (Date.parse(body.data.result.range.to) - Date.parse(body.data.result.range.from)) / 86_400_000;
+    expect(days).toBeGreaterThan(6);
+    expect(days).toBeLessThanOrEqual(7);
+    expect(basin.sent.length).toBeGreaterThan(0);
+    for (const sql of basin.sent) expect(sql).toContain("e.workspace_id = 'ws_a' AND e.project_id = 'pnp_a'");
+
+    expect((await call('/reports/pnr_shared/results?preset=1y')).status).toBe(400);
     expect((await call('/reports/pnr_mine/results', { 'x-weld-workspace-key': 'wak_1' })).status).toBe(404);
   });
 });

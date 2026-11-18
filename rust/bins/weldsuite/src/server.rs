@@ -100,6 +100,18 @@ pub(crate) struct AppState {
     /// `SANDBOX_ENABLED`: where the agent tools of `computer:use` and
     /// `browser:use` run.
     pub(crate) sandboxes: Option<weldsuite_sandbox::Sandboxes>,
+    /// WeldPanel's analytics engine (`crate::panel_sql`): DataFusion over the
+    /// panel store, `None` without `S3_BUCKET_PANEL`.
+    pub(crate) panel_sql: Option<Arc<dyn weldsuite_panel::AnalyticsSql>>,
+    /// What Global keeps in the `PanelProject` Durable Object, for the panel
+    /// routes (`crate::panel_project::TenantProjectState`): the tenant tables
+    /// and the live view. `None` in conformance builds (the test's, per
+    /// request).
+    pub(crate) panel_project_state: Option<Arc<dyn weldsuite_panel::PanelProjectState>>,
+    /// The collector's side (`crate::panel_project::CollectorProjectState`):
+    /// calls on NATS, the live view and the lists it reads in Valkey; `None`
+    /// without Valkey or NATS.
+    pub(crate) panel_collector_state: Option<Arc<dyn weldsuite_panel::PanelProjectState>>,
     /// What conformance builds record instead of publishing.
     #[cfg(feature = "conformance")]
     pub(crate) recorders: crate::conformance::Recorders,
@@ -645,6 +657,9 @@ mod tests {
             realtime: crate::realtime::PublicRealtime::default(),
             ai: None,
             sandboxes: None,
+            panel_sql: None,
+            panel_project_state: None,
+            panel_collector_state: None,
             #[cfg(feature = "conformance")]
             recorders: crate::conformance::Recorders::default(),
             #[cfg(feature = "conformance")]
@@ -782,6 +797,8 @@ mod tests {
             "billing",
             "credit-top-up",
             "desktop-sign-in",
+            // No panel bucket in the test state.
+            "panel-analytics",
         ] {
             assert!(lacks.contains(&json!(feature)), "{feature}");
         }
@@ -807,6 +824,7 @@ mod tests {
             credit_top_up: true,
             plan_billing: true,
             sandbox: false,
+            panel_analytics: true,
             sso_connections: false,
         });
         let (_, _, body) = call(state, get("/config.json")).await;
@@ -846,6 +864,8 @@ mod tests {
         let lacks = body["unavailableFeatures"].as_array().expect("list");
         assert!(!lacks.contains(&json!("mail-ai")));
         assert!(lacks.contains(&json!("agent-sandbox")));
+        // WeldPanel's store is there: its analytics are offered.
+        assert!(!lacks.contains(&json!("panel-analytics")));
     }
 
     /// The app state with an OIDC verifier over the auth crate's fixture keys.

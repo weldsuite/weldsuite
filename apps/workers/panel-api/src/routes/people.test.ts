@@ -28,6 +28,7 @@ import {
   FakeBasin,
   FakeProjectState,
   PROJECT,
+  RUNS,
   WORKSPACE,
   callLog,
   chunkKey,
@@ -159,7 +160,7 @@ describe('GET /api/panel/people', () => {
     expect(res.status).toBe(200);
     // Ids the object does not know (anonymous visitors) are left out.
     expect(body.data.map((p) => p.userId)).toEqual(['user_2']);
-    expect(basin.sent).toHaveLength(1);
+    expect(basin.sent).toHaveLength(RUNS);
     expect(basin.sent[0]).toContain(`workspace_id = '${WORKSPACE}'`);
     expect(basin.sent[0]).toContain(`project_id = '${PROJECT}'`);
     expect(basin.sent[0]).toContain("json_get_str(pl2.properties, 'plan') = 'pro'");
@@ -297,7 +298,9 @@ describe('DELETE /api/panel/people/:distinctId (erasure)', () => {
     const result = await data<PanelErasureResult>(res);
     expect(result).toEqual({ userId: 'user_1', erasedIdCount: 3, recordingChunksDeleted: 3 });
 
-    expect(callLog).toEqual(['object.erase', 'basin', 'basin', 'r2.delete', 'maintenance']);
+    // In conformance mode the TypeScript run of the comparison asks Basin first (on copies of the rest).
+    const typeScriptRun = RUNS > 1 ? ['basin', 'basin'] : [];
+    expect(callLog).toEqual([...typeScriptRun, 'object.erase', 'basin', 'basin', 'r2.delete', 'maintenance']);
     expect(object.eraseCalls).toEqual([{ userIdOrAnonId: 'anon_1' }]);
     expect(maintenance).toEqual([{ type: 'erase', workspaceId: WORKSPACE, projectId: PROJECT, ids: expect.arrayContaining(['anon_1', 'anon_2', 'user_1']) }]);
     expect(maintenance[0]?.ids).toHaveLength(3);

@@ -10,7 +10,9 @@ metadata:
   namespace: flux-system
 data:
   # app., api., auth., sign., admin., livekit., turn. and mx. under this name
-  # point at the ingress load balancer.
+  # point at the ingress load balancer; collect. too once WeldPanel's custom
+  # collection domains are on (apps/eu/values/weldsuite.yaml,
+  # config.panel.customDomains).
   DOMAIN: weldsuite.example.com
   ACME_EMAIL: ops@example.com
   # Postgres backups: object storage at a second provider.
@@ -26,6 +28,8 @@ data:
   FILES_BUCKET_PUBLIC: example-public
   # WeldMail's inbound spool and raw messages (Haraka, mailInbound).
   FILES_BUCKET_MAIL: example-mail
+  # WeldPanel's Iceberg tables (config.panel, ADR EVT-019).
+  FILES_BUCKET_PANEL: example-panel
   # Zitadel (auth.${DOMAIN}): the WeldSuite project's id (the tokens'
   # audience) and the platform's web application's client id (PKCE). Made in
   # Zitadel's console after its first start (README, step 7).

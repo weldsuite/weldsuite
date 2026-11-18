@@ -106,6 +106,34 @@ const TEMPLATE_FILES: &[(&str, &str)] = &[
         include_str!("../../../catalogs/emails/templates/meet.invitation.json"),
     ),
     (
+        "panel.alert.fired",
+        include_str!("../../../catalogs/emails/templates/panel.alert.fired.json"),
+    ),
+    (
+        "panel.alert.resolved",
+        include_str!("../../../catalogs/emails/templates/panel.alert.resolved.json"),
+    ),
+    (
+        "panel.alert.test",
+        include_str!("../../../catalogs/emails/templates/panel.alert.test.json"),
+    ),
+    (
+        "panel.export-failing",
+        include_str!("../../../catalogs/emails/templates/panel.export-failing.json"),
+    ),
+    (
+        "panel.report-digest.dashboard",
+        include_str!("../../../catalogs/emails/templates/panel.report-digest.dashboard.json"),
+    ),
+    (
+        "panel.report-digest.report",
+        include_str!("../../../catalogs/emails/templates/panel.report-digest.report.json"),
+    ),
+    (
+        "panel.usage",
+        include_str!("../../../catalogs/emails/templates/panel.usage.json"),
+    ),
+    (
         "portal.sign-in",
         include_str!("../../../catalogs/emails/templates/portal.sign-in.json"),
     ),

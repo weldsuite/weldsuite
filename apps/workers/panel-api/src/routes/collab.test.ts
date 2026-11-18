@@ -21,6 +21,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Hono } from 'hono';
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { conformanceTarget } from '@weldsuite/worker-kit/testing/conformance';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { DEFAULT_PANEL_SETTINGS } from '@weldsuite/panel-domain/settings';
@@ -51,6 +52,13 @@ import reportsRoutes from './reports';
 import annotationsRoutes from './annotations';
 import commentsRoutes from './comments';
 import metricTreesRoutes from './metric-trees';
+
+/**
+ * The id the queue (or a mock) saw for a row the request created: in
+ * conformance mode that is the TypeScript run's own row, with an id of its
+ * own (the test reads Rust's), so only its prefix is known.
+ */
+const minted = (id: string): unknown => (conformanceTarget() ? expect.stringMatching(new RegExp(`^${id.split('_')[0]}_`)) : id);
 
 const { panelProjects, panelReports, panelReportVersions, panelAnnotations, panelComments, panelMetricTrees, userPreferences } = schema;
 
@@ -191,11 +199,11 @@ describe('comments', () => {
       title: 'Iemand reageerde op het rapport "Weekly visitors"',
       body: 'Why did visitors drop?',
       entityType: 'panel_comment',
-      entityId: comment.id,
+      entityId: minted(comment.id),
       actionUrl: `/weldpanel/insights?report=${report.id}`,
       excludeChannels: ['email', 'push'],
     });
-    expect(events.find((e) => e.entityType === 'panel_comment')).toMatchObject({ action: 'created', entityId: comment.id });
+    expect(events.find((e) => e.entityType === 'panel_comment')).toMatchObject({ action: 'created', entityId: minted(comment.id) });
     expect(JSON.stringify(events)).not.toContain('drop?');
 
     // The owner's own comment notifies nobody.
@@ -323,7 +331,7 @@ describe('metric trees', () => {
     const tree = await data<PanelMetricTreeDto>(res);
     expect(tree.id).toMatch(/^pnmt_/);
     expect(tree.nodes.map((n) => n.id)).toEqual(['root', 'new', 'returning']);
-    expect(events).toMatchObject([{ entityType: 'panel_metric_tree', action: 'created', entityId: tree.id }]);
+    expect(events).toMatchObject([{ entityType: 'panel_metric_tree', action: 'created', entityId: minted(tree.id) }]);
     expect(JSON.stringify(events)).not.toContain('Returning users');
   });
 

@@ -58,6 +58,9 @@ pub(crate) struct Infra {
     pub(crate) provisioner: Option<Arc<dyn DatabaseProvisioner>>,
     /// The subject prefix of WeldPanel's events stream, on the bus `events` sends to.
     pub(crate) panel_events_subject: String,
+    /// WeldPanel's bucket (`S3_BUCKET_PANEL`), where the collector stores
+    /// recording chunks and heatmap snapshots; none without it.
+    pub(crate) panel_files: Option<Arc<dyn DynFileStore>>,
 }
 
 impl std::fmt::Debug for Infra {
@@ -97,6 +100,7 @@ impl Infra {
             sso: None,
             provisioner: None,
             panel_events_subject: weldsuite_adapters_oss::DEFAULT_PANEL_EVENTS_SUBJECT.to_owned(),
+            panel_files: None,
         }
     }
 }
@@ -143,10 +147,18 @@ async fn event_bus(config: &InfraConfig) -> Result<Option<Arc<dyn DynEventBus>>,
             &config.nats_subject_prefix,
         ))
         .await?;
+        // Created here so the collector's publishes find them; `consume`
+        // (`panel-writer`) brings an existing one to the configured age.
+        let max_age = std::time::Duration::from_secs(config.nats_panel_max_age_days * 24 * 60 * 60);
         bus.ensure_stream(weldsuite_adapters_oss::panel_events_stream_config(
             &config.nats_panel_stream,
             &config.nats_panel_subject,
-            std::time::Duration::from_secs(config.nats_panel_max_age_days * 24 * 60 * 60),
+            max_age,
+        ))
+        .await?;
+        bus.ensure_stream(weldsuite_adapters_oss::panel_state_stream_config(
+            &config.nats_panel_state_stream,
+            max_age,
         ))
         .await?;
     }
@@ -157,6 +169,16 @@ async fn event_bus(config: &InfraConfig) -> Result<Option<Arc<dyn DynEventBus>>,
 /// one, so a wrong key shows up in that route's logs, not at start; except
 /// with `S3_ENSURE_BUCKETS`, which checks (and creates) each bucket first.
 type FileStores = (Option<Arc<dyn DynFileStore>>, Option<Arc<dyn DynFileStore>>);
+
+/// WeldPanel's bucket (`S3_BUCKET_PANEL`), when configured.
+fn panel_files(config: &InfraConfig) -> Result<Option<Arc<dyn DynFileStore>>, Error> {
+    Ok(config
+        .panel
+        .as_ref()
+        .map(crate::panel_store::PanelStoreConfig::file_store)
+        .transpose()?
+        .map(|store| Arc::new(store) as Arc<dyn DynFileStore>))
+}
 
 async fn file_stores(config: &InfraConfig) -> Result<FileStores, Error> {
     let Some(files) = &config.files else {
@@ -173,7 +195,16 @@ async fn file_stores(config: &InfraConfig) -> Result<FileStores, Error> {
         .map(|options| S3FileStore::new(&options, client))
         .transpose()?;
     if files.ensure_buckets {
-        for store in std::iter::once(&private).chain(public.as_ref()) {
+        // WeldPanel's bucket too, on the same store (the bundled RustFS).
+        let panel = config
+            .panel
+            .as_ref()
+            .map(crate::panel_store::PanelStoreConfig::file_store)
+            .transpose()?;
+        for store in std::iter::once(&private)
+            .chain(public.as_ref())
+            .chain(panel.as_ref())
+        {
             if store.ensure_bucket().await? {
                 tracing::info!(bucket = store.bucket_name(), "created the bucket");
             }
@@ -378,5 +409,6 @@ pub(crate) async fn connect(
         sso,
         provisioner,
         panel_events_subject: config.nats_panel_subject.clone(),
+        panel_files: panel_files(config)?,
     })
 }

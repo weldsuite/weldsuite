@@ -154,6 +154,14 @@ async fn the_master_keeps_its_rows_in_the_drizzle_schema() {
     assert!(table_exists(&mut conn, "drizzle", "__drizzle_migrations").await);
     assert!(!table_exists(&mut conn, "public", "__drizzle_migrations").await);
     assert!(table_exists(&mut conn, "public", "workspaces").await);
+    // WeldPanel's Iceberg catalog and erasure ledger (0072_weldpanel_lakehouse).
+    for table in [
+        "iceberg_tables",
+        "iceberg_namespace_properties",
+        "panel_erasure_ledger",
+    ] {
+        assert!(table_exists(&mut conn, "public", table).await, "{table}");
+    }
     assert!(
         check_journal(&mut conn, journal)
             .await

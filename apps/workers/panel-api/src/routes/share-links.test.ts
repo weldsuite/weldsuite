@@ -26,6 +26,7 @@ import type { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { conformanceTarget } from '@weldsuite/worker-kit/testing/conformance';
 import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { masterSchema, schema, type AnyMasterDatabase, type Database } from '@weldsuite/worker-kit/db';
 import { DEFAULT_PANEL_SETTINGS } from '@weldsuite/panel-domain/settings';
@@ -60,6 +61,13 @@ import shareLinksRoutes from './share-links';
 import publicRoutes from './public';
 import { publicSpec, shareRefusals } from '../services/share-links';
 import { sha256Hex } from '../services/keys';
+
+/**
+ * The id the queue (or a mock) saw for a row the request created: in
+ * conformance mode that is the TypeScript run's own row, with an id of its
+ * own (the test reads Rust's), so only its prefix is known.
+ */
+const minted = (id: string): unknown => (conformanceTarget() ? expect.stringMatching(new RegExp(`^${id.split('_')[0]}_`)) : id);
 
 const { panelProjects, panelReports, panelDashboards, panelDashboardTiles, panelShareLinks } = schema;
 const { panelShareRegistry } = masterSchema;
@@ -106,7 +114,16 @@ type Router = Hono<{ Bindings: Env; Variables: Variables }>;
 
 function app(base: string, router: Router, userId = 'user_alice', grants: string[] = MEMBER) {
   return createTestApp(base, router, {
-    context: { permissions: permissions(...grants), tenantDb: db, userId, orgId: 'org_alpha', workspaceId: 'ws_alpha', clerkOrgId: 'org_alpha' },
+    // `masterDb`: the master the mocked `getMasterDb` hands out, shared with Rust in conformance mode.
+    context: {
+      permissions: permissions(...grants),
+      tenantDb: db,
+      masterDb: master as unknown as Database,
+      userId,
+      orgId: 'org_alpha',
+      workspaceId: 'ws_alpha',
+      clerkOrgId: 'org_alpha',
+    },
     env: env() as never,
     moduleApiErrors: true,
   });
@@ -196,7 +213,7 @@ describe('creating, listing and revoking', () => {
     const [registry] = await master.select().from(panelShareRegistry);
     expect(registry).toMatchObject({ tokenHash: hash, workspaceId: 'ws_alpha', projectId: 'pnp_a', linkId: link.id, revokedAt: null });
 
-    expect(events).toMatchObject([{ entityType: 'panel_share_link', action: 'created', entityId: link.id }]);
+    expect(events).toMatchObject([{ entityType: 'panel_share_link', action: 'created', entityId: minted(link.id) }]);
     expect(JSON.stringify(events)).not.toContain(link.token);
 
     const listed = await data<PanelShareLinkDto[]>(await links().request(`/api/panel/share-links?targetType=report&targetId=${report.id}`));

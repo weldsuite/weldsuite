@@ -3618,7 +3618,8 @@
       "module": "panel",
       "workspace": "apps/workers/panel-api",
       "tests": [
-        "src/routes/projects/projects.test.ts"
+        "src/routes/projects/projects.test.ts",
+        "src/routes/keys.test.ts"
       ],
       "paths": [
         "apps/workers/panel-api/src/",
@@ -3627,6 +3628,52 @@
         "packages/sdk/panel-sdk/src/install.ts",
         "packages/sdk/panel-sdk/src/host.ts",
         "rust/modules/panel/"
+      ]
+    },
+    {
+      "name": "panel: query",
+      "module": "panel",
+      "workspace": "apps/workers/panel-api",
+      "tests": [
+        "src/routes/query.test.ts"
+      ],
+      "paths": [
+        "apps/workers/panel-api/src/",
+        "packages/domains/panel/src/",
+        "packages/clients/app-api-client/src/schemas/weldpanel-query.ts",
+        "packages/clients/app-api-client/src/schemas/weldpanel-collab.ts",
+        "packages/clients/app-api-client/src/schemas/weldpanel-objects.ts",
+        "packages/core/worker-kit/src/basin.ts",
+        "rust/modules/panel/",
+        "rust/crates/panel-domain/",
+        "rust/crates/zod/"
+      ]
+    },
+    {
+      "name": "panel: saved objects",
+      "module": "panel",
+      "workspace": "apps/workers/panel-api",
+      "tests": [
+        "src/routes/saved-objects.test.ts",
+        "src/routes/definitions.test.ts",
+        "src/routes/collab.test.ts",
+        "src/routes/dashboard-extras.test.ts",
+        "src/routes/share-links.test.ts"
+      ],
+      "paths": [
+        "apps/workers/panel-api/src/",
+        "packages/domains/panel/src/",
+        "packages/clients/app-api-client/src/schemas/weldpanel-query.ts",
+        "packages/clients/app-api-client/src/schemas/weldpanel-collab.ts",
+        "packages/clients/app-api-client/src/schemas/weldpanel-objects.ts",
+        "packages/clients/app-api-client/src/schemas/weldpanel-groups.ts",
+        "packages/core/notifications/src/",
+        "packages/core/worker-kit/src/testing/ledger-bridge.ts",
+        "packages/core/worker-kit/src/testing/workspace-bridge.ts",
+        "rust/modules/panel/",
+        "rust/crates/panel-domain/",
+        "rust/crates/notifications/",
+        "rust/crates/zod/"
       ]
     },
     {
@@ -3730,32 +3777,143 @@
         "packages/sdk/panel-sdk/src/",
         "rust/modules/panel/"
       ],
-      "excludedRoutes": [
-        {
-          "route": "GET /v.js",
-          "reason": "The web vitals plugin is a Global-only addition to the browser SDK (like the recording plugin) until the Kubernetes editions have their analytics store (EVT-019); the Rust collector does not serve it, and the SDK then sends no $webvitals events."
-        },
-        {
-          "route": "GET /rec.js",
-          "reason": "WeldPanel phases 3-5 (recordings, heatmap snapshots, server-side ingest) are built for Global only until the Kubernetes editions have their analytics store (EVT-019); the Rust collector does not serve this route yet."
-        },
-        {
-          "route": "POST /r",
-          "reason": "WeldPanel phases 3-5 (recordings, heatmap snapshots, server-side ingest) are built for Global only until the Kubernetes editions have their analytics store (EVT-019); the Rust collector does not serve this route yet."
-        },
-        {
-          "route": "POST /snap",
-          "reason": "WeldPanel phases 3-5 (recordings, heatmap snapshots, server-side ingest) are built for Global only until the Kubernetes editions have their analytics store (EVT-019); the Rust collector does not serve this route yet."
-        },
-        {
-          "route": "POST /v1/track",
-          "reason": "WeldPanel phases 3-5 (recordings, heatmap snapshots, server-side ingest) are built for Global only until the Kubernetes editions have their analytics store (EVT-019); the Rust collector does not serve this route yet."
-        },
-        {
-          "route": "POST /v1/import",
-          "reason": "WeldPanel phases 3-5 (recordings, heatmap snapshots, server-side ingest) are built for Global only until the Kubernetes editions have their analytics store (EVT-019); the Rust collector does not serve this route yet."
-        }
+      "excludedRoutes": []
+    },
+    {
+      "name": "panel: people",
+      "module": "panel",
+      "workspace": "apps/workers/panel-api",
+      "tests": [
+        "src/routes/people.test.ts",
+        "src/routes/groups.test.ts",
+        "src/routes/sessions.test.ts",
+        "src/routes/heatmaps.test.ts",
+        "src/routes/summaries.test.ts"
+      ],
+      "coverage": [
+        "/api/panel/people",
+        "/api/panel/groups",
+        "/api/panel/group-types",
+        "/api/panel/sessions",
+        "/api/panel/heatmaps",
+        "/api/panel/live",
+        "/api/panel/insights/summarise"
+      ],
+      "paths": [
+        "apps/workers/panel-api/src/",
+        "packages/domains/panel/src/",
+        "packages/clients/app-api-client/src/schemas/weldpanel-query.ts",
+        "packages/clients/app-api-client/src/schemas/weldpanel-objects.ts",
+        "packages/clients/app-api-client/src/schemas/weldpanel-groups.ts",
+        "packages/core/ai/src/testing/",
+        "packages/core/worker-kit/src/basin.ts",
+        "packages/core/worker-kit/src/testing/conformance-schemas-panel-visitors.ts",
+        "packages/core/worker-kit/src/testing/conformance-schemas-panel-analysis.ts",
+        "packages/core/worker-kit/src/testing/pipeline-bridge.ts",
+        "packages/core/worker-kit/src/testing/bucket-bridge.ts",
+        "packages/core/worker-kit/src/testing/conformance-binary.ts",
+        "rust/modules/panel/",
+        "rust/crates/ai/",
+        "rust/crates/panel-domain/",
+        "rust/crates/zod/"
       ]
+    },
+    {
+      "name": "panel: analysis",
+      "module": "panel",
+      "workspace": "apps/workers/panel-api",
+      "tests": [
+        "src/routes/analysis.test.ts"
+      ],
+      "coverage": [
+        "/api/panel/insights/explain",
+        "/api/panel/metric-tree-values"
+      ],
+      "paths": [
+        "apps/workers/panel-api/src/",
+        "packages/domains/panel/src/",
+        "packages/clients/app-api-client/src/schemas/weldpanel-query.ts",
+        "packages/clients/app-api-client/src/schemas/weldpanel-collab.ts",
+        "packages/clients/app-api-client/src/schemas/weldpanel-analysis.ts",
+        "packages/core/ai/src/testing/",
+        "packages/core/worker-kit/src/basin.ts",
+        "packages/core/worker-kit/src/testing/conformance-schemas-panel-analysis.ts",
+        "rust/modules/panel/",
+        "rust/crates/ai/",
+        "rust/crates/panel-domain/",
+        "rust/crates/zod/"
+      ]
+    },
+    {
+      "name": "panel: usage",
+      "module": "panel",
+      "workspace": "apps/workers/panel-api",
+      "tests": [
+        "src/routes/usage/usage.test.ts"
+      ],
+      "paths": [
+        "apps/workers/panel-api/src/routes/usage/",
+        "apps/workers/panel-api/src/services/",
+        "packages/domains/panel/src/",
+        "packages/clients/app-api-client/src/schemas/weldpanel-objects.ts",
+        "packages/core/credits/src/",
+        "packages/core/worker-kit/src/basin.ts",
+        "packages/core/worker-kit/src/testing/conformance-schemas-panel-analysis.ts",
+        "rust/modules/panel/",
+        "rust/crates/core-domain/src/credits.rs",
+        "rust/crates/panel-domain/"
+      ]
+    },
+    {
+      "name": "panel: internal",
+      "module": "panel",
+      "workspace": "apps/workers/panel-api",
+      "tests": [
+        "src/routes/internal-v1.test.ts",
+        "src/index.test.ts",
+        "src/internal.test.ts"
+      ],
+      "coverage": [
+        "/internal/panel/v1/:workspaceId/reports/:id/results",
+        "/internal/panel/usage/settle"
+      ],
+      "paths": [
+        "apps/workers/panel-api/src/",
+        "packages/domains/panel/src/",
+        "packages/core/credits/src/",
+        "packages/core/worker-kit/src/testing/workspace-bridge.ts",
+        "packages/core/worker-kit/src/testing/conformance-schemas-panel-analysis.ts",
+        "rust/modules/panel/",
+        "rust/bins/weldsuite/src/conformance.rs",
+        "rust/bins/weldsuite/src/conformance_panel.rs",
+        "rust/crates/core-domain/src/credits.rs",
+        "rust/crates/panel-domain/"
+      ]
+    },
+    {
+      "name": "panel: monitor",
+      "module": "panel",
+      "workspace": "apps/workers/panel-api",
+      "tests": [
+        "src/routes/monitor.test.ts"
+      ],
+      "paths": [
+        "apps/workers/panel-api/src/",
+        "packages/domains/panel/src/",
+        "packages/clients/app-api-client/src/schemas/weldpanel-monitor.ts",
+        "packages/clients/app-api-client/src/schemas/weldpanel-query.ts",
+        "packages/core/emails/src/templates/panel/",
+        "packages/core/cloudflare-zones/src/custom-hostnames.ts",
+        "packages/core/worker-kit/src/testing/conformance-schemas-panel-monitor.ts",
+        "rust/modules/panel/",
+        "rust/crates/panel-domain/",
+        "rust/crates/emails/",
+        "rust/crates/notifications/",
+        "rust/crates/chat-domain/",
+        "rust/crates/zod/",
+        "rust/bins/weldsuite/src/panel_monitor.rs"
+      ],
+      "excludedRoutes": []
     },
     {
       "name": "mcp-server",

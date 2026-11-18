@@ -218,6 +218,16 @@ settings, which weldsuite.env adds.
 - name: R2_PUBLIC_URL
   value: {{ . | quote }}
 {{- end }}
+{{- if and .Values.config.panel.bucket (not .Values.bundle.objectStorage) }}
+{{- if not .Values.config.files.endpoint }}
+{{- fail "config.panel.bucket needs config.files.endpoint: the panel bucket is on the same object store" }}
+{{- end }}
+- name: S3_BUCKET_PANEL
+  value: {{ .Values.config.panel.bucket | quote }}
+{{- end }}
+- name: NATS_PANEL_EVENTS_MAX_AGE_DAYS
+  value: {{ .Values.config.panel.eventsMaxAgeDays | quote }}
+{{- include "weldsuite.panelDomainsEnv" . }}
 {{- with .Values.config.jobs }}
 {{- $ingressUrl := include "weldsuite.restate.ingressUrl" $ }}
 {{- $adminUrl := include "weldsuite.restate.adminUrl" $ }}
@@ -507,6 +517,64 @@ from the Secret (generated with secret.generate).
 {{- end }}
 {{- end }}
 
+{{- /*
+WeldPanel's custom collector domains (ADR PANEL-014): "true" when
+config.panel.customDomains is enabled and names its collector host; without
+either the server has no provider and the domain routes answer 503.
+*/}}
+{{- define "weldsuite.panelDomains.enabled" -}}
+{{- with .Values.config.panel.customDomains }}
+{{- if and .enabled .collectorHost }}true{{ end }}
+{{- end }}
+{{- end }}
+
+{{- /*
+config.panel.customDomains as the PANEL_CUSTOM_DOMAINS and PANEL_DOMAINS_*
+settings (weldsuite_panel::CertManagerSettings): the server's namespace and
+Service, which the Ingresses it creates route to, the issuer and the class.
+*/}}
+{{- define "weldsuite.panelDomainsEnv" -}}
+{{- if eq (include "weldsuite.panelDomains.enabled" .) "true" }}
+{{- with .Values.config.panel.customDomains }}
+- name: PANEL_CUSTOM_DOMAINS
+  value: "cert-manager"
+- name: PANEL_COLLECTOR_HOST
+  value: {{ .collectorHost | quote }}
+- name: PANEL_DOMAINS_NAMESPACE
+  value: {{ $.Release.Namespace | quote }}
+- name: PANEL_DOMAINS_SERVICE
+  value: {{ include "weldsuite.fullname" $ | quote }}
+- name: PANEL_DOMAINS_SERVICE_PORT
+  value: "http"
+{{- with (.ingressClassName | default $.Values.ingress.className) }}
+- name: PANEL_DOMAINS_INGRESS_CLASS
+  value: {{ . | quote }}
+{{- end }}
+- name: PANEL_DOMAINS_ISSUER
+  value: {{ .issuerRef.name | quote }}
+- name: PANEL_DOMAINS_ISSUER_KIND
+  value: {{ .issuerRef.kind | quote }}
+{{- with .dnsResolver }}
+- name: PANEL_DNS_RESOLVER
+  value: {{ . | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{- /*
+A CEL condition: every label in .labels is on .object's metadata (default
+variables.target), for the panel domains' admission policy.
+*/}}
+{{- define "weldsuite.panelDomains.labelCheck" -}}
+{{- $object := .object | default "variables.target" }}
+{{- $checks := list }}
+{{- range $key, $value := .labels }}
+{{- $checks = append $checks (printf "'%s' in %s.metadata.labels && %s.metadata.labels['%s'] == '%s'" $key $object $object $key $value) }}
+{{- end }}
+{{- join " && " $checks }}
+{{- end }}
+
 {{- /* The sandbox pods' image; the admission policy admits only it. */}}
 {{- define "weldsuite.sandbox.image" -}}
 {{- printf "%s:%s" .Values.sandbox.image.repository (.Values.sandbox.image.tag | default .Chart.AppVersion) }}
@@ -723,6 +791,10 @@ release's Secret.
   value: {{ .Values.objectStorage.buckets.private | quote }}
 - name: S3_BUCKET_PUBLIC
   value: {{ .Values.objectStorage.buckets.public | quote }}
+{{- with .Values.objectStorage.buckets.panel }}
+- name: S3_BUCKET_PANEL
+  value: {{ . | quote }}
+{{- end }}
 - name: S3_FORCE_PATH_STYLE
   value: "true"
 - name: S3_ACCESS_KEY_ID

@@ -87,6 +87,27 @@
 //!   (`workspace-worker/src/services/deletion-sweep.ts`).
 //! - `workspace-teardown` (hourly): deleted workspaces whose database
 //!   teardown never finished (`services/teardown-sweep.ts`).
+//! - `panel-usage` (every 5 minutes): settles what WeldPanel's collector
+//!   counted in Valkey into `panel_usage_monthly`, with the overage charged
+//!   where plans are billed, the quota state the collector reads and the
+//!   plan's replay tier in its project records, as the `PanelUsage` Durable
+//!   Objects' alarms do on Global
+//!   (`weldsuite_panel::usage_sweep`), and mails the owners the usage
+//!   notices that come due. Reads the master database and Valkey, a tenant
+//!   database only to mail a notice. Nothing without `VALKEY_URL` or while
+//!   panel is not served.
+//! - `panel-maintenance` (nightly, 02:45 UTC): WeldPanel's table upkeep
+//!   (`crate::panel_maintenance`): the erasures in `panel_erasure_ledger`
+//!   whose rows panel-writer has committed (requested more than
+//!   `PANEL_WRITER_FLUSH_SECONDS` plus ten minutes ago, and before the
+//!   oldest row it hasn't committed, read from NATS when `NATS_URL` is set),
+//!   retention by plan, compaction, snapshot expiry and the orphan sweep.
+//!   Nothing without `S3_BUCKET_PANEL`.
+//! - `panel-schedule` (every 10 minutes): WeldPanel's alerts, scheduled reports
+//!   and raw exports that the master `panel_schedule_registry` lists as due,
+//!   and the custom collector domains still pending
+//!   (`apps/workers/panel-api/src/scheduled.ts`, `crate::panel_monitor`).
+//!   Nothing while panel is not served.
 //! - `sandbox-cleanup` (every 5 minutes): deletes WeldAgent's sandbox pods
 //!   that are done: their agent exited when idle, Kubernetes stopped them at
 //!   their lifetime, or they never started (`weldsuite_sandbox::Sandboxes::cleanup`).
@@ -148,7 +169,7 @@ impl weldsuite_forms::TenantResolver for WorkspaceTenants {
     }
 }
 
-const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, flow-approval-due, flow-benefit-measure, flow-status-reports, flow-finance-snapshot, books-sweep, domain-auto-renew, desk-sla-sweep, desk-report-sweep, asset-import-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due, crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup, moneybird-push, merge-digest-sweep, forms-reminders, forms-digest, weldagent-routines, sandbox-cleanup, billing-renewals";
+const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, flow-approval-due, flow-benefit-measure, flow-status-reports, flow-finance-snapshot, books-sweep, domain-auto-renew, desk-sla-sweep, desk-report-sweep, asset-import-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due, crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup, moneybird-push, merge-digest-sweep, forms-reminders, forms-digest, weldagent-routines, sandbox-cleanup, billing-renewals, panel-usage, panel-maintenance, panel-schedule";
 
 /// `weldsuite cron <job>`.
 #[allow(clippy::too_many_lines)] // one arm per job
@@ -188,7 +209,10 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
         | "forms-digest"
         | "weldagent-routines"
         | "sandbox-cleanup"
-        | "billing-renewals"),
+        | "billing-renewals"
+        | "panel-usage"
+        | "panel-maintenance"
+        | "panel-schedule"),
     ) = job
     else {
         eprintln!("usage: weldsuite cron <job>\n{JOBS}");
@@ -248,6 +272,9 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
             "weldagent-routines" => weldagent_routines(config).await,
             "sandbox-cleanup" => sandbox_cleanup(config).await,
             "billing-renewals" => Box::pin(billing_renewals(config)).await,
+            "panel-usage" => Box::pin(panel_usage(config)).await,
+            "panel-maintenance" => Box::pin(panel_maintenance(config)).await,
+            "panel-schedule" => Box::pin(crate::panel_monitor::panel_schedule(config)).await,
             _ => sign_lifecycle(config).await,
         }
     };
@@ -377,6 +404,173 @@ async fn forms_sweep(config: Config, job: &str) -> Result<(), Box<dyn std::error
     {
         tracing::warn!("stopped with publishes still in flight");
     }
+    Ok(())
+}
+
+/// `panel-usage`: settles WeldPanel's usage the collector counted in Valkey
+/// (`weldsuite_panel::usage_sweep`). The workspaces come from the master
+/// registry; a tenant database is opened only to mail a notice.
+async fn panel_usage(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    let skipped = |why: &str| {
+        println!(
+            "{}",
+            serde_json::json!({ "job": "panel-usage", "result": { "skipped": why } })
+        );
+    };
+    if !crate::routes::mounts("panel") {
+        skipped("panel is not served");
+        return Ok(());
+    }
+    let master =
+        weldsuite_db::master_pool(&config.master_database_url, config.master_max_connections)?;
+    let tracker = weldsuite_events::TaskTracker::new();
+    #[cfg(not(feature = "conformance"))]
+    let infra =
+        crate::infra::connect(&config.infra, &master, &config.keyring, tracker.clone()).await?;
+    #[cfg(feature = "conformance")]
+    let (infra, _) = crate::conformance::infra(tracker.clone());
+    // The collector counts in Valkey; without it each server counted in its
+    // own memory, which no job can read.
+    let Some(cache) = infra.cache.clone() else {
+        skipped("VALKEY_URL is not set");
+        return Ok(());
+    };
+    let workspaces = Arc::new(Workspaces::new(
+        master.clone(),
+        config.keyring.clone(),
+        config.workspaces.clone(),
+    ));
+    let started = std::time::Instant::now();
+    let now = i64::try_from(time::OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000)?;
+    let settle =
+        weldsuite_panel::usage_sweep::MasterSettle(weldsuite_panel::usage_settlement::Settlement {
+            master: &master,
+            cache: Some(&cache),
+            now,
+            // Overage is charged where plans are billed (`billing`).
+            bill: config.edition.plan_billing,
+        });
+    let notices = infra
+        .mail
+        .clone()
+        .map(|transport| weldsuite_panel::usage_mail::MailNotices {
+            transport,
+            tenants: Arc::new(WorkspaceTenants(Arc::clone(&workspaces))),
+            platform_url: std::env::var("PLATFORM_URL")
+                .ok()
+                .filter(|url| !url.is_empty()),
+        });
+    let counted = weldsuite_panel::usage_sweep::counted_workspaces(&master, now).await?;
+    let report = weldsuite_panel::usage_sweep::run(
+        &weldsuite_panel::usage_sweep::UsageSweep {
+            cache: &cache,
+            settle: &settle,
+            notices: notices
+                .as_ref()
+                .map(|n| n as &dyn weldsuite_panel::usage_mail::NoticeSender),
+            now,
+        },
+        &counted,
+    )
+    .await;
+    weldsuite_ports::record_job_run("panel.usage", report.failed == 0, started.elapsed());
+    println!(
+        "{}",
+        serde_json::json!({ "job": "panel-usage", "result": report })
+    );
+    Ok(())
+}
+
+/// `panel-maintenance`: one night's upkeep of WeldPanel's tables; nothing
+/// without the panel bucket. Reads the master database, and NATS (when
+/// configured) for how far panel-writer is behind before an erasure.
+async fn panel_maintenance(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    let Some(store) = config.infra.panel.clone() else {
+        println!(
+            "{}",
+            serde_json::json!({ "job": "panel-maintenance", "result": { "skipped": "S3_BUCKET_PANEL is not set" } })
+        );
+        return Ok(());
+    };
+    let master =
+        weldsuite_db::master_pool(&config.master_database_url, config.master_max_connections)?;
+    let lake = store.lakehouse(master.clone())?;
+    lake.ensure_tables().await?;
+    // The replays bucket inside the panel bucket, for Global's lifecycle rules.
+    let replays = weldsuite_panel::PanelBucketReplays::new(
+        Arc::new(store.file_store()?) as Arc<dyn weldsuite_ports::DynFileStore>
+    );
+    let lister = crate::panel_maintenance::S3Lister::new(store)?;
+    // The erased ids a rewrite covered leave their project's list: the
+    // tenant databases of the workspaces with erasures applied, only.
+    let workspaces = Arc::new(Workspaces::new(
+        master.clone(),
+        config.keyring.clone(),
+        config.workspaces.clone(),
+    ));
+    let connection = match &config.infra.valkey_url {
+        Some(url) => Some(weldsuite_adapters_oss::connect_valkey(url).await?),
+        None => None,
+    };
+    let valkey = connection.map(|connection| {
+        crate::panel_project::PanelValkey::new(connection, config.infra.valkey_cache_prefix.clone())
+    });
+    let projects = crate::panel_project::TenantProjectState {
+        pools: Arc::new(crate::panel_project::WorkspaceTenantPools(workspaces)),
+        rows: crate::panel_project::rows::RowSink::new(None),
+        valkey,
+        clock: crate::panel_project::system_clock(),
+    };
+    // How far panel-writer is behind its feeds, for the erasure's cutoff:
+    // NATS as `consume` reaches it. Without NATS nothing writes the tables.
+    let lag = config
+        .infra
+        .nats_url
+        .as_ref()
+        .map(|url| crate::panel_maintenance::NatsWriterLag {
+            nats: weldsuite_adapters_oss::NatsOptions {
+                url: url.clone(),
+                user: config.infra.nats_user.clone(),
+                token: config.infra.nats_token.clone(),
+                name: Some("weldsuite-cron".to_owned()),
+            },
+            streams: crate::panel_store::PanelStreams {
+                events: config.infra.nats_panel_stream.clone(),
+                events_subject: config.infra.nats_panel_subject.clone(),
+                state: config.infra.nats_panel_state_stream.clone(),
+                max_age: std::time::Duration::ZERO,
+            },
+        });
+    let settings = crate::panel_maintenance::MaintenanceSettings {
+        writer_flush_after: crate::consume::panel_writer::flush_after_from(&|name| {
+            std::env::var(name).ok()
+        }),
+        ..crate::panel_maintenance::MaintenanceSettings::default()
+    };
+    let started = std::time::Instant::now();
+    let report = crate::panel_maintenance::run(
+        &master,
+        &lake,
+        &lister,
+        time::OffsetDateTime::now_utc(),
+        &settings,
+        crate::panel_maintenance::NightPorts {
+            projects: Some(&projects),
+            replays: Some(&replays),
+            lag: lag
+                .as_ref()
+                .map(|lag| lag as &dyn crate::panel_maintenance::WriterLag),
+        },
+    )
+    .await;
+    let failed = report["errors"]
+        .as_array()
+        .is_some_and(|errors| !errors.is_empty());
+    weldsuite_ports::record_job_run("panel.maintenance", !failed, started.elapsed());
+    println!(
+        "{}",
+        serde_json::json!({ "job": "panel-maintenance", "result": report })
+    );
     Ok(())
 }
 

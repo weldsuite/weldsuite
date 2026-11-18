@@ -93,6 +93,8 @@ pub(crate) fn infra(tracker: TaskTracker) -> (Infra, Recorders) {
         sso: None,
         provisioner: None,
         panel_events_subject: weldsuite_adapters_oss::DEFAULT_PANEL_EVENTS_SUBJECT.to_owned(),
+        // The collector takes the test's `PANEL_REPLAYS` per request.
+        panel_files: None,
     };
     (infra, recorders)
 }
@@ -262,9 +264,18 @@ struct TestContext {
     /// `conformance_panel`).
     #[serde(default)]
     pipelines: HashMap<String, String>,
+    /// Its rate-limiting bindings over HTTP (`{ EVENTS_RATE_LIMIT: url }`,
+    /// `conformance_panel`).
+    #[serde(default)]
+    rate_limits: HashMap<String, String>,
     /// The MCP server's member session (mcp-server's harness), or none.
     #[serde(default)]
     mcp_session: Option<weldsuite_mcp::McpSession>,
+    /// Its workspace lookup over HTTP (`workspace-bridge.ts`): a public
+    /// route that opens a workspace by reference (a WeldPanel share link's)
+    /// finds what the test's `getWorkspaceContextForOrg` finds.
+    #[serde(default)]
+    workspaces: Option<String>,
 }
 
 impl TestContext {
@@ -427,9 +438,35 @@ impl Pools {
         ));
         // And the GitHub App webhook's project syncs.
         extensions.insert(self.workflows.github_sync_runs(&context.workflows));
-        // WeldPanel's collector: the test's events stream, salt and usage
-        // objects, each one it binds.
-        extensions.insert(self.panel.collector(&context.ledgers, &context.pipelines));
+        // WeldPanel's collector: the test's streams, salt and usage objects,
+        // replays bucket and rate limits, each one it binds.
+        extensions.insert(
+            self.panel
+                .collector(crate::conformance_panel::PanelBindings {
+                    ledgers: &context.ledgers,
+                    pipelines: &context.pipelines,
+                    rate_limits: &context.rate_limits,
+                    replays: context
+                        .files
+                        .get("PANEL_REPLAYS")
+                        .map(|url| self.panel.replays(url, self.buckets.store(url))),
+                }),
+        );
+        // WeldPanel's project state (`PanelProject`): the test's
+        // `PANEL_PROJECT` namespace, or none.
+        extensions.insert(self.panel.project_state(&context.ledgers));
+        // And its erasure queue (`PANEL_MAINTENANCE`), or none.
+        extensions.insert(self.panel.erasure_queue(&context.pipelines));
+        // WeldPanel's public share links: the test's workspace lookup (its
+        // tenant database for what the lookup finds) and its rate limiter.
+        if let Ok(db) = self.get(&context.database_url) {
+            extensions.insert(self.panel.share_workspaces(
+                db,
+                &context.workspace_id,
+                context.workspaces.as_deref(),
+            ));
+        }
+        extensions.insert(self.panel.share_rate_limit(&context.ledgers));
         // WeldData's enrichment runs start on the test's `WELDDATA_ENRICH`, or nowhere.
         extensions.insert(weldsuite_data::RequestEnrichRuns(
             self.workflows.enrich_runs(&context.workflows),
@@ -809,6 +846,34 @@ pub(crate) async fn public(
         pools.insert_shared(request.extensions_mut(), &context);
     }
     run_reporting_route(request, next).await
+}
+
+/// Middleware, inside [`public`], for a route a worker serves only on its
+/// internal entrypoint (panel-api's `PanelApiInternal`): a test reaches it
+/// with its context, which [`public`] turned into the request's env; a
+/// request without one is the worker's public fetch handler's, which
+/// answers it as an unknown path.
+pub(crate) async fn internal_entrypoint_only(request: Request, next: Next) -> Response {
+    if request
+        .extensions()
+        .get::<weldsuite_kit::RequestEnv>()
+        .is_some()
+    {
+        return next.run(request).await;
+    }
+    let path = request
+        .extensions()
+        .get::<axum::extract::OriginalUri>()
+        .map_or_else(
+            || request.uri().path().to_owned(),
+            |uri| uri.path().to_owned(),
+        );
+    ApiError::new(
+        http::StatusCode::NOT_FOUND,
+        "NOT_FOUND",
+        format!("{path} not found"),
+    )
+    .into_response()
 }
 
 /// Middleware for public routes that open a workspace's tenant database

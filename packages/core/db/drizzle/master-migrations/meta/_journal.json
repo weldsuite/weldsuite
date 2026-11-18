@@ -505,6 +505,13 @@
       "when": 1794941658769,
       "tag": "0071_weldpanel_gaps",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1794991771063,
+      "tag": "0072_weldpanel_lakehouse",
+      "breakpoints": true
     }
   ]
 }

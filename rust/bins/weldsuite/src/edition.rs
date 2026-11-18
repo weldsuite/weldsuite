@@ -15,8 +15,9 @@
 //!   (`COLLAB_ROOMS_URLS`); [`CREDIT_TOP_UP_FEATURE`], without Mollie
 //!   (`MOLLIE_API_KEY`); [`CHAT_CALLS_FEATURE`], without a video provider
 //!   (`weldsuite_video_rooms::configured`); [`AGENT_SANDBOX_FEATURE`], without WeldAgent's
-//!   sandbox (`SANDBOX_ENABLED`); and [`SSO_CONNECTIONS_FEATURE`], unless WeldID
-//!   is the identity provider (`IDENTITY_PROVIDER=weldid`).
+//!   sandbox (`SANDBOX_ENABLED`); [`PANEL_ANALYTICS_FEATURE`], without
+//!   WeldPanel's store (`S3_BUCKET_PANEL`); and [`SSO_CONNECTIONS_FEATURE`],
+//!   unless WeldID is the identity provider (`IDENTITY_PROVIDER=weldid`).
 //! - `ai`: the install's AI providers, with their region and the key sources
 //!   a workspace may use (`weldsuite_ai::AiConfig::describe`), when it has
 //!   one. The platform shows the AI settings page and the region labels from
@@ -116,15 +117,6 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     // install keeps every workspace in its own one cluster, so there is no
     // choice to offer (onboarding's `region` only lands in the metadata).
     "data-regions",
-    // WeldPanel analytics (insights, funnels, retention, flows, reports,
-    // dashboards, cohorts, lexicon, users, recordings, heatmaps, frustration):
-    // queries run on Basin, which only Global has. Server-side ingest goes
-    // with it (secret keys at `/api/panel/projects/:id/keys`, the collector's
-    // `/v1/track` and `/v1/import`), as do recordings (`/rec.js`, `/r`).
-    // Projects and the browser install instructions stay; the platform hides
-    // the rest (the Server keys tab and snippets, the recording settings) and
-    // redirects to them.
-    "panel-analytics",
     // Third-party integrations: their syncs and webhooks run in Global's
     // integration-sync-worker and integration-webhook-worker (the CRM_SYNC
     // Workflow, connector syncs, Slack, Discord and GitHub events, Google
@@ -227,6 +219,16 @@ pub(crate) const REACH_BILLING_FEATURE: &str = "reach-billing";
 /// one (`SANDBOX_ENABLED`, the chart's `sandbox.enabled`).
 pub(crate) const AGENT_SANDBOX_FEATURE: &str = "agent-sandbox";
 
+/// WeldPanel's analytics (insights, funnels, retention, flows, reports,
+/// dashboards, cohorts, lexicon, users, recordings, heatmaps, frustration):
+/// Global queries Basin; the Kubernetes editions query their own Iceberg
+/// tables in the panel bucket with DataFusion (ADR EVT-019,
+/// `crate::panel_sql`). Unavailable without that bucket (`S3_BUCKET_PANEL`,
+/// the chart's `config.panel.bucket`): nothing writes the tables and reports
+/// answer 503, so the platform keeps to projects and the install
+/// instructions, and redirects the rest to them.
+pub(crate) const PANEL_ANALYTICS_FEATURE: &str = "panel-analytics";
+
 /// The public settings `PUBLIC_ENV` may carry into `/config.json`'s `env`,
 /// by the platform's name for them. Never add a secret: anyone can read the
 /// document.
@@ -275,6 +277,8 @@ pub(crate) struct EditionConfig {
     /// WeldAgent has a sandbox (`SANDBOX_ENABLED`, set by `Config`):
     /// [`AGENT_SANDBOX_FEATURE`].
     pub(crate) sandbox: bool,
+    /// WeldPanel has its store (`S3_BUCKET_PANEL`): [`PANEL_ANALYTICS_FEATURE`].
+    pub(crate) panel_analytics: bool,
     /// The identity provider manages SSO connections (WeldID, set by
     /// `Config` from `IDENTITY_PROVIDER`): [`SSO_CONNECTIONS_FEATURE`].
     pub(crate) sso_connections: bool,
@@ -326,6 +330,7 @@ impl Default for EditionConfig {
             credit_top_up: false,
             plan_billing: false,
             sandbox: false,
+            panel_analytics: false,
             sso_connections: false,
         }
     }
@@ -380,6 +385,10 @@ impl EditionConfig {
             live_editing: lookup("COLLAB_ROOMS_URLS")
                 .is_some_and(|urls| urls.split(',').any(|url| !url.trim().is_empty())),
             mail,
+            // The store's own settings are checked with the rest of the
+            // panel store (`crate::panel_store`); its bucket decides.
+            panel_analytics: lookup("S3_BUCKET_PANEL")
+                .is_some_and(|bucket| !bucket.trim().is_empty()),
             // `Config` reads `AI_*` once, with its problems, and sets it.
             ai: None,
             // `Config` reads `SANDBOX_*` likewise.
@@ -414,7 +423,8 @@ impl EditionConfig {
 
 impl EditionConfig {
     /// [`UNAVAILABLE_FEATURES`], and calls, the AI features, custom mail
-    /// domains and live editing when they aren't configured.
+    /// domains, the sandbox, WeldPanel's analytics and live editing when
+    /// they aren't configured.
     pub(crate) fn unavailable_features(&self) -> Vec<&'static str> {
         let mut features = Vec::with_capacity(UNAVAILABLE_FEATURES.len() + 16);
         if !self.sso_connections {
@@ -442,6 +452,9 @@ impl EditionConfig {
         }
         if !self.sandbox {
             features.push(AGENT_SANDBOX_FEATURE);
+        }
+        if !self.panel_analytics {
+            features.push(PANEL_ANALYTICS_FEATURE);
         }
         if !self.live_editing {
             features.push(COLLAB_ROOMS_FEATURE);
@@ -514,7 +527,7 @@ mod tests {
                 .as_array()
                 .map(Vec::len)
                 .unwrap_or_default(),
-            UNAVAILABLE_FEATURES.len() + AI_FEATURES.len() + 9
+            UNAVAILABLE_FEATURES.len() + AI_FEATURES.len() + 10
         );
         assert_eq!(
             body["unavailableFeatures"]
@@ -587,6 +600,24 @@ mod tests {
         assert!(!UNAVAILABLE_FEATURES.contains(&AGENT_SANDBOX_FEATURE));
     }
 
+    /// WeldPanel's analytics run on the install's own store (ADR EVT-019):
+    /// offered once the panel bucket is set, whatever the edition.
+    #[test]
+    fn offers_panel_analytics_with_the_panel_bucket() {
+        let (off, _) = read(&[("EDITION", "eu")]);
+        assert!(
+            off.unavailable_features()
+                .contains(&PANEL_ANALYTICS_FEATURE)
+        );
+        let (blank, _) = read(&[("EDITION", "eu"), ("S3_BUCKET_PANEL", " ")]);
+        assert!(!blank.panel_analytics);
+        let (on, problems) = read(&[("EDITION", "eu"), ("S3_BUCKET_PANEL", "weldsuite-panel")]);
+        assert!(problems.is_empty(), "{problems:?}");
+        assert!(on.panel_analytics);
+        assert!(!on.unavailable_features().contains(&PANEL_ANALYTICS_FEATURE));
+        assert!(!UNAVAILABLE_FEATURES.contains(&PANEL_ANALYTICS_FEATURE));
+    }
+
     #[test]
     fn offers_live_editing_with_a_collab_rooms_service() {
         let (config, problems) = read(&[(
@@ -608,6 +639,7 @@ mod tests {
             BILLING_FEATURE,
             REACH_BILLING_FEATURE,
             AGENT_SANDBOX_FEATURE,
+            PANEL_ANALYTICS_FEATURE,
         ]);
         assert_eq!(body["unavailableFeatures"], json!(lacks));
         // A blank list is no service.
@@ -840,6 +872,8 @@ mod tests {
             &REACH_BILLING_FEATURE,
             &CHAT_CALLS_FEATURE,
             &SSO_CONNECTIONS_FEATURE,
+            &AGENT_SANDBOX_FEATURE,
+            &PANEL_ANALYTICS_FEATURE,
         ]) {
             assert!(
                 feature.chars().all(|c| c.is_ascii_lowercase() || c == '-'),

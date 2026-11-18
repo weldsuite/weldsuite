@@ -47,6 +47,7 @@ import { formatDate, formatTime, formatWhen } from '../packages/core/emails/src/
 import { emailStrings, type EmailLocale } from '../packages/core/emails/src/i18n';
 import { renderEmail, renderHtml, renderTemplate } from '../packages/core/emails/src/render';
 import { formatReportNumber } from '../packages/core/emails/src/templates/desk/report';
+import { alertConditionText, formatAlertPeriod, formatPanelValue } from '../packages/core/emails/src/templates/panel/monitor-text';
 import { templates, type TemplateId } from '../packages/core/emails/src/templates/index';
 import { theme } from '../packages/core/emails/src/theme';
 import { emails as en } from '../packages/core/i18n/src/locales/en/emails';
@@ -107,6 +108,31 @@ interface ListSpec {
   row: (flags: Set<string>, i: number) => unknown;
   /** Rendered text that depends on how many rows there are (n) → its replacement (a sentinel). */
   counted?: (locale: EmailLocale, n: number) => Record<string, string>;
+  /**
+   * Lists inside a row (WeldPanel's digest: a block's headline figures and
+   * top rows): a row variant with the `flag` renders one sample item, found
+   * by its `marker`, which becomes a loop over `row.<list>` (`{% for <item>
+   * in row.<list> %}`). The item's fields are plain sentinels (`⟦h.label⟧`).
+   */
+  inner?: InnerListSpec[];
+  /**
+   * The text of the element the rows follow (WeldPanel's digest: the intro
+   * paragraph). The frame is then the render without rows, cut after that
+   * element, so row variants that start and end with different elements
+   * share it.
+   */
+  seamAfter?: (locale: EmailLocale) => string;
+}
+
+interface InnerListSpec {
+  /** The row flag under which the row renders this list. */
+  flag: string;
+  /** The list in the row's values (`headline`): the loop runs over `row.<list>`. */
+  list: string;
+  /** The loop variable. */
+  item: string;
+  /** A text only the sample item renders. */
+  marker: string;
 }
 
 /** A row's sentinel: row `i`'s `field`. */
@@ -522,9 +548,46 @@ const SPECS: Spec[] = [
       joinUrl: S('join_url'),
     }),
   },
+  panelUsageSpec(),
   deskReportSpec(),
   ...calendarSpecs(),
+  ...panelMonitorSpecs(),
 ];
+
+/**
+ * WeldPanel's usage notice to a workspace's owners, one kind at a time: 80%
+ * of an allowance (no flag), all of it (`full`), recordings stopped
+ * (`replay_blocked`) and events dropped (`events_blocked`). The four figures
+ * go through `Intl.NumberFormat`, which turns a sentinel into `NaN`, so each
+ * sample figure's formatted text becomes its placeholder and Rust groups the
+ * digits the same way (`weldsuite_emails::panel`).
+ */
+function panelUsageSpec(): Spec {
+  // Sample figures no other part of the email contains.
+  const FIGURES = { events_used: 930001, events_allowance: 930002, recordings_used: 930003, recordings_allowance: 930004 };
+  const KINDS = ['full', 'replay_blocked', 'events_blocked'] as const;
+  return {
+    id: 'panel.usage',
+    flags: [...KINDS],
+    fields: ['workspace_name', 'events_used', 'events_allowance', 'recordings_used', 'recordings_allowance', 'resets_date', 'url'],
+    exclude: (f) => f.size > 1,
+    texts: (locale) => {
+      const number = new Intl.NumberFormat(locale);
+      return {
+        [formatDate(SAMPLE_DATE, locale, 'UTC')]: S('resets_date'),
+        ...Object.fromEntries(Object.entries(FIGURES).map(([field, value]) => [number.format(value), S(field)])),
+      };
+    },
+    props: (f) => ({
+      workspaceName: S('workspace_name'),
+      kind: KINDS.find((kind) => f.has(kind)) ?? 'near',
+      events: { used: FIGURES.events_used, allowance: FIGURES.events_allowance },
+      recordings: { used: FIGURES.recordings_used, allowance: FIGURES.recordings_allowance },
+      resetsAt: SAMPLE_DATE,
+      url: S('url'),
+    }),
+  };
+}
 
 /**
  * WeldDesk's scheduled report (`desk.report`): the overview (KPI rows, the
@@ -699,6 +762,110 @@ function calendarSpecs(): Spec[] {
       eventUrl: f.has('event_url') ? S('event_url') : null,
     }),
   }));
+}
+
+/**
+ * WeldPanel's alert (one export per event: fired, resolved, test), scheduled
+ * report (one per target: a report or a dashboard) and failing export mail.
+ * The figures, the period and the condition are written by Rust as the shared
+ * copy does (`monitor-text.ts`; `weldsuite_emails::panel_monitor`), so each
+ * sample's text becomes a placeholder. A digest's blocks are a list
+ * (`rows`); a block's headline figures and top rows are loops inside it
+ * (`row.headline`, `row.rows`).
+ */
+function panelMonitorSpecs(): Spec[] {
+  // Sample figures no other part of the email contains.
+  const VALUE = 987654;
+  const LIMIT = 876543;
+  const CONDITION = { type: 'threshold' as const, operator: 'above' as const, value: 765432 };
+  const PERIOD = '2001-02-03';
+  const FIGURE = 990001;
+  const ROW = 980001;
+  const MORE = 7_654_321;
+  const alerts = (['fired', 'resolved', 'test'] as const).map(
+    (event): Spec => ({
+      id: 'panel.alert',
+      name: `panel.alert.${event}`,
+      flags: ['value', 'limit', 'period'],
+      fields: ['alert_name', 'project_name', 'metric', 'value', 'limit', 'period', 'condition', 'checked', 'url'],
+      texts: (locale, f) => ({
+        [alertConditionText(CONDITION, locale)]: S('condition'),
+        ...(f.has('value') ? { [formatPanelValue(VALUE, 'number', locale)]: S('value') } : {}),
+        ...(f.has('limit') ? { [formatPanelValue(LIMIT, 'number', locale)]: S('limit') } : {}),
+        ...(f.has('period') ? { [formatAlertPeriod(PERIOD, 'daily', locale)]: S('period') } : {}),
+        [emailStrings(locale).panel.alert.intervals.daily]: S('checked'),
+      }),
+      props: (f) => ({
+        alertName: S('alert_name'),
+        projectName: S('project_name'),
+        event,
+        metric: S('metric'),
+        value: f.has('value') ? VALUE : null,
+        bound: f.has('limit') ? LIMIT : null,
+        condition: CONDITION,
+        interval: 'daily',
+        period: f.has('period') ? PERIOD : null,
+        url: S('url'),
+      }),
+    }),
+  );
+  const digests = (['report', 'dashboard'] as const).map(
+    (targetType): Spec => ({
+      id: 'panel.report-digest',
+      name: `panel.report-digest.${targetType}`,
+      flags: ['blocks', 'more'],
+      fields: ['subscription_name', 'project_name', 'target_name', 'more_count', 'url'],
+      texts: (locale) => ({
+        [formatPanelValue(FIGURE, 'number', locale)]: S('h.value'),
+        [formatPanelValue(ROW, 'number', locale)]: S('item.value'),
+        [String(MORE)]: S('more_count'),
+      }),
+      list: {
+        flag: 'blocks',
+        flags: ['link', 'failed', 'open', 'headline', 'rows'],
+        fields: ['title', 'url', 'headline', 'rows'],
+        row: (f, i) => ({
+          title: R(i, 'title'),
+          headline: f.has('headline') ? [{ label: S('h.label'), value: FIGURE, previous: null, format: 'number' }] : [],
+          rows: f.has('rows') ? [{ label: S('item.label'), value: ROW, format: 'number' }] : [],
+          ...(f.has('failed') ? { failed: true } : {}),
+          ...(f.has('open') ? { openOnly: true } : {}),
+          url: f.has('link') ? R(i, 'url') : null,
+        }),
+        seamAfter: (locale) => {
+          const t = emailStrings(locale).panel.reportDigest;
+          return targetType === 'dashboard' ? t.introDashboard : t.introReport;
+        },
+        inner: [
+          { flag: 'headline', list: 'headline', item: 'h', marker: S('h.label') },
+          { flag: 'rows', list: 'rows', item: 'item', marker: S('item.label') },
+        ],
+      },
+      props: (f, rows) => ({
+        subscriptionName: S('subscription_name'),
+        projectName: S('project_name'),
+        targetType,
+        targetName: S('target_name'),
+        blocks: rows,
+        ...(f.has('more') ? { moreCount: MORE } : {}),
+        url: S('url'),
+      }),
+    }),
+  );
+  const failing: Spec = {
+    id: 'panel.export-failing',
+    flags: ['error'],
+    fields: ['export_name', 'project_name', 'bucket', 'failures', 'last_error', 'url'],
+    props: (f) => ({
+      exportName: S('export_name'),
+      projectName: S('project_name'),
+      bucket: S('bucket'),
+      failures: S('failures'),
+      lastError: f.has('error') ? S('last_error') : null,
+      url: S('url'),
+    }),
+  };
+  return [...alerts, ...digests, failing];
 }
 
 // ── helpers ─────────────────────────────────────────────────────────────────
@@ -879,6 +1046,31 @@ function loopHtml(html: string, lists: ShapeListSpec[], where: string): string {
     out = out.slice(0, start) + loop + out.slice(end);
   }
   return out;
+}
+
+/** A row's one sample item (`InnerListSpec`), the innermost table around its marker, as a loop. */
+function innerLoopHtml(body: string, inner: InnerListSpec, where: string): string {
+  const marker = indexOfOnce(body, inner.marker, where);
+  const [start, end] = innermost(body, 'table', (s, e) => s <= marker && marker < e, where);
+  return `${body.slice(0, start)}{% for ${inner.item} in row.${inner.list} %}${body.slice(start, end)}{% endfor %}${body.slice(end)}`;
+}
+
+/**
+ * The same in the plain text: the item's line with the blank line after it
+ * (or, at the end of the row, the one before it) repeats.
+ */
+function innerLoopText(body: string, inner: InnerListSpec, where: string): string {
+  const at = indexOfOnce(body, inner.marker, where);
+  let lineStart = body.lastIndexOf('\n', at) + 1;
+  // A loop an earlier list closed on this line stays before it.
+  while (body.startsWith('{%', lineStart)) lineStart = body.indexOf('%}', lineStart) + 2;
+  const newline = body.indexOf('\n', at);
+  const lineEnd = newline < 0 ? body.length : newline;
+  let [start, end] = [lineStart, lineEnd];
+  if (body.startsWith(TEXT_ROW_END, lineEnd)) end = lineEnd + TEXT_ROW_END.length;
+  else if (lineStart >= TEXT_ROW_END.length && body.slice(lineStart - TEXT_ROW_END.length, lineStart) === TEXT_ROW_END) start = lineStart - TEXT_ROW_END.length;
+  else throw new Error(`${where}: the item ${inner.marker} is not a line of its own`);
+  return `${body.slice(0, start)}{% for ${inner.item} in row.${inner.list} %}${body.slice(start, end)}{% endfor %}${body.slice(end)}`;
 }
 
 /** html-to-text writes every row as a line of its own, a blank line after it. */
@@ -1070,6 +1262,28 @@ function splitRows(one: string, two: string, where: string): { prefix: string; r
   return { prefix, row, suffix };
 }
 
+/** Where rows go in a render without them: after the first `close` after `text`. */
+function seamOf(none: string, text: string, close: string, where: string): number {
+  const at = indexOfOnce(none, text, `${where} seam`);
+  const end = none.indexOf(close, at + text.length);
+  if (end < 0) throw new Error(`${where}: nothing closes the element before the rows`);
+  return end + close.length;
+}
+
+/**
+ * `splitRows` for rows whose variants differ at their edges: the frame is the
+ * render without rows (`none`), cut at `at` (`seamOf`), so every row
+ * variant shares it.
+ */
+function splitAtSeam(none: string, one: string, two: string, at: number, where: string): { prefix: string; row: string; suffix: string } {
+  const prefix = none.slice(0, at);
+  const suffix = none.slice(at);
+  if (!one.startsWith(prefix) || !one.endsWith(suffix) || one.length <= none.length) throw new Error(`${where}: a row does not insert into the render`);
+  const first = one.slice(at, one.length - suffix.length);
+  if (two !== prefix + first + first.replaceAll('⟦r0_', '⟦r1_') + suffix) throw new Error(`${where}: the rows do not repeat`);
+  return { prefix, row: first.replaceAll('⟦r0_', '⟦r_'), suffix };
+}
+
 /** Row `i` of a row in generic form. */
 const rowAt = (row: string, i: number) => row.replaceAll('⟦r_', `⟦r${i}_`);
 
@@ -1097,12 +1311,20 @@ async function listSentinels(spec: Spec, list: ListSpec, locale: EmailLocale, fl
   let frame: Frame | undefined;
   const content = new Map<string, string>();
   const text = new Map<string, string>();
+  // Rows whose variants start and end with different elements (a digest's
+  // blocks) are cut where the render without rows has its seam.
+  const empty = list.seamAfter ? await sentinels(spec, locale, flags, brand, [], `${where} no rows`) : null;
+  const seamText = list.seamAfter?.(locale) ?? '';
   for (const kind of kinds) {
     const k = key(kind);
     const one = await sentinels(spec, locale, flags, brand, [list.row(kind, 0)], `${where} row [${k}]`);
     const two = await sentinels(spec, locale, flags, brand, [list.row(kind, 0), list.row(kind, 1)], `${where} rows [${k}]`);
-    const c = splitRows(one.content, two.content, `${where} [${k}] html`);
-    const t = splitRows(one.text, two.text, `${where} [${k}] text`);
+    const c = empty
+      ? splitAtSeam(empty.content, one.content, two.content, seamOf(empty.content, escapeHtml(seamText), '</p>', `${where} html`), `${where} [${k}] html`)
+      : splitRows(one.content, two.content, `${where} [${k}] html`);
+    const t = empty
+      ? splitAtSeam(empty.text, one.text, two.text, seamOf(empty.text, seamText, TEXT_ROW_END, `${where} text`), `${where} [${k}] text`)
+      : splitRows(one.text, two.text, `${where} [${k}] text`);
     const outside: Outside = { subject: one.subject, preview: one.preview, footer: one.footer };
     const twoOutside: Outside = { subject: two.subject, preview: two.preview, footer: two.footer };
     if (JSON.stringify(outside) !== JSON.stringify(twoOutside)) throw new Error(`${where}: subject, preview or footer depends on the rows`);
@@ -1140,23 +1362,46 @@ interface VariantContext {
   ph: (value: string, mode: Mode) => string;
 }
 
+type ListParts = Awaited<ReturnType<typeof listSentinels>>;
+
+/** The list's nested loops: each row body that carries an inner flag gets that inner list's loop. */
+function applyInnerLoops(derived: ListParts, list: ListSpec, where: string): void {
+  for (const inner of list.inner ?? []) {
+    for (const [key, body] of derived.content) {
+      if (key.split('+').includes(inner.flag)) derived.content.set(key, innerLoopHtml(body, inner, `${where} [${key}]`));
+    }
+    for (const [key, body] of derived.text) {
+      if (key.split('+').includes(inner.flag)) derived.text.set(key, innerLoopText(body, inner, `${where} [${key}] text`));
+    }
+  }
+}
+
+/** {@link brandVariant} for a variant with a list: the frame around one loop over the rows. */
+async function listBrandVariant(
+  ctx: VariantContext,
+  list: ListSpec,
+  brand: BrandKey,
+): Promise<{ variant: VariantParts; text: string }> {
+  const { spec, locale, flags, where, ph } = ctx;
+  const derived = await listSentinels(spec, list, locale, flags, brand, where);
+  applyInnerLoops(derived, list, where);
+  const variant: VariantParts = {
+    subject: ph(derived.shared.subject, 'plain'),
+    preview: ph(derived.shared.preview, 'plain'),
+    footer: derived.shared.footer === null ? null : ph(derived.shared.footer, 'plain'),
+    content:
+      ph(derived.frame.content[0], 'html') + loop(derived.content, 'html', (v) => ph(v, 'html')) + ph(derived.frame.content[1], 'html'),
+  };
+  return {
+    variant,
+    text: ph(derived.frame.text[0], 'text') + loop(derived.text, 'text', (v) => ph(v, 'text')) + ph(derived.frame.text[1], 'text'),
+  };
+}
+
 /** One brand's render of a variant, placeholders in: the brand-independent parts, and the text. */
 async function brandVariant(ctx: VariantContext, brand: BrandKey): Promise<{ variant: VariantParts; text: string }> {
   const { spec, list, locale, flags, where, ph } = ctx;
-  if (list) {
-    const derived = await listSentinels(spec, list, locale, flags, brand, where);
-    const variant: VariantParts = {
-      subject: ph(derived.shared.subject, 'plain'),
-      preview: ph(derived.shared.preview, 'plain'),
-      footer: derived.shared.footer === null ? null : ph(derived.shared.footer, 'plain'),
-      content:
-        ph(derived.frame.content[0], 'html') + loop(derived.content, 'html', (v) => ph(v, 'html')) + ph(derived.frame.content[1], 'html'),
-    };
-    return {
-      variant,
-      text: ph(derived.frame.text[0], 'text') + loop(derived.text, 'text', (v) => ph(v, 'text')) + ph(derived.frame.text[1], 'text'),
-    };
-  }
+  if (list) return listBrandVariant(ctx, list, brand);
   const parts = await sentinels(spec, locale, flags, brand, [], where);
   const variant: VariantParts = {
     subject: ph(parts.subject, 'plain'),

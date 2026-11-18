@@ -257,26 +257,42 @@ modules, each with conformance suites that reach every route:
   `/api/panel/projects`, kept in step with the master
   `panel_project_registry` row and the cache record the collector reads;
   and the public collector panel-ingest is on Global, served at
-  `/public/panel` and, so a snippet's script origin is a collector, at
-  `/s.js`, `/c/{token}` and `/e` on every host. What Cloudflare gives the
+  `/public/panel` and, so a snippet's script origin is a collector, at the
+  root of every host: the SDK and its recording and web vitals plugins
+  (`/s.js`, `/rec.js`, `/v.js`), `/c/{token}`, `POST /e`, recording chunks
+  (`POST /r`), heatmap snapshots (`POST /snap`) and the server API with
+  secret keys (`POST /v1/track`, `/v1/import`). What Cloudflare gives the
   collector is, here: the events stream (Pipelines into the Basin table
   `panel.events_v1`) is a NATS JetStream stream, one message per row on
-  `panel.events.v1.<workspace>`, deduplicated on the event id; the daily
-  salt of the cookieless visitor hash (the `PanelSalt` Durable Object) and
-  the per-workspace daily counts (`PanelUsage`) live in Valkey, the salt
-  claimed by the first pod and expiring as the object's alarm deletes it;
-  the client address is the first `X-Forwarded-For` hop, as panel-ingest
-  reads it (a site's first-party proxy passes the visitor's there), and the
-  geo comes from a proxy's `X-WeldPanel-Country`/`-Region`/`-City` or
-  Vercel's `x-vercel-ip-*` headers, else `country`, `region` and `city`
-  stay null (Cloudflare's `request.cf` has no equivalent here); there is no
-  per-address rate limit (panel-ingest's Workers rate limiting). Mobile
+  `panel.events.v1.<workspace>`, deduplicated on the event id; the replays
+  bucket is the panel bucket (`S3_BUCKET_PANEL`): recording chunks under
+  `replays/` with Global's keys (`<tier>/<workspace>/…`, what `r2_key`
+  holds), heatmap snapshots under `snapshots/`, and the chunk index rows go
+  to `PANEL_STATE` on `panel.replays.v1.<workspace>` for `panel-writer`;
+  the daily salt of the cookieless visitor hash (the
+  `PanelSalt` Durable Object), the per-workspace daily event and recording
+  counts (`PanelUsage`) and the per-address rate limits (panel-ingest's
+  Workers rate limiting, the same limits per minute) live in Valkey, the
+  salt claimed by the first pod and expiring as the object's alarm deletes
+  it; the client address is the first `X-Forwarded-For` hop, as
+  panel-ingest reads it (a site's first-party proxy passes the visitor's
+  there), the connecting address the hop `TRUSTED_PROXIES` from the right,
+  and the geo comes from a proxy's `X-WeldPanel-Country`/`-Region`/`-City`
+  or Vercel's `x-vercel-ip-*` headers, else `country`, `region` and `city`
+  stay null (Cloudflare's `request.cf` has no equivalent here). Mobile
   batches (`lib: "mobile"`) take their place and device columns from their
-  `$` properties, and group operations are accepted and ignored like
-  people's. A project record missing from the cache is read from the master
-  registry. Nothing reads the events yet: reports, recordings and people
-  are later WeldPanel phases, and their store (a consumer of the stream
-  into Postgres or a columnar store) comes with them)
+  `$` properties. People and group operations (`$identify` links, profile
+  and group profile operations, the group-type slots that decide which
+  `$group_<type>` properties an event keeps) and the live view's touches go
+  where panel-ingest calls its `PanelProject` object, to the collector's
+  side of the project state: the operations on NATS (`panel.ops.v1.<ws>`,
+  applied by `weldsuite consume`'s `panel-state`), the group types, erased
+  ids and live view in Valkey, never a tenant database; without Valkey or
+  NATS they are checked and accepted, and events keep their properties as
+  sent, as panel-ingest without the binding. A project or secret key record
+  missing from the cache is read from the master registry (with the replay
+  tier of the workspace's plan); the quota state is read from the cache,
+  where the usage settlement writes it)
 - **connect** (WeldConnect: workflows, their engine as the
   `connect.execute-workflow` job and the scheduled runs, workflow
   integrations and webhooks, GitHub, the CRM and ad integrations, and the
@@ -497,12 +513,14 @@ renewing domains, WeldMeet transcripts and summaries and recordings,
 WeldConnect's AI (`weldconnect-ai`: the editor's Generate with AI, AI steps), and
 WeldAgent's AI (`agent-ai`: the assistant chat, agent runs, routine tests
 and teach mode, on Claude Managed Agents and `@weldsuite/ai` on Global).
-Two follow the deployment rather than the code: `collab-rooms` (WeldDocs,
+Others follow the deployment rather than the code, among them `collab-rooms` (WeldDocs,
 WeldSheets and WeldBoard, hidden altogether) when no collab-rooms service is configured
-(`COLLAB_ROOMS_URLS`, the chart's `collabRooms.enabled: false`), and
+(`COLLAB_ROOMS_URLS`, the chart's `collabRooms.enabled: false`),
 `chat-calls` (WeldChat's call buttons) when no video provider is
 (`LIVEKIT_URL` with `LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET`, the chart's
-`config.video`).
+`config.video`), and `panel-analytics` (WeldPanel's reports, users,
+recordings and the rest beyond projects and the install instructions) when
+WeldPanel has no store (`S3_BUCKET_PANEL`, the chart's `config.panel.bucket`).
 Routes left out on purpose are in their suite's `excludedRoutes`, with the
 reason. Not ported yet (P8):
 agent, and the rest of the edge workers (the rest of `external-api` and
@@ -558,6 +576,16 @@ rust/
                         events, replay log, presence)
   crates/realtime/      the realtime WebSocket gateway in `serve` (the realtime-worker's hubs and rooms, every pod,
                         Valkey between them); mounted by bins/weldsuite/src/realtime.rs
+  crates/lakehouse/     WeldPanel's store (EVT-019): the five `panel.*_v1` Iceberg tables, our own Iceberg catalog on
+                        the master database (`pg_catalog.rs`, tables from master migration 0072), appends fenced on the
+                        NATS sequence, the replace-files commit (compaction, erasure, retention), expiry, the orphan
+                        sweep, and DataFusion over them (`in_subquery.rs`: the cohort filters DataFusion 54 can't plan
+                        alone); its tests need `WELDSUITE_TEST_DATABASE_URL` and run the whole SQL corpus
+  crates/panel-domain/  @weldsuite/panel-domain/query: WeldPanel's report compiler (spec → SQL, byte for byte the
+                        TypeScript's), the runner behind an executor trait, the result shapes and the cache key;
+                        tests/corpus.rs compiles every `compiler` entry of the SQL corpus and compares
+  crates/zod/           Zod 3 schemas as data and the parser zValidator is: Zod's issues, codes, paths, messages and
+                        async order (external-api and panel generate their schemas with tools/generate.mts)
   crates/emails/        @weldsuite/emails: the exported templates rendered with minijinja, sendSystemEmail
   crates/desk-domain/   WeldDesk rules the desk modules share: webchat, assignment and the AssignmentRouter,
                         the inbox for writers outside it (inbox.rs, attributes.rs: WeldConnect's helpdesk steps
@@ -608,9 +636,23 @@ rust/
                         registrar, DNS over HTTPS, the Realtime Register webhook),
                         modules/meet (WeldMeet, with crates/video-rooms: RealtimeKit and LiveKit
                         rooms, and LiveKit's webhook verification),
-                        modules/panel (WeldPanel: projects, the registry sync, and the public
+                        modules/panel (WeldPanel: projects and their secret keys, the registry
+                        sync, queries and the lexicon on the analytics engine (`engine.rs`;
+                        DataFusion over the panel store in bins/weldsuite/src/panel_sql.rs) with
+                        the `PanelProject` state port (`project_state.rs`), the saved objects
+                        (reports and their versions, dashboards and templates, cohorts, custom
+                        events, computed properties, path rules, group types, annotations,
+                        comments, metric trees, share links and their public `/public/panel/share`
+                        routes, one file per group), root cause, metric tree values, usage (with
+                        the overage settlement, `usage_settlement.rs`, the `panel-usage` job's
+                        sweep over the collector's counters, `usage_sweep.rs`, and the owners'
+                        usage notices, `usage_mail.rs`), AI summaries of
+                        recordings on the install's AI (`panel_ai.rs`), the internal read API
+                        (`internal_v1.rs`) and settlement route (`internal_usage.rs`), both
+                        mounted in conformance builds only, and the public
                         collector in `collector/`: the wire format, rows, URLs, user agents,
-                        IP filters, the cookieless visitor id),
+                        IP filters, the cookieless visitor id, the scripts, recordings and
+                        snapshots, the server API, the rate limits),
                         modules/merge (WeldMerge: teams, issues, the pull request mirror and
                         its automation, GitHub through the App's tokens in crates/connect-domain
                         (with the install state and installation metadata), GitLab, Bitbucket
@@ -704,10 +746,10 @@ The integration tests need throwaway services and are skipped without them:
 
 | Variable | Service | Tests |
 |---|---|---|
-| `WELDSUITE_TEST_DATABASE_URL` | Postgres (a scratch database; its role creates databases for `weldsuite-migrations` and the CloudNativePG provisioner) | `weldsuite-db`, the flag table, the migration runner, the provisioner |
+| `WELDSUITE_TEST_DATABASE_URL` | Postgres (a scratch database; its role creates databases for `weldsuite-migrations` and the CloudNativePG provisioner) | `weldsuite-db`, the flag table, the migration runner, the provisioner, the lakehouse (its SQL catalog) |
 | `WELDSUITE_TEST_MASTER_URL`, `WELDSUITE_TEST_TENANT_URL` | Postgres with pgvector, built by `pnpm exec tsx scripts/rust-test-db.ts` from the journaled migrations | the SQL against the real schema |
-| `WELDSUITE_TEST_VALKEY_URL` | Valkey (`redis://…`) | cache and pub/sub adapters |
-| `WELDSUITE_TEST_NATS_URL` | NATS with JetStream (`nats://…`) | event bus adapter; with the tenant URL, the consume end-to-end test |
+| `WELDSUITE_TEST_VALKEY_URL` | Valkey (`redis://…`) | cache and pub/sub adapters, the lease; with the next two, `panel-writer` |
+| `WELDSUITE_TEST_NATS_URL` | NATS with JetStream (`nats://…`) | event bus adapter; with the tenant URL, the consume end-to-end test; with Valkey and `WELDSUITE_TEST_DATABASE_URL`, `panel-writer` end to end; with Valkey and the tenant URL, `panel-state` (a workspace whose database is down); with `WELDSUITE_TEST_DATABASE_URL`, the writer lag `panel-maintenance` reads |
 | `WELDSUITE_TEST_S3_ENDPOINT` (+ `_ACCESS_KEY_ID`, `_SECRET_ACCESS_KEY`) | an S3 store, e.g. `docker run -p 9000:9000 rustfs/rustfs:1.0.1` | S3 file store |
 | `WELDSUITE_TEST_RESTATE_INGRESS`, `_ADMIN`, `_ENDPOINT_HOST` | a Restate server, e.g. `docker run -p 8080:8080 -p 9070:9070 --add-host=host.docker.internal:host-gateway restatedev/restate:1.7.14`, with `host.docker.internal` as the host it reaches the test on | Restate jobs adapter |
 | `WELDSUITE_TEST_SMTP_URL` | an SMTP server, e.g. `docker run -p 1025:1025 axllent/mailpit:v1.31.6` (`smtp://127.0.0.1:1025`) | SMTP mail |
@@ -871,11 +913,24 @@ every 5 (WeldConnect's connectors; nothing while connect is not served), and
 `merge-digest-sweep` hourly (WeldMerge's daily WeldChat digests over the `merge_digest`
 due index; nothing while merge is not served), `mail-outbound-ledgers` every 5
 minutes (WeldMail's outbound ledgers' alarms; skipped without `VALKEY_URL`),
+`panel-usage` every 5 minutes (WeldPanel's events and recordings the collector
+counted in Valkey, settled into `panel_usage_monthly` with the overage charged
+where plans are billed, the quota state and the plan's replay tier for the
+collector, as the `PanelUsage` objects' alarms do on Global, and the usage
+notices mailed to the owners; skipped without `VALKEY_URL`),
 `calendar-replan` daily at 04:00 UTC, `flow-file-purge`, `flow-approval-due`
-and `flow-benefit-measure` daily at 03:30 UTC, as on Global, and
+and `flow-benefit-measure` daily at 03:30 UTC, as on Global,
 `forms-reminders` and `forms-digest` every 15 minutes (WeldForms' invitation
 reminders and daily response digest over the `forms_reminders` and
-`forms_digest` due index; nothing while forms is not served). The server reads
+`forms_digest` due index; nothing while forms is not served), and
+`panel-schedule` every 10 minutes (WeldPanel's alerts, scheduled reports and
+raw exports that the master `panel_schedule_registry` lists as due, opening
+only those workspaces' tenant databases, as panel-api's cron does; mail goes
+out as system mail, Slack webhooks and the customers' S3 stores over a client
+that connects to public addresses only; and the custom collector domains
+still pending, whose cert-manager `Certificate` and `Ingress` it creates once
+their CNAME points at the collector host, with `PANEL_CUSTOM_DOMAINS` below;
+nothing while panel is not served). The server reads
 environment variables only (`bins/weldsuite/src/config.rs`).
 At start it logs a "Global default" warning for every setting still on a value
 that assumes the Global edition (`global_defaults` in `config.rs`: Clerk
@@ -930,7 +985,8 @@ log none.
 | `WIDGET_TOKEN_SECRET` | WeldDesk: the helpdesk widget API (`/public/helpdesk-widget`) signs its visitors' conversation-room tokens with it and the gateway verifies them, the workers' value (optional; unset: `POST /api/realtime/token` answers 500 and visitors get no live updates) |
 | `NATS_URL`, `NATS_USER`/`NATS_PASSWORD` or `NATS_TOKEN`, `NATS_ENTITY_EVENTS_STREAM`, `NATS_ENTITY_EVENTS_SUBJECT`, `NATS_ENSURE_STREAMS` | entity events (optional) |
 | `NATS_PANEL_EVENTS_STREAM`, `NATS_PANEL_EVENTS_SUBJECT`, `NATS_PANEL_EVENTS_MAX_AGE_DAYS` | WeldPanel: the events stream the collector writes `events_v1` rows to (default `PANEL_EVENTS` on `panel.events.v1.<workspace>`), created with `NATS_ENSURE_STREAMS`, and how many days it keeps rows (0, the default: no age limit). Without NATS the collector accepts batches and writes nothing |
-| `PANEL_COLLECTOR_URL`, `PANEL_SDK_FILE` | WeldPanel: the collector origin the install snippets point at (default: the request's own origin, which serves the collector too), and the SDK bundle served as `/s.js` (default `/srv/panel/panel.global.js`, which the image carries; missing: `/s.js` answers 404). The day's salt and the daily counts need `VALKEY_URL` across pods |
+| `PANEL_COLLECTOR_URL`, `PANEL_SDK_FILE`, `PANEL_RECORDER_FILE`, `PANEL_VITALS_FILE` | WeldPanel: the collector origin the install snippets and the server SDK point at (default: the request's own origin, which serves the collector too, `/v1/track` and `/v1/import` included), and the bundles served as `/s.js`, `/rec.js` and `/v.js` (default `/srv/panel/panel.global.js`, `panel-recorder.global.js` and `panel-vitals.global.js`, which the image carries; a missing one answers 404). The day's salt, the daily event and recording counts and the per-IP rate limits need `VALKEY_URL` across pods. Recording chunks and heatmap snapshots go to the panel bucket (`S3_BUCKET_PANEL`; unset: `POST /r` and `/snap` answer 204 and store nothing), their index rows to `PANEL_STATE` (`panel.replays.v1.<workspace>`) |
+| `PANEL_CUSTOM_DOMAINS`, `PANEL_COLLECTOR_HOST`, `PANEL_DOMAINS_NAMESPACE`, `PANEL_DOMAINS_SERVICE`, `PANEL_DOMAINS_SERVICE_PORT`, `PANEL_DOMAINS_INGRESS_CLASS`, `PANEL_DOMAINS_ISSUER`, `PANEL_DOMAINS_ISSUER_KIND`, `PANEL_DNS_RESOLVER` | WeldPanel: collection on a customer's own host name (ADR PANEL-014, `modules/panel/src/monitor/cert_manager.rs`; chart `config.panel.customDomains`). With `PANEL_CUSTOM_DOMAINS=cert-manager` and the CNAME target `PANEL_COLLECTOR_HOST`, a host name whose CNAME chain reaches the target (looked up over DNS-over-HTTPS at `PANEL_DNS_RESOLVER`, default Cloudflare's) gets a cert-manager `Certificate` from the issuer (default the `letsencrypt` `ClusterIssuer`) and an `Ingress` (that class) sending the collector's paths to the Service, in the namespace, through the Kubernetes API with the pod's service-account token; both carry WeldPanel's labels and go with the domain. Host names under the target's parent domain are refused. Unset: the domain routes answer 503 `FEATURE_UNAVAILABLE` |
 | `SMTP_URL` | system mail: `smtp://user:password@relay:587?tls=required`, `smtps://…:465` or `smtp://mailpit:1025` (optional; unset skips mail, as the workers without `SEND_EMAIL`) |
 | `SYSTEM_EMAIL_FROM` | send from this address instead of `notifications@mail.weldsuite.org` (optional) |
 | `SIGN_SESSION_SECRET`, `SIGN_PORTAL_URL` | WeldSign: the key of signer sessions and access-code hashes (the workers' value), and the signer portal's origin for signing links (default `https://sign.weldsuite.org`) |
@@ -982,6 +1038,39 @@ named in `CONSUME_SUBSCRIBERS` it needs the bucket), on its own stream:
 files), `S3_BUCKET_PUBLIC` and `R2_PUBLIC_URL` (else `S3_PUBLIC_URL`) for
 attachments and avatars, `NATS_MAIL_INBOUND_STREAM`/`_SUBJECT`/`_DLQ_STREAM`
 (`MAIL_INBOUND` on `mail.inbound`, dead letters in `MAIL_INBOUND_DLQ`).
+With `S3_BUCKET_PANEL` set (chart: `config.panel.bucket`) it also runs
+`panel-writer`: WeldPanel's rows from `PANEL_EVENTS` and `PANEL_STATE` into
+the Iceberg tables in that bucket (`lake/`), committed at
+`PANEL_WRITER_FLUSH_BYTES` (64 MiB) or `PANEL_WRITER_FLUSH_SECONDS` (300),
+each table by one replica at a time under a lease in Valkey (`VALKEY_URL` is
+required then); bad rows go to `PANEL_DLQ`. A commit (the writer's, or
+maintenance's) whose `COMMIT` to the catalog fails is settled by reading the
+catalog row again: if it landed it stands; only if it didn't are its files
+deleted; if that can't be told, nothing is deleted (the orphan sweep takes
+what no commit names) and the writer starts over from the sequence the table
+holds. Beside it `panel-state` applies the collector's people, identity and
+group calls to the workspaces' tenant databases in stream order: a call whose
+data the database refuses (a broken constraint) goes to `PANEL_DLQ`, but when
+a workspace's database, the workspace registry or NATS fails, that
+workspace's calls wait unacknowledged and in order (tried again after a pause
+doubling up to 30 seconds) while the other workspaces go on, until 10,000
+calls wait. `NATS_PANEL_EVENTS_MAX_AGE_DAYS`
+(chart: 7) is how long both streams keep rows; with `NATS_ENSURE_STREAMS`
+consume applies it to an existing stream, which `serve` never changes. The
+nightly `weldsuite cron panel-maintenance` keeps the tables (erasure from
+`panel_erasure_ledger` of the requests whose rows the writer has committed:
+older than `PANEL_WRITER_FLUSH_SECONDS` plus ten minutes, and, with
+`NATS_URL`, than the oldest row it hasn't committed less ten minutes;
+retention by plan, compaction, snapshot expiry, the
+orphan sweep), deletes what Global's R2 lifecycle rules delete from the
+replays bucket (recording chunks under `replays/30d/` and `replays/90d/`
+after 30 and 90 days, a favourite's `replays/keep/` copies after 396,
+heatmap snapshots after 90, each counted from when it was written). The
+collector's project records follow the replay tier of their workspace's plan
+(`90d` on Scale and Enterprise, `30d` otherwise and without billing): written
+with every registry write, and moved by the usage settlement of
+`weldsuite cron panel-usage`, as on Global. Without the bucket WeldPanel
+analytics is off.
 
 ## WeldMeet on LiveKit
 

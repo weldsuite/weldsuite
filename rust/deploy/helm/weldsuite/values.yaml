@@ -207,6 +207,62 @@ config:
     # object links point at Global's test bucket host, and the server warns
     # at start.
     publicUrl: ""
+  # WeldPanel's store (ADR EVT-019): Iceberg tables in this bucket under lake/
+  # (recordings under replays/, heatmap snapshots under snapshots/), on
+  # config.files' endpoint and keys,
+  # their catalog in the master database. Empty: WeldPanel analytics is off
+  # (nothing writes the tables, panel-maintenance does nothing, and
+  # /config.json lists panel-analytics as unavailable, so the platform shows
+  # only projects and the install instructions). Set, analytics is offered
+  # and consume runs the panel-writer subscriber (it needs VALKEY_URL for its per-table
+  # lease; give consume about 1Gi more memory: it buffers up to 64 MB of rows
+  # per table between commits) and panel-state (the collector's people,
+  # identity and group calls into the tenant tables, under a lease too).
+  # With bundle.objectStorage the bucket is objectStorage.buckets.panel
+  # instead.
+  panel:
+    bucket: ""
+    # How long PANEL_EVENTS and PANEL_STATE keep rows: how long the writer
+    # may be down without losing any. With config.nats.ensureStreams consume
+    # applies it to an existing stream too (the server only creates a
+    # missing one); without it, change an existing stream by hand:
+    # nats stream edit PANEL_EVENTS --max-age 7d.
+    eventsMaxAgeDays: 7
+    # Collection on a customer's own host name (ADR PANEL-014): a project adds
+    # stats.example.com, the customer points its CNAME at collectorHost, and
+    # once it resolves the server (and the panel-schedule job's sweep, every
+    # 10 minutes) creates, in the release's namespace through the Kubernetes
+    # API, a cert-manager Certificate for it (HTTP-01 through the ingress
+    # controller) and an Ingress sending the collector's paths on it to the
+    # server; removing the domain deletes both. The server's and
+    # panel-schedule's pods then get the service-account token, bound to the
+    # panel-domains Role (templates/panel-domains.yaml). Needs cert-manager
+    # and enabled with collectorHost set; otherwise the domain routes answer
+    # 503 and the platform says custom domains aren't available here.
+    customDomains:
+      enabled: false
+      # What customers point their CNAME at, e.g. collect.example.com: a name
+      # of the install's own that resolves to the ingress load balancer.
+      # Host names under its parent domain (example.com here) are refused.
+      collectorHost: ""
+      # The certificates' issuer: one that solves HTTP-01 through the
+      # ingress controller.
+      issuerRef:
+        name: letsencrypt
+        kind: ClusterIssuer
+      # The Ingresses' class; empty: ingress.className (or the cluster's
+      # default class).
+      ingressClassName: ""
+      # The DNS-over-HTTPS endpoint the CNAME is looked up at; empty:
+      # Cloudflare's (https://cloudflare-dns.com/dns-query), as the server's
+      # other DNS checks.
+      dnsResolver: ""
+      # Holds the server's service account to Certificates and Ingresses with
+      # WeldPanel's labels, routing to the server and from issuerRef only
+      # (ValidatingAdmissionPolicy, Kubernetes 1.30+): RBAC can't limit it
+      # by label.
+      admissionPolicy:
+        enabled: true
   # Durable jobs (the workers' Workflows) on Restate. Leave ingressUrl empty
   # to run jobs inside the server process instead (lost on a restart; fine
   # for a small self-hosted install). With Restate, every pod also serves the
@@ -522,6 +578,9 @@ objectStorage:
   buckets:
     private: weldsuite-private
     public: weldsuite-public
+    # WeldPanel's store (config.panel); empty: WeldPanel analytics is off
+    # (panel-analytics stays unavailable in /config.json).
+    panel: weldsuite-panel
   storage:
     size: 50Gi
     # The cluster's default StorageClass when empty.
@@ -1294,6 +1353,34 @@ cron:
       enabled: false
       schedule: "*/5 * * * *"
       activeDeadlineSeconds: 240
+    # WeldPanel's usage settlement (what the PanelUsage Durable Objects' alarm
+    # does on Global): the events and recordings the collector counted in
+    # Valkey into panel_usage_monthly, overage charged where plans are billed
+    # (config.billing), the quota state and the plan's replay tier the
+    # collector reads, and the usage notices to the owners. Reads the master
+    # database and Valkey; does nothing without Valkey.
+    panel-usage:
+      enabled: true
+      schedule: "*/5 * * * *"
+      activeDeadlineSeconds: 240
+    # WeldPanel's table upkeep (config.panel): the erasures waiting in
+    # panel_erasure_ledger whose rows panel-writer has committed, retention
+    # by plan, compaction, snapshot expiry and the orphan-file sweep. Reads
+    # the master database, and NATS for how far panel-writer is behind;
+    # does nothing without the panel bucket.
+    panel-maintenance:
+      enabled: true
+      schedule: "45 2 * * *"
+      activeDeadlineSeconds: 7200
+    # WeldPanel: the alerts, scheduled reports and raw exports the master
+    # panel_schedule_registry lists as due (only those workspaces' tenant
+    # databases are opened), and the custom collector domains still pending;
+    # every 10 minutes, as on Global. A run starts no new item after 8
+    # minutes. Does nothing while panel is not served.
+    panel-schedule:
+      enabled: true
+      schedule: "*/10 * * * *"
+      activeDeadlineSeconds: 570
     # WeldForms: the automatic invitation reminders and the daily response
     # digest, for the workspaces the forms_reminders / forms_digest due index
     # lists. Do nothing while forms is not served.

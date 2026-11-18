@@ -21,46 +21,31 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
-import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { conformanceMasterDb, createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { masterSchema, schema, type AnyMasterDatabase, type Database } from '@weldsuite/worker-kit/db';
 import { DEFAULT_PANEL_SETTINGS } from '@weldsuite/panel-domain/settings';
-import { __setZonesFetchForTests, type ZonesFetch } from '@weldsuite/cloudflare-zones';
+import { specCacheKey } from '@weldsuite/panel-domain/query';
+import { memoryTransport } from '@weldsuite/emails/transports/memory';
+import { __setZonesFetchForTests } from '@weldsuite/cloudflare-zones';
 import type { PanelAlertDto, PanelDomainDto, PanelExportDto, PanelSubscriptionDto } from '@weldsuite/app-api-client/schemas/weldpanel-monitor';
 import type { Hono } from 'hono';
 import type { Env, Variables } from '../types';
-import { entityQueue, memoryKv } from '../test-support/fakes';
+import { RUNS, entityQueue, memoryKv, minted } from '../test-support/fakes';
+import { digestSpec } from '../services/subscriptions';
 
-const state = vi.hoisted(() => ({ master: null as unknown, sent: [] as unknown[] }));
+// The master database goes through `conformanceMasterDb`, so in conformance
+// mode the TypeScript run of a write works in a transaction that is rolled
+// back before the Rust server writes (both write the schedule registry and
+// custom domains). System mail lands in a memory transport, which the
+// conformance harness compares with the Rust server's mail; `sent` is its list.
+const state = vi.hoisted(() => ({ master: null as unknown, transport: null as unknown, sent: [] as unknown[] }));
 
 vi.mock('@weldsuite/worker-kit/db', async (orig) => {
   const actual = await orig<typeof import('@weldsuite/worker-kit/db')>();
-  return { ...actual, getMasterDb: () => state.master as never };
+  return { ...actual, getMasterDb: () => conformanceMasterDb(state.master) as never };
 });
-vi.mock('@weldsuite/emails/transports/binding', () => ({
-  workerTransport: () => ({
-    name: 'memory',
-    send: async (email: unknown) => {
-      state.sent.push(email);
-      return { messageId: 'm', transport: 'memory' };
-    },
-  }),
-}));
-vi.mock('../services/query-run', () => ({
-  queryRunDeps: () => ({}),
-  runCachedQuery: async () => ({
-    result: {
-      kind: 'trends',
-      result: {
-        range: { from: '', to: '', timezone: 'UTC', clampedToRetention: false, previousFrom: null, previousTo: null },
-        interval: 'day',
-        series: [{ seriesIndex: 0, label: 'Signups', breakdownValue: null, total: 42, points: [], previous: { total: 21, points: [] } }],
-      },
-    },
-    dataAsOf: '2026-11-16T10:00:00.000Z',
-    cached: false,
-  }),
-}));
+vi.mock('@weldsuite/emails/transports/binding', () => ({ workerTransport: () => state.transport }));
 
 import alertsRoutes from './alerts';
 import subscriptionsRoutes from './subscriptions';
@@ -120,7 +105,9 @@ beforeEach(async () => {
     { id: 'pnr_funnel', projectId: 'pnp_a', kind: 'funnel', name: 'Funnel', spec: { kind: 'funnel', projectId: 'pnp_a', steps: [{ event: 'a' }, { event: 'b' }] }, ownerUserId: 'user_alice', visibility: 'workspace' },
   ]);
   events = [];
-  state.sent = [];
+  const transport = memoryTransport();
+  state.transport = transport;
+  state.sent = transport.sent;
 });
 
 afterEach(() => {
@@ -160,9 +147,12 @@ describe('alerts', () => {
     expect(await registry()).toMatchObject([{ kind: 'alert', objectId: alert.id, workspaceId: 'ws_alpha' }]);
 
     expect(events).toHaveLength(1);
-    expect(events[0]).toMatchObject({ entityType: 'panel_alert', action: 'created', entityId: alert.id });
+    expect(events[0]).toMatchObject({ entityType: 'panel_alert', action: 'created', entityId: minted(alert.id) });
     expect(JSON.stringify(events)).not.toContain('slack');
-    expect(events[0]!.data).toEqual({ id: alert.id, projectId: 'pnp_a', name: 'Signups dropped', state: 'pending', value: null, enabled: true });
+    expect(events[0]!.data).toEqual({ id: minted(alert.id), projectId: 'pnp_a', name: 'Signups dropped', state: 'pending', value: null, enabled: true });
+
+    const listed = (await (await alerts().request(`${PATH}?projectId=pnp_a`)).json()) as { data: PanelAlertDto[] };
+    expect(listed.data.map((a) => a.id)).toEqual([alert.id]);
   });
 
   it('refuses a target the caller cannot use, an unknown member, a missing series, and a sealed secret without a key', async () => {
@@ -228,7 +218,24 @@ describe('alerts', () => {
 
 describe('subscriptions', () => {
   const PATH = '/api/panel/subscriptions';
-  const subs = (grants = READ_WRITE, userId = 'user_alice') => mount(PATH, subscriptionsRoutes, grants, userId);
+  // The report's numbers come from the query cache (`WORKSPACE_CACHE`), under
+  // the key of the spec a scheduled report runs, so the TypeScript run and
+  // the Rust server (which reads the same KV) send the same digest.
+  const cache = new Map<string, string>();
+  beforeEach(async () => {
+    cache.clear();
+    const spec = digestSpec(SPEC);
+    const result = {
+      kind: 'trends',
+      result: {
+        range: { from: '', to: '', timezone: 'UTC', clampedToRetention: false, previousFrom: null, previousTo: null },
+        interval: 'day',
+        series: [{ seriesIndex: 0, label: 'Signups', breakdownValue: null, total: 42, points: [], previous: { total: 21, points: [] } }],
+      },
+    };
+    cache.set(await specCacheKey('ws_alpha', 'pnp_a', spec), JSON.stringify({ result, dataAsOf: '2026-11-16T10:00:00.000Z' }));
+  });
+  const subs = (grants = READ_WRITE, userId = 'user_alice') => mount(PATH, subscriptionsRoutes, grants, userId, { WORKSPACE_CACHE: memoryKv(cache) });
   const body = (extra: Record<string, unknown> = {}) => ({
     projectId: 'pnp_a',
     name: 'Monday signups',
@@ -309,7 +316,7 @@ describe('exports', () => {
     const [row] = await registry();
     expect(row!.nextRunAt.getTime()).toBeLessThanOrEqual(Date.now());
     expect(JSON.stringify(events)).not.toContain('s3cr3t');
-    expect(events[0]!.data).toEqual({ id: exp.id, projectId: 'pnp_a', name: 'Raw', provider: 's3', bucket: 'acme-raw', status: 'active' });
+    expect(events[0]!.data).toEqual({ id: minted(exp.id), projectId: 'pnp_a', name: 'Raw', provider: 's3', bucket: 'acme-raw', status: 'active' });
   });
 
   it('refuses an endpoint on a private network, and a non-S3 provider without one', async () => {
@@ -324,6 +331,7 @@ describe('exports', () => {
     expect((await data<PanelExportDto>(await exps().request(`${url}/pause`, json({})))).status).toBe('paused');
     expect(await registry()).toHaveLength(0);
     expect((await data<PanelExportDto>(await exps().request(`${url}/resume`, json({})))).status).toBe('active');
+    expect(await data<PanelExportDto>(await exps().request(url))).toMatchObject({ id: exp.id, status: 'active' });
     expect(await registry()).toHaveLength(1);
 
     const before = (await db.select().from(panelExports))[0]!.secretCiphertext;
@@ -349,10 +357,12 @@ describe('exports', () => {
     );
     const res = await exps().request(`${PATH}/test`, json({ projectId: 'pnp_a', destination, secretAccessKey: 'k' }));
     expect(await data(res)).toEqual({ ok: true, wrote: true, deleted: true, error: null });
-    expect(calls).toEqual([
+    // Once per backend that answered (both in conformance mode, TypeScript first).
+    const testCalls = [
       { method: 'PUT', url: 'https://acme-raw.s3.eu-west-1.amazonaws.com/weldpanel/_weldpanel_test.txt' },
       { method: 'DELETE', url: 'https://acme-raw.s3.eu-west-1.amazonaws.com/weldpanel/_weldpanel_test.txt' },
-    ]);
+    ];
+    expect(calls).toEqual(Array.from({ length: RUNS }, () => testCalls).flat());
 
     vi.stubGlobal('fetch', vi.fn(async () => new Response('<Error><Code>NoSuchBucket</Code></Error>', { status: 404 })));
     const saved = await data<PanelExportDto>(await exps().request(PATH, json(body())));
@@ -371,11 +381,18 @@ describe('custom domains', () => {
   const domains = (envExtra: Record<string, unknown> = SAAS, grants = MANAGE, workspaceId = 'ws_alpha') => mount(PATH, domainsRoutes, grants, 'user_alice', envExtra, workspaceId);
   const ok = (result: unknown) => ({ success: true, errors: [], messages: [], result });
 
+  // Cloudflare's API on the global fetch (the zones client builds its SDK
+  // client per call on it, with no transport set), so in conformance mode the
+  // Rust server's calls reach it too, through the harness's outbound bridge;
+  // every other URL (the harness's own loopback calls) goes to the real fetch.
+  const realFetch = globalThis.fetch;
   function cloudflare(hostname: { status: string; ssl: string }) {
     const calls: { method: string; url: string; body: unknown }[] = [];
-    const stub: ZonesFetch = async (input, init) => {
-      const req = init as RequestInit | undefined;
-      calls.push({ method: String(req?.method), url: String(input), body: req?.body ? JSON.parse(String(req.body)) : undefined });
+    const stub = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const target = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      if (!target.startsWith('https://api.cloudflare.com/')) return realFetch(input, init);
+      const req = init;
+      calls.push({ method: String(req?.method), url: target, body: req?.body ? JSON.parse(String(req.body)) : undefined });
       if (req?.method === 'DELETE') return new Response(JSON.stringify(ok({ id: 'cfh_1' })), { headers: { 'Content-Type': 'application/json' } });
       return new Response(
         JSON.stringify(
@@ -390,7 +407,8 @@ describe('custom domains', () => {
         { headers: { 'Content-Type': 'application/json' } },
       );
     };
-    __setZonesFetchForTests(stub);
+    __setZonesFetchForTests(undefined);
+    vi.stubGlobal('fetch', stub);
     return calls;
   }
 

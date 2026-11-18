@@ -60,6 +60,24 @@ config:
     # answer "Storage is not configured".
     publicBucket: ${FILES_BUCKET_PUBLIC:=}
     forcePathStyle: false
+  # WeldPanel's store (ADR EVT-019): a Hetzner bucket made next to the
+  # others with the same keys. Empty until it exists: WeldPanel analytics
+  # stays off and /config.json keeps listing panel-analytics as unavailable.
+  # Set, the platform offers it and consume runs panel-writer and
+  # panel-state (consume.subscribers below is empty: every subscriber runs).
+  # The chart's panel-usage, panel-schedule and panel-maintenance cron jobs
+  # are on by default.
+  panel:
+    bucket: "${FILES_BUCKET_PANEL:=}"
+    # Collection on a customer's own host name (ADR PANEL-014): customers
+    # point a CNAME at collect.${DOMAIN} (collect.weldsuite.eu in
+    # production), and the server creates a cert-manager Certificate
+    # (letsencrypt, HTTP-01 through Traefik) and an Ingress for each in this
+    # namespace. Off until DNS for collect.${DOMAIN} points at the ingress
+    # load balancer; then set enabled: true.
+    customDomains:
+      enabled: false
+      collectorHost: collect.${DOMAIN}
   # Durable jobs (sign's finalize, …) on the in-cluster Restate; each pod
   # registers its jobs endpoint with the admin API at start.
   jobs:

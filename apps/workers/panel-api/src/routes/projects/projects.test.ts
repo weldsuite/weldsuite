@@ -245,6 +245,27 @@ describe('create and read', () => {
     const project = await data<PanelProjectDto>(await app().request(`${BASE}/pnp_legacy`));
     expect(project.settings).toEqual({ ...DEFAULT_PANEL_SETTINGS, autocapture: false });
   });
+
+  it("writes the replay tier of the workspace's plan into the collector's record, and leaves the default out", async () => {
+    const { plans, workspaces } = masterSchema;
+    await master.insert(plans).values({ id: 'plan_scale_tier', name: 'Scale', slug: 'scale', features: {} }).onConflictDoNothing();
+    await master
+      .insert(workspaces)
+      .values({ id: 'ws_scale_tier', clerkOrgId: 'org_scale_tier', name: 'Scale', slug: 'scale-tier', planId: 'plan_scale_tier' })
+      .onConflictDoNothing();
+    const scale = { clerkOrgId: 'org_scale_tier', workspaceId: 'ws_scale_tier' };
+
+    const res = await app(ADMIN, { workspace: scale }).request(BASE, json({ name: 'Shop' }));
+    expect(res.status).toBe(201);
+    const project = await data<PanelProjectDto>(res);
+    expect(kvRecord(project.token)).toMatchObject({ workspaceId: 'ws_scale_tier', replayTier: '90d' });
+
+    const renamed = await app(ADMIN, { workspace: scale }).request(`${BASE}/${project.id}`, json({ name: 'Shop 2' }, 'PATCH'));
+    expect(renamed.status).toBe(200);
+    expect(kvRecord(project.token)?.replayTier).toBe('90d');
+
+    expect(kvRecord((await newProject()).token)).not.toHaveProperty('replayTier');
+  });
 });
 
 describe('validation', () => {

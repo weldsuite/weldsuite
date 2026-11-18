@@ -2,7 +2,9 @@
  * Custom collector domains on the install tab: add a host name of the
  * customer's own, show the DNS records to add (with copy buttons), its
  * status, check now, remove. Off ("not available yet") where the API answers
- * 503: Cloudflare for SaaS is not set up there. `panel_projects:manage` only.
+ * 503: no provider is set up there (Cloudflare for SaaS on Global,
+ * cert-manager on the Kubernetes editions, ADR PANEL-014).
+ * `panel_projects:manage` only.
  */
 
 import { useState } from 'react';

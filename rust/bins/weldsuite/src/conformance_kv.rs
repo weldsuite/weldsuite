@@ -113,7 +113,7 @@ impl Cache for HttpCache {
 /// `http://127.0.0.1:<port>`), rebuilt from the port alone. The test context
 /// arrives in a request header, so any other host, scheme or path is refused
 /// rather than called.
-fn loopback_bridge(url: &str) -> Option<String> {
+pub(crate) fn loopback_bridge(url: &str) -> Option<String> {
     let port: u16 = url
         .strip_prefix("http://127.0.0.1:")?
         .trim_end_matches('/')

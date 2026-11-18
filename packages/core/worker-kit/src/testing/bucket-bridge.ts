@@ -15,6 +15,8 @@
  *   GET    /list?prefix=…&cursor=…   `bucket.list({ prefix, cursor, limit: 1000 })`
  *                          as `{ keys, truncated, cursor }` (a stub without
  *                          `list`: 501)
+ *   POST   /delete-many    `{ keys }`: `bucket.delete(keys)`, R2's batch delete
+ *                          in one call (WeldPanel's replays bucket)
  *
  * `Content-Type` and `Content-Disposition` carry the object's HTTP metadata,
  * `x-meta-<name>` its custom metadata, `Content-Length` its size and `ETag`
@@ -171,6 +173,12 @@ async function handle(bucket: BucketLike, req: IncomingMessage, res: ServerRespo
     await handleList(bucket, url, res);
     return;
   }
+  if (url.pathname === '/delete-many' && req.method === 'POST') {
+    const { keys } = JSON.parse(new TextDecoder().decode(await readBody(req)) || '{}') as { keys?: string[] };
+    await bucket.delete(keys ?? []);
+    res.writeHead(204).end();
+    return;
+  }
   const key = url.searchParams.get('key');
   if (url.pathname !== '/object' || !key) {
     res.writeHead(404).end();
@@ -286,8 +294,11 @@ export function kvBucketUrl(kv: KvLike): Promise<string> {
   return bucketUrlFor(bucket);
 }
 
-/** The bucket bindings the Rust server can read through the bridge. */
-export const BUCKET_BINDINGS = ['PRIVATE_STORAGE', 'STORAGE', 'MEETING_RECORDINGS'] as const;
+/**
+ * The bucket bindings the Rust server can read through the bridge (WeldPanel's
+ * `PANEL_REPLAYS`: the collector's recording chunks and heatmap snapshots).
+ */
+export const BUCKET_BINDINGS = ['PRIVATE_STORAGE', 'STORAGE', 'MEETING_RECORDINGS', 'PANEL_REPLAYS'] as const;
 
 /** `{ PRIVATE_STORAGE: url, … }` for each bucket binding in `env`, or undefined when there is none. */
 export async function bucketUrls(env: Record<string, unknown>): Promise<Record<string, string> | undefined> {

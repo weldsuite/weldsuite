@@ -2,8 +2,8 @@
  * Install tab: whether the snippet works yet, and the snippets to paste.
  * Everyone who can read the project sees it, token included: the token is
  * public and can only send data. Below them: a custom collector domain
- * (`panel_projects:manage`, Global only), reverse-proxy recipes, the SDK
- * options and the React Native SDK.
+ * (`panel_projects:manage`), reverse-proxy recipes, the SDK options and the
+ * React Native SDK.
  */
 
 import { useCan } from '@weldsuite/permissions/react';
@@ -23,8 +23,8 @@ export function InstallTab({ project }: Readonly<{ project: PanelProjectDto }>) 
   const ti = t.weldpanel.install;
   const to = t.weldpanel.observe.install;
   const canManage = useCan('panel_projects:manage');
-  // Server-side ingest (secret keys, `/v1/track`) comes with the analytics store, which the
-  // Kubernetes editions don't have yet (`panel-analytics`): only the browser snippets work there.
+  // Server-side ingest (secret keys, `/v1/track`) comes with the analytics store (`panel-analytics`),
+  // which a Kubernetes install offers once its panel bucket is set: without it only the browser snippets work.
   const serverIngest = isFeatureAvailable('panel-analytics');
   // The same query as the status card's, so this costs no extra request.
   const { data: install, isLoading, isFetching } = useWeldPanelInstall(project.id);
@@ -61,7 +61,7 @@ export function InstallTab({ project }: Readonly<{ project: PanelProjectDto }>) 
         </div>
       )}
 
-      {/* Custom domains live in Global's Cloudflare for SaaS zone (not in the Kubernetes editions). */}
+      {/* Custom domains: Cloudflare for SaaS on Global, cert-manager on the Kubernetes editions (ADR PANEL-014); the section says when neither is set up. */}
       {canManage && isFeatureAvailable('panel-analytics') && <DomainsSection projectId={project.id} />}
       {current && (
         <>

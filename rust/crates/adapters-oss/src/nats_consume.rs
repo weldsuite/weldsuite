@@ -528,12 +528,39 @@ pub fn dead_letter_subject(spec: &ConsumerSpec, subject: &str) -> String {
     format!("{}.{tail}", spec.dead_letter_subject)
 }
 
-async fn dead_letter(
+/// Copies `message` to the dead-letter stream (`spec.dead_letter_subject`
+/// followed by the message subject's tail), with headers naming the
+/// consumer, the stream sequence, the deliveries and `reason`; returns once
+/// the stream stored it. The caller then terminates the message. For
+/// consumers that run their own loop (WeldPanel's `panel-writer`).
+pub async fn publish_dead_letter(
+    context: &jetstream::Context,
+    spec: &ConsumerSpec,
+    message: &jetstream::Message,
+    reason: &str,
+) -> Result<String, PortError> {
+    let (attempt, sequence) = message.info().map_or((1, 0), |info| {
+        (
+            u64::try_from(info.delivered).unwrap_or(1).max(1),
+            info.stream_sequence,
+        )
+    });
+    let pending = Pending {
+        message: message.clone(),
+        id: message_id(message),
+        attempt,
+        sequence,
+    };
+    store_dead_letter(context, spec, &pending, reason).await
+}
+
+/// Publishes the dead letter; the subject it went to.
+async fn store_dead_letter(
     context: &jetstream::Context,
     spec: &ConsumerSpec,
     item: &Pending,
     reason: &str,
-) {
+) -> Result<String, PortError> {
     let subject = dead_letter_subject(spec, &item.message.message.subject);
     let mut headers = HeaderMap::new();
     let key = item
@@ -548,15 +575,25 @@ async fn dead_letter(
     headers.insert("Weldsuite-Deliveries", item.attempt.to_string());
     headers.insert("Weldsuite-Error", truncate(&single_line(reason), 500));
     let payload = Bytes::copy_from_slice(&item.message.message.payload);
-    let stored = match context
+    match context
         .publish_with_headers(subject.clone(), headers, payload)
         .await
     {
-        Ok(ack) => ack.await.map(|_| ()).map_err(PortError::backend),
+        Ok(ack) => ack.await.map(|_| subject).map_err(PortError::backend),
         Err(error) => Err(PortError::backend(error)),
-    };
+    }
+}
+
+async fn dead_letter(
+    context: &jetstream::Context,
+    spec: &ConsumerSpec,
+    item: &Pending,
+    reason: &str,
+) {
+    let subject = dead_letter_subject(spec, &item.message.message.subject);
+    let stored = store_dead_letter(context, spec, item, reason).await;
     match stored {
-        Ok(()) => {
+        Ok(_) => {
             tracing::error!(
                 consumer = spec.durable,
                 event_id = item.id,
