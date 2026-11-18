@@ -96,7 +96,7 @@ describe('DocumentTaxPanel', () => {
     expect(notice).toHaveTextContent(/cannot be finalized or sent/);
     expect(within(notice).getByRole('link', { name: 'Open sales tax settings' })).toHaveAttribute(
       'href',
-      '/weldbooks/sales-tax/settings',
+      '/settings/apps/weldbooks',
     );
   });
 
@@ -151,7 +151,7 @@ describe('SalesTaxErrorNotice', () => {
     expect(notice).toHaveTextContent('Try again in a moment.');
     expect(within(notice).getByRole('link', { name: 'Open sales tax settings' })).toHaveAttribute(
       'href',
-      '/weldbooks/sales-tax/settings',
+      '/settings/apps/weldbooks',
     );
   });
 

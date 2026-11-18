@@ -18,7 +18,7 @@ describe('WeldPanel module registration', () => {
     expect(getModuleKey('/weldpanel/projects/wpp_1')).toBe('weldpanel');
     expect(getModuleKey('/weldpanel/insights')).toBe('weldpanel');
     expect(getModuleKey('/weldpanel/dashboards/wpd_1')).toBe('weldpanel');
-    expect(getModuleKey('/weldpanel/settings')).toBe('weldpanel');
+    expect(getModuleKey('/weldpanel/data')).toBe('weldpanel');
     expect(getModuleKey('/weldpanel/live')).toBe('weldpanel');
   });
 
@@ -49,7 +49,6 @@ describe('WeldPanel module registration', () => {
       ['/weldpanel/projects', 'panel_projects:read'],
       ['/weldpanel/lexicon', 'panel_reports:read'],
       ['/weldpanel/data', 'panel_reports:read'],
-      ['/weldpanel/settings', 'panel_projects:manage'],
     ]);
   });
 
@@ -84,7 +83,6 @@ describe('WeldPanel module registration', () => {
       'Projects',
       'Lexicon',
       'Data',
-      'Settings',
     ]);
     expect(itemsOf(nl as unknown as typeof en).map((item) => item.title).slice(0, 2)).toEqual(['Overzicht', 'Inzichten']);
   });

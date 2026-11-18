@@ -105,6 +105,19 @@ describe('buildBreadcrumbSegments for WeldDesk settings pages', () => {
     ]);
   });
 
+  it('links a WeldBooks bank account back to the Payment runs tab, without the account id', () => {
+    expect(
+      buildBreadcrumbSegments('/settings/apps/weldbooks/payment-runs/bnk_1', en.settings.title, en.settings.menu, {
+        '/settings/apps/weldbooks/payment-runs': 'Payment runs',
+      }),
+    ).toEqual([
+      { label: en.settings.title, href: '/settings' },
+      { label: en.settings.menu.apps },
+      { label: 'WeldBooks', href: '/settings/apps/weldbooks' },
+      { label: 'Payment runs', href: '/settings/apps/weldbooks?tab=payment-runs' },
+    ]);
+  });
+
   it('labels the legal entities pages and leaves the entity id out', () => {
     expect(labels('/settings/legal-entities')).toEqual([en.settings.title, 'Legal entities']);
     expect(labels('/settings/legal-entities/lent_123')).toEqual([en.settings.title, 'Legal entities']);

@@ -1932,6 +1932,20 @@ export const settings = {
       description: 'How your calendar handles scheduled tasks.',
     },
 
+    weldcommerce: {
+      title: 'WeldCommerce',
+      description: 'The customer portal your B2B customers sign in to.',
+    },
+
+    social: {
+      title: 'WeldSocial',
+      description: 'Publishing defaults and who on your team can post.',
+      tabs: {
+        general: 'General',
+        team: 'Team',
+      },
+    },
+
     taskScheduling: {
       tab: 'Tasks',
       autoScheduleLabel: 'Schedule tasks in my calendar automatically',
@@ -1993,6 +2007,7 @@ export const settings = {
         domains: 'Domains',
         signatures: 'Signatures',
         limits: 'Sending limits',
+        labels: 'Labels',
       },
       limits: {
         title: 'Sending limits',

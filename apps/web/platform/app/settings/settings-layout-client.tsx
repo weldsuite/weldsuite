@@ -79,6 +79,7 @@ export function SettingsLayoutClient({ children }: Readonly<{ children: React.Re
     '/settings/apps/welddesk/assignment': ts.welddesk.assignmentTitle,
     '/settings/apps/welddesk/sla-policies': ts.welddesk.slaPoliciesTitle,
     '/settings/apps/welddesk/priority-matrix': ts.welddesk.priorityMatrixTitle,
+    '/settings/apps/weldbooks/payment-runs': t.weldbooksUs.settingsPage.tabs.paymentRuns,
   });
   const memberPanelWidth = useMemberPanelWidth();
 

@@ -2751,7 +2751,7 @@ The last 3 attempts to write to acme-analytics/weldpanel failed. WeldPanel keeps
 
 Last error: AccessDenied: Access Denied
 
-Open exports https://app.weldsuite.org/weldpanel/settings?tab=exports
+Open exports https://app.weldsuite.org/settings/apps/weldpanel?tab=exports
 
 You get this because you set up this export.
 
@@ -2769,7 +2769,7 @@ De laatste 3 pogingen om naar acme-analytics/weldpanel te schrijven zijn mislukt
 
 Laatste fout: AccessDenied: Access Denied
 
-Open exports https://app.weldsuite.org/weldpanel/settings?tab=exports
+Open exports https://app.weldsuite.org/settings/apps/weldpanel?tab=exports
 
 Je krijgt dit omdat je deze export hebt ingesteld.
 
@@ -2785,7 +2785,7 @@ The export Daily people is failing
 
 The last 3 attempts to write to warehouse-raw failed. WeldPanel keeps trying; nothing is skipped, so the export catches up once the destination accepts files again.
 
-Open exports https://app.weldsuite.org/weldpanel/settings?tab=exports
+Open exports https://app.weldsuite.org/settings/apps/weldpanel?tab=exports
 
 You get this because you set up this export.
 
@@ -2801,7 +2801,7 @@ De export Daily people mislukt
 
 De laatste 3 pogingen om naar warehouse-raw te schrijven zijn mislukt. WeldPanel blijft het proberen; er wordt niets overgeslagen, dus de export haalt de achterstand in zodra de bestemming weer bestanden aanneemt.
 
-Open exports https://app.weldsuite.org/weldpanel/settings?tab=exports
+Open exports https://app.weldsuite.org/settings/apps/weldpanel?tab=exports
 
 Je krijgt dit omdat je deze export hebt ingesteld.
 
@@ -2967,7 +2967,7 @@ Recordings: 640 of 500
 
 The count starts again on Tuesday, December 1, 2026.
 
-View usage https://app.weldsuite.org/weldpanel/settings
+View usage https://app.weldsuite.org/settings/apps/weldpanel
 
 You get this because you are an owner of the workspace.
 
@@ -2989,7 +2989,7 @@ Opnames: 640 van 500
 
 De teller begint opnieuw op dinsdag 1 december 2026.
 
-Bekijk gebruik https://app.weldsuite.org/weldpanel/settings
+Bekijk gebruik https://app.weldsuite.org/settings/apps/weldpanel
 
 Je krijgt dit omdat je eigenaar van de werkruimte bent.
 
@@ -3011,7 +3011,7 @@ Recordings: 310 of 500
 
 The count starts again on Tuesday, December 1, 2026.
 
-View usage https://app.weldsuite.org/weldpanel/settings
+View usage https://app.weldsuite.org/settings/apps/weldpanel
 
 You get this because you are an owner of the workspace.
 
@@ -3033,7 +3033,7 @@ Opnames: 310 van 500
 
 De teller begint opnieuw op dinsdag 1 december 2026.
 
-Bekijk gebruik https://app.weldsuite.org/weldpanel/settings
+Bekijk gebruik https://app.weldsuite.org/settings/apps/weldpanel
 
 Je krijgt dit omdat je eigenaar van de werkruimte bent.
 
@@ -3055,7 +3055,7 @@ Recordings: 120 of 500
 
 The count starts again on Tuesday, December 1, 2026.
 
-View usage https://app.weldsuite.org/weldpanel/settings
+View usage https://app.weldsuite.org/settings/apps/weldpanel
 
 You get this because you are an owner of the workspace.
 
@@ -3077,7 +3077,7 @@ Opnames: 120 van 500
 
 De teller begint opnieuw op dinsdag 1 december 2026.
 
-Bekijk gebruik https://app.weldsuite.org/weldpanel/settings
+Bekijk gebruik https://app.weldsuite.org/settings/apps/weldpanel
 
 Je krijgt dit omdat je eigenaar van de werkruimte bent.
 
@@ -3099,7 +3099,7 @@ Recordings: 640 of 500
 
 The count starts again on Tuesday, December 1, 2026.
 
-View usage https://app.weldsuite.org/weldpanel/settings
+View usage https://app.weldsuite.org/settings/apps/weldpanel
 
 You get this because you are an owner of the workspace.
 
@@ -3121,7 +3121,7 @@ Opnames: 640 van 500
 
 De teller begint opnieuw op dinsdag 1 december 2026.
 
-Bekijk gebruik https://app.weldsuite.org/weldpanel/settings
+Bekijk gebruik https://app.weldsuite.org/settings/apps/weldpanel
 
 Je krijgt dit omdat je eigenaar van de werkruimte bent.
 

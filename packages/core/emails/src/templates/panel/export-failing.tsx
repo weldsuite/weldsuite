@@ -49,7 +49,7 @@ export default defineTemplate<PanelExportFailingEmailProps>({
         bucket: 'acme-analytics/weldpanel',
         failures: 3,
         lastError: 'AccessDenied: Access Denied',
-        url: 'https://app.weldsuite.org/weldpanel/settings?tab=exports',
+        url: 'https://app.weldsuite.org/settings/apps/weldpanel?tab=exports',
       },
     },
     noError: {
@@ -59,7 +59,7 @@ export default defineTemplate<PanelExportFailingEmailProps>({
         bucket: 'warehouse-raw',
         failures: 3,
         lastError: null,
-        url: 'https://app.weldsuite.org/weldpanel/settings?tab=exports',
+        url: 'https://app.weldsuite.org/settings/apps/weldpanel?tab=exports',
       },
     },
   },

@@ -1,7 +1,7 @@
 /**
  * WeldMerge's settings live with the other apps in workspace Settings
- * (Settings → Apps → WeldMerge). `/weldmerge/settings` redirects here, so links
- * merge-api still builds to the old path keep working.
+ * (Settings → Apps → WeldMerge), and only there. merge-api sends the OAuth and
+ * GitHub install round trips straight back to this path.
  */
 export const WELDMERGE_SETTINGS_PATH = '/settings/apps/weldmerge';
 

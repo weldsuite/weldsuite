@@ -648,7 +648,7 @@ describe('InvoicePanel', () => {
 
       await finalize(user);
 
-      expect(screen.getByRole('link', { name: 'Open sales tax settings' })).toHaveAttribute('href', '/weldbooks/sales-tax/settings');
+      expect(screen.getByRole('link', { name: 'Open sales tax settings' })).toHaveAttribute('href', '/settings/apps/weldbooks');
     });
 
     it('TAX_RATES_NOT_CONFIGURED links to the agencies', async () => {

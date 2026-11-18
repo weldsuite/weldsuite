@@ -52,7 +52,7 @@ use crate::{Answer, Caller, MergeState, Overrides, PendingEvent, publish, valida
 /// The platform's origin when `APP_URL` is not set.
 const DEFAULT_APP_URL: &str = "https://app.weldsuite.org";
 /// `MERGE_GITHUB_INSTALL_DEFAULT_RETURN`.
-const DEFAULT_RETURN: &str = "/weldmerge/settings?tab=providers&installed=1";
+const DEFAULT_RETURN: &str = "/settings/apps/weldmerge?tab=providers&installed=1";
 
 /// `githubInstallPage(appSlug, state?)`.
 pub(crate) fn install_page(app_slug: &str, state: Option<&str>) -> String {
@@ -203,7 +203,7 @@ pub(crate) async fn setup(
         redirect(&workspace_app_url(
             &app_url,
             clerk_org_id,
-            &format!("/weldmerge/settings?tab=providers&error={code}"),
+            &format!("/settings/apps/weldmerge?tab=providers&error={code}"),
         ))
     };
     let Some(SetupQuery {
@@ -320,7 +320,7 @@ pub(crate) async fn setup(
         return redirect(&workspace_app_url(
             &app_url,
             clerk_org_id.as_deref(),
-            "/weldmerge/settings?tab=providers&disconnected=1",
+            "/settings/apps/weldmerge?tab=providers&disconnected=1",
         ));
     }
 
@@ -421,7 +421,7 @@ mod tests {
         for bad in [
             "https://evil.example/x",
             "//evil.example",
-            "weldmerge/settings",
+            "settings/apps/weldmerge",
             "/a\\b",
             "",
         ] {

@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
+import { rememberSettingsReturn } from '@/lib/weldbooks/settings-links';
 import { Building2, SlidersHorizontal } from 'lucide-react';
 import { Alert, AlertDescription } from '@weldsuite/ui/components/alert';
 import { Button } from '@weldsuite/ui/components/button';
@@ -148,7 +149,7 @@ function AgenciesList() {
       applyFilters={applyStatusFilters}
       actionButtons={
         <Button asChild variant="outline" size="sm" className="h-8">
-          <Link to="/weldbooks/sales-tax/settings">
+          <Link to="/settings/apps/weldbooks" search={{ tab: 'sales-tax' }} onClick={rememberSettingsReturn}>
             <SlidersHorizontal className="h-4 w-4" aria-hidden />
             <span className="hidden md:inline">{ta.engineSettings}</span>
           </Link>

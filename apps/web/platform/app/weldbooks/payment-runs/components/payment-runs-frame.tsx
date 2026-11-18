@@ -9,7 +9,6 @@ const NAV = [
   { key: 'runs', href: '/weldbooks/payment-runs' },
   { key: 'checkRegister', href: '/weldbooks/payment-runs/check-register' },
   { key: 'positivePay', href: '/weldbooks/payment-runs/positive-pay' },
-  { key: 'settings', href: '/weldbooks/payment-runs/settings' },
 ] as const;
 
 /** The section of the payment screens a path belongs to; `runs` for the list, a run and the wizard. */
@@ -17,7 +16,6 @@ export function sectionOf(pathname: string): (typeof NAV)[number]['key'] {
   const path = pathname.replace(/\/+$/, '');
   if (path.startsWith('/weldbooks/payment-runs/check-register')) return 'checkRegister';
   if (path.startsWith('/weldbooks/payment-runs/positive-pay')) return 'positivePay';
-  if (path.startsWith('/weldbooks/payment-runs/settings')) return 'settings';
   return 'runs';
 }
 

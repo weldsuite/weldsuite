@@ -9,6 +9,7 @@ vi.mock('@/lib/i18n/provider', () => ({
     t: {
       settings: { title: 'Settings', menu: {}, welddesk: {} },
       helpdesk: { teamsSettings: { title: 'Teams' }, routing: { title: 'Routing' } },
+      weldbooksUs: { settingsPage: { tabs: { paymentRuns: 'Payment runs' } } },
     },
   }),
 }));

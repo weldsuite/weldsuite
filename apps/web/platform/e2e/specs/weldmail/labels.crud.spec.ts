@@ -60,7 +60,7 @@ test.describe('WeldMail · Labels CRUD', () => {
     const stamp = Date.now().toString(36);
     const labelName = `CrudLabel${stamp}`;
 
-    await page.goto('/weldmail/settings/labels');
+    await page.goto('/settings/apps/weldmail?tab=labels');
     await expect(page.getByTestId('app-sidebar')).toBeVisible({ timeout: 15_000 });
 
     // Open create dialog
@@ -90,7 +90,7 @@ test.describe('WeldMail · Labels CRUD', () => {
     const originalName = `RenameLabel${stamp}`;
     const updatedName = `Renamed${stamp}`;
 
-    await page.goto('/weldmail/settings/labels');
+    await page.goto('/settings/apps/weldmail?tab=labels');
     await expect(page.getByTestId('app-sidebar')).toBeVisible({ timeout: 15_000 });
 
     // Create the label first
@@ -128,7 +128,7 @@ test.describe('WeldMail · Labels CRUD', () => {
     const stamp = Date.now().toString(36);
     const labelName = `DeleteLabel${stamp}`;
 
-    await page.goto('/weldmail/settings/labels');
+    await page.goto('/settings/apps/weldmail?tab=labels');
     await expect(page.getByTestId('app-sidebar')).toBeVisible({ timeout: 15_000 });
 
     // Create the label first

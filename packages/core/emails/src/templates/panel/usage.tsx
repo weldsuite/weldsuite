@@ -75,7 +75,7 @@ export default defineTemplate<PanelUsageEmailProps>({
         events: { used: 40_000, allowance: 50_000 },
         recordings: { used: 120, allowance: 500 },
         resetsAt: '2026-12-01T00:00:00.000Z',
-        url: 'https://app.weldsuite.org/weldpanel/settings',
+        url: 'https://app.weldsuite.org/settings/apps/weldpanel',
       },
     },
     full: {
@@ -85,7 +85,7 @@ export default defineTemplate<PanelUsageEmailProps>({
         events: { used: 50_200, allowance: 50_000 },
         recordings: { used: 310, allowance: 500 },
         resetsAt: '2026-12-01T00:00:00.000Z',
-        url: 'https://app.weldsuite.org/weldpanel/settings',
+        url: 'https://app.weldsuite.org/settings/apps/weldpanel',
       },
     },
     replayBlocked: {
@@ -95,7 +95,7 @@ export default defineTemplate<PanelUsageEmailProps>({
         events: { used: 52_000, allowance: 50_000 },
         recordings: { used: 640, allowance: 500 },
         resetsAt: '2026-12-01T00:00:00.000Z',
-        url: 'https://app.weldsuite.org/weldpanel/settings',
+        url: 'https://app.weldsuite.org/settings/apps/weldpanel',
       },
     },
     eventsBlocked: {
@@ -105,7 +105,7 @@ export default defineTemplate<PanelUsageEmailProps>({
         events: { used: 55_000, allowance: 50_000 },
         recordings: { used: 640, allowance: 500 },
         resetsAt: '2026-12-01T00:00:00.000Z',
-        url: 'https://app.weldsuite.org/weldpanel/settings',
+        url: 'https://app.weldsuite.org/settings/apps/weldpanel',
       },
     },
   },

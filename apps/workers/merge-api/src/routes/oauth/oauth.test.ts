@@ -75,7 +75,7 @@ describe('authorize URLs', () => {
     const kv = fakeKv();
     const redirect = 'https://app.test/weldmerge/oauth/callback';
 
-    const gitlab = new URL((await ok<MergeAuthorizeUrlDto>(await get(app(kv), '/connections/gitlab/authorize-url?returnTo=/weldmerge/settings'))).url);
+    const gitlab = new URL((await ok<MergeAuthorizeUrlDto>(await get(app(kv), '/connections/gitlab/authorize-url?returnTo=/settings/apps/weldmerge'))).url);
     expect(`${gitlab.origin}${gitlab.pathname}`).toBe('https://gitlab.com/oauth/authorize');
     expect(Object.fromEntries(gitlab.searchParams)).toMatchObject({
       client_id: 'gl-client',
@@ -104,13 +104,13 @@ describe('authorize URLs', () => {
       provider: 'gitlab',
       purpose: 'connection',
       host: null,
-      returnTo: '/weldmerge/settings',
+      returnTo: '/settings/apps/weldmerge',
     });
   });
 
   it('drops a returnTo that is not a same-app path', async () => {
     const kv = fakeKv();
-    for (const returnTo of ['https://evil.example/x', '//evil.example', 'weldmerge/settings']) {
+    for (const returnTo of ['https://evil.example/x', '//evil.example', 'settings/apps/weldmerge']) {
       const id = await start(kv, `/connections/gitlab/authorize-url?returnTo=${encodeURIComponent(returnTo)}`);
       expect(JSON.parse(kv.entries.get(`merge_oauth_state:${id}`)!).returnTo).toBeNull();
     }
@@ -153,14 +153,14 @@ describe('callback: workspace connections', () => {
       'POST gitlab.com/oauth/token': GITLAB_TOKEN,
       'GET gitlab.com/api/v4/user': { id: 42, username: 'Alice-GL', name: 'Alice', avatar_url: 'https://gl/a.png' },
     });
-    const state = await start(kv, '/connections/gitlab/authorize-url?returnTo=/weldmerge/settings');
+    const state = await start(kv, '/connections/gitlab/authorize-url?returnTo=/settings/apps/weldmerge');
     clearEvents();
 
     const result = await ok<MergeOauthCallbackResult>(await post(app(kv), '/oauth/callback', { code: 'code-1', state }));
     expect(result).toEqual({
       purpose: 'connection',
       provider: 'gitlab',
-      returnTo: '/weldmerge/settings',
+      returnTo: '/settings/apps/weldmerge',
       connectionId: expect.stringMatching(/^mcn_/),
       accountId: null,
     });

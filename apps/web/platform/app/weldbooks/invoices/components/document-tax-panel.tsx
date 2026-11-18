@@ -2,7 +2,8 @@ import { useMemo } from 'react';
 import { AlertTriangle, Loader2 } from 'lucide-react';
 import { Alert, AlertDescription } from '@weldsuite/ui/components/alert';
 import { InfoBanner } from '@weldsuite/ui/components/info-banner';
-import { Link } from '@/lib/router';
+import { Link as TanStackLink } from '@tanstack/react-router';
+import { rememberSettingsReturn } from '@/lib/weldbooks/settings-links';
 import type { TaxPreviewState } from '@/hooks/queries/use-weldbooks-tax-preview';
 import { groupTaxBreakdown } from '@/lib/weldbooks/document-tax';
 import { useDocumentTexts } from '@/lib/weldbooks/use-document-texts';
@@ -72,12 +73,14 @@ export function DocumentTaxPanel({
           <AlertDescription>
             <p className="font-medium text-destructive">{td.panel.engineUnavailableTitle}</p>
             <p>{td.panel.engineUnavailable}</p>
-            <Link
-              href="/weldbooks/sales-tax/settings"
+            <TanStackLink
+              to="/settings/apps/weldbooks"
+              search={{ tab: 'sales-tax' }}
+              onClick={rememberSettingsReturn}
               className="text-sm font-medium text-primary underline-offset-4 hover:underline"
             >
               {td.panel.openSettings}
-            </Link>
+            </TanStackLink>
           </AlertDescription>
         </Alert>
       )}
