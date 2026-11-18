@@ -793,6 +793,8 @@ mod tests {
             "billing",
             "credit-top-up",
             "desktop-sign-in",
+            // No panel bucket in the test state.
+            "panel-analytics",
         ] {
             assert!(lacks.contains(&json!(feature)), "{feature}");
         }
@@ -818,6 +820,7 @@ mod tests {
             credit_top_up: true,
             plan_billing: true,
             sandbox: false,
+            panel_analytics: true,
             sso_connections: false,
         });
         let (_, _, body) = call(state, get("/config.json")).await;
@@ -857,6 +860,8 @@ mod tests {
         let lacks = body["unavailableFeatures"].as_array().expect("list");
         assert!(!lacks.contains(&json!("mail-ai")));
         assert!(lacks.contains(&json!("agent-sandbox")));
+        // WeldPanel's store is there: its analytics are offered.
+        assert!(!lacks.contains(&json!("panel-analytics")));
     }
 
     /// The app state with an OIDC verifier over the auth crate's fixture keys.

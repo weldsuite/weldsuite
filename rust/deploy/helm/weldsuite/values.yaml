@@ -204,8 +204,10 @@ config:
   # (recordings under replays/, heatmap snapshots under snapshots/), on
   # config.files' endpoint and keys,
   # their catalog in the master database. Empty: WeldPanel analytics is off
-  # (nothing writes the tables, panel-maintenance does nothing). Set, consume
-  # runs the panel-writer subscriber (it needs VALKEY_URL for its per-table
+  # (nothing writes the tables, panel-maintenance does nothing, and
+  # /config.json lists panel-analytics as unavailable, so the platform shows
+  # only projects and the install instructions). Set, analytics is offered
+  # and consume runs the panel-writer subscriber (it needs VALKEY_URL for its per-table
   # lease; give consume about 1Gi more memory: it buffers up to 64 MB of rows
   # per table between commits) and panel-state (the collector's people,
   # identity and group calls into the tenant tables, under a lease too).
@@ -569,7 +571,8 @@ objectStorage:
   buckets:
     private: weldsuite-private
     public: weldsuite-public
-    # WeldPanel's store (config.panel); empty: WeldPanel analytics is off.
+    # WeldPanel's store (config.panel); empty: WeldPanel analytics is off
+    # (panel-analytics stays unavailable in /config.json).
     panel: weldsuite-panel
   storage:
     size: 50Gi

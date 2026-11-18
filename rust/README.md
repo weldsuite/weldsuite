@@ -494,12 +494,14 @@ renewing domains, WeldMeet transcripts and summaries and recordings,
 WeldConnect's AI (`weldconnect-ai`: the editor's Generate with AI, AI steps), and
 WeldAgent's AI (`agent-ai`: the assistant chat, agent runs, routine tests
 and teach mode, on Claude Managed Agents and `@weldsuite/ai` on Global).
-Two follow the deployment rather than the code: `collab-rooms` (WeldDocs,
+Others follow the deployment rather than the code, among them `collab-rooms` (WeldDocs,
 WeldSheets and WeldBoard, hidden altogether) when no collab-rooms service is configured
-(`COLLAB_ROOMS_URLS`, the chart's `collabRooms.enabled: false`), and
+(`COLLAB_ROOMS_URLS`, the chart's `collabRooms.enabled: false`),
 `chat-calls` (WeldChat's call buttons) when no video provider is
 (`LIVEKIT_URL` with `LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET`, the chart's
-`config.video`).
+`config.video`), and `panel-analytics` (WeldPanel's reports, users,
+recordings and the rest beyond projects and the install instructions) when
+WeldPanel has no store (`S3_BUCKET_PANEL`, the chart's `config.panel.bucket`).
 Routes left out on purpose are in their suite's `excludedRoutes`, with the
 reason. Not ported yet (P8):
 agent, and the rest of the edge workers (the rest of `external-api` and

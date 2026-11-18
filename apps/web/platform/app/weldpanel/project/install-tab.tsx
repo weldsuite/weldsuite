@@ -2,8 +2,8 @@
  * Install tab: whether the snippet works yet, and the snippets to paste.
  * Everyone who can read the project sees it, token included: the token is
  * public and can only send data. Below them: a custom collector domain
- * (`panel_projects:manage`, Global only), reverse-proxy recipes, the SDK
- * options and the React Native SDK.
+ * (`panel_projects:manage`), reverse-proxy recipes, the SDK options and the
+ * React Native SDK.
  */
 
 import { useCan } from '@weldsuite/permissions/react';
@@ -54,7 +54,7 @@ export function InstallTab({ project }: Readonly<{ project: PanelProjectDto }>) 
         </div>
       )}
 
-      {/* Custom domains live in Global's Cloudflare for SaaS zone (not in the Kubernetes editions). */}
+      {/* Custom domains: Cloudflare for SaaS on Global, cert-manager on the Kubernetes editions (ADR PANEL-014); the section says when neither is set up. */}
       {canManage && isFeatureAvailable('panel-analytics') && <DomainsSection projectId={project.id} />}
       {current && (
         <>
