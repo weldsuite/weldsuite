@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 import { toast } from 'sonner';
 import { useNavigate } from '@tanstack/react-router';
 import { useCan } from '@weldsuite/permissions/react';
+import { useCreateIntent } from '@/hooks/use-create-intent';
 import { ErrorState } from '@weldsuite/ui/components/error-banner';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { EmptyStateIllustration } from '@/components/entity-list';
@@ -32,6 +33,7 @@ export default function WeldDocsHome() {
     // A failed create leaves nothing to open.
     void create.mutateAsync({ name: th.untitled }).then(open, () => undefined);
   };
+  useCreateIntent(createBlank, { ready: canCreate });
 
   if (docs.isLoading) return <PageLoader fullScreen={false} />;
 

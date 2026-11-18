@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useMemo, useEffect, useLayoutEffect, useRef } from 'react';
+import { useCreateIntent } from '@/hooks/use-create-intent';
 import { createPortal } from 'react-dom';
 import { useNavigate } from '@tanstack/react-router';
 import { getTranslations } from '@/lib/i18n';
@@ -636,6 +637,9 @@ export function CalendarView() {
     if (pos) setQuickCreatePos(pos);
     setQuickCreateOpen(true);
   }, [currentView, closeObjectPanels, isTodayInView, currentDate]);
+
+  // `?new=1` opens the same quick-create card as the toolbar's New event button.
+  useCreateIntent(() => handleCreateEvent(undefined, undefined, 'event'), { ready: allCalendars.length > 0 });
 
   // Drag the unsaved preview card to reschedule. While dragging, the popover
   // hides; on release, defaultStart/defaultEnd are updated and the popover

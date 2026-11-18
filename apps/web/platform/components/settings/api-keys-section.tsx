@@ -182,9 +182,9 @@ const GROUP_LOGOS: Record<string, string> = {
   weldreach: '/assets/images/weldreach/icon.svg',
   chat: '/assets/images/weldchat/icon.svg',
   host: '/assets/images/weldhost/icon.svg',
-  automation: '/assets/images/weldconnect/icon.svg',
-  weldbooks: '/assets/images/weldbooks/icon.svg?v=2',
-  weldpanel: '/assets/images/weldpanel/icon.svg',
+  automation: '/assets/images/weldconnect/icon.svg?v=2',
+  weldbooks: '/assets/images/weldbooks/icon.svg?v=6',
+  weldpanel: '/assets/images/weldpanel/icon.svg?v=2',
   settings: '/assets/images/weldsuite/icon.svg',
 };
 

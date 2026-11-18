@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useCreateIntent } from '@/hooks/use-create-intent';
 import { CircleDot, KanbanSquare, List, Plus } from 'lucide-react';
 import { useCan } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
@@ -185,6 +186,7 @@ export default function WeldMergeIssuesPage() {
   const [search, setSearch] = useState('');
   const [showCanceled, setShowCanceled] = useState(false);
   const [creating, setCreating] = useState(false);
+  useCreateIntent(() => setCreating(true), { ready: canCreate });
   const q = useDebounce(search.trim(), 300) || undefined;
 
   const teams = useMergeTeams();

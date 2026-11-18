@@ -423,5 +423,13 @@ export const navigation = {
       defaultOverview: 'This app integrates seamlessly with your WeldSuite workspace, providing essential tools and capabilities to streamline your business operations. Manage and automate key workflows while keeping all your data synchronized across your organization.',
       noAccessTitle: 'No access to the App Store',
       noAccessDescription: "You don't have permission to view the App Store. Only workspace owners and admins can install or remove apps. Contact your workspace owner if you need access.",
+      searchPlaceholder: 'Search apps',
+      noResultsTitle: 'No apps found',
+      noResultsDescription: 'No apps match "{query}"',
+      noResultsFilters: 'No apps match these filters',
+      clearSearch: 'Clear search',
+      clearFilters: 'Clear filters',
+      status: 'Status',
+      notInstalled: 'Not installed',
     }
   };

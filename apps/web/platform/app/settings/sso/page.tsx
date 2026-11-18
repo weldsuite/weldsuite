@@ -90,14 +90,11 @@ export default function SsoSettingsPage() {
       {!canManage && <InfoBanner variant="neutral">{ts.readOnlyNotice}</InfoBanner>}
 
       {oidc ? (
-        <>
-          <InfoBanner variant="info">{ts.weldid.samlLater}</InfoBanner>
-          <div className="space-y-4">
-            <SsoOidcConnectionStep config={config} oidc={oidc} canManage={canManage} />
-            <SsoOidcDomainsStep oidc={oidc} canManage={canManage} />
-            <SsoOidcSignInStep config={config} oidc={oidc} canManage={canManage} />
-          </div>
-        </>
+        <div className="space-y-4">
+          <SsoOidcConnectionStep config={config} oidc={oidc} canManage={canManage} />
+          <SsoOidcDomainsStep oidc={oidc} canManage={canManage} />
+          <SsoOidcSignInStep config={config} oidc={oidc} canManage={canManage} />
+        </div>
       ) : (
         <>
           <SsoAddonCard />

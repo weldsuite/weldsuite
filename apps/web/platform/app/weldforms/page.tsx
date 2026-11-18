@@ -9,6 +9,7 @@ import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { Copy, EllipsisVertical, FolderInput, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCan } from '@weldsuite/permissions/react';
+import { useCreateIntent } from '@/hooks/use-create-intent';
 import type { FormFolder, FormStatus, FormSummary, ListFormsQuery } from '@weldsuite/app-api-client/schemas/weldforms';
 import { Button } from '@weldsuite/ui/components/button';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
@@ -77,6 +78,7 @@ export default function WeldFormsHome() {
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<FormSummary | null>(null);
   const [moving, setMoving] = useState<FormSummary | null>(null);
+  useCreateIntent(() => setCreating(true), { ready: canCreate });
 
   const status = statusFilter(filters);
   const sort = COLUMN_SORT[sortColumn]!;

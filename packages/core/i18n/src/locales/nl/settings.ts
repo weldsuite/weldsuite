@@ -3515,10 +3515,47 @@ export const settings = {
 
       weldid: {
         description:
-          'Laat uw team zich aanmelden met uw eigen identiteitsprovider via OpenID Connect, zoals Microsoft Entra ID, Okta of Google Workspace. Zodra het aan staat, melden personen met een e-mailadres op uw geverifieerde domeinen zich aan via uw identiteitsprovider.',
-        samlLater: 'SAML-verbindingen volgen later. Koppel voorlopig een identiteitsprovider die OpenID Connect ondersteunt.',
+          'Laat uw team zich aanmelden met uw eigen identiteitsprovider via OpenID Connect of SAML, zoals Microsoft Entra ID, Okta of Google Workspace. Zodra het aan staat, melden personen met een e-mailadres op uw geverifieerde domeinen zich aan via uw identiteitsprovider.',
         notEntitled: 'Single sign-on zit niet in het abonnement van deze werkruimte. Vraag uw beheerder om het toe te voegen.',
         connection: {
+          protocol: 'Protocol',
+          protocolOidc: 'OpenID Connect',
+          protocolOidcHint: 'Een OpenID Connect-toepassing (web) in uw identiteitsprovider.',
+          protocolSaml: 'SAML 2.0',
+          protocolSamlHint:
+            'Een SAML-toepassing in uw identiteitsprovider, zoals een bedrijfstoepassing in Microsoft Entra ID of een aangepaste SAML-app in Google Workspace.',
+          samlDescription:
+            'Maak in uw identiteitsprovider een SAML-toepassing aan en geef ons de metadata ervan. Daarna tonen wij de entiteits-ID en de antwoord-URL die u daar invult.',
+          metadataSource: 'Metadata van de identiteitsprovider',
+          metadataFromUrl: 'Via een URL',
+          metadataFromFile: 'Bestand uploaden',
+          metadataUrl: 'Metadata-URL',
+          metadataUrlPlaceholder: 'https://login.microsoftonline.com/…/federationmetadata.xml?appid=…',
+          metadataUrlHint:
+            'Het https://-adres van de SAML-metadata van de toepassing. Wij lezen die bij het opslaan. Haal de metadata hier opnieuw op wanneer uw identiteitsprovider zijn ondertekeningscertificaat vervangt.',
+          metadataFile: 'Metadatabestand',
+          metadataFileHint: 'De SAML-metadata (XML) die u bij uw identiteitsprovider kunt downloaden, maximaal 256 KB.',
+          metadataFileChosen: '{name} gekozen',
+          metadataFileTooLarge: 'Dit bestand is groter dan 256 KB.',
+          metadataFileUnreadable: 'Dit bestand kon niet worden gelezen.',
+          metadataRequired: 'Vul de metadata-URL in of upload het metadatabestand.',
+          samlTrustEmailsHint:
+            'SAML geeft niet aan of een e-mailadres geverifieerd is. Aanmelden werkt daarom alleen als dit aan staat. Alleen adressen op uw geverifieerde domeinen worden geaccepteerd.',
+          idpEntityId: 'Entiteits-ID van de identiteitsprovider',
+          idpSsoUrl: 'Aanmeld-URL',
+          idpMetadata: 'Metadata',
+          idpMetadataUploaded: 'Geüpload bestand',
+          certificates: 'Ondertekeningscertificaten',
+          certificateExpires: 'Verloopt op {date}',
+          refetchMetadata: 'Metadata opnieuw ophalen',
+          metadataRefetched: 'Metadata opnieuw opgehaald.',
+          spTitle: 'Registreer deze gegevens in uw identiteitsprovider',
+          spDescription:
+            'Vul de entiteits-ID en de antwoord-URL in bij de SAML-instellingen van de toepassing in uw identiteitsprovider, of geef de toepassing onze metadata-URL. Aanmelden via uw identiteitsprovider mislukt tot ze geregistreerd zijn.',
+          spEntityId: 'Entiteits-ID (id)',
+          spAcsUrl: 'Antwoord-URL (assertion consumer service-URL)',
+          spMetadataUrl: 'Onze metadata-URL',
+          samlCreated: 'Identiteitsprovider gekoppeld. Registreer nu de entiteits-ID en de antwoord-URL in uw identiteitsprovider.',
           title: 'Koppel uw identiteitsprovider',
           description:
             'Maak in uw identiteitsprovider een OpenID Connect-toepassing (web) aan, registreer de redirect-URI die wij u geven en vul hier de gegevens van de toepassing in.',
@@ -3650,6 +3687,8 @@ export const settings = {
         billingBusy: 'Er is al een andere factureringswijziging bezig. Probeer het zo meteen opnieuw.',
         billingUnavailable: 'Facturering is op dit moment niet beschikbaar. Probeer het later opnieuw.',
         oidcIncomplete: 'Vul de naam, issuer-URL en client-ID van uw identiteitsprovider in.',
+        samlIncomplete: 'Vul de naam van uw identiteitsprovider en de SAML-metadata in (een URL of een bestand).',
+        protocolMismatch: 'Verwijder eerst de koppeling om te wisselen tussen OpenID Connect en SAML.',
         oidcNotEntitled: 'Single sign-on zit niet in het abonnement van deze werkruimte.',
       },
     },

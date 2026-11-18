@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useCreateIntent } from '@/hooks/use-create-intent';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { LucideIcon } from 'lucide-react';
 import { Database } from 'lucide-react';
@@ -50,6 +51,7 @@ export function useWelddataSidebarItems(isActive: boolean): {
   const deleteList = useDeleteWelddataList();
 
   const [createOpen, setCreateOpen] = React.useState(false);
+  useCreateIntent(() => setCreateOpen(true), { ready: isActive });
   const [renameOpen, setRenameOpen] = React.useState(false);
   const [renaming, setRenaming] = React.useState<{ id: string; name: string } | null>(null);
 

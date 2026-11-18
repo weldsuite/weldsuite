@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useCreateIntent } from '@/hooks/use-create-intent';
 import { Plus } from 'lucide-react';
 import { usePathname } from '@/lib/router';
 import { BreadcrumbHeader, BreadcrumbSegment } from '@/components/breadcrumb-header';
@@ -22,6 +23,7 @@ export function SocialHeader({
   const st = useTranslations();
   const pathname = usePathname();
   const [composeOpen, setComposeOpen] = useState(false);
+  useCreateIntent(() => setComposeOpen(true));
 
   const segments: BreadcrumbSegment[] = useMemo(() => {
     // Labels for the second breadcrumb segment, keyed by the route below /social.

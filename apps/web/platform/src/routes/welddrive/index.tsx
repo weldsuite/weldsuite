@@ -5,12 +5,15 @@ interface DriveSearch {
   folderId?: string;
   /** A shared link to one file ("Copy link" / Share): it opens in the preview. */
   file?: string;
+  /** `?new=folder`: the command palette's "New folder"; `useCreateIntent` starts it. */
+  new?: string;
 }
 
 export const Route = createFileRoute('/welddrive/')({
   validateSearch: (search: Record<string, unknown>): DriveSearch => ({
     folderId: (search.folderId as string) || undefined,
     file: (search.file as string) || undefined,
+    new: typeof search.new === 'string' || typeof search.new === 'number' ? String(search.new) : undefined,
   }),
   component: DrivePageWrapper,
 });

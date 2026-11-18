@@ -1,13 +1,15 @@
-//! `/api/sso` when WeldID is the identity provider (ADR SEC-019, phase 5a):
-//! the workspace's `OpenID` Connect connection lives at WeldID, managed
-//! through its admin API ([`SsoDirectory`], scoped by `tenant_ref` =
-//! `workspaces.id`). The paths and the view stay Global's where they map;
-//! the view adds `mode: "weldid"` and an `oidc` block:
+//! `/api/sso` when WeldID is the identity provider (ADR SEC-019, phase 5):
+//! the workspace's connection lives at WeldID, over `OpenID` Connect (5a) or
+//! SAML 2.0 (5b), managed through its admin API ([`SsoDirectory`], scoped by
+//! `tenant_ref` = `workspaces.id`). The paths and the view stay Global's
+//! where they map; the view adds `mode: "weldid"` and an `oidc` block (named
+//! for the first protocol; it holds a SAML connection too, with
+//! `protocol: "saml"` and its `saml` details):
 //!
 //! | Route | WeldID mode |
 //! |---|---|
-//! | `GET /` | entitlement, the first domain as `domain`, `connection: null` (no SAML), and `oidc`: the connection (never its secret), every domain with its TXT record, the default role |
-//! | `PUT /connection` | create the connection (display name, issuer, client id and secret, extra scopes, whether to trust its emails) or change it; also `enforceSso` and `defaultRole` |
+//! | `GET /` | entitlement, the first domain as `domain`, `connection: null` (Global's Clerk SAML shape), and `oidc`: the connection (never its secret), every domain with its TXT record, the default role |
+//! | `PUT /connection` | create the connection (`protocol` `oidc`: display name, issuer, client id and secret, extra scopes; `saml`: display name and the identity provider's `metadataXml` or `metadataUrl`; both: whether to trust its emails) or change it (a SAML connection takes new metadata; the protocol doesn't change: remove the connection to switch); also `enforceSso` and `defaultRole` |
 //! | `DELETE /connection` | the connection and its domains |
 //! | `POST /connection/activate`, `/deactivate` | `enabled`; on needs the entitlement and a verified domain |
 //! | `POST /domains`, `DELETE /domains/{domain}`, `POST /domains/{domain}/verify` | the connection's domains (WeldID runs the DNS check) |
@@ -29,7 +31,8 @@ use weldsuite_db::sso_settings::{SSO_DEFAULT_ROLES, set_sso_default_role, sso_de
 use weldsuite_kit::validation::{Issues, Presence, Text, js_trim};
 use weldsuite_kit::{ApiError, Data, generate_id};
 use weldsuite_ports::{
-    IdentityError, NewSsoConnection, SsoConnection, SsoConnectionChanges, SsoDirectory,
+    IdentityError, NewSsoConnection, SamlMetadata, SsoConnection, SsoConnectionChanges,
+    SsoDirectory, SsoProtocol,
 };
 
 use super::{
@@ -40,8 +43,8 @@ use crate::{Caller, CorePlatformState, PlatformError, PlatformResult, validate};
 
 /// `mode` in the view.
 const MODE: &str = "weldid";
-/// `provider` in the change events.
-const PROVIDER: &str = "oidc";
+/// The largest identity provider metadata document taken (WeldID's limit).
+const MAX_METADATA_XML: usize = 256 * 1024;
 
 // ── State ───────────────────────────────────────────────────────────────────
 
@@ -236,6 +239,20 @@ fn view(loaded: &Loaded, can_manage: bool) -> Value {
     let oidc_connection = connection.map(|c| {
         json!({
             "id": c.id,
+            "protocol": c.protocol.as_str(),
+            "saml": c.saml.as_ref().map(|saml| json!({
+                "entityId": saml.entity_id,
+                "acsUrl": saml.acs_url,
+                "metadataUrl": saml.metadata_url,
+                "idpEntityId": saml.idp_entity_id,
+                "idpSsoUrl": saml.idp_sso_url,
+                "idpMetadataUrl": saml.idp_metadata_url,
+                "idpCertificates": saml.idp_certificates.iter().map(|certificate| json!({
+                    "sha256": certificate.sha256,
+                    "subject": certificate.subject,
+                    "notAfter": certificate.not_after,
+                })).collect::<Vec<_>>(),
+            })),
             "displayName": c.display_name,
             "issuer": c.issuer,
             "clientId": c.client_id,
@@ -286,7 +303,7 @@ fn changed(state: &CorePlatformState, caller: &Caller, kind: &str, after: &Loade
         "change": kind,
         "domain": first.map(|d| d.name.as_str()),
         "domainVerified": first.is_some_and(|d| d.status == weldsuite_ports::SsoDomainStatus::Verified),
-        "provider": connection.map(|_| PROVIDER),
+        "provider": connection.map(|c| c.protocol.as_str()),
         "enabled": connection.is_some_and(|c| c.enabled),
         "enforceSso": connection.is_some_and(|c| c.enforce_sso),
         "defaultRole": after.default_role,
@@ -310,10 +327,18 @@ fn scope_token(scope: &str) -> bool {
             .all(|b| matches!(b, 0x21 | 0x23..=0x5B | 0x5D..=0x7E))
 }
 
+/// The protocols `PUT /connection` takes.
+const PROTOCOLS: [&str; 2] = ["oidc", "saml"];
+
 /// `ssoOidcConnectionInputSchema`: every field optional, so a toggle sends
-/// only itself; creating needs the first four.
+/// only itself; creating an `OpenID` Connect connection needs the display
+/// name, issuer and client id, a SAML one the display name and the metadata.
 #[derive(Debug, Default)]
 struct ConnectionInput {
+    protocol: Option<String>,
+    /// The identity provider's metadata (SAML), uploaded or by URL.
+    metadata_xml: Option<String>,
+    metadata_url: Option<String>,
     display_name: Option<String>,
     issuer: Option<String>,
     client_id: Option<String>,
@@ -388,7 +413,32 @@ fn read_connection_input(issues: &mut Issues, fields: &Map<String, Value>) -> Co
     {
         issues.custom("issuer", "Use an https:// URL");
     }
+    let protocol = issues
+        .choice(fields, "protocol", Presence::Optional, &PROTOCOLS)
+        .into_option();
+    let metadata_xml = issues
+        .text_with(
+            fields,
+            "metadataXml",
+            Presence::Optional,
+            Text::trimmed(Some(1), Some(MAX_METADATA_XML)),
+        )
+        .into_option();
+    let metadata_url = issues
+        .text_with(fields, "metadataUrl", Presence::Optional, HTTPS_URL)
+        .into_option();
+    if let Some(Value::String(text)) = fields.get("metadataUrl")
+        && !js_trim(text).starts_with("https://")
+    {
+        issues.custom("metadataUrl", "Use an https:// URL");
+    }
+    if fields.contains_key("metadataXml") && fields.contains_key("metadataUrl") {
+        issues.custom("metadataUrl", "Give the metadata or its URL, not both");
+    }
     ConnectionInput {
+        protocol,
+        metadata_xml,
+        metadata_url,
         display_name,
         issuer: issuer_url,
         client_id,
@@ -398,6 +448,63 @@ fn read_connection_input(issues: &mut Issues, fields: &Map<String, Value>) -> Co
         enforce_sso,
         default_role,
     }
+}
+
+/// The connection a first `PUT /connection` creates: `OpenID` Connect from
+/// the name, issuer and client id (without a secret WeldID is a public
+/// client at the identity provider, PKCE only), or SAML from the name and
+/// the metadata; disabled until switched on.
+fn new_connection(
+    input: &ConnectionInput,
+    metadata: Option<SamlMetadata>,
+    oidc_fields: bool,
+) -> PlatformResult<NewSsoConnection> {
+    let saml = input.protocol.as_deref() == Some("saml");
+    let incomplete =
+        |message: &'static str| refusal(StatusCode::BAD_REQUEST, "SSO_IDP_INCOMPLETE", message);
+    if saml {
+        let (Some(display_name), Some(metadata), false) =
+            (input.display_name.clone(), metadata, oidc_fields)
+        else {
+            return Err(incomplete(
+                "Enter the identity provider's name and its SAML metadata (a file or its URL).",
+            ));
+        };
+        return Ok(NewSsoConnection {
+            protocol: SsoProtocol::Saml,
+            display_name,
+            issuer: String::new(),
+            client_id: String::new(),
+            client_secret: None,
+            scopes: Vec::new(),
+            trust_emails: input.trust_emails.unwrap_or(false),
+            enabled: false,
+            enforce_sso: input.enforce_sso.unwrap_or(false),
+            saml_metadata: Some(metadata),
+        });
+    }
+    let (Some(display_name), Some(issuer), Some(client_id), None) = (
+        input.display_name.clone(),
+        input.issuer.clone(),
+        input.client_id.clone(),
+        metadata,
+    ) else {
+        return Err(incomplete(
+            "Enter the identity provider's name, issuer URL and client ID.",
+        ));
+    };
+    Ok(NewSsoConnection {
+        protocol: SsoProtocol::Oidc,
+        display_name,
+        issuer,
+        client_id,
+        client_secret: input.client_secret.clone(),
+        scopes: input.scopes.clone().unwrap_or_default(),
+        trust_emails: input.trust_emails.unwrap_or(false),
+        enabled: false,
+        enforce_sso: input.enforce_sso.unwrap_or(false),
+        saml_metadata: None,
+    })
 }
 
 /// `PUT /connection`.
@@ -411,48 +518,46 @@ pub(super) async fn save_connection(
     let input = validate(headers, body, read_connection_input)?;
     let mut loaded = load(state, caller, directory).await?;
     let tenant = loaded.ctx.workspace.id.clone();
-    let identity_changes = input.display_name.is_some()
-        || input.issuer.is_some()
+    let oidc_fields = input.issuer.is_some()
         || input.client_id.is_some()
         || input.client_secret.is_some()
-        || input.scopes.is_some()
+        || input.scopes.is_some();
+    let metadata = match (input.metadata_xml.clone(), input.metadata_url.clone()) {
+        (Some(xml), _) => Some(SamlMetadata::Xml(xml)),
+        (None, Some(url)) => Some(SamlMetadata::Url(url)),
+        (None, None) => None,
+    };
+    let identity_changes = input.display_name.is_some()
+        || oidc_fields
+        || metadata.is_some()
         || input.trust_emails.is_some();
     let kind = match &loaded.connection {
         None => {
             require_entitled(&loaded.ctx)?;
-            // Without a secret WeldID is a public client at the identity
-            // provider (PKCE only).
-            let (Some(display_name), Some(issuer), Some(client_id)) = (
-                input.display_name.clone(),
-                input.issuer.clone(),
-                input.client_id.clone(),
-            ) else {
-                return Err(refusal(
-                    StatusCode::BAD_REQUEST,
-                    "SSO_IDP_INCOMPLETE",
-                    "Enter the identity provider's name, issuer URL and client ID.",
-                ));
-            };
+            let new = new_connection(&input, metadata, oidc_fields)?;
             let created = directory
-                .create_connection(
-                    &tenant,
-                    &NewSsoConnection {
-                        display_name,
-                        issuer,
-                        client_id,
-                        client_secret: input.client_secret.clone(),
-                        scopes: input.scopes.clone().unwrap_or_default(),
-                        trust_emails: input.trust_emails.unwrap_or(false),
-                        enabled: false,
-                        enforce_sso: input.enforce_sso.unwrap_or(false),
-                    },
-                )
+                .create_connection(&tenant, &new)
                 .await
                 .map_err(|error| failure(&error, Step::Connection))?;
             loaded.connection = Some(created);
             "connection_created"
         }
         Some(current) => {
+            // The protocol is the connection's for good: switching means
+            // removing it and connecting again.
+            let protocol_mismatch = match current.protocol {
+                SsoProtocol::Oidc => {
+                    metadata.is_some() || input.protocol.as_deref() == Some("saml")
+                }
+                SsoProtocol::Saml => oidc_fields || input.protocol.as_deref() == Some("oidc"),
+            };
+            if protocol_mismatch {
+                return Err(refusal(
+                    StatusCode::CONFLICT,
+                    "SSO_PROTOCOL_MISMATCH",
+                    "Remove the connection to switch between OpenID Connect and SAML.",
+                ));
+            }
             // Changing the identity provider needs the entitlement; the
             // switches and the role don't (they only narrow sign-in).
             if identity_changes {
@@ -467,6 +572,7 @@ pub(super) async fn save_connection(
                 trust_emails: input.trust_emails,
                 enabled: None,
                 enforce_sso: input.enforce_sso,
+                saml_metadata: metadata,
             };
             if !changes.is_empty() {
                 let updated = directory

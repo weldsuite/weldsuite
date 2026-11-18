@@ -1,6 +1,7 @@
 /** WeldHR employee directory: search, department filter, status groups, cursor-paginated list, "New employee". */
 
 import { useEffect, useMemo, useState } from 'react';
+import { useCreateIntent } from '@/hooks/use-create-intent';
 import { Users } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
@@ -30,6 +31,7 @@ export default function WeldHrEmployeesPage() {
   const [cursor, setCursor] = useState<string | undefined>(undefined);
   const [rows, setRows] = useState<HrEmployeeListItem[]>([]);
   const [creating, setCreating] = useState(false);
+  useCreateIntent(() => setCreating(true), { ready: canCreate });
 
   const { data: departments } = useHrDepartments();
   const departmentId = filters.find((f) => f.field === 'department')?.value;
