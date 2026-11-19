@@ -133,13 +133,13 @@ function connectorsCatalog(): unknown {
   const entities = new Set<string>([
     ...Object.keys(CONNECTOR_INTERNAL_FIELDS),
     ...Object.keys(CONNECTOR_EXTERNAL_FIELDS),
-    ...listConnectors().flatMap((c) => c.syncs.map((s) => s.internalEntity)),
+    ...listConnectors('kubernetes').flatMap((c) => c.syncs.map((s) => s.internalEntity)),
   ]);
   const defaultFieldMappings = Object.fromEntries(
     [...entities].map((entity) => [entity, getDefaultConnectorFieldMappings(entity)]).filter(([, m]) => m.length),
   );
   return {
-    connectors: listConnectors(),
+    connectors: listConnectors('kubernetes'),
     defaultFieldMappings,
     picqerProductFieldMappings: getDefaultConnectorFieldMappings('product', 'picqer'),
   };

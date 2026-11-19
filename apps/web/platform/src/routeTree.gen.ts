@@ -112,6 +112,8 @@ import { Route as AppsAppCodeRouteRouteImport } from './routes/apps/$appCode/rou
 import { Route as WeldstashWarehousesIndexRouteImport } from './routes/weldstash/warehouses/index'
 import { Route as WeldstashSuppliersIndexRouteImport } from './routes/weldstash/suppliers/index'
 import { Route as WeldstashStockIndexRouteImport } from './routes/weldstash/stock/index'
+import { Route as WeldstashReplenishmentIndexRouteImport } from './routes/weldstash/replenishment/index'
+import { Route as WeldstashPurchaseOrdersIndexRouteImport } from './routes/weldstash/purchase-orders/index'
 import { Route as WeldstashProductsIndexRouteImport } from './routes/weldstash/products/index'
 import { Route as WeldstashPickListsIndexRouteImport } from './routes/weldstash/pick-lists/index'
 import { Route as WeldstashPackingIndexRouteImport } from './routes/weldstash/packing/index'
@@ -335,6 +337,7 @@ import { Route as WeldconnectIntegrationsCallbackRouteImport } from './routes/we
 import { Route as WeldconnectConnectorsCallbackRouteImport } from './routes/weldconnect/connectors/callback'
 import { Route as WeldchatDmUserIdRouteImport } from './routes/weldchat/dm/$userId'
 import { Route as SettingsCustomObjectsObjectIdRouteImport } from './routes/settings/custom-objects/$objectId'
+import { Route as SettingsAppsWeldstashRouteImport } from './routes/settings/apps/weldstash'
 import { Route as SettingsAppsWeldreachRouteImport } from './routes/settings/apps/weldreach'
 import { Route as SettingsAppsWeldpanelRouteImport } from './routes/settings/apps/weldpanel'
 import { Route as SettingsAppsWeldmergeRouteImport } from './routes/settings/apps/weldmerge'
@@ -357,6 +360,7 @@ import { Route as SettingsAppsWelddeskRouteRouteImport } from './routes/settings
 import { Route as PreviewWeldmailAccountIdRouteRouteImport } from './routes/preview/weldmail/$accountId/route'
 import { Route as PreviewWeldformsFormIdRouteRouteImport } from './routes/preview/weldforms/$formId/route'
 import { Route as PreviewWeldcrmPeopleRouteRouteImport } from './routes/preview/weldcrm/people/route'
+import { Route as WeldstashPurchaseOrdersOrderIdIndexRouteImport } from './routes/weldstash/purchase-orders/$orderId/index'
 import { Route as WeldsignTemplatesTemplateIdIndexRouteImport } from './routes/weldsign/templates/$templateId/index'
 import { Route as WeldreachCampaignsCampaignIdIndexRouteImport } from './routes/weldreach/campaigns/$campaignId/index'
 import { Route as WeldpassPasswordsVaultsIndexRouteImport } from './routes/weldpass/passwords/vaults/index'
@@ -1154,6 +1158,18 @@ const WeldstashStockIndexRoute = WeldstashStockIndexRouteImport.update({
   path: '/stock/',
   getParentRoute: () => WeldstashRouteRoute,
 } as any)
+const WeldstashReplenishmentIndexRoute =
+  WeldstashReplenishmentIndexRouteImport.update({
+    id: '/replenishment/',
+    path: '/replenishment/',
+    getParentRoute: () => WeldstashRouteRoute,
+  } as any)
+const WeldstashPurchaseOrdersIndexRoute =
+  WeldstashPurchaseOrdersIndexRouteImport.update({
+    id: '/purchase-orders/',
+    path: '/purchase-orders/',
+    getParentRoute: () => WeldstashRouteRoute,
+  } as any)
 const WeldstashProductsIndexRoute = WeldstashProductsIndexRouteImport.update({
   id: '/products/',
   path: '/products/',
@@ -2316,6 +2332,11 @@ const SettingsCustomObjectsObjectIdRoute =
     path: '/custom-objects/$objectId',
     getParentRoute: () => SettingsRouteRoute,
   } as any)
+const SettingsAppsWeldstashRoute = SettingsAppsWeldstashRouteImport.update({
+  id: '/apps/weldstash',
+  path: '/apps/weldstash',
+  getParentRoute: () => SettingsRouteRoute,
+} as any)
 const SettingsAppsWeldreachRoute = SettingsAppsWeldreachRouteImport.update({
   id: '/apps/weldreach',
   path: '/apps/weldreach',
@@ -2434,6 +2455,12 @@ const PreviewWeldcrmPeopleRouteRoute =
     id: '/people',
     path: '/people',
     getParentRoute: () => PreviewWeldcrmRouteRoute,
+  } as any)
+const WeldstashPurchaseOrdersOrderIdIndexRoute =
+  WeldstashPurchaseOrdersOrderIdIndexRouteImport.update({
+    id: '/purchase-orders/$orderId/',
+    path: '/purchase-orders/$orderId/',
+    getParentRoute: () => WeldstashRouteRoute,
   } as any)
 const WeldsignTemplatesTemplateIdIndexRoute =
   WeldsignTemplatesTemplateIdIndexRouteImport.update({
@@ -4206,6 +4233,7 @@ export interface FileRoutesByFullPath {
   '/settings/apps/weldmerge': typeof SettingsAppsWeldmergeRoute
   '/settings/apps/weldpanel': typeof SettingsAppsWeldpanelRoute
   '/settings/apps/weldreach': typeof SettingsAppsWeldreachRoute
+  '/settings/apps/weldstash': typeof SettingsAppsWeldstashRoute
   '/settings/custom-objects/$objectId': typeof SettingsCustomObjectsObjectIdRoute
   '/weldchat/dm/$userId': typeof WeldchatDmUserIdRoute
   '/weldconnect/connectors/callback': typeof WeldconnectConnectorsCallbackRoute
@@ -4429,6 +4457,8 @@ export interface FileRoutesByFullPath {
   '/weldstash/packing/': typeof WeldstashPackingIndexRoute
   '/weldstash/pick-lists/': typeof WeldstashPickListsIndexRoute
   '/weldstash/products/': typeof WeldstashProductsIndexRoute
+  '/weldstash/purchase-orders/': typeof WeldstashPurchaseOrdersIndexRoute
+  '/weldstash/replenishment/': typeof WeldstashReplenishmentIndexRoute
   '/weldstash/stock/': typeof WeldstashStockIndexRoute
   '/weldstash/suppliers/': typeof WeldstashSuppliersIndexRoute
   '/weldstash/warehouses/': typeof WeldstashWarehousesIndexRoute
@@ -4595,6 +4625,7 @@ export interface FileRoutesByFullPath {
   '/weldpass/passwords/vaults/': typeof WeldpassPasswordsVaultsIndexRoute
   '/weldreach/campaigns/$campaignId/': typeof WeldreachCampaignsCampaignIdIndexRoute
   '/weldsign/templates/$templateId/': typeof WeldsignTemplatesTemplateIdIndexRoute
+  '/weldstash/purchase-orders/$orderId/': typeof WeldstashPurchaseOrdersOrderIdIndexRoute
   '/preview/weldcalendar/scheduling/$id/': typeof PreviewWeldcalendarSchedulingIdIndexRoute
   '/preview/weldcalendar/scheduling/new/': typeof PreviewWeldcalendarSchedulingNewIndexRoute
   '/preview/weldcrm/pipeline/$id/': typeof PreviewWeldcrmPipelineIdIndexRoute
@@ -4782,6 +4813,7 @@ export interface FileRoutesByTo {
   '/settings/apps/weldmerge': typeof SettingsAppsWeldmergeRoute
   '/settings/apps/weldpanel': typeof SettingsAppsWeldpanelRoute
   '/settings/apps/weldreach': typeof SettingsAppsWeldreachRoute
+  '/settings/apps/weldstash': typeof SettingsAppsWeldstashRoute
   '/settings/custom-objects/$objectId': typeof SettingsCustomObjectsObjectIdRoute
   '/weldchat/dm/$userId': typeof WeldchatDmUserIdRoute
   '/weldconnect/connectors/callback': typeof WeldconnectConnectorsCallbackRoute
@@ -5005,6 +5037,8 @@ export interface FileRoutesByTo {
   '/weldstash/packing': typeof WeldstashPackingIndexRoute
   '/weldstash/pick-lists': typeof WeldstashPickListsIndexRoute
   '/weldstash/products': typeof WeldstashProductsIndexRoute
+  '/weldstash/purchase-orders': typeof WeldstashPurchaseOrdersIndexRoute
+  '/weldstash/replenishment': typeof WeldstashReplenishmentIndexRoute
   '/weldstash/stock': typeof WeldstashStockIndexRoute
   '/weldstash/suppliers': typeof WeldstashSuppliersIndexRoute
   '/weldstash/warehouses': typeof WeldstashWarehousesIndexRoute
@@ -5164,6 +5198,7 @@ export interface FileRoutesByTo {
   '/weldpass/passwords/vaults': typeof WeldpassPasswordsVaultsIndexRoute
   '/weldreach/campaigns/$campaignId': typeof WeldreachCampaignsCampaignIdIndexRoute
   '/weldsign/templates/$templateId': typeof WeldsignTemplatesTemplateIdIndexRoute
+  '/weldstash/purchase-orders/$orderId': typeof WeldstashPurchaseOrdersOrderIdIndexRoute
   '/preview/weldcalendar/scheduling/$id': typeof PreviewWeldcalendarSchedulingIdIndexRoute
   '/preview/weldcalendar/scheduling/new': typeof PreviewWeldcalendarSchedulingNewIndexRoute
   '/preview/weldcrm/pipeline/$id': typeof PreviewWeldcrmPipelineIdIndexRoute
@@ -5405,6 +5440,7 @@ export interface FileRoutesById {
   '/settings/apps/weldmerge': typeof SettingsAppsWeldmergeRoute
   '/settings/apps/weldpanel': typeof SettingsAppsWeldpanelRoute
   '/settings/apps/weldreach': typeof SettingsAppsWeldreachRoute
+  '/settings/apps/weldstash': typeof SettingsAppsWeldstashRoute
   '/settings/custom-objects/$objectId': typeof SettingsCustomObjectsObjectIdRoute
   '/weldchat/dm/$userId': typeof WeldchatDmUserIdRoute
   '/weldconnect/connectors/callback': typeof WeldconnectConnectorsCallbackRoute
@@ -5628,6 +5664,8 @@ export interface FileRoutesById {
   '/weldstash/packing/': typeof WeldstashPackingIndexRoute
   '/weldstash/pick-lists/': typeof WeldstashPickListsIndexRoute
   '/weldstash/products/': typeof WeldstashProductsIndexRoute
+  '/weldstash/purchase-orders/': typeof WeldstashPurchaseOrdersIndexRoute
+  '/weldstash/replenishment/': typeof WeldstashReplenishmentIndexRoute
   '/weldstash/stock/': typeof WeldstashStockIndexRoute
   '/weldstash/suppliers/': typeof WeldstashSuppliersIndexRoute
   '/weldstash/warehouses/': typeof WeldstashWarehousesIndexRoute
@@ -5794,6 +5832,7 @@ export interface FileRoutesById {
   '/weldpass/passwords/vaults/': typeof WeldpassPasswordsVaultsIndexRoute
   '/weldreach/campaigns/$campaignId/': typeof WeldreachCampaignsCampaignIdIndexRoute
   '/weldsign/templates/$templateId/': typeof WeldsignTemplatesTemplateIdIndexRoute
+  '/weldstash/purchase-orders/$orderId/': typeof WeldstashPurchaseOrdersOrderIdIndexRoute
   '/preview/weldcalendar/scheduling/$id/': typeof PreviewWeldcalendarSchedulingIdIndexRoute
   '/preview/weldcalendar/scheduling/new/': typeof PreviewWeldcalendarSchedulingNewIndexRoute
   '/preview/weldcrm/pipeline/$id/': typeof PreviewWeldcrmPipelineIdIndexRoute
@@ -6036,6 +6075,7 @@ export interface FileRouteTypes {
     | '/settings/apps/weldmerge'
     | '/settings/apps/weldpanel'
     | '/settings/apps/weldreach'
+    | '/settings/apps/weldstash'
     | '/settings/custom-objects/$objectId'
     | '/weldchat/dm/$userId'
     | '/weldconnect/connectors/callback'
@@ -6259,6 +6299,8 @@ export interface FileRouteTypes {
     | '/weldstash/packing/'
     | '/weldstash/pick-lists/'
     | '/weldstash/products/'
+    | '/weldstash/purchase-orders/'
+    | '/weldstash/replenishment/'
     | '/weldstash/stock/'
     | '/weldstash/suppliers/'
     | '/weldstash/warehouses/'
@@ -6425,6 +6467,7 @@ export interface FileRouteTypes {
     | '/weldpass/passwords/vaults/'
     | '/weldreach/campaigns/$campaignId/'
     | '/weldsign/templates/$templateId/'
+    | '/weldstash/purchase-orders/$orderId/'
     | '/preview/weldcalendar/scheduling/$id/'
     | '/preview/weldcalendar/scheduling/new/'
     | '/preview/weldcrm/pipeline/$id/'
@@ -6612,6 +6655,7 @@ export interface FileRouteTypes {
     | '/settings/apps/weldmerge'
     | '/settings/apps/weldpanel'
     | '/settings/apps/weldreach'
+    | '/settings/apps/weldstash'
     | '/settings/custom-objects/$objectId'
     | '/weldchat/dm/$userId'
     | '/weldconnect/connectors/callback'
@@ -6835,6 +6879,8 @@ export interface FileRouteTypes {
     | '/weldstash/packing'
     | '/weldstash/pick-lists'
     | '/weldstash/products'
+    | '/weldstash/purchase-orders'
+    | '/weldstash/replenishment'
     | '/weldstash/stock'
     | '/weldstash/suppliers'
     | '/weldstash/warehouses'
@@ -6994,6 +7040,7 @@ export interface FileRouteTypes {
     | '/weldpass/passwords/vaults'
     | '/weldreach/campaigns/$campaignId'
     | '/weldsign/templates/$templateId'
+    | '/weldstash/purchase-orders/$orderId'
     | '/preview/weldcalendar/scheduling/$id'
     | '/preview/weldcalendar/scheduling/new'
     | '/preview/weldcrm/pipeline/$id'
@@ -7234,6 +7281,7 @@ export interface FileRouteTypes {
     | '/settings/apps/weldmerge'
     | '/settings/apps/weldpanel'
     | '/settings/apps/weldreach'
+    | '/settings/apps/weldstash'
     | '/settings/custom-objects/$objectId'
     | '/weldchat/dm/$userId'
     | '/weldconnect/connectors/callback'
@@ -7457,6 +7505,8 @@ export interface FileRouteTypes {
     | '/weldstash/packing/'
     | '/weldstash/pick-lists/'
     | '/weldstash/products/'
+    | '/weldstash/purchase-orders/'
+    | '/weldstash/replenishment/'
     | '/weldstash/stock/'
     | '/weldstash/suppliers/'
     | '/weldstash/warehouses/'
@@ -7623,6 +7673,7 @@ export interface FileRouteTypes {
     | '/weldpass/passwords/vaults/'
     | '/weldreach/campaigns/$campaignId/'
     | '/weldsign/templates/$templateId/'
+    | '/weldstash/purchase-orders/$orderId/'
     | '/preview/weldcalendar/scheduling/$id/'
     | '/preview/weldcalendar/scheduling/new/'
     | '/preview/weldcrm/pipeline/$id/'
@@ -8529,6 +8580,20 @@ declare module '@tanstack/react-router' {
       path: '/stock'
       fullPath: '/weldstash/stock/'
       preLoaderRoute: typeof WeldstashStockIndexRouteImport
+      parentRoute: typeof WeldstashRouteRoute
+    }
+    '/weldstash/replenishment/': {
+      id: '/weldstash/replenishment/'
+      path: '/replenishment'
+      fullPath: '/weldstash/replenishment/'
+      preLoaderRoute: typeof WeldstashReplenishmentIndexRouteImport
+      parentRoute: typeof WeldstashRouteRoute
+    }
+    '/weldstash/purchase-orders/': {
+      id: '/weldstash/purchase-orders/'
+      path: '/purchase-orders'
+      fullPath: '/weldstash/purchase-orders/'
+      preLoaderRoute: typeof WeldstashPurchaseOrdersIndexRouteImport
       parentRoute: typeof WeldstashRouteRoute
     }
     '/weldstash/products/': {
@@ -10092,6 +10157,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsCustomObjectsObjectIdRouteImport
       parentRoute: typeof SettingsRouteRoute
     }
+    '/settings/apps/weldstash': {
+      id: '/settings/apps/weldstash'
+      path: '/apps/weldstash'
+      fullPath: '/settings/apps/weldstash'
+      preLoaderRoute: typeof SettingsAppsWeldstashRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
     '/settings/apps/weldreach': {
       id: '/settings/apps/weldreach'
       path: '/apps/weldreach'
@@ -10245,6 +10317,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/preview/weldcrm/people'
       preLoaderRoute: typeof PreviewWeldcrmPeopleRouteRouteImport
       parentRoute: typeof PreviewWeldcrmRouteRoute
+    }
+    '/weldstash/purchase-orders/$orderId/': {
+      id: '/weldstash/purchase-orders/$orderId/'
+      path: '/purchase-orders/$orderId'
+      fullPath: '/weldstash/purchase-orders/$orderId/'
+      preLoaderRoute: typeof WeldstashPurchaseOrdersOrderIdIndexRouteImport
+      parentRoute: typeof WeldstashRouteRoute
     }
     '/weldsign/templates/$templateId/': {
       id: '/weldsign/templates/$templateId/'
@@ -12324,6 +12403,7 @@ interface SettingsRouteRouteChildren {
   SettingsAppsWeldmergeRoute: typeof SettingsAppsWeldmergeRoute
   SettingsAppsWeldpanelRoute: typeof SettingsAppsWeldpanelRoute
   SettingsAppsWeldreachRoute: typeof SettingsAppsWeldreachRoute
+  SettingsAppsWeldstashRoute: typeof SettingsAppsWeldstashRoute
   SettingsCustomObjectsObjectIdRoute: typeof SettingsCustomObjectsObjectIdRoute
   SettingsActivityIndexRoute: typeof SettingsActivityIndexRoute
   SettingsAdvancedIndexRoute: typeof SettingsAdvancedIndexRoute
@@ -12397,6 +12477,7 @@ const SettingsRouteRouteChildren: SettingsRouteRouteChildren = {
   SettingsAppsWeldmergeRoute: SettingsAppsWeldmergeRoute,
   SettingsAppsWeldpanelRoute: SettingsAppsWeldpanelRoute,
   SettingsAppsWeldreachRoute: SettingsAppsWeldreachRoute,
+  SettingsAppsWeldstashRoute: SettingsAppsWeldstashRoute,
   SettingsCustomObjectsObjectIdRoute: SettingsCustomObjectsObjectIdRoute,
   SettingsActivityIndexRoute: SettingsActivityIndexRoute,
   SettingsAdvancedIndexRoute: SettingsAdvancedIndexRoute,
@@ -13823,9 +13904,12 @@ interface WeldstashRouteRouteChildren {
   WeldstashPackingIndexRoute: typeof WeldstashPackingIndexRoute
   WeldstashPickListsIndexRoute: typeof WeldstashPickListsIndexRoute
   WeldstashProductsIndexRoute: typeof WeldstashProductsIndexRoute
+  WeldstashPurchaseOrdersIndexRoute: typeof WeldstashPurchaseOrdersIndexRoute
+  WeldstashReplenishmentIndexRoute: typeof WeldstashReplenishmentIndexRoute
   WeldstashStockIndexRoute: typeof WeldstashStockIndexRoute
   WeldstashSuppliersIndexRoute: typeof WeldstashSuppliersIndexRoute
   WeldstashWarehousesIndexRoute: typeof WeldstashWarehousesIndexRoute
+  WeldstashPurchaseOrdersOrderIdIndexRoute: typeof WeldstashPurchaseOrdersOrderIdIndexRoute
 }
 
 const WeldstashRouteRouteChildren: WeldstashRouteRouteChildren = {
@@ -13833,9 +13917,13 @@ const WeldstashRouteRouteChildren: WeldstashRouteRouteChildren = {
   WeldstashPackingIndexRoute: WeldstashPackingIndexRoute,
   WeldstashPickListsIndexRoute: WeldstashPickListsIndexRoute,
   WeldstashProductsIndexRoute: WeldstashProductsIndexRoute,
+  WeldstashPurchaseOrdersIndexRoute: WeldstashPurchaseOrdersIndexRoute,
+  WeldstashReplenishmentIndexRoute: WeldstashReplenishmentIndexRoute,
   WeldstashStockIndexRoute: WeldstashStockIndexRoute,
   WeldstashSuppliersIndexRoute: WeldstashSuppliersIndexRoute,
   WeldstashWarehousesIndexRoute: WeldstashWarehousesIndexRoute,
+  WeldstashPurchaseOrdersOrderIdIndexRoute:
+    WeldstashPurchaseOrdersOrderIdIndexRoute,
 }
 
 const WeldstashRouteRouteWithChildren = WeldstashRouteRoute._addFileChildren(

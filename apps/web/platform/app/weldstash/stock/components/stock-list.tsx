@@ -5,6 +5,7 @@ import { PanelEntityList } from '@/components/panel-entity-list';
 import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
 import type { WeldstashStockRow } from '@weldsuite/core-api-client/schemas/weldstash';
 import { getTranslations } from '@/lib/i18n';
+import { useWeldstashWarehouses } from '@/hooks/queries/use-weldstash-queries';
 import { buildStockColumns } from '../config/stock-columns';
 import { AdjustStockDialog } from './adjust-stock-dialog';
 
@@ -33,7 +34,13 @@ export function StockList({
 
   const [adjustOpen, setAdjustOpen] = useState(false);
 
-  const columns = useMemo(() => buildStockColumns(), []);
+  // Stock in a warehouse managed in Odoo is read-only here; its rows say so.
+  const warehouses = useWeldstashWarehouses({ limit: 100 });
+  const warehouseRows = warehouses.data?.data;
+  const columns = useMemo(
+    () => buildStockColumns(new Set((warehouseRows ?? []).filter((w) => w.managedByConnectionId).map((w) => w.id))),
+    [warehouseRows],
+  );
 
   return (
     <>

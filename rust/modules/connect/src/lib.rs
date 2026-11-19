@@ -152,6 +152,11 @@ pub struct ConnectState {
     /// answers as connect-api without its gateway. A request's `Ai`
     /// (conformance) wins.
     pub ai: Option<weldsuite_ai::Ai>,
+    /// The edition whose connectors the catalog lists (`editions` in
+    /// `catalog.ts`, ADR INT-012): `kubernetes` normally, `global` in
+    /// conformance builds, which compare against Global's TypeScript
+    /// catalog (it hides Odoo).
+    pub connector_edition: &'static str,
 }
 
 impl std::fmt::Debug for ConnectState {

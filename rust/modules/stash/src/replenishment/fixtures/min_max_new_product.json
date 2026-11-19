@@ -1,0 +1,57 @@
+{
+  "description": "Min/max rule (10 / 40) on a product created 5 days ago.",
+  "notes": [
+    "Too new for a forecast, but the min/max rule still plans: method min_max, confidence low.",
+    "Position 4 <= 10 -> raw 40 - 4 = 36 -> packs of 12 -> 36; value 72. No forecast -> no cover, no stockout date, empty daily forecast."
+  ],
+  "input": {
+    "today": "2026-11-18",
+    "history_start": "2025-11-18",
+    "daily_demand": [[0,365]],
+    "first_activity": "2026-11-13",
+    "lead_time_days": 14,
+    "review_period_days": 7,
+    "service_level": 0.95,
+    "rule": {
+      "method": "min_max",
+      "min": 10,
+      "max": 40
+    },
+    "supplier": {
+      "min_order_qty": null,
+      "order_multiple": 12,
+      "unit_cost": 2
+    },
+    "position": {
+      "on_hand": 4,
+      "allocated": 0,
+      "incoming": 0,
+      "open_demand": 0
+    },
+    "receipts": []
+  },
+  "tolerance": 0.000001,
+  "expected": {
+    "method": "min_max",
+    "confidence": "low",
+    "history_days": 5,
+    "nonzero_days": 0,
+    "avg_daily_demand": null,
+    "demand_std_dev": null,
+    "seasonality": null,
+    "forecast_30d": null,
+    "forecast_90d": null,
+    "safety_stock": null,
+    "reorder_point": 10,
+    "order_up_to": 40,
+    "inventory_position": 4,
+    "days_of_cover": null,
+    "stockout_date": null,
+    "suggested_qty": 36,
+    "suggested_value": 72,
+    "daily_forecast": {
+      "len": 0,
+      "at": {}
+    }
+  }
+}

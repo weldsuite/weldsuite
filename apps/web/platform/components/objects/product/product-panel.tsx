@@ -11,7 +11,10 @@ import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
+import { usePermissionsMaybe } from '@weldsuite/permissions/react';
 import { getLocale, getTranslations } from '@/lib/i18n';
+import { isFeatureAvailable } from '@/lib/edition';
+import { ProductSuppliersSection } from '@/app/weldstash/product-suppliers/components/product-suppliers-section';
 import { plural } from '@/lib/i18n/plural';
 import { useObjectPanel, useObjectPanelNavigationSource } from '@/components/object-panel';
 import {
@@ -36,6 +39,7 @@ import { ProductSalesChannelsEditor } from '@/app/weldcommerce/products/componen
 
 export function ProductPanel(props: Readonly<ObjectPanelComponentProps>) {
   const t = getTranslations('commerce').module;
+  const tw = getTranslations('weldstashPurchasing').productSuppliers;
   const { id } = props;
   const { open } = useObjectPanel();
   const { data, isLoading, error } = useCommerceProduct(id);
@@ -59,7 +63,12 @@ export function ProductPanel(props: Readonly<ObjectPanelComponentProps>) {
   const detach = useDetachCategoryProduct();
   const [pickerOpen, setPickerOpen] = useState(false);
 
+  // Product suppliers are served by the Rust backend only (Kubernetes editions). The product panel also
+  // opens from WeldCommerce, so the permission is asked of WeldStash explicitly.
+  const permissions = usePermissionsMaybe();
+  const showSuppliers = isFeatureAvailable('stash-replenishment') && (permissions?.can('weldstash:suppliers:read') ?? false);
   const tabs = getProductTabs({
+    suppliers: showSuppliers ? tw.titleForProduct : undefined,
     details: t.panel.tabDetails,
     stock: t.panel.tabStock,
     movements: t.panel.tabMovements,
@@ -177,6 +186,10 @@ export function ProductPanel(props: Readonly<ObjectPanelComponentProps>) {
           <p className="px-4 pb-2 text-xs text-muted-foreground">{t.linking.manualOnlyNote}</p>
         </div>
       );
+    }
+
+    if (tabId === 'suppliers' && showSuppliers) {
+      return <ProductSuppliersSection side="product" productId={id} />;
     }
 
     if (tabId === 'channels') {

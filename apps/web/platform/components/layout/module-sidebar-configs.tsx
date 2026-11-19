@@ -197,6 +197,11 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.navigation.moduleSidebar.weldstash.suppliers, href: '/weldstash/suppliers', icon: Truck, permission: 'suppliers:read' },
           { title: t.navigation.moduleSidebar.weldstash.warehouses, href: '/weldstash/warehouses', icon: Warehouse, permission: 'warehouses:read' },
           { title: t.navigation.moduleSidebar.weldstash.stock, href: '/weldstash/stock', icon: Boxes, permission: 'inventory:read' },
+          { title: t.navigation.moduleSidebar.weldstash.purchaseOrders, href: '/weldstash/purchase-orders', icon: ClipboardCheck, permission: 'orders:read' },
+          // Replenishment is served by the Rust backend only (Kubernetes editions).
+          ...(isFeatureAvailable('stash-replenishment')
+            ? [{ title: t.navigation.moduleSidebar.weldstash.replenishment, href: '/weldstash/replenishment', icon: TrendingUp, permission: 'inventory:read' }]
+            : []),
           { title: t.navigation.moduleSidebar.weldstash.pickLists, href: '/weldstash/pick-lists', icon: ClipboardList, permission: 'picklists:read' },
           { title: t.navigation.moduleSidebar.weldstash.packing, href: '/weldstash/packing', icon: PackageCheck, permission: 'picklists:read' },
         ],

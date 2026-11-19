@@ -1,0 +1,72 @@
+{
+  "description": "Expected receipts push the stockout out and cover the reorder point.",
+  "notes": [
+    "4 a day; 20 on hand; 20 due two days ago (counts today) and 40 due on day 3: incoming 60, position 80.",
+    "Reorder point 56 (D_L 56, sigma 0), order-up-to 84; position 80 > 56 -> nothing to order (value 0).",
+    "Stock 40 on days 0-2, 80 from day 3; the cumulative forecast passes 80 on day 20 (84) -> 2026-12-08, instead of day 5 (24 > 20) without the receipts. Cover counts on-hand only: 20 / 4 = 5 days."
+  ],
+  "input": {
+    "today": "2026-11-18",
+    "history_start": "2026-08-10",
+    "daily_demand": [[4,100]],
+    "first_activity": "2026-08-10",
+    "lead_time_days": 14,
+    "review_period_days": 7,
+    "service_level": 0.95,
+    "rule": {
+      "method": "auto"
+    },
+    "supplier": {
+      "min_order_qty": null,
+      "order_multiple": 1,
+      "unit_cost": 2
+    },
+    "position": {
+      "on_hand": 20,
+      "allocated": 0,
+      "incoming": 60,
+      "open_demand": 0
+    },
+    "receipts": [
+      {
+        "date": "2026-11-16",
+        "quantity": 20
+      },
+      {
+        "date": "2026-11-21",
+        "quantity": 40
+      }
+    ]
+  },
+  "tolerance": 0.000001,
+  "expected": {
+    "method": "level",
+    "confidence": "ok",
+    "history_days": 100,
+    "nonzero_days": 100,
+    "avg_daily_demand": 4,
+    "demand_std_dev": 0,
+    "seasonality": null,
+    "forecast_30d": 120,
+    "forecast_90d": 360,
+    "safety_stock": 0,
+    "reorder_point": 56,
+    "order_up_to": 84,
+    "inventory_position": 80,
+    "days_of_cover": 5,
+    "stockout_date": "2026-12-08",
+    "suggested_qty": 0,
+    "suggested_value": 0,
+    "daily_forecast": {
+      "len": 91,
+      "at": {
+        "0": 4,
+        "13": 4,
+        "14": 4,
+        "30": 4,
+        "45": 4,
+        "90": 4
+      }
+    }
+  }
+}

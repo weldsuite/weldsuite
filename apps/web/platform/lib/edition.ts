@@ -169,6 +169,15 @@ export const EDITION_FEATURES = [
    * no Kubernetes deployment, so its link and invites would point at Global's.
    */
   'commerce-portal',
+  /**
+   * WeldStash purchasing and replenishment: purchase-order actions and
+   * receipts, product suppliers, the reorder planner, its settings and the
+   * sales-history import (`/api/product-suppliers`, `/api/replenishment`,
+   * `/api/purchase-orders/:id/<action>`). Built only in Rust, so it is in
+   * `GLOBAL_UNAVAILABLE_FEATURES`; on Global the purchase-order list keeps
+   * just its create, edit and delete.
+   */
+  'stash-replenishment',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];

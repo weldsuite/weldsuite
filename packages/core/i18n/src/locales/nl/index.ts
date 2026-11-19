@@ -81,6 +81,8 @@ import { flowClosing } from './flow-closing';
 import { flowPortfolio } from './flow-portfolio';
 import { projectPortal } from './project-portal';
 import { formsPortal } from './forms-portal';
+import { weldstashPurchasing } from './weldstash-purchasing';
+import { weldstashReplenishment } from './weldstash-replenishment';
 
 export const nl = {
   common,
@@ -164,4 +166,6 @@ export const nl = {
   flowPortfolio,
   projectPortal,
   formsPortal,
+  weldstashPurchasing,
+  weldstashReplenishment,
 };

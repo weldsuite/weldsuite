@@ -1,0 +1,64 @@
+{
+  "description": "Intermittent demand: 6 sales in 180 days.",
+  "notes": [
+    "Sales of 4, 6, 3, 5, 8 and 2 at ages 159, 129, 94, 59, 29 and 9 days: fewer than 8 selling days -> sparse, low confidence, no seasonality.",
+    "Level = sum(q x 0.5^(age/30)) / sum over k < 180 of 0.5^(k/30) = 7.7452 / 43.0987 = 0.17971 a day; Poisson sigma = sqrt(0.17971) = 0.42392.",
+    "D_L = 14 x 0.17971 = 2.516; safety stock ceil(1.645 x sqrt 2.516) = ceil(2.609) = 3 -> reorder point ceil(2.516) + 3 = 6; D_R = 1.258 -> order-up-to 6 + 2 = 8.",
+    "Position 2 <= 6 -> raw 6 -> 6; value 6 x 15 = 90. Cover 2 / 0.17971 = 11.13 days; the cumulative forecast passes 2 on day 11 (12 x 0.17971 = 2.157) -> 2026-11-29."
+  ],
+  "input": {
+    "today": "2026-11-18",
+    "history_start": "2026-05-22",
+    "daily_demand": [[0,20],4,[0,29],6,[0,34],3,[0,34],5,[0,29],8,[0,19],2,[0,9]],
+    "first_activity": "2026-05-22",
+    "lead_time_days": 14,
+    "review_period_days": 7,
+    "service_level": 0.95,
+    "rule": {
+      "method": "auto"
+    },
+    "supplier": {
+      "min_order_qty": null,
+      "order_multiple": 1,
+      "unit_cost": 15
+    },
+    "position": {
+      "on_hand": 2,
+      "allocated": 0,
+      "incoming": 0,
+      "open_demand": 0
+    },
+    "receipts": []
+  },
+  "tolerance": 0.000001,
+  "expected": {
+    "method": "sparse",
+    "confidence": "low",
+    "history_days": 180,
+    "nonzero_days": 6,
+    "avg_daily_demand": 0.179709483,
+    "demand_std_dev": 0.423921553,
+    "seasonality": null,
+    "forecast_30d": 5.391284505,
+    "forecast_90d": 16.173853515,
+    "safety_stock": 3,
+    "reorder_point": 6,
+    "order_up_to": 8,
+    "inventory_position": 2,
+    "days_of_cover": 11.129073219,
+    "stockout_date": "2026-11-29",
+    "suggested_qty": 6,
+    "suggested_value": 90,
+    "daily_forecast": {
+      "len": 91,
+      "at": {
+        "0": 0.179709483,
+        "13": 0.179709483,
+        "14": 0.179709483,
+        "30": 0.179709483,
+        "45": 0.179709483,
+        "90": 0.179709483
+      }
+    }
+  }
+}

@@ -905,6 +905,11 @@ export function mapConnectorRecord(
       return mapStockCount(record, externalId);
     case 'inventory_movement':
       return mapInventoryMovement(record, externalId);
+    // Only Odoo syncs these, and Odoo runs on the Rust backend only
+    // (rust/crates/connect-domain); Global never receives such a record.
+    case 'product_supplier':
+    case 'sales_history':
+      return null;
   }
 }
 

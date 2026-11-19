@@ -165,7 +165,7 @@ fn join_names(parts: &[Option<String>]) -> String {
 }
 
 /// `slugify(value)`.
-fn slugify(value: &str) -> String {
+pub(crate) fn slugify(value: &str) -> String {
     let lowered: String = value.to_lowercase().nfkd().collect();
     let kept: String = lowered
         .chars()
@@ -1913,6 +1913,8 @@ pub fn map_connector_record(entity: &str, record: &Value, provider: &str) -> Opt
         "bill" => map_document(record, &external_id, "bill"),
         "bank_account" => Some(map_bank_account(record, &external_id)),
         "bank_transaction" => map_bank_transaction(record, &external_id),
+        // Only Odoo syncs these, through its own ingest (`crate::odoo`).
+        "product_supplier" | "sales_history" => None,
         other => map_wms(other, record, &external_id),
     }
 }

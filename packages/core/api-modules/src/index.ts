@@ -107,7 +107,10 @@ export const RUST_PORTED_MODULES: ReadonlySet<ApiModuleId> = new Set<ApiModuleId
  * an `EditionFeature` (`apps/web/platform/lib/edition.ts`): add it there first.
  * Deleted together with Global.
  */
-export const GLOBAL_UNAVAILABLE_FEATURES: readonly string[] = [];
+export const GLOBAL_UNAVAILABLE_FEATURES: readonly string[] = [
+  // WeldStash purchasing and replenishment (ADR STASH-008).
+  'stash-replenishment',
+];
 
 const mod = (
   id: ApiModuleId,
@@ -378,8 +381,12 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/inventory-movements',
     '/api/pick-lists',
     '/api/pickers',
+    // Served by the Rust backend only (weldsuite-documentation/plans/weldstash-replenishment.md).
+    '/api/product-suppliers',
     '/api/purchase-orders',
     '/api/putaway',
+    // Served by the Rust backend only (weldsuite-documentation/plans/weldstash-replenishment.md).
+    '/api/replenishment',
     '/api/stock-adjustments',
     '/api/warehouse-locations',
     '/api/warehouse-zones',

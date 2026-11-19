@@ -229,7 +229,29 @@ fn stash(router: Router<AppState>, state: &AppState) -> Router<AppState> {
             .flatten()
             .map(|client| weldsuite_ports::OutboundHttp(Arc::new(client))),
     };
-    router.merge(weldsuite_stash::router(stash, &state.permissions))
+    // Replenishment: the planning run where the jobs adapter calls it, and
+    // what its routes need beyond the stash state (the due index of the
+    // nightly runs, the jobs port).
+    state
+        .infra
+        .job_registry
+        .register(weldsuite_stash::replenishment::ReplenishmentRunJob {
+            tenants: tenant_databases(state),
+            events: state.infra.events.clone(),
+            notifier: weldsuite_notifications::Notifier {
+                realtime: state.infra.realtime.clone(),
+                ..weldsuite_notifications::Notifier::default()
+            },
+        });
+    let replenishment = weldsuite_stash::replenishment::Services {
+        master: Some(state.workspaces.master().clone()),
+        jobs: Some(Arc::clone(&state.infra.jobs)),
+    };
+    // On the stash routes only (not a fallback the merge could pick up).
+    router.merge(
+        weldsuite_stash::router(stash, &state.permissions)
+            .route_layer(axum::Extension(replenishment)),
+    )
 }
 
 /// WeldCRM (`weldsuite-crm`): crm-api's routes at their own prefixes
@@ -547,6 +569,7 @@ pub(crate) fn cron_connect_state(
         storage: infra.public_files.clone(),
         // The cron jobs serve no AI route.
         ai: None,
+        connector_edition: "kubernetes",
     }
 }
 
@@ -597,6 +620,8 @@ pub(crate) fn connect_state(state: &AppState) -> weldsuite_connect::ConnectState
         },
         // "Generate with AI"; a conformance request carries the test's own.
         ai: state.ai.clone(),
+        // Conformance compares the catalog with Global's, which hides Odoo.
+        connector_edition: if conformance { "global" } else { "kubernetes" },
     }
 }
 

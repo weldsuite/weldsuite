@@ -217,6 +217,8 @@ export interface WeldstashWarehouse {
   isDefault?: boolean | null;
   isActive?: boolean | null;
   timezone?: string | null;
+  /** Set on a warehouse synced from an ERP connector (Odoo): its stock is managed there and read-only here. */
+  managedByConnectionId?: string | null;
   createdAt: string;
   updatedAt: string;
 }

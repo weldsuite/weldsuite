@@ -229,6 +229,8 @@ export * from './stock-adjustments';
 export * from './suppliers';
 export * from './purchase-orders';
 export * from './purchase-order-items';
+export * from './stash-purchasing';
+export * from './stash-replenishment';
 export * from './pick-lists';
 export * from './pick-list-items';
 export * from './cycle-counts';
