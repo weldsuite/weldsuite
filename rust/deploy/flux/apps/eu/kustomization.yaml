@@ -2,6 +2,7 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - weldsuite.yaml
+  - sign-in-ingress.yaml
 generatorOptions:
   disableNameSuffixHash: true
   # helm-controller upgrades a release as soon as its values ConfigMap

@@ -66,6 +66,9 @@ ingress:
   className: traefik
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt
+    # The sign-in host's own rate limit, on top of every request's
+    # (controllers/values/traefik.yaml).
+    traefik.ingress.kubernetes.io/router.middlewares: traefik-auth-ratelimit@kubernetescrd
   hosts:
     - host: auth.${DOMAIN}
       paths:
@@ -84,6 +87,8 @@ login:
   ingress:
     enabled: true
     className: traefik
+    annotations:
+      traefik.ingress.kubernetes.io/router.middlewares: traefik-auth-ratelimit@kubernetescrd
     hosts:
       - host: auth.${DOMAIN}
         paths:

@@ -1,6 +1,9 @@
 # The ingress controller. The Hetzner ingress load balancer (hetzner/
 # loadbalancer.tf) forwards 80/443 to these NodePorts over the private network
 # with the PROXY protocol, so requests keep the client's address.
+#
+# The chart renders extraObjects through tpl: nothing in them may contain
+# double braces.
 deployment:
   replicas: 2
 service:
@@ -35,6 +38,94 @@ ports:
       trustedIPs: ["10.10.0.0/16"]
     forwardedHeaders:
       trustedIPs: ["10.10.0.0/16"]
+    # Every request on 443 goes through these first, whatever host or router
+    # it is for (extraObjects below).
+    http:
+      middlewares:
+        - traefik-client-ratelimit@kubernetescrd
+        - traefik-client-inflight@kubernetescrd
+# Under a flood Traefik is the first to work hard, and on production it shares
+# the control-plane nodes with the Kubernetes API. The requests are what it is
+# sure to get on a busy node; the memory limit keeps it from taking the node's
+# memory with it. No CPU limit: a throttled Traefik is slow for everyone.
+resources:
+  requests:
+    cpu: 200m
+    memory: 128Mi
+  limits:
+    memory: 1Gi
+# Rate limits per client address (hetzner/README.md, "Rate limits"). The
+# address is the connection's, which the PROXY protocol above makes the
+# client's own, never X-Forwarded-For, which a client writes itself. An IPv6
+# client counts by its /64, which it could otherwise walk through. Each
+# Traefik pod counts on its own, so with two pods a client can get up to twice
+# these. A request over a limit gets a 429 (TraefikRateLimiting alerts on a
+# lasting stream of them).
+extraObjects:
+  # Every request (ports.websecure): 100 a second, bursts of 400. Generous on
+  # purpose: a whole office behind one NAT address shares it, and opening the
+  # platform cold is a burst of a hundred-odd requests. It stops a flood from
+  # a few addresses; one from thousands needs a scrubbing proxy in front.
+  - apiVersion: traefik.io/v1alpha1
+    kind: Middleware
+    metadata:
+      name: client-ratelimit
+      namespace: traefik
+    spec:
+      rateLimit:
+        average: 100
+        period: 1s
+        burst: 400
+        sourceCriterion:
+          ipStrategy:
+            ipv6Subnet: 64
+  # At most 400 requests open at once per address. WebSockets and event
+  # streams count for as long as they stay open.
+  - apiVersion: traefik.io/v1alpha1
+    kind: Middleware
+    metadata:
+      name: client-inflight
+      namespace: traefik
+    spec:
+      inFlightReq:
+        amount: 400
+        sourceCriterion:
+          ipStrategy:
+            ipv6Subnet: 64
+  # The sign-in host, auth.<domain> (Zitadel's Ingresses in
+  # services/values/zitadel.yaml, WeldID's in the weldid-switch layer): 20 a
+  # second, bursts of 200, enough for its own pages and their assets. Every
+  # password checked costs the identity provider a slow hash.
+  - apiVersion: traefik.io/v1alpha1
+    kind: Middleware
+    metadata:
+      name: auth-ratelimit
+      namespace: traefik
+    spec:
+      rateLimit:
+        average: 20
+        period: 1s
+        burst: 200
+        sourceCriterion:
+          ipStrategy:
+            ipv6Subnet: 64
+  # The platform's own sign-in API, /api/sign-in on app., api. and mcp.
+  # (apps/eu/sign-in-ingress.yaml): 30 a minute, bursts of 30. Each password
+  # goes on to the identity provider, and the reset, sign-up and code routes
+  # send mail from addresses still warming up.
+  - apiVersion: traefik.io/v1alpha1
+    kind: Middleware
+    metadata:
+      name: signin-ratelimit
+      namespace: traefik
+    spec:
+      rateLimit:
+        average: 30
+        period: 1m
+        burst: 30
+        sourceCriterion:
+          ipStrategy:
+            ipv6Subnet: 64
 ingressClass:
   enabled: true
   isDefaultClass: true
