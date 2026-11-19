@@ -1216,6 +1216,40 @@ and what to check first: `flux/infrastructure/monitoring-config/ALERTS.md`.
 Then, before relying on it, fire each critical alert once on purpose and
 see it arrive (ALERTS.md, "Testing the alerts").
 
+## Rate limits
+
+Nothing sits in front of the load balancer: no CDN and no scrubbing proxy.
+Hetzner filters volumetric network attacks (L3/L4) on its own network for
+every server and load balancer; nothing in the cluster sets that up or can
+see it. HTTP floods are the cluster's to handle, and Traefik does it with
+rate limits per client address, as Middlewares in
+`flux/infrastructure/controllers/values/traefik.yaml`:
+
+| Middleware | Applies to | Per address |
+|---|---|---|
+| `client-ratelimit` | every request on 443 (the entry point) | 100 a second, bursts of 400 |
+| `client-inflight` | every request on 443 | 400 open at once (WebSockets included) |
+| `auth-ratelimit` | `auth.<domain>`: Zitadel's two Ingresses, or WeldID's | 20 a second, bursts of 200 |
+| `signin-ratelimit` | `/api/sign-in` on `app.` and `api.` (`flux/apps/eu/sign-in-ingress.yaml`) | 30 a minute, bursts of 30 |
+
+A request over a limit gets a 429; a lasting stream of them fires
+`TraefikRateLimiting`. They depend on Traefik seeing the client's own
+address, which the load balancer's PROXY protocol and the Service's
+`externalTrafficPolicy: Local` give it: behind any other proxy, every client
+would share one address's limits. IPv6 clients count by their /64. Each
+Traefik pod counts on its own, so with two pods a client gets up to twice
+these. The platform's API keeps its own per-workspace limit on `/v1`, and
+WeldID its own on sign-in.
+
+The limits are generous on purpose, since a whole office behind one NAT
+address shares them, and so are callers that reach the cluster from a few
+addresses: MCP clients run by a hosted assistant, and providers' webhooks.
+If customers get 429s, raise that Middleware's numbers. What they don't stop
+is a flood from thousands of addresses: that takes a scrubbing proxy in
+front of the load balancer (an EU provider, to keep the edition's data in
+the EU), with Traefik's `trustedIPs` and the chart's `trustedProxies` moved
+to that proxy's addresses.
+
 ## Backups and restores
 
 Every Postgres cluster archives WAL continuously and takes a nightly base

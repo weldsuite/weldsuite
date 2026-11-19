@@ -57,6 +57,24 @@ spec:
           annotations:
             summary: "{{ $labels.service }} answers {{ $value | humanizePercentage }} of its requests with a 5xx"
             runbook_url: https://github.com/weldsuite/weldsuite/blob/main/rust/deploy/flux/infrastructure/monitoring-config/ALERTS.md#apierrorrate
+        # Requests Traefik's own rate limits refused (controllers/values/
+        # traefik.yaml): the 429s at the entry point less those a backend
+        # answered itself (WeldID, the API's per-workspace limit).
+        - alert: TraefikRateLimiting
+          expr: |
+            (
+              sum(rate(traefik_entrypoint_requests_total{entrypoint="websecure", code="429"}[5m]))
+                - (sum(rate(traefik_service_requests_total{code="429"}[5m])) or vector(0))
+            ) > 1
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Traefik refuses {{ $value | humanize }} requests a second with a 429"
+            description: >-
+              A flood from a few addresses, a client stuck in a loop, or a
+              limit too tight for the customers behind one address.
+            runbook_url: https://github.com/weldsuite/weldsuite/blob/main/rust/deploy/flux/infrastructure/monitoring-config/ALERTS.md#traefikratelimiting
         # The server's own counts per route (helm/weldsuite, metrics): which
         # route is failing, once ApiErrorRate says something is.
         - alert: ApiRouteErrors
