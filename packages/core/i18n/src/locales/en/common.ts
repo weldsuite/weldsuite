@@ -397,6 +397,7 @@ export const common = {
           'API access & webhooks',
           'Custom email domains',
           'Roles & permissions',
+          'SSO / SAML',
           'Standard support',
         ],
         scale: [
@@ -409,7 +410,6 @@ export const common = {
         ],
         enterprise: [
           'Custom seat limit',
-          'SSO / SAML',
           '99.999% uptime SLA',
           'Data residency',
           'Dedicated support',

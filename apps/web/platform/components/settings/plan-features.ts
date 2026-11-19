@@ -15,6 +15,7 @@ export const PLAN_FEATURES: Record<string, string[]> = {
     'API access & webhooks',
     'Custom email domains',
     'Roles & permissions',
+    'SSO / SAML',
     'Standard support',
   ],
   scale: [
@@ -25,7 +26,6 @@ export const PLAN_FEATURES: Record<string, string[]> = {
     'Call & meeting intelligence',
   ],
   enterprise: [
-    'SSO / SAML',
     '99.999% uptime SLA',
     'Data residency',
     'Dedicated support',
