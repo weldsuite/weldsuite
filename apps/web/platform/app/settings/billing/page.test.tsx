@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => ({
   toastSuccess: vi.fn(),
   toastError: vi.fn(),
   toastInfo: vi.fn(),
+  subscription: vi.fn(),
+  updateSeats: vi.fn(),
 }));
 
 // Stable references: the page memoizes on them and the details dialog resets on change.
@@ -61,7 +63,7 @@ vi.mock('sonner', () => ({
   toast: { success: mocks.toastSuccess, error: mocks.toastError, info: mocks.toastInfo },
 }));
 vi.mock('@/hooks/queries/use-billing-queries', () => ({
-  useSubscription: () => ({ data: fixtures.subscription, isLoading: false }),
+  useSubscription: () => ({ data: mocks.subscription() ?? fixtures.subscription, isLoading: false }),
   useInvoices: () => ({ data: fixtures.invoices, isLoading: false }),
   usePlanLimits: () => ({ data: fixtures.limits, isLoading: false }),
   usePhoneSubscription: () => ({ data: undefined }),
@@ -70,6 +72,8 @@ vi.mock('@/hooks/queries/use-billing-queries', () => ({
   useCreditsBalance: () => ({ data: fixtures.balance, isLoading: false }),
   useCreditPackages: () => ({ data: fixtures.packages }),
   useBuyCredits: () => ({ mutateAsync: mocks.mutateAsync, isPending: false }),
+  useSeatPrice: () => ({ data: { amount: 1200, currency: 'EUR', interval: 'month' } }),
+  useUpdateSeats: () => ({ mutateAsync: mocks.updateSeats, isPending: false }),
 }));
 vi.mock('@/hooks/queries/use-settings-queries', () => ({
   useWorkspaceSettings: () => ({ data: fixtures.settings }),
@@ -219,5 +223,75 @@ describe('BillingSettingsPage (Mollie edition)', () => {
     await waitFor(() => expect(mocks.mutateAsync).toHaveBeenCalledTimes(2));
     expect(mocks.mutateAsync).toHaveBeenLastCalledWith('pkg_small');
     await waitFor(() => expect(location.href).toBe('https://pay.mollie.test/after-details'));
+  });
+});
+
+describe('BillingSettingsPage seats', () => {
+  /** A running Starter plan billed through Mollie: 2 seats at €12. Stable: the page memoizes on it. */
+  const PAID = {
+    id: 'ws_1',
+    status: 'active',
+    planId: 'plan_starter',
+    planSlug: 'starter',
+    planName: 'Starter',
+    cycle: 'monthly',
+    purchasedSeats: 2,
+    usedSeats: 2,
+    pricePerCycle: 2400,
+    currency: 'EUR',
+    cancelAtPeriodEnd: false,
+    currentPeriodEnd: '2026-12-19T10:34:09Z',
+  };
+
+  beforeEach(() => {
+    for (const mock of Object.values(mocks)) mock.mockReset();
+    mocks.get.mockResolvedValue({ data: [] });
+    mocks.subscription.mockReturnValue(PAID);
+    vi.stubGlobal('location', { href: 'http://localhost/settings/billing', search: '', pathname: '/settings/billing' });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('offers to manage seats on a paid plan, and adds one', async () => {
+    mocks.updateSeats.mockResolvedValue({ success: true, purchasedSeats: 3 });
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole('button', { name: 'sweep.settings.billing.manageSeatsButton' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('€12', { exact: false })).toBeInTheDocument();
+    const [, plus] = within(dialog).getAllByRole('button').filter((b) => b.textContent === '');
+    await user.click(plus);
+    await user.click(within(dialog).getByRole('button', { name: 'sweep.settings.billing.updateSeats' }));
+
+    await waitFor(() => expect(mocks.updateSeats).toHaveBeenCalledWith({ seats: 3 }));
+    expect(mocks.toastSuccess).toHaveBeenCalledWith('sweep.settings.billing.toasts.seatsUpdated');
+  });
+
+  it('says when fewer seats take effect at the period end', async () => {
+    mocks.updateSeats.mockResolvedValue({ success: true, purchasedSeats: 2, effectiveAt: '2026-12-19T10:34:09Z' });
+    mocks.subscription.mockReturnValue({ ...PAID, purchasedSeats: 3 });
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole('button', { name: 'sweep.settings.billing.manageSeatsButton' }));
+    const dialog = await screen.findByRole('dialog');
+    const [minus] = within(dialog).getAllByRole('button').filter((b) => b.textContent === '');
+    await user.click(minus);
+    await user.click(within(dialog).getByRole('button', { name: 'sweep.settings.billing.updateSeats' }));
+
+    await waitFor(() =>
+      expect(mocks.toastSuccess).toHaveBeenCalledWith(ts.mollie.seatsScheduled.replace('{date}', '19th Dec 2026')),
+    );
+  });
+
+  it('offers an upgrade instead without a paid plan', async () => {
+    mocks.subscription.mockReturnValue(undefined);
+    renderPage();
+
+    expect(await screen.findByText(ts.title)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'sweep.settings.billing.manageSeatsButton' })).not.toBeInTheDocument();
   });
 });

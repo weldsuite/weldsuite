@@ -33,6 +33,10 @@ export interface BillingOutstanding {
 /** Fields only a Mollie-billed subscription carries (`billingProvider` in `/config.json`). */
 export interface BillingMollieFields {
   provider?: 'mollie';
+  /** Cents per cycle, before VAT, while a paid period runs. */
+  pricePerCycle?: number;
+  /** ISO 4217 code of `pricePerCycle`. */
+  currency?: string;
   scheduledChange?: BillingScheduledChange | null;
   outstanding?: BillingOutstanding | null;
 }
@@ -128,6 +132,25 @@ export interface BillingInvoiceResponse {
   subtotalAmount: number;
   customerCountry: string | null;
   customerTaxExempt: string | null;
+}
+
+/** How a charge's VAT is worked out (ADR BILL-014, decision 6). */
+export type BillingVatTreatment = 'domestic' | 'reverse_charge' | 'oss' | 'outside_eu';
+
+/**
+ * `GET /billing/vat` (Mollie only): the billing details the next checkout
+ * uses and the VAT they lead to, VIES asked about the VAT number.
+ */
+export interface BillingVatPreview {
+  /** Fields a checkout still refuses without (`BILLING_DETAILS_REQUIRED`); empty when complete. */
+  missing: string[];
+  /** ISO 3166-1 alpha-2 of the billing address. */
+  country: string | null;
+  vatNumber: string | null;
+  /** `invalid`: VIES rejected it, it is of another country, or VIES could not be asked. */
+  vatNumberStatus: 'none' | 'valid' | 'invalid';
+  /** Null until the billing details are complete. */
+  vat: { treatment: BillingVatTreatment; rateBps: number; country: string } | null;
 }
 
 /** `GET /billing/checkout/:id`: how a Mollie billing checkout (`bpy_…`) ended. */

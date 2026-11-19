@@ -1324,7 +1324,16 @@ install leaves it off: its seats and modules come from its licence.
   NL): the domestic rate; 0% reverse charge for an EU business whose VAT
   number VIES accepts (while VIES can't be reached, VAT is charged);
   the customer country's rate through OSS for other EU customers; none
-  outside the EU. Rates: `modules/core-billing/src/vat.rs`.
+  outside the EU. Rates: `modules/core-billing/src/vat.rs`. `GET
+  /api/billing/vat` (Rust only, `billing:read`) answers the same decision
+  before a checkout: the billing country, the VAT number and what VIES said
+  of it, the treatment and the rate, or the details still missing. The
+  platform's checkout summary shows it with the VAT and the total including
+  VAT, and links the VAT number to the billing details.
+- **The subscription** (`GET /api/billing/subscription`) adds
+  `pricePerCycle` (cents before VAT: the seat price the period was bought at
+  times the seats) and `currency` while a paid period runs; Global's has
+  neither, and the platform falls back to the plan there.
 - **Invoices** are WeldBooks invoices in WeldSuite's own workspace
   (`BILLING_ISSUER_WORKSPACE_ID`, entity `BILLING_ISSUER_ENTITY_ID` or its
   first), issued as the system user once a payment is paid (never before,

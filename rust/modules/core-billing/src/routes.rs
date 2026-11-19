@@ -10,9 +10,12 @@
 //!   period end.
 //! - `POST /payment-methods/setup-intent` answers `{ url }` (a Mollie hosted
 //!   checkout) instead of a Stripe client secret.
+//! - `GET /subscription` adds `pricePerCycle` (cents, before VAT) and
+//!   `currency` while a paid period runs.
 //! - New: `GET /checkout/:id` (how a checkout ended), `POST
 //!   /outstanding/checkout` (pay a past-due charge), `GET
-//!   /invoices/:id/document` (the printable WeldBooks invoice), and the pay
+//!   /invoices/:id/document` (the printable WeldBooks invoice), `GET /vat`
+//!   (the VAT number and the VAT the next checkout charges), and the pay
 //!   links at `/public/billing/pay/:token`.
 //!
 //! Permissions as on Global: `billing:manage` spends, `billing:read` views;
@@ -35,10 +38,12 @@ use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use crate::access::{answer, validate};
 use crate::account::Account;
+use crate::buyer;
 use crate::engine::{self, Actor, CheckoutAnswer, CheckoutInput, http_of};
 use crate::period::Cycle;
 use crate::plans::Plan;
 use crate::store::ChargeRow;
+use crate::vat::VatCheck;
 use crate::workspace::{self, Workspace};
 use crate::{BillingResult, BillingState, Caller};
 
@@ -61,6 +66,7 @@ where
             get(phone_subscription).route_layer(read()),
         )
         .route("/seat-price", get(seat_price).route_layer(read()))
+        .route("/vat", get(vat).route_layer(read()))
         .route("/invoices", get(invoices).route_layer(read()))
         .route(
             "/invoices/{id}/document",
@@ -146,6 +152,18 @@ async fn subscription_value(state: &BillingState, caller: &Caller) -> BillingRes
     body["scheduledChange"] = Value::Null;
     body["outstanding"] = Value::Null;
     if let Some(account) = Account::load(&master, &workspace.id).await? {
+        // What the running period costs, before VAT: the seat price it was
+        // bought at times the seats. Global's subscription has no such field,
+        // so the platform reads it only where it is there. A comp pays
+        // nothing and gets none.
+        let current = now();
+        if workspace.has_running_subscription(current)
+            && !workspace.comp_active(current)
+            && let Some(unit) = account.unit_amount
+        {
+            body["pricePerCycle"] = json!(i64::from(unit) * i64::from(workspace.purchased_seats));
+            body["currency"] = json!(account.currency);
+        }
         if let Some(change) = account.scheduled() {
             let plan_name = match &change.plan_id {
                 Some(id) => Plan::load(&master, id).await?.map(|p| p.name),
@@ -340,6 +358,28 @@ async fn seat_price(State(state): State<BillingState>, caller: Caller) -> Respon
                 _ => Value::Null,
             };
             Ok(no_store(data(value)))
+        }
+        .await,
+    )
+}
+
+/// `GET /vat`: the VAT the next checkout would charge, from the billing
+/// details and VIES (`buyer::VatPreview`). The checkout summary shows it with
+/// the VAT number before the customer goes to Mollie.
+async fn vat(State(state): State<BillingState>, caller: Caller) -> Response {
+    answer(
+        async {
+            let workspace = workspace_of(&state, &caller).await?;
+            let details = buyer::load(&caller.db, &workspace.name).await?;
+            let check = match &details {
+                Ok(details) => {
+                    let http = caller.http(&state);
+                    buyer::check_vat(http.as_ref(), details).await
+                }
+                Err(_) => VatCheck::None,
+            };
+            let preview = buyer::preview(details, &state.settings.seller_country, check);
+            Ok(no_store(data(json!(preview))))
         }
         .await,
     )
