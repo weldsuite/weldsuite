@@ -98,7 +98,8 @@ export function CreateOrdersDialog({
   const reasonText = (reason: SkippedPlanReason) => t.skippedReasons[reason];
   const planName = (planId: string) => {
     const plan = plans.find((p) => p.id === planId);
-    return plan ? (plan.productSku ? `${plan.productName} (${plan.productSku})` : (plan.productName ?? planId)) : planId;
+    if (!plan) return planId;
+    return plan.productSku ? `${plan.productName} (${plan.productSku})` : (plan.productName ?? planId);
   };
   const odooOrders = result?.purchaseOrders.filter((po) => odooWarehouses.has(po.warehouseId)) ?? [];
 

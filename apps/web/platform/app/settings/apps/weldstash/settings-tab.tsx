@@ -20,7 +20,7 @@ import { ListTable, type ListTableColumn } from '@weldsuite/ui/components/list-t
 import { InlineSpinner, PageLoader } from '@weldsuite/ui/components/page-loader';
 import { SectionCard } from '@weldsuite/ui/components/section-card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
-import { SoftBadge } from '@weldsuite/ui/components/soft-badge';
+import { SoftBadge, type SoftTone } from '@weldsuite/ui/components/soft-badge';
 import { Switch } from '@weldsuite/ui/components/switch';
 import { getLocale, getTranslations } from '@/lib/i18n';
 import {
@@ -33,6 +33,9 @@ import { useWeldstashWarehouses } from '@/hooks/queries/use-weldstash-queries';
 import { formatDate } from '@/app/weldstash/lib/numbers';
 import { formToSettingsInput, makeSettingsFormSchema, settingsToForm, type SettingsFormValues } from '@/app/weldstash/replenishment/lib/settings-form';
 import { ImportWizard } from './import-wizard';
+
+/** Badge tone per import status; a running import is `warning`. */
+const IMPORT_STATUS_TONES: Readonly<Record<string, SoftTone>> = { done: 'success', failed: 'danger' };
 
 const DEFAULT_WAREHOUSE = '__default__';
 
@@ -236,7 +239,7 @@ function ImportsSection({ settings }: Readonly<{ settings: ReplenishmentSettings
       header: t.columns.status,
       width: 'w-[110px]',
       cell: (row) => (
-        <SoftBadge tone={row.status === 'done' ? 'success' : row.status === 'failed' ? 'danger' : 'warning'}>
+        <SoftBadge tone={IMPORT_STATUS_TONES[row.status] ?? 'warning'}>
           {(t.statuses as Record<string, string>)[row.status] ?? row.status}
         </SoftBadge>
       ),

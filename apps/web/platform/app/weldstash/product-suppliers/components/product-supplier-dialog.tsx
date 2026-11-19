@@ -112,6 +112,8 @@ export function ProductSupplierDialog({ open, onOpenChange, row, productId, supp
   const supplierOptions = (suppliers.data?.data ?? []).filter((s) => !excludeIds.includes(s.id) || s.id === row?.supplierId);
   const productOptions = (products.data?.data ?? []).filter((p) => !excludeIds.includes(p.id));
 
+  const submitLabel = isEdit ? t.save : t.add;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-xl">
@@ -215,7 +217,7 @@ export function ProductSupplierDialog({ open, onOpenChange, row, productId, supp
                 {t.cancel}
               </Button>
               <Button type="submit" disabled={saving}>
-                {saving ? t.saving : isEdit ? t.save : t.add}
+                {saving ? t.saving : submitLabel}
               </Button>
             </DialogFooter>
           </form>

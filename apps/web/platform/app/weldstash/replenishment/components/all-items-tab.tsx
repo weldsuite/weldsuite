@@ -15,7 +15,7 @@ import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 import { ListTable, type ListTableColumn } from '@weldsuite/ui/components/list-table';
 import { InlineSpinner, PageLoader } from '@weldsuite/ui/components/page-loader';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
-import { SoftBadge } from '@weldsuite/ui/components/soft-badge';
+import { SoftBadge, type SoftTone } from '@weldsuite/ui/components/soft-badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { useDebounce } from '@/hooks/use-debounce';
 import { getLocale, getTranslations } from '@/lib/i18n';
@@ -24,6 +24,9 @@ import { formatDate, formatMoney, formatNumber, toNumberOrNull } from '../../lib
 import { OdooManagedBadge } from '../../components/odoo-managed-badge';
 import { isOverstock } from '../lib/reorder';
 import { EMPTY_PLAN_FILTERS, PlanFilters, planFilterQuery, type PlanFilterState } from './plan-filters';
+
+/** Badge tone per review status; `none` and `dismissed` are `neutral`. */
+const REVIEW_STATUS_TONES: Readonly<Record<string, SoftTone>> = { open: 'warning', ordered: 'success' };
 
 const MAX_ITEMS = 2000;
 const PAGE = 200;
@@ -132,7 +135,7 @@ export function AllItemsTab({ onOpenPlan, onOpenSettings }: Readonly<{ onOpenPla
       header: t.columns.status,
       width: 'w-[110px]',
       cell: (row) => (
-        <SoftBadge tone={row.reviewStatus === 'open' ? 'warning' : row.reviewStatus === 'ordered' ? 'success' : 'neutral'}>
+        <SoftBadge tone={REVIEW_STATUS_TONES[row.reviewStatus] ?? 'neutral'}>
           {(t.statuses as Record<string, string>)[row.reviewStatus] ?? row.reviewStatus}
         </SoftBadge>
       ),

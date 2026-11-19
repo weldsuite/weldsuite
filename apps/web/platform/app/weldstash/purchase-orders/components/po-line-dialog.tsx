@@ -140,6 +140,8 @@ export function PoLineDialog({ open, onOpenChange, orderId, currency, line }: Re
     />
   );
 
+  const submitLabel = isEdit ? t.lineForm.save : t.lineForm.add;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
@@ -232,7 +234,7 @@ export function PoLineDialog({ open, onOpenChange, orderId, currency, line }: Re
                 {t.common.cancel}
               </Button>
               <Button type="submit" disabled={saving}>
-                {saving ? t.common.saving : isEdit ? t.lineForm.save : t.lineForm.add}
+                {saving ? t.common.saving : submitLabel}
               </Button>
             </DialogFooter>
           </form>

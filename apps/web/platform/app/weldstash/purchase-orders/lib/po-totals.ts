@@ -48,12 +48,15 @@ export function previewLineAmounts(line: LineFigures): LineAmounts {
   };
 }
 
+/** A money column as the API returns it: text, a number, or null. */
+type MoneyValue = string | number | null;
+
 /** A saved line, as the API returns it (numeric columns as text). */
 export interface SavedLineFigures {
   quantityOrdered: number;
   quantityReceived?: number | null;
-  total: string | number | null;
-  taxAmount?: string | number | null;
+  total: MoneyValue;
+  taxAmount?: MoneyValue;
 }
 
 export interface PurchaseOrderTotals {
@@ -70,7 +73,7 @@ export interface PurchaseOrderTotals {
 /** Header totals from the lines and the header's shipping and discount. */
 export function computePurchaseOrderTotals(
   lines: readonly SavedLineFigures[],
-  header: { shippingTotal?: string | number | null; discountTotal?: string | number | null } = {},
+  header: { shippingTotal?: MoneyValue; discountTotal?: MoneyValue } = {},
 ): PurchaseOrderTotals {
   let taxCents = 0;
   let subtotalCents = 0;

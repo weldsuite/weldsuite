@@ -113,6 +113,8 @@ export function PoFormDialog({ open, onOpenChange, order, chooseStatus = false, 
     }
   };
 
+  const submitLabel = isEdit ? t.form.save : t.form.create;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-xl">
@@ -322,7 +324,7 @@ export function PoFormDialog({ open, onOpenChange, order, chooseStatus = false, 
                 {t.common.cancel}
               </Button>
               <Button type="submit" disabled={saving}>
-                {saving ? t.common.saving : isEdit ? t.form.save : t.form.create}
+                {saving ? t.common.saving : submitLabel}
               </Button>
             </DialogFooter>
           </form>

@@ -27,50 +27,67 @@ function stripBom(text: string): string {
   return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
 }
 
+/** The parser's state while it walks the text. */
+interface CsvState {
+  rows: string[][];
+  row: string[];
+  field: string;
+  quoted: boolean;
+}
+
+function endField(state: CsvState): void {
+  state.row.push(state.field);
+  state.field = '';
+}
+
+function endRow(state: CsvState): void {
+  endField(state);
+  if (state.row.some((value) => value.trim() !== '')) state.rows.push(state.row);
+  state.row = [];
+}
+
+/** One character inside quotes. Returns how many characters after it were used too. */
+function readQuoted(state: CsvState, input: string, i: number): number {
+  if (input[i] !== '"') {
+    state.field += input[i];
+    return 0;
+  }
+  if (input[i + 1] === '"') {
+    state.field += '"';
+    return 1;
+  }
+  state.quoted = false;
+  return 0;
+}
+
+/** One character outside quotes. Returns how many characters after it were used too. */
+function readUnquoted(state: CsvState, input: string, i: number, delimiter: Delimiter): number {
+  const char = input[i];
+  if (char === '"' && state.field === '') {
+    state.quoted = true;
+    return 0;
+  }
+  if (char === delimiter) {
+    endField(state);
+    return 0;
+  }
+  if (char === '\n' || char === '\r') {
+    endRow(state);
+    return char === '\r' && input[i + 1] === '\n' ? 1 : 0;
+  }
+  state.field += char;
+  return 0;
+}
+
 /** Parses CSV text into rows of fields. Handles quotes, doubled quotes, CRLF, and drops rows with no content. */
 export function parseCsv(text: string, delimiter: Delimiter = detectDelimiter(text)): string[][] {
   const input = stripBom(text);
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let field = '';
-  let quoted = false;
-
-  const endField = () => {
-    row.push(field);
-    field = '';
-  };
-  const endRow = () => {
-    endField();
-    if (row.some((value) => value.trim() !== '')) rows.push(row);
-    row = [];
-  };
-
+  const state: CsvState = { rows: [], row: [], field: '', quoted: false };
   for (let i = 0; i < input.length; i += 1) {
-    const char = input[i];
-    if (quoted) {
-      if (char === '"') {
-        if (input[i + 1] === '"') {
-          field += '"';
-          i += 1;
-        } else {
-          quoted = false;
-        }
-      } else {
-        field += char;
-      }
-    } else if (char === '"' && field === '') {
-      quoted = true;
-    } else if (char === delimiter) {
-      endField();
-    } else if (char === '\n' || char === '\r') {
-      if (char === '\r' && input[i + 1] === '\n') i += 1;
-      endRow();
-    } else {
-      field += char;
-    }
+    i += state.quoted ? readQuoted(state, input, i) : readUnquoted(state, input, i, delimiter);
   }
-  if (field !== '' || row.length > 0) endRow();
-  return rows;
+  if (state.field !== '' || state.row.length > 0) endRow(state);
+  return state.rows;
 }
 
 // ── Column mapping ──────────────────────────────────────────────────────────

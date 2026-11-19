@@ -40,7 +40,7 @@ function ReplenishmentContent() {
   const tab: TabId = TABS.includes(search.tab as TabId) ? (search.tab as TabId) : 'reorder';
   const planId = search.plan ?? null;
 
-  const setSearch = (patch: { tab?: TabId; plan?: string | undefined }) =>
+  const setSearch = (patch: { tab?: TabId; plan?: string }) =>
     void navigate({
       to: '.',
       replace: true,

@@ -61,33 +61,62 @@ export type RuleFormResult =
   | { ok: true; input: UpsertReorderRuleInput }
   | { ok: false; errors: Partial<Record<RuleFormField, RuleFormErrorCode>> };
 
-function parseOptional(value: string): number | null | 'invalid' {
+type ParsedInput = number | null | 'invalid';
+type RuleFormErrors = Partial<Record<RuleFormField, RuleFormErrorCode>>;
+
+function parseOptional(value: string): ParsedInput {
   const trimmed = value.trim();
   if (trimmed === '') return null;
   const n = Number(trimmed.replace(',', '.'));
   return Number.isFinite(n) ? n : 'invalid';
 }
 
+/** Not a whole number, or not a number at all; empty is fine. */
+const notWhole = (value: ParsedInput) => value === 'invalid' || (value !== null && !Number.isInteger(value));
+
+/** A min/max pair a min/max rule can use: both set, min not negative, max not below min. */
+const isRange = (lo: ParsedInput, hi: ParsedInput) => typeof lo === 'number' && typeof hi === 'number' && lo >= 0 && hi >= lo;
+
+/** What is wrong with the inputs themselves, before the API's ranges. */
+function inputErrors(
+  method: RuleFormValues['method'],
+  parsed: Record<'minQty' | 'maxQty' | 'percent' | 'review' | 'lead', ParsedInput>,
+): RuleFormErrors {
+  const errors: RuleFormErrors = {};
+  if (notWhole(parsed.minQty)) errors.minQty = 'invalid';
+  if (notWhole(parsed.maxQty)) errors.maxQty = 'invalid';
+  if (parsed.percent === 'invalid') errors.serviceLevelPct = 'invalid';
+  if (notWhole(parsed.review)) errors.reviewPeriodDays = 'invalid';
+  if (notWhole(parsed.lead)) errors.leadTimeDaysOverride = 'invalid';
+  if (method === 'min_max' && !errors.minQty && !errors.maxQty && !isRange(parsed.minQty, parsed.maxQty)) {
+    errors.maxQty = 'minmax';
+  }
+  return errors;
+}
+
+/** The fields an API range error maps back to, beyond the service level. */
+const RANGE_FIELDS: ReadonlySet<PropertyKey> = new Set<RuleFormField>(['reviewPeriodDays', 'leadTimeDaysOverride', 'minQty', 'maxQty']);
+
+/** A range the API refuses (a service level outside 50-99.9%, a review period over 90 days, ...) as form errors. */
+function rangeErrors(issues: readonly z.ZodIssue[]): RuleFormErrors {
+  const out: RuleFormErrors = {};
+  for (const issue of issues) {
+    const field = issue.path[0];
+    if (field === 'serviceLevel') out.serviceLevelPct = 'invalid';
+    else if (RANGE_FIELDS.has(field)) out[field as RuleFormField] = 'invalid';
+  }
+  return Object.keys(out).length > 0 ? out : { maxQty: 'invalid' };
+}
+
 /** The API request for the form, or what is wrong with it. */
 export function formToRuleInput(values: RuleFormValues, item: RuleItem): RuleFormResult {
-  const errors: Partial<Record<RuleFormField, RuleFormErrorCode>> = {};
   const minQty = parseOptional(values.minQty);
   const maxQty = parseOptional(values.maxQty);
   const percent = parseOptional(values.serviceLevelPct);
   const review = parseOptional(values.reviewPeriodDays);
   const lead = parseOptional(values.leadTimeDaysOverride);
 
-  if (minQty === 'invalid' || (minQty !== null && !Number.isInteger(minQty))) errors.minQty = 'invalid';
-  if (maxQty === 'invalid' || (maxQty !== null && !Number.isInteger(maxQty))) errors.maxQty = 'invalid';
-  if (percent === 'invalid') errors.serviceLevelPct = 'invalid';
-  if (review === 'invalid' || (review !== null && !Number.isInteger(review))) errors.reviewPeriodDays = 'invalid';
-  if (lead === 'invalid' || (lead !== null && !Number.isInteger(lead))) errors.leadTimeDaysOverride = 'invalid';
-
-  if (values.method === 'min_max' && !errors.minQty && !errors.maxQty) {
-    const lo = minQty as number | null;
-    const hi = maxQty as number | null;
-    if (lo === null || hi === null || lo < 0 || hi < lo) errors.maxQty = 'minmax';
-  }
+  const errors = inputErrors(values.method, { minQty, maxQty, percent, review, lead });
   if (Object.keys(errors).length > 0) return { ok: false, errors };
 
   const candidate = {
@@ -98,22 +127,14 @@ export function formToRuleInput(values: RuleFormValues, item: RuleItem): RuleFor
     // Min and max only mean something to a min/max rule.
     minQty: values.method === 'min_max' ? (minQty as number | null) : null,
     maxQty: values.method === 'min_max' ? (maxQty as number | null) : null,
-    serviceLevel: percent === null || percent === 'invalid' ? null : percent / 100,
+    serviceLevel: typeof percent === 'number' ? percent / 100 : null,
     reviewPeriodDays: review as number | null,
     leadTimeDaysOverride: lead as number | null,
     productSupplierId: values.productSupplierId || null,
   };
   const parsed = upsertReorderRuleSchema.safeParse(candidate);
   if (parsed.success) return { ok: true, input: parsed.data };
-
-  // A range the API refuses (a service level outside 50-99.9%, a review period over 90 days, ...).
-  const out: Partial<Record<RuleFormField, RuleFormErrorCode>> = {};
-  for (const issue of parsed.error.issues) {
-    const field = issue.path[0];
-    if (field === 'serviceLevel') out.serviceLevelPct = 'invalid';
-    else if (field === 'reviewPeriodDays' || field === 'leadTimeDaysOverride' || field === 'minQty' || field === 'maxQty') out[field] = 'invalid';
-  }
-  return { ok: false, errors: Object.keys(out).length > 0 ? out : { maxQty: 'invalid' } };
+  return { ok: false, errors: rangeErrors(parsed.error.issues) };
 }
 
 /** The zod schema the form validates with (react-hook-form's resolver), with the field messages in the user's language. */

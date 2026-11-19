@@ -4,15 +4,18 @@
  * sum goes through `toNumber` first.
  */
 
+/** A numeric column as the API sends it: text (`"12.5000"`), a number, or nothing. */
+export type NumericValue = string | number | null | undefined;
+
 /** A numeric column value as a number: null, undefined and unparsable text read as 0. */
-export function toNumber(value: string | number | null | undefined): number {
+export function toNumber(value: NumericValue): number {
   if (value === null || value === undefined || value === '') return 0;
   const n = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(n) ? n : 0;
 }
 
 /** Like `toNumber`, but null stays null (a missing value is not zero). */
-export function toNumberOrNull(value: string | number | null | undefined): number | null {
+export function toNumberOrNull(value: NumericValue): number | null {
   if (value === null || value === undefined || value === '') return null;
   const n = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(n) ? n : null;
@@ -20,7 +23,7 @@ export function toNumberOrNull(value: string | number | null | undefined): numbe
 
 /** An amount in a currency, e.g. `EUR 1,234.50` formatted for the locale. Falls back to a plain number for an unknown currency code. */
 export function formatMoney(
-  value: string | number | null | undefined,
+  value: NumericValue,
   currency: string | null | undefined,
   locale?: string,
 ): string {
@@ -37,7 +40,7 @@ export function formatMoney(
 }
 
 /** A quantity or count with at most `digits` decimals and no trailing zeros. */
-export function formatNumber(value: string | number | null | undefined, digits = 1, locale?: string): string {
+export function formatNumber(value: NumericValue, digits = 1, locale?: string): string {
   const n = toNumberOrNull(value);
   if (n === null) return '';
   return new Intl.NumberFormat(locale, { maximumFractionDigits: digits }).format(n);
