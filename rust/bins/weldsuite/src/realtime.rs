@@ -82,10 +82,17 @@ pub(crate) async fn start(
         &state.workspaces,
     )));
     let auth: Arc<dyn weldsuite_realtime::Authenticator> = state.verifier.clone();
+    // Membership mode: tokens name no workspace, so a socket names it in
+    // `?workspace=`, checked by the same selector as `X-Weld-Workspace`.
+    let workspaces = state
+        .workspace_header
+        .clone()
+        .map(|selector| Arc::new(selector) as Arc<dyn weldsuite_realtime::WorkspaceResolver>);
     let gateway = Gateway::start(
         config.realtime.clone(),
         auth,
         directory,
+        workspaces,
         url,
         &config.infra.valkey_realtime_prefix,
     )

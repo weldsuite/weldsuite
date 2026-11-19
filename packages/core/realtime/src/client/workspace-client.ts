@@ -24,12 +24,36 @@ export interface WorkspaceClientConfig {
   /** Returns a Clerk JWT for authentication */
   getToken: () => Promise<string>;
   /**
+   * The workspace the socket is for, sent as `?workspace=` next to the token:
+   * `workspaces.id` (or its slug or organization id). Only for a server in
+   * membership mode (OIDC `auth.workspaceSource: "header"`, WeldID), whose
+   * tokens name no workspace and whose API takes it from `X-Weld-Workspace`,
+   * a header a browser can't set on a WebSocket. Leave it unset on Clerk and
+   * claim-mode OIDC: the token names the workspace, and the server ignores
+   * the parameter for such a token. Fixed per client: for another workspace,
+   * create a new client (`RealtimeProvider` does when its `workspace` changes).
+   */
+  workspace?: string | null;
+  /**
    * Optional cursor store. When supplied, the client persists the latest
    * `eventId` received from the server and replays from that cursor on
    * (re)subscribe. The DO returns `resync_required` if the cursor is older
    * than the retention window.
    */
   cursorStore?: CursorStore;
+}
+
+/**
+ * A socket's URL: `url` with the session token (`?token=`) and, when given,
+ * the workspace (`?workspace=`, membership mode only; see
+ * `WorkspaceClientConfig.workspace`). Shared with `RoomClient`.
+ */
+export function socketUrl(url: string, token: string, workspace?: string | null): string {
+  const out = new URL(url);
+  out.searchParams.set('token', token);
+  const named = workspace?.trim();
+  if (named) out.searchParams.set('workspace', named);
+  return out.toString();
 }
 
 type EventHandler<T = unknown> = (event: WorkspaceEvent<T>) => void;
@@ -101,9 +125,7 @@ export class WorkspaceClient {
         return;
       }
 
-      const url = new URL(this.config.url);
-      url.searchParams.set('token', token);
-      const ws = new WebSocket(url.toString());
+      const ws = new WebSocket(socketUrl(this.config.url, token, this.config.workspace));
       this.pendingWs = ws;
 
       await new Promise<void>((resolve, reject) => {

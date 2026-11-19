@@ -14,6 +14,7 @@ import { BrowserSignInError, type BrowserSignIn } from './browser-sign-in';
 import {
   getAuthProvider,
   getAuthToken,
+  getSocketWorkspaceId,
   redirectToSignIn,
   setAuthImplementation,
   signInWithBrowser,
@@ -588,6 +589,35 @@ describe('the facade on OIDC in header mode (WeldID in membership mode)', () => 
     expect(result.current.auth.orgId).toBe('ws_new');
     // The URL names the active workspace by `orgSlug || orgId`.
     expect(result.current.auth.orgSlug).toBe('new-co');
+  });
+
+  it('names the active workspace for the realtime sockets, which carry no X-Weld-Workspace', async () => {
+    const loadWorkspaces = async () => directory;
+    const auth = createOidcAuth(HEADER_CONFIG, { origin: ORIGIN, storage: window.localStorage, loadWorkspaces });
+    setAuthImplementation(auth);
+    void auth.redirectToSignIn?.();
+    await answerRedirect(auth, 0);
+    const { result } = renderHook(() => useOrganizationList());
+    await waitFor(() => expect(result.current.userMemberships.data?.length).toBe(2));
+    expect(getSocketWorkspaceId()).toBeNull();
+
+    await act(async () => {
+      await result.current.setActive?.({ organization: 'ws_globex' });
+    });
+    expect(getSocketWorkspaceId()).toBe('ws_globex');
+  });
+});
+
+describe('the workspace a realtime socket names (getSocketWorkspaceId)', () => {
+  it('is none on Clerk and on claim-mode OIDC, whose tokens name the workspace', async () => {
+    setAuthImplementation(clerkAuth);
+    expect(getSocketWorkspaceId()).toBeNull();
+
+    issuer.memberships = { org_acme: 'acme.id.example.test' };
+    await signedIn();
+    const { result } = renderHook(() => useAuth());
+    await waitFor(() => expect(result.current.orgId).toBe('org_acme'));
+    expect(getSocketWorkspaceId()).toBeNull();
   });
 });
 

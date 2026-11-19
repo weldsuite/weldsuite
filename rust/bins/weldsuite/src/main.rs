@@ -109,6 +109,15 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     // Before any subcommand can reach Odoo (serve, cron, consume).
     routes::install_odoo_http();
+    // Every push names this install in its data (`server`, its platform
+    // origin), which the mobile apps check before acting on a tap. Not in
+    // conformance builds: they compare with Global's workers, which name none.
+    if !cfg!(feature = "conformance")
+        && let Some(origin) =
+            weldsuite_notifications::platform_origin(|name| std::env::var(name).ok())
+    {
+        weldsuite_notifications::set_push_server(&origin);
+    }
     match args.first().map(String::as_str) {
         Some("serve") => serve(),
         Some("consume") => consume::run(),

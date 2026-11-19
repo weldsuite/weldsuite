@@ -11,7 +11,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useAuth } from '@/lib/auth';
+import { getSocketWorkspaceId, useAuth } from '@/lib/auth';
 import { useQueryClient, type InfiniteData, type QueryClient } from '@tanstack/react-query';
 import { RoomClient } from '@weldsuite/realtime/client';
 import { useTopic } from '@weldsuite/realtime/react';
@@ -183,6 +183,7 @@ export function useDeskConversationRoom(conversationId: string | undefined): Des
     const client = new RoomClient({
       url: `${realtimeOrigin}/ws/conversation/${conversationId}`,
       getToken: async () => (await getTokenRef.current()) || '',
+      workspace: getSocketWorkspaceId(),
     });
     clientRef.current = client;
     const offTyping = client.onTyping(setTypingUsers);

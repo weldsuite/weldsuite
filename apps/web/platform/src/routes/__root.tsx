@@ -20,7 +20,7 @@ import { useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { RealtimeProvider, useRealtimeSync } from '@weldsuite/realtime/react';
 import { PlatformPermissionProvider } from '@/providers/permission-provider';
-import { useAuth } from '@/lib/auth';
+import { getSocketWorkspaceId, useAuth } from '@/lib/auth';
 import { platformSyncMap } from '@/lib/realtime/sync-map';
 import { createBrowserCursorStore } from '@/lib/realtime/cursor-store';
 import { useDesktopAuthHandler } from '@/hooks/use-desktop-auth';
@@ -70,7 +70,9 @@ function RealtimeSyncBridge() {
  * There the provider gets an empty URL and keeps no client (it stays mounted,
  * so the app below is not remounted when the workspace arrives). `connectionKey`
  * reconnects on a workspace switch. An empty URL is also what a deployment
- * without realtime resolves to.
+ * without realtime resolves to. In OIDC membership mode the token names no
+ * workspace, so the socket names it (`workspace`, the `X-Weld-Workspace` value);
+ * on Clerk and claim-mode OIDC that is null and nothing is added.
  */
 function RealtimeProviderWrapper({ children }: Readonly<{ children: React.ReactNode }>) {
   const { getToken, isSignedIn, orgId } = useAuth();
@@ -84,6 +86,7 @@ function RealtimeProviderWrapper({ children }: Readonly<{ children: React.ReactN
       getToken={stableGetToken}
       cursorStore={cursorStore}
       connectionKey={orgId || ''}
+      workspace={active ? getSocketWorkspaceId() : null}
     >
       {children}
     </RealtimeProvider>

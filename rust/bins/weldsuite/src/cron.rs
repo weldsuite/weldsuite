@@ -1410,6 +1410,9 @@ async fn desk_sla_sweep(config: Config) -> Result<(), Box<dyn std::error::Error>
         events: infra.events.clone(),
         realtime: infra.realtime.clone(),
         mail: infra.mail.clone(),
+        push_http: (!cfg!(feature = "conformance"))
+            .then(crate::routes::shared_outbound)
+            .flatten(),
         // Escalation notices on email tickets go out like the desk API's replies.
         outbound: if cfg!(feature = "conformance") {
             weldsuite_mail_domain::outbound::OutboundBindings::default()

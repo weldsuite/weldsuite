@@ -21,6 +21,7 @@ use weldsuite_auth::{AuthContext, TokenError};
 use weldsuite_ports::{BoxFuture, RealtimeMessage, RealtimePublisher, Room};
 use weldsuite_realtime::{
     Authenticator, ChatAccess, Directory, DirectoryError, Gateway, GatewayConfig, Member,
+    WorkspaceResolver,
 };
 
 type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
@@ -138,10 +139,42 @@ struct Pod {
     base: String,
 }
 
+/// Membership mode's check: `member_1` and `admin_1` are active members of
+/// `ws_a` (organization `org_a`, slug `acme`).
+struct Memberships;
+
+impl WorkspaceResolver for Memberships {
+    fn member_workspace<'a>(
+        &'a self,
+        user: &'a str,
+        reference: &'a str,
+    ) -> BoxFuture<'a, Result<Option<String>, DirectoryError>> {
+        let member = ["member_1", "admin_1"].contains(&user)
+            && ["ws_a", "acme", "org_a"].contains(&reference);
+        Box::pin(std::future::ready(Ok(member.then(|| "org_a".to_owned()))))
+    }
+}
+
 async fn pod(url: &str, prefix: &str, config: GatewayConfig) -> Pod {
-    let gateway = Gateway::start(config, Arc::new(Tokens), Arc::new(People), url, prefix)
-        .await
-        .expect("gateway starts");
+    pod_with(url, prefix, config, None).await
+}
+
+async fn pod_with(
+    url: &str,
+    prefix: &str,
+    config: GatewayConfig,
+    workspaces: Option<Arc<dyn WorkspaceResolver>>,
+) -> Pod {
+    let gateway = Gateway::start(
+        config,
+        Arc::new(Tokens),
+        Arc::new(People),
+        workspaces,
+        url,
+        prefix,
+    )
+    .await
+    .expect("gateway starts");
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("listen");
@@ -280,6 +313,60 @@ async fn handshake_auth_and_refusals() {
     );
     let plain = reqwest_get(&one, "/ws").await;
     assert_eq!(plain, 426, "a plain GET is not an upgrade");
+}
+
+/// Membership mode: tokens without an organization name the workspace in
+/// `?workspace=`; a token's organization still wins.
+#[tokio::test]
+async fn membership_mode_takes_the_workspace_from_the_query() {
+    let Some(url) = valkey_url() else { return };
+    let prefix = prefix();
+    let one = pod_with(&url, &prefix, config(), Some(Arc::new(Memberships))).await;
+
+    for path in ["/ws?workspace=ws_a", "/ws?workspace=acme"] {
+        let mut socket = connect(&one, path, "member_1").await;
+        assert_eq!(next(&mut socket).await["type"], "connected", "{path}");
+    }
+    let mut room = connect(&one, "/ws/chat/ch_private?workspace=ws_a", "member_1").await;
+    assert_eq!(next(&mut room).await["type"], "connected");
+    let mut agent = connect(&one, "/ws/conversation/conv_1?workspace=ws_a", "admin_1").await;
+    assert_eq!(next(&mut agent).await["type"], "connected");
+    let mut support = connect(&one, "/ws/support/ws_a", "member_1").await;
+    assert_eq!(next(&mut support).await["type"], "connected");
+
+    assert_eq!(
+        refused(&one, "/ws?token=member_2&workspace=ws_a").await,
+        403,
+        "not a member"
+    );
+    assert_eq!(
+        refused(&one, "/ws?token=member_1&workspace=ws_other").await,
+        403,
+        "no such workspace"
+    );
+    assert_eq!(
+        refused(&one, "/ws?token=member_1").await,
+        401,
+        "no workspace named"
+    );
+    assert_eq!(
+        refused(
+            &one,
+            "/ws/conversation/conv_1?token=member_2&workspace=ws_a"
+        )
+        .await,
+        403
+    );
+    // A token's organization is never overridden.
+    let mut claim = connect(&one, "/ws?workspace=ws_other", "member_1@org_a").await;
+    assert_eq!(next(&mut claim).await["type"], "connected");
+
+    // A claim-mode server ignores the parameter.
+    let plain = pod(&url, &prefix, config()).await;
+    assert_eq!(
+        refused(&plain, "/ws?token=member_1&workspace=ws_a").await,
+        401
+    );
 }
 
 /// A GET without the upgrade headers.

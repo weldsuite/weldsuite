@@ -11,7 +11,7 @@
  */
 
 import { useState, useEffect, useRef } from 'react';
-import { useAuth } from '@/lib/auth';
+import { getSocketWorkspaceId, useAuth } from '@/lib/auth';
 import { RoomClient } from '@weldsuite/realtime/client';
 import { getRealtimeWsOrigin } from '@/lib/api/public-env';
 
@@ -34,6 +34,7 @@ export function useWeldChatRoom(channelId: string | null): {
     const rc = new RoomClient({
       url: `${realtimeOrigin}/ws/chat/${channelId}`,
       getToken: async () => (await getTokenRef.current()) || '',
+      workspace: getSocketWorkspaceId(),
     });
     setClient(rc);
 

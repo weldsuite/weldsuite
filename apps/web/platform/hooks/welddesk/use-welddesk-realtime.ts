@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useRef } from 'react';
-import { useAuth } from '@/lib/auth';
+import { getSocketWorkspaceId, useAuth } from '@/lib/auth';
 import { RoomClient } from '@weldsuite/realtime/client';
 import type { RoomEvent } from '@weldsuite/realtime/types';
 import type { WeldDeskMessage, WeldDeskEvent, WeldDeskConnectionState } from './types';
@@ -51,6 +51,7 @@ export function useWeldDeskRealtime({
     const client = new RoomClient({
       url: `${realtimeOrigin}/ws/conversation/${conversationId}`,
       getToken: async () => (await getTokenRef.current()) || '',
+      workspace: getSocketWorkspaceId(),
     });
     clientRef.current = client;
 

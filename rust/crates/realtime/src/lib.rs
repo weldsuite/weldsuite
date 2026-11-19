@@ -7,6 +7,21 @@
 //! and topic rules, so `@weldsuite/realtime`'s `WorkspaceClient` and
 //! `RoomClient` connect unchanged.
 //!
+//! A socket authenticates with its session token alone, and the
+//! workspace-scoped ones (`/ws`, a signed-in `/ws/chat/:id`, `/ws/support/:id`,
+//! an agent's `/ws/conversation/:id`) work in the token's organization. In
+//! membership mode (`OIDC_WORKSPACE_SOURCE=header`, WeldID) tokens name no
+//! organization and the API reads the workspace from `X-Weld-Workspace`,
+//! which a browser can't set on a WebSocket: such a socket names it in
+//! `?workspace=` (`workspaces.id`, its organization id or slug; the support
+//! room defaults to its path's), and the session's user must be an active
+//! member of it, checked by the API's own [`WorkspaceResolver`]
+//! (`weldsuite_db::WorkspaceSelector`). A workspace they may not use is
+//! refused (403) the same whether it exists or not. The parameter is honoured
+//! only on a server in membership mode and only for a token without an
+//! organization: a token's organization is never overridden, and widget
+//! visitors and meeting guests are unaffected.
+//!
 //! | Path | Durable Object | Here |
 //! |---|---|---|
 //! | `/ws` | `WorkspaceHub` per organization | [`hub`]: fan-out per pod; replay log, presence and event ids in Valkey |
@@ -55,6 +70,8 @@ mod topics;
 mod widget;
 
 pub use config::GatewayConfig;
-pub use directory::{ChatAccess, DbDirectory, Directory, DirectoryError, Member};
+pub use directory::{
+    ChatAccess, DbDirectory, Directory, DirectoryError, Member, WorkspaceResolver,
+};
 pub use gateway::{Authenticator, Gateway};
 pub use routes::router;

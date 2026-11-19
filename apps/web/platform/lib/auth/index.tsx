@@ -190,6 +190,17 @@ export function getActiveWorkspaceId(): string | null {
 }
 
 /**
+ * The workspace a realtime socket names in `?workspace=` (`@weldsuite/realtime`'s
+ * `workspace` option): in membership mode (OIDC with `auth.workspaceSource:
+ * "header"`, WeldID) the active workspace, the value API requests carry as
+ * `X-Weld-Workspace`, a header a browser can't set on a WebSocket. Null on
+ * Clerk and claim-mode OIDC, whose tokens name the workspace themselves.
+ */
+export function getSocketWorkspaceId(): string | null {
+  return active.workspaceIds === 'workspace' ? getActiveWorkspaceId() : null;
+}
+
+/**
  * The id the facade knows a workspace by, from a server answer that names it
  * both ways (creating a workspace answers its organization id and
  * `workspaces.id`). Hand this to `setActive`, `setPendingOrganization` and

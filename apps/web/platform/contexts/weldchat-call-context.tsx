@@ -24,7 +24,7 @@ import rnnoiseWorkerUrl from '@weldsuite/df3-noise-suppression/rnnoise-worker?wo
 import { isApiError } from '@weldsuite/api-client';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
-import { useAuth, useUser } from '@/lib/auth';
+import { getSocketWorkspaceId, useAuth, useUser } from '@/lib/auth';
 import { toast } from 'sonner';
 import { getTranslations } from '@/lib/i18n';
 import { weldchatKeys } from '@/hooks/queries/use-weldchat-queries';
@@ -727,6 +727,7 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
     const rc = new RoomClient({
       url: `${realtimeOrigin}/ws/chat/${channelId}`,
       getToken: async () => (await getTokenRef.current()) || '',
+      workspace: getSocketWorkspaceId(),
     });
     handRaiseRoomRef.current = rc;
 
