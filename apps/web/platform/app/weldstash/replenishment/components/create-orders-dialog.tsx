@@ -204,6 +204,7 @@ export function CreateOrdersDialog({
                 size="sm"
                 onClick={() =>
                   void (async () => {
+                    // One at a time on purpose: each push holds a lock on its order and writes to Odoo.
                     for (const po of odooOrders) if (!sent[po.id]) await sendOne(po.id);
                   })()
                 }

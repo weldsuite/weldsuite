@@ -27,7 +27,7 @@ import { RunStatus } from './components/run-status';
 import { openWeldStashSettings } from './lib/open-settings';
 
 type TabId = 'reorder' | 'items';
-const TABS: readonly TabId[] = ['reorder', 'items'];
+const TABS: ReadonlySet<string> = new Set<TabId>(['reorder', 'items']);
 
 function ReplenishmentContent() {
   const t = getTranslations('weldstashReplenishment');
@@ -37,7 +37,7 @@ function ReplenishmentContent() {
   // Settings and the CSV import live in Settings > Apps > WeldStash (AGENTS.md).
   const openSettings = () => openWeldStashSettings(router);
   const search = useSearch({ strict: false }) as { tab?: string; plan?: string };
-  const tab: TabId = TABS.includes(search.tab as TabId) ? (search.tab as TabId) : 'reorder';
+  const tab: TabId = search.tab && TABS.has(search.tab) ? (search.tab as TabId) : 'reorder';
   const planId = search.plan ?? null;
 
   const setSearch = (patch: { tab?: TabId; plan?: string }) =>

@@ -21,7 +21,7 @@ export interface DemandChartPoint {
  */
 export function demandChartData(demand: PlanDemand): DemandChartPoint[] {
   const points: DemandChartPoint[] = demand.history.map((p) => ({ weekStart: p.weekStart, history: p.quantity, forecast: null }));
-  const last = points[points.length - 1];
+  const last = points.at(-1);
   if (last && demand.forecast.length > 0) last.forecast = last.history;
   for (const p of demand.forecast) points.push({ weekStart: p.weekStart, history: null, forecast: Math.round(p.quantity * 10) / 10 });
   return points;

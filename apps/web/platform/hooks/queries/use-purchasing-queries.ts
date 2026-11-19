@@ -106,8 +106,10 @@ export function useProductTracking(productIds: readonly string[], enabled = true
 
 // ---------------------- Purchase orders ----------------------
 
+const PURCHASE_ORDER_PAGE: Omit<ListPurchaseOrdersQuery, 'cursor'> = { limit: 50 };
+
 /** Cursor-paged purchase orders for the list screen. */
-export function useInfinitePurchaseOrders(params: Omit<ListPurchaseOrdersQuery, 'cursor'> = { limit: 50 }) {
+export function useInfinitePurchaseOrders(params: Omit<ListPurchaseOrdersQuery, 'cursor'> = PURCHASE_ORDER_PAGE) {
   const api = useAppApi();
   return useInfiniteQuery({
     queryKey: [...purchasingKeys.orders(), 'infinite', params],

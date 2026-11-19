@@ -64,8 +64,10 @@ export function useUpdateReplenishmentSettings() {
 
 // ---------------------- Plans ----------------------
 
+const PLAN_PAGE: Omit<ListPlansQuery, 'cursor'> = { limit: 100 };
+
 /** Cursor-paged plans (the Reorder and All items tabs). */
-export function useInfinitePlans(params: Omit<ListPlansQuery, 'cursor'> = { limit: 100 }, enabled = true) {
+export function useInfinitePlans(params: Omit<ListPlansQuery, 'cursor'> = PLAN_PAGE, enabled = true) {
   const api = useAppApi();
   return useInfiniteQuery({
     queryKey: replenishmentKeys.planList(params),

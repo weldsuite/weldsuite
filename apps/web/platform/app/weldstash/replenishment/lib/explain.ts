@@ -95,8 +95,6 @@ export function buildExplanation(plan: ExplainInput, texts: ExplainTexts): strin
       incoming: plan.incoming,
       position: plan.inventoryPosition,
     }),
-  );
-  parts.push(
     plan.suggestedQty > 0
       ? fill(texts.order, { quantity: plan.suggestedQty, orderUpTo: plan.orderUpTo ?? plan.inventoryPosition + plan.suggestedQty })
       : texts.nothingToOrder,

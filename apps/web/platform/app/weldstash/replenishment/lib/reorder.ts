@@ -12,8 +12,7 @@ export const OVERSTOCK_DAYS = 180;
 
 /** The quantity to order for a row: the user's edit, else the suggestion. */
 export function effectiveQuantity(plan: Pick<ReplenishmentPlan, 'id' | 'suggestedQty'>, edits: Readonly<Record<string, number>>): number {
-  const edited = edits[plan.id];
-  return edited === undefined ? plan.suggestedQty : edited;
+  return edits[plan.id] ?? plan.suggestedQty;
 }
 
 /** What a row's quantity costs: quantity x the supplier's unit cost (0 when no cost is known). */

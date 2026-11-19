@@ -77,6 +77,8 @@ export function ImportWizard({ open, onOpenChange, settings }: Readonly<ImportWi
   const headers = table[0] ?? [];
   const dataRows = useMemo(() => table.slice(1), [table]);
   const mapped = useMemo(() => mapRows(dataRows, mapping, dateFormat), [dataRows, mapping, dateFormat]);
+  // The first rows as they will be sent; a row's place in the file is its identity.
+  const preview = useMemo(() => mapped.rows.slice(0, 5).map((row, place) => ({ id: `row-${place}`, row })), [mapped.rows]);
 
   const reset = () => {
     setStep('file');
@@ -292,8 +294,8 @@ export function ImportWizard({ open, onOpenChange, settings }: Readonly<ImportWi
                 </p>
                 {mapped.rows.length > 0 && (
                   <ul className="space-y-0.5 text-xs text-muted-foreground tabular-nums">
-                    {mapped.rows.slice(0, 5).map((row, index) => (
-                      <li key={index}>
+                    {preview.map(({ id, row }) => (
+                      <li key={id}>
                         {row.date} · {row.sku} · {row.quantity}
                         {row.warehouseCode ? ` · ${row.warehouseCode}` : ''}
                       </li>

@@ -24,7 +24,7 @@ export function detectDelimiter(text: string): Delimiter {
 }
 
 function stripBom(text: string): string {
-  return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+  return text.codePointAt(0) === 0xfeff ? text.slice(1) : text;
 }
 
 /** The parser's state while it walks the text. */
