@@ -120,6 +120,8 @@ export interface EntityListProps<T extends { id: string }> {
     icon?: ReactNode;
     title: string;
     description: string;
+    /** The clear button's label ("Clear filter" when left out). */
+    clearLabel?: string;
     /** A second button beside "Clear filter" (a Retry when the next page failed to load). */
     action?: { label: string; onClick: () => void };
   };

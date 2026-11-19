@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { listOptions } from '@weldsuite/sheets-engine';
 import { Button } from '@weldsuite/ui/components/button';
@@ -15,7 +15,14 @@ import { ConditionFields } from './fields';
 /** Values listed at most in the filter menu; the search box reaches the rest. */
 const MAX_VALUES = 500;
 
-/** A popover pinned to a cell of the grid: under its right edge (filter button) or its left edge (dropdown). */
+/** Whether the last input was the keyboard: a popover opened by pointer must not paint a focus ring on its first item. */
+let lastInputWasKey = false;
+if (typeof window !== 'undefined') {
+  window.addEventListener('keydown', () => (lastInputWasKey = true), true);
+  window.addEventListener('pointerdown', () => (lastInputWasKey = false), true);
+}
+
+/** A popover pinned to a cell of the grid, under its start or end edge; it flips and shifts to stay inside the viewport. */
 function CellPopover({
   rect,
   onClose,
@@ -29,12 +36,25 @@ function CellPopover({
   align?: 'start' | 'end';
   children: ReactNode;
 }) {
+  const content = useRef<HTMLDivElement>(null);
   return (
     <Popover open onOpenChange={(open) => !open && onClose()}>
       <PopoverAnchor asChild>
         <div className="pointer-events-none absolute" style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h }} />
       </PopoverAnchor>
-      <PopoverContent align={align} className={className} onCloseAutoFocus={(e) => e.preventDefault()}>
+      <PopoverContent
+        ref={content}
+        align={align}
+        collisionPadding={8}
+        className={className}
+        onOpenAutoFocus={(e) => {
+          // Pointer: focus the popover itself (no first-item ring); keyboard: focus moves to the first item.
+          if (lastInputWasKey) return;
+          e.preventDefault();
+          content.current?.focus({ preventScroll: true });
+        }}
+        onCloseAutoFocus={(e) => e.preventDefault()}
+      >
         {children}
       </PopoverContent>
     </Popover>
@@ -85,8 +105,9 @@ export function FilterMenu({ controller, col, rect, onClose }: { controller: She
   };
 
   return (
-    <CellPopover rect={rect} onClose={onClose} className="w-72 p-0">
-      <div className="border-b p-1">
+    <CellPopover rect={rect} onClose={onClose} align="start" className="flex w-72 max-h-(--radix-popover-content-available-height) flex-col overflow-hidden p-0">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+      <div className="shrink-0 border-b p-1">
         <button type="button" className={MENU_ITEM} onClick={() => sort(false)}>
           {td.sortAsc}
         </button>
@@ -94,11 +115,11 @@ export function FilterMenu({ controller, col, rect, onClose }: { controller: She
           {td.sortDesc}
         </button>
       </div>
-      <div className="flex flex-col gap-2 border-b p-3">
+      <div className="flex shrink-0 flex-col gap-2 border-b p-3">
         <span className="text-xs font-medium text-muted-foreground">{tf.byCondition}</span>
         <ConditionFields draft={draft} onChange={setDraft} />
       </div>
-      <div className="flex flex-col gap-2 p-3">
+      <div className="flex min-h-0 flex-1 flex-col gap-2 p-3">
         <span className="text-xs font-medium text-muted-foreground">{tf.byValues}</span>
         <div className="flex gap-3 text-xs">
           <button type="button" className="text-primary hover:underline" onClick={() => setHidden(new Set())}>
@@ -109,7 +130,7 @@ export function FilterMenu({ controller, col, rect, onClose }: { controller: She
           </button>
         </div>
         <Input className="h-8 text-sm" placeholder={tf.search} aria-label={tf.search} value={search} onChange={(e) => setSearch(e.target.value)} />
-        <div className="max-h-52 overflow-y-auto pr-1">
+        <div className="max-h-52 min-h-16 flex-1 overflow-y-auto pr-1">
           {shown.map((v) => (
             // A label around the checkbox makes the whole row clickable.
             <label key={v.key} className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-sm hover:bg-accent">
@@ -121,7 +142,8 @@ export function FilterMenu({ controller, col, rect, onClose }: { controller: She
         </div>
         {matching.length > MAX_VALUES && <p className="text-xs text-muted-foreground">{format(tf.showingFirst, { count: MAX_VALUES })}</p>}
       </div>
-      <div className="flex justify-end gap-2 border-t p-2">
+      </div>
+      <div className="flex shrink-0 justify-end gap-2 border-t p-2">
         <Button variant="ghost" size="sm" onClick={onClose}>
           {tf.cancel}
         </Button>

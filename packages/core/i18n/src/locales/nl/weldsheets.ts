@@ -11,6 +11,7 @@ export const weldsheets = {
   home: {
     newSheet: 'Nieuwe spreadsheet',
     blank: 'Lege spreadsheet',
+    blankHint: 'Een leeg raster',
     startNew: 'Een nieuwe spreadsheet beginnen',
     emptyTitle: 'Nog geen spreadsheets',
     emptyDescription: 'Maak een spreadsheet om met getallen, lijsten en formules te werken.',
@@ -54,6 +55,8 @@ export const weldsheets = {
     share: 'Delen',
     nameBox: 'Celverwijzing',
     formulaBar: 'Formule',
+    copyBlocked: 'Gebruik {shortcut} om te kopiëren: de browser blokkeerde toegang tot het klembord.',
+    moveSplitsMerge: 'Je kunt dit niet hierheen verplaatsen: een samengevoegde cel zou worden doorgesneden.',
     renameSheet: 'Naam blad wijzigen',
     sum: 'Som',
     average: 'Gemiddelde',
@@ -91,6 +94,7 @@ export const weldsheets = {
     freeze: 'Blokkeren',
     functions: 'Functies',
     clearFormatting: 'Opmaak wissen',
+    more: 'Meer',
   },
 
   formats: {
@@ -141,6 +145,25 @@ export const weldsheets = {
     upToColumn: 'Tot en met kolom {col}',
     rows: 'Rijen',
     columns: 'Kolommen',
+    splitsMerge: 'Je kunt hier niet bevriezen: een samengevoegde cel zou worden doorgesneden.',
+  },
+
+  /** Hover hints on cells with a formula error or a value that breaks its validation rule. */
+  cellHints: {
+    parseError: 'Er zit een fout in de manier waarop deze formule is geschreven.',
+    invalid: 'Ongeldig: deze waarde voldoet niet aan de regel voor deze cel.',
+    invalidList: 'Ongeldig: kies een item uit de lijst.',
+    errors: {
+      '#NULL!': 'De bereiken in deze formule overlappen niet.',
+      '#DIV/0!': 'Deze formule deelt door nul of door een lege cel.',
+      '#VALUE!': 'Een waarde in deze formule heeft het verkeerde type, zoals tekst waar een getal nodig is.',
+      '#REF!': 'Deze formule verwijst naar een cel die niet meer bestaat.',
+      '#NAME?': 'Deze formule gebruikt een naam of functie die niet bestaat.',
+      '#NUM!': 'Deze formule geeft een getal dat ongeldig of te groot is.',
+      '#N/A': 'De waarde die deze formule zoekt, is niet beschikbaar.',
+      '#SPILL!': 'Het resultaat kan niet uitlopen: de cellen ernaast zijn niet leeg.',
+      '#CALC!': 'Deze formule kan niet worden berekend, bijvoorbeeld omdat een resultaat leeg is.',
+    },
   },
 
   menu: {
@@ -166,8 +189,17 @@ export const weldsheets = {
     resizeRows: 'Rijhoogte herstellen',
     resizeColumns: 'Kolombreedte herstellen',
     clearContents: 'Inhoud wissen',
-    pasteBlocked: 'Gebruik Ctrl+V (of ⌘V) om te plakken: de browser blokkeerde toegang tot het klembord.',
+    pasteBlocked: 'Gebruik {shortcut} om te plakken: de browser blokkeerde toegang tot het klembord.',
     pasteValues: 'Alleen waarden plakken',
+    insert: 'Invoegen',
+    delete: 'Verwijderen',
+    pasteSpecial: 'Speciaal plakken',
+    rowOptions: 'Rijopties',
+    columnOptions: 'Kolomopties',
+    hideRowsMany: 'Rijen verbergen',
+    hideColumnsMany: 'Kolommen verbergen',
+    unhideRow: 'Rij zichtbaar maken',
+    unhideColumn: 'Kolom zichtbaar maken',
     fitRows: 'Rijhoogte aanpassen aan inhoud',
     fitColumns: 'Kolombreedte aanpassen aan inhoud',
   },
@@ -188,6 +220,7 @@ export const weldsheets = {
     replace: 'Vervangen',
     replaceAll: 'Alles vervangen',
     replaced: '{count} cellen vervangen',
+    replacedOne: '1 cel vervangen',
     close: 'Sluiten',
   },
 
@@ -197,7 +230,7 @@ export const weldsheets = {
     duplicate: 'Dupliceren',
     delete: 'Verwijderen',
     deleteTitle: 'Blad verwijderen?',
-    deleteDescription: '"{name}" en alles erop wordt verwijderd.',
+    deleteDescription: '“{name}” en alles erop wordt verwijderd.',
     moveLeft: 'Naar links',
     moveRight: 'Naar rechts',
     color: 'Kleur wijzigen',
@@ -255,7 +288,8 @@ export const weldsheets = {
 
   conditionalFormats: {
     title: 'Voorwaardelijke opmaak',
-    empty: 'Nog geen regels. Een regel kleurt cellen op basis van hun waarde.',
+    intro: 'Kleur cellen op basis van hun waarde.',
+    empty: 'Nog geen regels.',
     addRule: 'Regel toevoegen',
     applyTo: 'Toepassen op bereik',
     rangeInvalid: 'Vul een bereik op dit blad in, zoals A1:B10.',
@@ -269,6 +303,7 @@ export const weldsheets = {
     minpoint: 'Minimumpunt',
     midpoint: 'Middelpunt',
     maxpoint: 'Maximumpunt',
+    pointColor: '{point}: kleur',
     pointMin: 'Minimumwaarde',
     pointMax: 'Maximumwaarde',
     pointNumber: 'Getal',
@@ -287,7 +322,8 @@ export const weldsheets = {
 
   validation: {
     title: 'Gegevensvalidatie',
-    empty: 'Nog geen regels. Een regel beperkt wat er in cellen mag staan.',
+    intro: 'Beperk wat er in cellen mag staan.',
+    empty: 'Nog geen regels.',
     addRule: 'Regel toevoegen',
     applyTo: 'Toepassen op bereik',
     criteria: 'Criteria',
@@ -461,6 +497,7 @@ export const weldsheets = {
     comment: 'Opmerking',
     add: 'Opmerking bij {cell}',
     none: 'Nog geen opmerkingen. Selecteer een cel en voeg er een toe.',
+    noneOpen: 'Geen openstaande opmerkingen.',
     noneResolved: 'Geen opgeloste opmerkingen.',
     cellDeleted: 'Cel verwijderd',
     goToCell: 'Naar de cel',
@@ -563,7 +600,8 @@ export const weldsheets = {
     refreshing: 'Vernieuwen…',
     never: 'Nog niet vernieuwd',
     notPlaced: 'Nog niet in de sheet',
-    by: 'gekoppeld door {name}',
+    placing: 'Wordt aan de sheet toegevoegd…',
+    by: 'Gekoppeld door {name}',
     actions: 'Acties voor tabel',
     refreshNow: 'Nu vernieuwen',
     edit: 'Bewerken',

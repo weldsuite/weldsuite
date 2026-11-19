@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, MessageSquarePlus, MoreVertical, RotateCcw } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { Check, MoreVertical, RotateCcw } from 'lucide-react';
 import { toast } from 'sonner';
 import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
 import { formatA1 } from '@weldsuite/sheets-engine';
 import type { RecordCommentMessage } from '@weldsuite/app-api-client';
-import { Button } from '@weldsuite/ui/components/button';
+import { EmptyText } from '@weldsuite/ui/components/empty-state';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@weldsuite/ui/components/dropdown-menu';
 import { useI18n } from '@/lib/i18n/provider';
 import { RecordChatPanelBar } from '@/app/weldchat/components/record-chat-panel-bar';
@@ -13,7 +13,7 @@ import { fromChatContent } from '@/components/record-comments/mentions';
 import { useRecordComments, type RecordCommentsState } from '@/components/record-comments/use-record-comments';
 import { addThread, newCommentId, removeThread, setResolved, threadsOf, type Thread } from '../model/comments';
 import type { SheetController } from '../model/sheet-controller';
-import { RulePanel } from '../rules/panel';
+import { PanelAction, RulePanel } from '../rules/panel';
 
 export type { Person };
 
@@ -29,6 +29,8 @@ type Filter = 'open' | 'resolved' | 'all';
  * comment also shows in WeldChat, and @mentions notify from there.
  */
 export function CommentsPanel({ controller, sheetId, people }: { controller: SheetController; sheetId: string; people: Person[] }) {
+  // The page made this element once: follow the selection (the button names its cell) and requests from the grid.
+  useSyncExternalStore(controller.subscribe, controller.getVersion);
   const { t } = useI18n();
   const tc = t.weldsheets.comments;
   const [filter, setFilter] = useState<Filter>('open');
@@ -73,10 +75,23 @@ export function CommentsPanel({ controller, sheetId, people }: { controller: She
   };
 
   return (
-    <RulePanel title={tc.title} closeLabel={tc.close} onClose={() => controller.openPanel(null)}>
-      <div className="-mx-1 -mt-1">
-        <RecordChatPanelBar entityType="sheet" entityId={sheetId} channelId={comments.channelId} />
-      </div>
+    <RulePanel
+      title={tc.title}
+      closeLabel={tc.close}
+      onClose={() => controller.openPanel(null)}
+      top={<RecordChatPanelBar entityType="sheet" entityId={sheetId} channelId={comments.channelId} />}
+    >
+      {controller.mayComment &&
+        (composing ? (
+          <div className="rounded-lg border bg-card p-3">
+            <div className="mb-2 text-xs text-muted-foreground">{tc.on.replace('{cell}', `${sheet.name}!${formatA1(row, col)}`)}</div>
+            <FocusOnMount>
+              <CommentComposer people={people} labels={labels} autoFocus onSubmit={startThread} onCancel={() => setComposing(false)} />
+            </FocusOnMount>
+          </div>
+        ) : (
+          <PanelAction onClick={() => setComposing(true)}>{tc.add.replace('{cell}', formatA1(row, col))}</PanelAction>
+        ))}
       <div className="flex items-center gap-1 text-xs">
         {(['open', 'resolved', 'all'] as const).map((f) => (
           <button
@@ -89,20 +104,8 @@ export function CommentsPanel({ controller, sheetId, people }: { controller: She
           </button>
         ))}
       </div>
-      {controller.mayComment &&
-        (composing ? (
-          <div className="rounded-lg border bg-card p-3">
-            <div className="mb-2 text-xs text-muted-foreground">{tc.on.replace('{cell}', `${sheet.name}!${formatA1(row, col)}`)}</div>
-            <CommentComposer people={people} labels={labels} autoFocus onSubmit={startThread} onCancel={() => setComposing(false)} />
-          </div>
-        ) : (
-          <Button size="sm" variant="outline" className="gap-1.5 self-start" onClick={() => setComposing(true)}>
-            <MessageSquarePlus className="size-4" />
-            {tc.add.replace('{cell}', formatA1(row, col))}
-          </Button>
-        ))}
       {comments.isError && <p className="text-sm text-destructive">{tc.loadFailed}</p>}
-      {shown.length === 0 && <p className="py-6 text-center text-sm text-muted-foreground">{filter === 'resolved' ? tc.noneResolved : tc.none}</p>}
+      {shown.length === 0 && !composing && <EmptyText>{threads.length === 0 ? tc.none : filter === 'resolved' ? tc.noneResolved : tc.noneOpen}</EmptyText>}
       {shown.map(({ thread, tabName }) => (
         <ThreadCard
           key={thread.comment.id}
@@ -210,6 +213,7 @@ function ThreadCard({
       {controller.mayComment &&
         !comment.resolved &&
         (replying || active ? (
+          <FocusOnMount enabled={replying}>
           <CommentComposer
             people={people}
             labels={labels}
@@ -224,6 +228,7 @@ function ThreadCard({
             }}
             onCancel={replying ? () => setReplying(false) : undefined}
           />
+          </FocusOnMount>
         ) : (
           <button type="button" className="self-start text-xs text-primary hover:underline" onClick={() => setReplying(true)}>
             {tc.reply}
@@ -278,13 +283,14 @@ function CommentEntry({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onSelect={() => setEditing(true)}>{tc.edit}</DropdownMenuItem>
-                {onDelete && <DropdownMenuItem onSelect={onDelete}>{deleteLabel}</DropdownMenuItem>}
+                {onDelete && <DropdownMenuItem variant="destructive" onSelect={onDelete}>{deleteLabel}</DropdownMenuItem>}
               </DropdownMenuContent>
             </DropdownMenu>
           )}
         </div>
         {editing ? (
           <div className="mt-1">
+            <FocusOnMount>
             <CommentComposer
               people={people}
               labels={labels}
@@ -296,6 +302,7 @@ function CommentEntry({
               }}
               onCancel={() => setEditing(false)}
             />
+            </FocusOnMount>
           </div>
         ) : (
           <CommentBody content={message.content} names={names} />
@@ -303,4 +310,28 @@ function CommentEntry({
       </div>
     </div>
   );
+}
+
+/**
+ * Puts the cursor in the textarea of a box that has just opened. The grid keeps
+ * (or takes back) focus after the click that opened the box, so `autoFocus`
+ * alone is not enough: focus after the click has settled.
+ */
+function FocusOnMount({ enabled = true, children }: { enabled?: boolean; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!enabled) return;
+    // The caret goes after the text (a comment being edited), also when autoFocus already focused the box at its start.
+    const focus = (first: boolean) => {
+      const el = ref.current?.querySelector('textarea');
+      if (!el) return;
+      if (document.activeElement !== el) el.focus();
+      else if (!first) return;
+      el.setSelectionRange(el.value.length, el.value.length);
+    };
+    focus(true);
+    const frame = requestAnimationFrame(() => focus(false));
+    return () => cancelAnimationFrame(frame);
+  }, [enabled]);
+  return <div ref={ref}>{children}</div>;
 }

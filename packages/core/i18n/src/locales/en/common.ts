@@ -14,6 +14,7 @@ export const common = {
       create: 'Create',
       update: 'Update',
       search: 'Search',
+      clearSearch: 'Clear search',
       filter: 'Filter',
       export: 'Export',
       import: 'Import',

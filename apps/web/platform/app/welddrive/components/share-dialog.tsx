@@ -373,7 +373,7 @@ export function ShareDialog({ target, onOpenChange }: Readonly<ShareDialogProps>
         }}
       >
         <DialogHeader>
-          <DialogTitle className="truncate pr-6">
+          <DialogTitle className="truncate pr-6" title={t.welddrive.share.title.replace('{name}', targetName(target))}>
             {t.welddrive.share.title.replace('{name}', targetName(target))}
           </DialogTitle>
           <DialogDescription>

@@ -7,6 +7,8 @@ import {
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuShortcut,
   DropdownMenuSub,
@@ -83,5 +85,29 @@ export const Default: Story = {
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+  ),
+};
+
+/** The chosen item is marked with a dot by default; `indicator="check"` uses a check mark, as a Select does. */
+export const RadioIndicators: Story = {
+  render: () => (
+    <div className="flex gap-4">
+      {(["dot", "check"] as const).map((indicator) => (
+        <DropdownMenu key={indicator}>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline">Indicator: {indicator}</Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent className="w-48">
+            <DropdownMenuRadioGroup value="medium">
+              {["small", "medium", "large"].map((size) => (
+                <DropdownMenuRadioItem key={size} value={size} indicator={indicator}>
+                  {size}
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ))}
+    </div>
   ),
 };

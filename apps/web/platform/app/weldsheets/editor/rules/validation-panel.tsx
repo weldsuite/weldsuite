@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { Plus, Trash2 } from 'lucide-react';
+import { Trash2 } from 'lucide-react';
 import { delocalizeFormula, localizeFormula, type DataValidation, type ValidationCriteria } from '@weldsuite/sheets-engine';
 import { Button } from '@weldsuite/ui/components/button';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
+import { EmptyText } from '@weldsuite/ui/components/empty-state';
 import { Input } from '@weldsuite/ui/components/input';
 import { RadioGroup, RadioGroupItem } from '@weldsuite/ui/components/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
@@ -13,7 +14,7 @@ import type { SheetController } from '../model/sheet-controller';
 import { newRuleId, removeValidation, saveValidation } from '../model/rules';
 import { fromDraft, parseRanges, rangesText, toDraft, type ConditionDraft } from './conditions';
 import { ConditionFields, Field } from './fields';
-import { conditionSummary, RulePanel, selectionText } from './panel';
+import { conditionSummary, PanelAction, PanelIntro, RulePanel, selectionText } from './panel';
 
 type CriteriaType = ValidationCriteria['type'];
 const CRITERIA: CriteriaType[] = ['list', 'listRange', 'checkbox', 'condition'];
@@ -28,9 +29,7 @@ export function ValidationPanel({ controller }: { controller: SheetController })
 
   if (editing) {
     return (
-      <RulePanel title={tv.title} closeLabel={tv.close} onClose={close}>
-        <ValidationEditor controller={controller} rule={editing} onDone={() => setEditing(null)} />
-      </RulePanel>
+      <ValidationEditor controller={controller} rule={editing} onDone={() => setEditing(null)} onClose={close} />
     );
   }
 
@@ -53,7 +52,9 @@ export function ValidationPanel({ controller }: { controller: SheetController })
 
   return (
     <RulePanel title={tv.title} closeLabel={tv.close} onClose={close}>
-      {rules.length === 0 && <p className="text-sm text-muted-foreground">{tv.empty}</p>}
+      <PanelIntro>{tv.intro}</PanelIntro>
+      <PanelAction onClick={add}>{tv.addRule}</PanelAction>
+      {rules.length === 0 && <EmptyText>{tv.empty}</EmptyText>}
       <ul className="flex flex-col gap-2">
         {rules.map((rule) => (
           <li key={rule.id} className="group flex items-center gap-2 rounded-md border p-2 hover:bg-accent/50">
@@ -73,15 +74,11 @@ export function ValidationPanel({ controller }: { controller: SheetController })
           </li>
         ))}
       </ul>
-      <Button variant="outline" size="sm" className="self-start" onClick={add}>
-        <Plus />
-        {tv.addRule}
-      </Button>
     </RulePanel>
   );
 }
 
-function ValidationEditor({ controller, rule, onDone }: { controller: SheetController; rule: DataValidation; onDone: () => void }) {
+function ValidationEditor({ controller, rule, onDone, onClose }: { controller: SheetController; rule: DataValidation; onDone: () => void; onClose: () => void }) {
   const { t } = useI18n();
   const tv = t.weldsheets.validation;
   const locale = controller.options.formulaLocale;
@@ -142,8 +139,35 @@ function ValidationEditor({ controller, rule, onDone }: { controller: SheetContr
     onDone();
   };
 
+  const footer = (
+    <>
+      {existing && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-destructive"
+          onClick={() => {
+            removeValidation(controller, rule.id);
+            onDone();
+          }}
+        >
+          <Trash2 />
+          {tv.remove}
+        </Button>
+      )}
+      <div className="ml-auto flex gap-2">
+        <Button variant="ghost" size="sm" onClick={onDone}>
+          {tv.cancel}
+        </Button>
+        <Button size="sm" onClick={save}>
+          {tv.done}
+        </Button>
+      </div>
+    </>
+  );
+
   return (
-    <div className="flex flex-col gap-4">
+    <RulePanel title={tv.title} closeLabel={tv.close} onClose={onClose} footer={footer}>
       <Field label={tv.applyTo}>
         <Input className="h-8 font-mono text-sm" value={ranges} onChange={(e) => setRanges(e.target.value)} aria-label={tv.applyTo} />
       </Field>
@@ -187,30 +211,6 @@ function ValidationEditor({ controller, rule, onDone }: { controller: SheetContr
       <Field label={tv.help}>
         <Input className="h-8 text-sm" value={help} onChange={(e) => setHelp(e.target.value)} aria-label={tv.help} />
       </Field>
-      <div className="flex items-center gap-2">
-        {existing && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-destructive"
-            onClick={() => {
-              removeValidation(controller, rule.id);
-              onDone();
-            }}
-          >
-            <Trash2 />
-            {tv.remove}
-          </Button>
-        )}
-        <div className="ml-auto flex gap-2">
-          <Button variant="ghost" size="sm" onClick={onDone}>
-            {tv.cancel}
-          </Button>
-          <Button size="sm" onClick={save}>
-            {tv.done}
-          </Button>
-        </div>
-      </div>
-    </div>
+    </RulePanel>
   );
 }

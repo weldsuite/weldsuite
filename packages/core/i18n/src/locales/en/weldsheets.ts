@@ -11,6 +11,7 @@ export const weldsheets = {
   home: {
     newSheet: 'New spreadsheet',
     blank: 'Blank spreadsheet',
+    blankHint: 'An empty grid',
     startNew: 'Start a new spreadsheet',
     emptyTitle: 'No spreadsheets yet',
     emptyDescription: 'Create a spreadsheet to start working with numbers, lists and formulas.',
@@ -54,6 +55,8 @@ export const weldsheets = {
     share: 'Share',
     nameBox: 'Cell reference',
     formulaBar: 'Formula',
+    copyBlocked: 'Use {shortcut} to copy: the browser blocked access to the clipboard.',
+    moveSplitsMerge: "You can't move this here: it would split a merged cell.",
     renameSheet: 'Rename sheet',
     sum: 'Sum',
     average: 'Average',
@@ -93,6 +96,7 @@ export const weldsheets = {
     freeze: 'Freeze',
     functions: 'Functions',
     clearFormatting: 'Clear formatting',
+    more: 'More',
   },
 
   formats: {
@@ -143,6 +147,25 @@ export const weldsheets = {
     upToColumn: 'Up to column {col}',
     rows: 'Rows',
     columns: 'Columns',
+    splitsMerge: "You can't freeze here: it would split a merged cell.",
+  },
+
+  /** Hover hints on cells with a formula error or a value that breaks its validation rule. */
+  cellHints: {
+    parseError: 'There’s a mistake in how this formula is written.',
+    invalid: 'Invalid: this value breaks the rule for this cell.',
+    invalidList: 'Invalid: choose an item from the list.',
+    errors: {
+      '#NULL!': 'The ranges in this formula don’t overlap.',
+      '#DIV/0!': 'This formula divides by zero or by an empty cell.',
+      '#VALUE!': 'A value in this formula has the wrong type, such as text where a number is needed.',
+      '#REF!': 'This formula refers to a cell that no longer exists.',
+      '#NAME?': 'This formula uses a name or function that doesn’t exist.',
+      '#NUM!': 'This formula gives a number that is invalid or too large.',
+      '#N/A': 'The value this formula looks for isn’t available.',
+      '#SPILL!': 'The result can’t spill: cells in its way aren’t empty.',
+      '#CALC!': 'This formula can’t be calculated, for example because a result is empty.',
+    },
   },
 
   menu: {
@@ -168,8 +191,17 @@ export const weldsheets = {
     resizeRows: 'Reset row height',
     resizeColumns: 'Reset column width',
     clearContents: 'Clear contents',
-    pasteBlocked: 'Use Ctrl+V (or ⌘V) to paste: the browser blocked access to the clipboard.',
+    pasteBlocked: 'Use {shortcut} to paste: the browser blocked access to the clipboard.',
     pasteValues: 'Paste values only',
+    insert: 'Insert',
+    delete: 'Delete',
+    pasteSpecial: 'Paste special',
+    rowOptions: 'Row options',
+    columnOptions: 'Column options',
+    hideRowsMany: 'Hide rows',
+    hideColumnsMany: 'Hide columns',
+    unhideRow: 'Unhide row',
+    unhideColumn: 'Unhide column',
     fitRows: 'Fit row height to data',
     fitColumns: 'Fit column width to data',
   },
@@ -190,6 +222,7 @@ export const weldsheets = {
     replace: 'Replace',
     replaceAll: 'Replace all',
     replaced: '{count} cells replaced',
+    replacedOne: '1 cell replaced',
     close: 'Close',
   },
 
@@ -199,7 +232,7 @@ export const weldsheets = {
     duplicate: 'Duplicate',
     delete: 'Delete',
     deleteTitle: 'Delete sheet?',
-    deleteDescription: '"{name}" and everything on it will be deleted.',
+    deleteDescription: '“{name}” and everything on it will be deleted.',
     moveLeft: 'Move left',
     moveRight: 'Move right',
     color: 'Change colour',
@@ -257,7 +290,8 @@ export const weldsheets = {
 
   conditionalFormats: {
     title: 'Conditional formatting',
-    empty: 'No rules yet. A rule colours cells by their values.',
+    intro: 'Colour cells by their values.',
+    empty: 'No rules yet.',
     addRule: 'Add rule',
     applyTo: 'Apply to range',
     rangeInvalid: 'Enter a range on this sheet, such as A1:B10.',
@@ -271,6 +305,7 @@ export const weldsheets = {
     minpoint: 'Minpoint',
     midpoint: 'Midpoint',
     maxpoint: 'Maxpoint',
+    pointColor: '{point} colour',
     pointMin: 'Min value',
     pointMax: 'Max value',
     pointNumber: 'Number',
@@ -289,7 +324,8 @@ export const weldsheets = {
 
   validation: {
     title: 'Data validation',
-    empty: 'No rules yet. A rule limits what can be entered in cells.',
+    intro: 'Limit what can be entered in cells.',
+    empty: 'No rules yet.',
     addRule: 'Add rule',
     applyTo: 'Apply to range',
     criteria: 'Criteria',
@@ -463,6 +499,7 @@ export const weldsheets = {
     comment: 'Comment',
     add: 'Comment on {cell}',
     none: 'No comments yet. Select a cell and add one.',
+    noneOpen: 'No open comments.',
     noneResolved: 'No resolved comments.',
     cellDeleted: 'Cell deleted',
     goToCell: 'Go to the cell',
@@ -565,7 +602,8 @@ export const weldsheets = {
     refreshing: 'Refreshing…',
     never: 'Not refreshed yet',
     notPlaced: 'Not in the sheet yet',
-    by: 'connected by {name}',
+    placing: 'Adding to the sheet…',
+    by: 'Connected by {name}',
     actions: 'Table actions',
     refreshNow: 'Refresh now',
     edit: 'Edit',

@@ -99,6 +99,11 @@ function handleModKey(ctl: SheetController, e: KeyInput): boolean {
 
 function handlePlainKey(ctl: SheetController, e: KeyInput, pageRows: number): boolean {
   switch (e.key) {
+    case 'Escape':
+      // Puts down the copy outline.
+      if (!ctl.copied) return false;
+      ctl.setCopied(null);
+      return true;
     case 'Enter':
       if (e.shiftKey) ctl.advance(-1, 0);
       else ctl.beginEdit();

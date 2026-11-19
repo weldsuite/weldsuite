@@ -556,7 +556,7 @@ export function EntityList<T extends { id: string }>({
               <p className="text-sm text-muted-foreground mb-4">{noResultsState.description}</p>
               <div className="flex items-center gap-2">
                 <Button variant="outline" size="sm" onClick={clearFilters}>
-                  Clear filter
+                  {noResultsState.clearLabel ?? 'Clear filter'}
                 </Button>
                 {noResultsState.action && (
                   <Button variant="outline" size="sm" onClick={noResultsState.action.onClick}>

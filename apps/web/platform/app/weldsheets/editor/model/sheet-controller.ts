@@ -11,6 +11,7 @@ import {
   MAX_ROWS,
   normalize,
   parseInput,
+  parseRange,
   Sheet,
   transform,
   translateFormula,
@@ -27,6 +28,7 @@ import {
   type Chart,
   type ChartData,
   type CellPatch,
+  type ConditionalFormat,
   type ConditionalStyle,
   type DataTable,
   type DataValidation,
@@ -45,6 +47,8 @@ import {
   type WorkbookSnapshot,
 } from '@weldsuite/sheets-engine';
 import { autofill, lastFilled, type FillCell, type FillOptions } from './autofill';
+import type { FindMatch } from './find';
+import { closeOpenParens } from './formula-edit';
 import {
   cellAfter,
   cellSelection,
@@ -85,6 +89,9 @@ export type SidePanel = 'formats' | 'validation' | 'chart' | 'pivot' | 'comments
 /** What can be asked of a connected table from its chip on the grid; the WeldSuite data panel does it. */
 export type DataTableAction = 'refresh' | 'edit' | 'disconnect';
 
+/** Something the controller refused to do, told to the person (the grid shows it as a toast). */
+export type ControllerNotice = 'freezeSplitsMerge' | 'moveSplitsMerge';
+
 /** A pivot table on the active sheet, with the number format each of its values shows in. */
 type PivotOutput = PivotTableLayout & { formats: (string | undefined)[] };
 
@@ -111,6 +118,10 @@ export interface ControllerOptions {
 }
 
 const UNDO_LIMIT = 200;
+/** Rows looked at when sizing rows to their text after one change. */
+const ROW_FIT_LIMIT = 2000;
+/** Cells Enter or Tab steps over at most, looking for one a merge does not hide. */
+const WALK_LIMIT = 10_000;
 
 /**
  * Everything the editor does to a workbook goes through here: it owns the
@@ -129,6 +140,8 @@ export class SheetController {
   panel: SidePanel = null;
   /** The chart picked on the grid: moved, resized and deleted there, edited in the chart panel. */
   selectedChart: string | null = null;
+  /** What was last copied or cut here, outlined on the grid until Escape, a paste of a cut, an edit or another sheet. */
+  copied: { sheetId: string; range: Range; cut: boolean } | null = null;
   /**
    * May add comments while read-only: a commenter (a viewer with
    * `sheets:comment`). Editors always may.
@@ -142,6 +155,21 @@ export class SheetController {
   tableRequest: { id: string; action: DataTableAction } | null = null;
   /** The find bar (Ctrl+F), with replacing (Ctrl+H), when open. */
   find: 'find' | 'replace' | null = null;
+  /** The conditional formatting rule being edited, drawn on the grid as if saved. */
+  private previewRule: { sheetId: string; rule: ConditionalFormat } | null = null;
+  /**
+   * Measures the height a row's text needs (null: it fits the default), set by
+   * the grid, which owns the canvas. Without it rows are never auto-sized.
+   */
+  autoFit: ((row: number) => number | null) | null = null;
+  /** Tells the person something the controller refused to do; the grid shows it as a toast. */
+  notify: ((notice: ControllerNotice) => void) | null = null;
+  /** Rows this controller sized to their text, by `sheetId:row`: only those are re-fitted, never a row sized by hand. */
+  private readonly fittedRows = new Map<string, number>();
+  /** The column a run of Tab presses started in: Enter goes back to it. Cleared by any other move. */
+  private tabStartCol: number | null = null;
+  /** The cells the find bar matches on the active sheet (`row:col`), and the current one; the grid tints them. */
+  findHits: { cells: ReadonlySet<string>; current: string | null } | null = null;
   /** Bumped on every change; the React snapshot. */
   version = 0;
   /** Bumped when the workbook changes (not the selection or a panel): what the memos of charts and pivot tables key on. */
@@ -206,6 +234,24 @@ export class SheetController {
   /** Opens the find bar (replacing needs edit rights), or closes it with null. */
   openFind(mode: 'find' | 'replace' | null): void {
     this.find = mode === 'replace' && this.readOnly ? 'find' : mode;
+    this.emit();
+  }
+
+  /** The find bar's matches, for the grid to tint (those on other sheets are not drawn). */
+  setFindHits(matches: FindMatch[], current: FindMatch | null): void {
+    const here = matches.filter((m) => m.sheetId === this.activeSheetId);
+    const was = this.findHits;
+    const key = current && current.sheetId === this.activeSheetId ? `${current.row}:${current.col}` : null;
+    if (here.length === 0 && !was) return;
+    if (was && was.current === key && was.cells.size === here.length && here.every((m) => was.cells.has(`${m.row}:${m.col}`))) return;
+    this.findHits = here.length ? { cells: new Set(here.map((m) => `${m.row}:${m.col}`)), current: key } : null;
+    this.emit();
+  }
+
+  /** Remembers (or with null, forgets) the outlined copy. */
+  setCopied(copied: SheetController['copied']): void {
+    if (!copied && !this.copied) return;
+    this.copied = copied;
     this.emit();
   }
 
@@ -403,12 +449,28 @@ export class SheetController {
   /** The conditional formatting a cell gets right now, if any. */
   conditionalStyle(row: number, col: number): ConditionalStyle | undefined {
     const sheet = this.sheet;
-    if (sheet.conditionalFormats.length === 0) return undefined;
+    const preview = this.previewRule?.sheetId === sheet.id ? this.previewRule.rule : null;
+    if (sheet.conditionalFormats.length === 0 && !preview) return undefined;
     if (this.ruleMemo?.version !== this.version) this.ruleMemo = { version: this.version, formats: new Map(), styles: new Map() };
     const key = row * 16_384 + col;
     const memo = this.ruleMemo.styles;
-    if (!memo.has(key)) memo.set(key, conditionalStyleAt(this.engine, sheet, row, col, this.ruleMemo.formats));
+    if (!memo.has(key)) {
+      // The rule being edited stands in for its saved self, or comes first when new.
+      const formats = preview
+        ? sheet.conditionalFormats.some((f) => f.id === preview.id)
+          ? sheet.conditionalFormats.map((f) => (f.id === preview.id ? preview : f))
+          : [preview, ...sheet.conditionalFormats]
+        : sheet.conditionalFormats;
+      memo.set(key, conditionalStyleAt(this.engine, { id: sheet.id, conditionalFormats: formats }, row, col, this.ruleMemo.formats));
+    }
     return memo.get(key);
+  }
+
+  /** Shows a rule being edited on the grid before it is saved (null: no preview). */
+  setPreviewRule(rule: ConditionalFormat | null): void {
+    if (rule === null && this.previewRule === null) return;
+    this.previewRule = rule && { sheetId: this.activeSheetId, rule };
+    this.emit();
   }
 
   /** The validation rule a cell on the active sheet follows. */
@@ -490,10 +552,28 @@ export class SheetController {
     const before = this.selection;
     const sheetId = this.activeSheetId;
     const inverse = this.run(normalized);
+    this.copied = null;
     this.undoStack.push({ op: normalized, inverse, sheetId, selection: before });
     if (this.undoStack.length > UNDO_LIMIT) this.undoStack.shift();
     this.redoStack = [];
     this.ensureActiveSheet();
+    this.options.onOp?.(normalized);
+    this.emit();
+  }
+
+  /**
+   * Applies `op`, then the op `after` works out from its result (None: nothing
+   * more), as one undo step: a pivot table and the column widths that fit it.
+   */
+  applyThen(op: Op, after: () => Op | null): void {
+    this.apply(op);
+    const entry = this.undoStack.at(-1);
+    const next = this.readOnly || !entry ? null : after();
+    if (!next || !entry) return;
+    const normalized = normalize(next);
+    const inverse = this.run(normalized);
+    entry.op = { type: 'batch', ops: [entry.op, normalized] };
+    entry.inverse = { type: 'batch', ops: [inverse, entry.inverse] };
     this.options.onOp?.(normalized);
     this.emit();
   }
@@ -614,6 +694,7 @@ export class SheetController {
     if (!this.commitEdit()) this.editing = null;
     this.selections.set(this.activeSheetId, this.selection);
     this.activeSheetId = sheetId;
+    this.copied = null;
     this.selection = this.selections.get(sheetId) ?? cellSelection(0, 0);
     this.dropChart();
     this.followPivot();
@@ -622,6 +703,7 @@ export class SheetController {
 
   /** Selecting cells puts a picked chart down, and opens the pivot editor on a pivot table. */
   select(selection: Selection): void {
+    this.tabStartCol = null;
     this.selection = selection;
     this.dropChart();
     this.followPivot();
@@ -644,6 +726,7 @@ export class SheetController {
   /** Arrow keys: move (or with `extend`, grow the selection); `jump` goes to the edge of the data. */
   move(dRow: number, dCol: number, opts: { extend?: boolean; jump?: boolean } = {}): void {
     const sheet = this.sheet;
+    this.tabStartCol = null;
     const from = opts.extend ? this.extentCorner() : this.selection.active;
     const [r, c] = opts.jump ? this.dataEdge(from.row, from.col, dRow, dCol) : [from.row + dRow, from.col + dCol];
     let to = { row: clamp(r, 0, sheet.rowCount - 1), col: clamp(c, 0, sheet.colCount - 1) };
@@ -667,13 +750,36 @@ export class SheetController {
   /** Enter/Tab inside a multi-cell selection walks through it instead of leaving it. */
   advance(dRow: number, dCol: number): void {
     const r = primaryRange(this.selection);
-    const single = r.r1 === r.r2 && r.c1 === r.c2 && this.selection.ranges.length === 1;
+    // A merged cell, selected whole (as merging leaves it), is one cell: Enter leaves it.
+    const merge = this.sheet.mergeAt(r.r1, r.c1);
+    const oneMerge = !!merge && merge.r1 === r.r1 && merge.c1 === r.c1 && merge.r2 === r.r2 && merge.c2 === r.c2;
+    const single = ((r.r1 === r.r2 && r.c1 === r.c2) || oneMerge) && this.selection.ranges.length === 1;
     if (single) {
+      const startCol = this.tabStartCol;
+      if (dRow === 0) {
+        // Tab: remember where the run started.
+        this.move(dRow, dCol);
+        this.tabStartCol = startCol ?? r.c1;
+        return;
+      }
       this.move(dRow, dCol);
+      // Enter after a run of Tabs returns to the column it started in.
+      if (startCol !== null && dCol === 0) this.selection = cellSelection(this.selection.active.row, startCol);
+      this.emit();
       return;
     }
-    this.selection = { ...this.selection, active: walkRange(r, this.selection.active, dRow, dCol) };
+    // Walking through a range steps over the cells a merge hides, onto the next cell that shows.
+    let active = walkRange(r, this.selection.active, dRow, dCol);
+    const cells = (r.r2 - r.r1 + 1) * (r.c2 - r.c1 + 1);
+    for (let i = 0; i < Math.min(cells, WALK_LIMIT) && this.isCovered(active); i++) active = walkRange(r, active, dRow, dCol);
+    this.selection = { ...this.selection, active };
     this.emit();
+  }
+
+  /** A cell inside a merge other than its top-left: hidden behind the merged cell. */
+  private isCovered({ row, col }: CellPos): boolean {
+    const m = this.sheet.merges.length ? this.sheet.mergeAt(row, col) : undefined;
+    return !!m && (m.r1 !== row || m.c1 !== col);
   }
 
   /** The corner of the primary range opposite the anchor (what shift+arrow moves). */
@@ -800,7 +906,8 @@ export class SheetController {
     const edit = this.editing;
     if (!edit) return true;
     this.editing = null;
-    if (edit.text === this.inputText(edit.row, edit.col)) {
+    // Unchanged text is a no-op, unless committing repairs it (an unclosed "(" stored earlier).
+    if (edit.text === this.inputText(edit.row, edit.col) && closeOpenParens(edit.text) === edit.text) {
       this.emit();
       return true;
     }
@@ -828,7 +935,8 @@ export class SheetController {
     if (numFmt) {
       ops.push({ type: 'formatRanges', sheetId: this.activeSheetId, ranges: [{ r1: row, c1: col, r2: row, c2: col }], patch: { numFmt } });
     }
-    this.apply({ type: 'batch', ops });
+    // Text typed into a wrapped cell grows its row to fit.
+    this.withRowFit(() => [row], () => this.apply({ type: 'batch', ops }));
     return true;
   }
 
@@ -989,7 +1097,7 @@ export class SheetController {
   }
 
   private contentFor(text: string): CellPatch[2] {
-    const parsed = parseInput(text, { locale: this.options.locale });
+    const parsed = parseInput(closeOpenParens(text), { locale: this.options.locale });
     if (parsed.kind === 'formula') return { f: delocalizeFormula(parsed.formula, this.options.formulaLocale) };
     return parsed.value === null ? null : { v: parsed.value };
   }
@@ -999,12 +1107,21 @@ export class SheetController {
    * starts with a date function such as =TODAY()), unless the cell already has one.
    */
   private impliedFormat(text: string, row: number, col: number): string | undefined {
-    const parsed = parseInput(text, { locale: this.options.locale });
-    const numFmt = parsed.kind === 'formula' ? formulaDateFormat(parsed.formula, this.options.locale) : parsed.numFmt;
-    if (!numFmt) return undefined;
+    const parsed = parseInput(closeOpenParens(text), { locale: this.options.locale });
     const current = this.engine.workbook.style(this.sheet, row, col)?.numFmt;
     if (current && current !== 'General') return undefined;
-    return numFmt;
+    const numFmt = parsed.kind === 'formula' ? formulaDateFormat(parsed.formula, this.options.locale) : parsed.numFmt;
+    if (numFmt) return numFmt;
+    return parsed.kind === 'formula' ? this.coveredFormat(delocalizeFormula(parsed.formula, this.options.formulaLocale)) : undefined;
+  }
+
+  /** `=SUM(D2:D4)` (also AVERAGE, MIN, MAX) over one range of this sheet: the number format of the range's first cell. */
+  private coveredFormat(formula: string): string | undefined {
+    const m = /^(?:SUM|AVERAGE|MIN|MAX)\(\$?([A-Z]{1,3}\$?\d+(?::\$?[A-Z]{1,3}\$?\d+)?)\)$/i.exec(formula.trim().replace(/^=/, ''));
+    const range = m ? parseRange(m[1].replace(/\$/g, '').toUpperCase()) : null;
+    if (!range) return undefined;
+    const fmt = this.engine.workbook.style(this.sheet, range.r1, range.c1)?.numFmt;
+    return fmt && fmt !== 'General' ? fmt : undefined;
   }
 
   // -------------------------------------------------------------------------
@@ -1022,7 +1139,58 @@ export class SheetController {
   }
 
   format(patch: StylePatch): void {
-    this.apply({ type: 'formatRanges', sheetId: this.activeSheetId, ranges: this.selection.ranges, patch });
+    const ranges = this.selection.ranges;
+    // Changing wrapping or the font's size re-fits the rows, in the same undo step.
+    const refit = patch.wrap !== undefined || patch.fontSize !== undefined || patch.fontFamily !== undefined;
+    const rows = refit ? () => this.rowsWithContent(ranges) : null;
+    this.withRowFit(rows, () => this.apply({ type: 'formatRanges', sheetId: this.activeSheetId, ranges, patch }));
+  }
+
+  /** Rows holding a value in `ranges` (capped), for auto-sizing. */
+  private rowsWithContent(ranges: Range[]): number[] {
+    const rows = new Set<number>();
+    for (const r of ranges) {
+      this.sheet.cells.forEachInRange(clampToGrid(r, this.sheet.rowCount, this.sheet.colCount), (row, _col, cell) => {
+        if ((cell.v !== null || cell.f !== undefined) && rows.size < ROW_FIT_LIMIT) rows.add(row);
+      });
+    }
+    return [...rows];
+  }
+
+  /** The resizes that make auto-sized rows fit their text (rows sized by hand are left alone). */
+  private fitEntries(rows: Iterable<number>): [number, number | null][] {
+    const fit = this.autoFit;
+    const out: [number, number | null][] = [];
+    if (!fit) return out;
+    const sheet = this.sheet;
+    for (const row of new Set(rows)) {
+      if (sheet.rows.isHidden(row)) continue;
+      const stored = sheet.rows.storedSize(row);
+      const key = `${this.activeSheetId}:${row}`;
+      if (stored !== undefined && stored !== this.fittedRows.get(key)) continue;
+      const height = fit(row);
+      if (height === (stored ?? null)) continue;
+      if (height === null) this.fittedRows.delete(key);
+      else this.fittedRows.set(key, height);
+      out.push([row, height]);
+    }
+    return out;
+  }
+
+  /**
+   * Runs `change` (one op), then fits `rows` to their text; both undo together.
+   * `rows` is read after the change.
+   */
+  private withRowFit(rows: (() => Iterable<number>) | null, change: () => void): void {
+    const depth = this.undoStack.length;
+    change();
+    if (!rows || !this.autoFit || this.undoStack.length !== depth + 1) return;
+    const entries = this.fitEntries(rows());
+    if (entries.length === 0) return;
+    this.apply({ type: 'resizeDims', sheetId: this.activeSheetId, axis: 'row', entries });
+    if (this.undoStack.length !== depth + 2) return;
+    const [a, b] = this.undoStack.splice(depth, 2) as [UndoEntry, UndoEntry];
+    this.undoStack.push({ op: { type: 'batch', ops: [a.op, b.op] }, inverse: { type: 'batch', ops: [b.inverse, a.inverse] }, sheetId: a.sheetId, selection: a.selection });
   }
 
   /** Effective style of the active cell (toolbar state). */
@@ -1102,13 +1270,26 @@ export class SheetController {
     const sheet = this.sheet;
     const r = clampToGrid(primaryRange(this.selection), sheet.rowCount, sheet.colCount);
     if (r.r1 === r.r2 && r.c1 === r.c2) {
-      this.beginEdit({ text: `=${name}(` });
+      const block = this.numberBlockBefore(r.r1, r.c1);
+      this.beginEdit({ text: block ? `=${name}(${block})` : `=${name}(` });
       return;
     }
     const ref = `${formatA1(r.r1, r.c1)}:${formatA1(r.r2, r.c2)}`;
     const target = r.r1 === r.r2 ? { row: r.r1, col: Math.min(r.c2 + 1, sheet.colCount - 1) } : { row: Math.min(r.r2 + 1, sheet.rowCount - 1), col: r.c1 };
     this.apply({ type: 'setCells', sheetId: this.activeSheetId, cells: [[target.row, target.col, { f: `${name}(${ref})` }]] });
     this.select(cellSelection(target.row, target.col));
+  }
+
+  /** The contiguous block of numbers directly above a cell (else to its left) as A1 text, e.g. "D2:D4"; null when there is none. */
+  private numberBlockBefore(row: number, col: number): string | null {
+    const isNumber = (r: number, c: number) => typeof this.engine.getValue(this.activeSheetId, r, c) === 'number';
+    let top = row;
+    while (top > 0 && isNumber(top - 1, col)) top--;
+    if (top < row) return top === row - 1 ? formatA1(top, col) : `${formatA1(top, col)}:${formatA1(row - 1, col)}`;
+    let left = col;
+    while (left > 0 && isNumber(row, left - 1)) left--;
+    if (left < col) return left === col - 1 ? formatA1(row, left) : `${formatA1(row, left)}:${formatA1(row, col - 1)}`;
+    return null;
   }
 
   insertDims(axis: 'row' | 'col', where: 'before' | 'after'): void {
@@ -1135,7 +1316,20 @@ export class SheetController {
   }
 
   resize(axis: 'row' | 'col', indices: number[], size: number | null): void {
-    this.apply({ type: 'resizeDims', sheetId: this.activeSheetId, axis, entries: indices.map((i) => [i, size]) });
+    // A wrapped cell's height follows its column's width.
+    const rows = axis === 'col' ? () => this.wrappedRows(indices) : null;
+    this.withRowFit(rows, () => this.apply({ type: 'resizeDims', sheetId: this.activeSheetId, axis, entries: indices.map((i) => [i, size]) }));
+  }
+
+  /** Rows with a wrapped cell in the given columns (capped). */
+  private wrappedRows(cols: number[]): number[] {
+    const rows = new Set<number>();
+    for (const col of cols) {
+      this.sheet.cells.forEachInRange({ r1: 0, c1: col, r2: this.sheet.rowCount - 1, c2: col }, (row, c, cell) => {
+        if (cell.s !== undefined && this.cellStyle(row, c)?.wrap === 'wrap' && rows.size < ROW_FIT_LIMIT) rows.add(row);
+      });
+    }
+    return [...rows];
   }
 
   /** Indices of the selected whole rows/columns, or of the active cell's row/column. */
@@ -1151,7 +1345,27 @@ export class SheetController {
   }
 
   setHidden(axis: 'row' | 'col', hidden: boolean): void {
-    this.apply({ type: 'hideDims', sheetId: this.activeSheetId, axis, indices: this.selectedIndices(axis), hidden });
+    const indices = this.selectedIndices(axis);
+    this.apply({ type: 'hideDims', sheetId: this.activeSheetId, axis, indices, hidden });
+    if (hidden) this.leaveHidden(axis, indices);
+  }
+
+  /** The selection sat on rows or columns that were just hidden: it moves to the next visible one, else the previous. */
+  private leaveHidden(axis: 'row' | 'col', hidden: number[]): void {
+    const sheet = this.sheet;
+    const dims = axis === 'col' ? sheet.cols : sheet.rows;
+    const count = axis === 'col' ? sheet.colCount : sheet.rowCount;
+    const [first, last] = [hidden[0], hidden.at(-1)];
+    if (first === undefined || last === undefined || hidden.some((i) => dims.sizeOf(i) > 0)) return;
+    let to = -1;
+    for (let i = last + 1; i < count && to < 0; i++) if (dims.sizeOf(i) > 0) to = i;
+    for (let i = first - 1; i >= 0 && to < 0; i--) if (dims.sizeOf(i) > 0) to = i;
+    if (to < 0) return;
+    const whole = isWholeColumns(primaryRange(this.selection)) || isWholeRows(primaryRange(this.selection));
+    const { row, col } = this.selection.active;
+    const at = axis === 'col' ? { row, col: to } : { row: to, col };
+    if (!whole) this.select(cellSelection(at.row, at.col));
+    else this.select({ ranges: [axis === 'col' ? wholeColumns(to, to) : wholeRows(to, to)], active: at, anchor: at });
   }
 
   toggleMerge(): void {
@@ -1183,6 +1397,16 @@ export class SheetController {
    */
   moveDimsTo(axis: 'row' | 'col', from: number, count: number, to: number): void {
     if (to >= from && to <= from + count) return;
+    // Refused when the move would cut a merged cell: it takes part of one along, or lands inside one.
+    const last = from + count - 1;
+    const cuts = this.sheet.merges.some((m) => {
+      const [a, b] = axis === 'col' ? [m.c1, m.c2] : [m.r1, m.r2];
+      return (a < from && b >= from) || (a <= last && b > last) || (a < to && to <= b);
+    });
+    if (cuts) {
+      this.notify?.('moveSplitsMerge');
+      return;
+    }
     this.apply({ type: 'moveDims', sheetId: this.activeSheetId, sheetName: this.sheet.name, axis, from, count, to });
     const start = to < from ? to : to - count;
     const end = start + count - 1;
@@ -1192,6 +1416,11 @@ export class SheetController {
 
   /** Freeze up to (not including) the active cell's row/column; 0 unfreezes. */
   setFreeze(rows: number, cols: number): void {
+    // The freeze line would cut through a merged cell, as Google Sheets refuses too.
+    if (this.sheet.merges.some((m) => (rows > 0 && m.r1 < rows && m.r2 >= rows) || (cols > 0 && m.c1 < cols && m.c2 >= cols))) {
+      this.notify?.('freezeSplitsMerge');
+      return;
+    }
     this.apply({ type: 'setFreeze', sheetId: this.activeSheetId, rows, cols });
   }
 

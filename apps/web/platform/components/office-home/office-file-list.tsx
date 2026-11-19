@@ -41,8 +41,8 @@ export interface OfficeFileListLabels {
 export interface OfficeFileListProps<T extends OfficeFile> {
   files: T[];
   labels: OfficeFileListLabels;
-  /** The create button's label ("New document"). */
-  createLabel: string;
+  /** The create button's label ("New document"); with `onCreate`. */
+  createLabel?: string;
   /** The empty state's picture. */
   illustration: ReactNode;
   onOpen: (file: T) => void;
@@ -73,15 +73,15 @@ export function OfficeFileList<T extends OfficeFile>({
   emptyStateClassName,
   deletePermanently,
 }: OfficeFileListProps<T>) {
-  const { format } = useI18n();
+  const { t, format } = useI18n();
   const [deleting, setDeleting] = useState<T | null>(null);
   const [renaming, setRenaming] = useState<T | null>(null);
 
   const headerColumns: HeaderColumn[] = useMemo(
     () => [
-      { id: 'name', header: labels.columns.name, width: 'flex-1 min-w-[300px]' },
-      { id: 'updated', header: labels.columns.updated, width: 'w-[140px]' },
-      { id: 'created', header: labels.columns.created, width: 'w-[140px]' },
+      { id: 'name', header: labels.columns.name, width: 'flex-1 min-w-0 sm:min-w-[300px]' },
+      { id: 'updated', header: labels.columns.updated, width: 'w-[140px] shrink-0 max-sm:w-auto' },
+      { id: 'created', header: labels.columns.created, width: 'w-[140px] shrink-0 max-sm:hidden' },
     ],
     [labels],
   );
@@ -97,13 +97,14 @@ export function OfficeFileList<T extends OfficeFile>({
           className="group relative flex cursor-pointer items-center gap-4 border-b border-gray-200/70 px-4 py-3 hover:bg-gray-50 dark:border-border dark:hover:bg-secondary/50"
         >
           <RowOverlayButton label={name} onClick={() => onOpen(file)} />
-          <div className="min-w-[300px] flex-1">
+          <div className="min-w-0 flex-1 sm:min-w-[300px]">
             <p className="truncate text-sm font-medium text-gray-900 dark:text-foreground">{name}</p>
           </div>
-          <div className="w-[140px]">
+          {/* On a phone only the last change shows, on one line; the menu then stays visible (no hover on touch). */}
+          <div className="w-[140px] shrink-0 whitespace-nowrap max-sm:w-auto">
             <span className="text-sm tabular-nums">{formatMediumDateNow(file.updatedAt)}</span>
           </div>
-          <div className="w-[140px]">
+          <div className="w-[140px] shrink-0 whitespace-nowrap max-sm:hidden">
             <span className="text-sm tabular-nums">{formatMediumDateNow(file.createdAt)}</span>
           </div>
           {/* h-7 holds the task row's 53px height on rows without a menu too. */}
@@ -115,7 +116,7 @@ export function OfficeFileList<T extends OfficeFile>({
                     variant="ghost"
                     size="sm"
                     aria-label={format(labels.moreActions, { name })}
-                    className="h-7 w-7 p-0 text-gray-400 opacity-0 hover:text-gray-600 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
+                    className="h-7 w-7 p-0 text-gray-400 opacity-0 hover:text-gray-600 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100 [@media(hover:none)]:opacity-100"
                   >
                     <EllipsisVertical className="h-3.5 w-3.5" />
                   </Button>
@@ -157,14 +158,14 @@ export function OfficeFileList<T extends OfficeFile>({
         topBarClassName="pt-2 pb-2"
         leftActionButtons={notice}
         emptyStateClassName={emptyStateClassName}
-        createButton={onCreate ? { label: createLabel, onClick: onCreate } : undefined}
+        createButton={onCreate && createLabel ? { label: createLabel, onClick: onCreate } : undefined}
         emptyState={{
           icon: illustration,
           title: labels.emptyTitle,
           description: labels.emptyDescription,
-          action: onCreate ? { label: createLabel, onClick: onCreate } : undefined,
+          action: onCreate && createLabel ? { label: createLabel, onClick: onCreate } : undefined,
         }}
-        noResultsState={{ title: labels.noResultsTitle, description: labels.noResultsDescription }}
+        noResultsState={{ title: labels.noResultsTitle, description: labels.noResultsDescription, clearLabel: t.common.actions.clearSearch }}
       />
       <PromptDialog
         open={!!renaming}

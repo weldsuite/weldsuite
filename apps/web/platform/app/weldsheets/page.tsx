@@ -45,6 +45,7 @@ export default function WeldSheetsHome() {
         <NewFileStrip
           title={th.startNew}
           blankLabel={th.blank}
+          blankHint={th.blankHint}
           importLabel={tf.importFile}
           importHint={tf.importHint}
           accept={IMPORT_ACCEPT}
@@ -58,11 +59,9 @@ export default function WeldSheetsHome() {
         <OfficeFileList
           files={sheets.data ?? NO_SHEETS}
           labels={th}
-          createLabel={th.newSheet}
           illustration={<SheetsIllustration />}
           onOpen={open}
           {...actions}
-          onCreate={canCreate ? createBlank : undefined}
           notice={preview ? <span className="text-xs text-muted-foreground">{th.localNotice}</span> : undefined}
           emptyStateClassName="min-h-[360px] py-12"
           deletePermanently={!!preview}

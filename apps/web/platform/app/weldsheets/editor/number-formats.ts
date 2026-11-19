@@ -21,10 +21,13 @@ export function numberFormats(language: string): Record<NumberFormatKey, { code:
     automatic: { code: null, example: '' },
     plainText: { code: '@', example: '' },
     number: { code: '#,##0.00', example: dutch ? '1.000,12' : '1,000.12' },
-    percent: { code: '0.00%', example: dutch ? '10,12%' : '10.12%' },
-    scientific: { code: '0.00E+00', example: dutch ? '1,01E+03' : '1.01E+03' },
-    accounting: { code: '_("€"* #,##0.00_);_("€"* (#,##0.00);_("€"* "-"??_);_(@_)', example: dutch ? '€ (1.000,12)' : '€ (1,000.12)' },
-    currency: { code: '"€ "#,##0.00', example: dutch ? '€ 1.000,12' : '€ 1,000.12' },
+    percent: { code: '#,##0.00%', example: dutch ? '1.000,12%' : '1,000.12%' },
+    scientific: { code: '0.00E+00', example: dutch ? '1,00E+03' : '1.00E+03' },
+    accounting: { code: '_("€"* #,##0.00_);_("€"* (#,##0.00);_("€"* "-"??_);_(@_)', example: dutch ? '€1.000,12' : '€1,000.12' },
+    // Negatives follow the language: "-€1,000.12" in English, "€ -1.000,12" in Dutch.
+    currency: dutch
+      ? { code: '"€ "#,##0.00;"€ "-#,##0.00', example: '€ 1.000,12' }
+      : { code: '"€"#,##0.00;-"€"#,##0.00', example: '€1,000.12' },
     date: { code: date, example: dutch ? '26-9-2026' : '9/26/2026' },
     time: { code: 'h:mm:ss', example: '15:59:00' },
     dateTime: { code: `${date} h:mm:ss`, example: dutch ? '26-9-2026 15:59:00' : '9/26/2026 15:59:00' },
