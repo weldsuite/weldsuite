@@ -52,6 +52,8 @@ export interface WmsSupplier {
   currency?: string | null;
   taxId?: string | null;
   defaultLeadTimeDays?: number | null;
+  /** Numeric text; replenishment warns when a draft purchase order stays below it. */
+  minimumOrderValue?: string | null;
   isActive: boolean;
   status: string;
   rating?: number | null;

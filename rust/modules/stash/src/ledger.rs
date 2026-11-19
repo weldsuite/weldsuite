@@ -5,8 +5,15 @@
 //! `product_variants` roll-ups. The statements are the TypeScript ones, in
 //! the same order, so the same races resolve the same way: a first receipt
 //! that loses `inventory_bucket_unique` re-runs its increment.
+//!
+//! A warehouse another system owns (`warehouses.managed_by_connection_id`,
+//! an Odoo connection's, ADR STASH-010) is read-only here: every write path
+//! refuses it with [`WAREHOUSE_MANAGED`] before it changes anything. That
+//! connection's sync writes those buckets itself. A warehouse without the
+//! column set goes through exactly as before.
 
 use serde_json::Value;
+use sqlx::{Acquire, PgConnection, PgExecutor, Postgres};
 use weldsuite_db::PgPool;
 use weldsuite_kit::generate_id;
 
@@ -40,6 +47,67 @@ fn stock(code: &'static str, message: impl Into<String>) -> LedgerError {
         code,
         message: message.into(),
     }
+}
+
+/// The code of a refused change to a warehouse another system owns.
+pub(crate) const WAREHOUSE_MANAGED: &str = "WAREHOUSE_MANAGED";
+
+/// Its message, which the routes answer with (400).
+pub(crate) const WAREHOUSE_MANAGED_MESSAGE: &str =
+    "This warehouse's stock is managed by another system";
+
+/// The refusal for a warehouse another system owns.
+pub(crate) fn managed_warehouse() -> LedgerError {
+    stock(WAREHOUSE_MANAGED, WAREHOUSE_MANAGED_MESSAGE)
+}
+
+/// Whether `warehouse_id` is owned by a connection
+/// (`managed_by_connection_id` set and not empty). An unknown warehouse is
+/// not: the ledger has never checked that a warehouse exists.
+pub(crate) async fn warehouse_is_managed<'e>(
+    db: impl PgExecutor<'e>,
+    warehouse_id: &str,
+) -> Result<bool, sqlx::Error> {
+    let managed: Option<bool> = sqlx::query_scalar(
+        "select coalesce(managed_by_connection_id, '') <> '' from warehouses where id = $1 limit 1",
+    )
+    .bind(warehouse_id)
+    .fetch_optional(db)
+    .await?;
+    Ok(managed.unwrap_or(false))
+}
+
+/// Whether the warehouse of the bucket `inventory_id` is owned by a
+/// connection. An unknown bucket is not (the caller's own lookup answers it).
+pub(crate) async fn bucket_is_managed<'e>(
+    db: impl PgExecutor<'e>,
+    inventory_id: &str,
+) -> Result<bool, sqlx::Error> {
+    let managed: Option<bool> = sqlx::query_scalar(
+        "select coalesce(w.managed_by_connection_id, '') <> '' from inventory i \
+         join warehouses w on w.id = i.warehouse_id where i.id = $1 limit 1",
+    )
+    .bind(inventory_id)
+    .fetch_optional(db)
+    .await?;
+    Ok(managed.unwrap_or(false))
+}
+
+async fn refuse_managed<'e>(
+    db: impl PgExecutor<'e>,
+    warehouse_id: &str,
+) -> Result<(), LedgerError> {
+    if warehouse_is_managed(db, warehouse_id).await? {
+        return Err(managed_warehouse());
+    }
+    Ok(())
+}
+
+async fn refuse_managed_bucket(db: &PgPool, inventory_id: &str) -> Result<(), LedgerError> {
+    if bucket_is_managed(db, inventory_id).await? {
+        return Err(managed_warehouse());
+    }
+    Ok(())
 }
 
 fn insufficient_stock(on_hand: i64, delta: i64) -> LedgerError {
@@ -101,7 +169,10 @@ struct Product {
     allow_backorder: bool,
 }
 
-async fn load_product(db: &PgPool, product_id: &str) -> Result<Product, LedgerError> {
+async fn load_product<'e>(
+    db: impl PgExecutor<'e>,
+    product_id: &str,
+) -> Result<Product, LedgerError> {
     let row: Option<ProductRow> = sqlx::query_as(
         "select sku, track_lots, track_expiry, allow_backorder from products \
          where id = $1 and deleted_at is null limit 1",
@@ -211,8 +282,8 @@ struct Increment {
     guarded: bool,
 }
 
-async fn increment(
-    db: &PgPool,
+async fn increment<'e>(
+    db: impl PgExecutor<'e>,
     keys: &Keys<'_>,
     inc: &Increment,
 ) -> Result<Option<(String, i64)>, sqlx::Error> {
@@ -236,8 +307,8 @@ async fn increment(
     Ok(row.map(|(id, quantity)| (id, i64::from(quantity))))
 }
 
-async fn find_bucket(
-    db: &PgPool,
+async fn find_bucket<'e>(
+    db: impl PgExecutor<'e>,
     keys: &Keys<'_>,
 ) -> Result<Option<(String, Option<i32>)>, sqlx::Error> {
     sqlx::query_as(FIND_BUCKET)
@@ -253,8 +324,8 @@ async fn find_bucket(
 
 /// Insert a fresh bucket for a first receipt; `None` when a concurrent
 /// creator won `inventory_bucket_unique`.
-async fn insert_bucket(
-    db: &PgPool,
+async fn insert_bucket<'e>(
+    db: impl PgExecutor<'e>,
     change: &StockChange,
     now: &str,
 ) -> Result<Option<(String, i64)>, sqlx::Error> {
@@ -292,8 +363,8 @@ async fn insert_bucket(
 
 /// The audit row and the roll-ups, in one transaction (`atomically`).
 #[allow(clippy::too_many_arguments)]
-async fn audit_and_roll_up(
-    db: &PgPool,
+async fn audit_and_roll_up<'a>(
+    db: impl Acquire<'a, Database = Postgres>,
     adjustment_id: &str,
     inventory_id: &str,
     product_id: &str,
@@ -371,7 +442,10 @@ struct Audit<'a> {
     source_number: Option<&'a str>,
 }
 
-async fn product_quantity(db: &PgPool, product_id: &str) -> Result<i64, sqlx::Error> {
+async fn product_quantity<'e>(
+    db: impl PgExecutor<'e>,
+    product_id: &str,
+) -> Result<i64, sqlx::Error> {
     let row: Option<(Option<i32>,)> =
         sqlx::query_as("select inventory_quantity from products where id = $1 limit 1")
             .bind(product_id)
@@ -380,17 +454,69 @@ async fn product_quantity(db: &PgPool, product_id: &str) -> Result<i64, sqlx::Er
     Ok(row.and_then(|(quantity,)| quantity).map_or(0, i64::from))
 }
 
+/// Where the ledger's statements run. On the pool ([`apply_stock_change`])
+/// each statement runs on its own, as it always has, and the audit row and
+/// roll-ups commit together in their own transaction. On a connection inside
+/// the caller's transaction ([`apply_stock_change_in`]) everything is part
+/// of that transaction, the audit row and roll-ups in a savepoint, so the
+/// caller's commit or rollback takes the whole change with it.
+pub(crate) trait LedgerDb: Send {
+    /// The executor of the next statement.
+    fn statement(&mut self) -> impl PgExecutor<'_>;
+    /// Where the audit row and roll-ups commit together.
+    fn unit(&mut self) -> impl Acquire<'_, Database = Postgres> + Send;
+}
+
+impl LedgerDb for &PgPool {
+    fn statement(&mut self) -> impl PgExecutor<'_> {
+        *self
+    }
+
+    fn unit(&mut self) -> impl Acquire<'_, Database = Postgres> + Send {
+        *self
+    }
+}
+
+impl LedgerDb for &mut PgConnection {
+    fn statement(&mut self) -> impl PgExecutor<'_> {
+        &mut **self
+    }
+
+    fn unit(&mut self) -> impl Acquire<'_, Database = Postgres> + Send {
+        &mut **self
+    }
+}
+
 /// `applyStockChange`: apply a signed change to one bucket, write the audit
-/// row and refresh the roll-ups.
+/// row and refresh the roll-ups. Each statement runs on the pool on its own.
 pub(crate) async fn apply_stock_change(
     db: &PgPool,
+    change: &StockChange,
+) -> Result<StockResult, LedgerError> {
+    apply_on(db, change).await
+}
+
+/// [`apply_stock_change`] inside the caller's transaction (`conn` is the
+/// transaction's connection): the same statements in the same order, none
+/// committed until the caller commits. A refusal or a failed statement
+/// leaves the rollback to the caller.
+pub(crate) async fn apply_stock_change_in(
+    conn: &mut PgConnection,
+    change: &StockChange,
+) -> Result<StockResult, LedgerError> {
+    apply_on(conn, change).await
+}
+
+async fn apply_on<D: LedgerDb>(
+    mut db: D,
     change: &StockChange,
 ) -> Result<StockResult, LedgerError> {
     if change.delta == 0 {
         return Err(stock("INVALID_DELTA", "Adjustment delta must not be zero"));
     }
+    refuse_managed(db.statement(), &change.warehouse_id).await?;
     let now = crate::now();
-    let product = load_product(db, &change.product_id).await?;
+    let product = load_product(db.statement(), &change.product_id).await?;
     assert_receipt_traceability(&product, &change.product_id, change)?;
     let keys = Keys {
         product_id: &change.product_id,
@@ -413,14 +539,14 @@ pub(crate) async fn apply_stock_change(
         now: now.clone(),
         guarded: change.delta < 0 && !product.allow_backorder,
     };
-    let (inventory_id, new_quantity) = match increment(db, &keys, &inc).await? {
+    let (inventory_id, new_quantity) = match increment(db.statement(), &keys, &inc).await? {
         Some(updated) => updated,
-        None => resolve_missing_bucket(db, change, &product, &keys, &inc, &now).await?,
+        None => resolve_missing_bucket(&mut db, change, &product, &keys, &inc, &now).await?,
     };
     let previous_quantity = new_quantity - change.delta;
     let adjustment_id = generate_id("adj");
     audit_and_roll_up(
-        db,
+        db.unit(),
         &adjustment_id,
         &inventory_id,
         &change.product_id,
@@ -445,7 +571,7 @@ pub(crate) async fn apply_stock_change(
         &now,
     )
     .await?;
-    let product_quantity = product_quantity(db, &change.product_id).await?;
+    let product_quantity = product_quantity(db.statement(), &change.product_id).await?;
     Ok(StockResult {
         inventory_id,
         adjustment_id,
@@ -455,17 +581,28 @@ pub(crate) async fn apply_stock_change(
     })
 }
 
+/// What [`apply_stock_change`] would refuse for the receipt `change` (a
+/// positive delta), checked without writing anything: a warehouse another
+/// system owns, an unknown product, a missing lot or expiry date. A receive
+/// that posts several lines checks them all first, so a refusal leaves no
+/// line half posted.
+pub(crate) async fn check_receipt(db: &PgPool, change: &StockChange) -> Result<(), LedgerError> {
+    refuse_managed(db, &change.warehouse_id).await?;
+    let product = load_product(db, &change.product_id).await?;
+    assert_receipt_traceability(&product, &change.product_id, change)
+}
+
 /// The increment matched nothing: a missing bucket (create it), or one the
 /// oversell guard refused.
-async fn resolve_missing_bucket(
-    db: &PgPool,
+async fn resolve_missing_bucket<D: LedgerDb>(
+    db: &mut D,
     change: &StockChange,
     product: &Product,
     keys: &Keys<'_>,
     inc: &Increment,
     now: &str,
 ) -> Result<(String, i64), LedgerError> {
-    if let Some((_, on_hand)) = find_bucket(db, keys).await? {
+    if let Some((_, on_hand)) = find_bucket(db.statement(), keys).await? {
         return Err(insufficient_stock(
             on_hand.map_or(0, i64::from),
             change.delta,
@@ -474,13 +611,13 @@ async fn resolve_missing_bucket(
     if change.delta < 0 && !product.allow_backorder {
         return Err(insufficient_stock(0, change.delta));
     }
-    if let Some(created) = insert_bucket(db, change, now).await? {
+    if let Some(created) = insert_bucket(db.statement(), change, now).await? {
         return Ok(created);
     }
-    if let Some(retried) = increment(db, keys, inc).await? {
+    if let Some(retried) = increment(db.statement(), keys, inc).await? {
         return Ok(retried);
     }
-    let raced = find_bucket(db, keys).await?;
+    let raced = find_bucket(db.statement(), keys).await?;
     let on_hand = raced.and_then(|(_, on_hand)| on_hand).map_or(0, i64::from);
     Err(insufficient_stock(on_hand, change.delta))
 }
@@ -538,6 +675,10 @@ pub(crate) async fn transfer_stock(
             "Source and destination are the same location",
         ));
     }
+    // Both ends before the debit, so a managed destination doesn't leave a
+    // debit and its compensation behind.
+    refuse_managed(db, &transfer.from.warehouse_id).await?;
+    refuse_managed(db, &transfer.to.warehouse_id).await?;
     let now = crate::now();
     let now_ms = time::OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000;
     let movement_id = generate_id("mov");
@@ -662,6 +803,7 @@ pub(crate) async fn allocate_stock(
             "Allocation quantity must be positive",
         ));
     }
+    refuse_managed_bucket(db, inventory_id).await?;
     let updated: Option<(String,)> = sqlx::query_as(
         "update inventory t set quantity_allocated = coalesce(t.quantity_allocated, 0) + $2, \
          quantity_available = t.quantity_on_hand - (coalesce(t.quantity_allocated, 0) + $2), \
@@ -704,6 +846,7 @@ pub(crate) async fn release_allocation(
     if quantity <= 0 {
         return Err(stock("INVALID_DELTA", "Release quantity must be positive"));
     }
+    refuse_managed_bucket(db, inventory_id).await?;
     let updated: Option<(String,)> = sqlx::query_as(
         "update inventory t set quantity_allocated = coalesce(t.quantity_allocated, 0) - $2, \
          quantity_available = t.quantity_on_hand - (coalesce(t.quantity_allocated, 0) - $2), \
@@ -749,6 +892,7 @@ pub(crate) async fn issue_allocated_stock(
     if issue.quantity <= 0 {
         return Err(stock("INVALID_DELTA", "Issue quantity must be positive"));
     }
+    refuse_managed_bucket(db, issue.inventory_id).await?;
     let now = crate::now();
     let row: Option<Value> = sqlx::query_scalar(
         "update inventory t set quantity_on_hand = t.quantity_on_hand - $2, \

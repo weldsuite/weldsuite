@@ -1,0 +1,67 @@
+{
+  "description": "December peak with two years of history: 10 a day, 30 a day in December.",
+  "notes": [
+    "History 2024-11-18 to 2026-11-17: every calendar month has exactly two months of days, y = 730 / 365 = 2.",
+    "mean(all) = 4270 / 365 = 11.699; raw_Dec = 2.5644, raw_other = 0.8548; shrunk by y/(y+1) = 2/3: 2.0429 and 0.9032; their mean 0.99818 -> s_Dec = 2.04666, s_other = 0.90485.",
+    "Deseasonalised: 10 / 0.90485 = 11.0516 (other months), 30 / 2.04666 = 14.658 (December); last December carries 0.03% of the weight -> level 11.0527, sigma 0.0632.",
+    "Forecast: November 11.0527 x 0.90485 = 10.001 a day, December 11.0527 x 2.04666 = 22.621 a day.",
+    "D_L = 13 November days (130.01) + 1 December day (22.62) = 152.63; s_L = (13 x 0.90485 + 2.04666) / 14 = 0.98641; safety stock ceil(1.645 x 0.0632 x 0.98641 x sqrt 14) = ceil(0.38) = 1 -> reorder point 153 + 1 = 154.",
+    "D_R = 7 December days = 158.35 -> order-up-to 154 + 159 = 313. Position 150 <= 154 -> raw 163 -> packs of 10 -> 170; value 680.",
+    "forecast_30d = 130.01 + 17 x 22.621 = 514.57 -> cover 150 / 17.152 = 8.75 days; the cumulative forecast passes 150 on December 1 (152.63)."
+  ],
+  "input": {
+    "today": "2026-11-18",
+    "history_start": "2024-11-18",
+    "daily_demand": [[10,13],[30,31],[10,334],[30,31],[10,321]],
+    "first_activity": "2024-01-01",
+    "lead_time_days": 14,
+    "review_period_days": 7,
+    "service_level": 0.95,
+    "rule": {
+      "method": "auto"
+    },
+    "supplier": {
+      "min_order_qty": null,
+      "order_multiple": 10,
+      "unit_cost": 4
+    },
+    "position": {
+      "on_hand": 150,
+      "allocated": 0,
+      "incoming": 0,
+      "open_demand": 0
+    },
+    "receipts": []
+  },
+  "tolerance": 0.000001,
+  "expected": {
+    "method": "seasonal",
+    "confidence": "ok",
+    "history_days": 730,
+    "nonzero_days": 730,
+    "avg_daily_demand": 11.052679147,
+    "demand_std_dev": 0.063232007,
+    "seasonality": [0.904848801,0.904848801,0.904848801,0.904848801,0.904848801,0.904848801,0.904848801,0.904848801,0.904848801,0.904848801,0.904848801,2.046663191],
+    "forecast_30d": 514.571941837,
+    "forecast_90d": 1291.313663549,
+    "safety_stock": 1,
+    "reorder_point": 154,
+    "order_up_to": 313,
+    "inventory_position": 150,
+    "days_of_cover": 8.745132865,
+    "stockout_date": "2026-12-01",
+    "suggested_qty": 170,
+    "suggested_value": 680,
+    "daily_forecast": {
+      "len": 91,
+      "at": {
+        "0": 10.001003472,
+        "13": 22.62111157,
+        "14": 22.62111157,
+        "30": 22.62111157,
+        "45": 10.001003472,
+        "90": 10.001003472
+      }
+    }
+  }
+}

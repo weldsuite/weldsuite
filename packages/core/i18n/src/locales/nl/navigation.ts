@@ -161,6 +161,8 @@ export const navigation = {
         stock: 'Voorraad',
         pickLists: 'Picklijsten',
         packing: 'Inpakken',
+        purchaseOrders: 'Inkooporders',
+        replenishment: 'Aanvulling',
       },
       welddata: {
         findLeads: 'Leads zoeken',

@@ -107,6 +107,8 @@ fn version() -> String {
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // Before any subcommand can reach Odoo (serve, cron, consume).
+    routes::install_odoo_http();
     match args.first().map(String::as_str) {
         Some("serve") => serve(),
         Some("consume") => consume::run(),

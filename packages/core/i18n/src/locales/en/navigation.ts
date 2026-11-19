@@ -161,6 +161,8 @@ export const navigation = {
         stock: 'Stock',
         pickLists: 'Pick lists',
         packing: 'Packing',
+        purchaseOrders: 'Purchase orders',
+        replenishment: 'Replenishment',
       },
       welddata: {
         findLeads: 'Find Leads',

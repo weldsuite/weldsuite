@@ -107,6 +107,9 @@ pub use runs::{
     RequestWorkflowRuns, WorkflowRuns,
 };
 pub use schedule_sweep::{ScheduleTenants, run_schedule_sweep};
+/// The transport every Odoo request goes through (WeldConnect's syncs,
+/// tests and catch-up probes, WeldStash's RFQ push), installed by the binary.
+pub use weldsuite_connect_domain::odoo::install_transport as install_odoo_transport;
 pub use workflow_actions::{WorkflowActionsState, router as workflow_actions_router};
 
 /// Opens a workspace's tenant database by `workspaces.id` or Clerk org id,
@@ -152,6 +155,11 @@ pub struct ConnectState {
     /// answers as connect-api without its gateway. A request's `Ai`
     /// (conformance) wins.
     pub ai: Option<weldsuite_ai::Ai>,
+    /// The edition whose connectors the catalog lists (`editions` in
+    /// `catalog.ts`, ADR INT-012): `kubernetes` normally, `global` in
+    /// conformance builds, which compare against Global's TypeScript
+    /// catalog (it hides Odoo).
+    pub connector_edition: &'static str,
 }
 
 impl std::fmt::Debug for ConnectState {

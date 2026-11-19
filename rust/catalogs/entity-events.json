@@ -1102,6 +1102,11 @@
     "deleted",
     "archived"
   ],
+  "product_supplier": [
+    "created",
+    "updated",
+    "deleted"
+  ],
   "project": [
     "created",
     "updated",
@@ -1271,7 +1276,11 @@
     "created",
     "updated",
     "deleted",
-    "approved"
+    "approved",
+    "ordered",
+    "received",
+    "cancelled",
+    "closed"
   ],
   "putaway": [
     "created",
@@ -1321,6 +1330,19 @@
     "updated",
     "deleted"
   ],
+  "reorder_rule": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "replenishment_run": [
+    "created",
+    "completed",
+    "failed"
+  ],
+  "replenishment_settings": [
+    "updated"
+  ],
   "resource_booking": [
     "created",
     "updated",
@@ -1347,6 +1369,11 @@
   "return_rule": [
     "created",
     "updated",
+    "deleted"
+  ],
+  "sales_history_import": [
+    "created",
+    "completed",
     "deleted"
   ],
   "sales_tax_agency": [

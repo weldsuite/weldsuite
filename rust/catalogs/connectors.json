@@ -327,6 +327,101 @@
           "syncName": "picqer-movements"
         }
       ]
+    },
+    {
+      "auth": {
+        "fields": [
+          {
+            "key": "url",
+            "label": "Odoo URL",
+            "placeholder": "https://yourcompany.odoo.com",
+            "required": true,
+            "type": "url"
+          },
+          {
+            "key": "database",
+            "label": "Database",
+            "placeholder": "yourcompany",
+            "required": true,
+            "type": "text"
+          },
+          {
+            "key": "login",
+            "label": "User login",
+            "placeholder": "api@yourcompany.com",
+            "required": true,
+            "type": "text"
+          },
+          {
+            "key": "apiKey",
+            "label": "API key",
+            "placeholder": "…",
+            "required": true,
+            "type": "secret"
+          }
+        ],
+        "kind": "api_key"
+      },
+      "category": "erp",
+      "delivery": "poll",
+      "description": "Sync products, suppliers, stock, purchase orders and sales history from Odoo for WeldStash replenishment, and send reorders back as RFQs.",
+      "editions": [
+        "kubernetes"
+      ],
+      "icon": "factory",
+      "label": "Odoo",
+      "provider": "odoo",
+      "syncs": [
+        {
+          "externalEntityType": "odoo_warehouse",
+          "internalEntity": "warehouse",
+          "model": "OdooWarehouse",
+          "settingKey": "warehouses",
+          "syncName": "odoo-warehouses"
+        },
+        {
+          "externalEntityType": "odoo_product",
+          "internalEntity": "product",
+          "model": "OdooProduct",
+          "settingKey": "products",
+          "syncName": "odoo-products"
+        },
+        {
+          "externalEntityType": "odoo_supplier",
+          "internalEntity": "supplier",
+          "model": "OdooSupplier",
+          "settingKey": "suppliers",
+          "syncName": "odoo-suppliers"
+        },
+        {
+          "externalEntityType": "odoo_supplierinfo",
+          "internalEntity": "product_supplier",
+          "model": "OdooSupplierInfo",
+          "settingKey": "productSuppliers",
+          "syncName": "odoo-product-suppliers"
+        },
+        {
+          "externalEntityType": "odoo_stock",
+          "internalEntity": "inventory",
+          "model": "OdooStockQuant",
+          "settingKey": "inventory",
+          "syncName": "odoo-stock"
+        },
+        {
+          "externalEntityType": "odoo_purchase_order",
+          "internalEntity": "purchase_order",
+          "model": "OdooPurchaseOrder",
+          "settingKey": "purchaseOrders",
+          "syncName": "odoo-purchase-orders"
+        },
+        {
+          "externalEntityType": "odoo_sale_line",
+          "internalEntity": "sales_history",
+          "model": "OdooSaleOrderLine",
+          "settingKey": "sales",
+          "syncName": "odoo-sales"
+        }
+      ]
     }
   ],
   "defaultFieldMappings": {

@@ -62,6 +62,9 @@ import { createMailAiApi } from '@weldsuite/app-api-client/domains/mail-ai';
 import { createAiApi } from '@weldsuite/app-api-client/domains/ai';
 import { createAiSettingsApi } from '@weldsuite/app-api-client/domains/ai-settings';
 import { createWmsSuppliersApi } from '@weldsuite/app-api-client/domains/wms-suppliers';
+import { createProductSuppliersApi } from '@weldsuite/app-api-client/domains/product-suppliers';
+import { createPurchaseOrdersApi } from '@weldsuite/app-api-client/domains/purchase-orders';
+import { createReplenishmentApi } from '@weldsuite/app-api-client/domains/replenishment';
 import { createFeatureFlagsApi } from '@weldsuite/app-api-client/domains/feature-flags';
 import { createWeldAgentApi } from '@weldsuite/app-api-client/domains/weldagent';
 import { createWeldAgentParityApi } from '@weldsuite/app-api-client/domains/weldagent-parity';
@@ -222,6 +225,10 @@ export function useAppApi() {
       mailSending: createMailSendingApi(lazyClient),
       mailAi: createMailAiApi(lazyClient),
       wmsSuppliers: createWmsSuppliersApi(lazyClient),
+      // WeldStash purchasing and replenishment (the last two are served by the Rust backend only).
+      purchaseOrders: createPurchaseOrdersApi(lazyClient),
+      productSuppliers: createProductSuppliersApi(lazyClient),
+      replenishment: createReplenishmentApi(lazyClient),
       featureFlags: createFeatureFlagsApi(lazyClient),
       weldAgent: createWeldAgentApi(lazyClient),
       weldAgentParity: createWeldAgentParityApi(lazyClient),

@@ -26,7 +26,8 @@ use crate::args::{Arg, bind_scalar, created_cursor, cursor_sql, page_list};
 use crate::crud::{cursor_failed, soft_delete, write_failed};
 use crate::js::{js_limit, number_text, query_param, query_set, sql_limit};
 use crate::ledger::{
-    Endpoint, LedgerError, StockChange, Transfer, apply_stock_change, transfer_stock,
+    Endpoint, LedgerError, StockChange, Transfer, apply_stock_change, managed_warehouse,
+    transfer_stock, warehouse_is_managed,
 };
 use crate::rows::inventory_row;
 use crate::tables::{INVENTORY, STOCK_ADJUSTMENTS};
@@ -84,6 +85,45 @@ pub(crate) fn ledger_error(error: LedgerError, fallback: &str) -> Response {
             .with_details(json!({ "code": code }))
             .into_response(),
         LedgerError::Database(error) => internal(&error, fallback),
+    }
+}
+
+/// A bucket write outside the ledger (create, patch, delete) in a warehouse
+/// another system owns: refused as the ledger refuses it (ADR STASH-010).
+/// `None` for every other warehouse, which goes through unchanged.
+pub(crate) async fn refuse_managed(
+    db: &weldsuite_db::PgPool,
+    warehouse_id: Option<&str>,
+    fallback: &str,
+) -> Option<Response> {
+    let warehouse_id = warehouse_id.filter(|id| !id.is_empty())?;
+    match warehouse_is_managed(db, warehouse_id).await {
+        Ok(false) => None,
+        Ok(true) => Some(ledger_error(managed_warehouse(), fallback)),
+        Err(error) => Some(internal(&error, fallback)),
+    }
+}
+
+/// [`refuse_managed`] for the warehouse of the location `location_id`: a
+/// patch may not move a bucket to a location of a warehouse another system
+/// owns. `None` for every other location (an unknown one included).
+async fn refuse_managed_location(
+    db: &weldsuite_db::PgPool,
+    location_id: Option<&str>,
+    fallback: &str,
+) -> Option<Response> {
+    let location_id = location_id.filter(|id| !id.is_empty())?;
+    let managed: Result<Option<bool>, sqlx::Error> = sqlx::query_scalar(
+        "select coalesce(w.managed_by_connection_id, '') <> '' from warehouse_locations l \
+         join warehouses w on w.id = l.warehouse_id where l.id = $1 limit 1",
+    )
+    .bind(location_id)
+    .fetch_optional(db)
+    .await;
+    match managed {
+        Ok(None | Some(false)) => None,
+        Ok(Some(true)) => Some(ledger_error(managed_warehouse(), fallback)),
+        Err(error) => Some(internal(&error, fallback)),
     }
 }
 
@@ -465,6 +505,15 @@ async fn create(
         Ok(data) => data,
         Err(refusal) => return refusal.respond("Failed to create inventory"),
     };
+    if let Some(refused) = refuse_managed(
+        &caller.db,
+        data.get("warehouseId").and_then(Value::as_str),
+        "Failed to create inventory",
+    )
+    .await
+    {
+        return refused;
+    }
     let id = generate_id("inv");
     let now = now();
     let get = |key: &str| data.get(key).cloned().unwrap_or(Value::Null);
@@ -830,6 +879,36 @@ async fn update(
         }
         Err(error) => return internal(&error, "Failed to update inventory"),
     };
+    if let Some(refused) = refuse_managed(
+        &caller.db,
+        existing.get("warehouseId").and_then(Value::as_str),
+        "Failed to update inventory",
+    )
+    .await
+    {
+        return refused;
+    }
+    // Nor may the patch move the bucket into one: a target warehouse (the
+    // update schema leaves `warehouseId` out today, so this guards a later
+    // change) or a location of one.
+    if let Some(refused) = refuse_managed(
+        &caller.db,
+        data.get("warehouseId").and_then(Value::as_str),
+        "Failed to update inventory",
+    )
+    .await
+    {
+        return refused;
+    }
+    if let Some(refused) = refuse_managed_location(
+        &caller.db,
+        data.get("locationId").and_then(Value::as_str),
+        "Failed to update inventory",
+    )
+    .await
+    {
+        return refused;
+    }
     let mut props = Map::new();
     props.insert("updatedAt".to_owned(), json!(now()));
     for (key, value) in &data {
@@ -883,6 +962,15 @@ async fn remove(
         }
         Err(error) => return internal(&error, "Failed to delete inventory"),
     };
+    if let Some(refused) = refuse_managed(
+        &caller.db,
+        existing.get("warehouseId").and_then(Value::as_str),
+        "Failed to delete inventory",
+    )
+    .await
+    {
+        return refused;
+    }
     if let Err(error) = soft_delete(&caller.db, &INVENTORY, &id).await {
         return write_failed(&error, "Failed to delete inventory");
     }

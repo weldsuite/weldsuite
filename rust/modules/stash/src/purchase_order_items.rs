@@ -64,24 +64,24 @@ where
 /// A line's figures: whole units, at most two decimals for prices and
 /// percentages.
 #[derive(Debug, Clone, Copy)]
-struct Figures {
-    quantity_ordered: i64,
-    quantity_received: i64,
-    unit_price: f64,
-    discount_percent: f64,
-    tax_percent: f64,
+pub(crate) struct Figures {
+    pub(crate) quantity_ordered: i64,
+    pub(crate) quantity_received: i64,
+    pub(crate) unit_price: f64,
+    pub(crate) discount_percent: f64,
+    pub(crate) tax_percent: f64,
 }
 
 /// What the server fills from a line's figures (`lineAmounts`).
 #[derive(Debug, PartialEq, Eq)]
-struct Amounts {
-    unit_price: String,
-    discount_percent: String,
-    tax_percent: String,
-    discount_amount: String,
-    tax_amount: String,
-    total: String,
-    quantity_pending: i64,
+pub(crate) struct Amounts {
+    pub(crate) unit_price: String,
+    pub(crate) discount_percent: String,
+    pub(crate) tax_percent: String,
+    pub(crate) discount_amount: String,
+    pub(crate) tax_amount: String,
+    pub(crate) total: String,
+    pub(crate) quantity_pending: i64,
 }
 
 /// `Math.round` for the non-negative values here.
@@ -105,7 +105,7 @@ fn two_decimal_text(value: f64) -> String {
 /// `lineAmounts(line)`: quantity x unit price, less the discount percentage,
 /// plus tax on what is left; every step rounds to the cent.
 #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)] // bounded by the schema
-fn line_amounts(line: Figures) -> Amounts {
+pub(crate) fn line_amounts(line: Figures) -> Amounts {
     let gross = line.quantity_ordered as f64 * js_round(line.unit_price * 100.0);
     let discount = js_round((gross * line.discount_percent) / 100.0);
     let net = gross - discount;

@@ -229,7 +229,29 @@ fn stash(router: Router<AppState>, state: &AppState) -> Router<AppState> {
             .flatten()
             .map(|client| weldsuite_ports::OutboundHttp(Arc::new(client))),
     };
-    router.merge(weldsuite_stash::router(stash, &state.permissions))
+    // Replenishment: the planning run where the jobs adapter calls it, and
+    // what its routes need beyond the stash state (the due index of the
+    // nightly runs, the jobs port).
+    state
+        .infra
+        .job_registry
+        .register(weldsuite_stash::replenishment::ReplenishmentRunJob {
+            tenants: tenant_databases(state),
+            events: state.infra.events.clone(),
+            notifier: weldsuite_notifications::Notifier {
+                realtime: state.infra.realtime.clone(),
+                ..weldsuite_notifications::Notifier::default()
+            },
+        });
+    let replenishment = weldsuite_stash::replenishment::Services {
+        master: Some(state.workspaces.master().clone()),
+        jobs: Some(Arc::clone(&state.infra.jobs)),
+    };
+    // On the stash routes only (not a fallback the merge could pick up).
+    router.merge(
+        weldsuite_stash::router(stash, &state.permissions)
+            .route_layer(axum::Extension(replenishment)),
+    )
 }
 
 /// WeldCRM (`weldsuite-crm`): crm-api's routes at their own prefixes
@@ -547,6 +569,7 @@ pub(crate) fn cron_connect_state(
         storage: infra.public_files.clone(),
         // The cron jobs serve no AI route.
         ai: None,
+        connector_edition: "kubernetes",
     }
 }
 
@@ -597,6 +620,8 @@ pub(crate) fn connect_state(state: &AppState) -> weldsuite_connect::ConnectState
         },
         // "Generate with AI"; a conformance request carries the test's own.
         ai: state.ai.clone(),
+        // Conformance compares the catalog with Global's, which hides Odoo.
+        connector_edition: if conformance { "global" } else { "kubernetes" },
     }
 }
 
@@ -1052,6 +1077,41 @@ pub(crate) fn merge_http() -> Option<weldsuite_ports::OutboundHttp> {
             .map(|client| weldsuite_ports::OutboundHttp(Arc::new(client)))
     })
     .clone()
+}
+
+/// The Odoo connector's HTTP client, made once per process. A member chooses
+/// the Odoo host (and every later sync and RFQ push reuses it), so the
+/// client connects only to public addresses: the pod sits next to the
+/// cluster's own services. `ODOO_ALLOW_PRIVATE_NETWORKS=true` lifts that for
+/// a self-hosted install whose Odoo is on its own network.
+pub(crate) fn odoo_http() -> Option<weldsuite_ports::OutboundHttp> {
+    static HTTP: OnceLock<Option<weldsuite_ports::OutboundHttp>> = OnceLock::new();
+    HTTP.get_or_init(|| {
+        let timeout = std::time::Duration::from_secs(30);
+        let allow_private =
+            std::env::var("ODOO_ALLOW_PRIVATE_NETWORKS").is_ok_and(|value| value == "true");
+        let client = if allow_private {
+            weldsuite_adapters_oss::ReqwestOutbound::new(timeout)
+        } else {
+            weldsuite_adapters_oss::ReqwestOutbound::public_only(timeout)
+        };
+        client
+            .ok()
+            .map(|client| weldsuite_ports::OutboundHttp(Arc::new(client)))
+    })
+    .clone()
+}
+
+/// Sends every Odoo request through [`odoo_http`] (built on the first):
+/// WeldConnect's syncs, credential tests and catch-up probes and WeldStash's
+/// RFQ push, whichever module's HTTP client they hold. A client that could
+/// not be built leaves Odoo unreachable, never on the unrestricted one.
+/// Conformance builds keep the test's fetch stub.
+pub(crate) fn install_odoo_http() {
+    if cfg!(feature = "conformance") {
+        return;
+    }
+    weldsuite_connect::install_odoo_transport(odoo_http);
 }
 
 /// WeldMerge's public routes (`/public/merge/github/setup`, the GitHub App's

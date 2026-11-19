@@ -74,11 +74,13 @@ describe('billing provider', () => {
 });
 
 describe('edition flags', () => {
-  it('offers everything on Global (no runtime config)', () => {
+  it('offers everything on Global (no runtime config) but the Rust-only features', () => {
     expect(offeredModules()).toBeNull();
     expect(isModuleOffered('crm')).toBe(true);
     expect(isAppOffered('welddesk')).toBe(true);
-    for (const feature of EDITION_FEATURES) expect(isFeatureAvailable(feature)).toBe(true);
+    for (const feature of EDITION_FEATURES) {
+      expect(isFeatureAvailable(feature), feature).toBe(!GLOBAL_UNAVAILABLE_FEATURES.includes(feature));
+    }
   });
 
   it('offers everything when the config has no module list', () => {
@@ -165,7 +167,10 @@ describe('edition flags', () => {
 
   it('hides the features the backend lists as unavailable', () => {
     setRuntimeConfig(EU_CONFIG);
-    for (const feature of EDITION_FEATURES) expect(isFeatureAvailable(feature)).toBe(false);
+    // The EU config lists every feature but the Rust-only ones, which it serves.
+    for (const feature of EDITION_FEATURES) {
+      expect(isFeatureAvailable(feature), feature).toBe(GLOBAL_UNAVAILABLE_FEATURES.includes(feature));
+    }
     setRuntimeConfig({ backend: 'rust', modules: ['core'], unavailableFeatures: ['billing', 'a-future-feature'] });
     expect(isFeatureAvailable('billing')).toBe(false);
     expect(isFeatureAvailable('credit-top-up')).toBe(true);
@@ -200,5 +205,19 @@ describe('edition flags', () => {
     setRuntimeConfig(null);
     expect(isModuleOffered('sheets')).toBe(true);
     expect(isAppOffered('welddocs')).toBe(true);
+  });
+});
+
+describe('stash-replenishment', () => {
+  it('is hidden on Global, which has no runtime config', () => {
+    setRuntimeConfig(null);
+    expect(isFeatureAvailable('stash-replenishment')).toBe(false);
+  });
+
+  it('is offered by a Rust backend that does not list it as unavailable', () => {
+    setRuntimeConfig(EU_CONFIG);
+    expect(isFeatureAvailable('stash-replenishment')).toBe(true);
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'stash'], unavailableFeatures: ['billing'] });
+    expect(isFeatureAvailable('stash-replenishment')).toBe(true);
   });
 });

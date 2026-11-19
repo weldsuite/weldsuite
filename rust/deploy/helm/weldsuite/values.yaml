@@ -1358,6 +1358,15 @@ cron:
       enabled: true
       schedule: "0 * * * *"
       activeDeadlineSeconds: 3000
+    # WeldStash: the nightly replenishment planning runs, for the workspaces
+    # the stash_replenishment due index lists (each at its own UTC run hour).
+    # With Restate the runs are jobs in serve; without it they run in this
+    # pod, which waits up to 45 minutes. Does nothing while stash is not
+    # served.
+    stash-replenishment:
+      enabled: true
+      schedule: "20 * * * *"
+      activeDeadlineSeconds: 3000
     # WeldAgent: the due cron routines of the workspaces the weldagent_routine
     # due index lists. Does nothing without AI (config.ai) or while the agent
     # module is not served.

@@ -224,7 +224,9 @@ pub(crate) fn read_settings(
 /// `settingsError(provider, settings)`.
 fn settings_error(provider: &str, settings: Option<&Map<String, Value>>) -> Option<&'static str> {
     let settings = settings?;
-    if settings.contains_key("importStartDate") && provider != "stripe" {
+    // Odoo (Rust only, so Global never sees it) reads it as the first day of
+    // sales history to import (`weldsuite_connect_domain::odoo`).
+    if settings.contains_key("importStartDate") && provider != "stripe" && provider != "odoo" {
         return Some("importStartDate only applies to Stripe connections");
     }
     if settings.contains_key("moneybirdPush") && provider != "moneybird" {

@@ -71,6 +71,10 @@ const ROUTE_REQUIREMENTS: ReadonlyArray<readonly [prefix: string, requirement: E
   // WeldPanel's settings (usage, exports, API) need the analytics backend,
   // which the Kubernetes editions lack: they serve only the Projects pages.
   ['/settings/apps/weldpanel', { modules: ['panel'], feature: 'panel-analytics' }],
+  // WeldStash's settings and Replenishment exist only on the Rust backend
+  // (ADR OPS-025); its purchase orders keep their create, edit and delete on Global.
+  ['/settings/apps/weldstash', { modules: ['stash'], feature: 'stash-replenishment' }],
+  ['/weldstash/replenishment', { modules: ['stash'], feature: 'stash-replenishment' }],
 ];
 
 function matchesPrefix(pathname: string, prefix: string): boolean {

@@ -42,6 +42,7 @@ import type { TranslationsType } from '@/lib/i18n/types';
 import { useInstalledApps } from '@/hooks/use-installed-apps';
 import { useI18n } from '@/lib/i18n/provider';
 import { isRouteOffered } from '@/lib/edition-routes';
+import { isFeatureAvailable } from '@/lib/edition';
 import { usePermissions } from '@weldsuite/permissions/react';
 
 function makeAppLogoIcon(appCode: string, name: string) {
@@ -70,6 +71,7 @@ const APP_SETTINGS_ITEMS = [
   { appCode: 'weldforms', title: 'WeldForms', href: '/settings/apps/weldforms' },
   { appCode: 'weldhr', title: 'WeldHR', href: '/settings/apps/weldhr' },
   { appCode: 'weldmail', title: 'WeldMail', href: '/settings/apps/weldmail' },
+  { appCode: 'weldstash', title: 'WeldStash', href: '/settings/apps/weldstash' },
   { appCode: 'weldmerge', title: 'WeldMerge', href: '/settings/apps/weldmerge' },
   { appCode: 'weldpanel', title: 'WeldPanel', href: '/settings/apps/weldpanel' },
   { appCode: 'weldreach', title: 'WeldReach', href: '/settings/apps/weldreach' },
@@ -143,7 +145,8 @@ export function useSettingsSidebarItems(enabled: boolean) {
     const appsItems = [
       WELDSUITE_SETTINGS_ITEM,
       ...APP_SETTINGS_ITEMS
-        .filter((item) => installedAppCodes.has(item.appCode))
+        // WeldStash's settings (replenishment) exist on the Kubernetes editions only.
+        .filter((item) => installedAppCodes.has(item.appCode) && (item.appCode !== 'weldstash' || isFeatureAvailable('stash-replenishment')))
         .map(({ appCode, title, href, icon }): MenuItemProps => ({
           title: appCode === 'parcel' ? ts.menu.parcel : title,
           href,

@@ -15,7 +15,9 @@ export const ACCOUNTING_ENTITY_EVENTS = {
   invoice: ['created', 'updated', 'deleted', 'paid', 'overdue', 'sent'],
   journal_entry: ['created', 'updated', 'deleted'],
   payment: ['created', 'updated', 'deleted'],
-  purchase_order: ['created', 'updated', 'deleted', 'approved'],
+  // `ordered`, `received`, `cancelled` and `closed` come from WeldStash's
+  // purchase-order actions on the Rust backend (rust/modules/stash).
+  purchase_order: ['created', 'updated', 'deleted', 'approved', 'ordered', 'received', 'cancelled', 'closed'],
   reconciliation_rule: ['created', 'updated', 'deleted'],
   recurring_invoice: ['created', 'updated', 'deleted'],
   tax_rate: ['created', 'updated', 'deleted'],

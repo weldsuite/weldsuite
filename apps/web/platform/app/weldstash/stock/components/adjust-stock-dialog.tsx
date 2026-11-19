@@ -95,7 +95,8 @@ export function AdjustStockDialog({
                 <Select value={field.value ?? ''} onValueChange={field.onChange}>
                   <SelectTrigger><SelectValue placeholder={t.weldstash.stock.placeholderWarehouse} /></SelectTrigger>
                   <SelectContent>
-                    {warehouses.data?.data.map((w) => (
+                    {/* A warehouse managed in Odoo keeps its stock there: nothing can be adjusted here. */}
+                    {warehouses.data?.data.filter((w) => !w.managedByConnectionId).map((w) => (
                       <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
                     ))}
                   </SelectContent>

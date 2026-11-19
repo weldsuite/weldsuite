@@ -112,6 +112,12 @@
 //!   that are done: their agent exited when idle, Kubernetes stopped them at
 //!   their lifetime, or they never started (`weldsuite_sandbox::Sandboxes::cleanup`).
 //!   Nothing without `SANDBOX_ENABLED`.
+//! - `stash-replenishment` (hourly, at :20): WeldStash's nightly planning
+//!   runs, for the workspaces the `stash_replenishment` due index lists (each
+//!   plans at its own `run_hour_utc`;
+//!   `weldsuite_stash::replenishment::run_replenishment_sweep`). The runs go
+//!   to Restate when it is configured; otherwise they run in this process,
+//!   which waits for them. Nothing while stash is not served.
 //!
 //! A job takes the same environment as `serve`. It prints what it did as one
 //! JSON line and exits 0 even when a workspace failed (the due index retries
@@ -169,7 +175,7 @@ impl weldsuite_forms::TenantResolver for WorkspaceTenants {
     }
 }
 
-const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, flow-approval-due, flow-benefit-measure, flow-status-reports, flow-finance-snapshot, books-sweep, domain-auto-renew, desk-sla-sweep, desk-report-sweep, asset-import-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due, crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup, moneybird-push, merge-digest-sweep, forms-reminders, forms-digest, weldagent-routines, sandbox-cleanup, billing-renewals, panel-usage, panel-maintenance, panel-schedule";
+const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, flow-approval-due, flow-benefit-measure, flow-status-reports, flow-finance-snapshot, books-sweep, domain-auto-renew, desk-sla-sweep, desk-report-sweep, asset-import-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due, crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup, moneybird-push, merge-digest-sweep, forms-reminders, forms-digest, weldagent-routines, sandbox-cleanup, billing-renewals, panel-usage, panel-maintenance, panel-schedule, stash-replenishment";
 
 /// `weldsuite cron <job>`.
 #[allow(clippy::too_many_lines)] // one arm per job
@@ -212,7 +218,8 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
         | "billing-renewals"
         | "panel-usage"
         | "panel-maintenance"
-        | "panel-schedule"),
+        | "panel-schedule"
+        | "stash-replenishment"),
     ) = job
     else {
         eprintln!("usage: weldsuite cron <job>\n{JOBS}");
@@ -275,6 +282,7 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
             "panel-usage" => Box::pin(panel_usage(config)).await,
             "panel-maintenance" => Box::pin(panel_maintenance(config)).await,
             "panel-schedule" => Box::pin(crate::panel_monitor::panel_schedule(config)).await,
+            "stash-replenishment" => stash_replenishment(config).await,
             _ => sign_lifecycle(config).await,
         }
     };
@@ -776,6 +784,89 @@ async fn sandbox_cleanup(config: Config) -> Result<(), Box<dyn std::error::Error
         "{}",
         serde_json::json!({ "job": "sandbox-cleanup", "result": report.to_json() })
     );
+    Ok(())
+}
+
+/// `weldsuite cron stash-replenishment`: start the planning run of each
+/// workspace the `stash_replenishment` due index lists, with replenishment
+/// on (`run_replenishment_sweep`). With Restate the runs are jobs in
+/// `serve`; without it they run here, and the job waits for them.
+async fn stash_replenishment(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    if !crate::routes::mounts("stash") {
+        println!(
+            "{}",
+            serde_json::json!({ "job": "stash-replenishment", "result": { "skipped": "stash is not served" } })
+        );
+        return Ok(());
+    }
+    let master =
+        weldsuite_db::master_pool(&config.master_database_url, config.master_max_connections)?;
+    let workspaces = Arc::new(Workspaces::new(
+        master.clone(),
+        config.keyring.clone(),
+        config.workspaces.clone(),
+    ));
+    let tracker = weldsuite_events::TaskTracker::new();
+    #[cfg(not(feature = "conformance"))]
+    let infra =
+        crate::infra::connect(&config.infra, &master, &config.keyring, tracker.clone()).await?;
+    #[cfg(feature = "conformance")]
+    let (infra, _) = crate::conformance::infra(tracker.clone());
+    let job_tenants = Arc::clone(&workspaces);
+    infra
+        .job_registry
+        .register(weldsuite_stash::replenishment::ReplenishmentRunJob {
+            tenants: Arc::new(move |reference: String| {
+                let workspaces = Arc::clone(&job_tenants);
+                Box::pin(async move {
+                    workspaces
+                        .tenant(&reference)
+                        .await
+                        .map(|tenant| tenant.db)
+                        .map_err(|error| error.to_string())
+                })
+            }),
+            events: infra.events.clone(),
+            notifier: weldsuite_notifications::Notifier {
+                realtime: infra.realtime.clone(),
+                ..weldsuite_notifications::Notifier::default()
+            },
+        });
+    let tenants: weldsuite_stash::replenishment::SweepTenants =
+        Arc::new(move |reference: String| {
+            let workspaces = Arc::clone(&workspaces);
+            Box::pin(async move {
+                let tenant = workspaces
+                    .tenant(&reference)
+                    .await
+                    .map_err(|error| error.to_string())?;
+                Ok((tenant.db, tenant.clerk_org_id))
+            })
+        });
+    let result = weldsuite_stash::replenishment::run_replenishment_sweep(
+        &master,
+        &tenants,
+        &infra.jobs,
+        &infra.events,
+        time::OffsetDateTime::now_utc(),
+    )
+    .await;
+    println!(
+        "{}",
+        serde_json::json!({
+            "job": "stash-replenishment",
+            "result": { "due": result.due, "processed": result.processed, "failed": result.failed },
+        })
+    );
+    // In-process runs and their events: let them finish, inside the chart's
+    // 50-minute deadline.
+    tracker.close();
+    if tokio::time::timeout(Duration::from_mins(45), tracker.wait())
+        .await
+        .is_err()
+    {
+        tracing::warn!("stopped with planning runs still in flight");
+    }
     Ok(())
 }
 

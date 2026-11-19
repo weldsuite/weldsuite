@@ -515,3 +515,10 @@ describe('Picqer mappers', () => {
     ).toMatchObject({ movementNumber: '6', quantity: 2, status: 'completed' });
   });
 });
+
+describe('Odoo-only entities', () => {
+  it('maps nothing for product suppliers and sales history, which only the Rust backend syncs', () => {
+    expect(mapConnectorRecord('product_supplier', { id: 7, product_tmpl_id: 1 }, 'odoo')).toBeNull();
+    expect(mapConnectorRecord('sales_history', { id: 8, product_uom_qty: 3 }, 'odoo')).toBeNull();
+  });
+});

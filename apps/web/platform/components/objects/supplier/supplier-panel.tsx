@@ -5,7 +5,11 @@
  * `isSupplier` set. The two are separate surfaces today.
  */
 
+import { Package } from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';
+import { usePermissionsMaybe } from '@weldsuite/permissions/react';
+import { isFeatureAvailable } from '@/lib/edition';
+import { ProductSuppliersSection } from '@/app/weldstash/product-suppliers/components/product-suppliers-section';
 import { getTranslations } from '@/lib/i18n';
 import { useWeldstashSupplier } from '@/hooks/queries/use-weldstash-queries';
 import {
@@ -13,13 +17,17 @@ import {
   formatPanelDate,
   type ObjectPanelComponentProps,
 } from '@/components/objects/_shared/simple-object-panel';
-import { detailsOnlyTabs } from '@/components/objects/_shared/focused-tabs';
+import { detailsTab, extraTab } from '@/components/objects/_shared/focused-tabs';
 
 export function SupplierPanel(props: Readonly<ObjectPanelComponentProps>) {
   const t = getTranslations('commerce').module;
   const { id } = props;
   const { data, isLoading, error } = useWeldstashSupplier(id);
   const supplier = data?.data;
+  const tw = getTranslations('weldstashPurchasing').productSuppliers;
+  // Product suppliers are served by the Rust backend only (Kubernetes editions).
+  const permissions = usePermissionsMaybe();
+  const showProducts = isFeatureAvailable('stash-replenishment') && (permissions?.can('weldstash:suppliers:read') ?? false);
 
   return (
     <SimpleObjectPanel
@@ -31,8 +39,10 @@ export function SupplierPanel(props: Readonly<ObjectPanelComponentProps>) {
       title={supplier?.name}
       subtitle={supplier?.code ?? undefined}
       openHref={supplier ? `/weldstash/suppliers?open=${supplier.id}` : undefined}
-      // Details only — purchase orders per supplier aren't wired to this panel.
-      tabs={detailsOnlyTabs(t.panel.tabDetails)}
+      tabs={[detailsTab(t.panel.tabDetails), ...(showProducts ? [extraTab('products', tw.titleForSupplier, Package)] : [])]}
+      renderTab={(tabId) =>
+        tabId === 'products' && showProducts ? <ProductSuppliersSection side="supplier" supplierId={id} /> : null
+      }
       statusBadges={
         supplier && (
           <Badge variant={supplier.isActive === false ? 'secondary' : 'default'} className="capitalize">

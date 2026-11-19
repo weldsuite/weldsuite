@@ -24,7 +24,9 @@
 //!   OAuth flows;
 //! - [`webhooks`]: provider webhook registration and ingest;
 //! - [`moneybird_push`]: the WeldBooks to Moneybird push;
-//! - [`catchup`]: the connector catch-up's due times and probe.
+//! - [`catchup`]: the connector catch-up's due times and probe;
+//! - [`odoo`]: the Odoo connector (client, syncs, mappers), for WeldStash
+//!   replenishment, on this backend only.
 //!
 //! The Picqer push (`publish-picqer.ts`) is connect-api's own and lives in
 //! `weldsuite-connect` on [`clients::Picqer::send`].
@@ -55,6 +57,7 @@ pub mod lists;
 pub mod mappers;
 pub mod moneybird;
 pub mod moneybird_push;
+pub mod odoo;
 pub mod provider;
 pub mod stripe;
 pub mod stripe_mappers;
