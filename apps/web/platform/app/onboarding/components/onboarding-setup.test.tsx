@@ -4,6 +4,8 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { common } from "../../../../../../packages/core/i18n/src/locales/en/common";
 import { setRuntimeConfig } from "@/lib/runtime-config";
+import { setAuthImplementation } from "@/lib/auth";
+import { clerkAuth } from "@/lib/auth/clerk-adapter";
 import { OnboardingSetup, type OnboardingSetupProps } from "./onboarding-setup";
 import { OnboardingWizard } from "./onboarding-wizard";
 
@@ -205,6 +207,27 @@ describe("workspace creation handoff", () => {
     });
     expect(mocks.setActive).toHaveBeenCalledWith({ organization: "org_new" });
     expect(await screen.findByText("Provisioning started")).toBeInTheDocument();
+  });
+
+  it("activates the new workspace by workspaces.id in membership mode (WeldID), so its URL gets the slug", async () => {
+    const user = userEvent.setup();
+    setAuthImplementation({ ...clerkAuth, workspaceIds: "workspace" });
+    try {
+      mocks.complete.mockResolvedValue({
+        data: { success: true, clerkOrgId: "org_new", workspaceId: "ws_new" },
+      });
+      mocks.setActive.mockReset().mockResolvedValue(undefined);
+      window.sessionStorage.clear();
+      render(<OnboardingWizard {...props} />);
+      await user.type(screen.getByLabelText("Workspace name"), "Acme");
+      await user.click(screen.getByRole("button", { name: "Create workspace" }));
+
+      await waitFor(() => expect(mocks.setActive).toHaveBeenCalledWith({ organization: "ws_new" }));
+      expect(window.sessionStorage.getItem("weldsuite:pending-org")).toBe("ws_new");
+    } finally {
+      setAuthImplementation(clerkAuth);
+      window.sessionStorage.clear();
+    }
   });
 
   it("retains input after failure and permits retry without duplicate pending requests", async () => {

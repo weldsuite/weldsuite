@@ -212,5 +212,7 @@ export function createOidcAuth(config: OidcSessionConfig, options?: OidcSessionO
     accountUrl: session.accountUrl,
     platformSignIn: config.signIn === 'platform',
     getActiveOrgId: () => session.getSnapshot().activeOrgId,
+    // Header mode lists WeldSuite's directory, keyed by `workspaces.id`.
+    workspaceIds: config.workspaceSource === 'header' ? 'workspace' : 'organization',
   };
 }

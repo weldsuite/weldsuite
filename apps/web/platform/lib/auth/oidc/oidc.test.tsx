@@ -23,6 +23,7 @@ import {
   usesBrowserSignIn,
   usesPlatformSignIn,
   useUser,
+  workspaceRefOf,
 } from '../index';
 
 const ISSUER = 'https://id.example.test';
@@ -562,6 +563,50 @@ describe('the facade on OIDC in header mode (WeldID in membership mode)', () => 
     const { result } = renderHook(() => useAuth());
     await waitFor(() => expect(result.current.isLoaded).toBe(true));
     expect(result.current.orgId).toBe('ws_globex');
+  });
+
+  it('activates a workspace just created by its workspaces.id, which the directory names by slug', async () => {
+    const created = { id: 'ws_new', name: 'New Co', slug: 'new-co' };
+    let workspaces: WorkspaceDirectoryEntry[] = directory;
+    const loadWorkspaces = async () => workspaces;
+    const auth = createOidcAuth(HEADER_CONFIG, { origin: ORIGIN, storage: window.localStorage, loadWorkspaces });
+    setAuthImplementation(auth);
+    void auth.redirectToSignIn?.();
+    await answerRedirect(auth, 0);
+    const { result } = renderHook(() => ({ auth: useAuth(), list: useOrganizationList() }));
+    await waitFor(() => expect(result.current.list.userMemberships.data?.length).toBe(2));
+
+    // What creating a workspace answers, and the list read again after it.
+    const ref = workspaceRefOf({ organizationId: 'org_new', workspaceId: 'ws_new' });
+    expect(ref).toBe('ws_new');
+    workspaces = [...directory, created];
+    await act(async () => {
+      await result.current.list.userMemberships.revalidate?.();
+      await result.current.list.setActive?.({ organization: ref });
+    });
+
+    expect(result.current.auth.orgId).toBe('ws_new');
+    // The URL names the active workspace by `orgSlug || orgId`.
+    expect(result.current.auth.orgSlug).toBe('new-co');
+  });
+});
+
+describe('which id names a workspace just created (workspaceRefOf)', () => {
+  const ids = { organizationId: 'org_new', workspaceId: 'ws_new' };
+
+  it('is the organization id on Clerk and on claim-mode OIDC, which switch by organization', () => {
+    setAuthImplementation(clerkAuth);
+    expect(workspaceRefOf(ids)).toBe('org_new');
+    setAuthImplementation(createOidcAuth(CONFIG, { origin: ORIGIN }));
+    expect(workspaceRefOf(ids)).toBe('org_new');
+    expect(workspaceRefOf({ workspaceId: 'ws_new' })).toBeNull();
+  });
+
+  it('is workspaces.id in header mode, else the organization id the backend also takes', () => {
+    setAuthImplementation(createOidcAuth({ ...CONFIG, workspaceSource: 'header' }, { origin: ORIGIN }));
+    expect(workspaceRefOf(ids)).toBe('ws_new');
+    expect(workspaceRefOf({ organizationId: 'org_new' })).toBe('org_new');
+    expect(workspaceRefOf({})).toBeNull();
   });
 });
 

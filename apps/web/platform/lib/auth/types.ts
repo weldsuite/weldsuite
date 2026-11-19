@@ -195,4 +195,12 @@ export interface AuthImplementation {
    * the token instead.
    */
   getActiveOrgId?: () => string | null;
+  /**
+   * Which id names a workspace in `orgId`, the membership list and
+   * `setActive`: the provider's organization id (Clerk, `claim`-mode OIDC;
+   * the default), or `workspaces.id` (`workspace`: OIDC with
+   * `auth.workspaceSource: "header"`, WeldID in membership mode, whose list
+   * comes from WeldSuite's own directory). See `workspaceRefOf()`.
+   */
+  workspaceIds?: 'organization' | 'workspace';
 }
