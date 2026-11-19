@@ -795,7 +795,7 @@ export class OidcMobileSession {
  * sign-up form), `login` for the first sign-in after a sign-out (the form,
  * not the provider's remembered session), else none.
  */
-function promptFor(options: { intent?: SignInOptions['intent']; promptLogin: boolean }): string | undefined {
+function promptFor(options: Pick<SignInOptions, 'intent'> & { promptLogin: boolean }): string | undefined {
   if (options.intent === 'sign-up') return 'create';
   return options.promptLogin ? 'login' : undefined;
 }

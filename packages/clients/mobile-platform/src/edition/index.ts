@@ -67,5 +67,5 @@ export function isNotificationForThisServer(data: Record<string, unknown> | null
   if (!server) return runtime.server.kind === 'global';
   if (runtime.server.kind === 'global') return server === 'global';
   // The build's address, the API host or the web app's: whichever the server calls itself.
-  return [runtime.server.origin, runtime.apiOrigin, runtime.platformUrl].some((origin) => origin === server);
+  return [runtime.server.origin, runtime.apiOrigin, runtime.platformUrl].includes(server);
 }
