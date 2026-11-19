@@ -38,7 +38,7 @@ Charts lead to the recordings behind them. A funnel step with a big drop-off lin
 | **Saved** | **Reports**, **Dashboards**, **Cohorts** |
 | **Setup** | **Projects**, **Lexicon**, **Settings** |
 
-A **project** is one website or app you track. Analytics pages show one project at a time: pick it in the **Project** menu at the top of the page.
+A **project** is one website or app you track. Analytics pages show one project at a time: pick it in the **Project** menu at the top of the WeldPanel sidebar.
 
 You only see the pages your role allows. Recordings and user profiles have their own permissions, see below.
 
