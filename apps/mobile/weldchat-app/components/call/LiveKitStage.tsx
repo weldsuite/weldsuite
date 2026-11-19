@@ -13,7 +13,8 @@
  */
 
 import React, { useEffect, useReducer, useState } from 'react';
-import { Image, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import { Image } from 'expo-image';
 import { MediaStream, RTCView } from '@cloudflare/react-native-webrtc';
 import { BRAND } from '@/lib/brand';
 import type { MeetingClient } from '@/lib/calls/types';

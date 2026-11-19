@@ -9,7 +9,8 @@
  */
 
 import React, { useContext, useEffect, useCallback, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChevronDown, Hash, MessageCircle } from 'lucide-react-native';
 import {

@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TouchableHighlight, RefreshControl, Image, ScrollView, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, TouchableHighlight, RefreshControl, ScrollView, Platform } from 'react-native';
+import { Image } from 'expo-image';
 import { Archive, Trash2, BellOff, Bell, Pin, PinOff, SquarePen, Users } from 'lucide-react-native';
 import Svg, { Defs, Pattern, Path, Rect } from 'react-native-svg';
 import { FlatList } from 'react-native-gesture-handler';
