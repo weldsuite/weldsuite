@@ -30,6 +30,9 @@ data:
   FILES_BUCKET_MAIL: example-mail
   # WeldPanel's Iceberg tables (config.panel, ADR EVT-019).
   FILES_BUCKET_PANEL: example-panel
+  # WeldPanel collection on customers' own host names (ADR PANEL-014): "true"
+  # once collect.${DOMAIN} points at the ingress load balancer.
+  PANEL_CUSTOM_DOMAINS: "true"
   # Zitadel (auth.${DOMAIN}): the WeldSuite project's id (the tokens'
   # audience) and the platform's web application's client id (PKCE). Made in
   # Zitadel's console after its first start (README, step 7).

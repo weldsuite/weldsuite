@@ -74,9 +74,11 @@ config:
     # production), and the server creates a cert-manager Certificate
     # (letsencrypt, HTTP-01 through Traefik) and an Ingress for each in this
     # namespace. Off until DNS for collect.${DOMAIN} points at the ingress
-    # load balancer; then set enabled: true.
+    # load balancer (the deploy repository's eu/scripts/ingress-dns.ps1
+    # -Names collect); then the cluster's settings set PANEL_CUSTOM_DOMAINS
+    # to "true".
     customDomains:
-      enabled: false
+      enabled: ${PANEL_CUSTOM_DOMAINS:=false}
       collectorHost: collect.${DOMAIN}
   # Durable jobs (sign's finalize, …) on the in-cluster Restate; each pod
   # registers its jobs endpoint with the admin API at start.
@@ -409,12 +411,15 @@ consume:
   streamReplicas: 3
   streamMaxBytes: 12884901888
   deadLetterMaxBytes: 2147483648
+  # With the panel bucket set, panel-writer buffers up to 64 MB per WeldPanel
+  # table before a commit (PANEL_WRITER_FLUSH_BYTES, five tables) and encodes
+  # them as Parquet: about 1 GiB above what the other subscribers need.
   resources:
     requests:
       cpu: 100m
-      memory: 192Mi
+      memory: 320Mi
     limits:
-      memory: 512Mi
+      memory: 1536Mi
 
 # WeldMail's MX (ADR MAIL-010): Haraka at mx.${DOMAIN}, released with the
 # server's image. The ingress load balancer passes port 25 to this NodePort
