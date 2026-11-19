@@ -12,7 +12,8 @@
  * Authorization code + PKCE (`oidc-client-ts`), a public client: register a
  * "User Agent" / SPA application with redirect URI
  * `https://<platform>/auth/sso-callback` and post-logout URI
- * `https://<platform>/`. Sign-in and sign-up happen on the provider's pages
+ * `https://<platform>/` (the only one sign-out ever names: the page to land
+ * on travels in `state`, see `session.ts`). Sign-in and sign-up happen on the provider's pages
  * (`/auth/login` and `/auth/register` only redirect there), or, with
  * `"signIn": "platform"`, on WeldSuite's own screens: the provider's sign-in
  * for this application then points back at `/auth/login`, and the screens

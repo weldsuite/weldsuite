@@ -46,6 +46,13 @@
  * (`./browser-sign-in.ts`). Refresh is the usual refresh-token grant. Signing
  * out revokes the refresh token, forgets the session and opens the
  * provider's sign-out in the browser, where its session cookie lives.
+ *
+ * **Signing out** in a browser always names the one registered post-logout
+ * URI, `<origin>/`: WeldID and Zitadel compare it exactly and answer any
+ * other with an error page ("This app can't sign you in"). A sign-out that
+ * should land elsewhere (`/auth/login`, back on an invitation) puts that path
+ * in the request's `state`, which the provider sends back; `init` then goes
+ * on to it before the shell renders.
  */
 
 import { OidcClient, User, UserManager, WebStorageStateStore, type UserManagerSettings } from 'oidc-client-ts';
@@ -93,6 +100,12 @@ interface SignInState {
   returnTo?: string;
   /** The workspace this token was requested for; absent = the full workspace list. */
   orgId?: string;
+}
+
+/** What a sign-out carries through the provider in `state`. */
+interface SignOutState {
+  /** The page to land on, a path on this origin. */
+  returnTo: string;
 }
 
 /** The workspace list and the active one, as `publish` puts them in the snapshot. */
@@ -252,6 +265,9 @@ export class OidcSession {
   /** Read the stored session once; an expired one is refreshed or dropped. */
   init(): Promise<void> {
     this.initialised ??= (async () => {
+      // On its way to the page a sign-out asked for: stays unloaded, so the
+      // shell renders nothing (and redirects nowhere) while the page leaves.
+      if (await this.continueAfterSignOut()) return;
       let user = await this.manager.getUser().catch(() => null);
       if (user?.expired) user = await this.refresh();
       this.setUser(user, true);
@@ -353,18 +369,40 @@ export class OidcSession {
     // The session the sign-in screens opened: without this the next visit to
     // `/auth/login` would sign the same person straight back in.
     if (this.platformSignIn) await endProviderSession();
-    const post = redirectUrl ? `${this.origin}${sameOriginPath(redirectUrl)}` : undefined;
+    const returnTo = redirectUrl ? sameOriginPath(redirectUrl) : '/';
+    const post = `${this.origin}${returnTo}`;
     if (this.browserSignIn) {
       await this.signOutThroughBrowser(this.browserSignIn, post);
       return;
     }
     try {
-      await this.manager.signoutRedirect(post ? { post_logout_redirect_uri: post } : undefined);
+      // Back to the registered `<origin>/` only (the file comment); any other
+      // page rides in `state` and `continueAfterSignOut` goes on to it.
+      const state: SignOutState | undefined = returnTo === '/' ? undefined : { returnTo };
+      await this.manager.signoutRedirect(state ? { state } : undefined);
     } catch {
       // No end-session endpoint: forget the session locally.
       await this.manager.removeUser();
-      if (typeof window !== 'undefined') window.location.assign(post ?? `${this.origin}/`);
+      if (typeof window !== 'undefined') window.location.assign(post);
     }
+  }
+
+  /**
+   * The provider's way back from `signOut`: `<origin>/?state=…`. A state this
+   * page stored goes on to the path it carries (and leaves `/` without the
+   * query either way); any other `state`, or none, is not a sign-out of ours.
+   * True when the page is leaving.
+   */
+  private async continueAfterSignOut(): Promise<boolean> {
+    if (typeof window === 'undefined' || this.browserSignIn) return false;
+    const { href, pathname, search } = window.location;
+    if (pathname !== '/' || !new URLSearchParams(search).has('state')) return false;
+    // Reads and removes the stored state; throws when there is none to match.
+    const response = await this.manager.signoutRedirectCallback(href).catch(() => null);
+    if (!response) return false;
+    const state = response.userState as SignOutState | undefined;
+    window.location.replace(sameOriginPath(state?.returnTo));
+    return true;
   }
 
   /**
@@ -375,7 +413,7 @@ export class OidcSession {
    * in its history. The provider then asks before ending the browser's
    * session (WeldID's confirmation page); the app is signed out either way.
    */
-  private async signOutThroughBrowser(browser: BrowserSignIn, post: string | undefined): Promise<void> {
+  private async signOutThroughBrowser(browser: BrowserSignIn, post: string): Promise<void> {
     await this.manager.revokeTokens(['refresh_token']).catch(() => undefined);
     await this.manager.removeUser().catch(() => undefined);
     try {
@@ -384,7 +422,7 @@ export class OidcSession {
     } catch {
       // No end-session endpoint, or no browser: the session is forgotten here.
     }
-    if (typeof window !== 'undefined') window.location.assign(post ?? `${this.origin}/`);
+    if (typeof window !== 'undefined') window.location.assign(post);
   }
 
   /**
