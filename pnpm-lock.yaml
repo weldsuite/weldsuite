@@ -2620,6 +2620,9 @@ importers:
       '@types/node':
         specifier: ^22.15.29
         version: 22.19.3
+      '@vitest/coverage-v8':
+        specifier: ^4.1.12
+        version: 4.1.12(vitest@4.1.12)
       '@weldsuite/typescript-config':
         specifier: workspace:*
         version: link:../../../packages/config/typescript-config

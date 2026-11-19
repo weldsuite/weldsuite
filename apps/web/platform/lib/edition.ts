@@ -10,8 +10,10 @@
  * names what the backend lacks inside the modules it does serve (billing,
  * SSO connections, …). A module that cannot work without one of them counts
  * as not offered (`MODULE_FEATURES`: WeldDocs, WeldSheets and WeldBoard without live
- * editing). Global serves neither list and offers everything, exactly as
- * before.
+ * editing). Global serves neither list and offers every module. Its one
+ * exception is `GLOBAL_UNAVAILABLE_FEATURES` (`@weldsuite/api-modules`): features
+ * built only in Rust since Global's retirement was decided (ADR OPS-025),
+ * hidden there until the cutover.
  *
  * Both lists are read once, before the first render, and never change while
  * the app runs, so these are plain functions: components and hooks call them
@@ -23,7 +25,7 @@
  * created WeldApps and custom objects are core.
  */
 
-import { API_MODULES, type ApiModuleId } from '@weldsuite/api-modules';
+import { API_MODULES, GLOBAL_UNAVAILABLE_FEATURES, type ApiModuleId } from '@weldsuite/api-modules';
 import { normalizeAppCode } from '@weldsuite/permissions';
 import type { RuntimeAiConfig } from '@weldsuite/app-api-client/schemas/ai-settings';
 import { getRuntimeConfig } from '@/lib/runtime-config';
@@ -255,7 +257,12 @@ export function billingProvider(): 'stripe' | 'mollie' {
   return getRuntimeConfig()?.billingProvider === 'mollie' ? 'mollie' : 'stripe';
 }
 
-/** Whether this deployment offers a feature (`unavailableFeatures` doesn't name it). */
+/**
+ * Whether this deployment offers a feature: `unavailableFeatures` doesn't name
+ * it, or on Global (no runtime config) `GLOBAL_UNAVAILABLE_FEATURES` doesn't.
+ */
 export function isFeatureAvailable(feature: EditionFeature): boolean {
-  return !(getRuntimeConfig()?.unavailableFeatures?.includes(feature) ?? false);
+  const config = getRuntimeConfig();
+  const unavailable = config ? (config.unavailableFeatures ?? []) : GLOBAL_UNAVAILABLE_FEATURES;
+  return !unavailable.includes(feature);
 }

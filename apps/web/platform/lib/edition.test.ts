@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { API_MODULES } from '@weldsuite/api-modules';
+import { API_MODULES, GLOBAL_UNAVAILABLE_FEATURES } from '@weldsuite/api-modules';
 import { APP_CODE_ALIASES, PERMISSION_APPS } from '@weldsuite/permissions';
 import {
   billingProvider,
@@ -169,6 +169,22 @@ describe('edition flags', () => {
     setRuntimeConfig({ backend: 'rust', modules: ['core'], unavailableFeatures: ['billing', 'a-future-feature'] });
     expect(isFeatureAvailable('billing')).toBe(false);
     expect(isFeatureAvailable('credit-top-up')).toBe(true);
+  });
+
+  it('hides on Global only the features built in Rust alone (GLOBAL_UNAVAILABLE_FEATURES)', () => {
+    for (const feature of GLOBAL_UNAVAILABLE_FEATURES) expect(EDITION_FEATURES, feature).toContain(feature);
+    const list = GLOBAL_UNAVAILABLE_FEATURES as string[];
+    list.push('billing');
+    try {
+      setRuntimeConfig(null);
+      expect(isFeatureAvailable('billing')).toBe(false);
+      expect(isFeatureAvailable('credit-top-up')).toBe(true);
+      // A Kubernetes install answers from its own /config.json, not from this list.
+      setRuntimeConfig({ backend: 'rust', unavailableFeatures: [] });
+      expect(isFeatureAvailable('billing')).toBe(true);
+    } finally {
+      list.pop();
+    }
   });
 
   it('hides WeldDocs and WeldSheets without live editing, and offers them with it', () => {
