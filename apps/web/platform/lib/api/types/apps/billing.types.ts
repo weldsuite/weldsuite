@@ -43,13 +43,7 @@ export namespace Billing {
     planSlug?: string;
     status: SubscriptionStatus;
     cycle: BillingCycle;
-    /**
-     * In cents, before VAT. Only Mollie's subscription has it (while a paid
-     * period runs); Global's leaves it out, so read it through `hasPaidPlan`.
-     */
-    pricePerCycle?: number;
-    /** ISO 4217 code of `pricePerCycle` (Mollie). */
-    currency?: string;
+    pricePerCycle: number; // In cents
     purchasedSeats: number;
     usedSeats: number;
     startDate: Date;

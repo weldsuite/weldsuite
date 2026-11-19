@@ -854,7 +854,6 @@ export const settings = {
         seatsScheduled: 'Het nieuwe aantal gebruikers geldt vanaf {date}.',
         billingDetailsRequired: 'Vul eerst uw factuurgegevens in. Daarna gaan we verder naar afrekenen.',
         excludingVat: 'Prijzen zijn exclusief btw. De btw wordt toegevoegd op basis van uw factuurgegevens.',
-        exclVat: 'excl. btw',
         vat: 'Btw',
         vatRate: 'Btw {rate}%',
         vatChecking: 'Controleren…',

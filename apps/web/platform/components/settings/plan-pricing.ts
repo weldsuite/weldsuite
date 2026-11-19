@@ -1,25 +1,38 @@
 /**
- * Plan price and VAT helpers for the Plans page (`billing-settings-section.tsx`),
- * the Billing page and the seats dialog (`components/billing/manage-seats.tsx`).
+ * Plan price and VAT helpers for the Plans page's checkout
+ * (`billing-settings-section.tsx`), the Billing page and the seats dialog
+ * (`components/billing/manage-seats.tsx`).
  */
 
 /** What `hasPaidPlan` reads: Global's and Mollie's subscription both fit. */
 export interface PlanOfSubscription {
   planId?: string | null;
   planSlug?: string | null;
-  /** Mollie only: cents per cycle, before VAT. */
+  status?: string | null;
+  /** `mollie` on a subscription billed through Mollie (the EU edition). */
+  provider?: string | null;
+  /** Mollie only: cents per cycle, before VAT, while a paid period runs. */
   pricePerCycle?: number;
 }
 
+/** A paid subscription on Global: running, the trial excluded. */
+const PAID_STATUSES = new Set(['active', 'past_due']);
+
 /**
- * Whether a paid plan is running. Mollie's subscription says what it costs
- * (`pricePerCycle`); Global's has no such field, so there a plan other than
- * Free counts. A legacy $0 subscription is no plan.
+ * Whether a paid plan is running, with seats to change. Mollie's subscription
+ * sends its price only while a paid period runs: a comp, a trial and a plan
+ * that ended into its grace period have none, and changing their seats is
+ * refused. Global sends no price, so there an active or past-due plan other
+ * than Free counts.
  */
 export function hasPaidPlan(subscription: PlanOfSubscription | null | undefined): boolean {
   if (!subscription) return false;
-  if (typeof subscription.pricePerCycle === 'number') return subscription.pricePerCycle > 0;
-  return !!subscription.planId && (subscription.planSlug ?? 'free').toLowerCase() !== 'free';
+  if (subscription.provider === 'mollie') return (subscription.pricePerCycle ?? 0) > 0;
+  return (
+    !!subscription.planId &&
+    (subscription.planSlug ?? 'free').toLowerCase() !== 'free' &&
+    PAID_STATUSES.has(subscription.status ?? '')
+  );
 }
 
 /** Cents as a price: whole amounts drop the decimals (`€49`), others keep two (`€42.50`). */

@@ -227,6 +227,39 @@ describe('BillingSettingsSection (Mollie)', () => {
     expect(await screen.findByRole('button', { name: en.settings.billing.updateBillingDetails })).toBeInTheDocument();
   });
 
+  it('charges no EU VAT outside the EU', async () => {
+    mocks.vat.mockReturnValue(
+      vatAnswer({
+        missing: [],
+        country: 'US',
+        vatNumber: null,
+        vatNumberStatus: 'none',
+        vat: { treatment: 'outside_eu', rateBps: 0, country: 'US' },
+      }),
+    );
+    await openCheckout();
+
+    expect(screen.getByText(mollie.vatOutsideEu)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: en.common.actions.add })).toBeInTheDocument();
+  });
+
+  it('reads VAT as calculated at checkout when the VAT cannot be asked', async () => {
+    mocks.vat.mockReturnValue({ data: undefined, isLoading: false, isError: true });
+    await openCheckout();
+
+    expect(screen.getByText('sweep.settings.billing.checkout.calculatedAtCheckout')).toBeInTheDocument();
+    expect(screen.getByText(`sweep.settings.billing.subtotal / sweep.settings.billing.month`)).toBeInTheDocument();
+  });
+
+  it('keeps tax for the checkout on Stripe', async () => {
+    mocks.provider.mockReturnValue('stripe');
+    await openCheckout();
+
+    expect(screen.getByText('sweep.settings.billing.tax')).toBeInTheDocument();
+    expect(screen.queryByText('VAT 21%')).not.toBeInTheDocument();
+    expect(mocks.vat).not.toHaveBeenCalled();
+  });
+
   it('says the VAT is being checked while VIES is asked', async () => {
     mocks.vat.mockReturnValue({ data: undefined, isLoading: true, isError: false });
     await openCheckout();

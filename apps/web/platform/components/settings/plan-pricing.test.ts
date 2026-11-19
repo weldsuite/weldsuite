@@ -1,36 +1,51 @@
 import { describe, expect, it } from 'vitest';
-import { Billing } from '@/lib/api/types/apps/billing.types';
-import { countryName, hasPaidPlan, vatOfCents, vatRateText } from './plan-pricing';
+import {
+  countryName,
+  formatPlanPrice,
+  hasPaidPlan,
+  vatOfCents,
+  vatRateText,
+  type PlanOfSubscription,
+} from './plan-pricing';
 
-function subscription(overrides: Partial<Billing.Subscription>): Billing.Subscription {
-  return {
-    id: 'ws_1',
-    planId: 'plan_starter',
-    planName: 'Starter',
-    planSlug: 'starter',
-    status: Billing.SubscriptionStatus.Active,
-    cycle: Billing.BillingCycle.Monthly,
-    purchasedSeats: 1,
-    usedSeats: 1,
-    ...overrides,
-  } as Billing.Subscription;
-}
+const starter = (overrides: PlanOfSubscription): PlanOfSubscription => ({
+  planId: 'plan_starter',
+  planSlug: 'starter',
+  status: 'active',
+  ...overrides,
+});
 
 describe('hasPaidPlan', () => {
   it('reads Mollie’s price per cycle', () => {
-    expect(hasPaidPlan(subscription({ pricePerCycle: 1200, currency: 'EUR' }))).toBe(true);
-    expect(hasPaidPlan(subscription({ pricePerCycle: 0 }))).toBe(false);
+    expect(hasPaidPlan(starter({ provider: 'mollie', pricePerCycle: 1200 }))).toBe(true);
+    expect(hasPaidPlan(starter({ provider: 'mollie', pricePerCycle: 0 }))).toBe(false);
   });
 
-  it('falls back to the plan where the subscription has no price (Global)', () => {
-    expect(hasPaidPlan(subscription({}))).toBe(true);
-    expect(hasPaidPlan(subscription({ planSlug: 'free' }))).toBe(false);
-    expect(hasPaidPlan(subscription({ planId: null as unknown as string }))).toBe(false);
+  it('is false on Mollie without a price: a comp, a trial, a plan in its grace period', () => {
+    expect(hasPaidPlan(starter({ provider: 'mollie' }))).toBe(false);
+    expect(hasPaidPlan(starter({ provider: 'mollie', status: 'canceled' }))).toBe(false);
+  });
+
+  it('falls back to an active or past-due plan on Global', () => {
+    expect(hasPaidPlan(starter({}))).toBe(true);
+    expect(hasPaidPlan(starter({ status: 'past_due' }))).toBe(true);
+    expect(hasPaidPlan(starter({ status: 'trialing' }))).toBe(false);
+    expect(hasPaidPlan(starter({ status: 'canceled' }))).toBe(false);
+    expect(hasPaidPlan(starter({ planSlug: 'free' }))).toBe(false);
+    expect(hasPaidPlan(starter({ planId: null }))).toBe(false);
   });
 
   it('is false without a subscription', () => {
     expect(hasPaidPlan(null)).toBe(false);
     expect(hasPaidPlan(undefined)).toBe(false);
+  });
+});
+
+describe('formatPlanPrice', () => {
+  it('drops the decimals of a whole amount and keeps two otherwise', () => {
+    expect(formatPlanPrice(1200, 'EUR')).toBe('€12');
+    expect(formatPlanPrice(1452, 'EUR')).toBe('€14.52');
+    expect(formatPlanPrice(4900)).toBe('$49');
   });
 });
 

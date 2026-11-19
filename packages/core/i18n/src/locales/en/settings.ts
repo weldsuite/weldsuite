@@ -857,7 +857,6 @@ export const settings = {
         seatsScheduled: 'The new number of seats applies from {date}.',
         billingDetailsRequired: 'Add your billing details first. We then continue to checkout.',
         excludingVat: 'Prices exclude VAT. VAT is added based on your billing details.',
-        exclVat: 'excl. VAT',
         vat: 'VAT',
         vatRate: 'VAT {rate}%',
         vatChecking: 'Checking…',

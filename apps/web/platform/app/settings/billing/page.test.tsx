@@ -239,6 +239,7 @@ describe('BillingSettingsPage seats', () => {
     usedSeats: 2,
     pricePerCycle: 2400,
     currency: 'EUR',
+    provider: 'mollie',
     cancelAtPeriodEnd: false,
     currentPeriodEnd: '2026-12-19T10:34:09Z',
   };
@@ -285,6 +286,15 @@ describe('BillingSettingsPage seats', () => {
     await waitFor(() =>
       expect(mocks.toastSuccess).toHaveBeenCalledWith(ts.mollie.seatsScheduled.replace('{date}', '19th Dec 2026')),
     );
+  });
+
+  it('offers an upgrade on Mollie when no paid period runs (a comp, a trial, a grace period)', async () => {
+    const { pricePerCycle: _price, ...comp } = PAID;
+    mocks.subscription.mockReturnValue(comp);
+    renderPage();
+
+    expect(await screen.findByText(ts.title)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'sweep.settings.billing.manageSeatsButton' })).not.toBeInTheDocument();
   });
 
   it('offers an upgrade instead without a paid plan', async () => {

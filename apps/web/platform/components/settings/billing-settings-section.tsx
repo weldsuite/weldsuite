@@ -30,7 +30,7 @@ import {
   useBillingVat,
   useRefreshBillingVat,
 } from '@/hooks/queries/use-billing-queries';
-import { countryName, formatPlanPrice, hasPaidPlan, vatOfCents, vatRateText } from './plan-pricing';
+import { countryName, formatPlanPrice, vatOfCents, vatRateText } from './plan-pricing';
 import { ManageSeatsDialog } from '@/components/billing/manage-seats';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import {
@@ -734,11 +734,10 @@ const CheckoutDialog = memo(function CheckoutDialog({
 
 type PlanLimitsInfo = Billing.PlanLimits | null;
 
-/** Cents in `currency` (an invoice's own; EUR on the EU edition). */
-const formatCurrency = (cents: number, currency: string | null | undefined = 'USD') => {
+const formatCurrency = (cents: number) => {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
-    currency: (currency || 'USD').toUpperCase(),
+    currency: 'USD'
   }).format(cents / 100);
 };
 
@@ -1428,7 +1427,7 @@ function InvoicesListView({
                   </span>
                   <span className="flex items-center gap-4">
                     <span className="block text-right">
-                      <span className="block text-sm font-semibold">{formatCurrency(invoice.amount, invoice.currency)}</span>
+                      <span className="block text-sm font-semibold">{formatCurrency(invoice.amount)}</span>
                       <span className="block mt-1"><InvoiceStatusBadge status={invoice.status} /></span>
                     </span>
                   </span>
@@ -1477,7 +1476,7 @@ function InvoiceDetailView({
             {invoice.subtotalAmount > 0 && (
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">{t('sweep.settings.billing.subtotal')}</span>
-                <span className="font-medium">{formatCurrency(invoice.subtotalAmount, invoice.currency)}</span>
+                <span className="font-medium">{formatCurrency(invoice.subtotalAmount)}</span>
               </div>
             )}
             {invoice.taxAmount > 0 && (
@@ -1488,7 +1487,7 @@ function InvoiceDetailView({
                     <span className="ml-1">({invoice.customerCountry})</span>
                   )}
                 </span>
-                <span className="font-medium">{formatCurrency(invoice.taxAmount, invoice.currency)}</span>
+                <span className="font-medium">{formatCurrency(invoice.taxAmount)}</span>
               </div>
             )}
             {invoice.customerTaxExempt === 'reverse' && (
@@ -1500,7 +1499,7 @@ function InvoiceDetailView({
             <Separator />
             <div className="flex justify-between text-base">
               <span className="font-semibold">{t('settings.billing.total')}</span>
-              <span className="font-bold">{formatCurrency(invoice.amount, invoice.currency)}</span>
+              <span className="font-bold">{formatCurrency(invoice.amount)}</span>
             </div>
           </div>
 
@@ -1537,7 +1536,7 @@ function PlanStatusBadge({
   if (isTrialing) {
     return <Badge variant="secondary" className="rounded-sm">{t('sweep.settings.billing.freeTrial')}</Badge>;
   }
-  if (!subscription || !hasPaidPlan(subscription)) return null;
+  if (!subscription || subscription.pricePerCycle <= 0) return null;
   return (
     <Badge variant={subscription.status === Billing.SubscriptionStatus.Active ? "default" : "secondary"} className="rounded-sm">
       {subscription.status === Billing.SubscriptionStatus.Active ? t('sweep.settings.billing.activeBadge') : subscription.status}
@@ -1555,7 +1554,6 @@ function PlanSubtitle({
   trialEndsAt: TrialEndsAt;
 }>) {
   const t = useTranslations();
-  const { t: i18n } = useI18n();
   if (isTrialing) {
     return trialEndsAt
       ? <>{t('sweep.settings.billing.trialEndsOn', { date: formatDate(trialEndsAt) })}</>
@@ -1566,21 +1564,17 @@ function PlanSubtitle({
     // no subscription record yet is pre-trial, not "free forever".
     return t('sweep.settings.billing.choosePlanToStart');
   }
-  if (!hasPaidPlan(subscription)) {
-    // Free, or a legacy $0 subscription from before the free plan was
-    // retired from `GET /billing/plans`.
+  if (subscription.pricePerCycle === 0) {
+    // Legacy workspaces may still carry a $0 subscription from
+    // before the free plan was retired from `GET /billing/plans`.
     return t('sweep.settings.billing.noActivePlan');
   }
-  const renews = subscription.currentPeriodEnd
-    ? t('settings.billing.renews', { date: formatDate(subscription.currentPeriodEnd) })
-    : null;
-  // Global's subscription carries no price: the renewal date alone.
-  if (typeof subscription.pricePerCycle !== 'number') return renews;
   return (
     <>
-      {formatPlanPrice(subscription.pricePerCycle, subscription.currency || 'USD')}/{subscription.cycle === Billing.BillingCycle.Monthly ? t('sweep.settings.billing.month') : t('sweep.settings.billing.year')}
-      {billingProvider() === 'mollie' && <> {i18n.settings.billing.mollie.exclVat}</>}
-      {renews && <span> &bull; {renews}</span>}
+      {formatCurrency(subscription.pricePerCycle)}/{subscription.cycle === Billing.BillingCycle.Monthly ? t('sweep.settings.billing.month') : t('sweep.settings.billing.year')}
+      {subscription.currentPeriodEnd && (
+        <span> &bull; {t('settings.billing.renews', { date: formatDate(subscription.currentPeriodEnd) })}</span>
+      )}
     </>
   );
 }
@@ -1620,7 +1614,7 @@ function CurrentPlanHeader({
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {hasPaidPlan(subscription) ? (
+          {subscription && subscription.pricePerCycle > 0 ? (
             <Button variant="outline" size="sm" onClick={onChangePlan}>
               {t('settings.billing.changePlan')}
             </Button>
@@ -1669,7 +1663,7 @@ function TeamMembersSection({
               </p>
             </div>
           </div>
-          {hasPaidPlan(subscription) && (
+          {subscription && subscription.pricePerCycle > 0 && (
             <Button variant="outline" size="sm" onClick={onOpenManageSeats}>
               {t('sweep.settings.billing.manageSeatsButton')}
             </Button>
@@ -1737,7 +1731,7 @@ function RecentInvoicesSection({
               </span>
             </span>
             <span className="flex items-center gap-4">
-              <span className="text-sm font-medium">{formatCurrency(invoice.amount, invoice.currency)}</span>
+              <span className="text-sm font-medium">{formatCurrency(invoice.amount)}</span>
               <InvoiceStatusBadge status={invoice.status} />
             </span>
           </button>
@@ -1774,10 +1768,10 @@ function InvoiceHistorySection({ invoices }: Readonly<{ invoices: InvoiceInfo[] 
             >
               <div className="font-medium">{invoice.id}</div>
               <div>
-                {formatCurrency(invoice.amount, invoice.currency)}
+                {formatCurrency(invoice.amount)}
                 {invoice.taxAmount > 0 && (
                   <span className="text-xs text-muted-foreground ml-1">
-                    {t('sweep.settings.billing.inclTax', { amount: formatCurrency(invoice.taxAmount, invoice.currency) })}
+                    {t('sweep.settings.billing.inclTax', { amount: formatCurrency(invoice.taxAmount) })}
                   </span>
                 )}
               </div>
