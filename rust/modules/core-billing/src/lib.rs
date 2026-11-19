@@ -21,7 +21,8 @@
 //!   through [`InvoiceIssuer`] once a payment is paid (never before, so an
 //!   abandoned checkout leaves nothing to credit), mirrored into master
 //!   `billing_invoices` with the printable document copied into the files
-//!   bucket.
+//!   bucket, and emailed to the billing owners once (`settle::mail_invoice`),
+//!   with a link to the billing page where it opens.
 //! - **Past due:** a charge that fails sets `past_due`, emails the billing
 //!   owners a pay link ([`paylink`]) and keeps the plan working for the grace
 //!   period (`BILLING_GRACE_DAYS`, 14), after which it ends on Free.
@@ -65,7 +66,7 @@ pub use access::{BillingError, BillingResult, Caller};
 pub use addons::{InboxBilling, InboxCharge, charge_inbox_added, inbox_billing, inbox_line};
 pub use buyer::BillingDetails;
 pub use lines::{Charge, Line, LineKind};
-pub use notify::{BillingMail, BillingMailKind, BillingMailer};
+pub use notify::{BillingMail, BillingMailKind, BillingMailer, InvoiceMail};
 pub use settings::{BillingSettings, WEBHOOK_PATH};
 pub use settle::{Settled, settle_payment};
 pub use top_up::{QuotedTopUp, TopUpRequest, quote_top_up};

@@ -468,6 +468,25 @@ const SPECS: Spec[] = [
       url: S('url'),
     }),
   },
+  // The invoice of a paid charge (ADR BILL-014, decision 5). The VAT line is
+  // a flag per treatment: none is VAT charged at a rate (domestic or OSS),
+  // `reverse` a reverse charge, `outside` a customer outside the EU.
+  {
+    id: 'billing.invoice',
+    flags: ['reverse', 'outside'],
+    fields: ['workspace_name', 'number', 'date', 'amount', 'vat_amount', 'vat_rate', 'url'],
+    exclude: (f) => f.has('reverse') && f.has('outside'),
+    props: (f) => ({
+      workspaceName: S('workspace_name'),
+      number: S('number'),
+      date: S('date'),
+      amount: S('amount'),
+      vat: f.has('outside') ? 'outside' : f.has('reverse') ? 'reverse' : 'charged',
+      vatAmount: S('vat_amount'),
+      vatRate: S('vat_rate'),
+      url: S('url'),
+    }),
+  },
   // WeldFlow's published status report: the overall colour is two flags (none:
   // green, `amber`, `red`; `amber+red` is exported but never chosen, it renders
   // as red). The period label is written by Rust (`period_label`).

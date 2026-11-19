@@ -18,7 +18,7 @@ use weldsuite_mollie::{Payment, PaymentStatus};
 
 use crate::account::{self, Account};
 use crate::engine::{self, BRAND};
-use crate::notify::{self, BillingMail, BillingMailKind};
+use crate::notify::{self, BillingMail, BillingMailKind, InvoiceMail};
 use crate::period::{Cycle, anchor_day, first_period, parse_iso};
 use crate::plans::Plan;
 use crate::store::{ChargeMeta, ChargeRow, InvoiceMirror, Purpose, mirror_invoice, status_of};
@@ -726,7 +726,105 @@ async fn try_issue_invoice(state: &BillingState, row: &ChargeRow) -> BillingResu
     )
     .await?;
     tracing::info!(row = %row.id, number = %issued.number, "billing: invoice issued");
+    mail_invoice(state, &row.id).await;
     Ok(())
+}
+
+/// Emails the billing owners the invoice of charge `row_id`, once: only the
+/// caller that claims its due mark sends it (`store`, "the invoice email's
+/// mark"). Without a mailer it stays due; a send nobody took is due again
+/// for the renewal job. `true` when it was sent.
+pub(crate) async fn mail_invoice(state: &BillingState, row_id: &str) -> bool {
+    match try_mail_invoice(state, row_id).await {
+        Ok(sent) => sent,
+        Err(error) => {
+            tracing::error!(?error, row = row_id, "billing: invoice email not sent");
+            false
+        }
+    }
+}
+
+async fn try_mail_invoice(state: &BillingState, row_id: &str) -> BillingResult<bool> {
+    let Some(mailer) = state.mailer.as_ref() else {
+        tracing::warn!(row = row_id, "billing: no mailer, the invoice email waits");
+        return Ok(false);
+    };
+    let master = &state.master;
+    if !ChargeRow::claim_invoice_mail(master, row_id).await? {
+        return Ok(false);
+    }
+    let message = match invoice_mail(state, row_id).await {
+        Ok(Some(message)) if !message.recipients.is_empty() => message,
+        Ok(_) => {
+            tracing::warn!(
+                row = row_id,
+                "billing: no billing owner to email the invoice"
+            );
+            ChargeRow::drop_invoice_mail(master, row_id).await?;
+            return Ok(false);
+        }
+        Err(error) => {
+            ChargeRow::release_invoice_mail(master, row_id).await?;
+            return Err(error);
+        }
+    };
+    match mailer.send_invoice(&message).await {
+        Ok(()) => {
+            tracing::info!(row = row_id, number = %message.number, "billing: invoice emailed");
+            Ok(true)
+        }
+        Err(error) => {
+            tracing::error!(%error, row = row_id, "billing: invoice email not taken, the renewal job retries");
+            ChargeRow::release_invoice_mail(master, row_id).await?;
+            Ok(false)
+        }
+    }
+}
+
+/// The invoice email of a charge: its invoice as the billing page lists it
+/// (number, date), what was paid and the VAT on it, to the billing owners.
+async fn invoice_mail(state: &BillingState, row_id: &str) -> BillingResult<Option<InvoiceMail>> {
+    let master = &state.master;
+    let Some(row) = ChargeRow::load(master, row_id).await? else {
+        return Ok(None);
+    };
+    let (Some(meta), Some(invoice_id)) = (row.meta(), row.invoice_id.as_deref()) else {
+        return Ok(None);
+    };
+    let invoice: Option<(Option<String>, String)> = sqlx::query_as(
+        "select number, to_char(created_at, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')
+         from billing_invoices where id = $1",
+    )
+    .bind(invoice_id)
+    .fetch_optional(master)
+    .await?;
+    let Some((number, created_at)) = invoice else {
+        return Ok(None);
+    };
+    let Some(workspace) = Workspace::load(master, &row.workspace_id).await? else {
+        return Ok(None);
+    };
+    let language = Language::parse(meta.language.as_deref());
+    let billing_email = meta.customer.as_ref().and_then(|c| c.email.clone());
+    let recipients =
+        notify::recipients(master, &row.workspace_id, billing_email.as_deref()).await?;
+    let charge = &meta.charge;
+    Ok(Some(InvoiceMail {
+        workspace_id: row.workspace_id.clone(),
+        workspace_name: workspace.name,
+        recipients,
+        language,
+        number: number.unwrap_or_default(),
+        date: notify::date_text(
+            parse_iso(&created_at).unwrap_or_else(OffsetDateTime::now_utc),
+            language,
+        ),
+        amount: notify::money_text(charge.gross, &charge.currency, language),
+        treatment: charge.vat.treatment,
+        tax: notify::money_text(charge.tax, &charge.currency, language),
+        rate: notify::rate_text(charge.vat.rate_bps, language),
+        billing_url: state.settings.return_url.clone(),
+    }))
 }
 
 /// Reads the payment of `row` back from Mollie and settles it (the return

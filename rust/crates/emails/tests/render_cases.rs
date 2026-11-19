@@ -309,6 +309,24 @@ fn render(case: &Case) -> RenderedEmail {
                 url: s(p, "url"),
             },
         ),
+        "billing.invoice" => billing::invoice(
+            locale,
+            &brand,
+            &billing::Invoice {
+                workspace_name: s(p, "workspaceName"),
+                number: s(p, "number"),
+                date: s(p, "date"),
+                amount: s(p, "amount"),
+                vat: match p["vat"].as_str() {
+                    Some("reverse") => billing::InvoiceVat::Reverse,
+                    Some("outside") => billing::InvoiceVat::Outside,
+                    _ => billing::InvoiceVat::Charged,
+                },
+                vat_amount: s(p, "vatAmount"),
+                vat_rate: s(p, "vatRate"),
+                url: s(p, "url"),
+            },
+        ),
         "hr.bank-changed" => hr::bank_changed(
             locale,
             &brand,

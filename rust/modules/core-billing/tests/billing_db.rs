@@ -3,11 +3,13 @@
 //! without them), against a recorded Mollie and an issuer that only counts:
 //! a checkout, its first payment, renewals on the anchor, a prorated seat
 //! upgrade, a scheduled decrease, a failed renewal, past due, the end of
-//! the grace period on Free, a credit top-up priced with VAT on top, and
-//! WeldReach inboxes on the plan (pro rata between anchors, on each anchor).
+//! the grace period on Free, a credit top-up priced with VAT on top,
+//! WeldReach inboxes on the plan (pro rata between anchors, on each anchor),
+//! and every invoice emailed to the billing owners exactly once (a send
+//! nobody took retried by the renewal job).
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde_json::{Value, json};
@@ -18,9 +20,9 @@ use weldsuite_core_billing::engine::{self, Actor, CheckoutAnswer, CheckoutInput}
 use weldsuite_core_billing::period::Cycle;
 use weldsuite_core_billing::renewals::run_renewals;
 use weldsuite_core_billing::{
-    AddonSource, BillingError, BillingSettings, BillingState, InboxCharge, InvoiceIssuer,
-    IssueRequest, IssuedInvoice, Language, Line, LineKind, Settled, TopUpRequest,
-    charge_inbox_added, inbox_line, quote_top_up, settle_payment,
+    AddonSource, BillingError, BillingMail, BillingMailer, BillingSettings, BillingState,
+    InboxCharge, InvoiceIssuer, InvoiceMail, IssueRequest, IssuedInvoice, Language, Line, LineKind,
+    Settled, TopUpRequest, Treatment, charge_inbox_added, inbox_line, quote_top_up, settle_payment,
 };
 use weldsuite_ports::{
     BoxFuture, DynOutboundHttp, HttpRequest, HttpResponse, OutboundHttp, PortError,
@@ -176,6 +178,50 @@ impl InvoiceIssuer for CountingIssuer {
     }
 }
 
+/// Keeps the emails it is given; refuses invoice emails while `refuse` is
+/// set (nobody took them).
+#[derive(Default)]
+struct RecordingMailer {
+    dunning: Mutex<Vec<BillingMail>>,
+    invoices: Mutex<Vec<InvoiceMail>>,
+    refuse: AtomicBool,
+}
+
+impl RecordingMailer {
+    fn invoice_numbers(&self) -> Vec<String> {
+        self.invoices
+            .lock()
+            .expect("lock")
+            .iter()
+            .map(|mail| mail.number.clone())
+            .collect()
+    }
+}
+
+impl BillingMailer for RecordingMailer {
+    fn send<'a>(&'a self, mail: &'a BillingMail) -> BoxFuture<'a, Result<(), String>> {
+        self.dunning.lock().expect("lock").push(mail.clone());
+        Box::pin(std::future::ready(Ok(())))
+    }
+
+    fn send_invoice<'a>(&'a self, mail: &'a InvoiceMail) -> BoxFuture<'a, Result<(), String>> {
+        let result = if self.refuse.load(Ordering::SeqCst) {
+            Err("relay down".to_owned())
+        } else {
+            self.invoices.lock().expect("lock").push(mail.clone());
+            Ok(())
+        };
+        Box::pin(std::future::ready(result))
+    }
+}
+
+/// The numbers of the invoices the issuer made, in order.
+fn issued_numbers(issuer: &CountingIssuer) -> Vec<String> {
+    (1..=issuer.issued.lock().expect("lock").len())
+        .map(|n| format!("WS-{n:04}"))
+        .collect()
+}
+
 async fn exec(db: &PgPool, sql: &'static str, binds: &[&str]) {
     let mut query = sqlx::query(sql);
     for bind in binds {
@@ -262,6 +308,7 @@ fn state(
     mollie: &Arc<FakeMollie>,
     issuer: &Arc<CountingIssuer>,
     inboxes: &Arc<FakeInboxes>,
+    mailer: &Arc<RecordingMailer>,
 ) -> BillingState {
     let settings = BillingSettings::from_lookup(&|name: &str| {
         match name {
@@ -290,7 +337,7 @@ fn state(
         Some(tenants),
         None,
         Arc::clone(issuer) as Arc<dyn InvoiceIssuer>,
-        None,
+        Some(Arc::clone(mailer) as Arc<dyn BillingMailer>),
     )
     .with_addons(Arc::clone(inboxes) as Arc<dyn AddonSource>)
 }
@@ -357,7 +404,8 @@ async fn a_subscription_from_checkout_to_free() {
     *mollie.recurring_status.lock().expect("lock") = "paid".to_owned();
     let issuer = Arc::new(CountingIssuer::default());
     let inboxes = Arc::new(FakeInboxes::default());
-    let state = state(&master, &tenant, &mollie, &issuer, &inboxes);
+    let mailer = Arc::new(RecordingMailer::default());
+    let state = state(&master, &tenant, &mollie, &issuer, &inboxes, &mailer);
     let actor = Actor {
         workspace_id: WS.to_owned(),
         user_id: Some("user_billingdb".to_owned()),
@@ -435,6 +483,25 @@ async fn a_subscription_from_checkout_to_free() {
             .await
             .expect("invoices");
     assert_eq!(invoices, 1);
+    // Emailed once to the billing owners, the second delivery included, in
+    // the workspace's language.
+    {
+        let sent = mailer.invoices.lock().expect("lock");
+        assert_eq!(sent.len(), 1, "one email per invoice");
+        let mail = &sent[0];
+        assert_eq!(mail.number, "WS-0001");
+        assert_eq!(mail.recipients, vec!["billing@billingdb.test".to_owned()]);
+        assert_eq!(mail.language, Language::Nl);
+        assert_eq!(mail.workspace_name, "Billing DB");
+        assert_eq!(mail.amount, "€ 90,75");
+        assert_eq!(mail.treatment, Treatment::Domestic);
+        assert_eq!((mail.tax.as_str(), mail.rate.as_str()), ("€ 15,75", "21"));
+        assert_eq!(
+            mail.billing_url,
+            "https://app.weldsuite.test/settings/billing"
+        );
+        assert_ne!(mail.date, "");
+    }
 
     // 3. Two more seats on day 11 of 30: prorated on the mandate, at once.
     let t1 = datetime!(2026-11-24 09:00:00 UTC);
@@ -532,6 +599,10 @@ async fn a_subscription_from_checkout_to_free() {
     // Running again in the same hour charges nothing twice.
     let again = run_renewals(&state, t2).await;
     assert_eq!(again.charged, 0, "{again:?}");
+    // Every invoice so far (checkout, proration, inboxes, renewal) was
+    // emailed once, as it was issued; the job had none left to send.
+    assert_eq!(mailer.invoice_numbers(), issued_numbers(&issuer));
+    assert_eq!(again.invoices_mailed, 0, "{again:?}");
     // The anchor paid the inbox for the new month: adding it back is covered.
     assert_eq!(
         charge_inbox_added(&state, WS, None, "rmbx_3", 1, t2)
@@ -617,6 +688,9 @@ async fn a_subscription_from_checkout_to_free() {
         }),
     );
     let t5 = datetime!(2027-02-01 09:00:00 UTC);
+    // The relay refuses the invoice email this time.
+    mailer.refuse.store(true, Ordering::SeqCst);
+    let mailed_before = mailer.invoice_numbers().len();
     assert_eq!(
         pay(&state, &mollie, "tr_billingdbtopup", t5).await,
         Settled::CreditsBought
@@ -625,6 +699,21 @@ async fn a_subscription_from_checkout_to_free() {
         pay(&state, &mollie, "tr_billingdbtopup", t5).await,
         Settled::Recorded(_)
     ));
+    assert_eq!(mailer.invoice_numbers().len(), mailed_before, "refused");
+    let mark: Option<String> =
+        sqlx::query_scalar("select metadata ->> 'invoiceMail' from billing_payments where id = $1")
+            .bind(&quoted.charge_id)
+            .fetch_one(&master)
+            .await
+            .expect("mark");
+    assert_eq!(mark.as_deref(), Some("due"), "tried again later");
+    // The next run sends it, once.
+    mailer.refuse.store(false, Ordering::SeqCst);
+    let report = run_renewals(&state, t5).await;
+    assert_eq!(report.invoices_mailed, 1, "{report:?}");
+    let report = run_renewals(&state, t5).await;
+    assert_eq!(report.invoices_mailed, 0, "{report:?}");
+    assert_eq!(mailer.invoice_numbers(), issued_numbers(&issuer));
     let requests = issuer.issued.lock().expect("lock").clone();
     assert_eq!(requests.len(), invoiced_before + 1, "one invoice");
     let invoice = requests.last().expect("invoice");
