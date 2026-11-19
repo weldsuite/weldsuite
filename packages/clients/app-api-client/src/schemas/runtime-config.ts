@@ -77,6 +77,13 @@ export const runtimeConfigSchema = z.object({
   unavailableFeatures: z.array(z.string().min(1)).optional(),
   apiBaseUrl: z.string().url().optional(),
   realtimeUrl: z.string().url().optional(),
+  /**
+   * The origin WeldDesk's helpdesk widget is served from when it isn't
+   * Global's (`https://widget.weldsuite.org`, the SDK's default): the widget's
+   * install code passes it as the SDK's `api.baseUrl`. A bad value reads as
+   * absent rather than rejecting the document.
+   */
+  helpdeskWidgetUrl: z.string().url().optional().catch(undefined),
   // Checked where they are used, so a bad value only stops joining a
   // meeting, never the whole document.
   videoProvider: z.string().min(1).optional(),

@@ -159,4 +159,21 @@ describe('route availability', () => {
     setRuntimeConfig({ backend: 'rust', modules: ['core'], env: { VITE_EXTERNAL_API_URL: 'https://api.example.eu' } });
     expect(isRouteOffered('/settings/api-keys')).toBe(true);
   });
+
+  it("offers WeldDesk's BI connector only where the public API it feeds from is named", () => {
+    expect(isRouteOffered('/welddesk/reports/bi-connector')).toBe(true);
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'desk'] });
+    expect(isRouteOffered('/welddesk/reports/bi-connector')).toBe(false);
+    expect(isRouteOffered('/welddesk/reports')).toBe(true);
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'desk'], env: { VITE_EXTERNAL_API_URL: 'https://api.example.eu' } });
+    expect(isRouteOffered('/welddesk/reports/bi-connector')).toBe(true);
+  });
+
+  it('hides the help center settings where the edition hosts no help center, and only those', () => {
+    expect(isRouteOffered('/settings/apps/welddesk/help-center')).toBe(true);
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'desk'], unavailableFeatures: ['helpcenter-hosting'] });
+    expect(isRouteOffered('/settings/apps/welddesk/help-center')).toBe(false);
+    expect(isRouteOffered('/settings/apps/welddesk/chat-widget')).toBe(true);
+    expect(isRouteOffered('/welddesk/help-center/articles')).toBe(true);
+  });
 });

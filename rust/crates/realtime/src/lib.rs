@@ -28,6 +28,9 @@
 //! - The role and display name come from `workspace_members` (active rows),
 //!   not the token's Clerk claims, so OIDC sessions work; someone without an
 //!   active membership is refused (403) instead of joining.
+//! - In membership mode (`OIDC_WORKSPACE_SOURCE=header`) the token names no
+//!   workspace, so a socket names it in its URL, `?workspace=` (the
+//!   counterpart of the API's `X-Weld-Workspace`; [`workspace`]).
 //! - Event ids continue the hub's counter from the clock rather than from 1.
 //! - Limits the Durable Objects did not have: sockets per pod and per
 //!   person, topics per connection (`too_many_subscriptions`), and a send
@@ -53,8 +56,10 @@ mod routes;
 mod socket;
 mod topics;
 mod widget;
+mod workspace;
 
 pub use config::GatewayConfig;
 pub use directory::{ChatAccess, DbDirectory, Directory, DirectoryError, Member};
 pub use gateway::{Authenticator, Gateway};
 pub use routes::router;
+pub use workspace::{WORKSPACE_PARAM, WorkspaceChooser};

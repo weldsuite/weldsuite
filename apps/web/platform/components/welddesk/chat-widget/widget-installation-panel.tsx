@@ -3,10 +3,13 @@ import { useState } from 'react';
 import { Copy, Check, ChevronDown, ChevronRight, Code2 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { getHelpdeskWidgetUrl } from '@/lib/runtime-config';
+import { installSnippets } from './install-snippets';
 
 interface WidgetInstallationPanelProps {
   widgetId: string;
 }
+
 
 function CodeBlock({
   code,
@@ -84,6 +87,9 @@ export function WidgetInstallationPanel({ widgetId }: Readonly<WidgetInstallatio
   const t = useTranslations();
   const [copied, setCopied] = useState<string | null>(null);
   const [expandedFramework, setExpandedFramework] = useState<string | null>('vanilla');
+  // A deployment with its own widget host (WeldSuite EU) names it; without it
+  // the SDK loads Global's widget, which doesn't know this widget id.
+  const snippet = installSnippets(widgetId, getHelpdeskWidgetUrl());
 
   const copyToClipboard = async (text: string, key: string) => {
     try {
@@ -148,14 +154,7 @@ export function WidgetInstallationPanel({ widgetId }: Readonly<WidgetInstallatio
             <CodeBlock
               {...codeBlockProps}
               copyKey="vanilla"
-              code={`<!-- Load from CDN -->
-<script src="https://unpkg.com/@weldsuite/helpdesk-widget-sdk@latest/dist/index.umd.js"></script>
-
-<script>
-  HelpdeskWidget.initHelpdeskWidget({
-    widgetId: '${widgetId}'
-  });
-</script>`}
+              code={snippet.vanilla}
             />
           </div>
         </FrameworkSection>
@@ -173,16 +172,7 @@ export function WidgetInstallationPanel({ widgetId }: Readonly<WidgetInstallatio
             <CodeBlock
               {...codeBlockProps}
               copyKey="react-component"
-              code={`import { HelpdeskWidgetReact } from '@weldsuite/helpdesk-widget-sdk/react';
-
-function App() {
-  return (
-    <>
-      <h1>My App</h1>
-      <HelpdeskWidgetReact widgetId="${widgetId}" />
-    </>
-  );
-}`}
+              code={snippet.react}
             />
           </div>
         </FrameworkSection>
@@ -200,16 +190,7 @@ function App() {
             <CodeBlock
               {...codeBlockProps}
               copyKey="vue-component"
-              code={`<script setup>
-import { HelpdeskWidget } from '@weldsuite/helpdesk-widget-sdk/vue';
-</script>
-
-<template>
-  <div>
-    <h1>My App</h1>
-    <HelpdeskWidget widget-id="${widgetId}" />
-  </div>
-</template>`}
+              code={snippet.vue}
             />
           </div>
         </FrameworkSection>
@@ -227,18 +208,7 @@ import { HelpdeskWidget } from '@weldsuite/helpdesk-widget-sdk/vue';
             <CodeBlock
               {...codeBlockProps}
               copyKey="angular-component"
-              code={`import { HelpdeskWidgetComponent } from '@weldsuite/helpdesk-widget-sdk/angular';
-
-@Component({
-  selector: 'app-root',
-  standalone: true,
-  imports: [HelpdeskWidgetComponent],
-  template: \`
-    <h1>My App</h1>
-    <helpdesk-widget [widgetId]="'${widgetId}'"></helpdesk-widget>
-  \`
-})
-export class AppComponent {}`}
+              code={snippet.angular}
             />
           </div>
         </FrameworkSection>
@@ -256,12 +226,7 @@ export class AppComponent {}`}
             <CodeBlock
               {...codeBlockProps}
               copyKey="svelte-component"
-              code={`<script>
-  import { HelpdeskWidget } from '@weldsuite/helpdesk-widget-sdk/svelte';
-</script>
-
-<h1>My App</h1>
-<HelpdeskWidget widgetId="${widgetId}" />`}
+              code={snippet.svelte}
             />
           </div>
         </FrameworkSection>

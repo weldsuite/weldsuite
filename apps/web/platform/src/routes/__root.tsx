@@ -2,7 +2,7 @@ import { createRootRouteWithContext, Outlet } from '@tanstack/react-router';
 import type { QueryClient } from '@tanstack/react-query';
 import { RootErrorFallback } from '@/components/root-error-fallback';
 import { ApiClientProvider } from '@/lib/api/api-provider';
-import { getRealtimeUrl } from '@/lib/api/public-env';
+import { realtimeSocketUrl } from '@/lib/api/realtime-url';
 import { QueryProvider } from '@/providers/query-provider';
 import { ThemeProvider } from '@/providers/theme-provider';
 import { I18nProvider, useI18n } from '@/lib/i18n/provider';
@@ -80,7 +80,7 @@ function RealtimeProviderWrapper({ children }: Readonly<{ children: React.ReactN
   const cursorStore = createBrowserCursorStore(orgId || 'no-org');
   return (
     <RealtimeProvider
-      url={active ? getRealtimeUrl() : ''}
+      url={active ? realtimeSocketUrl('/ws') : ''}
       getToken={stableGetToken}
       cursorStore={cursorStore}
       connectionKey={orgId || ''}
