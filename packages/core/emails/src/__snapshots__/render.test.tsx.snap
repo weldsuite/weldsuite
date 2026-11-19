@@ -440,6 +440,178 @@ Of open deze link: https://app.weldsuite.eu/public/billing/pay/token
 WeldSuite https://weldsuite.org"
 `;
 
+exports[`'billing.invoice' / 'charged' / 'en' > matches the text snapshot 1`] = `
+"Your WeldSuite invoice INV-0042 for "Acme Studio"
+
+Billing
+
+Invoice INV-0042
+
+Thanks for your payment. The invoice for Acme Studio is ready and already paid, so there is nothing left to pay.
+
+Workspace: Acme Studio
+
+Invoice number: INV-0042
+
+Invoice date: 19 november 2026
+
+Total incl. VAT: € 90,75
+
+VAT: € 15,75 (21%)
+
+Open or print the invoice under History in Settings › Billing. You get this email because you manage billing for the workspace.
+
+Open billing https://app.weldsuite.eu/settings/billing
+
+Or open this link: https://app.weldsuite.eu/settings/billing
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'billing.invoice' / 'charged' / 'nl' > matches the text snapshot 1`] = `
+"Je WeldSuite-factuur INV-0042 voor "Acme Studio"
+
+Facturatie
+
+Factuur INV-0042
+
+Bedankt voor je betaling. De factuur voor Acme Studio staat klaar en is al betaald, dus er staat niets meer open.
+
+Werkruimte: Acme Studio
+
+Factuurnummer: INV-0042
+
+Factuurdatum: 19 november 2026
+
+Totaal incl. btw: € 90,75
+
+Btw: € 15,75 (21%)
+
+Open of print de factuur onder Geschiedenis in Instellingen › Facturering. Je krijgt deze e-mail omdat je de facturatie van de werkruimte beheert.
+
+Open facturering https://app.weldsuite.eu/settings/billing
+
+Of open deze link: https://app.weldsuite.eu/settings/billing
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'billing.invoice' / 'outside' / 'en' > matches the text snapshot 1`] = `
+"Your WeldSuite invoice INV-0044 for "Acme Corp"
+
+Billing
+
+Invoice INV-0044
+
+Thanks for your payment. The invoice for Acme Corp is ready and already paid, so there is nothing left to pay.
+
+Workspace: Acme Corp
+
+Invoice number: INV-0044
+
+Invoice date: 19 november 2026
+
+Total: € 75,00
+
+VAT: None, outside the EU
+
+Open or print the invoice under History in Settings › Billing. You get this email because you manage billing for the workspace.
+
+Open billing https://app.weldsuite.eu/settings/billing
+
+Or open this link: https://app.weldsuite.eu/settings/billing
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'billing.invoice' / 'outside' / 'nl' > matches the text snapshot 1`] = `
+"Je WeldSuite-factuur INV-0044 voor "Acme Corp"
+
+Facturatie
+
+Factuur INV-0044
+
+Bedankt voor je betaling. De factuur voor Acme Corp staat klaar en is al betaald, dus er staat niets meer open.
+
+Werkruimte: Acme Corp
+
+Factuurnummer: INV-0044
+
+Factuurdatum: 19 november 2026
+
+Totaal: € 75,00
+
+Btw: Geen, buiten de EU
+
+Open of print de factuur onder Geschiedenis in Instellingen › Facturering. Je krijgt deze e-mail omdat je de facturatie van de werkruimte beheert.
+
+Open facturering https://app.weldsuite.eu/settings/billing
+
+Of open deze link: https://app.weldsuite.eu/settings/billing
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'billing.invoice' / 'reverse' / 'en' > matches the text snapshot 1`] = `
+"Your WeldSuite invoice INV-0043 for "Acme GmbH"
+
+Billing
+
+Invoice INV-0043
+
+Thanks for your payment. The invoice for Acme GmbH is ready and already paid, so there is nothing left to pay.
+
+Workspace: Acme GmbH
+
+Invoice number: INV-0043
+
+Invoice date: 19 november 2026
+
+Total: € 75,00
+
+VAT: Reverse charge
+
+VAT is reverse-charged: you account for it in your own VAT return (Article 196 of the EU VAT Directive).
+
+Open or print the invoice under History in Settings › Billing. You get this email because you manage billing for the workspace.
+
+Open billing https://app.weldsuite.eu/settings/billing
+
+Or open this link: https://app.weldsuite.eu/settings/billing
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'billing.invoice' / 'reverse' / 'nl' > matches the text snapshot 1`] = `
+"Je WeldSuite-factuur INV-0043 voor "Acme GmbH"
+
+Facturatie
+
+Factuur INV-0043
+
+Bedankt voor je betaling. De factuur voor Acme GmbH staat klaar en is al betaald, dus er staat niets meer open.
+
+Werkruimte: Acme GmbH
+
+Factuurnummer: INV-0043
+
+Factuurdatum: 19 november 2026
+
+Totaal: € 75,00
+
+Btw: Verlegd
+
+De btw is verlegd: je geeft hem zelf aan in je btw-aangifte (artikel 196 van de EU-btw-richtlijn).
+
+Open of print de factuur onder Geschiedenis in Instellingen › Facturering. Je krijgt deze e-mail omdat je de facturatie van de werkruimte beheert.
+
+Open facturering https://app.weldsuite.eu/settings/billing
+
+Of open deze link: https://app.weldsuite.eu/settings/billing
+
+WeldSuite https://weldsuite.org"
+`;
+
 exports[`'booking' / 'cancelled' / 'en' > matches the text snapshot 1`] = `
 "Booking cancelled: 30 minute intro call on Wednesday, October 14, 2026
 

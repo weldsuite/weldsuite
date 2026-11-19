@@ -12,7 +12,9 @@
 //!    (workspace, anchor), so overlapping runs never charge twice. The period
 //!    moves forward when the charge is made; a refusal makes the account past
 //!    due, and the plan keeps working through the grace period;
-//! 4. issues the invoices of paid charges the issuer couldn't take earlier.
+//! 4. emails the invoices whose email is still due (no mailer when they were
+//!    issued, or nobody took it), then issues the invoices of paid charges
+//!    the issuer couldn't take earlier, emailing each as it is issued.
 
 use serde_json::{Value, json};
 use time::OffsetDateTime;
@@ -44,6 +46,7 @@ pub struct RenewalReport {
     pub reminded: usize,
     pub comps_ended: usize,
     pub invoices_issued: usize,
+    pub invoices_mailed: usize,
     pub failed: usize,
 }
 
@@ -57,6 +60,7 @@ impl RenewalReport {
             "reminded": self.reminded,
             "compsEnded": self.comps_ended,
             "invoicesIssued": self.invoices_issued,
+            "invoicesMailed": self.invoices_mailed,
             "failed": self.failed,
         })
     }
@@ -97,6 +101,23 @@ pub async fn run_renewals(state: &BillingState, now: OffsetDateTime) -> RenewalR
             }
         }
     }
+    // Before the invoices below, so one whose email nobody takes now waits
+    // an hour instead of being tried again at once.
+    if state.mailer.is_some() {
+        match ChargeRow::invoice_mail_due(&state.master, 50).await {
+            Ok(ids) => {
+                for id in ids {
+                    if settle::mail_invoice(state, &id).await {
+                        report.invoices_mailed += 1;
+                    }
+                }
+            }
+            Err(error) => {
+                tracing::error!(%error, "billing-renewals: unsent invoice emails unreadable");
+                report.failed += 1;
+            }
+        }
+    }
     match ChargeRow::paid_without_invoice(&state.master, 50).await {
         Ok(rows) => {
             for row in rows {
@@ -105,6 +126,9 @@ pub async fn run_renewals(state: &BillingState, now: OffsetDateTime) -> RenewalR
                     && row.invoice_id.is_some()
                 {
                     report.invoices_issued += 1;
+                    if row.invoice_mail() == Some("sent") {
+                        report.invoices_mailed += 1;
+                    }
                 }
             }
         }

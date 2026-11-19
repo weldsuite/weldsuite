@@ -215,6 +215,13 @@ function dunningKind(flags: Set<string>): 'failed' | 'reminder' | 'ended' {
   return 'failed';
 }
 
+/** `billing.invoice`'s VAT line from its flags: none is VAT charged at a rate. */
+function invoiceVat(flags: Set<string>): 'charged' | 'reverse' | 'outside' {
+  if (flags.has('outside')) return 'outside';
+  if (flags.has('reverse')) return 'reverse';
+  return 'charged';
+}
+
 const SPECS: Spec[] = [
   {
     id: 'sign.request',
@@ -465,6 +472,25 @@ const SPECS: Spec[] = [
       planName: S('plan_name'),
       amount: S('amount'),
       endsOn: S('ends_on'),
+      url: S('url'),
+    }),
+  },
+  // The invoice of a paid charge (ADR BILL-014, decision 5). The VAT line is
+  // a flag per treatment: none is VAT charged at a rate (domestic or OSS),
+  // `reverse` a reverse charge, `outside` a customer outside the EU.
+  {
+    id: 'billing.invoice',
+    flags: ['reverse', 'outside'],
+    fields: ['workspace_name', 'number', 'date', 'amount', 'vat_amount', 'vat_rate', 'url'],
+    exclude: (f) => f.has('reverse') && f.has('outside'),
+    props: (f) => ({
+      workspaceName: S('workspace_name'),
+      number: S('number'),
+      date: S('date'),
+      amount: S('amount'),
+      vat: invoiceVat(f),
+      vatAmount: S('vat_amount'),
+      vatRate: S('vat_rate'),
       url: S('url'),
     }),
   },

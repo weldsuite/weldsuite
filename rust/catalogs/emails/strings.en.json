@@ -107,6 +107,25 @@
     },
     "workspace": "Workspace"
   },
+  "billingInvoice": {
+    "amount": "Total",
+    "amountInclVat": "Total incl. VAT",
+    "body": "Thanks for your payment. The invoice for {workspace} is ready and already paid, so there is nothing left to pay.",
+    "button": "Open billing",
+    "date": "Invoice date",
+    "heading": "Invoice {number}",
+    "kicker": "Billing",
+    "note": "Open or print the invoice under History in Settings › Billing. You get this email because you manage billing for the workspace.",
+    "number": "Invoice number",
+    "preview": "Invoice {number} is paid: {amount}",
+    "reverseNote": "VAT is reverse-charged: you account for it in your own VAT return (Article 196 of the EU VAT Directive).",
+    "subject": "Your WeldSuite invoice {number} for \"{workspace}\"",
+    "vat": "VAT",
+    "vatCharged": "{amount} ({rate}%)",
+    "vatOutside": "None, outside the EU",
+    "vatReverse": "Reverse charge",
+    "workspace": "Workspace"
+  },
   "booking": {
     "date": "Date",
     "host": "Host",

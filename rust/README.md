@@ -1333,12 +1333,25 @@ install leaves it off: its seats and modules come from its licence.
   (`/api/billing/invoices/:id/document`). The issuer needs the entity set
   up (address, VAT number, invoice numbering); an invoice it can't issue is
   retried by the renewal job and never skipped.
+- **Invoice email**: once an invoice is issued, for every kind of paid
+  charge, the billing owners (the billing email and the organization
+  admins) get "Your WeldSuite invoice" (`billing.invoice`, system mail):
+  number, date, total including VAT, the VAT line (rate, reverse charge or
+  none outside the EU) and a link to Settings › Billing, where the invoice
+  opens. No attachment: the printable invoice is HTML, which mail filters
+  treat as phishing, and only a member with `billing:read` may open it.
+  WeldBooks never sends it itself (`auto_send` off). Sent once per invoice:
+  the charge row's `metadata.invoiceMail` is `due` when the invoice is
+  mirrored and `sent` once a sender claims it; a send nobody took (or one
+  with no mailer configured) stays due for the renewal job, which gives up
+  after 24 tries (`failed`). Invoices from before this email have no mark
+  and are never sent.
 - **`weldsuite cron billing-renewals`** (hourly, chart
   `cron.jobs.billing-renewals`): charges every anchor that came (the plan
   when its period ends, after the change scheduled for then; the monthly
   plan credits on every anchor, yearly plans included), ends comps
-  (BILL-011) and past-due plans, sends the reminders, and issues invoices
-  still owed.
+  (BILL-011) and past-due plans, sends the reminders, and issues and emails
+  invoices still owed.
 - **Past due**: a charge that fails makes the plan `past_due` and emails the
   billing owners (the billing email and the organization admins) a signed
   pay link (`BILLING_PAY_LINK_KEY`, `/public/billing/pay/:token`); halfway

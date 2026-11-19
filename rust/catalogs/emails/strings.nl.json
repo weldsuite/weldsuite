@@ -107,6 +107,25 @@
     },
     "workspace": "Werkruimte"
   },
+  "billingInvoice": {
+    "amount": "Totaal",
+    "amountInclVat": "Totaal incl. btw",
+    "body": "Bedankt voor je betaling. De factuur voor {workspace} staat klaar en is al betaald, dus er staat niets meer open.",
+    "button": "Open facturering",
+    "date": "Factuurdatum",
+    "heading": "Factuur {number}",
+    "kicker": "Facturatie",
+    "note": "Open of print de factuur onder Geschiedenis in Instellingen › Facturering. Je krijgt deze e-mail omdat je de facturatie van de werkruimte beheert.",
+    "number": "Factuurnummer",
+    "preview": "Factuur {number} is betaald: {amount}",
+    "reverseNote": "De btw is verlegd: je geeft hem zelf aan in je btw-aangifte (artikel 196 van de EU-btw-richtlijn).",
+    "subject": "Je WeldSuite-factuur {number} voor \"{workspace}\"",
+    "vat": "Btw",
+    "vatCharged": "{amount} ({rate}%)",
+    "vatOutside": "Geen, buiten de EU",
+    "vatReverse": "Verlegd",
+    "workspace": "Werkruimte"
+  },
   "booking": {
     "date": "Datum",
     "host": "Organisator",

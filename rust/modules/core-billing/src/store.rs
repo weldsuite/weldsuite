@@ -366,11 +366,106 @@ pub(crate) async fn mirror_invoice(
             .bind(invoice.provider_payment_id)
             .fetch_one(&mut *tx)
             .await?;
-    sqlx::query("update billing_payments set invoice_id = $2, updated_at = now() where id = $1")
-        .bind(charge_row_id)
-        .bind(&stored)
-        .execute(&mut *tx)
-        .await?;
+    // Linked, with its email due unless an earlier call already marked it.
+    sqlx::query(
+        "update billing_payments set invoice_id = $2, updated_at = now(),
+             metadata = case when metadata ? 'invoiceMail' then metadata
+                             else jsonb_set(coalesce(metadata, '{}'::jsonb), '{invoiceMail}', '\"due\"')
+                        end
+         where id = $1",
+    )
+    .bind(charge_row_id)
+    .bind(&stored)
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
     Ok(stored)
+}
+
+// ── the invoice email's mark ────────────────────────────────────────────────
+//
+// `billing_payments.metadata.invoiceMail` (no column of its own, so no
+// migration): `due` from the moment the invoice is mirrored, `sent` once a
+// sender claims it, `failed` after `INVOICE_MAIL_ATTEMPTS` sends nobody took,
+// `none` with nobody to send it to. A charge invoiced before invoice emails
+// existed has no mark and is never mailed. The claim is the mark: a crash
+// between the claim and the send loses the email rather than sending it
+// twice.
+
+/// Sends nobody took before the invoice email is given up (hourly: a day).
+pub(crate) const INVOICE_MAIL_ATTEMPTS: i32 = 24;
+
+impl ChargeRow {
+    /// The invoice email's mark, when it has one.
+    pub(crate) fn invoice_mail(&self) -> Option<&str> {
+        self.metadata
+            .as_ref()
+            .and_then(|metadata| metadata.get("invoiceMail"))
+            .and_then(Value::as_str)
+    }
+
+    /// Claims the due invoice email of charge `id` for sending; `false` when
+    /// it isn't due (sent, claimed by another caller, or never marked).
+    pub(crate) async fn claim_invoice_mail(master: &PgPool, id: &str) -> Result<bool, sqlx::Error> {
+        let claimed = sqlx::query(
+            "update billing_payments
+             set metadata = jsonb_set(metadata, '{invoiceMail}', '\"sent\"'), updated_at = now()
+             where id = $1 and invoice_id is not null and metadata ->> 'invoiceMail' = 'due'",
+        )
+        .bind(id)
+        .execute(master)
+        .await?;
+        Ok(claimed.rows_affected() == 1)
+    }
+
+    /// A claimed send nobody took: due again for the next run, or `failed`
+    /// after [`INVOICE_MAIL_ATTEMPTS`].
+    pub(crate) async fn release_invoice_mail(master: &PgPool, id: &str) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "update billing_payments
+             set metadata = jsonb_set(
+                     jsonb_set(metadata, '{invoiceMailAttempts}',
+                               to_jsonb(coalesce((metadata ->> 'invoiceMailAttempts')::int, 0) + 1)),
+                     '{invoiceMail}',
+                     case when coalesce((metadata ->> 'invoiceMailAttempts')::int, 0) + 1 >= $2
+                          then '\"failed\"'::jsonb else '\"due\"'::jsonb end),
+                 updated_at = now()
+             where id = $1 and metadata ->> 'invoiceMail' = 'sent'",
+        )
+        .bind(id)
+        .bind(INVOICE_MAIL_ATTEMPTS)
+        .execute(master)
+        .await?;
+        Ok(())
+    }
+
+    /// A claimed invoice email with nobody to send it to.
+    pub(crate) async fn drop_invoice_mail(master: &PgPool, id: &str) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "update billing_payments
+             set metadata = jsonb_set(metadata, '{invoiceMail}', '\"none\"'), updated_at = now()
+             where id = $1 and metadata ->> 'invoiceMail' = 'sent'",
+        )
+        .bind(id)
+        .execute(master)
+        .await?;
+        Ok(())
+    }
+
+    /// Charges whose invoice email is due: not sent when the invoice was
+    /// issued (no mailer then, or nobody took it).
+    pub(crate) async fn invoice_mail_due(
+        master: &PgPool,
+        limit: i64,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        sqlx::query_scalar(
+            "select id from billing_payments
+             where provider = 'mollie' and invoice_id is not null
+               and metadata ->> 'invoiceMail' = 'due'
+             order by paid_at limit $1",
+        )
+        .bind(limit)
+        .fetch_all(master)
+        .await
+    }
 }

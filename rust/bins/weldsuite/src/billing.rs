@@ -19,13 +19,13 @@ use serde_json::{Value, json};
 use time::OffsetDateTime;
 use weldsuite_core_billing::{
     AddonSource, BillingError, BillingMail, BillingMailKind, BillingMailer, BillingSettings,
-    BillingState, InvoiceIssuer, IssueRequest, IssuedInvoice, Language, Line, LineKind,
-    TopUpRequest, Treatment, WEBHOOK_PATH,
+    BillingState, InvoiceIssuer, InvoiceMail, IssueRequest, IssuedInvoice, Language, Line,
+    LineKind, TopUpRequest, Treatment, WEBHOOK_PATH,
 };
 use weldsuite_core_platform::{TopUpBilling, TopUpPrice, TopUpQuote};
 use weldsuite_db::{Keyring, PgPool, Workspaces};
-use weldsuite_emails::billing::{Dunning, DunningKind, dunning};
-use weldsuite_emails::{EmailBrand, EmailLocale, SystemEmail, send_system_email};
+use weldsuite_emails::billing::{Dunning, DunningKind, Invoice, InvoiceVat, dunning, invoice};
+use weldsuite_emails::{EmailBrand, EmailLocale, RenderedEmail, SystemEmail, send_system_email};
 use weldsuite_kit::{ApiError, generate_id};
 use weldsuite_ports::{BoxFuture, DynSystemMail, OutboundHttp};
 use weldsuite_reach::weldsuite_reach_domain::ReachError;
@@ -426,10 +426,7 @@ struct SystemMailer {
 impl BillingMailer for SystemMailer {
     fn send<'a>(&'a self, message: &'a BillingMail) -> BoxFuture<'a, Result<(), String>> {
         Box::pin(async move {
-            let locale = match message.language {
-                Language::Nl => EmailLocale::Nl,
-                Language::En => EmailLocale::En,
-            };
+            let locale = email_locale(message.language);
             let props = Dunning {
                 kind: match message.kind {
                     BillingMailKind::PaymentFailed => DunningKind::Failed,
@@ -447,19 +444,79 @@ impl BillingMailer for SystemMailer {
             };
             let brand = EmailBrand::weldsuite("WeldSuite");
             let rendered = dunning(locale, &brand, &props).map_err(|error| error.to_string())?;
-            let mut failures = Vec::new();
-            for recipient in &message.recipients {
-                let email = SystemEmail::to(rendered.clone(), brand.clone(), recipient);
-                if let Err(error) = send_system_email(self.mail.as_ref(), email).await {
-                    failures.push(error.to_string());
-                }
-            }
+            let failures = self.each(&message.recipients, &rendered, &brand).await;
             if failures.is_empty() {
                 Ok(())
             } else {
                 Err(failures.join("; "))
             }
         })
+    }
+
+    /// Links to Settings › Billing and attaches nothing: the printable
+    /// invoice is HTML (no PDF renderer on the EU edition), which mail
+    /// filters treat as a phishing attachment, and the document route is for
+    /// signed-in members with `billing:read`.
+    fn send_invoice<'a>(&'a self, message: &'a InvoiceMail) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async move {
+            let props = Invoice {
+                workspace_name: message.workspace_name.clone(),
+                number: message.number.clone(),
+                date: message.date.clone(),
+                amount: message.amount.clone(),
+                vat: match message.treatment {
+                    Treatment::Domestic | Treatment::Oss => InvoiceVat::Charged,
+                    Treatment::ReverseCharge => InvoiceVat::Reverse,
+                    Treatment::OutsideEu => InvoiceVat::Outside,
+                },
+                vat_amount: message.tax.clone(),
+                vat_rate: message.rate.clone(),
+                url: message.billing_url.clone(),
+            };
+            let brand = EmailBrand::weldsuite("WeldSuite");
+            let rendered = invoice(email_locale(message.language), &brand, &props)
+                .map_err(|error| error.to_string())?;
+            let failures = self.each(&message.recipients, &rendered, &brand).await;
+            if failures.len() < message.recipients.len() {
+                if !failures.is_empty() {
+                    tracing::warn!(
+                        failures = failures.join("; "),
+                        workspace = %message.workspace_id,
+                        number = %message.number,
+                        "billing: invoice email refused for some billing owners"
+                    );
+                }
+                Ok(())
+            } else {
+                Err(failures.join("; "))
+            }
+        })
+    }
+}
+
+impl SystemMailer {
+    /// Sends `rendered` to each recipient on its own; the refusals.
+    async fn each(
+        &self,
+        recipients: &[String],
+        rendered: &RenderedEmail,
+        brand: &EmailBrand,
+    ) -> Vec<String> {
+        let mut failures = Vec::new();
+        for recipient in recipients {
+            let email = SystemEmail::to(rendered.clone(), brand.clone(), recipient);
+            if let Err(error) = send_system_email(self.mail.as_ref(), email).await {
+                failures.push(error.to_string());
+            }
+        }
+        failures
+    }
+}
+
+fn email_locale(language: Language) -> EmailLocale {
+    match language {
+        Language::Nl => EmailLocale::Nl,
+        Language::En => EmailLocale::En,
     }
 }
 
@@ -479,6 +536,10 @@ impl BillingMailer for SystemMailer {
 /// 3. The payment is recorded against it (deposited to undeposited funds,
 ///    Mollie's clearing), keyed on the Mollie payment.
 /// 4. The printable invoice is rendered for the customer's copy.
+///
+/// WeldBooks never sends it (`auto_send` off): plan billing emails the
+/// billing owners from `notifications@` once it is mirrored
+/// (`SystemMailer::send_invoice`).
 struct WeldBooksIssuer {
     workspaces: Arc<Workspaces>,
     workspace_id: String,

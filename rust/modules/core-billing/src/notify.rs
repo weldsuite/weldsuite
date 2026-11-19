@@ -1,7 +1,8 @@
-//! The billing owners' emails (ADR BILL-014, dunning): a charge failed (with
-//! a pay link), a reminder halfway through the grace period, and the plan
-//! ended. The binary sends them as system mail through the EU MTA
-//! (`BillingMailer`); without a mailer they are logged and skipped.
+//! The billing owners' emails (ADR BILL-014): dunning (a charge failed, with
+//! a pay link; a reminder halfway through the grace period; the plan ended)
+//! and the invoice of every paid charge (decision 5). The binary sends them
+//! as system mail through the EU MTA (`BillingMailer`); without a mailer a
+//! dunning email is logged and skipped, and an invoice email waits for one.
 //!
 //! The billing owners are the workspace's billing email (Settings →
 //! Business) and its organization admins.
@@ -11,7 +12,7 @@ use std::collections::BTreeSet;
 use weldsuite_db::PgPool;
 use weldsuite_ports::BoxFuture;
 
-use crate::Language;
+use crate::{Language, Treatment};
 
 /// Which email.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,9 +53,37 @@ pub struct BillingMail {
     pub billing_url: String,
 }
 
+/// The invoice of a paid charge, to the billing owners: sent once per
+/// invoice, right after it is issued.
+#[derive(Debug, Clone)]
+pub struct InvoiceMail {
+    pub workspace_id: String,
+    pub workspace_name: String,
+    pub recipients: Vec<String>,
+    pub language: Language,
+    /// The invoice number in the issuer's books (`INV-0001`).
+    pub number: String,
+    /// The invoice date, formatted (`19 november 2026`).
+    pub date: String,
+    /// What was paid, VAT included, formatted (`€ 90,75`).
+    pub amount: String,
+    pub treatment: Treatment,
+    /// The VAT on it, formatted (`€ 15,75`).
+    pub tax: String,
+    /// Its rate without the sign, formatted (`21`, `25,5`).
+    pub rate: String,
+    /// The billing page, where the invoice opens.
+    pub billing_url: String,
+}
+
 /// Sends billing emails (the binary's system mail).
 pub trait BillingMailer: Send + Sync {
     fn send<'a>(&'a self, mail: &'a BillingMail) -> BoxFuture<'a, Result<(), String>>;
+
+    /// Sends the invoice email to each recipient. `Err` only when none of
+    /// them took it, so it can be tried again without anyone getting it
+    /// twice; a recipient refused among others is the mailer's to log.
+    fn send_invoice<'a>(&'a self, mail: &'a InvoiceMail) -> BoxFuture<'a, Result<(), String>>;
 }
 
 /// The billing owners' addresses.
@@ -105,6 +134,15 @@ pub(crate) fn money_text(cents: i64, currency: &str, language: Language) -> Stri
     match language {
         Language::Nl => format!("{symbol} {grouped}{decimal}{fraction:02}"),
         Language::En => format!("{symbol}{grouped}{decimal}{fraction:02}"),
+    }
+}
+
+/// A VAT rate without the sign: `21`, `25,5` (Dutch) or `25.5` (English).
+pub(crate) fn rate_text(rate_bps: u32, language: Language) -> String {
+    let text = crate::vat::rate_text(rate_bps);
+    match language {
+        Language::Nl => text.replace('.', ","),
+        Language::En => text,
     }
 }
 
@@ -172,6 +210,9 @@ mod tests {
         assert_eq!(money_text(123_456, "EUR", Language::Nl), "€ 1.234,56");
         assert_eq!(money_text(123_456, "EUR", Language::En), "€1,234.56");
         assert_eq!(money_text(5, "EUR", Language::En), "€0.05");
+        assert_eq!(rate_text(2100, Language::Nl), "21");
+        assert_eq!(rate_text(2550, Language::Nl), "25,5");
+        assert_eq!(rate_text(2550, Language::En), "25.5");
         let at = datetime!(2026-11-28 10:00:00 UTC);
         assert_eq!(date_text(at, Language::Nl), "28 november 2026");
         assert_eq!(date_text(at, Language::En), "28 November 2026");
