@@ -9,6 +9,8 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { I18nProvider } from '@weldsuite/i18n/provider';
 import { ApiError } from '@weldsuite/api-client';
+import { setAuthImplementation } from '@/lib/auth';
+import { clerkAuth } from '@/lib/auth/clerk-adapter';
 import { CreateWorkspaceDialog } from './create-workspace-dialog';
 
 const mocks = vi.hoisted(() => ({
@@ -73,7 +75,7 @@ describe('CreateWorkspaceDialog and partner territories', () => {
   });
 
   it('activates the new workspace, returning to /onboarding where the provider switches by redirect', async () => {
-    mocks.create.mockResolvedValue({ success: true, organizationId: 'org_new', ready: false });
+    mocks.create.mockResolvedValue({ success: true, organizationId: 'org_new', workspaceId: 'ws_new', ready: false });
     mocks.setActive.mockReset().mockResolvedValue(undefined);
     window.sessionStorage.clear();
     renderDialog();
@@ -85,6 +87,28 @@ describe('CreateWorkspaceDialog and partner territories', () => {
     // /onboarding reads it to show provisioning without starting it again.
     expect(window.sessionStorage.getItem('weldsuite:pending-org')).toBe('org_new');
     window.sessionStorage.clear();
+  });
+
+  it('activates the new workspace by workspaces.id in membership mode (WeldID), so its URL gets the slug', async () => {
+    // WeldID lists workspaces from WeldSuite's directory, keyed by
+    // workspaces.id: the organization id matched none of them and stayed in
+    // the URL instead of the slug.
+    setAuthImplementation({ ...clerkAuth, workspaceIds: 'workspace' });
+    try {
+      mocks.create.mockResolvedValue({ success: true, organizationId: 'org_new', workspaceId: 'ws_new', ready: false });
+      mocks.setActive.mockReset().mockResolvedValue(undefined);
+      window.sessionStorage.clear();
+      renderDialog();
+      await fillAndCreate();
+
+      await waitFor(() =>
+        expect(mocks.setActive).toHaveBeenCalledWith({ organization: 'ws_new', returnTo: '/onboarding' }),
+      );
+      expect(window.sessionStorage.getItem('weldsuite:pending-org')).toBe('ws_new');
+    } finally {
+      setAuthImplementation(clerkAuth);
+      window.sessionStorage.clear();
+    }
   });
 
   it('sends the chosen country with the new workspace', async () => {

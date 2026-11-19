@@ -20,6 +20,8 @@
  * - `useOrganization()`: the active workspace as the provider knows it.
  * - `useOrganizationList()`: the person's workspaces and `setActive()` to switch.
  * - `getAuthToken()`: the bearer token outside React.
+ * - `workspaceRefOf()`: which of a new workspace's ids to activate and link
+ *   to (`workspaces.id` in membership mode, the organization id elsewhere).
  * - `useAuthProvider()` / `getAuthProvider()`: `'clerk' | 'oidc'`.
  * - `<ClerkOnly>`: renders Clerk-specific screens (sign-in forms, passkeys,
  *   2FA, sessions) only on Clerk, a fallback elsewhere.
@@ -185,6 +187,24 @@ export function getAccountUrl(): string | undefined {
  */
 export function getActiveWorkspaceId(): string | null {
   return active.getActiveOrgId?.() ?? null;
+}
+
+/**
+ * The id the facade knows a workspace by, from a server answer that names it
+ * both ways (creating a workspace answers its organization id and
+ * `workspaces.id`). Hand this to `setActive`, `setPendingOrganization` and
+ * `workspacePath`, never the organization id as such: in membership mode
+ * (WeldID) the membership list, `orgId` and `X-Weld-Workspace` use
+ * `workspaces.id`, and an organization id there matches no workspace, so
+ * the URL kept it instead of the workspace's slug. Null when the answer
+ * lacks the id the provider needs.
+ */
+export function workspaceRefOf(ids: { organizationId?: string | null; workspaceId?: string | null }): string | null {
+  const { organizationId, workspaceId } = ids;
+  // Membership mode takes either (the backend resolves both); the other
+  // providers switch by organization, so only that id will do.
+  const ref = active.workspaceIds === 'workspace' ? workspaceId || organizationId : organizationId;
+  return ref || null;
 }
 
 /**
