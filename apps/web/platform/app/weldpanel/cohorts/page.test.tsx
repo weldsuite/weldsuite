@@ -23,6 +23,7 @@ vi.mock('@/lib/i18n/provider', async () => {
   return { useI18n: () => ({ t: english, language: 'en', format: interpolate }) };
 });
 vi.mock('@weldsuite/permissions/react', () => ({ useCan: (key: string) => state.allowed.has(key) }));
+vi.mock('@/contexts/breadcrumb-context', () => ({ useBreadcrumbs: () => undefined }));
 vi.mock('@/contexts/workspace-context', () => ({ useWorkspaceId: () => 'ws_1' }));
 vi.mock('@/lib/router', () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
@@ -118,7 +119,7 @@ describe('Cohorts', () => {
   it('edits an existing cohort with its conditions filled in', async () => {
     state.update.mockResolvedValue(makeCohort());
     render(<CohortsPage />);
-    await userEvent.click(screen.getByRole('button', { name: en.weldpanel.analytics.reports.actions.replace('{name}', 'Pro users') }));
+    await userEvent.click(screen.getByRole('button', { name: en.common.actions.title }));
     await userEvent.click(await screen.findByRole('menuitem', { name: en.weldpanel.analytics.common.edit }));
     const dialog = await screen.findByRole('dialog', { name: tc.editTitle });
     expect((within(dialog).getByLabelText(en.weldpanel.analytics.common.name) as HTMLInputElement).value).toBe('Pro users');
@@ -131,7 +132,7 @@ describe('Cohorts', () => {
   it('asks before deleting', async () => {
     state.remove.mockResolvedValue(undefined);
     render(<CohortsPage />);
-    await userEvent.click(screen.getByRole('button', { name: en.weldpanel.analytics.reports.actions.replace('{name}', 'Pro users') }));
+    await userEvent.click(screen.getByRole('button', { name: en.common.actions.title }));
     await userEvent.click(await screen.findByRole('menuitem', { name: en.weldpanel.analytics.common.delete }));
     expect(state.remove).not.toHaveBeenCalled();
     await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: en.weldpanel.analytics.common.delete }));
@@ -142,6 +143,6 @@ describe('Cohorts', () => {
     state.allowed = new Set();
     render(<CohortsPage />);
     expect(screen.queryByRole('button', { name: tc.newCohort })).toBeNull();
-    expect(screen.queryByRole('button', { name: en.weldpanel.analytics.reports.actions.replace('{name}', 'Pro users') })).toBeNull();
+    expect(screen.queryByRole('button', { name: en.common.actions.title })).toBeNull();
   });
 });

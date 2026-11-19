@@ -27,6 +27,7 @@ vi.mock('@/lib/i18n/provider', async () => {
 vi.mock('@weldsuite/permissions/react', () => ({ useCan: () => true }));
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ userId: 'user_1' }) }));
 vi.mock('@tanstack/react-router', () => ({ useParams: () => state.params }));
+vi.mock('@/contexts/breadcrumb-context', () => ({ useBreadcrumbs: () => undefined }));
 vi.mock('@/contexts/workspace-context', () => ({ useWorkspaceId: () => 'ws_1' }));
 vi.mock('@/lib/router', () => ({
   useRouter: () => ({ push: state.push, replace: vi.fn() }),
@@ -76,17 +77,19 @@ describe('Metric trees list', () => {
     expect(screen.getByText(tx.emptyTitle)).toBeTruthy();
   });
 
-  it('lists trees with a link to each', () => {
+  it('lists trees and opens one from its row', async () => {
     state.trees = [makeMetricTree()];
     render(<MetricTreesPage />);
-    expect(screen.getByRole('link', { name: 'Revenue drivers' }).getAttribute('href')).toBe('/weldpanel/metric-trees/pnmt_1');
+    expect(screen.getByText('Revenue drivers')).toBeTruthy();
     expect(screen.getByText('2 metrics')).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: en.common.actions.view }));
+    expect(state.push).toHaveBeenCalledWith('/weldpanel/metric-trees/pnmt_1');
   });
 
   it('creates a tree with a root measured by an event, then opens it', async () => {
     state.create.mockResolvedValue(makeMetricTree({ id: 'pnmt_9' }));
     render(<MetricTreesPage />);
-    await userEvent.click(screen.getByRole('button', { name: tx.newTree }));
+    await userEvent.click(screen.getAllByRole('button', { name: tx.newTree })[0]!);
     const dialog = await screen.findByRole('dialog');
     await userEvent.type(within(dialog).getByLabelText(en.weldpanel.analytics.common.name), 'Growth');
     await userEvent.type(within(dialog).getByLabelText(tx.editor.root), 'Signups');
@@ -105,7 +108,7 @@ describe('Metric trees list', () => {
 
   it('refuses to save a metric without a measure', async () => {
     render(<MetricTreesPage />);
-    await userEvent.click(screen.getByRole('button', { name: tx.newTree }));
+    await userEvent.click(screen.getAllByRole('button', { name: tx.newTree })[0]!);
     const dialog = await screen.findByRole('dialog');
     await userEvent.type(within(dialog).getByLabelText(en.weldpanel.analytics.common.name), 'Growth');
     await userEvent.click(within(dialog).getByRole('button', { name: en.weldpanel.analytics.common.save }));

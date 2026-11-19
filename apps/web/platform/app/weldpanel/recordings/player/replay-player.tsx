@@ -1,37 +1,48 @@
 /**
  * The session player: rrweb's `Replayer` (it renders the page in its own
- * sandboxed iframe) with our own controls, built from the library: play and
- * pause, a timeline with event markers, skip inactivity, speed, the current
- * page and full screen. The replayer is rebuilt when the events change and
+ * sandboxed iframe) with our own controls laid over the bottom of the stage,
+ * as a video player has them (and as WeldMeet's recording player does): the
+ * timeline with event markers, play and pause, 5 seconds back and forward,
+ * replay from the start, skip inactivity, speed and full screen. They show
+ * while the mouse moves over the stage, while paused and while keyboard focus
+ * is inside, and hide with the cursor after a moment of stillness. The page
+ * being replayed and the key to the marker colours are in the details
+ * column's Info tab. The replayer is rebuilt when the events change and
  * destroyed on unmount.
  */
 
-import { useCallback, useEffect, useImperativeHandle, useRef, useState, type KeyboardEvent, type Ref } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useRef, useState, type KeyboardEvent, type MouseEvent, type Ref } from 'react';
 import { Replayer } from 'rrweb';
 import 'rrweb/dist/style.css';
-import { FastForward, Maximize2, Pause, Play, RotateCcw, Undo2, Redo2 } from 'lucide-react';
+import { FastForward, Maximize, Minimize, Pause, Play, RotateCcw, RotateCw, SkipBack } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Label } from '@weldsuite/ui/components/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from '@weldsuite/ui/components/dropdown-menu';
 import { Switch } from '@weldsuite/ui/components/switch';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@weldsuite/ui/components/tooltip';
+import { cn } from '@weldsuite/ui/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
 import {
   INACTIVITY_MS,
   RRWEB_META,
   fitScale,
   formatClock,
-  pageAt,
-  type PageVisit,
   type ReplayEvent,
   type TimelineMarker,
   type TimeRange,
 } from '../../lib/replay';
-import { Timeline, TimelineLegend } from './timeline';
+import { Timeline } from './timeline';
 
 export const PLAYBACK_SPEEDS = [1, 2, 4, 8] as const;
 const SEEK_STEP_MS = 5_000;
 const TIME_REPORT_MS = 250;
+/** How long the controls stay up after the mouse stops moving while playing. */
+const CONTROLS_IDLE_MS = 2_500;
+
+/** A control on the dark scrim, as on WeldMeet's video player; bigger on touch screens. */
+const OVERLAY_BUTTON = 'size-8 text-white/80 hover:bg-white/10 hover:text-white dark:hover:bg-white/10 pointer-coarse:size-10 [&_svg]:size-3.5';
+/** Left out when a phone recording makes the page narrow; the arrow keys and the timeline still seek. */
+const NARROW_HIDDEN = '@max-xs:hidden';
 
 export interface ReplayPlayerHandle {
   seek: (ms: number) => void;
@@ -41,7 +52,6 @@ interface ReplayPlayerProps {
   events: ReplayEvent[];
   markers: readonly TimelineMarker[];
   inactive: readonly TimeRange[];
-  visits: readonly PageVisit[];
   /** Called a few times a second while the position changes. */
   onTimeChange?: (ms: number) => void;
   /** Called when rrweb throws while building the page. */
@@ -57,7 +67,7 @@ function recordedViewport(events: readonly ReplayEvent[]): { width: number; heig
   return { width: meta?.width || 1280, height: meta?.height || 800 };
 }
 
-export function ReplayPlayer({ events, markers, inactive, visits, onTimeChange, onError, ref }: Readonly<ReplayPlayerProps>) {
+export function ReplayPlayer({ events, markers, inactive, onTimeChange, onError, ref }: Readonly<ReplayPlayerProps>) {
   const { t } = useI18n();
   const tp = t.weldpanel.observe.player;
   const boxRef = useRef<HTMLDivElement>(null);
@@ -74,6 +84,11 @@ export function ReplayPlayer({ events, markers, inactive, visits, onTimeChange, 
   const [skipping, setSkipping] = useState(false);
   const [viewport, setViewport] = useState(() => recordedViewport(events));
   const [box, setBox] = useState({ width: 0, height: 0 });
+  const [awake, setAwake] = useState(true);
+  const [speedMenuOpen, setSpeedMenuOpen] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const pointerTypeRef = useRef('mouse');
 
   const speedRef = useRef(speed);
   const skipRef = useRef(skipInactive);
@@ -201,6 +216,29 @@ export function ReplayPlayer({ events, markers, inactive, visits, onTimeChange, 
 
   useImperativeHandle(ref, () => ({ seek }), [seek]);
 
+  // Show the controls, and hide them again once the pointer has been still for a moment.
+  const wake = useCallback(() => {
+    setAwake(true);
+    clearTimeout(idleTimerRef.current);
+    idleTimerRef.current = setTimeout(() => setAwake(false), CONTROLS_IDLE_MS);
+  }, []);
+
+  useEffect(() => {
+    wake();
+    return () => clearTimeout(idleTimerRef.current);
+  }, [wake]);
+
+  useEffect(() => {
+    const onChange = () => setFullscreen(document.fullscreenElement === boxRef.current);
+    document.addEventListener('fullscreenchange', onChange);
+    return () => document.removeEventListener('fullscreenchange', onChange);
+  }, []);
+
+  const toggleFullscreen = useCallback(() => {
+    if (document.fullscreenElement) void document.exitFullscreen?.();
+    else void boxRef.current?.requestFullscreen?.();
+  }, []);
+
   const togglePlay = useCallback(() => {
     const replayer = replayerRef.current;
     if (!replayer) return;
@@ -221,6 +259,7 @@ export function ReplayPlayer({ events, markers, inactive, visits, onTimeChange, 
   }, [report]);
 
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    wake();
     // The timeline and the buttons handle their own keys.
     if (event.target !== event.currentTarget) return;
     if (event.key === ' ') {
@@ -236,8 +275,15 @@ export function ReplayPlayer({ events, markers, inactive, visits, onTimeChange, 
   }
 
   const scale = fitScale(box.width, box.height, viewport.width, viewport.height);
-  const visit = pageAt(visits, current);
   const ended = !playing && total > 0 && current >= total - 50;
+  const showControls = !playing || awake || speedMenuOpen;
+
+  // A click on the replayed page plays or pauses, as on a video; on a touch screen a tap first brings the controls up.
+  function onStageClick(event: MouseEvent<HTMLDivElement>) {
+    if (event.target !== event.currentTarget) return;
+    if (pointerTypeRef.current !== 'mouse' && !showControls) return;
+    togglePlay();
+  }
 
   return (
     <div className="grid gap-3" data-testid="replay-player">
@@ -247,101 +293,113 @@ export function ReplayPlayer({ events, markers, inactive, visits, onTimeChange, 
         ref={boxRef}
         role="application"
         aria-label={tp.label}
+        aria-keyshortcuts="Space ArrowLeft ArrowRight"
         // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
         tabIndex={0}
         onKeyDown={onKeyDown}
-        className="relative flex h-[min(62vh,640px)] min-h-60 w-full items-center justify-center overflow-hidden rounded-lg border bg-muted/50 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-      >
-        <div className="relative shrink-0 overflow-hidden rounded-sm bg-white shadow-md" style={{ width: viewport.width * scale, height: viewport.height * scale }}>
-          <div ref={stageRef} style={{ width: viewport.width, height: viewport.height, transform: `scale(${scale})`, transformOrigin: 'top left' }} />
-          {/* Clicks on the replayed page must not reach the page's own controls. */}
-          <div className="absolute inset-0" aria-hidden />
-        </div>
-        {skipping && (
-          <span className="absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full bg-background/90 px-2.5 py-1 text-xs font-medium shadow">
-            <FastForward className="size-3.5" aria-hidden />
-            {tp.skipping}
-          </span>
+        onPointerMove={wake}
+        onPointerDown={(event) => {
+          pointerTypeRef.current = event.pointerType;
+          wake();
+        }}
+        onPointerLeave={() => {
+          clearTimeout(idleTimerRef.current);
+          setAwake(false);
+        }}
+        style={{ aspectRatio: `${viewport.width} / ${viewport.height}` }}
+        className={cn(
+          // No card and no padding: the stage takes the recording's shape, so the replayed page fills the width. A tall
+          // (phone) recording stops at 80% of the window and is centred.
+          'group/video relative max-h-[80vh] min-h-60 w-full overflow-hidden outline-none focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/50',
+          !showControls && 'cursor-none',
         )}
-        {ended && <span className="absolute bottom-3 left-3 rounded-full bg-background/90 px-2.5 py-1 text-xs shadow">{tp.finished}</span>}
-      </div>
+      >
+        <div className="flex h-full w-full items-center justify-center">
+          <div className="@container relative shrink-0 overflow-hidden bg-white" style={{ width: viewport.width * scale, height: viewport.height * scale }}>
+            <div ref={stageRef} style={{ width: viewport.width, height: viewport.height, transform: `scale(${scale})`, transformOrigin: 'top left' }} />
+            {/* Clicks on the replayed page must not reach the page's own controls: they play or pause instead. */}
+            <div className="absolute inset-0" aria-hidden onClick={onStageClick} />
+            {(skipping || ended) && (
+              <span className="absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full bg-black/70 px-2.5 py-1 text-xs font-medium text-white">
+                {skipping && <FastForward className="size-3.5" aria-hidden />}
+                {skipping ? tp.skipping : tp.finished}
+              </span>
+            )}
 
-      <div className="flex min-w-0 items-center gap-2 rounded-md border bg-muted/30 px-3 py-1.5 text-sm" aria-live="off">
-        <span className="shrink-0 text-xs text-muted-foreground">{t.weldpanel.observe.session.currentPage}</span>
-        <span className="min-w-0 truncate font-mono text-xs" title={visit?.url ?? undefined}>
-          {visit ? (visit.url ?? visit.path) : t.weldpanel.observe.session.noPage}
-        </span>
-      </div>
-
-      <Timeline total={total} current={current} markers={markers} inactive={inactive} onSeek={seek} />
-
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <div className="flex items-center gap-1">
-          <Button type="button" size="icon" className="size-9" onClick={togglePlay} aria-label={playing ? tp.pause : tp.play}>
-            {playing ? <Pause /> : <Play />}
-          </Button>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button type="button" variant="ghost" size="icon" className="size-8" onClick={() => seek(current - SEEK_STEP_MS)} aria-label={tp.back5}>
-                <Undo2 />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{tp.back5}</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button type="button" variant="ghost" size="icon" className="size-8" onClick={() => seek(current + SEEK_STEP_MS)} aria-label={tp.forward5}>
-                <Redo2 />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{tp.forward5}</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button type="button" variant="ghost" size="icon" className="size-8" onClick={restart} aria-label={tp.restart}>
-                <RotateCcw />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{tp.restart}</TooltipContent>
-          </Tooltip>
-        </div>
-        <span className="font-mono text-sm tabular-nums" data-testid="player-clock">
-          {formatClock(current)} / {formatClock(total)}
-        </span>
-        <div className="ml-auto flex flex-wrap items-center gap-4">
-          <div className="flex items-center gap-2">
-            <Switch id="weldpanel-skip-inactivity" checked={skipInactive} onCheckedChange={setSkipInactive} />
-            <Label htmlFor="weldpanel-skip-inactivity" className="text-sm font-normal">
-              {tp.skipInactivity}
-            </Label>
+            {/* The controls, over the bottom of the replayed page. Hidden ones stay in the tab order and come back with keyboard focus. */}
+            <div
+              className={cn(
+                'absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/90 via-black/50 to-transparent pt-16 transition-opacity duration-300 motion-reduce:transition-none',
+                showControls ? 'opacity-100' : 'opacity-0 group-has-[:focus-visible]/video:opacity-100',
+              )}
+            >
+              <div className="px-4">
+                <Timeline total={total} current={current} markers={markers} inactive={inactive} onSeek={seek} />
+              </div>
+              <div className="flex items-center gap-1 px-3 pb-2">
+                <div className="flex items-center gap-0.5">
+                  <Button type="button" variant="ghost" size="icon" className={OVERLAY_BUTTON} onClick={togglePlay} aria-label={playing ? tp.pause : tp.play}>
+                    {playing ? <Pause /> : <Play />}
+                  </Button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button type="button" variant="ghost" size="icon" className={cn(OVERLAY_BUTTON, NARROW_HIDDEN)} onClick={() => seek(current - SEEK_STEP_MS)} aria-label={tp.back5}>
+                        <RotateCcw />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{tp.back5}</TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button type="button" variant="ghost" size="icon" className={cn(OVERLAY_BUTTON, NARROW_HIDDEN)} onClick={() => seek(current + SEEK_STEP_MS)} aria-label={tp.forward5}>
+                        <RotateCw />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{tp.forward5}</TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button type="button" variant="ghost" size="icon" className={OVERLAY_BUTTON} onClick={restart} aria-label={tp.restart}>
+                        <SkipBack />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{tp.restart}</TooltipContent>
+                  </Tooltip>
+                </div>
+                <span className="ml-2 font-mono text-xs tabular-nums text-white/90" data-testid="player-clock">
+                  {formatClock(current)} / {formatClock(total)}
+                </span>
+                <div className="ml-auto flex items-center gap-1">
+                  <div className="mr-1 flex items-center gap-2">
+                    <Switch id="weldpanel-skip-inactivity" checked={skipInactive} onCheckedChange={setSkipInactive} />
+                    <Label htmlFor="weldpanel-skip-inactivity" className="text-xs font-normal text-white/80 @max-md:sr-only">
+                      {tp.skipInactivity}
+                    </Label>
+                  </div>
+                  <DropdownMenu modal={false} open={speedMenuOpen} onOpenChange={setSpeedMenuOpen}>
+                    <DropdownMenuTrigger asChild>
+                      <Button type="button" variant="ghost" className={cn(OVERLAY_BUTTON, 'w-auto px-2 text-xs font-medium')} aria-label={tp.speed}>
+                        {tp.speedValue.replace('{speed}', String(speed))}
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent side="top" align="end" onCloseAutoFocus={(event) => event.preventDefault()}>
+                      <DropdownMenuRadioGroup value={String(speed)} onValueChange={(value) => setSpeed(Number(value))}>
+                        {PLAYBACK_SPEEDS.map((value) => (
+                          <DropdownMenuRadioItem key={value} value={String(value)}>
+                            {tp.speedValue.replace('{speed}', String(value))}
+                          </DropdownMenuRadioItem>
+                        ))}
+                      </DropdownMenuRadioGroup>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                  <Button type="button" variant="ghost" size="icon" className={OVERLAY_BUTTON} aria-label={tp.fullscreen} aria-pressed={fullscreen} onClick={toggleFullscreen}>
+                    {fullscreen ? <Minimize /> : <Maximize />}
+                  </Button>
+                </div>
+              </div>
+            </div>
           </div>
-          <Select value={String(speed)} onValueChange={(value) => setSpeed(Number(value))}>
-            <SelectTrigger size="sm" className="h-8 w-20" aria-label={tp.speed}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {PLAYBACK_SPEEDS.map((value) => (
-                <SelectItem key={value} value={String(value)}>
-                  {tp.speedValue.replace('{speed}', String(value))}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-8"
-            aria-label={tp.fullscreen}
-            onClick={() => void boxRef.current?.requestFullscreen?.()}
-          >
-            <Maximize2 />
-          </Button>
         </div>
-      </div>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <TimelineLegend />
-        <p className="text-xs text-muted-foreground">{tp.shortcuts}</p>
       </div>
     </div>
   );

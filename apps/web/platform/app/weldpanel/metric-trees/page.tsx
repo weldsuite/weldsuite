@@ -1,26 +1,53 @@
 /** Metric trees of the current project: open, create, rename through the editor, delete your own. */
 
 import { useState } from 'react';
-import { MoreHorizontal, Network, Plus } from 'lucide-react';
+import { Network } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCan } from '@weldsuite/permissions/react';
 import type { PanelMetricTreeDto } from '@weldsuite/app-api-client/schemas/weldpanel-collab';
-import { Button } from '@weldsuite/ui/components/button';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@weldsuite/ui/components/dropdown-menu';
-import { EmptyState } from '@weldsuite/ui/components/empty-state';
+import { DropdownMenuItem } from '@weldsuite/ui/components/dropdown-menu';
 import { ErrorState } from '@weldsuite/ui/components/error-banner';
-import { Skeleton } from '@weldsuite/ui/components/skeleton';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@weldsuite/ui/components/table';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
+import { PanelEntityList, type ColumnDef } from '@/components/panel-entity-list';
 import { useDeleteWeldPanelMetricTree, useWeldPanelMetricTrees } from '@/hooks/queries/use-weldpanel-analysis-queries';
 import { useAuth } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n/provider';
-import { Link, useRouter } from '@/lib/router';
-import { AnalyticsPage } from '../components/analytics-page';
+import { useRouter } from '@/lib/router';
+import { AnalyticsListPage } from '../components/analytics-page';
 import { PanelDefinitionsProvider } from '../components/definitions';
 import { formatDate } from '../lib/format';
 import { MetricTreeEditor } from './editor';
 import { metricTreeHref } from './tree-draft';
+
+function TreeMenuItems({
+  tree,
+  canUpdate,
+  canDelete,
+  onEdit,
+  onDelete,
+}: Readonly<{
+  tree: PanelMetricTreeDto;
+  canUpdate: boolean;
+  canDelete: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
+}>) {
+  const { t } = useI18n();
+  const tc = t.weldpanel.analytics.common;
+  const router = useRouter();
+  return (
+    <>
+      <DropdownMenuItem onSelect={() => router.push(metricTreeHref(tree.id))}>{tc.open}</DropdownMenuItem>
+      {canUpdate && <DropdownMenuItem onSelect={onEdit}>{tc.edit}</DropdownMenuItem>}
+      {canDelete && (
+        <DropdownMenuItem className="text-destructive" onSelect={onDelete}>
+          {tc.delete}
+        </DropdownMenuItem>
+      )}
+    </>
+  );
+}
 
 function TreeList({ projectId }: Readonly<{ projectId: string }>) {
   const { t, language, format } = useI18n();
@@ -37,86 +64,73 @@ function TreeList({ projectId }: Readonly<{ projectId: string }>) {
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<PanelMetricTreeDto | null>(null);
 
+  const columns: ColumnDef<PanelMetricTreeDto>[] = [
+    {
+      id: 'name',
+      header: tx.columns.name,
+      width: 'flex-1 min-w-[160px]',
+      render: (tree) => <span className="block truncate font-medium">{tree.name}</span>,
+    },
+    {
+      id: 'description',
+      header: tc.description,
+      width: 'hidden lg:block lg:w-[260px]',
+      render: (tree) => <span className="block truncate text-muted-foreground">{tree.description || '–'}</span>,
+    },
+    {
+      id: 'metrics',
+      header: tx.columns.metrics,
+      width: 'w-[100px]',
+      render: (tree) => <span className="block truncate tabular-nums">{format(tx.metricCount, { count: tree.nodes.length })}</span>,
+    },
+    {
+      id: 'visibility',
+      header: tx.columns.visibility,
+      width: 'hidden md:block md:w-[110px]',
+      render: (tree) => <span className="block truncate text-muted-foreground">{tree.visibility === 'private' ? tc.private : tc.workspace}</span>,
+    },
+    {
+      id: 'updated',
+      header: tx.columns.updated,
+      width: 'hidden md:block md:w-[120px]',
+      render: (tree) => <span className="whitespace-nowrap tabular-nums text-muted-foreground">{formatDate(tree.updatedAt, language)}</span>,
+    },
+  ];
+
+  // The shared list words its own loading state in English only.
+  if (isLoading && !trees) return <PageLoader fullScreen={false} label={t.common.labels.loading} />;
   if (isError) return <ErrorState message={tx.loadFailed} onRetry={() => void refetch()} retryLabel={t.weldpanel.retry} />;
 
-  const newButton = canCreate && (
-    <Button size="sm" onClick={() => setCreating(true)}>
-      <Plus />
-      {tx.newTree}
-    </Button>
-  );
-
-  let body: React.ReactNode;
-  if (isLoading) {
-    body = (
-      <div className="grid gap-2">
-        <Skeleton className="h-10 w-full" />
-        <Skeleton className="h-10 w-full" />
-      </div>
-    );
-  } else if (!trees || trees.length === 0) {
-    body = <EmptyState icon={Network} title={tx.emptyTitle} description={tx.emptyDescription} action={newButton || undefined} />;
-  } else {
-    body = (
-      <div className="overflow-x-auto rounded-lg border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{tx.columns.name}</TableHead>
-              <TableHead className="text-right">{tx.columns.metrics}</TableHead>
-              <TableHead className="hidden md:table-cell">{tx.columns.visibility}</TableHead>
-              <TableHead className="hidden md:table-cell">{tx.columns.updated}</TableHead>
-              <TableHead className="w-10" />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {trees.map((tree) => {
-              const mine = tree.ownerUserId === userId;
-              const showMenu = mine && (canUpdate || canDelete);
-              return (
-                <TableRow key={tree.id}>
-                  <TableCell className="max-w-80">
-                    <Link href={metricTreeHref(tree.id)} className="font-medium hover:underline">
-                      {tree.name}
-                    </Link>
-                    {tree.description && <p className="truncate text-xs text-muted-foreground">{tree.description}</p>}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">{format(tx.metricCount, { count: tree.nodes.length })}</TableCell>
-                  <TableCell className="hidden text-muted-foreground md:table-cell">{tree.visibility === 'private' ? tc.private : tc.workspace}</TableCell>
-                  <TableCell className="hidden text-muted-foreground md:table-cell">{formatDate(tree.updatedAt, language)}</TableCell>
-                  <TableCell>
-                    {showMenu && (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="size-8" aria-label={format(tx.actions, { name: tree.name })}>
-                            <MoreHorizontal />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onSelect={() => router.push(metricTreeHref(tree.id))}>{tc.open}</DropdownMenuItem>
-                          {canUpdate && <DropdownMenuItem onSelect={() => setEditing(tree)}>{tc.edit}</DropdownMenuItem>}
-                          {canDelete && (
-                            <DropdownMenuItem className="text-destructive" onSelect={() => setDeleting(tree)}>
-                              {tc.delete}
-                            </DropdownMenuItem>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    )}
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-      </div>
-    );
-  }
+  const createAction = canCreate ? { label: tx.newTree, onClick: () => setCreating(true) } : undefined;
 
   return (
-    <div className="grid gap-4">
-      {trees && trees.length > 0 && newButton && <div className="flex justify-end">{newButton}</div>}
-      {body}
+    <>
+      <PanelEntityList<PanelMetricTreeDto>
+        items={trees ?? []}
+        isLoading={false}
+        columns={columns}
+        hideFilter
+        rowMenu={(tree) =>
+          tree.ownerUserId === userId && (canUpdate || canDelete) ? (
+            <TreeMenuItems tree={tree} canUpdate={canUpdate} canDelete={canDelete} onEdit={() => setEditing(tree)} onDelete={() => setDeleting(tree)} />
+          ) : null
+        }
+        searchFields={['name', 'description']}
+        searchPlaceholder={t.common.actions.search}
+        onRowClick={(tree) => router.push(metricTreeHref(tree.id))}
+        createButton={createAction}
+        emptyState={{
+          icon: <Network className="size-8 text-muted-foreground" />,
+          title: tx.emptyTitle,
+          description: tx.emptyDescription,
+          action: createAction,
+        }}
+        noResultsState={{
+          icon: <Network className="size-8 text-muted-foreground" />,
+          title: tx.emptyTitle,
+          description: tx.emptyDescription,
+        }}
+      />
       <MetricTreeEditor
         projectId={projectId}
         tree={editing}
@@ -150,7 +164,7 @@ function TreeList({ projectId }: Readonly<{ projectId: string }>) {
           }
         }}
       />
-    </div>
+    </>
   );
 }
 
@@ -158,12 +172,12 @@ export default function MetricTreesPage() {
   const { t } = useI18n();
   const tx = t.weldpanel.explore.metricTrees;
   return (
-    <AnalyticsPage title={tx.title} description={tx.description}>
+    <AnalyticsListPage title={tx.title}>
       {(project) => (
         <PanelDefinitionsProvider key={project.id} projectId={project.id}>
           <TreeList projectId={project.id} />
         </PanelDefinitionsProvider>
       )}
-    </AnalyticsPage>
+    </AnalyticsListPage>
   );
 }

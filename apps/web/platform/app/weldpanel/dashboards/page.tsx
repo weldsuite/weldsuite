@@ -1,17 +1,16 @@
 import { useState } from 'react';
-import { LayoutDashboard, Plus } from 'lucide-react';
+import { LayoutDashboard } from 'lucide-react';
 import { toast } from 'sonner';
+import type { PanelDashboardDto } from '@weldsuite/app-api-client/schemas/weldpanel-objects';
 import { useCan } from '@weldsuite/permissions/react';
-import { Card, CardContent, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
-import { EmptyState } from '@weldsuite/ui/components/empty-state';
 import { ErrorState } from '@weldsuite/ui/components/error-banner';
-import { Button } from '@weldsuite/ui/components/button';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { SoftBadge } from '@weldsuite/ui/components/soft-badge';
-import { Skeleton } from '@weldsuite/ui/components/skeleton';
+import { PanelEntityList, type ColumnDef } from '@/components/panel-entity-list';
 import { useCreateWeldPanelDashboard, useWeldPanelDashboards } from '@/hooks/queries/use-weldpanel-queries';
 import { useI18n } from '@/lib/i18n/provider';
-import { Link, useRouter } from '@/lib/router';
-import { AnalyticsPage } from '../components/analytics-page';
+import { useRouter } from '@/lib/router';
+import { AnalyticsListPage } from '../components/analytics-page';
 import { NameDialog } from '../components/name-dialog';
 import { formatDate } from '../lib/format';
 import { NewDashboardDialog } from './new-dashboard-dialog';
@@ -28,53 +27,51 @@ function DashboardsList({ projectId, creating, onCreatingChange }: Readonly<{ pr
   const [blank, setBlank] = useState(false);
 
   if (isError) return <ErrorState message={td.loadFailed} onRetry={() => void refetch()} retryLabel={t.weldpanel.retry} />;
+  if (isLoading && !dashboards) return <PageLoader fullScreen={false} label={t.common.labels.loading} />;
+
+  const columns: ColumnDef<PanelDashboardDto>[] = [
+    {
+      id: 'name',
+      header: tc.name,
+      width: 'flex-1 min-w-[180px]',
+      render: (dashboard) => <span className="block truncate font-medium">{dashboard.name}</span>,
+    },
+    {
+      id: 'visibility',
+      header: tc.visibility,
+      width: 'w-[120px]',
+      render: (dashboard) => <SoftBadge tone={dashboard.visibility === 'workspace' ? 'success' : 'neutral'}>{dashboard.visibility === 'workspace' ? tc.workspace : tc.private}</SoftBadge>,
+    },
+    {
+      id: 'description',
+      header: tc.description,
+      width: 'hidden md:block md:w-[320px]',
+      render: (dashboard) => <span className="block truncate text-muted-foreground">{dashboard.description ?? '–'}</span>,
+    },
+    {
+      id: 'updated',
+      header: tc.updated,
+      width: 'hidden sm:block sm:w-[120px]',
+      render: (dashboard) => <span className="whitespace-nowrap tabular-nums text-muted-foreground">{formatDate(dashboard.updatedAt, language)}</span>,
+    },
+  ];
 
   return (
     <>
-      {isLoading && (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <Skeleton className="h-28" />
-          <Skeleton className="h-28" />
-          <Skeleton className="h-28" />
-        </div>
-      )}
-      {!isLoading && (!dashboards || dashboards.length === 0) && (
-        <EmptyState
-          icon={LayoutDashboard}
-          title={td.emptyTitle}
-          description={td.emptyDescription}
-          action={
-            canCreate ? (
-              <Button size="sm" onClick={() => onCreatingChange(true)}>
-                <Plus />
-                {td.newDashboard}
-              </Button>
-            ) : undefined
-          }
-        />
-      )}
-      {!isLoading && dashboards && dashboards.length > 0 && (
-        <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {dashboards.map((dashboard) => (
-            <li key={dashboard.id}>
-              <Link href={`/weldpanel/dashboards/${dashboard.id}`} className="block h-full rounded-xl focus-visible:outline-2 focus-visible:outline-ring">
-                <Card className="h-full gap-2 py-4 transition-colors hover:bg-accent/40">
-                  <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0 px-4 pb-0">
-                    <CardTitle className="truncate text-base">{dashboard.name}</CardTitle>
-                    <SoftBadge tone={dashboard.visibility === 'workspace' ? 'success' : 'neutral'}>{dashboard.visibility === 'workspace' ? tc.workspace : tc.private}</SoftBadge>
-                  </CardHeader>
-                  <CardContent className="px-4">
-                    {dashboard.description && <p className="line-clamp-2 text-sm text-muted-foreground">{dashboard.description}</p>}
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      {tc.updated} {formatDate(dashboard.updatedAt, language)}
-                    </p>
-                  </CardContent>
-                </Card>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
+      <PanelEntityList<PanelDashboardDto>
+        items={dashboards ?? []}
+        isLoading={false}
+        columns={columns}
+        hideFilter
+        createButton={canCreate ? { label: td.newDashboard, onClick: () => onCreatingChange(true) } : undefined}
+        onRowClick={(dashboard) => router.push(`/weldpanel/dashboards/${dashboard.id}`)}
+        emptyState={{
+          icon: <LayoutDashboard className="size-8 text-muted-foreground" />,
+          title: td.emptyTitle,
+          description: td.emptyDescription,
+          action: canCreate ? { label: td.newDashboard, onClick: () => onCreatingChange(true) } : undefined,
+        }}
+      />
 
       <NewDashboardDialog open={creating} onOpenChange={onCreatingChange} projectId={projectId} onBlank={() => setBlank(true)} />
       <NameDialog
@@ -109,22 +106,10 @@ function DashboardsList({ projectId, creating, onCreatingChange }: Readonly<{ pr
 export default function DashboardsPage() {
   const { t } = useI18n();
   const td = t.weldpanel.analytics.dashboards;
-  const canCreate = useCan('panel_reports:create');
   const [creating, setCreating] = useState(false);
   return (
-    <AnalyticsPage
-      title={td.title}
-      description={td.description}
-      actions={
-        canCreate ? (
-          <Button size="sm" onClick={() => setCreating(true)}>
-            <Plus />
-            {td.newDashboard}
-          </Button>
-        ) : undefined
-      }
-    >
+    <AnalyticsListPage title={td.title}>
       {(project) => <DashboardsList key={project.id} projectId={project.id} creating={creating} onCreatingChange={setCreating} />}
-    </AnalyticsPage>
+    </AnalyticsListPage>
   );
 }

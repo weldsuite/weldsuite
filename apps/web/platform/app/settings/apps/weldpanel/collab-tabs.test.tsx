@@ -107,7 +107,7 @@ describe('WeldPanel settings: data export and API access', () => {
   it('tests the connection of a saved export with its stored key', async () => {
     state.test.mockResolvedValue({ ok: true, wrote: true, deleted: true, error: null });
     render(<WeldPanelSettingsPage />);
-    await userEvent.click(screen.getByRole('button', { name: te.actions.menu.replace('{name}', 'Data lake') }));
+    await userEvent.click(screen.getByRole('button', { name: en.common.actions.title }));
     await userEvent.click(await screen.findByRole('menuitem', { name: te.actions.test }));
     await waitFor(() => expect(state.test).toHaveBeenCalledWith({ exportId: 'pnex_1' }));
     expect(state.toast.success).toHaveBeenCalledWith(te.test.ok);
@@ -117,7 +117,7 @@ describe('WeldPanel settings: data export and API access', () => {
     state.exports = [exportItem({ status: 'paused' })];
     state.pause.mockResolvedValue(exportItem());
     render(<WeldPanelSettingsPage />);
-    await userEvent.click(screen.getByRole('button', { name: te.actions.menu.replace('{name}', 'Data lake') }));
+    await userEvent.click(screen.getByRole('button', { name: en.common.actions.title }));
     await userEvent.click(await screen.findByRole('menuitem', { name: te.actions.resume }));
     await waitFor(() => expect(state.pause).toHaveBeenCalledWith({ id: 'pnex_1', pause: false }));
   });
@@ -126,7 +126,7 @@ describe('WeldPanel settings: data export and API access', () => {
     state.exports = [];
     state.create.mockResolvedValue(exportItem());
     render(<WeldPanelSettingsPage />);
-    await userEvent.click(screen.getByRole('button', { name: te.newExport }));
+    await userEvent.click(screen.getAllByRole('button', { name: te.newExport })[0]!);
     const dialog = await screen.findByRole('dialog', { name: te.form.createTitle });
     await userEvent.type(within(dialog).getByLabelText(te.form.nameLabel), 'Lake');
     await userEvent.type(within(dialog).getByLabelText(te.form.bucketLabel), 'my-bucket');

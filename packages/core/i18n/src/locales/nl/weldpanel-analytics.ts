@@ -5,11 +5,10 @@
  * in `weldpanel.ts`.
  */
 export const weldpanelAnalytics = {
-  /** De tweede kopregel van de module: het project dat elke analysepagina leest. */
+  /** De projectkiezer bovenaan de modulezijbalk: het project dat elke analysepagina leest. */
   projectBar: {
     label: 'Project',
     placeholder: 'Kies een project',
-    allProjects: 'Alle projecten',
     loadFailed: 'Je projecten konden niet worden geladen.',
   },
   /** Een pagina die een project nodig heeft en er geen heeft. */
@@ -608,6 +607,7 @@ export const weldpanelAnalytics = {
     emptyTitle: 'Nog geen namen',
     emptyDescription: 'Events en eigenschappen verschijnen hier zodra je site ze verstuurt.',
     noMatches: 'Geen namen gevonden.',
+    noMatchesDescription: 'Probeer een andere naam, of toon de verborgen namen via Filter.',
     loadFailed: 'Het lexicon kon niet worden geladen.',
     scannedAt: 'Gescand {time}',
     hiddenNote: 'Verborgen namen blijven in je gegevens. Ze verdwijnen alleen uit de event- en eigenschapskiezers.',
