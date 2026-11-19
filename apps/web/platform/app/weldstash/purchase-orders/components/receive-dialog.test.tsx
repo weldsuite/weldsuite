@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { PurchaseOrderLine } from '@weldsuite/app-api-client/schemas/purchase-orders';
@@ -49,6 +49,14 @@ const order = { id: 'po_1', poNumber: 'PO-20261101-AB12', warehouseId: 'wh_1', w
 function renderDialog(lines: PurchaseOrderLine[] = [line()]) {
   return render(<ReceiveDialog open onOpenChange={vi.fn()} order={order} lines={lines} />);
 }
+
+beforeAll(() => {
+  const proto = window.HTMLElement.prototype as unknown as Record<string, unknown>;
+  proto.hasPointerCapture ??= () => false;
+  proto.setPointerCapture ??= () => undefined;
+  proto.releasePointerCapture ??= () => undefined;
+  proto.scrollIntoView ??= () => undefined;
+});
 
 beforeEach(() => {
   env.mutateAsync.mockReset().mockResolvedValue({});
@@ -133,5 +141,62 @@ describe('ReceiveDialog', () => {
     renderDialog([line({ quantityReceived: 10, quantityRejected: 0 })]);
     expect(screen.getByText('Everything on this order has been received.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Receive' })).toBeDisabled();
+  });
+
+  it('sends the chosen location, lot, expiry date and trimmed notes', async () => {
+    env.tracking = { prod_1: { id: 'prod_1', trackLots: true, trackExpiry: true } };
+    const user = userEvent.setup();
+    renderDialog();
+    await user.click(screen.getByRole('combobox', { name: 'Location' }));
+    await user.click(await screen.findByRole('option', { name: 'A-01 · Aisle A' }));
+    await user.type(screen.getByLabelText('Lot number'), ' L-9 ');
+    await user.type(screen.getByLabelText('Expiry date'), '2027-03-31');
+    await user.type(screen.getByLabelText('Notes'), '  Dock 2  ');
+    await user.click(screen.getByRole('button', { name: 'Receive' }));
+    await waitFor(() => expect(env.mutateAsync).toHaveBeenCalled());
+    expect(env.mutateAsync.mock.calls[0][0].data).toMatchObject({
+      lines: [{ itemId: 'poi_1', quantity: 5, locationId: 'loc_1', lotNumber: 'L-9', expiryDate: '2027-03-31' }],
+      notes: 'Dock 2',
+    });
+  });
+
+  it('goes back to the default location when it is picked again', async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await user.click(screen.getByRole('combobox', { name: 'Location' }));
+    await user.click(await screen.findByRole('option', { name: 'A-01 · Aisle A' }));
+    await user.click(screen.getByRole('combobox', { name: 'Location' }));
+    await user.click(await screen.findByRole('option', { name: 'Default location' }));
+    await user.click(screen.getByRole('button', { name: 'Receive' }));
+    await waitFor(() => expect(env.mutateAsync).toHaveBeenCalled());
+    expect(env.mutateAsync.mock.calls[0][0].data.lines[0]).not.toHaveProperty('locationId');
+  });
+
+  it('closes the dialog on success and on cancel', async () => {
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+    render(<ReceiveDialog open onOpenChange={onOpenChange} order={order} lines={[line()]} />);
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    onOpenChange.mockClear();
+    await user.click(screen.getByRole('button', { name: 'Receive' }));
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+  });
+
+  it('falls back to a generic message when the failure has none', async () => {
+    env.mutateAsync.mockRejectedValue(new Error(''));
+    const user = userEvent.setup();
+    renderDialog();
+    await user.click(screen.getByRole('button', { name: 'Receive' }));
+    expect(await screen.findByText('Could not receive the goods')).toBeInTheDocument();
+  });
+
+  it('warns and sends nothing when goods arrive on an order without a warehouse', async () => {
+    const user = userEvent.setup();
+    render(<ReceiveDialog open onOpenChange={vi.fn()} order={{ ...order, warehouseId: null, warehouseName: null }} lines={[line()]} />);
+    expect(screen.getByText(/has no warehouse/)).toBeInTheDocument();
+    expect(screen.getByText('Enter what arrived on each line.')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Receive' }));
+    expect(env.mutateAsync).not.toHaveBeenCalled();
   });
 });

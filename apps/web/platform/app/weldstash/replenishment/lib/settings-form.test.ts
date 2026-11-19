@@ -66,3 +66,24 @@ describe('makeSettingsFormSchema', () => {
     expect(schema.safeParse(settingsToForm(settings)).success).toBe(true);
   });
 });
+
+describe('formToSettingsInput against the API schema', () => {
+  it('maps each value the API schema rejects back to its form field', () => {
+    const base = settingsToForm(settings);
+    const result = formToSettingsInput({
+      ...base,
+      serviceLevelPct: '150',
+      reviewPeriodDays: '0',
+      lookbackDays: '100000',
+      defaultLeadTimeDays: '100000',
+      historyCutoverDate: 'not-a-date',
+      runHourUtc: '30',
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(Object.keys(result.errors).sort()).toEqual(
+        ['defaultLeadTimeDays', 'historyCutoverDate', 'lookbackDays', 'reviewPeriodDays', 'runHourUtc', 'serviceLevelPct'],
+      );
+    }
+  });
+});
