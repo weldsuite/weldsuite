@@ -115,7 +115,7 @@ export function formatHours(hours: number): string {
 export function shiftColor(shift: HrShift): string {
   if (!shift.companyId) return DEFAULT_SHIFT_COLOR;
   let hash = 0;
-  for (const char of shift.companyId) hash = (hash * 31 + char.charCodeAt(0)) % 9973;
+  for (const char of shift.companyId) hash = (hash * 31 + (char.codePointAt(0) ?? 0)) % 9973;
   return CLIENT_SHIFT_COLORS[hash % CLIENT_SHIFT_COLORS.length]!;
 }
 
@@ -181,7 +181,7 @@ export function groupByDepartment(employees: RosterEmployee[]): RosterGroup[] {
       if (b === null) return -1;
       return a.localeCompare(b);
     })
-    .map(([departmentName, list]) => ({ departmentName, employees: list.sort(byName) }));
+    .map(([departmentName, list]) => ({ departmentName, employees: [...list].sort(byName) }));
 }
 
 // ---------------------------------------------------------------------------
