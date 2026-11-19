@@ -90,6 +90,7 @@ export function ScheduleDayView({
   const busiest = Math.max(1, ...coverage);
   const bodyHeight = hours.length * HOUR_HEIGHT;
   const showNow = day === todayIso() && nowHours >= from && nowHours <= to;
+  const dayLabel = format(new Date(`${day}T12:00:00`), 'EEE d MMM');
 
   const headerRows = showGroupHeaders ? 2 : 1;
   const bodyRow = headerRows + 1;
@@ -238,7 +239,7 @@ export function ScheduleDayView({
                 {canCreate && (
                   <button
                     type="button"
-                    aria-label={`${t('weldhr.attendance.schedule.addShift')}: ${employee.name}, ${format(new Date(`${day}T12:00:00`), 'EEE d MMM')}`}
+                    aria-label={`${t('weldhr.attendance.schedule.addShift')}: ${employee.name}, ${dayLabel}`}
                     onClick={() => onAddShift(employee, day)}
                     className="absolute inset-0 transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                   />

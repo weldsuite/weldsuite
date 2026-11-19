@@ -14,7 +14,7 @@ import { HEADER_HEIGHT, TODAY_BG_CLASS, TODAY_BLUE } from '@/app/weldcalendar/co
 import type { TimeFormat } from '@/app/weldcalendar/lib/calendar-format';
 import { cn } from '@/lib/utils';
 import { EmployeeAvatar } from '../../components/shared';
-import { formatHours, timeOffSpans, type DayStats, type RosterEmployee, type RosterGroup, type TimeOff } from './schedule-model';
+import { formatHours, timeOffSpans, type DayStats, type RosterEmployee, type RosterGroup, type TimeOff, type TimeOffSpan } from './schedule-model';
 import { ShiftBlock, TimeOffBar, useTimeOffText } from './schedule-parts';
 
 /** Width of the leading employee column. */
@@ -24,6 +24,91 @@ const DAY_COLUMN_MIN_WIDTH = 112;
 /** A leave or sickness bar, and the gap above it. */
 const BAR_HEIGHT = 22;
 const BAR_GAP = 4;
+
+/** The leave and sickness bars that start in day column `index`, each reaching across the days it covers. */
+function CellTimeOffBars({ spans, index }: Readonly<{ spans: TimeOffSpan[]; index: number }>) {
+  const timeOffText = useTimeOffText();
+  return spans
+    .filter((span) => span.startIndex === index)
+    .map((span) => {
+      const covered = span.endIndex - span.startIndex + 1;
+      const { label, title } = timeOffText(span.item, { startsBefore: span.continuesBefore });
+      return (
+        <TimeOffBar
+          key={span.item.id}
+          item={span.item}
+          label={label}
+          title={title}
+          className="absolute left-1 z-[5]"
+          style={{
+            top: BAR_GAP + span.lane * (BAR_HEIGHT + BAR_GAP),
+            height: BAR_HEIGHT,
+            // Each day column is equally wide and carries a 1px right border.
+            width: `calc(${covered} * 100% + ${covered - 1}px - 8px)`,
+          }}
+        />
+      );
+    });
+}
+
+/** One employee's day: their leave or sickness bars, their shifts, and (on hover) a button to add one. */
+function RosterCell({
+  employee,
+  day,
+  date,
+  index,
+  spans,
+  lanes,
+  shifts,
+  timeFormat,
+  canCreate,
+  canUpdate,
+  onAddShift,
+  onEditShift,
+}: Readonly<{
+  employee: RosterEmployee;
+  day: string;
+  date: Date;
+  index: number;
+  spans: TimeOffSpan[];
+  /** Bar lanes the employee's row reserves above the shifts. */
+  lanes: number;
+  shifts: HrShift[];
+  timeFormat: TimeFormat;
+  canCreate: boolean;
+  canUpdate: boolean;
+  onAddShift: (employee: RosterEmployee, day: string) => void;
+  onEditShift: (shift: HrShift) => void;
+}>) {
+  const t = useTranslations();
+  return (
+    <div
+      role="cell"
+      className={cn(
+        'group/cell relative flex min-h-[72px] min-w-0 flex-col gap-1 border-b border-r border-border p-1 last:border-r-0',
+        isToday(date) && TODAY_BG_CLASS,
+      )}
+      // Room above the shifts for the leave and sickness bars.
+      style={lanes > 0 ? { paddingTop: BAR_GAP + lanes * (BAR_HEIGHT + BAR_GAP) } : undefined}
+    >
+      {/* A bar sits in the cell of its first visible day and reaches across the rest. */}
+      <CellTimeOffBars spans={spans} index={index} />
+      {shifts.map((shift) => (
+        <ShiftBlock key={shift.id} shift={shift} timeFormat={timeFormat} onClick={canUpdate ? () => onEditShift(shift) : undefined} />
+      ))}
+      {canCreate && (
+        <button
+          type="button"
+          aria-label={`${t('weldhr.attendance.schedule.addShift')}: ${employee.name}, ${format(date, 'EEE d MMM')}`}
+          onClick={() => onAddShift(employee, day)}
+          className="flex min-h-6 w-full flex-1 items-center justify-center rounded-[6px] text-muted-foreground opacity-0 transition-opacity hover:bg-muted/60 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover/cell:opacity-100"
+        >
+          <Plus className="h-3.5 w-3.5" />
+        </button>
+      )}
+    </div>
+  );
+}
 
 export function ScheduleWeekView({
   days,
@@ -60,7 +145,6 @@ export function ScheduleWeekView({
   onOpenDay: (day: string) => void;
 }>) {
   const t = useTranslations();
-  const timeOffText = useTimeOffText();
   const dayDates = days.map((day) => new Date(`${day}T12:00:00`));
   const hoursLabel = (hours: number) => t('weldhr.attendance.schedule.hours', { hours: formatHours(hours) });
 
@@ -169,57 +253,21 @@ export function ScheduleWeekView({
                     </div>
                   </div>
                   {days.map((day, i) => (
-                    <div
+                    <RosterCell
                       key={day}
-                      role="cell"
-                      className={cn(
-                        'group/cell relative flex min-h-[72px] min-w-0 flex-col gap-1 border-b border-r border-border p-1 last:border-r-0',
-                        isToday(dayDates[i]!) && TODAY_BG_CLASS,
-                      )}
-                      // Room above the shifts for the leave and sickness bars.
-                      style={lanes > 0 ? { paddingTop: BAR_GAP + lanes * (BAR_HEIGHT + BAR_GAP) } : undefined}
-                    >
-                      {/* A bar sits in the cell of its first visible day and reaches across the rest. */}
-                      {spans
-                        .filter((span) => span.startIndex === i)
-                        .map((span) => {
-                          const covered = span.endIndex - span.startIndex + 1;
-                          const { label, title } = timeOffText(span.item, { startsBefore: span.continuesBefore });
-                          return (
-                            <TimeOffBar
-                              key={span.item.id}
-                              item={span.item}
-                              label={label}
-                              title={title}
-                              className="absolute left-1 z-[5]"
-                              style={{
-                                top: BAR_GAP + span.lane * (BAR_HEIGHT + BAR_GAP),
-                                height: BAR_HEIGHT,
-                                // Each day column is equally wide and carries a 1px right border.
-                                width: `calc(${covered} * 100% + ${covered - 1}px - 8px)`,
-                              }}
-                            />
-                          );
-                        })}
-                      {(shiftsByCell.get(`${employee.id}|${day}`) ?? []).map((shift) => (
-                        <ShiftBlock
-                          key={shift.id}
-                          shift={shift}
-                          timeFormat={timeFormat}
-                          onClick={canUpdate ? () => onEditShift(shift) : undefined}
-                        />
-                      ))}
-                      {canCreate && (
-                        <button
-                          type="button"
-                          aria-label={`${t('weldhr.attendance.schedule.addShift')}: ${employee.name}, ${format(dayDates[i]!, 'EEE d MMM')}`}
-                          onClick={() => onAddShift(employee, day)}
-                          className="flex min-h-6 w-full flex-1 items-center justify-center rounded-[6px] text-muted-foreground opacity-0 transition-opacity hover:bg-muted/60 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover/cell:opacity-100"
-                        >
-                          <Plus className="h-3.5 w-3.5" />
-                        </button>
-                      )}
-                    </div>
+                      employee={employee}
+                      day={day}
+                      date={dayDates[i]!}
+                      index={i}
+                      spans={spans}
+                      lanes={lanes}
+                      shifts={shiftsByCell.get(`${employee.id}|${day}`) ?? []}
+                      timeFormat={timeFormat}
+                      canCreate={canCreate}
+                      canUpdate={canUpdate}
+                      onAddShift={onAddShift}
+                      onEditShift={onEditShift}
+                    />
                   ))}
                 </div>
               );

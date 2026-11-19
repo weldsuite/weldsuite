@@ -306,6 +306,18 @@ export interface DayStats {
   hours: number;
 }
 
+/**
+ * What keeps someone from work on `day`: approved leave or sickness first,
+ * else a pending request. Nothing when the day doesn't count for them
+ * (`counts` is false at weekends without a shift).
+ */
+function timeOffOnDay(items: TimeOff[], day: string, counts: boolean): { away?: TimeOff; requested?: TimeOff } {
+  if (!counts) return {};
+  const covering = items.filter((item) => timeOffCovers(item, day));
+  const away = covering.find((item) => !item.pending);
+  return away ? { away } : { requested: covering.find((item) => item.pending) };
+}
+
 /** Who works, who is away and how many hours are planned, per day. */
 export function buildDayStats(
   days: string[],
@@ -321,14 +333,9 @@ export function buildDayStats(
       const shifts = shiftsByCell.get(`${employee.id}|${day}`) ?? [];
       if (shifts.length > 0) entry.working.push(employee);
       for (const shift of shifts) entry.hours += shiftHours(shift);
-      const covering = (timeOffByEmployee.get(employee.id) ?? []).filter((item) => timeOffCovers(item, day));
-      const away = covering.find((item) => !item.pending);
-      if (away && (!weekend || shifts.length > 0)) {
-        entry.away.push({ employee, item: away });
-        continue;
-      }
-      const requested = covering.find((item) => item.pending);
-      if (requested && (!weekend || shifts.length > 0)) entry.requested.push({ employee, item: requested });
+      const { away, requested } = timeOffOnDay(timeOffByEmployee.get(employee.id) ?? [], day, !weekend || shifts.length > 0);
+      if (away) entry.away.push({ employee, item: away });
+      else if (requested) entry.requested.push({ employee, item: requested });
     }
     stats.set(day, entry);
   }
