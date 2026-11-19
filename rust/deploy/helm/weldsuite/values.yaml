@@ -764,6 +764,24 @@ spa:
   enabled: true
   dir: /srv/spa
 
+# WeldDesk's helpdesk widget, the iframe app customers' sites embed with
+# @weldsuite/helpdesk-widget-sdk (api.baseUrl: https://<host>). The image
+# carries its build (/srv/helpdesk-widget), which calls the widget API
+# (/public/helpdesk-widget) on its own origin; the server serves it on
+# `hosts` in place of the SPA (HELPDESK_WIDGET_HOSTS), never on the
+# platform's host. The Ingress below routes those hosts to this server.
+helpdeskWidget:
+  enabled: false
+  dir: /srv/helpdesk-widget
+  # Host names only, e.g. widget.<domain>.
+  hosts: []
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    # The certificate's Secret for `hosts`; empty: no TLS on this Ingress.
+    tlsSecretName: ""
+
 # The WeldSign signer portal (ADR FE-017): a Node container
 # (ghcr.io/weldsuite/weldsuite-sign-portal, `--target sign-portal` of
 # rust/Dockerfile) whose server routes call this server's

@@ -281,6 +281,13 @@ pub(crate) struct Config {
     /// `SPA_DIR`: the platform's built SPA, served for every path the API
     /// doesn't answer (`spa.rs`). Unset: the API only.
     pub(crate) spa_dir: Option<PathBuf>,
+    /// `HELPDESK_WIDGET_DIR`: WeldDesk's helpdesk widget, the built iframe
+    /// app customers' sites embed (`apps/web/helpdesk-widget`).
+    pub(crate) helpdesk_widget_dir: Option<PathBuf>,
+    /// `HELPDESK_WIDGET_HOSTS`: the host names, comma-separated, that are
+    /// served the widget in place of the platform SPA (`widget.<domain>`,
+    /// `spa.rs`). Empty: the widget is served nowhere.
+    pub(crate) helpdesk_widget_hosts: Vec<String>,
     pub(crate) infra: InfraConfig,
     /// `SIGN_SESSION_SECRET`: keys WeldSign's signer sessions and the stored
     /// hash of access codes; the same value as the TypeScript workers'.
@@ -885,6 +892,29 @@ impl Config {
             }
         };
 
+        let helpdesk_widget_dir = lookup("HELPDESK_WIDGET_DIR").map(PathBuf::from);
+        let helpdesk_widget_hosts: Vec<String> = lookup("HELPDESK_WIDGET_HOSTS")
+            .map(|hosts| {
+                hosts
+                    .split(',')
+                    .map(crate::spa::host_name)
+                    .filter(|host| !host.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default();
+        for host in &helpdesk_widget_hosts {
+            if host.contains(['/', ':', ' ']) {
+                problems.push(format!(
+                    "HELPDESK_WIDGET_HOSTS: {host} is not a host name (no scheme, port or path)"
+                ));
+            }
+        }
+        if !helpdesk_widget_hosts.is_empty() && helpdesk_widget_dir.is_none() {
+            problems.push(
+                "HELPDESK_WIDGET_HOSTS needs HELPDESK_WIDGET_DIR, the widget's build".to_owned(),
+            );
+        }
+
         if !problems.is_empty() {
             return Err(ConfigError(problems));
         }
@@ -908,6 +938,8 @@ impl Config {
             log_format,
             shutdown_delay: Duration::from_secs(shutdown_delay),
             spa_dir: lookup("SPA_DIR").map(PathBuf::from),
+            helpdesk_widget_dir,
+            helpdesk_widget_hosts,
             infra,
             sign_session_secret: lookup("SIGN_SESSION_SECRET").filter(|s| !s.is_empty()),
             sign_portal_url: lookup("SIGN_PORTAL_URL").filter(|s| !s.is_empty()),
@@ -1099,6 +1131,56 @@ mod tests {
     fn lists_every_problem() {
         let error = config(&[("PORT", "eighty"), ("LOG_FORMAT", "xml")]).expect_err("invalid");
         assert_eq!(error.0.len(), 4, "{error}");
+    }
+
+    #[test]
+    fn the_helpdesk_widget_is_served_on_the_hosts_named_for_it() {
+        let base = [
+            ("DATABASE_URL_MASTER", "postgres://master"),
+            ("CLERK_JWT_KEY", "-----BEGIN PUBLIC KEY-----\\nabc"),
+        ];
+        let without = config(&base).expect("valid");
+        assert_eq!(without.helpdesk_widget_hosts, Vec::<String>::new());
+        assert_eq!(without.helpdesk_widget_dir, None);
+
+        let mut vars = base.to_vec();
+        vars.extend([
+            ("HELPDESK_WIDGET_DIR", "/srv/helpdesk-widget"),
+            (
+                "HELPDESK_WIDGET_HOSTS",
+                " Widget.Example.org., ,widget.example.net",
+            ),
+        ]);
+        let with = config(&vars).expect("valid");
+        assert_eq!(
+            with.helpdesk_widget_dir.as_deref(),
+            Some(std::path::Path::new("/srv/helpdesk-widget"))
+        );
+        assert_eq!(
+            with.helpdesk_widget_hosts,
+            ["widget.example.org", "widget.example.net"]
+        );
+
+        // Hosts without a build, and URLs in place of host names.
+        let mut vars = base.to_vec();
+        vars.push((
+            "HELPDESK_WIDGET_HOSTS",
+            "https://widget.example.org,widget.example.org:443",
+        ));
+        let error = config(&vars).expect_err("invalid");
+        assert_eq!(error.0.len(), 3, "{error}");
+        assert!(
+            error
+                .0
+                .iter()
+                .any(|p| p.contains("needs HELPDESK_WIDGET_DIR"))
+        );
+        assert!(
+            error
+                .0
+                .iter()
+                .any(|p| p.contains("https://widget.example.org is not a host name"))
+        );
     }
 
     #[test]

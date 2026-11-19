@@ -3,7 +3,8 @@
 # change doesn't invalidate the cache and the context stays small.
 *
 
-# The pnpm workspace, for the platform SPA, the sign and forms portals and the admin console.
+# The pnpm workspace, for the platform SPA, the sign and forms portals, the
+# admin console and the helpdesk widget.
 !package.json
 !pnpm-lock.yaml
 !pnpm-workspace.yaml
@@ -14,6 +15,7 @@
 !apps/web/sign-portal
 !apps/web/forms-portal
 !apps/web/admin
+!apps/web/helpdesk-widget
 # The collab-rooms service bundles the workers' room classes.
 !apps/tools/collab-rooms
 !apps/workers/docs-api
@@ -55,3 +57,6 @@ apps/web/platform/docs
 apps/web/platform/e2e
 apps/web/platform/playwright-report
 apps/web/platform/test-results
+apps/web/helpdesk-widget/e2e
+apps/web/helpdesk-widget/playwright-report
+apps/web/helpdesk-widget/test-results

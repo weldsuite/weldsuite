@@ -45,7 +45,7 @@ servers later; only this OpenTofu module is replaced by Talos on bare metal.
 | Restate | chart 1.7.13 | One node to start |
 | Zitadel | chart 10.4.0 (v4.19.2) | `auth.<domain>`, own CNPG cluster |
 | WeldID (opt-in) | chart `WELDID_VERSION` ([weldsuite/weldid](https://github.com/weldsuite/weldid)) | Replaces Zitadel at `auth.<domain>`, own CNPG cluster ("WeldID instead of Zitadel" below) |
-| weldsuite | this repository | `app.<domain>` (the platform SPA and its API on one origin) and `api.<domain>`, 2-6 replicas |
+| weldsuite | this repository | `app.<domain>` (the platform SPA and its API on one origin), `api.<domain>`, and `widget.<domain>` (WeldDesk's helpdesk widget, which sites embed), 2-6 replicas |
 | weldsuite sign portal | this repository | `sign.<domain>`, 2 replicas (Node; ADR FE-017) |
 | weldsuite forms portal | this repository | `forms.<domain>`, 2 replicas (Node; ADR FORMS-002) |
 | LiveKit | chart 1.9.0 (livekit-server v1.13.10) | WeldMeet and WeldChat calls: one pod on each of two general workers, host network; `livekit.<domain>` and TURN at `turn.<domain>` ("Video" below) |
@@ -230,7 +230,7 @@ a time.
 ## 5. DNS
 
 Create the records `tofu output dns_records` prints (A and AAAA for `app.`,
-`api.`, `mcp.`, `auth.`, `sign.`, `forms.`, `admin.`, `grafana.`, `livekit.`, `turn.`, `collect.`, and `mx.` with
+`api.`, `mcp.`, `auth.`, `sign.`, `forms.`, `admin.`, `widget.`, `grafana.`, `livekit.`, `turn.`, `collect.`, and `mx.` with
 `mx_node_port` → the ingress load balancer) at the DNS provider. cert-manager
 issues certificates once they resolve. `collect.` is what customers point
 WeldPanel's own collection domains at (ADR PANEL-014); turn them on with

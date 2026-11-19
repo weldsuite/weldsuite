@@ -67,6 +67,14 @@ config:
       collectorHost: collect.example.org
 ingress:
   enabled: true
+helpdeskWidget:
+  enabled: true
+  hosts:
+    - widget.example.org
+  ingress:
+    enabled: true
+    className: traefik
+    tlsSecretName: weldsuite-helpdesk-widget-tls
 autoscaling:
   enabled: true
 metrics:

@@ -218,6 +218,20 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(spa) = &spa {
         tracing::info!(dir = %spa.root().display(), "serving the SPA");
     }
+    // The helpdesk widget's build, on its own hosts only.
+    let mut sites = spa::Sites::new(spa);
+    if let (Some(dir), false) = (
+        config.helpdesk_widget_dir.as_deref(),
+        config.helpdesk_widget_hosts.is_empty(),
+    ) {
+        let widget = Arc::new(spa::Spa::load_from("HELPDESK_WIDGET_DIR", dir)?);
+        tracing::info!(
+            dir = %widget.root().display(),
+            hosts = %config.helpdesk_widget_hosts.join(","),
+            "serving the helpdesk widget"
+        );
+        sites = sites.with_host_build(&config.helpdesk_widget_hosts, &widget);
+    }
 
     let sign_in = sign_in_screens(&config, infra.cache.clone(), infra.mail.clone())?;
     let ai = ai::for_app(&config.ai, infra.cache.clone())?;
@@ -287,7 +301,7 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
 
     let listener = tokio::net::TcpListener::bind(config.listen).await?;
     tracing::info!(listen = %config.listen, version = env!("CARGO_PKG_VERSION"), "serving");
-    axum::serve(listener, monitoring::track_http(spa::mount(app, spa)))
+    axum::serve(listener, monitoring::track_http(spa::mount(app, sites)))
         .with_graceful_shutdown(async move {
             shutdown_signal(draining, config.shutdown_delay).await;
             realtime::stop(gateway.as_ref()).await;

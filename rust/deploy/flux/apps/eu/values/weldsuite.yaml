@@ -181,6 +181,21 @@ secret:
 spa:
   enabled: true
 
+# WeldDesk's helpdesk widget at widget.${DOMAIN}: the iframe app the
+# edition's own sites embed (the SDK's api.baseUrl: https://widget.${DOMAIN}),
+# served by this server from the image, with the widget API on the same
+# origin (/public/helpdesk-widget). The record is in `tofu output dns_records`.
+helpdeskWidget:
+  enabled: true
+  hosts:
+    - widget.${DOMAIN}
+  ingress:
+    enabled: true
+    className: traefik
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt
+    tlsSecretName: weldsuite-helpdesk-widget-tls
+
 # `weldsuite migrate --master --tenants` as a hook Job before every install
 # and upgrade Flux makes: the master database, then every workspace database
 # on the tenant shards, to the migrations built into the release's image. The

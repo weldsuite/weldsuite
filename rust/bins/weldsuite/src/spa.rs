@@ -23,6 +23,12 @@
 //!
 //! Other methods, and paths under `/api` or `/public` (the backend's), get
 //! the API's JSON 404 instead.
+//!
+//! A host can have a build of its own instead ([`Sites`]): WeldDesk's
+//! helpdesk widget, the iframe app customers' sites embed, is served on
+//! `HELPDESK_WIDGET_HOSTS` (`widget.<domain>`) from `HELPDESK_WIDGET_DIR`,
+//! the same way, and never on the platform's origin. Its API is this
+//! server's `/public/helpdesk-widget`, on the widget's own origin.
 
 use std::collections::HashMap;
 use std::fmt;
@@ -99,9 +105,14 @@ impl fmt::Debug for Spa {
 }
 
 impl Spa {
-    /// The build in `root`: it must have an `index.html`.
+    /// The build in `root` (`SPA_DIR`): it must have an `index.html`.
     pub(crate) fn load(root: &Path) -> Result<Self, SpaError> {
-        let problem = |what: String| SpaError(format!("SPA_DIR {}: {what}", root.display()));
+        Self::load_from("SPA_DIR", root)
+    }
+
+    /// The build in `root`, which the setting `variable` names (for errors).
+    pub(crate) fn load_from(variable: &str, root: &Path) -> Result<Self, SpaError> {
+        let problem = |what: String| SpaError(format!("{variable} {}: {what}", root.display()));
         let index = std::fs::read(root.join("index.html"))
             .map_err(|error| problem(format!("cannot read index.html: {error}")))?;
         let rules = match std::fs::read_to_string(root.join("_headers")) {
@@ -232,45 +243,112 @@ impl Spa {
     }
 }
 
-/// Serve `spa` for what `app` has no route for. Without one, `app` as it is.
-///
-/// The SPA replaces the root router's fallback after its layers, so it gets
-/// none of them (tracing, CORS, the app context): static files need none,
-/// and a span per chunk would drown the API's traces. It keeps the request
-/// id, and the request metrics count what it serves as `route="static"`
-/// (`crate::monitoring::track_http`, layered on top of this).
-pub(crate) fn mount(app: Router, spa: Option<Arc<Spa>>) -> Router {
-    let Some(spa) = spa else {
-        return app;
+/// The builds the server answers with where its API has no route: the
+/// platform SPA on every host, and a build of its own on the hosts given one
+/// (the helpdesk widget's on `HELPDESK_WIDGET_HOSTS`). A host with its own
+/// build never gets the platform's, so the platform's origin stays its own.
+#[derive(Debug, Default)]
+pub(crate) struct Sites {
+    platform: Option<Arc<Spa>>,
+    /// Builds by host name, lowercase, without a port.
+    by_host: HashMap<String, Arc<Spa>>,
+}
+
+impl Sites {
+    /// The platform SPA (`SPA_DIR`) on every host, or nothing.
+    pub(crate) fn new(platform: Option<Arc<Spa>>) -> Self {
+        Self {
+            platform,
+            by_host: HashMap::new(),
+        }
+    }
+
+    /// `build` in place of the platform's on each of `hosts`.
+    pub(crate) fn with_host_build(mut self, hosts: &[String], build: &Arc<Spa>) -> Self {
+        for host in hosts {
+            self.by_host.insert(host_name(host), Arc::clone(build));
+        }
+        self
+    }
+
+    fn is_empty(&self) -> bool {
+        self.platform.is_none() && self.by_host.is_empty()
+    }
+
+    /// The build for the host `request` was sent to.
+    fn for_request(&self, request: &Request) -> Option<Arc<Spa>> {
+        let own = (!self.by_host.is_empty())
+            .then(|| request_host(request))
+            .flatten()
+            .and_then(|host| self.by_host.get(&host));
+        own.or(self.platform.as_ref()).cloned()
+    }
+}
+
+/// The host a request was sent to: its `Host` header (HTTP/1.1, which the
+/// ingress speaks to the pods), else the URI's authority (HTTP/2).
+fn request_host(request: &Request) -> Option<String> {
+    let raw = request
+        .headers()
+        .get(header::HOST)
+        .and_then(|value| value.to_str().ok())
+        .or_else(|| request.uri().host())?;
+    let without_port = match raw.rsplit_once(':') {
+        Some((name, port)) if !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit()) => name,
+        _ => raw,
     };
+    Some(host_name(without_port))
+}
+
+/// A host name as it is compared: trimmed, lowercase, no root dot.
+pub(crate) fn host_name(host: &str) -> String {
+    host.trim().trim_end_matches('.').to_ascii_lowercase()
+}
+
+/// Serve `sites` for what `app` has no route for. Without any build, `app`
+/// as it is.
+///
+/// The builds replace the root router's fallback after its layers, so they
+/// get none of them (tracing, CORS, the app context): static files need
+/// none, and a span per chunk would drown the API's traces. They keep the
+/// request id, and the request metrics count what they serve as
+/// `route="static"` (`crate::monitoring::track_http`, layered on top of
+/// this).
+pub(crate) fn mount(app: Router, sites: Sites) -> Router {
+    if sites.is_empty() {
+        return app;
+    }
     app.fallback_service(
         Router::new()
             .fallback(serve)
-            .with_state(spa)
+            .with_state(Arc::new(sites))
             .layer(axum::middleware::from_fn(weldsuite_kit::request_id)),
     )
 }
 
-async fn serve(State(spa): State<Arc<Spa>>, request: Request) -> Response {
+async fn serve(State(sites): State<Arc<Sites>>, request: Request) -> Response {
     let method = request.method();
     let path = request.uri().path();
     let backend = BACKEND_PREFIXES
         .iter()
         .any(|prefix| path == *prefix || path.starts_with(&format!("{prefix}/")));
-    if backend || (method != Method::GET && method != Method::HEAD) {
+    let build = sites.for_request(&request);
+    match build {
+        Some(build) if !backend && (method == Method::GET || method == Method::HEAD) => {
+            let mut response = build.respond(request).await;
+            response
+                .extensions_mut()
+                .insert(crate::monitoring::StaticRoute);
+            response
+        }
         // The root router's own answer: `{ error: { code: 'NOT_FOUND', … } }`.
-        return ApiError::new(
+        _ => ApiError::new(
             StatusCode::NOT_FOUND,
             "NOT_FOUND",
             format!("{path} not found"),
         )
-        .into_response();
+        .into_response(),
     }
-    let mut response = spa.respond(request).await;
-    response
-        .extensions_mut()
-        .insert(crate::monitoring::StaticRoute);
-    response
 }
 
 fn no_store(mut response: Response) -> Response {
@@ -541,7 +619,13 @@ mod tests {
     }
 
     async fn fetch(spa: &Arc<Spa>, path: &str) -> Answer {
-        call(mount(app(), Some(Arc::clone(spa))), "GET", path, &[]).await
+        call(
+            mount(app(), Sites::new(Some(Arc::clone(spa)))),
+            "GET",
+            path,
+            &[],
+        )
+        .await
     }
 
     #[tokio::test]
@@ -569,7 +653,7 @@ mod tests {
         let etag = fetch(&spa, "/").await.header("etag").to_owned();
         assert!(etag.starts_with('"'), "{etag}");
 
-        let app = mount(app(), Some(Arc::clone(&spa)));
+        let app = mount(app(), Sites::new(Some(Arc::clone(&spa))));
         let answer = call(app.clone(), "GET", "/weldcrm", &[("if-none-match", &etag)]).await;
         assert_eq!(answer.status, StatusCode::NOT_MODIFIED);
         assert_eq!(answer.body, "");
@@ -598,7 +682,7 @@ mod tests {
         );
         assert!(answer.headers.contains_key("last-modified"));
 
-        let app = mount(app(), Some(Arc::clone(&spa)));
+        let app = mount(app(), Sites::new(Some(Arc::clone(&spa))));
         let answer = call(
             app,
             "GET",
@@ -672,7 +756,7 @@ mod tests {
             );
         }
         // Only GET and HEAD reach the files.
-        let answer = call(mount(app(), Some(spa)), "POST", "/weldcrm", &[]).await;
+        let answer = call(mount(app(), Sites::new(Some(spa))), "POST", "/weldcrm", &[]).await;
         assert_eq!(answer.status, StatusCode::NOT_FOUND);
         assert!(
             answer.body.contains("/weldcrm not found"),
@@ -707,7 +791,7 @@ mod tests {
 
     #[tokio::test]
     async fn without_a_build_the_router_is_unchanged() {
-        let answer = call(mount(app(), None), "GET", "/", &[]).await;
+        let answer = call(mount(app(), Sites::new(None)), "GET", "/", &[]).await;
         assert_eq!(answer.status, StatusCode::NOT_FOUND);
         assert_eq!(
             answer.body,
@@ -721,7 +805,121 @@ mod tests {
         std::fs::create_dir_all(&root).expect("mkdir");
         let error = Spa::load(&root).expect_err("no index.html");
         assert!(error.to_string().contains("index.html"), "{error}");
+        let error = Spa::load_from("HELPDESK_WIDGET_DIR", &root).expect_err("no index.html");
+        assert!(
+            error.to_string().starts_with("HELPDESK_WIDGET_DIR "),
+            "{error}"
+        );
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The helpdesk widget's build, beside the platform's: its own index
+    /// and chunk, none of the platform's.
+    fn widget_build(name: &str) -> Build {
+        let build = Build::new(name);
+        std::fs::write(
+            build.0.join("index.html"),
+            "<!doctype html><title>Widget</title>",
+        )
+        .expect("write");
+        for platform_file in ["assets/app-Dk3x9aQe.js", "assets/app-Dk3x9aQe.js.br"] {
+            std::fs::remove_file(build.0.join(platform_file)).expect("remove");
+        }
+        std::fs::write(
+            build.0.join("assets/widget-B7q2.js"),
+            "console.log('widget')",
+        )
+        .expect("write");
+        build
+    }
+
+    async fn on_host(app: Router, path: &str, host: &str) -> Answer {
+        call(app, "GET", path, &[("host", host)]).await
+    }
+
+    #[tokio::test]
+    async fn a_host_with_its_own_build_gets_that_build_never_the_platform() {
+        let (platform, widget) = (Build::new("platform"), widget_build("widget"));
+        let sites = Sites::new(Some(platform.spa()))
+            .with_host_build(&["Widget.Example.org".to_owned()], &widget.spa());
+        let app = mount(app(), sites);
+
+        for host in [
+            "widget.example.org",
+            "WIDGET.example.org:443",
+            "widget.example.org.",
+        ] {
+            for path in ["/", "/widget", "/launcher"] {
+                let answer = on_host(app.clone(), path, host).await;
+                assert_eq!(answer.status, StatusCode::OK, "{host}{path}");
+                assert_eq!(
+                    answer.body, "<!doctype html><title>Widget</title>",
+                    "{host}{path}"
+                );
+                assert_eq!(answer.header("cache-control"), "no-cache");
+            }
+        }
+        let answer = on_host(app.clone(), "/assets/widget-B7q2.js", "widget.example.org").await;
+        assert_eq!(answer.body, "console.log('widget')");
+        assert_eq!(
+            answer.header("cache-control"),
+            "public, max-age=31536000, immutable"
+        );
+        // The platform's files are not on the widget's origin, and the reverse.
+        let answer = on_host(app.clone(), "/assets/app-Dk3x9aQe.js", "widget.example.org").await;
+        assert_eq!(answer.status, StatusCode::NOT_FOUND);
+        let answer = on_host(app.clone(), "/assets/widget-B7q2.js", "app.example.org").await;
+        assert_eq!(answer.status, StatusCode::NOT_FOUND);
+
+        // Every other host, and none, gets the platform.
+        for host in [
+            "app.example.org",
+            "api.example.org",
+            "notwidget.example.org",
+        ] {
+            let answer = on_host(app.clone(), "/weldcrm", host).await;
+            assert_eq!(
+                answer.body, "<!doctype html><title>WeldSuite</title>",
+                "{host}"
+            );
+        }
+        let answer = call(app.clone(), "GET", "/", &[]).await;
+        assert_eq!(answer.body, "<!doctype html><title>WeldSuite</title>");
+
+        // The API answers on the widget's host as on any other.
+        assert_eq!(
+            on_host(app.clone(), "/api/me", "widget.example.org")
+                .await
+                .body,
+            "me"
+        );
+        let answer = on_host(
+            app.clone(),
+            "/public/helpdesk-widget/api/nope",
+            "widget.example.org",
+        )
+        .await;
+        assert_eq!(answer.status, StatusCode::NOT_FOUND);
+        assert!(answer.body.contains("NOT_FOUND"), "{}", answer.body);
+        let answer = call(app, "POST", "/", &[("host", "widget.example.org")]).await;
+        assert_eq!(answer.status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn a_host_build_without_the_platform_spa() {
+        let widget = widget_build("widget-alone");
+        let app = mount(
+            app(),
+            Sites::new(None).with_host_build(&["widget.example.org".to_owned()], &widget.spa()),
+        );
+        let answer = on_host(app.clone(), "/", "widget.example.org").await;
+        assert_eq!(answer.body, "<!doctype html><title>Widget</title>");
+        let answer = on_host(app, "/", "app.example.org").await;
+        assert_eq!(answer.status, StatusCode::NOT_FOUND);
+        assert_eq!(
+            answer.body,
+            r#"{"error":{"code":"NOT_FOUND","message":"/ not found"}}"#
+        );
     }
 
     #[test]
@@ -776,7 +974,7 @@ mod tests {
         let local = crate::monitoring::tests::LocalMetrics::new();
         let _guard = local.guard();
         let build = Build::new("metrics");
-        let app = crate::monitoring::track_http(mount(app(), Some(build.spa())));
+        let app = crate::monitoring::track_http(mount(app(), Sites::new(Some(build.spa()))));
         for path in [
             "/weldcrm/contacts",
             "/assets/app-Dk3x9aQe.js",
