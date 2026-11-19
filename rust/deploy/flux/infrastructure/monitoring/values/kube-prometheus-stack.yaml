@@ -263,7 +263,8 @@ grafana:
       auth_url: https://auth.${DOMAIN}/oauth/v2/authorize
       token_url: https://auth.${DOMAIN}/oauth/v2/token
       api_url: https://auth.${DOMAIN}/oidc/v1/userinfo
-      scopes: openid profile email urn:zitadel:iam:org:project:roles urn:zitadel:iam:org:id:${ZITADEL_STAFF_ORG_ID}
+      # Quoted, so an empty ZITADEL_STAFF_ORG_ID (a cluster on WeldID) still parses.
+      scopes: "openid profile email urn:zitadel:iam:org:project:roles urn:zitadel:iam:org:id:${ZITADEL_STAFF_ORG_ID}"
       email_attribute_path: email
       login_attribute_path: preferred_username
       name_attribute_path: name
