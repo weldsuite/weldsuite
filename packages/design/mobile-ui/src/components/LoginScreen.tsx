@@ -23,7 +23,7 @@ import { useAuthProvider } from '@weldsuite/mobile-platform/auth';
 import { type ServerCopy } from '../constants/server-copy';
 import { ServerRow } from './ServerRow';
 import { HostedLoginScreen } from './HostedLoginScreen';
-import { FormErrorBox, LoginLogo, SubmitButton, useWarmUpBrowser, type ThemeColors } from './LoginParts';
+import { FormErrorBox, LoginLogo, loginStyles, SubmitButton, useWarmUpBrowser, type ThemeColors } from './LoginParts';
 import { authErrorMessage, isValidEmail, passwordErrorMessage } from '../lib/auth-errors';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -1207,64 +1207,15 @@ function ClerkLoginScreen({
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
+// What only Clerk's forms use; the layout shared with HostedLoginScreen is `loginStyles`.
+const ownStyles = StyleSheet.create({
   keyboardAvoid: {
     flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
-    paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.xl,
-    paddingBottom: Spacing.xl,
-  },
-  content: {
-    width: '100%',
-    maxWidth: 440,
-    alignSelf: 'center',
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  brandTile: {
-    width: 72,
-    height: 72,
-    borderRadius: Radii.xl,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: Spacing.xl,
-  },
-  logoElement: {
-    marginBottom: Spacing.xl,
-    alignSelf: 'flex-start',
-  },
-  appNameTitle: {
-    fontSize: 26,
-    fontWeight: '600',
-    letterSpacing: -0.4,
-    lineHeight: 32,
-    marginBottom: Spacing.xl,
-  },
-  welcomeSection: {
-    marginBottom: 28,
-  },
-  pageTitle: {
-    fontSize: 26,
-    fontWeight: '600',
-    letterSpacing: -0.4,
-    lineHeight: 32,
-    marginBottom: 4,
-  },
-  subtitle: {
-    fontSize: 15,
-    lineHeight: 22,
-  },
-  formContainer: {
-    width: '100%',
   },
   inputContainer: {
     width: '100%',
@@ -1296,32 +1247,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  formErrorContainer: {
-    width: '100%',
-    marginBottom: Spacing.lg,
-    padding: Spacing.md,
-    borderRadius: Radii.md,
-  },
-  formErrorText: {
-    fontSize: 14,
-    fontWeight: '500',
-    lineHeight: 20,
-  },
-  signInButton: {
-    width: '100%',
-    height: 52,
-    borderRadius: Radii.lg,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  signInButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    letterSpacing: -0.2,
-  },
   loadingText: {
     marginTop: Spacing.lg,
     fontSize: 15,
@@ -1349,14 +1274,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '500',
   },
-  oauthButton: {
-    width: '100%',
-    height: 52,
-    borderRadius: Radii.lg,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: Spacing.sm,
-  },
   oauthButtonContent: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1365,10 +1282,6 @@ const styles = StyleSheet.create({
   oauthIcon: {
     width: 20,
     height: 20,
-  },
-  oauthButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
   },
   appleIcon: {
     fontSize: 18,
@@ -1383,3 +1296,5 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 });
+
+const styles = { ...loginStyles, ...ownStyles };

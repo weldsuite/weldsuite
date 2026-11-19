@@ -108,7 +108,7 @@ export function HostedLoginScreen({
             <TouchableOpacity
               testID="hosted-sign-up"
               style={[
-                loginStyles.secondaryButton,
+                loginStyles.oauthButton,
                 styles.signUp,
                 { backgroundColor: colors.secondary },
                 busy !== null && loginStyles.buttonDisabled,
@@ -121,7 +121,7 @@ export function HostedLoginScreen({
               {busy === 'sign-up' ? (
                 <ActivityIndicator color={colors.text} />
               ) : (
-                <Text style={[loginStyles.secondaryButtonText, { color: colors.text }]}>{labels.hostedSignUp}</Text>
+                <Text style={[loginStyles.oauthButtonText, { color: colors.text }]}>{labels.hostedSignUp}</Text>
               )}
             </TouchableOpacity>
             <Text style={[styles.hostedHint, { color: colors.mutedForeground }]}>

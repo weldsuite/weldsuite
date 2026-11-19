@@ -180,7 +180,7 @@ export const loginStyles = StyleSheet.create({
     fontWeight: '600',
     letterSpacing: -0.2,
   },
-  secondaryButton: {
+  oauthButton: {
     width: '100%',
     height: 52,
     borderRadius: Radii.lg,
@@ -188,7 +188,7 @@ export const loginStyles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: Spacing.sm,
   },
-  secondaryButtonText: {
+  oauthButtonText: {
     fontSize: 16,
     fontWeight: '600',
   },
