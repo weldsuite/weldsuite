@@ -87,12 +87,7 @@ All at once and reversibly, once WeldID is ready:
 1. `weldsuite-env`: `ADMIN_OIDC_CLIENT_ID` becomes `weldsuite-admin`
    (`bao kv patch secret/weldsuite/server ADMIN_OIDC_CLIENT_ID=weldsuite-admin`
    in the store). Its secret stays: WeldID reads the same one. Grafana keeps `grafana-oidc` as is: the
-   switch sets its client id. The staff roster's rows are bound to their
-   Zitadel accounts (`admin_users.console_subject`), which no WeldID account
-   matches; unbind them, so each binds to its WeldID staff account by email
-   at the next console sign-in (there is no `weldsuite admin` command for
-   it yet):
-   `kubectl cnpg psql master -n postgres -- -d weldsuite_master -c "update admin_users set console_subject = null"`.
+   switch sets its client id.
 2. `AUTH_PROBE_PATH: /.well-known/openid-configuration` in the cluster's
    settings, so the `auth.` probe asks WeldID, not Zitadel's
    `/debug/healthz`.
@@ -108,21 +103,50 @@ All at once and reversibly, once WeldID is ready:
    `WELDID_CLIENT_KEY` from `weldsuite/weldid-client`, the admin console on
    `https://auth.<domain>/staff` without `ADMIN_OIDC_ORG_ID`), and Grafana
    on the staff issuer with Admin for the `grafana-admin` role.
-4. Check: sign up on `https://app.<domain>`, make a workspace, invite
+4. **Unbind the staff roster**, once the weldsuite release runs the switch
+   (its HelmRelease Ready after the upgrade). The roster's rows are bound
+   to their Zitadel accounts (`admin_users.console_subject`), which no
+   WeldID account matches, so the console refuses a WeldID staff account
+   with "isn't on this install's staff list". Unbound, each row binds to
+   its WeldID staff account by email at that person's next console request
+   (there is no `weldsuite admin` command for it yet):
+   `kubectl cnpg psql master -n postgres -- -d weldsuite_master -c "update admin_users set console_subject = null"`.
+   Not before the switch, and not skipped because the roster looked unbound
+   earlier: until the console is on WeldID, any sign-in through Zitadel
+   binds its row again (EU test, 2026-11-18).
+5. Check: sign up on `https://app.<domain>`, make a workspace, invite
    someone; the admin console and Grafana with a staff account;
    `kubectl -n weldsuite logs deploy/weldsuite | grep -i weldid` for the
    identity sync.
 
 Back to Zitadel: unlist `weldid-switch.yaml`, put `ADMIN_OIDC_CLIENT_ID` and
-`AUTH_PROBE_PATH` back.
+`AUTH_PROBE_PATH` back, and unbind the roster again once the console is on
+Zitadel (its rows are bound to WeldID accounts by then).
 
-5. **Removing Zitadel** comes after (on EU test right after the switch;
+6. **Removing Zitadel** comes after (on EU test right after the switch;
    production keeps it until WeldID 1.0, plan phase 6): its HelmRelease,
    values and source, `zitadel-db` with its backups, its Secrets, its
    namespace, its monitors and alert expressions, the `ZITADEL_*` settings,
    and `ZITADEL_SERVICE_TOKEN`. In the base layers once WeldID is the
    default; until then on one cluster with `$patch: delete` patches in its
-   layers and the rest by hand.
+   layers and the rest by hand. In two commits:
+   1. **The HelmRelease `zitadel` and its values** alone, so helm-controller
+      uninstalls the release while everything it reads is still there.
+      Wait until `kubectl -n zitadel get helmrelease` lists nothing.
+   2. **The rest**, the switch's ConfigMap `zitadel/zitadel-values-weldid`
+      among it. Removed while the release still exists, that ConfigMap
+      changes the release's values back to before the switch, and
+      helm-controller starts upgrading Zitadel onto `auth.<domain>` again
+      until the namespace goes. On EU test, which did both in one commit,
+      it had about 26 seconds, and the upgrade in flight held the
+      namespace's deletion for its 15-minute timeout.
+
+   `zitadel-db`'s volume outlives the namespace: `openebs-hostpath` keeps
+   volumes (`Retain`), so `kubectl get pv | grep zitadel` shows it
+   Released. Freeing the disk deletes the data for good (the backups stay
+   in the bucket): `kubectl patch pv <name> -p
+   '{"spec":{"persistentVolumeReclaimPolicy":"Delete"}}'`, and OpenEBS wipes
+   it.
 
 ## Secrets
 

@@ -516,7 +516,7 @@ WeldID 1.0):
    (the test cluster's runbook), and let testers sign up afresh.
 4. **Remove Zitadel** from EU test: its release, values, `zitadel-db` and
    backups, Secrets, namespace and settings (the layer's README,
-   "Switching", step 5).
+   "Switching", step 6).
 
 ## Sign-up and the first workspace
 
