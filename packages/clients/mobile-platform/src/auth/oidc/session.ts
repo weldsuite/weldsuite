@@ -22,9 +22,17 @@
  *
  * **`header`** (WeldID in membership mode, plan `weldid-auth-server.md`):
  * the token names no workspace, so there is only ever one (stored under
- * `UNSCOPED`). Switching workspace is a local choice (`activeWorkspaceId`,
+ * `UNSCOPED`). The workspace list is WeldSuite's own directory
+ * (`GET /api/workspaces`, `deps.loadWorkspaces`), read after sign-in, at
+ * start and on `reload()`, and cached with the profile; its ids are
+ * `workspaces.id`. Switching workspace is a local choice (`activeWorkspaceId`,
  * cached alongside the profile), never a new authorization; the app tags its
- * own API calls with it (`X-Weld-Workspace`) using `getActiveOrgId()`.
+ * own API calls with it (`X-Weld-Workspace`) using `getActiveOrgId()`. With
+ * exactly one workspace it is chosen without asking, as on the web.
+ *
+ * After the person signs out, the next sign-in asks the provider for its
+ * form (`prompt=login`): the provider's own session in the browser would
+ * otherwise sign the same account straight back in.
  *
  * The access token lives in memory only. After a restart the active
  * workspace's refresh token gets a new one on the first API call; offline,
@@ -78,6 +86,14 @@ export interface OidcSessionDeps {
   randomBytes: (size: number) => Uint8Array;
   /** SHA-256 of a string, standard base64. */
   sha256Base64: (input: string) => Promise<string>;
+  /**
+   * `header` mode: WeldSuite's list of the person's workspaces, read with
+   * their token (`GET /api/workspaces`). Null when it can't be read; an
+   * empty list means they belong to none.
+   */
+  loadWorkspaces?: (token: string) => Promise<OidcOrganization[] | null>;
+  /** Waits between attempts at a first workspace read; tests pass 0. */
+  retryDelaysMs?: readonly number[];
   now?: () => number;
 }
 
@@ -98,11 +114,25 @@ export interface OidcSessionConfig {
   storageId: string;
 }
 
+export interface SignInOptions {
+  intent?: 'sign-in' | 'sign-up';
+  /** `claim` mode: a token for this workspace. */
+  orgId?: string;
+  /** The app's language (`ui_locales`), for the provider's pages. */
+  locale?: string;
+}
+
 export interface OidcSnapshot {
   isLoaded: boolean;
   person: OidcPerson | null;
   organizations: readonly OidcOrganization[];
   activeOrgId: string | null;
+  /**
+   * `header` mode: the workspace list hasn't been read for this person yet
+   * (the first read after sign-in is still running), so an empty list
+   * doesn't mean "no workspace" yet.
+   */
+  isLoadingWorkspaces: boolean;
 }
 
 /** A sign-in that failed for a reason worth showing (not a cancelled sheet). */
@@ -154,6 +184,8 @@ interface CachedProfile {
   organizations: OidcOrganization[];
   /** `workspaceSource: "header"` only: the locally chosen active workspace. */
   activeWorkspaceId?: string | null;
+  /** `workspaceSource: "header"` only: when the workspace list was last read. */
+  directoryAt?: number;
 }
 
 interface AccessToken {
@@ -167,6 +199,8 @@ const MAX_TOKENS = 6;
 const EXPIRY_MARGIN_MS = 30_000;
 const DEFAULT_EXPIRES_IN_S = 300;
 const REVOKE_TIMEOUT_MS = 3000;
+/** A first workspace read that fails is tried again after these waits, then given up. */
+const DIRECTORY_RETRY_MS = [1000, 3000, 9000] as const;
 
 /** Keys may only hold letters, digits, `.`, `-` and `_` (expo-secure-store). */
 export function storageIdFor(origin: string): string {
@@ -184,16 +218,28 @@ export class OidcMobileSession {
   private readonly baseScope: string;
   private readonly secureKey: string;
   private readonly profileKey: string;
+  /** Set by a sign-out: the next sign-in asks for the provider's form. */
+  private readonly promptLoginKey: string;
   private readonly now: () => number;
   private stored: StoredTokens | null = null;
   private profile: CachedProfile | null = null;
   /** `header` mode only: the locally chosen active workspace. */
   private activeWorkspaceId: string | null = null;
+  /** `header` mode only: when the person last chose a workspace. */
+  private activeChosenAt = 0;
   private access: AccessToken | null = null;
   private discovery: Promise<Discovery> | null = null;
   private initialised: Promise<void> | null = null;
   private readonly refreshing = new Map<string, Promise<string | null>>();
-  private snapshot: OidcSnapshot = { isLoaded: false, person: null, organizations: [], activeOrgId: null };
+  /** `header` mode: the workspace read in flight, for whom. */
+  private directoryReading: { sub: string; done: Promise<void> } | null = null;
+  private snapshot: OidcSnapshot = {
+    isLoaded: false,
+    person: null,
+    organizations: [],
+    activeOrgId: null,
+    isLoadingWorkspaces: false,
+  };
   private readonly listeners = new Set<() => void>();
 
   constructor(
@@ -211,6 +257,7 @@ export class OidcMobileSession {
     this.baseScope = scopes.join(' ');
     this.secureKey = `weldsuite.oidc.${config.storageId}`;
     this.profileKey = `weldsuite:oidc-profile:${config.storageId}`;
+    this.promptLoginKey = `weldsuite:oidc-prompt-login:${config.storageId}`;
     this.now = deps.now ?? Date.now;
   }
 
@@ -235,6 +282,8 @@ export class OidcMobileSession {
         await this.clearStorage();
       }
       this.publish(true);
+      // The cached list shows at once; a fresh one follows when the network allows.
+      if (this.profile) this.readDirectory();
     })();
     return this.initialised;
   }
@@ -249,8 +298,11 @@ export class OidcMobileSession {
     return this.refreshKey(key);
   }
 
-  /** Sign in (or up) in the browser sheet. With `orgId`, for that workspace. */
-  async signIn(options: { intent?: 'sign-in' | 'sign-up'; orgId?: string } = {}): Promise<HostedSignInResult> {
+  /**
+   * Sign in (or up) in the browser sheet. With `orgId`, for that workspace;
+   * `locale` (`en`, `nl`) asks the provider's pages for that language.
+   */
+  async signIn(options: SignInOptions = {}): Promise<HostedSignInResult> {
     await this.init();
     let discovery: Discovery;
     try {
@@ -261,7 +313,8 @@ export class OidcMobileSession {
     const verifier = base64UrlFromBytes(this.deps.randomBytes(32));
     const state = base64UrlFromBytes(this.deps.randomBytes(16));
     const nonce = base64UrlFromBytes(this.deps.randomBytes(16));
-    const url = await this.authorizeUrl(discovery, options, { verifier, state, nonce });
+    const promptLogin = await this.deps.cacheStore.getItem(this.promptLoginKey).catch(() => null);
+    const url = await this.authorizeUrl(discovery, { ...options, promptLogin: promptLogin === '1' }, { verifier, state, nonce });
 
     const result = await this.deps.openAuthSession(url, this.config.redirectUri);
     if (result.type !== 'success' || !result.url) return 'cancelled';
@@ -274,12 +327,13 @@ export class OidcMobileSession {
       throw new OidcSignInError('The sign-in response did not match the request', 'nonce_mismatch');
     }
     await this.acceptSignIn(response, options.orgId);
+    await this.deps.cacheStore.removeItem(this.promptLoginKey).catch(() => undefined);
     return 'signed-in';
   }
 
   private async authorizeUrl(
     discovery: Discovery,
-    options: { intent?: 'sign-in' | 'sign-up'; orgId?: string },
+    options: SignInOptions & { promptLogin: boolean },
     pkce: { verifier: string; state: string; nonce: string },
   ): Promise<string> {
     const challenge = base64ToBase64Url(await this.deps.sha256Base64(pkce.verifier));
@@ -296,8 +350,8 @@ export class OidcMobileSession {
       nonce: pkce.nonce,
       code_challenge: challenge,
       code_challenge_method: 'S256',
-      // OIDC "Initiating User Registration": Zitadel and Keycloak open their sign-up form.
-      prompt: options.intent === 'sign-up' ? 'create' : undefined,
+      prompt: promptFor(options),
+      ui_locales: options.locale || undefined,
     });
   }
 
@@ -328,6 +382,7 @@ export class OidcMobileSession {
     if (this.workspaceSource === 'header') {
       if (!this.profile) return;
       this.activeWorkspaceId = orgId;
+      this.activeChosenAt = this.now();
       this.profile = { ...this.profile, activeWorkspaceId: orgId };
       await this.persist();
       this.publish(true);
@@ -347,19 +402,32 @@ export class OidcMobileSession {
     await this.signIn({ orgId });
   }
 
-  /** Re-read the profile (a refresh returns a new ID token). */
+  /**
+   * Re-read the profile (a refresh returns a new ID token) and, in `header`
+   * mode, the workspace list (after creating or joining a workspace).
+   */
   async reload(): Promise<void> {
     const key = this.stored?.active;
     if (key) await this.refreshKey(key);
+    if (this.workspaceSource === 'header' && this.profile) {
+      this.readDirectory({ force: true });
+      await this.directoryReading?.done;
+    }
   }
 
-  /** Forget the session here and revoke its refresh tokens at the provider. */
+  /**
+   * Forget the session here and revoke its refresh tokens at the provider.
+   * The next sign-in asks for the provider's form (`prompt=login`), so the
+   * provider's own session in the browser can't sign this account back in.
+   */
   async signOut(): Promise<void> {
     await this.init();
+    const signedIn = this.stored !== null;
     const refreshTokens = Object.values(this.stored?.tokens ?? {})
       .map((entry) => entry.refresh)
       .filter(Boolean);
     await this.forget();
+    if (signedIn) await this.deps.cacheStore.setItem(this.promptLoginKey, '1').catch(() => undefined);
     if (refreshTokens.length === 0) return;
     try {
       const discovery = await this.discover();
@@ -409,8 +477,13 @@ export class OidcMobileSession {
 
     const samePerson = this.stored?.sub === person.id;
     const previous = samePerson ? (this.profile?.organizations ?? []) : [];
-    // An unscoped token lists every workspace; a narrowed one names one.
-    const organizations = requestedOrgId ? mergeOrganizations(previous, named) : named;
+    const header = this.workspaceSource === 'header';
+    // `header`: the token names no workspace, the directory read below lists
+    // them. `claim`: an unscoped token lists every workspace, a narrowed one
+    // names one.
+    let organizations = named;
+    if (header) organizations = previous;
+    else if (requestedOrgId) organizations = mergeOrganizations(previous, named);
 
     const stored: StoredTokens =
       samePerson && this.stored ? this.stored : { v: 1, sub: person.id, active: key, tokens: {} };
@@ -421,10 +494,17 @@ export class OidcMobileSession {
     // `header` mode: the same person signing in again (a fresh interactive
     // sign-in after the token fully expired) keeps their workspace choice.
     if (!samePerson) this.activeWorkspaceId = null;
-    this.profile = { sub: person.id, person, organizations, activeWorkspaceId: this.activeWorkspaceId };
+    this.profile = {
+      sub: person.id,
+      person,
+      organizations,
+      activeWorkspaceId: this.activeWorkspaceId,
+      directoryAt: samePerson ? this.profile?.directoryAt : undefined,
+    };
     this.access = this.accessFrom(response, key);
     await this.persist();
     this.publish(true);
+    if (header) this.readDirectory({ force: true });
   }
 
   private async acceptRefresh(response: TokenResponse, key: string): Promise<void> {
@@ -438,14 +518,82 @@ export class OidcMobileSession {
     const claims = this.claimsOf(response);
     const person = personFromClaims(claims);
     if (person?.id === stored.sub && this.profile) {
-      const named = organizationsFromClaims(claims, this.orgClaim);
-      this.profile = {
-        ...this.profile,
-        person,
-        organizations: key === UNSCOPED && named.length > 0 ? named : mergeOrganizations(this.profile.organizations, named),
-      };
+      this.profile = { ...this.profile, person, organizations: this.refreshedOrganizations(claims, key, this.profile) };
     }
     this.access = this.accessFrom(response, key);
+    await this.persist();
+    this.publish(true);
+  }
+
+  /**
+   * The workspace list after a refresh: `header` keeps the directory's (the
+   * token names none); `claim` takes an unscoped token's list, or adds what a
+   * narrowed one names.
+   */
+  private refreshedOrganizations(claims: Claims, key: string, profile: CachedProfile): OidcOrganization[] {
+    if (this.workspaceSource === 'header') return profile.organizations;
+    const named = organizationsFromClaims(claims, this.orgClaim);
+    return key === UNSCOPED && named.length > 0 ? named : mergeOrganizations(profile.organizations, named);
+  }
+
+  // ── workspace directory (`header` mode) ──────────────────────────────────
+
+  /**
+   * Read WeldSuite's workspace list in the background. Once per start unless
+   * `force` (after sign-in, `reload()`). A first read that fails is tried
+   * again a few times; later failures keep the cached list.
+   */
+  private readDirectory(options: { force?: boolean } = {}): void {
+    const load = this.deps.loadWorkspaces;
+    const sub = this.profile?.sub;
+    if (this.workspaceSource !== 'header' || !load || !sub) return;
+    if (this.directoryReading?.sub === sub && !options.force) return;
+    const reading = { sub, done: Promise.resolve() };
+    reading.done = this.readDirectoryWithRetries(sub, load).finally(() => {
+      if (this.directoryReading === reading) {
+        this.directoryReading = null;
+        this.publish(true);
+      }
+    });
+    this.directoryReading = reading;
+    this.publish(true);
+  }
+
+  private async readDirectoryWithRetries(
+    sub: string,
+    load: (token: string) => Promise<OidcOrganization[] | null>,
+  ): Promise<void> {
+    const waits = this.deps.retryDelaysMs ?? DIRECTORY_RETRY_MS;
+    const startedAt = this.now();
+    for (let attempt = 0; attempt <= waits.length; attempt += 1) {
+      if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, waits[attempt - 1]));
+      if (this.profile?.sub !== sub) return;
+      const token = await this.getToken().catch(() => null);
+      const list = token ? await load(token).catch(() => null) : null;
+      // Signed out, or someone else signed in, meanwhile.
+      if (this.profile?.sub !== sub) return;
+      if (list) {
+        await this.acceptDirectory(list, startedAt);
+        return;
+      }
+      // Without a token there's no point waiting; with a list read before, keep it.
+      if (!token || this.profile.directoryAt !== undefined) return;
+    }
+  }
+
+  /**
+   * A fresh list. The active choice stays while it's listed, or when it was
+   * made after this read began (a workspace created meanwhile); with none,
+   * a sole workspace is chosen without asking.
+   */
+  private async acceptDirectory(list: OidcOrganization[], startedAt: number): Promise<void> {
+    if (!this.profile) return;
+    const ids = new Set(list.map((org) => org.id));
+    const current = this.activeWorkspaceId;
+    let active = current && (ids.has(current) || this.activeChosenAt >= startedAt) ? current : null;
+    if (!active && list.length === 1) active = list[0]!.id;
+    this.activeWorkspaceId = active;
+    this.profile = { ...this.profile, organizations: list, activeWorkspaceId: active, directoryAt: this.now() };
     await this.persist();
     this.publish(true);
   }
@@ -629,9 +777,27 @@ export class OidcMobileSession {
       person: signedIn ? (this.profile?.person ?? null) : null,
       organizations: signedIn ? (this.profile?.organizations ?? []) : [],
       activeOrgId: this.activeOrgId(signedIn),
+      isLoadingWorkspaces: signedIn && this.isReadingFirstDirectory(),
     };
     for (const listener of this.listeners) listener();
   }
+
+  /** `header` mode: no list has been read for this person yet, and one is being read. */
+  private isReadingFirstDirectory(): boolean {
+    if (this.workspaceSource !== 'header' || !this.deps.loadWorkspaces || !this.profile) return false;
+    return this.profile.directoryAt === undefined && this.directoryReading?.sub === this.profile.sub;
+  }
+}
+
+/**
+ * `prompt` for an authorization request: `create` for sign-up (OIDC
+ * "Initiating User Registration": WeldID, Zitadel and Keycloak open their
+ * sign-up form), `login` for the first sign-in after a sign-out (the form,
+ * not the provider's remembered session), else none.
+ */
+function promptFor(options: { intent?: SignInOptions['intent']; promptLogin: boolean }): string | undefined {
+  if (options.intent === 'sign-up') return 'create';
+  return options.promptLogin ? 'login' : undefined;
 }
 
 /**

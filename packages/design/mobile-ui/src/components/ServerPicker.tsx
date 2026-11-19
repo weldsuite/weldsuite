@@ -1,6 +1,8 @@
 /**
  * Choose the server the app talks to: WeldSuite cloud (Global), WeldSuite EU
- * (when the build knows its address) or a self-hosted server by address.
+ * (when the build knows its address) or a self-hosted server by address,
+ * limited to the servers the app offers (an app past Global's retirement
+ * shows EU and self-hosted only).
  * A server is checked before it is saved (`/config.json`, mobile sign-in,
  * the app's module); saving signs out and restarts the app on it
  * (`switchServer`, weldsuite-documentation/plans/mobile-server-choice.md).
@@ -12,6 +14,7 @@ import {
   checkServerAddress,
   checkServerOrigin,
   hostOf,
+  offersServer,
   switchServer,
   type MobileAppIdentity,
   type ServerCheck,
@@ -81,13 +84,21 @@ type CheckState =
   | { status: 'ok'; origin: string; version: string | null }
   | { status: 'error'; message: string };
 
-/** The options the picker shows: EU only when the build knows its address. */
-function serverOptions(labels: ServerCopy, euOrigin: string | null): Array<{ kind: ServerKind; name: string; hint: string }> {
-  const options: Array<{ kind: ServerKind; name: string; hint: string }> = [
-    { kind: 'global', name: labels.globalName, hint: labels.globalHint },
-  ];
-  if (euOrigin) options.push({ kind: 'eu', name: labels.euName, hint: labels.euHint });
-  options.push({ kind: 'self-hosted', name: labels.selfHostedName, hint: labels.selfHostedHint });
+/**
+ * The options the picker shows: the servers the app offers
+ * (`MobileAppIdentity.servers`), EU only when the build knows its address.
+ */
+function serverOptions(
+  labels: ServerCopy,
+  euOrigin: string | null,
+  app: MobileAppIdentity,
+): Array<{ kind: ServerKind; name: string; hint: string }> {
+  const options: Array<{ kind: ServerKind; name: string; hint: string }> = [];
+  if (offersServer(app, 'global')) options.push({ kind: 'global', name: labels.globalName, hint: labels.globalHint });
+  if (euOrigin && offersServer(app, 'eu')) options.push({ kind: 'eu', name: labels.euName, hint: labels.euHint });
+  if (offersServer(app, 'self-hosted')) {
+    options.push({ kind: 'self-hosted', name: labels.selfHostedName, hint: labels.selfHostedHint });
+  }
   return options;
 }
 
@@ -128,7 +139,7 @@ export function ServerPicker({
     setSwitching(false);
   }, [visible, current.kind]);
 
-  const options = serverOptions(labels, euOrigin);
+  const options = serverOptions(labels, euOrigin, app);
 
   const showResult = (result: ServerCheck) => {
     if (result.ok) setCheck({ status: 'ok', origin: result.origin, version: result.config.version ?? null });

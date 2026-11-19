@@ -9,6 +9,7 @@ import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
 import * as WebBrowser from 'expo-web-browser';
 import { useEffect, useMemo, useSyncExternalStore, type ReactNode } from 'react';
+import { parseWorkspaceDirectory, type OidcOrganization } from '@weldsuite/app-api-client/auth/oidc-claims';
 import { getMobileRuntime } from '../../runtime/state';
 import type {
   AuthImplementation,
@@ -22,8 +23,28 @@ import type {
 } from '../types';
 import { OidcMobileSession, storageIdFor, type OidcSessionDeps, type OidcSnapshot } from './session';
 
+/**
+ * WeldSuite's list of the person's workspaces, `GET /api/workspaces` on the
+ * server the app runs against (`header` mode: the token names none).
+ */
+export async function loadWorkspacesFromServer(
+  token: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<OidcOrganization[] | null> {
+  try {
+    const res = await fetchImpl(`${getMobileRuntime().apiOrigin}/api/workspaces`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+    });
+    if (!res.ok) return null;
+    return parseWorkspaceDirectory(await res.json());
+  } catch {
+    return null;
+  }
+}
+
 const deps: OidcSessionDeps = {
   fetchImpl: (input, init) => fetch(input, init),
+  loadWorkspaces: (token) => loadWorkspacesFromServer(token),
   secureStore: SecureStore,
   cacheStore: AsyncStorage,
   openAuthSession: (url, redirectUri) => WebBrowser.openAuthSessionAsync(url, redirectUri),
@@ -125,11 +146,11 @@ function useOidcUser(): UserState {
   }, [snapshot]);
 }
 
-function toOrganization(org: { id: string; name: string }): AuthOrganization {
+function toOrganization(org: OidcOrganization): AuthOrganization {
   return {
     id: org.id,
     name: org.name,
-    slug: null,
+    slug: org.slug ?? null,
     imageUrl: '',
     membersCount: 0,
     maxAllowedMemberships: 0,
@@ -153,15 +174,17 @@ function useOidcOrganizationList(): OrganizationListState {
   const snapshot = useSnapshot();
   return useMemo((): OrganizationListState => {
     const data: AuthMembership[] = snapshot.organizations.map((org) => ({
-      organization: { id: org.id, name: org.name, slug: null, imageUrl: '' },
+      organization: { id: org.id, name: org.name, slug: org.slug ?? null, imageUrl: '' },
     }));
+    // WeldID: until the first workspace read is back, an empty list isn't "no workspace".
+    const loading = !snapshot.isLoaded || snapshot.isLoadingWorkspaces;
     return {
       isLoaded: snapshot.isLoaded,
       setActive: snapshot.isLoaded ? setActive : undefined,
       userMemberships: {
-        data: snapshot.isLoaded ? data : undefined,
-        isLoading: !snapshot.isLoaded,
-        isFetching: false,
+        data: loading ? undefined : data,
+        isLoading: loading,
+        isFetching: snapshot.isLoadingWorkspaces,
         hasNextPage: false,
         fetchNext: undefined,
         revalidate: reload,
@@ -179,10 +202,14 @@ export const oidcAuth: AuthImplementation = {
   useOrganizationList: useOidcOrganizationList,
   getToken,
   signOut,
-  signIn: (options) => getSession().signIn({ intent: options?.intent }),
+  signIn: (options) => getSession().signIn({ intent: options?.intent, locale: options?.locale }),
   get accountUrl() {
     const { auth } = getMobileRuntime();
     return auth.provider === 'oidc' ? (auth.accountUrl ?? undefined) : undefined;
   },
   getActiveOrgId: () => getSession().getSnapshot().activeOrgId,
+  get workspaceIds() {
+    const { auth } = getMobileRuntime();
+    return auth.provider === 'oidc' && auth.workspaceSource === 'header' ? 'workspace' : 'organization';
+  },
 };

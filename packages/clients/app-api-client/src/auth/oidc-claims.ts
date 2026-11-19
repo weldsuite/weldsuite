@@ -156,3 +156,22 @@ export function personFromClaims(claims: Claims): OidcPerson | null {
     email: str(claims.email),
   };
 }
+
+/**
+ * WeldSuite's own list of the person's workspaces (`GET /api/workspaces`,
+ * `{ data: [{ id, name, slug, … }] }`): what a token can't say. In `header`
+ * mode (WeldID) it is the whole workspace list and each `id` is
+ * `workspaces.id`, the value `X-Weld-Workspace` takes. Entries without an id
+ * or a name are skipped; anything that isn't such a list is null.
+ */
+export function parseWorkspaceDirectory(body: unknown): OidcOrganization[] | null {
+  if (!isRecord(body) || !Array.isArray(body.data)) return null;
+  const list: OidcOrganization[] = [];
+  for (const item of body.data) {
+    if (!isRecord(item)) continue;
+    const id = str(item.id);
+    const name = str(item.name);
+    if (id && name) list.push({ id, name, slug: str(item.slug) });
+  }
+  return list;
+}

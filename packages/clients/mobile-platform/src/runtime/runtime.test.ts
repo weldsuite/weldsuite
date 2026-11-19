@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { RuntimeConfig } from '@weldsuite/app-api-client/schemas/runtime-config';
 import { hostOf, normaliseServerAddress } from './address';
-import { buildGlobalRuntime, buildServerRuntime, globalPersonalApiOrigin } from './build';
+import { buildGlobalRuntime, buildServerRuntime, globalPersonalApiOrigin, offersServer, shipsClerk } from './build';
 import { assessServerConfig, fetchServerConfig } from './server-config';
 import {
+  NoServerError,
   readServerChoice,
   resolveMobileRuntime,
   saveServerChoice,
@@ -126,7 +127,11 @@ describe('buildServerRuntime', () => {
     expect(runtime.auth).toMatchObject({ provider: 'oidc', clientId: 'mobile-client', audience: 'project' });
     expect(runtime.unavailableFeatures.has('mail-ai')).toBe(true);
     expect(runtime.modules).toEqual(new Set(['core', 'mail', 'chat']));
-    expect(runtime.pushEnabled).toBe(false);
+    // EU sends through WeldSuite's Expo account; a self-hosted server can't.
+    expect(runtime.pushEnabled).toBe(true);
+    expect(
+      buildServerRuntime(APP, BUILD, { kind: 'self-hosted', origin: 'https://ws.acme.test' }, EU_CONFIG).pushEnabled,
+    ).toBe(false);
   });
 });
 
@@ -222,6 +227,21 @@ describe('resolveMobileRuntime', () => {
     expect(JSON.parse(store.data.get('weldsuite:server-config:https://app.test.weldsuite.eu') ?? '').version).toBe('0.2.0');
   });
 
+  it('asks again at start when the cached config was one the app couldn’t use', async () => {
+    const store = memoryStore({
+      [SERVER_CHOICE_KEY]: '{"kind":"eu"}',
+      // Cached while the server had no mobile client yet.
+      'weldsuite:server-config:https://app.test.weldsuite.eu': JSON.stringify({
+        ...EU_CONFIG,
+        auth: { ...EU_CONFIG.auth, mobileClientId: null },
+      }),
+    });
+    const fetchImpl = vi.fn(async () => jsonResponse(EU_CONFIG));
+    const result = await resolveMobileRuntime({ app: APP, build: BUILD, store, fetchImpl });
+    expect(result.status).toBe('ready');
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
   it('fails when an unseen server is unreachable or not usable', async () => {
     const store = memoryStore({ [SERVER_CHOICE_KEY]: '{"kind":"self-hosted","origin":"https://weld.example.com"}' });
     const down = vi.fn(async () => {
@@ -243,6 +263,66 @@ describe('resolveMobileRuntime', () => {
     const store = memoryStore({ [SERVER_CHOICE_KEY]: '{"kind":"eu"}' });
     const result = await resolveMobileRuntime({ app: APP, build: { ...BUILD, euServerUrl: undefined }, store, fetchImpl: vi.fn() });
     expect(result.status === 'ready' && result.runtime.edition).toBe('global');
+  });
+});
+
+describe('an app that no longer offers Global (OPS-025)', () => {
+  const EU_APP: MobileAppIdentity = { ...APP, servers: ['eu', 'self-hosted'] };
+  const EU_BUILD: MobileBuildEnv = { euServerUrl: 'https://app.test.weldsuite.eu', serverPicker: 'off' };
+
+  it('starts on the build’s EU server with nothing saved, picker on or off', async () => {
+    for (const serverPicker of ['off', 'on']) {
+      const fetchImpl = vi.fn(async () => jsonResponse(EU_CONFIG));
+      const result = await resolveMobileRuntime({ app: EU_APP, build: { ...EU_BUILD, serverPicker }, store: memoryStore(), fetchImpl });
+      expect(result.status === 'ready' && result.runtime.server).toEqual({ kind: 'eu', origin: 'https://app.test.weldsuite.eu' });
+      expect(fetchImpl).toHaveBeenCalledWith('https://app.test.weldsuite.eu/config.json', expect.anything());
+    }
+  });
+
+  it('ignores a saved Global choice, and a saved self-hosted one with the picker off', async () => {
+    const savedGlobal = memoryStore({ [SERVER_CHOICE_KEY]: '{"kind":"global"}' });
+    const onEu = await resolveMobileRuntime({
+      app: EU_APP,
+      build: { ...EU_BUILD, serverPicker: 'on' },
+      store: savedGlobal,
+      fetchImpl: vi.fn(async () => jsonResponse(EU_CONFIG)),
+    });
+    expect(onEu.status === 'ready' && onEu.runtime.edition).toBe('eu');
+
+    const savedOwn = memoryStore({ [SERVER_CHOICE_KEY]: '{"kind":"self-hosted","origin":"https://ws.acme.test"}' });
+    const pickerOff = await resolveMobileRuntime({
+      app: EU_APP,
+      build: EU_BUILD,
+      store: savedOwn,
+      fetchImpl: vi.fn(async () => jsonResponse(EU_CONFIG)),
+    });
+    expect(pickerOff.status === 'ready' && pickerOff.runtime.server.kind).toBe('eu');
+  });
+
+  it('keeps a saved self-hosted server while the picker is on', async () => {
+    const store = memoryStore({ [SERVER_CHOICE_KEY]: '{"kind":"self-hosted","origin":"https://ws.acme.test"}' });
+    const result = await resolveMobileRuntime({
+      app: EU_APP,
+      build: { ...EU_BUILD, serverPicker: 'on' },
+      store,
+      fetchImpl: vi.fn(async () => jsonResponse(EU_CONFIG)),
+    });
+    expect(result.status === 'ready' && result.runtime.server).toEqual({ kind: 'self-hosted', origin: 'https://ws.acme.test' });
+  });
+
+  it('refuses a build that names no EU server', async () => {
+    await expect(
+      resolveMobileRuntime({ app: EU_APP, build: {}, store: memoryStore(), fetchImpl: vi.fn() }),
+    ).rejects.toBeInstanceOf(NoServerError);
+  });
+
+  it('refuses a server that signs in through Clerk: the app ships none', () => {
+    const clerkServer: RuntimeConfig = { ...EU_CONFIG, auth: { provider: 'clerk', publishableKey: 'pk_live_x' } };
+    expect(assessServerConfig(clerkServer, APP)).toBeNull();
+    expect(assessServerConfig(clerkServer, EU_APP)).toBe('no-mobile-sign-in');
+    expect(shipsClerk(APP)).toBe(true);
+    expect(shipsClerk(EU_APP)).toBe(false);
+    expect(offersServer(EU_APP, 'self-hosted')).toBe(true);
   });
 });
 

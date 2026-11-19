@@ -12,9 +12,16 @@
  */
 
 import { getAppApiUrl } from '@/lib/api/public-env';
+import { parseWorkspaceDirectory } from '@weldsuite/app-api-client/auth/oidc-claims';
+
+/** `{ data: [{ id, name, slug, … }] }` → entries; anything else → null. Shared with the mobile apps. */
+export { parseWorkspaceDirectory };
 
 export interface WorkspaceDirectoryEntry {
-  /** The provider organization id (`workspaces.clerk_org_id`). */
+  /**
+   * The provider organization id (`workspaces.clerk_org_id`); in `header`
+   * mode (WeldID) `workspaces.id`.
+   */
   id: string;
   name: string;
   slug: string | null;
@@ -22,27 +29,6 @@ export interface WorkspaceDirectoryEntry {
 
 /** Reads the directory with the session's token; null when it can't be read. */
 export type LoadWorkspaces = (token: string) => Promise<WorkspaceDirectoryEntry[] | null>;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function text(value: unknown): string | null {
-  return typeof value === 'string' && value.trim() !== '' ? value : null;
-}
-
-/** `{ data: [{ id, name, slug, … }] }` → entries; anything else → null. */
-export function parseWorkspaceDirectory(body: unknown): WorkspaceDirectoryEntry[] | null {
-  if (!isRecord(body) || !Array.isArray(body.data)) return null;
-  const entries: WorkspaceDirectoryEntry[] = [];
-  for (const item of body.data) {
-    if (!isRecord(item)) continue;
-    const id = text(item.id);
-    const name = text(item.name);
-    if (id && name) entries.push({ id, name, slug: text(item.slug) });
-  }
-  return entries;
-}
 
 /** `GET {api}/api/workspaces`, as the platform's API client would call it. */
 export const loadWorkspacesFromApi: LoadWorkspaces = async (token) => {

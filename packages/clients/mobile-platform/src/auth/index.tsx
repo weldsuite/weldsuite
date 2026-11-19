@@ -112,3 +112,29 @@ export function useHostedSignIn(): HostedSignIn | null {
 export function getActiveWorkspaceId(): string | null {
   return getAuthImplementation().getActiveOrgId?.() ?? null;
 }
+
+/**
+ * Hook form of `getActiveWorkspaceId()`: the workspace to name on requests
+ * and sockets (`X-Weld-Workspace`, the realtime `?workspace=`), only in OIDC
+ * header mode (WeldID); null on every other provider, whose token names it.
+ */
+export function useWorkspaceForRequests(): string | null {
+  const implementation = getAuthImplementation();
+  const { orgId } = implementation.useAuth();
+  return implementation.workspaceIds === 'workspace' ? (orgId ?? null) : null;
+}
+
+/**
+ * The id the facade knows a workspace by, from a server answer that names it
+ * both ways (creating a workspace answers its organization id and
+ * `workspaces.id`). Hand this to `setActive`, never the organization id as
+ * such: in membership mode (WeldID) the membership list, `orgId` and
+ * `X-Weld-Workspace` use `workspaces.id`, which an organization id doesn't
+ * match. Null when the answer lacks the id the provider needs. Mirrors the
+ * platform's `workspaceRefOf` (`lib/auth`).
+ */
+export function workspaceRefOf(ids: { organizationId?: string | null; workspaceId?: string | null }): string | null {
+  const { organizationId, workspaceId } = ids;
+  const ref = getAuthImplementation().workspaceIds === 'workspace' ? workspaceId || organizationId : organizationId;
+  return ref || null;
+}

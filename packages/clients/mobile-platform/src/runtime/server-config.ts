@@ -8,6 +8,7 @@ import {
   RUNTIME_CONFIG_PATH,
   type RuntimeConfig,
 } from '@weldsuite/app-api-client/schemas/runtime-config';
+import { shipsClerk } from './build';
 import type { MobileAppIdentity, ServerProblem } from './types';
 
 export const SERVER_CONFIG_TIMEOUT_MS = 5000;
@@ -60,7 +61,8 @@ export function assessServerConfig(
   const auth = config.auth;
   if (!auth) return 'no-mobile-sign-in';
   if (auth.provider === 'oidc' && !auth.mobileClientId) return 'no-mobile-sign-in';
-  if (auth.provider === 'clerk' && !auth.publishableKey) return 'no-mobile-sign-in';
+  // An app that no longer offers WeldSuite cloud ships no Clerk to sign in with.
+  if (auth.provider === 'clerk' && (!auth.publishableKey || !shipsClerk(app))) return 'no-mobile-sign-in';
   if (config.modules) {
     const served = new Set(config.modules);
     if (app.requiredModules.some((id) => !served.has(id))) return 'app-unavailable';
