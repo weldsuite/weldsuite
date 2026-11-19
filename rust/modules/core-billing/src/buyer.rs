@@ -174,3 +174,130 @@ pub(crate) async fn vat_for(
     let check = check_vat(http, details).await;
     decide(seller_country, &details.country, check)
 }
+
+/// `GET /vat`: the billing details the next charge would use and the VAT
+/// they lead to, so the checkout summary can show the VAT number and the
+/// rate before the customer is sent to Mollie. The same decision a
+/// checkout makes a moment later (`vat_for`); VIES is asked again then.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct VatPreview {
+    /// What a checkout would still refuse with `BILLING_DETAILS_REQUIRED`;
+    /// empty when the details are complete.
+    pub(crate) missing: Vec<&'static str>,
+    pub(crate) country: Option<String>,
+    pub(crate) vat_number: Option<String>,
+    /// `none` (no number), `valid` (VIES accepts it) or `invalid` (VIES
+    /// rejects it, it belongs to another country than the billing address,
+    /// or VIES couldn't be asked: VAT is charged in each case).
+    pub(crate) vat_number_status: &'static str,
+    /// Null until the details are complete.
+    pub(crate) vat: Option<VatDecision>,
+}
+
+/// The preview for loaded details (`load`) and what VIES said (`check_vat`).
+pub(crate) fn preview(
+    details: Result<BillingDetails, Vec<&'static str>>,
+    seller_country: &str,
+    check: VatCheck,
+) -> VatPreview {
+    match details {
+        Err(missing) => VatPreview {
+            missing,
+            country: None,
+            vat_number: None,
+            vat_number_status: "none",
+            vat: None,
+        },
+        Ok(details) => VatPreview {
+            missing: Vec::new(),
+            vat: Some(decide(seller_country, &details.country, check)),
+            vat_number_status: match check {
+                VatCheck::None => "none",
+                VatCheck::Valid => "valid",
+                VatCheck::Invalid => "invalid",
+            },
+            country: Some(details.country),
+            vat_number: details.vat_number,
+        },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::vat::Treatment;
+
+    fn details(country: &str, vat_number: Option<&str>) -> BillingDetails {
+        BillingDetails {
+            name: "Acme".to_owned(),
+            address_line1: "Main 1".to_owned(),
+            postal_code: "1000".to_owned(),
+            city: "Brussels".to_owned(),
+            country: country.to_owned(),
+            vat_number: vat_number.map(str::to_owned),
+            ..BillingDetails::default()
+        }
+    }
+
+    #[test]
+    fn an_eu_business_with_a_number_vies_accepts_is_reverse_charged() {
+        let preview = preview(
+            Ok(details("BE", Some("BE0123456789"))),
+            "NL",
+            VatCheck::Valid,
+        );
+        assert_eq!(preview.vat_number_status, "valid");
+        assert_eq!(preview.vat_number.as_deref(), Some("BE0123456789"));
+        let vat = preview.vat.expect("a decision");
+        assert_eq!(vat.treatment, Treatment::ReverseCharge);
+        assert_eq!(vat.rate_bps, 0);
+    }
+
+    #[test]
+    fn a_dutch_business_pays_dutch_vat_with_or_without_a_number() {
+        let preview = preview(
+            Ok(details("NL", Some("NL123456789B01"))),
+            "NL",
+            VatCheck::Valid,
+        );
+        let vat = preview.vat.expect("a decision");
+        assert_eq!(vat.treatment, Treatment::Domestic);
+        assert_eq!(vat.rate_bps, 2100);
+    }
+
+    #[test]
+    fn a_number_vies_rejects_pays_the_customer_country_rate() {
+        let preview = preview(
+            Ok(details("DE", Some("DE123456789"))),
+            "NL",
+            VatCheck::Invalid,
+        );
+        assert_eq!(preview.vat_number_status, "invalid");
+        let vat = preview.vat.expect("a decision");
+        assert_eq!(vat.treatment, Treatment::Oss);
+        assert_eq!(vat.rate_bps, 1900);
+    }
+
+    #[test]
+    fn missing_details_have_no_vat_yet() {
+        let preview = preview(Err(vec!["addressLine1", "country"]), "NL", VatCheck::None);
+        assert_eq!(preview.missing, vec!["addressLine1", "country"]);
+        assert_eq!(preview.vat, None);
+        assert_eq!(preview.vat_number_status, "none");
+    }
+
+    #[test]
+    fn the_answer_is_camel_case_with_snake_case_treatments() {
+        let value = serde_json::to_value(preview(
+            Ok(details("BE", Some("BE0123456789"))),
+            "NL",
+            VatCheck::Valid,
+        ))
+        .expect("serializes");
+        assert_eq!(value["vatNumberStatus"], "valid");
+        assert_eq!(value["vat"]["treatment"], "reverse_charge");
+        assert_eq!(value["vat"]["rateBps"], 0);
+        assert_eq!(value["vat"]["country"], "BE");
+    }
+}

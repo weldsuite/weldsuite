@@ -7,6 +7,7 @@ import type {
   BillingCheckoutResult,
   BillingPaymentMethodResponse,
   BillingSubscriptionResponse,
+  BillingVatPreview,
   PhoneSubscriptionResponse,
 } from '@/lib/api/domains/billing';
 import type { Billing } from '@/lib/api/types/apps/billing.types';
@@ -25,6 +26,7 @@ export const billingKeys = {
   phoneSubscription: () => [...billingKeys.all, 'phone-subscription'] as const,
   paymentMethods: () => [...billingKeys.all, 'payment-methods'] as const,
   seatPrice: () => [...billingKeys.all, 'seat-price'] as const,
+  vat: () => [...billingKeys.all, 'vat'] as const,
 };
 
 const creditsKeys = {
@@ -155,6 +157,34 @@ export interface SeatPrice {
  * offer, which follows the workspace's current billing country. `null` when
  * there is no subscription.
  */
+/**
+ * The VAT the next Mollie checkout charges and the VAT number it rests on
+ * (`GET /billing/vat`, Rust only): the checkout summary shows it before the
+ * customer goes to Mollie. Enable it only where `billingProvider()` is
+ * `mollie`; Global has no such route.
+ */
+export function useBillingVat(enabled = true) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: billingKeys.vat(),
+    queryFn: async () => {
+      const client = await getClient();
+      const res = await client.get<{ data: BillingVatPreview }>('/billing/vat');
+      return res.data;
+    },
+    enabled,
+    // VIES is asked on every read: keep one answer while the dialog is open.
+    staleTime: 60_000,
+    retry: false,
+  });
+}
+
+/** Asks `GET /billing/vat` again: after the billing details (country, VAT number) changed. */
+export function useRefreshBillingVat() {
+  const queryClient = useQueryClient();
+  return () => void queryClient.invalidateQueries({ queryKey: billingKeys.vat() });
+}
+
 export function useSeatPrice(enabled = true) {
   const { getClient } = useAppApiClient();
   return useQuery({

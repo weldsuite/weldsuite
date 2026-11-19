@@ -15,6 +15,8 @@ const mocks = vi.hoisted(() => ({
   toastError: vi.fn(),
   toastInfo: vi.fn(),
   provider: vi.fn(),
+  vat: vi.fn(),
+  refreshVat: vi.fn(),
 }));
 
 vi.mock('sonner', () => ({
@@ -30,6 +32,8 @@ vi.mock('@/hooks/queries/use-billing-queries', () => ({
   useSeatPrice: () => ({ data: undefined }),
   useChangePlan: () => ({ mutateAsync: mocks.changePlan }),
   useUpdateSeats: () => ({ mutateAsync: mocks.updateSeats }),
+  useBillingVat: () => mocks.vat(),
+  useRefreshBillingVat: () => mocks.refreshVat,
 }));
 vi.mock('@/hooks/queries/use-settings-queries', () => ({
   useAvailableApps: () => ({ data: [] }),
@@ -106,6 +110,17 @@ const SUBSCRIPTION = {
   usedSeats: 2,
 };
 
+/** `GET /billing/vat` for a Dutch business: domestic, 21%. */
+const VAT_NL = {
+  missing: [],
+  country: 'NL',
+  vatNumber: 'NL123456789B01',
+  vatNumberStatus: 'valid',
+  vat: { treatment: 'domestic', rateBps: 2100, country: 'NL' },
+};
+
+const vatAnswer = (data: unknown) => ({ data, isLoading: false, isError: false });
+
 const UPGRADE = 'sweep.settings.billing.upgrade';
 const CONTINUE = 'sweep.settings.billing.checkout.continueToCheckout';
 
@@ -124,6 +139,7 @@ describe('BillingSettingsSection (Mollie)', () => {
     mocks.provider.mockReturnValue('mollie');
     mocks.get.mockResolvedValue({ data: { plans: PLANS, subscription: SUBSCRIPTION, partnerManaged: null } });
     mocks.saveSettings.mockResolvedValue({ data: {} });
+    mocks.vat.mockReturnValue(vatAnswer(VAT_NL));
     vi.stubGlobal('location', { href: 'https://app.test/settings/billing' });
   });
 
@@ -131,18 +147,123 @@ describe('BillingSettingsSection (Mollie)', () => {
     vi.unstubAllGlobals();
   });
 
-  it('shows the excluding-VAT notes on the plans and in the checkout', async () => {
-    const { user, confirm } = await openCheckout();
+  it('shows the excluding-VAT note on the plans and the VAT in the checkout', async () => {
+    const { confirm } = await openCheckout();
 
     // Plans view note, behind the dialog.
     expect(screen.getAllByText(mollie.excludingVat)).toHaveLength(1);
     expect(confirm).toBeEnabled();
 
-    // Checkout dialog note, in the subtotal tooltip.
-    const icon = document.querySelector('svg.lucide-info');
-    expect(icon).not.toBeNull();
-    await user.hover(icon as Element);
-    await waitFor(() => expect(screen.getAllByText(mollie.excludingVat).length).toBeGreaterThan(1));
+    // 2 seats of Business at €29 a month: €58, 21% Dutch VAT €12.18, €70.18 in all.
+    expect(screen.getByText('NL123456789B01')).toBeInTheDocument();
+    expect(screen.getByText('VAT 21%')).toBeInTheDocument();
+    expect(screen.getByText('€12.18')).toBeInTheDocument();
+    expect(screen.getByText('VAT of Netherlands.')).toBeInTheDocument();
+    expect(screen.getByText(`${mollie.totalInclVat} / sweep.settings.billing.month`)).toBeInTheDocument();
+    expect(screen.getByText('€70.18')).toBeInTheDocument();
+  });
+
+  it('starts the checkout on monthly billing', async () => {
+    await openCheckout();
+    expect(screen.getByRole('combobox')).toHaveTextContent('sweep.settings.billing.checkout.monthlyPrice');
+  });
+
+  it('reverse-charges an EU business whose VAT number VIES accepts', async () => {
+    mocks.vat.mockReturnValue(
+      vatAnswer({
+        missing: [],
+        country: 'BE',
+        vatNumber: 'BE0123456789',
+        vatNumberStatus: 'valid',
+        vat: { treatment: 'reverse_charge', rateBps: 0, country: 'BE' },
+      }),
+    );
+    await openCheckout();
+
+    expect(screen.getByText('VAT 0%')).toBeInTheDocument();
+    expect(screen.getByText('€0')).toBeInTheDocument();
+    expect(screen.getByText('Reverse charge: you account for the VAT in Belgium.')).toBeInTheDocument();
+    // Subtotal and total are the same €58.
+    expect(screen.getAllByText('€58').length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('charges the customer country rate when VIES does not confirm the VAT number', async () => {
+    mocks.vat.mockReturnValue(
+      vatAnswer({
+        missing: [],
+        country: 'DE',
+        vatNumber: 'DE123456789',
+        vatNumberStatus: 'invalid',
+        vat: { treatment: 'oss', rateBps: 1900, country: 'DE' },
+      }),
+    );
+    await openCheckout();
+
+    expect(screen.getByText('VAT 19%')).toBeInTheDocument();
+    expect(screen.getByText(mollie.vatNumberNotConfirmed)).toBeInTheDocument();
+  });
+
+  it('asks for the billing details when they are missing, and asks the VAT again once saved', async () => {
+    mocks.vat.mockReturnValue(
+      vatAnswer({ missing: ['addressLine1'], country: null, vatNumber: null, vatNumberStatus: 'none', vat: null }),
+    );
+    const { user } = await openCheckout();
+
+    expect(screen.getByText(en.settings.billing.notProvided)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: mollie.vatNeedsDetails }));
+    const save = await screen.findByRole('button', { name: en.settings.billing.updateBillingDetails });
+    await user.click(save);
+
+    await waitFor(() => expect(mocks.saveSettings).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mocks.refreshVat).toHaveBeenCalled());
+    expect(mocks.changePlan).not.toHaveBeenCalled();
+  });
+
+  it('opens the billing details from the VAT number', async () => {
+    const { user } = await openCheckout();
+
+    await user.click(screen.getByRole('button', { name: en.common.actions.edit }));
+
+    expect(await screen.findByRole('button', { name: en.settings.billing.updateBillingDetails })).toBeInTheDocument();
+  });
+
+  it('charges no EU VAT outside the EU', async () => {
+    mocks.vat.mockReturnValue(
+      vatAnswer({
+        missing: [],
+        country: 'US',
+        vatNumber: null,
+        vatNumberStatus: 'none',
+        vat: { treatment: 'outside_eu', rateBps: 0, country: 'US' },
+      }),
+    );
+    await openCheckout();
+
+    expect(screen.getByText(mollie.vatOutsideEu)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: en.common.actions.add })).toBeInTheDocument();
+  });
+
+  it('reads VAT as calculated at checkout when the VAT cannot be asked', async () => {
+    mocks.vat.mockReturnValue({ data: undefined, isLoading: false, isError: true });
+    await openCheckout();
+
+    expect(screen.getByText('sweep.settings.billing.checkout.calculatedAtCheckout')).toBeInTheDocument();
+    expect(screen.getByText(`sweep.settings.billing.subtotal / sweep.settings.billing.month`)).toBeInTheDocument();
+  });
+
+  it('keeps tax for the checkout on Stripe', async () => {
+    mocks.provider.mockReturnValue('stripe');
+    await openCheckout();
+
+    expect(screen.getByText('sweep.settings.billing.tax')).toBeInTheDocument();
+    expect(screen.queryByText('VAT 21%')).not.toBeInTheDocument();
+    expect(mocks.vat).not.toHaveBeenCalled();
+  });
+
+  it('says the VAT is being checked while VIES is asked', async () => {
+    mocks.vat.mockReturnValue({ data: undefined, isLoading: true, isError: false });
+    await openCheckout();
+    expect(screen.getByText(mollie.vatChecking)).toBeInTheDocument();
   });
 
   it('does not show the excluding-VAT note on Stripe', async () => {
@@ -159,7 +280,7 @@ describe('BillingSettingsSection (Mollie)', () => {
     await user.click(confirm);
 
     await waitFor(() => expect(window.location.href).toBe('https://www.mollie.com/checkout/x'));
-    expect(mocks.changePlan).toHaveBeenCalledWith({ planId: 'plan_business', seats: 2, cycle: 'yearly' });
+    expect(mocks.changePlan).toHaveBeenCalledWith({ planId: 'plan_business', seats: 2, cycle: 'monthly' });
   });
 
   it('announces a change that waits for the period end', async () => {

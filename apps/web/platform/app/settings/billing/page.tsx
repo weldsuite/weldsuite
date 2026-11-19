@@ -55,6 +55,8 @@ import { useBillingDetailsGate } from '@/hooks/use-billing-details-gate';
 import { BuyCreditsDialog, type CreditPackageOption } from './buy-credits-dialog';
 import { useCreditCheckoutReturn, type BillingCheckoutReturnStrings } from './credit-checkout-return';
 import { MollieBillingNotices } from '@/components/billing/mollie-billing-notices';
+import { ManageSeatsAction } from '@/components/billing/manage-seats';
+import { hasPaidPlan } from '@/components/settings/plan-pricing';
 import { useInvoiceLinkClick } from '@/hooks/use-invoice-document';
 import { CreditsWalletSettings } from './credits-wallet-settings';
 
@@ -565,7 +567,12 @@ function DirectBillingSettings() {
           <div className="border rounded-xl px-4 pt-3.5 pb-[18px] flex flex-col">
             <div className="flex items-center justify-between mb-2">
               <span className="text-sm font-medium">{ts.seats}</span>
-              <Button variant="outline" size="sm" className="h-7 text-xs" onClick={handleManagePlan}>{t.settings.actions.upgrade}</Button>
+              {/* On a paid plan, seats change in place; the plans page can't pick the current plan again. */}
+              {canManageBilling && hasPaidPlan(subscription) ? (
+                <ManageSeatsAction subscription={subscription} planLimits={planLimits} className="h-7 text-xs" />
+              ) : (
+                <Button variant="outline" size="sm" className="h-7 text-xs" onClick={handleManagePlan}>{t.settings.actions.upgrade}</Button>
+              )}
             </div>
             <p className="text-sm text-muted-foreground mb-2">
               {membersUsed} / {membersTotal ?? '\u221E'}
