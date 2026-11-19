@@ -43,6 +43,7 @@ on:
       - 'apps/web/sign-portal/**'
       - 'apps/web/forms-portal/**'
       - 'apps/web/admin/**'
+      - 'apps/web/helpdesk-widget/**'
       # The collab-rooms image (WeldDocs', WeldSheets' and WeldBoard's rooms).
       - 'apps/tools/collab-rooms/**'
       - 'apps/workers/docs-api/**'

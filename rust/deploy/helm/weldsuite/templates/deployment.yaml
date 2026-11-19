@@ -118,6 +118,19 @@ spec:
             # answer; empty serves the API alone.
             - name: SPA_DIR
               value: {{ ternary .Values.spa.dir "" .Values.spa.enabled | quote }}
+            {{- with .Values.helpdeskWidget }}
+            {{- if .enabled }}
+            {{- if not .hosts }}
+            {{- fail "helpdeskWidget.enabled needs helpdeskWidget.hosts (e.g. widget.<domain>)" }}
+            {{- end }}
+            # The helpdesk widget's build, served in place of the SPA on its
+            # own hosts only.
+            - name: HELPDESK_WIDGET_DIR
+              value: {{ .dir | quote }}
+            - name: HELPDESK_WIDGET_HOSTS
+              value: {{ join "," .hosts | quote }}
+            {{- end }}
+            {{- end }}
           envFrom:
             {{- include "weldsuite.envFrom" . | nindent 12 }}
           startupProbe:

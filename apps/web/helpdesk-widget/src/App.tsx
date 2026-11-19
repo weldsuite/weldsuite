@@ -3,6 +3,13 @@ import { Analytics } from '@vercel/analytics/react';
 import { WidgetPage } from './pages/WidgetPage';
 import { LauncherPage } from './pages/LauncherPage';
 
+/**
+ * Vercel Web Analytics, where Vercel hosts the widget (Global). The
+ * Kubernetes build (rust/Dockerfile) sets VITE_VERCEL_ANALYTICS=off: its host
+ * has no /_vercel/insights, and the EU edition sends visitors nowhere else.
+ */
+const vercelAnalytics = import.meta.env.VITE_VERCEL_ANALYTICS !== 'off';
+
 /** The SDK loads `/?mode=launcher` and `/?mode=widget` into its two iframes. */
 function RootPage() {
   const [searchParams] = useSearchParams();
@@ -17,7 +24,7 @@ export function App() {
         <Route path="/launcher" element={<LauncherPage />} />
         <Route path="*" element={<RootPage />} />
       </Routes>
-      <Analytics />
+      {vercelAnalytics && <Analytics />}
     </BrowserRouter>
   );
 }

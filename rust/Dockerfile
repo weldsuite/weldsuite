@@ -2,7 +2,9 @@
 #
 # The `weldsuite` image (ADR OPS-013): the Rust backend, one binary on
 # distroless, run as nonroot, and the platform SPA it serves from /srv/spa on
-# the same origin (SPA_DIR, bins/weldsuite/src/spa.rs). For linux/amd64 and
+# the same origin (SPA_DIR, bins/weldsuite/src/spa.rs), and the helpdesk
+# widget it serves from /srv/helpdesk-widget on the widget's own hosts
+# (HELPDESK_WIDGET_DIR, HELPDESK_WIDGET_HOSTS). For linux/amd64 and
 # linux/arm64. The build stages run on the build machine's own platform: Rust
 # cross-compiles for the target, so an arm64 image doesn't build under
 # emulation, and the SPA is the same JavaScript for both.
@@ -28,8 +30,8 @@ ARG NODE_VERSION=22
 
 # ── The frontends' dependencies ─────────────────────────────────────────────
 # The manifests alone first, so the install stays cached until a dependency
-# changes. Only the platform's, the portal's and the admin console's
-# (`--filter <app>...`).
+# changes. Only the platform's, the portals', the admin console's and the
+# helpdesk widget's (`--filter <app>...`).
 FROM --platform=$BUILDPLATFORM node:${NODE_VERSION}-bookworm-slim AS web-deps
 ENV CI=true \
     COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
@@ -38,10 +40,11 @@ RUN corepack enable
 WORKDIR /repo
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY patches patches
-COPY --parents apps/web/platform/package.json apps/web/sign-portal/package.json apps/web/forms-portal/package.json apps/web/admin/package.json packages/*/*/package.json ./
+COPY --parents apps/web/platform/package.json apps/web/sign-portal/package.json apps/web/forms-portal/package.json apps/web/admin/package.json apps/web/helpdesk-widget/package.json packages/*/*/package.json ./
 RUN --mount=type=cache,id=weldsuite-pnpm-store,target=/pnpm/store \
     pnpm install --frozen-lockfile --ignore-scripts --store-dir /pnpm/store \
-      --filter platform... --filter sign-portal... --filter forms-portal... --filter admin... --filter @weldsuite/panel-sdk
+      --filter platform... --filter sign-portal... --filter forms-portal... --filter admin... \
+      --filter helpdesk-widget... --filter @weldsuite/panel-sdk
 COPY packages packages
 
 # ── The platform SPA, built for Kubernetes ──────────────────────────────────
@@ -58,6 +61,20 @@ RUN set -eux; \
     rm -f dist/stats.html; \
     UV_THREADPOOL_SIZE=16 node /usr/local/lib/precompress.mjs dist; \
     mv dist /spa
+
+# ── WeldDesk's helpdesk widget, the iframe app customers' sites embed ───────
+# apps/web/helpdesk-widget, built to call the widget API on its own origin
+# (/public/helpdesk-widget): the server serves it on HELPDESK_WIDGET_HOSTS
+# (widget.<domain>), never on the platform's origin, so one build serves
+# every cluster. Sites point the SDK's api.baseUrl at https://widget.<domain>.
+FROM web-deps AS helpdesk-widget
+COPY apps/web/helpdesk-widget apps/web/helpdesk-widget
+COPY rust/docker/precompress.mjs /usr/local/lib/precompress.mjs
+RUN set -eux; \
+    cd apps/web/helpdesk-widget; \
+    VITE_WIDGET_API_URL=/public/helpdesk-widget VITE_VERCEL_ANALYTICS=off pnpm build; \
+    node /usr/local/lib/precompress.mjs dist; \
+    mv dist /helpdesk-widget
 
 # ── WeldDocs', WeldSheets' and WeldBoard's rooms (rust/docs/collab-rooms.md) ─
 # The workers' DocRoom, SheetRoom and BoardRoom with the Node runtime of
@@ -234,12 +251,15 @@ LABEL org.opencontainers.image.title="weldsuite" \
       org.opencontainers.image.licenses="AGPL-3.0-only"
 COPY --from=build /weldsuite /usr/local/bin/weldsuite
 COPY --from=spa /spa /srv/spa
+COPY --from=helpdesk-widget /helpdesk-widget /srv/helpdesk-widget
 # WeldPanel's SDK bundles (the defaults of PANEL_SDK_FILE, PANEL_RECORDER_FILE
 # and PANEL_VITALS_FILE).
 COPY --from=panel-sdk /panel /srv/panel
 # Serve the SPA for every path the API doesn't answer; SPA_DIR= (empty) for
-# the API alone.
-ENV SPA_DIR=/srv/spa
+# the API alone. The widget is served only on the hosts HELPDESK_WIDGET_HOSTS
+# names (none by default).
+ENV SPA_DIR=/srv/spa \
+    HELPDESK_WIDGET_DIR=/srv/helpdesk-widget
 USER nonroot:nonroot
 EXPOSE 8080
 ENTRYPOINT ["/usr/local/bin/weldsuite"]
