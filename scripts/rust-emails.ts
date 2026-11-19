@@ -215,6 +215,13 @@ function dunningKind(flags: Set<string>): 'failed' | 'reminder' | 'ended' {
   return 'failed';
 }
 
+/** `billing.invoice`'s VAT line from its flags: none is VAT charged at a rate. */
+function invoiceVat(flags: Set<string>): 'charged' | 'reverse' | 'outside' {
+  if (flags.has('outside')) return 'outside';
+  if (flags.has('reverse')) return 'reverse';
+  return 'charged';
+}
+
 const SPECS: Spec[] = [
   {
     id: 'sign.request',
@@ -481,7 +488,7 @@ const SPECS: Spec[] = [
       number: S('number'),
       date: S('date'),
       amount: S('amount'),
-      vat: f.has('outside') ? 'outside' : f.has('reverse') ? 'reverse' : 'charged',
+      vat: invoiceVat(f),
       vatAmount: S('vat_amount'),
       vatRate: S('vat_rate'),
       url: S('url'),

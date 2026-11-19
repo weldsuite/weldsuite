@@ -51,12 +51,12 @@ export default defineTemplate<BillingInvoiceEmailProps>({
     const { locale, brand } = props;
     const t = emailStrings(locale).billingInvoice;
     const values = { number: props.number, workspace: props.workspaceName, amount: props.amount };
-    const vat =
-      props.vat === 'charged'
-        ? fill(t.vatCharged, { amount: props.vatAmount, rate: props.vatRate })
-        : props.vat === 'reverse'
-          ? t.vatReverse
-          : t.vatOutside;
+    const vatLine: Record<BillingInvoiceVat, string> = {
+      charged: fill(t.vatCharged, { amount: props.vatAmount, rate: props.vatRate }),
+      reverse: t.vatReverse,
+      outside: t.vatOutside,
+    };
+    const vat = vatLine[props.vat];
     return (
       <EmailLayout brand={brand} locale={locale} preview={fill(t.preview, values)}>
         <Kicker>{t.kicker}</Kicker>
