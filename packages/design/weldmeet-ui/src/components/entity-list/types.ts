@@ -17,6 +17,12 @@ export interface FilterConfig {
   label: string;
   options: FilterOption[];
   filterType?: 'select' | 'text' | 'number' | 'date' | 'boolean';
+  /**
+   * The operators this field offers, a subset of its type's (e.g. only `is`
+   * for a value the backend can only include, never exclude). With a single
+   * operator the pill skips the condition step and opens the value picker.
+   */
+  operators?: string[];
   searchable?: boolean;
   getDisplayValue?: (value: string) => string;
 }

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
 import { ApiError } from '@weldsuite/api-client';
@@ -29,6 +29,8 @@ const state = vi.hoisted(() => ({
   push: vi.fn(),
   aiEnabled: true,
   summarise: { mutate: vi.fn(), reset: vi.fn(), isPending: false, data: undefined as unknown, error: null as unknown },
+  favorite: vi.fn(),
+  unfavorite: vi.fn(),
 }));
 
 vi.mock('@/lib/i18n/provider', async () => {
@@ -36,8 +38,10 @@ vi.mock('@/lib/i18n/provider', async () => {
   const { interpolate } = await import('@weldsuite/i18n/provider');
   return { useI18n: () => ({ t: english, language: 'en', format: interpolate }) };
 });
+vi.mock('@/contexts/breadcrumb-context', () => ({ useBreadcrumbs: () => undefined }));
 vi.mock('@tanstack/react-router', () => ({ useSearch: () => state.search }));
 vi.mock('@weldsuite/permissions/react', () => ({ useCan: (key: string) => state.perms.has(key) }));
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock('@/contexts/workspace-context', () => ({ useWorkspaceId: () => 'ws_1' }));
 vi.mock('@/lib/router', () => ({
   useRouter: () => ({ push: state.push, replace: state.replace }),
@@ -60,6 +64,8 @@ vi.mock('@/hooks/queries/use-weldpanel-queries', () => ({
   },
   useWeldPanelCohorts: () => ({ data: [{ id: 'coh_1', name: 'Power users' }] }),
   useWeldPanelLexicon: () => ({ data: undefined }),
+  useFavoriteWeldPanelSession: () => ({ mutateAsync: state.favorite }),
+  useUnfavoriteWeldPanelSession: () => ({ mutateAsync: state.unfavorite }),
   useSummariseWeldPanelSet: () => state.summarise,
 }));
 
@@ -69,6 +75,22 @@ Element.prototype.releasePointerCapture ??= () => undefined;
 Element.prototype.scrollIntoView ??= () => undefined;
 
 const tr = en.weldpanel.observe.recordings;
+
+/**
+ * Adds a finished filter pill through the toolbar: "Filter" > field > (operator) > value.
+ * Fields with one operator skip the condition step. The pill opens its value picker on a
+ * timer; when the options are not there yet, open it by hand.
+ */
+async function addFilter(user: ReturnType<typeof userEvent.setup>, field: string, operator: string | null, value: string): Promise<void> {
+  await user.click(screen.getByRole('button', { name: 'Filter' }));
+  await user.click(await screen.findByRole('button', { name: field }));
+  if (operator) await user.click(await screen.findByRole('button', { name: operator }));
+  const option = await screen.findByRole('button', { name: value }, { timeout: 400 }).catch(async () => {
+    await user.click(screen.getByRole('button', { name: `Select ${field.toLowerCase()}` }));
+    return screen.findByRole('button', { name: value });
+  });
+  await user.click(option);
+}
 const lastSpec = () => state.specs[state.specs.length - 1]!;
 const listWith = (sessions = [makeSession()], extra: Record<string, unknown> = {}) => ({
   data: { sessions, pages: [], dataAsOf: DATA_AS_OF },
@@ -90,6 +112,8 @@ describe('Recordings list', () => {
     state.specs = [];
     state.replace.mockReset();
     state.push.mockReset();
+    state.favorite.mockReset().mockResolvedValue({ sessionId: 'ses_1' });
+    state.unfavorite.mockReset().mockResolvedValue(undefined);
     state.aiEnabled = true;
     state.summarise = { mutate: vi.fn(), reset: vi.fn(), isPending: false, data: undefined, error: null };
     window.localStorage.clear();
@@ -101,7 +125,7 @@ describe('Recordings list', () => {
     expect(lastSpec()).toMatchObject({ kind: 'sessions', projectId: 'wpp_1', hasRecording: true, dateRange: { preset: '30d' }, sort: undefined });
   });
 
-  it('lists each recording with its signals, device and favourite star', () => {
+  it('lists each recording with its signals, device and favourite star, in standard rows', () => {
     state.recordings = listWith([
       makeSession({ sessionId: 'a', rageClicks: 3, errors: 1, favorite: true, userId: 'user_42' }),
       makeSession({ sessionId: 'b', distinctId: 'anon_zzzzzz999999' }),
@@ -113,7 +137,6 @@ describe('Recordings list', () => {
     expect(screen.getByText('1 Errors')).toBeTruthy();
     expect(screen.getByLabelText(tr.favorite)).toBeTruthy();
     expect(screen.getAllByText('Desktop · Chrome · Netherlands')).toHaveLength(2);
-    expect(screen.getByRole('link', { name: tr.open.replace('{name}', 'user_42') }).getAttribute('href')).toBe('/weldpanel/recordings/a?project=wpp_1');
   });
 
   it('reads the filters from the URL, so a funnel link lands filtered', () => {
@@ -127,7 +150,11 @@ describe('Recordings list', () => {
       hasErrors: true,
       countries: ['NL'],
     });
-    expect(screen.getByRole('button', { name: tr.filters.active.replace('{count}', '5') })).toBeTruthy();
+    // Each filter is a pill in the toolbar.
+    expect(screen.getByText(en.weldpanel.analytics.range['7d'])).toBeTruthy();
+    expect(screen.getByText(tr.filters.frustrationTypes.rage)).toBeTruthy();
+    expect(screen.getByText(tr.filters.errors)).toBeTruthy();
+    expect(screen.getAllByText('Checkout started').length).toBeGreaterThan(0);
   });
 
   it('ignores a bad field in the URL instead of dropping every filter', () => {
@@ -137,50 +164,71 @@ describe('Recordings list', () => {
     expect(lastSpec().minDurationSeconds).toBeUndefined();
   });
 
-  it('writes a changed filter back to the URL', async () => {
+  it('writes a filter picked in the toolbar back to the URL', async () => {
+    const user = userEvent.setup();
     render(<RecordingsPage />);
-    await userEvent.click(screen.getByRole('button', { name: tr.filters.button }));
-    await userEvent.click(screen.getByLabelText(tr.filters.errors));
-    expect(state.replace).toHaveBeenLastCalledWith('/weldpanel/recordings?errors=true');
-    await userEvent.type(screen.getByLabelText(tr.filters.minDuration), '3');
-    expect(state.replace.mock.calls.at(-1)![0]).toContain('minDuration=3');
+    await addFilter(user, tr.filters.devices, 'is', en.weldpanel.observe.common.devices.mobile);
+    expect(decodeURIComponent(state.replace.mock.calls.at(-1)![0])).toContain('devices=["mobile"]');
   });
 
-  it('adds a page filter with Enter and removes it again', async () => {
-    state.search = { pages: ['/pricing'] };
+  it('drops a filter when its pill is removed', async () => {
+    state.search = { pages: ['/pricing'], errors: true };
     render(<RecordingsPage />);
-    await userEvent.click(screen.getByRole('button', { name: tr.filters.active.replace('{count}', '1') }));
-    await userEvent.type(screen.getByLabelText(tr.filters.pagesVisited), '/checkout{Enter}');
-    expect(decodeURIComponent(state.replace.mock.calls.at(-1)![0])).toContain('pages=["/pricing","/checkout"]');
-    await userEvent.click(screen.getByRole('button', { name: tr.filters.remove.replace('{value}', '/pricing') }));
-    expect(state.replace.mock.calls.at(-1)![0]).not.toContain('pricing');
+    const removes = screen.getAllByRole('button', { name: 'Remove' });
+    await userEvent.click(removes[0]!);
+    const url = decodeURIComponent(state.replace.mock.calls.at(-1)![0]);
+    expect(url).not.toContain('errors');
+    expect(url).toContain('pages=["/pricing"]');
   });
 
-  it('clears all filters but keeps the period', async () => {
-    state.search = { range: '90d', errors: true };
+  it('searches for a visitor once typing pauses', async () => {
     render(<RecordingsPage />);
-    await userEvent.click(screen.getByRole('button', { name: tr.clearFilters }));
-    expect(state.replace).toHaveBeenLastCalledWith('/weldpanel/recordings?range=90d');
+    await userEvent.type(screen.getAllByRole('textbox', { name: tr.filters.userPlaceholder })[0]!, 'user_42');
+    await vi.waitFor(() => expect(state.replace.mock.calls.at(-1)?.[0]).toContain('user=user_42'));
+  });
+
+  it('adds and removes favourites from the row menu', async () => {
+    state.recordings = listWith([makeSession({ sessionId: 'ses_1', favorite: false })]);
+    render(<RecordingsPage />);
+    await userEvent.click(screen.getByRole('button', { name: en.common.actions.title }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: en.weldpanel.observe.session.favorite.add }));
+    expect(state.favorite).toHaveBeenCalledWith({ sessionId: 'ses_1' });
   });
 
   it('opens a recording from its row', async () => {
     render(<RecordingsPage />);
-    await userEvent.click(within(screen.getAllByRole('row')[1]!).getByText('2m 05s'));
+    await userEvent.click(screen.getByRole('button', { name: en.common.actions.view }));
     expect(state.push).toHaveBeenCalledWith('/weldpanel/recordings/ses_1?project=wpp_1');
   });
 
-  it('loads more', async () => {
-    state.recordings = listWith([makeSession()], { hasNextPage: true });
-    render(<RecordingsPage />);
-    await userEvent.click(screen.getByRole('button', { name: en.weldpanel.observe.common.loadMore }));
-    expect(state.recordings.fetchNextPage).toHaveBeenCalled();
+  it('loads more when the end of the list scrolls into view', () => {
+    const original = window.IntersectionObserver;
+    class VisibleObserver {
+      constructor(private readonly callback: IntersectionObserverCallback) {}
+      observe() {
+        this.callback([{ isIntersecting: true } as IntersectionObserverEntry], this as unknown as IntersectionObserver);
+      }
+      unobserve() {}
+      disconnect() {}
+      takeRecords() {
+        return [];
+      }
+    }
+    window.IntersectionObserver = VisibleObserver as unknown as typeof IntersectionObserver;
+    try {
+      state.recordings = listWith([makeSession()], { hasNextPage: true });
+      render(<RecordingsPage />);
+      expect(state.recordings.fetchNextPage).toHaveBeenCalled();
+    } finally {
+      window.IntersectionObserver = original;
+    }
   });
 
   describe('states', () => {
-    it('shows a skeleton while loading', () => {
+    it('shows the page loader while loading', () => {
       state.recordings = listWith([], { data: undefined, isLoading: true });
       render(<RecordingsPage />);
-      expect(screen.getByRole('status')).toBeTruthy();
+      expect(screen.getByText(en.common.labels.loading)).toBeTruthy();
     });
 
     it('distinguishes no recordings from no matches', () => {

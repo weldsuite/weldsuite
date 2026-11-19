@@ -6,38 +6,21 @@
  */
 
 import { useMemo, useState } from 'react';
-import { Bell, MoreHorizontal, Plus } from 'lucide-react';
+import { Bell } from 'lucide-react';
 import { toast } from 'sonner';
 import type { PanelAlertDto } from '@weldsuite/app-api-client/schemas/weldpanel-monitor';
 import { useCan } from '@weldsuite/permissions/react';
-import { Button } from '@weldsuite/ui/components/button';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from '@weldsuite/ui/components/dropdown-menu';
-import { EmptyState } from '@weldsuite/ui/components/empty-state';
+import { DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger } from '@weldsuite/ui/components/dropdown-menu';
 import { ErrorState } from '@weldsuite/ui/components/error-banner';
 import { FilterSelect } from '@weldsuite/ui/components/filter-select';
-import { Skeleton } from '@weldsuite/ui/components/skeleton';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@weldsuite/ui/components/table';
-import {
-  useDeleteWeldPanelAlert,
-  useSnoozeWeldPanelAlert,
-  useTestWeldPanelAlert,
-  useUpdateWeldPanelAlert,
-  useWeldPanelAlerts,
-} from '@/hooks/queries/use-weldpanel-collab-queries';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
+import { PanelEntityList, type ColumnDef } from '@/components/panel-entity-list';
+import { useDeleteWeldPanelAlert, useSnoozeWeldPanelAlert, useTestWeldPanelAlert, useUpdateWeldPanelAlert, useWeldPanelAlerts } from '@/hooks/queries/use-weldpanel-collab-queries';
 import { useWeldPanelReports } from '@/hooks/queries/use-weldpanel-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { useRouter, useSearchParams } from '@/lib/router';
-import { AnalyticsPage } from '../components/analytics-page';
+import { AnalyticsListPage } from '../components/analytics-page';
 import { deliveryReportText } from '../components/delivery-channels-fields';
 import { useMembers } from '../components/use-members';
 import { daysFromNow } from '../lib/date-input';
@@ -50,9 +33,8 @@ type Scope = 'all' | 'mine';
 
 const HOUR_MS = 3_600_000;
 
-interface AlertRowProps {
+interface AlertMenuItemsProps {
   alert: PanelAlertDto;
-  watch: string;
   canChange: boolean;
   canDelete: boolean;
   onOpen: () => void;
@@ -60,11 +42,11 @@ interface AlertRowProps {
   onDelete: () => void;
 }
 
-function AlertRow({ alert, watch, canChange, canDelete, onOpen, onEdit, onDelete }: Readonly<AlertRowProps>) {
-  const { t, language, format } = useI18n();
+/** The row's menu: history, edit, test, snooze, turn on or off, delete. */
+function AlertMenuItems({ alert, canChange, canDelete, onOpen, onEdit, onDelete }: Readonly<AlertMenuItemsProps>) {
+  const { t, format } = useI18n();
   const ta = t.weldpanel.collab.alerts;
   const tch = t.weldpanel.collab.channels.delivery;
-  const conditionText = useConditionText();
   const update = useUpdateWeldPanelAlert();
   const snooze = useSnoozeWeldPanelAlert();
   const test = useTestWeldPanelAlert();
@@ -82,85 +64,116 @@ function AlertRow({ alert, watch, canChange, canDelete, onOpen, onEdit, onDelete
   async function sendTest() {
     try {
       const report = await test.mutateAsync(alert.id);
-      toast.success(ta.tested, { description: deliveryReportText(report, tch, format) });
+      toast.success(ta.tested, {
+        description: deliveryReportText(report, tch, format),
+      });
     } catch {
       toast.error(ta.testFailed);
     }
   }
 
   return (
-    <TableRow>
-      <TableCell className="max-w-72">
-        <button type="button" className="block max-w-full truncate text-left font-medium hover:underline" onClick={onOpen}>
-          {alert.name}
-        </button>
-        <p className="truncate text-xs text-muted-foreground">{watch}</p>
-      </TableCell>
-      <TableCell className="hidden md:table-cell">{conditionText(alert.condition)}</TableCell>
-      <TableCell className="hidden text-muted-foreground lg:table-cell">{ta.intervals[alert.checkInterval]}</TableCell>
-      <TableCell>
-        <div className="flex flex-col items-start gap-1">
-          <AlertStateBadge alert={alert} />
-          {snoozed && alert.snoozedUntil && <span className="text-xs text-muted-foreground">{format(ta.snoozed, { date: formatDateTime(alert.snoozedUntil, language) })}</span>}
-        </div>
-      </TableCell>
-      <TableCell className="hidden text-muted-foreground md:table-cell">{alert.lastCheckedAt ? formatDateTime(alert.lastCheckedAt, language) : ta.detail.never}</TableCell>
-      <TableCell>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button type="button" variant="ghost" size="icon" className="size-8" aria-label={format(ta.actions.menu, { name: alert.name })}>
-              <MoreHorizontal />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onSelect={onOpen}>{ta.actions.history}</DropdownMenuItem>
-            {canChange && (
-              <>
-                <DropdownMenuItem onSelect={onEdit}>{ta.actions.edit}</DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => void sendTest()}>{ta.actions.test}</DropdownMenuItem>
-                {snoozed ? (
-                  <DropdownMenuItem onSelect={() => void run(() => snooze.mutateAsync({ id: alert.id, until: null }), ta.unsnoozedToast)}>{ta.actions.unsnooze}</DropdownMenuItem>
-                ) : (
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger>{ta.actions.snooze}</DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent>
-                      <DropdownMenuItem onSelect={() => void run(() => snooze.mutateAsync({ id: alert.id, until: new Date(Date.now() + HOUR_MS).toISOString() }), ta.snoozedToast)}>
-                        {ta.actions.snooze1h}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => void run(() => snooze.mutateAsync({ id: alert.id, until: daysFromNow(1) }), ta.snoozedToast)}>{ta.actions.snooze1d}</DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => void run(() => snooze.mutateAsync({ id: alert.id, until: daysFromNow(7) }), ta.snoozedToast)}>{ta.actions.snooze1w}</DropdownMenuItem>
-                    </DropdownMenuSubContent>
-                  </DropdownMenuSub>
-                )}
+    <>
+      <DropdownMenuItem onSelect={onOpen}>{ta.actions.history}</DropdownMenuItem>
+      {canChange && (
+        <>
+          <DropdownMenuItem onSelect={onEdit}>{ta.actions.edit}</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => void sendTest()}>{ta.actions.test}</DropdownMenuItem>
+          {snoozed ? (
+            <DropdownMenuItem onSelect={() => void run(() => snooze.mutateAsync({ id: alert.id, until: null }), ta.unsnoozedToast)}>{ta.actions.unsnooze}</DropdownMenuItem>
+          ) : (
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>{ta.actions.snooze}</DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
                 <DropdownMenuItem
-                  onSelect={() => void run(() => update.mutateAsync({ id: alert.id, enabled: !alert.enabled }), alert.enabled ? ta.disabledToast : ta.enabledToast)}
+                  onSelect={() =>
+                    void run(
+                      () =>
+                        snooze.mutateAsync({
+                          id: alert.id,
+                          until: new Date(Date.now() + HOUR_MS).toISOString(),
+                        }),
+                      ta.snoozedToast,
+                    )
+                  }
                 >
-                  {alert.enabled ? ta.actions.disable : ta.actions.enable}
+                  {ta.actions.snooze1h}
                 </DropdownMenuItem>
-              </>
-            )}
-            {canDelete && (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={onDelete}>
-                  {ta.actions.delete}
+                <DropdownMenuItem
+                  onSelect={() =>
+                    void run(
+                      () =>
+                        snooze.mutateAsync({
+                          id: alert.id,
+                          until: daysFromNow(1),
+                        }),
+                      ta.snoozedToast,
+                    )
+                  }
+                >
+                  {ta.actions.snooze1d}
                 </DropdownMenuItem>
-              </>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </TableCell>
-    </TableRow>
+                <DropdownMenuItem
+                  onSelect={() =>
+                    void run(
+                      () =>
+                        snooze.mutateAsync({
+                          id: alert.id,
+                          until: daysFromNow(7),
+                        }),
+                      ta.snoozedToast,
+                    )
+                  }
+                >
+                  {ta.actions.snooze1w}
+                </DropdownMenuItem>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          )}
+          <DropdownMenuItem
+            onSelect={() =>
+              void run(
+                () =>
+                  update.mutateAsync({
+                    id: alert.id,
+                    enabled: !alert.enabled,
+                  }),
+                alert.enabled ? ta.disabledToast : ta.enabledToast,
+              )
+            }
+          >
+            {alert.enabled ? ta.actions.disable : ta.actions.enable}
+          </DropdownMenuItem>
+        </>
+      )}
+      {canDelete && (
+        <>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={onDelete}>
+            {ta.actions.delete}
+          </DropdownMenuItem>
+        </>
+      )}
+    </>
   );
 }
 
-function AlertsList({ projectId, creating, onCreatingChange }: Readonly<{ projectId: string; creating: boolean; onCreatingChange: (open: boolean) => void }>) {
-  const { t, format } = useI18n();
+function AlertsList({
+  projectId,
+  creating,
+  onCreatingChange,
+}: Readonly<{
+  projectId: string;
+  creating: boolean;
+  onCreatingChange: (open: boolean) => void;
+}>) {
+  const { t, language, format } = useI18n();
   const ta = t.weldpanel.collab.alerts;
   const tc = t.weldpanel.analytics.common;
   const router = useRouter();
   const params = useSearchParams();
   const openId = params.get('alert');
+  const conditionText = useConditionText();
   const canCreate = useCan('panel_reports:create');
   const canUpdate = useCan('panel_reports:update');
   const canDelete = useCan('panel_reports:delete');
@@ -178,71 +191,112 @@ function AlertsList({ projectId, creating, onCreatingChange }: Readonly<{ projec
   const setOpen = (id: string | null) => router.replace(id ? `/weldpanel/alerts?alert=${encodeURIComponent(id)}` : '/weldpanel/alerts');
   const mayChange = (alert: PanelAlertDto) => alert.ownerUserId === me || canManage;
 
+  const columns: ColumnDef<PanelAlertDto>[] = [
+    {
+      id: 'name',
+      header: ta.columns.name,
+      width: 'flex-1 min-w-[160px]',
+      render: (alert) => <span className="block truncate font-medium">{alert.name}</span>,
+    },
+    {
+      id: 'watch',
+      header: ta.detail.watching,
+      width: 'hidden lg:block lg:w-[200px]',
+      render: (alert) => <span className="block truncate text-muted-foreground">{watchText(alert, reportsById)}</span>,
+    },
+    {
+      id: 'condition',
+      header: ta.columns.condition,
+      width: 'hidden md:block md:w-[180px]',
+      render: (alert) => <span className="block truncate">{conditionText(alert.condition)}</span>,
+    },
+    {
+      id: 'interval',
+      header: ta.columns.interval,
+      width: 'hidden lg:block lg:w-[100px]',
+      render: (alert) => <span className="block truncate text-muted-foreground">{ta.intervals[alert.checkInterval]}</span>,
+    },
+    {
+      id: 'state',
+      header: ta.columns.state,
+      width: 'w-[110px]',
+      render: (alert) => <AlertStateBadge alert={alert} />,
+    },
+    {
+      id: 'snoozed',
+      header: ta.actions.snooze,
+      width: 'hidden xl:block xl:w-[170px]',
+      render: (alert) =>
+        alert.snoozedUntil !== null && Date.parse(alert.snoozedUntil) > Date.now() ? (
+          <span className="block truncate text-muted-foreground">
+            {format(ta.snoozed, {
+              date: formatDateTime(alert.snoozedUntil, language),
+            })}
+          </span>
+        ) : (
+          <span className="text-muted-foreground">–</span>
+        ),
+    },
+    {
+      id: 'lastChecked',
+      header: ta.columns.lastChecked,
+      width: 'hidden md:block md:w-[150px]',
+      render: (alert) => (
+        <span className="block truncate whitespace-nowrap tabular-nums text-muted-foreground">
+          {alert.lastCheckedAt ? formatDateTime(alert.lastCheckedAt, language) : ta.detail.never}
+        </span>
+      ),
+    },
+  ];
+
+  // The shared list words its own loading state in English only.
+  if (isLoading && !alerts) return <PageLoader fullScreen={false} label={t.common.labels.loading} />;
   if (isError) return <ErrorState message={ta.loadFailed} onRetry={() => void refetch()} retryLabel={t.weldpanel.retry} />;
 
-  return (
-    <div className="grid gap-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <FilterSelect
-          value={scope === 'all' ? undefined : scope}
-          onChange={(next) => setScope((next as Scope | undefined) ?? 'all')}
-          allLabel={ta.scopes.all}
-          ariaLabel={ta.scopeLabel}
-          options={[{ value: 'mine', label: ta.scopes.mine }]}
-        />
-      </div>
+  const createAction = canCreate ? { label: ta.newAlert, onClick: () => onCreatingChange(true) } : undefined;
 
-      {isLoading && (
-        <div className="grid gap-2">
-          <Skeleton className="h-12 w-full" />
-          <Skeleton className="h-12 w-full" />
-        </div>
-      )}
-      {!isLoading && (alerts ?? []).length === 0 && (
-        <EmptyState
-          icon={Bell}
-          title={scope === 'all' ? ta.emptyTitle : ta.noMatches}
-          description={scope === 'all' ? ta.emptyDescription : undefined}
-          action={
-            canCreate && scope === 'all' ? (
-              <Button size="sm" onClick={() => onCreatingChange(true)}>
-                <Plus />
-                {ta.newAlert}
-              </Button>
-            ) : undefined
-          }
-        />
-      )}
-      {!isLoading && alerts && alerts.length > 0 && (
-        <div className="overflow-x-auto rounded-lg border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{ta.columns.name}</TableHead>
-                <TableHead className="hidden md:table-cell">{ta.columns.condition}</TableHead>
-                <TableHead className="hidden lg:table-cell">{ta.columns.interval}</TableHead>
-                <TableHead>{ta.columns.state}</TableHead>
-                <TableHead className="hidden md:table-cell">{ta.columns.lastChecked}</TableHead>
-                <TableHead className="w-10" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {alerts.map((alert) => (
-                <AlertRow
-                  key={alert.id}
-                  alert={alert}
-                  watch={watchText(alert, reportsById)}
-                  canChange={canUpdate && mayChange(alert)}
-                  canDelete={canDelete && mayChange(alert)}
-                  onOpen={() => setOpen(alert.id)}
-                  onEdit={() => setEditing(alert)}
-                  onDelete={() => setDeleting(alert)}
-                />
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
+  return (
+    <>
+      <PanelEntityList<PanelAlertDto>
+        items={alerts ?? []}
+        isLoading={false}
+        columns={columns}
+        hideFilter
+        rowMenu={(alert) => (
+          <AlertMenuItems
+            alert={alert}
+            canChange={canUpdate && mayChange(alert)}
+            canDelete={canDelete && mayChange(alert)}
+            onOpen={() => setOpen(alert.id)}
+            onEdit={() => setEditing(alert)}
+            onDelete={() => setDeleting(alert)}
+          />
+        )}
+        searchFields={['name']}
+        searchPlaceholder={t.common.actions.search}
+        leftActionButtons={
+          <FilterSelect
+            value={scope === 'all' ? undefined : scope}
+            onChange={(next) => setScope((next as Scope | undefined) ?? 'all')}
+            allLabel={ta.scopes.all}
+            ariaLabel={ta.scopeLabel}
+            options={[{ value: 'mine', label: ta.scopes.mine }]}
+          />
+        }
+        onRowClick={(alert) => setOpen(alert.id)}
+        createButton={createAction}
+        emptyState={{
+          icon: <Bell className="size-8 text-muted-foreground" />,
+          title: scope === 'all' ? ta.emptyTitle : ta.noMatches,
+          description: scope === 'all' ? ta.emptyDescription : '',
+          action: scope === 'all' ? createAction : undefined,
+        }}
+        noResultsState={{
+          icon: <Bell className="size-8 text-muted-foreground" />,
+          title: ta.noMatches,
+          description: '',
+        }}
+      />
 
       <AlertDetailSheet alertId={openId} onClose={() => setOpen(null)} reports={reportsById} />
       <AlertFormDialog open={creating} onOpenChange={onCreatingChange} projectId={projectId} />
@@ -267,29 +321,15 @@ function AlertsList({ projectId, creating, onCreatingChange }: Readonly<{ projec
           }
         }}
       />
-    </div>
+    </>
   );
 }
 
 export default function AlertsPage() {
   const { t } = useI18n();
   const ta = t.weldpanel.collab.alerts;
-  const canCreate = useCan('panel_reports:create');
   const [creating, setCreating] = useState(false);
   return (
-    <AnalyticsPage
-      title={ta.title}
-      description={ta.description}
-      actions={
-        canCreate ? (
-          <Button size="sm" onClick={() => setCreating(true)}>
-            <Plus />
-            {ta.newAlert}
-          </Button>
-        ) : undefined
-      }
-    >
-      {(project) => <AlertsList key={project.id} projectId={project.id} creating={creating} onCreatingChange={setCreating} />}
-    </AnalyticsPage>
+    <AnalyticsListPage title={ta.title}>{(project) => <AlertsList key={project.id} projectId={project.id} creating={creating} onCreatingChange={setCreating} />}</AnalyticsListPage>
   );
 }

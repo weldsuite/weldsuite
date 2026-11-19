@@ -6,20 +6,20 @@
  */
 
 import { useState } from 'react';
-import { DatabaseZap, MoreHorizontal, Plus } from 'lucide-react';
+import { DatabaseZap } from 'lucide-react';
 import { toast } from 'sonner';
 import type { PanelExportDto, PanelExportStatus, PanelExportRunStatus } from '@weldsuite/app-api-client/schemas/weldpanel-monitor';
-import { Button } from '@weldsuite/ui/components/button';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@weldsuite/ui/components/dropdown-menu';
+import { DropdownMenuItem, DropdownMenuSeparator } from '@weldsuite/ui/components/dropdown-menu';
 import { EmptyState } from '@weldsuite/ui/components/empty-state';
 import { ErrorState } from '@weldsuite/ui/components/error-banner';
 import { InfoBanner } from '@weldsuite/ui/components/info-banner';
-import { SectionCard } from '@weldsuite/ui/components/section-card';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { Skeleton } from '@weldsuite/ui/components/skeleton';
 import { SoftBadge, type SoftTone } from '@weldsuite/ui/components/soft-badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@weldsuite/ui/components/table';
+import { PanelEntityList, type ColumnDef } from '@/components/panel-entity-list';
 import {
   useDeleteWeldPanelExport,
   usePauseWeldPanelExport,
@@ -33,8 +33,16 @@ import { formatDateTime, formatNumber } from '../lib/format';
 import { useCurrentProject } from '../lib/use-current-project';
 import { ExportFormDialog } from './export-form-dialog';
 
-const STATUS_TONES: Record<PanelExportStatus, SoftTone> = { active: 'success', paused: 'neutral', failing: 'danger' };
-const RUN_TONES: Record<PanelExportRunStatus, SoftTone> = { running: 'neutral', succeeded: 'success', failed: 'danger' };
+const STATUS_TONES: Record<PanelExportStatus, SoftTone> = {
+  active: 'success',
+  paused: 'neutral',
+  failing: 'danger',
+};
+const RUN_TONES: Record<PanelExportRunStatus, SoftTone> = {
+  running: 'neutral',
+  succeeded: 'success',
+  failed: 'danger',
+};
 
 function RunsDialog({ exportItem, onClose }: Readonly<{ exportItem: PanelExportDto | null; onClose: () => void }>) {
   const { t, language, format } = useI18n();
@@ -73,7 +81,11 @@ function RunsDialog({ exportItem, onClose }: Readonly<{ exportItem: PanelExportD
                     </TableCell>
                     <TableCell>
                       <SoftBadge tone={RUN_TONES[run.status]}>{tr.statuses[run.status]}</SoftBadge>
-                      {run.error && <p className="mt-1 max-w-64 truncate text-xs text-destructive" title={run.error}>{run.error}</p>}
+                      {run.error && (
+                        <p className="mt-1 max-w-64 truncate text-xs text-destructive" title={run.error}>
+                          {run.error}
+                        </p>
+                      )}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">{formatNumber(run.rows, language)}</TableCell>
                     <TableCell className="hidden text-right tabular-nums sm:table-cell">{formatBytes(run.bytes, language)}</TableCell>
@@ -96,8 +108,9 @@ interface ExportRowProps {
   onDelete: () => void;
 }
 
-function ExportRow({ item, onEdit, onRuns, onDelete }: Readonly<ExportRowProps>) {
-  const { t, language, format } = useI18n();
+/** The row's menu: edit, test the connection, runs, pause or resume, delete. */
+function ExportMenuItems({ item, onEdit, onRuns, onDelete }: Readonly<ExportRowProps>) {
+  const { t, format } = useI18n();
   const te = t.weldpanel.collab.exports;
   const pause = usePauseWeldPanelExport();
   const test = useTestWeldPanelExport();
@@ -123,50 +136,22 @@ function ExportRow({ item, onEdit, onRuns, onDelete }: Readonly<ExportRowProps>)
     }
   }
 
-  const prefix = item.destination.prefix ? `/${item.destination.prefix}` : '';
-  const destination = `${te.providers[item.destination.provider]} · ${item.destination.bucket}${prefix}`;
   return (
-    <TableRow>
-      <TableCell className="max-w-56">
-        <p className="truncate font-medium">{item.name}</p>
-        {item.lastError && (
-          <p className="truncate text-xs text-destructive" title={item.lastError}>
-            {format(te.lastError, { error: item.lastError })}
-          </p>
-        )}
-      </TableCell>
-      <TableCell className="hidden max-w-64 truncate text-muted-foreground md:table-cell">{destination}</TableCell>
-      <TableCell className="hidden text-muted-foreground lg:table-cell">{item.tables.map((table) => te.tables[table]).join(', ')}</TableCell>
-      <TableCell className="hidden text-muted-foreground sm:table-cell">{te.frequencies[item.frequency]}</TableCell>
-      <TableCell>
-        <SoftBadge tone={STATUS_TONES[item.status]}>{te.statuses[item.status]}</SoftBadge>
-      </TableCell>
-      <TableCell className="hidden whitespace-nowrap text-muted-foreground md:table-cell">{item.exportedUntil ? formatDateTime(item.exportedUntil, language) : te.notYet}</TableCell>
-      <TableCell>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button type="button" variant="ghost" size="icon" className="size-8" aria-label={format(te.actions.menu, { name: item.name })}>
-              <MoreHorizontal />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onSelect={onEdit}>{te.actions.edit}</DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => void runTest()}>{te.actions.test}</DropdownMenuItem>
-            <DropdownMenuItem onSelect={onRuns}>{te.actions.runs}</DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => void togglePause()}>{paused ? te.actions.resume : te.actions.pause}</DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={onDelete}>
-              {te.actions.delete}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </TableCell>
-    </TableRow>
+    <>
+      <DropdownMenuItem onSelect={onEdit}>{te.actions.edit}</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => void runTest()}>{te.actions.test}</DropdownMenuItem>
+      <DropdownMenuItem onSelect={onRuns}>{te.actions.runs}</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => void togglePause()}>{paused ? te.actions.resume : te.actions.pause}</DropdownMenuItem>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={onDelete}>
+        {te.actions.delete}
+      </DropdownMenuItem>
+    </>
   );
 }
 
 function ProjectExports({ projectId }: Readonly<{ projectId: string }>) {
-  const { t, format } = useI18n();
+  const { t, language, format } = useI18n();
   const te = t.weldpanel.collab.exports;
   const tc = t.weldpanel.analytics.common;
   const { data: exportsList, isLoading, isError, refetch } = useWeldPanelExports(projectId);
@@ -176,47 +161,100 @@ function ProjectExports({ projectId }: Readonly<{ projectId: string }>) {
   const [viewingRuns, setViewingRuns] = useState<PanelExportDto | null>(null);
   const [deleting, setDeleting] = useState<PanelExportDto | null>(null);
 
+  const columns: ColumnDef<PanelExportDto>[] = [
+    {
+      id: 'name',
+      header: te.columns.name,
+      width: 'flex-1 min-w-[140px]',
+      render: (item) => <span className="block truncate font-medium">{item.name}</span>,
+    },
+    {
+      id: 'destination',
+      header: te.columns.destination,
+      width: 'hidden md:block md:w-[220px]',
+      render: (item) => {
+        const prefix = item.destination.prefix ? `/${item.destination.prefix}` : '';
+        return <span className="block truncate text-muted-foreground">{`${te.providers[item.destination.provider]} · ${item.destination.bucket}${prefix}`}</span>;
+      },
+    },
+    {
+      id: 'tables',
+      header: te.columns.tables,
+      width: 'hidden xl:block xl:w-[180px]',
+      render: (item) => <span className="block truncate text-muted-foreground">{item.tables.map((table) => te.tables[table]).join(', ')}</span>,
+    },
+    {
+      id: 'frequency',
+      header: te.columns.frequency,
+      width: 'hidden sm:block sm:w-[100px]',
+      render: (item) => <span className="block truncate text-muted-foreground">{te.frequencies[item.frequency]}</span>,
+    },
+    {
+      id: 'status',
+      header: te.columns.status,
+      width: 'w-[100px]',
+      render: (item) => <SoftBadge tone={STATUS_TONES[item.status]}>{te.statuses[item.status]}</SoftBadge>,
+    },
+    {
+      id: 'exportedUntil',
+      header: te.columns.exportedUntil,
+      width: 'hidden md:block md:w-[150px]',
+      render: (item) => (
+        <span className="block truncate whitespace-nowrap tabular-nums text-muted-foreground">{item.exportedUntil ? formatDateTime(item.exportedUntil, language) : te.notYet}</span>
+      ),
+    },
+    {
+      id: 'lastError',
+      header: '',
+      width: 'hidden xl:block xl:w-[200px]',
+      render: (item) =>
+        item.lastError ? (
+          <span className="block truncate text-destructive" title={item.lastError}>
+            {format(te.lastError, { error: item.lastError })}
+          </span>
+        ) : null,
+    },
+  ];
+
+  const createAction = {
+    label: te.newExport,
+    onClick: () => setCreating(true),
+  };
+
   return (
-    <SectionCard
-      title={te.title}
-      description={te.description}
-      action={
-        <Button size="sm" onClick={() => setCreating(true)}>
-          <Plus />
-          {te.newExport}
-        </Button>
-      }
-    >
-      <div className="grid gap-4">
-        <InfoBanner variant="warning" title={te.erasureTitle}>
-          {te.erasureNotice}
-        </InfoBanner>
-        {isLoading && <Skeleton className="h-24 w-full" />}
-        {isError && <ErrorState message={te.loadFailed} onRetry={() => void refetch()} retryLabel={t.weldpanel.retry} />}
-        {!isLoading && !isError && (exportsList ?? []).length === 0 && <EmptyState icon={DatabaseZap} title={te.emptyTitle} description={te.emptyDescription} />}
-        {exportsList && exportsList.length > 0 && (
-          <div className="overflow-x-auto rounded-lg border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{te.columns.name}</TableHead>
-                  <TableHead className="hidden md:table-cell">{te.columns.destination}</TableHead>
-                  <TableHead className="hidden lg:table-cell">{te.columns.tables}</TableHead>
-                  <TableHead className="hidden sm:table-cell">{te.columns.frequency}</TableHead>
-                  <TableHead>{te.columns.status}</TableHead>
-                  <TableHead className="hidden md:table-cell">{te.columns.exportedUntil}</TableHead>
-                  <TableHead className="w-10" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {exportsList.map((item) => (
-                  <ExportRow key={item.id} item={item} onEdit={() => setEditing(item)} onRuns={() => setViewingRuns(item)} onDelete={() => setDeleting(item)} />
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        )}
-      </div>
+    <>
+      <InfoBanner variant="warning" title={te.erasureTitle} className="mb-4">
+        {te.erasureNotice}
+      </InfoBanner>
+      {/* The shared list words its own loading state in English only. */}
+      {isLoading && !exportsList ? (
+        <PageLoader fullScreen={false} label={t.common.labels.loading} />
+      ) : isError ? (
+        <ErrorState message={te.loadFailed} onRetry={() => void refetch()} retryLabel={t.weldpanel.retry} />
+      ) : (
+        <PanelEntityList<PanelExportDto>
+          items={exportsList ?? []}
+          isLoading={false}
+          columns={columns}
+          hideFilter
+          rowMenu={(item) => <ExportMenuItems item={item} onEdit={() => setEditing(item)} onRuns={() => setViewingRuns(item)} onDelete={() => setDeleting(item)} />}
+          searchFields={['name']}
+          searchPlaceholder={t.common.actions.search}
+          onRowClick={(item) => setEditing(item)}
+          createButton={createAction}
+          emptyState={{
+            icon: <DatabaseZap className="size-8 text-muted-foreground" />,
+            title: te.emptyTitle,
+            description: te.emptyDescription,
+            action: createAction,
+          }}
+          noResultsState={{
+            icon: <DatabaseZap className="size-8 text-muted-foreground" />,
+            title: te.emptyTitle,
+            description: te.emptyDescription,
+          }}
+        />
+      )}
 
       <ExportFormDialog open={creating} onOpenChange={setCreating} projectId={projectId} />
       <ExportFormDialog open={editing !== null} onOpenChange={(open) => !open && setEditing(null)} projectId={projectId} existing={editing} />
@@ -240,7 +278,7 @@ function ProjectExports({ projectId }: Readonly<{ projectId: string }>) {
           }
         }}
       />
-    </SectionCard>
+    </>
   );
 }
 

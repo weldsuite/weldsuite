@@ -1,9 +1,10 @@
 import { gzipSync } from 'node:zlib';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
 import { ApiError } from '@weldsuite/api-client';
+import { I18nProvider } from '@weldsuite/i18n/provider';
 import { en } from '@weldsuite/i18n/locales/en';
 import { resetCurrentProjectChoice } from '../../lib/use-current-project';
 import { makeSessionDetail } from '../../observe-fixtures';
@@ -17,8 +18,6 @@ const state = vi.hoisted(() => ({
   seek: vi.fn(),
   summary: { data: null as unknown, isLoading: false, isError: false, refetch: vi.fn() },
   generate: { mutate: vi.fn(), isPending: false, error: null as unknown },
-  favorite: { mutate: vi.fn(), isPending: false },
-  unfavorite: { mutate: vi.fn(), isPending: false },
   aiEnabled: true,
   perms: new Set<string>(['panel_people:read']),
 }));
@@ -51,8 +50,6 @@ vi.mock('@/hooks/queries/use-weldpanel-queries', () => ({
   useWeldPanelChunkLoader: () => state.chunk,
   useWeldPanelSessionSummary: () => state.summary,
   useGenerateWeldPanelSessionSummary: () => state.generate,
-  useFavoriteWeldPanelSession: () => state.favorite,
-  useUnfavoriteWeldPanelSession: () => state.unfavorite,
 }));
 
 const ts = en.weldpanel.observe.session;
@@ -73,8 +70,6 @@ describe('Recording detail', () => {
     state.seek.mockReset();
     state.summary = { data: null, isLoading: false, isError: false, refetch: vi.fn() };
     state.generate = { mutate: vi.fn(), isPending: false, error: null };
-    state.favorite = { mutate: vi.fn(), isPending: false };
-    state.unfavorite = { mutate: vi.fn(), isPending: false };
     state.aiEnabled = true;
   });
 
@@ -119,9 +114,83 @@ describe('Recording detail', () => {
     state.detail = { data: makeSessionDetail({ chunks: [] }), isLoading: false, error: null, refetch: vi.fn() };
     render(<RecordingDetailPage />);
     expect(await screen.findByText(ts.noPlayback)).toBeTruthy();
-    await userEvent.click(screen.getByRole('tab', { name: ts.tabs.events }));
+    // The details column opens on its timeline, so the events show without a click.
+    expect(screen.getByRole('tab', { name: ts.details.tabs.timeline }).getAttribute('aria-selected')).toBe('true');
     expect(screen.getByText('Buy now', { exact: false })).toBeTruthy();
     expect(state.chunk).not.toHaveBeenCalled();
+  });
+
+  it('searches the timeline and filters it by type', async () => {
+    const user = userEvent.setup();
+    state.detail = { data: makeSessionDetail({ chunks: [] }), isLoading: false, error: null, refetch: vi.fn() };
+    render(<RecordingDetailPage />);
+    await screen.findByText(ts.noPlayback);
+    const timeline = within(screen.getByRole('tabpanel', { name: ts.details.tabs.timeline }));
+    expect(timeline.getByText('Buy now', { exact: false })).toBeTruthy();
+    expect(timeline.getByText('TypeError', { exact: false })).toBeTruthy();
+
+    await user.type(timeline.getAllByRole('textbox', { name: ts.events.search })[0]!, 'buy');
+    expect(timeline.getByText('Buy now', { exact: false })).toBeTruthy();
+    expect(timeline.queryByText('TypeError', { exact: false })).toBeNull();
+    await user.clear(timeline.getAllByRole('textbox', { name: ts.events.search })[0]!);
+
+    // Filter > Type > is > Error: "Filter" lives in the timeline's toolbar, its menus in portals.
+    await user.click(timeline.getByRole('button', { name: 'Filter' }));
+    await user.click(await screen.findByRole('button', { name: ts.events.type }));
+    await user.click(await screen.findByRole('button', { name: 'is' }));
+    const option = await screen.findByRole('button', { name: ts.events.kinds.error }, { timeout: 400 }).catch(async () => {
+      await user.click(screen.getByRole('button', { name: `Select ${ts.events.type.toLowerCase()}` }));
+      return screen.findByRole('button', { name: ts.events.kinds.error });
+    });
+    await user.click(option);
+    await waitFor(() => expect(timeline.queryByText('Buy now', { exact: false })).toBeNull());
+    expect(timeline.getByText('TypeError', { exact: false })).toBeTruthy();
+  });
+
+  it('shows the page at the playhead and the event colours in the Info tab', async () => {
+    state.detail = { data: makeSessionDetail({ chunks: [] }), isLoading: false, error: null, refetch: vi.fn() };
+    // The Info tab's property rows read the shared i18n context.
+    render(
+      <I18nProvider initialLanguage="en">
+        <RecordingDetailPage />
+      </I18nProvider>,
+    );
+    await screen.findByText(ts.noPlayback);
+    await userEvent.click(screen.getByRole('tab', { name: ts.details.tabs.info }));
+    const info = within(screen.getByRole('tabpanel', { name: ts.details.tabs.info }));
+    expect(info.getByText(ts.currentPage)).toBeTruthy();
+    expect(info.getByText('https://example.com/pricing')).toBeTruthy();
+    expect(info.getByText(ts.details.colours)).toBeTruthy();
+    // Two pageviews, one rage click, one error in the fixture.
+    const legend = en.weldpanel.observe.player.legend;
+    for (const [label, count] of [[legend.page, '2'], [legend.frustration, '1'], [legend.error, '1'], [legend.click, '0']] as const) {
+      const row = info.getByText(label).closest('div.grid')!;
+      expect(within(row as HTMLElement).getByText(count)).toBeTruthy();
+    }
+  });
+
+  it('filters the pages list by page', async () => {
+    const user = userEvent.setup();
+    state.detail = { data: makeSessionDetail({ chunks: [] }), isLoading: false, error: null, refetch: vi.fn() };
+    render(<RecordingDetailPage />);
+    await screen.findByText(ts.noPlayback);
+    await user.click(screen.getByRole('tab', { name: ts.tabs.pages }));
+    const pages = within(screen.getByRole('tabpanel', { name: ts.tabs.pages }));
+    expect(pages.getByText('/pricing')).toBeTruthy();
+    expect(pages.getByText('/checkout')).toBeTruthy();
+
+    // Filter > Page > is > /checkout; the Filter of this list, not the timeline's.
+    await user.click(pages.getByRole('button', { name: 'Filter' }));
+    await user.click(await screen.findByRole('button', { name: ts.pages.page }));
+    await user.click(await screen.findByRole('button', { name: 'is' }));
+    const option = await screen.findByRole('button', { name: '/checkout' }, { timeout: 400 }).catch(async () => {
+      await user.click(screen.getByRole('button', { name: `Select ${ts.pages.page.toLowerCase()}` }));
+      return screen.findByRole('button', { name: '/checkout' });
+    });
+    await user.click(option);
+    const row = (path: string) => pages.queryByRole('button', { name: ts.pages.jump.replace('{path}', path) });
+    await waitFor(() => expect(row('/pricing')).toBeNull());
+    expect(row('/checkout')).toBeTruthy();
   });
 
   it('shows a missing recording as not found', async () => {
@@ -138,27 +207,6 @@ describe('Recording detail', () => {
     expect(state.seek).toHaveBeenCalled();
   });
 
-  it('adds a favourite with a note, and removes one', async () => {
-    const { unmount } = render(<RecordingDetailPage />);
-    await screen.findByTestId('player');
-    await userEvent.click(screen.getByRole('button', { name: ts.favorite.add }));
-    await userEvent.type(screen.getByLabelText(ts.favorite.note), 'Checkout bug');
-    await userEvent.click(screen.getByRole('button', { name: ts.favorite.save }));
-    expect(state.favorite.mutate).toHaveBeenCalledWith({ sessionId: 'ses_1', note: 'Checkout bug' }, expect.anything());
-    unmount();
-
-    state.detail = {
-      data: makeSessionDetail({ favorite: { id: 'f1', projectId: 'wpp_1', sessionId: 'ses_1', note: 'Keep', favoritedByUserId: 'u', createdAt: '2026-11-14T00:00:00Z' } }),
-      isLoading: false,
-      error: null,
-      refetch: vi.fn(),
-    };
-    render(<RecordingDetailPage />);
-    expect(await screen.findByText('Keep')).toBeTruthy();
-    await userEvent.click(screen.getByRole('button', { name: ts.favorite.remove }));
-    expect(state.unfavorite.mutate).toHaveBeenCalledWith('ses_1', expect.anything());
-  });
-
   describe('AI summary', () => {
     it('offers to generate one and charges only on the click', async () => {
       render(<RecordingDetailPage />);
@@ -168,7 +216,7 @@ describe('Recording detail', () => {
       expect(state.generate.mutate).toHaveBeenCalledWith({ sessionId: 'ses_1', regenerate: false });
     });
 
-    it('shows a saved summary and offers to summarise again', async () => {
+    it('shows a saved summary without a button to write it again', async () => {
       state.summary = {
         data: {
           id: 's1',
@@ -187,8 +235,9 @@ describe('Recording detail', () => {
       expect(await screen.findByText('Buy the pro plan')).toBeTruthy();
       expect(screen.getByText(ts.summary.outcomes.abandoned)).toBeTruthy();
       expect(screen.getByText('Button did nothing')).toBeTruthy();
-      await userEvent.click(screen.getByRole('button', { name: ts.summary.regenerate }));
-      expect(state.generate.mutate).toHaveBeenCalledWith({ sessionId: 'ses_1', regenerate: true });
+      expect(screen.queryByRole('button', { name: ts.summary.regenerate })).toBeNull();
+      expect(screen.queryByRole('button', { name: ts.summary.generate })).toBeNull();
+      expect(screen.queryByText(ts.summary.regenerateHint)).toBeNull();
     });
 
     it('explains an empty wallet with the numbers and a way to top up', async () => {

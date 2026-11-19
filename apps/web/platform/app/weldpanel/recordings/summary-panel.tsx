@@ -52,9 +52,6 @@ export function SummaryPanel({ projectId, sessionId, aiEnabled }: Readonly<Summa
   const generate = useGenerateWeldPanelSessionSummary(projectId);
   const failure = generate.error ? aiFailure(generate.error) : null;
   const summary = saved?.summary;
-  let generateLabel = ts.generate;
-  if (generate.isPending) generateLabel = ts.generating;
-  else if (summary) generateLabel = ts.regenerate;
 
   return (
     <div className="grid gap-4">
@@ -72,7 +69,7 @@ export function SummaryPanel({ projectId, sessionId, aiEnabled }: Readonly<Summa
       {aiEnabled && isError && <ErrorState message={ts.loadFailed} onRetry={() => void refetch()} retryLabel={t.weldpanel.retry} />}
 
       {summary && saved && (
-        <div className="grid gap-3 rounded-lg border bg-card p-4" data-testid="session-summary">
+        <div className="grid gap-3" data-testid="session-summary">
           <div className="grid gap-1">
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{ts.goal}</p>
             <p className="text-sm">{summary.goal}</p>
@@ -116,15 +113,16 @@ export function SummaryPanel({ projectId, sessionId, aiEnabled }: Readonly<Summa
         </InfoBanner>
       )}
 
-      {aiEnabled && !isLoading && (
+      {/* Only until there is a summary: a saved one is not written again from here. */}
+      {aiEnabled && !isLoading && !summary && (
         <div className="grid gap-2">
           <div>
-            <Button type="button" variant={summary ? 'outline' : 'default'} size="sm" disabled={generate.isPending} onClick={() => generate.mutate({ sessionId, regenerate: !!summary })}>
+            <Button type="button" size="sm" disabled={generate.isPending} onClick={() => generate.mutate({ sessionId, regenerate: false })}>
               {generate.isPending ? <InlineSpinner /> : <Sparkles />}
-              {generateLabel}
+              {generate.isPending ? ts.generating : ts.generate}
             </Button>
           </div>
-          <p className="text-xs text-muted-foreground">{summary ? ts.regenerateHint : ts.costHint}</p>
+          <p className="text-xs text-muted-foreground">{ts.costHint}</p>
         </div>
       )}
     </div>

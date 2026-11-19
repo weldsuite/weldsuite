@@ -100,6 +100,7 @@ import { createWeldmeetRecordingsApi } from '@weldsuite/app-api-client/domains/w
 import { getApiOriginForPath } from '@/lib/api/public-env';
 import { hrLegalEntityHeaders } from '@/lib/api/legal-entity-scope';
 import { usePreviewMode } from '@/contexts/preview-mode-context';
+import { withWeldPanelSampleData } from '@/lib/dev/weldpanel-sample';
 
 /**
  * A token-aware ClientApi getter, cached and only recreated when the token
@@ -167,6 +168,8 @@ export function useAppApi() {
 
   const lazyClient = useMemo<ClientApi>(() => lazyClientFrom(getClient), [getClient]);
   const hrClient = useMemo<ClientApi>(() => lazyClientFrom(getHrClient), [getHrClient]);
+  // In a dev build with VITE_WELDPANEL_SAMPLE_DATA=true, WeldPanel answers from sample data (lib/dev/weldpanel-sample).
+  const panelClient = useMemo<ClientApi>(() => withWeldPanelSampleData(lazyClient), [lazyClient]);
 
   return useMemo(
     () => ({
@@ -269,14 +272,14 @@ export function useAppApi() {
       boards: createBoardsApi(lazyClient),
       weldsign: createWeldSignApi(lazyClient),
       // WeldPanel (panel-api): projects and their install check.
-      weldpanel: createWeldPanelApi(lazyClient),
+      weldpanel: createWeldPanelApi(panelClient),
       // WeldPanel analysis endpoints (explain, metric tree values), groups,
       // collaboration (definitions, annotations, comments, versions, share links)
       // and monitoring/data out (alerts, scheduled reports, exports, domains).
-      weldpanelAnalysis: createWeldPanelAnalysisApi(lazyClient),
-      weldpanelGroups: createWeldPanelGroupsApi(lazyClient),
-      weldpanelCollab: createWeldPanelCollabApi(lazyClient),
-      weldpanelMonitor: createWeldPanelMonitorApi(lazyClient),
+      weldpanelAnalysis: createWeldPanelAnalysisApi(panelClient),
+      weldpanelGroups: createWeldPanelGroupsApi(panelClient),
+      weldpanelCollab: createWeldPanelCollabApi(panelClient),
+      weldpanelMonitor: createWeldPanelMonitorApi(panelClient),
       // WeldMerge (merge-api): issues, pull requests, git provider connections.
       weldmerge: createWeldMergeApi(lazyClient),
       // WeldForms (forms-api): forms, folders, themes, responses, invitations, integrations.
@@ -294,6 +297,6 @@ export function useAppApi() {
       // WeldMeet recordings, transcripts and summaries (meet-api, session-scoped).
       weldmeetRecordings: createWeldmeetRecordingsApi(lazyClient),
     }),
-    [lazyClient, hrClient],
+    [lazyClient, hrClient, panelClient],
   );
 }

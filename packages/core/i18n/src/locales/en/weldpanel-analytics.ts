@@ -5,11 +5,10 @@
  * `weldpanel.analytics` in `weldpanel.ts`.
  */
 export const weldpanelAnalytics = {
-  /** The module's second header row: the project every analytics page reads. */
+  /** The project switcher at the top of the module sidebar: the project every analytics page reads. */
   projectBar: {
     label: 'Project',
     placeholder: 'Choose a project',
-    allProjects: 'All projects',
     loadFailed: 'Could not load your projects.',
   },
   /** A page that needs a project and has none. */
@@ -617,6 +616,7 @@ export const weldpanelAnalytics = {
     emptyTitle: 'No names yet',
     emptyDescription: 'Events and properties show up here once your site sends them.',
     noMatches: 'No names match.',
+    noMatchesDescription: 'Try another name, or show the hidden ones from Filter.',
     loadFailed: 'Could not load the lexicon.',
     scannedAt: 'Scanned {time}',
     hiddenNote: 'Hidden names stay in your data. They only disappear from the event and property pickers.',

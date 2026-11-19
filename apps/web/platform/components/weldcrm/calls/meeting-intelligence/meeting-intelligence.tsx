@@ -1,9 +1,9 @@
 
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo, useId, type ReactNode } from 'react';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useRouter } from '@/lib/router';
 import { Button } from '@weldsuite/ui/components/button';
-import { Tabs, TabsContent } from '@weldsuite/ui/components/tabs';
+import { RecordingLayout, RecordingTabPanel, RecordingTabStrip, type RecordingTab } from '@weldsuite/ui/components/recording-layout';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import {
   Captions,
@@ -55,6 +55,8 @@ export function MeetingIntelligence({
   renderSidebar,
   headerActions,
   headerMenuActions,
+  onTitleChange,
+  titleLabel,
   tabLabels,
   renderSummary,
   mediaSlot,
@@ -111,6 +113,7 @@ export function MeetingIntelligence({
 
   // Tab state
   const [activeTab, setActiveTab] = useState<string>(tabs[0] || 'transcript');
+  const tabsId = useId();
   const [isMinimized, setIsMinimized] = useState(false);
 
   // Delete state
@@ -757,196 +760,166 @@ ${transcriptionText}
   const playerMinimizeHandler = enableFloatingVideo && floatingVideoCtx && stableRecordingUrl.current ? handleVideoMinimize : undefined;
   const transcribeHandler = transcriptionActions?.onTranscribe ? handleTranscribe : undefined;
 
-  // Full-width layout (for call detail pages)
+  const tabConfig: Record<string, { icon: RecordingTab['icon']; label: string }> = {
+    transcript: { icon: Captions, label: tabLabels?.transcript ?? t('sweep.weldcrm.meetingIntelligence.tabTranscript') },
+    summary: { icon: Sparkles, label: tabLabels?.summary ?? 'Summary' },
+    speakers: { icon: Users, label: tabLabels?.speakers ?? t('sweep.weldcrm.meetingIntelligence.tabSpeakers') },
+    meeting: { icon: Video, label: tabLabels?.meeting ?? (isAudio ? t('sweep.weldcrm.meetingIntelligence.tabDetails') : t('sweep.weldcrm.meetingIntelligence.tabMeeting')) },
+  };
+  const stripTabs: RecordingTab[] = tabs.flatMap((tab) => (tabConfig[tab] ? [{ id: tab, ...tabConfig[tab] }] : []));
+
+  // Tab-specific toolbars, on the right of the tab strip.
+  let tabTools: ReactNode;
+  if (activeTab === 'transcript' && transcription?.segments && transcription.segments.length > 0) {
+    tabTools = (
+      <>
+        <TranscriptSearchToolbar searchQuery={transcriptSearchQuery} onSearchQueryChange={setTranscriptSearchQuery} />
+        <AutoScrollSelect autoScroll={autoScroll} onAutoScrollChange={setAutoScroll} />
+      </>
+    );
+  } else if (activeTab === 'speakers' && speakers.length > 0) {
+    tabTools = <SpeakerSearchToolbar />;
+  }
+
+  // The shared recording page shell (`@weldsuite/ui/components/recording-layout`): WeldPanel's
+  // session replays use the same one, so the two always look alike.
   return (
-    <div className="h-full flex bg-gray-50 dark:bg-background overflow-hidden">
-      <div className="flex-1 flex flex-col min-h-0">
-        {/* Top Header */}
-        <MeetingIntelligenceHeader
-          call={call}
-          mediaType={mediaType}
-          isTranscribing={showTranscribing}
-          hasTranscription={hasTranscription}
-          isLoadingTranscription={isLoadingTranscription}
-          onBack={() => backUrl ? router.push(backUrl) : router.push('/weldcrm/calls')}
-          onDelete={onDelete ? () => setShowDeleteDialog(true) : undefined}
-          onMinimize={headerMinimizeHandler}
-          onCopyJoinCode={headerMenuActions?.onCopyJoinCode}
-          onCopyLink={headerMenuActions?.onCopyLink}
-          onRename={headerMenuActions?.onRename}
-          onScheduleAgain={headerMenuActions?.onScheduleAgain}
-          onDownloadRecording={headerMenuActions?.onDownloadRecording}
-          onDeleteRecording={headerMenuActions?.onDeleteRecording}
-          deleteRecordingLabel={headerMenuActions?.deleteRecordingLabel}
-          onExportTranscript={headerMenuActions?.onExportTranscript}
-          headerActions={headerActions}
+    <RecordingLayout
+      header={
+      <MeetingIntelligenceHeader
+        call={call}
+        mediaType={mediaType}
+        isTranscribing={showTranscribing}
+        hasTranscription={hasTranscription}
+        isLoadingTranscription={isLoadingTranscription}
+        onBack={() => backUrl ? router.push(backUrl) : router.push('/weldcrm/calls')}
+        onDelete={onDelete ? () => setShowDeleteDialog(true) : undefined}
+        onMinimize={headerMinimizeHandler}
+        onCopyJoinCode={headerMenuActions?.onCopyJoinCode}
+        onCopyLink={headerMenuActions?.onCopyLink}
+        onRename={headerMenuActions?.onRename}
+        onTitleChange={onTitleChange}
+        titleLabel={titleLabel}
+        onScheduleAgain={headerMenuActions?.onScheduleAgain}
+        onDownloadRecording={headerMenuActions?.onDownloadRecording}
+        onDeleteRecording={headerMenuActions?.onDeleteRecording}
+        deleteRecordingLabel={headerMenuActions?.deleteRecordingLabel}
+        onExportTranscript={headerMenuActions?.onExportTranscript}
+        headerActions={headerActions}
+      />
+      }
+      sidebar={renderSidebar ? renderSidebar({ transcription }) : undefined}
+    >
+      <ConfirmDialog
+        open={showDeleteDialog}
+        onOpenChange={setShowDeleteDialog}
+        title={t('sweep.weldcrm.meetingIntelligence.deleteMeetingTitle')}
+        description={t('sweep.weldcrm.meetingIntelligence.deleteMeetingDescription')}
+        confirmLabel={t('sweep.weldcrm.meetingIntelligence.deleteMeetingConfirm')}
+        variant="destructive"
+        onConfirm={handleDelete}
+      />
+
+      {/* Media Player */}
+      {!isMinimized && isAudio && (
+        <AudioPlayer
+          src={stableRecordingUrl.current}
+          audioRef={audioRef}
+          isPlaying={isPlaying}
+          currentTime={currentTime}
+          smoothTime={smoothTime}
+          duration={duration}
+          flattenedTimeline={flattenedTimeline}
+          segments={transcription?.segments}
+          onTogglePlayPause={togglePlayPause}
+          onSeek={handleSeek}
         />
-
-        {/* Delete Confirmation Dialog */}
-        <ConfirmDialog
-          open={showDeleteDialog}
-          onOpenChange={setShowDeleteDialog}
-          title={t('sweep.weldcrm.meetingIntelligence.deleteMeetingTitle')}
-          description={t('sweep.weldcrm.meetingIntelligence.deleteMeetingDescription')}
-          confirmLabel={t('sweep.weldcrm.meetingIntelligence.deleteMeetingConfirm')}
-          variant="destructive"
-          onConfirm={handleDelete}
-        />
-
-        {/* Content Area */}
-        <div className="flex-1 flex overflow-hidden">
-          <div className={cn("flex-1 bg-white dark:bg-background overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]", renderSidebar && "min-w-0")}>
-            {/* Media Player */}
-            {!isMinimized && isAudio && (
-              <AudioPlayer
-                src={stableRecordingUrl.current}
-                audioRef={audioRef}
-                isPlaying={isPlaying}
-                currentTime={currentTime}
-                smoothTime={smoothTime}
-                duration={duration}
-                flattenedTimeline={flattenedTimeline}
-                segments={transcription?.segments}
-                onTogglePlayPause={togglePlayPause}
-                onSeek={handleSeek}
-              />
-            )}
-            {!isMinimized && !isAudio && mediaType !== 'none' && (
-              <VideoPlayer
-                src={stableRecordingUrl.current}
-                videoRef={videoRef}
-                isPlaying={isPlaying}
-                currentTime={currentTime}
-                smoothTime={smoothTime}
-                duration={duration}
-                flattenedTimeline={flattenedTimeline}
-                segments={transcription?.segments}
-                onTogglePlayPause={togglePlayPause}
-                onSeek={handleSeek}
-                onMinimize={playerMinimizeHandler}
-              />
-            )}
-
-            {!isMinimized && mediaType === 'none' && mediaSlot}
-
-            {/* Tabs */}
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="pb-4">
-              <div className="sticky top-0 z-10 bg-white dark:bg-background px-4 pt-[10px] overflow-hidden">
-                <div className="flex items-center gap-2 mb-[10px]">
-                  <div className="flex items-center gap-1">
-                    {tabs.map((tab, tabIndex) => {
-                      const isFirst = tabIndex === 0;
-                      const tabConfig = {
-                        transcript: { icon: Captions, label: tabLabels?.transcript ?? t('sweep.weldcrm.meetingIntelligence.tabTranscript') },
-                        summary: { icon: Sparkles, label: tabLabels?.summary ?? 'Summary' },
-                        speakers: { icon: Users, label: tabLabels?.speakers ?? t('sweep.weldcrm.meetingIntelligence.tabSpeakers') },
-                        meeting: { icon: Video, label: tabLabels?.meeting ?? (isAudio ? t('sweep.weldcrm.meetingIntelligence.tabDetails') : t('sweep.weldcrm.meetingIntelligence.tabMeeting')) },
-                      }[tab];
-                      if (!tabConfig) return null;
-                      const TabIcon = tabConfig.icon;
-                      return (
-                        <div key={tab} className="relative group">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className={cn(
-                              "text-xs md:text-sm hover:bg-transparent",
-                              isFirst ? "!pl-0 pr-2 md:pr-3" : "px-2 md:px-3",
-                              activeTab === tab ? "text-foreground" : "text-muted-foreground hover:text-foreground"
-                            )}
-                            onClick={() => setActiveTab(tab)}
-                          >
-                            <TabIcon className="h-3 w-3 mr-0.5" />
-                            {tabConfig.label}
-                          </Button>
-                          <div className={cn(
-                            "absolute -bottom-[11px] right-[6px] md:right-[10px] h-0.5 transition-colors",
-                            isFirst ? "left-0" : "left-[6px] md:left-[10px]",
-                            activeTab === tab ? "bg-foreground" : "bg-transparent group-hover:bg-gray-300 dark:group-hover:bg-gray-600"
-                          )} />
-                        </div>
-                      );
-                    })}
-                  </div>
-
-
-
-                  {/* Tab-specific toolbars */}
-                  {activeTab === 'transcript' && transcription?.segments && transcription.segments.length > 0 && (
-                    <div className="ml-auto flex items-center gap-1.5">
-                      <TranscriptSearchToolbar
-                        searchQuery={transcriptSearchQuery}
-                        onSearchQueryChange={setTranscriptSearchQuery}
-                      />
-                      <AutoScrollSelect autoScroll={autoScroll} onAutoScrollChange={setAutoScroll} />
-                    </div>
-                  )}
-                  {activeTab === 'speakers' && speakers.length > 0 && (
-                    <SpeakerSearchToolbar />
-                  )}
-                </div>
-                <div className="border-b border-gray-200 dark:border-border -mx-4" />
-              </div>
-
-              {tabs.includes('transcript') && (
-                <TabsContent value="transcript" className="mt-0">
-                  <div ref={transcriptRef}>
-                    <TranscriptTabContent
-                      segments={transcription?.segments}
-                      isLoading={isLoadingTranscription}
-                      isTranscribing={showTranscribing}
-                      transcriptionFailed={transcriptionFailed}
-                      transcriptionProgress={transcriptionProgress}
-                      hasTranscription={hasTranscription}
-                      activeSegmentId={activeSegmentId}
-                      activeWordIndex={activeWordIndex}
-                      searchQuery={transcriptSearchQuery}
-                      onSeekToSegment={seekToSegment}
-                      onSeekToTime={seekToSegment}
-                      onTranscribe={transcribeHandler}
-                      emptyHint={transcriptEmptyHint}
-                      segmentRefs={segmentRefs}
-                    />
-                  </div>
-                </TabsContent>
-              )}
-
-              {tabs.includes('summary') && (
-                <TabsContent value="summary" className="mt-0 px-4">
-                  {renderSummary?.()}
-                </TabsContent>
-              )}
-
-              {tabs.includes('speakers') && (
-                <TabsContent value="speakers" className="mt-0 px-4 overflow-x-hidden">
-                  <SpeakersTabContent
-                    speakers={speakers}
-                    totalSpeakingTime={totalSpeakingTime}
-                    transcriptionTotalDuration={transcriptionTotalDuration}
-                    smoothTime={smoothTime}
-                    hasTranscription={hasTranscription}
-                    isTranscribing={showTranscribing}
-                    onSeekToSegment={seekToSegment}
-                    onTranscribe={transcribeHandler}
-                  />
-                </TabsContent>
-              )}
-
-              {tabs.includes('meeting') && (
-                <TabsContent value="meeting" className="mt-0 px-4">
-                  <MeetingDetailsTab call={call} mediaType={mediaType} videoDuration={duration} />
-                </TabsContent>
-              )}
-            </Tabs>
-          </div>
-        </div>
-      </div>
-      {renderSidebar && (
-        <div className="w-[479px] flex-shrink-0 border-l flex flex-col bg-white dark:bg-background animate-in slide-in-from-right fade-in-50 duration-200">
-          {renderSidebar({ transcription })}
-        </div>
       )}
-    </div>
+      {!isMinimized && !isAudio && mediaType !== 'none' && (
+        <VideoPlayer
+          src={stableRecordingUrl.current}
+          videoRef={videoRef}
+          isPlaying={isPlaying}
+          currentTime={currentTime}
+          smoothTime={smoothTime}
+          duration={duration}
+          flattenedTimeline={flattenedTimeline}
+          segments={transcription?.segments}
+          onTogglePlayPause={togglePlayPause}
+          onSeek={handleSeek}
+          onMinimize={playerMinimizeHandler}
+        />
+      )}
+
+      {!isMinimized && mediaType === 'none' && mediaSlot}
+
+      {/* pt-4: the space between the video and the line over the tabs. */}
+      <div className="pb-4 pt-4">
+        <RecordingTabStrip
+          tabs={stripTabs}
+          value={activeTab}
+          onValueChange={setActiveTab}
+          label={call.subject || t('sweep.weldcrm.meetingIntelligenceHeader.untitledCall')}
+          idPrefix={tabsId}
+          separated
+          tools={tabTools}
+        />
+
+        {tabs.includes('transcript') && (
+          <RecordingTabPanel idPrefix={tabsId} value="transcript" selected={activeTab === 'transcript'}>
+            <div ref={transcriptRef}>
+              <TranscriptTabContent
+                segments={transcription?.segments}
+                isLoading={isLoadingTranscription}
+                isTranscribing={showTranscribing}
+                transcriptionFailed={transcriptionFailed}
+                transcriptionProgress={transcriptionProgress}
+                hasTranscription={hasTranscription}
+                activeSegmentId={activeSegmentId}
+                activeWordIndex={activeWordIndex}
+                searchQuery={transcriptSearchQuery}
+                onSeekToSegment={seekToSegment}
+                onSeekToTime={seekToSegment}
+                onTranscribe={transcribeHandler}
+                emptyHint={transcriptEmptyHint}
+                segmentRefs={segmentRefs}
+              />
+            </div>
+          </RecordingTabPanel>
+        )}
+
+        {tabs.includes('summary') && (
+          <RecordingTabPanel idPrefix={tabsId} value="summary" selected={activeTab === 'summary'}>
+            <div className="px-4">{renderSummary?.()}</div>
+          </RecordingTabPanel>
+        )}
+
+        {tabs.includes('speakers') && (
+          <RecordingTabPanel idPrefix={tabsId} value="speakers" selected={activeTab === 'speakers'}>
+            <div className="overflow-x-hidden px-4">
+            <SpeakersTabContent
+              speakers={speakers}
+              totalSpeakingTime={totalSpeakingTime}
+              transcriptionTotalDuration={transcriptionTotalDuration}
+              smoothTime={smoothTime}
+              hasTranscription={hasTranscription}
+              isTranscribing={showTranscribing}
+              onSeekToSegment={seekToSegment}
+              onTranscribe={transcribeHandler}
+            />
+            </div>
+          </RecordingTabPanel>
+        )}
+
+        {tabs.includes('meeting') && (
+          <RecordingTabPanel idPrefix={tabsId} value="meeting" selected={activeTab === 'meeting'}>
+            <div className="px-4">
+            <MeetingDetailsTab call={call} mediaType={mediaType} videoDuration={duration} />
+            </div>
+          </RecordingTabPanel>
+        )}
+      </div>
+    </RecordingLayout>
   );
 }
 

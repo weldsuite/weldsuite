@@ -12,7 +12,7 @@ import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@weldsuite/ui/components/tabs';
 import { useI18n } from '@/lib/i18n/provider';
 import { useSearchParams } from '@/lib/router';
-import { AnalyticsPage } from '../components/analytics-page';
+import { AnalyticsListPage } from '../components/analytics-page';
 import { ComputedPropertiesTab } from './computed-properties-tab';
 import { CustomEventsTab } from './custom-events-tab';
 import { GroupTypesTab } from './group-types-tab';
@@ -33,18 +33,20 @@ export default function DataPage() {
   const permissions = { canCreate, canUpdate, canDelete };
 
   return (
-    <AnalyticsPage title={tx.title} description={tx.description}>
+    <AnalyticsListPage title={tx.title}>
       {(project) => (
-        <div key={project.id} className="grid gap-4">
-          {!canCreate && !canUpdate && !canDelete && <InfoBanner variant="info">{tx.readOnly}</InfoBanner>}
-          <Tabs value={tab} onValueChange={(next) => setTab(next as DataTab)} className="gap-4">
-            <TabsList className="max-w-full overflow-x-auto">
-              {TABS.map((key) => (
-                <TabsTrigger key={key} value={key}>
-                  {tx.tabs[key]}
-                </TabsTrigger>
-              ))}
-            </TabsList>
+        <div key={project.id}>
+          <Tabs value={tab} onValueChange={(next) => setTab(next as DataTab)} className="gap-0">
+            <div className="grid gap-3 px-3 pb-3 pt-3 md:px-4">
+              {!canCreate && !canUpdate && !canDelete && <InfoBanner variant="info">{tx.readOnly}</InfoBanner>}
+              <TabsList className="max-w-full justify-start overflow-x-auto">
+                {TABS.map((key) => (
+                  <TabsTrigger key={key} value={key}>
+                    {tx.tabs[key]}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </div>
             <TabsContent value="customEvents">
               <CustomEventsTab projectId={project.id} {...permissions} />
             </TabsContent>
@@ -60,6 +62,6 @@ export default function DataPage() {
           </Tabs>
         </div>
       )}
-    </AnalyticsPage>
+    </AnalyticsListPage>
   );
 }

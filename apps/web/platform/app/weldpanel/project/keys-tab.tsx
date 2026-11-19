@@ -1,13 +1,13 @@
 /**
  * Server keys of one project (`panel_projects:manage`): list, create and
- * revoke. A new key (`wps_…`) is shown once, in its own dialog with a copy
+ * revoke, as the standard list. A new key (`wps_…`) is shown once, in its own dialog with a copy
  * button, because only its hash is kept; the list shows just its start.
  */
 
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Check, Copy, KeyRound, Loader2, Plus } from 'lucide-react';
+import { Check, Copy, KeyRound, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { z } from 'zod';
 import type { PanelProjectDto } from '@weldsuite/app-api-client/schemas/weldpanel';
@@ -15,13 +15,13 @@ import type { PanelCreatedKeyDto, PanelKeyDto } from '@weldsuite/app-api-client/
 import { Button } from '@weldsuite/ui/components/button';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
-import { EmptyState } from '@weldsuite/ui/components/empty-state';
 import { ErrorState } from '@weldsuite/ui/components/error-banner';
+import { DropdownMenuItem } from '@weldsuite/ui/components/dropdown-menu';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@weldsuite/ui/components/form';
 import { Input } from '@weldsuite/ui/components/input';
-import { Skeleton } from '@weldsuite/ui/components/skeleton';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { SoftBadge } from '@weldsuite/ui/components/soft-badge';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@weldsuite/ui/components/table';
+import { PanelEntityList, type ColumnDef } from '@/components/panel-entity-list';
 import { useCreateWeldPanelKey, useRevokeWeldPanelKey, useWeldPanelProjectKeys } from '@/hooks/queries/use-weldpanel-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { formatDate, formatDateTime } from '../lib/format';
@@ -149,58 +149,57 @@ export function KeysTab({ project }: Readonly<{ project: PanelProjectDto }>) {
     }
   }
 
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 max-w-2xl">
-          <h2 className="text-base font-semibold">{tk.title}</h2>
-          <p className="text-sm text-muted-foreground">{tk.description}</p>
-        </div>
-        <Button size="sm" onClick={() => setCreateOpen(true)}>
-          <Plus />
-          {tk.create}
-        </Button>
-      </div>
+  const columns: ColumnDef<PanelKeyDto>[] = [
+    { id: 'name', header: tk.columns.name, width: 'flex-1 min-w-[140px]', render: (key) => <span className="block truncate font-medium">{key.name}</span> },
+    { id: 'key', header: tk.columns.key, width: 'hidden sm:block sm:w-[140px]', render: (key) => <span className="block truncate font-mono text-xs">{key.prefix}…</span> },
+    {
+      id: 'created',
+      header: tk.columns.created,
+      width: 'hidden lg:block lg:w-[120px]',
+      render: (key) => <span className="whitespace-nowrap tabular-nums text-muted-foreground">{formatDate(key.createdAt, language)}</span>,
+    },
+    {
+      id: 'lastUsed',
+      header: tk.columns.lastUsed,
+      width: 'hidden md:block md:w-[170px]',
+      render: (key) => <span className="block truncate whitespace-nowrap text-muted-foreground">{key.lastUsedAt ? formatDateTime(key.lastUsedAt, language) : tk.neverUsed}</span>,
+    },
+    {
+      id: 'status',
+      header: tk.columns.status,
+      width: 'w-[160px]',
+      render: (key) =>
+        key.revokedAt ? <SoftBadge tone="neutral">{format(tk.revoked, { date: formatDate(key.revokedAt, language) })}</SoftBadge> : <SoftBadge tone="success">{tk.active}</SoftBadge>,
+    },
+  ];
 
-      {error && <ErrorState message={tk.loadFailed} onRetry={() => void refetch()} retryLabel={t.weldpanel.retry} />}
-      {!error && isLoading && <Skeleton className="h-32 w-full" />}
-      {!error && !isLoading && (!keys || keys.length === 0) && <EmptyState icon={KeyRound} title={tk.empty} description={tk.emptyHint} />}
-      {!error && !isLoading && keys && keys.length > 0 && (
-        <div className="overflow-x-auto rounded-lg border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{tk.columns.name}</TableHead>
-                <TableHead>{tk.columns.key}</TableHead>
-                <TableHead>{tk.columns.created}</TableHead>
-                <TableHead>{tk.columns.lastUsed}</TableHead>
-                <TableHead>{tk.columns.status}</TableHead>
-                <TableHead />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {keys.map((key) => (
-                <TableRow key={key.id}>
-                  <TableCell className="font-medium">{key.name}</TableCell>
-                  <TableCell className="font-mono text-xs">{key.prefix}…</TableCell>
-                  <TableCell className="whitespace-nowrap text-muted-foreground">{formatDate(key.createdAt, language)}</TableCell>
-                  <TableCell className="whitespace-nowrap text-muted-foreground">{key.lastUsedAt ? formatDateTime(key.lastUsedAt, language) : tk.neverUsed}</TableCell>
-                  <TableCell>
-                    {key.revokedAt ? <SoftBadge tone="neutral">{format(tk.revoked, { date: formatDate(key.revokedAt, language) })}</SoftBadge> : <SoftBadge tone="success">{tk.active}</SoftBadge>}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {!key.revokedAt && (
-                      <Button type="button" variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => setToRevoke(key)}>
-                        {tk.revoke}
-                      </Button>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
+  const openCreate = () => setCreateOpen(true);
+
+  let list: React.ReactNode;
+  if (error) list = <ErrorState message={tk.loadFailed} onRetry={() => void refetch()} retryLabel={t.weldpanel.retry} />;
+  else if (isLoading) list = <PageLoader fullScreen={false} label={t.common.labels.loading} />;
+  else
+    list = (
+      <PanelEntityList<PanelKeyDto>
+        items={keys ?? []}
+        isLoading={false}
+        columns={columns}
+        hideFilter
+        rowMenu={(key) =>
+          key.revokedAt ? null : (
+            <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={() => setToRevoke(key)}>
+              {tk.revoke}
+            </DropdownMenuItem>
+          )
+        }
+        createButton={{ label: tk.create, onClick: openCreate }}
+        emptyState={{ icon: <KeyRound className="size-8 text-muted-foreground" />, title: tk.empty, description: tk.emptyHint, action: { label: tk.create, onClick: openCreate } }}
+      />
+    );
+
+  return (
+    <div>
+      {list}
 
       <CreateKeyDialog open={createOpen} onOpenChange={setCreateOpen} onCreate={createKey} />
       <ShownOnceDialog created={created} onClose={() => setCreated(null)} />

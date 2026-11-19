@@ -9,9 +9,10 @@ import { useMemo } from 'react';
 import { Radio, Users } from 'lucide-react';
 import { useCan } from '@weldsuite/permissions/react';
 import type { PanelLiveDto } from '@weldsuite/app-api-client/schemas/weldpanel-objects';
+import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
 import { KpiCard } from '@weldsuite/ui/components/kpi-card';
 import { Skeleton } from '@weldsuite/ui/components/skeleton';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@weldsuite/ui/components/table';
+import { PanelEntityList, type ColumnDef } from '@/components/panel-entity-list';
 import { useWeldPanelLive } from '@/hooks/queries/use-weldpanel-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { ChartCard } from '../components/chart-card';
@@ -91,47 +92,83 @@ function LiveBody({ live, error, isLoading, onRetry, summary, compact, canSeePeo
         <Breakdown title={tl.countries} rows={summary.countries} label={(code) => countryName(code, language)} />
         <Breakdown title={tl.devices} rows={summary.devices} />
       </div>
-      {!compact && live && <SessionsCard live={live} canSeePeople={canSeePeople} />}
+      {!compact && live && <SessionsList live={live} canSeePeople={canSeePeople} />}
     </>
   );
 }
 
-function SessionsCard({ live, canSeePeople }: Readonly<{ live: PanelLiveDto; canSeePeople: boolean }>) {
+/** A live session's row: `id` is the session id, so the list can key it. */
+type LiveSessionRow = PanelLiveDto['sessions'][number] & { id: string };
+
+function initials(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  return ((words[0]?.[0] ?? '') + (words.length > 1 ? (words.at(-1)?.[0] ?? '') : '')).toUpperCase() || '?';
+}
+
+function SessionsList({ live, canSeePeople }: Readonly<{ live: PanelLiveDto; canSeePeople: boolean }>) {
   const { t, language } = useI18n();
   const tl = t.weldpanel.observe.live;
   const now = Date.now();
+  const rows = useMemo<LiveSessionRow[]>(() => live.sessions.map((session) => ({ ...session, id: session.sessionId })), [live.sessions]);
+  const columns: ColumnDef<LiveSessionRow>[] = [
+    {
+      id: 'session',
+      header: tl.session,
+      width: 'flex-1 min-w-[180px]',
+      render: (session) => {
+        const name = canSeePeople ? session.distinctId : visitorLabel({ userId: null, distinctId: session.distinctId }, t.weldpanel.observe.common.anonymous);
+        return (
+          <div className="flex min-w-0 items-center gap-2.5">
+            <Avatar className="h-6 w-6 shrink-0">
+              <AvatarFallback className="bg-gray-200 text-[10px] font-medium text-gray-600 dark:bg-accent dark:text-muted-foreground">{initials(name)}</AvatarFallback>
+            </Avatar>
+            <span className="truncate font-medium">{name}</span>
+          </div>
+        );
+      },
+    },
+    {
+      id: 'page',
+      header: tl.page,
+      width: 'hidden sm:block sm:w-[260px]',
+      render: (session) => (
+        <span className="block truncate text-muted-foreground" title={session.title ?? undefined}>
+          {session.path}
+        </span>
+      ),
+    },
+    {
+      id: 'where',
+      header: tl.where,
+      width: 'hidden md:block md:w-[160px]',
+      render: (session) => <span className="block truncate text-muted-foreground">{session.country ? countryName(session.country, language) : '–'}</span>,
+    },
+    {
+      id: 'since',
+      header: tl.since,
+      width: 'w-[90px]',
+      render: (session) => <span className="whitespace-nowrap tabular-nums text-muted-foreground">{formatDuration(Math.max(0, (now - Date.parse(session.startedAt)) / 1000))}</span>,
+    },
+    {
+      id: 'pageviews',
+      header: tl.pageviews,
+      width: 'hidden sm:block sm:w-[90px] text-right',
+      headerClassName: 'text-right',
+      render: (session) => <span className="tabular-nums">{session.pageviews}</span>,
+    },
+  ];
   return (
-    <ChartCard title={tl.sessions}>
-      <div className="overflow-x-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{tl.session}</TableHead>
-              <TableHead>{tl.page}</TableHead>
-              <TableHead>{tl.where}</TableHead>
-              <TableHead>{tl.since}</TableHead>
-              <TableHead className="text-right">{tl.pageviews}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {live.sessions.map((session) => (
-              <TableRow key={session.sessionId}>
-                <TableCell className="max-w-48 truncate font-medium">
-                  {canSeePeople ? session.distinctId : visitorLabel({ userId: null, distinctId: session.distinctId }, t.weldpanel.observe.common.anonymous)}
-                </TableCell>
-                <TableCell className="max-w-64 truncate" title={session.title ?? undefined}>
-                  {session.path}
-                </TableCell>
-                <TableCell>{session.country ? countryName(session.country, language) : '–'}</TableCell>
-                <TableCell className="whitespace-nowrap tabular-nums">{formatDuration(Math.max(0, (now - Date.parse(session.startedAt)) / 1000))}</TableCell>
-                <TableCell className="text-right tabular-nums">{session.pageviews}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
-      {!canSeePeople && <p className="mt-2 text-xs text-muted-foreground">{tl.pseudonymised}</p>}
-    </ChartCard>
+    <section className="grid gap-2" aria-label={tl.sessions}>
+      <h2 className="text-sm font-medium">{tl.sessions}</h2>
+      <PanelEntityList<LiveSessionRow>
+        items={rows}
+        isLoading={false}
+        columns={columns}
+        hideTopBar
+        emptyState={{ title: tl.quiet, description: tl.quietHint }}
+      />
+      {!canSeePeople && <p className="text-xs text-muted-foreground">{tl.pseudonymised}</p>}
+    </section>
   );
 }
 

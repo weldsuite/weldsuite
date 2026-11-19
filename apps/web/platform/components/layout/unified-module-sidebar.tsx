@@ -31,6 +31,7 @@ import { resolveAppCode } from '@/lib/apps/app-registry';
 import { useBetaAppCodes } from '@/hooks/queries/use-settings-queries';
 import { EntitySwitcher } from '@/components/accounting/entity-switcher';
 import { WeldhrEntitySwitcher } from '@/app/weldhr/components/entity-switcher';
+import { WeldPanelProjectSwitcher } from '@/app/weldpanel/components/project-switcher';
 import { useSyncHrLegalEntity } from '@/hooks/use-current-legal-entity';
 
 interface UnifiedModuleSidebarProps {
@@ -187,6 +188,10 @@ export function UnifiedModuleSidebar({ user, currentWorkspace, workspaces = [], 
       menuItems = hrEntity.hasEntities
         ? [{ group: '', items: [], customContent: <WeldhrEntitySwitcher /> }, ...weldhrItems.adjust(staticItems)]
         : weldhrItems.adjust(staticItems);
+      break;
+    case 'weldpanel':
+      // Project switcher on top: every analytics screen reads the chosen project.
+      menuItems = [{ group: '', items: [], customContent: <WeldPanelProjectSwitcher /> }, ...staticItems];
       break;
     case 'settings':
       // Translated title + back button replace the module brand.

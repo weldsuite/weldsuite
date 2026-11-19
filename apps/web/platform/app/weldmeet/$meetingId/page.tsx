@@ -581,6 +581,8 @@ export default function MeetingDetailPage() {
         },
       })}
       headerActions={headerActions.length > 0 ? headerActions : undefined}
+      onTitleChange={(title) => updateMeeting({ id: meetingId, data: { title } })}
+      titleLabel={t.meetingDetailPage.renameMeeting.placeholder}
       renderSidebar={hasChat && showChat ? () => (
         <ChatHistorySidebar t={t} meetingId={meetingId} onClose={() => setShowChat(false)} />
       ) : undefined}

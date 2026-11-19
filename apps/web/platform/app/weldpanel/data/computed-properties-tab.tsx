@@ -13,13 +13,11 @@ import { PANEL_FILTER_COLUMNS, type PanelFilterColumn } from '@weldsuite/app-api
 import { Button } from '@weldsuite/ui/components/button';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
-import { EmptyState } from '@weldsuite/ui/components/empty-state';
 import { ErrorState } from '@weldsuite/ui/components/error-banner';
 import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 import { Input } from '@weldsuite/ui/components/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
-import { Skeleton } from '@weldsuite/ui/components/skeleton';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@weldsuite/ui/components/table';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { Textarea } from '@weldsuite/ui/components/textarea';
 import {
   useCreateWeldPanelComputedProperty,
@@ -27,12 +25,13 @@ import {
   useUpdateWeldPanelComputedProperty,
   useWeldPanelComputedProperties,
 } from '@/hooks/queries/use-weldpanel-analysis-queries';
+import { PanelEntityList, type ColumnDef } from '@/components/panel-entity-list';
 import { useI18n } from '@/lib/i18n/provider';
 import { LabeledField } from '../components/labeled-field';
 import { PropertyPicker } from '../components/pickers';
 import type { FilterLabels } from '../lib/filters';
 import { formatDate } from '../lib/format';
-import { isConflict, RowActions, type DataTabPermissions } from './shared';
+import { isConflict, type DataTabPermissions } from './shared';
 
 const MIN_INPUTS = 2;
 const MAX_INPUTS = 5;
@@ -243,60 +242,63 @@ export function ComputedPropertiesTab({ projectId, canCreate, canUpdate, canDele
   const { t, language, format } = useI18n();
   const tx = t.weldpanel.explore.data.computedProperties;
   const tc = t.weldpanel.analytics.common;
-  const columns = t.weldpanel.analytics.filters.columns;
+  const filterColumns = t.weldpanel.analytics.filters.columns;
   const { data: properties, isLoading, isError, refetch } = useWeldPanelComputedProperties(projectId);
   const remove = useDeleteWeldPanelComputedProperty(projectId);
   const [editing, setEditing] = useState<PanelComputedPropertyDto | null>(null);
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<PanelComputedPropertyDto | null>(null);
 
-  if (isLoading) return <Skeleton className="h-32 w-full" />;
+  if (isLoading) return <PageLoader fullScreen={false} label={t.common.labels.loading} />;
   if (isError) return <ErrorState message={tx.loadFailed} onRetry={() => void refetch()} retryLabel={t.weldpanel.retry} />;
 
-  const newButton = canCreate && (
-    <Button size="sm" onClick={() => setCreating(true)}>
-      <Plus />
-      {tx.new}
-    </Button>
-  );
+  const columns: ColumnDef<PanelComputedPropertyDto>[] = [
+    {
+      id: 'name',
+      header: tx.columns.name,
+      width: 'flex-1 min-w-[160px]',
+      render: (property) => <span className="block truncate font-medium">{property.name}</span>,
+    },
+    {
+      id: 'definition',
+      header: tx.columns.definition,
+      width: 'hidden sm:block sm:w-[280px]',
+      render: (property) => <span className="block truncate font-mono text-xs text-muted-foreground">{definitionSummary(property, filterColumns)}</span>,
+    },
+    {
+      id: 'description',
+      header: tc.description,
+      width: 'hidden lg:block lg:w-[240px]',
+      render: (property) => <span className="block truncate text-muted-foreground">{property.description ?? '–'}</span>,
+    },
+    {
+      id: 'updated',
+      header: tx.columns.updated,
+      width: 'hidden md:block md:w-[120px]',
+      render: (property) => <span className="whitespace-nowrap tabular-nums text-muted-foreground">{formatDate(property.updatedAt, language)}</span>,
+    },
+  ];
+
+  const openCreate = () => setCreating(true);
 
   return (
-    <div className="grid gap-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <p className="max-w-2xl text-sm text-muted-foreground">{tx.description}</p>
-        {properties && properties.length > 0 && newButton}
-      </div>
-      {!properties || properties.length === 0 ? (
-        <EmptyState icon={Calculator} title={tx.emptyTitle} description={tx.emptyDescription} action={newButton || undefined} />
-      ) : (
-        <div className="overflow-x-auto rounded-lg border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{tx.columns.name}</TableHead>
-                <TableHead>{tx.columns.definition}</TableHead>
-                <TableHead className="hidden md:table-cell">{tx.columns.updated}</TableHead>
-                <TableHead className="w-10" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {properties.map((property) => (
-                <TableRow key={property.id}>
-                  <TableCell className="max-w-64">
-                    <p className="truncate font-medium">{property.name}</p>
-                    {property.description && <p className="truncate text-xs text-muted-foreground">{property.description}</p>}
-                  </TableCell>
-                  <TableCell className="max-w-96 truncate font-mono text-xs text-muted-foreground">{definitionSummary(property, columns)}</TableCell>
-                  <TableCell className="hidden whitespace-nowrap text-muted-foreground md:table-cell">{formatDate(property.updatedAt, language)}</TableCell>
-                  <TableCell>
-                    <RowActions name={property.name} onEdit={canUpdate ? () => setEditing(property) : undefined} onDelete={canDelete ? () => setDeleting(property) : undefined} />
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
+    <>
+      <PanelEntityList<PanelComputedPropertyDto>
+        items={properties ?? []}
+        isLoading={false}
+        columns={columns}
+        hideFilter
+        onRowClick={canUpdate ? setEditing : undefined}
+        onEdit={canUpdate ? setEditing : undefined}
+        onDelete={canDelete ? setDeleting : undefined}
+        createButton={canCreate ? { label: tx.new, onClick: openCreate } : undefined}
+        emptyState={{
+          icon: <Calculator className="size-8 text-muted-foreground" />,
+          title: tx.emptyTitle,
+          description: tx.emptyDescription,
+          action: canCreate ? { label: tx.new, onClick: openCreate } : undefined,
+        }}
+      />
       <ComputedPropertyEditor
         projectId={projectId}
         property={editing}
@@ -328,6 +330,6 @@ export function ComputedPropertiesTab({ projectId, canCreate, canUpdate, canDele
           }
         }}
       />
-    </div>
+    </>
   );
 }

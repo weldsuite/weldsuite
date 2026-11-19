@@ -23,6 +23,7 @@ vi.mock('@/lib/i18n/provider', async () => {
 });
 vi.mock('@weldsuite/permissions/react', () => ({ useCan: () => state.canCreate }));
 vi.mock('@/contexts/workspace-context', () => ({ useWorkspaceId: () => 'ws_1' }));
+vi.mock('@/contexts/breadcrumb-context', () => ({ useBreadcrumbs: () => undefined }));
 vi.mock('@/lib/router', () => ({
   useRouter: () => ({ push: state.push, replace: vi.fn() }),
   Link: ({ href, children }: { href: string; children: ReactNode }) => <a href={href}>{children}</a>,
@@ -91,11 +92,13 @@ describe('Dashboards', () => {
     resetCurrentProjectChoice();
   });
 
-  it('lists the dashboards as links to their page', () => {
+  it('lists the dashboards as rows that open their page', async () => {
     render(<DashboardsPage />);
-    const link = screen.getByRole('link', { name: /Marketing weekly/ });
-    expect(link.getAttribute('href')).toBe('/weldpanel/dashboards/wpd_1');
-    expect(within(link).getByText('The numbers for Monday')).toBeTruthy();
+    expect(screen.getByText('Marketing weekly')).toBeTruthy();
+    expect(screen.getByText('The numbers for Monday')).toBeTruthy();
+    expect(screen.getByText(en.weldpanel.analytics.common.workspace)).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: en.common.actions.view }));
+    expect(state.push).toHaveBeenCalledWith('/weldpanel/dashboards/wpd_1');
   });
 
   it('shows an empty state that offers to create the first one', async () => {

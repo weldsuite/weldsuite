@@ -373,7 +373,7 @@ describe('WeldPanel project page', () => {
       expect(screen.getByText(td.unavailable)).toBeTruthy();
     });
 
-    it('lists the DNS records of a pending domain, and the snippet of an active one', () => {
+    it('lists the DNS records of a pending domain, and the snippet of an active one', async () => {
       state.domains = {
         data: [
           {
@@ -407,23 +407,28 @@ describe('WeldPanel project page', () => {
         error: null,
         refetch: vi.fn(),
       };
-      show();
+      const { user } = show();
       expect(screen.getByText(td.statuses.pending)).toBeTruthy();
+      await user.click(screen.getAllByRole('button', { name: 'View' })[0]!);
       expect(screen.getByText('collect.weldsuite.org')).toBeTruthy();
+      await user.click(screen.getByRole('button', { name: en.common.actions.back }));
+      await user.click(screen.getAllByRole('button', { name: 'View' })[1]!);
       expect(screen.getByRole('region', { name: td.snippetTitle.replace('{hostname}', 'pnl.acme.test') }).textContent).toContain('https://pnl.acme.test/s.js');
     });
 
     it('adds a domain and refuses something that is not a host name', async () => {
       state.createDomain.mockResolvedValue({});
       const { user } = show();
-      const input = screen.getByLabelText(td.hostnameLabel);
+      await user.click(screen.getAllByRole('button', { name: td.add })[0]!);
+      const dialog = await screen.findByRole('dialog');
+      const input = within(dialog).getByLabelText(td.hostnameLabel);
       await user.type(input, 'not a host');
-      await user.click(screen.getByRole('button', { name: td.add }));
+      await user.click(within(dialog).getByRole('button', { name: td.add }));
       expect(screen.getByText(td.invalid)).toBeTruthy();
       expect(state.createDomain).not.toHaveBeenCalled();
       await user.clear(input);
       await user.type(input, 'Stats.Acme.test');
-      await user.click(screen.getByRole('button', { name: td.add }));
+      await user.click(within(dialog).getByRole('button', { name: td.add }));
       await waitFor(() => expect(state.createDomain).toHaveBeenCalledWith('stats.acme.test'));
     });
 

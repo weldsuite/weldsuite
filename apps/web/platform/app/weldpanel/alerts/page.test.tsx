@@ -30,6 +30,7 @@ vi.mock('@/lib/i18n/provider', async () => {
   return { useI18n: () => ({ t: english, language: 'en', format: interpolate }) };
 });
 vi.mock('@weldsuite/permissions/react', () => ({ useCan: (key: string) => state.perms.has(key) }));
+vi.mock('@/contexts/breadcrumb-context', () => ({ useBreadcrumbs: () => undefined }));
 vi.mock('@/contexts/workspace-context', () => ({ useWorkspaceId: () => 'ws_1' }));
 vi.mock('@/lib/router', () => ({
   useRouter: () => ({ push: vi.fn(), replace: state.replace }),
@@ -94,7 +95,7 @@ function alert(overrides: Partial<PanelAlertDto> = {}): PanelAlertDto {
 }
 
 async function openMenu(name: string, item: string) {
-  await userEvent.click(screen.getByRole('button', { name: ta.actions.menu.replace('{name}', name) }));
+  await userEvent.click(screen.getByRole('button', { name: en.common.actions.title }));
   await userEvent.click(await screen.findByRole('menuitem', { name: item }));
 }
 
@@ -114,7 +115,7 @@ describe('Alerts', () => {
   it('lists the alerts of the current project with their state and what they watch', () => {
     render(<AlertsPage />);
     expect(state.listParams[0]).toEqual({ projectId: 'wpp_1', scope: 'all' });
-    expect(screen.getByRole('button', { name: 'Signups dropped' })).toBeTruthy();
+    expect(screen.getByText('Signups dropped')).toBeTruthy();
     expect(screen.getByText('Weekly signups')).toBeTruthy();
     expect(screen.getByText('Below 100')).toBeTruthy();
     expect(screen.getByText(ta.states.firing)).toBeTruthy();
@@ -132,7 +133,7 @@ describe('Alerts', () => {
 
   it('opens an alert from the list by putting it in the URL', async () => {
     render(<AlertsPage />);
-    await userEvent.click(screen.getByRole('button', { name: 'Signups dropped' }));
+    await userEvent.click(screen.getByRole('button', { name: en.common.actions.view }));
     expect(state.replace).toHaveBeenCalledWith('/weldpanel/alerts?alert=pnal_1');
   });
 
@@ -146,7 +147,7 @@ describe('Alerts', () => {
   it('snoozes an alert for a day', async () => {
     state.snooze.mockResolvedValue(alert());
     render(<AlertsPage />);
-    await userEvent.click(screen.getByRole('button', { name: ta.actions.menu.replace('{name}', 'Signups dropped') }));
+    await userEvent.click(screen.getByRole('button', { name: en.common.actions.title }));
     await userEvent.click(await screen.findByRole('menuitem', { name: ta.actions.snooze }));
     await userEvent.click(await screen.findByRole('menuitem', { name: ta.actions.snooze1d }));
     await waitFor(() => expect(state.snooze).toHaveBeenCalledTimes(1));
@@ -173,7 +174,7 @@ describe('Alerts', () => {
   it("offers no changes on someone else's alert", async () => {
     state.alerts = [alert({ ownerUserId: 'user_2' })];
     render(<AlertsPage />);
-    await userEvent.click(screen.getByRole('button', { name: ta.actions.menu.replace('{name}', 'Signups dropped') }));
+    await userEvent.click(screen.getByRole('button', { name: en.common.actions.title }));
     expect(await screen.findByRole('menuitem', { name: ta.actions.history })).toBeTruthy();
     expect(screen.queryByRole('menuitem', { name: ta.actions.edit })).toBeNull();
     expect(screen.queryByRole('menuitem', { name: ta.actions.delete })).toBeNull();
