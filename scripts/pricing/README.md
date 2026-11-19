@@ -1,11 +1,32 @@
 # Pricing rollouts
 
 Scripts that move the platform's `plans` catalog in step with the marketing site
-(weldsuite.org/pricing). Two rollouts so far, newest first.
+(weldsuite.org/pricing). Three rollouts so far, newest first.
 
 The EU edition has its own master database: `eu-free-plan.sql` sets Free to
 2 members there (adding the row if it is missing) and moves the workspaces
 made without a plan onto it. How to run it is in the file's header.
+
+## Run order — SSO / SAML in Business (2026-11)
+
+SSO used to be included in Enterprise only, with a €100/month add-on for
+Business and Scale. It is now part of the plans named Business and up: on
+Global Business, Scale and Enterprise; on the EU edition, which sells Global's
+Business and Scale tiers as Starter and Business, Business and Enterprise
+(Starter has none).
+
+1. **Deploy the code.** Only copy changes: the plan cards, the comparison
+   table and the pricing dialog list SSO / SAML under Business. Entitlement
+   itself reads `plans.features.sso`, so nothing changes until step 2.
+2. **Run `2026-11-sso-in-business.sql`** against the Global master and the EU
+   master (commands in its header). It sets `features.sso = true` on
+   `business`, `scale` and `enterprise` (the EU master has no `scale`, and
+   its `starter` is left alone), and lists the add-ons still being charged.
+3. **End those add-ons** in the admin console (Revoke SSO > Immediately). The
+   plan keeps SSO on; without this the customer keeps paying €100/month for
+   something the plan already includes.
+4. **No Stripe change.** The add-on price stays for staff deals on plans
+   without SSO; no paid plan on Global is left that can buy it.
 
 ## Current ladder (after `2026-09-free-plan.sql`)
 

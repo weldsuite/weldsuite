@@ -397,6 +397,7 @@ export const common = {
           'API-toegang en webhooks',
           'Eigen e-maildomeinen',
           'Rollen en rechten',
+          'SSO / SAML',
           'Standaard support',
         ],
         scale: [
@@ -409,7 +410,6 @@ export const common = {
         ],
         enterprise: [
           'Aangepast aantal plekken',
-          'SSO / SAML',
           '99,999% uptime-SLA',
           'Dataresidentie',
           'Dedicated support',
