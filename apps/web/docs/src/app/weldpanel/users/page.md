@@ -8,7 +8,7 @@ screenshots_todo:
   - file: weldpanel-users.png
     shows: The Users list with the search box, the cohort filter and identified and anonymous visitors
   - file: weldpanel-profile.png
-    shows: A user profile on the Overview tab with first and last seen, properties, anonymous ids and the Open in WeldCRM button
+    shows: A user profile in its panel on the Overview tab with first and last seen, properties, anonymous ids and the WeldCRM button
   - file: weldpanel-crm-website-activity.png
     shows: A WeldCRM person with the Website activity card showing last seen, recent activity and recordings
 ---
@@ -24,7 +24,7 @@ Seeing users needs the **View tracked user profiles** permission, because a prof
 Open **Users** under **Behaviour**.
 
 - **Search** by name, email or id.
-- Pick a **Cohort** to see only the people in it, or **All users**.
+- Click **Filter** and pick a **Cohort** to see only the people in it.
 
 The list shows each person with their email, when they were first and last seen, and their properties.
 
@@ -34,13 +34,13 @@ A person appears here once your site calls `identify()` for them, or your server
 
 ## A person's profile
 
-Click a person to open their profile. It has three tabs:
+Click a person to open their profile in a panel. It has three tabs:
 
-- **Overview**: **First seen**, **Last seen**, **Events (90 days)**, **Recent sessions**, the **User id**, the **Anonymous ids** linked to it (one per browser or device) and all **Properties**.
+- **Overview**: the email, **First seen**, **Last seen**, **Events (90 days)**, the **User id**, the **Anonymous ids** linked to it (one per browser or device) and all **Properties**.
 - **Activity**: their events of the last 90 days, newest first.
-- **Recordings**: their recorded visits. Click **Watch** to open one.
+- **Recordings**: their recorded visits. Click one to watch it.
 
-When a WeldCRM person has the same email as the profile, **Open in WeldCRM** takes you to them.
+When a WeldCRM person has the same email as the profile, the WeldCRM button at the top of the panel (**Open in WeldCRM**) takes you to them.
 
 ---
 
@@ -64,7 +64,7 @@ The card only reads from WeldPanel. Nothing is written to WeldCRM, and no CRM pe
 To act on a request to delete someone's data, for example under the GDPR:
 
 1. Open the person's profile in the project.
-2. Click **Erase this person**.
+2. Open the **⋮** menu at the top of the panel and click **Erase this person**.
 3. Type the name shown to confirm, then click **Erase person**.
 
 What happens:

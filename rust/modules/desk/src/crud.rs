@@ -135,6 +135,11 @@ pub(crate) enum Hook {
     /// helpdesk-departments: `recheckEscalations` after an update that
     /// changes the team's `escalationRules` or `isActive`.
     DepartmentEscalations,
+    /// canned-responses: the caller owns what they create (`agentId`, never
+    /// the body's), and an update that saves an ownerless response as
+    /// `personal` makes it theirs. A personal response is visible in the
+    /// picker to its owner only (`/search`).
+    CannedResponseOwner,
 }
 
 type Handler = &'static Crud;
@@ -495,6 +500,9 @@ async fn create(
     let mut values = Map::new();
     table.set(&mut values, "id", json!(id));
     values.extend(table.values(&data));
+    if crud.hook == Hook::CannedResponseOwner {
+        table.set(&mut values, "agentId", json!(caller.user_id));
+    }
     table.set(&mut values, "createdAt", json!(now));
     table.set(&mut values, "updatedAt", json!(now));
     let mut trusted = vec!["createdAt", "updatedAt"];
@@ -545,6 +553,14 @@ async fn update(
     let mut values = Map::new();
     table.set(&mut values, "updatedAt", json!(now()));
     values.extend(table.values(&data));
+    if crud.hook == Hook::CannedResponseOwner
+        && data.get("scope").and_then(Value::as_str) == Some("personal")
+        && existing
+            .get("agentId")
+            .is_none_or(|owner| owner.is_null() || owner.as_str() == Some(""))
+    {
+        table.set(&mut values, "agentId", json!(caller.user_id));
+    }
     let trusted: &[&str] = if data.contains_key("updatedAt") {
         &[]
     } else {

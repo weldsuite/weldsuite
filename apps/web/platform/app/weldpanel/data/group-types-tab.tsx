@@ -5,24 +5,24 @@
  */
 
 import { useEffect, useState } from 'react';
-import { Building2, Plus } from 'lucide-react';
+import { Building2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { PANEL_MAX_GROUP_TYPES, type PanelGroupTypeDto } from '@weldsuite/app-api-client/schemas/weldpanel-groups';
 import { PANEL_GROUP_TYPE } from '@weldsuite/app-api-client/schemas/weldpanel-query';
 import { Button } from '@weldsuite/ui/components/button';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
-import { EmptyState } from '@weldsuite/ui/components/empty-state';
+import { DropdownMenuItem } from '@weldsuite/ui/components/dropdown-menu';
 import { ErrorState } from '@weldsuite/ui/components/error-banner';
 import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 import { Input } from '@weldsuite/ui/components/input';
-import { Skeleton } from '@weldsuite/ui/components/skeleton';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { SoftBadge } from '@weldsuite/ui/components/soft-badge';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@weldsuite/ui/components/table';
 import { useCreateWeldPanelGroupType, useDeleteWeldPanelGroupType, useUpdateWeldPanelGroupType, useWeldPanelGroupTypes } from '@/hooks/queries/use-weldpanel-analysis-queries';
+import { PanelEntityList, type ColumnDef } from '@/components/panel-entity-list';
 import { useI18n } from '@/lib/i18n/provider';
 import { LabeledField } from '../components/labeled-field';
-import { isConflict, RowActions, type DataTabPermissions } from './shared';
+import { isConflict, type DataTabPermissions } from './shared';
 
 /** `company` → `Company` / `Companies`: starting names for a new type. */
 function suggestedNames(groupType: string): { singular: string; plural: string } {
@@ -134,6 +134,12 @@ function GroupTypeEditor({
   );
 }
 
+/** A group type as a list row: types that are collected but not configured yet have no id of their own. */
+interface GroupRow {
+  id: string;
+  type: PanelGroupTypeDto;
+}
+
 export function GroupTypesTab({ projectId, canCreate, canUpdate, canDelete }: Readonly<{ projectId: string } & DataTabPermissions>) {
   const { t, format } = useI18n();
   const tx = t.weldpanel.explore.data.groupTypes;
@@ -144,73 +150,88 @@ export function GroupTypesTab({ projectId, canCreate, canUpdate, canDelete }: Re
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<PanelGroupTypeDto | null>(null);
 
-  if (isLoading) return <Skeleton className="h-32 w-full" />;
+  if (isLoading) return <PageLoader fullScreen={false} label={t.common.labels.loading} />;
   if (isError) return <ErrorState message={tx.loadFailed} onRetry={() => void refetch()} retryLabel={t.weldpanel.retry} />;
 
   const slotsTaken = (types ?? []).filter((g) => g.collecting || g.configured).length;
   const full = slotsTaken >= PANEL_MAX_GROUP_TYPES;
-  const newButton = canCreate && !full && (
-    <Button size="sm" onClick={() => setCreating(true)}>
-      <Plus />
-      {tx.new}
-    </Button>
-  );
+  const rows: GroupRow[] = (types ?? []).map((type) => ({ id: type.groupType, type }));
+  // A configured type edits; one that is only collected is configured, which needs create.
+  const canOpen = (row: GroupRow) => (row.type.configured ? canUpdate : canCreate);
+  const open = (row: GroupRow) => setEditing(row.type.configured ? row.type : { groupType: row.type.groupType });
+
+  const columns: ColumnDef<GroupRow>[] = [
+    {
+      id: 'type',
+      header: tx.columns.type,
+      width: 'flex-1 min-w-[140px]',
+      render: ({ type }) => <span className="block truncate font-mono text-xs">{type.groupType}</span>,
+    },
+    {
+      id: 'names',
+      header: tx.columns.names,
+      width: 'hidden sm:block sm:w-[220px]',
+      render: ({ type }) =>
+        type.configured ? (
+          <span className="block truncate">
+            {type.nameSingular} / {type.namePlural}
+          </span>
+        ) : (
+          <span className="block truncate text-muted-foreground">{tx.notConfigured}</span>
+        ),
+    },
+    {
+      id: 'crm',
+      header: tx.columns.crm,
+      width: 'hidden md:block md:w-[180px]',
+      render: ({ type }) => <span className="block truncate font-mono text-xs text-muted-foreground">{type.crmMatchProperty ?? '–'}</span>,
+    },
+    {
+      id: 'status',
+      header: tx.columns.status,
+      width: 'w-[130px]',
+      render: ({ type }) => <SoftBadge tone={type.collecting ? 'success' : 'neutral'}>{type.collecting ? tx.statuses.collecting : tx.statuses.notCollecting}</SoftBadge>,
+    },
+  ];
+
+  const openCreate = () => setCreating(true);
 
   return (
-    <div className="grid gap-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <p className="max-w-2xl text-sm text-muted-foreground">{format(tx.description, { count: PANEL_MAX_GROUP_TYPES })}</p>
-        {types && types.length > 0 && newButton}
-      </div>
-      {full && canCreate && <InfoBanner variant="info">{format(tx.limitReached, { count: PANEL_MAX_GROUP_TYPES })}</InfoBanner>}
-      {!types || types.length === 0 ? (
-        <EmptyState icon={Building2} title={tx.emptyTitle} description={tx.emptyDescription} action={newButton || undefined} />
-      ) : (
-        <div className="overflow-x-auto rounded-lg border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{tx.columns.type}</TableHead>
-                <TableHead>{tx.columns.names}</TableHead>
-                <TableHead className="hidden md:table-cell">{tx.columns.crm}</TableHead>
-                <TableHead>{tx.columns.status}</TableHead>
-                <TableHead className="w-10" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {types.map((g) => (
-                <TableRow key={g.groupType}>
-                  <TableCell className="font-mono text-xs">{g.groupType}</TableCell>
-                  <TableCell>
-                    {g.configured ? (
-                      <span>
-                        {g.nameSingular} / {g.namePlural}
-                      </span>
-                    ) : (
-                      <span className="text-muted-foreground">{tx.notConfigured}</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="hidden font-mono text-xs text-muted-foreground md:table-cell">{g.crmMatchProperty ?? '–'}</TableCell>
-                  <TableCell>
-                    <SoftBadge tone={g.collecting ? 'success' : 'neutral'}>{g.collecting ? tx.statuses.collecting : tx.statuses.notCollecting}</SoftBadge>
-                  </TableCell>
-                  <TableCell>
-                    {g.configured ? (
-                      <RowActions name={g.namePlural} onEdit={canUpdate ? () => setEditing(g) : undefined} onDelete={canDelete ? () => setDeleting(g) : undefined} />
-                    ) : (
-                      canCreate && (
-                        <Button type="button" variant="outline" size="sm" onClick={() => setEditing({ groupType: g.groupType })}>
-                          {tx.configure}
-                        </Button>
-                      )
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+    <>
+      {full && canCreate && (
+        <div className="px-3 pt-3 md:px-4">
+          <InfoBanner variant="info">{format(tx.limitReached, { count: PANEL_MAX_GROUP_TYPES })}</InfoBanner>
         </div>
       )}
+      <PanelEntityList<GroupRow>
+        items={rows}
+        isLoading={false}
+        columns={columns}
+        hideFilter
+        onRowClick={(row) => (canOpen(row) ? open(row) : undefined)}
+        rowMenu={(row) => {
+          const edit = canOpen(row);
+          const del = row.type.configured && canDelete;
+          if (!edit && !del) return null;
+          return (
+            <>
+              {edit && <DropdownMenuItem onSelect={() => open(row)}>{row.type.configured ? tc.edit : tx.configure}</DropdownMenuItem>}
+              {del && (
+                <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={() => setDeleting(row.type)}>
+                  {tc.delete}
+                </DropdownMenuItem>
+              )}
+            </>
+          );
+        }}
+        createButton={canCreate && !full ? { label: tx.new, onClick: openCreate } : undefined}
+        emptyState={{
+          icon: <Building2 className="size-8 text-muted-foreground" />,
+          title: tx.emptyTitle,
+          description: tx.emptyDescription,
+          action: canCreate && !full ? { label: tx.new, onClick: openCreate } : undefined,
+        }}
+      />
       <GroupTypeEditor
         projectId={projectId}
         groupType={editing}
@@ -242,6 +263,6 @@ export function GroupTypesTab({ projectId, canCreate, canUpdate, canDelete }: Re
           }
         }}
       />
-    </div>
+    </>
   );
 }

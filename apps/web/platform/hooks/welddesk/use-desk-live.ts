@@ -11,12 +11,12 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getSocketWorkspaceId, useAuth } from '@/lib/auth';
+import { useAuth } from '@/lib/auth';
 import { useQueryClient, type InfiniteData, type QueryClient } from '@tanstack/react-query';
 import { RoomClient } from '@weldsuite/realtime/client';
 import { useTopic } from '@weldsuite/realtime/react';
 import type { ConnectionState, PresenceMember, TypingUser } from '@weldsuite/realtime/types';
-import { getRealtimeWsOrigin } from '@/lib/api/public-env';
+import { realtimeSocketUrl } from '@/lib/api/realtime-url';
 import {
   deskKeys,
   type DeskConversation,
@@ -177,13 +177,12 @@ export function useDeskConversationRoom(conversationId: string | undefined): Des
   const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    const realtimeOrigin = getRealtimeWsOrigin();
-    // An empty origin means realtime is off for this deployment.
-    if (!conversationId || !realtimeOrigin) return;
+    const url = conversationId ? realtimeSocketUrl(`/ws/conversation/${conversationId}`) : '';
+    // An empty URL means realtime is off for this deployment.
+    if (!url) return;
     const client = new RoomClient({
-      url: `${realtimeOrigin}/ws/conversation/${conversationId}`,
+      url,
       getToken: async () => (await getTokenRef.current()) || '',
-      workspace: getSocketWorkspaceId(),
     });
     clientRef.current = client;
     const offTyping = client.onTyping(setTypingUsers);

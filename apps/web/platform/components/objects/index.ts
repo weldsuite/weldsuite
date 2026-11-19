@@ -36,6 +36,8 @@ import './ledger-account';
 import './payment-run';
 import './payroll-run';
 import './hr-employee';
+import './panel-person';
+import './panel-group';
 import './vat-return';
 import './sales-tax-agency';
 import './tax-exemption-certificate';

@@ -21,7 +21,7 @@ use weldsuite_auth::{AuthContext, TokenError};
 use weldsuite_ports::{BoxFuture, RealtimeMessage, RealtimePublisher, Room};
 use weldsuite_realtime::{
     Authenticator, ChatAccess, Directory, DirectoryError, Gateway, GatewayConfig, Member,
-    WorkspaceResolver,
+    WorkspaceChooser,
 };
 
 type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
@@ -139,31 +139,40 @@ struct Pod {
     base: String,
 }
 
-/// Membership mode's check: `member_1` and `admin_1` are active members of
-/// `ws_a` (organization `org_a`, slug `acme`).
+async fn pod(url: &str, prefix: &str, config: GatewayConfig) -> Pod {
+    pod_with(url, prefix, config, None).await
+}
+
+/// Membership mode (`OIDC_WORKSPACE_SOURCE=header`): `member_1` may use
+/// `ws_a` (or `org_a`, its organization id); `member_2` has `org_a` as their
+/// only workspace; `admin_1` has several.
 struct Memberships;
 
-impl WorkspaceResolver for Memberships {
+impl WorkspaceChooser for Memberships {
     fn member_workspace<'a>(
         &'a self,
         user: &'a str,
         reference: &'a str,
     ) -> BoxFuture<'a, Result<Option<String>, DirectoryError>> {
-        let member = ["member_1", "admin_1"].contains(&user)
-            && ["ws_a", "acme", "org_a"].contains(&reference);
-        Box::pin(std::future::ready(Ok(member.then(|| "org_a".to_owned()))))
+        let org = (matches!(user, "member_1" | "admin_1") && matches!(reference, "ws_a" | "org_a"))
+            .then(|| "org_a".to_owned());
+        Box::pin(std::future::ready(Ok(org)))
     }
-}
 
-async fn pod(url: &str, prefix: &str, config: GatewayConfig) -> Pod {
-    pod_with(url, prefix, config, None).await
+    fn sole_workspace<'a>(
+        &'a self,
+        user: &'a str,
+    ) -> BoxFuture<'a, Result<Option<String>, DirectoryError>> {
+        let org = (user == "member_2").then(|| "org_a".to_owned());
+        Box::pin(std::future::ready(Ok(org)))
+    }
 }
 
 async fn pod_with(
     url: &str,
     prefix: &str,
     config: GatewayConfig,
-    workspaces: Option<Arc<dyn WorkspaceResolver>>,
+    workspaces: Option<Arc<dyn WorkspaceChooser>>,
 ) -> Pod {
     let gateway = Gateway::start(
         config,
@@ -315,58 +324,68 @@ async fn handshake_auth_and_refusals() {
     assert_eq!(plain, 426, "a plain GET is not an upgrade");
 }
 
-/// Membership mode: tokens without an organization name the workspace in
-/// `?workspace=`; a token's organization still wins.
+/// Membership mode: the token names no workspace and the socket names it in
+/// `?workspace=`; without one, the user's only workspace is used.
 #[tokio::test]
-async fn membership_mode_takes_the_workspace_from_the_query() {
+async fn membership_mode_takes_the_workspace_from_the_url() {
     let Some(url) = valkey_url() else { return };
     let prefix = prefix();
     let one = pod_with(&url, &prefix, config(), Some(Arc::new(Memberships))).await;
 
-    for path in ["/ws?workspace=ws_a", "/ws?workspace=acme"] {
-        let mut socket = connect(&one, path, "member_1").await;
-        assert_eq!(next(&mut socket).await["type"], "connected", "{path}");
-    }
-    let mut room = connect(&one, "/ws/chat/ch_private?workspace=ws_a", "member_1").await;
-    assert_eq!(next(&mut room).await["type"], "connected");
-    let mut agent = connect(&one, "/ws/conversation/conv_1?workspace=ws_a", "admin_1").await;
-    assert_eq!(next(&mut agent).await["type"], "connected");
-    let mut support = connect(&one, "/ws/support/ws_a", "member_1").await;
-    assert_eq!(next(&mut support).await["type"], "connected");
+    let mut socket = connect(&one, "/ws?workspace=ws_a", "member_1").await;
+    assert_eq!(next(&mut socket).await["type"], "connected");
+    let mut by_org = connect(&one, "/ws?workspace=org_a", "admin_1").await;
+    assert_eq!(next(&mut by_org).await["type"], "connected");
+    let mut sole = connect(&one, "/ws", "member_2").await;
+    assert_eq!(next(&mut sole).await["type"], "connected");
+
+    // The hub is the workspace's: an event for `org_a` reaches the socket.
+    subscribe(&mut socket, &["task"], None).await;
+    publisher(&url, &prefix)
+        .await
+        .publish(&event("task.t1", json!({ "id": "t1" })))
+        .await
+        .expect("publish");
+    assert_eq!(next_of(&mut socket, "event").await["data"]["id"], "t1");
+
+    let mut room = connect(&one, "/ws/conversation/conv_1?workspace=ws_a", "member_1").await;
+    next_of(&mut room, "connected").await;
+    let mut chat = connect(&one, "/ws/chat/ch_public?workspace=ws_a", "member_1").await;
+    next_of(&mut chat, "connected").await;
 
     assert_eq!(
-        refused(&one, "/ws?token=member_2&workspace=ws_a").await,
+        refused(&one, "/ws?workspace=ws_other&token=member_1").await,
         403,
-        "not a member"
+        "not a member of the named workspace"
     );
     assert_eq!(
-        refused(&one, "/ws?token=member_1&workspace=ws_other").await,
+        refused(&one, "/ws?workspace=ws%20a&token=member_1").await,
         403,
-        "no such workspace"
+        "an unusable reference"
     );
     assert_eq!(
-        refused(&one, "/ws?token=member_1").await,
+        refused(&one, "/ws?token=admin_1").await,
         401,
-        "no workspace named"
+        "several workspaces and none named"
     );
     assert_eq!(
         refused(
             &one,
-            "/ws/conversation/conv_1?token=member_2&workspace=ws_a"
+            "/ws/conversation/conv_1?workspace=ws_other&token=member_1"
         )
         .await,
         403
     );
-    // A token's organization is never overridden.
-    let mut claim = connect(&one, "/ws?workspace=ws_other", "member_1@org_a").await;
-    assert_eq!(next(&mut claim).await["type"], "connected");
 
-    // A claim-mode server ignores the parameter.
-    let plain = pod(&url, &prefix, config()).await;
+    // Claim mode never reads the parameter: a token without an organization
+    // stays refused, and one with an organization keeps it.
+    let claims = pod(&url, &prefix, config()).await;
     assert_eq!(
-        refused(&plain, "/ws?token=member_1&workspace=ws_a").await,
+        refused(&claims, "/ws?workspace=ws_a&token=member_1").await,
         401
     );
+    let mut kept = connect(&claims, "/ws?workspace=ws_other", "member_1@org_a").await;
+    assert_eq!(next(&mut kept).await["type"], "connected");
 }
 
 /// A GET without the upgrade headers.

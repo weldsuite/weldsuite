@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { en } from '@weldsuite/i18n/locales/en';
-import type { PageVisit, ReplayEvent, TimelineMarker } from '../../lib/replay';
+import type { ReplayEvent, TimelineMarker } from '../../lib/replay';
 import { ReplayPlayer, type ReplayPlayerHandle } from './replay-player';
 
 const rr = vi.hoisted(() => {
@@ -74,15 +74,11 @@ const markers: TimelineMarker[] = [
   { id: 'm1', kind: 'frustration', offsetMs: 20_000, name: '$rageclick', label: 'Buy now', url: null },
   { id: 'm2', kind: 'error', offsetMs: 30_000, name: '$exception', label: 'TypeError', url: null },
 ];
-const visits: PageVisit[] = [
-  { offsetMs: 0, path: '/', url: 'https://example.com/', title: null, durationMs: 25_000 },
-  { offsetMs: 25_000, path: '/pricing', url: 'https://example.com/pricing', title: null, durationMs: 35_000 },
-];
 
 const current = () => rr.FakeReplayer.instances[rr.FakeReplayer.instances.length - 1]!;
 
 function setup(extra: Partial<Parameters<typeof ReplayPlayer>[0]> = {}) {
-  return render(<ReplayPlayer events={events} markers={markers} inactive={[{ startMs: 5000, endMs: 15_000 }]} visits={visits} {...extra} />);
+  return render(<ReplayPlayer events={events} markers={markers} inactive={[{ startMs: 5000, endMs: 15_000 }]} {...extra} />);
 }
 
 describe('ReplayPlayer', () => {
@@ -134,14 +130,13 @@ describe('ReplayPlayer', () => {
     const replayer = current();
     await userEvent.click(screen.getByRole('switch', { name: tp.skipInactivity }));
     expect(replayer.configs.at(-1)).toEqual({ skipInactive: false });
-    await userEvent.click(screen.getByRole('combobox', { name: tp.speed }));
-    await userEvent.click(await screen.findByRole('option', { name: '4x' }));
+    await userEvent.click(screen.getByRole('button', { name: tp.speed }));
+    await userEvent.click(await screen.findByRole('menuitemradio', { name: '4x' }));
     expect(replayer.configs.at(-1)).toEqual({ speed: 4 });
   });
 
-  it('shows the page being replayed and the idle stretches', () => {
+  it('shows the idle stretches', () => {
     setup();
-    expect(screen.getByText('https://example.com/')).toBeTruthy();
     expect(screen.getAllByTestId('timeline-idle')).toHaveLength(1);
   });
 

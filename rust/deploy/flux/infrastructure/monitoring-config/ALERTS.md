@@ -96,6 +96,23 @@ answered 5xx for 5 minutes, at more than 6 requests a minute.
 - Which route: the "WeldSuite API" dashboard and `ApiRouteErrors`.
 - Just deployed? Roll back by pinning the previous chart (cluster runbook).
 
+### TraefikRateLimiting
+
+Traefik's own rate limits (`../controllers/values/traefik.yaml`) refused more
+than one request a second for 10 minutes. The limits count per client
+address (an IPv6 /64): every request, the sign-in host and the platform's
+`/api/sign-in` each have their own.
+
+- Who: the Traefik dashboard in the Components folder (429s by entry point
+  and service). Traefik keeps no access log, so nothing names the address;
+  the Hetzner console's load balancer graphs show a flood's size.
+- A flood from a few addresses: the limits are doing their job. One from
+  many addresses gets through them and needs a scrubbing proxy in front
+  (Hetzner runbook, "Rate limits").
+- Customers refused (a support ticket, an office behind one NAT address):
+  raise that middleware's `average` and `burst`, or `amount` for open
+  requests.
+
 ### ApiRouteErrors
 
 One route answers more than 10% 5xx for 10 minutes (the server's own

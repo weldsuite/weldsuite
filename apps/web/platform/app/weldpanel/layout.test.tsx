@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
 import { isProjectsPath } from './layout';
 import { resetCurrentProjectChoice } from './lib/use-current-project';
@@ -68,47 +67,15 @@ describe('WeldPanel layout', () => {
     resetCurrentProjectChoice();
   });
 
-  it('puts the project switcher under the header of an analytics page', () => {
+  it('shows an analytics page under the header, with no project row of its own (the sidebar picks the project)', () => {
     render(
       <WeldPanelLayout>
         <p>page</p>
       </WeldPanelLayout>,
     );
-    expect(screen.getByTestId('weldpanel-project-bar')).toBeTruthy();
-    expect(screen.getByRole('combobox', { name: 'Project' }).textContent).toContain('Marketing site');
+    expect(screen.getByTestId('app-header')).toBeTruthy();
+    expect(screen.queryByRole('combobox', { name: 'Project' })).toBeNull();
     expect(screen.getByText('page')).toBeTruthy();
-  });
-
-  it('remembers the project chosen in the switcher', async () => {
-    render(
-      <WeldPanelLayout>
-        <p>page</p>
-      </WeldPanelLayout>,
-    );
-    await userEvent.click(screen.getByRole('combobox', { name: 'Project' }));
-    await userEvent.click(await screen.findByRole('option', { name: 'Docs' }));
-    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Project' }).textContent).toContain('Docs'));
-    expect(window.localStorage.getItem('weldpanel:last-project:ws_1')).toBe('wpp_2');
-  });
-
-  it('leaves the switcher off the Projects pages, which pick the project themselves', () => {
-    state.pathname = '/weldpanel/projects/wpp_1';
-    render(
-      <WeldPanelLayout>
-        <p>page</p>
-      </WeldPanelLayout>,
-    );
-    expect(screen.queryByTestId('weldpanel-project-bar')).toBeNull();
-  });
-
-  it('has no switcher without a project', () => {
-    state.projects = [];
-    render(
-      <WeldPanelLayout>
-        <p>page</p>
-      </WeldPanelLayout>,
-    );
-    expect(screen.queryByTestId('weldpanel-project-bar')).toBeNull();
   });
 
   it('redirects every page but the projects to the projects where analytics are off (Kubernetes)', async () => {
@@ -122,7 +89,7 @@ describe('WeldPanel layout', () => {
     await waitFor(() => expect(state.replace).toHaveBeenCalledWith('/weldpanel/projects'));
   });
 
-  it('serves the projects pages there, without a switcher', () => {
+  it('serves the projects pages there', () => {
     state.analytics = false;
     state.pathname = '/weldpanel/projects';
     render(
@@ -131,7 +98,6 @@ describe('WeldPanel layout', () => {
       </WeldPanelLayout>,
     );
     expect(screen.getByText('page')).toBeTruthy();
-    expect(screen.queryByTestId('weldpanel-project-bar')).toBeNull();
     expect(state.replace).not.toHaveBeenCalled();
   });
 

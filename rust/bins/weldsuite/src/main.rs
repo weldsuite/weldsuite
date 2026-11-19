@@ -293,6 +293,11 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         public_auth,
         sign_in,
         realtime: realtime::PublicRealtime::from_config(&config),
+        helpdesk_widget_host: config
+            .helpdesk_widget_dir
+            .as_ref()
+            .and(config.helpdesk_widget_hosts.first())
+            .map(|host| Arc::from(host.as_str())),
         ai,
         sandboxes,
         panel_sql,

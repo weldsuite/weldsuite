@@ -6,9 +6,9 @@ nextjs:
     description: Which visits WeldPanel records, how masking keeps personal data out, how to find and watch a recording, keep favourites, and let AI summarise sessions.
 screenshots_todo:
   - file: weldpanel-recordings.png
-    shows: The Recordings list with the Filters panel open, frustration signal badges and a favourite
+    shows: The Recordings list with Filter pills, the sort picker, frustration signal badges and a favourite
   - file: weldpanel-player.png
-    shows: The recording player with timeline markers, the speed menu, Skip inactivity, and the Events tab on the right
+    shows: A recording with the controls over the video, the Summary and Pages tabs under it, and the Timeline tab of the details column on the right
   - file: weldpanel-ai-summary.png
     shows: The Summary tab of a recording with What they tried to do, Outcome, Where they got stuck and The story
 ---
@@ -75,17 +75,18 @@ Add these attributes to your HTML to change masking for one element and everythi
 
 Open **Recordings** under **Behaviour**. Each row shows the **Visitor**, when the visit **Started**, its **Duration**, the number of **Pages**, its frustration **Signals**, the **Entry page** and the **Device and place**. A star marks a favourite.
 
-Click **Filters** to narrow down by:
+Search by a user id or anonymous id. Click **Filter** to add a filter:
 
-- **Duration** (at least, at most, in seconds) and **Pages visited** (the path contains a text);
-- **Entry page** and **Exit page**;
-- **Countries** (two-letter codes such as NL), **Devices** and **Browsers**;
-- **Person** (a user id or anonymous id) or **Cohort**;
-- **Did this event** or **Did not do this event**;
+- **Date range**;
+- **Duration (seconds): At least** and **Duration (seconds): At most**;
+- **Pages visited**, **Entry page** and **Exit page**;
+- **Countries**, **Devices** and **Browsers**;
+- **Cohort**;
+- **Did this event**, or with **is not**, the sessions that did not do it;
 - **Frustration**: rage clicks, dead clicks, quick backs or excessive scrolling;
 - **Has errors** and **Favourites only**.
 
-**Sort by** **Newest first**, **Longest first**, **Most pages**, **Most frustration** or **Most errors**.
+The menu next to **Filter** sorts the list: **Newest first**, **Longest first**, **Most pages**, **Most frustration** or **Most errors**.
 
 Funnels, the Frustration page and user profiles link here with the filters already set.
 
@@ -93,7 +94,7 @@ Funnels, the Frustration page and user profiles link here with the filters alrea
 
 ## Watch a recording
 
-Click a row to open the player.
+Click a row to open the recording. Move the pointer over the video to show the controls:
 
 - **Play** and **Pause**, **Replay from the start**, and back or forward 5 seconds.
 - **Playback speed**: 1x, 2x, 4x or 8x.
@@ -103,24 +104,24 @@ Click a row to open the player.
 
 Space plays or pauses. The arrow keys move 5 seconds.
 
-Next to the player:
+Under the player:
 
 - **Summary**: the AI summary, see below.
-- **Pages**: the pages visited and how long the visitor stayed on each. Click one to jump to it.
-- **Events**: every event of the visit, filtered by **All**, **Frustration** or **Errors**, with the JavaScript errors listed apart. Click one to jump to it.
-- **Person**: the visitor, a link to their profile if they are identified, and their other sessions.
+- **Pages**: the pages visited and how long the visitor stayed on each. Search them, or click **Filter** to filter by page or by time on page. Click one to jump to it.
+
+On the right, the details of the recording:
+
+- **Timeline**: every event of the visit. Search it, or click **Filter** to show one type, such as frustration or errors. Click an event to jump to it.
+- **Info**: the page on screen now, when the visit started, how long it took, the number of pages, clicks and events, the entry and exit page, the device, browser, OS and country, the visitor's name and email, their other sessions, and what each colour on the timeline means.
+- **Insights**: the frustration signals, the active and idle time, the time spent on each page, and the moments worth watching. Click a moment to jump to it.
 
 ---
 
 ## Favourites
 
-Recordings are kept for 30 or 90 days, depending on your plan. To keep one longer:
+Recordings are kept for 30 or 90 days, depending on your plan. To keep one longer, open the **⋮** menu of its row in **Recordings** and click **Add to favourites**.
 
-1. Click **Add to favourites**.
-2. Optionally add a **Note** about why it is worth keeping.
-3. Click **Save favourite**.
-
-Favourites are kept for 13 months. Filter on **Favourites only** to find them.
+Favourites are kept for 13 months. Filter on **Favourites only** to find them. **Remove from favourites**, in the same menu, lets the recording expire again.
 
 ---
 
@@ -137,12 +138,12 @@ On the **Summary** tab, click **Summarise this recording**. The summary tells yo
 
 ### A set of recordings
 
-On the **Recordings** page, set your filters and click **Summarise these sessions**. AI reads up to 20 of the matching sessions, newest first, and groups what it finds into **Themes**, each with the number of sessions and a link to **Watch an example**. A funnel drop-off is a good place to start.
+On the **Recordings** page, set your filters and click **Summarize**. AI reads up to 20 of the matching sessions, newest first, and groups what it finds into **Themes**, each with the number of sessions and a link to **Watch an example**. A funnel drop-off is a good place to start.
 
 ### Credits and privacy
 
 - Summaries use AI credits from your workspace's credit wallet. The summary shows how many it cost.
-- A saved summary is free to read. **Summarise again** is charged again.
+- A saved summary is free to read.
 - A set summary reuses the summaries of sessions that already have one, without charging for them again.
 - When the wallet does not have enough credits, the summary says so. Click **Add credits** to top up under **Settings** > **Billing**.
 - Only masked content reaches the AI: what you see in the player, never a masked text or field.

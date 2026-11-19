@@ -91,6 +91,11 @@ pub(crate) struct AppState {
     pub(crate) sign_in: Option<weldsuite_core_signin::SignInState>,
     /// Where `/config.json` sends the frontends for realtime.
     pub(crate) realtime: crate::realtime::PublicRealtime,
+    /// The host this server serves WeldDesk's helpdesk widget on (the first
+    /// of `HELPDESK_WIDGET_HOSTS`, with `HELPDESK_WIDGET_DIR`), named in
+    /// `/config.json` as `helpdeskWidgetUrl` so the widget's install code
+    /// points sites at it rather than at Global's.
+    pub(crate) helpdesk_widget_host: Option<Arc<str>>,
     /// The install's AI (`crate::ai`), `None` without `AI_DEFAULT_PROVIDER`.
     /// A route calls `crate::ai::for_request(state.ai.as_ref(), extensions)`:
     /// conformance builds put the test's own on each request.
@@ -524,7 +529,22 @@ async fn config_json(State(state): State<AppState>, headers: axum::http::HeaderM
     if let Some(url) = state.realtime.url(&headers) {
         body["realtimeUrl"] = json!(url);
     }
+    if let Some(host) = &state.helpdesk_widget_host {
+        body["helpdeskWidgetUrl"] = json!(helpdesk_widget_url(host, &headers));
+    }
     ([(header::CACHE_CONTROL, "no-cache")], Json(body)).into_response()
+}
+
+/// The widget's origin for `/config.json`: its host, over the scheme the
+/// request for `/config.json` came over (as the ingress forwarded it), the
+/// same rule as the realtime URL's.
+fn helpdesk_widget_url(host: &str, headers: &axum::http::HeaderMap) -> String {
+    let https = headers
+        .get("x-forwarded-proto")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(',').next())
+        .is_some_and(|proto| proto.trim().eq_ignore_ascii_case("https"));
+    format!("{}://{host}", if https { "https" } else { "http" })
 }
 
 async fn robots() -> &'static str {
@@ -655,6 +675,7 @@ mod tests {
             public_auth: None,
             sign_in: None,
             realtime: crate::realtime::PublicRealtime::default(),
+            helpdesk_widget_host: None,
             ai: None,
             sandboxes: None,
             panel_sql: None,
@@ -782,6 +803,29 @@ mod tests {
             body.get("realtimeUrl").is_none(),
             "no gateway without Valkey"
         );
+    }
+
+    /// The widget's origin, so its install code points sites at this
+    /// deployment's widget host; absent while the server serves no widget.
+    #[tokio::test]
+    async fn config_names_the_helpdesk_widget_it_serves() {
+        let (_, _, body) = call(state(), get("/config.json")).await;
+        let body: Value = serde_json::from_str(&body).expect("json");
+        assert!(body.get("helpdeskWidgetUrl").is_none());
+
+        let mut state = state();
+        state.helpdesk_widget_host = Some(Arc::from("widget.example.eu"));
+        let behind_tls = Request::builder()
+            .uri("/config.json")
+            .header("x-forwarded-proto", "https")
+            .body(Body::empty())
+            .expect("request");
+        let (_, _, body) = call(state.clone(), behind_tls).await;
+        let body: Value = serde_json::from_str(&body).expect("json");
+        assert_eq!(body["helpdeskWidgetUrl"], "https://widget.example.eu");
+        let (_, _, body) = call(state, get("/config.json")).await;
+        let body: Value = serde_json::from_str(&body).expect("json");
+        assert_eq!(body["helpdeskWidgetUrl"], "http://widget.example.eu");
     }
 
     /// Edition flags (4.F3): the edition, the features the platform hides,

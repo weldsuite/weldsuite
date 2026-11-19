@@ -66,7 +66,7 @@ function CallButton({
       data-testid="desk-inbox-call"
     >
       {isDialing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Phone className="h-4 w-4" />}
-      <span className="hidden lg:inline">{t.button}</span>
+      <span className="hidden @3xl/desk-header:inline">{t.button}</span>
     </Button>
   );
 }

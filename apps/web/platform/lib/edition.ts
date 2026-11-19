@@ -95,6 +95,12 @@ export const EDITION_FEATURES = [
   'chat-calls',
   /** WeldDesk help center custom domains (a Cloudflare zone record and a Vercel-hosted help center). */
   'helpcenter-custom-domains',
+  /**
+   * The public WeldDesk help center itself: Global serves it at
+   * `{slug}.welddesk.org`; a Kubernetes edition runs no help center yet, so
+   * turning it on would claim a subdomain nothing answers.
+   */
+  'helpcenter-hosting',
   /** WeldConnect's "Generate with AI" (`POST /api/workflows/generate`, Workers AI). */
   'weldconnect-ai',
   /** WeldHR payroll: sending the loonaangifte over Digipoort (a PKIoverheid certificate binding on Cloudflare). */

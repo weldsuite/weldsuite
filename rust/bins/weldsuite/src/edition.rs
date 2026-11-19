@@ -77,6 +77,12 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     // Cloudflare zone and registers the host on the Vercel-hosted help center
     // (`/api/helpcenter-settings/domains`, its verify and delete).
     "helpcenter-custom-domains",
+    // The WeldDesk help center itself: Global serves it at
+    // `{slug}.welddesk.org` (apps/web/helpcenter); no Kubernetes deployment
+    // runs it yet (rust/deploy/hetzner/README.md), so enabling it
+    // (`POST /api/helpcenter-settings/enable`) would claim a subdomain nothing
+    // answers. Articles and the widget keep working.
+    "helpcenter-hosting",
     // WeldHR payroll: sending the loonaangifte over Digipoort needs the
     // worker's PKIoverheid client certificate binding. The return is filed
     // by hand and marked as filed (`POST …/filings/:id/submit` answers

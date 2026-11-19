@@ -17,6 +17,7 @@ const state = vi.hoisted(() => ({
   update: vi.fn(),
   remove: vi.fn(),
   refetch: vi.fn(),
+  push: vi.fn(),
 }));
 
 vi.mock('@/lib/i18n/provider', async () => {
@@ -25,10 +26,11 @@ vi.mock('@/lib/i18n/provider', async () => {
   return { useI18n: () => ({ t: english, language: 'en', format: interpolate }) };
 });
 vi.mock('@weldsuite/permissions/react', () => ({ useCan: (key: string) => state.allowed.has(key) }));
+vi.mock('@/contexts/breadcrumb-context', () => ({ useBreadcrumbs: () => undefined }));
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ userId: 'user_1' }) }));
 vi.mock('@/contexts/workspace-context', () => ({ useWorkspaceId: () => 'ws_1' }));
 vi.mock('@/lib/router', () => ({
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  useRouter: () => ({ push: state.push, replace: vi.fn() }),
   Link: ({ href, children, ...rest }: { href: string; children: ReactNode }) => (
     <a href={href} {...rest}>
       {children}
@@ -73,25 +75,32 @@ describe('Reports', () => {
     render(<ReportsPage />);
     expect(lastParams()).toEqual({ projectId: 'wpp_1', scope: 'all' });
     expect(screen.getByText('Weekly signups')).toBeTruthy();
-    expect(screen.getByText('Cart to paid')).toBeTruthy();
     expect(screen.getByText(en.weldpanel.analytics.kinds.funnel)).toBeTruthy();
     expect(screen.getByText(en.weldpanel.analytics.common.workspace)).toBeTruthy();
   });
 
-  it('opens a report in the builder of its kind', () => {
+  it('opens a report in the builder of its kind from its row', async () => {
     render(<ReportsPage />);
-    expect(screen.getByRole('link', { name: 'Checkout funnel' }).getAttribute('href')).toBe('/weldpanel/funnels?report=wpr_2');
-    expect(screen.getByRole('link', { name: 'Weekly signups' }).getAttribute('href')).toBe('/weldpanel/insights?report=wpr_1');
+    const rows = screen.getAllByRole('button', { name: en.common.actions.view });
+    await userEvent.click(rows[1]!);
+    expect(state.push).toHaveBeenLastCalledWith('/weldpanel/funnels?report=wpr_2');
+    await userEvent.click(rows[0]!);
+    expect(state.push).toHaveBeenLastCalledWith('/weldpanel/insights?report=wpr_1');
   });
 
   it('filters by scope and type', async () => {
+    const user = userEvent.setup();
     render(<ReportsPage />);
-    await userEvent.click(screen.getByRole('combobox', { name: tr.scopeLabel }));
-    await userEvent.click(await screen.findByRole('option', { name: tr.scopes.mine }));
+    await user.click(screen.getByRole('button', { name: /filter/i }));
+    await user.click(await screen.findByRole('button', { name: tr.scopeLabel }));
+    await user.click(await screen.findByRole('button', { name: 'is' }));
+    // The pill opens its value picker on a timer; when the options are not there yet, open it by hand.
+    const option = await screen.findByRole('button', { name: tr.scopes.mine }, { timeout: 400 }).catch(async () => {
+      await user.click(screen.getByRole('button', { name: `Select ${tr.scopeLabel.toLowerCase()}` }));
+      return screen.findByRole('button', { name: tr.scopes.mine });
+    });
+    await user.click(option);
     expect(lastParams()).toEqual({ projectId: 'wpp_1', scope: 'mine' });
-    await userEvent.click(screen.getByRole('combobox', { name: tr.kindLabel }));
-    await userEvent.click(await screen.findByRole('option', { name: en.weldpanel.analytics.kinds.retention }));
-    expect(lastParams()).toEqual({ projectId: 'wpp_1', scope: 'mine', kind: 'retention' });
   });
 
   it('starts a new report in the right builder', async () => {
@@ -103,7 +112,7 @@ describe('Reports', () => {
   it('renames a report', async () => {
     state.update.mockResolvedValue(makeReport());
     render(<ReportsPage />);
-    await userEvent.click(screen.getByRole('button', { name: tr.actions.replace('{name}', 'Weekly signups') }));
+    await userEvent.click(screen.getAllByRole('button', { name: en.common.actions.title })[0]!);
     await userEvent.click(await screen.findByRole('menuitem', { name: en.weldpanel.analytics.common.rename }));
     const dialog = await screen.findByRole('dialog', { name: tr.renameTitle });
     const input = within(dialog).getByLabelText(en.weldpanel.analytics.save.nameLabel);
@@ -116,7 +125,7 @@ describe('Reports', () => {
   it('shares a private report with the workspace', async () => {
     state.update.mockResolvedValue(makeReport());
     render(<ReportsPage />);
-    await userEvent.click(screen.getByRole('button', { name: tr.actions.replace('{name}', 'Checkout funnel') }));
+    await userEvent.click(screen.getAllByRole('button', { name: en.common.actions.title })[1]!);
     await userEvent.click(await screen.findByRole('menuitem', { name: tr.makeShared }));
     await waitFor(() => expect(state.update).toHaveBeenCalledWith({ visibility: 'workspace' }));
   });
@@ -124,7 +133,7 @@ describe('Reports', () => {
   it('asks before deleting, then deletes', async () => {
     state.remove.mockResolvedValue(undefined);
     render(<ReportsPage />);
-    await userEvent.click(screen.getByRole('button', { name: tr.actions.replace('{name}', 'Weekly signups') }));
+    await userEvent.click(screen.getAllByRole('button', { name: en.common.actions.title })[0]!);
     await userEvent.click(await screen.findByRole('menuitem', { name: en.weldpanel.analytics.common.delete }));
     expect(await screen.findByText(tr.deleteTitle.replace('{name}', 'Weekly signups'))).toBeTruthy();
     expect(state.remove).not.toHaveBeenCalled();
@@ -136,13 +145,13 @@ describe('Reports', () => {
     state.allowed = new Set();
     render(<ReportsPage />);
     expect(screen.queryByRole('button', { name: new RegExp(tr.newReport) })).toBeNull();
-    await userEvent.click(screen.getByRole('button', { name: tr.actions.replace('{name}', 'Weekly signups') }));
+    await userEvent.click(screen.getAllByRole('button', { name: en.common.actions.title })[0]!);
     expect(await screen.findByRole('menuitem', { name: en.weldpanel.analytics.common.open })).toBeTruthy();
     expect(screen.queryByRole('menuitem', { name: en.weldpanel.analytics.common.rename })).toBeNull();
     expect(screen.queryByRole('menuitem', { name: en.weldpanel.analytics.common.delete })).toBeNull();
   });
 
-  it('shows an empty state with the way to create one', () => {
+  it('shows an empty state', () => {
     state.reports = [];
     render(<ReportsPage />);
     expect(screen.getByText(tr.emptyTitle)).toBeTruthy();

@@ -57,6 +57,12 @@ export interface PanelEntityListProps<T extends { id: string }> {
   onEdit?: (item: T) => void;
   /** Adds a "Delete" entry to the row menu. */
   onDelete?: (item: T) => void;
+  /**
+   * The row menu's own `DropdownMenuItem`s, for records with actions beyond
+   * Edit and Delete (pause, test, revoke…); replaces the Edit / Delete entries.
+   * Return null for a row without a menu.
+   */
+  rowMenu?: (item: T) => ReactNode;
 
   filters?: FilterConfig[];
   groups?: GroupConfig<T>[];
@@ -111,6 +117,7 @@ export function PanelEntityList<T extends { id: string }>({
   objectPanel,
   onEdit,
   onDelete,
+  rowMenu,
   filters = [],
   groups,
   searchQuery,
@@ -152,79 +159,83 @@ export function PanelEntityList<T extends { id: string }>({
     className: c.headerClassName,
   }));
 
-  const renderRow = (item: T) => (
-    <div
-      key={item.id}
-      className={cn(
-        'group relative flex items-center gap-4 px-4 py-3 border-b border-border/70 text-sm transition-colors',
-        onRowClick && 'cursor-pointer hover:bg-muted/40',
-      )}
-    >
-      {/* A click-only row is unreachable without a mouse, so the click target
-          is a native button stretched over the row (only when it is clickable). */}
-      {onRowClick ? (
-        <RowOverlayButton label={t.actions.view} onClick={() => onRowClick(item)} />
-      ) : null}
-      {/* `min-w-0` first, so a column that sets its own minimum (the flexible
-          name column) keeps it instead of being squeezed to nothing. */}
-      {columns.map((column) => (
-        <div key={column.id} className={cn('min-w-0', column.width, onRowClick && ROW_CELL_PASSTHROUGH)}>
-          {column.render(item, {
-            onEdit: () => onEdit?.(item),
-            onDelete: () => onDelete?.(item),
-            onDuplicate: () => {},
-            onUpdate: () => {},
-          })}
-        </div>
-      ))}
-      {/* h-7 = the menu button's height, so rows without a menu are as tall as rows with one. */}
-      <div className="relative z-[1] w-[40px] h-7 flex items-center justify-end">
-        {hasRowMenu && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-              <Button
-                variant="ghost"
-                size="sm"
-                // Shown on hover, and whenever it has keyboard focus or its menu is open; always on touch screens.
-                className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100 [@media(hover:none)]:opacity-100"
-                aria-label={t.actions.title}
-              >
-                <EllipsisVertical className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {onEdit && (
-                <DropdownMenuItem
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onEdit(item);
-                  }}
+  const renderRow = (item: T) => {
+    const customMenu = rowMenu?.(item) ?? null;
+    return (
+      <div
+        key={item.id}
+        className={cn(
+          'group relative flex items-center gap-4 px-4 py-3 border-b border-border/70 text-sm transition-colors',
+          onRowClick && 'cursor-pointer hover:bg-muted/40',
+        )}
+      >
+        {/* A click-only row is unreachable without a mouse, so the click target
+            is a native button stretched over the row (only when it is clickable). */}
+        {onRowClick ? (
+          <RowOverlayButton label={t.actions.view} onClick={() => onRowClick(item)} />
+        ) : null}
+        {/* `min-w-0` first, so a column that sets its own minimum (the flexible
+            name column) keeps it instead of being squeezed to nothing. */}
+        {columns.map((column) => (
+          <div key={column.id} className={cn('min-w-0', column.width, onRowClick && ROW_CELL_PASSTHROUGH)}>
+            {column.render(item, {
+              onEdit: () => onEdit?.(item),
+              onDelete: () => onDelete?.(item),
+              onDuplicate: () => {},
+              onUpdate: () => {},
+            })}
+          </div>
+        ))}
+        {/* h-7 = the menu button's height, so rows without a menu are as tall as rows with one. */}
+        <div className="relative z-[1] w-[40px] h-7 flex items-center justify-end">
+          {(rowMenu ? customMenu !== null : hasRowMenu) && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  // Shown on hover, and whenever it has keyboard focus or its menu is open; always on touch screens.
+                  className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100 [@media(hover:none)]:opacity-100"
+                  aria-label={t.actions.title}
                 >
-                  <Pencil className="mr-0.5 h-4 w-4" />
-                  {t.actions.edit}
-                </DropdownMenuItem>
-              )}
-              {onDelete && (
-                <>
-                  {onEdit && <DropdownMenuSeparator />}
+                  <EllipsisVertical className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                {rowMenu ? customMenu : null}
+                {!rowMenu && onEdit && (
                   <DropdownMenuItem
                     onClick={(e) => {
                       e.stopPropagation();
-                      onDelete(item);
+                      onEdit(item);
                     }}
-                    className="text-red-600 hover:!bg-red-50 hover:!text-red-600 dark:text-red-400 dark:hover:!bg-red-950 dark:hover:!text-red-400"
                   >
-                    <Trash2 className="mr-0.5 h-4 w-4 text-red-500" />
-                    {t.actions.delete}
+                    <Pencil className="mr-0.5 h-4 w-4" />
+                    {t.actions.edit}
                   </DropdownMenuItem>
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
+                )}
+                {!rowMenu && onDelete && (
+                  <>
+                    {onEdit && <DropdownMenuSeparator />}
+                    <DropdownMenuItem
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDelete(item);
+                      }}
+                      className="text-red-600 hover:!bg-red-50 hover:!text-red-600 dark:text-red-400 dark:hover:!bg-red-950 dark:hover:!text-red-400"
+                    >
+                      <Trash2 className="mr-0.5 h-4 w-4 text-red-500" />
+                      {t.actions.delete}
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   return (
     // Container for the `@…/list` column breakpoints: a column can hide by the

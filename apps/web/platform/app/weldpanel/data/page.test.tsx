@@ -31,6 +31,7 @@ vi.mock('@/lib/i18n/provider', async () => {
   return { useI18n: () => ({ t: english, language: 'en', format: interpolate }) };
 });
 vi.mock('@weldsuite/permissions/react', () => ({ useCan: (key: string) => state.allowed.has(key) }));
+vi.mock('@/contexts/breadcrumb-context', () => ({ useBreadcrumbs: () => undefined }));
 vi.mock('@/contexts/workspace-context', () => ({ useWorkspaceId: () => 'ws_1' }));
 vi.mock('@/lib/router', () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
@@ -105,7 +106,7 @@ describe('Data', () => {
     expect(screen.getByText('Signed up or invited')).toBeTruthy();
     expect(screen.getByText('Signed up, Invited')).toBeTruthy();
 
-    await userEvent.click(screen.getByRole('button', { name: td.customEvents.new }));
+    await userEvent.click(screen.getAllByRole('button', { name: td.customEvents.new })[0]!);
     const dialog = await screen.findByRole('dialog');
     await userEvent.type(within(dialog).getByLabelText(tc.name), 'Engaged');
     await userEvent.click(within(dialog).getByRole('combobox', { name: 'Event 1' }));
@@ -125,7 +126,7 @@ describe('Data', () => {
   it('says when a custom event name is taken', async () => {
     state.createEvent.mockRejectedValue(new ApiError('taken', 409));
     render(<DataPage />);
-    await userEvent.click(screen.getByRole('button', { name: td.customEvents.new }));
+    await userEvent.click(screen.getAllByRole('button', { name: td.customEvents.new })[0]!);
     const dialog = await screen.findByRole('dialog');
     await userEvent.type(within(dialog).getByLabelText(tc.name), 'Engaged');
     await userEvent.click(within(dialog).getByRole('combobox', { name: 'Event 1' }));
@@ -137,7 +138,7 @@ describe('Data', () => {
   it('checks a computed property formula as it is typed', async () => {
     state.search = 'tab=computedProperties';
     render(<DataPage />);
-    await userEvent.click(screen.getByRole('button', { name: td.computedProperties.new }));
+    await userEvent.click(screen.getAllByRole('button', { name: td.computedProperties.new })[0]!);
     const dialog = await screen.findByRole('dialog');
     const input = within(dialog).getByLabelText(td.computedProperties.expression);
     await userEvent.type(input, 'price *');
@@ -157,7 +158,7 @@ describe('Data', () => {
     render(<DataPage />);
     expect((screen.getByLabelText(td.pathRules.pattern) as HTMLInputElement).value).toBe('^/users/\\d+');
 
-    await userEvent.click(screen.getByRole('button', { name: td.pathRules.add }));
+    await userEvent.click(screen.getAllByRole('button', { name: td.pathRules.add })[0]!);
     const patterns = screen.getAllByLabelText(td.pathRules.pattern);
     await userEvent.type(patterns[1]!, '\\?.*$');
     await userEvent.click(screen.getByRole('button', { name: 'Move rule 2 up' }));
@@ -172,13 +173,13 @@ describe('Data', () => {
     await userEvent.type(screen.getByLabelText(td.pathRules.test.title), '/users/42');
     await userEvent.click(screen.getByRole('button', { name: td.pathRules.test.run }));
     expect(state.testRules).toHaveBeenCalledWith(expect.objectContaining({ projectId: 'wpp_1', paths: ['/users/42'] }));
-    expect(await screen.findByText('/users/:id', { selector: 'td' })).toBeTruthy();
+    expect(await screen.findByText('/users/:id', { selector: 'span' })).toBeTruthy();
   });
 
   it('shows a pattern problem and will not save it', async () => {
     state.search = 'tab=pathRules';
     render(<DataPage />);
-    await userEvent.click(screen.getByRole('button', { name: td.pathRules.add }));
+    await userEvent.click(screen.getAllByRole('button', { name: td.pathRules.add })[0]!);
     await userEvent.type(screen.getByLabelText(td.pathRules.pattern), '(?=x)');
     expect(screen.getByText('Lookarounds and backreferences are not supported')).toBeTruthy();
     expect((screen.getByRole('button', { name: td.pathRules.save }) as HTMLButtonElement).disabled).toBe(true);
@@ -189,7 +190,7 @@ describe('Data', () => {
     state.groupTypes = [makeGroupType({ id: null, configured: false, nameSingular: 'Workspace', namePlural: 'Workspaces', groupType: 'workspace', crmMatchProperty: null })];
     state.createGroupType.mockResolvedValue(makeGroupType());
     render(<DataPage />);
-    await userEvent.click(screen.getByRole('button', { name: td.groupTypes.configure }));
+    await userEvent.click(screen.getByRole('button', { name: 'View' }));
     const dialog = await screen.findByRole('dialog');
     expect((within(dialog).getByLabelText(td.groupTypes.groupType) as HTMLInputElement).value).toBe('workspace');
     await userEvent.click(within(dialog).getByRole('button', { name: tc.save }));

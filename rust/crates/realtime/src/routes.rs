@@ -3,11 +3,6 @@
 //! `/ws/conversation/:conversationId`) with their auth and access gates, and
 //! the internal `/publish/*` and `/internal/presence` routes for callers that
 //! cannot use the realtime port in process.
-//!
-//! A socket authenticates with its session token only (`?token=`, a bearer
-//! header or the `authorization` subprotocol). The workspace-scoped sockets
-//! work in the token's organization; in membership mode, whose tokens name
-//! none, in the workspace `?workspace=` names ([`organization`]).
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -24,11 +19,12 @@ use serde_json::{Map, Value, json};
 use weldsuite_auth::{AuthContext, TokenError};
 use weldsuite_ports::{RealtimeMessage, RealtimePublisher, Room};
 
-use crate::directory::{ChatAccess, DirectoryError, Member, WorkspaceResolver};
+use crate::directory::{ChatAccess, DirectoryError, Member};
 use crate::gateway::{Admission, Gateway};
 use crate::room::RoomKind;
 use crate::socket::{HubSession, RoomSession, serve_hub, serve_room};
 use crate::topics::{personal_allowed, personal_hub_key, workspace_allowed};
+use crate::workspace::{WORKSPACE_PARAM, workspace_reference};
 
 /// The gateway's routes, to merge into the server's router. They carry
 /// their own state and no request logging of their own: a socket's URL holds
@@ -122,48 +118,6 @@ fn token(uri: &Uri, headers: &HeaderMap) -> Option<String> {
     protocols.get(at + 1).map(|token| (*token).to_owned())
 }
 
-/// The workspace a socket names in `?workspace=` (`workspaces.id`, its
-/// organization id or its slug), trimmed; `None` when absent or empty.
-fn workspace_param(uri: &Uri) -> Option<String> {
-    query(uri)
-        .remove("workspace")
-        .map(|reference| reference.trim().to_owned())
-        .filter(|reference| !reference.is_empty())
-}
-
-/// The organization a signed-in socket works in.
-///
-/// A token that names one decides: claim mode, where `named` is ignored, so
-/// a token's organization is never overridden. In membership mode
-/// (`OIDC_WORKSPACE_SOURCE=header`, `resolver` set) tokens name none, and a
-/// browser can't send `X-Weld-Workspace` on a WebSocket, so the socket names
-/// its workspace (`named`, from `?workspace=`): the session's user must be an
-/// active member of it, checked as the API checks the header. A workspace
-/// they may not use is refused (403) the same whether or not it exists.
-///
-/// `Ok(None)`: no organization either way; each route refuses that as it
-/// did before membership mode.
-async fn organization(
-    resolver: Option<&dyn WorkspaceResolver>,
-    auth: &AuthContext,
-    named: Option<&str>,
-) -> Result<Option<String>, Refusal> {
-    if let Some(org) = &auth.org_id {
-        return Ok(Some(org.clone()));
-    }
-    let (Some(resolver), Some(reference)) = (resolver, named) else {
-        return Ok(None);
-    };
-    match resolver.member_workspace(&auth.user_id, reference).await {
-        Ok(Some(org)) => Ok(Some(org)),
-        Ok(None) => Err(forbidden("not a member of this workspace")),
-        Err(error) => {
-            tracing::error!(%error, "realtime: checking the workspace membership failed");
-            Err(internal_error("Internal error resolving the workspace"))
-        }
-    }
-}
-
 /// The realtime-worker's refusal texts.
 fn token_refusal(error: TokenError) -> &'static str {
     match error {
@@ -192,13 +146,40 @@ impl Gateway {
             .map_err(|error| unauthorized(token_refusal(error)))
     }
 
-    /// [`organization`] with this gateway's resolver (membership mode only).
-    async fn organization(
+    /// The session's workspace where its token names none (membership mode,
+    /// `crate::workspace`): `?workspace=`, else `fallback` (the support
+    /// room's path), else the user's one workspace. Unchanged in claim mode
+    /// and for a token that names its organization.
+    async fn with_workspace(
         &self,
-        auth: &AuthContext,
-        named: Option<&str>,
-    ) -> Result<Option<String>, Refusal> {
-        organization(self.workspaces.as_deref(), auth, named).await
+        uri: &Uri,
+        mut auth: AuthContext,
+        fallback: Option<&str>,
+    ) -> Result<AuthContext, Refusal> {
+        let Some(workspaces) = &self.workspaces else {
+            return Ok(auth);
+        };
+        if auth.org_id.is_some() {
+            return Ok(auth);
+        }
+        let named = query(uri).remove(WORKSPACE_PARAM);
+        let reference = named
+            .as_deref()
+            .map_or(Ok(None), workspace_reference)
+            .map_err(|()| forbidden("not a member of this workspace"))?
+            .or(fallback);
+        let found = match reference {
+            Some(reference) => match workspaces.member_workspace(&auth.user_id, reference).await {
+                Ok(None) => return Err(forbidden("not a member of this workspace")),
+                found => found,
+            },
+            None => workspaces.sole_workspace(&auth.user_id).await,
+        };
+        auth.org_id = found.map_err(|error| {
+            tracing::error!(%error, "realtime: choosing the workspace failed");
+            internal_error("Internal error resolving the workspace")
+        })?;
+        Ok(auth)
     }
 
     async fn workspace_member(&self, org: &str, user: &str) -> Result<Member, Refusal> {
@@ -229,8 +210,7 @@ impl Gateway {
 
 type Upgrade = Result<WebSocketUpgrade, WebSocketUpgradeRejection>;
 
-/// `/ws`: the workspace hub of the session's organization (membership mode:
-/// of the workspace `?workspace=` names).
+/// `/ws`: the workspace hub of the session's organization.
 async fn workspace_socket(
     State(gateway): State<Arc<Gateway>>,
     uri: Uri,
@@ -248,11 +228,12 @@ async fn workspace(
 ) -> Answer {
     let upgrade = upgraded(upgrade)?;
     let auth = gateway.session(uri, headers).await?;
-    let org = gateway
-        .organization(&auth, workspace_param(uri).as_deref())
-        .await?
+    let auth = gateway.with_workspace(uri, auth, None).await?;
+    let org = auth
+        .org_id
+        .as_deref()
         .ok_or_else(|| unauthorized("No organization in token"))?;
-    let member = gateway.workspace_member(&org, &auth.user_id).await?;
+    let member = gateway.workspace_member(org, &auth.user_id).await?;
     let admission = gateway.admitted(&auth.user_id)?;
     let session = HubSession {
         allowed: workspace_allowed(&member.role, &auth.user_id),
@@ -302,9 +283,8 @@ fn display_name(member: &Member) -> String {
     member.name.clone().unwrap_or_else(|| "Unknown".to_owned())
 }
 
-/// `/ws/chat/:channelId`: a public channel or one the member is in (of the
-/// workspace `?workspace=` names, in membership mode). Meeting rooms
-/// (`meet_*`) have no channel row: anyone signed in, or a guest naming
+/// `/ws/chat/:channelId`: a public channel or one the member is in. Meeting
+/// rooms (`meet_*`) have no channel row: anyone signed in, or a guest naming
 /// themselves, may join (the meeting's join code is the boundary).
 async fn chat_socket(
     State(gateway): State<Arc<Gateway>>,
@@ -328,21 +308,18 @@ async fn chat(
 ) -> Answer {
     let upgrade = upgraded(upgrade)?;
     let meeting = channel_id.starts_with("meet_");
-    // No organization falls back to a meeting guest, as before; a workspace
-    // named and refused (membership mode) is refused.
     let signed_in = match gateway.session(uri, headers).await {
-        Ok(auth) => match gateway
-            .organization(&auth, workspace_param(uri).as_deref())
-            .await?
-        {
-            Some(org) => Ok((auth, org)),
-            None => Err(unauthorized("No organization in token")),
+        Ok(auth) => match gateway.with_workspace(uri, auth, None).await {
+            Ok(auth) if auth.org_id.is_some() => Ok(auth),
+            Ok(_) => Err(unauthorized("No organization in token")),
+            Err(refusal) => Err(refusal),
         },
         Err(refusal) => Err(refusal),
     };
     let (user_id, user_name, role) = match signed_in {
-        Ok((auth, org)) => {
-            let member = gateway.workspace_member(&org, &auth.user_id).await?;
+        Ok(auth) => {
+            let org = auth.org_id.as_deref().unwrap_or_default();
+            let member = gateway.workspace_member(org, &auth.user_id).await?;
             if !meeting {
                 let access = gateway
                     .directory
@@ -391,8 +368,7 @@ async fn chat(
 
 /// `/ws/support/:workspaceId`: the workspace's support channel, for its own
 /// members (`customer`). The support side (admin Clerk instance, `support`)
-/// is not served here; see the crate docs. In membership mode the workspace
-/// is the one `?workspace=` names, else the path's.
+/// is not served here; see the crate docs.
 async fn support_socket(
     State(gateway): State<Arc<Gateway>>,
     Path(workspace_id): Path<String>,
@@ -420,19 +396,15 @@ async fn support(
         .authenticate(&token)
         .await
         .map_err(|_| unauthorized("Token verification failed"))?;
-    let named = workspace_param(uri);
-    let org = gateway
-        .organization(&auth, Some(named.as_deref().unwrap_or(workspace_id)))
-        .await?
+    let auth = gateway
+        .with_workspace(uri, auth, Some(workspace_id))
+        .await?;
+    let org = auth
+        .org_id
+        .as_deref()
         .ok_or_else(|| forbidden("not a member of this workspace"))?;
-    let member = gateway.workspace_member(&org, &auth.user_id).await?;
-    if ![
-        org.as_str(),
-        member.hub.as_str(),
-        member.workspace_id.as_str(),
-    ]
-    .contains(&workspace_id)
-    {
+    let member = gateway.workspace_member(org, &auth.user_id).await?;
+    if ![org, member.hub.as_str(), member.workspace_id.as_str()].contains(&workspace_id) {
         return Err(forbidden("not a member of this workspace"));
     }
     let admission = gateway.admitted(&auth.user_id)?;
@@ -454,9 +426,8 @@ async fn support(
 }
 
 /// `/ws/conversation/:conversationId`: a helpdesk conversation of the
-/// member's workspace for agents (in membership mode, of the workspace
-/// `?workspace=` names), or the one conversation a widget visitor's HS256
-/// token was minted for.
+/// member's workspace for agents, or the one conversation a widget
+/// visitor's HS256 token was minted for.
 async fn conversation_socket(
     State(gateway): State<Arc<Gateway>>,
     Path(conversation_id): Path<String>,
@@ -484,11 +455,12 @@ async fn conversation(
     let Ok(auth) = gateway.session(uri, headers).await else {
         return visitor(gateway, conversation_id, uri, headers, upgrade);
     };
-    let org = gateway
-        .organization(&auth, workspace_param(uri).as_deref())
-        .await?
+    let auth = gateway.with_workspace(uri, auth, None).await?;
+    let org = auth
+        .org_id
+        .as_deref()
         .ok_or_else(|| unauthorized("No organization in token"))?;
-    let member = gateway.workspace_member(&org, &auth.user_id).await?;
+    let member = gateway.workspace_member(org, &auth.user_id).await?;
     match gateway
         .directory
         .conversation_exists(&member, &conversation_id)
@@ -713,126 +685,7 @@ async fn presence(gateway: &Gateway, uri: &Uri, headers: &HeaderMap) -> Answer {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    use weldsuite_ports::BoxFuture;
-
     use super::*;
-
-    /// Membership mode's check: `user_1` is an active member of `ws_1`
-    /// (organization `org_1`, slug `acme`); `down` fails every lookup.
-    #[derive(Default)]
-    struct Members {
-        calls: AtomicUsize,
-        down: bool,
-    }
-
-    impl WorkspaceResolver for Members {
-        fn member_workspace<'a>(
-            &'a self,
-            user: &'a str,
-            reference: &'a str,
-        ) -> BoxFuture<'a, Result<Option<String>, DirectoryError>> {
-            self.calls.fetch_add(1, Ordering::SeqCst);
-            let result = if self.down {
-                Err(DirectoryError::Failed("master down".to_owned()))
-            } else {
-                Ok(
-                    (user == "user_1" && ["ws_1", "acme", "org_1"].contains(&reference))
-                        .then(|| "org_1".to_owned()),
-                )
-            };
-            Box::pin(std::future::ready(result))
-        }
-    }
-
-    fn session(user: &str, org: Option<&str>) -> AuthContext {
-        AuthContext {
-            user_id: user.to_owned(),
-            org_id: org.map(str::to_owned),
-            session_id: String::new(),
-            factor_verification_age: None,
-        }
-    }
-
-    fn named(uri: &str) -> Option<String> {
-        workspace_param(&uri.parse().expect("uri"))
-    }
-
-    #[test]
-    fn the_workspace_parameter_is_trimmed_and_optional() {
-        assert_eq!(named("/ws?token=t&workspace=ws_1").as_deref(), Some("ws_1"));
-        assert_eq!(named("/ws?workspace=%20acme%20").as_deref(), Some("acme"));
-        assert_eq!(named("/ws?token=t&workspace="), None);
-        assert_eq!(named("/ws?token=t"), None);
-    }
-
-    #[tokio::test]
-    async fn membership_mode_admits_a_member_on_the_named_workspace() {
-        let members = Members::default();
-        for reference in ["ws_1", "acme", "org_1"] {
-            let org = organization(Some(&members), &session("user_1", None), Some(reference))
-                .await
-                .expect("admitted");
-            assert_eq!(org.as_deref(), Some("org_1"), "{reference}");
-        }
-    }
-
-    #[tokio::test]
-    async fn membership_mode_refuses_a_workspace_the_user_is_not_in_alike() {
-        let members = Members::default();
-        // Another user's workspace and one that doesn't exist answer alike.
-        for (user, reference) in [("user_2", "ws_1"), ("user_1", "ws_unknown")] {
-            let Err(Refusal(status, body)) =
-                organization(Some(&members), &session(user, None), Some(reference)).await
-            else {
-                panic!("{user} on {reference} is refused");
-            };
-            assert_eq!(status, StatusCode::FORBIDDEN);
-            assert_eq!(body, "Forbidden: not a member of this workspace");
-        }
-        let down = Members {
-            down: true,
-            ..Members::default()
-        };
-        let Err(Refusal(status, _)) =
-            organization(Some(&down), &session("user_1", None), Some("ws_1")).await
-        else {
-            panic!("a failed lookup is refused");
-        };
-        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
-    }
-
-    #[tokio::test]
-    async fn without_a_named_workspace_there_is_no_organization_as_before() {
-        let members = Members::default();
-        let org = organization(Some(&members), &session("user_1", None), None)
-            .await
-            .expect("no refusal of its own");
-        assert_eq!(org, None, "the route answers `No organization in token`");
-        assert_eq!(members.calls.load(Ordering::SeqCst), 0);
-    }
-
-    #[tokio::test]
-    async fn a_tokens_organization_is_never_overridden() {
-        let members = Members::default();
-        // Claim mode token, naming another workspace: the token wins, and
-        // the parameter is not even looked up.
-        let org = organization(
-            Some(&members),
-            &session("user_1", Some("org_claim")),
-            Some("ws_1"),
-        )
-        .await
-        .expect("admitted");
-        assert_eq!(org.as_deref(), Some("org_claim"));
-        assert_eq!(members.calls.load(Ordering::SeqCst), 0);
-        // A claim-mode server ignores the parameter altogether.
-        let org = organization(None, &session("user_1", None), Some("ws_1"))
-            .await
-            .expect("no refusal of its own");
-        assert_eq!(org, None);
-    }
 
     #[test]
     fn tokens_come_from_the_query_header_or_subprotocol() {

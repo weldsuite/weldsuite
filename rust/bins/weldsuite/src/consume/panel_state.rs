@@ -1071,8 +1071,15 @@ mod tests {
             workspace_id: &ws_b,
             project_id: "pnp_b",
         };
+        // `u-1` exists from its `set` before its `increment` lands: a person
+        // without `logins` yet is "not yet", not a failure.
         let logins = |person: Option<weldsuite_panel::project_state::Person>| {
-            person.and_then(|person| person.properties["logins"].as_i64())
+            person.and_then(|person| {
+                person
+                    .properties
+                    .get("logins")
+                    .and_then(serde_json::Value::as_i64)
+            })
         };
         let dead_letters = |ws: String| {
             let js = js.clone();

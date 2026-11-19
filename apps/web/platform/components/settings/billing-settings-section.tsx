@@ -145,8 +145,8 @@ const COMPARISON_SECTIONS: ComparisonSection[] = [
       { key: 'prioritySupport', indent: true, values: { free: false, business: false, scale: true, enterprise: true } },
       { key: 'dedicatedSupport', indent: true, values: { free: false, business: false, scale: false, enterprise: true } },
       { key: 'apiAccess', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      // Included in Enterprise; Business and Scale can buy it as a monthly add-on (Settings > Single sign-on).
-      { key: 'ssoSaml', indent: true, values: { free: false, business: 'addOn', scale: 'addOn', enterprise: true } },
+      // Included in every paid plan (`plans.features.sso`); Free upgrades to get it.
+      { key: 'ssoSaml', indent: true, values: { free: false, business: true, scale: true, enterprise: true } },
       { key: 'customIntegrations', indent: true, values: { free: false, business: false, scale: false, enterprise: true } },
       { key: 'rolesAndPermissions', indent: true, values: { free: false, business: true, scale: true, enterprise: true } },
       { key: 'activityLog', indent: true, values: { free: false, business: false, scale: true, enterprise: true } },

@@ -6,7 +6,7 @@
 use std::fmt;
 use std::sync::Arc;
 
-use weldsuite_db::{WorkspaceError, WorkspaceSelector, Workspaces};
+use weldsuite_db::{WorkspaceError, Workspaces};
 use weldsuite_ports::BoxFuture;
 
 /// A signed-in member of a workspace.
@@ -85,37 +85,6 @@ pub trait Directory: Send + Sync + 'static {
     /// `workspaceHubKey`: the hub key of a workspace named by either id. An
     /// `org_…` id is the key; an unknown id is kept as it is.
     fn hub_key<'a>(&'a self, reference: &'a str) -> BoxFuture<'a, Result<String, DirectoryError>>;
-}
-
-/// Membership mode (`OIDC_WORKSPACE_SOURCE=header`): the session tokens name
-/// no workspace, so a socket names it in `?workspace=`, and the session's
-/// user must be an active member of it, as for the API's `X-Weld-Workspace`.
-pub trait WorkspaceResolver: Send + Sync + 'static {
-    /// The organization reference (what a token's organization claim
-    /// carries) of the workspace `reference` names (its id, organization id
-    /// or slug) when `user` is an active member of it; `None` otherwise, the
-    /// same for a workspace that doesn't exist.
-    fn member_workspace<'a>(
-        &'a self,
-        user: &'a str,
-        reference: &'a str,
-    ) -> BoxFuture<'a, Result<Option<String>, DirectoryError>>;
-}
-
-/// The API's own check ([`WorkspaceSelector::resolve_sent`]): master
-/// `user_workspaces`, with its cache of granted memberships.
-impl WorkspaceResolver for WorkspaceSelector {
-    fn member_workspace<'a>(
-        &'a self,
-        user: &'a str,
-        reference: &'a str,
-    ) -> BoxFuture<'a, Result<Option<String>, DirectoryError>> {
-        Box::pin(async move {
-            self.resolve_sent(user, reference)
-                .await
-                .map_err(|error| DirectoryError::Failed(error.to_string()))
-        })
-    }
 }
 
 /// [`Directory`] on the master database and the workspaces' own databases.

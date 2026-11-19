@@ -755,7 +755,7 @@ The integration tests need throwaway services and are skipped without them:
 | `WELDSUITE_TEST_SMTP_URL` | an SMTP server, e.g. `docker run -p 1025:1025 axllent/mailpit:v1.31.6` (`smtp://127.0.0.1:1025`) | SMTP mail |
 | `WELDSUITE_TEST_IMAPS`, `WELDSUITE_TEST_IMAP_PLAIN` | an IMAP server on implicit TLS and plain (`host:port`), e.g. `docker run -p 3993:3993 -p 3143:3143 -e GREENMAIL_OPTS="-Dgreenmail.setup.test.all -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.users=warm1:secret1@alpha.test -Dgreenmail.users.login=local_part" greenmail/standalone:2.1.3` | IMAP adapter (`crates/adapters-oss/tests/imap_server.rs`) |
 
-CI (`Rust · checks`) starts all of them.
+CI (`Rust · checks (test)`, the half of `Rust · checks` that runs `cargo test`) starts all of them.
 
 ## Conformance (P2)
 

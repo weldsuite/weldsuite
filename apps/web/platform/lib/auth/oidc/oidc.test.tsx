@@ -14,7 +14,6 @@ import { BrowserSignInError, type BrowserSignIn } from './browser-sign-in';
 import {
   getAuthProvider,
   getAuthToken,
-  getSocketWorkspaceId,
   redirectToSignIn,
   setAuthImplementation,
   signInWithBrowser,
@@ -490,6 +489,69 @@ describe('the facade on OIDC', () => {
     expect(calls()).toHaveLength(1);
   });
 
+  describe('signing out to another page than /', () => {
+    const endSessions = () =>
+      assign.mock.calls
+        .map(([url]) => String(url))
+        .filter((url) => url.startsWith(`${ISSUER}/oidc/v1/end_session`))
+        .map((url) => new URL(url));
+
+    async function signOutTo(redirectUrl: string): Promise<URL> {
+      await signedIn();
+      const { result, unmount } = renderHook(() => useAuth());
+      await waitFor(() => expect(result.current.isSignedIn).toBe(true));
+      // The redirect never resolves (the page would unload), so it is not awaited.
+      void result.current.signOut({ redirectUrl });
+      await waitFor(() => expect(endSessions()).toHaveLength(1));
+      unmount();
+      return endSessions()[0]!;
+    }
+
+    /** A new page load, as the provider's redirect to `href` makes. */
+    async function loadPage(href: string) {
+      stubLocation(href);
+      assign.mockClear();
+      const auth = createOidcAuth(CONFIG, { origin: ORIGIN, storage: window.localStorage });
+      setAuthImplementation(auth);
+      const { result } = renderHook(() => useAuth());
+      return result;
+    }
+
+    it('names only the registered post-logout URI, the page riding in state (WeldID compares it exactly)', async () => {
+      const endSession = await signOutTo('/auth/login');
+      expect(endSession.searchParams.get('post_logout_redirect_uri')).toBe(`${ORIGIN}/`);
+      expect(endSession.searchParams.get('id_token_hint')).toBeTruthy();
+      expect(endSession.searchParams.get('state')).toBeTruthy();
+    });
+
+    it('goes on from / to that page when the provider comes back, before the shell loads', async () => {
+      const endSession = await signOutTo('/invite/accept?token=inv_1');
+      const state = endSession.searchParams.get('state');
+
+      const auth = await loadPage(`${ORIGIN}/?state=${state}`);
+      await waitFor(() => expect(assign).toHaveBeenCalledWith('/invite/accept?token=inv_1'));
+      expect(auth.current.isLoaded).toBe(false);
+
+      // The state is spent: the same URL again is an ordinary signed-out load.
+      const again = await loadPage(`${ORIGIN}/?state=${state}`);
+      await waitFor(() => expect(again.current.isLoaded).toBe(true));
+      expect(again.current.isSignedIn).toBe(false);
+      expect(assign).not.toHaveBeenCalled();
+    });
+
+    it('sends no state when / is where it ends anyway', async () => {
+      const endSession = await signOutTo('/');
+      expect(endSession.searchParams.get('post_logout_redirect_uri')).toBe(`${ORIGIN}/`);
+      expect(endSession.searchParams.has('state')).toBe(false);
+    });
+
+    it('never carries another origin through the provider', async () => {
+      const endSession = await signOutTo('//evil.example/phish');
+      expect(endSession.searchParams.get('post_logout_redirect_uri')).toBe(`${ORIGIN}/`);
+      expect(endSession.searchParams.has('state')).toBe(false);
+    });
+  });
+
   it('is signed out without a session', async () => {
     const auth = createOidcAuth(CONFIG, { origin: ORIGIN });
     setAuthImplementation(auth);
@@ -591,34 +653,6 @@ describe('the facade on OIDC in header mode (WeldID in membership mode)', () => 
     expect(result.current.auth.orgSlug).toBe('new-co');
   });
 
-  it('names the active workspace for the realtime sockets, which carry no X-Weld-Workspace', async () => {
-    const loadWorkspaces = async () => directory;
-    const auth = createOidcAuth(HEADER_CONFIG, { origin: ORIGIN, storage: window.localStorage, loadWorkspaces });
-    setAuthImplementation(auth);
-    void auth.redirectToSignIn?.();
-    await answerRedirect(auth, 0);
-    const { result } = renderHook(() => useOrganizationList());
-    await waitFor(() => expect(result.current.userMemberships.data?.length).toBe(2));
-    expect(getSocketWorkspaceId()).toBeNull();
-
-    await act(async () => {
-      await result.current.setActive?.({ organization: 'ws_globex' });
-    });
-    expect(getSocketWorkspaceId()).toBe('ws_globex');
-  });
-});
-
-describe('the workspace a realtime socket names (getSocketWorkspaceId)', () => {
-  it('is none on Clerk and on claim-mode OIDC, whose tokens name the workspace', async () => {
-    setAuthImplementation(clerkAuth);
-    expect(getSocketWorkspaceId()).toBeNull();
-
-    issuer.memberships = { org_acme: 'acme.id.example.test' };
-    await signedIn();
-    const { result } = renderHook(() => useAuth());
-    await waitFor(() => expect(result.current.orgId).toBe('org_acme'));
-    expect(getSocketWorkspaceId()).toBeNull();
-  });
 });
 
 describe('which id names a workspace just created (workspaceRefOf)', () => {

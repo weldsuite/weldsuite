@@ -7,9 +7,11 @@
  * (`/api/billing/sso`, the add-on subscription; `/api/internal/admin/.../sso`,
  * staff pricing), the platform settings page and the admin console.
  *
- * SSO is included in plans whose `features.sso` is true (Enterprise). Every
- * other paid, directly billed workspace can buy it as a flat monthly add-on;
- * staff can set a workspace's price, 0 meaning free.
+ * SSO is included in plans whose `features.sso` is true: Business, Scale and
+ * Enterprise since November 2026 (`scripts/pricing/2026-11-sso-in-business.sql`;
+ * on the EU edition Business and Enterprise, its Starter has none).
+ * A paid, directly billed workspace on a plan without it can buy it as a flat
+ * monthly add-on; staff can set a workspace's price, 0 meaning free.
  */
 
 import { z } from 'zod';

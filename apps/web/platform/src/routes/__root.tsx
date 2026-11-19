@@ -2,7 +2,7 @@ import { createRootRouteWithContext, Outlet } from '@tanstack/react-router';
 import type { QueryClient } from '@tanstack/react-query';
 import { RootErrorFallback } from '@/components/root-error-fallback';
 import { ApiClientProvider } from '@/lib/api/api-provider';
-import { getRealtimeUrl } from '@/lib/api/public-env';
+import { realtimeSocketUrl } from '@/lib/api/realtime-url';
 import { QueryProvider } from '@/providers/query-provider';
 import { ThemeProvider } from '@/providers/theme-provider';
 import { I18nProvider, useI18n } from '@/lib/i18n/provider';
@@ -20,7 +20,7 @@ import { useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { RealtimeProvider, useRealtimeSync } from '@weldsuite/realtime/react';
 import { PlatformPermissionProvider } from '@/providers/permission-provider';
-import { getSocketWorkspaceId, useAuth } from '@/lib/auth';
+import { useAuth } from '@/lib/auth';
 import { platformSyncMap } from '@/lib/realtime/sync-map';
 import { createBrowserCursorStore } from '@/lib/realtime/cursor-store';
 import { useDesktopAuthHandler } from '@/hooks/use-desktop-auth';
@@ -70,9 +70,7 @@ function RealtimeSyncBridge() {
  * There the provider gets an empty URL and keeps no client (it stays mounted,
  * so the app below is not remounted when the workspace arrives). `connectionKey`
  * reconnects on a workspace switch. An empty URL is also what a deployment
- * without realtime resolves to. In OIDC membership mode the token names no
- * workspace, so the socket names it (`workspace`, the `X-Weld-Workspace` value);
- * on Clerk and claim-mode OIDC that is null and nothing is added.
+ * without realtime resolves to.
  */
 function RealtimeProviderWrapper({ children }: Readonly<{ children: React.ReactNode }>) {
   const { getToken, isSignedIn, orgId } = useAuth();
@@ -82,11 +80,10 @@ function RealtimeProviderWrapper({ children }: Readonly<{ children: React.ReactN
   const cursorStore = createBrowserCursorStore(orgId || 'no-org');
   return (
     <RealtimeProvider
-      url={active ? getRealtimeUrl() : ''}
+      url={active ? realtimeSocketUrl('/ws') : ''}
       getToken={stableGetToken}
       cursorStore={cursorStore}
       connectionKey={orgId || ''}
-      workspace={active ? getSocketWorkspaceId() : null}
     >
       {children}
     </RealtimeProvider>

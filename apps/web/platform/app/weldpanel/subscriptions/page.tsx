@@ -4,19 +4,17 @@
  */
 
 import { useMemo, useState } from 'react';
-import { CalendarClock, MoreHorizontal, Plus } from 'lucide-react';
+import { CalendarClock } from 'lucide-react';
 import { toast } from 'sonner';
 import type { PanelSubscriptionDto } from '@weldsuite/app-api-client/schemas/weldpanel-monitor';
 import { useCan } from '@weldsuite/permissions/react';
-import { Button } from '@weldsuite/ui/components/button';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@weldsuite/ui/components/dropdown-menu';
-import { EmptyState } from '@weldsuite/ui/components/empty-state';
+import { DropdownMenuItem, DropdownMenuSeparator } from '@weldsuite/ui/components/dropdown-menu';
 import { ErrorState } from '@weldsuite/ui/components/error-banner';
 import { FilterSelect } from '@weldsuite/ui/components/filter-select';
-import { Skeleton } from '@weldsuite/ui/components/skeleton';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { Switch } from '@weldsuite/ui/components/switch';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@weldsuite/ui/components/table';
+import { PanelEntityList, type ColumnDef } from '@/components/panel-entity-list';
 import {
   useDeleteWeldPanelSubscription,
   useSendWeldPanelSubscriptionNow,
@@ -25,7 +23,7 @@ import {
 } from '@/hooks/queries/use-weldpanel-collab-queries';
 import { useWeldPanelDashboards, useWeldPanelReports } from '@/hooks/queries/use-weldpanel-queries';
 import { useI18n } from '@/lib/i18n/provider';
-import { AnalyticsPage } from '../components/analytics-page';
+import { AnalyticsListPage } from '../components/analytics-page';
 import { ChannelsSummary, deliveryReportText } from '../components/delivery-channels-fields';
 import { useMembers } from '../components/use-members';
 import { formatDateTime } from '../lib/format';
@@ -34,21 +32,54 @@ import { SubscriptionFormDialog } from './subscription-form-dialog';
 
 type Scope = 'all' | 'mine';
 
-interface SubscriptionRowProps {
+interface SubscriptionMenuItemsProps {
   subscription: PanelSubscriptionDto;
-  targetName: string;
   canChange: boolean;
   canDelete: boolean;
   onEdit: () => void;
   onDelete: () => void;
 }
 
-function SubscriptionRow({ subscription, targetName, canChange, canDelete, onEdit, onDelete }: Readonly<SubscriptionRowProps>) {
-  const { t, language, format } = useI18n();
+/** The row's menu: edit, send now, delete. */
+function SubscriptionMenuItems({ subscription, canChange, canDelete, onEdit, onDelete }: Readonly<SubscriptionMenuItemsProps>) {
+  const { t, format } = useI18n();
   const ts = t.weldpanel.collab.subscriptions;
   const tch = t.weldpanel.collab.channels.delivery;
-  const update = useUpdateWeldPanelSubscription();
   const sendNow = useSendWeldPanelSubscriptionNow();
+
+  async function send() {
+    try {
+      const report = await sendNow.mutateAsync(subscription.id);
+      toast.success(ts.sent, {
+        description: deliveryReportText(report, tch, format),
+      });
+    } catch {
+      toast.error(ts.sendFailed);
+    }
+  }
+
+  if (!canChange && !canDelete) return null;
+  return (
+    <>
+      {canChange && <DropdownMenuItem onSelect={onEdit}>{ts.actions.edit}</DropdownMenuItem>}
+      {canChange && <DropdownMenuItem onSelect={() => void send()}>{ts.actions.sendNow}</DropdownMenuItem>}
+      {canDelete && (
+        <>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={onDelete}>
+            {ts.actions.delete}
+          </DropdownMenuItem>
+        </>
+      )}
+    </>
+  );
+}
+
+/** The on/off switch of a row; it has its own mutation state. */
+function EnabledSwitch({ subscription, canChange }: Readonly<{ subscription: PanelSubscriptionDto; canChange: boolean }>) {
+  const { t, format } = useI18n();
+  const ts = t.weldpanel.collab.subscriptions;
+  const update = useUpdateWeldPanelSubscription();
 
   async function toggle(enabled: boolean) {
     try {
@@ -59,67 +90,26 @@ function SubscriptionRow({ subscription, targetName, canChange, canDelete, onEdi
     }
   }
 
-  async function send() {
-    try {
-      const report = await sendNow.mutateAsync(subscription.id);
-      toast.success(ts.sent, { description: deliveryReportText(report, tch, format) });
-    } catch {
-      toast.error(ts.sendFailed);
-    }
-  }
-
   return (
-    <TableRow>
-      <TableCell className="max-w-64">
-        <p className="truncate font-medium">{subscription.name}</p>
-        {subscription.lastError && <p className="truncate text-xs text-destructive">{format(ts.lastError, { error: subscription.lastError })}</p>}
-      </TableCell>
-      <TableCell className="max-w-56">
-        <p className="truncate">{targetName}</p>
-        <p className="text-xs text-muted-foreground">{ts.targetTypes[subscription.targetType]}</p>
-      </TableCell>
-      <TableCell className="hidden md:table-cell">{scheduleText(subscription.schedule, ts.scheduleText, language, format)}</TableCell>
-      <TableCell className="hidden text-muted-foreground lg:table-cell">
-        <ChannelsSummary channels={subscription.channels} />
-      </TableCell>
-      <TableCell className="hidden text-muted-foreground md:table-cell">{subscription.nextRunAt && subscription.enabled ? formatDateTime(subscription.nextRunAt, language) : '–'}</TableCell>
-      <TableCell>
-        <Switch
-          checked={subscription.enabled}
-          disabled={!canChange || update.isPending}
-          onCheckedChange={(enabled) => void toggle(enabled)}
-          aria-label={format(ts.toggleLabel, { name: subscription.name })}
-        />
-      </TableCell>
-      <TableCell>
-        {(canChange || canDelete) && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button type="button" variant="ghost" size="icon" className="size-8" aria-label={format(ts.actions.menu, { name: subscription.name })}>
-                <MoreHorizontal />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {canChange && <DropdownMenuItem onSelect={onEdit}>{ts.actions.edit}</DropdownMenuItem>}
-              {canChange && <DropdownMenuItem onSelect={() => void send()}>{ts.actions.sendNow}</DropdownMenuItem>}
-              {canDelete && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={onDelete}>
-                    {ts.actions.delete}
-                  </DropdownMenuItem>
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
-      </TableCell>
-    </TableRow>
+    <Switch
+      checked={subscription.enabled}
+      disabled={!canChange || update.isPending}
+      onCheckedChange={(enabled) => void toggle(enabled)}
+      aria-label={format(ts.toggleLabel, { name: subscription.name })}
+    />
   );
 }
 
-function SubscriptionsList({ projectId, creating, onCreatingChange }: Readonly<{ projectId: string; creating: boolean; onCreatingChange: (open: boolean) => void }>) {
-  const { t, format } = useI18n();
+function SubscriptionsList({
+  projectId,
+  creating,
+  onCreatingChange,
+}: Readonly<{
+  projectId: string;
+  creating: boolean;
+  onCreatingChange: (open: boolean) => void;
+}>) {
+  const { t, language, format } = useI18n();
   const ts = t.weldpanel.collab.subscriptions;
   const tc = t.weldpanel.analytics.common;
   const canCreate = useCan('panel_reports:create');
@@ -137,70 +127,115 @@ function SubscriptionsList({ projectId, creating, onCreatingChange }: Readonly<{
   const names = useMemo(() => new Map<string, string>([...(reports ?? []), ...(dashboards ?? [])].map((item) => [item.id, item.name])), [reports, dashboards]);
   const mayChange = (s: PanelSubscriptionDto) => s.ownerUserId === me || canManage;
 
+  const columns: ColumnDef<PanelSubscriptionDto>[] = [
+    {
+      id: 'name',
+      header: ts.columns.name,
+      width: 'flex-1 min-w-[160px]',
+      render: (subscription) => <span className="block truncate font-medium">{subscription.name}</span>,
+    },
+    {
+      id: 'target',
+      header: ts.columns.target,
+      width: 'hidden sm:block sm:w-[180px]',
+      render: (subscription) => <span className="block truncate">{names.get(subscription.targetId) ?? ts.missingTarget}</span>,
+    },
+    {
+      id: 'targetType',
+      header: t.weldpanel.analytics.common.type,
+      width: 'hidden lg:block lg:w-[100px]',
+      render: (subscription) => <span className="block truncate text-muted-foreground">{ts.targetTypes[subscription.targetType]}</span>,
+    },
+    {
+      id: 'schedule',
+      header: ts.columns.schedule,
+      width: 'hidden md:block md:w-[260px]',
+      render: (subscription) => <span className="block truncate">{scheduleText(subscription.schedule, ts.scheduleText, language, format)}</span>,
+    },
+    {
+      id: 'channels',
+      header: ts.columns.channels,
+      width: 'hidden lg:block lg:w-[160px]',
+      render: (subscription) => (
+        <span className="block truncate text-muted-foreground">
+          <ChannelsSummary channels={subscription.channels} />
+        </span>
+      ),
+    },
+    {
+      id: 'nextRun',
+      header: ts.columns.nextRun,
+      width: 'hidden md:block md:w-[150px]',
+      render: (subscription) => (
+        <span className="block truncate whitespace-nowrap tabular-nums text-muted-foreground">
+          {subscription.nextRunAt && subscription.enabled ? formatDateTime(subscription.nextRunAt, language) : '–'}
+        </span>
+      ),
+    },
+    {
+      id: 'lastError',
+      header: '',
+      width: 'hidden xl:block xl:w-[200px]',
+      render: (subscription) =>
+        subscription.lastError ? <span className="block truncate text-destructive">{format(ts.lastError, { error: subscription.lastError })}</span> : null,
+    },
+    {
+      id: 'enabled',
+      header: ts.columns.enabled,
+      width: 'w-[70px]',
+      render: (subscription) => <EnabledSwitch subscription={subscription} canChange={canUpdate && mayChange(subscription)} />,
+    },
+  ];
+
+  // The shared list words its own loading state in English only.
+  if (isLoading && !subscriptions) return <PageLoader fullScreen={false} label={t.common.labels.loading} />;
   if (isError) return <ErrorState message={ts.loadFailed} onRetry={() => void refetch()} retryLabel={t.weldpanel.retry} />;
 
+  const createAction = canCreate ? { label: ts.newSubscription, onClick: () => onCreatingChange(true) } : undefined;
+
   return (
-    <div className="grid gap-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <FilterSelect
-          value={scope === 'all' ? undefined : scope}
-          onChange={(next) => setScope((next as Scope | undefined) ?? 'all')}
-          allLabel={ts.scopes.all}
-          ariaLabel={ts.scopeLabel}
-          options={[{ value: 'mine', label: ts.scopes.mine }]}
-        />
-      </div>
-      {isLoading && (
-        <div className="grid gap-2">
-          <Skeleton className="h-12 w-full" />
-          <Skeleton className="h-12 w-full" />
-        </div>
-      )}
-      {!isLoading && (subscriptions ?? []).length === 0 && (
-        <EmptyState
-          icon={CalendarClock}
-          title={scope === 'all' ? ts.emptyTitle : ts.noMatches}
-          description={scope === 'all' ? ts.emptyDescription : undefined}
-          action={
-            canCreate && scope === 'all' ? (
-              <Button size="sm" onClick={() => onCreatingChange(true)}>
-                <Plus />
-                {ts.newSubscription}
-              </Button>
-            ) : undefined
-          }
-        />
-      )}
-      {!isLoading && subscriptions && subscriptions.length > 0 && (
-        <div className="overflow-x-auto rounded-lg border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{ts.columns.name}</TableHead>
-                <TableHead>{ts.columns.target}</TableHead>
-                <TableHead className="hidden md:table-cell">{ts.columns.schedule}</TableHead>
-                <TableHead className="hidden lg:table-cell">{ts.columns.channels}</TableHead>
-                <TableHead className="hidden md:table-cell">{ts.columns.nextRun}</TableHead>
-                <TableHead>{ts.columns.enabled}</TableHead>
-                <TableHead className="w-10" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {subscriptions.map((subscription) => (
-                <SubscriptionRow
-                  key={subscription.id}
-                  subscription={subscription}
-                  targetName={names.get(subscription.targetId) ?? ts.missingTarget}
-                  canChange={canUpdate && mayChange(subscription)}
-                  canDelete={canDelete && mayChange(subscription)}
-                  onEdit={() => setEditing(subscription)}
-                  onDelete={() => setDeleting(subscription)}
-                />
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
+    <>
+      <PanelEntityList<PanelSubscriptionDto>
+        items={subscriptions ?? []}
+        isLoading={false}
+        columns={columns}
+        hideFilter
+        rowMenu={(subscription) =>
+          (canUpdate || canDelete) && mayChange(subscription) ? (
+            <SubscriptionMenuItems
+              subscription={subscription}
+              canChange={canUpdate}
+              canDelete={canDelete}
+              onEdit={() => setEditing(subscription)}
+              onDelete={() => setDeleting(subscription)}
+            />
+          ) : null
+        }
+        searchFields={['name']}
+        searchPlaceholder={t.common.actions.search}
+        leftActionButtons={
+          <FilterSelect
+            value={scope === 'all' ? undefined : scope}
+            onChange={(next) => setScope((next as Scope | undefined) ?? 'all')}
+            allLabel={ts.scopes.all}
+            ariaLabel={ts.scopeLabel}
+            options={[{ value: 'mine', label: ts.scopes.mine }]}
+          />
+        }
+        onRowClick={canUpdate ? (subscription) => mayChange(subscription) && setEditing(subscription) : undefined}
+        createButton={createAction}
+        emptyState={{
+          icon: <CalendarClock className="size-8 text-muted-foreground" />,
+          title: scope === 'all' ? ts.emptyTitle : ts.noMatches,
+          description: scope === 'all' ? ts.emptyDescription : '',
+          action: scope === 'all' ? createAction : undefined,
+        }}
+        noResultsState={{
+          icon: <CalendarClock className="size-8 text-muted-foreground" />,
+          title: ts.noMatches,
+          description: '',
+        }}
+      />
 
       <SubscriptionFormDialog open={creating} onOpenChange={onCreatingChange} projectId={projectId} />
       <SubscriptionFormDialog open={editing !== null} onOpenChange={(open) => !open && setEditing(null)} projectId={projectId} subscription={editing} />
@@ -223,29 +258,17 @@ function SubscriptionsList({ projectId, creating, onCreatingChange }: Readonly<{
           }
         }}
       />
-    </div>
+    </>
   );
 }
 
 export default function SubscriptionsPage() {
   const { t } = useI18n();
   const ts = t.weldpanel.collab.subscriptions;
-  const canCreate = useCan('panel_reports:create');
   const [creating, setCreating] = useState(false);
   return (
-    <AnalyticsPage
-      title={ts.title}
-      description={ts.description}
-      actions={
-        canCreate ? (
-          <Button size="sm" onClick={() => setCreating(true)}>
-            <Plus />
-            {ts.newSubscription}
-          </Button>
-        ) : undefined
-      }
-    >
+    <AnalyticsListPage title={ts.title}>
       {(project) => <SubscriptionsList key={project.id} projectId={project.id} creating={creating} onCreatingChange={setCreating} />}
-    </AnalyticsPage>
+    </AnalyticsListPage>
   );
 }

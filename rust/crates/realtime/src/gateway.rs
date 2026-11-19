@@ -15,11 +15,12 @@ use weldsuite_auth::{AuthContext, SessionVerifier, TokenError};
 use weldsuite_ports::{BoxFuture, PortError};
 
 use crate::config::GatewayConfig;
-use crate::directory::{Directory, WorkspaceResolver};
+use crate::directory::Directory;
 use crate::hub::{Hub, may_receive};
 use crate::protocol;
 use crate::room::{Room, RoomKind};
 use crate::topics::topic_matches;
+use crate::workspace::WorkspaceChooser;
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
@@ -120,8 +121,9 @@ pub struct Gateway {
     pub(crate) config: GatewayConfig,
     pub(crate) auth: Arc<dyn Authenticator>,
     pub(crate) directory: Arc<dyn Directory>,
-    /// Membership mode only: the workspace a socket names in `?workspace=`.
-    pub(crate) workspaces: Option<Arc<dyn WorkspaceResolver>>,
+    /// Membership mode only: picks the workspace of a session whose token
+    /// names none (`crate::workspace`).
+    pub(crate) workspaces: Option<Arc<dyn WorkspaceChooser>>,
     pub(crate) backplane: ValkeyBackplane,
     pub(crate) publisher: ValkeyRealtime,
     pub(crate) registry: Arc<Registry>,
@@ -132,7 +134,6 @@ impl std::fmt::Debug for Gateway {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Gateway")
             .field("config", &self.config)
-            .field("membership_mode", &self.workspaces.is_some())
             .field("backplane", &self.backplane)
             .finish_non_exhaustive()
     }
@@ -158,16 +159,13 @@ fn pod_id() -> String {
 impl Gateway {
     /// Connect to Valkey at `valkey_url` (channels and state under `prefix`,
     /// the publisher's `VALKEY_REALTIME_PREFIX`) and start serving.
-    ///
-    /// `workspaces` is set in membership mode (`OIDC_WORKSPACE_SOURCE=header`)
-    /// only: sockets whose token names no organization may then name their
-    /// workspace in `?workspace=` (see the crate docs). `None` (claim mode)
-    /// ignores the parameter.
+    /// `workspaces` is `Some` in membership mode only, where tokens name no
+    /// workspace (`crate::workspace`).
     pub async fn start(
         config: GatewayConfig,
         auth: Arc<dyn Authenticator>,
         directory: Arc<dyn Directory>,
-        workspaces: Option<Arc<dyn WorkspaceResolver>>,
+        workspaces: Option<Arc<dyn WorkspaceChooser>>,
         valkey_url: &str,
         prefix: &str,
     ) -> Result<Arc<Self>, PortError> {

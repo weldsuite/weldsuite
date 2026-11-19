@@ -24,6 +24,7 @@ vi.mock('@/lib/i18n/provider', async () => {
   return { useI18n: () => ({ t: english, language: 'en-GB', format: interpolate }) };
 });
 vi.mock('@weldsuite/permissions/react', () => ({ useCan: (key: string) => state.perms.has(key) }));
+vi.mock('@/contexts/breadcrumb-context', () => ({ useBreadcrumbs: () => undefined }));
 vi.mock('@/contexts/workspace-context', () => ({ useWorkspaceId: () => 'ws_1' }));
 vi.mock('@/lib/router', () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
@@ -100,7 +101,7 @@ describe('Scheduled reports', () => {
   it('sends one now', async () => {
     state.sendNow.mockResolvedValue({ delivered: [{ channel: 'slack', ok: false, recipients: 0, error: 'invalid_token' }] });
     render(<SubscriptionsPage />);
-    await userEvent.click(screen.getByRole('button', { name: ts.actions.menu.replace('{name}', 'Monday numbers') }));
+    await userEvent.click(screen.getByRole('button', { name: en.common.actions.title }));
     await userEvent.click(await screen.findByRole('menuitem', { name: ts.actions.sendNow }));
     await waitFor(() => expect(state.toast.success).toHaveBeenCalledWith(ts.sent, { description: 'Slack: invalid_token' }));
   });
@@ -108,7 +109,7 @@ describe('Scheduled reports', () => {
   it('deletes one after confirming', async () => {
     state.remove.mockResolvedValue(undefined);
     render(<SubscriptionsPage />);
-    await userEvent.click(screen.getByRole('button', { name: ts.actions.menu.replace('{name}', 'Monday numbers') }));
+    await userEvent.click(screen.getByRole('button', { name: en.common.actions.title }));
     await userEvent.click(await screen.findByRole('menuitem', { name: ts.actions.delete }));
     const confirm = await screen.findByRole('dialog', { name: ts.deleteTitle.replace('{name}', 'Monday numbers') });
     await userEvent.click(within(confirm).getByRole('button', { name: en.weldpanel.analytics.common.delete }));
@@ -119,7 +120,7 @@ describe('Scheduled reports', () => {
     state.subscriptions = [subscription({ ownerUserId: 'user_2' })];
     render(<SubscriptionsPage />);
     expect((screen.getByRole('switch') as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.queryByRole('button', { name: ts.actions.menu.replace('{name}', 'Monday numbers') })).toBeNull();
+    expect(screen.queryByRole('button', { name: en.common.actions.title })).toBeNull();
   });
 
   it('shows an empty state that opens the form', async () => {

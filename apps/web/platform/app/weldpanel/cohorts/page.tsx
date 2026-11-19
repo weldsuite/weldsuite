@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Loader2, MoreHorizontal, Plus, UsersRound, X } from 'lucide-react';
+import { Loader2, Plus, UsersRound, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCan } from '@weldsuite/permissions/react';
 import { PANEL_FILTER_OPERATORS, type PanelFilterOperator } from '@weldsuite/app-api-client/schemas/weldpanel-query';
@@ -7,36 +7,21 @@ import type { PanelCohortDto } from '@weldsuite/app-api-client/schemas/weldpanel
 import { Button } from '@weldsuite/ui/components/button';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@weldsuite/ui/components/dropdown-menu';
-import { EmptyState } from '@weldsuite/ui/components/empty-state';
 import { ErrorState } from '@weldsuite/ui/components/error-banner';
+import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
-import { Skeleton } from '@weldsuite/ui/components/skeleton';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@weldsuite/ui/components/table';
 import { Textarea } from '@weldsuite/ui/components/textarea';
-import {
-  useCreateWeldPanelCohort,
-  useDeleteWeldPanelCohort,
-  useUpdateWeldPanelCohort,
-  useWeldPanelCohorts,
-} from '@/hooks/queries/use-weldpanel-queries';
+import { PanelEntityList, type ColumnDef } from '@/components/panel-entity-list';
+import { useCreateWeldPanelCohort, useDeleteWeldPanelCohort, useUpdateWeldPanelCohort, useWeldPanelCohorts } from '@/hooks/queries/use-weldpanel-queries';
 import { useI18n } from '@/lib/i18n/provider';
-import { AnalyticsPage } from '../components/analytics-page';
+import { AnalyticsListPage } from '../components/analytics-page';
 import { ClampedNumberInput } from '../components/clamped-number-input';
 import { FilterBuilder } from '../components/filter-builder';
 import { LabeledField } from '../components/labeled-field';
 import { EventPicker, PropertyPicker } from '../components/pickers';
-import {
-  cohortFilterFromDraft,
-  draftFromCohortFilter,
-  emptyCohortDraft,
-  emptyCondition,
-  summariseCohortFilter,
-  type CohortDraft,
-  type ConditionDraft,
-} from '../lib/cohort-draft';
+import { cohortFilterFromDraft, draftFromCohortFilter, emptyCohortDraft, emptyCondition, summariseCohortFilter, type CohortDraft, type ConditionDraft } from '../lib/cohort-draft';
 import { operatorNeedsValue } from '../lib/filters';
 import { formatDate } from '../lib/format';
 
@@ -71,7 +56,10 @@ function CohortEditor({ projectId, cohort, open, onOpenChange }: Readonly<Cohort
   }, [open, cohort]);
 
   const updateCondition = (index: number, patch: Partial<ConditionDraft>) =>
-    setDraft((d) => ({ ...d, conditions: d.conditions.map((c, i) => (i === index ? ({ ...c, ...patch } as ConditionDraft) : c)) }));
+    setDraft((d) => ({
+      ...d,
+      conditions: d.conditions.map((c, i) => (i === index ? ({ ...c, ...patch } as ConditionDraft) : c)),
+    }));
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -79,7 +67,11 @@ function CohortEditor({ projectId, cohort, open, onOpenChange }: Readonly<Cohort
     const filter = cohortFilterFromDraft(draft);
     if (!filter) return setError(tc.incomplete);
     setError(null);
-    const body = { name: name.trim(), description: description.trim() === '' ? null : description.trim(), filter };
+    const body = {
+      name: name.trim(),
+      description: description.trim() === '' ? null : description.trim(),
+      filter,
+    };
     try {
       if (cohort) await update.mutateAsync(body);
       else await create.mutateAsync({ projectId, ...body });
@@ -127,7 +119,12 @@ function CohortEditor({ projectId, cohort, open, onOpenChange }: Readonly<Cohort
                       <LabeledField label={tc.conditionTypes[condition.type]} htmlFor={`weldpanel-cohort-type-${index}`} className="w-52">
                         <Select
                           value={condition.type}
-                          onValueChange={(type) => setDraft((d) => ({ ...d, conditions: d.conditions.map((c, i) => (i === index ? emptyCondition(type as ConditionDraft['type']) : c)) }))}
+                          onValueChange={(type) =>
+                            setDraft((d) => ({
+                              ...d,
+                              conditions: d.conditions.map((c, i) => (i === index ? emptyCondition(type as ConditionDraft['type']) : c)),
+                            }))
+                          }
                         >
                           <SelectTrigger id={`weldpanel-cohort-type-${index}`}>
                             <SelectValue />
@@ -145,7 +142,12 @@ function CohortEditor({ projectId, cohort, open, onOpenChange }: Readonly<Cohort
                           size="icon"
                           className="ml-auto size-8"
                           aria-label={tc.removeCondition.replace('{n}', String(n))}
-                          onClick={() => setDraft((d) => ({ ...d, conditions: d.conditions.filter((_, i) => i !== index) }))}
+                          onClick={() =>
+                            setDraft((d) => ({
+                              ...d,
+                              conditions: d.conditions.filter((_, i) => i !== index),
+                            }))
+                          }
                         >
                           <X />
                         </Button>
@@ -155,10 +157,23 @@ function CohortEditor({ projectId, cohort, open, onOpenChange }: Readonly<Cohort
                     {condition.type === 'person_property' ? (
                       <div className="grid gap-3 sm:grid-cols-3">
                         <LabeledField label={tc.property} htmlFor={`weldpanel-cohort-key-${index}`}>
-                          <PropertyPicker id={`weldpanel-cohort-key-${index}`} projectId={projectId} value={condition.key} onChange={(key) => updateCondition(index, { key })} ariaLabel={`${tc.property} ${n}`} />
+                          <PropertyPicker
+                            id={`weldpanel-cohort-key-${index}`}
+                            projectId={projectId}
+                            value={condition.key}
+                            onChange={(key) => updateCondition(index, { key })}
+                            ariaLabel={`${tc.property} ${n}`}
+                          />
                         </LabeledField>
                         <LabeledField label={tc.operator} htmlFor={`weldpanel-cohort-operator-${index}`}>
-                          <Select value={condition.operator} onValueChange={(operator) => updateCondition(index, { operator: operator as PanelFilterOperator })}>
+                          <Select
+                            value={condition.operator}
+                            onValueChange={(operator) =>
+                              updateCondition(index, {
+                                operator: operator as PanelFilterOperator,
+                              })
+                            }
+                          >
                             <SelectTrigger id={`weldpanel-cohort-operator-${index}`}>
                               <SelectValue />
                             </SelectTrigger>
@@ -176,7 +191,11 @@ function CohortEditor({ projectId, cohort, open, onOpenChange }: Readonly<Cohort
                             <Input
                               id={`weldpanel-cohort-value-${index}`}
                               value={condition.text}
-                              onChange={(event) => updateCondition(index, { text: event.target.value })}
+                              onChange={(event) =>
+                                updateCondition(index, {
+                                  text: event.target.value,
+                                })
+                              }
                               placeholder={condition.operator === 'in' ? tf.valuesPlaceholder : tf.valuePlaceholder}
                               autoComplete="off"
                             />
@@ -187,10 +206,23 @@ function CohortEditor({ projectId, cohort, open, onOpenChange }: Readonly<Cohort
                       <div className="grid gap-3">
                         <div className="grid gap-3 sm:grid-cols-2">
                           <LabeledField label={tc.event} htmlFor={`weldpanel-cohort-event-${index}`}>
-                            <EventPicker id={`weldpanel-cohort-event-${index}`} projectId={projectId} value={condition.event} onChange={(event) => updateCondition(index, { event })} ariaLabel={`${tc.event} ${n}`} />
+                            <EventPicker
+                              id={`weldpanel-cohort-event-${index}`}
+                              projectId={projectId}
+                              value={condition.event}
+                              onChange={(event) => updateCondition(index, { event })}
+                              ariaLabel={`${tc.event} ${n}`}
+                            />
                           </LabeledField>
                           <LabeledField label={tc.performed} htmlFor={`weldpanel-cohort-negate-${index}`}>
-                            <Select value={condition.negate ? 'not' : 'did'} onValueChange={(next) => updateCondition(index, { negate: next === 'not' })}>
+                            <Select
+                              value={condition.negate ? 'not' : 'did'}
+                              onValueChange={(next) =>
+                                updateCondition(index, {
+                                  negate: next === 'not',
+                                })
+                              }
+                            >
                               <SelectTrigger id={`weldpanel-cohort-negate-${index}`}>
                                 <SelectValue />
                               </SelectTrigger>
@@ -229,7 +261,13 @@ function CohortEditor({ projectId, cohort, open, onOpenChange }: Readonly<Cohort
                         </div>
                         <div className="grid gap-1">
                           <p className="text-xs text-muted-foreground">{tc.eventFilters}</p>
-                          <FilterBuilder compact allowCohort={false} projectId={projectId} filters={condition.filters} onChange={(filters) => updateCondition(index, { filters })} />
+                          <FilterBuilder
+                            compact
+                            allowCohort={false}
+                            projectId={projectId}
+                            filters={condition.filters}
+                            onChange={(filters) => updateCondition(index, { filters })}
+                          />
                         </div>
                       </div>
                     )}
@@ -239,7 +277,17 @@ function CohortEditor({ projectId, cohort, open, onOpenChange }: Readonly<Cohort
             </ol>
             {draft.conditions.length < 10 && (
               <div>
-                <Button type="button" variant="outline" size="sm" onClick={() => setDraft((d) => ({ ...d, conditions: [...d.conditions, emptyCondition('person_property')] }))}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    setDraft((d) => ({
+                      ...d,
+                      conditions: [...d.conditions, emptyCondition('person_property')],
+                    }))
+                  }
+                >
                   <Plus />
                   {tc.addCondition}
                 </Button>
@@ -267,7 +315,15 @@ function CohortEditor({ projectId, cohort, open, onOpenChange }: Readonly<Cohort
   );
 }
 
-function CohortsList({ projectId, onEdit, onCreate }: Readonly<{ projectId: string; onEdit: (cohort: PanelCohortDto) => void; onCreate: () => void }>) {
+function CohortsList({
+  projectId,
+  onEdit,
+  onCreate,
+}: Readonly<{
+  projectId: string;
+  onEdit: (cohort: PanelCohortDto) => void;
+  onCreate: () => void;
+}>) {
   const { t, language } = useI18n();
   const tc = t.weldpanel.analytics.cohorts;
   const tcm = t.weldpanel.analytics.common;
@@ -278,73 +334,62 @@ function CohortsList({ projectId, onEdit, onCreate }: Readonly<{ projectId: stri
   const [deleting, setDeleting] = useState<PanelCohortDto | null>(null);
   const remove = useDeleteWeldPanelCohort();
 
-  if (isError) return <ErrorState message={tc.loadFailed} onRetry={() => void refetch()} retryLabel={t.weldpanel.retry} />;
-  if (isLoading) return <Skeleton className="h-40 w-full" />;
+  const columns: ColumnDef<PanelCohortDto>[] = [
+    {
+      id: 'name',
+      header: tc.columns.name,
+      width: 'flex-1 min-w-[160px]',
+      render: (cohort) => <span className="block truncate font-medium">{cohort.name}</span>,
+    },
+    {
+      id: 'description',
+      header: tcm.description,
+      width: 'hidden lg:block lg:w-[240px]',
+      render: (cohort) => <span className="block truncate text-muted-foreground">{cohort.description || '–'}</span>,
+    },
+    {
+      id: 'rule',
+      header: tc.columns.rule,
+      width: 'hidden md:block md:w-[300px]',
+      render: (cohort) => <span className="block truncate text-muted-foreground">{summariseCohortFilter(cohort.filter, tc.summary, t.weldpanel.analytics.filters)}</span>,
+    },
+    {
+      id: 'updated',
+      header: tc.columns.updated,
+      width: 'hidden sm:block sm:w-[120px]',
+      render: (cohort) => <span className="whitespace-nowrap tabular-nums text-muted-foreground">{formatDate(cohort.updatedAt, language)}</span>,
+    },
+  ];
 
-  if (!cohorts || cohorts.length === 0) {
-    return (
-      <EmptyState
-        icon={UsersRound}
-        title={tc.emptyTitle}
-        description={tc.emptyDescription}
-        action={
-          canCreate ? (
-            <Button size="sm" onClick={onCreate}>
-              <Plus />
-              {tc.newCohort}
-            </Button>
-          ) : undefined
-        }
-      />
-    );
-  }
+  // The shared list words its own loading state in English only.
+  if (isLoading) return <PageLoader fullScreen={false} label={t.common.labels.loading} />;
+  if (isError) return <ErrorState message={tc.loadFailed} onRetry={() => void refetch()} retryLabel={t.weldpanel.retry} />;
 
   return (
     <>
-      <div className="overflow-x-auto rounded-lg border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{tc.columns.name}</TableHead>
-              <TableHead className="hidden md:table-cell">{tc.columns.rule}</TableHead>
-              <TableHead className="hidden sm:table-cell">{tc.columns.updated}</TableHead>
-              <TableHead className="w-10" />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {cohorts.map((cohort) => (
-              <TableRow key={cohort.id}>
-                <TableCell className="max-w-64">
-                  <p className="truncate font-medium">{cohort.name}</p>
-                  {cohort.description && <p className="truncate text-xs text-muted-foreground">{cohort.description}</p>}
-                </TableCell>
-                <TableCell className="hidden max-w-md truncate text-muted-foreground md:table-cell">{summariseCohortFilter(cohort.filter, tc.summary, t.weldpanel.analytics.filters)}</TableCell>
-                <TableCell className="hidden text-muted-foreground sm:table-cell">{formatDate(cohort.updatedAt, language)}</TableCell>
-                <TableCell>
-                  {(canUpdate || canDelete) && (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button type="button" variant="ghost" size="icon" className="size-8" aria-label={t.weldpanel.analytics.reports.actions.replace('{name}', cohort.name)}>
-                          <MoreHorizontal />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        {canUpdate && <DropdownMenuItem onSelect={() => onEdit(cohort)}>{tcm.edit}</DropdownMenuItem>}
-                        {canUpdate && canDelete && <DropdownMenuSeparator />}
-                        {canDelete && (
-                          <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={() => setDeleting(cohort)}>
-                            {tcm.delete}
-                          </DropdownMenuItem>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  )}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
+      <PanelEntityList<PanelCohortDto>
+        items={cohorts ?? []}
+        isLoading={false}
+        columns={columns}
+        hideFilter
+        searchFields={['name', 'description']}
+        searchPlaceholder={t.common.actions.search}
+        onRowClick={canUpdate ? onEdit : undefined}
+        onEdit={canUpdate ? onEdit : undefined}
+        onDelete={canDelete ? setDeleting : undefined}
+        createButton={canCreate ? { label: tc.newCohort, onClick: onCreate } : undefined}
+        emptyState={{
+          icon: <UsersRound className="size-8 text-muted-foreground" />,
+          title: tc.emptyTitle,
+          description: tc.emptyDescription,
+          action: canCreate ? { label: tc.newCohort, onClick: onCreate } : undefined,
+        }}
+        noResultsState={{
+          icon: <UsersRound className="size-8 text-muted-foreground" />,
+          title: tc.emptyTitle,
+          description: tc.emptyDescription,
+        }}
+      />
       <ConfirmDialog
         open={deleting !== null}
         onOpenChange={(open) => !open && setDeleting(null)}
@@ -371,27 +416,17 @@ function CohortsList({ projectId, onEdit, onCreate }: Readonly<{ projectId: stri
 export default function CohortsPage() {
   const { t } = useI18n();
   const tc = t.weldpanel.analytics.cohorts;
-  const canCreate = useCan('panel_reports:create');
-  const [editor, setEditor] = useState<{ cohort: PanelCohortDto | null } | null>(null);
+  const [editor, setEditor] = useState<{
+    cohort: PanelCohortDto | null;
+  } | null>(null);
   return (
-    <AnalyticsPage
-      title={tc.title}
-      description={tc.description}
-      actions={
-        canCreate ? (
-          <Button size="sm" onClick={() => setEditor({ cohort: null })}>
-            <Plus />
-            {tc.newCohort}
-          </Button>
-        ) : undefined
-      }
-    >
+    <AnalyticsListPage title={tc.title}>
       {(project) => (
         <>
           <CohortsList key={project.id} projectId={project.id} onEdit={(cohort) => setEditor({ cohort })} onCreate={() => setEditor({ cohort: null })} />
           <CohortEditor projectId={project.id} cohort={editor?.cohort ?? null} open={editor !== null} onOpenChange={(open) => !open && setEditor(null)} />
         </>
       )}
-    </AnalyticsPage>
+    </AnalyticsListPage>
   );
 }

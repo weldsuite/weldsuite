@@ -4,11 +4,11 @@
  */
 
 import { useState, useEffect, useRef } from 'react';
-import { getSocketWorkspaceId, useAuth } from '@/lib/auth';
+import { useAuth } from '@/lib/auth';
 import { RoomClient } from '@weldsuite/realtime/client';
 import type { RoomEvent } from '@weldsuite/realtime/types';
 import type { WeldDeskMessage, WeldDeskEvent, WeldDeskConnectionState } from './types';
-import { getRealtimeWsOrigin } from '@/lib/api/public-env';
+import { realtimeSocketUrl } from '@/lib/api/realtime-url';
 
 
 interface UseWeldDeskRealtimeOptions {
@@ -42,16 +42,15 @@ export function useWeldDeskRealtime({
   });
 
   useEffect(() => {
-    const realtimeOrigin = getRealtimeWsOrigin();
-    // An empty origin means realtime is off for this deployment.
-    if (!conversationId || !enabled || !realtimeOrigin) return;
+    const url = conversationId && enabled ? realtimeSocketUrl(`/ws/conversation/${conversationId}`) : '';
+    // An empty URL means realtime is off for this deployment.
+    if (!url) return;
 
     setConnectionState('connecting');
 
     const client = new RoomClient({
-      url: `${realtimeOrigin}/ws/conversation/${conversationId}`,
+      url,
       getToken: async () => (await getTokenRef.current()) || '',
-      workspace: getSocketWorkspaceId(),
     });
     clientRef.current = client;
 

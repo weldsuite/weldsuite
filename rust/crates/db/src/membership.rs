@@ -23,11 +23,6 @@
 //! [`DEFAULT_MEMBERSHIP_TTL`]: removing a member takes effect within that
 //! (and at once for every route behind a permission check, which reads the
 //! tenant's member row on each request). Refusals are never cached.
-//!
-//! The realtime gateway's sockets (`weldsuite_realtime`) can't carry the
-//! header (a browser sets no headers on a WebSocket): they name the
-//! workspace in `?workspace=`, checked by the same selector
-//! ([`WorkspaceSelector::resolve_sent`]) and refused alike.
 
 use std::collections::HashMap;
 use std::fmt;
@@ -231,22 +226,6 @@ impl WorkspaceSelector {
             self.remember(key, org);
         }
         Ok(found)
-    }
-
-    /// [`Self::resolve`] for a reference as a client sent it, as the header
-    /// takes it: trimmed, and `None` without a lookup when it is empty,
-    /// longer than 255 bytes or not visible ASCII. The realtime gateway's
-    /// `?workspace=` (a browser can't set headers on a WebSocket) goes
-    /// through here.
-    pub async fn resolve_sent(
-        &self,
-        user_id: &str,
-        sent: &str,
-    ) -> Result<Option<String>, WorkspaceError> {
-        match workspace_reference(sent) {
-            Ok(Some(reference)) => self.resolve(user_id, &reference).await,
-            Ok(None) | Err(()) => Ok(None),
-        }
     }
 
     /// The workspace for a request that names none (an MCP client, which
@@ -580,34 +559,6 @@ mod tests {
             ..Grants::default()
         }));
         assert!(failing.sole_workspace("solo").await.is_err());
-    }
-
-    #[tokio::test]
-    async fn a_sent_reference_is_checked_like_the_header() {
-        let lookup = grants();
-        let selector = WorkspaceSelector::new(lookup.clone());
-        let resolve = |sent: &'static str| {
-            let selector = selector.clone();
-            async move { selector.resolve_sent("user_1", sent).await.expect("lookup") }
-        };
-        assert_eq!(resolve(" ws_1 ").await.as_deref(), Some("org_1"));
-        assert_eq!(resolve("ws_2").await, None, "not a member");
-        let calls = lookup.calls.load(Ordering::SeqCst);
-        for unusable in ["", "  ", "bad value"] {
-            assert_eq!(resolve(unusable).await, None, "{unusable:?}");
-        }
-        assert_eq!(
-            selector
-                .resolve_sent("user_1", &"x".repeat(256))
-                .await
-                .expect("lookup"),
-            None
-        );
-        assert_eq!(
-            lookup.calls.load(Ordering::SeqCst),
-            calls,
-            "an unusable reference is not looked up"
-        );
     }
 
     #[test]

@@ -172,6 +172,10 @@ export interface MeetingIntelligenceProps {
   layout?: 'full-width' | 'grid';
   renderSidebar?: (props: { transcription: TranscriptionData | null }) => ReactNode;
   headerActions?: HeaderAction[];
+  /** Saves a new title, typed into the header's title in place. */
+  onTitleChange?: (title: string) => void;
+  /** Accessible name of the title while it is edited ("Meeting name"). */
+  titleLabel?: string;
   headerMenuActions?: {
     onCopyJoinCode?: () => void;
     onCopyLink?: () => void;

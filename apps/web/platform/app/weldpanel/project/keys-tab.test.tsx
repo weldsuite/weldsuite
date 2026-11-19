@@ -46,7 +46,7 @@ describe('Server keys tab', () => {
     expect(screen.getByText(tk.active)).toBeTruthy();
     expect(screen.getByText('Revoked Nov 10, 2026')).toBeTruthy();
     // Only the active key can be revoked.
-    expect(screen.getAllByRole('button', { name: tk.revoke })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: en.common.actions.title })).toHaveLength(1);
   });
 
   it('creates a key and shows the whole key once, with a copy button', async () => {
@@ -86,7 +86,8 @@ describe('Server keys tab', () => {
   it('revokes after a confirmation', async () => {
     state.revoke.mockResolvedValue(undefined);
     render(<KeysTab project={project} />);
-    await userEvent.click(screen.getByRole('button', { name: tk.revoke }));
+    await userEvent.click(screen.getByRole('button', { name: en.common.actions.title }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: tk.revoke }));
     expect(state.revoke).not.toHaveBeenCalled();
     await userEvent.click(screen.getByRole('button', { name: tk.revokeConfirm }));
     await waitFor(() => expect(state.revoke).toHaveBeenCalledWith('wpkey_1'));
