@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, StyleSheet, Image } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
+import { Image } from 'expo-image';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import type { MeetingAttendee } from '@weldsuite/core-api-client/schemas/weldmeet';
 

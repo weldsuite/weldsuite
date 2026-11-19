@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
-import { View, Text, TouchableOpacity, FlatList, StyleSheet, Image } from 'react-native';
+import { View, Text, TouchableOpacity, FlatList, StyleSheet } from 'react-native';
+import { Image } from 'expo-image';
 import { Bot } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { BRAND } from '@/lib/brand';
