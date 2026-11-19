@@ -52,21 +52,26 @@ export function CreateOrdersDialog({
   const sendToOdoo = useSendPurchaseOrderToOdoo();
 
   const [result, setResult] = useState<CreatePurchaseOrdersFromPlansResult | null>(null);
+  // The rows as they were when the orders were created: the live Reorder list
+  // drops them once they are ordered, while the result is still on screen.
+  const [submittedPlans, setSubmittedPlans] = useState<readonly ReplenishmentPlan[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState<Record<string, string>>({});
   const [sending, setSending] = useState<Record<string, boolean>>({});
 
-  const warnings = useMemo(() => createWarnings(plans, edits, minimumOrderValues), [plans, edits, minimumOrderValues]);
-  const creatable = plans.filter((p) => p.supplierId && effectiveQuantity(p, edits) > 0);
+  const shownPlans = submittedPlans ?? plans;
+  const warnings = useMemo(() => createWarnings(shownPlans, edits, minimumOrderValues), [shownPlans, edits, minimumOrderValues]);
+  const creatable = shownPlans.filter((p) => p.supplierId && effectiveQuantity(p, edits) > 0);
   const total = creatable.reduce((sum, p) => sum + lineValue(p, effectiveQuantity(p, edits)), 0);
   const currency = creatable[0]?.currency ?? null;
   const odooWarehouses = useMemo(
-    () => new Set(plans.filter((p) => p.warehouseManagedByConnectionId).map((p) => p.warehouseId)),
-    [plans],
+    () => new Set(shownPlans.filter((p) => p.warehouseManagedByConnectionId).map((p) => p.warehouseId)),
+    [shownPlans],
   );
 
   const submit = async () => {
     setError(null);
+    const snapshot = plans;
     const quantities: Record<string, number> = {};
     for (const plan of creatable) {
       const quantity = effectiveQuantity(plan, edits);
@@ -77,6 +82,7 @@ export function CreateOrdersDialog({
         planIds: creatable.map((p) => p.id),
         ...(Object.keys(quantities).length > 0 ? { quantities } : {}),
       });
+      setSubmittedPlans(snapshot);
       setResult(created);
     } catch (err) {
       setError((err as Error).message || t.failed);
@@ -97,7 +103,7 @@ export function CreateOrdersDialog({
 
   const reasonText = (reason: SkippedPlanReason) => t.skippedReasons[reason];
   const planName = (planId: string) => {
-    const plan = plans.find((p) => p.id === planId);
+    const plan = shownPlans.find((p) => p.id === planId);
     if (!plan) return planId;
     return plan.productSku ? `${plan.productName} (${plan.productSku})` : (plan.productName ?? planId);
   };
@@ -108,6 +114,7 @@ export function CreateOrdersDialog({
       // The caller clears its selection only now: the offer to send to Odoo reads the selected rows.
       if (result) onCreated();
       setResult(null);
+      setSubmittedPlans(null);
       setError(null);
       setSent({});
     }

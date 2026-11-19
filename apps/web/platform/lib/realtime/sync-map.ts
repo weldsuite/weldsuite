@@ -342,7 +342,9 @@ export const platformSyncMap: EntitySyncMap = {
   asset_source: inv(['asset-sources']),
   // Phase 3 gaps — API/agent surfaces today; provisional kebab prefixes match
   // accountingKeys style until dedicated list hooks land.
-  purchase_order: inv(['accounting', 'purchase-orders']),
+  // WeldStash's purchasing screens (purchasingKeys) and replenishment's incoming
+  // stock and plans read purchase orders too.
+  purchase_order: inv(['accounting', 'purchase-orders'], ['weldstash', 'purchasing', 'orders'], ['weldstash', 'replenishment']),
   fiscal_period: inv(['accounting', 'fiscal-periods']),
   fx_rate: inv(['accounting', 'fx-rates']),
   // US accounting (weldsuite-documentation/plans/weldbooks-us.md).
@@ -402,6 +404,13 @@ export const platformSyncMap: EntitySyncMap = {
   wms_cycle_count: inv(['weldstash', 'cycle-counts'], ['weldstash', 'stock']),
   wms_order: inv(['weldstash', 'orders']),
   wms_category: inv(['weldstash', 'categories'], ['weldstash', 'products']),
+  // Purchasing and replenishment (purchasingKeys / replenishmentKeys in
+  // use-purchasing-queries.ts and use-replenishment-queries.ts).
+  product_supplier: inv(['weldstash', 'purchasing', 'product-suppliers'], ['weldstash', 'replenishment', 'plans']),
+  reorder_rule: inv(['weldstash', 'replenishment', 'rules'], ['weldstash', 'replenishment', 'plans']),
+  replenishment_settings: inv(['weldstash', 'replenishment', 'settings'], ['weldstash', 'replenishment', 'plans']),
+  replenishment_run: inv(['weldstash', 'replenishment', 'runs'], ['weldstash', 'replenishment', 'plans']),
+  sales_history_import: inv(['weldstash', 'replenishment', 'imports']),
 
   // =========================================================================
   // WeldCommerce — Products, Orders, Fulfillment, Website builder (catalog)

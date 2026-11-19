@@ -24,9 +24,17 @@
 //! lines, `product_uom_id` on 19; `is_storable` from 18; …), and asking
 //! `read` for a field the model lacks fails the whole call, so every field
 //! list goes through [`Odoo::pick_fields`] (`fields_get` once per model).
+//!
+//! Reads are retried (transport failures, 429, 5xx); a write
+//! ([`Odoo::create`]) is sent once, since Odoo may have committed it before
+//! the answer was lost.
+//!
+//! A member chooses the Odoo host, so the binary installs a transport that
+//! reaches public addresses only ([`install_transport`]); every request goes
+//! through it instead of the caller's client.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Mutex, OnceLock, PoisonError};
 
 use serde_json::{Map, Value, json};
 use time::OffsetDateTime;
@@ -40,6 +48,33 @@ use crate::stripe::Tested;
 const USER_AGENT: &str = "WeldSuite Odoo Connector (weldsuite.com)";
 /// Appended to an authentication failure on an Odoo Online host.
 pub const ONLINE_PLAN_HINT: &str = "On Odoo Online, external API access needs the Custom plan.";
+
+/// Where the process's Odoo transport comes from, once installed
+/// ([`install_transport`]).
+static TRANSPORT: OnceLock<fn() -> Option<OutboundHttp>> = OnceLock::new();
+
+/// Installs the transport every Odoo request goes through, in place of the
+/// client the caller passes (WeldConnect's and WeldStash's shared ones): the
+/// binary does this at start with a client that connects only to public
+/// addresses, since a member chooses the host and the pod sits next to the
+/// cluster's own services. `transport` is asked on each request (the binary
+/// builds its client once, on the first); `None` from it means no transport
+/// at all (the request fails as unreachable), so a client that could not be
+/// built never falls back to an unrestricted one. Not installed (tests,
+/// conformance), the caller's client is used. Only the first call counts.
+pub fn install_transport(transport: fn() -> Option<OutboundHttp>) {
+    // Already installed: the first transport stays.
+    let _ = TRANSPORT.set(transport);
+}
+
+/// Whether a request is sent again after a transport failure, a 429 or a
+/// 5xx: reads are; a write is not, since Odoo may have committed it before
+/// its answer was lost.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Retry {
+    Yes,
+    No,
+}
 
 /// How the client talks to the server, decided on the first call.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -366,14 +401,23 @@ impl Odoo {
         format!("Could not reach Odoo at {}: check the URL", self.base)
     }
 
-    /// One request with the connector retries: transport failures, 429 and
-    /// 5xx are retried; any other answer (errors included) is returned.
+    /// One request, through the installed transport if there is one
+    /// ([`install_transport`]). With [`Retry::Yes`] the connector retries
+    /// apply (transport failures, 429 and 5xx); with [`Retry::No`] it is
+    /// sent once. A transport failure, 429 or 5xx is an error; any other
+    /// answer (errors included) is returned.
     async fn exchange(
         &self,
         http: Option<&OutboundHttp>,
         request: HttpRequest,
+        retry: Retry,
     ) -> Result<HttpResponse, ConnectorError> {
-        with_retries(&self.unreachable(), || {
+        let installed = TRANSPORT.get().map(|transport| transport());
+        let http = match &installed {
+            Some(transport) => transport.as_ref(),
+            None => http,
+        };
+        let attempt = || {
             let request = request.clone();
             async move {
                 let response = send(http, request).await?;
@@ -390,8 +434,19 @@ impl Odoo {
                 }
                 Ok(response)
             }
-        })
-        .await
+        };
+        match retry {
+            Retry::Yes => with_retries(&self.unreachable(), attempt).await,
+            Retry::No => match attempt().await {
+                Ok(response) => Ok(response),
+                Err(Attempt::Api(error)) => Err(error),
+                Err(Attempt::Network { .. }) => Err(ConnectorError::new(
+                    self.unreachable(),
+                    503,
+                    Kind::Transient,
+                )),
+            },
+        }
     }
 
     fn rpc_body(&self, service: &str, method: &str, args: Vec<Value>) -> Value {
@@ -414,6 +469,7 @@ impl Odoo {
         method: &str,
         args: Vec<Value>,
         model: Option<&str>,
+        retry: Retry,
     ) -> Result<Answer, ConnectorError> {
         let body = self.rpc_body(service, method, args);
         let request = HttpRequest {
@@ -422,7 +478,7 @@ impl Odoo {
             headers: self.headers(false),
             body: Some(body.to_string().into_bytes()),
         };
-        let response = self.exchange(http, request).await?;
+        let response = self.exchange(http, request, retry).await?;
         let server_time = http_date(response.header("date"));
         let payload = response.json();
         if !response.ok() || !payload.is_object() {
@@ -492,7 +548,10 @@ impl Odoo {
     ///
     /// Nothing answered, or not as Odoo does.
     pub async fn version(&self, http: Option<&OutboundHttp>) -> Result<u32, ConnectorError> {
-        match self.rpc(http, "common", "version", Vec::new(), None).await {
+        match self
+            .rpc(http, "common", "version", Vec::new(), None, Retry::Yes)
+            .await
+        {
             Ok(answer) => {
                 if let Some(major) = major_version(
                     &answer.result["server_version_info"],
@@ -515,7 +574,7 @@ impl Odoo {
             ],
             body: None,
         };
-        let response = self.exchange(http, request).await?;
+        let response = self.exchange(http, request, Retry::Yes).await?;
         let payload = response.json();
         match major_version(&payload["version_info"], payload["version"].as_str()) {
             Some(major) if response.ok() => Ok(major),
@@ -552,6 +611,7 @@ impl Odoo {
                         json!({}),
                     ],
                     None,
+                    Retry::Yes,
                 )
                 .await?;
             match answer.result.as_i64() {
@@ -573,7 +633,7 @@ impl Odoo {
         Ok(session)
     }
 
-    /// Calls `model.method` with `call`'s arguments.
+    /// Calls `model.method` with `call`'s arguments, retried as a read is.
     ///
     /// # Errors
     ///
@@ -584,6 +644,17 @@ impl Odoo {
         model: &str,
         method: &str,
         call: Call,
+    ) -> Result<Answer, ConnectorError> {
+        self.call_with(http, model, method, call, Retry::Yes).await
+    }
+
+    async fn call_with(
+        &self,
+        http: Option<&OutboundHttp>,
+        model: &str,
+        method: &str,
+        call: Call,
+        retry: Retry,
     ) -> Result<Answer, ConnectorError> {
         let session = self.session(http).await?;
         match session.protocol {
@@ -604,7 +675,7 @@ impl Odoo {
                     headers: self.headers(true),
                     body: Some(Value::Object(body).to_string().into_bytes()),
                 };
-                let response = self.exchange(http, request).await?;
+                let response = self.exchange(http, request, retry).await?;
                 let server_time = http_date(response.header("date"));
                 if !response.ok() {
                     return Err(self.http_failure(&response, Some(model)));
@@ -654,6 +725,7 @@ impl Odoo {
                         Value::Object(kwargs),
                     ],
                     Some(model),
+                    retry,
                 )
                 .await
             }
@@ -854,7 +926,10 @@ impl Odoo {
         Ok(answer.result.as_array().cloned().unwrap_or_default())
     }
 
-    /// `create([values])`: the new record's id.
+    /// `create([values])`: the new record's id. Sent once, never retried:
+    /// after a transport failure or a 5xx (a [`Kind::Transient`] error) Odoo
+    /// may have made the record anyway, and only the caller knows how to
+    /// look for it.
     ///
     /// # Errors
     ///
@@ -866,7 +941,7 @@ impl Odoo {
         values: Value,
     ) -> Result<i64, ConnectorError> {
         let answer = self
-            .call(
+            .call_with(
                 http,
                 model,
                 "create",
@@ -875,6 +950,7 @@ impl Odoo {
                     positional: &["vals_list"],
                     ..Call::default()
                 },
+                Retry::No,
             )
             .await?;
         let id = match &answer.result {
@@ -1256,6 +1332,36 @@ mod tests {
             body(&requests[3]),
             json!({ "ids": [1], "fields": ["code"], "context": { "lang": "en_US" } })
         );
+    }
+
+    #[tokio::test]
+    async fn a_write_is_sent_once() {
+        use crate::odoo::fake::CreateFailure;
+
+        for major in [17, 19] {
+            let fake = Arc::new(FakeOdoo::new(major));
+            warehouses(&fake);
+            fake.failing_creates
+                .lock()
+                .expect("lock")
+                .push_back(CreateFailure::AnswerLost);
+            let http = fake.http();
+            let client = client();
+            // Odoo made the record, the proxy lost the answer: not sent again.
+            let error = client
+                .create(Some(&http), "stock.warehouse", json!({ "name": "Ghent" }))
+                .await
+                .expect_err("lost");
+            assert_eq!(error.kind, Kind::Transient, "Odoo {major}");
+            assert_eq!(error.status, 502, "Odoo {major}");
+            let creates = fake
+                .calls()
+                .iter()
+                .filter(|(_, method)| method == "create")
+                .count();
+            assert_eq!(creates, 1, "Odoo {major}");
+            assert_eq!(fake.all("stock.warehouse").len(), 2, "Odoo {major}");
+        }
     }
 
     #[tokio::test]

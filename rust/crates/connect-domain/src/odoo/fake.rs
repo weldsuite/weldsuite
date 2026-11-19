@@ -9,13 +9,23 @@
 
 #![allow(clippy::missing_panics_doc, clippy::unwrap_used)]
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use serde_json::{Map, Value, json};
 use weldsuite_ports::{
     BoxFuture, DynOutboundHttp, HttpRequest, HttpResponse, OutboundHttp, PortError,
 };
+
+/// How the fake fails a `create` ([`FakeOdoo::failing_creates`]): with a
+/// 502 Bad Gateway, as a proxy in front of Odoo answers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CreateFailure {
+    /// Odoo made the record, then its answer was lost.
+    AnswerLost,
+    /// Odoo never got the request.
+    NotMade,
+}
 
 /// The fake's state: records per model, extra field names per model, and
 /// every request it received.
@@ -34,6 +44,8 @@ pub struct FakeOdoo {
     /// Field names `fields_get` reports besides the records' keys.
     pub extra_fields: Mutex<HashMap<String, Vec<String>>>,
     pub requests: Mutex<Vec<HttpRequest>>,
+    /// How the next `create` calls fail, in order; the ones after succeed.
+    pub failing_creates: Mutex<VecDeque<CreateFailure>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -327,6 +339,29 @@ impl FakeOdoo {
         json!([self.major, 0, 0, "final", 0, ""])
     }
 
+    /// `answer()`'s response, unless the call is a `create` that is to fail
+    /// ([`FakeOdoo::failing_creates`]).
+    fn unless_create_fails(
+        &self,
+        method: &str,
+        answer: impl FnOnce() -> HttpResponse,
+    ) -> HttpResponse {
+        let failure = if method == "create" {
+            lock(&self.failing_creates).pop_front()
+        } else {
+            None
+        };
+        let bad_gateway = || HttpResponse::new(502, b"<html>502 Bad Gateway</html>".to_vec());
+        match failure {
+            None => answer(),
+            Some(CreateFailure::AnswerLost) => {
+                drop(answer());
+                bad_gateway()
+            }
+            Some(CreateFailure::NotMade) => bad_gateway(),
+        }
+    }
+
     fn handle(&self, request: &HttpRequest) -> HttpResponse {
         let body: Value = request
             .body
@@ -352,13 +387,13 @@ impl FakeOdoo {
             }
             let (model, method) = rest.split_once('/').unwrap_or((rest, ""));
             let args = body.as_object().cloned().unwrap_or_default();
-            return match self.dispatch(model, method, &args) {
+            return self.unless_create_fails(method, || match self.dispatch(model, method, &args) {
                 Ok(result) => self.respond(200, &result),
                 Err((status, name, message)) => self.respond(
                     status,
                     &json!({ "name": name, "message": message, "arguments": [message], "context": {}, "debug": "" }),
                 ),
-            };
+            });
         }
         if request.url.ends_with("/jsonrpc") {
             if self.no_jsonrpc {
@@ -420,13 +455,15 @@ impl FakeOdoo {
                 }
                 _ => {}
             }
-            return match self.dispatch(model, method, &named) {
-                Ok(result) => self.respond(
-                    200,
-                    &json!({ "jsonrpc": "2.0", "id": id, "result": result }),
-                ),
-                Err((_, name, message)) => self.rpc_error(&id, &name, &message),
-            };
+            return self.unless_create_fails(method, || {
+                match self.dispatch(model, method, &named) {
+                    Ok(result) => self.respond(
+                        200,
+                        &json!({ "jsonrpc": "2.0", "id": id, "result": result }),
+                    ),
+                    Err((_, name, message)) => self.rpc_error(&id, &name, &message),
+                }
+            });
         }
         HttpResponse::new(404, b"<html>Not Found</html>".to_vec())
     }

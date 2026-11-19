@@ -50,6 +50,11 @@ describe('formToRuleInput', () => {
     expect(result).toEqual({ ok: false, errors: { reviewPeriodDays: 'invalid', leadTimeDaysOverride: 'invalid' } });
   });
 
+  it('accepts the highest service level, 99.9%, despite floating point', () => {
+    const result = formToRuleInput({ ...EMPTY_RULE_FORM, serviceLevelPct: '99.9' }, item);
+    expect(result.ok && result.input.serviceLevel).toBe(0.999);
+  });
+
   it('refuses values outside the API ranges', () => {
     expect(formToRuleInput({ ...EMPTY_RULE_FORM, serviceLevelPct: '30' }, item)).toEqual({ ok: false, errors: { serviceLevelPct: 'invalid' } });
     expect(formToRuleInput({ ...EMPTY_RULE_FORM, reviewPeriodDays: '120' }, item)).toEqual({ ok: false, errors: { reviewPeriodDays: 'invalid' } });

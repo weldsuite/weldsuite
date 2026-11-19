@@ -15,10 +15,12 @@
 //!   pick list it is on (the oldest live, not cancelled one), else in the
 //!   demand warehouse ([`super::settings::demand_warehouse`]).
 //! - `stash_sales_history` by `date`; a row without a warehouse counts in
-//!   the demand warehouse. Imported rows (`source = 'import'`) count only
-//!   before `history_cutover_date` when it is set, so an import and live
-//!   orders don't count the same sales twice; synced rows (Odoo) are a live
-//!   source and always count.
+//!   the demand warehouse. Imported rows (`source = 'import'`) count once
+//!   their import is completed (`done`, not deleted: an import still taking
+//!   rows, or one left unfinished, counts nothing), and only before
+//!   `history_cutover_date` when it is set, so an import and live orders
+//!   don't count the same sales twice; synced rows (Odoo) are a live source
+//!   and always count.
 //!
 //! The engine gets the item's lookback (`lookback_days`), or the whole
 //! series once the item is a year old, so its seasonality can show.
@@ -249,7 +251,9 @@ const DEMAND: &str = "with picked as ( \
          h.date, sum(h.quantity)::bigint \
        from stash_sales_history h \
        where h.product_id = any($1) and h.date >= $2::date and h.date < $3::date \
-         and (h.source <> 'import' or $5::date is null or h.date < $5::date) \
+         and (h.source <> 'import' or (($5::date is null or h.date < $5::date) \
+           and exists (select 1 from stash_sales_history_imports im where im.id = h.import_id \
+             and im.status = 'done' and im.deleted_at is null))) \
        group by 1, 2, 3, 4) \
      select product_id, variant_id, warehouse_id, to_char(day, 'YYYY-MM-DD'), sum(quantity)::bigint \
      from days where warehouse_id is not null \

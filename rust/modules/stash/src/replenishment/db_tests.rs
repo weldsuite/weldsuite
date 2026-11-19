@@ -2,7 +2,8 @@
 //! the demand series (pick-list warehouses, the cut-over date, orders that
 //! are no demand), the position and supplier of an item, and whole runs
 //! (plans written, review states kept across runs, plans dropped, the
-//! notification). Skipped without `WELDSUITE_TEST_TENANT_URL`.
+//! notification, a step that fails). Skipped without
+//! `WELDSUITE_TEST_TENANT_URL`.
 //!
 //! The database is shared: fresh ids, nothing truncated or assumed empty.
 //! A run plans every item in the database and the settings row is the
@@ -10,6 +11,7 @@
 //! their own items; they deactivate their warehouses and delete their
 //! products afterwards, so later runs stay small.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use serde_json::{Value, json};
@@ -161,6 +163,28 @@ impl Fx {
         .await;
     }
 
+    /// A sales history import in `status`, soft-deleted when `deleted`.
+    async fn import(&self, key: &str, status: &str, deleted: bool) -> String {
+        let id = self.id(key);
+        self.exec(
+            "insert into stash_sales_history_imports (id, file_name, status, deleted_at) \
+             values ($1->>0, 'sales.csv', $1->>1, case when ($1->>2)::boolean then now() end)",
+            &[json!([id, status, deleted])],
+        )
+        .await;
+        id
+    }
+
+    /// A row of `import`, in the demand warehouse.
+    async fn imported(&self, key: &str, days_ago: i64, product: &str, quantity: i64, import: &str) {
+        self.exec(
+            "insert into stash_sales_history (id, date, product_id, quantity, source, import_id) \
+             values ($1->>0, current_date - ($1->>1)::int, $1->>2, ($1->>3)::int, 'import', $1->>4)",
+            &[json!([self.id(key), days_ago, product, quantity, import])],
+        )
+        .await;
+    }
+
     async fn bucket(&self, key: &str, product: &str, warehouse: &str, on_hand: i64, status: &str) {
         self.exec(
             "insert into inventory (id, product_id, warehouse_id, quantity_on_hand, \
@@ -284,12 +308,19 @@ async fn demand_counts_pick_list_warehouses_and_the_cutover() {
     fx.pick_list("pl2", &pick_wh, &[&unpicked], "cancelled")
         .await;
 
-    // Before the cut-over (20 days ago), an import counts; after it, only
-    // a synced source does.
-    fx.history("h1", 40, &product, None, 6, "import").await;
-    fx.history("h2", 5, &product, None, 9, "import").await;
+    // Before the cut-over (20 days ago), a completed import counts; after
+    // it, only a synced source does. An import still taking rows (or left
+    // unfinished), a deleted one and a row of no import count nothing.
+    let done = fx.import("imd", "done", false).await;
+    let processing = fx.import("imp", "processing", false).await;
+    let deleted = fx.import("imx", "done", true).await;
+    fx.imported("h1", 40, &product, 6, &done).await;
+    fx.imported("h2", 5, &product, 9, &done).await;
     fx.history("h3", 5, &product, Some(&pick_wh), 4, "odoo")
         .await;
+    fx.imported("h4", 40, &product, 100, &processing).await;
+    fx.imported("h5", 40, &product, 1000, &deleted).await;
+    fx.history("h6", 40, &product, None, 10_000, "import").await;
 
     let today = today();
     let days = demand_days(
@@ -309,7 +340,7 @@ async fn demand_counts_pick_list_warehouses_and_the_cutover() {
     assert_eq!(
         days.get(&key(None, &demand_wh)),
         Some(&vec![(at(40), 6), (at(10), 6)]),
-        "the unpicked orders and the import before the cut-over"
+        "the unpicked orders and the completed import before the cut-over"
     );
     assert_eq!(
         days.get(&key(None, &pick_wh)),
@@ -411,6 +442,44 @@ impl JobContext for Inline {
     }
 }
 
+/// Steps run once, in line, except the one named, which fails as if out of
+/// retries without running.
+struct FailStep {
+    name: &'static str,
+    reached: AtomicBool,
+}
+
+impl FailStep {
+    fn new(name: &'static str) -> Self {
+        Self {
+            name,
+            reached: AtomicBool::new(false),
+        }
+    }
+}
+
+impl JobContext for FailStep {
+    fn key(&self) -> &'static str {
+        "test"
+    }
+
+    fn run_step<'s>(
+        &'s self,
+        name: &'s str,
+        _retry: StepRetry,
+        step: &'s StepFn<'s>,
+    ) -> BoxFuture<'s, Result<Value, JobError>> {
+        if name != self.name {
+            return step();
+        }
+        self.reached.store(true, Ordering::SeqCst);
+        Box::pin(std::future::ready(Err(JobError::StepFailed {
+            step: name.to_owned(),
+            message: "unavailable".to_owned(),
+        })))
+    }
+}
+
 /// A jobs port that keeps what it was asked to start.
 #[derive(Default)]
 struct Recorded(Mutex<Vec<JobRequest>>);
@@ -461,6 +530,14 @@ impl Runner {
 
     /// Start a run and run its job here; the run row.
     async fn run(&self) -> Value {
+        let (result, row) = self.run_in(&Inline).await;
+        result.expect("the run");
+        row
+    }
+
+    /// Start a run and run its job here with `ctx`: what the job answered,
+    /// and the run row.
+    async fn run_in(&self, ctx: &dyn JobContext) -> (Result<(), JobError>, Value) {
         let start = RunStart {
             workspace_id: "ws_repl_test".to_owned(),
             clerk_org_id: None,
@@ -480,10 +557,7 @@ impl Runner {
             .unwrap_or_else(PoisonError::into_inner)
             .pop()
             .expect("job started");
-        self.job
-            .run(&Inline, request.payload)
-            .await
-            .expect("the run");
+        let result = self.job.run(ctx, request.payload).await;
         let id = row["id"].as_str().expect("id").to_owned();
         let row: Value =
             sqlx::query_scalar("select to_jsonb(t) from stash_planning_runs t where id = $1")
@@ -491,7 +565,7 @@ impl Runner {
                 .fetch_one(&self.db)
                 .await
                 .expect("run row");
-        weldsuite_db::js_row(row)
+        (result, weldsuite_db::js_row(row))
     }
 
     /// The events published so far, as `type:action`, then cleared.
@@ -722,6 +796,54 @@ async fn runs_write_plans_and_keep_their_review_state() {
     assert_eq!(plan["order"], Value::Null);
     runner.actions().await;
 
+    fx.retire().await;
+}
+
+#[tokio::test]
+async fn a_finished_run_stays_done_when_a_later_step_fails() {
+    let Some(db) = tenant() else { return };
+    let _one = RUNS.lock().await;
+    clear_running(&db).await;
+    let fx = Fx::new(&db);
+    let warehouse = fx.warehouse("w").await;
+    use_settings(&db, &warehouse).await;
+    // Sells 5 a day, nothing in stock: it newly needs reordering, so the
+    // run gets to its notification.
+    let seller = fx.product("sell", 200).await;
+    for day in 1..=30 {
+        fx.history(&format!("h{day}"), day, &seller, None, 5, "odoo")
+            .await;
+    }
+    let runner = Runner::new(&db);
+
+    // The notification fails after its retries: the run is done all the
+    // same, and nothing follows its `completed`.
+    let notify = FailStep::new("notify");
+    let (result, run) = runner.run_in(&notify).await;
+    assert!(notify.reached.load(Ordering::SeqCst), "the run notified");
+    assert!(result.is_ok(), "{result:?}");
+    assert_eq!(run["status"], "done", "{run}");
+    assert_eq!(run["error"], Value::Null, "{run}");
+    assert_eq!(
+        runner.actions().await,
+        vec!["replenishment_run:created", "replenishment_run:completed"]
+    );
+
+    // A step after the run was closed fails the job, not the run: it stays
+    // done and no `failed` is published.
+    let (result, run) = runner.run_in(&FailStep::new("announce")).await;
+    assert!(result.is_err());
+    assert_eq!(run["status"], "done", "{run}");
+    assert_eq!(runner.actions().await, vec!["replenishment_run:created"]);
+
+    // A step of a running run still fails it.
+    let (result, run) = runner.run_in(&FailStep::new("setup")).await;
+    assert!(result.is_err());
+    assert_eq!(run["status"], "failed", "{run}");
+    assert_eq!(
+        runner.actions().await,
+        vec!["replenishment_run:created", "replenishment_run:failed"]
+    );
     fx.retire().await;
 }
 

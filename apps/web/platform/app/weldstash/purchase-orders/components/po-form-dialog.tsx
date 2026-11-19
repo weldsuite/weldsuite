@@ -84,11 +84,12 @@ export function PoFormDialog({ open, onOpenChange, order, chooseStatus = false, 
   const onSubmit = async (values: FormValues) => {
     const supplier = supplierRows.find((s) => s.id === values.supplierId);
     const warehouse = warehouseRows.find((w) => w.id === values.warehouseId);
+    // A supplier or warehouse outside the loaded list keeps the order's saved name, as long as it wasn't changed.
     const body = {
       supplierId: values.supplierId,
-      supplierName: supplier?.name ?? order?.supplierName ?? null,
+      supplierName: supplier?.name ?? (values.supplierId === order?.supplierId ? (order?.supplierName ?? null) : null),
       warehouseId: values.warehouseId === NONE ? null : values.warehouseId,
-      warehouseName: warehouse?.name ?? null,
+      warehouseName: warehouse?.name ?? (values.warehouseId === order?.warehouseId ? (order?.warehouseName ?? null) : null),
       expectedDate: values.expectedDate ? new Date(`${values.expectedDate}T00:00:00Z`).toISOString() : null,
       currency: values.currency.toUpperCase(),
       paymentTerms: values.paymentTerms || null,

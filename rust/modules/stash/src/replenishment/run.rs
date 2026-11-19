@@ -31,10 +31,14 @@
 //!    days are deleted.
 //! 4. `announce`: `replenishment_run` `completed`.
 //! 5. `notify`: when items newly need reordering, an in-app notification to
-//!    the members who may manage inventory, at most one a day each.
+//!    the members who may manage inventory, at most one a day each. The run
+//!    is done by then: a notification that still fails after its retries is
+//!    logged and the job ends well.
 //!
 //! A step that fails after its retries marks the run `failed` with the
-//! error and publishes `replenishment_run` `failed`.
+//! error and publishes `replenishment_run` `failed`, while the run is still
+//! `running`: a run that finished, or that a later start took for lost,
+//! stays as it is and nothing is published.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -247,12 +251,17 @@ fn run_event(row: &Value) -> Value {
     })
 }
 
-/// Mark the run failed with `message` (cut to the column's length).
-async fn fail_run(db: &PgPool, run_id: &str, message: &str) -> Result<Option<Value>, sqlx::Error> {
+/// Mark the run failed with `message` (cut to the column's length) while it
+/// is `running`; `None` (nothing changed) once it is done or failed.
+pub(crate) async fn fail_run(
+    db: &PgPool,
+    run_id: &str,
+    message: &str,
+) -> Result<Option<Value>, sqlx::Error> {
     let error: String = message.chars().take(MAX_ERROR_LEN).collect();
     let row: Option<Value> = sqlx::query_scalar(
         "update stash_planning_runs t set status = 'failed', finished_at = $2::timestamp, \
-         error = $3 where t.id = $1 returning to_jsonb(t)",
+         error = $3 where t.id = $1 and t.status = 'running' returning to_jsonb(t)",
     )
     .bind(run_id)
     .bind(now())
@@ -337,20 +346,21 @@ impl Job for ReplenishmentRunJob {
             if let Err(error) = &result {
                 let message = error.to_string();
                 step(ctx, "fail", StepRetry::default(), || async {
-                    let row = fail_run(&db, &params.run_id, &message)
+                    // A run already done (or failed by a later start) keeps
+                    // its status, and its `completed` is not followed by a
+                    // `failed`.
+                    if let Some(row) = fail_run(&db, &params.run_id, &message)
                         .await
-                        .map_err(JobError::failed)?;
-                    let data = row.as_ref().map_or_else(
-                        || json!({ "id": params.run_id, "status": "failed", "error": message }),
-                        run_event,
-                    );
-                    publish_entity_event(
-                        &self.events,
-                        &params.event_context(),
-                        REPLENISHMENT_RUN_FAILED,
-                        params.run_id.as_str(),
-                        &data,
-                    );
+                        .map_err(JobError::failed)?
+                    {
+                        publish_entity_event(
+                            &self.events,
+                            &params.event_context(),
+                            REPLENISHMENT_RUN_FAILED,
+                            params.run_id.as_str(),
+                            &run_event(&row),
+                        );
+                    }
                     Ok(())
                 })
                 .await?;
@@ -509,7 +519,9 @@ impl ReplenishmentRunJob {
         })
         .await?;
         if totals.newly_open > 0 {
-            let _sent: i64 = step(ctx, "notify", StepRetry::default(), || async {
+            // The run is done and announced: a notification that fails
+            // after its retries is no reason to fail it.
+            let notified = step(ctx, "notify", StepRetry::default(), || async {
                 let hub = params
                     .clerk_org_id
                     .clone()
@@ -526,7 +538,14 @@ impl ReplenishmentRunJob {
                 .map_err(JobError::failed)?;
                 Ok(i64::try_from(sent).unwrap_or(i64::MAX))
             })
-            .await?;
+            .await;
+            if let Err(error) = notified {
+                tracing::warn!(
+                    %error,
+                    run = %params.run_id,
+                    "[stash/replenishment] the reorder notification failed"
+                );
+            }
         }
         Ok(())
     }

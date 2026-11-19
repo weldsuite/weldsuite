@@ -30,7 +30,7 @@ mod ingest;
 pub mod mappers;
 pub(crate) mod sync;
 
-pub use client::Odoo;
+pub use client::{Odoo, install_transport};
 
 /// The mapping types the push reads and writes
 /// (`integration_entity_mappings.external_entity_type`).

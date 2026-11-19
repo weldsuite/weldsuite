@@ -127,7 +127,8 @@ export function formToRuleInput(values: RuleFormValues, item: RuleItem): RuleFor
     // Min and max only mean something to a min/max rule.
     minQty: values.method === 'min_max' ? (minQty as number | null) : null,
     maxQty: values.method === 'min_max' ? (maxQty as number | null) : null,
-    serviceLevel: typeof percent === 'number' ? percent / 100 : null,
+    // Rounded to tenths of a percent: 99.9 / 100 is 0.9990000000000001, which the API refuses.
+    serviceLevel: typeof percent === 'number' ? Math.round(percent * 10) / 1000 : null,
     reviewPeriodDays: review as number | null,
     leadTimeDaysOverride: lead as number | null,
     productSupplierId: values.productSupplierId || null,

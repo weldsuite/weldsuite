@@ -584,15 +584,21 @@ async fn remove(
                 return Err(Refusal::not_found(RESOURCE, &id));
             };
             lock_item(conn, &product_id, variant_id.as_deref()).await?;
-            let row: Value = sqlx::query_scalar(
+            // Checked again under the lock: a delete that got there first
+            // answered and published already.
+            let row: Option<Value> = sqlx::query_scalar(
                 "update product_suppliers set deleted_at = $2::timestamp, updated_at = $2::timestamp \
-                 where id = $1 returning jsonb_build_object('id', id, 'productId', product_id, \
+                 where id = $1 and deleted_at is null \
+                 returning jsonb_build_object('id', id, 'productId', product_id, \
                  'variantId', variant_id, 'supplierId', supplier_id, 'isPreferred', is_preferred)",
             )
             .bind(&id)
             .bind(&at)
-            .fetch_one(&mut *conn)
+            .fetch_optional(&mut *conn)
             .await?;
+            let Some(row) = row else {
+                return Err(Refusal::not_found(RESOURCE, &id));
+            };
             let promoted: Vec<Value> = if row["isPreferred"] == json!(true) {
                 sqlx::query_scalar(
                     "update product_suppliers set is_preferred = true, updated_at = $3::timestamp \

@@ -1079,6 +1079,41 @@ pub(crate) fn merge_http() -> Option<weldsuite_ports::OutboundHttp> {
     .clone()
 }
 
+/// The Odoo connector's HTTP client, made once per process. A member chooses
+/// the Odoo host (and every later sync and RFQ push reuses it), so the
+/// client connects only to public addresses: the pod sits next to the
+/// cluster's own services. `ODOO_ALLOW_PRIVATE_NETWORKS=true` lifts that for
+/// a self-hosted install whose Odoo is on its own network.
+pub(crate) fn odoo_http() -> Option<weldsuite_ports::OutboundHttp> {
+    static HTTP: OnceLock<Option<weldsuite_ports::OutboundHttp>> = OnceLock::new();
+    HTTP.get_or_init(|| {
+        let timeout = std::time::Duration::from_secs(30);
+        let allow_private =
+            std::env::var("ODOO_ALLOW_PRIVATE_NETWORKS").is_ok_and(|value| value == "true");
+        let client = if allow_private {
+            weldsuite_adapters_oss::ReqwestOutbound::new(timeout)
+        } else {
+            weldsuite_adapters_oss::ReqwestOutbound::public_only(timeout)
+        };
+        client
+            .ok()
+            .map(|client| weldsuite_ports::OutboundHttp(Arc::new(client)))
+    })
+    .clone()
+}
+
+/// Sends every Odoo request through [`odoo_http`] (built on the first):
+/// WeldConnect's syncs, credential tests and catch-up probes and WeldStash's
+/// RFQ push, whichever module's HTTP client they hold. A client that could
+/// not be built leaves Odoo unreachable, never on the unrestricted one.
+/// Conformance builds keep the test's fetch stub.
+pub(crate) fn install_odoo_http() {
+    if cfg!(feature = "conformance") {
+        return;
+    }
+    weldsuite_connect::install_odoo_transport(odoo_http);
+}
+
 /// WeldMerge's public routes (`/public/merge/github/setup`, the GitHub App's
 /// setup redirect, trusted by its signed state). Conformance builds open the
 /// test's tenant database for the workspace the state names.

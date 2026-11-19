@@ -756,6 +756,15 @@ pub(crate) struct ProductSupplierInput<'a> {
     pub(crate) min_order_qty: Option<i64>,
 }
 
+async fn live_product_supplier(db: &PgPool, id: &str) -> Result<bool, sqlx::Error> {
+    let found: Option<String> =
+        sqlx::query_scalar("select id from product_suppliers where id = $1 and deleted_at is null")
+            .bind(id)
+            .fetch_optional(db)
+            .await?;
+    Ok(found.is_some())
+}
+
 fn owner_rank(odoo: &Value) -> Option<(i64, (i64, i64, i64))> {
     let id = odoo.get("id")?.as_i64()?;
     let sequence = odoo.get("sequence").and_then(Value::as_i64).unwrap_or(1);
@@ -765,7 +774,9 @@ fn owner_rank(odoo: &Value) -> Option<(i64, (i64, i64, i64))> {
 
 /// Soft-deletes the row a vendor line owns (its `metadata.odoo.id`), and
 /// drops the line's mapping. Another line for the same product and vendor
-/// fills the row again on its next change (or a full sync).
+/// (still mapped to the released row) fills it again on its next change, or
+/// a full sync: [`upsert_product_supplier`] skips an unchanged line only
+/// while its row is live.
 pub(crate) async fn remove_supplierinfo(
     ctx: &Ctx<'_>,
     odoo_id: i64,
@@ -799,8 +810,11 @@ pub(crate) async fn upsert_product_supplier(
 ) -> Result<(Action, String), sqlx::Error> {
     let info = input.info;
     let mapping = find_mapping(ctx.db, ctx.connection_id, SUPPLIER_INFO, info.odoo_id).await?;
+    // Unchanged, unless the row it maps to was released (by the line that
+    // owned it, or in WeldStash): then this line fills it again.
     if let Some(m) = &mapping
         && m.checksum.as_deref() == Some(checksum)
+        && live_product_supplier(ctx.db, &m.internal_id).await?
     {
         return Ok((Action::Skipped, m.internal_id.clone()));
     }

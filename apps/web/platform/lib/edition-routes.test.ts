@@ -63,6 +63,18 @@ describe('route availability', () => {
     expect(isRouteOffered('/weldpanel/projects')).toBe(true);
   });
 
+  it('hides WeldStash settings and Replenishment where stash-replenishment is missing, such as Global', () => {
+    expect(routeRequirement('/settings/apps/weldstash')).toEqual({ modules: ['stash'], feature: 'stash-replenishment' });
+    expect(routeRequirement('/weldstash/replenishment')).toEqual({ modules: ['stash'], feature: 'stash-replenishment' });
+    // Global has no runtime config: GLOBAL_UNAVAILABLE_FEATURES lists the feature.
+    expect(isRouteOffered('/settings/apps/weldstash')).toBe(false);
+    expect(isRouteOffered('/weldstash/replenishment')).toBe(false);
+    expect(isRouteOffered('/weldstash/purchase-orders')).toBe(true);
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'stash'], unavailableFeatures: [] });
+    expect(isRouteOffered('/settings/apps/weldstash')).toBe(true);
+    expect(isRouteOffered('/weldstash/replenishment?plan=x')).toBe(true);
+  });
+
   it('needs only core for platform pages', () => {
     for (const path of ['/', '/settings', '/settings/team', '/appstore', '/apps/my-app', '/objects/machines', '/documents/f_1', '/settings/apps/weldsuite']) {
       expect(routeRequirement(path), path).toBeNull();

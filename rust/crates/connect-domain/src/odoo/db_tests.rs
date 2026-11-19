@@ -110,6 +110,35 @@ async fn sync(
     .unwrap()
 }
 
+/// [`sync`] as a full sync (`full`: every record read again, from the start).
+async fn full_sync(db: &PgPool, env: &SyncEnv, connection: &Value, syncs: Vec<String>) {
+    sync_connection(&SyncArgs {
+        db,
+        env,
+        connection,
+        owner_id: "user_odoo_test",
+        workspace_id: "org_odoo_test",
+        trigger: Trigger::Manual,
+        full: true,
+        syncs: Some(syncs),
+    })
+    .await
+    .unwrap();
+}
+
+async fn mapping(db: &PgPool, connection: &str, kind: &str, odoo_id: i64) -> Option<String> {
+    sqlx::query_scalar(
+        "select internal_entity_id from integration_entity_mappings
+         where connection_id = $1 and external_entity_type = $2 and external_entity_id = $3",
+    )
+    .bind(connection)
+    .bind(kind)
+    .bind(odoo_id.to_string())
+    .fetch_optional(db)
+    .await
+    .unwrap()
+}
+
 async fn mapped(db: &PgPool, connection: &str, kind: &str, odoo_id: i64) -> String {
     sqlx::query_scalar(
         "select internal_entity_id from integration_entity_mappings
@@ -837,5 +866,204 @@ async fn a_line_for_a_product_not_synced_yet_is_read_again() {
     assert_eq!(
         refs,
         vec!["91".to_owned(), "93".to_owned(), "94".to_owned()]
+    );
+}
+
+#[tokio::test]
+async fn a_failure_before_the_page_ceiling_is_read_again() {
+    let Some(db) = tenant().await else {
+        eprintln!("WELDSUITE_TEST_TENANT_URL is not set; skipping");
+        return;
+    };
+    let s = suffix();
+    let conn_id = format!("conn_odoo7_{s}");
+    let fake = Arc::new(FakeOdoo::new(17));
+    seed(&fake, &s);
+    let connection = connection(&db, &conn_id, &json!({ "importStartDate": "2026-01-01" })).await;
+    let env = env(&fake);
+    sync(&db, &env, &connection, None).await;
+
+    // A vendor line for a product made after the product sync ran (it waits
+    // for it), then one that imports.
+    let later = "2026-11-18 11:00:00";
+    fake.add("product.product", vec![
+        json!({ "id": 13, "name": format!("Floor lamp {s}"), "default_code": format!("FLOOR-{s}"),
+                "product_tmpl_id": [7, "Floor lamp"], "product_variant_count": 1, "type": "product",
+                "uom_id": [1, "Units"], "active": true, "write_date": later }),
+    ]);
+    fake.add(
+        "product.template",
+        vec![json!({ "id": 7, "write_date": later, "uom_id": [1, "Units"] })],
+    );
+    let line = |id: i64, partner: i64, template: i64, product: i64| {
+        json!({ "id": id, "partner_id": [partner, "Vendor"], "product_tmpl_id": [template, "t"],
+                "product_id": [product, "p"], "product_code": false, "product_name": false, "price": 50.0,
+                "currency_id": [1, "EUR"], "min_qty": 0.0, "delay": 5, "sequence": 1, "date_end": false,
+                "product_uom": [1, "Units"], "write_date": later })
+    };
+    fake.add(
+        "product.supplierinfo",
+        vec![line(5, 14, 7, 13), line(6, 15, 5, 10)],
+    );
+    let before = reload(&db, &conn_id).await["sync_watermarks"]["OdooSupplierInfo"].clone();
+
+    // One line a page, one page a run: line 5 fails on the first run, which
+    // the ceiling cuts short; line 6 comes on the second; the third completes
+    // the scan.
+    super::sync::TEST_LIMITS.with(|limits| limits.set(Some((1, 1))));
+    let only = || Some(vec!["productSuppliers".to_owned()]);
+    let connection = reload(&db, &conn_id).await;
+    sync(&db, &env, &connection, only()).await;
+    let marks = reload(&db, &conn_id).await["sync_watermarks"].clone();
+    assert_eq!(marks["OdooSupplierInfo__cursor"], json!("5"));
+    assert_eq!(marks["OdooSupplierInfo__failed"], json!("true"));
+    for _ in 0..2 {
+        let connection = reload(&db, &conn_id).await;
+        sync(&db, &env, &connection, only()).await;
+    }
+    let marks = reload(&db, &conn_id).await["sync_watermarks"].clone();
+    assert!(marks.get("OdooSupplierInfo__cursor").is_none(), "{marks}");
+    assert!(marks.get("OdooSupplierInfo__failed").is_none(), "{marks}");
+    assert_eq!(
+        marks["OdooSupplierInfo"], before,
+        "the watermark stays before the line that failed"
+    );
+    assert!(
+        mapping(&db, &conn_id, "odoo_supplierinfo", 6)
+            .await
+            .is_some()
+    );
+    assert!(
+        mapping(&db, &conn_id, "odoo_supplierinfo", 5)
+            .await
+            .is_none()
+    );
+
+    // Products first, then the line that waited comes in.
+    super::sync::TEST_LIMITS.with(|limits| limits.set(None));
+    let connection = reload(&db, &conn_id).await;
+    sync(
+        &db,
+        &env,
+        &connection,
+        Some(vec!["products".to_owned(), "productSuppliers".to_owned()]),
+    )
+    .await;
+    assert!(
+        mapping(&db, &conn_id, "odoo_supplierinfo", 5)
+            .await
+            .is_some()
+    );
+}
+
+#[tokio::test]
+async fn a_vendor_line_that_expires_unread_releases_its_row() {
+    let Some(db) = tenant().await else {
+        eprintln!("WELDSUITE_TEST_TENANT_URL is not set; skipping");
+        return;
+    };
+    let s = suffix();
+    let conn_id = format!("conn_odoo8_{s}");
+    let fake = Arc::new(FakeOdoo::new(17));
+    seed(&fake, &s);
+    let connection = connection(&db, &conn_id, &json!({ "importStartDate": "2026-01-01" })).await;
+    let env = env(&fake);
+    sync(&db, &env, &connection, None).await;
+    let red_supplier = mapped(&db, &conn_id, "odoo_supplierinfo", 4).await;
+    let lamp_supplier = mapped(&db, &conn_id, "odoo_supplierinfo", 3).await;
+
+    // Line 4's end date passes; nothing in Odoo changes its `write_date`.
+    fake.update(
+        "product.supplierinfo",
+        4,
+        &json!({ "date_end": "2020-01-31" }),
+    );
+    let connection = reload(&db, &conn_id).await;
+    sync(
+        &db,
+        &env,
+        &connection,
+        Some(vec!["productSuppliers".to_owned()]),
+    )
+    .await;
+    assert!(
+        supplier_deleted_at(&db, &red_supplier).await.is_some(),
+        "the expired line's row is released"
+    );
+    assert!(
+        mapping(&db, &conn_id, "odoo_supplierinfo", 4)
+            .await
+            .is_none()
+    );
+    assert!(
+        supplier_deleted_at(&db, &lamp_supplier).await.is_none(),
+        "a line without an end date stays"
+    );
+}
+
+async fn supplier_deleted_at(db: &PgPool, id: &str) -> Option<String> {
+    sqlx::query_scalar("select deleted_at::text from product_suppliers where id = $1")
+        .bind(id)
+        .fetch_one(db)
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn a_full_sync_refills_a_row_its_owner_released() {
+    let Some(db) = tenant().await else {
+        eprintln!("WELDSUITE_TEST_TENANT_URL is not set; skipping");
+        return;
+    };
+    let s = suffix();
+    let conn_id = format!("conn_odoo9_{s}");
+    let fake = Arc::new(FakeOdoo::new(17));
+    seed(&fake, &s);
+    // A quantity break for the lamp from the same vendor: line 3 (from one
+    // dozen) ranks first and owns the row; line 5 (from ten) is mapped to it.
+    fake.add("product.supplierinfo", vec![
+        json!({ "id": 5, "partner_id": [14, "Azure"], "product_tmpl_id": [5, "Desk lamp"], "product_id": false,
+                "product_code": "AZ-L", "product_name": false, "price": 108.0, "currency_id": [1, "EUR"],
+                "min_qty": 10.0, "delay": 9, "sequence": 1, "date_end": false, "product_uom": [2, "Dozens"],
+                "write_date": "2026-11-01 10:00:00" }),
+    ]);
+    let connection = connection(&db, &conn_id, &json!({ "importStartDate": "2026-01-01" })).await;
+    let env = env(&fake);
+    sync(&db, &env, &connection, None).await;
+    let shared = mapped(&db, &conn_id, "odoo_supplierinfo", 3).await;
+    assert_eq!(mapped(&db, &conn_id, "odoo_supplierinfo", 5).await, shared);
+
+    // Line 3 is deleted in Odoo: its row goes with it.
+    fake.remove("product.supplierinfo", 3);
+    let connection = reload(&db, &conn_id).await;
+    sync(
+        &db,
+        &env,
+        &connection,
+        Some(vec!["productSuppliers".to_owned()]),
+    )
+    .await;
+    assert!(supplier_deleted_at(&db, &shared).await.is_some());
+
+    // A full sync reads line 5 again, unchanged: it fills the row.
+    let connection = reload(&db, &conn_id).await;
+    full_sync(&db, &env, &connection, vec!["productSuppliers".to_owned()]).await;
+    let lamp = mapped(&db, &conn_id, "odoo_product", 10).await;
+    let azure = mapped(&db, &conn_id, "odoo_supplier", 14).await;
+    let live: Vec<(String, Option<i32>, Option<i32>)> = sqlx::query_as(
+        "select id, min_order_qty, lead_time_days from product_suppliers
+         where product_id = $1 and variant_id is null and supplier_id = $2 and deleted_at is null",
+    )
+    .bind(&lamp)
+    .bind(&azure)
+    .fetch_all(&db)
+    .await
+    .unwrap();
+    assert_eq!(live.len(), 1, "{live:?}");
+    assert_ne!(live[0].0, shared);
+    assert_eq!((live[0].1, live[0].2), (Some(120), Some(9)));
+    assert_eq!(
+        mapped(&db, &conn_id, "odoo_supplierinfo", 5).await,
+        live[0].0
     );
 }

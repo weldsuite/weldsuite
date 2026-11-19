@@ -20,6 +20,7 @@ use axum::Router;
 use axum::body::{Body, to_bytes};
 use http::{Request, StatusCode};
 use serde_json::{Value, json};
+use time::format_description::well_known::Rfc3339;
 use time::{Duration, OffsetDateTime};
 use tower::ServiceExt;
 use weldsuite_auth::AuthContext;
@@ -31,7 +32,7 @@ use weldsuite_permissions::{
 };
 use weldsuite_ports::{DynEventBus, DynJobs, InProcessJobs, JobRegistry, RecordingEventBus};
 use weldsuite_stash::StashState;
-use weldsuite_stash::replenishment::{ReplenishmentRunJob, SWEEP_KIND, Services};
+use weldsuite_stash::replenishment::{ReplenishmentRunJob, SWEEP_KIND, Services, next_run_at};
 
 const USER: &str = "user_repl_test";
 
@@ -255,6 +256,20 @@ async fn is_due(master: &PgPool, workspace: &str) -> bool {
     .fetch_one(master)
     .await
     .expect("due index")
+}
+
+/// When the master due index has this workspace due.
+async fn due_at(master: &PgPool, workspace: &str) -> Option<OffsetDateTime> {
+    let at: Option<String> = sqlx::query_scalar(
+        "select to_char(next_due_at at time zone 'utc', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') \
+         from workspace_due_index where kind = $1 and workspace_id = $2",
+    )
+    .bind(SWEEP_KIND)
+    .bind(workspace)
+    .fetch_optional(master)
+    .await
+    .expect("due index");
+    at.and_then(|at| OffsetDateTime::parse(&at, &Rfc3339).ok())
 }
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
@@ -581,6 +596,79 @@ async fn settings_are_saved_validated_and_mark_the_workspace_due() {
         .await;
     assert_eq!(status, StatusCode::OK);
     app.events().await;
+}
+
+#[tokio::test]
+async fn moving_the_run_hour_moves_the_due_time() {
+    let Some(db) = tenant() else { return };
+    let Some(master) = master() else {
+        eprintln!("WELDSUITE_TEST_MASTER_URL not set; skipping");
+        return;
+    };
+    let _one = ONE.lock().await;
+    let fx = Fx::new(&db);
+    let workspace = fx.id("ws");
+    let app = harness_in(db.clone(), ALL, Some(master.clone()), &workspace);
+    let now = OffsetDateTime::now_utc();
+    let (old_hour, new_hour) = (
+        (i64::from(now.hour()) + 2) % 24,
+        (i64::from(now.hour()) + 4) % 24,
+    );
+    let (status, _) = app
+        .call(
+            "PATCH",
+            "/replenishment/settings",
+            Some(json!({ "replenishmentEnabled": true, "runHourUtc": old_hour })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    // As the sweep leaves it after a run: due at the next run hour.
+    sqlx::query(
+        "insert into workspace_due_index (kind, workspace_id, next_due_at, updated_at, version) \
+         values ($1, $2, $3::timestamptz, now(), 1) \
+         on conflict (kind, workspace_id) do update set next_due_at = excluded.next_due_at",
+    )
+    .bind(SWEEP_KIND)
+    .bind(&workspace)
+    .bind(next_run_at(now, old_hour).format(&Rfc3339).expect("time"))
+    .execute(&master)
+    .await
+    .expect("due at the old hour");
+    let hour = |hour: i64| {
+        app.call(
+            "PATCH",
+            "/replenishment/settings",
+            Some(json!({ "runHourUtc": hour })),
+        )
+    };
+
+    // Later: the old, earlier time kept, the sweep would run at both hours
+    // that day.
+    let (status, _) = hour(new_hour).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        due_at(&master, &workspace).await,
+        Some(next_run_at(now, new_hour)),
+        "a later hour replaces the earlier time"
+    );
+    // And earlier.
+    let (status, _) = hour(old_hour).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        due_at(&master, &workspace).await,
+        Some(next_run_at(now, old_hour))
+    );
+
+    // Back to the default the other tests expect.
+    let (status, _) = hour(2).await;
+    assert_eq!(status, StatusCode::OK);
+    app.events().await;
+    sqlx::query("delete from workspace_due_index where kind = $1 and workspace_id = $2")
+        .bind(SWEEP_KIND)
+        .bind(&workspace)
+        .execute(&master)
+        .await
+        .expect("cleanup");
 }
 
 // ── Rules ───────────────────────────────────────────────────────────────────

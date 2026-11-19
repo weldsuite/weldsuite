@@ -107,6 +107,9 @@ pub use runs::{
     RequestWorkflowRuns, WorkflowRuns,
 };
 pub use schedule_sweep::{ScheduleTenants, run_schedule_sweep};
+/// The transport every Odoo request goes through (WeldConnect's syncs,
+/// tests and catch-up probes, WeldStash's RFQ push), installed by the binary.
+pub use weldsuite_connect_domain::odoo::install_transport as install_odoo_transport;
 pub use workflow_actions::{WorkflowActionsState, router as workflow_actions_router};
 
 /// Opens a workspace's tenant database by `workspaces.id` or Clerk org id,

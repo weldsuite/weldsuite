@@ -1236,6 +1236,75 @@ async fn product_suppliers_keep_one_preferred_supplier() {
     assert_eq!(status, StatusCode::CREATED);
 }
 
+/// Wait until a request is blocked on an item's product supplier lock
+/// another transaction holds; `false` if it never is.
+async fn blocked_on_item(db: &PgPool) -> bool {
+    for _ in 0..5_000 {
+        let waiting: i64 = sqlx::query_scalar(
+            "select count(*) from pg_stat_activity where datname = current_database() \
+             and wait_event_type = 'Lock' and wait_event = 'advisory' \
+             and query like '%hashtext(''product_suppliers:''%'",
+        )
+        .fetch_one(db)
+        .await
+        .expect("pg_stat_activity");
+        if waiting > 0 {
+            return true;
+        }
+        tokio::task::yield_now().await;
+    }
+    false
+}
+
+#[tokio::test]
+async fn a_delete_that_lost_the_race_answers_not_found() {
+    let Some(db) = tenant() else {
+        return;
+    };
+    let fx = Fx::new(&db);
+    let h = harness(db.clone(), ALL);
+    let product = fx.product("p", false).await;
+    let supplier = fx.supplier("s").await;
+    let (status, body) = h
+        .call(
+            "POST",
+            "/product-suppliers",
+            Some(json!({ "productId": product, "supplierId": supplier })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    let link = body["data"]["id"].as_str().expect("id").to_owned();
+    h.events().await;
+
+    // Another delete holds the item's lock and has unlinked the supplier,
+    // not yet committed: this one still finds the link, then waits.
+    let mut held = db.begin().await.expect("begin");
+    sqlx::query("select pg_advisory_xact_lock(hashtext('product_suppliers:' || $1 || ':'))")
+        .bind(&product)
+        .execute(&mut *held)
+        .await
+        .expect("item lock");
+    sqlx::query("update product_suppliers set deleted_at = now() where id = $1")
+        .bind(&link)
+        .execute(&mut *held)
+        .await
+        .expect("unlink");
+    let release = async {
+        let blocked = blocked_on_item(&db).await;
+        held.commit().await.expect("commit");
+        blocked
+    };
+    let path = format!("/product-suppliers/{link}");
+    let ((status, body), blocked) = tokio::join!(h.call("DELETE", &path, None), release);
+    assert!(blocked, "the delete waited for the other one");
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    assert_eq!(
+        h.actions().await,
+        Vec::<String>::new(),
+        "no second product_supplier.deleted"
+    );
+}
+
 // ── Warehouses another system owns ──────────────────────────────────────────
 
 #[tokio::test]

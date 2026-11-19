@@ -71,6 +71,8 @@ export function ImportWizard({ open, onOpenChange, settings }: Readonly<ImportWi
   const [totals, setTotals] = useState({ imported: 0, skipped: 0, unmatched: [] as string[] });
   const [cutover, setCutover] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Bumped when the wizard closes, so an upload still running stops and removes its import.
+  const uploadSession = useRef(0);
 
   const headers = table[0] ?? [];
   const dataRows = useMemo(() => table.slice(1), [table]);
@@ -90,6 +92,7 @@ export function ImportWizard({ open, onOpenChange, settings }: Readonly<ImportWi
 
   const close = async (next: boolean) => {
     if (!next) {
+      uploadSession.current += 1;
       // Closing with an unfinished import deletes it: its rows are not demand until Finish.
       if (importId && step !== 'done') await deleteImport.mutateAsync(importId).catch(() => undefined);
       reset();
@@ -115,7 +118,29 @@ export function ImportWizard({ open, onOpenChange, settings }: Readonly<ImportWi
     }
   };
 
+  /** Deletes an import the wizard no longer shows; a failure leaves it unfinished, which is not demand either. */
+  const discardImport = async (id: string) => {
+    await deleteImport.mutateAsync(id).catch(() => undefined);
+  };
+
+  /** Sends the rows in chunks; null when the wizard closed on the way. */
+  const uploadChunks = async (id: string, closed: () => boolean) => {
+    const chunks = chunkRows(mapped.rows, IMPORT_CHUNK_SIZE);
+    const totalsSoFar = { imported: 0, skipped: 0, unmatched: new Set<string>() };
+    for (const [index, rows] of chunks.entries()) {
+      const result = await addRows.mutateAsync({ id, data: { rows, startRow: index * IMPORT_CHUNK_SIZE } });
+      if (closed()) return null;
+      totalsSoFar.imported += result.imported;
+      totalsSoFar.skipped += result.skipped;
+      for (const sku of result.unmatchedSkus) if (totalsSoFar.unmatched.size < MAX_UNMATCHED_SHOWN) totalsSoFar.unmatched.add(sku);
+      setProgress(Math.round(((index + 1) / chunks.length) * 100));
+    }
+    return totalsSoFar;
+  };
+
   const upload = async () => {
+    const session = ++uploadSession.current;
+    const closed = () => uploadSession.current !== session;
     setStep('upload');
     setError(null);
     setProgress(0);
@@ -123,29 +148,22 @@ export function ImportWizard({ open, onOpenChange, settings }: Readonly<ImportWi
     try {
       if (!id) {
         id = (await createImport.mutateAsync(fileName)).id;
-        setImportId(id);
+        if (!closed()) setImportId(id);
       }
-      const chunks = chunkRows(mapped.rows, IMPORT_CHUNK_SIZE);
-      let imported = 0;
-      let skipped = 0;
-      const unmatched = new Set<string>();
-      for (const [index, rows] of chunks.entries()) {
-        const result = await addRows.mutateAsync({ id, data: { rows, startRow: index * IMPORT_CHUNK_SIZE } });
-        imported += result.imported;
-        skipped += result.skipped;
-        for (const sku of result.unmatchedSkus) if (unmatched.size < MAX_UNMATCHED_SHOWN) unmatched.add(sku);
-        setProgress(Math.round(((index + 1) / chunks.length) * 100));
+      const sent = closed() ? null : await uploadChunks(id, closed);
+      if (!sent) {
+        await discardImport(id);
+        return;
       }
-      setTotals({ imported, skipped, unmatched: [...unmatched] });
+      setTotals({ imported: sent.imported, skipped: sent.skipped, unmatched: [...sent.unmatched] });
       setStep('review');
     } catch (err) {
+      // A half-uploaded import is discarded, so a retry starts clean.
+      if (id) await discardImport(id);
+      if (closed()) return;
       setError((err as Error).message || t.uploadFailed);
       setStep('map');
-      // A half-uploaded import is discarded, so a retry starts clean.
-      if (id) {
-        await deleteImport.mutateAsync(id).catch(() => undefined);
-        setImportId(null);
-      }
+      setImportId(null);
     }
   };
 

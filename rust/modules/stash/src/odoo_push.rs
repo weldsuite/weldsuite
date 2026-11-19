@@ -18,7 +18,11 @@
 //! second request for the same order waits, then finds it sent (400); and
 //! before creating, it looks for an RFQ with exactly that `origin`, so a
 //! retry after a failure between Odoo's answer and the database write
-//! reuses the RFQ instead of making a second. Then it stores
+//! reuses the RFQ instead of making a second. The `create` itself is sent
+//! once (the client never retries a write): when its answer is lost (a
+//! timeout, a proxy's 5xx) Odoo may have made the RFQ anyway, so the push
+//! looks for it by `origin` once more and adopts it, else fails; the next
+//! push looks first. Then it stores
 //! the `odoo_purchase_order` mapping, each item's Odoo line id
 //! (`metadata.odooLineId`, how the sync matches lines) and
 //! `metadata.odoo = { id, name, sentAt }`, and sets the status to `pending`.
@@ -494,6 +498,25 @@ struct Rfq<'a> {
     products: &'a [i64],
 }
 
+/// The RFQ with exactly this `origin`, the oldest if there are several.
+async fn rfq_by_origin(
+    client: &Odoo,
+    http: Option<&OutboundHttp>,
+    origin: &str,
+) -> Result<Option<i64>, ConnectorError> {
+    let found = client
+        .search(
+            http,
+            "purchase.order",
+            json!([["origin", "=", origin]]),
+            Some(1),
+            Some("id asc"),
+            None,
+        )
+        .await?;
+    Ok(found.first().copied())
+}
+
 /// Finds the RFQ an earlier attempt made (by `origin`), or creates it; then
 /// its name and line ids.
 async fn create_rfq(
@@ -501,18 +524,8 @@ async fn create_rfq(
     http: Option<&OutboundHttp>,
     rfq: &Rfq<'_>,
 ) -> Result<(i64, String, Vec<i64>), ConnectorError> {
-    let existing = client
-        .search(
-            http,
-            "purchase.order",
-            json!([["origin", "=", rfq.origin]]),
-            Some(1),
-            Some("id asc"),
-            None,
-        )
-        .await?;
-    let odoo_id = if let Some(found) = existing.first() {
-        *found
+    let odoo_id = if let Some(found) = rfq_by_origin(client, http, rfq.origin).await? {
+        found
     } else {
         let warehouses = client
             .read(
@@ -582,9 +595,21 @@ async fn create_rfq(
             values.insert("date_planned".to_owned(), json!(date));
         }
         values.insert("order_line".to_owned(), Value::Array(lines));
-        client
+        match client
             .create(http, "purchase.order", Value::Object(values))
-            .await?
+            .await
+        {
+            Ok(id) => id,
+            // The answer was lost (a timeout, a proxy's 5xx), not
+            // necessarily the RFQ: adopt it if Odoo made it.
+            Err(error) if error.kind == Kind::Transient => {
+                match rfq_by_origin(client, http, rfq.origin).await {
+                    Ok(Some(found)) => found,
+                    Ok(None) | Err(_) => return Err(error),
+                }
+            }
+            Err(error) => return Err(error),
+        }
     };
     let back = client
         .read(
@@ -919,6 +944,81 @@ mod tests {
         assert_eq!((sent.odoo_id, sent.odoo_name.as_str()), (41, "P00041"));
         assert_eq!(fake.all("purchase.order").len(), 2);
         assert!(!fake.calls().iter().any(|(_, method)| method == "create"));
+    }
+
+    #[tokio::test]
+    async fn a_lost_answer_adopts_the_rfq_odoo_made() {
+        use weldsuite_connect_domain::odoo::fake::CreateFailure;
+
+        let Some(db) = tenant().await else {
+            eprintln!("WELDSUITE_TEST_TENANT_URL is not set; skipping");
+            return;
+        };
+        let s = suffix();
+        let setup = setup(&db, &s).await;
+        let number = format!("PO-{s}");
+        let po = order(&db, &setup, &number, &[(Some(&setup.product), "LAMP", 6)]).await;
+        let fake = fake();
+        // Odoo commits the RFQ, the proxy in front answers 502.
+        fake.failing_creates
+            .lock()
+            .unwrap()
+            .push_back(CreateFailure::AnswerLost);
+        let http = fake.http();
+        let sent = sent(send_to_odoo(&db, Some(&http), &Keyring::default(), &po).await).await;
+        assert_eq!((sent.odoo_id, sent.odoo_name.as_str()), (1, "P00001"));
+        assert_eq!(fake.all("purchase.order").len(), 1, "no second RFQ");
+        let creates = fake
+            .calls()
+            .iter()
+            .filter(|(_, method)| method == "create")
+            .count();
+        assert_eq!(creates, 1);
+        assert_eq!(sent.purchase_order["status"], json!("pending"));
+    }
+
+    #[tokio::test]
+    async fn a_create_odoo_never_got_fails_and_the_next_push_makes_it() {
+        use weldsuite_connect_domain::odoo::fake::CreateFailure;
+
+        let Some(db) = tenant().await else {
+            eprintln!("WELDSUITE_TEST_TENANT_URL is not set; skipping");
+            return;
+        };
+        let s = suffix();
+        let setup = setup(&db, &s).await;
+        let po = order(
+            &db,
+            &setup,
+            &format!("PO-{s}"),
+            &[(Some(&setup.product), "LAMP", 2)],
+        )
+        .await;
+        let fake = fake();
+        fake.failing_creates
+            .lock()
+            .unwrap()
+            .push_back(CreateFailure::NotMade);
+        let http = fake.http();
+        let keyring = Keyring::default();
+        let refused = send_to_odoo(&db, Some(&http), &keyring, &po)
+            .await
+            .expect_err("refused");
+        assert_eq!(
+            message(refused).await,
+            (502, "Odoo request failed (502)".to_owned())
+        );
+        assert_eq!(fake.all("purchase.order"), Vec::<Value>::new());
+        let status: String = sqlx::query_scalar("select status from purchase_orders where id = $1")
+            .bind(&po)
+            .fetch_one(&db)
+            .await
+            .unwrap();
+        assert_eq!(status, "approved");
+
+        let sent = sent(send_to_odoo(&db, Some(&http), &keyring, &po).await).await;
+        assert_eq!(sent.odoo_id, 1);
+        assert_eq!(fake.all("purchase.order").len(), 1);
     }
 
     #[tokio::test]

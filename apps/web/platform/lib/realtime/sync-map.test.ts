@@ -196,10 +196,23 @@ describe('platformSyncMap — WeldDesk', () => {
   });
 });
 
+describe('platformSyncMap — WeldStash purchasing and replenishment', () => {
+  it('invalidates the purchasing and replenishment keys of the hooks', () => {
+    expect(platformSyncMap.product_supplier?.invalidate).toEqual([
+      ['weldstash', 'purchasing', 'product-suppliers'],
+      ['weldstash', 'replenishment', 'plans'],
+    ]);
+    expect(platformSyncMap.replenishment_run?.invalidate).toContainEqual(['weldstash', 'replenishment', 'runs']);
+    expect(platformSyncMap.sales_history_import?.invalidate).toEqual([['weldstash', 'replenishment', 'imports']]);
+  });
+});
+
 describe('platformSyncMap — WeldBooks', () => {
   it('Phase 3 catalog gaps invalidate provisional accounting prefixes', () => {
     expect(platformSyncMap.purchase_order?.invalidate).toEqual([
       ['accounting', 'purchase-orders'],
+      ['weldstash', 'purchasing', 'orders'],
+      ['weldstash', 'replenishment'],
     ]);
     expect(platformSyncMap.fiscal_period?.invalidate).toEqual([
       ['accounting', 'fiscal-periods'],

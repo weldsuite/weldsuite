@@ -118,6 +118,14 @@ impl Ctx {
             weldsuite_db::due_index::mark_due(master, SWEEP_KIND, &self.workspace_id, at).await;
         }
     }
+
+    /// Have the nightly sweep look at this workspace at `at` and not
+    /// before, even when it was due earlier (the run hour moved later).
+    pub(crate) async fn set_due(&self, at: OffsetDateTime) {
+        if let Some(master) = &self.master {
+            weldsuite_db::due_index::set_due(master, SWEEP_KIND, &self.workspace_id, at).await;
+        }
+    }
 }
 
 pub(crate) fn routes<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<StashState>
@@ -344,7 +352,10 @@ async fn patch_settings(
             if after.enabled && !before.enabled {
                 ctx.mark_due(now).await;
             } else if after.enabled && after.run_hour_utc != before.run_hour_utc {
-                ctx.mark_due(next_run_at(now, after.run_hour_utc)).await;
+                // Replace the old hour's due time: kept (it is the earlier
+                // one when the hour moved later), the sweep would run at the
+                // old hour and again at the new one the same day.
+                ctx.set_due(next_run_at(now, after.run_hour_utc)).await;
             }
             Data(row).into_response()
         }

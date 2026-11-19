@@ -11,9 +11,11 @@
 //! rows with one transaction time, so pages are keyed on `id` (`id > last`,
 //! `order id asc`) under a domain fixed for the whole scan, not on the
 //! timestamp; the watermark moves only when a scan completes
-//! ([`next_watermark`]). A scan reads at most [`MAX_PAGES`] pages per run
-//! and resumes where it stopped (`<model>__cursor`, `__since`, `__t0`,
-//! `__max`). Stock is a full refresh on every run, never cut short.
+//! ([`next_watermark`]), and not past a record that failed anywhere in the
+//! scan. A scan reads at most [`MAX_PAGES`] pages per run and resumes where
+//! it stopped (`<model>__cursor`, `__since`, `__t0`, `__max`, and
+//! `__failed` once a record failed). Stock is a full refresh on every run,
+//! never cut short.
 //!
 //! A sync that follows a related record's changes too (a template's for
 //! its variants, an order's for its lines) ORs both `write_date`s into the
@@ -203,6 +205,9 @@ struct Window {
     /// The newest change seen.
     max_seen: Option<String>,
     continuing: bool,
+    /// A record failed in an earlier run of this scan (`__failed`), which
+    /// the page ceiling cut short: the scan's watermark must not pass it.
+    failed_before: bool,
 }
 
 impl Window {
@@ -228,6 +233,7 @@ impl Window {
                 started: mark(&format!("{model}__t0")),
                 max_seen: mark(&format!("{model}__max")),
                 continuing: true,
+                failed_before: mark(&format!("{model}__failed")).is_some(),
             },
             None => Self {
                 model: model.to_owned(),
@@ -236,6 +242,7 @@ impl Window {
                 started: None,
                 max_seen: None,
                 continuing: false,
+                failed_before: false,
             },
         }
     }
@@ -267,17 +274,19 @@ impl Window {
     }
 
     fn continuation_keys(&self) -> Vec<(String, Option<String>)> {
-        ["cursor", "since", "t0", "max"]
+        ["cursor", "since", "t0", "max", "failed"]
             .iter()
             .map(|suffix| (self.key(suffix), None))
             .collect()
     }
 
     /// A completed scan: the continuation goes, the watermark moves (unless
-    /// a record failed, so the next scan reads it again).
+    /// a record failed, in this run or an earlier one of the scan, so the
+    /// next scan reads it again).
     fn done_patch(&self, failed: bool) -> Vec<(String, Option<String>)> {
         let mut patch = self.continuation_keys();
         if !failed
+            && !self.failed_before
             && let Some(mark) = next_watermark(
                 self.since.as_deref(),
                 self.max_seen.as_deref(),
@@ -289,13 +298,18 @@ impl Window {
         patch
     }
 
-    /// A scan cut short: where the next run resumes.
-    fn truncated_patch(&self) -> Vec<(String, Option<String>)> {
+    /// A scan cut short: where the next run resumes, and whether a record
+    /// failed so far (the cursor moves past it).
+    fn truncated_patch(&self, failed: bool) -> Vec<(String, Option<String>)> {
         vec![
             (self.key("cursor"), Some(self.cursor.to_string())),
             (self.key("since"), self.since.clone()),
             (self.key("t0"), self.started.clone()),
             (self.key("max"), self.max_seen.clone()),
+            (
+                self.key("failed"),
+                (failed || self.failed_before).then(|| "true".to_owned()),
+            ),
         ]
     }
 }
@@ -662,7 +676,7 @@ async fn run_one(ctx: &Ctx<'_>, args: &SyncArgs<'_>, sync: &Value) -> Result<boo
         Ok(truncated) => {
             let failed = applied.failed > 0;
             let watermarks = if truncated {
-                window.truncated_patch()
+                window.truncated_patch(failed)
             } else {
                 window.done_patch(failed)
             };
@@ -1010,7 +1024,9 @@ async fn ensure_supplier(ctx: &Ctx<'_>, partner_id: i64) -> Result<Option<String
 /// Vendor lines (`product.supplierinfo`). Prices and minimum quantities are
 /// per the vendor's unit; they are converted to the product's unit. An
 /// expired line (`date_end` in the past) and a line deleted in Odoo (found
-/// by comparing ids after a completed scan) release their row.
+/// by comparing ids after a completed scan) release their row. A mapped
+/// line that expired since it was read is found after a completed scan too:
+/// time passing changes no `write_date`, so the scan does not read it.
 async fn sync_product_suppliers(
     ctx: &Ctx<'_>,
     window: &mut Window,
@@ -1040,6 +1056,7 @@ async fn sync_product_suppliers(
             ],
         )
         .await?;
+    let has_end_date = fields.iter().any(|f| f == "date_end");
     let items = ingest::product_items(ctx.db, ctx.connection_id).await?;
     let templates = ingest::mappings_of(ctx.db, ctx.connection_id, ingest::TEMPLATE).await?;
     let uoms = ctx.uoms().await?;
@@ -1148,7 +1165,31 @@ async fn sync_product_suppliers(
             .into_iter()
             .collect();
         let mapped = ingest::mappings_of(ctx.db, ctx.connection_id, ingest::SUPPLIER_INFO).await?;
-        for odoo_id in mapped.keys().filter(|id| !live.contains(id)) {
+        let expired: HashSet<i64> = if has_end_date && !mapped.is_empty() {
+            let mut ids: Vec<i64> = mapped.keys().copied().collect();
+            ids.sort_unstable();
+            ctx.client
+                .search(
+                    ctx.http,
+                    MODEL,
+                    domain(all_of(vec![
+                        term("id", "in", json!(ids)),
+                        term("date_end", "<", json!(format_date(ctx.today))),
+                    ])),
+                    None,
+                    None,
+                    None,
+                )
+                .await?
+                .into_iter()
+                .collect()
+        } else {
+            HashSet::new()
+        };
+        for odoo_id in mapped
+            .keys()
+            .filter(|id| !live.contains(id) || expired.contains(id))
+        {
             match ingest::remove_supplierinfo(ctx, *odoo_id).await {
                 Ok(Some(row)) => {
                     tally(applied, Action::Deleted);
@@ -1800,9 +1841,48 @@ mod tests {
         window.cursor = 1000;
         assert!(
             window
-                .truncated_patch()
+                .truncated_patch(false)
                 .contains(&("OdooProduct__cursor".to_owned(), Some("1000".to_owned())))
         );
+        assert!(
+            window
+                .truncated_patch(false)
+                .contains(&("OdooProduct__failed".to_owned(), None))
+        );
+        assert!(
+            window
+                .truncated_patch(true)
+                .contains(&("OdooProduct__failed".to_owned(), Some("true".to_owned())))
+        );
+    }
+
+    #[test]
+    fn a_failure_before_the_page_ceiling_holds_the_watermark() {
+        // A record failed on the run the ceiling cut short.
+        let window = Window::open(
+            &json!({ "sync_watermarks": {
+                "OdooProduct": "2026-11-01 00:00:00",
+                "OdooProduct__cursor": "500",
+                "OdooProduct__since": "2026-11-01 00:00:00",
+                "OdooProduct__t0": "2026-11-18 10:00:00",
+                "OdooProduct__max": "2026-11-17 09:00:00",
+                "OdooProduct__failed": "true",
+            } }),
+            "OdooProduct",
+            false,
+        );
+        // Cut short again without a failure: the flag stays.
+        assert!(
+            window
+                .truncated_patch(false)
+                .contains(&("OdooProduct__failed".to_owned(), Some("true".to_owned())))
+        );
+        // Completed without a failure in this run: the watermark still waits,
+        // and the flag goes with the continuation.
+        let done = window.done_patch(false);
+        assert!(!done.iter().any(|(k, _)| k == "OdooProduct"));
+        assert!(done.contains(&("OdooProduct__failed".to_owned(), None)));
+        assert!(done.contains(&("OdooProduct__cursor".to_owned(), None)));
     }
 
     #[test]
