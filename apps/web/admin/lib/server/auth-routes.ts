@@ -22,7 +22,7 @@ import {
   startSignIn,
   type OidcConfig,
 } from './oidc';
-import { staffIdentity } from './staff-roster';
+import { staffIdentity, staffRefusal } from './staff-roster';
 
 function redirect(location: string, cookies: string[] = [], status = 302): Response {
   const headers = new Headers({ Location: location, 'Cache-Control': 'no-store' });
@@ -73,7 +73,11 @@ export async function handleCallback(request: Request): Promise<Response> {
     // page with a sign-out button, instead of a loop through the provider.
     const identity = await staffIdentity(session, { staffOrgId: settings.staffOrgId, signingIn: true });
     if (!identity) {
-      const why = session.org === settings.staffOrgId ? 'not on the staff roster' : 'an account outside the staff organization';
+      // Which refusal it was, so the log says what to fix. Only words for
+      // the log: failing to work them out never fails the sign-in.
+      const why = await staffRefusal(session, { staffOrgId: settings.staffOrgId }).catch(
+        () => 'an account the staff list does not let in',
+      );
       console.warn(`[admin/auth] signed in with ${why}:`, session.sub);
     }
     return redirect(returnTo, [await sessionCookie(settings, session), clearFlow]);

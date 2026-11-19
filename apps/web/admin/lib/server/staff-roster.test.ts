@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { decide, roleOf, staffIdentity } from './staff-roster';
+import { decide, refusal, roleOf, staffIdentity, staffRefusal } from './staff-roster';
 import type { StaffSession } from './oidc';
 import type { AdminRole } from '../roles';
 
@@ -178,6 +178,78 @@ describe('staffIdentity', () => {
   it('refuses a row whose role is unknown', async () => {
     fake.state.selects = [[{ ...row('sub-ann-staff'), role: 'owner' }]];
     await expect(staffIdentity(session, { staffOrgId: STAFF_ORG })).resolves.toBeNull();
+  });
+});
+
+describe('refusal', () => {
+  it('names an account outside the staff organization, only when one is configured', () => {
+    expect(refusal({ ...session, org: 'org-platform' }, STAFF_ORG, undefined, row(null))).toBe(
+      'an account outside the staff organization',
+    );
+    expect(refusal({ ...session, org: null }, '', undefined, undefined)).not.toContain('staff organization');
+  });
+
+  it("names a removed person's account, and a bound row with an unknown role", () => {
+    expect(refusal(session, STAFF_ORG, row('sub-ann-staff', { isActive: false }), undefined)).toBe(
+      'an account removed from the staff list',
+    );
+    expect(refusal(session, STAFF_ORG, { ...row('sub-ann-staff'), role: 'owner' as AdminRole }, undefined)).toBe(
+      'a staff-list row with an unknown role (owner)',
+    );
+  });
+
+  it('names an email that is not on the list, removed from it, or not verified', () => {
+    expect(refusal({ ...session, email: null }, STAFF_ORG, undefined, undefined)).toContain('gave no email');
+    expect(refusal(session, STAFF_ORG, undefined, undefined)).toBe('an email that is not on the staff list');
+    expect(refusal(session, STAFF_ORG, undefined, row(null, { isActive: false }))).toBe(
+      'an email removed from the staff list',
+    );
+    expect(refusal({ ...session, emailVerified: false }, STAFF_ORG, undefined, row(null))).toBe(
+      'an email the identity provider does not call verified',
+    );
+  });
+
+  // EU test, 2026-11-19: the row was still bound to the person's Zitadel
+  // account when they signed in with their WeldID staff account.
+  it('names a row bound to another account, and how to bind it again', () => {
+    const why = refusal({ ...session, org: null }, '', undefined, row('sub-ann-zitadel'));
+    expect(why).toContain('bound to another account');
+    expect(why).toContain('console_subject');
+  });
+
+  it('names an unknown role on the email row, and a row another sign-in bound first', () => {
+    expect(refusal(session, STAFF_ORG, undefined, { ...row(null), role: 'owner' as AdminRole })).toBe(
+      'a staff-list row with an unknown role (owner)',
+    );
+    expect(refusal(session, STAFF_ORG, undefined, row(null))).toBe(
+      'an email whose staff-list row another sign-in bound first',
+    );
+  });
+});
+
+describe('staffRefusal', () => {
+  beforeEach(() => {
+    fake.state.selects = [];
+    fake.state.reads = 0;
+  });
+
+  it('looks up the email row whether active or not', async () => {
+    fake.state.selects = [[], [row('sub-ann-zitadel')]];
+    await expect(staffRefusal({ ...session, org: null }, { staffOrgId: '' })).resolves.toContain('bound to another account');
+    expect(fake.state.reads).toBe(2);
+  });
+
+  it('stops at the account bound to a removed row', async () => {
+    fake.state.selects = [[row('sub-ann-staff', { isActive: false })]];
+    await expect(staffRefusal(session, { staffOrgId: STAFF_ORG })).resolves.toBe('an account removed from the staff list');
+    expect(fake.state.reads).toBe(1);
+  });
+
+  it('names an account outside the staff organization without reading the roster', async () => {
+    await expect(staffRefusal({ ...session, org: 'org-platform' }, { staffOrgId: STAFF_ORG })).resolves.toBe(
+      'an account outside the staff organization',
+    );
+    expect(fake.state.reads).toBe(0);
   });
 });
 

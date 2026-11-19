@@ -62,6 +62,35 @@ export function decide(
   return { row: byEmail, bind: true };
 }
 
+/**
+ * Why the roster lets a session in as nobody, in a few words for the
+ * sign-in's log line: the operator reading it should know which of the
+ * refusals above it was without looking in the database. `byEmail` is the
+ * row of the session's email whether active or not. Exported for its tests.
+ */
+export function refusal(
+  session: StaffSession,
+  staffOrgId: string,
+  bySubject: RosterRow | undefined,
+  byEmail: RosterRow | undefined,
+): string {
+  if (staffOrgId && session.org !== staffOrgId) return 'an account outside the staff organization';
+  if (bySubject) {
+    return bySubject.isActive
+      ? `a staff-list row with an unknown role (${bySubject.role})`
+      : 'an account removed from the staff list';
+  }
+  if (!session.email) return 'an account the identity provider gave no email for';
+  if (!byEmail) return 'an email that is not on the staff list';
+  if (!byEmail.isActive) return 'an email removed from the staff list';
+  if (!session.emailVerified) return 'an email the identity provider does not call verified';
+  if (byEmail.consoleSubject !== null) {
+    return 'an email whose staff-list row is bound to another account (admin_users.console_subject; clear it to bind again)';
+  }
+  if (!roleOf(byEmail.role)) return `a staff-list row with an unknown role (${byEmail.role})`;
+  return 'an email whose staff-list row another sign-in bound first';
+}
+
 const columns = {
   email: adminUsers.email,
   name: adminUsers.name,
@@ -112,4 +141,19 @@ export async function staffIdentity(
     role,
     isSuperAdmin: role === 'superadmin',
   };
+}
+
+/**
+ * Why `staffIdentity` just refused a session (`refusal`), looked up again:
+ * only the sign-in's callback asks, once per refused sign-in.
+ */
+export async function staffRefusal(session: StaffSession, { staffOrgId }: { staffOrgId: string }): Promise<string> {
+  if (staffOrgId && session.org !== staffOrgId) return refusal(session, staffOrgId, undefined, undefined);
+  const db = getMasterDb();
+  const [bySubject] = await db.select(columns).from(adminUsers).where(eq(adminUsers.consoleSubject, session.sub)).limit(1);
+  const [byEmail] =
+    bySubject || !session.email
+      ? []
+      : await db.select(columns).from(adminUsers).where(sql`lower(${adminUsers.email}) = ${session.email}`).limit(1);
+  return refusal(session, staffOrgId, bySubject, byEmail);
 }

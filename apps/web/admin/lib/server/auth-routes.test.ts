@@ -4,7 +4,8 @@ import { startFakeProvider, type FakeProvider } from './testing/fake-oidc-provid
 /** The staff organization's setting, which some tests take away. */
 const ORG_SETTING = 'ADMIN_OIDC_ORG_ID';
 const staffIdentity = vi.hoisted(() => vi.fn());
-vi.mock('./staff-roster', () => ({ staffIdentity }));
+const staffRefusal = vi.hoisted(() => vi.fn());
+vi.mock('./staff-roster', () => ({ staffIdentity, staffRefusal }));
 
 import { handleCallback, handleSignIn, sessionCookieOf } from './auth-routes';
 import { oidcConfig, readSession } from './oidc';
@@ -32,6 +33,7 @@ beforeEach(() => {
   Object.assign(process.env, env);
   provider.person = person;
   staffIdentity.mockReset();
+  staffRefusal.mockReset();
 });
 afterEach(() => {
   for (const name of Object.keys(env)) delete process.env[name];
@@ -59,23 +61,44 @@ describe('handleCallback', () => {
     const cookie = response.headers.getSetCookie().map((header) => header.split(';')[0]!).join('; ');
     const session = await readSession(oidcConfig(), sessionCookieOf(new Request('https://admin.eu.example/', { headers: { cookie } })));
     expect(session?.org).toBe(STAFF_ORG);
+    expect(staffRefusal).not.toHaveBeenCalled();
   });
 
-  it('says when someone signed in with an account outside the staff organization', async () => {
+  it('says why the roster refused someone, as the roster puts it', async () => {
     provider.person = { ...person, org: 'org-platform' };
     staffIdentity.mockResolvedValue(null);
+    staffRefusal.mockResolvedValue('an account outside the staff organization');
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const response = await signIn();
     // A session all the same: they get the "no access" page and its sign-out button.
     expect(response.headers.get('location')).toBe('/staff');
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('outside the staff organization'), person.sub);
+    expect(staffRefusal).toHaveBeenCalledWith(expect.objectContaining({ sub: person.sub, org: 'org-platform' }), {
+      staffOrgId: STAFF_ORG,
+    });
+    expect(warn).toHaveBeenCalledWith('[admin/auth] signed in with an account outside the staff organization:', person.sub);
   });
 
-  it('says when a staff account is not on the roster', async () => {
+  // EU test, 2026-11-19: without a staff organization (WeldID), every refusal
+  // was logged as "outside the staff organization", while the row was bound
+  // to the person's Zitadel account.
+  it('names the refusal without a staff organization configured too', async () => {
+    delete process.env[ORG_SETTING];
     staffIdentity.mockResolvedValue(null);
+    staffRefusal.mockResolvedValue('an email whose staff-list row is bound to another account');
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     await signIn();
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('not on the staff roster'), person.sub);
+    expect(staffRefusal).toHaveBeenCalledWith(expect.objectContaining({ sub: person.sub }), { staffOrgId: '' });
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('bound to another account'), person.sub);
+    expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('staff organization'), person.sub);
+  });
+
+  it("still signs in when the reason can't be worked out", async () => {
+    staffIdentity.mockResolvedValue(null);
+    staffRefusal.mockRejectedValue(new Error('database unavailable'));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const response = await signIn();
+    expect(response.headers.get('location')).toBe('/staff');
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('the staff list does not let in'), person.sub);
   });
 });
 
