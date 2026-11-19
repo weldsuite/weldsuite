@@ -324,7 +324,7 @@ pub(crate) static CANNED_RESPONSES: Crud = Crud {
         Changed::UpdateOrExisting("departmentId"),
     ],
     deleted: ev::CANNED_RESPONSE_DELETED,
-    hook: Hook::None,
+    hook: Hook::CannedResponseOwner,
 };
 
 pub(crate) static WORKFLOWS: Crud = Crud {

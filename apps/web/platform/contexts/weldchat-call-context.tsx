@@ -37,7 +37,8 @@ import { RoomClient } from '@weldsuite/realtime/client';
 import { useTopic } from '@weldsuite/realtime/react';
 import type { WorkspaceEvent } from '@weldsuite/realtime';
 import { usePresenceMaybe } from '@/contexts/presence-context';
-import { apiUrl, getRealtimeWsOrigin } from '@/lib/api/public-env';
+import { apiUrl } from '@/lib/api/public-env';
+import { realtimeSocketUrl } from '@/lib/api/realtime-url';
 import { publicEnv } from '@/lib/runtime-config';
 import { isLiveKit, videoJoin } from '@/lib/video-provider';
 import { usersInCall, type CallParticipantEntry } from '@/app/weldchat/lib/call-peers';
@@ -720,12 +721,12 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
       return;
     }
 
-    const realtimeOrigin = getRealtimeWsOrigin();
-    // An empty origin means realtime is off for this deployment.
-    if (!realtimeOrigin) return;
+    const url = realtimeSocketUrl(`/ws/chat/${channelId}`);
+    // An empty URL means realtime is off for this deployment.
+    if (!url) return;
 
     const rc = new RoomClient({
-      url: `${realtimeOrigin}/ws/chat/${channelId}`,
+      url,
       getToken: async () => (await getTokenRef.current()) || '',
     });
     handRaiseRoomRef.current = rc;

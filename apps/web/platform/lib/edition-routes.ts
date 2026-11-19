@@ -62,6 +62,11 @@ const ROUTE_REQUIREMENTS: ReadonlyArray<readonly [prefix: string, requirement: E
   // The public API (external-api) has no Kubernetes port yet: keys need the
   // origin they work against, which `/config.json` names once it has one.
   ['/settings/api-keys', { publicEnv: 'VITE_EXTERNAL_API_URL' }],
+  // WeldDesk's BI connector is an OData feed on that same public API, read
+  // with one of those keys.
+  ['/welddesk/reports/bi-connector', { modules: ['desk'], publicEnv: 'VITE_EXTERNAL_API_URL' }],
+  // The public help center site runs on Global only (`{slug}.welddesk.org`).
+  ['/settings/apps/welddesk/help-center', { modules: ['desk'], feature: 'helpcenter-hosting' }],
   ['/settings/webhooks', { modules: ['connect'] }],
   // WeldBooks entities and WeldHR payroll employers share the page.
   ['/settings/entities', { modules: ['books', 'hr'] }],

@@ -1,5 +1,6 @@
 import { BookOpen, Bot, ChevronRight, ConciergeBell, Grid3x3, Mail, MessagesSquare, Phone, Route, Shuffle, Tags, Timer, Users, type LucideIcon } from 'lucide-react';
 import { Link } from '@/lib/router';
+import { isRouteOffered } from '@/lib/edition-routes';
 import { getTranslations } from '@/lib/i18n';
 import { AssetRegisterCard } from './asset-register-card';
 
@@ -57,7 +58,11 @@ export default function HelpdeskSettingsPage() {
         deskLink('service-catalogue', ConciergeBell, td.serviceCatalogueTitle, td.serviceCatalogueDescription),
       ],
     },
-  ];
+  ]
+    // A page this edition doesn't serve (the hosted help center on Kubernetes)
+    // is left out rather than linked to its "not available" page.
+    .map((section) => ({ ...section, links: section.links.filter((link) => isRouteOffered(link.href)) }))
+    .filter((section) => section.links.length > 0);
 
   return (
     <div className="space-y-6">

@@ -72,6 +72,7 @@ export const deskInbox2 = {
     backToList: 'Terug naar de lijst',
     assign: 'Toewijzen',
     assignTooltip: 'Toewijzen (A)',
+    assignToMe: 'Aan mij toewijzen',
     assignTeammates: 'Teamleden',
     assignTeams: 'Teams',
     assignSearchPlaceholder: 'Zoeken…',

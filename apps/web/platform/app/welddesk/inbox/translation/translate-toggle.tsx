@@ -68,7 +68,7 @@ export function TranslateToggle({
         data-testid="desk-inbox-translate-toggle"
       >
         {on && query.isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Languages className="h-4 w-4" />}
-        <span className="hidden lg:inline">{t.translate}</span>
+        <span className="hidden @3xl/desk-header:inline">{t.translate}</span>
       </Button>
     </div>
   );

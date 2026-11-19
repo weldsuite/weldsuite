@@ -8,7 +8,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/lib/auth';
 import { RoomClient } from '@weldsuite/realtime/client';
-import { getRealtimeWsOrigin } from '@/lib/api/public-env';
+import { realtimeSocketUrl } from '@/lib/api/realtime-url';
 
 
 export function useMeetingChatRoom(meetingId: string | null): {
@@ -22,11 +22,9 @@ export function useMeetingChatRoom(meetingId: string | null): {
   getTokenRef.current = getToken;
 
   useEffect(() => {
-    const realtimeOrigin = getRealtimeWsOrigin();
-    // An empty origin means realtime is off for this deployment.
-    if (!meetingId || !realtimeOrigin) return;
-
-    const wsUrl = `${realtimeOrigin}/ws/chat/meet_${meetingId}`;
+    const wsUrl = meetingId ? realtimeSocketUrl(`/ws/chat/meet_${meetingId}`) : '';
+    // An empty URL means realtime is off for this deployment.
+    if (!wsUrl) return;
     console.info(`[weldmeet-chat] HostChat connecting: url=${wsUrl}`);
 
     const rc = new RoomClient({

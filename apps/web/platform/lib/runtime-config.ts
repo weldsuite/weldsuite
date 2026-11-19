@@ -240,3 +240,12 @@ export function isRuntimeEnv(key: `VITE_${string}`): boolean {
 export function isRustBackend(): boolean {
   return current?.backend === 'rust';
 }
+
+/**
+ * WeldDesk's helpdesk widget origin when the deployment serves its own
+ * (`/config.json`'s `helpdeskWidgetUrl`, e.g. `https://widget.weldsuite.eu`).
+ * Undefined on Global, where the SDK's default host is the right one.
+ */
+export function getHelpdeskWidgetUrl(): string | undefined {
+  return current?.helpdeskWidgetUrl;
+}
