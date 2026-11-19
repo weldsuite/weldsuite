@@ -14,7 +14,7 @@ import type {
   PanelSavedMetricTreeValuesInput,
 } from '@weldsuite/app-api-client/schemas/weldpanel-analysis';
 import { data } from '../dataset';
-import { UNHANDLED, type SampleAreaHandler } from '../request';
+import { UNHANDLED, type SampleAreaHandler, type SampleRequest } from '../request';
 import { explainResult, impactResult, metricTreePreview, metricTreeSaved, signalResult } from './query-insights';
 import { flowsResult, funnelCorrelationResult, funnelResult, lifecycleResult, retentionResult, stickinessResult } from './query-journeys';
 import { trendsResult } from './query-trends';
@@ -40,53 +40,42 @@ function isSavedValuesInput(body: unknown): body is PanelSavedMetricTreeValuesIn
   return body === undefined || body === null || isRecord(body);
 }
 
+/** What each kind of query is answered with, as the part of the response that is the result. */
+const RESULT_OF: { [K in PanelQuerySpec['kind']]: (spec: Extract<PanelQuerySpec, { kind: K }>) => unknown } = {
+  web: webResult,
+  trends: trendsResult,
+  funnel: funnelResult,
+  funnel_correlation: funnelCorrelationResult,
+  retention: retentionResult,
+  flows: flowsResult,
+  stickiness: stickinessResult,
+  lifecycle: lifecycleResult,
+  vitals: vitalsResult,
+  impact: impactResult,
+  signal: signalResult,
+  sessions: sessionsResult,
+  heatmap: heatmapResult,
+};
+
 function answer(spec: PanelQuerySpec): PanelQueryResponse {
   const meta = { dataAsOf: new Date().toISOString(), cached: false };
-  switch (spec.kind) {
-    case 'web':
-      return { kind: 'web', result: webResult(spec), ...meta };
-    case 'trends':
-      return { kind: 'trends', result: trendsResult(spec), ...meta };
-    case 'funnel':
-      return { kind: 'funnel', result: funnelResult(spec), ...meta };
-    case 'funnel_correlation':
-      return { kind: 'funnel_correlation', result: funnelCorrelationResult(spec), ...meta };
-    case 'retention':
-      return { kind: 'retention', result: retentionResult(spec), ...meta };
-    case 'flows':
-      return { kind: 'flows', result: flowsResult(spec), ...meta };
-    case 'stickiness':
-      return { kind: 'stickiness', result: stickinessResult(spec), ...meta };
-    case 'lifecycle':
-      return { kind: 'lifecycle', result: lifecycleResult(spec), ...meta };
-    case 'vitals':
-      return { kind: 'vitals', result: vitalsResult(spec), ...meta };
-    case 'impact':
-      return { kind: 'impact', result: impactResult(spec), ...meta };
-    case 'signal':
-      return { kind: 'signal', result: signalResult(spec), ...meta };
-    case 'sessions':
-      return { kind: 'sessions', result: sessionsResult(spec), ...meta };
-    case 'heatmap':
-      return { kind: 'heatmap', result: heatmapResult(spec), ...meta };
-  }
+  const result = (RESULT_OF[spec.kind] as (spec: PanelQuerySpec) => unknown)(spec);
+  return { kind: spec.kind, result, ...meta } as PanelQueryResponse;
+}
+
+/** `POST /panel/metric-tree-values` (a tree not saved yet) and `POST /panel/metric-tree-values/:id`. */
+function handleMetricTreeValues({ segments, body }: SampleRequest): unknown {
+  if (segments.length === 1) return isMetricTreePreview(body) ? data(metricTreePreview(body)) : UNHANDLED;
+  const id = segments[1];
+  if (segments.length !== 2 || !id) return UNHANDLED;
+  return isSavedValuesInput(body) ? data(metricTreeSaved(id, body ?? {})) : UNHANDLED;
 }
 
 export const handleQuery: SampleAreaHandler = (request) => {
-  const [first, second, third] = request.segments;
-  if (request.method !== 'POST') return UNHANDLED;
-
-  if (first === 'query' && request.segments.length === 1) {
-    return isQuerySpec(request.body) ? data(answer(request.body)) : UNHANDLED;
-  }
-  if (first === 'insights' && second === 'explain' && request.segments.length === 2) {
-    return isExplainInput(request.body) ? data(explainResult(request.body)) : UNHANDLED;
-  }
-  if (first === 'metric-tree-values') {
-    if (request.segments.length === 1) return isMetricTreePreview(request.body) ? data(metricTreePreview(request.body)) : UNHANDLED;
-    if (request.segments.length === 2 && second && third === undefined) {
-      return isSavedValuesInput(request.body) ? data(metricTreeSaved(second, request.body ?? {})) : UNHANDLED;
-    }
-  }
-  return UNHANDLED;
+  const { method, segments, body } = request;
+  if (method !== 'POST') return UNHANDLED;
+  const [first, second] = segments;
+  if (first === 'query' && segments.length === 1) return isQuerySpec(body) ? data(answer(body)) : UNHANDLED;
+  if (first === 'insights' && second === 'explain' && segments.length === 2) return isExplainInput(body) ? data(explainResult(body)) : UNHANDLED;
+  return first === 'metric-tree-values' ? handleMetricTreeValues(request) : UNHANDLED;
 };

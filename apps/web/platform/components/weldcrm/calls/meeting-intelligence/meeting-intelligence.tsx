@@ -768,18 +768,15 @@ ${transcriptionText}
   };
   const stripTabs: RecordingTab[] = tabs.flatMap((tab) => (tabConfig[tab] ? [{ id: tab, ...tabConfig[tab] }] : []));
 
-  // Tab-specific toolbars, on the right of the tab strip.
-  let tabTools: ReactNode;
-  if (activeTab === 'transcript' && transcription?.segments && transcription.segments.length > 0) {
-    tabTools = (
-      <>
-        <TranscriptSearchToolbar searchQuery={transcriptSearchQuery} onSearchQueryChange={setTranscriptSearchQuery} />
-        <AutoScrollSelect autoScroll={autoScroll} onAutoScrollChange={setAutoScroll} />
-      </>
-    );
-  } else if (activeTab === 'speakers' && speakers.length > 0) {
-    tabTools = <SpeakerSearchToolbar />;
-  }
+  const tabTools = tabToolsFor({
+    activeTab,
+    segmentCount: transcription?.segments?.length ?? 0,
+    speakerCount: speakers.length,
+    searchQuery: transcriptSearchQuery,
+    onSearchQueryChange: setTranscriptSearchQuery,
+    autoScroll,
+    onAutoScrollChange: setAutoScroll,
+  });
 
   // The shared recording page shell (`@weldsuite/ui/components/recording-layout`): WeldPanel's
   // session replays use the same one, so the two always look alike.
@@ -925,6 +922,30 @@ ${transcriptionText}
 
 // Inline small toolbar components to keep them co-located with the orchestrator
 
+
+interface TabToolsInput {
+  activeTab: string;
+  segmentCount: number;
+  speakerCount: number;
+  searchQuery: string;
+  onSearchQueryChange: (query: string) => void;
+  autoScroll: boolean;
+  onAutoScrollChange: (autoScroll: boolean) => void;
+}
+
+/** The selected tab's toolbar, on the right of the tab strip: transcript search and auto-scroll, or speaker search. */
+function tabToolsFor({ activeTab, segmentCount, speakerCount, searchQuery, onSearchQueryChange, autoScroll, onAutoScrollChange }: TabToolsInput): ReactNode {
+  if (activeTab === 'transcript' && segmentCount > 0) {
+    return (
+      <>
+        <TranscriptSearchToolbar searchQuery={searchQuery} onSearchQueryChange={onSearchQueryChange} />
+        <AutoScrollSelect autoScroll={autoScroll} onAutoScrollChange={onAutoScrollChange} />
+      </>
+    );
+  }
+  if (activeTab === 'speakers' && speakerCount > 0) return <SpeakerSearchToolbar />;
+  return undefined;
+}
 
 function AutoScrollSelect({
   autoScroll,

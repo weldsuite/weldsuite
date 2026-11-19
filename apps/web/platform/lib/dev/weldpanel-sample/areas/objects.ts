@@ -89,6 +89,7 @@ import {
   isoMinutesAgo,
   personById,
   pick,
+  randomToken,
   rng,
   sampleId,
   today,
@@ -140,12 +141,6 @@ function listOf<T>(items: T[]) {
   return { data: items, pagination: { totalCount: items.length, hasMore: false, cursor: null } };
 }
 
-function randomToken(length: number): string {
-  let out = '';
-  while (out.length < length) out += Math.random().toString(36).slice(2);
-  return out.slice(0, length);
-}
-
 function sortNewest<T extends { updatedAt: string }>(items: T[]): T[] {
   return [...items].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
@@ -172,15 +167,93 @@ function findProject(id: string): PanelProjectDto {
 
 function installInfo(project: PanelProjectDto): PanelInstallInfo {
   const waiting = waitingProjects.has(project.id);
+  const minutesSinceEvent = project.kind === 'app' ? 1 : 3;
   return {
     projectId: project.id,
     token: project.token,
     collectorUrl: 'https://pnl.weldsuite.org',
     scriptSnippet: `<script>!function(w,d){w.weldpanel=w.weldpanel||[];["track","identify","group","page"].forEach(function(m){w.weldpanel[m]=function(){w.weldpanel.push([m].concat([].slice.call(arguments)))}})}(window,document);</script>\n<script async src="https://pnl.weldsuite.org/s.js" data-project="${project.token}"></script>`,
     npmSnippet: `npm install @weldsuite/panel-sdk\n\nimport { weldpanel } from '@weldsuite/panel-sdk';\n\nweldpanel.init('${project.token}');`,
-    lastEventAt: waiting ? null : isoMinutesAgo(project.kind === 'app' ? 1 : 3),
+    lastEventAt: waiting ? null : isoMinutesAgo(minutesSinceEvent),
     status: waiting ? 'waiting' : 'receiving',
   };
+}
+
+function createProject(body: unknown): unknown {
+  const input = parse(createPanelProjectSchema, body);
+  const project: PanelProjectDto = {
+    id: sampleId('pnp'),
+    name: input.name,
+    kind: input.kind,
+    status: 'active',
+    token: `wpk_${randomToken(12)}`,
+    allowedDomains: input.allowedDomains,
+    settings: { autocapture: true, maskingLevel: 'balanced', consentMode: 'required', recordingSampleRate: 1, excludedUrls: [], ipFilters: [], aiEnabled: false },
+    createdByUserId: ME,
+    createdAt: nowIso(),
+    updatedAt: nowIso(),
+  };
+  projects.push(project);
+  waitingProjects.add(project.id);
+  return data(project);
+}
+
+function handleProject({ method, body }: SampleRequest, project: PanelProjectDto): unknown {
+  if (method === 'GET') return data(project);
+  if (method === 'PATCH') {
+    const input = parse(updatePanelProjectSchema, body);
+    Object.assign(project, input, { updatedAt: nowIso() });
+    return data(project);
+  }
+  if (method === 'DELETE') {
+    projects.splice(projects.indexOf(project), 1);
+    return undefined;
+  }
+  return UNHANDLED;
+}
+
+function updateProjectSettings(project: PanelProjectDto, body: unknown): unknown {
+  const input = parse(updatePanelProjectSettingsSchema, body);
+  if (input.status) project.status = input.status;
+  if (input.settings) project.settings = { ...project.settings, ...input.settings };
+  project.updatedAt = nowIso();
+  return data(project);
+}
+
+function rotateProjectToken(project: PanelProjectDto): unknown {
+  project.token = `wpk_${randomToken(12)}`;
+  project.updatedAt = nowIso();
+  return data(project);
+}
+
+function createKey(project: PanelProjectDto, body: unknown): unknown {
+  const input = parse(createPanelKeySchema, body);
+  const secret = `wps_${randomToken(40)}`;
+  const stored: PanelKeyDto = { id: sampleId('pnk'), projectId: project.id, name: input.name, prefix: secret.slice(0, 8), createdByUserId: ME, createdAt: nowIso(), lastUsedAt: null, revokedAt: null };
+  keys.unshift(stored);
+  const created: PanelCreatedKeyDto = { ...stored, key: secret };
+  return data(created);
+}
+
+function handleProjectKeys({ method, segments: s, body }: SampleRequest, project: PanelProjectDto): unknown {
+  if (s.length === 3 && method === 'GET') return listOf(keys.filter((k) => k.projectId === project.id));
+  if (s.length === 3 && method === 'POST') return createKey(project, body);
+  if (s.length === 4 && method === 'DELETE') {
+    const key = keys.find((k) => k.id === s[3] && k.projectId === project.id) ?? notFound('Key');
+    key.revokedAt = nowIso();
+    return undefined;
+  }
+  return UNHANDLED;
+}
+
+function handleProjectDeeper(req: SampleRequest, project: PanelProjectDto): unknown {
+  const { method, segments: s } = req;
+  if (s[2] === 'keys') return handleProjectKeys(req, project);
+  if (s.length !== 3) return UNHANDLED;
+  if (s[2] === 'settings' && method === 'PATCH') return updateProjectSettings(project, req.body);
+  if (s[2] === 'rotate-token' && method === 'POST') return rotateProjectToken(project);
+  if (s[2] === 'install' && method === 'GET') return data(installInfo(project));
+  return UNHANDLED;
 }
 
 function handleProjects(req: SampleRequest): unknown {
@@ -188,71 +261,10 @@ function handleProjects(req: SampleRequest): unknown {
   if (s[0] !== 'projects') return UNHANDLED;
   if (s.length === 1) {
     if (method === 'GET') return listOf(projects);
-    if (method === 'POST') {
-      const input = parse(createPanelProjectSchema, req.body);
-      const project: PanelProjectDto = {
-        id: sampleId('pnp'),
-        name: input.name,
-        kind: input.kind,
-        status: 'active',
-        token: `wpk_${randomToken(12)}`,
-        allowedDomains: input.allowedDomains,
-        settings: { autocapture: true, maskingLevel: 'balanced', consentMode: 'required', recordingSampleRate: 1, excludedUrls: [], ipFilters: [], aiEnabled: false },
-        createdByUserId: ME,
-        createdAt: nowIso(),
-        updatedAt: nowIso(),
-      };
-      projects.push(project);
-      waitingProjects.add(project.id);
-      return data(project);
-    }
-    return UNHANDLED;
+    return method === 'POST' ? createProject(req.body) : UNHANDLED;
   }
   const project = findProject(s[1]!);
-  if (s.length === 2) {
-    if (method === 'GET') return data(project);
-    if (method === 'PATCH') {
-      const input = parse(updatePanelProjectSchema, req.body);
-      Object.assign(project, input, { updatedAt: nowIso() });
-      return data(project);
-    }
-    if (method === 'DELETE') {
-      projects.splice(projects.indexOf(project), 1);
-      return undefined;
-    }
-    return UNHANDLED;
-  }
-  if (s.length === 3 && s[2] === 'settings' && method === 'PATCH') {
-    const input = parse(updatePanelProjectSettingsSchema, req.body);
-    if (input.status) project.status = input.status;
-    if (input.settings) project.settings = { ...project.settings, ...input.settings };
-    project.updatedAt = nowIso();
-    return data(project);
-  }
-  if (s.length === 3 && s[2] === 'rotate-token' && method === 'POST') {
-    project.token = `wpk_${randomToken(12)}`;
-    project.updatedAt = nowIso();
-    return data(project);
-  }
-  if (s.length === 3 && s[2] === 'install' && method === 'GET') return data(installInfo(project));
-  if (s[2] === 'keys') {
-    if (s.length === 3 && method === 'GET') return listOf(keys.filter((k) => k.projectId === project.id));
-    if (s.length === 3 && method === 'POST') {
-      const input = parse(createPanelKeySchema, req.body);
-      const secret = `wps_${randomToken(40)}`;
-      const created: PanelCreatedKeyDto = { id: sampleId('pnk'), projectId: project.id, name: input.name, prefix: secret.slice(0, 8), createdByUserId: ME, createdAt: nowIso(), lastUsedAt: null, revokedAt: null, key: secret };
-      const { key: _secret, ...stored } = created;
-      void _secret;
-      keys.unshift(stored);
-      return data(created);
-    }
-    if (s.length === 4 && method === 'DELETE') {
-      const key = keys.find((k) => k.id === s[3] && k.projectId === project.id) ?? notFound('Key');
-      key.revokedAt = nowIso();
-      return undefined;
-    }
-  }
-  return UNHANDLED;
+  return s.length === 2 ? handleProject(req, project) : handleProjectDeeper(req, project);
 }
 
 // ---------------------------------------------------------------------------
@@ -523,55 +535,86 @@ function eventsOfPerson(person: SamplePerson, sessions: PanelSessionRow[], count
   return [...fromSessions, ...filler].sort((a, b) => b.ts.localeCompare(a.ts)).slice(0, count);
 }
 
+function listPeople(query: URLSearchParams): unknown {
+  const search = (query.get('search') ?? '').trim().toLowerCase();
+  const cohortId = query.get('cohortId');
+  let people = visiblePeople();
+  if (search) people = people.filter((p) => `${p.name} ${p.email} ${p.company} ${p.distinctId}`.toLowerCase().includes(search));
+  if (cohortId) people = people.filter((p) => inCohort(p, cohortId));
+  return paginate(people.map(personDto), query, 50);
+}
+
+function peopleByEmail(query: URLSearchParams): unknown {
+  const email = (query.get('email') ?? '').trim().toLowerCase();
+  const person = visiblePeople().find((p) => p.email.toLowerCase() === email);
+  if (!person) return data({ people: [] });
+  return data({
+    people: PROJECTS.map((project) => {
+      const sessions = sessionsOfPerson(person);
+      return { projectId: project.id, projectName: projectName(project.id), person: personDto(person), recentEvents: eventsOfPerson(person, sessions, 12), sessions };
+    }),
+  });
+}
+
+function personProfile(person: SamplePerson | undefined, query: URLSearchParams): unknown {
+  if (!person || erasedPeople.has(person.distinctId)) return notFound('Person');
+  const sessions = sessionsOfPerson(person);
+  return data({ projectId: query.get('projectId') ?? WEBSITE_PROJECT_ID, person: personDto(person), recentEvents: eventsOfPerson(person, sessions), sessions, eventCount90d: person.pageviews * 3 + person.sessions });
+}
+
+/** Erasing a person that doesn't exist answers with zeros, as the API does. */
+function erasePerson(person: SamplePerson | undefined): unknown {
+  if (!person) return data({ userId: null, erasedIdCount: 0, recordingChunksDeleted: 0 });
+  erasedPeople.add(person.distinctId);
+  return data({ userId: person.distinctId, erasedIdCount: anonIdsOf(person).length + 1, recordingChunksDeleted: sessionsOfPerson(person).reduce((n, r) => n + r.chunkCount, 0) });
+}
+
 function handlePeople(req: SampleRequest): unknown {
   const { method, segments: s, query } = req;
   if (s[0] !== 'people') return UNHANDLED;
-  if (s.length === 1 && method === 'GET') {
-    const search = (query.get('search') ?? '').trim().toLowerCase();
-    const cohortId = query.get('cohortId');
-    let people = visiblePeople();
-    if (search) people = people.filter((p) => `${p.name} ${p.email} ${p.company} ${p.distinctId}`.toLowerCase().includes(search));
-    if (cohortId) people = people.filter((p) => inCohort(p, cohortId));
-    return paginate(people.map(personDto), query, 50);
-  }
-  if (s.length === 2 && s[1] === 'by-email' && method === 'GET') {
-    const email = (query.get('email') ?? '').trim().toLowerCase();
-    const person = visiblePeople().find((p) => p.email.toLowerCase() === email);
-    if (!person) return data({ people: [] });
-    return data({
-      people: PROJECTS.map((project) => {
-        const sessions = sessionsOfPerson(person);
-        return { projectId: project.id, projectName: projectName(project.id), person: personDto(person), recentEvents: eventsOfPerson(person, sessions, 12), sessions };
-      }),
-    });
-  }
-  if (s.length === 2) {
-    const person = personById(s[1]!);
-    if (method === 'GET') {
-      if (!person || erasedPeople.has(person.distinctId)) return notFound('Person');
-      const sessions = sessionsOfPerson(person);
-      return data({ projectId: query.get('projectId') ?? WEBSITE_PROJECT_ID, person: personDto(person), recentEvents: eventsOfPerson(person, sessions), sessions, eventCount90d: person.pageviews * 3 + person.sessions });
-    }
-    if (method === 'DELETE') {
-      if (person) erasedPeople.add(person.distinctId);
-      return data({ userId: person?.distinctId ?? null, erasedIdCount: person ? anonIdsOf(person).length + 1 : 0, recordingChunksDeleted: person ? sessionsOfPerson(person).reduce((n, r) => n + r.chunkCount, 0) : 0 });
-    }
-  }
-  return UNHANDLED;
+  if (s.length === 1 && method === 'GET') return listPeople(query);
+  if (s.length === 2 && s[1] === 'by-email' && method === 'GET') return peopleByEmail(query);
+  if (s.length !== 2) return UNHANDLED;
+  const person = personById(s[1]!);
+  if (method === 'GET') return personProfile(person, query);
+  return method === 'DELETE' ? erasePerson(person) : UNHANDLED;
 }
 
 // ---------------------------------------------------------------------------
 // Sessions, recordings and summaries
 // ---------------------------------------------------------------------------
 
-function buildSummary(session: SampleSession, projectId: string): PanelSessionSummaryDto {
-  const outcome: PanelSessionSummary['outcome'] = session.pages.some((p) => p === '/signup') ? 'succeeded' : session.pageviews === 1 ? 'unclear' : session.rageClicks > 0 || session.errors > 0 ? 'abandoned' : 'succeeded';
-  const entry = titleOf(session.entryPath).replace(/ · .*$/, '');
+function outcomeOf(session: SampleSession): PanelSessionSummary['outcome'] {
+  if (session.pages.some((p) => p === '/signup')) return 'succeeded';
+  if (session.pageviews === 1) return 'unclear';
+  return session.rageClicks > 0 || session.errors > 0 ? 'abandoned' : 'succeeded';
+}
+
+function frictionOf(session: SampleSession): string[] {
   const friction: string[] = [];
   if (session.rageClicks > 0) friction.push('Clicked the “Book a demo” button several times in a row; nothing seemed to happen.');
   if (session.deadClicks > 0) friction.push('Clicked a heading that looks like a link but is not one.');
   if (session.errors > 0) friction.push('A page error appeared near the end of the visit.');
   if (session.pages.filter((p) => p === '/pricing').length > 1) friction.push('Went back to the pricing page more than once, which suggests the plans were hard to compare.');
+  return friction;
+}
+
+const OUTCOME_ENDINGS: Record<PanelSessionSummary['outcome'], string> = {
+  succeeded: ' and reached the sign-up form.',
+  abandoned: ' and left before finishing what they came for.',
+  unclear: ' and left without doing anything further.',
+};
+
+function narrativeOf(session: SampleSession, entry: string, outcome: PanelSessionSummary['outcome']): string {
+  const source = session.referrerHost === '(direct)' ? 'a direct visit' : session.referrerHost;
+  const pages = `${session.pageviews} page${session.pageviews === 1 ? '' : 's'}`;
+  const minutes = `${Math.max(1, Math.round(session.durationSeconds / 60))} minute${session.durationSeconds >= 90 ? 's' : ''}`;
+  return `The visitor arrived from ${source} on ${entry}. They viewed ${pages} over ${minutes}${OUTCOME_ENDINGS[outcome]}`;
+}
+
+function buildSummary(session: SampleSession, projectId: string): PanelSessionSummaryDto {
+  const outcome = outcomeOf(session);
+  const entry = titleOf(session.entryPath).replace(/ · .*$/, '');
   const goalByPath: Record<string, string> = {
     '/': 'Find out what WeldSuite does and whether it fits a small team.',
     '/pricing': 'Compare plans and prices.',
@@ -586,8 +629,8 @@ function buildSummary(session: SampleSession, projectId: string): PanelSessionSu
     summary: {
       goal: goalByPath[session.entryPath] ?? `Read about ${entry.toLowerCase()} and decide whether to try it.`,
       outcome,
-      frictionPoints: friction,
-      narrative: `The visitor arrived from ${session.referrerHost === '(direct)' ? 'a direct visit' : session.referrerHost} on ${entry}. They viewed ${session.pageviews} page${session.pageviews === 1 ? '' : 's'} over ${Math.max(1, Math.round(session.durationSeconds / 60))} minute${session.durationSeconds >= 90 ? 's' : ''}${outcome === 'succeeded' ? ' and reached the sign-up form.' : outcome === 'abandoned' ? ' and left before finishing what they came for.' : ' and left without doing anything further.'}`,
+      frictionPoints: frictionOf(session),
+      narrative: narrativeOf(session, entry, outcome),
     },
     modelId: 'claude-haiku-4-5',
     creditsCharged: 2,
@@ -646,43 +689,48 @@ function setSummary(input: ReturnType<typeof summarisePanelSetSchema.parse>): Pa
   };
 }
 
+function chunkResponse(session: SampleSession | undefined, sessionId: string, seq: string): Response {
+  const chunk = session ? replayFor(sessionId).chunks.find((c) => c.seq === Number(seq)) : undefined;
+  if (!chunk) return new Response(JSON.stringify({ error: { code: 'NOT_FOUND', message: 'Chunk not found' } }), { status: 404, headers: { 'Content-Type': 'application/json' } });
+  return jsonResponse(chunk.events);
+}
+
+function handleFavorite({ method, body }: SampleRequest, sessionId: string): unknown {
+  if (method === 'PUT') {
+    const input = parse(favoritePanelSessionSchema, body);
+    const favorite: PanelFavoriteDto = FAVORITES.get(sessionId) ?? { id: sampleId('pnf'), projectId: input.projectId, sessionId, note: null, favoritedByUserId: ME, createdAt: nowIso() };
+    favorite.note = input.note ?? null;
+    FAVORITES.set(sessionId, favorite);
+    return data(favorite);
+  }
+  if (method === 'DELETE') {
+    FAVORITES.delete(sessionId);
+    return undefined;
+  }
+  return UNHANDLED;
+}
+
+function handleSessionSummary({ method, body }: SampleRequest, sessionId: string, session: SampleSession | undefined): unknown {
+  if (method === 'GET') return data(SUMMARIES.get(sessionId) ?? null);
+  if (method !== 'POST') return UNHANDLED;
+  const input = parse(generatePanelSessionSummarySchema, body);
+  const cached = SUMMARIES.get(sessionId);
+  if (cached && !input.regenerate) return data({ ...cached, cached: true });
+  const made = buildSummary(session ?? SESSIONS[0]!, input.projectId);
+  SUMMARIES.set(sessionId, made);
+  return data({ ...made, cached: false });
+}
+
 function handleSessions(req: SampleRequest): unknown {
   const { method, segments: s, query } = req;
   if (s[0] === 'insights' && s[1] === 'summarise' && s.length === 2 && method === 'POST') return data(setSummary(parse(summarisePanelSetSchema, req.body)));
   if (s[0] !== 'sessions' || s.length < 2) return UNHANDLED;
   const sessionId = s[1]!;
-  const projectId = query.get('projectId') ?? WEBSITE_PROJECT_ID;
   const session = findSession(sessionId);
-  if (s.length === 2 && method === 'GET') return session ? data(sessionDetail(projectId, session)) : notFound('Session');
-  if (s.length === 4 && s[2] === 'chunks' && method === 'GET') {
-    const chunk = session ? replayFor(sessionId).chunks.find((c) => c.seq === Number(s[3])) : undefined;
-    if (!chunk) return new Response(JSON.stringify({ error: { code: 'NOT_FOUND', message: 'Chunk not found' } }), { status: 404, headers: { 'Content-Type': 'application/json' } });
-    return jsonResponse(chunk.events);
-  }
-  if (s.length === 3 && s[2] === 'favorite') {
-    if (method === 'PUT') {
-      const input = parse(favoritePanelSessionSchema, req.body);
-      const favorite: PanelFavoriteDto = FAVORITES.get(sessionId) ?? { id: sampleId('pnf'), projectId: input.projectId, sessionId, note: null, favoritedByUserId: ME, createdAt: nowIso() };
-      favorite.note = input.note ?? null;
-      FAVORITES.set(sessionId, favorite);
-      return data(favorite);
-    }
-    if (method === 'DELETE') {
-      FAVORITES.delete(sessionId);
-      return undefined;
-    }
-  }
-  if (s.length === 3 && s[2] === 'summary') {
-    if (method === 'GET') return data(SUMMARIES.get(sessionId) ?? null);
-    if (method === 'POST') {
-      const input = parse(generatePanelSessionSummarySchema, req.body);
-      const cached = SUMMARIES.get(sessionId);
-      if (cached && !input.regenerate) return data({ ...cached, cached: true });
-      const made = buildSummary(session ?? SESSIONS[0]!, input.projectId);
-      SUMMARIES.set(sessionId, made);
-      return data({ ...made, cached: false });
-    }
-  }
+  if (s.length === 2 && method === 'GET') return session ? data(sessionDetail(query.get('projectId') ?? WEBSITE_PROJECT_ID, session)) : notFound('Session');
+  if (s.length === 4 && s[2] === 'chunks' && method === 'GET') return chunkResponse(session, sessionId, s[3]!);
+  if (s.length === 3 && s[2] === 'favorite') return handleFavorite(req, sessionId);
+  if (s.length === 3 && s[2] === 'summary') return handleSessionSummary(req, sessionId, session);
   return UNHANDLED;
 }
 
@@ -704,7 +752,10 @@ function pathForPattern(pattern: string): string {
   if (pattern === '/features/*') return '/features/crm';
   if (pattern === '/blog/*') return '/blog/replacing-ten-tools-with-one';
   if (pattern === '/docs/*') return '/docs/getting-started';
-  const cleaned = pattern.replace(/\*+/g, '').replace(/\/+$/, '');
+  const withoutStars = pattern.replaceAll('*', '');
+  let end = withoutStars.length;
+  while (end > 0 && withoutStars[end - 1] === '/') end--;
+  const cleaned = withoutStars.slice(0, end);
   return cleaned === '' ? '/' : cleaned;
 }
 
@@ -757,44 +808,49 @@ function visibleTo(item: { ownerUserId: string; visibility: string }, scope: str
   return item.ownerUserId === ME || item.visibility === 'workspace';
 }
 
-function handleReports(req: SampleRequest): unknown {
-  const { method, segments: s, query } = req;
+function listReports(query: URLSearchParams): unknown {
+  const projectId = query.get('projectId') ?? WEBSITE_PROJECT_ID;
+  const kind = query.get('kind');
+  return listOf(sortNewest(reports.filter((r) => r.projectId === projectId && (!kind || r.kind === kind) && visibleTo(r, query.get('scope')))));
+}
+
+function createReport(body: unknown): unknown {
+  const input = parse(createPanelReportSchema, body);
+  const report: PanelReportDto = { id: sampleId('rep'), projectId: input.projectId, kind: input.spec.kind as PanelReportDto['kind'], name: input.name, description: input.description ?? null, spec: { ...input.spec }, ownerUserId: ME, visibility: input.visibility, createdAt: nowIso(), updatedAt: nowIso() };
+  reports.push(report);
+  return data(report);
+}
+
+function updateReport(report: PanelReportDto, body: unknown): unknown {
+  const input = parse(updatePanelReportSchema, body);
+  if (input.name !== undefined) report.name = input.name;
+  if (input.description !== undefined) report.description = input.description;
+  if (input.visibility !== undefined) report.visibility = input.visibility;
+  if (input.spec) {
+    report.spec = { ...input.spec };
+    report.kind = input.spec.kind as PanelReportDto['kind'];
+  }
+  report.updatedAt = nowIso();
+  return data(report);
+}
+
+function deleteReport(report: PanelReportDto): undefined {
+  reports.splice(reports.indexOf(report), 1);
+  for (const t of tiles.filter((x) => x.reportId === report.id)) tiles.splice(tiles.indexOf(t), 1);
+  return undefined;
+}
+
+function handleReports({ method, segments: s, query, body }: SampleRequest): unknown {
   if (s[0] !== 'reports' || s.length > 2) return UNHANDLED;
   if (s.length === 1) {
-    if (method === 'GET') {
-      const projectId = query.get('projectId') ?? WEBSITE_PROJECT_ID;
-      const kind = query.get('kind');
-      return listOf(sortNewest(reports.filter((r) => r.projectId === projectId && (!kind || r.kind === kind) && visibleTo(r, query.get('scope')))));
-    }
-    if (method === 'POST') {
-      const input = parse(createPanelReportSchema, req.body);
-      const report: PanelReportDto = { id: sampleId('rep'), projectId: input.projectId, kind: input.spec.kind as PanelReportDto['kind'], name: input.name, description: input.description ?? null, spec: { ...input.spec }, ownerUserId: ME, visibility: input.visibility, createdAt: nowIso(), updatedAt: nowIso() };
-      reports.push(report);
-      return data(report);
-    }
-    return UNHANDLED;
+    if (method === 'GET') return listReports(query);
+    return method === 'POST' ? createReport(body) : UNHANDLED;
   }
   const report = reports.find((r) => r.id === s[1]);
   if (!report) return notFound('Report');
   if (method === 'GET') return data(report);
-  if (method === 'PATCH') {
-    const input = parse(updatePanelReportSchema, req.body);
-    if (input.name !== undefined) report.name = input.name;
-    if (input.description !== undefined) report.description = input.description;
-    if (input.visibility !== undefined) report.visibility = input.visibility;
-    if (input.spec) {
-      report.spec = { ...input.spec };
-      report.kind = input.spec.kind as PanelReportDto['kind'];
-    }
-    report.updatedAt = nowIso();
-    return data(report);
-  }
-  if (method === 'DELETE') {
-    reports.splice(reports.indexOf(report), 1);
-    for (const t of tiles.filter((x) => x.reportId === report.id)) tiles.splice(tiles.indexOf(t), 1);
-    return undefined;
-  }
-  return UNHANDLED;
+  if (method === 'PATCH') return updateReport(report, body);
+  return method === 'DELETE' ? deleteReport(report) : UNHANDLED;
 }
 
 function tileDto(t: TileSeed): PanelDashboardTileDto {
@@ -814,145 +870,173 @@ function dashboardDetail(dashboard: PanelDashboardDto): PanelDashboardDetailDto 
   };
 }
 
-function handleDashboards(req: SampleRequest): unknown {
-  const { method, segments: s, query } = req;
-  if (s[0] !== 'dashboards') return UNHANDLED;
-  if (s.length === 1) {
-    if (method === 'GET') {
-      const projectId = query.get('projectId') ?? WEBSITE_PROJECT_ID;
-      return listOf(sortNewest(dashboards.filter((d) => d.projectId === projectId && visibleTo(d, query.get('scope')))));
-    }
-    if (method === 'POST') {
-      const input = parse(createPanelDashboardSchema, req.body);
-      const dashboard: PanelDashboardDto = { id: sampleId('dash'), projectId: input.projectId, name: input.name, description: input.description ?? null, ownerUserId: ME, visibility: input.visibility, filters: input.filters ?? null, template: null, createdAt: nowIso(), updatedAt: nowIso() };
-      dashboards.push(dashboard);
-      return data(dashboard);
-    }
-    return UNHANDLED;
+type TemplateSeed = NonNullable<ReturnType<typeof templateSeed>>;
+
+function listDashboards(query: URLSearchParams): unknown {
+  const projectId = query.get('projectId') ?? WEBSITE_PROJECT_ID;
+  return listOf(sortNewest(dashboards.filter((d) => d.projectId === projectId && visibleTo(d, query.get('scope')))));
+}
+
+function createDashboard(body: unknown): unknown {
+  const input = parse(createPanelDashboardSchema, body);
+  const dashboard: PanelDashboardDto = { id: sampleId('dash'), projectId: input.projectId, name: input.name, description: input.description ?? null, ownerUserId: ME, visibility: input.visibility, filters: input.filters ?? null, template: null, createdAt: nowIso(), updatedAt: nowIso() };
+  dashboards.push(dashboard);
+  return data(dashboard);
+}
+
+function listTemplates(query: URLSearchParams): unknown {
+  const asked = query.get('locale');
+  const locale: PanelTemplateLocale = PANEL_TEMPLATE_LOCALES.find((l) => l === asked) ?? 'en';
+  return listOf(templateDtos(locale));
+}
+
+/** One tile of a template: a text tile, or a new report on a tile. */
+function addTemplateTile(dashboard: PanelDashboardDto, tile: TemplateSeed['tiles'][number], index: number, locale: PanelTemplateLocale): void {
+  const tileId = `${dashboard.id}_t${index + 1}`;
+  if (tile.kind === 'text') {
+    tiles.push({ id: tileId, dashboardId: dashboard.id, kind: 'text', reportId: null, text: tile.text?.[locale] ?? '', layout: tile.layout });
+    return;
   }
-  if (s[1] === 'templates' && s.length === 2 && method === 'GET') {
-    const asked = query.get('locale');
-    const locale: PanelTemplateLocale = PANEL_TEMPLATE_LOCALES.find((l) => l === asked) ?? 'en';
-    return listOf(templateDtos(locale));
-  }
-  if (s[1] === 'from-template' && s.length === 2 && method === 'POST') {
-    const input = parse(createPanelDashboardFromTemplateSchema, req.body);
-    const template = templateSeed(input.template) ?? notFound('Template');
-    const locale: PanelTemplateLocale = input.locale ?? 'en';
-    const dashboard: PanelDashboardDto = {
-      id: sampleId('dash'),
-      projectId: input.projectId,
-      name: input.name ?? template.name[locale],
-      description: template.description[locale],
-      ownerUserId: ME,
-      visibility: input.visibility,
-      filters: { dateRange: { preset: '30d' }, filters: [] },
-      template: template.id,
-      createdAt: nowIso(),
-      updatedAt: nowIso(),
-    };
-    dashboards.push(dashboard);
-    template.tiles.forEach((t, i) => {
-      if (t.kind === 'text') {
-        tiles.push({ id: `${dashboard.id}_t${i + 1}`, dashboardId: dashboard.id, kind: 'text', reportId: null, text: t.text?.[locale] ?? '', layout: t.layout });
-        return;
-      }
-      const kind = t.reportKind ?? 'trends';
-      const report: PanelReportDto = { id: sampleId('rep'), projectId: input.projectId, kind, name: t.name?.[locale] ?? kind, description: null, spec: { ...defaultSpec(kind, input.projectId) }, ownerUserId: ME, visibility: input.visibility, createdAt: nowIso(), updatedAt: nowIso() };
-      reports.push(report);
-      tiles.push({ id: `${dashboard.id}_t${i + 1}`, dashboardId: dashboard.id, kind: 'report', reportId: report.id, text: null, layout: t.layout });
-    });
-    return data(dashboardDetail(dashboard));
-  }
-  const dashboard = dashboards.find((d) => d.id === s[1]);
-  if (!dashboard) return notFound('Dashboard');
-  if (s.length === 2) {
-    if (method === 'GET') return data(dashboardDetail(dashboard));
-    if (method === 'PATCH') {
-      const input = parse(updatePanelDashboardSchema, req.body);
-      if (input.name !== undefined) dashboard.name = input.name;
-      if (input.description !== undefined) dashboard.description = input.description;
-      if (input.visibility !== undefined) dashboard.visibility = input.visibility;
-      if (input.filters !== undefined) dashboard.filters = input.filters;
-      dashboard.updatedAt = nowIso();
-      return data(dashboard);
-    }
-    if (method === 'DELETE') {
-      dashboards.splice(dashboards.indexOf(dashboard), 1);
-      for (const t of tiles.filter((x) => x.dashboardId === dashboard.id)) tiles.splice(tiles.indexOf(t), 1);
-      return undefined;
-    }
-    return UNHANDLED;
-  }
-  if (s[2] === 'tiles' && s.length === 3 && method === 'POST') {
-    const input = parse(addPanelDashboardTileSchema, req.body);
-    const tile: TileSeed =
-      'text' in input
-        ? { id: sampleId('tile'), dashboardId: dashboard.id, kind: 'text', reportId: null, text: input.text, layout: input.layout }
-        : { id: sampleId('tile'), dashboardId: dashboard.id, kind: 'report', reportId: input.reportId, text: null, layout: input.layout };
-    tiles.push(tile);
+  const kind = tile.reportKind ?? 'trends';
+  const report: PanelReportDto = { id: sampleId('rep'), projectId: dashboard.projectId, kind, name: tile.name?.[locale] ?? kind, description: null, spec: { ...defaultSpec(kind, dashboard.projectId) }, ownerUserId: ME, visibility: dashboard.visibility, createdAt: nowIso(), updatedAt: nowIso() };
+  reports.push(report);
+  tiles.push({ id: tileId, dashboardId: dashboard.id, kind: 'report', reportId: report.id, text: null, layout: tile.layout });
+}
+
+function createFromTemplate(body: unknown): unknown {
+  const input = parse(createPanelDashboardFromTemplateSchema, body);
+  const template = templateSeed(input.template) ?? notFound('Template');
+  const locale: PanelTemplateLocale = input.locale ?? 'en';
+  const dashboard: PanelDashboardDto = {
+    id: sampleId('dash'),
+    projectId: input.projectId,
+    name: input.name ?? template.name[locale],
+    description: template.description[locale],
+    ownerUserId: ME,
+    visibility: input.visibility,
+    filters: { dateRange: { preset: '30d' }, filters: [] },
+    template: template.id,
+    createdAt: nowIso(),
+    updatedAt: nowIso(),
+  };
+  dashboards.push(dashboard);
+  template.tiles.forEach((tile, i) => addTemplateTile(dashboard, tile, i, locale));
+  return data(dashboardDetail(dashboard));
+}
+
+function updateDashboard(dashboard: PanelDashboardDto, body: unknown): unknown {
+  const input = parse(updatePanelDashboardSchema, body);
+  if (input.name !== undefined) dashboard.name = input.name;
+  if (input.description !== undefined) dashboard.description = input.description;
+  if (input.visibility !== undefined) dashboard.visibility = input.visibility;
+  if (input.filters !== undefined) dashboard.filters = input.filters;
+  dashboard.updatedAt = nowIso();
+  return data(dashboard);
+}
+
+function deleteDashboard(dashboard: PanelDashboardDto): undefined {
+  dashboards.splice(dashboards.indexOf(dashboard), 1);
+  for (const t of tiles.filter((x) => x.dashboardId === dashboard.id)) tiles.splice(tiles.indexOf(t), 1);
+  return undefined;
+}
+
+function handleDashboard({ method, body }: SampleRequest, dashboard: PanelDashboardDto): unknown {
+  if (method === 'GET') return data(dashboardDetail(dashboard));
+  if (method === 'PATCH') return updateDashboard(dashboard, body);
+  return method === 'DELETE' ? deleteDashboard(dashboard) : UNHANDLED;
+}
+
+function addTile(dashboard: PanelDashboardDto, body: unknown): unknown {
+  const input = parse(addPanelDashboardTileSchema, body);
+  const tile: TileSeed =
+    'text' in input
+      ? { id: sampleId('tile'), dashboardId: dashboard.id, kind: 'text', reportId: null, text: input.text, layout: input.layout }
+      : { id: sampleId('tile'), dashboardId: dashboard.id, kind: 'report', reportId: input.reportId, text: null, layout: input.layout };
+  tiles.push(tile);
+  dashboard.updatedAt = nowIso();
+  return data(tileDto(tile));
+}
+
+function handleTiles({ method, segments: s, body }: SampleRequest, dashboard: PanelDashboardDto): unknown {
+  if (s.length === 3 && method === 'POST') return addTile(dashboard, body);
+  if (s.length !== 4) return UNHANDLED;
+  const tile = tiles.find((t) => t.id === s[3] && t.dashboardId === dashboard.id) ?? notFound('Tile');
+  if (method === 'PATCH') {
+    const input = parse(updatePanelDashboardTileSchema, body);
+    if (input.layout) tile.layout = input.layout;
+    if (input.text !== undefined && tile.kind === 'text') tile.text = input.text;
     dashboard.updatedAt = nowIso();
     return data(tileDto(tile));
   }
-  if (s[2] === 'tiles' && s.length === 4) {
-    const tile = tiles.find((t) => t.id === s[3] && t.dashboardId === dashboard.id) ?? notFound('Tile');
-    if (method === 'PATCH') {
-      const input = parse(updatePanelDashboardTileSchema, req.body);
-      if (input.layout) tile.layout = input.layout;
-      if (input.text !== undefined && tile.kind === 'text') tile.text = input.text;
-      dashboard.updatedAt = nowIso();
-      return data(tileDto(tile));
-    }
-    if (method === 'DELETE') {
-      tiles.splice(tiles.indexOf(tile), 1);
-      return undefined;
-    }
-  }
-  if (s[2] === 'layout' && s.length === 3 && method === 'PUT') {
-    const input = parse(setPanelDashboardLayoutSchema, req.body);
-    for (const item of input.tiles) {
-      const tile = tiles.find((t) => t.id === item.id && t.dashboardId === dashboard.id);
-      if (tile) tile.layout = item.layout;
-    }
-    dashboard.updatedAt = nowIso();
-    return data(dashboardDetail(dashboard));
+  if (method === 'DELETE') {
+    tiles.splice(tiles.indexOf(tile), 1);
+    return undefined;
   }
   return UNHANDLED;
 }
 
-function handleCohorts(req: SampleRequest): unknown {
-  const { method, segments: s, query } = req;
+function setLayout(dashboard: PanelDashboardDto, body: unknown): unknown {
+  const input = parse(setPanelDashboardLayoutSchema, body);
+  for (const item of input.tiles) {
+    const tile = tiles.find((t) => t.id === item.id && t.dashboardId === dashboard.id);
+    if (tile) tile.layout = item.layout;
+  }
+  dashboard.updatedAt = nowIso();
+  return data(dashboardDetail(dashboard));
+}
+
+function handleDashboards(req: SampleRequest): unknown {
+  const { method, segments: s, query, body } = req;
+  if (s[0] !== 'dashboards') return UNHANDLED;
+  if (s.length === 1) {
+    if (method === 'GET') return listDashboards(query);
+    return method === 'POST' ? createDashboard(body) : UNHANDLED;
+  }
+  if (s[1] === 'templates' && s.length === 2 && method === 'GET') return listTemplates(query);
+  if (s[1] === 'from-template' && s.length === 2 && method === 'POST') return createFromTemplate(body);
+  const dashboard = dashboards.find((d) => d.id === s[1]);
+  if (!dashboard) return notFound('Dashboard');
+  if (s.length === 2) return handleDashboard(req, dashboard);
+  if (s[2] === 'tiles') return handleTiles(req, dashboard);
+  if (s[2] === 'layout' && s.length === 3 && method === 'PUT') return setLayout(dashboard, body);
+  return UNHANDLED;
+}
+
+function listCohorts(query: URLSearchParams): unknown {
+  const projectId = query.get('projectId') ?? WEBSITE_PROJECT_ID;
+  // The four sample cohorts show in every project; ones made here only in theirs.
+  return listOf(sortNewest(cohorts.filter((c) => SEEDED_COHORTS.has(c.id) || c.projectId === projectId).map((c) => (SEEDED_COHORTS.has(c.id) ? { ...c, projectId } : c))));
+}
+
+function createCohort(body: unknown): unknown {
+  const input = parse(createPanelCohortSchema, body);
+  const cohort: PanelCohortDto = { id: sampleId('coh'), projectId: input.projectId, name: input.name, description: input.description ?? null, filter: { ...input.filter }, ownerUserId: ME, createdAt: nowIso(), updatedAt: nowIso() };
+  cohorts.push(cohort);
+  return data(cohort);
+}
+
+function updateCohort(cohort: PanelCohortDto, body: unknown): unknown {
+  const input = parse(updatePanelCohortSchema, body);
+  if (input.name !== undefined) cohort.name = input.name;
+  if (input.description !== undefined) cohort.description = input.description;
+  if (input.filter) cohort.filter = { ...input.filter };
+  cohort.updatedAt = nowIso();
+  return data(cohort);
+}
+
+function handleCohorts({ method, segments: s, query, body }: SampleRequest): unknown {
   if (s[0] !== 'cohorts' || s.length > 2) return UNHANDLED;
   if (s.length === 1) {
-    if (method === 'GET') {
-      const projectId = query.get('projectId') ?? WEBSITE_PROJECT_ID;
-      // The four sample cohorts show in every project; ones made here only in theirs.
-      return listOf(sortNewest(cohorts.filter((c) => SEEDED_COHORTS.has(c.id) || c.projectId === projectId).map((c) => (SEEDED_COHORTS.has(c.id) ? { ...c, projectId } : c))));
-    }
-    if (method === 'POST') {
-      const input = parse(createPanelCohortSchema, req.body);
-      const cohort: PanelCohortDto = { id: sampleId('coh'), projectId: input.projectId, name: input.name, description: input.description ?? null, filter: { ...input.filter }, ownerUserId: ME, createdAt: nowIso(), updatedAt: nowIso() };
-      cohorts.push(cohort);
-      return data(cohort);
-    }
-    return UNHANDLED;
+    if (method === 'GET') return listCohorts(query);
+    return method === 'POST' ? createCohort(body) : UNHANDLED;
   }
   const cohort = cohorts.find((c) => c.id === s[1]);
   if (!cohort) return notFound('Cohort');
   if (method === 'GET') return data(cohort);
-  if (method === 'PATCH') {
-    const input = parse(updatePanelCohortSchema, req.body);
-    if (input.name !== undefined) cohort.name = input.name;
-    if (input.description !== undefined) cohort.description = input.description;
-    if (input.filter) cohort.filter = { ...input.filter };
-    cohort.updatedAt = nowIso();
-    return data(cohort);
-  }
-  if (method === 'DELETE') {
-    cohorts.splice(cohorts.indexOf(cohort), 1);
-    return undefined;
-  }
-  return UNHANDLED;
+  if (method === 'PATCH') return updateCohort(cohort, body);
+  if (method !== 'DELETE') return UNHANDLED;
+  cohorts.splice(cohorts.indexOf(cohort), 1);
+  return undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -1022,54 +1106,61 @@ function groupProfile(projectId: string, type: string, key: string, days: number
   };
 }
 
+function createGroupType(body: unknown): unknown {
+  const input = parse(createPanelGroupTypeSchema, body);
+  const existing = groupTypes.find((g) => g.groupType === input.groupType);
+  if (existing?.configured) return fail(409, 'GROUP_TYPE_EXISTS', 'That group type already exists');
+  if (!existing && groupTypes.length >= PANEL_MAX_GROUP_TYPES) return fail(409, 'GROUP_TYPE_LIMIT', `A project collects at most ${PANEL_MAX_GROUP_TYPES} group types`);
+  const row = existing ?? { id: null, groupType: input.groupType, nameSingular: '', namePlural: '', crmMatchProperty: null, configured: false, collecting: true, createdAt: null, updatedAt: null };
+  Object.assign(row, { id: sampleId('pngt'), nameSingular: input.nameSingular, namePlural: input.namePlural, crmMatchProperty: input.crmMatchProperty ?? null, configured: true, collecting: true, createdAt: nowIso(), updatedAt: nowIso() });
+  if (!existing) groupTypes.push(row);
+  return data({ ...row, projectId: input.projectId });
+}
+
+function updateGroupType(row: Omit<PanelGroupTypeDto, 'projectId'>, body: unknown, projectId: string): unknown {
+  const input = parse(updatePanelGroupTypeSchema, body);
+  if (input.nameSingular !== undefined) row.nameSingular = input.nameSingular;
+  if (input.namePlural !== undefined) row.namePlural = input.namePlural;
+  if (input.crmMatchProperty !== undefined) row.crmMatchProperty = input.crmMatchProperty;
+  row.updatedAt = nowIso();
+  return data({ ...row, projectId });
+}
+
+function handleGroupTypes({ method, segments: s, body }: SampleRequest, projectId: string): unknown {
+  if (s.length === 1) {
+    if (method === 'GET') return listOf(groupTypesFor(projectId));
+    return method === 'POST' ? createGroupType(body) : UNHANDLED;
+  }
+  const row = groupTypes.find((g) => g.id === s[1]) ?? notFound('Group type');
+  if (s.length === 2 && method === 'PATCH') return updateGroupType(row, body, projectId);
+  if (s.length === 2 && method === 'DELETE') {
+    groupTypes.splice(groupTypes.indexOf(row), 1);
+    return undefined;
+  }
+  return UNHANDLED;
+}
+
+function listGroups(query: URLSearchParams): unknown {
+  const type = query.get('type') ?? 'company';
+  const search = (query.get('search') ?? '').trim().toLowerCase();
+  const items = groupsOfType(type).filter((g) => !search || `${g.groupKey} ${g.name ?? ''}`.toLowerCase().includes(search));
+  return paginate(items, query, 50);
+}
+
+function handleGroup({ method, segments: s, query }: SampleRequest, projectId: string): unknown {
+  if (method === 'GET') return data(groupProfile(projectId, s[1]!, s[2]!, Number(query.get('days')) || 90));
+  if (method !== 'DELETE') return UNHANDLED;
+  deletedGroups.add(`${s[1]}|${s[2]}`);
+  return undefined;
+}
+
 function handleGroups(req: SampleRequest): unknown {
   const { method, segments: s, query } = req;
   const projectId = query.get('projectId') ?? WEBSITE_PROJECT_ID;
-  if (s[0] === 'group-types') {
-    if (s.length === 1) {
-      if (method === 'GET') return listOf(groupTypesFor(projectId));
-      if (method === 'POST') {
-        const input = parse(createPanelGroupTypeSchema, req.body);
-        const existing = groupTypes.find((g) => g.groupType === input.groupType);
-        if (existing?.configured) return fail(409, 'GROUP_TYPE_EXISTS', 'That group type already exists');
-        if (!existing && groupTypes.length >= PANEL_MAX_GROUP_TYPES) return fail(409, 'GROUP_TYPE_LIMIT', `A project collects at most ${PANEL_MAX_GROUP_TYPES} group types`);
-        const row = existing ?? { id: null, groupType: input.groupType, nameSingular: '', namePlural: '', crmMatchProperty: null, configured: false, collecting: true, createdAt: null, updatedAt: null };
-        Object.assign(row, { id: sampleId('pngt'), nameSingular: input.nameSingular, namePlural: input.namePlural, crmMatchProperty: input.crmMatchProperty ?? null, configured: true, collecting: true, createdAt: nowIso(), updatedAt: nowIso() });
-        if (!existing) groupTypes.push(row);
-        return data({ ...row, projectId: input.projectId });
-      }
-      return UNHANDLED;
-    }
-    const row = groupTypes.find((g) => g.id === s[1]) ?? notFound('Group type');
-    if (s.length === 2 && method === 'PATCH') {
-      const input = parse(updatePanelGroupTypeSchema, req.body);
-      if (input.nameSingular !== undefined) row.nameSingular = input.nameSingular;
-      if (input.namePlural !== undefined) row.namePlural = input.namePlural;
-      if (input.crmMatchProperty !== undefined) row.crmMatchProperty = input.crmMatchProperty;
-      row.updatedAt = nowIso();
-      return data({ ...row, projectId });
-    }
-    if (s.length === 2 && method === 'DELETE') {
-      groupTypes.splice(groupTypes.indexOf(row), 1);
-      return undefined;
-    }
-    return UNHANDLED;
-  }
+  if (s[0] === 'group-types') return handleGroupTypes(req, projectId);
   if (s[0] !== 'groups') return UNHANDLED;
-  if (s.length === 1 && method === 'GET') {
-    const type = query.get('type') ?? 'company';
-    const search = (query.get('search') ?? '').trim().toLowerCase();
-    const items = groupsOfType(type).filter((g) => !search || `${g.groupKey} ${g.name ?? ''}`.toLowerCase().includes(search));
-    return paginate(items, query, 50);
-  }
-  if (s.length === 3) {
-    if (method === 'GET') return data(groupProfile(projectId, s[1]!, s[2]!, Number(query.get('days')) || 90));
-    if (method === 'DELETE') {
-      deletedGroups.add(`${s[1]}|${s[2]}`);
-      return undefined;
-    }
-  }
-  return UNHANDLED;
+  if (s.length === 1 && method === 'GET') return listGroups(query);
+  return s.length === 3 ? handleGroup(req, projectId) : UNHANDLED;
 }
 
 // ---------------------------------------------------------------------------

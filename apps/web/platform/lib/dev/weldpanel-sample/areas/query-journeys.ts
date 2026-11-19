@@ -67,9 +67,21 @@ function apportion(total: number, weights: readonly number[]): number[] {
 // Funnels
 // ---------------------------------------------------------------------------
 
+type FunnelWindow = NonNullable<PanelFunnelSpec['window']>;
+
+function windowHours(window: FunnelWindow): number {
+  if (window.unit === 'day') return window.value * 24;
+  return window.unit === 'hour' ? window.value : window.value / 60;
+}
+
+function windowSecondsOf(window: FunnelWindow): number {
+  if (window.unit === 'day') return window.value * 86400;
+  return window.value * (window.unit === 'hour' ? 3600 : 60);
+}
+
 function stepRates(spec: PanelFunnelSpec, key: string): number[] {
   const random = rng(`${key}|rates`);
-  const windowFactor = spec.window ? clamp(0.82 + Math.min(1, (spec.window.unit === 'day' ? spec.window.value * 24 : spec.window.unit === 'hour' ? spec.window.value : spec.window.value / 60) / 168) * 0.18, 0.7, 1) : 1;
+  const windowFactor = spec.window ? clamp(0.82 + Math.min(1, windowHours(spec.window) / 168) * 0.18, 0.7, 1) : 1;
   const orderFactor = spec.order === 'strict' ? 0.85 : 1;
   const exclusionFactor = (spec.exclusions?.length ?? 0) > 0 ? 0.97 : 1;
   const rates: number[] = [1];
@@ -90,13 +102,14 @@ function buildSteps(first: number, rates: readonly number[], spec: PanelFunnelSp
   for (let i = 1; i < rates.length; i++) counts.push(Math.min(counts[i - 1]!, Math.max(0, Math.round(counts[i - 1]! * rates[i]!))));
   return spec.steps.map((step, i) => {
     const prev = i === 0 ? counts[0]! : counts[i - 1]!;
+    const fromPrevious = prev > 0 ? counts[i]! / prev : 0;
     const seconds = Math.round(40 * (i + 1) ** 2.1 * (0.7 + random() * 0.9) * (step.event.includes('checkout') || step.event.includes('upgrade') ? 40 : 3));
     return {
       index: i,
       event: step.event,
       label: step.label ?? eventLabel(step.event),
       count: counts[i]!,
-      conversionFromPrevious: i === 0 ? 1 : prev > 0 ? counts[i]! / prev : 0,
+      conversionFromPrevious: i === 0 ? 1 : fromPrevious,
       conversionFromFirst: counts[i]! / counts[0]!,
       droppedOff: i === 0 ? 0 : prev - counts[i]!,
       avgSecondsFromPrevious: i === 0 || counts[i] === 0 ? null : seconds,
@@ -144,7 +157,7 @@ export function funnelResult(spec: PanelFunnelSpec): PanelFunnelResult {
       })
     : null;
 
-  const windowSeconds = spec.window ? spec.window.value * (spec.window.unit === 'day' ? 86400 : spec.window.unit === 'hour' ? 3600 : 60) : 7 * 86400;
+  const windowSeconds = spec.window ? windowSecondsOf(spec.window) : 7 * 86400;
   const timeToConvert: PanelFunnelTimeToConvert = {
     overall: timeStats(last.count, Math.min(windowSeconds / 6, steps.reduce((s, st) => s + (st.avgSecondsFromPrevious ?? 0), 0)), 1),
     steps: steps.slice(1).map((st) => ({ index: st.index, ...timeStats(st.count, st.avgSecondsFromPrevious ?? 60, Math.max(0.2, (st.avgSecondsFromPrevious ?? 60) / 400)) })),
@@ -396,6 +409,12 @@ export function flowsResult(spec: PanelFlowsSpec): PanelFlowsResult {
 // Stickiness
 // ---------------------------------------------------------------------------
 
+/** `1`, `2–5`, or `51+` for the open-ended last bucket. */
+function bucketLabel(from: number, to: number | null): string {
+  if (to === null) return `${from}+`;
+  return from === to ? String(from) : `${from}–${to}`;
+}
+
 export function stickinessResult(spec: PanelStickinessSpec): PanelStickinessResult {
   const projectId = spec.projectId;
   const range = resolveRange(spec.dateRange);
@@ -408,7 +427,7 @@ export function stickinessResult(spec: PanelStickinessSpec): PanelStickinessResu
   if (measure === 'count') {
     const edges: [number, number | null][] = [[1, 1], [2, 2], [3, 3], [4, 4], [5, 5], [6, 10], [11, 25], [26, 50], [51, null]];
     const weights = [38, 17, 10, 7, 5, 12, 7, 3, 1];
-    defs = edges.map(([from, to], i) => ({ label: to === null ? `${from}+` : from === to ? String(from) : `${from}–${to}`, from, to, weight: weights[i]! }));
+    defs = edges.map(([from, to], i) => ({ label: bucketLabel(from, to), from, to, weight: weights[i]! }));
   } else if (intervalsInRange <= 31) {
     defs = Array.from({ length: intervalsInRange }, (_, i) => ({ label: String(i + 1), from: i + 1, to: i + 1, weight: (i + 1) ** -1.2 * (i + 1 === intervalsInRange ? 1.6 : 1) }));
   } else {

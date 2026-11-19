@@ -5,6 +5,7 @@
  * `Response` for raw downloads) or `UNHANDLED` when the path isn't its own.
  */
 
+import { randomFraction } from './dataset';
 import { UNHANDLED, type SampleRequest } from './request';
 import { handleQuery } from './areas/query';
 import { handleObjects } from './areas/objects';
@@ -17,7 +18,7 @@ const AREAS = [handleQuery, handleCollab, handleObjects];
 
 /** A short pause, so loading states still show while you design. */
 function latency(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 120 + Math.random() * 250));
+  return new Promise((resolve) => setTimeout(resolve, 120 + randomFraction() * 250));
 }
 
 export async function handleSampleRequest(input: {
@@ -26,7 +27,7 @@ export async function handleSampleRequest(input: {
   body: unknown;
   raw: boolean;
 }): Promise<unknown> {
-  const url = new URL(input.path, 'http://sample.local');
+  const url = new URL(input.path, 'https://sample.invalid');
   const segments = url.pathname.replace(/^\/panel\/?/, '').split('/').filter(Boolean).map(decodeURIComponent);
   const request: SampleRequest = { ...input, segments, query: url.searchParams };
   await latency();

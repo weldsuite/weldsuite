@@ -379,7 +379,8 @@ export const EVENTS: ReadonlyArray<{ name: string; description: string; perDay: 
 /** Event names a spec may refer to that aren't in `EVENTS` still get a small, steady volume. */
 export function eventPerDay(name: string, projectId: string): number {
   const event = EVENTS.find((e) => e.name === name);
-  const perDay = event ? (projectId === APP_PROJECT_ID ? event.perDay.app : event.perDay.site) : 0;
+  const volume = projectId === APP_PROJECT_ID ? event?.perDay.app : event?.perDay.site;
+  const perDay = volume ?? 0;
   return perDay > 0 ? perDay : 20 + (rng(name)() * 60);
 }
 
@@ -493,9 +494,19 @@ export function list<T>(items: T[]): { data: T[]; pagination: { totalCount: numb
   return { data: items, pagination: { totalCount: items.length, hasMore: false, cursor: null } };
 }
 
-/** A new sample id, e.g. `sample_rep_k3j2`. */
+/** A random number from 0 up to (not including) 1, for the things that should differ on every call. */
+export function randomFraction(): number {
+  return crypto.getRandomValues(new Uint32Array(1))[0]! / 2 ** 32;
+}
+
+/** A random lower-case letters and digits string of `length` characters, for tokens and keys. */
+export function randomToken(length: number): string {
+  return Array.from(crypto.getRandomValues(new Uint8Array(length)), (byte) => (byte % 36).toString(36)).join('');
+}
+
+/** A new sample id, e.g. `pnrv_k3j2h9x1`. */
 export function sampleId(prefix: string): string {
-  return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
+  return `${prefix}_${randomToken(8)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -558,6 +569,7 @@ export interface SampleSession {
 /** 48 recorded sessions over the last two weeks, newest first. */
 export const SESSIONS: SampleSession[] = Array.from({ length: 48 }, (_, i) => {
   const random = rng(`session-${i}`);
+  const anonKey = `anon-${i}`;
   const person = i % 3 === 2 ? null : PEOPLE[(i * 5) % PEOPLE.length]!;
   const country = person ? (COUNTRIES.find((c) => c.code === person.country) ?? COUNTRIES[0]!) : pick(random, COUNTRIES, COUNTRIES.map((c) => c.weight));
   const pageCount = between(random, 1, 9);
@@ -567,7 +579,7 @@ export const SESSIONS: SampleSession[] = Array.from({ length: 48 }, (_, i) => {
   return {
     sessionId: `ses_sample_${String(i + 1).padStart(3, '0')}`,
     distinctId: person?.distinctId ?? null,
-    anonymousId: `anon_${(hash(`anon-${i}`) % 1e8).toString(36)}`,
+    anonymousId: `anon_${(hash(anonKey) % 1e8).toString(36)}`,
     startedAt: isoMinutesAgo(minutesAgo),
     durationSeconds,
     activeSeconds: Math.round(durationSeconds * (0.45 + random() * 0.45)),

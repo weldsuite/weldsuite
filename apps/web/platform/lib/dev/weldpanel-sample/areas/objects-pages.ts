@@ -346,6 +346,22 @@ function targetsFor(path: string, kind: PageKind): ClickTarget[] {
   return nav;
 }
 
+/** The stylesheet goes in as a <style> element whose text rrweb treats as CSS. */
+function addStylesheet(doc: Extract<SerializedNode, { type: 0 }>): void {
+  const html = doc.childNodes[1];
+  if (!html || html.type !== 2) return;
+  const head = html.childNodes[0];
+  if (head && head.type === 2) head.childNodes[head.childNodes.length - 1] = { type: 2, id: 0, tagName: 'style', attributes: {}, childNodes: [{ type: 3, id: 0, textContent: CSS, isStyle: true }] };
+}
+
+/** How tall the page is, in pixels. */
+function pageHeight(path: string, kind: PageKind): number {
+  if (kind === 'app') return 900;
+  if (path === '/') return 1700;
+  if (path === '/pricing') return 1250;
+  return path.startsWith('/blog/') ? 1500 : 1100;
+}
+
 /** The page at `path` as an rrweb document. Node ids start at 1; a second call gives a fresh tree. */
 export function buildPage(path: string, kind: PageKind): BuiltPage {
   const content = kind === 'app' ? appPage(path) : sitePage(path);
@@ -362,16 +378,11 @@ export function buildPage(path: string, kind: PageKind): BuiltPage {
       ),
     ],
   };
-  // The stylesheet goes in as a <style> element whose text rrweb treats as CSS.
-  const html = doc.childNodes[1];
-  if (html && html.type === 2) {
-    const head = html.childNodes[0];
-    if (head && head.type === 2) head.childNodes[head.childNodes.length - 1] = { type: 2, id: 0, tagName: 'style', attributes: {}, childNodes: [{ type: 3, id: 0, textContent: CSS, isStyle: true }] };
-  }
+  addStylesheet(doc);
   assignIds(doc, 1);
   const ids: Record<string, number> = {};
   collectIds(doc, ids);
-  return { document: doc, ids, targets: targetsFor(path, kind), height: kind === 'app' ? 900 : path === '/' ? 1700 : path === '/pricing' ? 1250 : path.startsWith('/blog/') ? 1500 : 1100 };
+  return { document: doc, ids, targets: targetsFor(path, kind), height: pageHeight(path, kind) };
 }
 
 /** Which kind of page a path is. */

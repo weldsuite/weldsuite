@@ -5,7 +5,7 @@
  * settings page itself.
  */
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { DatabaseZap } from 'lucide-react';
 import { toast } from 'sonner';
 import type { PanelExportDto, PanelExportStatus, PanelExportRunStatus } from '@weldsuite/app-api-client/schemas/weldpanel-monitor';
@@ -221,17 +221,14 @@ function ProjectExports({ projectId }: Readonly<{ projectId: string }>) {
     onClick: () => setCreating(true),
   };
 
-  return (
-    <>
-      <InfoBanner variant="warning" title={te.erasureTitle} className="mb-4">
-        {te.erasureNotice}
-      </InfoBanner>
-      {/* The shared list words its own loading state in English only. */}
-      {isLoading && !exportsList ? (
-        <PageLoader fullScreen={false} label={t.common.labels.loading} />
-      ) : isError ? (
-        <ErrorState message={te.loadFailed} onRetry={() => void refetch()} retryLabel={t.weldpanel.retry} />
-      ) : (
+  // The shared list words its own loading state in English only.
+  let list: ReactNode;
+  if (isLoading && !exportsList) {
+    list = <PageLoader fullScreen={false} label={t.common.labels.loading} />;
+  } else if (isError) {
+    list = <ErrorState message={te.loadFailed} onRetry={() => void refetch()} retryLabel={t.weldpanel.retry} />;
+  } else {
+    list = (
         <PanelEntityList<PanelExportDto>
           items={exportsList ?? []}
           isLoading={false}
@@ -254,7 +251,15 @@ function ProjectExports({ projectId }: Readonly<{ projectId: string }>) {
             description: te.emptyDescription,
           }}
         />
-      )}
+    );
+  }
+
+  return (
+    <>
+      <InfoBanner variant="warning" title={te.erasureTitle} className="mb-4">
+        {te.erasureNotice}
+      </InfoBanner>
+      {list}
 
       <ExportFormDialog open={creating} onOpenChange={setCreating} projectId={projectId} />
       <ExportFormDialog open={editing !== null} onOpenChange={(open) => !open && setEditing(null)} projectId={projectId} existing={editing} />

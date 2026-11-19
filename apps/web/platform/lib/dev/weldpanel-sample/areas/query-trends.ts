@@ -94,7 +94,8 @@ function evaluate(expression: string, scope: Scope): number | null {
     while (peek() === '+' || peek() === '-') {
       const op = next();
       const right = term();
-      left = left === null || right === null ? null : op === '+' ? left + right : left - right;
+      if (left === null || right === null) left = null;
+      else left = op === '+' ? left + right : left - right;
     }
     return left;
   };
@@ -144,6 +145,56 @@ interface Line {
   previousPoints: number[] | null;
 }
 
+type Split = { value: string | null; parts: string[] | null; share: number };
+
+/** What the lines of every series of a trends query have in common. */
+interface LineSetup {
+  range: ReturnType<typeof resolveRange>;
+  previousRange: ReturnType<typeof previousRangeOf>;
+  interval: PanelInterval;
+  compare: boolean;
+  cumulative: boolean;
+  splits: Split[];
+  specFactor: number;
+  projectId: string;
+}
+
+/** The values of one line: averages vary a little per split, counts are a share of the total. */
+function ownPoints(points: number[], key: string, split: Split, measure: Measure, tag: string): number[] {
+  if (measure.kind === 'count') return scaled(points, split.share, measure.decimals);
+  return points.map((p, i) => round(p * (0.85 + rng(`${key}|${split.value}|${tag}${i}`)() * 0.3 + split.share * 0.2), measure.decimals));
+}
+
+function lineTotal(values: number[], cumulative: boolean, measure: Measure): number {
+  return cumulative ? (values[values.length - 1] ?? 0) : totalOf(values, measure);
+}
+
+/** One line per breakdown value (or a single one) of one series. */
+function seriesLines(series: PanelTrendsSpec['series'][number], seriesIndex: number, setup: LineSetup): Line[] {
+  const { range, previousRange, interval, compare, cumulative, splits, specFactor, projectId } = setup;
+  const measure = measureFor(series, projectId);
+  const factor = specFactor * filterFactor(series.filters);
+  const key = `${projectId}|${series.event}|${series.math ?? 'total'}|${series.property ?? ''}`;
+  const points = pointValues(key, range, interval, measure, factor);
+  const previousPoints = compare ? pointValues(key, previousRange, interval, measure, factor * 0.91) : null;
+  const shapes: Split[] = splits.length > 0 ? splits : [{ value: null, parts: null, share: 1 }];
+  return shapes.map((split) => {
+    const own = ownPoints(points, key, split, measure, '');
+    const ownPrevious = previousPoints ? ownPoints(previousPoints, key, split, measure, 'p') : null;
+    const shown = cumulative ? runningTotals(own) : own;
+    const shownPrevious = ownPrevious && cumulative ? runningTotals(ownPrevious) : ownPrevious;
+    return {
+      seriesIndex,
+      breakdownValue: split.value,
+      parts: split.parts,
+      totalValue: lineTotal(own, cumulative, measure),
+      points: shown,
+      previousTotal: shownPrevious ? lineTotal(shownPrevious, cumulative, measure) : null,
+      previousPoints: shownPrevious,
+    };
+  });
+}
+
 export function trendsResult(spec: PanelTrendsSpec): PanelTrendsResult {
   const projectId = spec.projectId;
   const range = resolveRange(spec.dateRange);
@@ -157,31 +208,8 @@ export function trendsResult(spec: PanelTrendsSpec): PanelTrendsResult {
   const specFactor = filterFactor(spec.filters);
 
   const lines: Line[] = [];
-  spec.series.forEach((series, seriesIndex) => {
-    const measure = measureFor(series, projectId);
-    const factor = specFactor * filterFactor(series.filters);
-    const key = `${projectId}|${series.event}|${series.math ?? 'total'}|${series.property ?? ''}`;
-    const points = pointValues(key, range, interval, measure, factor);
-    const previousPoints = compare ? pointValues(key, previousRange, interval, measure, factor * 0.91) : null;
-    const shapes = splits.length > 0 ? splits : [{ value: null, parts: null, share: 1 }];
-    for (const split of shapes) {
-      const share = split.share;
-      const isAverage = measure.kind !== 'count';
-      const own = isAverage ? points.map((p, i) => round(p * (0.85 + rng(`${key}|${split.value}|${i}`)() * 0.3 + share * 0.2), measure.decimals)) : scaled(points, share, measure.decimals);
-      const ownPrevious = previousPoints ? (isAverage ? previousPoints.map((p, i) => round(p * (0.85 + rng(`${key}|${split.value}|p${i}`)() * 0.3 + share * 0.2), measure.decimals)) : scaled(previousPoints, share, measure.decimals)) : null;
-      const shown = cumulative ? runningTotals(own) : own;
-      const shownPrevious = ownPrevious ? (cumulative ? runningTotals(ownPrevious) : ownPrevious) : null;
-      lines.push({
-        seriesIndex,
-        breakdownValue: split.value,
-        parts: split.parts,
-        totalValue: cumulative ? (shown[shown.length - 1] ?? 0) : totalOf(own, measure),
-        points: shown,
-        previousTotal: shownPrevious ? (cumulative ? (shownPrevious[shownPrevious.length - 1] ?? 0) : totalOf(shownPrevious, measure)) : null,
-        previousPoints: shownPrevious,
-      });
-    }
-  });
+  const setup = { range, previousRange, interval, compare, cumulative, splits, specFactor, projectId };
+  spec.series.forEach((series, seriesIndex) => lines.push(...seriesLines(series, seriesIndex, setup)));
 
   const toPoints = (values: number[], bucketList: string[]): PanelTrendPoint[] => bucketList.map((bucket, i) => ({ bucket, value: values[i] ?? 0 }));
 

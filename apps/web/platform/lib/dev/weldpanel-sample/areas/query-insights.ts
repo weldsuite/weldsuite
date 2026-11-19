@@ -20,7 +20,7 @@ import type {
   PanelSavedMetricTreeValuesInput,
 } from '@weldsuite/app-api-client/schemas/weldpanel-analysis';
 import type { PanelMetricTreeNode } from '@weldsuite/app-api-client/schemas/weldpanel-collab';
-import { DAY_MS, REPORT_REFS, WEBSITE_PROJECT_ID, dailyValue, daysBetween, resolveRange, rng, ymd, type SampleRange } from '../dataset';
+import { DAY_MS, WEBSITE_PROJECT_ID, dailyValue, daysBetween, resolveRange, rng, ymd, type SampleRange } from '../dataset';
 import {
   breakdownWeights,
   clamp,
@@ -39,6 +39,12 @@ import { sampleMetricTree } from './collab-definitions';
 // ---------------------------------------------------------------------------
 // Impact
 // ---------------------------------------------------------------------------
+
+/** What a metric measured before the launch: a share for unique users, else a size that fits the maths. */
+function impactBaseline(math: string, random: () => number): number {
+  if (math === 'unique_users') return 0.34 + random() * 0.12;
+  return math === 'avg' ? 42 + random() * 30 : 3.1 + random() * 2;
+}
 
 export function impactResult(spec: PanelImpactSpec): PanelImpactResult {
   const projectId = spec.projectId;
@@ -66,7 +72,7 @@ export function impactResult(spec: PanelImpactSpec): PanelImpactResult {
   const random = rng(key);
   const math = spec.metric.math ?? 'total';
   const share = math === 'unique_users';
-  const baseline = share ? 0.34 + random() * 0.12 : math === 'avg' ? 42 + random() * 30 : 3.1 + random() * 2;
+  const baseline = impactBaseline(math, random);
   const lift = 1.16 + random() * 0.22;
   const digits = share ? 3 : 2;
   const adoptersBefore = round(baseline * 1.04, digits);
@@ -156,14 +162,122 @@ function windowDaysOf(from: string, to: string): string[] {
   return daysBetween(from, to);
 }
 
+/** Events a day for a series, by how it counts. */
+function perDayOf(math: string, event: string, projectId: string): number {
+  if (math === 'unique_users') return uniquePerDay(event, projectId);
+  if (math === 'sessions') return eventVolume(event, projectId) * 0.45;
+  return math === 'unique_groups' ? eventVolume(event, projectId) * 0.1 : eventVolume(event, projectId);
+}
+
 function seriesDaily(spec: PanelTrendsSpec, day: string): number {
   const series = spec.series[0]!;
   const math = series.math ?? 'total';
-  const perDay = math === 'unique_users' ? uniquePerDay(series.event, spec.projectId) : math === 'sessions' ? eventVolume(series.event, spec.projectId) * 0.45 : math === 'unique_groups' ? eventVolume(series.event, spec.projectId) * 0.1 : eventVolume(series.event, spec.projectId);
+  const perDay = perDayOf(math, series.event, spec.projectId);
   return dailyValue(`${spec.projectId}|${series.event}|${math}|${series.property ?? ''}`, day, perDay * filterFactor(spec.filters) * filterFactor(series.filters));
 }
 
 const HOUR_SHAPE = [1, 0.6, 0.4, 0.3, 0.3, 0.5, 1.2, 2.4, 4.2, 5.6, 6, 5.8, 5.2, 5.6, 5.9, 5.5, 4.8, 4, 3.4, 3.1, 2.9, 2.6, 2, 1.4];
+
+interface ExplainWindows {
+  currentFrom: Date;
+  currentTo: Date;
+  baselineFrom: Date;
+  currentValue: number;
+  baselineValue: number;
+}
+
+function bucketLength(hour: boolean, interval: string): number {
+  if (hour) return 3_600_000;
+  if (interval === 'week') return 7 * DAY_MS;
+  return interval === 'month' ? 30 * DAY_MS : DAY_MS;
+}
+
+/** The clicked bucket against the one before it. */
+function bucketWindows(spec: PanelTrendsSpec, bucket: string, interval: string): ExplainWindows {
+  const hour = bucket.includes('T');
+  const start = new Date(hour ? `${bucket}:00` : `${bucket}T00:00:00`);
+  const length = bucketLength(hour, interval);
+  const currentFrom = start;
+  const currentTo = new Date(start.getTime() + length);
+  const baselineFrom = new Date(start.getTime() - length);
+  if (hour) {
+    const share = (h: number): number => (HOUR_SHAPE[h] ?? 1) / sum(HOUR_SHAPE);
+    const hourOf = (d: Date): number => d.getHours();
+    const currentValue = Math.round(seriesDaily(spec, ymd(currentFrom)) * share(hourOf(currentFrom)));
+    const baselineValue = Math.round(seriesDaily(spec, ymd(baselineFrom)) * share(hourOf(baselineFrom)));
+    return { currentFrom, currentTo, baselineFrom, currentValue, baselineValue };
+  }
+  const sumOver = (from: Date, days: number): number => sum(Array.from({ length: days }, (_, i) => seriesDaily(spec, ymd(new Date(from.getTime() + i * DAY_MS)))));
+  const days = Math.round(length / DAY_MS);
+  return { currentFrom, currentTo, baselineFrom, currentValue: sumOver(currentFrom, days), baselineValue: sumOver(baselineFrom, days) };
+}
+
+/** The asked-for period (or the report's range) against the period of the same length before it. */
+function periodWindows(spec: PanelTrendsSpec, period: { from: string; to: string } | undefined, range: SampleRange): ExplainWindows {
+  const from = period?.from ?? range.from;
+  const to = period?.to ?? range.to;
+  const days = windowDaysOf(from, to);
+  const currentFrom = new Date(`${from}T00:00:00`);
+  const currentTo = new Date(new Date(`${to}T00:00:00`).getTime() + DAY_MS);
+  const baselineFrom = new Date(currentFrom.getTime() - days.length * DAY_MS);
+  const currentValue = sum(days.map((d) => seriesDaily(spec, d)));
+  const baselineValue = sum(Array.from({ length: days.length }, (_, i) => seriesDaily(spec, ymd(new Date(baselineFrom.getTime() + i * DAY_MS)))));
+  return { currentFrom, currentTo, baselineFrom, currentValue, baselineValue };
+}
+
+/** How much of the move one value of a dimension explains: the driver most, the runner-up some, the rest little. */
+function driverShareOf(index: number, driverIndex: number, secondary: number, explainedTarget: number): number {
+  if (index === driverIndex) return explainedTarget * 0.7;
+  return index === secondary ? explainedTarget * 0.3 : 0;
+}
+
+function dimensionLabel(b: NonNullable<ExplainPanelChangeInput['properties']>[number]): string {
+  const key = 'key' in b ? b.key : '';
+  return b.source === 'person' ? `person:${key}` : `event:${key}`;
+}
+
+function explainDimension(
+  { dimension, weights }: { dimension: string; weights: { value: string; weight: number }[] },
+  di: number,
+  context: { projectId: string; currentFrom: Date; limit: number; baselineValue: number; change: number },
+): PanelExplainDimensionResult {
+  const { projectId, currentFrom, limit, baselineValue, change } = context;
+  const random = rng(`explain|${projectId}|${dimension}|${currentFrom.toISOString()}`);
+  const total = sum(weights.map((w) => w.weight));
+  const explainedTarget = clamp(0.78 - di * 0.07 + random() * 0.1, 0.25, 0.88);
+  const top = weights.slice(0, Math.max(limit, 4));
+  const driverIndex = Math.floor(random() * Math.min(3, top.length));
+  const secondary = (driverIndex + 1) % top.length;
+  const values: PanelExplainValue[] = top.map((w, i) => {
+    const share = w.weight / total;
+    const baseline = Math.round(baselineValue * share);
+    const driverShare = driverShareOf(i, driverIndex, secondary, explainedTarget);
+    const rest = (1 - explainedTarget) * share * (0.8 + random() * 0.4);
+    const valueChange = Math.round(change * (driverShare + rest));
+    const current = Math.max(0, baseline + valueChange);
+    return {
+      value: w.value,
+      current,
+      baseline,
+      change: current - baseline,
+      changePercent: baseline > 0 ? round((current - baseline) / baseline, 4) : null,
+      contributionShare: change !== 0 ? round((current - baseline) / change, 4) : 0,
+    };
+  });
+  const direction = change >= 0 ? 1 : -1;
+  values.sort((a, b) => direction * (b.change - a.change));
+  const shown = values.slice(0, limit);
+  return { dimension, values: shown, explained: clamp(round(sum(shown.map((v) => v.contributionShare)), 3), 0, 1) };
+}
+
+function explainNarrative(seriesLabel: string, change: number, baselineValue: number, dimensions: PanelExplainDimensionResult[]): string {
+  const top = dimensions[0]?.values[0];
+  const verb = change >= 0 ? 'rose' : 'fell';
+  const percent = Math.abs(round(baselineValue > 0 ? (change / baselineValue) * 100 : 0, 1));
+  const segment = dimensions[0]?.dimension.replace('_', ' ') ?? 'one segment';
+  const detail = top ? `: ${top.value} accounts for ${Math.round(top.contributionShare * 100)}% of the change` : '';
+  return `${seriesLabel} ${verb} ${percent}% compared with the period before. Most of the move comes from ${segment}${detail}. Other segments moved in line with the overall trend.`;
+}
 
 export function explainResult(input: ExplainPanelChangeInput): PanelExplainResult {
   const spec = input.spec;
@@ -172,89 +286,23 @@ export function explainResult(input: ExplainPanelChangeInput): PanelExplainResul
   const limit = input.limit ?? 5;
   const range = resolveRange(spec.dateRange);
 
-  let currentFrom: Date;
-  let currentTo: Date;
-  let baselineFrom: Date;
-  let currentValue: number;
-  let baselineValue: number;
-  if (input.bucket) {
-    const hour = input.bucket.includes('T');
-    const start = new Date(hour ? `${input.bucket}:00` : `${input.bucket}T00:00:00`);
-    const length = hour ? 3_600_000 : interval === 'week' ? 7 * DAY_MS : interval === 'month' ? 30 * DAY_MS : DAY_MS;
-    currentFrom = start;
-    currentTo = new Date(start.getTime() + length);
-    baselineFrom = new Date(start.getTime() - length);
-    if (hour) {
-      const share = (h: number): number => (HOUR_SHAPE[h] ?? 1) / sum(HOUR_SHAPE);
-      const hourOf = (d: Date): number => d.getHours();
-      currentValue = Math.round(seriesDaily(spec, ymd(currentFrom)) * share(hourOf(currentFrom)));
-      baselineValue = Math.round(seriesDaily(spec, ymd(baselineFrom)) * share(hourOf(baselineFrom)));
-    } else {
-      const sumOver = (from: Date, days: number): number => sum(Array.from({ length: days }, (_, i) => seriesDaily(spec, ymd(new Date(from.getTime() + i * DAY_MS)))));
-      const days = Math.round(length / DAY_MS);
-      currentValue = sumOver(currentFrom, days);
-      baselineValue = sumOver(baselineFrom, days);
-    }
-  } else {
-    const from = input.period?.from ?? range.from;
-    const to = input.period?.to ?? range.to;
-    const days = windowDaysOf(from, to);
-    currentFrom = new Date(`${from}T00:00:00`);
-    currentTo = new Date(`${to}T00:00:00`);
-    currentTo = new Date(currentTo.getTime() + DAY_MS);
-    baselineFrom = new Date(currentFrom.getTime() - days.length * DAY_MS);
-    currentValue = sum(days.map((d) => seriesDaily(spec, d)));
-    baselineValue = sum(Array.from({ length: days.length }, (_, i) => seriesDaily(spec, ymd(new Date(baselineFrom.getTime() + i * DAY_MS)))));
-  }
+  const windows = input.bucket ? bucketWindows(spec, input.bucket, interval) : periodWindows(spec, input.period, range);
+  const { currentFrom, currentTo, baselineFrom, baselineValue } = windows;
+  let { currentValue } = windows;
   // A move worth explaining: if the two windows are close, give the current one a visible step.
   if (Math.abs(currentValue - baselineValue) < Math.max(5, baselineValue * 0.06)) currentValue = Math.round(baselineValue * 1.19);
   const change = currentValue - baselineValue;
 
   const dimensionKeys: Array<{ dimension: string; weights: { value: string; weight: number }[] }> = [
     ...EXPLAIN_DIMENSIONS.map((field) => ({ dimension: field as string, weights: breakdownWeights({ source: 'column', field }, projectId).map((w) => ({ value: w.value === '' ? '(direct)' : w.value, weight: w.weight })) })),
-    ...(input.properties ?? []).map((b) => ({ dimension: b.source === 'person' ? `person:${'key' in b ? b.key : ''}` : `event:${'key' in b ? b.key : ''}`, weights: breakdownWeights(b, projectId) })),
+    ...(input.properties ?? []).map((b) => ({ dimension: dimensionLabel(b), weights: breakdownWeights(b, projectId) })),
   ];
 
-  const dimensions: PanelExplainDimensionResult[] = dimensionKeys.map(({ dimension, weights }, di) => {
-    const random = rng(`explain|${projectId}|${dimension}|${currentFrom.toISOString()}`);
-    const total = sum(weights.map((w) => w.weight));
-    const explainedTarget = clamp(0.78 - di * 0.07 + random() * 0.1, 0.25, 0.88);
-    const top = weights.slice(0, Math.max(limit, 4));
-    const driverIndex = Math.floor(random() * Math.min(3, top.length));
-    const secondary = (driverIndex + 1) % top.length;
-    const values: PanelExplainValue[] = top.map((w, i) => {
-      const share = w.weight / total;
-      const baseline = Math.round(baselineValue * share);
-      const driverShare = i === driverIndex ? explainedTarget * 0.7 : i === secondary ? explainedTarget * 0.3 : 0;
-      const rest = (1 - explainedTarget) * share * (0.8 + random() * 0.4);
-      const valueChange = Math.round(change * (driverShare + rest));
-      const current = Math.max(0, baseline + valueChange);
-      return {
-        value: w.value,
-        current,
-        baseline,
-        change: current - baseline,
-        changePercent: baseline > 0 ? round((current - baseline) / baseline, 4) : null,
-        contributionShare: change !== 0 ? round((current - baseline) / change, 4) : 0,
-      };
-    });
-    const direction = change >= 0 ? 1 : -1;
-    values.sort((a, b) => direction * (b.change - a.change));
-    const shown = values.slice(0, limit);
-    return { dimension, values: shown, explained: clamp(round(sum(shown.map((v) => v.contributionShare)), 3), 0, 1) };
-  });
+  const dimensions = dimensionKeys.map((keys, di) => explainDimension(keys, di, { projectId, currentFrom, limit, baselineValue, change }));
   dimensions.sort((a, b) => b.explained - a.explained);
 
   const seriesLabel = spec.series[0]!.label ?? eventLabel(spec.series[0]!.event);
-  const top = dimensions[0]?.values[0];
-  const narrative = input.narrate
-    ? {
-        text: `${seriesLabel} ${change >= 0 ? 'rose' : 'fell'} ${Math.abs(round(baselineValue > 0 ? (change / baselineValue) * 100 : 0, 1))}% compared with the period before. Most of the move comes from ${dimensions[0]?.dimension.replace('_', ' ') ?? 'one segment'}${top ? `: ${top.value} accounts for ${Math.round(top.contributionShare * 100)}% of the change` : ''}. Other segments moved in line with the overall trend.`,
-        modelId: 'claude-sonnet-4-5',
-        creditsCharged: 3,
-        cached: false,
-      }
-    : null;
+  const narrative = input.narrate ? { text: explainNarrative(seriesLabel, change, baselineValue, dimensions), modelId: 'claude-sonnet-4-5', creditsCharged: 3, cached: false } : null;
 
   return {
     current: { from: currentFrom.toISOString(), to: currentTo.toISOString() },
@@ -292,22 +340,18 @@ export const SAMPLE_METRIC_TREE_NODES: PanelMetricTreeNode[] = (() => {
   ];
 })();
 
+/** Events a day for a metric tree node: from its own spec, or a made-up figure when it points at a saved report. */
+function nodePerDay(node: PanelMetricTreeNode, key: string): number {
+  if (!('spec' in node.metric)) return 40 + rng(`${key}|report`)() * 300;
+  const spec = node.metric.spec;
+  const series = spec.series[0]!;
+  const volume = (series.math ?? 'total') === 'unique_users' ? uniquePerDay(series.event, spec.projectId) : eventVolume(series.event, spec.projectId);
+  return volume * (filterFactor(spec.filters) * filterFactor(series.filters));
+}
+
 function nodeSeries(node: PanelMetricTreeNode, range: SampleRange, key: string): { values: number[]; previous: number[] } {
   const previousRange = previousRangeOf(range);
-  let projectId = WEBSITE_PROJECT_ID;
-  let perDay: number;
-  if ('spec' in node.metric) {
-    const spec = node.metric.spec;
-    projectId = spec.projectId;
-    const series = spec.series[0]!;
-    const math = series.math ?? 'total';
-    perDay = math === 'unique_users' ? uniquePerDay(series.event, projectId) : eventVolume(series.event, projectId);
-    perDay *= filterFactor(spec.filters) * filterFactor(series.filters);
-  } else {
-    const ref = REPORT_REFS.find((r) => r.id === ('reportId' in node.metric ? node.metric.reportId : ''));
-    projectId = ref?.projectId ?? WEBSITE_PROJECT_ID;
-    perDay = 40 + rng(`${key}|report`)() * 300;
-  }
+  const perDay = nodePerDay(node, key);
   return {
     values: range.days.map((d) => dailyValue(`${key}|${node.id}`, d, perDay)),
     previous: previousRange.days.map((d) => Math.round(dailyValue(`${key}|${node.id}`, d, perDay) * 0.91)),

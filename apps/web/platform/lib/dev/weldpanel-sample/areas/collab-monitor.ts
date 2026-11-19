@@ -14,7 +14,6 @@ import type {
   PanelAlertDto,
   PanelAlertEventDto,
   PanelAlertEventKind,
-  PanelAlertState,
   PanelCheckInterval,
   PanelDeliveryChannelsDto,
   PanelDeliveryChannelsInput,
@@ -32,7 +31,8 @@ import type {
   UpdatePanelExportInput,
   UpdatePanelSubscriptionInput,
 } from '@weldsuite/app-api-client/schemas/weldpanel-monitor';
-import { UNHANDLED, type SampleAreaHandler } from '../request';
+import { UNHANDLED, type SampleAreaHandler, type SampleRequest } from '../request';
+import { bodyAs, notFound, removeAt, routeResource, type CollectionContext, type ItemContext, type ResourceRoutes } from './collab-routes';
 import { APP_PROJECT_ID, DAY_MS, MEMBERS, WEBSITE_PROJECT_ID, data, isoDaysAgo, isoMinutesAgo, list, rng, sampleId } from '../dataset';
 
 const ME = MEMBERS[0].userId;
@@ -41,14 +41,6 @@ const A = APP_PROJECT_ID;
 
 function member(index: number): string {
   return MEMBERS[index % MEMBERS.length]!.userId;
-}
-
-function notFound(what: string): Error {
-  return new Error(`Sample data: ${what} not found`);
-}
-
-function bodyAs<T>(body: unknown): T {
-  return (body ?? {}) as T;
 }
 
 function inMinutes(minutes: number): string {
@@ -334,7 +326,9 @@ const alertEvents = new Map<string, PanelAlertEventDto[]>([
 ]);
 
 function nextCheck(interval: PanelCheckInterval): string {
-  return inMinutes(interval === 'hourly' ? 40 : interval === 'daily' ? 60 * 14 : 60 * 24 * 4);
+  if (interval === 'hourly') return inMinutes(40);
+  if (interval === 'daily') return inMinutes(60 * 14);
+  return inMinutes(60 * 24 * 4);
 }
 
 function alertFromInput(input: CreatePanelAlertInput): PanelAlertDto {
@@ -370,7 +364,6 @@ function applyAlertUpdate(current: PanelAlertDto, input: UpdatePanelAlertInput):
   const enabled = input.enabled ?? current.enabled;
   const interval = input.checkInterval ?? current.checkInterval;
   const condition: PanelAlertCondition = input.condition ?? current.condition;
-  const state: PanelAlertState = enabled ? (current.state === 'pending' ? 'pending' : current.state) : current.state;
   return {
     ...current,
     name: input.name ?? current.name,
@@ -381,7 +374,6 @@ function applyAlertUpdate(current: PanelAlertDto, input: UpdatePanelAlertInput):
     checkInterval: interval,
     channels: input.channels ? channelsFromInput(input.channels, current.channels) : current.channels,
     enabled,
-    state,
     nextCheckAt: enabled ? (current.nextCheckAt ?? nextCheck(interval)) : null,
     updatedAt: new Date().toISOString(),
   };
@@ -452,6 +444,24 @@ const subscriptions: PanelSubscriptionDto[] = [
 // Exports
 // ---------------------------------------------------------------------------
 
+/** How far an export has got, by how it is doing: failing and paused ones are behind. */
+function exportedUntilOf(status: PanelExportDto['status'], hourly: boolean): string {
+  if (status === 'failing') return isoDaysAgo(3, 0, 0);
+  if (status === 'paused') return isoDaysAgo(9, 0, 0);
+  return hourly ? isoMinutesAgo(75) : isoDaysAgo(1, 0, 0);
+}
+
+function lastRunOf(status: PanelExportDto['status'], hourly: boolean): string {
+  if (status === 'failing') return isoMinutesAgo(190);
+  if (status === 'paused') return isoDaysAgo(9, 3, 0);
+  return hourly ? isoMinutesAgo(28) : isoDaysAgo(0, 3, 0);
+}
+
+function nextRunOf(status: PanelExportDto['status'], hourly: boolean): string | null {
+  if (status === 'active') return inMinutes(hourly ? 32 : 60 * 12);
+  return status === 'failing' ? inMinutes(55) : null;
+}
+
 function exportDto(
   id: string,
   projectId: string,
@@ -464,7 +474,6 @@ function exportDto(
   lastError: string | null = null,
 ): PanelExportDto {
   const hourly = frequency === 'hourly';
-  const failing = status === 'failing';
   return {
     id,
     projectId,
@@ -473,11 +482,11 @@ function exportDto(
     tables,
     frequency,
     startAt: isoDaysAgo(days, 0, 0),
-    exportedUntil: failing ? isoDaysAgo(3, 0, 0) : status === 'paused' ? isoDaysAgo(9, 0, 0) : hourly ? isoMinutesAgo(75) : isoDaysAgo(1, 0, 0),
+    exportedUntil: exportedUntilOf(status, hourly),
     status,
-    lastRunAt: failing ? isoMinutesAgo(190) : status === 'paused' ? isoDaysAgo(9, 3, 0) : hourly ? isoMinutesAgo(28) : isoDaysAgo(0, 3, 0),
+    lastRunAt: lastRunOf(status, hourly),
     lastError,
-    nextRunAt: status === 'active' ? inMinutes(hourly ? 32 : 60 * 12) : failing ? inMinutes(55) : null,
+    nextRunAt: nextRunOf(status, hourly),
     createdByUserId: member(0),
     createdAt: isoDaysAgo(days, 11, 0),
     updatedAt: isoDaysAgo(Math.max(0, days - 20), 11, 0),
@@ -491,38 +500,51 @@ const exportsList: PanelExportDto[] = [
   exportDto('pnex_sample_minio', A, 'Finance archive (MinIO)', { provider: 'minio', endpoint: 'https://minio.finance-archive.nl', region: 'eu-central-1', bucket: 'panel-archive', prefix: 'exports/app', accessKeyId: 'finance-archiver', pathStyle: true }, ['events', 'people', 'identities'], 'daily', 'failing', 36, 'AccessDenied: the access key is not allowed to write to panel-archive/exports/app/'),
 ];
 
+function tableScale(table: PanelExportTable): number {
+  if (table === 'events') return 1;
+  if (table === 'people') return 0.06;
+  return table === 'groups' ? 0.02 : 0.03;
+}
+
+/** How many windows back an export's history starts: paused and failing ones stopped a while ago. */
+function runOffset(exp: PanelExportDto, hourly: boolean): number {
+  if (exp.status === 'paused') return hourly ? 0 : 9;
+  return exp.status === 'failing' ? 3 : 0;
+}
+
+/** One run: one table over one window. The newest runs of a failing export fail on the events table. */
+function exportRun(exp: PanelExportDto, table: PanelExportTable, tableIndex: number, windowIndex: number, window: { from: Date; to: Date }, random: () => number): PanelExportRunDto {
+  const hourly = exp.frequency === 'hourly';
+  const rows = Math.round((hourly ? 5200 : 118_000) * tableScale(table) * (0.85 + random() * 0.3));
+  const started = new Date(window.to.getTime() + 9 * 60_000 + tableIndex * 2 * 60_000);
+  const fails = exp.status === 'failing' && windowIndex < 2 && table === 'events';
+  const bytesPerRow = table === 'events' ? 410 : 780;
+  const figures = fails ? { rows: 0, bytes: 0, files: 0 } : { rows, bytes: rows * bytesPerRow, files: Math.max(1, Math.ceil(rows / 60_000)) };
+  return {
+    id: `pnxr_${exp.id.slice(-8)}_${windowIndex}_${tableIndex}`,
+    exportId: exp.id,
+    table,
+    windowFrom: window.from.toISOString(),
+    windowTo: window.to.toISOString(),
+    status: fails ? 'failed' : 'succeeded',
+    ...figures,
+    error: fails ? (exp.lastError ?? 'AccessDenied') : null,
+    startedAt: started.toISOString(),
+    finishedAt: new Date(started.getTime() + (20 + Math.round(random() * 90)) * 1000).toISOString(),
+  };
+}
+
 function runsFor(exp: PanelExportDto): PanelExportRunDto[] {
   const random = rng(`runs-${exp.id}`);
   const out: PanelExportRunDto[] = [];
   const hourly = exp.frequency === 'hourly';
-  const windows = hourly ? 14 : 8;
   const hourMs = 3_600_000;
-  for (let w = 0; w < windows; w++) {
-    const stepMs = hourly ? hourMs : DAY_MS;
+  const stepMs = hourly ? hourMs : DAY_MS;
+  for (let w = 0; w < (hourly ? 14 : 8); w++) {
     const baseEnd = new Date(hourly ? Math.floor(Date.now() / hourMs) * hourMs : new Date().setHours(0, 0, 0, 0));
-    const offset = exp.status === 'paused' ? (hourly ? 0 : 9) : exp.status === 'failing' ? 3 : 0;
-    const windowTo = new Date(baseEnd.getTime() - (w + offset) * stepMs - (hourly ? 60 * 60_000 : 0));
-    const windowFrom = new Date(windowTo.getTime() - stepMs);
-    exp.tables.forEach((table, t) => {
-      const scale = table === 'events' ? 1 : table === 'people' ? 0.06 : table === 'groups' ? 0.02 : 0.03;
-      const rows = Math.round((hourly ? 5200 : 118_000) * scale * (0.85 + random() * 0.3));
-      const started = new Date(windowTo.getTime() + 9 * 60_000 + t * 2 * 60_000);
-      const fails = exp.status === 'failing' && w < 2 && table === 'events';
-      out.push({
-        id: `pnxr_${exp.id.slice(-8)}_${w}_${t}`,
-        exportId: exp.id,
-        table,
-        windowFrom: windowFrom.toISOString(),
-        windowTo: windowTo.toISOString(),
-        status: fails ? 'failed' : 'succeeded',
-        rows: fails ? 0 : rows,
-        bytes: fails ? 0 : rows * (table === 'events' ? 410 : 780),
-        files: fails ? 0 : Math.max(1, Math.ceil(rows / 60_000)),
-        error: fails ? (exp.lastError ?? 'AccessDenied') : null,
-        startedAt: started.toISOString(),
-        finishedAt: new Date(started.getTime() + (20 + Math.round(random() * 90)) * 1000).toISOString(),
-      });
-    });
+    const to = new Date(baseEnd.getTime() - (w + runOffset(exp, hourly)) * stepMs - (hourly ? 60 * 60_000 : 0));
+    const window = { from: new Date(to.getTime() - stepMs), to };
+    exp.tables.forEach((table, t) => out.push(exportRun(exp, table, t, w, window, random)));
   }
   return out;
 }
@@ -589,12 +611,6 @@ const domains: PanelDomainDto[] = [
 // Handler
 // ---------------------------------------------------------------------------
 
-function findIndex<T extends { id: string }>(items: T[], id: string, what: string): number {
-  const index = items.findIndex((item) => item.id === id);
-  if (index < 0) throw notFound(what);
-  return index;
-}
-
 function mineOnly<T extends { ownerUserId: string }>(items: T[], scope: string | null): T[] {
   return scope === 'mine' ? items.filter((i) => i.ownerUserId === ME) : items;
 }
@@ -604,256 +620,262 @@ function limitOf(query: URLSearchParams): number {
   return Number.isFinite(limit) && limit > 0 ? limit : 100;
 }
 
-export const handleMonitor: SampleAreaHandler = (request) => {
-  const { method, segments, query } = request;
-  const [area, id, third, fourth] = segments;
-  const now = new Date().toISOString();
+// Alerts
 
-  switch (area) {
-    case 'alerts': {
-      if (segments.length === 1) {
-        if (method === 'GET') {
-          const projectId = query.get('projectId');
-          return list(mineOnly(alerts, query.get('scope')).filter((a) => !projectId || a.projectId === projectId));
-        }
-        if (method === 'POST') {
-          const created = alertFromInput(bodyAs<CreatePanelAlertInput>(request.body));
-          alerts.unshift(created);
-          alertEvents.set(created.id, []);
-          return data(created);
-        }
-        return UNHANDLED;
-      }
-      if (!id) return UNHANDLED;
-      const index = findIndex(alerts, id, 'alert');
-      const current = alerts[index]!;
-      if (segments.length === 2) {
-        if (method === 'GET') return data(current);
-        if (method === 'PATCH') {
-          const updated = applyAlertUpdate(current, bodyAs<UpdatePanelAlertInput>(request.body));
-          alerts[index] = updated;
-          return data(updated);
-        }
-        if (method === 'DELETE') {
-          alerts.splice(index, 1);
-          alertEvents.delete(id);
-          return undefined;
-        }
-      }
-      if (segments.length === 3 && third === 'events' && method === 'GET') {
-        const events = [...(alertEvents.get(id) ?? [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-        return list(events.slice(0, limitOf(query)));
-      }
-      if (segments.length === 3 && third === 'test' && method === 'POST') {
-        return data(deliveryReport(current.channels));
-      }
-      if (segments.length === 3 && third === 'snooze' && method === 'POST') {
-        const input = bodyAs<SnoozePanelAlertInput>(request.body);
-        const updated: PanelAlertDto = { ...current, snoozedUntil: input.until ?? null, updatedAt: now };
-        alerts[index] = updated;
-        return data(updated);
-      }
-      return UNHANDLED;
-    }
+function alertsOf({ request }: CollectionContext): unknown {
+  const projectId = request.query.get('projectId');
+  return list(mineOnly(alerts, request.query.get('scope')).filter((a) => !projectId || a.projectId === projectId));
+}
 
-    case 'subscriptions': {
-      if (segments.length === 1) {
-        if (method === 'GET') {
-          const projectId = query.get('projectId');
-          const targetType = query.get('targetType');
-          const targetId = query.get('targetId');
-          return list(
-            mineOnly(subscriptions, query.get('scope'))
-              .filter((s) => !projectId || s.projectId === projectId)
-              .filter((s) => !targetType || s.targetType === targetType)
-              .filter((s) => !targetId || s.targetId === targetId),
-          );
-        }
-        if (method === 'POST') {
-          const input = bodyAs<CreatePanelSubscriptionInput>(request.body);
-          const schedule: PanelSubscriptionSchedule = { ...input.schedule, timezone: input.schedule.timezone ?? 'UTC' };
-          const enabled = input.enabled ?? true;
-          const created: PanelSubscriptionDto = {
-            id: sampleId('pnsb'),
-            projectId: input.projectId,
-            name: input.name,
-            targetType: input.targetType,
-            targetId: input.targetId,
-            schedule,
-            channels: channelsFromInput(input.channels),
-            enabled,
-            nextRunAt: enabled ? occurrence(schedule, 1) : null,
-            lastRunAt: null,
-            lastError: null,
-            ownerUserId: ME,
-            createdAt: now,
-            updatedAt: now,
-          };
-          subscriptions.unshift(created);
-          return data(created);
-        }
-        return UNHANDLED;
-      }
-      if (!id) return UNHANDLED;
-      const index = findIndex(subscriptions, id, 'subscription');
-      const current = subscriptions[index]!;
-      if (segments.length === 2) {
-        if (method === 'GET') return data(current);
-        if (method === 'PATCH') {
-          const input = bodyAs<UpdatePanelSubscriptionInput>(request.body);
-          const schedule: PanelSubscriptionSchedule = input.schedule ? { ...input.schedule, timezone: input.schedule.timezone ?? 'UTC' } : current.schedule;
-          const enabled = input.enabled ?? current.enabled;
-          const updated: PanelSubscriptionDto = {
-            ...current,
-            name: input.name ?? current.name,
-            schedule,
-            channels: input.channels ? channelsFromInput(input.channels, current.channels) : current.channels,
-            enabled,
-            nextRunAt: enabled ? occurrence(schedule, 1) : null,
-            updatedAt: now,
-          };
-          subscriptions[index] = updated;
-          return data(updated);
-        }
-        if (method === 'DELETE') {
-          subscriptions.splice(index, 1);
-          return undefined;
-        }
-      }
-      if (segments.length === 3 && third === 'send-now' && method === 'POST') {
-        const failing = current.lastError !== null ? 'slack' : null;
-        subscriptions[index] = { ...current, lastRunAt: now, updatedAt: now };
-        return data(deliveryReport(current.channels, failing));
-      }
-      return UNHANDLED;
-    }
+function createAlert({ request }: CollectionContext): unknown {
+  const created = alertFromInput(bodyAs<CreatePanelAlertInput>(request.body));
+  alerts.unshift(created);
+  alertEvents.set(created.id, []);
+  return data(created);
+}
 
-    case 'exports': {
-      if (segments.length === 1) {
-        if (method === 'GET') return list(exportsList.filter((e) => e.projectId === query.get('projectId')));
-        if (method === 'POST') {
-          const input = bodyAs<CreatePanelExportInput>(request.body);
-          const created: PanelExportDto = {
-            id: sampleId('pnex'),
-            projectId: input.projectId,
-            name: input.name,
-            destination: {
-              provider: input.destination.provider,
-              endpoint: input.destination.endpoint ?? null,
-              region: input.destination.region,
-              bucket: input.destination.bucket,
-              prefix: input.destination.prefix ?? '',
-              accessKeyId: input.destination.accessKeyId,
-              pathStyle: input.destination.pathStyle ?? false,
-            },
-            tables: [...new Set(input.tables)],
-            frequency: input.frequency ?? 'daily',
-            startAt: input.startAt ?? now,
-            exportedUntil: null,
-            status: 'active',
-            lastRunAt: null,
-            lastError: null,
-            nextRunAt: inMinutes(20),
-            createdByUserId: ME,
-            createdAt: now,
-            updatedAt: now,
-          };
-          exportsList.unshift(created);
-          runsByExport.set(created.id, []);
-          return data(created);
-        }
-      }
-      if (id === 'test' && segments.length === 2 && method === 'POST') {
-        const input = bodyAs<TestPanelExportInput>(request.body);
-        const saved = input.exportId ? exportsList.find((e) => e.id === input.exportId) : undefined;
-        if (saved?.status === 'failing' && !input.secretAccessKey) {
-          return data({ ok: false, wrote: false, deleted: false, error: 'AccessDenied: the access key is not allowed to write to this bucket' });
-        }
-        return data({ ok: true, wrote: true, deleted: true, error: null });
-      }
-      if (!id) return UNHANDLED;
-      const index = findIndex(exportsList, id, 'export');
-      const current = exportsList[index]!;
-      if (segments.length === 2) {
-        if (method === 'GET') return data(current);
-        if (method === 'PATCH') {
-          const input = bodyAs<UpdatePanelExportInput>(request.body);
-          const updated: PanelExportDto = {
-            ...current,
-            name: input.name ?? current.name,
-            destination: input.destination
-              ? {
-                  provider: input.destination.provider,
-                  endpoint: input.destination.endpoint ?? null,
-                  region: input.destination.region,
-                  bucket: input.destination.bucket,
-                  prefix: input.destination.prefix ?? '',
-                  accessKeyId: input.destination.accessKeyId,
-                  pathStyle: input.destination.pathStyle ?? false,
-                }
-              : current.destination,
-            tables: input.tables ? [...new Set(input.tables)] : current.tables,
-            frequency: input.frequency ?? current.frequency,
-            updatedAt: now,
-          };
-          exportsList[index] = updated;
-          return data(updated);
-        }
-        if (method === 'DELETE') {
-          exportsList.splice(index, 1);
-          runsByExport.delete(id);
-          return undefined;
-        }
-      }
-      if (segments.length === 3 && third === 'runs' && method === 'GET') {
-        return list((runsByExport.get(id) ?? []).slice(0, limitOf(query)));
-      }
-      if (segments.length === 3 && third === 'pause' && method === 'POST') {
-        const updated: PanelExportDto = { ...current, status: 'paused', nextRunAt: null, updatedAt: now };
-        exportsList[index] = updated;
-        return data(updated);
-      }
-      if (segments.length === 3 && third === 'resume' && method === 'POST') {
-        const updated: PanelExportDto = { ...current, status: 'active', lastError: null, nextRunAt: inMinutes(15), updatedAt: now };
-        exportsList[index] = updated;
-        return data(updated);
-      }
-      return UNHANDLED;
-    }
+function updateAlert({ request, current, index }: ItemContext<PanelAlertDto>): unknown {
+  const updated = applyAlertUpdate(current, bodyAs<UpdatePanelAlertInput>(request.body));
+  alerts[index] = updated;
+  return data(updated);
+}
 
-    case 'projects': {
-      if (third !== 'domains' || !id) return UNHANDLED;
-      if (segments.length === 3) {
-        if (method === 'GET') return list(domains.filter((d) => d.projectId === id));
-        if (method === 'POST') {
-          const input = bodyAs<CreatePanelDomainInput>(request.body);
-          const created = pendingDomain(sampleId('pndm'), id, (input.hostname ?? 'stats.example.com').trim().toLowerCase(), 0);
-          domains.push(created);
-          return data(created);
-        }
-        return UNHANDLED;
-      }
-      if (!fourth) return UNHANDLED;
-      const index = domains.findIndex((d) => d.id === fourth && d.projectId === id);
-      if (index < 0) throw notFound('domain');
-      const current = domains[index]!;
-      if (segments.length === 5 && segments[4] === 'refresh' && method === 'POST') {
-        // A pending domain turns active on the first refresh, so the whole flow can be seen.
-        const updated: PanelDomainDto =
-          current.status === 'pending'
-            ? { ...current, status: 'active', sslStatus: 'active', lastCheckedAt: now, scriptUrl: `https://${current.hostname}/s.js`, snippet: domainSnippet(current.hostname) }
-            : { ...current, lastCheckedAt: now };
-        domains[index] = updated;
-        return data(updated);
-      }
-      if (segments.length === 4 && method === 'DELETE') {
-        domains.splice(index, 1);
-        return undefined;
-      }
-      return UNHANDLED;
-    }
+function deleteAlert({ id, index }: ItemContext<PanelAlertDto>): undefined {
+  alertEvents.delete(id);
+  return removeAt(alerts, index);
+}
 
-    default:
-      return UNHANDLED;
+function alertHistory({ id, request }: ItemContext<PanelAlertDto>): unknown {
+  const events = [...(alertEvents.get(id) ?? [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return list(events.slice(0, limitOf(request.query)));
+}
+
+function snoozeAlert({ request, current, index, now }: ItemContext<PanelAlertDto>): unknown {
+  const input = bodyAs<SnoozePanelAlertInput>(request.body);
+  const updated: PanelAlertDto = { ...current, snoozedUntil: input.until ?? null, updatedAt: now };
+  alerts[index] = updated;
+  return data(updated);
+}
+
+const alertRoutes: ResourceRoutes<PanelAlertDto> = {
+  items: alerts,
+  what: 'alert',
+  collection: { GET: alertsOf, POST: createAlert },
+  item: { GET: ({ current }) => data(current), PATCH: updateAlert, DELETE: deleteAlert },
+  actions: {
+    events: { GET: alertHistory },
+    test: { POST: ({ current }) => data(deliveryReport(current.channels)) },
+    snooze: { POST: snoozeAlert },
+  },
+};
+
+// Subscriptions
+
+function subscriptionsOf({ request }: CollectionContext): unknown {
+  const { query } = request;
+  const projectId = query.get('projectId');
+  const targetType = query.get('targetType');
+  const targetId = query.get('targetId');
+  return list(
+    mineOnly(subscriptions, query.get('scope'))
+      .filter((s) => !projectId || s.projectId === projectId)
+      .filter((s) => !targetType || s.targetType === targetType)
+      .filter((s) => !targetId || s.targetId === targetId),
+  );
+}
+
+function createSubscription({ request, now }: CollectionContext): unknown {
+  const input = bodyAs<CreatePanelSubscriptionInput>(request.body);
+  const schedule: PanelSubscriptionSchedule = { ...input.schedule, timezone: input.schedule.timezone ?? 'UTC' };
+  const enabled = input.enabled ?? true;
+  const created: PanelSubscriptionDto = {
+    id: sampleId('pnsb'),
+    projectId: input.projectId,
+    name: input.name,
+    targetType: input.targetType,
+    targetId: input.targetId,
+    schedule,
+    channels: channelsFromInput(input.channels),
+    enabled,
+    nextRunAt: enabled ? occurrence(schedule, 1) : null,
+    lastRunAt: null,
+    lastError: null,
+    ownerUserId: ME,
+    createdAt: now,
+    updatedAt: now,
+  };
+  subscriptions.unshift(created);
+  return data(created);
+}
+
+function updateSubscription({ request, current, index, now }: ItemContext<PanelSubscriptionDto>): unknown {
+  const input = bodyAs<UpdatePanelSubscriptionInput>(request.body);
+  const schedule: PanelSubscriptionSchedule = input.schedule ? { ...input.schedule, timezone: input.schedule.timezone ?? 'UTC' } : current.schedule;
+  const enabled = input.enabled ?? current.enabled;
+  const updated: PanelSubscriptionDto = {
+    ...current,
+    name: input.name ?? current.name,
+    schedule,
+    channels: input.channels ? channelsFromInput(input.channels, current.channels) : current.channels,
+    enabled,
+    nextRunAt: enabled ? occurrence(schedule, 1) : null,
+    updatedAt: now,
+  };
+  subscriptions[index] = updated;
+  return data(updated);
+}
+
+/** A subscription that failed before still fails on Slack, so the failure can be seen. */
+function sendSubscriptionNow({ current, index, now }: ItemContext<PanelSubscriptionDto>): unknown {
+  const failing = current.lastError !== null ? 'slack' : null;
+  subscriptions[index] = { ...current, lastRunAt: now, updatedAt: now };
+  return data(deliveryReport(current.channels, failing));
+}
+
+const subscriptionRoutes: ResourceRoutes<PanelSubscriptionDto> = {
+  items: subscriptions,
+  what: 'subscription',
+  collection: { GET: subscriptionsOf, POST: createSubscription },
+  item: { GET: ({ current }) => data(current), PATCH: updateSubscription, DELETE: ({ index }) => removeAt(subscriptions, index) },
+  actions: { 'send-now': { POST: sendSubscriptionNow } },
+};
+
+// Exports
+
+function destinationOf(input: CreatePanelExportInput['destination']): PanelExportDto['destination'] {
+  return {
+    provider: input.provider,
+    endpoint: input.endpoint ?? null,
+    region: input.region,
+    bucket: input.bucket,
+    prefix: input.prefix ?? '',
+    accessKeyId: input.accessKeyId,
+    pathStyle: input.pathStyle ?? false,
+  };
+}
+
+function createExport({ request, now }: CollectionContext): unknown {
+  const input = bodyAs<CreatePanelExportInput>(request.body);
+  const created: PanelExportDto = {
+    id: sampleId('pnex'),
+    projectId: input.projectId,
+    name: input.name,
+    destination: destinationOf(input.destination),
+    tables: [...new Set(input.tables)],
+    frequency: input.frequency ?? 'daily',
+    startAt: input.startAt ?? now,
+    exportedUntil: null,
+    status: 'active',
+    lastRunAt: null,
+    lastError: null,
+    nextRunAt: inMinutes(20),
+    createdByUserId: ME,
+    createdAt: now,
+    updatedAt: now,
+  };
+  exportsList.unshift(created);
+  runsByExport.set(created.id, []);
+  return data(created);
+}
+
+function updateExport({ request, current, index, now }: ItemContext<PanelExportDto>): unknown {
+  const input = bodyAs<UpdatePanelExportInput>(request.body);
+  const updated: PanelExportDto = {
+    ...current,
+    name: input.name ?? current.name,
+    destination: input.destination ? destinationOf(input.destination) : current.destination,
+    tables: input.tables ? [...new Set(input.tables)] : current.tables,
+    frequency: input.frequency ?? current.frequency,
+    updatedAt: now,
+  };
+  exportsList[index] = updated;
+  return data(updated);
+}
+
+function deleteExport({ id, index }: ItemContext<PanelExportDto>): undefined {
+  runsByExport.delete(id);
+  return removeAt(exportsList, index);
+}
+
+function setExportState(changes: Partial<PanelExportDto>): (context: ItemContext<PanelExportDto>) => unknown {
+  return ({ current, index, now }) => {
+    const updated: PanelExportDto = { ...current, ...changes, updatedAt: now };
+    exportsList[index] = updated;
+    return data(updated);
+  };
+}
+
+const exportRoutes: ResourceRoutes<PanelExportDto> = {
+  items: exportsList,
+  what: 'export',
+  collection: {
+    GET: ({ request }) => list(exportsList.filter((e) => e.projectId === request.query.get('projectId'))),
+    POST: createExport,
+  },
+  item: { GET: ({ current }) => data(current), PATCH: updateExport, DELETE: deleteExport },
+  actions: {
+    runs: { GET: ({ id, request }) => list((runsByExport.get(id) ?? []).slice(0, limitOf(request.query))) },
+    pause: { POST: setExportState({ status: 'paused', nextRunAt: null }) },
+    resume: { POST: setExportState({ status: 'active', lastError: null, nextRunAt: inMinutes(15) }) },
+  },
+};
+
+/** `POST /panel/exports/test`: try the bucket. A failing sample export only works once a new secret key is given. */
+function testExport(body: unknown): unknown {
+  const input = bodyAs<TestPanelExportInput>(body);
+  const saved = input.exportId ? exportsList.find((e) => e.id === input.exportId) : undefined;
+  if (saved?.status === 'failing' && !input.secretAccessKey) {
+    return data({ ok: false, wrote: false, deleted: false, error: 'AccessDenied: the access key is not allowed to write to this bucket' });
   }
+  return data({ ok: true, wrote: true, deleted: true, error: null });
+}
+
+function handleExports(request: SampleRequest): unknown {
+  if (request.segments[1] === 'test' && request.segments.length === 2 && request.method === 'POST') return testExport(request.body);
+  return routeResource(request, exportRoutes);
+}
+
+// Collector domains
+
+/** A pending domain turns active on the first refresh, so the whole flow can be seen. */
+function refreshedDomain(current: PanelDomainDto, now: string): PanelDomainDto {
+  if (current.status !== 'pending') return { ...current, lastCheckedAt: now };
+  return { ...current, status: 'active', sslStatus: 'active', lastCheckedAt: now, scriptUrl: `https://${current.hostname}/s.js`, snippet: domainSnippet(current.hostname) };
+}
+
+function handleDomains({ method, segments, body }: SampleRequest): unknown {
+  const [, projectId, third, fourth] = segments;
+  if (third !== 'domains' || !projectId) return UNHANDLED;
+  if (segments.length === 3) {
+    if (method === 'GET') return list(domains.filter((d) => d.projectId === projectId));
+    if (method !== 'POST') return UNHANDLED;
+    const input = bodyAs<CreatePanelDomainInput>(body);
+    const created = pendingDomain(sampleId('pndm'), projectId, (input.hostname ?? 'stats.example.com').trim().toLowerCase(), 0);
+    domains.push(created);
+    return data(created);
+  }
+  if (!fourth) return UNHANDLED;
+  const index = domains.findIndex((d) => d.id === fourth && d.projectId === projectId);
+  if (index < 0) throw notFound('domain');
+  if (segments.length === 5 && segments[4] === 'refresh' && method === 'POST') {
+    const updated = refreshedDomain(domains[index]!, new Date().toISOString());
+    domains[index] = updated;
+    return data(updated);
+  }
+  if (segments.length === 4 && method === 'DELETE') return removeAt(domains, index);
+  return UNHANDLED;
+}
+
+/** Each area's handler, by the first path segment. */
+const AREA_HANDLERS: Record<string, SampleAreaHandler> = {
+  alerts: (request) => routeResource(request, alertRoutes),
+  subscriptions: (request) => routeResource(request, subscriptionRoutes),
+  exports: handleExports,
+  projects: handleDomains,
+};
+
+export const handleMonitor: SampleAreaHandler = (request) => {
+  const area = request.segments[0];
+  const handler = area !== undefined && Object.hasOwn(AREA_HANDLERS, area) ? AREA_HANDLERS[area] : undefined;
+  return handler ? handler(request) : UNHANDLED;
 };

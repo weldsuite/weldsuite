@@ -92,11 +92,25 @@ function breakdownRows(items: readonly Weighted[], pageviews: number, visitors: 
   return byEvents.map((row) => ({ value: row.value, events: row.amount, visitors: Math.max(1, Math.round(row.amount * ratio * (0.94 + rng(`${key}|${row.value}`)() * 0.12))) }));
 }
 
+/** How much more (or less) a page is where visits start. */
+function entryBias(path: string): number {
+  if (path === '/') return 2.2;
+  if (path.startsWith('/blog')) return 1.6;
+  if (path === '/pricing') return 1.1;
+  return path === '/signup' || path === '/login' ? 0.5 : 0.8;
+}
+
+/** How much more (or less) a page is where visits end. */
+function exitBias(path: string): number {
+  if (path === '/signup') return 1.6;
+  if (path === '/') return 1.3;
+  if (path === '/login') return 1.4;
+  return path.startsWith('/blog') ? 1.5 : 0.9;
+}
+
 function entryExit(projectId: string, visits: number, limit: number): PanelEntryExitRow[] {
   const random = rng(`${projectId}|entryexit`);
   const pages = pageWeights(projectId);
-  const entryBias = (path: string): number => (path === '/' ? 2.2 : path.startsWith('/blog') ? 1.6 : path === '/pricing' ? 1.1 : path === '/signup' || path === '/login' ? 0.5 : 0.8);
-  const exitBias = (path: string): number => (path === '/signup' ? 1.6 : path === '/' ? 1.3 : path === '/login' ? 1.4 : path.startsWith('/blog') ? 1.5 : 0.9);
   const entries = distribute(pages.map((p) => ({ value: p.value, weight: p.weight * entryBias(p.value) })), visits, `${projectId}|entries`, 50);
   const exits = new Map(distribute(pages.map((p) => ({ value: p.value, weight: p.weight * exitBias(p.value) })), visits, `${projectId}|exits`, 50).map((r) => [r.value, r.amount]));
   return entries
@@ -106,10 +120,16 @@ function entryExit(projectId: string, visits: number, limit: number): PanelEntry
 
 const GOAL_RATES: Record<string, number> = { signup_completed: 0.055, trial_started: 0.04, demo_requested: 0.011, newsletter_subscribed: 0.03 };
 
+/** How often a goal is reached: a known rate for known events, a guess for the rest. */
+function goalBaseRate(goal: NonNullable<PanelWebSpec['goals']>[number], random: () => number): number {
+  if (goal.event) return GOAL_RATES[goal.event] ?? 0.02 + random() * 0.04;
+  return goal.pathPattern === '/signup' ? 0.09 : 0.03 + random() * 0.05;
+}
+
 function webGoals(spec: PanelWebSpec, visitors: number): PanelWebGoalResult[] {
   return (spec.goals ?? []).map((goal) => {
     const random = rng(`goal|${goal.label}`);
-    const base = goal.event ? (GOAL_RATES[goal.event] ?? 0.02 + random() * 0.04) : goal.pathPattern === '/signup' ? 0.09 : 0.03 + random() * 0.05;
+    const base = goalBaseRate(goal, random);
     const rate = clamp(base * filterFactor(goal.filters) ** 0.3 * (0.92 + random() * 0.16), 0.002, 0.6);
     const uniqueConverters = Math.max(1, Math.round(visitors * rate));
     return { label: goal.label, uniqueConverters, conversions: Math.round(uniqueConverters * (1.04 + random() * 0.2)), conversionRate: round(uniqueConverters / Math.max(1, visitors), 4) };
@@ -211,7 +231,8 @@ const PERCENTILE_FACTOR = { p75: 1, p90: 1.55, p95: 1.9, p99: 2.7 } as const;
 
 function rating(metric: PanelVitalsMetric, value: number): PanelVitalsRating {
   const t = PANEL_VITALS_THRESHOLDS[metric];
-  return value <= t.good ? 'good' : value > t.poor ? 'poor' : 'needs_improvement';
+  if (value <= t.good) return 'good';
+  return value > t.poor ? 'poor' : 'needs_improvement';
 }
 
 function vitalsValue(metric: PanelVitalsMetric, value: number): number {
@@ -354,53 +375,57 @@ function frustrationScore(row: PanelSessionRow): number {
   return row.rageClicks * 3 + row.deadClicks + row.quickBacks * 2 + row.excessiveScrolls;
 }
 
+type SessionItem = { session: (typeof SESSIONS)[number]; row: PanelSessionRow };
+
+/** One check each: a session stays in the list when every one of them is true. */
+const SESSION_CHECKS: Array<(spec: PanelSessionsSpec, { session, row }: SessionItem) => boolean> = [
+  (spec, { session }) => !spec.sessionIds || spec.sessionIds.length === 0 || spec.sessionIds.includes(session.sessionId),
+  (spec, { session, row }) => !spec.distinctId || row.distinctId === spec.distinctId || session.anonymousId === spec.distinctId,
+  (spec, { session }) => spec.minDurationSeconds === undefined || session.durationSeconds >= spec.minDurationSeconds,
+  (spec, { session }) => spec.maxDurationSeconds === undefined || session.durationSeconds <= spec.maxDurationSeconds,
+  (spec, { session }) => !spec.pagesVisited || spec.pagesVisited.length === 0 || containsAll(session, spec.pagesVisited),
+  (spec, { session }) => !spec.entryPage || session.entryPath.includes(spec.entryPage),
+  (spec, { session }) => !spec.exitPage || session.exitPath.includes(spec.exitPage),
+  (spec, { session }) => !spec.countries || spec.countries.length === 0 || spec.countries.includes(session.country),
+  (spec, { row }) => !spec.devices || spec.devices.length === 0 || spec.devices.some((d) => d === row.deviceType),
+  (spec, { session }) => !spec.browsers || spec.browsers.length === 0 || spec.browsers.includes(session.browser),
+  (spec, { row }) => !spec.hasErrors || row.errors > 0,
+  (spec, { row }) => !spec.favoritesOnly || row.favorite,
+  (spec, { row }) => {
+    if (!spec.frustration || spec.frustration.length === 0) return true;
+    const has = { rage: row.rageClicks, dead: row.deadClicks, quickback: row.quickBacks, excessive_scroll: row.excessiveScrolls };
+    return spec.frustration.every((f) => has[f] > 0);
+  },
+];
+
+function compareSessions(sort: string, a: SessionItem, b: SessionItem): number {
+  switch (sort) {
+    case 'duration_desc':
+      return b.row.durationSeconds - a.row.durationSeconds;
+    case 'pages_desc':
+      return b.row.pageviews - a.row.pageviews;
+    case 'frustration_desc':
+      return frustrationScore(b.row) - frustrationScore(a.row) || b.row.startedAt.localeCompare(a.row.startedAt);
+    case 'errors_desc':
+      return b.row.errors - a.row.errors || b.row.startedAt.localeCompare(a.row.startedAt);
+    default:
+      return b.row.startedAt.localeCompare(a.row.startedAt);
+  }
+}
+
 export function sessionsResult(spec: PanelSessionsSpec): PanelSessionsResult {
   const range = resolveRange(spec.dateRange);
-  const rows = SESSIONS.map((s, i) => ({ session: s, row: sessionRow(s, i) }));
+  const rows: SessionItem[] = SESSIONS.map((s, i) => ({ session: s, row: sessionRow(s, i) }));
   const fromMs = new Date(`${range.from}T00:00:00`).getTime();
   const toMs = new Date(`${range.to}T23:59:59`).getTime();
-  const matches = (item: (typeof rows)[number]): boolean => {
-    const { session, row } = item;
-    if (spec.sessionIds && spec.sessionIds.length > 0 && !spec.sessionIds.includes(session.sessionId)) return false;
-    if (spec.distinctId && row.distinctId !== spec.distinctId && session.anonymousId !== spec.distinctId) return false;
-    if (spec.minDurationSeconds !== undefined && session.durationSeconds < spec.minDurationSeconds) return false;
-    if (spec.maxDurationSeconds !== undefined && session.durationSeconds > spec.maxDurationSeconds) return false;
-    if (spec.pagesVisited && spec.pagesVisited.length > 0 && !containsAll(session, spec.pagesVisited)) return false;
-    if (spec.entryPage && !session.entryPath.includes(spec.entryPage)) return false;
-    if (spec.exitPage && !session.exitPath.includes(spec.exitPage)) return false;
-    if (spec.countries && spec.countries.length > 0 && !spec.countries.includes(session.country)) return false;
-    if (spec.devices && spec.devices.length > 0 && !spec.devices.some((d) => d === row.deviceType)) return false;
-    if (spec.browsers && spec.browsers.length > 0 && !spec.browsers.includes(session.browser)) return false;
-    if (spec.hasErrors && row.errors === 0) return false;
-    if (spec.favoritesOnly && !row.favorite) return false;
-    if (spec.frustration && spec.frustration.length > 0) {
-      const has = { rage: row.rageClicks, dead: row.deadClicks, quickback: row.quickBacks, excessive_scroll: row.excessiveScrolls };
-      if (!spec.frustration.every((f) => has[f] > 0)) return false;
-    }
-    return true;
-  };
-  const inRange = (item: (typeof rows)[number]): boolean => {
+  const inRange = (item: SessionItem): boolean => {
     const t = new Date(item.session.startedAt).getTime();
     return t >= fromMs && t <= toMs;
   };
-  const filtered = rows.filter(matches);
+  const filtered = rows.filter((item) => SESSION_CHECKS.every((check) => check(spec, item)));
   const dated = filtered.filter(inRange);
-  let pool = dated.length > 0 ? dated : filtered;
   const sort = spec.sort ?? 'started_desc';
-  pool = [...pool].sort((a, b) => {
-    switch (sort) {
-      case 'duration_desc':
-        return b.row.durationSeconds - a.row.durationSeconds;
-      case 'pages_desc':
-        return b.row.pageviews - a.row.pageviews;
-      case 'frustration_desc':
-        return frustrationScore(b.row) - frustrationScore(a.row) || b.row.startedAt.localeCompare(a.row.startedAt);
-      case 'errors_desc':
-        return b.row.errors - a.row.errors || b.row.startedAt.localeCompare(a.row.startedAt);
-      default:
-        return b.row.startedAt.localeCompare(a.row.startedAt);
-    }
-  });
+  const pool = [...(dated.length > 0 ? dated : filtered)].sort((a, b) => compareSessions(sort, a, b));
   const limit = spec.limit ?? 25;
   const offset = Math.max(0, Number.parseInt(spec.cursor ?? '0', 10) || 0);
   const page = pool.slice(offset, offset + limit);
@@ -555,9 +580,10 @@ export function heatmapResult(spec: PanelHeatmapSpec): PanelHeatmapResult {
   const leaves = Math.round(pageviews * 0.94);
   const depths = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
   const decay = Math.log(template.scroll50) / Math.log(0.5);
+  const deviceFactor = device === 'mobile' ? 0.93 : 1;
   const buckets = depths.map((depth) => ({
     depth,
-    reachedShare: depth === 0 ? 1 : round(clamp((1 - depth / 100) ** (decay * 0.9) * (device === 'mobile' ? 0.93 : 1), 0.02, 0.995), 3),
+    reachedShare: depth === 0 ? 1 : round(clamp((1 - depth / 100) ** (decay * 0.9) * deviceFactor, 0.02, 0.995), 3),
   }));
   for (let i = 1; i < buckets.length; i++) buckets[i]!.reachedShare = Math.min(buckets[i]!.reachedShare, buckets[i - 1]!.reachedShare);
 

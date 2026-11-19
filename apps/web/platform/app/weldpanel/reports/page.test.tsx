@@ -89,11 +89,17 @@ describe('Reports', () => {
   });
 
   it('filters by scope and type', async () => {
+    const user = userEvent.setup();
     render(<ReportsPage />);
-    await userEvent.click(screen.getByRole('button', { name: /filter/i }));
-    await userEvent.click(await screen.findByText(tr.scopeLabel));
-    await userEvent.click(await screen.findByText(/^is$/i));
-    await userEvent.click(await screen.findByText(tr.scopes.mine));
+    await user.click(screen.getByRole('button', { name: /filter/i }));
+    await user.click(await screen.findByRole('button', { name: tr.scopeLabel }));
+    await user.click(await screen.findByRole('button', { name: 'is' }));
+    // The pill opens its value picker on a timer; when the options are not there yet, open it by hand.
+    const option = await screen.findByRole('button', { name: tr.scopes.mine }, { timeout: 400 }).catch(async () => {
+      await user.click(screen.getByRole('button', { name: `Select ${tr.scopeLabel.toLowerCase()}` }));
+      return screen.findByRole('button', { name: tr.scopes.mine });
+    });
+    await user.click(option);
     expect(lastParams()).toEqual({ projectId: 'wpp_1', scope: 'mine' });
   });
 

@@ -63,12 +63,12 @@ function CopyValue({ value, label }: Readonly<{ value: string; label: string }>)
 
 type RecordRow = PanelDomainDto['records'][number] & { id: string };
 
-function RefreshButton({ projectId, domain }: Readonly<{ projectId: string; domain: PanelDomainDto }>) {
+/** "Check now": asks for the domain's status again, with a toast either way. */
+function useCheckDomain(projectId: string) {
   const { t } = useI18n();
   const td = t.weldpanel.collab.domains;
   const refresh = useRefreshWeldPanelDomain(projectId);
-  if (domain.status === 'deleting') return null;
-  async function check() {
+  async function check(domain: PanelDomainDto) {
     try {
       await refresh.mutateAsync(domain.id);
       toast.success(td.refreshed);
@@ -76,9 +76,17 @@ function RefreshButton({ projectId, domain }: Readonly<{ projectId: string; doma
       toast.error(td.refreshFailed);
     }
   }
+  return { check, isPending: refresh.isPending };
+}
+
+function RefreshButton({ projectId, domain }: Readonly<{ projectId: string; domain: PanelDomainDto }>) {
+  const { t } = useI18n();
+  const td = t.weldpanel.collab.domains;
+  const { check, isPending } = useCheckDomain(projectId);
+  if (domain.status === 'deleting') return null;
   return (
-    <Button type="button" variant="ghost" size="sm" className="h-7" disabled={refresh.isPending} onClick={() => void check()}>
-      {refresh.isPending ? <Loader2 className="animate-spin" /> : <RefreshCw />}
+    <Button type="button" variant="ghost" size="sm" className="h-7" disabled={isPending} onClick={() => void check(domain)}>
+      {isPending ? <Loader2 className="animate-spin" /> : <RefreshCw />}
       {td.refresh}
     </Button>
   );
@@ -200,19 +208,10 @@ export function DomainsSection({ projectId }: Readonly<{ projectId: string }>) {
   const tc = t.weldpanel.analytics.common;
   const { data: domains, isLoading, error, refetch } = useWeldPanelDomains(projectId);
   const remove = useDeleteWeldPanelDomain(projectId);
-  const refresh = useRefreshWeldPanelDomain(projectId);
+  const { check } = useCheckDomain(projectId);
   const [adding, setAdding] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
   const [removing, setRemoving] = useState<PanelDomainDto | null>(null);
-
-  async function check(domain: PanelDomainDto) {
-    try {
-      await refresh.mutateAsync(domain.id);
-      toast.success(td.refreshed);
-    } catch {
-      toast.error(td.refreshFailed);
-    }
-  }
 
   const columns: ColumnDef<PanelDomainDto>[] = [
     {

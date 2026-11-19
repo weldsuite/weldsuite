@@ -194,10 +194,13 @@ export function channelName(channel: string): string {
 }
 
 export function referrerWeights(projectId: string): Weighted[] {
-  return REFERRERS.map((r) => ({
-    value: r.host === '(direct)' ? '' : r.host,
-    weight: isApp(projectId) ? (r.host === '(direct)' ? 72 : r.weight * 0.35) : r.weight,
-  }));
+  const app = isApp(projectId);
+  return REFERRERS.map((r) => {
+    const direct = r.host === '(direct)';
+    let weight = r.weight;
+    if (app) weight = direct ? 72 : r.weight * 0.35;
+    return { value: direct ? '' : r.host, weight };
+  });
 }
 
 export function channelWeights(projectId: string): Weighted[] {

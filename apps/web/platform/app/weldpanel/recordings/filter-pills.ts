@@ -104,26 +104,43 @@ export function recordingsFilterConfigs(search: RecordingsSearch, labels: Record
   ];
 }
 
+const one = (value: string | undefined): string[] => (value ? [value] : []);
+const flag = (on: boolean | undefined): string[] => (on ? ['true'] : []);
+const amount = (n: number | undefined): string[] => (n === undefined ? [] : [String(n)]);
+
+/** Every pill but the period's, in the order they show: field, operator, and the values a search gives it. */
+const SEARCH_PILLS: readonly (readonly [field: string, operator: string, values: (search: RecordingsSearch) => readonly string[]])[] = [
+  ['device', 'is', (s) => s.devices ?? []],
+  ['country', 'is', (s) => s.countries ?? []],
+  ['browser', 'is', (s) => s.browsers ?? []],
+  ['frustration', 'is', (s) => s.frustration ?? []],
+  ['errors', 'is', (s) => flag(s.errors)],
+  ['favorites', 'is', (s) => flag(s.favorites)],
+  ['cohort', 'is', (s) => one(s.cohort)],
+  ['event', 'is', (s) => s.did ?? []],
+  ['event', 'is not', (s) => s.didNot ?? []],
+  ['entryPage', 'is', (s) => one(s.entryPage)],
+  ['exitPage', 'is', (s) => one(s.exitPage)],
+  ['page', 'is', (s) => s.pages ?? []],
+  ['minDuration', 'gt', (s) => amount(s.minDuration)],
+  ['maxDuration', 'lt', (s) => amount(s.maxDuration)],
+];
+
+/** The period pill's value: a custom range as `from..to`, else the preset. */
+function periodValue(search: RecordingsSearch): string | undefined {
+  if (search.from && search.to) return `${search.from}${CUSTOM_RANGE_SEPARATOR}${search.to}`;
+  return search.range;
+}
+
 /** The pills a search shows, in a stable order. */
 export function searchToFilters(search: RecordingsSearch): ActiveFilter[] {
   const out: ActiveFilter[] = [];
   const add = (field: string, operator: string, value: string) => out.push({ id: `${field}:${operator}:${value}`, field, operator, value });
-  if (search.from && search.to) add('period', 'is', `${search.from}${CUSTOM_RANGE_SEPARATOR}${search.to}`);
-  else if (search.range) add('period', 'is', search.range);
-  for (const device of search.devices ?? []) add('device', 'is', device);
-  for (const country of search.countries ?? []) add('country', 'is', country);
-  for (const browser of search.browsers ?? []) add('browser', 'is', browser);
-  for (const type of search.frustration ?? []) add('frustration', 'is', type);
-  if (search.errors) add('errors', 'is', 'true');
-  if (search.favorites) add('favorites', 'is', 'true');
-  if (search.cohort) add('cohort', 'is', search.cohort);
-  for (const name of search.did ?? []) add('event', 'is', name);
-  for (const name of search.didNot ?? []) add('event', 'is not', name);
-  if (search.entryPage) add('entryPage', 'is', search.entryPage);
-  if (search.exitPage) add('exitPage', 'is', search.exitPage);
-  for (const page of search.pages ?? []) add('page', 'is', page);
-  if (search.minDuration !== undefined) add('minDuration', 'gt', String(search.minDuration));
-  if (search.maxDuration !== undefined) add('maxDuration', 'lt', String(search.maxDuration));
+  const period = periodValue(search);
+  if (period) add('period', 'is', period);
+  for (const [field, operator, values] of SEARCH_PILLS) {
+    for (const value of values(search)) add(field, operator, value);
+  }
   return out;
 }
 
@@ -132,53 +149,57 @@ function seconds(raw: string): number | undefined {
   return raw.trim() !== '' && Number.isFinite(n) && n >= 0 ? Math.floor(n) : undefined;
 }
 
+/** The period pills write: a `from..to` range, or a preset. */
+function periodSearch(period: string | undefined): Pick<RecordingsSearch, 'from' | 'to' | 'range'> {
+  if (!period) return {};
+  if (!period.includes(CUSTOM_RANGE_SEPARATOR)) return { range: period as RecordingsSearch['range'] };
+  const [from, to] = period.split(CUSTOM_RANGE_SEPARATOR);
+  return { from, to };
+}
+
+/** Devices: the ones picked with `is`, or all of them when only `is not` is used, less the excluded ones. */
+function deviceSearch(included: string[], excluded: Set<string>): Device[] | undefined {
+  let base: readonly string[] = included;
+  if (included.length === 0) base = excluded.size > 0 ? DEVICES : [];
+  const devices = unique(base.filter((d) => !excluded.has(d)));
+  return devices.length > 0 ? (devices as Device[]) : undefined;
+}
+
+/** `values` without duplicates, or nothing when empty, so the search leaves the key out. */
+const listOrNothing = (values: string[]): string[] | undefined => (values.length > 0 ? unique(values) : undefined);
+
+/** Drops the keys that are `undefined` (or `false`), so an unset filter is absent from the search, not set to nothing. */
+function withoutEmpty(search: RecordingsSearch): RecordingsSearch {
+  return Object.fromEntries(Object.entries(search).filter(([, value]) => value !== undefined && value !== false)) as RecordingsSearch;
+}
+
 /**
  * The search the pills describe, keeping what isn't a pill (project, person,
  * sort). Unfinished pills (no operator or value yet) change nothing.
  */
 export function filtersToSearch(filters: ActiveFilter[], base: RecordingsSearch): RecordingsSearch {
-  const next: RecordingsSearch = { project: base.project, user: base.user, sort: base.sort };
   const done = filters.filter((f) => f.operator && f.value !== '');
   const values = (field: string, operator = 'is') => done.filter((f) => f.field === field && f.operator === operator).map((f) => f.value);
   const last = (field: string, operator = 'is') => values(field, operator).at(-1);
 
-  const period = last('period');
-  if (period?.includes(CUSTOM_RANGE_SEPARATOR)) {
-    const [from, to] = period.split(CUSTOM_RANGE_SEPARATOR);
-    next.from = from;
-    next.to = to;
-  } else if (period) {
-    next.range = period as RecordingsSearch['range'];
-  }
-
-  const included = values('device') as Device[];
-  const excluded = new Set(values('device', 'is not'));
-  const devices = (included.length > 0 ? included : excluded.size > 0 ? [...DEVICES] : []).filter((d) => !excluded.has(d));
-  if (devices.length > 0) next.devices = unique(devices) as Device[];
-
-  const countries = values('country');
-  if (countries.length > 0) next.countries = unique(countries);
-  const browsers = values('browser');
-  if (browsers.length > 0) next.browsers = unique(browsers);
-  const frustration = values('frustration');
-  if (frustration.length > 0) next.frustration = unique(frustration) as RecordingsSearch['frustration'];
-  if (last('errors') === 'true') next.errors = true;
-  if (last('favorites') === 'true') next.favorites = true;
-  const cohort = last('cohort');
-  if (cohort) next.cohort = cohort;
-  const did = values('event');
-  if (did.length > 0) next.did = unique(did);
-  const didNot = values('event', 'is not');
-  if (didNot.length > 0) next.didNot = unique(didNot);
-  const entryPage = last('entryPage');
-  if (entryPage) next.entryPage = entryPage;
-  const exitPage = last('exitPage');
-  if (exitPage) next.exitPage = exitPage;
-  const pages = values('page');
-  if (pages.length > 0) next.pages = unique(pages);
-  const min = seconds(last('minDuration', 'gt') ?? '');
-  if (min !== undefined) next.minDuration = min;
-  const max = seconds(last('maxDuration', 'lt') ?? '');
-  if (max !== undefined) next.maxDuration = max;
-  return next;
+  return withoutEmpty({
+    project: base.project,
+    user: base.user,
+    sort: base.sort,
+    ...periodSearch(last('period')),
+    devices: deviceSearch(values('device'), new Set(values('device', 'is not'))),
+    countries: listOrNothing(values('country')),
+    browsers: listOrNothing(values('browser')),
+    frustration: listOrNothing(values('frustration')) as RecordingsSearch['frustration'],
+    errors: last('errors') === 'true',
+    favorites: last('favorites') === 'true',
+    cohort: last('cohort') || undefined,
+    did: listOrNothing(values('event')),
+    didNot: listOrNothing(values('event', 'is not')),
+    entryPage: last('entryPage') || undefined,
+    exitPage: last('exitPage') || undefined,
+    pages: listOrNothing(values('page')),
+    minDuration: seconds(last('minDuration', 'gt') ?? ''),
+    maxDuration: seconds(last('maxDuration', 'lt') ?? ''),
+  });
 }

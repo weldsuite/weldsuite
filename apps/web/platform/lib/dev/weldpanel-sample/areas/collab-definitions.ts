@@ -34,8 +34,10 @@ import type {
 } from '@weldsuite/app-api-client/schemas/weldpanel-collab';
 import { applyPanelPathRules, panelShareUrl } from '@weldsuite/app-api-client/schemas/weldpanel-collab';
 import type { PanelReportDto } from '@weldsuite/app-api-client/schemas/weldpanel-objects';
-import type { ParsedTrendsSpec, PanelTrendMath } from '@weldsuite/app-api-client/schemas/weldpanel-query';
-import { UNHANDLED, type SampleAreaHandler } from '../request';
+import type { ParsedTrendsSpec, PanelReportSpecKind, PanelTrendMath } from '@weldsuite/app-api-client/schemas/weldpanel-query';
+import { UNHANDLED, type SampleAreaHandler, type SampleRequest } from '../request';
+import { defaultSpec } from './objects-specs';
+import { bodyAs, notFound, orKeep, removeAt, routeResource, type CollectionContext, type ItemContext, type ResourceRoutes } from './collab-routes';
 import {
   APP_PROJECT_ID,
   DASHBOARD_REFS,
@@ -46,15 +48,12 @@ import {
   isoDaysAgo,
   isoMinutesAgo,
   list,
+  randomToken,
   rng,
   sampleId,
 } from '../dataset';
 
 const ME = MEMBERS[0].userId;
-
-function notFound(what: string): Error {
-  return new Error(`Sample data: ${what} not found`);
-}
 
 function member(index: number): string {
   return MEMBERS[index % MEMBERS.length]!.userId;
@@ -63,10 +62,6 @@ function member(index: number): string {
 function projectOfTarget(type: PanelTargetType, id: string): string {
   const ref = type === 'report' ? REPORT_REFS.find((r) => r.id === id) : DASHBOARD_REFS.find((d) => d.id === id);
   return ref?.projectId ?? WEBSITE_PROJECT_ID;
-}
-
-function bodyAs<T>(body: unknown): T {
-  return (body ?? {}) as T;
 }
 
 // ---------------------------------------------------------------------------
@@ -223,7 +218,9 @@ const annotations: PanelAnnotationDto[] = [
 
 /** A day (`YYYY-MM-DD`, UTC) or an instant as a time; `end` makes a day run to its last millisecond. */
 function parseBound(value: string, end: boolean): number {
-  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T${end ? '23:59:59.999' : '00:00:00.000'}Z`).getTime() : new Date(value).getTime();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return new Date(value).getTime();
+  const time = end ? '23:59:59.999' : '00:00:00.000';
+  return new Date(`${value}T${time}Z`).getTime();
 }
 
 // ---------------------------------------------------------------------------
@@ -297,11 +294,12 @@ const SPEC_FOR_KIND: Record<string, (projectId: string) => Record<string, unknow
     dateRange: { preset: '30d' },
     steps: [{ event: '$pageview' }, { event: 'signup_started' }, { event: 'signup_completed' }, { event: 'checkout_completed' }],
   }),
-  retention: (projectId) => ({ kind: 'retention', projectId, dateRange: { preset: '90d' }, startEvent: 'workspace_created', returnEvent: '$pageview', period: 'week' }),
+  retention: (projectId) => ({ kind: 'retention', projectId, dateRange: { preset: '90d' }, firstEvent: 'workspace_created', returnEvent: '$pageview', interval: 'week' }),
 };
 
 function specFor(kind: string, projectId: string, step: number): Record<string, unknown> {
-  const make = SPEC_FOR_KIND[kind] ?? ((id: string) => ({ kind, projectId: id, dateRange: { preset: '30d' } }));
+  // The other kinds (flows, stickiness, …) have no versions of their own: they use the report's stock spec.
+  const make = SPEC_FOR_KIND[kind] ?? ((id: string): Record<string, unknown> => ({ ...defaultSpec(kind as PanelReportSpecKind, id) }));
   const spec = make(projectId);
   return step % 2 === 0 ? spec : { ...spec, dateRange: { preset: step % 3 === 0 ? '7d' : '90d' } };
 }
@@ -317,6 +315,13 @@ const CHANGE_NOTES = [
   'First saved version',
 ];
 
+/** The first version is a draft, the ones between are named by number now and then, the last is the report itself. */
+function versionName(reportName: string, version: number, count: number): string {
+  if (version === 1) return `${reportName} (draft)`;
+  if (version >= count) return reportName;
+  return version % 2 ? `${reportName} - v${version}` : reportName;
+}
+
 function seedVersions(): Map<string, VersionStore> {
   const out = new Map<string, VersionStore>();
   REPORT_REFS.forEach((report, r) => {
@@ -324,7 +329,7 @@ function seedVersions(): Map<string, VersionStore> {
     const versions: VersionStore = [];
     for (let v = 1; v <= count; v++) {
       const age = (count - v) * 6 + 3 + r;
-      const name = v === 1 ? `${report.name} (draft)` : v < count ? `${report.name}${v % 2 ? ' - v' + v : ''}` : report.name;
+      const name = versionName(report.name, v, count);
       versions.push({
         id: `pnrv_${report.id.slice(-10)}_${v}`,
         reportId: report.id,
@@ -345,8 +350,16 @@ function seedVersions(): Map<string, VersionStore> {
 const versionsByReport = seedVersions();
 
 function versionSummary(version: PanelReportVersionDetailDto): PanelReportVersionDto {
-  const { spec: _spec, ...summary } = version;
-  return summary;
+  return {
+    id: version.id,
+    reportId: version.reportId,
+    version: version.version,
+    name: version.name,
+    description: version.description,
+    kind: version.kind,
+    createdByUserId: version.createdByUserId,
+    createdAt: version.createdAt,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -454,363 +467,402 @@ const shareLinks: StoredShareLink[] = [
 ];
 
 function shareLinkDto(link: StoredShareLink): PanelShareLinkDto {
-  const { token: _token, ...dto } = link;
-  return dto;
+  return {
+    id: link.id,
+    projectId: link.projectId,
+    targetType: link.targetType,
+    targetId: link.targetId,
+    prefix: link.prefix,
+    allowEmbed: link.allowEmbed,
+    allowDateChange: link.allowDateChange,
+    expiresAt: link.expiresAt,
+    revokedAt: link.revokedAt,
+    lastViewedAt: link.lastViewedAt,
+    viewCount: link.viewCount,
+    createdByUserId: link.createdByUserId,
+    createdAt: link.createdAt,
+  };
 }
 
 // ---------------------------------------------------------------------------
 // Handler
 // ---------------------------------------------------------------------------
 
-function findIndex<T extends { id: string }>(items: T[], id: string, what: string): number {
-  const index = items.findIndex((item) => item.id === id);
-  if (index < 0) throw notFound(what);
-  return index;
+function matchesOf(definition: CreatePanelCustomEventInput['definition']): PanelCustomEventDto['definition'] {
+  return { match: definition.match.map((m) => ({ event: m.event, filters: m.filters ?? [] })) };
 }
 
-export const handleDefinitions: SampleAreaHandler = (request) => {
-  const { method, segments, query } = request;
-  const [area, id, third, fourth] = segments;
+function createCustomEvent({ request, now }: CollectionContext): unknown {
+  const input = bodyAs<CreatePanelCustomEventInput>(request.body);
+  const id = sampleId('pnce');
+  const created: PanelCustomEventDto = {
+    id,
+    projectId: input.projectId,
+    name: input.name,
+    description: input.description ?? null,
+    definition: matchesOf(input.definition),
+    ref: `@${id}`,
+    ownerUserId: ME,
+    createdAt: now,
+    updatedAt: now,
+  };
+  customEvents.unshift(created);
+  return data(created);
+}
+
+function updateCustomEvent({ request, current, index, now }: ItemContext<PanelCustomEventDto>): unknown {
+  const input = bodyAs<UpdatePanelCustomEventInput>(request.body);
+  const updated: PanelCustomEventDto = {
+    ...current,
+    name: input.name ?? current.name,
+    description: orKeep(input.description, current.description),
+    definition: input.definition ? matchesOf(input.definition) : current.definition,
+    updatedAt: now,
+  };
+  customEvents[index] = updated;
+  return data(updated);
+}
+
+const customEventRoutes: ResourceRoutes<PanelCustomEventDto> = {
+  items: customEvents,
+  what: 'custom event',
+  collection: {
+    GET: ({ request }) => list(customEvents.filter((e) => e.projectId === request.query.get('projectId'))),
+    POST: createCustomEvent,
+  },
+  item: {
+    GET: ({ current }) => data(current),
+    PATCH: updateCustomEvent,
+    DELETE: ({ index }) => removeAt(customEvents, index),
+  },
+};
+
+function createComputedProperty({ request, now }: CollectionContext): unknown {
+  const input = bodyAs<CreatePanelComputedPropertyInput>(request.body);
+  const id = sampleId('pncp');
+  const created: PanelComputedPropertyDto = {
+    id,
+    projectId: input.projectId,
+    name: input.name,
+    description: input.description ?? null,
+    definition: input.definition,
+    ref: `@${id}`,
+    ownerUserId: ME,
+    createdAt: now,
+    updatedAt: now,
+  };
+  computedProperties.unshift(created);
+  return data(created);
+}
+
+function updateComputedProperty({ request, current, index, now }: ItemContext<PanelComputedPropertyDto>): unknown {
+  const input = bodyAs<UpdatePanelComputedPropertyInput>(request.body);
+  const updated: PanelComputedPropertyDto = {
+    ...current,
+    name: input.name ?? current.name,
+    description: orKeep(input.description, current.description),
+    definition: input.definition ?? current.definition,
+    updatedAt: now,
+  };
+  computedProperties[index] = updated;
+  return data(updated);
+}
+
+const computedPropertyRoutes: ResourceRoutes<PanelComputedPropertyDto> = {
+  items: computedProperties,
+  what: 'computed property',
+  collection: {
+    GET: ({ request }) => list(computedProperties.filter((p) => p.projectId === request.query.get('projectId'))),
+    POST: createComputedProperty,
+  },
+  item: {
+    GET: ({ current }) => data(current),
+    PATCH: updateComputedProperty,
+    DELETE: ({ index }) => removeAt(computedProperties, index),
+  },
+};
+
+function testPathRules(body: unknown): unknown {
+  const input = bodyAs<TestPanelPathRulesInput>(body);
+  const active = input.rules ?? pathRules.get(input.projectId ?? WEBSITE_PROJECT_ID) ?? [];
+  return data({ results: (input.paths ?? []).map((path) => ({ path, ...applyPanelPathRules(path, active) })).map((r) => ({ path: r.path, cleaned: r.cleaned, matched: r.matched })) });
+}
+
+function setPathRules(projectId: string, input: SetPanelPathRulesInput): PanelPathRuleDto[] {
   const now = new Date().toISOString();
+  const next: PanelPathRuleDto[] = (input.rules ?? []).map((rule, position) => ({
+    id: `pnpr_${sampleId('r')}`,
+    projectId,
+    position,
+    pattern: rule.pattern,
+    replacement: rule.replacement,
+    description: rule.description ?? null,
+    createdByUserId: ME,
+    createdAt: now,
+    updatedAt: now,
+  }));
+  pathRules.set(projectId, next);
+  return next;
+}
 
-  switch (area) {
-    case 'custom-events': {
-      if (segments.length === 1) {
-        if (method === 'GET') return list(customEvents.filter((e) => e.projectId === query.get('projectId')));
-        if (method === 'POST') {
-          const input = bodyAs<CreatePanelCustomEventInput>(request.body);
-          const created: PanelCustomEventDto = {
-            id: sampleId('pnce'),
-            projectId: input.projectId,
-            name: input.name,
-            description: input.description ?? null,
-            definition: { match: input.definition.match.map((m) => ({ event: m.event, filters: m.filters ?? [] })) },
-            ref: '',
-            ownerUserId: ME,
-            createdAt: now,
-            updatedAt: now,
-          };
-          created.ref = `@${created.id}`;
-          customEvents.unshift(created);
-          return data(created);
-        }
-      } else if (id && segments.length === 2) {
-        const index = findIndex(customEvents, id, 'custom event');
-        const current = customEvents[index]!;
-        if (method === 'GET') return data(current);
-        if (method === 'PATCH') {
-          const input = bodyAs<UpdatePanelCustomEventInput>(request.body);
-          const updated: PanelCustomEventDto = {
-            ...current,
-            name: input.name ?? current.name,
-            description: input.description === undefined ? current.description : input.description,
-            definition: input.definition ? { match: input.definition.match.map((m) => ({ event: m.event, filters: m.filters ?? [] })) } : current.definition,
-            updatedAt: now,
-          };
-          customEvents[index] = updated;
-          return data(updated);
-        }
-        if (method === 'DELETE') {
-          customEvents.splice(index, 1);
-          return undefined;
-        }
-      }
-      return UNHANDLED;
-    }
+function handlePathRules({ method, segments, query, body }: SampleRequest): unknown {
+  if (segments[1] === 'test' && method === 'POST') return testPathRules(body);
+  if (segments.length !== 1) return UNHANDLED;
+  const projectId = query.get('projectId') ?? WEBSITE_PROJECT_ID;
+  if (method === 'GET') return list(pathRules.get(projectId) ?? []);
+  if (method === 'PUT') return list(setPathRules(projectId, bodyAs<SetPanelPathRulesInput>(body)));
+  return UNHANDLED;
+}
 
-    case 'computed-properties': {
-      if (segments.length === 1) {
-        if (method === 'GET') return list(computedProperties.filter((p) => p.projectId === query.get('projectId')));
-        if (method === 'POST') {
-          const input = bodyAs<CreatePanelComputedPropertyInput>(request.body);
-          const created: PanelComputedPropertyDto = {
-            id: sampleId('pncp'),
-            projectId: input.projectId,
-            name: input.name,
-            description: input.description ?? null,
-            definition: input.definition,
-            ref: '',
-            ownerUserId: ME,
-            createdAt: now,
-            updatedAt: now,
-          };
-          created.ref = `@${created.id}`;
-          computedProperties.unshift(created);
-          return data(created);
-        }
-      } else if (id && segments.length === 2) {
-        const index = findIndex(computedProperties, id, 'computed property');
-        const current = computedProperties[index]!;
-        if (method === 'GET') return data(current);
-        if (method === 'PATCH') {
-          const input = bodyAs<UpdatePanelComputedPropertyInput>(request.body);
-          const updated: PanelComputedPropertyDto = {
-            ...current,
-            name: input.name ?? current.name,
-            description: input.description === undefined ? current.description : input.description,
-            definition: input.definition ?? current.definition,
-            updatedAt: now,
-          };
-          computedProperties[index] = updated;
-          return data(updated);
-        }
-        if (method === 'DELETE') {
-          computedProperties.splice(index, 1);
-          return undefined;
-        }
-      }
-      return UNHANDLED;
-    }
+/** The annotations of a project that fall in the asked-for window and belong to no report or the asked-for one. */
+function annotationsFor(query: URLSearchParams): PanelAnnotationDto[] {
+  const projectId = query.get('projectId');
+  const from = query.get('from');
+  const to = query.get('to');
+  const reportId = query.get('reportId');
+  const occurred = (a: PanelAnnotationDto) => new Date(a.occurredAt).getTime();
+  return annotations
+    .filter((a) => a.projectId === projectId)
+    .filter((a) => a.reportId === null || a.reportId === reportId)
+    .filter((a) => (from ? occurred(a) >= parseBound(from, false) : true))
+    .filter((a) => (to ? occurred(a) <= parseBound(to, true) : true))
+    .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
+}
 
-    case 'path-rules': {
-      if (id === 'test' && method === 'POST') {
-        const input = bodyAs<TestPanelPathRulesInput>(request.body);
-        const active = input.rules ?? pathRules.get(input.projectId ?? WEBSITE_PROJECT_ID) ?? [];
-        return data({ results: (input.paths ?? []).map((path) => ({ path, ...applyPanelPathRules(path, active) })).map((r) => ({ path: r.path, cleaned: r.cleaned, matched: r.matched })) });
-      }
-      if (segments.length === 1) {
-        const projectId = query.get('projectId') ?? WEBSITE_PROJECT_ID;
-        if (method === 'GET') return list(pathRules.get(projectId) ?? []);
-        if (method === 'PUT') {
-          const input = bodyAs<SetPanelPathRulesInput>(request.body);
-          const next: PanelPathRuleDto[] = (input.rules ?? []).map((rule, position) => ({
-            id: `pnpr_${sampleId('r')}`,
-            projectId,
-            position,
-            pattern: rule.pattern,
-            replacement: rule.replacement,
-            description: rule.description ?? null,
-            createdByUserId: ME,
-            createdAt: now,
-            updatedAt: now,
-          }));
-          pathRules.set(projectId, next);
-          return list(next);
-        }
-      }
-      return UNHANDLED;
-    }
+function createAnnotation({ request, now }: CollectionContext): unknown {
+  const input = bodyAs<CreatePanelAnnotationInput>(request.body);
+  const created: PanelAnnotationDto = {
+    id: sampleId('pnan'),
+    projectId: input.projectId,
+    reportId: input.reportId ?? null,
+    occurredAt: input.occurredAt,
+    label: input.label,
+    description: input.description ?? null,
+    createdByUserId: ME,
+    createdAt: now,
+    updatedAt: now,
+  };
+  annotations.push(created);
+  return data(created);
+}
 
-    case 'annotations': {
-      if (segments.length === 1) {
-        if (method === 'GET') {
-          const projectId = query.get('projectId');
-          const from = query.get('from');
-          const to = query.get('to');
-          const reportId = query.get('reportId');
-          const items = annotations
-            .filter((a) => a.projectId === projectId)
-            .filter((a) => a.reportId === null || a.reportId === reportId)
-            .filter((a) => (from ? new Date(a.occurredAt).getTime() >= parseBound(from, false) : true))
-            .filter((a) => (to ? new Date(a.occurredAt).getTime() <= parseBound(to, true) : true))
-            .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
-          return list(items);
-        }
-        if (method === 'POST') {
-          const input = bodyAs<CreatePanelAnnotationInput>(request.body);
-          const created: PanelAnnotationDto = {
-            id: sampleId('pnan'),
-            projectId: input.projectId,
-            reportId: input.reportId ?? null,
-            occurredAt: input.occurredAt,
-            label: input.label,
-            description: input.description ?? null,
-            createdByUserId: ME,
-            createdAt: now,
-            updatedAt: now,
-          };
-          annotations.push(created);
-          return data(created);
-        }
-      } else if (id && segments.length === 2) {
-        const index = findIndex(annotations, id, 'annotation');
-        const current = annotations[index]!;
-        if (method === 'GET') return data(current);
-        if (method === 'PATCH') {
-          const input = bodyAs<UpdatePanelAnnotationInput>(request.body);
-          const updated: PanelAnnotationDto = {
-            ...current,
-            reportId: input.reportId === undefined ? current.reportId : input.reportId,
-            occurredAt: input.occurredAt ?? current.occurredAt,
-            label: input.label ?? current.label,
-            description: input.description === undefined ? current.description : input.description,
-            updatedAt: now,
-          };
-          annotations[index] = updated;
-          return data(updated);
-        }
-        if (method === 'DELETE') {
-          annotations.splice(index, 1);
-          return undefined;
-        }
-      }
-      return UNHANDLED;
-    }
+function updateAnnotation({ request, current, index, now }: ItemContext<PanelAnnotationDto>): unknown {
+  const input = bodyAs<UpdatePanelAnnotationInput>(request.body);
+  const updated: PanelAnnotationDto = {
+    ...current,
+    reportId: orKeep(input.reportId, current.reportId),
+    occurredAt: input.occurredAt ?? current.occurredAt,
+    label: input.label ?? current.label,
+    description: orKeep(input.description, current.description),
+    updatedAt: now,
+  };
+  annotations[index] = updated;
+  return data(updated);
+}
 
-    case 'comments': {
-      if (segments.length === 1) {
-        if (method === 'GET') {
-          const type = query.get('targetType');
-          const targetId = query.get('targetId');
-          return list(comments.filter((c) => c.targetType === type && c.targetId === targetId).sort((a, b) => a.createdAt.localeCompare(b.createdAt)));
-        }
-        if (method === 'POST') {
-          const input = bodyAs<CreatePanelCommentInput>(request.body);
-          const created: PanelCommentDto = {
-            id: sampleId('pncm'),
-            projectId: projectOfTarget(input.targetType, input.targetId),
-            targetType: input.targetType,
-            targetId: input.targetId,
-            body: input.body,
-            authorUserId: ME,
-            edited: false,
-            createdAt: now,
-            updatedAt: now,
-          };
-          comments.push(created);
-          return data(created);
-        }
-      } else if (id && segments.length === 2) {
-        const index = findIndex(comments, id, 'comment');
-        const current = comments[index]!;
-        if (method === 'PATCH') {
-          const input = bodyAs<UpdatePanelCommentInput>(request.body);
-          const updated: PanelCommentDto = { ...current, body: input.body ?? current.body, edited: true, updatedAt: now };
-          comments[index] = updated;
-          return data(updated);
-        }
-        if (method === 'DELETE') {
-          comments.splice(index, 1);
-          return undefined;
-        }
-      }
-      return UNHANDLED;
-    }
+const annotationRoutes: ResourceRoutes<PanelAnnotationDto> = {
+  items: annotations,
+  what: 'annotation',
+  collection: {
+    GET: ({ request }) => list(annotationsFor(request.query)),
+    POST: createAnnotation,
+  },
+  item: {
+    GET: ({ current }) => data(current),
+    PATCH: updateAnnotation,
+    DELETE: ({ index }) => removeAt(annotations, index),
+  },
+};
 
-    case 'reports': {
-      if (third !== 'versions' || !id) return UNHANDLED;
-      const versions = versionsByReport.get(id);
-      if (!versions) return UNHANDLED;
-      if (segments.length === 3 && method === 'GET') return list(versions.map(versionSummary).sort((a, b) => b.version - a.version));
-      const number = Number(fourth);
-      if (segments.length === 4 && method === 'GET') {
-        const found = versions.find((v) => v.version === number);
-        if (!found) throw notFound('version');
-        return data(found);
-      }
-      if (segments.length === 5 && segments[4] === 'restore' && method === 'POST') {
-        const found = versions.find((v) => v.version === number);
-        const ref = REPORT_REFS.find((r) => r.id === id);
-        if (!found || !ref) throw notFound('version');
-        const top = Math.max(...versions.map((v) => v.version));
-        versions.push({ ...found, id: sampleId('pnrv'), version: top + 1, description: `Before restoring version ${number}`, createdByUserId: ME, createdAt: now });
-        const report: PanelReportDto = {
-          id,
-          projectId: ref.projectId,
-          kind: ref.kind,
-          name: found.name,
-          description: found.description,
-          spec: found.spec,
-          ownerUserId: member(0),
-          visibility: 'workspace',
-          createdAt: isoDaysAgo(60, 10, 0),
-          updatedAt: now,
-        };
-        return data(report);
-      }
-      return UNHANDLED;
-    }
+function commentsOf({ request }: CollectionContext): unknown {
+  const type = request.query.get('targetType');
+  const targetId = request.query.get('targetId');
+  return list(comments.filter((c) => c.targetType === type && c.targetId === targetId).sort((a, b) => a.createdAt.localeCompare(b.createdAt)));
+}
 
-    case 'metric-trees': {
-      if (segments.length === 1) {
-        if (method === 'GET') {
-          const scope = query.get('scope');
-          return list(
-            metricTrees
-              .filter((t) => t.projectId === query.get('projectId'))
-              .filter((t) => (scope === 'mine' ? t.ownerUserId === ME : scope === 'shared' ? t.visibility === 'workspace' && t.ownerUserId !== ME : true)),
-          );
-        }
-        if (method === 'POST') {
-          const input = bodyAs<CreatePanelMetricTreeInput>(request.body);
-          const created: PanelMetricTreeDto = {
-            id: sampleId('pnmt'),
-            projectId: input.projectId,
-            name: input.name,
-            description: input.description ?? null,
-            nodes: input.nodes as ParsedPanelMetricTreeNode[],
-            ownerUserId: ME,
-            visibility: input.visibility ?? 'private',
-            createdAt: now,
-            updatedAt: now,
-          };
-          metricTrees.unshift(created);
-          return data(created);
-        }
-      } else if (id && segments.length === 2) {
-        const index = findIndex(metricTrees, id, 'metric tree');
-        const current = metricTrees[index]!;
-        if (method === 'GET') return data(current);
-        if (method === 'PATCH') {
-          const input = bodyAs<UpdatePanelMetricTreeInput>(request.body);
-          const updated: PanelMetricTreeDto = {
-            ...current,
-            name: input.name ?? current.name,
-            description: input.description === undefined ? current.description : input.description,
-            visibility: input.visibility ?? current.visibility,
-            nodes: input.nodes ? (input.nodes as ParsedPanelMetricTreeNode[]) : current.nodes,
-            updatedAt: now,
-          };
-          metricTrees[index] = updated;
-          return data(updated);
-        }
-        if (method === 'DELETE') {
-          metricTrees.splice(index, 1);
-          return undefined;
-        }
-      }
-      return UNHANDLED;
-    }
+function createComment({ request, now }: CollectionContext): unknown {
+  const input = bodyAs<CreatePanelCommentInput>(request.body);
+  const created: PanelCommentDto = {
+    id: sampleId('pncm'),
+    projectId: projectOfTarget(input.targetType, input.targetId),
+    targetType: input.targetType,
+    targetId: input.targetId,
+    body: input.body,
+    authorUserId: ME,
+    edited: false,
+    createdAt: now,
+    updatedAt: now,
+  };
+  comments.push(created);
+  return data(created);
+}
 
-    case 'share-links': {
-      if (segments.length === 1) {
-        if (method === 'GET') {
-          const type = query.get('targetType');
-          const targetId = query.get('targetId');
-          return list(shareLinks.filter((l) => l.targetType === type && l.targetId === targetId).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(shareLinkDto));
-        }
-        if (method === 'POST') {
-          const input = bodyAs<CreatePanelShareLinkInput>(request.body);
-          const token = `wpsh_${Math.random().toString(36).slice(2).padEnd(32, 'q').slice(0, 32)}`;
-          const created: StoredShareLink = {
-            id: sampleId('pnsl'),
-            projectId: projectOfTarget(input.targetType, input.targetId),
-            targetType: input.targetType,
-            targetId: input.targetId,
-            prefix: `${token.slice(0, 9)}…`,
-            allowEmbed: input.allowEmbed ?? false,
-            allowDateChange: input.allowDateChange ?? false,
-            expiresAt: input.expiresAt ?? null,
-            revokedAt: null,
-            lastViewedAt: null,
-            viewCount: 0,
-            createdByUserId: ME,
-            createdAt: now,
-            token,
-          };
-          shareLinks.unshift(created);
-          const response: PanelCreatedShareLinkDto = { ...shareLinkDto(created), token, url: panelShareUrl(window.location.origin, token) };
-          return data(response);
-        }
-      } else if (id && segments.length === 2 && method === 'DELETE') {
-        const index = findIndex(shareLinks, id, 'share link');
-        shareLinks[index] = { ...shareLinks[index]!, revokedAt: now };
-        return undefined;
-      }
-      return UNHANDLED;
-    }
+function updateComment({ request, current, index, now }: ItemContext<PanelCommentDto>): unknown {
+  const input = bodyAs<UpdatePanelCommentInput>(request.body);
+  const updated: PanelCommentDto = { ...current, body: input.body ?? current.body, edited: true, updatedAt: now };
+  comments[index] = updated;
+  return data(updated);
+}
 
-    default:
-      return UNHANDLED;
-  }
+const commentRoutes: ResourceRoutes<PanelCommentDto> = {
+  items: comments,
+  what: 'comment',
+  collection: { GET: commentsOf, POST: createComment },
+  item: {
+    PATCH: updateComment,
+    DELETE: ({ index }) => removeAt(comments, index),
+  },
+};
+
+/** One version of a report, or a "not found" error. */
+function versionOf(versions: VersionStore, number: number): PanelReportVersionDetailDto {
+  const found = versions.find((v) => v.version === number);
+  if (!found) throw notFound('version');
+  return found;
+}
+
+/** Puts a copy of an old version on top of the history and returns the report as it is now. */
+function restoreVersion(reportId: string, versions: VersionStore, number: number, now: string): PanelReportDto {
+  const found = versions.find((v) => v.version === number);
+  const ref = REPORT_REFS.find((r) => r.id === reportId);
+  if (!found || !ref) throw notFound('version');
+  const top = Math.max(...versions.map((v) => v.version));
+  versions.push({ ...found, id: sampleId('pnrv'), version: top + 1, description: `Before restoring version ${number}`, createdByUserId: ME, createdAt: now });
+  return {
+    id: reportId,
+    projectId: ref.projectId,
+    kind: ref.kind,
+    name: found.name,
+    description: found.description,
+    spec: found.spec,
+    ownerUserId: member(0),
+    visibility: 'workspace',
+    createdAt: isoDaysAgo(60, 10, 0),
+    updatedAt: now,
+  };
+}
+
+function handleReportVersions({ method, segments }: SampleRequest): unknown {
+  const [, id, third, fourth] = segments;
+  if (third !== 'versions' || !id) return UNHANDLED;
+  const versions = versionsByReport.get(id);
+  if (!versions) return UNHANDLED;
+  if (segments.length === 3 && method === 'GET') return list(versions.map(versionSummary).sort((a, b) => b.version - a.version));
+  const number = Number(fourth);
+  if (segments.length === 4 && method === 'GET') return data(versionOf(versions, number));
+  if (segments.length === 5 && segments[4] === 'restore' && method === 'POST') return data(restoreVersion(id, versions, number, new Date().toISOString()));
+  return UNHANDLED;
+}
+
+/** `mine`: the ones you own; `shared`: other people's that the workspace can see; anything else: all. */
+function treeInScope(tree: PanelMetricTreeDto, scope: string | null): boolean {
+  if (scope === 'mine') return tree.ownerUserId === ME;
+  if (scope === 'shared') return tree.visibility === 'workspace' && tree.ownerUserId !== ME;
+  return true;
+}
+
+function createMetricTree({ request, now }: CollectionContext): unknown {
+  const input = bodyAs<CreatePanelMetricTreeInput>(request.body);
+  const created: PanelMetricTreeDto = {
+    id: sampleId('pnmt'),
+    projectId: input.projectId,
+    name: input.name,
+    description: input.description ?? null,
+    nodes: input.nodes as ParsedPanelMetricTreeNode[],
+    ownerUserId: ME,
+    visibility: input.visibility ?? 'private',
+    createdAt: now,
+    updatedAt: now,
+  };
+  metricTrees.unshift(created);
+  return data(created);
+}
+
+function updateMetricTree({ request, current, index, now }: ItemContext<PanelMetricTreeDto>): unknown {
+  const input = bodyAs<UpdatePanelMetricTreeInput>(request.body);
+  const updated: PanelMetricTreeDto = {
+    ...current,
+    name: input.name ?? current.name,
+    description: orKeep(input.description, current.description),
+    visibility: input.visibility ?? current.visibility,
+    nodes: input.nodes ? (input.nodes as ParsedPanelMetricTreeNode[]) : current.nodes,
+    updatedAt: now,
+  };
+  metricTrees[index] = updated;
+  return data(updated);
+}
+
+const metricTreeRoutes: ResourceRoutes<PanelMetricTreeDto> = {
+  items: metricTrees,
+  what: 'metric tree',
+  collection: {
+    GET: ({ request }) => list(metricTrees.filter((t) => t.projectId === request.query.get('projectId')).filter((t) => treeInScope(t, request.query.get('scope')))),
+    POST: createMetricTree,
+  },
+  item: {
+    GET: ({ current }) => data(current),
+    PATCH: updateMetricTree,
+    DELETE: ({ index }) => removeAt(metricTrees, index),
+  },
+};
+
+function shareLinksOf({ request }: CollectionContext): unknown {
+  const type = request.query.get('targetType');
+  const targetId = request.query.get('targetId');
+  return list(shareLinks.filter((l) => l.targetType === type && l.targetId === targetId).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(shareLinkDto));
+}
+
+function createShareLink({ request, now }: CollectionContext): unknown {
+  const input = bodyAs<CreatePanelShareLinkInput>(request.body);
+  const token = `wpsh_${randomToken(32)}`;
+  const created: StoredShareLink = {
+    id: sampleId('pnsl'),
+    projectId: projectOfTarget(input.targetType, input.targetId),
+    targetType: input.targetType,
+    targetId: input.targetId,
+    prefix: `${token.slice(0, 9)}…`,
+    allowEmbed: input.allowEmbed ?? false,
+    allowDateChange: input.allowDateChange ?? false,
+    expiresAt: input.expiresAt ?? null,
+    revokedAt: null,
+    lastViewedAt: null,
+    viewCount: 0,
+    createdByUserId: ME,
+    createdAt: now,
+    token,
+  };
+  shareLinks.unshift(created);
+  const response: PanelCreatedShareLinkDto = { ...shareLinkDto(created), token, url: panelShareUrl(window.location.origin, token) };
+  return data(response);
+}
+
+function revokeShareLink({ index, now }: ItemContext<StoredShareLink>): undefined {
+  shareLinks[index] = { ...shareLinks[index]!, revokedAt: now };
+  return undefined;
+}
+
+const shareLinkRoutes: ResourceRoutes<StoredShareLink> = {
+  items: shareLinks,
+  what: 'share link',
+  methodFirst: true,
+  collection: { GET: shareLinksOf, POST: createShareLink },
+  item: { DELETE: revokeShareLink },
+};
+
+/** Each area's handler, by the first path segment. */
+const AREA_HANDLERS: Record<string, SampleAreaHandler> = {
+  'custom-events': (request) => routeResource(request, customEventRoutes),
+  'computed-properties': (request) => routeResource(request, computedPropertyRoutes),
+  'path-rules': handlePathRules,
+  annotations: (request) => routeResource(request, annotationRoutes),
+  comments: (request) => routeResource(request, commentRoutes),
+  reports: handleReportVersions,
+  'metric-trees': (request) => routeResource(request, metricTreeRoutes),
+  'share-links': (request) => routeResource(request, shareLinkRoutes),
+};
+
+export const handleDefinitions: SampleAreaHandler = (request) => {
+  const area = request.segments[0];
+  const handler = area !== undefined && Object.hasOwn(AREA_HANDLERS, area) ? AREA_HANDLERS[area] : undefined;
+  return handler ? handler(request) : UNHANDLED;
 };

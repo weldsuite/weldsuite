@@ -59,6 +59,11 @@ function whereText(session: PanelSessionRow, devices: Record<string, string>, la
 /** A recording's row: `id` is the session id, so the list can key and click it. */
 type SessionListRow = PanelSessionRow & { id: string };
 
+/** A day (`YYYY-MM-DD`) as the date part of `formatDateTime`, for the custom range pill. */
+function dayLabel(day: string, language: string): string {
+  return formatDateTime(`${day}T00:00:00`, language).split(',')[0] ?? day;
+}
+
 function initials(name: string): string {
   const words = name.trim().split(/\s+/).filter(Boolean);
   return ((words[0]?.[0] ?? '') + (words.length > 1 ? (words.at(-1)?.[0] ?? '') : '')).toUpperCase() || '?';
@@ -110,7 +115,7 @@ function RecordingsList({ project, search }: Readonly<{ project: PanelProjectDto
     {
       period: td.label,
       presets: { today: td.today, '7d': td['7d'], '30d': td['30d'], '90d': td['90d'], '12m': td['12m'] },
-      customRange: (from, toDay) => `${formatDateTime(`${from}T00:00:00`, language).split(',')[0]} – ${formatDateTime(`${toDay}T00:00:00`, language).split(',')[0]}`,
+      customRange: (from, toDay) => `${dayLabel(from, language)} – ${dayLabel(toDay, language)}`,
       devices: tf.devices,
       deviceNames: t.weldpanel.observe.common.devices,
       countries: tf.countries,
