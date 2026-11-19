@@ -4,6 +4,7 @@ import {
   buildDayStats,
   dayHourRange,
   hourlyCoverage,
+  hoursWithinDay,
   monthGridWeeks,
   timeOffSpans,
   toTimeOff,
@@ -121,6 +122,18 @@ describe('day view hours', () => {
   it('shows 08:00–18:00 at least, widened to whole hours around the shifts', () => {
     expect(dayHourRange([], '2026-11-18')).toEqual({ from: 8, to: 18 });
     expect(dayHourRange([shift('e1', [6, 30], [15, 0]), shift('e2', [14, 0], [22, 15])], '2026-11-18')).toEqual({ from: 6, to: 23 });
+  });
+
+  it('splits a night shift over the two days it touches, minus the break inside each', () => {
+    const night: HrShift = {
+      ...shift('e1', [22, 0], [23, 0]),
+      endsAt: new Date(2026, 10, 19, 6, 0).toISOString(),
+      breakStartsAt: new Date(2026, 10, 19, 2, 0).toISOString(),
+      breakEndsAt: new Date(2026, 10, 19, 2, 30).toISOString(),
+    };
+    expect(hoursWithinDay(night, '2026-11-18')).toBe(2);
+    expect(hoursWithinDay(night, '2026-11-19')).toBe(5.5);
+    expect(hoursWithinDay(night, '2026-11-20')).toBe(0);
   });
 
   it('counts each employee working at half past every hour once', () => {

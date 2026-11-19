@@ -1,9 +1,10 @@
 /**
  * Attendance → Schedule, day view: one day by the hour, one column per
  * employee (grouped by department), the shifts drawn at their times with the
- * break shaded. A narrow column after the hours counts how many people are
- * working each hour, so thin cover stands out. Leave and sickness fill the
- * employee's column; clicking an empty column adds a shift.
+ * break shaded. Night shifts that began the day before show from midnight. A
+ * narrow column after the hours counts how many people are working each hour,
+ * so thin cover stands out. Leave and sickness fill the employee's column;
+ * clicking an empty column adds a shift.
  */
 
 import { useEffect, useState } from 'react';
@@ -22,6 +23,7 @@ import {
   formatHours,
   hourlyCoverage,
   hoursIntoDay,
+  hoursWithinDay,
   timeOffColor,
   timeOffCovers,
   type RosterEmployee,
@@ -51,8 +53,8 @@ export function ScheduleDayView({
   day,
   groups,
   showGroupHeaders,
-  hoursByEmployee,
   shiftsByCell,
+  overnightShifts,
   timeOffByEmployee,
   timeFormat,
   canCreate,
@@ -63,9 +65,10 @@ export function ScheduleDayView({
   day: string;
   groups: RosterGroup[];
   showGroupHeaders: boolean;
-  hoursByEmployee: Map<string, number>;
   /** Shifts per `employeeId|day`, earliest first. */
   shiftsByCell: Map<string, HrShift[]>;
+  /** Per employee, shifts that began the day before and are still running after midnight. */
+  overnightShifts: Map<string, HrShift[]>;
   timeOffByEmployee: Map<string, TimeOff[]>;
   timeFormat: TimeFormat;
   canCreate: boolean;
@@ -78,7 +81,9 @@ export function ScheduleDayView({
   const nowHours = useNowHours();
 
   const employees = groups.flatMap((group) => group.employees);
-  const dayShifts = employees.flatMap((employee) => shiftsByCell.get(`${employee.id}|${day}`) ?? []);
+  /** An employee's shifts on the day: last night's still running, then the day's own. */
+  const shiftsOf = (employeeId: string) => [...(overnightShifts.get(employeeId) ?? []), ...(shiftsByCell.get(`${employeeId}|${day}`) ?? [])];
+  const dayShifts = employees.flatMap((employee) => shiftsOf(employee.id));
   const { from, to } = dayHourRange(dayShifts, day);
   const hours = Array.from({ length: to - from }, (_, i) => from + i);
   const coverage = hourlyCoverage(dayShifts, day, from, to);
@@ -151,9 +156,12 @@ export function ScheduleDayView({
           </div>
           {employees.map((employee, index) => {
             const off = (timeOffByEmployee.get(employee.id) ?? []).find((item) => timeOffCovers(item, day));
-            const working = (shiftsByCell.get(`${employee.id}|${day}`) ?? []).length > 0;
+            const shifts = shiftsOf(employee.id);
             let status = t('weldhr.attendance.schedule.off');
-            if (working) status = t('weldhr.attendance.schedule.hours', { hours: formatHours(hoursByEmployee.get(employee.id) ?? 0) });
+            if (shifts.length > 0) {
+              const hours = shifts.reduce((sum, shift) => sum + hoursWithinDay(shift, day), 0);
+              status = t('weldhr.attendance.schedule.hours', { hours: formatHours(hours) });
+            }
             else if (off) status = timeOffText(off).label;
             return (
               <div
@@ -217,7 +225,7 @@ export function ScheduleDayView({
             })}
           </div>
           {employees.map((employee, index) => {
-            const shifts = shiftsByCell.get(`${employee.id}|${day}`) ?? [];
+            const shifts = shiftsOf(employee.id);
             const off = (timeOffByEmployee.get(employee.id) ?? []).filter((item) => timeOffCovers(item, day));
             return (
               <div

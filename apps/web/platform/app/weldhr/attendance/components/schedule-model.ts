@@ -150,6 +150,21 @@ export function hourlyCoverage(shifts: HrShift[], day: string, from: number, to:
   });
 }
 
+/**
+ * Hours of `shift` that fall inside `day` (local midnight to midnight), minus
+ * the part of its break inside the day: a 22:00–06:00 night shift gives 2 on
+ * its start day and 6 on the next.
+ */
+export function hoursWithinDay(shift: HrShift, day: string): number {
+  const clip = (hours: number) => Math.min(24, Math.max(0, hours));
+  const length = clip(hoursIntoDay(shift.endsAt, day)) - clip(hoursIntoDay(shift.startsAt, day));
+  const pause =
+    shift.breakStartsAt && shift.breakEndsAt
+      ? Math.max(0, clip(hoursIntoDay(shift.breakEndsAt, day)) - clip(hoursIntoDay(shift.breakStartsAt, day)))
+      : 0;
+  return Math.max(0, length - pause);
+}
+
 /** Split the roster into departments; a single unnamed group when nobody has one. */
 export function groupByDepartment(employees: RosterEmployee[]): RosterGroup[] {
   const byName = (a: RosterEmployee, b: RosterEmployee) => a.name.localeCompare(b.name);

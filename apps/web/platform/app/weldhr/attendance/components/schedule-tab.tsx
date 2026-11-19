@@ -169,6 +169,22 @@ export function ScheduleTab() {
     return map;
   }, [periodShifts]);
 
+  /** For the day view: shifts from the day before still running after midnight (night shifts), per employee. */
+  const overnightShifts = useMemo(() => {
+    const map = new Map<string, HrShift[]>();
+    if (view !== 'day') return map;
+    const previousDay = shiftIsoDate(firstDay, -1);
+    const midnight = new Date(`${firstDay}T00:00:00`).getTime();
+    for (const shift of shifts ?? []) {
+      if (shiftDay(shift) !== previousDay || new Date(shift.endsAt).getTime() <= midnight) continue;
+      if (!passesFilters(activeFilters, 'companyId', shift.companyId ? [shift.companyId] : [])) continue;
+      const list = map.get(shift.employeeId) ?? [];
+      list.push(shift);
+      map.set(shift.employeeId, list);
+    }
+    return map;
+  }, [view, shifts, firstDay, activeFilters]);
+
   const { hoursByEmployee, totalHours } = useMemo(() => {
     const byEmployee = new Map<string, number>();
     let total = 0;
@@ -313,8 +329,8 @@ export function ScheduleTab() {
         day={firstDay}
         groups={groups}
         showGroupHeaders={showGroupHeaders}
-        hoursByEmployee={hoursByEmployee}
         shiftsByCell={shiftsByCell}
+        overnightShifts={overnightShifts}
         timeOffByEmployee={timeOffByEmployee}
         timeFormat={timeFormat}
         canCreate={canCreate}
