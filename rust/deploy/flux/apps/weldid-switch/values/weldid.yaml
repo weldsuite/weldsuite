@@ -8,14 +8,20 @@ ingress:
     traefik.ingress.kubernetes.io/router.middlewares: traefik-auth-ratelimit@kubernetescrd
 
 # MCP clients (Claude, Cursor, …) register themselves on the platform issuer
-# once the app's MCP server (https://app.${DOMAIN}/mcp, and /mcp/w/<workspace>
-# for one workspace) names WeldID, which is from this switch on. Metadata
+# once the MCP server names WeldID, which is from this switch on. Metadata
 # documents are the MCP spec's preferred way, dynamic registration its
 # fallback; both get consent and tokens for weldsuite-api only. Without the
 # resources below, every MCP client's `resource` is refused (invalid_target).
+# The server is at https://mcp.${DOMAIN}/mcp (config.mcp.serverUrl in
+# ../eu/values/weldsuite.yaml), whose discovery documents name that
+# resource, and /mcp/w/<workspace> for one workspace; its first address,
+# https://app.${DOMAIN}/mcp, still answers for clients set up with it. An
+# entry ending in / covers every path under it.
 registration:
   dynamic: true
   metadataDocuments: true
   resources:
+    - https://mcp.${DOMAIN}/mcp
+    - https://mcp.${DOMAIN}/mcp/
     - https://app.${DOMAIN}/mcp
     - https://app.${DOMAIN}/mcp/
