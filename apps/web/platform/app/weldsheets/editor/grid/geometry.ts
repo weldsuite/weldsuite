@@ -239,3 +239,49 @@ export function scrollIntoView(
   if (scrollX === layout.scrollX && scrollY === layout.scrollY) return null;
   return { scrollX: Math.max(0, scrollX), scrollY: Math.max(0, scrollY) };
 }
+
+/** Half the width (along the header) of the mark that stands for hidden rows or columns. */
+export const HIDDEN_MARK_HALF = 7;
+
+/** A run of hidden rows or columns, marked on the header at the boundary where they were. */
+export interface HiddenMarker {
+  axis: 'row' | 'col';
+  /** Canvas x (columns) or y (rows) of the boundary. */
+  pos: number;
+  /** The hidden indices the mark stands for. */
+  indices: number[];
+}
+
+/** Marks for the hidden rows and columns around the visible ones (a hidden run touching the sheet's start or end included). */
+export function hiddenMarkers(layout: GridLayout, sheet: Sheet): HiddenMarker[] {
+  const out: HiddenMarker[] = [];
+  const scan = (axis: 'row' | 'col', segments: Segment[], dims: AxisDims, count: number, frozen: number) => {
+    const run = (from: number, step: 1 | -1, floor: number): number[] => {
+      const found: number[] = [];
+      for (let i = from; i >= floor && i < count && dims.isHidden(i); i += step) found.push(i);
+      return step === -1 ? found.reverse() : found;
+    };
+    segments.forEach((s, k) => {
+      const floor = s.index < frozen ? 0 : frozen;
+      const before = run(s.index - 1, -1, floor);
+      if (before.length) out.push({ axis, pos: s.start, indices: before });
+      if (k === segments.length - 1) {
+        const after = run(s.index + 1, 1, floor);
+        if (after.length) out.push({ axis, pos: s.start + s.size, indices: after });
+      }
+    });
+  };
+  scan('col', layout.cols, sheet.cols, sheet.colCount, layout.frozenCols);
+  scan('row', layout.rows, sheet.rows, sheet.rowCount, layout.frozenRows);
+  return out;
+}
+
+/** The hidden-run mark under a point of the headers, if any. */
+export function hiddenMarkerAt(layout: GridLayout, sheet: Sheet, x: number, y: number): HiddenMarker | undefined {
+  const inColHeader = y < layout.colHeaderHeight && x >= layout.rowHeaderWidth;
+  const inRowHeader = x < layout.rowHeaderWidth && y >= layout.colHeaderHeight;
+  if (!inColHeader && !inRowHeader) return undefined;
+  return hiddenMarkers(layout, sheet).find(
+    (m) => (m.axis === 'col' ? inColHeader && Math.abs(x - m.pos) <= HIDDEN_MARK_HALF : inRowHeader && Math.abs(y - m.pos) <= HIDDEN_MARK_HALF),
+  );
+}

@@ -47,6 +47,7 @@ export function copySelection(ctl: SheetController, cut = false): ClipboardPaylo
   if (used) range = { ...range, r2: Math.min(range.r2, Math.max(used.r2, range.r1)), c2: Math.min(range.c2, Math.max(used.c2, range.c1)) };
   const clip = readClip(ctl, range, cut);
   lastCopy = clip;
+  ctl.setCopied({ sheetId: sheet.id, range, cut });
   return { text: clip.text, html: clip.html };
 }
 
@@ -119,7 +120,10 @@ export function pasteInto(ctl: SheetController, text: string, html: string | nul
     : grownGrid(ctl, top + grid.length, left + grid.reduce((n, line) => Math.max(n, line.length), 0));
   const op = internal ? internalPaste(ctl, internal, top, left, target, valuesOnly, size) : externalPaste(ctl, grid, top, left, size);
   if (!op) return;
+  // Pasting a copy leaves its outline up (a cut is spent); any other edit clears it.
+  const kept = internal?.cut && !valuesOnly ? null : ctl.copied;
   ctl.apply(withGrowth(ctl, op, size));
+  ctl.copied = kept;
   const rows = internal ? internal.cells.length : 1;
   const cols = internal ? (internal.cells[0]?.length ?? 1) : 1;
   ctl.select({

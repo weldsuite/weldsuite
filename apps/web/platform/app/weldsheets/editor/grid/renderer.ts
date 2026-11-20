@@ -3,7 +3,7 @@ import { CHART_HANDLES, chartClip, chartRect, handleCenter, HANDLE_RADIUS } from
 import { drawChart, type ChartPaint } from '../charts/draw-chart';
 import type { SheetController } from '../model/sheet-controller';
 import { primaryRange, type Selection } from '../model/selection';
-import { colLeft, panes, rangeRect, rowTop, type GridLayout, type Rect, type Segment } from './geometry';
+import { colLeft, hiddenMarkers, panes, rangeRect, rowTop, type GridLayout, type Rect, type Segment } from './geometry';
 import type { GridTheme } from './theme';
 
 const DEFAULT_FONT_FAMILY = 'Arial';
@@ -89,9 +89,11 @@ export function renderGrid(ctx: CanvasRenderingContext2D, state: RenderState): v
   for (const clip of panes(layout)) {
     withClip(ctx, clip, () => {
       drawFilterButtons(ctx, state);
+      drawFindHits(ctx, state);
       drawRemote(ctx, state, clip);
       drawHighlights(ctx, state);
       drawSelection(ctx, state);
+      drawCopied(ctx, state);
       drawDropRange(ctx, state);
     });
   }
@@ -143,6 +145,7 @@ function drawPane(ctx: CanvasRenderingContext2D, state: RenderState, rows: Segme
   for (const m of merges) drawCellText(ctx, state, m.r1, m.c1, rangeRect(state.layout, sheet, m), m);
   drawBorders(ctx, state, rows, cols);
   if (sheet.comments.length) drawCommentMarks(ctx, state, rows, cols);
+  drawStatusMarks(ctx, state, rows, cols);
   if (sheet.dataTables.length) drawTableLines(ctx, state, rows, cols);
 }
 
@@ -383,7 +386,6 @@ function drawValidationDecor(ctx: CanvasRenderingContext2D, state: RenderState, 
     drawDropdownArrow(ctx, state, cell);
     rect = { ...cell, w: Math.max(0, cell.w - DROPDOWN_WIDTH) };
   }
-  if (value !== null && state.controller.isInvalid(row, col)) drawInvalidMark(ctx, cell);
   return rect;
 }
 
@@ -422,15 +424,65 @@ function drawDropdownArrow(ctx: CanvasRenderingContext2D, state: RenderState, ce
   ctx.fill();
 }
 
-/** A red corner on a value its validation rule refuses. */
-function drawInvalidMark(ctx: CanvasRenderingContext2D, cell: Rect): void {
-  ctx.fillStyle = '#d93025';
+/** Size of the red corner marks. */
+const MARK_SIZE = 8;
+
+/** A red corner on a value its validation rule refuses (top right, over the dropdown arrow's cell). */
+function drawInvalidMark(ctx: CanvasRenderingContext2D, color: string, cell: Rect): void {
+  ctx.fillStyle = color;
   ctx.beginPath();
-  ctx.moveTo(cell.x + cell.w - 8, cell.y);
+  ctx.moveTo(cell.x + cell.w - 1 - MARK_SIZE, cell.y);
   ctx.lineTo(cell.x + cell.w - 1, cell.y);
-  ctx.lineTo(cell.x + cell.w - 1, cell.y + 7);
+  ctx.lineTo(cell.x + cell.w - 1, cell.y + MARK_SIZE);
   ctx.closePath();
   ctx.fill();
+}
+
+/** A red corner on an error value (top left, so it never meets a comment's or an invalid value's corner at the top right). */
+function drawErrorMark(ctx: CanvasRenderingContext2D, color: string, cell: Rect): void {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(cell.x, cell.y);
+  ctx.lineTo(cell.x + MARK_SIZE, cell.y);
+  ctx.lineTo(cell.x, cell.y + MARK_SIZE);
+  ctx.closePath();
+  ctx.fill();
+}
+
+/** Corner marks for errors and refused values, drawn over borders so nothing hides them. */
+function drawStatusMarks(ctx: CanvasRenderingContext2D, state: RenderState, rows: Segment[], cols: Segment[]): void {
+  const hasRules = state.controller.sheet.validations.length > 0;
+  for (const r of rows) {
+    for (const c of cols) drawStatusMark(ctx, state, r, c, hasRules);
+  }
+}
+
+/** One cell's corner mark, on a merge's top-left cell only (its corner is the merge's). */
+function drawStatusMark(ctx: CanvasRenderingContext2D, state: RenderState, r: Segment, c: Segment, hasRules: boolean): void {
+  const { controller, theme } = state;
+  const sheet = controller.sheet;
+  const merge = sheet.merges.length ? sheet.mergeAt(r.index, c.index) : undefined;
+  if (merge && (merge.r1 !== r.index || merge.c1 !== c.index)) return;
+  const value = controller.engine.getValue(sheet.id, r.index, c.index);
+  if (value === null) return;
+  const cell = merge ? rangeRect(state.layout, sheet, merge) : { x: c.start, y: r.start, w: c.size, h: r.size };
+  if (isError(value)) drawErrorMark(ctx, theme.errorMark, cell);
+  else if (hasRules && controller.isInvalid(r.index, c.index)) drawInvalidMark(ctx, theme.errorMark, cell);
+}
+
+/** Find: a tint over every match in view, a stronger one on the current match. */
+function drawFindHits(ctx: CanvasRenderingContext2D, state: RenderState): void {
+  const hits = state.controller.findHits;
+  if (!hits) return;
+  const { layout, theme } = state;
+  for (const r of layout.rows) {
+    for (const c of layout.cols) {
+      const key = `${r.index}:${c.index}`;
+      if (!hits.cells.has(key)) continue;
+      ctx.fillStyle = key === hits.current ? theme.findCurrent : theme.findHit;
+      ctx.fillRect(c.start, r.start, c.size - 1, r.size - 1);
+    }
+  }
 }
 
 /** Filter buttons in the header row of the sheet's filter; a column that filters gets a filled one. */
@@ -582,9 +634,21 @@ function drawBorders(ctx: CanvasRenderingContext2D, state: RenderState, rows: Se
   }
 }
 
+/** A border's colour; the default (none, or black) is the theme's text colour, so it shows on a dark background. */
+export function borderColor(color: string | undefined, theme: GridTheme): string {
+  if (!color) return theme.text;
+  if (theme.dark && isBlack(color)) return theme.text;
+  return color;
+}
+
+function isBlack(color: string): boolean {
+  const c = color.trim().toLowerCase().replace(/\s+/g, '');
+  return c === 'black' || c === '#000' || c === '#000000' || c === 'rgb(0,0,0)';
+}
+
 function strokeSide(ctx: CanvasRenderingContext2D, state: RenderState, side: BorderSide | undefined, x1: number, y1: number, x2: number, y2: number): void {
   if (!side) return;
-  ctx.strokeStyle = side.color ?? state.theme.text;
+  ctx.strokeStyle = borderColor(side.color, state.theme);
   ctx.lineWidth = BORDER_WIDTH[side.style];
   ctx.setLineDash(BORDER_DASH[side.style]);
   ctx.beginPath();
@@ -639,6 +703,19 @@ function drawSelection(ctx: CanvasRenderingContext2D, state: RenderState): void 
 /** The middle of the fill handle on a range's rectangle (its bottom-right corner). */
 export function fillHandleCenter(rect: Rect): [number, number] {
   return [rect.x + rect.w - 1, rect.y + rect.h - 1];
+}
+
+/** The range last copied or cut, in a dashed outline in the selection colour (until Escape, a paste of a cut or an edit). */
+function drawCopied(ctx: CanvasRenderingContext2D, state: RenderState): void {
+  const copied = state.controller.copied;
+  const sheet = state.controller.sheet;
+  if (!copied || copied.sheetId !== sheet.id) return;
+  const rect = rangeRect(state.layout, sheet, copied.range);
+  ctx.strokeStyle = state.theme.selectionBorder;
+  ctx.lineWidth = 2;
+  ctx.setLineDash([5, 4]);
+  ctx.strokeRect(rect.x - 0.5, rect.y - 0.5, rect.w, rect.h);
+  ctx.setLineDash([]);
 }
 
 function drawDropRange(ctx: CanvasRenderingContext2D, state: RenderState): void {
@@ -823,6 +900,36 @@ function drawHeaders(ctx: CanvasRenderingContext2D, state: RenderState): void {
   ctx.moveTo(layout.rowHeaderWidth - 0.5, 0);
   ctx.lineTo(layout.rowHeaderWidth - 0.5, layout.height);
   ctx.stroke();
+  drawHiddenMarkers(ctx, state);
+}
+
+/** Two small triangles on the header boundary where rows or columns are hidden; clicking them shows the rows or columns again. */
+function drawHiddenMarkers(ctx: CanvasRenderingContext2D, state: RenderState): void {
+  const { layout, theme } = state;
+  ctx.fillStyle = theme.headerText;
+  for (const m of hiddenMarkers(layout, state.controller.sheet)) {
+    const cx = layout.rowHeaderWidth / 2;
+    const cy = layout.colHeaderHeight / 2;
+    ctx.beginPath();
+    if (m.axis === 'col') {
+      if (m.pos < layout.rowHeaderWidth || m.pos > layout.width) continue;
+      ctx.moveTo(m.pos - 1, cy - 4);
+      ctx.lineTo(m.pos - 1, cy + 4);
+      ctx.lineTo(m.pos - 5, cy);
+      ctx.moveTo(m.pos + 1, cy - 4);
+      ctx.lineTo(m.pos + 1, cy + 4);
+      ctx.lineTo(m.pos + 5, cy);
+    } else {
+      if (m.pos < layout.colHeaderHeight || m.pos > layout.height) continue;
+      ctx.moveTo(cx - 4, m.pos - 1);
+      ctx.lineTo(cx + 4, m.pos - 1);
+      ctx.lineTo(cx, m.pos - 5);
+      ctx.moveTo(cx - 4, m.pos + 1);
+      ctx.lineTo(cx + 4, m.pos + 1);
+      ctx.lineTo(cx, m.pos + 5);
+    }
+    ctx.fill();
+  }
 }
 
 function drawHeaderCell(ctx: CanvasRenderingContext2D, theme: GridTheme, rect: Rect, label: string, selected: boolean): void {

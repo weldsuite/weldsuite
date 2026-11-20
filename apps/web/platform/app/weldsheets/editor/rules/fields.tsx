@@ -58,11 +58,14 @@ export function ColorSelect({
   value,
   onChange,
   none,
+  showLabel = true,
 }: {
   label: string;
   value: string | undefined;
   onChange: (color: string | undefined) => void;
   none?: string;
+  /** Off where the field around it already says what it is: the label then only names the button. */
+  showLabel?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const pick = (color: string | undefined) => {
@@ -72,9 +75,9 @@ export function ColorSelect({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button type="button" className="flex h-8 items-center gap-2 rounded-md border px-2 text-sm hover:bg-accent" aria-label={label}>
-          <span className="size-4 rounded-sm border" style={{ backgroundColor: value ?? 'transparent' }} />
-          <span className="text-xs text-muted-foreground">{label}</span>
+        <button type="button" className="flex h-8 items-center gap-2 rounded-md border px-2 text-sm hover:bg-accent" aria-label={label} title={showLabel ? undefined : label}>
+          <span className="size-4 shrink-0 rounded-sm border" style={{ backgroundColor: value ?? 'transparent' }} />
+          {showLabel && <span className="truncate text-xs text-muted-foreground">{label}</span>}
         </button>
       </PopoverTrigger>
       <PopoverContent className="w-auto p-2" align="start">

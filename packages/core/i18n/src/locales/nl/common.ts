@@ -14,6 +14,7 @@ export const common = {
       create: 'Maken',
       update: 'Bijwerken',
       search: 'Zoeken',
+      clearSearch: 'Zoekopdracht wissen',
       filter: 'Filteren',
       export: 'Exporteren',
       import: 'Importeren',

@@ -1,6 +1,10 @@
 import { useRef } from 'react';
 import { Plus, Upload } from 'lucide-react';
 
+/** Both cards are built alike: an icon and one line in a tile, the name under it. */
+const TILE = 'flex aspect-[4/3] flex-col items-center justify-center gap-1 rounded-lg border bg-background px-2 text-center transition group-hover:border-primary';
+const ICON = 'size-8 text-muted-foreground transition group-hover:text-primary';
+
 /**
  * The strip above WeldDocs' and WeldSheets' lists, like WeldBoard's: start a
  * blank file, or import one.
@@ -8,6 +12,7 @@ import { Plus, Upload } from 'lucide-react';
 export function NewFileStrip({
   title,
   blankLabel,
+  blankHint,
   importLabel,
   importHint,
   accept,
@@ -16,6 +21,8 @@ export function NewFileStrip({
 }: Readonly<{
   title: string;
   blankLabel: string;
+  /** One line under the blank file's icon, as the import card has its file types. */
+  blankHint?: string;
   importLabel: string;
   /** The file types it takes (".docx, .md, .txt or .html"). */
   importHint: string;
@@ -30,14 +37,15 @@ export function NewFileStrip({
         <h2 className="text-sm font-medium text-muted-foreground">{title}</h2>
         <div className="flex gap-4 overflow-x-auto pb-1">
           <button type="button" onClick={onBlank} className="group flex w-44 shrink-0 flex-col items-stretch gap-1.5 text-left">
-            <span className="flex aspect-[4/3] items-center justify-center rounded-lg border bg-background transition group-hover:border-primary">
-              <Plus className="size-8 text-primary" />
+            <span className={TILE}>
+              <Plus className={ICON} />
+              {blankHint && <span className="text-xs text-muted-foreground">{blankHint}</span>}
             </span>
             <span className="text-sm font-medium">{blankLabel}</span>
           </button>
           <button type="button" onClick={() => fileInput.current?.click()} className="group flex w-44 shrink-0 flex-col items-stretch gap-1.5 text-left">
-            <span className="flex aspect-[4/3] flex-col items-center justify-center gap-1 rounded-lg border border-dashed bg-background transition group-hover:border-primary">
-              <Upload className="size-8 text-muted-foreground group-hover:text-primary" />
+            <span className={TILE}>
+              <Upload className={ICON} />
               <span className="text-xs text-muted-foreground">{importHint}</span>
             </span>
             <span className="text-sm font-medium">{importLabel}</span>

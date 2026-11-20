@@ -52,11 +52,15 @@ function PivotForm({ controller, table }: { controller: SheetController; table: 
     save({ filters: [...spec.filters, { field, values }] });
   };
 
+  // A field groups the table once: as rows or as columns, never both or twice.
+  const grouped = new Set([...spec.rows, ...spec.columns].map((g) => g.field.toLowerCase()));
+  const ungrouped = fields.filter((f) => !grouped.has(f.toLowerCase()));
+
   const groups = (key: 'rows' | 'columns', label: string) => {
     const list = spec[key];
     const set = (next: PivotGroup[]) => save(key === 'rows' ? { rows: next } : { columns: next });
     return (
-      <Section label={label} fields={fields} addLabel={tp.add} onAdd={(field) => set([...list, { field }])}>
+      <Section label={label} fields={ungrouped} addLabel={tp.add} onAdd={(field) => set([...list, { field }])}>
         {list.map((g, i) => (
           <GroupRow
             key={`${i}:${g.field}`}

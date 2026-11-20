@@ -163,7 +163,7 @@ export type FormatCache = Map<string, ScaleStats | null>;
  * The conditional style of a cell: the first format (in `order`) whose ranges
  * cover it and whose rule matches. `sheet.conditionalFormats` is kept in that order.
  */
-export function conditionalStyleAt(host: RuleHost, sheet: Sheet, row: number, col: number, cache: FormatCache): ConditionalStyle | undefined {
+export function conditionalStyleAt(host: RuleHost, sheet: Pick<Sheet, 'id' | 'conditionalFormats'>, row: number, col: number, cache: FormatCache): ConditionalStyle | undefined {
   for (const cf of sheet.conditionalFormats) {
     if (!cf.ranges.some((r) => rangeContains(r, row, col))) continue;
     const value = host.cellValue(sheet.id, row, col);

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
+import { toast } from 'sonner';
 import { fillTarget } from '../model/autofill';
+import { cellHint, selectedHintCell, type CellHintStrings } from '../model/cell-hint';
 import { copySelection, moveCells, pasteInto } from '../model/clipboard';
 import { FormulaAssistPopup, useFormulaAssist } from '../formula-assist';
 import { acceptsReference, referenceText, refsInEdit } from '../model/formula-edit';
@@ -8,7 +10,7 @@ import { MAX_COLS, MAX_ROWS, type Chart, type Range } from '@weldsuite/sheets-en
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { useI18n } from '@/lib/i18n/provider';
-import { chartAt, draggedChart, HANDLE_CURSOR, samePlace, type ChartHandle } from '../charts/chart-geometry';
+import { chartAt, chartRect, draggedChart, HANDLE_CURSOR, samePlace, type ChartHandle } from '../charts/chart-geometry';
 import { removeChart, saveChart } from '../model/charts';
 import {
   cellSelection,
@@ -24,12 +26,13 @@ import {
   type CellPos,
 } from '../model/selection';
 import type { SheetController } from '../model/sheet-controller';
-import { fitToData } from './autofit';
+import { fitToData, fittedHeight } from './autofit';
 import { GridContextMenu } from './grid-context-menu';
 import { TableChip } from './table-chip';
 import {
   colLeft,
   computeLayout,
+  hiddenMarkerAt,
   hitTest,
   physicalScrollSize,
   rangeRect,
@@ -90,6 +93,7 @@ const EDGE_GRIP = 3;
 const ADD_ROWS_HEIGHT = 48;
 const ADD_ROWS_DEFAULT = '1000';
 const TABLE_CHIP_HEIGHT = 22;
+const HINT_ID = 'sheet-cell-hint';
 
 interface Props {
   controller: SheetController;
@@ -122,6 +126,8 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot, tableLabels 
   const [caret, setCaret] = useState(0);
   /** The cell under the pointer, tracked only while someone else is on this sheet. */
   const [hoverCell, setHoverCell] = useState<CellPos | null>(null);
+  /** The cell under the pointer whose error or invalid value has a hint to show. */
+  const [tipCell, setTipCell] = useState<CellPos | null>(null);
   /** An open filter menu (on a filter header cell) or dropdown list (on a list cell). */
   const [cellMenu, setCellMenu] = useState<{ kind: 'filter' | 'list'; row: number; col: number } | null>(null);
   const [, setLabelClock] = useState(0);
@@ -153,6 +159,18 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot, tableLabels 
   const viewH = Math.max(0, size.height - COL_HEADER_HEIGHT - frozenH);
   const layout = computeLayout(sheet, size.width, size.height, scroll.x, scroll.y);
   layoutRef.current = layout;
+
+  // Rows grow to fit wrapped text (the canvas measures it), and refusals show as toasts.
+  const freezeRefused = t.weldsheets.freeze.splitsMerge;
+  const moveRefused = t.weldsheets.editor.moveSplitsMerge;
+  useEffect(() => {
+    controller.autoFit = (row) => fittedHeight(controller, row, measureText);
+    controller.notify = (notice) => toast.error(notice === 'freezeSplitsMerge' ? freezeRefused : moveRefused);
+    return () => {
+      controller.autoFit = null;
+      controller.notify = null;
+    };
+  }, [controller, freezeRefused, moveRefused]);
 
   // Size and theme.
   useLayoutEffect(() => {
@@ -242,17 +260,66 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot, tableLabels 
   // Keep the active cell in view after keyboard moves.
   useEffect(() => {
     const { row, col } = controller.selection.active;
-    const key = `${controller.activeSheetId}:${row}:${col}`;
+    // The width is in the key: a side panel opening or closing re-checks the cell is still in view.
+    const key = `${controller.activeSheetId}:${row}:${col}:${size.width}`;
     if (key === lastActive.current) return;
     lastActive.current = key;
     const l = layoutRef.current;
     const scroller = scrollerRef.current;
     if (!l || !scroller || l.width === 0 || dragRef.current) return;
     const next = scrollIntoView(l, sheet, row, col);
-    if (!next) return;
-    scroller.scrollLeft = toPhysicalScroll(next.scrollX, content.width, viewW);
-    scroller.scrollTop = toPhysicalScroll(next.scrollY, content.height, viewH);
-  }, [version, controller, sheet, content.width, content.height, viewW, viewH]);
+    if (next) {
+      scroller.scrollLeft = toPhysicalScroll(next.scrollX, content.width, viewW);
+      scroller.scrollTop = toPhysicalScroll(next.scrollY, content.height, viewH);
+    }
+    // On the last row, go on to the end so the add-rows bar under it shows too.
+    if (canAddRows && row === sheet.rowCount - 1) scroller.scrollTop = scroller.scrollHeight;
+  }, [version, controller, sheet, content.width, content.height, viewW, viewH, size.width, canAddRows]);
+
+  // A chart that gets picked (a new one lands where it covers no data, maybe below the fold) or that
+  // a side panel narrows the grid around scrolls into view, whole when it fits; its top left wins when it doesn't.
+  const lastChart = useRef<string | null>(null);
+  useEffect(() => {
+    const id = controller.selectedChart;
+    const key = id && `${id}:${size.width}:${controller.panel}`;
+    if (key === lastChart.current) return;
+    lastChart.current = key;
+    const chart = id ? sheet.charts.find((c) => c.id === id) : undefined;
+    const scroller = scrollerRef.current;
+    const l = layoutRef.current;
+    if (!chart || !scroller || !l || l.width === 0 || dragRef.current) return;
+    const rect = chartRect(l, sheet, chart);
+    const shift = (start: number, end: number, from: number, to: number) => {
+      let by = end > to ? end - to : 0;
+      if (start - by < from) by = start - from;
+      return by;
+    };
+    const dx = chart.anchor.col < l.frozenCols ? 0 : shift(rect.x, rect.x + rect.w, l.rowHeaderWidth + l.frozenWidth, l.width);
+    const dy = chart.anchor.row < l.frozenRows ? 0 : shift(rect.y, rect.y + rect.h, l.colHeaderHeight + l.frozenHeight, l.height);
+    if (dx === 0 && dy === 0) return;
+    scroller.scrollLeft = toPhysicalScroll(Math.max(0, l.scrollX + dx), content.width, viewW);
+    scroller.scrollTop = toPhysicalScroll(Math.max(0, l.scrollY + dy), content.height, viewH);
+  }, [version, controller, sheet, content.width, content.height, viewW, viewH, size.width, size.height]);
+
+  // This wrapper clips the grid and must never be scrolled: the browser does it on its own to reveal the editor's
+  // caret, which shifts the canvas off its row numbers. It and every clipping ancestor snap back.
+  useEffect(() => {
+    const clipped = new Map<HTMLElement, { x: boolean; y: boolean }>();
+    const snapBack = (e: Event) => {
+      const el = e.currentTarget as HTMLElement;
+      const axes = clipped.get(el);
+      if (axes?.x && el.scrollLeft !== 0) el.scrollLeft = 0;
+      if (axes?.y && el.scrollTop !== 0) el.scrollTop = 0;
+    };
+    for (let el: HTMLElement | null = containerRef.current; el && el !== document.body; el = el.parentElement) {
+      const { overflowX, overflowY } = getComputedStyle(el);
+      if (overflowX === 'hidden' || overflowY === 'hidden') clipped.set(el, { x: overflowX === 'hidden', y: overflowY === 'hidden' });
+    }
+    for (const el of clipped.keys()) el.addEventListener('scroll', snapBack);
+    return () => {
+      for (const el of clipped.keys()) el.removeEventListener('scroll', snapBack);
+    };
+  }, []);
 
   // Opening an existing value for editing puts the caret at its end.
   const wasEditing = useRef(false);
@@ -403,6 +470,14 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot, tableLabels 
     if (e.button !== 0) return;
     const { hit, x, y } = pointAt(e);
     if (hit.area === 'cell' && x > layout.width - 16 && y > layout.height - 16) return; // scrollbar corner
+    const marker = hiddenMarkerAt(layout, sheet, x, y);
+    if (marker) {
+      // The mark where rows or columns are hidden shows them again.
+      e.preventDefault();
+      controller.apply({ type: 'hideDims', sheetId: controller.activeSheetId, axis: marker.axis, indices: marker.indices, hidden: false });
+      activeInput()?.focus({ preventScroll: true });
+      return;
+    }
     const onChart = hit.area === 'cell' ? chartAt(layout, sheet, x, y, controller.selectedChart) : null;
     if (onChart) {
       pickChart(onChart.chart, onChart.handle ?? null, e);
@@ -413,6 +488,11 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot, tableLabels 
       e.preventDefault();
       return;
     }
+    startPress(hit, e);
+  };
+
+  /** A press on a cell or header: points at it for the formula being typed, else commits the edit and selects. */
+  const startPress = (hit: Hit, e: React.PointerEvent<HTMLDivElement>) => {
     const input = activeInput();
     const caretPos = input?.selectionStart ?? 0;
     const pointing = hit.area === 'cell' && !!editing && acceptsReference(editing.text, caretPos);
@@ -540,13 +620,19 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot, tableLabels 
   };
 
   const trackHover = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (remote.length === 0) {
-      if (hoverCell) setHoverCell(null);
-      return;
-    }
     const { hit } = pointAt(e);
     const cell = hit.area === 'cell' ? { row: hit.row, col: hit.col } : null;
-    setHoverCell((h) => (h?.row === cell?.row && h?.col === cell?.col ? h : cell));
+    const same = (h: CellPos | null) => (h?.row === cell?.row && h?.col === cell?.col ? h : cell);
+    if (remote.length === 0) {
+      if (hoverCell) setHoverCell(null);
+    } else {
+      setHoverCell(same);
+    }
+    // Only a cell with something to say gets a hint.
+    const merged = cell && (sheet.mergeAt(cell.row, cell.col) ?? undefined);
+    const anchor = cell && merged ? { row: merged.r1, col: merged.c1 } : cell;
+    const hinted = anchor && !controller.editing && cellHint(controller, anchor.row, anchor.col, t.weldsheets.cellHints) ? anchor : null;
+    setTipCell((h) => (h?.row === hinted?.row && h?.col === hinted?.col ? h : hinted));
   };
 
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -700,15 +786,22 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot, tableLabels 
 
   const updateCursor = (e: React.PointerEvent<HTMLDivElement>) => {
     const { hit, x, y } = pointAt(e);
+    // The mark where rows or columns are hidden: a press shows them again.
+    const marker = controller.readOnly ? undefined : hiddenMarkerAt(layout, sheet, x, y);
+    const unhide = marker?.axis === 'col' ? t.weldsheets.menu.unhideColumns : t.weldsheets.menu.unhideRows;
+    const title = marker ? unhide : '';
+    if (e.currentTarget.title !== title) e.currentTarget.title = title;
+    e.currentTarget.style.cursor = marker ? 'pointer' : cursorAt(hit, x, y);
+  };
+
+  /** What a press at this point would do, as a cursor. */
+  const cursorAt = (hit: Hit, x: number, y: number): string => {
     const onChart = hit.area === 'cell' ? chartAt(layout, sheet, x, y, controller.selectedChart) : null;
-    let cursor = 'cell';
-    if (onChart) cursor = chartCursor(onChart.handle, controller.readOnly);
-    else if (hit.resize) cursor = hit.resize.axis === 'col' ? 'col-resize' : 'row-resize';
-    else if (hit.area === 'cell' && onFillHandle(x, y)) cursor = 'crosshair';
-    else if (hit.area === 'cell' && onSelectionEdge(x, y)) cursor = 'grab';
-    else if (onSelectedHeader(hit)) cursor = 'grab';
-    else if (hit.area !== 'cell') cursor = 'default';
-    e.currentTarget.style.cursor = cursor;
+    if (onChart) return chartCursor(onChart.handle, controller.readOnly);
+    if (hit.resize) return hit.resize.axis === 'col' ? 'col-resize' : 'row-resize';
+    if (hit.area !== 'cell') return onSelectedHeader(hit) ? 'grab' : 'default';
+    if (onFillHandle(x, y)) return 'crosshair';
+    return onSelectionEdge(x, y) ? 'grab' : 'cell';
   };
 
   const onDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -800,6 +893,8 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot, tableLabels 
   const pageRows = () => Math.max(1, Math.floor(viewH / sheet.rows.defaultSize) - 1);
 
   const onChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    // With a chart picked, typing (an IME's too) is not a cell edit.
+    if (controller.selectedChart && !controller.editing) return;
     const text = e.target.value;
     const pos = e.target.selectionStart ?? text.length;
     setCaret(pos);
@@ -867,6 +962,14 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot, tableLabels 
     el.scrollLeft += e.deltaX;
   };
 
+  const hint = visibleHint(controller, {
+    pointer: tipCell,
+    busy: !!editing || !!dragRef.current,
+    strings: t.weldsheets.cellHints,
+    cellRect,
+    view: { ...size, headerW },
+  });
+
   return (
     <div ref={containerRef} className="relative min-h-0 flex-1 overflow-hidden select-none" data-testid="sheet-grid">
       <canvas ref={canvasRef} className="pointer-events-none absolute left-0 top-0" aria-hidden />
@@ -880,10 +983,15 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot, tableLabels 
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
-          onPointerLeave={() => setHoverCell(null)}
+          onPointerLeave={() => {
+            setHoverCell(null);
+            setTipCell(null);
+          }}
           onDoubleClick={onDoubleClick}
           onContextMenu={onContextMenuOpen}
           role="grid"
+          // Focusable as the grid it is; the keyboard itself stays in the cell editor inside it.
+          tabIndex={-1}
           aria-rowcount={sheet.rowCount}
           aria-colcount={sheet.colCount}
           aria-label={sheet.name}
@@ -947,7 +1055,9 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot, tableLabels 
         onPaste={onPaste}
         spellCheck={false}
         autoComplete="off"
+        data-sheet-editor=""
         aria-label={controller.inputText(active.row, active.col)}
+        aria-describedby={hint ? HINT_ID : undefined}
         className="absolute z-10 resize-none overflow-hidden whitespace-pre-wrap break-words border-2 border-[#1a73e8] bg-background px-[3px] text-foreground outline-none"
         style={
           editorVisible
@@ -963,7 +1073,7 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot, tableLabels 
                 color: editStyle?.color,
                 backgroundColor: editStyle?.fill,
               }
-            : { left: editRect.x, top: editRect.y, width: 1, height: 1, opacity: 0, padding: 0, border: 0 }
+            : { left: clamp(editRect.x, 0, Math.max(0, size.width - 2)), top: clamp(editRect.y, 0, Math.max(0, size.height - 2)), width: 1, height: 1, opacity: 0, padding: 0, border: 0 }
         }
       />
       {cellMenu?.kind === 'filter' && sheet.filter && (
@@ -972,6 +1082,7 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot, tableLabels 
       {cellMenu?.kind === 'list' && (
         <ListMenu controller={controller} row={cellMenu.row} col={cellMenu.col} rect={cellRect(cellMenu.row, cellMenu.col)} onClose={() => setCellMenu(null)} />
       )}
+      {hint && <CellHintTooltip text={hint.text} rect={hint.rect} width={size.width} height={size.height} />}
       {editorVisible && <FormulaAssistPopup assist={assist} controller={controller} style={{ left: editRect.x, top: editRect.y + editRect.h + 2 }} />}
     </div>
   );
@@ -983,6 +1094,47 @@ function measureEditor(text: string, style: Parameters<typeof fontFor>[0]): numb
 
 function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n));
+}
+
+/**
+ * The hint to show: of the cell under the pointer, else of the selected one (what a keyboard user reaches).
+ * Not while editing or dragging out a selection (it would cover what that spans), and not for a cell scrolled out of view.
+ */
+function visibleHint(
+  controller: SheetController,
+  opts: {
+    pointer: CellPos | null;
+    busy: boolean;
+    strings: CellHintStrings;
+    cellRect: (row: number, col: number) => Rect;
+    view: { width: number; height: number; headerW: number };
+  },
+): { text: string; rect: Rect } | null {
+  const at = opts.pointer ?? (opts.busy ? null : selectedHintCell(controller));
+  const text = at && cellHint(controller, at.row, at.col, opts.strings);
+  if (!at || !text) return null;
+  const rect = opts.cellRect(at.row, at.col);
+  const { width, height, headerW } = opts.view;
+  const inView = rect.y >= COL_HEADER_HEIGHT && rect.y < height && rect.x + rect.w > headerW && rect.x < width;
+  return inView ? { text, rect } : null;
+}
+
+/** A cell's hint under it, or above it when there is no room below; kept inside the grid's width. */
+function CellHintTooltip({ text, rect, width, height }: { text: string; rect: Rect; width: number; height: number }) {
+  const below = rect.y + rect.h + 64 <= height;
+  return (
+    <div
+      id={HINT_ID}
+      role="tooltip"
+      className="pointer-events-none absolute z-20 max-w-64 rounded-md border bg-popover px-2.5 py-1.5 text-xs text-popover-foreground shadow-md"
+      style={{
+        left: clamp(rect.x, 4, Math.max(4, width - 268)),
+        ...(below ? { top: rect.y + rect.h + 4 } : { top: rect.y - 4, transform: 'translateY(-100%)' }),
+      }}
+    >
+      {text}
+    </div>
+  );
 }
 
 /** Pixels a frame to scroll a drag held at `p`, before `lo` (back) or within a few pixels of `hi` (on): faster further out. */

@@ -6,7 +6,7 @@ import { usePermissions } from '@weldsuite/permissions/react';
 import { SHEET_DATA_OBJECT_KEYS, SHEET_DATA_OBJECTS, type SheetDataObjectKey } from '@weldsuite/app-api-client/schemas/sheet-data';
 import type { SheetDataRefreshResult, SheetDataSource } from '@weldsuite/app-api-client/schemas/sheets';
 import { findDataTable, formatA1 } from '@weldsuite/sheets-engine';
-import { Button } from '@weldsuite/ui/components/button';
+import { EmptyText } from '@weldsuite/ui/components/empty-state';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@weldsuite/ui/components/dropdown-menu';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useAppApi } from '@/lib/api/use-app-api';
@@ -16,7 +16,7 @@ import { defaultFormResponseColumns, sheetFormColumns, type SheetFormColumn } fr
 import { useI18n } from '@/lib/i18n/provider';
 import type { Person } from '../editor/comments/comments-panel';
 import type { SheetController } from '../editor/model/sheet-controller';
-import { RulePanel } from '../editor/rules/panel';
+import { PanelAction, PanelIntro, RulePanel } from '../editor/rules/panel';
 import { sheetsQueryKey } from '../store/use-sheet-store';
 import { definitionOf, draftOf, newDraft, type SourceDraft } from './data-source-draft';
 import { DataSourceForm, useFieldLabel, type FormPicker } from './data-source-form';
@@ -194,13 +194,9 @@ export function DataPanel({
 
   return (
     <RulePanel title={td.title} closeLabel={td.close} onClose={onClose}>
-      <p className="text-xs text-muted-foreground">{td.intro}</p>
-      {canEdit && !editing && readable.length > 0 && (
-        <Button size="sm" variant="outline" onClick={connect}>
-          {td.connect}
-        </Button>
-      )}
-      {canEdit && !editing && readable.length === 0 && <p className="text-xs text-muted-foreground">{td.noObjects}</p>}
+      <PanelIntro>{td.intro}</PanelIntro>
+      {canEdit && !editing && readable.length > 0 && <PanelAction onClick={connect}>{td.connect}</PanelAction>}
+      {canEdit && !editing && readable.length === 0 && <PanelIntro>{td.noObjects}</PanelIntro>}
       {editing && (
         <DataSourceForm
           draft={editing.draft}
@@ -214,12 +210,13 @@ export function DataPanel({
           onCancel={() => setEditing(null)}
         />
       )}
-      {sources?.length === 0 && !editing && <p className="px-1 py-6 text-center text-sm text-muted-foreground">{td.empty}</p>}
+      {sources?.length === 0 && !editing && <EmptyText>{td.empty}</EmptyText>}
       {sources?.map((source) => (
         <SourceCard
           key={source.id}
           source={source}
           place={placeOf(controller, source.id)}
+          placing={arriving === source.id}
           by={people.find((p) => p.id === source.createdById)?.name}
           canEdit={canEdit}
           busy={refresh.isPending && refresh.variables?.id === source.id}
@@ -248,6 +245,7 @@ export function DataPanel({
 function SourceCard({
   source,
   place,
+  placing,
   by,
   canEdit,
   busy,
@@ -258,6 +256,8 @@ function SourceCard({
 }: {
   source: SheetDataSource;
   place: string | null;
+  /** Just connected: its tab is on its way over the room. */
+  placing: boolean;
   by: string | undefined;
   canEdit: boolean;
   busy: boolean;
@@ -275,14 +275,12 @@ function SourceCard({
     <div className="flex items-start gap-2 rounded-lg border bg-card p-3 text-sm">
       <div className="min-w-0 flex-1">
         <div className="truncate font-medium">{t.sheetData.objects[source.objectType]}</div>
-        <div className="truncate text-xs text-muted-foreground">{place ?? td.notPlaced}</div>
+        <div className="truncate text-xs text-muted-foreground">{place ?? (placing ? td.placing : td.notPlaced)}</div>
         <div className="text-xs text-muted-foreground">
           {td.rows.replace('{count}', String(source.rowCount))} · {td.refreshModes[source.refresh]}
         </div>
-        <div className="text-xs text-muted-foreground">
-          {busy ? td.refreshing : when}
-          {by ? ` · ${td.by.replace('{name}', by)}` : ''}
-        </div>
+        <div className="text-xs text-muted-foreground">{busy ? td.refreshing : when}</div>
+        {by && <div className="truncate text-xs text-muted-foreground">{td.by.replace('{name}', by)}</div>}
         {source.lastError && (
           <div className="mt-1 flex items-start gap-1 text-xs text-destructive">
             <AlertCircle className="mt-0.5 size-3 shrink-0" />

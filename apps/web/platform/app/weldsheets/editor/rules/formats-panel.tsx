@@ -1,17 +1,18 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
-import { ArrowDown, ArrowUp, Bold, Italic, Plus, Strikethrough, Trash2, Underline } from 'lucide-react';
+import { ArrowDown, ArrowUp, Bold, Italic, Strikethrough, Trash2, Underline } from 'lucide-react';
 import type { ColorPoint, ConditionalFormat, ConditionalStyle } from '@weldsuite/sheets-engine';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
+import { EmptyText } from '@weldsuite/ui/components/empty-state';
 import { Tabs, TabsList, TabsTrigger } from '@weldsuite/ui/components/tabs';
 import { useI18n } from '@/lib/i18n/provider';
 import type { SheetController } from '../model/sheet-controller';
 import { moveFormat, newRuleId, nextFormatOrder, removeFormat, saveFormat } from '../model/rules';
 import { fromDraft, parseRanges, rangesText, toDraft, type ConditionDraft } from './conditions';
 import { ColorSelect, ConditionFields, Field } from './fields';
-import { conditionSummary, RulePanel, selectionText } from './panel';
+import { conditionSummary, PanelAction, PanelIntro, RulePanel, selectionText } from './panel';
 
 const DEFAULT_STYLE: ConditionalStyle = { fill: '#b7e1cd' };
 const DEFAULT_SCALE: ColorPoint[] = [
@@ -29,9 +30,7 @@ export function FormatsPanel({ controller }: { controller: SheetController }) {
 
   if (editing) {
     return (
-      <RulePanel title={tf.title} closeLabel={tf.close} onClose={close}>
-        <FormatEditor controller={controller} rule={editing} onDone={() => setEditing(null)} />
-      </RulePanel>
+      <FormatEditor controller={controller} rule={editing} onDone={() => setEditing(null)} onClose={close} />
     );
   }
 
@@ -45,7 +44,9 @@ export function FormatsPanel({ controller }: { controller: SheetController }) {
 
   return (
     <RulePanel title={tf.title} closeLabel={tf.close} onClose={close}>
-      {rules.length === 0 && <p className="text-sm text-muted-foreground">{tf.empty}</p>}
+      <PanelIntro>{tf.intro}</PanelIntro>
+      <PanelAction onClick={add}>{tf.addRule}</PanelAction>
+      {rules.length === 0 && <EmptyText>{tf.empty}</EmptyText>}
       <ul className="flex flex-col gap-2">
         {rules.map((rule, i) => (
           <li key={rule.id} className="group flex items-center gap-2 rounded-md border p-2 hover:bg-accent/50">
@@ -68,10 +69,6 @@ export function FormatsPanel({ controller }: { controller: SheetController }) {
           </li>
         ))}
       </ul>
-      <Button variant="outline" size="sm" className="self-start" onClick={add}>
-        <Plus />
-        {tf.addRule}
-      </Button>
     </RulePanel>
   );
 }
@@ -120,7 +117,18 @@ interface PointDraft {
   color: string;
 }
 
-function FormatEditor({ controller, rule, onDone }: { controller: SheetController; rule: ConditionalFormat; onDone: () => void }) {
+/** The color scale a set of point drafts describes (a point set to none is left out). */
+function scaleOf(points: PointDraft[]): ColorPoint[] {
+  return points
+    .filter((p) => p.kind !== 'none')
+    .map((p) => {
+      const kind = p.kind as ColorPoint['kind'];
+      const value = Number(p.value.replace(',', '.'));
+      return kind === 'min' || kind === 'max' || !Number.isFinite(value) ? { kind, color: p.color } : { kind, value, color: p.color };
+    });
+}
+
+function FormatEditor({ controller, rule, onDone, onClose }: { controller: SheetController; rule: ConditionalFormat; onDone: () => void; onClose: () => void }) {
   const { t } = useI18n();
   const tf = t.weldsheets.conditionalFormats;
   const locale = controller.options.formulaLocale;
@@ -138,6 +146,19 @@ function FormatEditor({ controller, rule, onDone }: { controller: SheetControlle
     return [low, mid, high];
   });
 
+  // The grid shows the rule as it is being edited; it goes with the editor.
+  const preview = useMemo<ConditionalFormat | null>(() => {
+    const parsed = parseRanges(ranges);
+    if (!parsed) return null;
+    if (mode === 'colorScale') return { ...rule, ranges: parsed, rule: { type: 'colorScale', points: scaleOf(points) } };
+    const condition = fromDraft(draft, locale);
+    return condition ? { ...rule, ranges: parsed, rule: { type: 'condition', condition, style } } : null;
+  }, [ranges, mode, draft, style, points, rule, locale]);
+  useEffect(() => {
+    controller.setPreviewRule(preview);
+  }, [controller, preview]);
+  useEffect(() => () => controller.setPreviewRule(null), [controller]);
+
   const save = () => {
     const parsed = parseRanges(ranges);
     if (!parsed) {
@@ -152,13 +173,7 @@ function FormatEditor({ controller, rule, onDone }: { controller: SheetControlle
       }
       saveFormat(controller, { ...rule, ranges: parsed, rule: { type: 'condition', condition, style } });
     } else {
-      const used = points.filter((p) => p.kind !== 'none');
-      const scale: ColorPoint[] = used.map((p) => {
-        const kind = p.kind as ColorPoint['kind'];
-        const value = Number(p.value.replace(',', '.'));
-        return kind === 'min' || kind === 'max' || !Number.isFinite(value) ? { kind, color: p.color } : { kind, value, color: p.color };
-      });
-      saveFormat(controller, { ...rule, ranges: parsed, rule: { type: 'colorScale', points: scale } });
+      saveFormat(controller, { ...rule, ranges: parsed, rule: { type: 'colorScale', points: scaleOf(points) } });
     }
     onDone();
   };
@@ -179,8 +194,35 @@ function FormatEditor({ controller, rule, onDone }: { controller: SheetControlle
     return [i === 0 ? 'min' : 'max', 'number', 'percent', 'percentile'];
   };
 
+  const footer = (
+    <>
+      {existing && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-destructive"
+          onClick={() => {
+            removeFormat(controller, rule.id);
+            onDone();
+          }}
+        >
+          <Trash2 />
+          {tf.remove}
+        </Button>
+      )}
+      <div className="ml-auto flex gap-2">
+        <Button variant="ghost" size="sm" onClick={onDone}>
+          {tf.cancel}
+        </Button>
+        <Button size="sm" onClick={save}>
+          {tf.done}
+        </Button>
+      </div>
+    </>
+  );
+
   return (
-    <div className="flex flex-col gap-4">
+    <RulePanel title={tf.title} closeLabel={tf.close} onClose={onClose} footer={footer}>
       <Field label={tf.applyTo}>
         <Input className="h-8 font-mono text-sm" value={ranges} onChange={(e) => setRanges(e.target.value)} aria-label={tf.applyTo} />
       </Field>
@@ -200,7 +242,7 @@ function FormatEditor({ controller, rule, onDone }: { controller: SheetControlle
             <ConditionFields draft={draft} onChange={setDraft} allowNone={false} />
           </Field>
           <Field label={tf.style}>
-            <div className="flex flex-wrap items-center gap-1">
+            <div className="flex items-center gap-1">
               {(
                 [
                   ['bold', Bold],
@@ -220,6 +262,9 @@ function FormatEditor({ controller, rule, onDone }: { controller: SheetControlle
                   <Icon />
                 </button>
               ))}
+            </div>
+            {/* The two colours side by side on their own row, so neither wraps alone. */}
+            <div className="mt-1 grid grid-cols-2 gap-1 [&>button]:min-w-0">
               <ColorSelect label={tf.textColor} value={style.color} none={tf.noColor} onChange={(color) => setStyle((s) => ({ ...s, color }))} />
               <ColorSelect label={tf.fillColor} value={style.fill} none={tf.noColor} onChange={(fill) => setStyle((s) => ({ ...s, fill }))} />
             </div>
@@ -246,7 +291,7 @@ function FormatEditor({ controller, rule, onDone }: { controller: SheetControlle
                 {p.kind !== 'none' && p.kind !== 'min' && p.kind !== 'max' && (
                   <Input className="h-8 w-16 text-sm" value={p.value} onChange={(e) => setPoint(i, { value: e.target.value })} aria-label={kindLabels[p.kind]} />
                 )}
-                {p.kind !== 'none' && <ColorSelect label="" value={p.color} onChange={(color) => setPoint(i, { color: color ?? p.color })} />}
+                {p.kind !== 'none' && <ColorSelect label={tf.pointColor.replace('{point}', pointLabels[i]!)} showLabel={false} value={p.color} onChange={(color) => setPoint(i, { color: color ?? p.color })} />}
               </div>
             </Field>
           ))}
@@ -257,30 +302,6 @@ function FormatEditor({ controller, rule, onDone }: { controller: SheetControlle
           />
         </>
       )}
-      <div className="flex items-center gap-2">
-        {existing && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-destructive"
-            onClick={() => {
-              removeFormat(controller, rule.id);
-              onDone();
-            }}
-          >
-            <Trash2 />
-            {tf.remove}
-          </Button>
-        )}
-        <div className="ml-auto flex gap-2">
-          <Button variant="ghost" size="sm" onClick={onDone}>
-            {tf.cancel}
-          </Button>
-          <Button size="sm" onClick={save}>
-            {tf.done}
-          </Button>
-        </div>
-      </div>
-    </div>
+    </RulePanel>
   );
 }

@@ -32,6 +32,15 @@ export function SheetHeader({
   const preview = usePreviewMode();
   const [draft, setDraft] = useState(name);
   useEffect(() => setDraft(name), [name]);
+  // The browser tab is named after the spreadsheet while it is open.
+  useEffect(() => {
+    if (!name) return;
+    const previous = document.title;
+    document.title = name;
+    return () => {
+      document.title = previous;
+    };
+  }, [name]);
 
   const commit = (next: string) => {
     const trimmed = next.trim() || t.weldsheets.home.untitled;
@@ -61,14 +70,23 @@ export function SheetHeader({
           onChange={(e) => setDraft(e.target.value)}
           onBlur={(e) => commit(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') e.currentTarget.blur();
+            // Enter keeps the name, Escape puts the old one back; either way the keyboard goes back to the grid.
+            if (e.nativeEvent.isComposing || (e.key !== 'Enter' && e.key !== 'Escape')) return;
+            e.preventDefault();
+            if (e.key === 'Escape') setDraft(name);
+            const input = e.currentTarget;
+            requestAnimationFrame(() => {
+              input.blur();
+              document.querySelector<HTMLTextAreaElement>('textarea[data-sheet-editor]')?.focus({ preventScroll: true });
+            });
           }}
           aria-label={t.weldsheets.home.rename}
-          className="h-7 min-w-0 max-w-md flex-1 rounded px-1 text-[15px] font-medium leading-6 text-foreground outline-none hover:bg-muted focus:bg-muted"
+          title={draft}
+          className="h-7 min-w-0 max-w-md flex-1 truncate rounded px-1 text-[15px] font-medium leading-6 text-foreground outline-none hover:bg-muted focus:bg-muted"
         />
         <StatusLabel status={status} />
       </div>
-      <div className="flex shrink-0 items-center gap-2">{children}</div>
+      <div className="flex shrink-0 items-center gap-1 sm:gap-2">{children}</div>
     </div>
   );
 }

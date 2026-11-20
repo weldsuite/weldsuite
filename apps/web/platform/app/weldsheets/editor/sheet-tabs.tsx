@@ -1,6 +1,5 @@
-import { useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Plus } from 'lucide-react';
-import { formatValue } from '@weldsuite/sheets-engine';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -15,6 +14,7 @@ import { toast } from 'sonner';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useI18n } from '@/lib/i18n/provider';
 import type { SheetController } from './model/sheet-controller';
+import { formatStat } from './stats-format';
 
 const TAB_COLORS = ['#e06666', '#f6b26b', '#ffd966', '#93c47d', '#76a5af', '#6fa8dc', '#8e7cc3', '#c27ba0'];
 
@@ -28,6 +28,8 @@ export function SheetTabs({ controller }: { controller: SheetController }) {
   const renameAfterMenu = useRef<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
+  /** The tab being dragged over: a line shows on the side the dragged tab lands. */
+  const [over, setOver] = useState<string | null>(null);
 
   const commitRename = (sheetId: string, name: string) => {
     setRenaming(null);
@@ -64,34 +66,62 @@ export function SheetTabs({ controller }: { controller: SheetController }) {
                   aria-selected={active}
                   tabIndex={0}
                   draggable={editable && renaming !== sheet.id}
-                  onDragStart={() => setDragging(sheet.id)}
-                  onDragOver={(e) => e.preventDefault()}
+                  onDragStart={(e) => {
+                    e.dataTransfer.effectAllowed = 'move';
+                    setDragging(sheet.id);
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    if (dragging && over !== sheet.id) setOver(sheet.id);
+                  }}
+                  onDragLeave={(e) => {
+                    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver((o) => (o === sheet.id ? null : o));
+                  }}
+                  onDragEnd={() => {
+                    setDragging(null);
+                    setOver(null);
+                  }}
                   onDrop={() => {
                     if (dragging && dragging !== sheet.id) controller.moveSheet(dragging, index);
                     setDragging(null);
+                    setOver(null);
                   }}
                   onClick={() => controller.setActiveSheet(sheet.id)}
+                  onKeyDown={(e) => {
+                    // A focused tab: Enter or Space opens its sheet, F2 renames it (as a double click does).
+                    if (e.target !== e.currentTarget) return;
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      controller.setActiveSheet(sheet.id);
+                    } else if (e.key === 'F2' && editable) {
+                      e.preventDefault();
+                      setRenaming(sheet.id);
+                    }
+                  }}
                   onDoubleClick={() => editable && setRenaming(sheet.id)}
                   className={`relative flex max-w-48 shrink-0 cursor-pointer items-center border-r px-4 ${
                     active ? 'bg-background font-medium text-primary' : 'text-muted-foreground hover:bg-accent'
-                  }`}
+                  } ${dragging === sheet.id ? 'opacity-50' : ''}`}
                   style={{ boxShadow: sheet.props.tabColor ? `inset 0 -3px 0 ${sheet.props.tabColor}` : undefined }}
                 >
                   {renaming === sheet.id ? (
-                    <input
-                      autoFocus
-                      defaultValue={sheet.name}
-                      aria-label={t.weldsheets.editor.renameSheet}
-                      className="w-28 bg-transparent outline-none"
-                      onFocus={(e) => e.currentTarget.select()}
-                      onBlur={(e) => commitRename(sheet.id, e.currentTarget.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') commitRename(sheet.id, e.currentTarget.value);
-                        if (e.key === 'Escape') setRenaming(null);
-                      }}
+                    <RenameField
+                      name={sheet.name}
+                      label={t.weldsheets.editor.renameSheet}
+                      onCommit={(name) => commitRename(sheet.id, name)}
+                      onCancel={() => setRenaming(null)}
                     />
                   ) : (
                     <span className="truncate">{sheet.name}</span>
+                  )}
+                  {over === sheet.id && dragging && dragging !== sheet.id && (
+                    // Dragged rightwards a tab lands after this one, leftwards before it.
+                    <span
+                      aria-hidden
+                      className={`pointer-events-none absolute inset-y-1 w-0.5 rounded-full bg-primary forced-colors:bg-[Highlight] ${
+                        sheets.findIndex((x) => x.id === dragging) < index ? '-right-px' : '-left-px'
+                      }`}
+                    />
                   )}
                 </div>
               </ContextMenuTrigger>
@@ -114,7 +144,7 @@ export function SheetTabs({ controller }: { controller: SheetController }) {
                   {tt.rename}
                 </ContextMenuItem>
                 <ContextMenuItem onSelect={() => controller.duplicateSheet(sheet.id)}>{tt.duplicate}</ContextMenuItem>
-                <ContextMenuItem disabled={sheets.length <= 1} onSelect={() => setDeleting(sheet.id)}>
+                <ContextMenuItem variant="destructive" disabled={sheets.length <= 1} onSelect={() => setDeleting(sheet.id)}>
                   {tt.delete}
                 </ContextMenuItem>
                 <ContextMenuSeparator />
@@ -171,18 +201,80 @@ export function SheetTabs({ controller }: { controller: SheetController }) {
   );
 }
 
+/**
+ * The inline tab-name field. Enter and Escape are consumed here (preventDefault + stopPropagation):
+ * once the field unmounts, focus falls back to the grid, and an Enter that was not cancelled would
+ * insert a newline into the grid's cell editor and later erase the cell. IME confirmation
+ * (isComposing) is ignored. A settled field never commits again from the blur that unmounting fires.
+ * Closing it hands the keyboard back to the grid, unless the person clicked somewhere else.
+ */
+function RenameField({
+  name,
+  label,
+  onCommit,
+  onCancel,
+}: {
+  name: string;
+  label: string;
+  onCommit: (name: string) => void;
+  onCancel: () => void;
+}) {
+  const settled = useRef(false);
+  const ref = useRef<HTMLInputElement>(null);
+  // Focused (its text selected, by onFocus) as soon as it opens.
+  useEffect(() => ref.current?.focus(), []);
+  useEffect(
+    () => () => {
+      requestAnimationFrame(() => {
+        if (document.activeElement && document.activeElement !== document.body) return;
+        document.querySelector<HTMLTextAreaElement>('textarea[data-sheet-editor]')?.focus({ preventScroll: true });
+      });
+    },
+    [],
+  );
+  const commit = (value: string) => {
+    if (settled.current) return;
+    settled.current = true;
+    onCommit(value);
+  };
+  return (
+    <input
+      ref={ref}
+      defaultValue={name}
+      aria-label={label}
+      className="w-28 bg-transparent outline-none"
+      onFocus={(e) => e.currentTarget.select()}
+      onBlur={(e) => commit(e.currentTarget.value)}
+      onKeyDown={(e) => {
+        if (e.nativeEvent.isComposing) return;
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          e.stopPropagation();
+          commit(e.currentTarget.value);
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          settled.current = true;
+          onCancel();
+        }
+      }}
+    />
+  );
+}
+
 function SelectionStats({ controller }: { controller: SheetController }) {
   const { t } = useI18n();
   const stats = controller.selectionStats();
   if (!stats || stats.count === 0) return null;
   const te = t.weldsheets.editor;
-  const fmt = (n: number) => formatValue(n, '#,##0.##', controller.options.locale).text;
+  const fmt = (n: number) => formatStat(n, controller.options.locale);
   const parts =
     stats.numbers > 0
       ? [`${te.sum}: ${fmt(stats.sum)}`, `${te.average}: ${fmt(stats.sum / stats.numbers)}`, `${te.count}: ${stats.count}`]
       : [`${te.count}: ${stats.count}`];
   return (
-    <div className="flex shrink-0 items-center gap-4 px-4 text-xs text-muted-foreground">
+    // On a phone the tabs need the room more than the sums do.
+    <div className="flex shrink-0 items-center gap-4 px-4 text-xs text-muted-foreground max-sm:hidden">
       {parts.map((p) => (
         <span key={p}>{p}</span>
       ))}
