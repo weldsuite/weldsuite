@@ -67,7 +67,6 @@ import {
   Settings,
   Shield,
   ShieldCheck,
-  ShoppingCart,
   Signature,
   SlidersHorizontal,
   SquareCheck,

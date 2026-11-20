@@ -9,7 +9,7 @@ use regex::Regex;
 
 /// `SEARCH_ENTITY_TYPES` and how each is called in the text a model reads
 /// (`RECORD_NOUN`).
-const RECORD_NOUNS: [(&str, &str); 18] = [
+const RECORD_NOUNS: [(&str, &str); 17] = [
     ("contact", "person"),
     ("customer", "company"),
     ("lead", "lead"),
@@ -18,7 +18,6 @@ const RECORD_NOUNS: [(&str, &str); 18] = [
     ("article", "help center article"),
     ("knowledge_page", "knowledge page"),
     ("product", "product"),
-    ("order", "order"),
     ("invoice", "invoice"),
     ("bill", "bill"),
     ("project", "project"),

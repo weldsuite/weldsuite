@@ -114,7 +114,6 @@ import { LinkPersonPopover } from './link-person-popover';
 import { CompanyChat } from './company-chat';
 import { useCompanyDeleteGuard } from './use-company-delete-guard';
 import { logoDomainForCompany, useCompanyLogo } from '@/lib/crm/company-logo';
-import { isFeatureAvailable } from '@/lib/edition';
 import { COMPANY_TABS, type CompanyTab } from './company-tabs';
 import type { Company } from '@weldsuite/app-api-client/schemas/companies';
 

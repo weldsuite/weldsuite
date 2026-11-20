@@ -53,7 +53,7 @@ pub struct SystemMessageInput<'a> {
 }
 
 /// `SEARCH_ENTITY_TYPES`: entity references in `<@type:id>`.
-const SEARCH_ENTITY_TYPES: [&str; 14] = [
+const SEARCH_ENTITY_TYPES: [&str; 13] = [
     "contact",
     "customer",
     "lead",
@@ -61,7 +61,6 @@ const SEARCH_ENTITY_TYPES: [&str; 14] = [
     "ticket",
     "article",
     "product",
-    "order",
     "invoice",
     "bill",
     "project",
