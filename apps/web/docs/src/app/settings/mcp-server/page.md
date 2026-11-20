@@ -57,7 +57,6 @@ The server exposes over 240 tools covering most of the platform:
 | **WeldChat** | Channels, messages, members, drafts, bookmarks |
 | **WeldCalendar** | Calendars and events |
 | **WeldDrive** | Files and folders |
-| **WeldCommerce** | Products, orders |
 | **WeldHost** | Domains |
 | **WeldKnow** | Knowledge spaces and pages |
 | **WeldSocial** | Social accounts, posts, campaigns, scheduling, analytics |

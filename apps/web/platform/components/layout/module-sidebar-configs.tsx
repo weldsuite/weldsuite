@@ -54,8 +54,6 @@ import {
   Link2,
   CircleCheck,
   Package,
-  FolderTree,
-  ShoppingCart,
   Warehouse,
   Boxes,
   ClipboardList,
@@ -150,23 +148,6 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
       },
     ],
   },
-  weldcommerce: {
-    appName: 'WeldCommerce',
-    appIcon: ShoppingCart,
-    appLogo: getAppLogoConfig('weldcommerce'),
-    getMenuItems: (t) => [
-      {
-        group: t.navigation.moduleSidebar.groups.general,
-        items: [
-          { title: t.navigation.moduleSidebar.weldcommerce.overview, href: '/weldcommerce', icon: LayoutDashboard },
-          { title: t.navigation.moduleSidebar.weldcommerce.products, href: '/weldcommerce/products', icon: Package, permission: 'products:read' },
-          { title: t.navigation.moduleSidebar.weldcommerce.categories, href: '/weldcommerce/categories', icon: FolderTree, permission: 'categories:read' },
-          { title: t.navigation.moduleSidebar.weldcommerce.orders, href: '/weldcommerce/orders', icon: ShoppingCart, permission: 'orders:read' },
-          { title: t.navigation.moduleSidebar.weldcommerce.customers, href: '/weldcommerce/customers', icon: Building, permission: 'companies:read' },
-        ],
-      },
-    ],
-  },
   weldads: {
     appName: 'WeldAds',
     appIcon: Megaphone,
@@ -191,8 +172,6 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
         group: t.navigation.moduleSidebar.groups.general,
         items: [
           { title: t.navigation.moduleSidebar.weldstash.overview, href: '/weldstash', icon: LayoutDashboard },
-          // `products` is the same table WeldCommerce reads — see
-          // app/weldstash/products/config/product-grid-config.ts.
           { title: t.navigation.moduleSidebar.weldstash.products, href: '/weldstash/products', icon: Package, permission: 'products:read' },
           { title: t.navigation.moduleSidebar.weldstash.suppliers, href: '/weldstash/suppliers', icon: Truck, permission: 'suppliers:read' },
           { title: t.navigation.moduleSidebar.weldstash.warehouses, href: '/weldstash/warehouses', icon: Warehouse, permission: 'warehouses:read' },

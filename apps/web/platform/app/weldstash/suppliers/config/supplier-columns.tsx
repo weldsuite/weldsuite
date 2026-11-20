@@ -4,7 +4,7 @@ import type { WmsSupplier } from '@/hooks/queries/use-weldstash-queries';
 import { getTranslations } from '@/lib/i18n';
 
 export function buildSupplierColumns(): ColumnDef<WmsSupplier>[] {
-  const t = getTranslations('commerce').module;
+  const t = getTranslations('weldstash');
   return [
     {
       id: 'name',

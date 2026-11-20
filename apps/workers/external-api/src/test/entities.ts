@@ -39,11 +39,9 @@ import { createKnowledgeSpaceSchema, updateKnowledgeSpaceSchema } from '@weldsui
 import { createLeadSchema, updateLeadSchema } from '@weldsuite/core-api-client/schemas/leads';
 import { createMilestoneSchema, updateMilestoneSchema } from '@weldsuite/core-api-client/schemas/milestones';
 import { createOpportunitySchema, updateOpportunitySchema } from '@weldsuite/core-api-client/schemas/opportunities';
-import { createOrderSchema, updateOrderSchema } from '@weldsuite/core-api-client/schemas/orders';
 import { createPersonSchema, updatePersonSchema } from '@weldsuite/core-api-client/schemas/people';
 import { createPipelineStageSchema, updatePipelineStageSchema } from '@weldsuite/core-api-client/schemas/pipeline-stages';
 import { createPipelineSchema, updatePipelineSchema } from '@weldsuite/core-api-client/schemas/pipelines-crm';
-import { createProductSchema, updateProductSchema } from '@weldsuite/core-api-client/schemas/products';
 import { createProjectDocumentSchema, updateProjectDocumentSchema } from '@weldsuite/core-api-client/schemas/project-documents';
 import { createProjectFileSchema, updateProjectFileSchema } from '@weldsuite/core-api-client/schemas/project-files';
 import { createProjectLabelSchema, updateProjectLabelSchema } from '@weldsuite/core-api-client/schemas/project-labels';
@@ -201,11 +199,9 @@ export const CRUD_ENTITIES: CrudEntity[] = [
   e('leads', createLeadSchema, updateLeadSchema),
   e('milestones', createMilestoneSchema, updateMilestoneSchema),
   e('opportunities', createOpportunitySchema, updateOpportunitySchema),
-  e('orders', createOrderSchema, updateOrderSchema),
   e('people', createPersonSchema, updatePersonSchema),
   e('pipeline-stages', createPipelineStageSchema, updatePipelineStageSchema),
   e('pipelines', createPipelineSchema, updatePipelineSchema),
-  e('products', createProductSchema, updateProductSchema),
   e('project-documents', createProjectDocumentSchema, updateProjectDocumentSchema),
   e('project-files', createProjectFileSchema, updateProjectFileSchema),
   e('project-labels', createProjectLabelSchema, updateProjectLabelSchema),

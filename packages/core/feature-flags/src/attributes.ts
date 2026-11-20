@@ -10,8 +10,6 @@ export type AppSurface =
   | 'helpcenter'
   | 'booking-portal'
   | 'meeting-portal'
-  | 'parcel-tracking-portal'
-  | 'parcel-return-portal'
   | 'mobile'
   | 'app-api'
   | 'agent-worker'

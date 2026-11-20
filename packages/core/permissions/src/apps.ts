@@ -40,14 +40,6 @@ export const PERMISSION_APPS: readonly PermissionAppDefinition[] = [
     ],
   },
   {
-    code: 'weldcommerce',
-    label: 'WeldCommerce',
-    objects: [
-      'products', 'orders', 'categories', 'discounts', 'websites', 'inventory',
-      'companies', 'people',
-    ],
-  },
-  {
     code: 'weldstash',
     label: 'WeldStash',
     objects: [
@@ -203,7 +195,6 @@ export const PERMISSION_APPS: readonly PermissionAppDefinition[] = [
  */
 export const APP_CODE_ALIASES: Readonly<Record<string, string>> = {
   crm: 'weldcrm',
-  commerce: 'weldcommerce',
   wms: 'weldstash',
   stash: 'weldstash',
   weldwms: 'weldstash',

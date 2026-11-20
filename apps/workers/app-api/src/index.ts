@@ -270,9 +270,6 @@ app.route('/api/app-catalog', appCatalogRoutes);
 // Access requests for apps that are on request only (WeldReach): /:code/access-request
 // on the same prefix; the paths do not overlap with the catalog routes above.
 app.route('/api/app-catalog', appAccessRoutes);
-// WeldCommerce (products, orders, parcels, …, /public/commerce-portal and
-// /webhooks/woocommerce) moved to commerce-api; the kit's forwarder hands those
-// paths to it over the COMMERCE_API binding (API_FORWARD_MODULES in wrangler.toml).
 app.route('/api/credits', creditsRoutes);
 // WeldAgent (/api/ai, /api/ai-models, /api/chat-agent, /api/weldagent) moved
 // to agent-api; the kit's forwarder hands those paths to it over the

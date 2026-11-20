@@ -153,10 +153,6 @@ export const RUST_V1_SEGMENTS: ReadonlySet<string> = new Set([
   'whiteboards',
   // Desk
   'articles',
-  // Commerce
-  'categories',
-  'products',
-  'orders',
   // Chat
   'channels',
   'channel-members',

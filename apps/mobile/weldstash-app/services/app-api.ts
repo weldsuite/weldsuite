@@ -21,7 +21,6 @@ import { createProductsApi } from '@weldsuite/app-api-client/domains/products';
 import { createInventoryApi } from '@weldsuite/app-api-client/domains/inventory';
 import { createWarehousesApi } from '@weldsuite/app-api-client/domains/warehouses';
 import { createPickListsApi } from '@weldsuite/app-api-client/domains/pick-lists';
-import { createSendcloudApi } from '@weldsuite/app-api-client/domains/sendcloud';
 import { APP } from '@/lib/server';
 
 let tokenGetter: () => Promise<string | null> = () => Promise.resolve(null);
@@ -45,7 +44,6 @@ export const appApi = {
   inventory: createInventoryApi(client),
   warehouses: createWarehousesApi(client),
   pickLists: createPickListsApi(client),
-  sendcloud: createSendcloudApi(client),
 };
 
 /**

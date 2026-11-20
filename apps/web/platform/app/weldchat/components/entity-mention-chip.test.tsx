@@ -102,7 +102,7 @@ describe('EntityMentionChip', () => {
       expect(h.openEntitySheet).toHaveBeenCalledWith('lead', 'lead_1');
     });
 
-    it.each(['contact', 'customer', 'product', 'order'] as const)(
+    it.each(['contact', 'customer', 'product'] as const)(
       'shows a %s, which has neither a sheet nor a page, as plain text',
       (type) => {
         const { queryByRole, container } = render(<EntityMentionChip type={type} id="x_1" fallbackLabel="Jane" />);

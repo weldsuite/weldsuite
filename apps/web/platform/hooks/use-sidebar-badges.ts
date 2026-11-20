@@ -13,8 +13,6 @@ const SIDEBAR_BADGES_POLL_MS = 60_000;
 export interface SidebarBadgeCounts {
   mail: number;
   helpdesk: number;
-  /** Pending WeldCommerce orders. Counted by the endpoint, not shown on the rail. */
-  orders: number;
 }
 
 export const sidebarBadgeKeys = {
@@ -22,7 +20,7 @@ export const sidebarBadgeKeys = {
   counts: () => [...sidebarBadgeKeys.all, 'counts'] as const,
 };
 
-const defaultCounts: SidebarBadgeCounts = { mail: 0, helpdesk: 0, orders: 0 };
+const defaultCounts: SidebarBadgeCounts = { mail: 0, helpdesk: 0 };
 
 /**
  * Decrement the helpdesk badge count by 1 (e.g. when marking a conversation as read).
@@ -60,18 +58,17 @@ export function useSidebarBadges(): UseSidebarBadgesReturn {
       // app-api GET /api/dashboard/sidebar-badges (was api-worker
       // GET /settings/sidebar-badges). Same counter payload, `{ data }` envelope.
       const result = await client.get<{
-        data?: { unreadMessages: number; openTickets: number; pendingOrders: number };
+        data?: { unreadMessages: number; openTickets: number };
       }>('/dashboard/sidebar-badges');
       if (result.data) {
         return {
           mail: result.data.unreadMessages || 0,
           helpdesk: result.data.openTickets || 0,
-          orders: result.data.pendingOrders || 0,
         };
       }
       return defaultCounts;
     },
-    // Poll every 60s for counts that don't have real-time updates (task/orders),
+    // Poll every 60s for counts that don't have real-time updates,
     // but not while the user is idle: an unattended visible tab would otherwise
     // keep the workspace database awake. Refreshes once when they come back.
     refetchInterval,

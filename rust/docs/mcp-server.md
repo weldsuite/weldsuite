@@ -41,9 +41,10 @@ paths.
 - **Rate limit.** Per workspace and plan tier, a `RateLimiter` Durable Object
   (60 a minute for `free`; the table names `starter`, `professional`,
   `enterprise`, so `business` and `scale` fall back to `free`'s 60).
-- **Tools.** 300 static tools in 11 groups (`src/tools/*`: crm 40, reach 38,
+- **Tools.** 290 static tools in 11 groups (`src/tools/*`: crm 40, reach 38,
   workspace 36, projects 35, weldflow 31, chat 30, social 28, mail 20,
-  commerce 20, helpdesk 11, knowledge 11), each declarative: name, scope,
+  helpdesk 11, knowledge 11, and the domain and time-entry tools 10; the
+  product and order tools left with WeldCommerce), each declarative: name, scope,
   description, a Zod raw shape for the input, and `method` + `path` (+
   `pathParams`, `exactId`) into the `/v1` API. Listed only when the member
   could use the scope (`canUseScope`). Then, dynamically: Clerk's
@@ -75,11 +76,11 @@ paths.
   `drive`→`files`, and WeldReach's pinned action routes), and a few routes
   differ: tickets and conversations record `via: 'mcp'`, creating a project
   makes the creator its owner member and maps `ownerId` to the project
-  manager, creating a product takes no generated slug, the knowledge-page
-  tree walk is cycle-safe, WeldReach mounts no reply route (MCP never sends
+  manager, the knowledge-page tree walk is cycle-safe, WeldReach mounts no reply route (MCP never sends
   mail), `/v1/social-approvals` and `/v1/social-media/upload` exist only here,
   and `/v1/user-apps` has only `agent-tools`, list, create, detail, versions
-  and submit. No `accounting`, `categories` or `mail-sending` groups. An
+  and submit. No `accounting`, `categories`, `orders`, `products` or
+  `mail-sending` groups. An
   unknown path is Hono's plain-text 404; a thrown error a plain-text 500.
   Licence and read-only gates as external-api's.
 - **Bindings.** `DATABASE_URL_MASTER`/`HYPERDRIVE_MASTER` (workspace by org;

@@ -60,9 +60,6 @@ const PERMISSION_ENTITIES = [
   { entityKey: 'pipelineStages', group: 'crm', scopes: rw('pipeline_stages') },
   { entityKey: 'activities', group: 'crm', scopes: rw('activities') },
   { entityKey: 'quotes', group: 'crm', scopes: rw('quotes') },
-  // Commerce
-  { entityKey: 'products', group: 'commerce', scopes: rw('products') },
-  { entityKey: 'orders', group: 'commerce', scopes: rw('orders') },
   // Projects
   { entityKey: 'projects', group: 'projects', scopes: rw('projects') },
   { entityKey: 'tasks', group: 'projects', scopes: rw('tasks') },
@@ -175,7 +172,6 @@ const NAMED_ONLY_HINT_KEYS: Record<(typeof NAMED_ONLY_ACTIONS)[number], string> 
 // Module logo per permission group
 const GROUP_LOGOS: Record<string, string> = {
   crm: '/assets/images/weldcrm/icon.svg',
-  commerce: '/assets/images/weldsuite/icon.svg',
   projects: '/assets/images/weldflow/icon-projects.svg',
   helpdesk: '/assets/images/welddesk/icon.svg',
   files: '/assets/images/welddrive/icon.svg',

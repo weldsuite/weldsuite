@@ -538,8 +538,6 @@ import { BOARD_ROUTES } from './conformance-schemas-board';
 import { DESK_SETTINGS_ROUTES } from './conformance-schemas-desk-settings';
 import { DESK_CHANNEL_ROUTES } from './conformance-schemas-desk-channels';
 import { DESK_WIDGET_ROUTES } from './conformance-schemas-desk-widget';
-import { COMMERCE_ROUTES } from './conformance-schemas-commerce';
-import { COMMERCE_SHIPPING_ROUTES } from './conformance-schemas-commerce-shipping';
 import { HR_ROUTES } from './conformance-schemas-hr';
 import { MEET_ROUTES } from './conformance-schemas-meet';
 import { STASH_ROUTES } from './conformance-schemas-stash';
@@ -1429,8 +1427,6 @@ const ROUTES: RouteSchema[] = [
   ...DESK_SETTINGS_ROUTES,
   ...DESK_CHANNEL_ROUTES,
   ...DESK_WIDGET_ROUTES,
-  ...COMMERCE_ROUTES,
-  ...COMMERCE_SHIPPING_ROUTES,
   ...HR_ROUTES,
   ...MEET_ROUTES,
   ...STASH_ROUTES,

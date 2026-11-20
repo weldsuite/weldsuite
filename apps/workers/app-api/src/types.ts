@@ -132,8 +132,6 @@ export interface Env {
   DATA_API?: Fetcher;
   /** crm-api. Target of the forwarder for the crm module's paths. */
   CRM_API?: Fetcher;
-  /** commerce-api. Target of the forwarder for the commerce module's paths. */
-  COMMERCE_API?: Fetcher;
   /** stash-api. Target of the forwarder for the stash module's paths. */
   STASH_API?: Fetcher;
   /** hr-api. Target of the forwarder for the hr module's paths. */

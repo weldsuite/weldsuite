@@ -2,8 +2,9 @@
 //! paths it serves under `/api`: warehouses, zones and locations, stock
 //! buckets and the inventory ledger behind every quantity change, movements,
 //! stock adjustments, putaway tasks, pick lists (generate from an order,
-//! scan-confirm, pack, ship through Sendcloud), pickers, suppliers, purchase
-//! orders, cycle counts, boxes and the activity log.
+//! scan-confirm, pack, ship), pickers, suppliers, purchase orders, cycle
+//! counts, boxes, the activity log and the product catalogue (moved here from
+//! commerce-api while WeldCommerce is rebuilt).
 //!
 //! Paths, bodies, status codes, messages and entity events are the
 //! TypeScript worker's; its tests run against this crate in the `stash`
@@ -26,13 +27,13 @@ mod po_number;
 mod po_receive;
 mod po_totals;
 mod product_suppliers;
+mod products;
 mod purchase_order_items;
 #[cfg(test)]
 mod purchasing_tests;
 mod putaway;
 pub mod replenishment;
 mod rows;
-mod sendcloud;
 mod stock_adjustments;
 mod table;
 #[rustfmt::skip]
@@ -64,9 +65,8 @@ use crate::table::WriteError;
 #[derive(Clone)]
 pub struct StashState {
     pub events: EntityEventPublisher,
-    /// Sendcloud calls (the pick-list ship action). A request's
-    /// `OutboundHttp` (conformance) wins; without either, a ship that needs
-    /// a carrier fails as an unreachable Sendcloud does.
+    /// Third-party calls (the Odoo RFQ push). A request's `OutboundHttp`
+    /// (conformance) wins.
     pub http: Option<OutboundHttp>,
 }
 
@@ -80,7 +80,7 @@ impl std::fmt::Debug for StashState {
 }
 
 /// stash-api's routes, relative to `/api` (`/warehouses`, `/inventory`,
-/// `/pick-lists`, …), to merge under `/api` behind the session, tenant
+/// `/pick-lists`, `/products`, …), to merge under `/api` behind the session, tenant
 /// database, licence and flag layers. Each route carries its
 /// `requirePermission` from `gate`.
 pub fn router<S, Q>(state: StashState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
@@ -98,6 +98,7 @@ where
         )
         .nest("/pick-lists", pick_lists::routes(gate))
         .nest("/pickers", pickers::routes(gate))
+        .nest("/products", crud::routes(&products::PRODUCTS, gate))
         .nest(
             "/purchase-orders",
             crud::routes(&crud::PURCHASE_ORDERS, gate)
@@ -129,7 +130,7 @@ pub(crate) struct Caller {
     pub(crate) db: PgPool,
     pub(crate) user_id: String,
     /// `c.get('clerkOrgId')`: the key of the workspace's
-    /// `workspace_settings` row (the Sendcloud keys live there).
+    /// `workspace_settings` row.
     pub(crate) clerk_org_id: String,
     pub(crate) events: EventContext,
     /// The test's env (conformance), read before the process's.

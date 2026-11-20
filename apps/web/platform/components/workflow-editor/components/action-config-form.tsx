@@ -3486,10 +3486,8 @@ function SendNotificationForm({
               <SelectItem value="task">{acf.notificationCategories.task}</SelectItem>
               <SelectItem value="helpdesk">{acf.notificationCategories.helpdesk}</SelectItem>
               <SelectItem value="crm">{acf.notificationCategories.crm}</SelectItem>
-              <SelectItem value="commerce">{acf.notificationCategories.commerce}</SelectItem>
               <SelectItem value="projects">{acf.notificationCategories.projects}</SelectItem>
               <SelectItem value="mail">{acf.notificationCategories.mail}</SelectItem>
-              <SelectItem value="parcel">{acf.notificationCategories.parcel}</SelectItem>
               <SelectItem value="system">{acf.notificationCategories.system}</SelectItem>
             </SelectContent>
           </Select>

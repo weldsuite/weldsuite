@@ -1387,7 +1387,7 @@ Be clear about this before anyone signs a contract:
   (team and settings, files and drive, search, custom objects, WeldApps,
   notifications, audit logs, API keys, credits, onboarding), WeldKnow,
   WeldSign, WeldPass, the calendar, CRM, Flow, Mail, Chat, Desk, Stash, Ads,
-  Social, Data, Commerce, HR, Call (on Telnyx), Host, Meet, Reach, Books,
+  Social, Data, HR, Call (on Telnyx), Host, Meet, Reach, Books,
   Docs, Panel, Sheets and Connect. Also external-api's `/v1` (not yet its
   mail, custom-object and WeldReach groups), the MCP server at
   `https://mcp.<domain>/mcp`,

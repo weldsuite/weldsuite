@@ -10,14 +10,14 @@
 import { createMiddleware } from 'hono/factory';
 import type { Context } from 'hono';
 import { eq } from 'drizzle-orm';
-import { normalizePortalSlug } from '@weldsuite/commerce-domain/portal-slug';
+import { normalizePortalSlug } from '@weldsuite/worker-kit/portal-slug';
 import {
   kvDelete,
   kvGetJson,
   kvPutJson,
   sha256Hex,
   type PortalKvEnv,
-} from '@weldsuite/commerce-domain/portal-tokens';
+} from '@weldsuite/worker-kit/portal-tokens';
 import {
   PORTAL_MESSAGES,
   PORTAL_SESSION_TTL_SECONDS,

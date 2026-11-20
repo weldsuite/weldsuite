@@ -5,7 +5,7 @@ import { getTranslations } from '@/lib/i18n';
 import { OdooManagedBadge } from '../../components/odoo-managed-badge';
 
 export function buildWarehouseColumns(): ColumnDef<WeldstashWarehouse>[] {
-  const t = getTranslations('commerce').module;
+  const t = getTranslations('weldstash');
   return [
     {
       id: 'name',

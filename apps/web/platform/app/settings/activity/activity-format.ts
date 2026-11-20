@@ -186,7 +186,6 @@ export const ENTITY_TYPE_FILTER_GROUPS: ReadonlyArray<readonly string[]> = [
   ['accounting_contact'],
   ['vat_return'],
   ['product'],
-  ['order', 'commerce_order'],
   ['helpdesk_ticket', 'ticket'],
   ['helpdesk_conversation', 'desk_conversation', 'conversation'],
   ['chat_channel'],

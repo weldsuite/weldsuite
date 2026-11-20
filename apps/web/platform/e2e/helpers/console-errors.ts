@@ -26,7 +26,7 @@ export const IGNORE_PATTERNS: RegExp[] = [
   /WebSocket connection to .*(\/ws|realtime).*failed/i,
   // Browser-level log of the same background calls being rejected.
   // Also covers 404s from api-worker settings routes (custom-fields,
-  // grid-views, dns-zones, legacy commerce endpoints) that are not available
+  // grid-views, dns-zones) that are not available
   // in the test environment where only app-api is running.
   /Failed to load resource: the server responded with a status of (401|403|404)/,
   // React 19 stricter CSR nesting validation warns about <div> inside <table>

@@ -18,17 +18,36 @@ You are the WeldCommerce specialist for WeldSuite.
 
 ## Where the code lives
 
-- Platform UI: `apps/web/platform/app/weldcommerce/*`, admin surface.
-- Builder: the platform has no builder route today (no `_builder/` under `apps/web/platform/src/routes/`, only `preview/`); verify before assuming one.
-- Customer-facing websites: `apps/web/sites` (Next.js), renders the pages.
-- API: the `commerce-api` worker, `apps/workers/commerce-api/src/routes/`, e.g. `products/`, `categories/`, `orders/`, `shipments/`, `returns/`, plus the buyer portal (`commerce-portal/`, `public-commerce-portal/`). Owned prefixes: the `commerce` entry in `packages/core/api-modules/src/index.ts`. No first-party websites/discounts routes exist in the API workers today.
-- Shared commerce logic: `packages/domains/commerce` (`@weldsuite/commerce-domain`, portal slug + tokens, also used by hr-api).
-- Site components library: `packages/design/site-components` (Next 16, Framer Motion).
-- Integrations: `apps/workers/integration-sync-worker`, `apps/workers/integration-webhook-worker`, Shopify, WooCommerce sync.
+WeldCommerce is being rebuilt from scratch: its code was removed on 2026-11-20
+(the `commerce-api` worker, `app/weldcommerce`, the B2B order portal, shipping,
+the parcel portals, the public API / MCP commerce surface and the Rust module).
+Read the WeldCommerce design doc and COM-* ADRs in weldsuite-documentation
+before building anything, and confirm the design with the user.
+
+What is still there:
+
+- Tenant tables in `packages/core/db/src/schema/`: `products`, `product-variants`,
+  `categories`, `orders` (+ items), `discounts`, `product-sales-channels`,
+  `product-connections`, `commerce-portal`, and the shipping tables (`parcels`,
+  `shipments`, `carriers`, `returns`, …). Other modules read some of them
+  (WeldStash pick lists, WeldBooks invoice-from-order, the connectors).
+- `/api/products` (plain CRUD) in `apps/workers/stash-api/src/routes/products/`,
+  owned by the `stash` module in `packages/core/api-modules` until the rebuild.
+- The product form and panel: `apps/web/platform/app/weldstash/products/`,
+  `components/objects/product/`.
+- Shopify / WooCommerce / Picqer sync: `apps/workers/connect-api`
+  (`@weldsuite/connect-domain`), `integration-sync-worker`, `integration-webhook-worker`.
+- Customer-facing websites: `apps/web/sites` + `packages/design/site-components`.
+
+The rebuild targets the EU edition only; the Global edition (TypeScript
+Cloudflare workers) is retired. Build the API in the Rust backend
+(`rust/modules/commerce`, ADR API-014), not as a new `apps/workers/commerce-api`;
+register its prefixes in `packages/core/api-modules` and add `commerce` to
+`RUST_PORTED_MODULES` so the EU frontend shows the module.
 
 ## Rules
 
-- **Inventory** is the source of truth in WMS (`apps/web/platform/app/weldcommerce` + WMS schemas). A product's available stock comes from WMS, not from the commerce table.
+- **Inventory** is the source of truth in WMS (WeldStash, `apps/web/platform/app/weldstash` + WMS schemas). A product's available stock comes from WMS, not from the commerce table.
 - **Orders → accounting.** A paid order must produce an accounting invoice + payment record. Coordinate with `weldbooks-accounting`.
 - **Multi-currency products**, display currency from the site, stored currency from the entity's base. FX conversion at order time via `accounting-fx-rates`.
 - **Builder output**, the builder persists a JSON tree that `apps/web/sites` renders. Changes to the schema of that tree must be backward-compatible with existing sites, version the tree if you must break compatibility.
@@ -38,7 +57,7 @@ You are the WeldCommerce specialist for WeldSuite.
 ## Delegate
 
 - Admin UI → `frontend-platform`
-- Endpoints → `backend-app-api` (commerce-api)
+- Endpoints → `backend-app-api`
 - Public site rendering → `frontend-nextjs`
 - Integrations → `backend-workers`
 - Inventory → `weldsuite-wms`

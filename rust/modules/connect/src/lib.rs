@@ -1,8 +1,10 @@
 //! WeldConnect: connect-api's routes (`apps/workers/connect-api`) at the
 //! paths it serves under `/api` (workflows and their versions, templates,
 //! schedules, variables, webhooks, triggers, executions, the dashboard and
-//! the AI builder's drafts), and the public workflow webhook receiver
-//! (`/api/workflows/webhook/:id`, [`public_router`]).
+//! the AI builder's drafts), the public workflow webhook receiver
+//! (`/api/workflows/webhook/:id`, [`public_router`]) and WooCommerce's
+//! app-auth callback (`/webhooks/woocommerce/auth`,
+//! [`woocommerce_auth_router`]).
 //!
 //! A run is started through [`runs::WorkflowRuns`]: the `EXECUTE_WORKFLOW`
 //! Workflow binding on Global, the `connect.execute-workflow` job here.
@@ -55,6 +57,7 @@ mod triggers;
 mod variables;
 mod versions;
 mod webhooks;
+mod webhooks_woocommerce_auth;
 mod workflow_actions;
 mod workflow_integrations;
 mod workflows;
@@ -265,6 +268,21 @@ where
             axum::routing::get(github::install_callback),
         )
         .with_state(state)
+}
+
+/// WooCommerce's application-authentication callback
+/// (`POST /webhooks/woocommerce/auth`), at its full path and without a
+/// session: the shop posts the API keys it made, and the HMAC-signed state
+/// names the workspace, whose tenant database `workspaces` opens. A request's
+/// own `Tenant` (conformance) wins.
+pub fn woocommerce_auth_router<S>(
+    state: ConnectState,
+    workspaces: Option<Arc<weldsuite_db::Workspaces>>,
+) -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    webhooks_woocommerce_auth::router(state, workspaces)
 }
 
 /// connect-api's internal integration routes (`X-Internal-Secret`) at their

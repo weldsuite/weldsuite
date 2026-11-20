@@ -1,4 +1,4 @@
-/** WeldStash (stash-api) response schemas: warehouses, zones, locations, stock, putaway, pick lists, pickers, suppliers, purchase orders, cycle counts, boxes, the activity log. Spread into ROUTES by conformance-schemas.ts. */
+/** WeldStash (stash-api) response schemas: warehouses, zones, locations, stock, putaway, pick lists, pickers, suppliers, purchase orders, cycle counts, boxes, the activity log, products. Spread into ROUTES by conformance-schemas.ts. */
 import {
   boxRowSchema,
   cycleCountRowSchema,
@@ -18,6 +18,7 @@ import {
   pickListPickResultSchema,
   pickListRowSchema,
   pickListShipResultSchema,
+  productRowSchema,
   purchaseOrderItemRowSchema,
   purchaseOrderRowSchema,
   putawayAssignedSchema,
@@ -92,6 +93,11 @@ export const STASH_ROUTES: RouteSchema[] = [
   { method: 'POST', route: '/api/pick-lists/:id/pack', envelope: 'single', data: pickListPackResultSchema },
   { method: 'POST', route: '/api/pick-lists/:id/ship', envelope: 'single', data: pickListShipResultSchema },
   { method: 'POST', route: '/api/pick-lists/:id/items/:itemId/pick', envelope: 'single', data: pickListPickResultSchema },
+  // stash: products (the catalogue moved here from commerce-api)
+  { method: 'GET', route: '/api/products', envelope: 'list', data: productRowSchema },
+  { method: 'GET', route: '/api/products/:id', envelope: 'single', data: productRowSchema },
+  { method: 'POST', route: '/api/products', envelope: 'single', data: stashIdRefSchema },
+  { method: 'PATCH', route: '/api/products/:id', envelope: 'single', data: stashIdRefSchema },
   // stash: pickers
   { method: 'GET', route: '/api/pickers', envelope: 'body', data: pickerListBodySchema },
   { method: 'GET', route: '/api/pickers/stats', envelope: 'single', data: pickerStatsSchema },

@@ -1,8 +1,7 @@
 //! WeldConnect's store and accounting connectors: `@weldsuite/connect-domain`
 //! (`packages/domains/connect`) with what it needs of `@weldsuite/connectors`
-//! (`packages/core/connectors`), shared by connect-api's
-//! `/api/connectors` routes (`weldsuite-connect`) and commerce-api's product
-//! sales channels (`weldsuite-commerce`).
+//! (`packages/core/connectors`), behind connect-api's `/api/connectors`
+//! routes (`weldsuite-connect`).
 //!
 //! - [`catalog`]: the connector catalog and default field mappings
 //!   (`rust/catalogs/connectors.json`, exported by `pnpm rust:catalogs`);

@@ -183,60 +183,13 @@ pub(crate) const UPDATE_TIME_ENTRY: Z = Z::Obj(
 );
 
 // ---------------------------------------------------------------------------
-// Desk and Commerce (inline schemas)
+// Desk (inline schemas)
 // ---------------------------------------------------------------------------
 
 pub(crate) const LIST_ARTICLES: Z = list_query!("search", "status", "authorId");
 
-/// categories' `createCategorySchema` (`.passthrough()`).
-pub(crate) const CREATE_CATEGORY: Z = Z::Obj(
-    &[
-        ("name", Z::Str(&[S::Min(1, None), S::Max(255, None)])),
-        ("slug", Z::Opt(&Z::Str(&[S::Max(255, None)]))),
-        (
-            "description",
-            Z::Opt(&Z::Nul(&Z::Str(&[S::Max(5000, None)]))),
-        ),
-        ("parentId", Z::Opt(&Z::Nul(&Z::Str(&[S::Max(30, None)])))),
-        ("position", Z::Opt(&Z::Num(&[N::Int(None)]))),
-        ("image", Z::Opt(&Z::Nul(&Z::Str(&[S::Max(500, None)])))),
-        (
-            "isActive",
-            Z::Opt(&Z::Union(&[Z::Bool, Z::Num(&[N::Int(None)])])),
-        ),
-        ("type", Z::Opt(&Z::Enum(&["manual", "automated"], None))),
-    ],
-    Keys::Passthrough,
-);
-
-/// `createCategorySchema.partial()`.
-pub(crate) const UPDATE_CATEGORY: Z = Z::Obj(
-    &[
-        (
-            "name",
-            Z::Opt(&Z::Str(&[S::Min(1, None), S::Max(255, None)])),
-        ),
-        ("slug", Z::Opt(&Z::Str(&[S::Max(255, None)]))),
-        (
-            "description",
-            Z::Opt(&Z::Nul(&Z::Str(&[S::Max(5000, None)]))),
-        ),
-        ("parentId", Z::Opt(&Z::Nul(&Z::Str(&[S::Max(30, None)])))),
-        ("position", Z::Opt(&Z::Num(&[N::Int(None)]))),
-        ("image", Z::Opt(&Z::Nul(&Z::Str(&[S::Max(500, None)])))),
-        (
-            "isActive",
-            Z::Opt(&Z::Union(&[Z::Bool, Z::Num(&[N::Int(None)])])),
-        ),
-        ("type", Z::Opt(&Z::Enum(&["manual", "automated"], None))),
-    ],
-    Keys::Passthrough,
-);
-
-pub(crate) const LIST_CATEGORIES: Z = list_query!("search", "parentId", "type");
-
 // ---------------------------------------------------------------------------
-// Chat, Calendar, Commerce, Social (the routes' inline list queries)
+// Chat, Calendar, Social (the routes' inline list queries)
 // ---------------------------------------------------------------------------
 
 pub(crate) const LIST_CHANNELS: Z = list_query!("search", "type");
@@ -247,8 +200,6 @@ pub(crate) const LIST_CHAT_DRAFTS: Z = list_query!("channelId", "userId");
 pub(crate) const LIST_CHAT_SECTIONS: Z = list_query!("search");
 pub(crate) const LIST_CALENDARS: Z = list_query!("search", "ownerId");
 pub(crate) const LIST_CALENDAR_EVENTS: Z = list_query!("search", "calendarId");
-pub(crate) const LIST_PRODUCTS: Z = list_query!("search", "status");
-pub(crate) const LIST_ORDERS: Z = list_query!("search", "status", "customerId");
 pub(crate) const LIST_SOCIAL_ACCOUNTS: Z = list_query!("platform", "status");
 pub(crate) const LIST_SOCIAL_CAMPAIGNS: Z = list_query!("status");
 pub(crate) const LIST_SOCIAL_ANALYTICS: Z = list_query!("postId", "accountId");

@@ -23,8 +23,6 @@ weldsuite-call = { workspace = true }
 weldsuite-calendar = { workspace = true }
 weldsuite-catalogs = { workspace = true }
 weldsuite-chat = { workspace = true }
-weldsuite-commerce = { workspace = true }
-weldsuite-commerce-domain = { workspace = true }
 weldsuite-connect = { workspace = true }
 weldsuite-core-apps = { workspace = true }
 weldsuite-core-billing = { workspace = true }

@@ -67,13 +67,11 @@ impl Tool {
     /// The worker's `/v1` copy answers this tool's route differently from
     /// external-api's (`rust/docs/mcp-server.md`), and that variant is not
     /// ported: the tool is not offered until it is. Creating a project makes
-    /// the creator its owner member; creating a product takes no generated
-    /// slug; tickets and conversations record `via: 'mcp'`; the copy's
-    /// social media routes are its own.
+    /// the creator its owner member; tickets and conversations record
+    /// `via: 'mcp'`; the copy's social media routes are its own.
     pub fn variant_pending(&self) -> bool {
         let creates = |path: &str| self.method == Method::POST && self.path == path;
         creates("/v1/projects")
-            || creates("/v1/products")
             || self.path.starts_with("/v1/tickets")
             || self.path.starts_with("/v1/conversations")
             || self.path.starts_with("/v1/social-media")
@@ -156,7 +154,7 @@ mod tests {
     #[test]
     fn the_catalog_loads() {
         let catalog = catalog();
-        assert!(catalog.tools.len() >= 300);
+        assert!(catalog.tools.len() >= 290);
         let tool = catalog.tool("get_contact").expect("get_contact");
         assert_eq!(tool.path, "/v1/people/:id");
         assert_eq!(

@@ -1,18 +1,16 @@
 /**
  * Every /api/pick-lists route on pglite: list, create, generate from an
- * order, assign, start, scan-confirm a line, complete, pack, ship (inventory
- * only, and through Sendcloud: a `fetch` stub answers by URL and body, so the
- * conformance harness compares both backends' calls), the packing slip,
- * detail, patch and delete, with their refusals. Runs against Rust in
- * conformance mode (rust/conformance/suites.json).
+ * order, assign, start, scan-confirm a line, complete, pack, ship (stock and
+ * order fulfilment only; no carrier is called), the packing slip, detail,
+ * patch and delete, with their refusals. Runs against Rust in conformance
+ * mode (rust/conformance/suites.json).
  */
 
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
-import { encryptField } from '@weldsuite/db/lib/crypto';
 import { json } from '../../test/crud-suite';
 import { makeLocation, makeWarehouse, seedShippableOrder } from '../../test/fixtures';
 import {
@@ -26,55 +24,15 @@ import { pickListsRoutes } from './index';
 
 let db: Database;
 const base = '/api/pick-lists';
-const ENCRYPTION_KEY = 'a'.repeat(64);
-const ANNOUNCE = 'https://panel.sendcloud.sc/api/v3/shipments/announce';
 
-const realFetch = globalThis.fetch;
-// Sendcloud answers by the recipient's name, and checks the credentials.
-const fetchStub = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-  const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-  if (url !== ANNOUNCE) return realFetch(input, init);
-  const auth = new Headers(init?.headers).get('authorization');
-  if (auth !== `Basic ${btoa('pk_test:sk_test')}` && auth !== `Basic ${btoa('pk_enc:sk_secret')}`) {
-    return Response.json({ error: { message: 'Bad credentials' } }, { status: 401 });
-  }
-  const body = JSON.parse(String(init?.body ?? '{}')) as { to_address?: { name?: string }; order_number?: string };
-  const name = body.to_address?.name;
-  if (name === 'Reject Me') return Response.json({ errors: [{ message: 'Address not deliverable' }] }, { status: 422 });
-  if (name === 'Plain Text') return new Response('upstream down', { status: 503 });
-  if (name === 'Empty Reply') return Response.json({ data: { id: 9, errors: [{ message: 'No carrier' }], parcels: [] } });
-  if (name === 'No Tracking') return Response.json({ data: { id: 10, errors: [], parcels: [{ id: 5 }] } });
-  if (name === 'Boom') throw new Error('network down');
-  return Response.json({
-    data: {
-      id: 'shp_sc_1',
-      carrier: { code: 'postnl', name: 'PostNL' },
-      ship_with: { properties: { shipping_option_code: 'postnl:standard' } },
-      errors: [],
-      parcels: [
-        {
-          id: 383707309,
-          tracking_number: `3SYZ-${body.order_number ?? 'none'}`,
-          tracking_url: 'https://tracking.sendcloud.sc/3SYZ',
-          label_file: 'JVBERi0x',
-          documents: [{ type: 'label', link: 'https://panel.sendcloud.sc/api/v3/parcels/383707309/documents/label' }],
-          status: { code: 'READY_TO_SEND' },
-        },
-      ],
-    },
-  });
-});
-
-function app(keys: string[], context: { clerkOrgId?: string } = {}, env: Record<string, unknown> = {}) {
+function app(keys: string[]) {
   return createTestApp(base, pickListsRoutes, {
-    context: { permissions: permissions(...keys), tenantDb: db, ...context },
-    env: env as never,
+    context: { permissions: permissions(...keys), tenantDb: db },
   });
 }
 
 const reader = () => app(['picklists:read']);
-const updater = (context: { clerkOrgId?: string } = {}, env: Record<string, unknown> = {}) =>
-  app(['picklists:update'], context, env);
+const updater = () => app(['picklists:update']);
 
 type Seed = Parameters<typeof seedShippableOrder>[1] & { digital?: boolean };
 
@@ -109,46 +67,8 @@ async function packed(params: Seed = {}) {
 }
 
 beforeAll(async () => {
-  vi.stubGlobal('fetch', fetchStub);
   db = (await createPgliteDb()).db;
-  await db.insert(schema.workspaceSettings).values([
-    {
-      id: 'org_test_default',
-      customSettings: {
-        theme: 'kept',
-        sendcloud: {
-          publicKey: 'pk_test',
-          secretKey: 'sk_test',
-          senders: [
-            { id: 11, name: 'HQ', enabled: true, isDefault: true },
-            { id: 12, name: 'Old', enabled: false, isDefault: false },
-          ],
-          methods: [
-            { code: 'postnl:standard', name: 'PostNL', enabled: true, isDefault: true },
-            { code: 'dhl:off', name: 'DHL', enabled: false, isDefault: false },
-          ],
-        },
-      },
-    },
-    {
-      id: 'org_encrypted',
-      customSettings: {
-        sendcloud: {
-          publicKey: 'pk_enc',
-          secretKey: await encryptField('sk_secret', { v1: ENCRYPTION_KEY }),
-          senders: [{ id: 11, name: 'HQ', enabled: true, isDefault: true }],
-          methods: [{ code: 'postnl:standard', name: 'PostNL', enabled: true, isDefault: true }],
-        },
-      },
-    },
-    { id: 'org_no_keys', customSettings: { sendcloud: { senders: [], methods: [] } } },
-    { id: 'org_bad_key', customSettings: { sendcloud: { publicKey: 'pk_test', secretKey: 'abcd:ef01', senders: [], methods: [] } } },
-  ]);
 }, 60_000);
-
-afterAll(() => {
-  vi.unstubAllGlobals();
-});
 
 describe('/api/pick-lists · list', () => {
   it('lists with filters and paging', async () => {
@@ -365,72 +285,21 @@ describe('/api/pick-lists/:id/ship', () => {
     ).toBe(200);
   });
 
-  it('ships through Sendcloud with the stored keys', async () => {
+  it('ships a physical order without calling a carrier, and fulfils it', async () => {
     const { id, order } = await packed();
     const res = await updater().request(`${base}/${id}/ship`, json({ senderId: 11, shippingOptionCode: 'postnl:standard', weightKg: 1.25 }));
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { data: { trackingNumber: string } };
-    expect(body.data.trackingNumber).toContain('SO-');
+    const body = (await res.json()) as { data: Record<string, unknown> };
+    expect(body.data.status).toBe('shipped');
+    expect(body.data.shipmentId).toEqual(expect.any(String));
+    expect(body.data).not.toHaveProperty('trackingNumber');
     const [shipped] = await db.select().from(schema.orders).where(eq(schema.orders.id, order.orderId)).limit(1);
     expect(shipped?.fulfillmentStatus).toBe('fulfilled');
   });
 
-  it('opens a secret sealed with the workspace keyring', async () => {
-    const { id } = await packed();
-    const res = await updater({ clerkOrgId: 'org_encrypted' }, { DATABASE_ENCRYPTION_KEY: ENCRYPTION_KEY }).request(
-      `${base}/${id}/ship`,
-      json({ senderId: 11, shippingOptionCode: 'postnl:standard', weightKg: 2 }),
-    );
-    expect(res.status).toBe(200);
-    // Without the key the sealed value is sent as it is, and Sendcloud refuses it.
-    const other = await packed();
-    const refused = await updater({ clerkOrgId: 'org_encrypted' }).request(
-      `${base}/${other.id}/ship`,
-      json({ senderId: 11, shippingOptionCode: 'postnl:standard', weightKg: 2 }),
-    );
-    expect(refused.status).toBe(409);
-  });
-
-  it('refuses to ship without a carrier set-up', async () => {
-    const { id } = await packed();
-    const ship = (body: Record<string, unknown>, context: { clerkOrgId?: string } = {}) =>
-      updater(context).request(`${base}/${id}/ship`, json(body));
-    const full = { senderId: 11, shippingOptionCode: 'postnl:standard', weightKg: 1 };
-    expect((await ship({})).status).toBe(409);
-    expect((await ship({ senderId: 11, shippingOptionCode: 'postnl:standard' })).status).toBe(409);
-    expect((await ship(full, { clerkOrgId: 'org_none' })).status).toBe(409);
-    expect((await ship(full, { clerkOrgId: 'org_no_keys' })).status).toBe(409);
-    expect((await ship({ ...full, senderId: 12 })).status).toBe(409);
-    expect((await ship({ ...full, shippingOptionCode: 'dhl:off' })).status).toBe(409);
-    expect((await ship({ ...full, senderId: 99 })).status).toBe(409);
-    expect((await ship(full, { clerkOrgId: 'org_bad_key' })).status).toBe(409);
-  });
-
-  it('maps what Sendcloud answers', async () => {
-    const full = { senderId: 11, shippingOptionCode: 'postnl:standard', weightKg: 1 };
-    const address = (name: string) => ({ name, line1: 'Insulindelaan 115', city: 'Eindhoven', postalCode: '5642CV', country: 'Netherlands' });
-    for (const [name, status] of [
-      ['Reject Me', 409],
-      ['Plain Text', 409],
-      ['Empty Reply', 409],
-      ['No Tracking', 409],
-      ['Boom', 500],
-    ] as const) {
-      const { id } = await packed({ shippingAddress: address(name) });
-      expect((await updater().request(`${base}/${id}/ship`, json(full))).status, name).toBe(status);
-    }
-    const incomplete = await packed({ shippingAddress: { line1: 'Somewhere' } });
-    expect((await updater().request(`${base}/${incomplete.id}/ship`, json(full))).status).toBe(400);
-    const none = await packed({ shippingAddress: null });
-    expect((await updater().request(`${base}/${none.id}/ship`, json(full))).status).toBe(400);
-  });
-
-  it('refuses a bad payload, a list that is not packed, a missing one', async () => {
+  it('refuses a list that is not packed, a missing one', async () => {
     const { request } = updater();
     const { id } = await packed();
-    for (const body of [{ senderId: -1 }, { weightKg: 'heavy', shippingOptionCode: '' }, null, [1]]) {
-      expect((await request(`${base}/${id}/ship`, json(body))).status).toBe(400);
-    }
     const { list } = await generated();
     expect((await request(`${base}/${list.id}/ship`, json({}))).status).toBe(400);
     expect((await request(`${base}/pl_missing/ship`, json({}))).status).toBe(404);

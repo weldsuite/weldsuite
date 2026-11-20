@@ -5,7 +5,7 @@
  * Unlike every other flow-api router it is mounted outside `/api/*` in
  * ../../index.ts, so `apiAuth()` (Clerk) does not run: the workspace comes from
  * a slug (sign-in) or from the session (everything after), the caller from a
- * hashed session token in KV, like the commerce portal (COM-007). Rust mirrors
+ * hashed session token in KV (the passwordless scheme of ADR COM-007). Rust mirrors
  * it in rust/modules/flow/src/public_project_portal.rs.
  *
  *   POST /auth/request-code      email a code; always 204
@@ -48,7 +48,7 @@ import {
   randomOtp,
   randomToken,
   releaseRateLimit,
-} from '@weldsuite/commerce-domain/portal-tokens';
+} from '@weldsuite/worker-kit/portal-tokens';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { DecideApprovalError } from '@weldsuite/flow-domain/approvals';
 import {

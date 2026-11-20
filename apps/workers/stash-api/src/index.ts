@@ -1,7 +1,8 @@
 /**
  * WeldSuite stash-api — the WeldStash (WMS: warehouses, locations, zones,
  * inventory, pick lists, putaway, cycle counts, stock adjustments, boxes,
- * purchase orders, suppliers) module's API worker.
+ * purchase orders, suppliers, products) module's API worker. Products moved
+ * here from commerce-api when WeldCommerce was removed for its rebuild.
  *
  * Split out of app-api (weldsuite-documentation/plans/app-api-module-split.md). It serves the
  * same /api/<object> paths app-api served for this module; the prefixes it
@@ -15,6 +16,7 @@ import { inventoryRoutes } from './routes/inventory';
 import { inventoryMovementsRoutes } from './routes/inventory-movements';
 import { pickersRoutes } from './routes/pickers';
 import { pickListsRoutes } from './routes/pick-lists';
+import { productsRoutes } from './routes/products';
 import { purchaseOrdersRoutes } from './routes/purchase-orders';
 import { putawayRoutes } from './routes/putaway';
 import { stockAdjustmentsRoutes } from './routes/stock-adjustments';
@@ -35,6 +37,7 @@ app.route('/api/inventory', inventoryRoutes);
 app.route('/api/inventory-movements', inventoryMovementsRoutes);
 app.route('/api/pick-lists', pickListsRoutes);
 app.route('/api/pickers', pickersRoutes);
+app.route('/api/products', productsRoutes);
 app.route('/api/purchase-orders', purchaseOrdersRoutes);
 app.route('/api/putaway', putawayRoutes);
 app.route('/api/warehouse-locations', warehouseLocationsRoutes);

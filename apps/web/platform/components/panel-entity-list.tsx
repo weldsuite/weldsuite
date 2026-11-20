@@ -1,6 +1,6 @@
 /**
  * List wrapper around the shared `EntityList` for modules whose rows open an
- * object panel — WeldCommerce and WeldStash.
+ * object panel, such as WeldStash.
  *
  * Same reason WeldBooks has `weldbooks-entity-list.tsx`: EntityList's built-in
  * column renderer wraps every cell in `stopPropagation` (so rows can't be

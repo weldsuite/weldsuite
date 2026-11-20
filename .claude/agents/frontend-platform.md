@@ -37,9 +37,9 @@ Everything under `apps/web/platform/`. This is a **Vite SPA, not Next.js**. Do n
 
 Route files are thin:
 ```ts
-// src/routes/commerce/products/index.tsx
-import PageComponent from '@/app/weldcommerce/products/page';
-export const Route = createFileRoute('/commerce/products/')({ component: PageComponent });
+// src/routes/weldstash/products/index.tsx
+import PageComponent from '@/app/weldstash/products/page';
+export const Route = createFileRoute('/weldstash/products/')({ component: PageComponent });
 ```
 
 Layout groups: `_dashboard/`, `_builder/`, `_preview/`, `auth/`, `settings/`.

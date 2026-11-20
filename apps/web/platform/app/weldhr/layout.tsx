@@ -11,7 +11,7 @@ import { weldbooksDateLocale } from '@/lib/weldbooks/format';
 import { setHrFormatLocale } from './components/shared';
 
 /**
- * WeldHR module layout — same shell as WeldCRM / WeldCommerce / WeldStash:
+ * WeldHR module layout — same shell as WeldCRM / WeldStash:
  * breadcrumb root → `AppHeader` (top bar with breadcrumbs, command palette,
  * notifications) → `ModuleContent` (the content card; also mounts the object
  * panel and drawer hosts). Section navigation comes from the module sidebar

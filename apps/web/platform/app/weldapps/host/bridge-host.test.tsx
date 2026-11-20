@@ -126,7 +126,7 @@ describe('useBridgeHost (protocol 2)', () => {
 
   it('lets official apps call app-api directly', async () => {
     fetchSpy.mockResolvedValue(new Response(null, { status: 204 }));
-    const { fromApp, responseFor } = setup({ usesPlatformSession: true, appCode: 'weldcommerce' });
+    const { fromApp, responseFor } = setup({ usesPlatformSession: true, appCode: 'official-app' });
     fromApp({ type: 'weldapp:request', id: 'r3', method: 'fetch', payload: { method: 'DELETE', path: '/api/products/p1', headers: [] } });
     await responseFor('r3');
     expect(fetchSpy.mock.calls[0]?.[0]).toBe('https://app-api.test/api/products/p1');
@@ -140,7 +140,7 @@ describe('useBridgeHost (protocol 2)', () => {
   });
 
   it('hands no credential to a published bundle in init either, whoever it is', () => {
-    const { posted, fromApp } = setup({ usesPlatformSession: true, appCode: 'weldcommerce' });
+    const { posted, fromApp } = setup({ usesPlatformSession: true, appCode: 'official-app' });
     fromApp({ type: 'weldapp:ready' });
     const init = posted.find((p) => p.message.type === 'weldapp:init')?.message.payload;
     expect(init).toMatchObject({ token: null, tokenExpiresAt: null });
@@ -179,7 +179,7 @@ describe('useBridgeHost (protocol 2)', () => {
   });
 
   it('never hands the member\'s platform session (Clerk JWT) to any frame, official apps included', async () => {
-    const { fromApp, responseFor, posted } = setup({ usesPlatformSession: true, appCode: 'weldcommerce' });
+    const { fromApp, responseFor, posted } = setup({ usesPlatformSession: true, appCode: 'official-app' });
     fromApp({ type: 'weldapp:request', id: 'official', method: 'getToken' });
     const response = await responseFor('official');
     expect(response.ok).toBe(false);
@@ -224,7 +224,7 @@ describe('useBridgeHost: frame pinning', () => {
   });
 
   it('refuses getToken to a preview of an official app too (no Clerk JWT in the frame)', async () => {
-    const { fromApp, responseFor, posted } = previewSetup({ usesPlatformSession: true, appCode: 'weldcommerce' });
+    const { fromApp, responseFor, posted } = previewSetup({ usesPlatformSession: true, appCode: 'official-app' });
     fromApp({ type: 'weldapp:request', id: 'tok2', method: 'getToken' });
     const response = await responseFor('tok2');
     expect(response.ok).toBe(false);

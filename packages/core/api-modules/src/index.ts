@@ -25,7 +25,6 @@ export type ApiModuleId =
   | 'mail'
   | 'flow'
   | 'books'
-  | 'commerce'
   | 'stash'
   | 'host'
   | 'calendar'
@@ -95,7 +94,7 @@ export interface ApiModule {
  * tests check that), and every route of its suites must be reached
  * (`pnpm rust:conformance`).
  */
-export const RUST_PORTED_MODULES: ReadonlySet<ApiModuleId> = new Set<ApiModuleId>(['core', 'know', 'sign', 'pass', 'calendar', 'crm', 'flow', 'mail', 'chat', 'desk', 'stash', 'ads', 'social', 'data', 'commerce', 'hr', 'call', 'host', 'meet', 'reach', 'books', 'docs', 'panel', 'sheets', 'connect', 'board', 'merge', 'forms', 'agent']);
+export const RUST_PORTED_MODULES: ReadonlySet<ApiModuleId> = new Set<ApiModuleId>(['core', 'know', 'sign', 'pass', 'calendar', 'crm', 'flow', 'mail', 'chat', 'desk', 'stash', 'ads', 'social', 'data', 'hr', 'call', 'host', 'meet', 'reach', 'books', 'docs', 'panel', 'sheets', 'connect', 'board', 'merge', 'forms', 'agent']);
 
 /**
  * Features built only in the Rust backend. Global is being retired (ADR
@@ -183,7 +182,7 @@ export const API_MODULES: readonly ApiModule[] = [
     '/public/partner-territories',
     '/public/user-apps',
   ]),
-  mod('crm', 8801, ['weldcrm', 'weldcommerce', 'welddesk', 'weldflow', 'weldmail', 'weldmeet', 'weldcalendar', 'weldcall', 'weldhr', 'welddata'], [
+  mod('crm', 8801, ['weldcrm', 'welddesk', 'weldflow', 'weldmail', 'weldmeet', 'weldcalendar', 'weldcall', 'weldhr', 'welddata'], [
     '/api/activities',
     '/api/companies',
     '/api/company-logos',
@@ -350,31 +349,7 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/received-fiscal-documents',
     '/public/fiscal-webhooks',
   ]),
-  mod('commerce', 8806, ['weldcommerce', 'weldstash'], [
-    '/api/carriers',
-    '/api/categories',
-    '/api/commerce-portal',
-    '/api/orders',
-    '/api/parcel-analytics',
-    '/api/parcel-notifications',
-    '/api/parcel-rates',
-    '/api/parcel-settings',
-    '/api/parcel-wallet',
-    '/api/parcels',
-    '/api/pickups',
-    '/api/printnode',
-    '/api/products',
-    '/api/return-reasons',
-    '/api/return-rules',
-    '/api/returns',
-    '/api/sendcloud',
-    '/api/shipments',
-    '/api/shipping-prices',
-    '/api/shipping-rules',
-    '/public/commerce-portal',
-    '/webhooks/woocommerce',
-  ]),
-  mod('stash', 8807, ['weldstash', 'weldcommerce'], [
+  mod('stash', 8807, ['weldstash'], [
     '/api/boxes',
     '/api/cycle-counts',
     '/api/inventory',
@@ -383,6 +358,8 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/pickers',
     // Served by the Rust backend only (weldsuite-documentation/plans/weldstash-replenishment.md).
     '/api/product-suppliers',
+    // The product catalogue: WeldStash owns it while WeldCommerce is rebuilt.
+    '/api/products',
     '/api/purchase-orders',
     '/api/putaway',
     // Served by the Rust backend only (weldsuite-documentation/plans/weldstash-replenishment.md).
@@ -472,6 +449,8 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/workflow-versions',
     '/api/workflow-webhooks',
     '/api/workflows',
+    // WooCommerce's app-auth callback (public; HMAC `user_id`).
+    '/webhooks/woocommerce',
   ]),
   mod('agent', 8814, null, ['/api/ai', '/api/ai-models', '/api/chat-agent', '/api/weldagent']),
   mod('data', 8815, ['welddata'], ['/api/enrich-fields', '/api/enrichments', '/api/welddata']),

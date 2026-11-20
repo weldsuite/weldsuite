@@ -171,11 +171,6 @@ export const EDITION_FEATURES = [
    */
   'integration-sync',
   /**
-   * WeldCommerce's customer portal (`COMMERCE_PORTAL_URL`, the orders portal):
-   * no Kubernetes deployment, so its link and invites would point at Global's.
-   */
-  'commerce-portal',
-  /**
    * WeldStash purchasing and replenishment: purchase-order actions and
    * receipts, product suppliers, the reorder planner, its settings and the
    * sales-history import (`/api/product-suppliers`, `/api/replenishment`,
@@ -191,14 +186,11 @@ export type EditionFeature = (typeof EDITION_FEATURES)[number];
 /**
  * App codes served by a module other than their canonical app's own one, or
  * by none. WeldAgent is workspace-level (its module has no `apps` list);
- * Parcel's screens call commerce's `/api/parcels`; WeldDrive and the
- * WeldSuite home are the core platform.
+ * WeldDrive and the WeldSuite home are the core platform.
  */
 const APP_MODULE_OVERRIDES: Readonly<Record<string, ApiModuleId>> = {
   weldagent: 'agent',
   agent: 'agent',
-  parcel: 'commerce',
-  weldparcel: 'commerce',
   welddrive: 'core',
   weldsuite: 'core',
 };

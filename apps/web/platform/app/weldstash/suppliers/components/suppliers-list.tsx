@@ -31,7 +31,7 @@ export function SuppliersList({
   hasMore,
   isFetchingMore,
 }: Readonly<SuppliersListProps>) {
-  const t = getTranslations('commerce').module;
+  const t = getTranslations('weldstash');
   const ts = getTranslations('common');
   const deleteMut = useDeleteWeldstashSupplier();
   const { open: openObjectPanel } = useObjectPanel();

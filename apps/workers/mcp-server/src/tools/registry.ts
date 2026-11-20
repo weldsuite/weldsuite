@@ -86,7 +86,7 @@ import { weldflowTools } from './weldflow';
 import { weldboardTools } from './weldboard';
 import { chatTools } from './chat';
 import { workspaceTools } from './workspace';
-import { commerceTools } from './commerce';
+import { hostAndTimeEntryTools } from './host-time';
 import { socialTools } from './social';
 import { reachTools } from './reach';
 import { panelTools } from './panel';
@@ -104,7 +104,7 @@ export const allTools: ToolDefinition[] = [
   ...weldboardTools,
   ...chatTools,
   ...workspaceTools,
-  ...commerceTools,
+  ...hostAndTimeEntryTools,
   ...socialTools,
   ...reachTools,
   ...panelTools,

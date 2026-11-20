@@ -67,7 +67,6 @@ import {
   Settings,
   Shield,
   ShieldCheck,
-  ShoppingCart,
   Signature,
   SlidersHorizontal,
   SquareCheck,
@@ -374,8 +373,6 @@ export const CREATE_ACTIONS: readonly CreateAction[] = [
   { id: 'flow-project', app: 'weldflow', permissions: ['projects:create'], title: (c) => c.project, keywords: 'project', href: withCreateIntent('/weldflow/projects'), icon: PanelsTopLeft },
   { id: 'workflow', app: 'weldconnect', permissions: ['workflows:create'], title: (c) => c.workflow, keywords: 'workflow automation automatisering', href: withCreateIntent('/weldconnect/workflows'), icon: Workflow },
   // Sales and stock
-  { id: 'product', app: 'weldcommerce', permissions: ['products:create'], title: (c) => c.product, keywords: 'product artikel', href: withCreateIntent('/weldcommerce/products'), icon: Package },
-  { id: 'order', app: 'weldcommerce', permissions: ['orders:create'], title: (c) => c.order, keywords: 'order sale bestelling', href: withCreateIntent('/weldcommerce/orders'), icon: ShoppingCart },
   { id: 'stash-product', app: 'weldstash', permissions: ['products:create'], title: (c) => c.product, keywords: 'product artikel stock voorraad', href: withCreateIntent('/weldstash/products'), icon: Package },
   { id: 'warehouse', app: 'weldstash', permissions: ['warehouses:create'], title: (c) => c.warehouse, keywords: 'warehouse location magazijn', href: withCreateIntent('/weldstash/warehouses'), icon: Warehouse },
   { id: 'invoice', app: 'weldbooks', permissions: ['invoices:create'], title: (c) => c.invoice, keywords: 'invoice sales factuur verkoopfactuur', href: '/weldbooks/invoices/add', icon: FileText },
@@ -742,10 +739,8 @@ export function settingsCommands(
   }
 
   const appSettings: Array<{ code: string; title: string; keywords: string; href: string }> = [
-    { code: 'parcel', title: search.parcelSettings, keywords: `${search.parcelSettings} ${search.configureParcel}`, href: '/settings/apps/parcel' },
     { code: 'weldbooks', title: 'WeldBooks', keywords: 'weldbooks accounting dimensions sales tax payment runs settings', href: '/settings/apps/weldbooks' },
     { code: 'weldcalendar', title: 'WeldCalendar', keywords: 'weldcalendar calendar tasks scheduling settings', href: '/settings/apps/weldcalendar' },
-    { code: 'weldcommerce', title: 'WeldCommerce', keywords: 'weldcommerce commerce customer portal b2b settings', href: '/settings/apps/weldcommerce' },
     { code: 'weldcrm', title: 'WeldCRM', keywords: 'weldcrm crm settings', href: '/settings/apps/weldcrm' },
     { code: 'weldflow', title: 'WeldFlow', keywords: 'weldflow projects tasks scheduling settings', href: '/settings/apps/weldflow' },
     { code: 'weldforms', title: 'WeldForms', keywords: 'weldforms forms themes branding invitations reminders settings', href: '/settings/apps/weldforms' },
