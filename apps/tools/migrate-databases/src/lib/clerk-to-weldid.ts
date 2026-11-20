@@ -78,7 +78,7 @@ function readField(body: string, start: number): [string, number] {
 
 /** RFC 4180: quoted fields with `""` for a quote, CRLF or LF, a final newline optional, a BOM ignored. */
 export function parseCsv(text: string): string[][] {
-  const body = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+  const body = text.codePointAt(0) === 0xfeff ? text.slice(1) : text;
   const rows: string[][] = [];
   let row: string[] = [];
   let at = 0;
