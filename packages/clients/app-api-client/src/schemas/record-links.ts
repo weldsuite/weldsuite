@@ -4,14 +4,13 @@
  * the browser (record cards in chat visuals).
  */
 
-import type { SearchEntityType } from './search';
-
 /**
  * The record's full-page path in the web app, or `null` when it has none and
  * is viewed only in its entity sheet (`lead` and `opportunity` lost their
- * `/weldcrm/*` detail routes; helpdesk tickets never had a live one).
+ * `/weldcrm/*` detail routes; helpdesk tickets never had a live one). `type`
+ * is a `SearchEntityType`; any other string has no page.
  */
-export function recordPagePath(type: SearchEntityType | string, id: string): string | null {
+export function recordPagePath(type: string, id: string): string | null {
   const encoded = encodeURIComponent(id);
   switch (type) {
     case 'article':

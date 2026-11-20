@@ -17,7 +17,6 @@ import {
   LifeBuoy,
   Receipt,
   Sheet,
-  ShoppingCart,
   Target,
   User,
   UserPlus,
@@ -47,7 +46,6 @@ const ICONS: Partial<Record<RecordItem['entityType'], LucideIcon>> = {
   project: FolderKanban,
   invoice: FileText,
   bill: Receipt,
-  order: ShoppingCart,
   sheet: Sheet,
 };
 

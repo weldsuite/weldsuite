@@ -255,6 +255,19 @@ fn tool_names(call: &weldsuite_ai::fake::FakeCall) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// The display tools the persona always has (`show_*`, visual-tools).
+const DISPLAY_TOOLS: [&str; 4] = ["show_chart", "show_stats", "show_table", "show_records"];
+
+/// The tools a request offered besides the display tools, sorted.
+fn lookup_tool_names(call: &weldsuite_ai::fake::FakeCall) -> Vec<String> {
+    let mut names: Vec<String> = tool_names(call)
+        .into_iter()
+        .filter(|name| !DISPLAY_TOOLS.contains(&name.as_str()))
+        .collect();
+    names.sort();
+    names
+}
+
 #[tokio::test]
 async fn a_chat_answers_with_the_models_text_and_who_answered() {
     let Some(tenant) = tenant() else { return };
@@ -267,9 +280,9 @@ async fn a_chat_answers_with_the_models_text_and_who_answered() {
     assert_eq!(body["data"]["finishReason"], "stop");
     assert_eq!(body["data"]["usage"]["inputTokens"], 12);
     assert_eq!(body["meta"]["ai"]["provider"], "mistral");
-    // Nothing to look up for this caller: no tools, and the prompt says so.
+    // Nothing to look up for this caller: only the display tools, and the prompt says so.
     let call = &fake.calls()[0];
-    assert_eq!(tool_names(call), Vec::<String>::new());
+    assert_eq!(tool_names(call), DISPLAY_TOOLS);
     assert!(
         call.body["messages"][0]["content"]
             .as_str()
@@ -295,9 +308,10 @@ async fn a_tool_call_runs_and_its_answer_goes_back_to_the_model() {
 
     let calls = fake.calls();
     assert_eq!(calls.len(), 2);
-    let mut offered = tool_names(&calls[0]);
-    offered.sort();
-    assert_eq!(offered, ["get_project", "list_projects"]);
+    assert_eq!(
+        lookup_tool_names(&calls[0]),
+        ["get_project", "list_projects"]
+    );
     // The second request carries the tool's call and its result.
     let second = calls[1].body["messages"].to_string();
     assert!(second.contains("list_projects"), "{second}");

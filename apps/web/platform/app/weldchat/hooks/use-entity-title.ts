@@ -66,7 +66,7 @@ const ENTITY_CONFIG: Record<
  * others `useEntityTitle` answers `notfound` without asking the API.
  */
 export function hasEntityTitleLookup(type: string): boolean {
-  return Object.prototype.hasOwnProperty.call(ENTITY_CONFIG, type);
+  return Object.hasOwn(ENTITY_CONFIG, type);
 }
 
 export type EntityTitleStatus = 'loading' | 'ok' | 'forbidden' | 'notfound' | 'error';

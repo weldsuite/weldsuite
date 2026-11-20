@@ -18,7 +18,7 @@ const SHOWN_HINT: &str = "The visual is on screen now, where you called the tool
 add at most a sentence or two on what stands out.";
 
 /// The record types a card may show (`SEARCH_ENTITY_TYPES`).
-const ENTITY_TYPES: [&str; 31] = [
+const ENTITY_TYPES: [&str; 30] = [
     "contact",
     "customer",
     "lead",
@@ -27,7 +27,6 @@ const ENTITY_TYPES: [&str; 31] = [
     "article",
     "knowledge_page",
     "product",
-    "order",
     "invoice",
     "bill",
     "project",
@@ -474,6 +473,16 @@ pub fn visual_to_plain_text(visual: &Value, with_data: bool) -> String {
 /// A stored reply as plain text for the model's history: each visual becomes
 /// its summary line with its numbers (`replyToPlainText(raw, { detail: 'data' })`).
 pub fn reply_to_plain_text(raw: &str) -> String {
+    reply_text(raw, true)
+}
+
+/// A stored reply as plain text for a run summary or a preview: each visual
+/// becomes its one summary line (`replyToPlainText(raw)`).
+pub fn reply_to_summary_text(raw: &str) -> String {
+    reply_text(raw, false)
+}
+
+fn reply_text(raw: &str, with_data: bool) -> String {
     if !raw.contains(MARKER) {
         return raw.to_owned();
     }
@@ -481,7 +490,7 @@ pub fn reply_to_plain_text(raw: &str) -> String {
         .into_iter()
         .map(|part| match part {
             Part::Text(text) => text,
-            Part::Visual(visual) => visual_to_plain_text(&visual, true),
+            Part::Visual(visual) => visual_to_plain_text(&visual, with_data),
         })
         .collect::<Vec<_>>()
         .join("\n\n")
@@ -591,6 +600,21 @@ mod tests {
         assert_eq!(
             visual_to_plain_text(&json!({ "type": "chart" }), false),
             "[Chart]"
+        );
+    }
+
+    #[test]
+    fn a_summary_names_each_visual_in_one_line() {
+        let answer = json!({ "ok": true });
+        let rows: Vec<Value> = (0..100).map(|i| json!([format!("Deal {i}"), i])).collect();
+        let table = json!({ "title": "Open deals", "columns": [{ "label": "Deal" }, { "label": "Value" }], "rows": rows });
+        let table_marker = shown_visual_marker("show_table", &table, &answer).unwrap();
+
+        assert_eq!(reply_to_summary_text("plain"), "plain");
+        // A run reply puts its visuals before the text: the summary still reads, and stays short.
+        assert_eq!(
+            reply_to_summary_text(&format!("{table_marker}\n\nThese are the open deals.")),
+            "[Table: Open deals]\n\nThese are the open deals."
         );
     }
 

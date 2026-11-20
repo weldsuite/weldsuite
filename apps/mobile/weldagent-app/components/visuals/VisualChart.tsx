@@ -7,7 +7,7 @@ import { useState, type ReactNode } from 'react';
 import { View, Text, StyleSheet, type LayoutChangeEvent } from 'react-native';
 import Svg, { Circle, G, Line, Path, Rect, Text as SvgText } from 'react-native-svg';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import { formatVisualNumber, type ChartVisual } from '@weldsuite/app-api-client/schemas/chat-visuals';
+import { formatVisualNumber, uniqueKeys, type ChartVisual } from '@weldsuite/app-api-client/schemas/chat-visuals';
 import {
   arcPath,
   areaPath,
@@ -75,7 +75,7 @@ export function VisualChart({ visual, locale, otherLabel, height = 200, onPick }
       <View onLayout={onLayout}>
         {width > 0 ? (
           <Svg width={width} height={size} accessibilityLabel={visual.title}>
-            <G x={(width - size) / 2}>
+            <G transform={`translate(${(width - size) / 2}, 0)`}>
               {slices.map((slice, i) => (
                 <Path
                   key={`${slice.label}-${slice.index}`}
@@ -101,8 +101,9 @@ export function VisualChart({ visual, locale, otherLabel, height = 200, onPick }
   const plotLeft = AXIS_WIDTH;
   const plotRight = Math.max(plotLeft + 1, width - 4);
   const plotBottom = height - LABEL_HEIGHT;
-  const y = linearScale([ticks[0], ticks[ticks.length - 1]], [plotBottom, TOP]);
+  const y = linearScale([ticks[0], ticks.at(-1) ?? max], [plotBottom, TOP]);
   const n = visual.labels.length;
+  const keys = uniqueKeys(visual.labels);
   const band = (plotRight - plotLeft) / Math.max(1, n);
   const center = (i: number) => plotLeft + band * i + band / 2;
   // Show at most ~6 x labels so they do not overlap.
@@ -118,7 +119,7 @@ export function VisualChart({ visual, locale, otherLabel, height = 200, onPick }
   ));
   const xLabels = visual.labels.map((label, i) =>
     i % labelEvery === 0 ? (
-      <SvgText key={`x-${i}`} x={center(i)} y={height - 6} fontSize={10} fill={colors.mutedForeground} textAnchor="middle">
+      <SvgText key={keys[i]} x={center(i)} y={height - 6} fontSize={10} fill={colors.mutedForeground} textAnchor="middle">
         {label.length > 10 ? `${label.slice(0, 9)}…` : label}
       </SvgText>
     ) : null,
@@ -132,7 +133,7 @@ export function VisualChart({ visual, locale, otherLabel, height = 200, onPick }
       let positive = 0;
       let negative = 0;
       return (
-        <G key={`bar-${i}`} onPress={() => pick(i)}>
+        <G key={keys[i]} onPress={() => pick(i)}>
           {/* A full-height hit area, so short bars are easy to tap. */}
           <Rect x={plotLeft + band * i} y={TOP} width={band} height={plotBottom - TOP} fill="transparent" />
           {visual.series.map((s, j) => {
@@ -183,7 +184,7 @@ export function VisualChart({ visual, locale, otherLabel, height = 200, onPick }
           <Path d={linePath(points)} stroke={seriesColor(j)} strokeWidth={2} fill="none" />
           {n <= 12
             ? points.map((p, i) =>
-                p ? <Circle key={`pt-${i}`} cx={p.x} cy={p.y} r={3} fill={seriesColor(j)} /> : null,
+                p ? <Circle key={keys[i]} cx={p.x} cy={p.y} r={3} fill={seriesColor(j)} /> : null,
               )
             : null}
         </G>
@@ -197,7 +198,7 @@ export function VisualChart({ visual, locale, otherLabel, height = 200, onPick }
       ? null
       : visual.labels.map((_, i) => (
           <Rect
-            key={`hit-${i}`}
+            key={keys[i]}
             x={plotLeft + band * i}
             y={TOP}
             width={band}

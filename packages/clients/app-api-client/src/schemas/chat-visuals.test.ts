@@ -11,6 +11,7 @@ import {
   visualFromToolCall,
   visualToCsv,
   visualToRows,
+  uniqueKeys,
   visualToPlainText,
   visualTitle,
   visualSummaryLine,
@@ -343,5 +344,14 @@ describe('readVisualsMetadata', () => {
     expect(readVisualsMetadata('x')).toEqual([]);
     expect(readVisualsMetadata({ visuals: 'x' })).toEqual([]);
     expect(readVisualsMetadata({ approvals: [] })).toEqual([]);
+  });
+});
+
+describe('uniqueKeys', () => {
+  it('keeps distinct labels and tells repeated ones apart', () => {
+    const keys = uniqueKeys(['Open', 'Other', 'Other', 'Open', 'Other']);
+    expect(keys[0]).toBe('Open');
+    expect(keys[1]).toBe('Other');
+    expect(new Set(keys).size).toBe(5);
   });
 });

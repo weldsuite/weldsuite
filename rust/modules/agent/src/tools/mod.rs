@@ -36,8 +36,8 @@ pub use sandbox_tools::{
 };
 pub use sheet_tools::{SHEET_SCOPED_TOOL_IDS, sheet_call_allowed, sheet_not_allowed};
 pub use visual_tools::{
-    VISUAL_TOOL_IDS, extract_visuals, reply_to_plain_text, shown_visual_marker,
-    visual_to_plain_text,
+    VISUAL_TOOL_IDS, extract_visuals, reply_to_plain_text, reply_to_summary_text,
+    shown_visual_marker, visual_to_plain_text,
 };
 pub use weldsuite_sandbox::ToolOutput;
 

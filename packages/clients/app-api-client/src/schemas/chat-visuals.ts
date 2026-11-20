@@ -223,8 +223,10 @@ export const SHOW_VISUAL_TOOLS = {
 
 export type ShowVisualToolName = keyof typeof SHOW_VISUAL_TOOLS;
 
+const SHOW_VISUAL_TOOL_NAMES: ReadonlySet<string> = new Set(Object.keys(SHOW_VISUAL_TOOLS));
+
 export function isShowVisualTool(name: string): name is ShowVisualToolName {
-  return Object.prototype.hasOwnProperty.call(SHOW_VISUAL_TOOLS, name);
+  return SHOW_VISUAL_TOOL_NAMES.has(name);
 }
 
 /** The visual a `show_*` tool call shows, or null when the name or the args do not fit. */
@@ -361,6 +363,19 @@ const KIND_NAME: Record<ChatVisualType, string> = {
   records: 'Records',
 };
 
+/**
+ * Stable React keys for labels that may repeat (two bars called "Other"): each
+ * label, with a counter after the ones that came before.
+ */
+export function uniqueKeys(labels: readonly string[]): string[] {
+  const seen = new Map<string, number>();
+  return labels.map((label) => {
+    const count = (seen.get(label) ?? 0) + 1;
+    seen.set(label, count);
+    return count === 1 ? label : `${label}\u0001${count}`;
+  });
+}
+
 /** A visual's title, or its first label when it has none. */
 export function visualTitle(visual: ChatVisual): string {
   if (visual.title) return visual.title;
@@ -483,18 +498,21 @@ const DEFAULT_CSV_HEADERS: VisualCsvHeaders = {
 /** Text a spreadsheet would read as a formula (`=HYPERLINK(…)`, `+cmd|…`, `@SUM(…)`). */
 const FORMULA_START = /^[=+\-@\t\r]/;
 
-function csvCell(value: unknown): string {
+/** One cell of a visual's data as it is exported. */
+export type VisualCell = string | number | boolean | null;
+
+function csvCell(value: VisualCell | undefined): string {
   if (value === null || value === undefined) return '';
   const raw = String(value);
   // Cell text comes from the model, which copies workspace data outsiders can
   // write (ticket subjects, lead names): never let Excel or Sheets run it.
   // Numbers stay as they are, so negative numbers still export as numbers.
   const text = typeof value === 'string' && FORMULA_START.test(raw) ? `'${raw}` : raw;
-  return /[",\n\r;]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  return /[",\n\r;]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 }
 
 /** The rows of a visual's data, header first (raw values, not formatted). */
-export function visualToRows(visual: ChatVisual, headers: Partial<VisualCsvHeaders> = {}): unknown[][] {
+export function visualToRows(visual: ChatVisual, headers: Partial<VisualCsvHeaders> = {}): VisualCell[][] {
   const h = { ...DEFAULT_CSV_HEADERS, ...headers };
   switch (visual.type) {
     case 'chart':
