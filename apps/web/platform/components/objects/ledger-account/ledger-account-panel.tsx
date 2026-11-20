@@ -63,6 +63,7 @@ import { useI18n } from '@/lib/i18n/provider';
 import { cn } from '@/lib/utils';
 import { form1099BoxName, FORM_1099_OMIT } from '@/lib/weldbooks/form-1099';
 import { taxLineLabel } from '@/lib/weldbooks/tax-lines';
+import { balanceOnNormalSide } from '@/lib/weldbooks/account-balance';
 import { useCurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';
 import { getLedgerAccountTabs, type LedgerAccountTab } from './ledger-account-tabs';
 
@@ -149,9 +150,9 @@ function LedgerAccountActions({
       <Button
         variant="ghost"
         size="icon-sm"
-          className="size-7"
-        title={ta.editing}
-        aria-label={ta.editing}
+        className="size-7"
+        title={ta.editAccount}
+        aria-label={ta.editAccount}
         asChild
       >
         <Link to="/weldbooks/accounts/$id/edit" params={{ id: account.id }}>
@@ -351,7 +352,7 @@ function LedgerAccountDetailsTab({ account, t }: Readonly<{ account: Account; t:
         <InfoRow
           icon={Wallet}
           label={ta.currentBalance}
-          value={formatMoney(account.currentBalance, account.currency)}
+          value={formatMoney(balanceOnNormalSide(account.currentBalance, account.normalSide), account.currency)}
         />
       </Section>
     </div>

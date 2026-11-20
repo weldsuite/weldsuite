@@ -4,7 +4,7 @@
  * customer statuses, lists, CRM analytics, sequences and customer sequences)
  * module's API worker.
  *
- * Split out of app-api (docs/plans/app-api-module-split.md). It serves the
+ * Split out of app-api (weldsuite-documentation/plans/app-api-module-split.md). It serves the
  * same /api/<object> paths app-api served for this module; the prefixes it
  * owns are listed in @weldsuite/api-modules and checked by its ownership test.
  */

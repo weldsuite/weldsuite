@@ -43,9 +43,12 @@ import {
 import {
   useCreateMailAccount,
   useCheckWeldMailAvailability,
+  useMailDomains,
   useReserveWeldMailAddress,
   useWeldMailDomain,
 } from '@/hooks/queries/use-mail-queries';
+import { isSharedWeldMailDomain } from '@weldsuite/app-api-client/schemas/outbound-mail';
+import { isRustBackend } from '@/lib/runtime-config';
 import { useDomains } from '@/hooks/queries/use-host-queries';
 import { useAppAccess } from '@/hooks/use-app-access';
 import { useCan } from '@weldsuite/permissions/react';
@@ -77,9 +80,31 @@ function LoadingRow() {
 function NoActiveDomains({
   loading,
   installed,
+  selfServed,
   t,
-}: Readonly<{ loading: boolean; installed: boolean; t: MailTranslations }>) {
+}: Readonly<{ loading: boolean; installed: boolean; selfServed: boolean; t: MailTranslations }>) {
   if (loading) return <LoadingRow />;
+  // Kubernetes editions: a domain is added and verified under WeldMail
+  // settings › Domains, WeldHost or not.
+  if (selfServed) {
+    return (
+      <div className="space-y-3">
+        <p className="text-sm text-muted-foreground">{t.mail.addAccount.noVerifiedDomainsYet}</p>
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full h-14 px-3 justify-start gap-3 text-left font-normal rounded-lg"
+          onClick={() => window.location.href = toPublicPath('/settings/apps/weldmail?tab=domains')}
+        >
+          <Bolt className="size-7 text-gray-500" />
+          <div className="flex flex-col items-start">
+            <span className="font-medium">{t.mail.addAccount.addDomainInSettings}</span>
+            <span className="text-xs text-muted-foreground">{t.mail.addAccount.addDomainInSettingsDescription}</span>
+          </div>
+        </Button>
+      </div>
+    );
+  }
   if (!installed) {
     return (
       <div className="space-y-3">
@@ -220,16 +245,28 @@ export function SetupAddAccount({ label: labelProp, disabled = false }: Readonly
     message?: string;
   } | null>(null);
 
-  // Sync WeldHost domains into the picker when the dialog opens.
+  // Kubernetes editions: a domain verified under WeldMail settings › Domains
+  // can host an account too, WeldHost zone or not (ADR MAIL-010).
+  const selfServed = isRustBackend();
+  const mailDomainsQuery = useMailDomains(selfServed && open);
+
+  // Sync WeldHost domains (and, on Kubernetes, verified mail domains) into the
+  // picker when the dialog opens.
   useEffect(() => {
-    if (open && hostDomainsQuery.data?.domains) {
-      const ready = hostDomainsQuery.data.domains
-        .filter((d) => d.status === 'active' && d.fullDomain)
-        .map((d) => d.fullDomain);
-      setAvailableDomains(ready);
-      if (ready.length > 0 && !selectedDomain) setSelectedDomain(ready[0]!);
-    }
-  }, [open, hostDomainsQuery.data, selectedDomain]);
+    if (!open) return;
+    const fromHost = (hostDomainsQuery.data?.domains ?? [])
+      .filter((d) => d.status === 'active' && d.fullDomain)
+      .map((d) => d.fullDomain);
+    const fromMail = selfServed
+      ? (mailDomainsQuery.data?.data ?? [])
+          .filter((d) => d.dnsStatus === 'verified' && d.isActive && !isSharedWeldMailDomain(d.domainName))
+          .map((d) => d.domainName)
+      : [];
+    if (!hostDomainsQuery.data?.domains && fromMail.length === 0) return;
+    const ready = [...new Set([...fromMail, ...fromHost])];
+    setAvailableDomains(ready);
+    if (ready.length > 0 && !selectedDomain) setSelectedDomain(ready[0]!);
+  }, [open, hostDomainsQuery.data, mailDomainsQuery.data, selfServed, selectedDomain]);
 
   // Sync WeldMail domain when switching to weldmail form
   useEffect(() => {
@@ -456,7 +493,7 @@ export function SetupAddAccount({ label: labelProp, disabled = false }: Readonly
                     <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
                   ) : (
                     <span className="text-sm text-muted-foreground">
-                      @{weldmailDomain || 'weldmail.com'}
+                      @{weldmailDomain || '…'}
                     </span>
                   )}
                 </div>
@@ -476,7 +513,7 @@ export function SetupAddAccount({ label: labelProp, disabled = false }: Readonly
                 <p className="text-xs text-muted-foreground">
                   {t.mail.addAccount.emailAddressWillBe}{' '}
                   <strong>
-                    {weldmailAddress}@{weldmailDomain || 'weldmail.com'}
+                    {weldmailAddress}@{weldmailDomain || '…'}
                   </strong>
                 </p>
               )}
@@ -539,7 +576,12 @@ export function SetupAddAccount({ label: labelProp, disabled = false }: Readonly
           <form onSubmit={handleCustomDomainSubmit} className="space-y-4">
             {loadingDomains && <LoadingRow />}
             {!loadingDomains && availableDomains.length === 0 && (
-              <NoActiveDomains loading={weldhostLoading} installed={weldhostInstalled} t={t} />
+              <NoActiveDomains
+                loading={selfServed ? mailDomainsQuery.isLoading : weldhostLoading}
+                installed={weldhostInstalled}
+                selfServed={selfServed}
+                t={t}
+              />
             )}
             {!loadingDomains && availableDomains.length > 0 && (
               <>

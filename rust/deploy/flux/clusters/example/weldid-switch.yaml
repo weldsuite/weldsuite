@@ -1,0 +1,25 @@
+# Sign-in on WeldID instead of Zitadel (apps/weldid-switch), OPT-IN and
+# reversible: listed in kustomization.yaml here, it moves the platform, the
+# admin console and Grafana to WeldID, puts WeldID on auth.${DOMAIN} and
+# takes Zitadel off it; unlisted again, everything goes back to Zitadel.
+# Only with weldid.yaml, once WeldID is ready, and after the steps in
+# infrastructure/weldid/README.md ("Switching").
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: weldid-switch
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: weldid
+    - name: apps
+  interval: 1h
+  path: ./rust/deploy/flux/apps/weldid-switch
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  postBuild:
+    substituteFrom:
+      - kind: ConfigMap
+        name: cluster-settings

@@ -1,4 +1,22 @@
 {
+  "aiProvider": {
+    "body": "{who} enabled {provider} as an AI provider for {workspace}. Features set to use it send their content to {provider}, which processes it outside the EU.",
+    "enabledBy": "Enabled by",
+    "greeting": "Hi {name},",
+    "greetingNoName": "Hi,",
+    "heading": "{provider} was enabled for AI",
+    "keyOwn": "The workspace’s own key",
+    "keySource": "Paid with",
+    "keyWeldsuite": "WeldSuite’s account, charged as AI credits",
+    "kicker": "AI settings",
+    "note": "You get this email because you own the workspace. You can switch the provider off again in the AI settings.",
+    "open": "Open AI settings",
+    "outsideEu": "Outside the EU",
+    "preview": "{provider} processes data outside the EU.",
+    "provider": "Provider",
+    "region": "Region",
+    "subject": "{provider} was enabled for AI in \"{workspace}\""
+  },
   "appAccess": {
     "company": "Company",
     "consent": "Consent rules",
@@ -24,6 +42,89 @@
     "website": "Website",
     "workspace": "Workspace",
     "workspaceId": "Workspace id"
+  },
+  "auth": {
+    "passwordReset": {
+      "body": "We received a request to reset the password for {email}.",
+      "expires": "The link and code expire in {minutes} minutes.",
+      "footer": "If you didn't ask for this, you can ignore this email. Your password stays the same.",
+      "heading": "Choose a new password",
+      "kicker": "Password reset",
+      "preview": "Choose a new password for {email}.",
+      "reset": "Reset password",
+      "subject": "Reset your WeldSuite password",
+      "useCode": "Or enter this code on the reset screen:"
+    },
+    "signInCode": {
+      "body": "Enter this code to finish signing in:",
+      "expires": "The code expires in {minutes} minutes.",
+      "footer": "If you didn't try to sign in, someone may know your password. Change it as soon as you can.",
+      "heading": "Sign in to WeldSuite",
+      "kicker": "Your sign-in code",
+      "preview": "Your sign-in code is {code}.",
+      "subject": "Your WeldSuite sign-in code: {code}"
+    },
+    "verifyEmail": {
+      "body": "Confirm this address to finish setting up your account.",
+      "confirm": "Confirm email address",
+      "expires": "The link and code expire in {minutes} minutes.",
+      "footer": "If you didn't create a WeldSuite account, you can ignore this email.",
+      "heading": "Welcome to WeldSuite",
+      "kicker": "Confirm your email address",
+      "preview": "Your confirmation code is {code}.",
+      "subject": "Confirm your email address for WeldSuite",
+      "useCode": "Or enter this code on the sign-in screen:"
+    }
+  },
+  "billingDunning": {
+    "amount": "Amount due",
+    "ended": {
+      "body": "A payment of {amount} for the {plan} plan of {workspace} stayed open, so the workspace moved to the Free plan. Your data is kept. Choose a plan again to get your seats and features back.",
+      "button": "Choose a plan",
+      "heading": "Your plan ended",
+      "note": "You get this email because you manage billing for the workspace.",
+      "preview": "The {plan} plan ended because a payment stayed open.",
+      "subject": "\"{workspace}\" is now on the Free plan"
+    },
+    "endsOn": "Plan ends on",
+    "failed": {
+      "body": "We couldn’t collect {amount} for the {plan} plan of {workspace}. Your plan keeps working until {date}. Pay before then to keep it.",
+      "button": "Pay now",
+      "heading": "Your payment didn’t go through",
+      "note": "Paying also saves the payment method for the next renewals. You get this email because you manage billing for the workspace.",
+      "preview": "Pay {amount} before {date} to keep {plan}.",
+      "subject": "Payment failed for \"{workspace}\""
+    },
+    "kicker": "Billing",
+    "plan": "Plan",
+    "reminder": {
+      "body": "The {plan} plan of {workspace} still has {amount} open. If it isn’t paid by {date}, the workspace moves to the Free plan.",
+      "button": "Pay now",
+      "heading": "Your payment is still open",
+      "note": "You get this email because you manage billing for the workspace.",
+      "preview": "Pay {amount} before {date} to keep {plan}.",
+      "subject": "Reminder: a payment is open for \"{workspace}\""
+    },
+    "workspace": "Workspace"
+  },
+  "billingInvoice": {
+    "amount": "Total",
+    "amountInclVat": "Total incl. VAT",
+    "body": "Thanks for your payment. The invoice for {workspace} is ready and already paid, so there is nothing left to pay.",
+    "button": "Open billing",
+    "date": "Invoice date",
+    "heading": "Invoice {number}",
+    "kicker": "Billing",
+    "note": "Open or print the invoice under History in Settings › Billing. You get this email because you manage billing for the workspace.",
+    "number": "Invoice number",
+    "preview": "Invoice {number} is paid: {amount}",
+    "reverseNote": "VAT is reverse-charged: you account for it in your own VAT return (Article 196 of the EU VAT Directive).",
+    "subject": "Your WeldSuite invoice {number} for \"{workspace}\"",
+    "vat": "VAT",
+    "vatCharged": "{amount} ({rate}%)",
+    "vatOutside": "None, outside the EU",
+    "vatReverse": "Reverse charge",
+    "workspace": "Workspace"
   },
   "booking": {
     "date": "Date",
@@ -118,6 +219,45 @@
       "subject": "Your WeldSuite workspace \"{workspace}\" is scheduled for deletion"
     }
   },
+  "deskReport": {
+    "agentResolved": "{count} resolved",
+    "agents": "Top agents",
+    "backlog": "Backlog now",
+    "backlogOpen": "Open",
+    "backlogUnassigned": "Unassigned",
+    "backlogWaiting": "Waiting on the team",
+    "csatShort": "CSAT",
+    "csvAttached": "The numbers are attached as a CSV file.",
+    "footer": "{name} scheduled this report (\"{schedule}\") in WeldDesk. To stop it, turn the schedule off under Reports.",
+    "footerNoName": "This report is sent by the schedule \"{schedule}\" in WeldDesk. To stop it, turn the schedule off under Reports.",
+    "introOverview": "How the team did in this period, against the period before.",
+    "introSaved": "The latest numbers of this report.",
+    "kicker": "WeldDesk report · {period}",
+    "kpi": {
+      "created": "New tickets",
+      "csat": "CSAT",
+      "firstResponseMedian": "First response (median)",
+      "resolutionMedian": "Resolution (median)",
+      "resolved": "Resolved",
+      "slaCompliance": "SLA achievement"
+    },
+    "newValue": "new",
+    "noChange": "no change",
+    "noData": "{title}: no data.",
+    "noValue": "No data",
+    "open": "Open the report",
+    "overview": "Overview",
+    "periodRange": "{start} to {end}",
+    "points": "pts",
+    "preview": "{report}, {period}.",
+    "subject": "WeldDesk report: {report} ({period})",
+    "units": {
+      "day": "d",
+      "hour": "h",
+      "minute": "m",
+      "second": "s"
+    }
+  },
   "digest": {
     "footer": "You're receiving this as a member of {workspace}.",
     "heading": "Your tasks",
@@ -148,6 +288,71 @@
     "useCase": "Use case",
     "user": "Clerk user",
     "workspace": "Workspace"
+  },
+  "forms": {
+    "code": {
+      "body": "Enter this code on the form:",
+      "expires": "The code expires in {minutes} minutes.",
+      "footer": "If you didn't ask for this code, you can ignore this email.",
+      "kicker": "Your code to open the form",
+      "preview": "Your code is {code}.",
+      "subject": "Your code to open \"{title}\": {code}"
+    },
+    "digest": {
+      "anonymous": "Anonymous",
+      "button": "See all responses",
+      "footer": "You get this daily digest from {workspace} because you follow this form.",
+      "intro": "{count} new responses came in since the last digest.",
+      "kicker": "Daily digest",
+      "latest": "Latest responses",
+      "more": "And {count} more.",
+      "preview": "{count} new responses to \"{title}\" since the last digest.",
+      "subject": "{count} new responses to \"{title}\""
+    },
+    "invite": {
+      "button": "Open the form",
+      "closes": "The form closes on {date}.",
+      "footer": "This link is personal. Please do not forward it.",
+      "kicker": "{sender} invited you to fill in a form",
+      "messageFrom": "A message from {sender}",
+      "preview": "{title}: your personal link is inside.",
+      "reminderKicker": "A reminder from {sender}: you have not answered yet",
+      "reminderPreview": "You have not filled in \"{title}\" yet.",
+      "reminderSubject": "Reminder: \"{title}\"",
+      "subject": "{sender} invited you to fill in \"{title}\""
+    },
+    "quota": {
+      "bodyFull": "Your forms show \"not accepting responses right now\" to new visitors. People already filling in a form can still send it.",
+      "bodyNear": "Forms keep accepting responses until the limit is reached.",
+      "button": "View plans",
+      "footer": "You get this because you are an admin of the workspace.",
+      "headingFull": "You have used all your monthly responses",
+      "headingNear": "You have used {percent}% of your monthly responses",
+      "kicker": "WeldForms usage",
+      "previewFull": "All {limit} responses for this month are used ({used}).",
+      "previewNear": "{used} of {limit} responses used this month.",
+      "resets": "The count starts again on {date}.",
+      "subjectFull": "{workspace} reached its monthly form response limit",
+      "subjectNear": "{workspace} has used 80% of its monthly form responses",
+      "usage": "{used} of {limit} completed responses this month."
+    },
+    "receipt": {
+      "body": "Here is a copy of your answers.",
+      "footer": "You get this copy because you verified this address on the form.",
+      "kicker": "Thanks for your response",
+      "preview": "A copy of what you sent in \"{title}\".",
+      "reference": "Response #{number}",
+      "subject": "Your answers to \"{title}\""
+    },
+    "response": {
+      "button": "Open the response",
+      "footer": "You get this because you follow this form. Change it in the form's notification settings.",
+      "kicker": "New response",
+      "kickerFrom": "New response from {respondent}",
+      "linkOnly": "This form has private fields, so the answers are not in this email. Open the response to read them.",
+      "preview": "Someone answered \"{title}\".",
+      "subject": "New response to \"{title}\""
+    }
   },
   "hrBank": {
     "byHr": "The bank details {employer} pays your salary to were changed by HR, on {when}.",
@@ -219,6 +424,110 @@
     "verdict": "AI verdict",
     "workspace": "Workspace",
     "workspaceId": "Workspace id"
+  },
+  "panel": {
+    "alert": {
+      "bodyFired": "{metric} was {value} for {period}: {condition}.",
+      "bodyResolved": "{metric} was {value} for {period}, no longer {condition}.",
+      "bodyTest": "This is a test. When the alert fires, its message arrives here like this one.",
+      "button": "Open alert",
+      "checked": "Checked",
+      "condition": "Condition",
+      "conditionAbove": "above {value}",
+      "conditionAnomaly": "outside the expected range",
+      "conditionAny": "changed {percent}% or more against the period before",
+      "conditionBelow": "below {value}",
+      "conditionDecrease": "down {percent}% or more on the period before",
+      "conditionIncrease": "up {percent}% or more on the period before",
+      "footer": "You get this because you are a recipient of this WeldPanel alert.",
+      "headingFired": "{alert} is firing",
+      "headingResolved": "{alert} is back to normal",
+      "headingTest": "Test message for {alert}",
+      "intervals": {
+        "daily": "Every day",
+        "hourly": "Every hour",
+        "weekly": "Every week"
+      },
+      "kicker": "WeldPanel alert · {project}",
+      "limit": "Limit",
+      "metric": "Metric",
+      "noData": "no data",
+      "period": "Period",
+      "preview": "{metric}: {value}",
+      "sensitivity": {
+        "high": "high sensitivity",
+        "low": "low sensitivity",
+        "medium": "medium sensitivity"
+      },
+      "subjectFired": "Alert: {alert}",
+      "subjectResolved": "Resolved: {alert}",
+      "subjectTest": "Test: {alert}",
+      "value": "Value",
+      "weekOf": "week of {date}"
+    },
+    "exportFailing": {
+      "body": "The last {count} attempts to write to {bucket} failed. WeldPanel keeps trying; nothing is skipped, so the export catches up once the destination accepts files again.",
+      "button": "Open exports",
+      "error": "Last error",
+      "footer": "You get this because you set up this export.",
+      "heading": "The export {name} is failing",
+      "kicker": "WeldPanel export · {project}",
+      "subject": "WeldPanel export {name} is failing"
+    },
+    "reportDigest": {
+      "button": "Open in WeldPanel",
+      "failed": "This report could not be run.",
+      "footer": "You get this because you are a recipient of the scheduled report {name}.",
+      "introDashboard": "The latest numbers from this dashboard.",
+      "introReport": "The latest numbers from this report.",
+      "kicker": "WeldPanel scheduled report · {project}",
+      "labels": {
+        "bounceRate": "Bounce rate",
+        "breakdown": "Top values",
+        "cohortSize": "People in the first period",
+        "conversion": "Conversion",
+        "pageviews": "Pageviews",
+        "period": "Period {n}",
+        "periods": "Retention by period",
+        "retained": "Retained after one period",
+        "steps": "Steps",
+        "topPages": "Top pages",
+        "visitors": "Visitors",
+        "visits": "Visits"
+      },
+      "more": "{count} more reports on the dashboard.",
+      "newValue": "new",
+      "noChange": "no change",
+      "noData": "No data in this period.",
+      "openToSee": "Open the report in WeldPanel to see it.",
+      "preview": "The latest numbers from {target}.",
+      "previous": "previous period {value}",
+      "subject": "{name}: {target}"
+    },
+    "usage": {
+      "amount": "{used} of {allowance}",
+      "bodyEventsBlocked": "Your credit wallet cannot cover the next block of usage and events are more than 10% over the allowance, so new events and recordings are dropped until the next month, a top-up or a plan upgrade. Dropped events cannot be recovered.",
+      "bodyFull": "Usage above the allowance is now charged from your credit wallet in blocks, so tracking keeps running.",
+      "bodyNear": "Usage above the allowance is charged from your credit wallet in blocks, so tracking keeps running.",
+      "bodyReplayBlocked": "Your credit wallet cannot cover the next block of usage, so no new recordings are made. Events are still counted. Top up your credits or upgrade your plan to continue.",
+      "button": "View usage",
+      "events": "Events",
+      "footer": "You get this because you are an owner of the workspace.",
+      "headingEventsBlocked": "New events are being dropped",
+      "headingFull": "You have used your monthly allowance",
+      "headingNear": "You have used 80% of your monthly allowance",
+      "headingReplayBlocked": "New recordings have stopped",
+      "kicker": "WeldPanel usage",
+      "previewBlocked": "Your credit wallet cannot cover more WeldPanel usage.",
+      "previewFull": "The allowance for this month is used: {events} events and {recordings} recordings.",
+      "previewNear": "{events} events and {recordings} recordings used this month.",
+      "recordings": "Recordings",
+      "resets": "The count starts again on {date}.",
+      "subjectEventsBlocked": "WeldPanel is dropping events for {workspace}",
+      "subjectFull": "{workspace} has used its WeldPanel allowance for this month",
+      "subjectNear": "{workspace} has used 80% of its WeldPanel allowance",
+      "subjectReplayBlocked": "WeldPanel stopped recording sessions for {workspace}"
+    }
   },
   "portal": {
     "expiresCode": "The code expires in {minutes} minutes.",

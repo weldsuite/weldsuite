@@ -33,6 +33,7 @@ import { writeAccountingAudit } from '@weldsuite/books-domain/accounting-guards'
 import {
   generateRecurringInvoice,
   RecurringAlreadyGeneratedError,
+  recurringDatesError,
   recurringTemplateSchema,
 } from '../../services/accounting-recurring';
 import { PostingError } from '../../services/accounting-posting';
@@ -98,6 +99,8 @@ app.post('/', requirePermission('invoices:create'), zValidator('json', createRec
   try {
     const entityId = await resolveEntityId(c, db);
     if (!entityId) return error.badRequest(c, 'No accounting entity resolved');
+    const datesError = recurringDatesError(data.nextIssueDate, data.endDate);
+    if (datesError) return error.badRequest(c, datesError);
     const newRec = {
       id: generateId('ri'),
       entityId,
@@ -141,6 +144,9 @@ app.on(['PUT', 'PATCH'], '/:id', requirePermission('invoices:update'), zValidato
     const [rec] = await db.select().from(schema.recurringInvoices)
       .where(and(eq(schema.recurringInvoices.id, id), isNull(schema.recurringInvoices.deletedAt))).limit(1);
     if (!rec) return error.notFound(c, 'Recurring invoice', id);
+    // The dates after the change: a new end date or next issue date is checked against the other.
+    const datesError = recurringDatesError(data.nextIssueDate || rec.nextIssueDate, data.endDate || rec.endDate);
+    if (datesError) return error.badRequest(c, datesError);
 
     const updateData: Record<string, unknown> = { ...data, updatedAt: new Date() };
     if (data.nextIssueDate) updateData.nextIssueDate = new Date(data.nextIssueDate);

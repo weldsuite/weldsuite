@@ -22,7 +22,7 @@ import {
   startSignIn,
   type OidcConfig,
 } from './oidc';
-import { staffIdentity } from './staff-roster';
+import { staffIdentity, staffRefusal } from './staff-roster';
 
 function redirect(location: string, cookies: string[] = [], status = 302): Response {
   const headers = new Headers({ Location: location, 'Cache-Control': 'no-store' });
@@ -71,8 +71,15 @@ export async function handleCallback(request: Request): Promise<Response> {
     // Binds a first sign-in to its roster row and notes the time. The session
     // is made even for someone not on the roster: they get the "no access"
     // page with a sign-out button, instead of a loop through the provider.
-    const identity = await staffIdentity(session, { signingIn: true });
-    if (!identity) console.warn('[admin/auth] signed in but not on the staff roster:', session.sub);
+    const identity = await staffIdentity(session, { staffOrgId: settings.staffOrgId, signingIn: true });
+    if (!identity) {
+      // Which refusal it was, so the log says what to fix. Only words for
+      // the log: failing to work them out never fails the sign-in.
+      const why = await staffRefusal(session, { staffOrgId: settings.staffOrgId }).catch(
+        () => 'an account the staff list does not let in',
+      );
+      console.warn(`[admin/auth] signed in with ${why}:`, session.sub);
+    }
     return redirect(returnTo, [await sessionCookie(settings, session), clearFlow]);
   } catch (error) {
     console.error('[admin/auth] sign-in failed:', error);

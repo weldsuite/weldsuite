@@ -9,6 +9,7 @@ import {
   type CommerceCategory,
 } from '@/hooks/queries/use-commerce-queries';
 import { getTranslations } from '@/lib/i18n';
+import { useConfirmDelete } from '../../lib/use-confirm-delete';
 import { buildCategoryColumns } from '../config/category-columns';
 import { CategoryDialog } from './category-dialog';
 
@@ -47,16 +48,19 @@ export function CategoriesList({
 
   const columns = useMemo(() => buildCategoryColumns(showHierarchy), [showHierarchy]);
 
-  const handleDelete = async (category: CommerceCategory) => {
-    if (!confirm(t.categories.confirmDelete)) return;
-    try {
-      await deleteMut.mutateAsync(category.id);
-      toast.success(t.categories.toastDeleted);
-    } catch (err) {
-      // The API refuses to orphan children — surface its message verbatim.
-      toast.error((err as Error).message || t.common.deleteFailed);
-    }
-  };
+  const confirmDelete = useConfirmDelete<CommerceCategory>({
+    title: t.categories.confirmDelete,
+    name: (category) => category.name,
+    onDelete: async (category) => {
+      try {
+        await deleteMut.mutateAsync(category.id);
+        toast.success(t.categories.toastDeleted);
+      } catch (err) {
+        // The API refuses to orphan children — surface its message verbatim.
+        toast.error((err as Error).message || t.common.deleteFailed);
+      }
+    },
+  });
 
   return (
     <>
@@ -67,7 +71,7 @@ export function CategoriesList({
         onRowClick={(c) => openObjectPanel({ type: 'category', id: c.id })}
         objectPanel={{ type: 'category' }}
         onEdit={setEditing}
-        onDelete={handleDelete}
+        onDelete={confirmDelete.request}
         searchQuery={search}
         onSearchChange={onSearchChange}
         searchPlaceholder={t.categories.searchPlaceholder}
@@ -82,10 +86,12 @@ export function CategoriesList({
             </EmptyStateIllustration>
           ),
           title: t.categories.empty,
-          description: t.categories.searchPlaceholder,
+          description: t.categories.emptyDescription,
           action: { label: t.categories.newButton, onClick: () => setCreateOpen(true) },
         }}
+        noResultsState={{ title: t.categories.noResults, description: t.common.noResultsHint }}
       />
+      {confirmDelete.dialog}
 
       {createOpen && <CategoryDialog open={createOpen} onOpenChange={setCreateOpen} />}
       {editing && (

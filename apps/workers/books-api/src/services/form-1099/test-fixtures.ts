@@ -2,7 +2,7 @@
  * Shared seed for the 1099 tests: a US entity with its real chart, nine
  * vendors created through the contacts route (so TINs are encrypted the way
  * production does it), and a 2025 and 2026 payment history that covers the
- * plan's scenario 8 (docs/plans/weldbooks-us.md, Testing).
+ * plan's scenario 8 (weldsuite-documentation/plans/weldbooks-us.md, Testing).
  *
  * Not a test file: it has no `.test.ts` suffix.
  */

@@ -5,8 +5,8 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { useI18n } from '@/lib/i18n/provider';
 import { ImageDialog } from './image-dialog';
 import type { DocController } from './model/doc-controller';
-import { MOD_LABEL } from './model/keyboard';
-import { PALETTE } from './ui';
+import { FIND_SHORTCUT, MOD_LABEL, shortcutLabel } from './model/keyboard';
+import { focusDialogItself, PALETTE } from './ui';
 
 /** Whichever dialog the controller has open. */
 export function DocDialogs({ controller }: { controller: DocController }) {
@@ -17,8 +17,7 @@ export function DocDialogs({ controller }: { controller: DocController }) {
       return <PageSetupDialog controller={controller} onClose={close} />;
     case 'wordCount':
       return <WordCountDialog controller={controller} onClose={close} />;
-    case 'link':
-      return <LinkDialog controller={controller} onClose={close} />;
+    // 'link' is a pop-up at the text, drawn by the page view (link-popover.tsx).
     case 'shortcuts':
       return <ShortcutsDialog onClose={close} />;
     case 'image':
@@ -203,7 +202,7 @@ function WordCountDialog({ controller, onClose }: { controller: DocController; o
   const n = (v: number) => format('{v}', { v: v.toLocaleString() });
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-sm">
+      <DialogContent className="outline-none sm:max-w-sm" onOpenAutoFocus={focusDialogItself}>
         <DialogHeader>
           <DialogTitle>{tw.title}</DialogTitle>
         </DialogHeader>
@@ -227,104 +226,6 @@ function WordCountDialog({ controller, onClose }: { controller: DocController; o
         <DialogFooter>
           <Button onClick={onClose}>{tw.close}</Button>
         </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-/** A web address, email or phone number, made into a link target; null when it is none of those. */
-export function normalizeLink(input: string): string | null {
-  const v = input.trim();
-  if (!v) return null;
-  if (/^(https?:|mailto:|tel:)/i.test(v)) return v;
-  if (v.startsWith('#')) return v;
-  if (isEmailAddress(v)) return `mailto:${v}`;
-  if (/^\+?[\d\s()-]{6,}$/.test(v)) return `tel:${v.replace(/\s/g, '')}`;
-  if (looksLikeDomain(v)) return `https://${v}`;
-  return null;
-}
-
-/** name@host.tld: one @, no spaces, and a dot inside the host. Plain string checks (no backtracking regex). */
-function isEmailAddress(v: string): boolean {
-  const at = v.indexOf('@');
-  if (at <= 0 || v.includes('@', at + 1) || /\s/.test(v)) return false;
-  const host = v.slice(at + 1);
-  // A dot with at least one character on each side.
-  return host.lastIndexOf('.', host.length - 2) >= 1;
-}
-
-/** Text that starts with something like example.com: a dot inside the first word, with two or more characters after it. */
-function looksLikeDomain(v: string): boolean {
-  const firstWord = v.split(/\s/, 1)[0] ?? '';
-  return firstWord.lastIndexOf('.', firstWord.length - 3) >= 1;
-}
-
-function LinkDialog({ controller, onClose }: { controller: DocController; onClose: () => void }) {
-  const { t } = useI18n();
-  const tl = t.welddocs.link;
-  const existing = controller.link();
-  const collapsed = isCollapsed(controller.selection);
-  const [text, setText] = useState(existing?.text ?? '');
-  const [url, setUrl] = useState(existing?.url ?? '');
-  const [error, setError] = useState(false);
-  const apply = () => {
-    const target = normalizeLink(url);
-    if (!target) {
-      setError(true);
-      return;
-    }
-    controller.setLink(target, collapsed && !existing ? text || url : undefined);
-    onClose();
-  };
-  return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>{tl.title}</DialogTitle>
-        </DialogHeader>
-        <form
-          className="flex flex-col gap-3 text-sm"
-          onSubmit={(e) => {
-            e.preventDefault();
-            apply();
-          }}
-        >
-          {collapsed && !existing && (
-            <label className="flex flex-col gap-1">
-              <span className="text-xs font-medium text-muted-foreground">{tl.text}</span>
-              <input value={text} onChange={(e) => setText(e.target.value)} className="h-8 rounded border bg-background px-2" />
-            </label>
-          )}
-          <label className="flex flex-col gap-1">
-            <span className="text-xs font-medium text-muted-foreground">{tl.url}</span>
-            <input
-              autoFocus
-              value={url}
-              placeholder={tl.urlPlaceholder}
-              onChange={(e) => {
-                setUrl(e.target.value);
-                setError(false);
-              }}
-              className="h-8 rounded border bg-background px-2"
-            />
-          </label>
-          {error && <p className="text-xs text-destructive">{tl.invalid}</p>}
-          <DialogFooter>
-            {existing && (
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  controller.removeLink();
-                  onClose();
-                }}
-              >
-                {t.welddocs.editor.removeLink}
-              </Button>
-            )}
-            <Button type="submit">{tl.apply}</Button>
-          </DialogFooter>
-        </form>
       </DialogContent>
     </Dialog>
   );
@@ -369,7 +270,7 @@ function ShortcutsDialog({ onClose }: { onClose: () => void }) {
       [
         [i.undo, `${m}+Z`],
         [i.redo, `${m}+Y`],
-        [i.find, `${m}+H`],
+        [i.find, FIND_SHORTCUT],
         [i.pageBreak, `${m}+Enter`],
         [i.lineBreak, 'Shift+Enter'],
         [i.pastePlain, `${m}+Shift+V`],
@@ -387,7 +288,7 @@ function ShortcutsDialog({ onClose }: { onClose: () => void }) {
   ];
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-h-[80vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent className="max-h-[80vh] overflow-y-auto outline-none sm:max-w-2xl" onOpenAutoFocus={focusDialogItself}>
         <DialogHeader>
           <DialogTitle>{ts.title}</DialogTitle>
         </DialogHeader>
@@ -399,7 +300,7 @@ function ShortcutsDialog({ onClose }: { onClose: () => void }) {
                 {rows.map(([label, keys]) => (
                   <div key={label} className="contents">
                     <dt className="text-muted-foreground">{label}</dt>
-                    <dd className="text-right font-mono text-xs">{keys}</dd>
+                    <dd className="text-right font-mono text-xs">{shortcutLabel(keys)}</dd>
                   </div>
                 ))}
               </dl>

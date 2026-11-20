@@ -647,6 +647,39 @@ describe('GET / and GET /summary · record chat lists', () => {
     expect(pages).toBe(3);
   });
 
+  it('sorts the unread chats first, each part most recent first', async () => {
+    const body = await list('?type=company&sort=unread');
+    const [middleOrTieFirst, middleOrTieSecond] = [ids.coMiddle, ids.coTie].sort().reverse();
+    // Muted is never unread, so it stays with the read ones.
+    expect(body.data.map((r) => r.id)).toEqual([ids.coNewest, ids.coOldest, middleOrTieFirst, middleOrTieSecond, ids.coMuted]);
+  });
+
+  it('pages the unread-first order with the cursor', async () => {
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    let pages = 0;
+    do {
+      const body = await list(`?type=company&sort=unread&limit=2${cursor ? `&cursor=${cursor}` : ''}`);
+      seen.push(...body.data.map((r) => r.id));
+      cursor = body.pagination.hasMore ? body.pagination.cursor : null;
+      pages++;
+    } while (cursor && pages < 10);
+    const all = await list('?type=company&sort=unread');
+    expect(seen).toEqual(all.data.map((r) => r.id));
+    expect(pages).toBe(3);
+  });
+
+  it('puts unread chats first under "all" too, the ones not followed with the read ones', async () => {
+    const body = await list('?type=company&filter=all&sort=unread');
+    const order = body.data.map((r) => r.id);
+    expect(order.slice(0, 2)).toEqual([ids.coNewest, ids.coOldest]);
+    expect(order.indexOf(ids.coNotFollowed)).toBeGreaterThan(1);
+  });
+
+  it('refuses an unknown sort', async () => {
+    expect((await api(ME, MY_PERMS).request('/api/chat-entity-channels?sort=oldest')).status).toBe(400);
+  });
+
   it('filters unread (not muted), mentions and all', async () => {
     const unread = await list('?type=company&filter=unread');
     expect(unread.data.map((r) => r.id)).toEqual([ids.coNewest, ids.coOldest]);

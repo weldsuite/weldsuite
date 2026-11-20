@@ -1,0 +1,51 @@
+{
+  "name": "A condition on an undeclared hidden field",
+  "definition": {
+    "blocks": [
+      {
+        "id": "b_1",
+        "ref": "first",
+        "type": "short_text",
+        "title": "first"
+      },
+      {
+        "id": "b_2",
+        "ref": "second",
+        "type": "short_text",
+        "title": "second"
+      }
+    ],
+    "endings": [
+      {
+        "id": "e_end",
+        "ref": "end",
+        "title": "End"
+      }
+    ],
+    "endingRules": [
+      {
+        "id": "r_a",
+        "when": {
+          "op": "and",
+          "conditions": [
+            {
+              "left": {
+                "type": "hidden",
+                "name": "utm"
+              },
+              "operator": "is",
+              "right": {
+                "type": "constant",
+                "value": "x"
+              }
+            }
+          ]
+        },
+        "endingId": "e_end"
+      }
+    ]
+  },
+  "expectIssues": [
+    "unknown_hidden"
+  ]
+}

@@ -16,6 +16,7 @@ export const sheetData = {
     products: 'Producten',
     orders: 'Bestellingen',
     invoices: 'Facturen',
+    form_responses: 'Formulierreacties',
   },
   fields: {
     companies: {
@@ -247,6 +248,15 @@ export const sheetData = {
       entityId: 'Entiteit',
       createdAt: 'Aangemaakt',
       updatedAt: 'Bijgewerkt',
+    },
+    form_responses: {
+      number: 'Reactienummer',
+      submittedAt: 'Verstuurd',
+      respondentEmail: 'E-mail invuller',
+      startedAt: 'Gestart',
+      score: 'Score',
+      durationSeconds: 'Invultijd (seconden)',
+      personId: 'CRM-persoon',
     },
   },
 };

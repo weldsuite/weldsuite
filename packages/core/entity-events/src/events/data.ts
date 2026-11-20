@@ -458,6 +458,14 @@ export interface VoipPhoneNumberEventData {
   status?: string | null;
 }
 
+/** A customer's own phone system (SIP trunk / PBX) connected to WeldDesk. */
+export interface SipTrunkEventData {
+  id: string;
+  name: string;
+  provider?: string | null;
+  status?: string | null;
+}
+
 // ===========================================================================
 // WeldDrive (files + folders)
 // ===========================================================================
@@ -556,6 +564,56 @@ export interface SignEnvelopeEventData {
   templateId?: string | null;
 }
 
+/** A WeldForms form: id, title, status and where it lives. The definition stays off the bus. */
+export interface FormEventData {
+  id: string;
+  title?: string;
+  status?: string;
+  publicId?: string | null;
+  /** Published version number (`published`). */
+  version?: number;
+  ownerUserId?: string;
+}
+
+/**
+ * A WeldForms response. `answers` is keyed by field `ref`, with display
+ * values; files, signatures and sensitive fields are left out (ADR
+ * FORMS-004). `hidden` holds the hidden-field values.
+ */
+export interface FormResponseEventData {
+  id: string;
+  formId: string;
+  formTitle?: string;
+  number?: number | null;
+  respondentEmail?: string | null;
+  respondentUserId?: string | null;
+  personId?: string | null;
+  invitationId?: string | null;
+  endingId?: string | null;
+  score?: number | null;
+  answers?: Record<string, string>;
+  hidden?: Record<string, string>;
+  submittedAt?: string | null;
+}
+
+/** A form folder, theme or integration: id, name/kind and the form it belongs to. */
+export interface FormSupportEventData {
+  id: string;
+  formId?: string;
+  name?: string;
+  kind?: string;
+  enabled?: boolean;
+}
+
+/** A personal invitation: who, for which form, and whether it was a reminder. */
+export interface FormInvitationEventData {
+  id: string;
+  formId: string;
+  email?: string;
+  personId?: string | null;
+  reminder?: boolean;
+}
+
 /** A WeldSign template: id and title only. */
 export interface SignTemplateEventData {
   id: string;
@@ -571,6 +629,61 @@ export interface PanelProjectEventData {
   name?: string;
   kind?: string;
   status?: string;
+}
+
+/** A WeldPanel report: id, name, kind, visibility and project. The query spec stays off the bus. */
+export interface PanelReportEventData {
+  id: string;
+  projectId?: string;
+  name?: string;
+  kind?: string;
+  visibility?: string;
+}
+
+export interface PanelDashboardEventData {
+  id: string;
+  projectId?: string;
+  name?: string;
+  visibility?: string;
+}
+
+export interface PanelCohortEventData {
+  id: string;
+  projectId?: string;
+  name?: string;
+}
+
+export interface PanelEventDefinitionEventData {
+  id: string;
+  projectId?: string;
+  kind?: string;
+  name?: string;
+  hidden?: boolean;
+  verified?: boolean;
+}
+
+export interface PanelEventDefinitionEventData {
+  id: string;
+  projectId?: string;
+  kind?: string;
+  name?: string;
+  hidden?: boolean;
+  verified?: boolean;
+}
+
+export interface PanelHeatmapPageEventData {
+  id: string;
+  projectId?: string;
+  name?: string;
+  urlPattern?: string;
+}
+
+export interface PanelKeyEventData {
+  id: string;
+  projectId?: string;
+  name?: string;
+  /** The key's visible start (`wps_ab12…`), never the key. */
+  prefix?: string;
 }
 
 export interface MergeTeamEventData {
@@ -804,6 +917,7 @@ export interface EntityEventData {
   email_forward: EmailForwardEventData;
   domain_transfer: DomainTransferEventData;
   voip_phone_number: VoipPhoneNumberEventData;
+  sip_trunk: SipTrunkEventData;
 
   // WeldDrive
   file: FileEventData;
@@ -824,8 +938,22 @@ export interface EntityEventData {
   sign_envelope: SignEnvelopeEventData;
   sign_template: SignTemplateEventData;
 
+  // WeldForms
+  form: FormEventData;
+  form_response: FormResponseEventData;
+  form_folder: FormSupportEventData;
+  form_theme: FormSupportEventData;
+  form_integration: FormSupportEventData;
+  form_invitation: FormInvitationEventData;
+
   // WeldPanel
   panel_project: PanelProjectEventData;
+  panel_report: PanelReportEventData;
+  panel_dashboard: PanelDashboardEventData;
+  panel_cohort: PanelCohortEventData;
+  panel_event_definition: PanelEventDefinitionEventData;
+  panel_heatmap_page: PanelHeatmapPageEventData;
+  panel_key: PanelKeyEventData;
 
   // WeldMerge
   merge_team: MergeTeamEventData;

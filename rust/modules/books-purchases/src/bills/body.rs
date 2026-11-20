@@ -427,3 +427,37 @@ pub(crate) fn read_bill(issues: &mut Issues, body: &Map<String, Value>, partial:
     }
     bill
 }
+
+/// `recordBillPaymentSchema` (`POST /:id/record-payment`).
+#[derive(Debug, Clone)]
+pub(crate) struct BillPaymentBody {
+    pub amount: String,
+    pub date: String,
+    pub payment_method: Option<String>,
+    pub reference: Option<String>,
+    pub bank_account_id: Option<String>,
+    pub bank_transaction_id: Option<String>,
+    pub notes: Option<String>,
+}
+
+pub(crate) fn read_bill_payment(
+    issues: &mut Issues,
+    body: &Map<String, Value>,
+) -> Option<BillPaymentBody> {
+    let amount = issues.text(body, "amount", Presence::Required, None, None);
+    let date = issues.text(body, "date", Presence::Required, None, None);
+    let method = issues.text(body, "paymentMethod", Presence::Optional, None, Some(30));
+    let reference = issues.text(body, "reference", Presence::Optional, None, None);
+    let bank = issues.text(body, "bankAccountId", Presence::Optional, None, None);
+    let transaction = issues.text(body, "bankTransactionId", Presence::Optional, None, None);
+    let notes = issues.text(body, "notes", Presence::Optional, None, None);
+    Some(BillPaymentBody {
+        amount: amount.into_option()?,
+        date: date.into_option()?,
+        payment_method: method.into_option(),
+        reference: reference.into_option(),
+        bank_account_id: bank.into_option(),
+        bank_transaction_id: transaction.into_option(),
+        notes: notes.into_option(),
+    })
+}

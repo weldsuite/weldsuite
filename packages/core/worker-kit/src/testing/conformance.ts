@@ -28,8 +28,10 @@
  *    both start from the same state and only Rust's writes reach the test's
  *    database and stubs, which its own assertions then check.
  * 4. Status and JSON are compared (ids, timestamps and cursors normalised for
- *    writes), the body is validated against the route's Zod schema when one is
- *    registered (./conformance-schemas.ts), and the outcome is recorded.
+ *    writes, seconds counted to each run's own "now" aligned within what the
+ *    runs' clocks differ by), the body is validated against the route's Zod
+ *    schema when one is registered (./conformance-schemas.ts), and the
+ *    outcome is recorded.
  * 5. Side effects are compared too: the Hono app gets recording
  *    `ENTITY_EVENTS` and `REALTIME` bindings (unless the test brings its own),
  *    Rust records through its port doubles, and both lists must match. The
@@ -51,6 +53,7 @@ import { typeScriptSide } from './pglite-rollback';
 import { schemaFor } from './conformance-schemas';
 import { bucketUrls } from './bucket-bridge';
 import { kvUrls } from './kv-bridge';
+import { workspaceBridgeUrl } from './workspace-bridge';
 import { realtimeUrl } from './realtime-bridge';
 import { isolatedEnv } from './write-isolation';
 import { maskVolatile, maskVolatileEvents, maskVolatileOutbound, maskVolatileRealtime, maskVolatileText } from './conformance-volatile';
@@ -86,6 +89,7 @@ import {
   recordTypeScriptPipelineCalls,
   takeRustPipelineCalls,
 } from './pipeline-bridge';
+import { rateLimitUrls } from './rate-limit-bridge';
 import {
   type OutboundCall,
   outboundBridgeUrl,
@@ -272,6 +276,8 @@ export const FORWARDED_ENV = [
   'PONTO_CLIENT_SECRET',
   'PONTO_SIGNATURE_CERT_ID',
   'PONTO_SIGNATURE_KEY',
+  'PONTO_ENV',
+  'PONTO_APPLICATION_ID',
   'ENABLE_BANKING_APP_ID',
   'ENABLE_BANKING_PRIVATE_KEY',
   // The integration workers' webhook receivers: Stripe Financial
@@ -285,6 +291,9 @@ export const FORWARDED_ENV = [
   'TELNYX_CONNECTION_ID',
   'TELNYX_SIP_CONNECTION_ID',
   'TELNYX_PUBLIC_KEY',
+  // SIP trunks: the voice profile of a trunk's connection and the SIP host shown to the customer.
+  'TELNYX_OUTBOUND_VOICE_PROFILE_ID',
+  'TELNYX_SIP_HOST',
   'STRIPE_SECRET_KEY',
   'APP_API_PUBLIC_URL',
   // WeldHost: Realtime Register (the registrar and ADAC keys, the customer
@@ -317,10 +326,21 @@ export const FORWARDED_ENV = [
   'MAILPOOL_WEBHOOK_SECRET',
   'WELDREACH_WARMUP_KEY',
   'REACH_INBOUND_DOMAIN',
-  // WeldPanel: the collector origin the install snippets point at, and the
-  // SDK bundle the collector serves as /s.js (a file; only Rust reads it).
+  // WeldPanel: the collector origin the install snippets point at, the
+  // bundles the collector serves as /s.js, /rec.js and /v.js (files; only
+  // Rust reads them), and Basin SQL (its token and bucket; CF_ACCOUNT_ID is
+  // forwarded above), which the Rust server reaches through the outbound
+  // bridge in this mode.
   'PANEL_COLLECTOR_URL',
   'PANEL_SDK_FILE',
+  'R2_SQL_API_TOKEN',
+  'PANEL_BASIN_BUCKET',
+  'PANEL_RECORDER_FILE',
+  'PANEL_VITALS_FILE',
+  // WeldPanel's custom collector domains: the Cloudflare for SaaS zone and the
+  // host customers CNAME to (CLOUDFLARE_API_TOKEN is forwarded above).
+  'PANEL_SAAS_ZONE_ID',
+  'PANEL_SAAS_CNAME_TARGET',
   // WeldMerge: the GitHub App's user authorization, the GitLab, Bitbucket and
   // Azure DevOps OAuth apps, and the public origin provider webhooks deliver to
   // (APP_URL, the keyring and the App's id, slug and key are forwarded above).
@@ -333,6 +353,26 @@ export const FORWARDED_ENV = [
   'AZURE_DEVOPS_CLIENT_ID',
   'AZURE_DEVOPS_CLIENT_SECRET',
   'WEBHOOK_BASE_URL',
+  // WeldForms: the portal's key, the respondent sessions' secret, the portal
+  // origin public links point at, the bot check (provider, Turnstile's keys,
+  // ALTCHA's HMAC key) and the minimum fill time the tests lower
+  // (PLATFORM_URL and R2_PUBLIC_URL are forwarded above).
+  'FORMS_PORTAL_SECRET',
+  'FORMS_SESSION_SECRET',
+  'FORMS_PORTAL_URL',
+  'BOT_CHECK_PROVIDER',
+  'TURNSTILE_SITE_KEY',
+  'TURNSTILE_SECRET_KEY',
+  'ALTCHA_HMAC_KEY',
+  'FORMS_MIN_FILL_MS',
+  // AI (ADR AI-012): the mock model both backends call (`@weldsuite/ai/testing`;
+  // without it Rust's AI is off, as the worker without its gateway), and the
+  // Rust install settings a test may change (`rust/bins/weldsuite/src/ai.rs`).
+  'AI_TEST_BASE_URL',
+  'AI_CREDIT_GATE',
+  'AI_BILLING',
+  'AI_OPTIN_ANTHROPIC',
+  'AI_OPTIN_OPENAI',
 ] as const;
 
 /**
@@ -368,10 +408,18 @@ const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 const WRITING_READS: RegExp[] = [
   // WeldChat: the 1:1 DM with someone, created on first use.
   /^\/api\/chat-dm\/[^/?]+(\?|$)/,
+  // WeldChat: a channel's live call, a stale one ended once the video
+  // provider confirms its room is empty.
+  /^\/api\/chat-calls\/active\/[^/?]+(\?|$)/,
   // WeldData: the Lemlist filter catalog, cached in KV on a miss.
   /^\/api\/welddata\/filters(\?|$)/,
   // WeldData: a list's cells, its stuck running ones timed out first.
   /^\/api\/welddata\/lists\/[^/?]+\/cells(\?|$)/,
+  // WeldPanel: usage settles the month again while the collector is blocked
+  // (the master row, the wallet, the quota state in KV).
+  /^\/api\/panel\/usage(\?|$)/,
+  // WeldPanel's read API: a saved report's run, cached in KV on a miss.
+  /^\/internal\/panel\/v1\/[^/?]+\/reports\/[^/?]+\/results(\?|$)/,
   // WeldBooks: the workspace's accounting settings row, created on first read.
   /^\/api\/accounting-settings(\?|$)/,
   // WeldBooks payment runs: the NACHA file marks its run exported, and it, the
@@ -404,6 +452,16 @@ const WRITING_READS: RegExp[] = [
   /^\/api\/merge\/connections\/github\/install-url(\?|$)/,
   /^\/api\/workflow-github\/install-url(\?|$)/,
   /^\/api\/weldconnect\/github\/callback(\?|$)/,
+  // WeldForms: the published form, its public cache entry rebuilt and
+  // stored on a miss.
+  /^\/public\/forms\/f\/[^/?]+(\?|$)/,
+  // WeldPanel: the lexicon's names-seen scan, cached in KV on a miss.
+  /^\/api\/panel\/lexicon(\?|$)/,
+  // WeldPanel: a recording chunk's key, looked up and its session's manifest
+  // cached in KV on a miss.
+  /^\/api\/panel\/sessions\/[^/?]+\/chunks\/[^/?]+(\?|$)/,
+  // WeldPanel: a public share link's page counts the view (at most once a minute).
+  /^\/public\/panel\/share\/[^/?]+(\?|$)/,
 ];
 
 interface ConformanceContext {
@@ -640,6 +698,12 @@ export interface ConformanceRequest {
   /** Response headers the two answers must agree on, besides status and body. */
   compareHeaders?: readonly string[];
   /**
+   * The two bodies must be the same text, not only the same JSON: the order of
+   * the keys and the way numbers and strings are written are part of the
+   * answer (the OData feed, whose clients read a payload as it is written).
+   */
+  exactBody?: boolean;
+  /**
    * Masks, in both runs' side effects, what differs between the backends by
    * construction for this caller only (a generated PDF's size).
    */
@@ -771,12 +835,27 @@ const CHAT_FILE_SEGMENT = /\/files\/[0-9a-f]{32}\//g;
 const LINKED_ID = /([/=])[a-z][a-z0-9]*_[0-9a-z]{12,}(?=[/?&#]|$)/g;
 /** A slug ending in a generated id (`-ch_<base36>`). */
 const SLUG_WITH_ID = /-[a-z][a-z0-9]*_[0-9a-z]{12,}$/;
+/**
+ * A slug ending in its new record's id time: WeldDesk's article slugs are
+ * `<title>-<id.slice(4, 10)>`, the first six base36 characters of the id's
+ * `Date.now()`, whose last one moves every 36² ms. Two runs a moment apart
+ * can straddle that (`getting-started-mwf5de` vs `-mwf5df`, PR #1559's CI).
+ */
+const SLUG_WITH_ID_TIME = /-([0-9a-z]{6})$/;
+/** The milliseconds one step of a `Date.now().toString(36)` six-character prefix stands for. */
+const ID_TIME_PREFIX_MS = 36 ** 2;
 /** A SHA-256 in hex. */
 const SHA256_HEX = /^[0-9a-f]{64}$/;
 /** A WeldSign signer session: base64url JSON payload, then its HMAC-SHA-256. */
 const SIGNER_SESSION = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}$/;
 /** `generateId()` output: a prefix, `_`, base36 time and randomness. */
 const GENERATED_ID = /^[a-z][a-z0-9]*_[0-9a-z]{12,}$/;
+/**
+ * A WeldAgent template's share token: `share_` and 32 random alphanumerics
+ * (any case), new per run. Masked like a generated id, whichever case the
+ * random draw gives each backend.
+ */
+const SHARE_TOKEN = /^share_[A-Za-z0-9]{32}$/;
 /** A generated id inside an MCP tool result's text. */
 const MCP_TEXT_ID = /\b[a-z][a-z0-9]*_[0-9a-z]{12,}\b/g;
 /** The same, for `test` (a global pattern's `test` keeps state). */
@@ -818,6 +897,16 @@ const RECORDING_TOKEN = /\/public\/meeting-recordings\/[A-Za-z0-9_-]{32}(?![A-Za
 const MEETING_RUN_STAMP = /^((?:summarize|bf)-.+)-[0-9a-z]{8}$/;
 /** A WeldMeet Whisper Workflow instance (`whisper-<transcription id>`). */
 const WHISPER_RUN = /^whisper-trans_[0-9a-z]{12,}$/;
+/**
+ * A WeldForms ProcessResponse run of an edited response or a retry
+ * (`<responseId>-update-<Date.now().toString(36)>`): new per run. Any
+ * response id: tests seed their own (`frs_r1`).
+ */
+const FORMS_RUN_STAMP = /^(frs_\w+-(?:update|retry))-[0-9a-z]{8}$/;
+/** A WeldForms public link id (10 random base62 characters, drawn on first publish). */
+const FORMS_PUBLIC_ID = /^[A-Za-z0-9]{10}$/;
+/** A link to a WeldForms public id (`<portal>/f/<publicId>`). */
+const FORMS_PUBLIC_URL = /\/f\/[A-Za-z0-9]{10}$/;
 /** An upload token (`upl_` and 32 random characters), alone or in a URL. */
 const UPLOAD_TOKEN = /\bupl_[A-Za-z0-9]{32}\b/g;
 /**
@@ -857,6 +946,34 @@ function isRecentEpochMs(value: unknown): boolean {
   return Math.abs(value - Date.now()) <= EXPIRY_WINDOW_SECONDS * 1000;
 }
 
+/**
+ * Whether six base36 characters are the start of a `Date.now()` taken within
+ * two days of now. Checked against the real clock too: a test that fakes
+ * `Date` gives the TypeScript run its time, while Rust's ids carry the real one.
+ */
+function isRecentIdTimePrefix(prefix: string): boolean {
+  const at = Number.parseInt(prefix, 36) * ID_TIME_PREFIX_MS;
+  const real = performance.timeOrigin + performance.now();
+  return [Date.now(), real].some((now) => Math.abs(at - now) <= EXPIRY_WINDOW_SECONDS * 1000);
+}
+
+
+/**
+ * `record` without the `meta.ai` label an AI answer carries (`{ provider,
+ * model, region }`, ADR AI-012), and without `meta` when nothing else is in
+ * it: the backends serve the same route on different models by design
+ * (Workers AI or Claude on Global, Mistral on the Kubernetes editions), and
+ * only the Rust side labels its answers.
+ */
+function withoutAiMeta(record: Record<string, unknown>): Record<string, unknown> {
+  const meta = record.meta;
+  if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return record;
+  const ai = (meta as Record<string, unknown>).ai;
+  if (!ai || typeof ai !== 'object' || !('provider' in ai) || !('model' in ai)) return record;
+  const rest = Object.fromEntries(Object.entries(meta).filter(([key]) => key !== 'ai'));
+  const others = Object.fromEntries(Object.entries(record).filter(([key]) => key !== 'meta'));
+  return Object.keys(rest).length > 0 ? { ...others, meta: rest } : others;
+}
 
 /** A Unix-seconds expiry the request minted (signed URLs, the files cookie). */
 function isMintedExpiry(value: unknown): boolean {
@@ -876,10 +993,11 @@ function isMintedExpiry(value: unknown): boolean {
 export function normalizeForDiff(value: unknown, isWrite: boolean, key?: string): unknown {
   if (Array.isArray(value)) return value.map((item) => normalizeForDiff(item, isWrite));
   if (value && typeof value === 'object') {
+    const record = withoutAiMeta(value as Record<string, unknown>);
     return Object.fromEntries(
-      Object.keys(value as Record<string, unknown>)
+      Object.keys(record)
         .sort()
-        .map((k) => [k, normalizeForDiff((value as Record<string, unknown>)[k], isWrite, k)]),
+        .map((k) => [k, normalizeForDiff(record[k], isWrite, k)]),
     );
   }
   // A realtime room payload's `ts: Date.now()`.
@@ -903,6 +1021,11 @@ function normalizeWrittenString(value: string, key: string | undefined): string 
   if (MEETING_RUN_STAMP.test(value)) return value.replace(MEETING_RUN_STAMP, '$1-<stamp>');
   // A WeldMeet Whisper run, named after the transcript the request just created.
   if (WHISPER_RUN.test(value)) return 'whisper-<id>';
+  // WeldForms: an edit's ProcessResponse run, and the public link the first
+  // publish draws (the form's `publicId`, its URL and its event's).
+  if (FORMS_RUN_STAMP.test(value)) return value.replace(FORMS_RUN_STAMP, '$1-<stamp>');
+  if (key === 'publicId' && FORMS_PUBLIC_ID.test(value)) return '<public-id>';
+  if (key === 'publicUrl' && FORMS_PUBLIC_URL.test(value)) return value.replace(FORMS_PUBLIC_URL, '/f/<public-id>');
   if (GENERATED_TICKET_NUMBER.test(value)) return `${value.split('-')[0]}-<generated>`;
   // A collaborative room's ticket: the room's id, then a secret new per call.
   if (key === 'ticket' && ROOM_TICKET.test(value)) return value.replace(ROOM_TICKET, '$1.<secret>');
@@ -948,11 +1071,9 @@ const WEBHOOK_SECRET = /^[A-Za-z0-9]{32}$/;
 function normalizeGeneratedValue(value: string, key: string | undefined): string | undefined {
   if (ISO_TIMESTAMP.test(value)) return '<timestamp>';
   if (FRESH_MESSAGE_ID.test(value)) return value.replace(FRESH_MESSAGE_ID, '<message-id@$1>');
-  if (GENERATED_ID.test(value)) return '<id>';
+  if (GENERATED_ID.test(value) || SHARE_TOKEN.test(value)) return '<id>';
   if (HELPDESK_ACCOUNT_ID.test(value)) return 'helpdesk_<id>';
-  // A taken channel slug gets the new channel's id appended
-  // (`resolveChannelSlug`): `sales-ch_<id>`.
-  if (key === 'slug' && SLUG_WITH_ID.test(value)) return value.replace(SLUG_WITH_ID, '-<id>');
+  if (key === 'slug') return normalizeGeneratedSlug(value);
   // A notification's link to what the request just created
   // (`/weldchat/dm/ch_<id>`, `?messageId=msg_<id>`).
   if (key === 'actionUrl') return value.replace(LINKED_ID, '$1<id>');
@@ -966,6 +1087,19 @@ function normalizeGeneratedValue(value: string, key: string | undefined): string
   if (INTEGRATION_WEBHOOK_TARGET.test(value)) return value.replace(LINKED_ID, '$1<id>');
   if (key !== undefined && STAGE_SLUG_KEYS.has(key) && STAGE_SLUG_ID.test(value)) return '<stage-id>';
   return undefined;
+}
+
+/** A slug that carries a new record's id or its time; undefined when it carries neither. */
+function normalizeGeneratedSlug(value: string): string | undefined {
+  // A taken channel slug gets the new channel's id appended
+  // (`resolveChannelSlug`): `sales-ch_<id>`.
+  if (SLUG_WITH_ID.test(value)) return value.replace(SLUG_WITH_ID, '-<id>');
+  // A new WeldDesk article's slug ends in its id's time; an untitled one's
+  // base is the id itself (`deskArticleSlug(title) || id`).
+  const idTime = SLUG_WITH_ID_TIME.exec(value);
+  if (!idTime || !isRecentIdTimePrefix(idTime[1]!)) return undefined;
+  const base = value.slice(0, -idTime[0].length);
+  return `${GENERATED_ID.test(base) ? '<id>' : base}-<id-time>`;
 }
 
 /** Random segments anywhere in a string. */
@@ -1017,6 +1151,47 @@ function firstObjectDifference(a: Record<string, unknown>, b: Record<string, unk
     if (diff) return diff;
   }
   return null;
+}
+
+/**
+ * Whole seconds counted up to the moment a write ran, each next to the
+ * instant it was counted to: WeldDesk's reporting times (ADR DESK-011),
+ * from the conversation's creation to its close and from the visitor's
+ * first message to the first agent reply.
+ */
+const CLOCK_SECONDS: ReadonlyArray<{ seconds: string; at: string }> = [
+  { seconds: 'resolutionSeconds', at: 'resolvedAt' },
+  { seconds: 'firstResponseSeconds', at: 'firstResponseAt' },
+];
+
+/**
+ * Rust's answer with each value of {@link CLOCK_SECONDS} set to TypeScript's
+ * where the two runs' own clocks explain the difference. The runs read "now"
+ * milliseconds apart, so `floor((now - from) / 1000)` can fall either side of
+ * a second: with the two instants `d` ms apart, the seconds may differ by
+ * `floor(d / 1000)` or `ceil(d / 1000)`, nothing else. Equal instants (one
+ * stored before the request) keep the comparison exact, and so do seconds
+ * without their instant or a difference the instants do not account for.
+ */
+export function alignClockSeconds(ts: unknown, rust: unknown): unknown {
+  if (Array.isArray(ts) && Array.isArray(rust)) return rust.map((item, i) => alignClockSeconds(ts[i], item));
+  if (!isPlainObject(ts) || !isPlainObject(rust)) return rust;
+  const aligned = Object.fromEntries(Object.entries(rust).map(([key, value]) => [key, alignClockSeconds(ts[key], value)]));
+  for (const { seconds, at } of CLOCK_SECONDS) {
+    if (clockExplains(ts[seconds], rust[seconds], ts[at], rust[at])) aligned[seconds] = ts[seconds];
+  }
+  return aligned;
+}
+
+/** Whether two whole-seconds counts differ by no more than their instants do. */
+function clockExplains(tsSeconds: unknown, rustSeconds: unknown, tsAt: unknown, rustAt: unknown): boolean {
+  if (!Number.isInteger(tsSeconds) || !Number.isInteger(rustSeconds)) return false;
+  if (typeof tsAt !== 'string' || typeof rustAt !== 'string' || !ISO_TIMESTAMP.test(tsAt) || !ISO_TIMESTAMP.test(rustAt)) {
+    return false;
+  }
+  const apart = (Date.parse(rustAt) - Date.parse(tsAt)) / 1000;
+  const drift = (rustSeconds as number) - (tsSeconds as number);
+  return drift >= Math.floor(apart) && drift <= Math.ceil(apart);
 }
 
 interface Captured {
@@ -1197,8 +1372,13 @@ async function testContext(ctx: ConformanceContext, env: Record<string, unknown>
     workflows: await workflowUrls(env),
     // Its service bindings (`BOOKS_INTERNAL`).
     services: await serviceBindingUrls(env),
-    // Its stream bindings (`PANEL_EVENTS`).
+    // Its stream bindings (`PANEL_EVENTS`, `PANEL_REPLAY_CHUNKS`).
     pipelines: await pipelineUrls(env),
+    // Its rate-limiting bindings (`EVENTS_RATE_LIMIT`, …).
+    rateLimits: await rateLimitUrls(env),
+    // Its workspace lookup (`getWorkspaceContextForOrg`, mocked or not), for a
+    // public route that opens a workspace by reference (./workspace-bridge.ts).
+    workspaces: await workspaceBridgeUrl(env),
   };
 }
 
@@ -1347,24 +1527,34 @@ function pipelineEffects(calls: PipelineCall[]): Pick<SideEffects, 'pipelines'> 
   return calls.length > 0 ? { pipelines: calls } : {};
 }
 
+/** Where two bodies that must be the same text (`exactBody`) first differ, with what each holds there. */
+function textDifference(ts: string, rust: string): string {
+  let at = 0;
+  while (at < ts.length && ts[at] === rust[at]) at++;
+  const from = Math.max(at - 20, 0);
+  return `response bodies differ as text at ${at}: ${JSON.stringify(ts.slice(from, at + 40))} vs ${JSON.stringify(rust.slice(from, at + 40))}`;
+}
+
 /** Where the two runs differ: status, headers, body, then side effects; null when they match. */
 function compareRuns(
   { ts, rust, tsEffects, rustEffects }: Runs,
   isWrite: boolean,
   method: string,
   route: string | null,
-  options: Pick<ConformanceRequest, 'compareHeaders' | 'normalizeEffects'> = {},
+  options: Pick<ConformanceRequest, 'compareHeaders' | 'exactBody' | 'normalizeEffects'> = {},
 ): string | null {
   if (ts.status !== rust.status) return `status ${ts.status} (TypeScript) vs ${rust.status} (Rust)`;
   for (const name of options.compareHeaders ?? []) {
     const [a, b] = [ts.headers.get(name), rust.headers.get(name)];
     if (a !== b) return `header ${name}: ${JSON.stringify(a)} vs ${JSON.stringify(b)}`;
   }
+  if (options.exactBody && ts.text !== rust.text) return textDifference(ts.text, rust.text);
   if (ts.json !== undefined || rust.json !== undefined) {
-    // Values a route draws per run (./conformance-volatile.ts) are masked first.
+    // Values a route draws per run (./conformance-volatile.ts) are masked
+    // first, and seconds counted to each run's own "now" aligned.
     const body = firstDifference(
       normalizeForDiff(maskVolatile(method, route, ts.json), isWrite),
-      normalizeForDiff(maskVolatile(method, route, rust.json), isWrite),
+      normalizeForDiff(maskVolatile(method, route, alignClockSeconds(ts.json, rust.json)), isWrite),
     );
     if (body) return body;
   } else if (!sameBody(route, ts.bytes, rust.bytes)) {
@@ -1391,7 +1581,12 @@ function compareRuns(
       ...(outbound ? { outbound } : {}),
     };
   };
-  const effects = firstDifference(normalizeForDiff(prepare(tsEffects), true), normalizeForDiff(prepare(rustEffects), true));
+  // An event or a publish carries the row the answer does, reporting times included.
+  const tsPrepared = prepare(tsEffects);
+  const effects = firstDifference(
+    normalizeForDiff(tsPrepared, true),
+    normalizeForDiff(alignClockSeconds(tsPrepared, prepare(rustEffects)), true),
+  );
   return effects ? `side effects: ${effects}` : null;
 }
 

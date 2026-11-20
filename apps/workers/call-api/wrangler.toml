@@ -1,6 +1,6 @@
 # WeldSuite call-api worker — the call module's API.
 #
-# Split out of app-api (docs/plans/app-api-module-split.md). Serves the same
+# Split out of app-api (weldsuite-documentation/plans/app-api-module-split.md). Serves the same
 # /api/<object> paths app-api served for this module; only the host differs:
 #   call-api.weldsuite.org        production
 #   call-api-test.weldsuite.org   test
@@ -30,6 +30,14 @@
 #     re-reads the Stripe Checkout Session (paid, same org + number) before it
 #     buys a Telnyx number and answers 503 while this is unset)
 #   TELNYX_WEBHOOK_SECRET (optional, legacy parity only — declared-but-unused)
+#   TELNYX_OUTBOUND_VOICE_PROFILE_ID (optional: attached to the Telnyx connections made for
+#     a customer's own phone system, /api/desk/phone/sip-trunks; unset = none attached)
+#   TELNYX_SIP_HOST (optional: the SIP host shown to customers for their phone system,
+#     default sip.telnyx.com; e.g. sip.telnyx.eu)
+#   AI_GATEWAY_API_TOKEN (live call translation through @weldsuite/ai: Workers AI +
+#     AI Gateway Run scopes; falls back to CLOUDFLARE_API_TOKEN, and with neither the
+#     translation routes answer 503 ai_unavailable). CF_ACCOUNT_ID + AI_BYOK_PROVIDERS
+#     are [vars] (copied from desk-api).
 #   APP_API_PUBLIC_URL (optional, only if app-api has it: override of the
 #     app-api host in the Telnyx assistant's lookup_crm tool URL)
 
@@ -54,6 +62,7 @@ head_sampling_rate = 1
 
 [vars]
 ENVIRONMENT = "development"
+CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 
 [[kv_namespaces]]
 binding = "WORKSPACE_CACHE"
@@ -98,6 +107,8 @@ routes = [
 
 [env.test.vars]
 ENVIRONMENT = "test"
+CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+AI_BYOK_PROVIDERS = "anthropic"
 
 [[env.test.flagship]]
 binding = "FLAGSHIP"
@@ -142,6 +153,8 @@ routes = [
 
 [env.production.vars]
 ENVIRONMENT = "production"
+CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+AI_BYOK_PROVIDERS = "anthropic"
 
 [[env.production.flagship]]
 binding = "FLAGSHIP"

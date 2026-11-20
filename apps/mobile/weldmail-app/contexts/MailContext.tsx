@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
 import { isNetworkError } from '@weldsuite/api-client/client';
 import { appApi } from '@/services/app-api';
 import { personalApi } from '@/services/personal-api';
@@ -251,7 +251,7 @@ export function MailProvider({ children }: Readonly<{ children: React.ReactNode 
   // Clerk token is available yet; MailProvider mounts above the AuthGuard, so
   // without this gate the initial fetch fires before the token is wired and
   // silently leaves the account list empty (it never retries).
-  const { user, organizationId } = useClerkAuth();
+  const { user, organizationId } = useAuthSession();
   // Latched cache-scope id — stable across Clerk's flaky iOS org re-hydration,
   // so the accounts/labels we persist here land under the SAME bucket the
   // message cache (`useMailCache`) reads from. Null only on the very first

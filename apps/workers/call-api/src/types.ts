@@ -54,6 +54,28 @@ export interface Env extends KitEnv {
    *  /public/webhooks/telnyx verifies every webhook signature and rejects all
    *  requests (401) while this is unset (fail closed). */
   TELNYX_PUBLIC_KEY?: string;
+  /** Optional outbound voice profile attached to the Telnyx connections made for a
+   *  customer's own phone system (SIP trunks). */
+  TELNYX_OUTBOUND_VOICE_PROFILE_ID?: string;
+  /** Optional SIP host shown to customers for their phone system (default sip.telnyx.com). */
+  TELNYX_SIP_HOST?: string;
+
+  // --- AI (@weldsuite/ai): live call translation (services/desk-phone-translation.ts) ---
+  // The set desk-api declares for inbox translation; packages/core/ai/src/config.ts has the full list.
+  /** Also the account `@weldsuite/ai` reaches the AI Gateway on. */
+  CF_ACCOUNT_ID?: string;
+  /** Cloudflare API token (Workers AI + AI Gateway Run) → `Authorization`; else CLOUDFLARE_API_TOKEN. */
+  AI_GATEWAY_API_TOKEN?: string;
+  /** Fallback for AI_GATEWAY_API_TOKEN. */
+  CLOUDFLARE_API_TOKEN?: string;
+  /** AI Gateway id (`cf-aig-gateway-id`). Omit to use the account default. */
+  CF_AI_GATEWAY?: string;
+  /** Gateway auth token (`cf-aig-authorization`), for "Authenticated" gateways. */
+  CF_AIG_TOKEN?: string;
+  /** Providers whose calls the ops ledger books without the Unified Billing fee. */
+  AI_BYOK_PROVIDERS?: string;
+  /** Model a refused third-party call falls back to (`none` disables). */
+  AI_FALLBACK_MODEL?: string;
 }
 
 export type Variables = KitVariables;

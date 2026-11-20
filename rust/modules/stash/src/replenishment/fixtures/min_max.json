@@ -1,0 +1,65 @@
+{
+  "description": "Min/max rule (20 / 100) on 3 a day.",
+  "notes": [
+    "The rule replaces the policy: reorder point 20, order-up-to 100, no safety stock.",
+    "The forecast stays: level 3 a day, cover 15 / 3 = 5 days, stockout on day 5 (18 > 15) -> 2026-11-23; 60 days of history -> low confidence.",
+    "Position 15 <= 20 -> raw 85 -> 85; value 85 x 1.50 = 127.50."
+  ],
+  "input": {
+    "today": "2026-11-18",
+    "history_start": "2026-09-19",
+    "daily_demand": [[3,60]],
+    "first_activity": "2026-09-19",
+    "lead_time_days": 14,
+    "review_period_days": 7,
+    "service_level": 0.95,
+    "rule": {
+      "method": "min_max",
+      "min": 20,
+      "max": 100
+    },
+    "supplier": {
+      "min_order_qty": null,
+      "order_multiple": 1,
+      "unit_cost": 1.5
+    },
+    "position": {
+      "on_hand": 15,
+      "allocated": 0,
+      "incoming": 0,
+      "open_demand": 0
+    },
+    "receipts": []
+  },
+  "tolerance": 0.000001,
+  "expected": {
+    "method": "min_max",
+    "confidence": "low",
+    "history_days": 60,
+    "nonzero_days": 60,
+    "avg_daily_demand": 3,
+    "demand_std_dev": 0,
+    "seasonality": null,
+    "forecast_30d": 90,
+    "forecast_90d": 270,
+    "safety_stock": null,
+    "reorder_point": 20,
+    "order_up_to": 100,
+    "inventory_position": 15,
+    "days_of_cover": 5,
+    "stockout_date": "2026-11-23",
+    "suggested_qty": 85,
+    "suggested_value": 127.5,
+    "daily_forecast": {
+      "len": 91,
+      "at": {
+        "0": 3,
+        "13": 3,
+        "14": 3,
+        "30": 3,
+        "45": 3,
+        "90": 3
+      }
+    }
+  }
+}

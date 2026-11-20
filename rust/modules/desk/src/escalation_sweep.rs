@@ -142,7 +142,7 @@ async fn publish(services: &SweepServices, db: &PgPool, org_id: &str, result: &E
         realtime: services.realtime.clone(),
         presence: None,
         mail: services.mail.clone(),
-        http: None,
+        http: services.push_http.clone(),
         apns: None,
     };
     for owner in &result.new_owners {

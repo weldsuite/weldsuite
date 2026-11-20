@@ -163,6 +163,8 @@ const fixedAssets = {
       placedInServiceHelp: 'Leave blank to use the acquisition date.',
       cost: 'Cost',
       costHelp: 'In the entity currency, including sales tax paid.',
+      /** Outside the US: the VAT that is reclaimed is no part of the cost. */
+      costHelpVat: 'In the entity currency, without the VAT you can reclaim.',
       salvageValue: 'Salvage value',
       salvageHelp: 'What the asset is expected to be worth at the end of its life (ledger book only).',
       businessUse: 'Business use %',
@@ -171,6 +173,7 @@ const fixedAssets = {
       listedPropertyHelp: 'Used 50% or less for business: ADS only, no section 179 or bonus.',
       usefulLife: 'Useful life (years)',
       usefulLifeHelp: 'The life of the ledger book. Blank: the MACRS class, else 5 years.',
+      usefulLifeHelpLedger: 'The life of the ledger book. Blank: 5 years.',
       section179: 'Section 179 expense',
       section179Help: 'Deducted in the first year on the federal book. Leave blank for none.',
       bonusPercent: 'Bonus depreciation %',
@@ -228,6 +231,9 @@ const fixedAssets = {
   books: {
     title: 'Depreciation books',
     intro: 'Each book depreciates the same asset by its own rules. Only the book (GAAP) posts to the ledger; tax books are for the return.',
+    /** Outside the US an asset has the ledger book only. */
+    introLedger: 'The ledger book depreciates the asset and posts the depreciation to the ledger.',
+    ledgerBook: 'Ledger book',
     defaultsTitle: 'Books the server creates by default',
     defaultsHelp: 'Based on what you entered. This is a preview: the asset you save shows the stored books.',
     line: '{method} · {convention} · {years} years',
@@ -239,6 +245,7 @@ const fixedAssets = {
     midQuarterNote: 'The convention moves to mid-quarter when more than 40% of the year’s basis is placed in service in the last quarter.',
     customize: 'Customize the books',
     customizeHelp: 'Choose each book’s method, life, section 179 and bonus yourself.',
+    customizeHelpLedger: 'Choose the method and life of the ledger book yourself.',
     customizeBack: 'Use the defaults',
     addBook: 'Add book',
     addFederal: 'Add federal book',
@@ -560,6 +567,8 @@ const payroll = {
     loadFailed: 'The payroll imports could not be loaded.',
     emptyTitle: 'No payrolls imported yet',
     emptyDescription: 'Import a payroll register or a general ledger export as a CSV file, or connect Gusto.',
+    /** Where Gusto is not offered (outside the US). */
+    emptyDescriptionCsv: 'Import a payroll register or a general ledger export as a CSV file.',
     emptyFiltered: 'No payrolls match these filters.',
     allStatuses: 'All statuses',
     allSources: 'All sources',

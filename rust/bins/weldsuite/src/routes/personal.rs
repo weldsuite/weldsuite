@@ -24,7 +24,10 @@ pub(crate) fn router(state: &AppState) -> Router {
     let personal = match personal
         .map(|url| weldsuite_db::master_pool(&url, personal_max_connections()))
     {
-        Some(Ok(pool)) => Some(pool),
+        Some(Ok(pool)) => {
+            crate::monitoring::watch_pool("personal", &pool);
+            Some(pool)
+        }
         Some(Err(error)) => {
             tracing::error!(%error, "DATABASE_URL_PERSONAL is not a Postgres URL: personal-api is off");
             return Router::new();

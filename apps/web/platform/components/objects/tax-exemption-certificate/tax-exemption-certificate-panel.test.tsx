@@ -250,7 +250,7 @@ describe('TaxExemptionCertificatePanel', () => {
     jurisdiction.salesTax = false;
     serve(makeCertificate());
     renderPanel();
-    expect(await screen.findByText(setup.common.usOnly)).toBeInTheDocument();
+    expect(await screen.findByText(/isn't available for/)).toBeInTheDocument();
     expect(api.get).not.toHaveBeenCalled();
   });
 

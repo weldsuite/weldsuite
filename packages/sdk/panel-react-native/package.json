@@ -1,0 +1,33 @@
+{
+  "name": "@weldsuite/panel-react-native",
+  "version": "0.1.0",
+  "description": "WeldPanel analytics for React Native apps: screens, app lifecycle, custom events, identity, profiles and groups, with an offline queue",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "type-check": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@react-native-async-storage/async-storage": ">=1.17",
+    "react-native": ">=0.72"
+  },
+  "peerDependenciesMeta": {
+    "@react-native-async-storage/async-storage": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@vitest/coverage-v8": "^4.1.12",
+    "react-native": "0.86.3",
+    "typescript": "^5.7",
+    "vitest": "^4.1.12"
+  }
+}

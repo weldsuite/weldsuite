@@ -13,7 +13,35 @@
 // Response Types (app-api `/api/billing/*` payloads, unwrapped from `{ data }`)
 // ============================================================================
 
-export interface BillingSubscriptionResponse {
+/** A plan change that waits for the period end (Mollie only). */
+export interface BillingScheduledChange {
+  planId: string;
+  planName: string;
+  seats: number;
+  cycle: 'monthly' | 'yearly';
+  effectiveAt: string;
+}
+
+/** An unpaid, past-due charge (Mollie only). `amount` is in cents. */
+export interface BillingOutstanding {
+  amount: number;
+  currency: string;
+  payUrl: string;
+  since: string;
+}
+
+/** Fields only a Mollie-billed subscription carries (`billingProvider` in `/config.json`). */
+export interface BillingMollieFields {
+  provider?: 'mollie';
+  /** Cents per cycle, before VAT, while a paid period runs. */
+  pricePerCycle?: number;
+  /** ISO 4217 code of `pricePerCycle`. */
+  currency?: string;
+  scheduledChange?: BillingScheduledChange | null;
+  outstanding?: BillingOutstanding | null;
+}
+
+export interface BillingSubscriptionResponse extends BillingMollieFields {
   id: string;
   planId: string | null;
   planName: string;
@@ -82,6 +110,8 @@ export interface BillingPaymentMethodResponse {
   /** SEPA only — the issuing bank code. */
   bankCode: string | null;
   holderName: string | null;
+  /** Mollie: a display label such as `NL•• •••• 1234` for a SEPA mandate. */
+  label?: string | null;
   /** Stripe's own default, resolved subscription-first. Exactly one is true. */
   isDefault: boolean;
   createdAt: string | null;
@@ -102,4 +132,41 @@ export interface BillingInvoiceResponse {
   subtotalAmount: number;
   customerCountry: string | null;
   customerTaxExempt: string | null;
+}
+
+/** How a charge's VAT is worked out (ADR BILL-014, decision 6). */
+export type BillingVatTreatment = 'domestic' | 'reverse_charge' | 'oss' | 'outside_eu';
+
+/**
+ * `GET /billing/vat` (Mollie only): the billing details the next checkout
+ * uses and the VAT they lead to, VIES asked about the VAT number.
+ */
+export interface BillingVatPreview {
+  /** Fields a checkout still refuses without (`BILLING_DETAILS_REQUIRED`); empty when complete. */
+  missing: string[];
+  /** ISO 3166-1 alpha-2 of the billing address. */
+  country: string | null;
+  vatNumber: string | null;
+  /** `invalid`: VIES rejected it, it is of another country, or VIES could not be asked. */
+  vatNumberStatus: 'none' | 'valid' | 'invalid';
+  /** Null until the billing details are complete. */
+  vat: { treatment: BillingVatTreatment; rateBps: number; country: string } | null;
+}
+
+/** `GET /billing/checkout/:id`: how a Mollie billing checkout (`bpy_…`) ended. */
+export interface BillingCheckoutStatusResponse {
+  id: string;
+  status: 'paid' | 'pending' | 'canceled' | 'expired' | 'failed' | 'unknown';
+  purpose: 'checkout' | 'change' | 'mandate' | 'pay_link';
+}
+
+/** What `POST /billing/checkout` answers: a redirect, or a change made in place (Mollie). */
+export interface BillingCheckoutResult {
+  url?: string;
+  success?: boolean;
+  /** The change takes effect at the period end. */
+  scheduled?: boolean;
+  effectiveAt?: string;
+  paymentRequired?: boolean;
+  paymentUrl?: string | null;
 }

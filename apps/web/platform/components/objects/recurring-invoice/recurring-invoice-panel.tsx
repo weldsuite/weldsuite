@@ -11,8 +11,10 @@
  */
 
 import { useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import { useCan } from '@weldsuite/permissions/react';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { EntityDetailView } from '@weldsuite/ui/components/entity-detail-view';
 import {
   useObjectPanel,
@@ -24,6 +26,7 @@ import { ConfigurablePanelTabs } from '@/components/objects/_shared/configurable
 import { tabBodyClassName } from '@/components/objects/_shared/tab-empty-state';
 import { useAccountingCustomer } from '@/hooks/queries/use-accounting-queries';
 import {
+  useDeleteRecurringInvoice,
   useGenerateRecurringInvoice,
   usePauseRecurringInvoice,
   useRecurringInvoice,
@@ -80,11 +83,12 @@ function RecurringTabBody({
 }
 
 export function RecurringInvoicePanel(props: Readonly<ObjectPanelComponentProps>) {
-  const { id, initialTab } = props;
+  const { id, onClose, initialTab } = props;
   const { t } = useI18n();
   const st = useTranslations();
   const trp = t.accounting.recurringPage;
   const canUpdate = useCan('invoices:update');
+  const canDelete = useCan('invoices:delete');
   const { open: openPanel } = useObjectPanel();
 
   const recurringQuery = useRecurringInvoice(id);
@@ -94,8 +98,10 @@ export function RecurringInvoicePanel(props: Readonly<ObjectPanelComponentProps>
   const generateMutation = useGenerateRecurringInvoice();
   const pauseMutation = usePauseRecurringInvoice();
   const resumeMutation = useResumeRecurringInvoice();
+  const deleteMutation = useDeleteRecurringInvoice();
 
   const [editing, setEditing] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const shell = useObjectPanelShell({
     ...props,
@@ -127,12 +133,38 @@ export function RecurringInvoicePanel(props: Readonly<ObjectPanelComponentProps>
 
   const showTabs = Boolean(recurring) && !editing;
 
+  const failed = (title: string) => (err: unknown) =>
+    toast.error(title, { description: err instanceof Error ? err.message : undefined });
+  const pause = () =>
+    pauseMutation.mutate(id, { onSuccess: () => toast.success(trp.paused), onError: failed(trp.pauseFailed) });
+  const resume = () =>
+    resumeMutation.mutate(id, { onSuccess: () => toast.success(trp.resumed), onError: failed(trp.resumeFailed) });
+  const remove = async () => {
+    try {
+      await deleteMutation.mutateAsync(id);
+    } catch (err) {
+      failed(trp.deleteFailed)(err);
+      return;
+    }
+    toast.success(trp.deleted);
+    setConfirmDelete(false);
+    onClose();
+  };
+
   return (
+    <>
     <EntityDetailView
       {...shell.entityDetailViewProps}
       contentClassName={tabBodyClassName(shell.mode)}
       title={<RecurringTitle recurring={recurring} />}
-      actions={<RecurringHeaderActions recurring={recurring} canUpdate={canUpdate} onEdit={startEditing} />}
+      actions={
+        <RecurringHeaderActions
+          recurring={recurring}
+          canUpdate={canUpdate}
+          onEdit={startEditing}
+          onDelete={canDelete ? () => setConfirmDelete(true) : undefined}
+        />
+      }
       subheader={
         recurring && !editing ? (
           <RecurringActionBar
@@ -141,8 +173,8 @@ export function RecurringInvoicePanel(props: Readonly<ObjectPanelComponentProps>
             pausing={pauseMutation.isPending}
             resuming={resumeMutation.isPending}
             onGenerate={() => generateMutation.mutate(id)}
-            onPause={() => pauseMutation.mutate(id)}
-            onResume={() => resumeMutation.mutate(id)}
+            onPause={pause}
+            onResume={resume}
           />
         ) : null
       }
@@ -193,5 +225,19 @@ export function RecurringInvoicePanel(props: Readonly<ObjectPanelComponentProps>
         />
       )}
     </EntityDetailView>
+
+    {recurring ? (
+      <ConfirmDialog
+        open={confirmDelete}
+        onOpenChange={setConfirmDelete}
+        title={trp.deleteTitle.replace('{name}', recurring.name || trp.defaultName)}
+        description={trp.deleteDescription}
+        confirmLabel={trp.deleteTemplate}
+        cancelLabel={trp.keep}
+        variant="destructive"
+        onConfirm={remove}
+      />
+    ) : null}
+    </>
   );
 }

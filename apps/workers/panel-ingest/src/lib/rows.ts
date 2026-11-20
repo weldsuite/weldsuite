@@ -47,25 +47,107 @@ export interface RowSource {
 
 const orNull = (value: string | undefined | null): string | null => (value ? value : null);
 
+/** The columns that say where an event happened: the page and browser on the web, the screen and device in an app. */
+type Place = Pick<
+  PanelEventRow,
+  'url' | 'host' | 'path' | 'title' | 'referrer' | 'referrer_host' | 'utm_source' | 'utm_medium' | 'utm_campaign' | 'utm_content' | 'utm_term' | 'device_type' | 'browser' | 'os'
+>;
+
+/** A web event's place: its cleaned URL (none for a non-http page) and the request's user agent. */
+function webPlace(event: WireEvent, userAgent: ParsedUserAgent): Place | null {
+  const page = parsePageUrl(event.url);
+  if (!page) return null;
+  const referrer = parseReferrer(event.referrer);
+  return {
+    url: page.url,
+    host: page.host,
+    path: page.path,
+    title: orNull(event.title),
+    referrer: referrer.referrer,
+    referrer_host: referrer.host,
+    utm_source: page.utm.source,
+    utm_medium: page.utm.medium,
+    utm_campaign: page.utm.campaign,
+    utm_content: page.utm.content,
+    utm_term: page.utm.term,
+    device_type: userAgent.deviceType,
+    browser: userAgent.browser,
+    os: userAgent.os,
+  };
+}
+
+const MAX_SCREEN = 200;
+/** A bundle id or package name (`com.acme.shop`). */
+const APP_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/;
+/** ASCII whitespace only, so the Rust collector cuts screen names the same way. */
+const SCREEN_SPACE = ' \t\n\r\v\f';
+const SCREEN_SPACE_RUN = /[ \t\n\r\v\f]+/g;
+const MOBILE_OS: Record<string, string> = { ios: 'iOS', ipados: 'iOS', android: 'Android', windows: 'Windows', macos: 'macOS' };
+
+/** `text` without {@link SCREEN_SPACE} at either end: a scan from each end, as a trailing-space pattern would backtrack. */
+function trimScreenSpace(text: string): string {
+  let start = 0;
+  let end = text.length;
+  while (start < end && SCREEN_SPACE.includes(text.charAt(start))) start++;
+  while (end > start && SCREEN_SPACE.includes(text.charAt(end - 1))) end--;
+  return text.slice(start, end);
+}
+
 /**
- * One row per event. Events on a non-http page, on an excluded path, or that
- * need a cookieless id when none was derived are left out.
+ * A mobile event's place (`lib: 'mobile'`, the React Native SDK), from the `$`
+ * properties the SDK sets: `app://<$app_id>/<$screen_name>` with whitespace
+ * runs as `-`, the screen name as the title, `$os` and `$device_type` as the
+ * device. The wire `url` is not read: an `app:` URL is no page.
+ */
+function mobilePlace(event: WireEvent): Place {
+  const prop = (key: string): string | null => {
+    const value = event.props?.[key];
+    return typeof value === 'string' ? value : null;
+  };
+  const rawAppId = prop('$app_id');
+  const appId = rawAppId !== null && APP_ID.test(rawAppId) ? rawAppId : null;
+  const screen = trimScreenSpace(prop('$screen_name') ?? '') || null;
+  const path = screen ? `/${screen.replace(SCREEN_SPACE_RUN, '-').slice(0, MAX_SCREEN)}` : '/';
+  const deviceType = prop('$device_type');
+  return {
+    url: appId ? `app://${appId}${path}` : '',
+    host: appId ?? '',
+    path,
+    title: screen ? screen.slice(0, MAX_SCREEN) : orNull(event.title),
+    referrer: null,
+    referrer_host: null,
+    utm_source: null,
+    utm_medium: null,
+    utm_campaign: null,
+    utm_content: null,
+    utm_term: null,
+    device_type: deviceType === 'mobile' || deviceType === 'tablet' ? deviceType : null,
+    browser: null,
+    os: MOBILE_OS[prop('$os')?.toLowerCase() ?? ''] ?? null,
+  };
+}
+
+/**
+ * One row per event. Events on a non-http page (web), on an excluded path, or
+ * that need a cookieless id when none was derived are left out.
  */
 export function buildEventRows(source: RowSource): PanelEventRow[] {
   const { record, batch, receivedAt, userAgent, geo, cookielessId } = source;
   const isExcluded = excludedPathMatcher(record.settings.excludedUrls);
   const receivedIso = new Date(receivedAt).toISOString();
   const rows: PanelEventRow[] = [];
+  const mobile = batch.lib === 'mobile';
 
   for (const event of batch.events) {
-    const page = parsePageUrl(event.url);
-    if (!page || isExcluded(page.path)) continue;
+    const place = mobile ? mobilePlace(event) : webPlace(event, userAgent);
+    if (!place || isExcluded(place.path)) continue;
 
     const consented = consentedAnonId(batch, event);
     const anonId = consented ?? cookielessId;
     if (!anonId) continue;
 
-    const referrer = parseReferrer(event.referrer);
+    // A user id is personal data like the anonymous id: only with consent (and so only next to a consented id).
+    const userId = consented ? orNull(event.user_id) : null;
     rows.push({
       event_id: event.event_id,
       workspace_id: record.workspaceId,
@@ -73,38 +155,25 @@ export function buildEventRows(source: RowSource): PanelEventRow[] {
       name: event.name,
       ts: new Date(correctTimestamp(event.ts, batch.sent_at, receivedAt)).toISOString(),
       received_at: receivedIso,
-      distinct_id: anonId,
+      distinct_id: userId ?? anonId,
       anon_id: anonId,
-      user_id: null,
+      user_id: userId,
       session_id: consented ? orNull(event.session_id) : null,
       cookieless: !consented,
-      url: page.url,
-      host: page.host,
-      path: page.path,
-      title: orNull(event.title),
-      referrer: referrer.referrer,
-      referrer_host: referrer.host,
-      utm_source: page.utm.source,
-      utm_medium: page.utm.medium,
-      utm_campaign: page.utm.campaign,
-      utm_content: page.utm.content,
-      utm_term: page.utm.term,
+      ...place,
       country: geo.country,
       region: geo.region,
       city: geo.city,
-      device_type: userAgent.deviceType,
-      browser: userAgent.browser,
-      os: userAgent.os,
       viewport_w: event.viewport_w ?? null,
       el_tag: orNull(event.el?.tag),
       el_selector: orNull(event.el?.selector),
       el_text: orNull(event.el?.text),
       x: event.x ?? null,
       y: event.y ?? null,
-      rel_x: null,
-      rel_y: null,
+      rel_x: event.rel_x ?? null,
+      rel_y: event.rel_y ?? null,
       scroll_depth: event.scroll_depth ?? null,
-      error_message: null,
+      error_message: orNull(event.error_message),
       // events_v1 has no column for click vs submit, so autocapture keeps it in
       // the reserved `$action` property (client keys can't start with `$`).
       properties: JSON.stringify(event.el ? { ...event.props, $action: event.el.action } : (event.props ?? {})),

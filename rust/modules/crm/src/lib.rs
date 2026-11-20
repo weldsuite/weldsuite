@@ -76,8 +76,8 @@ pub fn env_from_process() -> std::collections::HashMap<String, String> {
 #[derive(Clone)]
 pub struct CrmState {
     pub services: CrmServices,
-    /// chat-api's record chats in this process (`CHAT_API`); `None` until the
-    /// chat module is mounted ([`record_chat`]).
+    /// chat-api's record chats in this process (`CHAT_API`); `None` where the
+    /// chat module isn't served, and in conformance builds ([`record_chat`]).
     pub chat_api: Option<ServiceBinding>,
 }
 

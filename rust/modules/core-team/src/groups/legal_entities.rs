@@ -1,7 +1,7 @@
 //! `/api/legal-entities` (`app-api/src/routes/legal-entities/index.ts`): the
 //! companies of the workspace, shared by WeldBooks and WeldHR, with their
 //! registrations, bank accounts and per-entity access
-//! (`docs/plans/legal-entities.md`). The work is the core service's
+//! (`weldsuite-documentation/plans/legal-entities.md`). The work is the core service's
 //! (`weldsuite-legal-entities`); these handlers are the routes around it.
 //!
 //! ```text

@@ -42,7 +42,7 @@ export function setupRedirect(
 
 /** The error page of the setup redirect: the providers tab with `error=<code>`. */
 export function setupErrorRedirect(appUrl: string | undefined, clerkOrgId: string | null | undefined, code: string): string {
-  return workspaceAppUrl(appUrl || DEFAULT_APP_URL, clerkOrgId, `/weldmerge/settings?tab=providers&error=${code}`);
+  return workspaceAppUrl(appUrl || DEFAULT_APP_URL, clerkOrgId, `/settings/apps/weldmerge?tab=providers&error=${code}`);
 }
 
 /**
@@ -68,7 +68,7 @@ export function memberCanReachInstallation(
 
 /** After the App was uninstalled from GitHub: the providers tab, `disconnected=1`. */
 export function setupDisconnectedRedirect(appUrl: string | undefined, clerkOrgId: string | null | undefined): string {
-  return workspaceAppUrl(appUrl || DEFAULT_APP_URL, clerkOrgId, '/weldmerge/settings?tab=providers&disconnected=1');
+  return workspaceAppUrl(appUrl || DEFAULT_APP_URL, clerkOrgId, '/settings/apps/weldmerge?tab=providers&disconnected=1');
 }
 
 /** integration-webhook-worker's cache of `installation.id → Clerk org id` (24 h). */

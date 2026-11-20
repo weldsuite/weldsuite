@@ -1,7 +1,7 @@
 
 import * as React from 'react';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { useOrganizationList } from '@/lib/auth';
+import { useOrganizationList, workspaceRefOf } from '@/lib/auth';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
@@ -225,14 +225,18 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: Readonly<CreateWor
         ...(country ? { country } : {}),
       });
 
-      if (!result?.success || !result.organizationId) {
+      // The id the auth provider lists the workspace by: in membership mode
+      // (WeldID) its `workspaces.id`, so it is found in the list and its
+      // URL gets the slug rather than the organization id.
+      const createdRef = result?.success ? workspaceRefOf(result) : null;
+      if (!createdRef) {
         throw new Error(t('sweep.shared.failedToCreateWorkspace'));
       }
 
-      createdOrgIdRef.current = result.organizationId;
+      createdOrgIdRef.current = createdRef;
       // Survive the post-create reload even if Clerk's session still has the
       // previous org (or none). The app shell activates this id on boot.
-      setPendingOrganization(result.organizationId);
+      setPendingOrganization(createdRef);
 
       // The org was created via the backend, so Clerk's client membership list
       // is stale until we refetch. setActive is more likely to persist when
@@ -244,10 +248,15 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: Readonly<CreateWor
         // org stash covers the reload either way.
       }
 
-      // Auto-select the new workspace as the active org right away.
+      // Auto-select the new workspace as the active org right away. Clerk
+      // switches in place and this dialog carries on below. An OIDC provider
+      // switches with a redirect and comes back to `returnTo`: /onboarding,
+      // which shows the new workspace's provisioning and then opens it
+      // (`ProvisioningScreen`; the pending org above tells it provisioning
+      // already started).
       if (setActive) {
         try {
-          await setActive({ organization: result.organizationId });
+          await setActive({ organization: createdRef, returnTo: '/onboarding' });
         } catch (err) {
           console.error('[Workspace] Error activating new org (continuing):', err);
         }

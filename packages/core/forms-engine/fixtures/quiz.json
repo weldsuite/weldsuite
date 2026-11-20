@@ -1,0 +1,181 @@
+{
+  "name": "Quiz: scored choices, correct answers and endings by score",
+  "definition": {
+    "blocks": [
+      {
+        "id": "b_q1",
+        "ref": "q1",
+        "type": "multiple_choice",
+        "title": "What is 2 + 2?",
+        "required": true,
+        "properties": {
+          "choices": [
+            { "id": "c_q1_3", "label": "3", "score": 0 },
+            { "id": "c_q1_4", "label": "4", "score": 1, "correct": true },
+            { "id": "c_q1_5", "label": "5", "score": 0 }
+          ]
+        }
+      },
+      {
+        "id": "b_q2",
+        "ref": "q2",
+        "type": "multiple_choice",
+        "title": "Which are prime?",
+        "required": true,
+        "properties": {
+          "multiple": true,
+          "choices": [
+            { "id": "c_q2_2", "label": "2", "score": 0.5, "correct": true },
+            { "id": "c_q2_3", "label": "3", "score": 0.5, "correct": true },
+            { "id": "c_q2_4", "label": "4", "score": -1 }
+          ]
+        }
+      },
+      {
+        "id": "b_q3",
+        "ref": "q3",
+        "type": "dropdown",
+        "title": "Capital of France?",
+        "properties": {
+          "choices": [
+            { "id": "c_q3_paris", "label": "Paris", "score": 2, "correct": true },
+            { "id": "c_q3_lyon", "label": "Lyon" }
+          ]
+        }
+      },
+      {
+        "id": "b_mood",
+        "ref": "mood",
+        "type": "picture_choice",
+        "title": "How do you feel?",
+        "properties": {
+          "multiple": true,
+          "choices": [
+            { "id": "c_happy", "label": "Happy", "score": 0.1 },
+            { "id": "c_sad", "label": "Sad", "score": 0.2 }
+          ]
+        }
+      },
+      { "id": "b_name", "ref": "name", "type": "short_text", "title": "Your name" }
+    ],
+    "endings": [
+      { "id": "e_try", "ref": "try_again", "title": "Try again", "showScore": true, "showAnswers": true },
+      { "id": "e_good", "ref": "good", "title": "Good", "showScore": true },
+      { "id": "e_perfect", "ref": "perfect", "title": "Perfect", "showScore": true }
+    ],
+    "endingRules": [
+      {
+        "id": "r_perfect",
+        "when": { "op": "and", "conditions": [{ "left": { "type": "variable", "name": "score" }, "operator": "greater_or_equal", "right": { "type": "constant", "value": 4 } }] },
+        "endingId": "e_perfect"
+      },
+      {
+        "id": "r_good",
+        "when": { "op": "and", "conditions": [{ "left": { "type": "variable", "name": "score" }, "operator": "greater_or_equal", "right": { "type": "constant", "value": 2 } }] },
+        "endingId": "e_good"
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "all correct",
+      "answers": {
+        "b_q1": { "choiceIds": ["c_q1_4"] },
+        "b_q2": { "choiceIds": ["c_q2_3", "c_q2_2"] },
+        "b_q3": { "choiceIds": ["c_q3_paris"] },
+        "b_name": "Quinn"
+      },
+      "expect": {
+        "ok": true,
+        "path": ["b_q1", "b_q2", "b_q3", "b_mood", "b_name"],
+        "endingId": "e_perfect",
+        "variables": { "score": 4 },
+        "errors": {},
+        "answers": {
+          "b_q1": { "choiceIds": ["c_q1_4"] },
+          "b_q2": { "choiceIds": ["c_q2_3", "c_q2_2"] },
+          "b_q3": { "choiceIds": ["c_q3_paris"] },
+          "b_name": "Quinn"
+        },
+        "score": 4,
+        "quiz": [
+          { "fieldId": "b_q1", "correct": true, "points": 1 },
+          { "fieldId": "b_q2", "correct": true, "points": 1 },
+          { "fieldId": "b_q3", "correct": true, "points": 2 },
+          { "fieldId": "b_mood", "correct": null, "points": 0 }
+        ]
+      }
+    },
+    {
+      "name": "partly right, with a negative choice and float scores rounded",
+      "answers": {
+        "b_q1": { "choiceIds": ["c_q1_3"] },
+        "b_q2": { "choiceIds": ["c_q2_2", "c_q2_4"] },
+        "b_q3": { "choiceIds": ["c_q3_paris"] },
+        "b_mood": { "choiceIds": ["c_happy", "c_sad"] }
+      },
+      "expect": {
+        "ok": true,
+        "path": ["b_q1", "b_q2", "b_q3", "b_mood", "b_name"],
+        "endingId": "e_try",
+        "variables": { "score": 1.8 },
+        "errors": {},
+        "answers": {
+          "b_q1": { "choiceIds": ["c_q1_3"] },
+          "b_q2": { "choiceIds": ["c_q2_2", "c_q2_4"] },
+          "b_q3": { "choiceIds": ["c_q3_paris"] },
+          "b_mood": { "choiceIds": ["c_happy", "c_sad"] }
+        },
+        "score": 1.8,
+        "quiz": [
+          { "fieldId": "b_q1", "correct": false, "points": 0 },
+          { "fieldId": "b_q2", "correct": false, "points": -0.5 },
+          { "fieldId": "b_q3", "correct": true, "points": 2 },
+          { "fieldId": "b_mood", "correct": null, "points": 0.3 }
+        ]
+      }
+    },
+    {
+      "name": "nothing answered: required errors and a zero score",
+      "answers": {},
+      "expect": {
+        "ok": false,
+        "path": ["b_q1", "b_q2", "b_q3", "b_mood", "b_name"],
+        "endingId": "e_try",
+        "variables": { "score": 0 },
+        "errors": { "b_q1": { "code": "required" }, "b_q2": { "code": "required" } },
+        "answers": {},
+        "score": 0,
+        "quiz": [
+          { "fieldId": "b_q1", "correct": false, "points": 0 },
+          { "fieldId": "b_q2", "correct": false, "points": 0 },
+          { "fieldId": "b_q3", "correct": false, "points": 0 },
+          { "fieldId": "b_mood", "correct": null, "points": 0 }
+        ]
+      }
+    },
+    {
+      "name": "two answers to a single-choice question score nothing",
+      "answers": {
+        "b_q1": { "choiceIds": ["c_q1_4", "c_q1_5"] },
+        "b_q2": { "choiceIds": ["c_q2_3"] },
+        "b_q3": { "choiceIds": ["c_q3_paris"] }
+      },
+      "expect": {
+        "ok": false,
+        "path": ["b_q1", "b_q2", "b_q3", "b_mood", "b_name"],
+        "endingId": "e_good",
+        "variables": { "score": 2.5 },
+        "errors": { "b_q1": { "code": "too_many_choices" } },
+        "answers": { "b_q2": { "choiceIds": ["c_q2_3"] }, "b_q3": { "choiceIds": ["c_q3_paris"] } },
+        "score": 2.5,
+        "quiz": [
+          { "fieldId": "b_q1", "correct": false, "points": 0 },
+          { "fieldId": "b_q2", "correct": false, "points": 0.5 },
+          { "fieldId": "b_q3", "correct": true, "points": 2 },
+          { "fieldId": "b_mood", "correct": null, "points": 0 }
+        ]
+      }
+    }
+  ]
+}

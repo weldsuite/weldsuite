@@ -6,6 +6,7 @@ import { Skeleton } from '@weldsuite/ui/components/skeleton';
 import { Switch } from '@weldsuite/ui/components/switch';
 import { cn } from '@/lib/utils';
 import { getTranslations } from '@/lib/i18n';
+import { isFeatureAvailable } from '@/lib/edition';
 import { useAgentTools, useGrantablePermissions, type AgentWithRuns } from '@/hooks/queries/use-agent-queries';
 import { BUILTIN_GRANTS } from '../agent-state';
 import {
@@ -289,24 +290,27 @@ export function AccessTab({ form, agent }: Readonly<{ form: AgentForm; agent: Ag
 
   return (
     <div className="space-y-8">
-      <SettingsSection title={t.builtinTitle} description={t.builtinDescription}>
-        <div className="space-y-2">
-          <BuiltinRow
-            icon={SquareTerminal}
-            title={t.sandbox.title}
-            description={t.sandbox.description}
-            checked={granted.has(BUILTIN_GRANTS.sandbox)}
-            onChange={(on) => setMany([BUILTIN_GRANTS.sandbox], on)}
-          />
-          <BuiltinRow
-            icon={Globe}
-            title={t.web.title}
-            description={t.web.description}
-            checked={granted.has(BUILTIN_GRANTS.web)}
-            onChange={(on) => setMany([BUILTIN_GRANTS.web], on)}
-          />
-        </div>
-      </SettingsSection>
+      {/* The sandbox and web browsing: at Anthropic on Global, on the install's own sandbox on Kubernetes (hidden without one). */}
+      {isFeatureAvailable('agent-sandbox') && (
+        <SettingsSection title={t.builtinTitle} description={t.builtinDescription}>
+          <div className="space-y-2">
+            <BuiltinRow
+              icon={SquareTerminal}
+              title={t.sandbox.title}
+              description={t.sandbox.description}
+              checked={granted.has(BUILTIN_GRANTS.sandbox)}
+              onChange={(on) => setMany([BUILTIN_GRANTS.sandbox], on)}
+            />
+            <BuiltinRow
+              icon={Globe}
+              title={t.web.title}
+              description={t.web.description}
+              checked={granted.has(BUILTIN_GRANTS.web)}
+              onChange={(on) => setMany([BUILTIN_GRANTS.web], on)}
+            />
+          </div>
+        </SettingsSection>
+      )}
 
       <SettingsSection title={t.workspaceTitle} description={t.workspaceDescription}>
         <div className="relative">

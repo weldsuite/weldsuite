@@ -2,7 +2,7 @@ import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react
 import { Button } from '@weldsuite/ui/components/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@weldsuite/ui/components/tooltip';
 import { Link } from '@tanstack/react-router';
-import { AlertCircle, ArrowLeft, Check, CloudOff, Eye, Loader2, MessageSquare } from 'lucide-react';
+import { AlertCircle, ChevronLeft, CloudOff, Eye, Loader2, MessageSquare } from 'lucide-react';
 import { usePreviewMode } from '@/contexts/preview-mode-context';
 import type { SheetController, SidePanel } from '../editor/model/sheet-controller';
 import { useI18n } from '@/lib/i18n/provider';
@@ -25,10 +25,11 @@ export function SheetHeader({
   onRename: (name: string) => void;
   status: SheetStatus;
   children?: ReactNode;
-  /** Shown as a back button (a sheet opened inside another page, such as a WeldFlow project). */
+  /** Where the back chevron goes when not to WeldSheets (a sheet opened inside another page, such as a WeldFlow project). */
   onBack?: () => void;
 }) {
   const { t } = useI18n();
+  const preview = usePreviewMode();
   const [draft, setDraft] = useState(name);
   useEffect(() => setDraft(name), [name]);
 
@@ -38,26 +39,36 @@ export function SheetHeader({
     if (canRename && trimmed !== name) onRename(trimmed);
   };
 
+  const back = t.weldsheets.home.backHome;
+  // The editors' header row (WeldBoard, WeldDocs): back chevron and name on the left, actions on the right.
   return (
-    <div className="flex h-10 shrink-0 items-center gap-3 border-b px-3">
-      {onBack && (
-        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onBack} aria-label={t.weldsheets.home.backHome}>
-          <ArrowLeft className="size-4" />
-        </Button>
-      )}
-      <input
-        value={draft}
-        readOnly={!canRename}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={(e) => commit(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') e.currentTarget.blur();
-        }}
-        aria-label={t.weldsheets.home.rename}
-        className="min-w-0 max-w-md flex-1 rounded px-1 text-base font-medium outline-none hover:bg-muted focus:bg-muted"
-      />
-      <StatusLabel status={status} />
-      <div className="ml-auto flex items-center gap-2">{children}</div>
+    <div className="flex h-[53px] shrink-0 items-center justify-between gap-3 border-b border-border bg-background px-3 md:px-4">
+      <div className="flex min-w-0 flex-1 items-center gap-1">
+        {onBack ? (
+          <Button variant="ghost" size="icon" className="size-[30px] shrink-0 text-muted-foreground" onClick={onBack} aria-label={back} title={back}>
+            <ChevronLeft className="!size-[18px]" />
+          </Button>
+        ) : (
+          <Button variant="ghost" size="icon" className="size-[30px] shrink-0 text-muted-foreground" asChild>
+            <Link to={preview ? '/preview/weldsheets' : '/weldsheets'} aria-label={back} title={back}>
+              <ChevronLeft className="!size-[18px]" />
+            </Link>
+          </Button>
+        )}
+        <input
+          value={draft}
+          readOnly={!canRename}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={(e) => commit(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') e.currentTarget.blur();
+          }}
+          aria-label={t.weldsheets.home.rename}
+          className="h-7 min-w-0 max-w-md flex-1 rounded px-1 text-[15px] font-medium leading-6 text-foreground outline-none hover:bg-muted focus:bg-muted"
+        />
+        <StatusLabel status={status} />
+      </div>
+      <div className="flex shrink-0 items-center gap-2">{children}</div>
     </div>
   );
 }
@@ -65,9 +76,9 @@ export function SheetHeader({
 function StatusLabel({ status }: { status: SheetStatus }) {
   const { t } = useI18n();
   const te = t.weldsheets.editor;
+  // Saved and saving are routine and not shown, as in the other editors; only what needs attention is.
+  if (status === 'saved' || status === 'saving') return null;
   const label = {
-    saved: te.saved,
-    saving: te.saving,
     failed: te.notSaved,
     reconnecting: te.reconnecting,
     'offline-pending': te.offlinePending,
@@ -75,14 +86,13 @@ function StatusLabel({ status }: { status: SheetStatus }) {
     'comment-only': te.commentOnly,
   }[status];
   const warn = status === 'failed' || status === 'offline-pending';
-  let icon = <Check className="size-3.5" />;
-  if (status === 'saving' || status === 'reconnecting') icon = <Loader2 className="size-3.5 animate-spin" />;
+  let icon = <Eye className="size-3.5" />;
+  if (status === 'reconnecting') icon = <Loader2 className="size-3.5 animate-spin" />;
   else if (status === 'failed') icon = <AlertCircle className="size-3.5" />;
   else if (status === 'offline-pending') icon = <CloudOff className="size-3.5" />;
-  else if (status === 'view-only') icon = <Eye className="size-3.5" />;
   else if (status === 'comment-only') icon = <MessageSquare className="size-3.5" />;
   return (
-    <span className={`flex min-w-0 items-center gap-1 truncate text-xs ${warn ? 'text-destructive' : 'text-muted-foreground'}`} aria-live="polite">
+    <span className={`ml-2 flex min-w-0 items-center gap-1 truncate text-xs ${warn ? 'text-destructive' : 'text-muted-foreground'}`} aria-live="polite">
       {icon}
       {label}
     </span>
@@ -112,7 +122,7 @@ export function PanelToggle({
     <TooltipProvider delayDuration={400}>
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button variant="ghost" size="sm" className={`h-7 w-7 p-0 ${active ? 'bg-accent' : ''}`} onClick={onClick} aria-label={label} aria-pressed={active}>
+          <Button variant="ghost" size="icon" className={`size-8 ${active ? 'bg-accent' : ''}`} onClick={onClick} aria-label={label} aria-pressed={active}>
             {children}
           </Button>
         </TooltipTrigger>

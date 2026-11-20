@@ -25,6 +25,7 @@ import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
+import { MailAiBadge } from '@/components/ai/mail-ai-badge';
 
 interface EmailSummaryData {
   totalEmails: number;
@@ -109,6 +110,7 @@ export function SummaryClient({ initialSummary }: Readonly<SummaryClientProps>) 
             <p className="text-muted-foreground mt-1">
               {t.mail.ai.summarySubtitle}
             </p>
+            <MailAiBadge className="mt-2" />
           </div>
           <div className="flex items-center gap-2">
             <Select value={timeRange} onValueChange={setTimeRange}>

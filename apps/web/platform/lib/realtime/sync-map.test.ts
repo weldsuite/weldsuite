@@ -168,9 +168,18 @@ describe('platformSyncMap — WeldDesk', () => {
   });
 
   it('desk v2 topics keep conversation list + detail helpers', () => {
+    // Linking a problem, attaching a catalogue item and deciding an approval
+    // only publish the conversation's events: its panels follow those.
     expect(platformSyncMap.desk_conversation?.invalidate).toEqual([
       ['desk', 'conversations'],
+      ['desk', 'problems', 'conversation'],
+      ['desk', 'problems', 'incidents'],
+      ['desk', 'problems', 'list'],
+      ['desk', 'catalog', 'request'],
+      ['desk', 'catalog', 'approvals'],
     ]);
+    expect(platformSyncMap.desk_problem?.invalidate).toEqual([['desk', 'problems']]);
+    expect(platformSyncMap.desk_catalog_item?.invalidate).toEqual([['desk', 'catalog']]);
     expect(platformSyncMap.desk_conversation?.updateDetail).toBeTypeOf('function');
     expect(platformSyncMap.desk_conversation?.remove).toBeTypeOf('function');
     expect(platformSyncMap.desk_message?.invalidate).toEqual([['desk', 'conversations']]);
@@ -187,10 +196,23 @@ describe('platformSyncMap — WeldDesk', () => {
   });
 });
 
+describe('platformSyncMap — WeldStash purchasing and replenishment', () => {
+  it('invalidates the purchasing and replenishment keys of the hooks', () => {
+    expect(platformSyncMap.product_supplier?.invalidate).toEqual([
+      ['weldstash', 'purchasing', 'product-suppliers'],
+      ['weldstash', 'replenishment', 'plans'],
+    ]);
+    expect(platformSyncMap.replenishment_run?.invalidate).toContainEqual(['weldstash', 'replenishment', 'runs']);
+    expect(platformSyncMap.sales_history_import?.invalidate).toEqual([['weldstash', 'replenishment', 'imports']]);
+  });
+});
+
 describe('platformSyncMap — WeldBooks', () => {
   it('Phase 3 catalog gaps invalidate provisional accounting prefixes', () => {
     expect(platformSyncMap.purchase_order?.invalidate).toEqual([
       ['accounting', 'purchase-orders'],
+      ['weldstash', 'purchasing', 'orders'],
+      ['weldstash', 'replenishment'],
     ]);
     expect(platformSyncMap.fiscal_period?.invalidate).toEqual([
       ['accounting', 'fiscal-periods'],

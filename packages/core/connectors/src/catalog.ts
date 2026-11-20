@@ -28,7 +28,11 @@ export type ConnectorEntity =
   | 'purchase_order'
   | 'return'
   | 'stock_count'
-  | 'inventory_movement';
+  | 'inventory_movement'
+  /** `product_suppliers` (Odoo's `product.supplierinfo`). */
+  | 'product_supplier'
+  /** `stash_sales_history`: demand that is not an order (Odoo's sale order lines). */
+  | 'sales_history';
 
 export type ConnectorCategory =
   | 'ecommerce'
@@ -36,7 +40,8 @@ export type ConnectorCategory =
   | 'accounting'
   | 'support'
   | 'productivity'
-  | 'wms';
+  | 'wms'
+  | 'erp';
 
 /** Toggle the tenant enables on the connection itself. */
 export type ConnectorSyncSettingKey =
@@ -57,7 +62,9 @@ export type ConnectorSyncSettingKey =
   | 'purchaseOrders'
   | 'returns'
   | 'stockCounts'
-  | 'movements';
+  | 'movements'
+  | 'productSuppliers'
+  | 'sales';
 export type ConnectorCredentialFieldType = 'url' | 'text' | 'secret';
 
 export interface ConnectorCredentialField {
@@ -82,6 +89,15 @@ export interface ConnectorSyncDef {
 }
 
 export type ConnectorAuthKind = 'api_key' | 'app_auth' | 'oauth2';
+
+/**
+ * Where a connector is offered. `global`: the TypeScript workers on
+ * Cloudflare; `kubernetes`: the Rust backend (EU and self-hosted). A
+ * connector without `editions` is offered on both. The Rust catalog
+ * (`pnpm rust:catalogs`, `rust/catalogs/connectors.json`) is the
+ * `kubernetes` list.
+ */
+export type ConnectorEdition = 'global' | 'kubernetes';
 
 /**
  * How the connector receives remote changes after the initial backfill.
@@ -120,6 +136,8 @@ export interface ConnectorDef {
    * connector has no contact sync of its own (Stripe: the invoice's customer).
    */
   contactExternalEntityType?: string;
+  /** Editions that offer this connector; left out, every edition does. */
+  editions?: ConnectorEdition[];
 }
 
 export const CONNECTORS: ConnectorDef[] = [
@@ -447,14 +465,124 @@ export const CONNECTORS: ConnectorDef[] = [
       },
     ],
   },
+  {
+    // Odoo (weldsuite-documentation/plans/weldstash-replenishment.md, phases 5 and 6; ADR
+    // INT-012). Implemented by the Rust backend only
+    // (rust/crates/connect-domain/src/odoo), so Global does not offer it.
+    // Odoo stays the master: its warehouses arrive as WeldStash warehouses
+    // managed by the connection, and a draft purchase order goes back to
+    // Odoo as an RFQ.
+    provider: 'odoo',
+    label: 'Odoo',
+    description:
+      'Sync products, suppliers, stock, purchase orders and sales history from Odoo for WeldStash replenishment, and send reorders back as RFQs.',
+    category: 'erp',
+    icon: 'factory',
+    delivery: 'poll',
+    editions: ['kubernetes'],
+    auth: {
+      kind: 'api_key',
+      fields: [
+        {
+          key: 'url',
+          label: 'Odoo URL',
+          type: 'url',
+          placeholder: 'https://yourcompany.odoo.com',
+          required: true,
+        },
+        {
+          key: 'database',
+          label: 'Database',
+          type: 'text',
+          placeholder: 'yourcompany',
+          required: true,
+        },
+        {
+          key: 'login',
+          label: 'User login',
+          type: 'text',
+          placeholder: 'api@yourcompany.com',
+          required: true,
+        },
+        {
+          key: 'apiKey',
+          label: 'API key',
+          type: 'secret',
+          placeholder: '…',
+          required: true,
+        },
+      ],
+    },
+    syncs: [
+      {
+        syncName: 'odoo-warehouses',
+        model: 'OdooWarehouse',
+        internalEntity: 'warehouse',
+        externalEntityType: 'odoo_warehouse',
+        settingKey: 'warehouses',
+      },
+      {
+        syncName: 'odoo-products',
+        model: 'OdooProduct',
+        internalEntity: 'product',
+        externalEntityType: 'odoo_product',
+        settingKey: 'products',
+      },
+      {
+        syncName: 'odoo-suppliers',
+        model: 'OdooSupplier',
+        internalEntity: 'supplier',
+        externalEntityType: 'odoo_supplier',
+        settingKey: 'suppliers',
+      },
+      {
+        syncName: 'odoo-product-suppliers',
+        model: 'OdooSupplierInfo',
+        internalEntity: 'product_supplier',
+        externalEntityType: 'odoo_supplierinfo',
+        settingKey: 'productSuppliers',
+      },
+      {
+        syncName: 'odoo-stock',
+        model: 'OdooStockQuant',
+        internalEntity: 'inventory',
+        externalEntityType: 'odoo_stock',
+        settingKey: 'inventory',
+      },
+      {
+        syncName: 'odoo-purchase-orders',
+        model: 'OdooPurchaseOrder',
+        internalEntity: 'purchase_order',
+        externalEntityType: 'odoo_purchase_order',
+        settingKey: 'purchaseOrders',
+      },
+      {
+        syncName: 'odoo-sales',
+        model: 'OdooSaleOrderLine',
+        internalEntity: 'sales_history',
+        externalEntityType: 'odoo_sale_line',
+        settingKey: 'sales',
+      },
+    ],
+  },
 ];
 
-export function listConnectors(): ConnectorDef[] {
-  return CONNECTORS;
+function offeredOn(connector: ConnectorDef, edition: ConnectorEdition): boolean {
+  return !connector.editions || connector.editions.includes(edition);
 }
 
-export function getConnector(provider: string): ConnectorDef | undefined {
-  return CONNECTORS.find((c) => c.provider === provider);
+/**
+ * The connectors an edition offers, in catalog order. The TypeScript workers
+ * are the Global edition, so that is the default; `pnpm rust:catalogs`
+ * exports the `kubernetes` list.
+ */
+export function listConnectors(edition: ConnectorEdition = 'global'): ConnectorDef[] {
+  return CONNECTORS.filter((c) => offeredOn(c, edition));
+}
+
+/** A connector the edition offers, or undefined (also for one it does not offer). */
+export function getConnector(provider: string, edition: ConnectorEdition = 'global'): ConnectorDef | undefined {
+  return CONNECTORS.find((c) => c.provider === provider && offeredOn(c, edition));
 }
 
 export function getConnectorSync(

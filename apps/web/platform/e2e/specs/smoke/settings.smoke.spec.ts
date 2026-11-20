@@ -19,6 +19,7 @@ const routes: SmokeRoute[] = [
   { path: '/settings/apps/welddesk' },
   { path: '/settings/apps/weldmail' },
   { path: '/settings/apps/weldhr' },
+  { path: '/settings/apps/weldbooks' },
   { path: '/settings/apps/weldsuite' },
   { path: '/settings/billing' },
   { path: '/settings/business' },

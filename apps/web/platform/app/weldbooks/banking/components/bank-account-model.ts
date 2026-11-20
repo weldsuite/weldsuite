@@ -10,6 +10,7 @@ import {
   type BankAccountType,
   type SaveBankAccountInput,
 } from '@/lib/api/domains/weldbooks-banking';
+import { isValidIban } from '@/lib/weldbooks/identifiers';
 import { normalizeAccountNumber, routingNumberProblem } from './routing-number';
 
 /** Select value for "let WeldBooks create the ledger account". */
@@ -39,6 +40,7 @@ export interface BankAccountFormValues {
 
 export type BankAccountFormProblem =
   | 'name'
+  | 'iban'
   | 'routingFormat'
   | 'routingChecksum'
   | 'accountNumber'
@@ -61,7 +63,11 @@ export function hasRoutingNumber(accountType: BankAccountType): boolean {
 export function bankAccountProblems(values: BankAccountFormValues, options: { isUs: boolean }): BankAccountFormProblem[] {
   const problems: BankAccountFormProblem[] = [];
   if (!values.name.trim()) problems.push('name');
-  if (!options.isUs) return problems;
+  if (!options.isUs) {
+    // The same check the server makes: shape, length for the country and check digits.
+    if (values.iban.trim() && !isValidIban(values.iban)) problems.push('iban');
+    return problems;
+  }
 
   if (hasRoutingNumber(values.accountType)) {
     const routing = routingNumberProblem(values.routingNumber);

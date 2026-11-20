@@ -11,7 +11,7 @@
  * workspace the URL names (components/workspace-url-gate.tsx). Until then
  * links stay bare.
  *
- * Rules the router imposes (docs/plans/workspace-in-url.md, spike result):
+ * Rules the router imposes (weldsuite-documentation/plans/workspace-in-url.md, spike result):
  * `output` returns a new URL, never the one it gets; `router.history.*` and
  * plain `<a href>` bypass `output`, so those use `toPublicPath()`.
  */

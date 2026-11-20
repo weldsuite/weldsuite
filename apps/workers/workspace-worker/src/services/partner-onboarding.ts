@@ -1,5 +1,5 @@
 /**
- * Partner-managed workspace onboarding (docs/plans/reseller-licensing.md).
+ * Partner-managed workspace onboarding (weldsuite-documentation/plans/reseller-licensing.md).
  *
  * A partner creates a workspace for one of its customers from the partner
  * portal; app-api calls `WorkspaceOnboardEntrypoint.onboardPartnerWorkspace`

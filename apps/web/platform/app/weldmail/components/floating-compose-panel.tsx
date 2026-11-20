@@ -1,7 +1,6 @@
 
 import { useState, useRef, useEffect, useMemo } from 'react';
 import {
-  useGenerateAIReply,
   useGenerateEmailDraft,
   useMailAccounts,
 } from '@/hooks/queries/use-mail-queries';
@@ -23,6 +22,7 @@ import { useAiCreditsToast } from '@/hooks/use-ai-credits-toast';
 import { usePeopleByEmails } from '@/hooks/queries/use-people-queries';
 import { withPendingInput } from '@/app/weldmail/components/compose-recipients';
 import { ComposeSurface } from '@/app/weldmail/components/compose-surface';
+import type { ComposeAiOptions } from '@/app/weldmail/components/compose-ai-island';
 import {
   MAX_EMAIL_SIZE_BYTES,
   MailAttachmentUploadError,
@@ -40,9 +40,14 @@ const getAgentRight = minimizedDockRight;
 function hasComposeContent(
   composeData: { to: string; subject: string; body: string },
   editorHtml: string | undefined,
+  openedTo = '',
 ) {
-  // A body holding only the signature compose put in is not content.
-  return composeData.to || composeData.subject || userWrittenText(editorHtml ?? composeData.body);
+  // A body holding only the signature compose put in is not content, and
+  // neither are the recipients the mail was opened with (Compose on a CRM
+  // record fills in its email): closing that untouched saved an empty
+  // draft (TASK-1463).
+  const typedTo = composeData.to.trim() !== openedTo.trim() ? composeData.to : '';
+  return typedTo || composeData.subject || userWrittenText(editorHtml ?? composeData.body);
 }
 
 function parseRecipients(str: string): string[] {
@@ -175,6 +180,8 @@ function FloatingComposeOpen({
   const router = useRouter();
   const params = useParams();
   const composeContext = useComposeSafe();
+  // What To held when this mail opened (the panel remounts per mail).
+  const [openedTo] = useState(() => composeContext?.composeData?.to ?? '');
   const { data: accountsData } = useMailAccounts();
   const mailAccounts = accountsData?.data ?? [];
   const defaultAccountId = (mailAccounts.find((a) => a.isDefault) ?? mailAccounts[0])?.id;
@@ -188,7 +195,6 @@ function FloatingComposeOpen({
   const setIsDialerOpen = callContext?.setIsDialerOpen;
   const mobileNav = useMobileNavOptional();
   const { getClient } = useAppApiClient();
-  const generateAIReplyMutation = useGenerateAIReply();
   const generateEmailDraftMutation = useGenerateEmailDraft();
   const agentRight = getAgentRight(mobileNav);
   // What is minimized keeps the corner; the open panel sits beside it.
@@ -301,19 +307,18 @@ function FloatingComposeOpen({
     updateComposeData({ body: textareaRef.current.innerHTML });
   };
 
-  // For replies, use the reply endpoint (body only)
-  const generateAiReply = async (prompt: string): Promise<boolean> => {
-    const result = await generateAIReplyMutation.mutateAsync({ userPrompt: prompt, messageId: composeData.inReplyTo, accountId: accountId || undefined });
-    if (!(result.success && result.body)) return false;
-    applyGeneratedBody(result.body);
-    return true;
-  };
-
-  // For new emails, use the draft endpoint (subject + body)
-  const generateAiDraft = async (prompt: string): Promise<boolean> => {
-    const result = await generateEmailDraftMutation.mutateAsync({ prompt });
+  // The draft endpoint writes new mails and replies alike (it reads the mail
+  // being answered), with the tone and length picked in the AI island. A
+  // subject the user already has (a reply's "Re: …") is kept.
+  const generateAiDraft = async (prompt: string, options: ComposeAiOptions): Promise<boolean> => {
+    const result = await generateEmailDraftMutation.mutateAsync({
+      prompt,
+      accountId: accountId || undefined,
+      replyToMessageId: composeData.inReplyTo || undefined,
+      ...options,
+    });
     if (!(result.success && result.data)) return false;
-    if (result.data.subject) {
+    if (result.data.subject && !composeData.subject.trim()) {
       updateComposeData({ subject: result.data.subject });
     }
     if (result.data.body) {
@@ -322,10 +327,10 @@ function FloatingComposeOpen({
     return true;
   };
 
-  // Resolves to whether content was written, which is when the surface closes its AI bar.
-  const handleAiGenerate = async (prompt: string): Promise<boolean> => {
+  // Resolves to whether content was written, which is when the AI island folds back.
+  const handleAiGenerate = async (prompt: string, options: ComposeAiOptions): Promise<boolean> => {
     try {
-      const generated = composeData.inReplyTo ? await generateAiReply(prompt) : await generateAiDraft(prompt);
+      const generated = await generateAiDraft(prompt, options);
       if (generated) {
         toast.success(t.mail.floatingCompose.aiContentGenerated);
       } else {
@@ -388,7 +393,7 @@ function FloatingComposeOpen({
     autosave.switchAccount(nextAccountId);
     const editorHtml = textareaRef.current?.innerHTML;
     // What is written so far is saved again, now under the new account.
-    if (hasComposeContent({ ...composeData, to: toWithPending }, editorHtml)) {
+    if (hasComposeContent({ ...composeData, to: toWithPending }, editorHtml, openedTo)) {
       void autosave.saveNow(
         buildPanelDraftFields({ ...composeData, to: toWithPending, cc: ccRecipients, bcc: bccRecipients }, editorHtml),
       );
@@ -576,7 +581,7 @@ function FloatingComposeOpen({
     handleClose();
   };
 
-  const hasContent = hasComposeContent({ ...composeData, to: toWithPending }, textareaRef.current?.innerHTML);
+  const hasContent = hasComposeContent({ ...composeData, to: toWithPending }, textareaRef.current?.innerHTML, openedTo);
 
   return (
     <>
@@ -616,6 +621,7 @@ function FloatingComposeOpen({
         }
         onBodyBlur={(body) => updateComposeData({ body })}
         signatureMode={composeData.inReplyTo ? 'reply' : 'new'}
+        isReply={!!composeData.inReplyTo}
         attachedFiles={attachedFiles}
         onAttachedFilesChange={setAttachedFiles}
         scheduledTime={scheduledTime}

@@ -1,7 +1,7 @@
 /**
  * Legal entities routes: /api/legal-entities/*. The companies of the workspace,
  * shared by WeldBooks and WeldHR, with their registrations, bank accounts and
- * per-entity access. docs/plans/legal-entities.md.
+ * per-entity access. weldsuite-documentation/plans/legal-entities.md.
  *
  *   GET    /                                       list what the member sees  [legal_entities:read]
  *   GET    /default                                the default entity or null [read]

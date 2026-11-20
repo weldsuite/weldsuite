@@ -123,9 +123,13 @@ async fn a_read_only_database_is_a_moving_workspace() {
     assert_eq!(database_error(&refused), ApiError::workspace_moving());
 }
 
+// Dropped and made again, like the crate's other tests: `cargo test
+// --workspace` shares one database, and a table of the same name left by
+// another crate's test has other columns.
 const MASTER_SCHEMA: &str = "
-create table if not exists partners (id varchar(30) primary key, status varchar(20) not null default 'active');
-create table if not exists workspaces (
+drop table if exists workspaces, workspace_licences, partners, workspace_database_moves cascade;
+create table partners (id varchar(30) primary key, status varchar(20) not null default 'active');
+create table workspaces (
     id varchar(255) primary key,
     clerk_org_id varchar(255) unique,
     database_url text,
@@ -133,16 +137,15 @@ create table if not exists workspaces (
     billing_mode varchar(20) not null default 'direct',
     partner_id varchar(30)
 );
-create table if not exists workspace_licences (
+create table workspace_licences (
     workspace_id varchar(255) not null unique,
     allowed_apps jsonb not null default '[]',
     status varchar(20) not null default 'active'
 );
-create table if not exists workspace_database_moves (
+create table workspace_database_moves (
     workspace_id varchar(255) not null,
     status varchar(20) not null default 'queued'
 );
-delete from workspaces where id = 'ws_kit_rotated';
 drop role if exists kit_rotated;
 create role kit_rotated login password 'before-the-move';
 ";

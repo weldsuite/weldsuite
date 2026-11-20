@@ -1,4 +1,6 @@
-//! WeldDesk channels: the webchat inbox (`/desk/conversations`), the
+//! WeldDesk channels: the webchat inbox (`/desk/conversations`) with problem
+//! management (`/desk/problems`) and the service catalogue (`/desk/catalog`)
+//! beside it, the
 //! Discord and Slack channel integrations (`/helpdesk-integrations`), and
 //! the two public surfaces the worker mounts ahead of the Clerk guard: the
 //! OAuth callbacks (`/api/integrations/helpdesk/*`) and the help center feed
@@ -8,6 +10,8 @@
 
 #[path = "channels/attributes.rs"]
 mod attributes;
+#[path = "channels/catalog.rs"]
+mod catalog;
 #[path = "channels/helpcenter.rs"]
 mod helpcenter;
 #[path = "channels/inbox.rs"]
@@ -20,8 +24,12 @@ mod integrations;
 mod links;
 #[path = "channels/oauth.rs"]
 mod oauth;
+#[path = "channels/problems.rs"]
+mod problems;
 #[path = "channels/providers.rs"]
 mod providers;
+#[path = "channels/request.rs"]
+mod request;
 #[path = "channels/translation.rs"]
 mod translation;
 #[path = "channels/webchat.rs"]
@@ -55,8 +63,12 @@ where
             "/desk/conversations",
             inbox::routes(gate)
                 .merge(translation::routes(gate))
-                .merge(links::routes(gate)),
+                .merge(links::routes(gate))
+                .merge(problems::conversation_routes(gate))
+                .merge(request::routes(gate)),
         )
+        .nest("/desk/problems", problems::routes(gate))
+        .nest("/desk/catalog", catalog::routes(gate))
         .nest("/helpdesk-integrations", integrations::routes(gate))
 }
 
@@ -95,6 +107,8 @@ pub(crate) struct Ctx {
     buckets: Option<StorageBuckets>,
     cache: Option<Arc<dyn DynCache>>,
     outbound_http: Option<OutboundHttp>,
+    /// The request's own AI (conformance), before the state's.
+    ai: Option<weldsuite_ai::Ai>,
 }
 
 impl<S: Send + Sync> FromRequestParts<S> for Ctx {
@@ -114,6 +128,7 @@ impl<S: Send + Sync> FromRequestParts<S> for Ctx {
                 .get::<RequestCache>()
                 .map(|cache| Arc::clone(&cache.0)),
             outbound_http: extensions.get::<OutboundHttp>().cloned(),
+            ai: extensions.get::<weldsuite_ai::Ai>().cloned(),
         })
     }
 }
@@ -138,6 +153,16 @@ impl Ctx {
     /// The Discord and Slack client.
     pub(crate) fn http(&self, state: &DeskState) -> Option<DynDeskHttp> {
         self.caller.http(state)
+    }
+
+    /// The AI a model call goes to: the request's (conformance), else the
+    /// state's; `None` when it is off.
+    pub(crate) fn ai(&self, state: &DeskState) -> Option<weldsuite_ai::Ai> {
+        self.ai
+            .as_ref()
+            .or(state.ai.as_ref())
+            .filter(|ai| ai.enabled())
+            .cloned()
     }
 
     /// The client that hands back bytes (an avatar image), when there is one.

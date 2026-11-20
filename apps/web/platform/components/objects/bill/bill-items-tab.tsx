@@ -9,6 +9,7 @@
 
 import type { ReactNode } from 'react';
 import { Percent } from 'lucide-react';
+import { useTranslations } from '@weldsuite/i18n/client';
 import { FilesIllustration, TabEmptyState } from '@/components/objects/_shared/tab-empty-state';
 import { TabListRow, TabListScope } from '@/components/objects/_shared/tab-list-row';
 import { BrTaxSummary } from '@/app/weldbooks/invoices/components/br-fields';
@@ -24,6 +25,7 @@ import { useDocumentTexts } from '@/lib/weldbooks/use-document-texts';
 import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { cn } from '@/lib/utils';
+import { isBillOverdue } from './bill-capabilities';
 
 type BillItemRow = BillWithTax['items'][number];
 
@@ -55,9 +57,10 @@ function Cell({ children, className }: Readonly<{ children: ReactNode; className
   return <span className={cn('flex-shrink-0 text-right text-sm tabular-nums', className)}>{children}</span>;
 }
 
-function ColumnHeaders() {
+function ColumnHeaders({ withTax }: Readonly<{ withTax: boolean }>) {
   const { t } = useI18n();
   const tb = t.accounting.billDetail;
+  const td = useDocumentTexts();
   return (
     // The secondary columns (and so their headers) show from 560px of list width.
     <div className="hidden items-center gap-4 border-b border-gray-200/70 px-4 py-2 text-xs text-muted-foreground dark:border-border @min-[560px]:flex">
@@ -66,7 +69,7 @@ function ColumnHeaders() {
       <Cell className="w-[96px]">{tb.unitPrice}</Cell>
       <Cell className="w-[64px]">{tb.discountPercent}</Cell>
       <Cell className="w-[88px]">{tb.tax}</Cell>
-      <Cell className="w-[104px]">{tb.lineTotal}</Cell>
+      <Cell className="w-[104px]">{withTax ? td.bill.lineCostWithTax : tb.lineTotal}</Cell>
       <span className="w-[40px] flex-shrink-0" />
     </div>
   );
@@ -76,8 +79,19 @@ function LineItemRow({
   item,
   currency,
   canCreateFixedAsset,
-}: Readonly<{ item: BillItemRow; currency: string | null; canCreateFixedAsset: boolean }>) {
+  defaultAccount,
+  withTax,
+}: Readonly<{
+  item: BillItemRow;
+  currency: string | null;
+  canCreateFixedAsset: boolean;
+  /** Sales tax is part of a line's cost (US); with VAT the line is shown before tax, as the bill form does. */
+  withTax: boolean;
+  /** What a line with no account of its own is booked to. */
+  defaultAccount?: { code: string; name: string } | null;
+}>) {
   const td = useDocumentTexts();
+  const st = useTranslations();
   const { formatMoney, formatNumber } = useWeldbooksFormat();
   const lineFlags = useLineFlags();
   const flags = lineFlags(item);
@@ -88,6 +102,11 @@ function LineItemRow({
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm">{item.description}</div>
         {flags.length > 0 ? <div className="truncate text-xs text-muted-foreground">{flags.join(' · ')}</div> : null}
+        {!item.accountId && defaultAccount ? (
+          <div className="truncate text-xs text-muted-foreground" data-testid="default-account">
+            {st('sweep.weldbooks.records.defaultAccount', { account: `${defaultAccount.code} — ${defaultAccount.name}` })}
+          </div>
+        ) : null}
         <div className="truncate text-xs text-muted-foreground tabular-nums @min-[560px]:hidden">
           {quantity} × {formatMoney(item.unitPrice, currency)}
         </div>
@@ -106,7 +125,9 @@ function LineItemRow({
         {item.discountPercent ? `${formatNumber(item.discountPercent)}%` : '-'}
       </Cell>
       <Cell className="w-[88px] @max-[559px]:hidden">{formatMoney(item.taxAmount, currency)}</Cell>
-      <Cell className="w-[104px] font-medium">{formatMoney(item.lineTotalWithTax ?? item.lineTotal, currency)}</Cell>
+      <Cell className="w-[104px] font-medium">
+        {formatMoney(withTax ? (item.lineTotalWithTax ?? item.lineTotal) : item.lineTotal, currency)}
+      </Cell>
     </TabListRow>
   );
 }
@@ -131,6 +152,7 @@ function BillTotals({ bill }: Readonly<{ bill: BillWithTax }>) {
   const { formatMoney } = useWeldbooksFormat();
   const { features } = useJurisdictionLabels();
   const hasPayment = !!bill.amountPaid && Number(bill.amountPaid) > 0;
+  const overdue = isBillOverdue(bill);
 
   return (
     <div className="ml-auto w-full max-w-xs space-y-2 p-4">
@@ -152,7 +174,7 @@ function BillTotals({ bill }: Readonly<{ bill: BillWithTax }>) {
           <TotalRow
             label={tb.balanceDue}
             value={formatMoney(bill.balanceDue, bill.currency)}
-            className="font-semibold [&>span]:text-destructive"
+            className={cn('font-semibold', overdue && '[&>span]:text-destructive')}
           />
         </>
       ) : null}
@@ -183,13 +205,15 @@ export function BillLineItemsTab({ bill }: Readonly<{ bill: BillWithTax }>) {
   return (
     <div>
       <TabListScope>
-        <ColumnHeaders />
+        <ColumnHeaders withTax={features.salesTax} />
         {items.map((item) => (
           <LineItemRow
             key={item.id}
             item={item}
             currency={bill.currency}
             canCreateFixedAsset={features.salesTax && isPosted}
+            withTax={features.salesTax}
+            defaultAccount={bill.defaultExpenseAccount}
           />
         ))}
       </TabListScope>

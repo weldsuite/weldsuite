@@ -5,13 +5,24 @@ import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
+import { JurisdictionGate } from '@/components/accounting/jurisdiction-gate';
 import { usePayrollConnections } from '@/hooks/queries/use-weldbooks-assets-queries';
 import { useI18n } from '@/lib/i18n/provider';
+import { isUsJurisdictionCode } from '@/lib/weldbooks/us-entity';
 import { GustoConnectForm } from '../components/gusto-connect-form';
 import { GustoConnectionCard } from '../components/gusto-connection-card';
 
 /** Gusto: connect a company with an access token, map its payroll to accounts, and import the processed payrolls. */
 export default function PayrollConnectionsPage() {
+  const { t } = useI18n();
+  return (
+    <JurisdictionGate when={(j) => isUsJurisdictionCode(j.code)} feature={t.weldbooksUs.assets.payroll.gusto.title}>
+      <PayrollConnectionsContent />
+    </JurisdictionGate>
+  );
+}
+
+function PayrollConnectionsContent() {
   const { t } = useI18n();
   const tg = t.weldbooksUs.assets.payroll.gusto;
   const common = t.weldbooksUs.assets.common;

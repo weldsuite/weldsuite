@@ -1,0 +1,8 @@
+# Zitadel off auth.${DOMAIN}, so WeldID's Ingress has the host alone. Its
+# pods and database keep running (in the cluster only) until Zitadel is
+# removed (../../../infrastructure/weldid/README.md, "Switching", step 6).
+ingress:
+  enabled: false
+login:
+  ingress:
+    enabled: false

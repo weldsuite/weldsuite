@@ -24,7 +24,7 @@ use weldsuite_catalogs::entity_events::{
 };
 use weldsuite_catalogs::permission_keys as perm;
 use weldsuite_connect_domain::catalog::{
-    default_field_mappings, get_connector, list_connectors, syncs,
+    default_field_mappings, get_connector, list_connectors, offered_on, syncs,
 };
 use weldsuite_connect_domain::clients::Kind;
 use weldsuite_connect_domain::connections::{
@@ -151,6 +151,7 @@ async fn catalog(State(state): State<ConnectState>, caller: Caller) -> Response 
     let keyring = keyring(&caller, &state);
     let entries: Vec<Value> = list_connectors()
         .iter()
+        .filter(|connector| offered_on(connector, state.connector_edition))
         .map(|connector| {
             let provider = connector["provider"].as_str().unwrap_or_default();
             let accounting = connector["category"].as_str() == Some("accounting");

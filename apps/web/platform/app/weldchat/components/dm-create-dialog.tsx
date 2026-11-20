@@ -23,6 +23,7 @@ import {
 } from '@/hooks/queries/use-weldchat-queries';
 import { useNavigate } from '@tanstack/react-router';
 import { useI18n } from '@/lib/i18n/provider';
+import { inviteesLast, isPendingInvitee } from '../lib/dm-availability';
 
 interface DmCreateDialogProps {
   open: boolean;
@@ -35,6 +36,7 @@ interface DmMember {
   name?: string;
   email?: string;
   picture?: string;
+  status?: string;
 }
 
 const memberKey = (m: DmMember) => m.userId || m.id;
@@ -68,7 +70,9 @@ export function DmCreateDialog({ open, onOpenChange }: Readonly<DmCreateDialogPr
   const { data: membersData } = useWorkspaceMembers();
   const { mutate: createDm, isPending } = useCreateDm();
 
-  const members = useMemo<DmMember[]>(() => membersData?.data || [], [membersData]);
+  // Invitees stay findable but come last and can't be picked: they can be
+  // messaged once they accept (chat-api refuses a DM before then).
+  const members = useMemo<DmMember[]>(() => inviteesLast(membersData?.data || []), [membersData]);
 
   const toggleMember = (id: string) => {
     setSelectedIds((prev) =>
@@ -148,11 +152,13 @@ export function DmCreateDialog({ open, onOpenChange }: Readonly<DmCreateDialogPr
               {members.map((member) => {
                 const id = memberKey(member);
                 const isSelected = selectedIds.includes(id);
+                const isInvited = isPendingInvitee(member);
                 return (
                   <CommandItem
                     key={id}
                     value={id}
                     keywords={[member.name ?? '', member.email ?? '']}
+                    disabled={isInvited}
                     onSelect={() => toggleMember(id)}
                     className="gap-2 rounded-md px-2 py-2"
                   >
@@ -163,7 +169,12 @@ export function DmCreateDialog({ open, onOpenChange }: Readonly<DmCreateDialogPr
                     {/* Check sits before the email so the email's position
                         doesn't shift when a row is selected. */}
                     {isSelected && <Check className="size-4 text-primary" />}
-                    {member.name && member.email && (
+                    {isInvited && (
+                      <span className="mr-1 flex-shrink-0 text-[13px] text-muted-foreground">
+                        {t.weldchat.dmCreate.invited}
+                      </span>
+                    )}
+                    {!isInvited && member.name && member.email && (
                       <span className="mr-1 min-w-0 max-w-[55%] truncate text-right text-[13px] text-muted-foreground">
                         {member.email}
                       </span>

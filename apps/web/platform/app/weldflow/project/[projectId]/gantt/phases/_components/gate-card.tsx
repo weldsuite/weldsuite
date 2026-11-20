@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Check, X } from 'lucide-react';
+import { Check, User as UserIcon, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@weldsuite/ui/components/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
@@ -10,6 +10,7 @@ import { Link } from '@/lib/router';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
 import { useRequestGateApproval, useTickCriterion, useWaiveCriterion } from '@/hooks/queries/use-project-schedule-queries';
+import { useProjectMembers } from '@/hooks/queries/use-projects-queries';
 import { fill, intlLocaleOf, shortDate } from '../../dependencies/_lib/format';
 import { describeCriterion, linkHref } from '../_lib/gates';
 
@@ -65,10 +66,22 @@ function WaiveDialog({ gate, index, onClose }: Readonly<{ gate: PhaseGate; index
   );
 }
 
-function Approvers({ gate }: Readonly<{ gate: PhaseGate }>) {
+/** Up to two initials of a name ("Gert van den Berg" → "GB"). */
+function initialsOf(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return '';
+  const first = words[0]!.charAt(0);
+  const last = words.length > 1 ? words.at(-1)!.charAt(0) : '';
+  return (first + last).toUpperCase();
+}
+
+function Approvers({ projectId, gate }: Readonly<{ projectId: string; gate: PhaseGate }>) {
   const { t } = useI18n();
   const copy = t.flowSchedule.phases.approvers;
   const byApprover = new Map<string, GateApproval>(gate.approvals.map((approval) => [approval.approverId, approval]));
+  // The approvers' names: the avatar showed the last two characters of their user id.
+  const members = useProjectMembers(projectId, gate.approverIds.length > 0);
+  const nameOf = new Map((members.data?.data ?? []).map((member) => [member.userId, member.user?.name ?? '']));
   return (
     <section aria-labelledby="approvers-title" className="rounded-lg border bg-card p-4">
       <h2 id="approvers-title" className="text-sm font-semibold">
@@ -80,17 +93,20 @@ function Approvers({ gate }: Readonly<{ gate: PhaseGate }>) {
         <ul className="mt-3 grid gap-2">
           {gate.approverIds.map((approverId, index) => {
             const approval = byApprover.get(approverId);
+            const name = nameOf.get(approverId) ?? '';
             return (
               <li key={approverId} className="flex items-center gap-3">
                 <MemberAvatar
                   userId={approverId}
+                  name={name}
                   aria-hidden
                   className="size-8 shrink-0"
                   fallbackClassName="text-xs font-medium"
-                  fallback={approverId.slice(-2).toUpperCase()}
+                  fallback={initialsOf(name) || <UserIcon className="size-4 text-muted-foreground" />}
                 />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-medium">{approval?.roleLabel ?? (index === 0 ? copy.sponsor : copy.board)}</div>
+                  {name && <div className="truncate text-xs text-muted-foreground">{name}</div>}
                   {approval?.note && <div className="truncate text-xs text-muted-foreground">{approval.note}</div>}
                 </div>
                 <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
@@ -129,7 +145,10 @@ export function GateCard({ projectId, gate, nextName, canManage, isSponsor }: Re
   const waiting = gate.gateRequestedAt !== null;
   const blocked = gate.requestBlockedReason;
   let reason: string | null = null;
-  if (blocked) reason = blocked === 'criteria_open' ? fill(copy.gate.blocked.criteria_open, { count: open }) : copy.gate.blocked[blocked];
+  if (blocked) {
+    const criteriaOpen = open === 1 ? copy.gate.criteriaOpenOne : copy.gate.blocked.criteria_open;
+    reason = blocked === 'criteria_open' ? fill(criteriaOpen, { count: open }) : copy.gate.blocked[blocked];
+  }
   let footnote: string | null = reason;
   if (!canManage) footnote = copy.gate.readOnly;
   else if (waiting) footnote = copy.gate.waitingForApproval;
@@ -234,7 +253,7 @@ export function GateCard({ projectId, gate, nextName, canManage, isSponsor }: Re
         </div>
       </section>
 
-      <Approvers gate={gate} />
+      <Approvers projectId={projectId} gate={gate} />
       <WaiveDialog gate={gate} index={waiveIndex} onClose={() => setWaiveIndex(null)} />
     </div>
   );

@@ -1,7 +1,7 @@
 /**
  * `reach-send` queue consumer: one message = one workspace with outreach due.
  *
- * Per message, in this order (docs/plans/weldreach.md, "Sending engine"):
+ * Per message, in this order (weldsuite-documentation/plans/weldreach.md, "Sending engine"):
  *   1. access: read the master DB (never the KV cache) so a suspension, a
  *      cancelled subscription or a past-due one beyond its grace stops sending
  *      within a minute;

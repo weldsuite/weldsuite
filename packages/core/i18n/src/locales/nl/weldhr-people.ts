@@ -55,6 +55,10 @@ export const weldhrPeople = {
       emailRequired: 'E-mailadres is verplicht',
       emailInvalid: 'Vul een geldig e-mailadres in',
       phoneInvalid: 'Vul een telefoonnummer met alleen cijfers in, zoals +31 20 123 4567',
+      weeklyHoursInvalid: 'Vul een aantal uren tussen 0 en 168 in',
+      endBeforeStart: 'De einddatum kan niet voor de startdatum liggen',
+      probationBeforeStart: 'De proeftijd kan niet voor de startdatum eindigen',
+      birthInFuture: 'De geboortedatum kan niet in de toekomst liggen',
     },
     create: {
       employer: 'Werkgever',
@@ -98,6 +102,8 @@ export const weldhrPeople = {
       notLinked: 'Deze medewerker is nog geen lid van de workspace. Koppel het lid dat deze medewerker is, of nodig deze persoon uit: na acceptatie wordt de medewerker automatisch gekoppeld.',
       invitePending: 'Uitnodiging verstuurd naar {email}. Deze medewerker wordt automatisch gekoppeld zodra de uitnodiging is geaccepteerd.',
       linkedAs: 'Gekoppeld aan {name}',
+      notLinkedShort: 'Niet gekoppeld',
+      invitePendingShort: 'Uitnodiging verstuurd',
       emailMatchHint: 'Er is een teamlid met hetzelfde e-mailadres gevonden: {name}.',
       invite: 'Uitnodigen voor workspace',
       inviteTitle: 'Uitnodigen als workspace-lid',
@@ -128,8 +134,9 @@ export const weldhrPeople = {
       },
       deleteConfirm: {
         title: 'Medewerker verwijderen',
-        description: '{name} verwijderen? Dit kan niet ongedaan worden gemaakt.',
+        description: 'Het HR-dossier van {name} verwijderen? Het werkruimteaccount blijft bestaan. Dit kan niet ongedaan worden gemaakt.',
       },
+      deletedToast: 'Medewerker verwijderd',
       tabs: {
         overview: 'Overzicht',
         personal: 'Persoonlijk',
@@ -153,9 +160,28 @@ export const weldhrPeople = {
           empty: 'Geen directe rapportages.',
         },
       },
+      // Korte labels voor de Details-rijen van het recordpaneel, waarvan de labelkolom smal is.
+      fields: {
+        preferredName: 'Roepnaam',
+        manager: 'Manager',
+        employmentType: 'Contract',
+        employeeNumber: 'Pers.nr.',
+        pronouns: 'Aanspreekvorm',
+        probationEndDate: 'Proeftijd',
+        weeklyHours: 'Uren/week',
+        workspaceAccount: 'Account',
+      },
+      reports: {
+        searchPlaceholder: 'Zoek in directe rapportages…',
+        emptyTitle: 'Nog geen directe rapportages',
+        emptyDescription: 'Medewerkers die ze aansturen staan hier',
+        noResultsTitle: 'Geen directe rapportages gevonden',
+        noResultsDescription: 'Probeer een andere zoekopdracht',
+      },
       edit: {
         title: 'Medewerker bewerken',
         failed: 'Deze medewerker kon niet worden opgeslagen.',
+        savedToast: 'Medewerker opgeslagen',
       },
       personalTab: {
         title: 'Persoonlijke gegevens',
@@ -164,6 +190,7 @@ export const weldhrPeople = {
         hide: 'Verbergen',
         loadFailed: 'Persoonlijke gegevens konden niet worden geladen.',
         saveFailed: 'Persoonlijke gegevens konden niet worden opgeslagen.',
+        savedToast: 'Persoonlijke gegevens opgeslagen',
         fields: {
           dateOfBirth: 'Geboortedatum',
           nationalId: 'Rijksregisternummer',

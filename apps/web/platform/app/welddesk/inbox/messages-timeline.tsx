@@ -17,7 +17,10 @@ import { formatFileSize } from './attachments';
 import { MessageTranslation } from './translation/message-translation';
 import { LinkifiedText } from './linkified-text';
 import { impactUrgencySentences, isLinkEvent, linkEventSentence } from './linked-timeline';
+import { isServiceRequestEvent, serviceRequestEventSentence } from './service-request-timeline';
+import { isProblemEvent, problemEventSentence } from './problem-timeline';
 import { escalationSentence } from './escalation-label';
+import { isPhoneTimelineMessage, PhoneTimelineRow } from './phone-timeline';
 
 interface MessagesTimelineProps {
   conversation: DeskConversation;
@@ -169,7 +172,10 @@ function eventSentence(message: DeskMessage, members: DeskWorkspaceMember[], vis
     if (message.metadata?.auto) return t.timeline.autoAssigned.replace('{target}', target);
     return t.timeline.assignmentToAdmin.replace('{actor}', actor).replace('{target}', target);
   }
-  const linked = linkEventSentence(message, actor);
+  const linked =
+    linkEventSentence(message, actor) ??
+    problemEventSentence(message, actor) ??
+    serviceRequestEventSentence(message, actor, (id) => memberLabel(members, id));
   if (linked) return linked;
   return message.body || t.timeline.genericEvent.replace('{actor}', actor).replace('{event}', eventType ?? 'event');
 }
@@ -204,8 +210,8 @@ function EventRow({
       </div>
     );
   }
-  if (isLinkEvent(message)) {
-    // Internal: links, merges and major incidents stay with the team.
+  if (isLinkEvent(message) || isProblemEvent(message) || isServiceRequestEvent(message)) {
+    // Internal: links, merges, major incidents and problems stay with the team.
     return (
       <p className="text-xs text-muted-foreground text-center py-2 px-4 flex items-center justify-center gap-1" data-testid="desk-inbox-link-event">
         <Lock className="h-3 w-3 flex-shrink-0" />
@@ -248,6 +254,7 @@ function EventRow({
 
 function sameGroup(a: DeskMessage | undefined, b: DeskMessage): boolean {
   if (!a || a.kind === 'event' || b.kind === 'event') return false;
+  if (isPhoneTimelineMessage(a) || isPhoneTimelineMessage(b)) return false;
   if (a.kind !== b.kind || a.authorType !== b.authorType || a.authorId !== b.authorId) return false;
   if (!isSameDay(new Date(a.createdAt), new Date(b.createdAt))) return false;
   return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime() < GROUP_WINDOW_MS;
@@ -356,6 +363,16 @@ export function MessagesTimeline({ conversation, messages, members, typing, onRe
               <div key={message.clientId ?? message.id}>
                 {showDay && <DaySeparator date={created} />}
                 <EventRow message={message} members={members} visitorLabel={visitorLabel} />
+              </div>
+            );
+          }
+
+          // Phone events and voicemail: a timeline line or a player, not a bubble from an agent.
+          if (isPhoneTimelineMessage(message)) {
+            return (
+              <div key={message.clientId ?? message.id}>
+                {showDay && <DaySeparator date={created} />}
+                <PhoneTimelineRow message={message} />
               </div>
             );
           }

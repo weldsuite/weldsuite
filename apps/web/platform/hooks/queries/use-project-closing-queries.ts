@@ -1,12 +1,12 @@
 /**
- * WeldFlow closing hooks: lessons learned, the close checklist and project
- * templates (project-management slice F).
+ * WeldFlow closing hooks: lessons learned, the close checklist and saving a
+ * project as a template (project-management slice F).
  *
  * Every query lives under `closingKeys.all`. `platformSyncMap` invalidates that
  * root for `project_lesson` and `project_template` events (the checklist counts
  * lessons), so keep the root in step with `lib/realtime/sync-map.ts`. The
  * mutations that change more than their own list also refresh the project
- * queries (a closed project, a new project).
+ * queries (a closed project).
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -18,14 +18,11 @@ import type {
   CloseChecklist,
   CreateLessonInput,
   HandoverInput,
-  InstantiateTemplateInput,
   Lesson,
-  ProjectTemplate,
   PublishLessonsInput,
   RequestCloseInput,
   TemplateFromProjectInput,
   UpdateLessonInput,
-  UpdateTemplateInput,
 } from '@weldsuite/app-api-client/domains/project-closing';
 
 export const closingKeys = {
@@ -34,9 +31,6 @@ export const closingKeys = {
   checklist: (projectId: string) => [...closingKeys.checklists(), projectId] as const,
   lessons: () => [...closingKeys.all, 'lessons'] as const,
   lessonList: (projectId: string) => [...closingKeys.lessons(), projectId] as const,
-  templates: () => [...closingKeys.all, 'templates'] as const,
-  templateList: (search: string) => [...closingKeys.templates(), 'list', search] as const,
-  templateDetail: (id: string) => [...closingKeys.templates(), 'detail', id] as const,
 };
 
 /** Rows per request: the most `GET /api/project-lessons` returns. */
@@ -193,80 +187,12 @@ export function usePublishLessons() {
 // Templates
 // ---------------------------------------------------------------------------
 
-/** The templates this person may use (shared ones and their own), without blueprints. */
-export function useTemplates(search = '') {
-  const { projectClosing } = useAppApi();
-
-  return useQuery({
-    queryKey: closingKeys.templateList(search),
-    queryFn: async (): Promise<ProjectTemplate[]> => {
-      const res = await projectClosing.listTemplates({ search: search || undefined, limit: 100 });
-      return res.data;
-    },
-    retry: retryUnlessClientError,
-  });
-}
-
-/** One template with its blueprint: the preview of what it creates. */
-export function useTemplate(id: string | null) {
-  const { projectClosing } = useAppApi();
-
-  return useQuery({
-    queryKey: closingKeys.templateDetail(id ?? ''),
-    queryFn: () => projectClosing.getTemplate(id as string),
-    select: (res) => res.data,
-    enabled: !!id,
-    retry: retryUnlessClientError,
-  });
-}
-
-function invalidateTemplates(qc: QueryClient) {
-  return qc.invalidateQueries({ queryKey: closingKeys.templates() });
-}
-
 /** "Save as template": a blueprint built from a project. */
 export function useSaveProjectAsTemplate() {
   const { projectClosing } = useAppApi();
-  const qc = useQueryClient();
 
   return useMutation({
     mutationFn: (input: { projectId: string; data: TemplateFromProjectInput }) =>
       projectClosing.saveProjectAsTemplate(input.projectId, input.data),
-    onSuccess: () => invalidateTemplates(qc),
-  });
-}
-
-export function useUpdateTemplate() {
-  const { projectClosing } = useAppApi();
-  const qc = useQueryClient();
-
-  return useMutation({
-    mutationFn: (input: { id: string; data: UpdateTemplateInput }) => projectClosing.updateTemplate(input.id, input.data),
-    onSuccess: () => invalidateTemplates(qc),
-  });
-}
-
-export function useDeleteTemplate() {
-  const { projectClosing } = useAppApi();
-  const qc = useQueryClient();
-
-  return useMutation<void, Error, string>({
-    mutationFn: (id) => projectClosing.deleteTemplate(id),
-    onSuccess: () => invalidateTemplates(qc),
-  });
-}
-
-/** "Create project": the whole project from a template. */
-export function useCreateProjectFromTemplate() {
-  const { projectClosing } = useAppApi();
-  const qc = useQueryClient();
-
-  return useMutation({
-    mutationFn: (input: { id: string; data: InstantiateTemplateInput }) =>
-      projectClosing.createProjectFromTemplate(input.id, input.data),
-    onSuccess: () => {
-      invalidateTemplates(qc);
-      return qc.invalidateQueries({ queryKey: projectKeys.all });
-    },
   });
 }

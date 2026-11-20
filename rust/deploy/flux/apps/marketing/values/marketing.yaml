@@ -8,7 +8,7 @@ imagePullSecrets:
 
 replicaCount: 1
 
-# marketing-env (secrets example): MASTER_DATABASE_URL, this cluster's own
+# marketing-env (secrets/marketing): MASTER_DATABASE_URL, this cluster's own
 # master database as the marketing role, so the pricing pages show the plan
 # prices in its `plans` table, not Global's. No RESEND_API_KEY: the contact
 # and support forms are not delivered.

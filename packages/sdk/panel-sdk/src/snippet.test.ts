@@ -9,7 +9,7 @@ import type { WeldPanel } from './client';
 import { init } from './index';
 import { installSnippet, STUB } from './install';
 import { bootSnippet } from './snippet';
-import { HOST, installNetwork, onCleanup, resetPage, TOKEN } from './test/harness';
+import { FIRST_TOUCH, HOST, installNetwork, onCleanup, resetPage, TOKEN } from './test/harness';
 
 afterEach(resetPage);
 
@@ -66,7 +66,30 @@ describe('snippet', () => {
       ['Viewed pricing', true],
       ['After load', true],
     ]);
-    expect(sent[0].batch.events[1].props).toEqual({ plan: 'pro' });
+    expect(sent[0].batch.events[1].props).toEqual({ plan: 'pro', ...FIRST_TOUCH });
+  });
+
+  it('replays identify() and people calls queued on the stub, identity before the first pageview', async () => {
+    const net = installNetwork({ config: { consentMode: 'none' } });
+    runStub();
+    const early = global.weldpanel!;
+    early.identify('user-42');
+    early.people.set({ plan: 'pro' });
+    early.people.increment('visits');
+    expect(early.q).toHaveLength(3);
+
+    const api = bootSnippet(scriptTag());
+    retire(api);
+    await settle();
+    early.track('After load');
+    await early.flush();
+    const [sent] = await net.sent();
+    expect(sent.batch.events.map((e) => [e.name, e.user_id])).toEqual([
+      ['$identify', 'user-42'],
+      ['$pageview', 'user-42'],
+      ['After load', 'user-42'],
+    ]);
+    expect(sent.batch.people?.map((op) => op.op)).toEqual(['set_once', 'set', 'increment']);
   });
 
   it('works without the stub and without document.currentScript', async () => {

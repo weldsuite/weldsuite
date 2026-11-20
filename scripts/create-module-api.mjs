@@ -22,7 +22,7 @@
  *   - an entry in scripts/secrets/manifest.ts with the kit's base secrets
  *
  * Moving the module's code in is the per-module recipe in
- * docs/plans/app-api-module-split.md; this only creates the empty worker.
+ * weldsuite-documentation/plans/app-api-module-split.md; this only creates the empty worker.
  */
 
 import { promises as fs, readFileSync } from 'node:fs';
@@ -100,7 +100,7 @@ const files = {
         '@weldsuite/permissions': 'workspace:*',
         '@weldsuite/worker-kit': 'workspace:*',
         'drizzle-orm': '^0.45.2',
-        hono: '4.13.13',
+        hono: '4.13.16',
         zod: '^3.25.76',
       },
       devDependencies: {
@@ -167,7 +167,7 @@ export default defineConfig({
 
   'wrangler.toml': `# WeldSuite ${mod.worker} worker — the ${mod.id} module's API.
 #
-# Split out of app-api (docs/plans/app-api-module-split.md). Serves the same
+# Split out of app-api (weldsuite-documentation/plans/app-api-module-split.md). Serves the same
 # /api/<object> paths app-api served for this module; only the host differs:
 #   ${mod.worker}.weldsuite.org        production
 #   ${mod.worker}-test.weldsuite.org   test
@@ -298,7 +298,7 @@ export type Variables = KitVariables;
   'src/index.ts': `/**
  * WeldSuite ${mod.worker} — the ${mod.id} module's API worker.
  *
- * Split out of app-api (docs/plans/app-api-module-split.md). It serves the
+ * Split out of app-api (weldsuite-documentation/plans/app-api-module-split.md). It serves the
  * same /api/<object> paths app-api served for this module; the prefixes it
  * owns are listed in @weldsuite/api-modules and checked by its ownership test.
  */
@@ -403,7 +403,7 @@ if (!secrets.includes(`"${mod.worker}":`)) {
 }
 
 console.log(`
-Next steps (docs/plans/app-api-module-split.md, per-module recipe):
+Next steps (weldsuite-documentation/plans/app-api-module-split.md, per-module recipe):
   1. pnpm install
   2. Move the ${mod.id} routes/services into ${path.relative(repoRoot, workerDir)}/src and mount them.
   3. Sync secrets:           DOPPLER_TOKEN=… pnpm secrets:sync test ${mod.worker}

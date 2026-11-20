@@ -30,15 +30,20 @@ import {
   Shuffle,
   Timer,
   Grid3x3,
+  ConciergeBell,
+  Laptop,
   Route,
+  Sparkles,
 } from 'lucide-react';
 import { isDesktop } from '@/lib/desktop';
-import { getAppLogo, getAppLucideIcon } from '@/lib/apps/app-registry';
+import { getAppLogo, getAppLucideIcon, resolveAppCode } from '@/lib/apps/app-registry';
 import type { MenuGroupProps, MenuItemProps } from '@/components/app-sidebar-layout';
 import type { TranslationsType } from '@/lib/i18n/types';
 import { useInstalledApps } from '@/hooks/use-installed-apps';
 import { useI18n } from '@/lib/i18n/provider';
 import { isRouteOffered } from '@/lib/edition-routes';
+import { isFeatureAvailable } from '@/lib/edition';
+import { usePermissions } from '@weldsuite/permissions/react';
 
 function makeAppLogoIcon(appCode: string, name: string) {
   return function AppLogoIcon({ className }: { className?: string }) {
@@ -51,17 +56,26 @@ function makeAppLogoIcon(appCode: string, name: string) {
   };
 }
 
+// Every installed app with settings gets one entry here, at
+// `/settings/apps/{appCode}`: this is the only place an app's settings are
+// reached from (never the app's own sidebar or pages, see AGENTS.md).
 // Built once so the icon components keep their identity across renders.
 const APP_SETTINGS_ITEMS = [
   { appCode: 'parcel', title: 'Parcel', href: '/settings/apps/parcel' },
+  { appCode: 'weldbooks', title: 'WeldBooks', href: '/settings/apps/weldbooks' },
   { appCode: 'weldcalendar', title: 'WeldCalendar', href: '/settings/apps/weldcalendar' },
+  { appCode: 'weldcommerce', title: 'WeldCommerce', href: '/settings/apps/weldcommerce' },
   { appCode: 'weldcrm', title: 'WeldCRM', href: '/settings/apps/weldcrm' },
   { appCode: 'welddesk', title: 'WeldDesk', href: '/settings/apps/welddesk' },
   { appCode: 'weldflow', title: 'WeldFlow', href: '/settings/apps/weldflow' },
-  { appCode: 'weldmail', title: 'WeldMail', href: '/settings/apps/weldmail' },
-  { appCode: 'weldmerge', title: 'WeldMerge', href: '/settings/apps/weldmerge' },
-  { appCode: 'weldreach', title: 'WeldReach', href: '/settings/apps/weldreach' },
+  { appCode: 'weldforms', title: 'WeldForms', href: '/settings/apps/weldforms' },
   { appCode: 'weldhr', title: 'WeldHR', href: '/settings/apps/weldhr' },
+  { appCode: 'weldmail', title: 'WeldMail', href: '/settings/apps/weldmail' },
+  { appCode: 'weldstash', title: 'WeldStash', href: '/settings/apps/weldstash' },
+  { appCode: 'weldmerge', title: 'WeldMerge', href: '/settings/apps/weldmerge' },
+  { appCode: 'weldpanel', title: 'WeldPanel', href: '/settings/apps/weldpanel' },
+  { appCode: 'weldreach', title: 'WeldReach', href: '/settings/apps/weldreach' },
+  { appCode: 'social', title: 'WeldSocial', href: '/settings/apps/social' },
 ].map(({ appCode, title, href }) => ({ appCode, title, href, icon: makeAppLogoIcon(appCode, title) }));
 
 /**
@@ -84,6 +98,8 @@ function welddeskSettingsSubItems(
     { title: td.assignmentTitle, href: '/settings/apps/welddesk/assignment', icon: Shuffle },
     { title: td.slaPoliciesTitle, href: '/settings/apps/welddesk/sla-policies', icon: Timer },
     { title: td.priorityMatrixTitle, href: '/settings/apps/welddesk/priority-matrix', icon: Grid3x3 },
+    { title: td.serviceCatalogueTitle, href: '/settings/apps/welddesk/service-catalogue', icon: ConciergeBell },
+    { title: th.assets.settingsTitle, href: '/settings/apps/welddesk/asset-register', icon: Laptop },
   ];
 }
 
@@ -106,9 +122,12 @@ export function useSettingsSidebarItems(enabled: boolean) {
   const pathname = usePathname();
   const router = useRouter();
   const { data: apps } = useInstalledApps();
+  const { can } = usePermissions();
+  const canManageAi = can('ai:manage');
 
   const installedAppCodes = React.useMemo(
-    () => new Set((apps ?? []).filter((app) => app.status === 'active').map((app) => app.appCode)),
+    // Canonical codes, so a workspace still on a legacy code (`accounting`, `commerce`) gets its entry.
+    () => new Set((apps ?? []).filter((app) => app.status === 'active').map((app) => resolveAppCode(app.appCode))),
     [apps],
   );
 
@@ -126,7 +145,8 @@ export function useSettingsSidebarItems(enabled: boolean) {
     const appsItems = [
       WELDSUITE_SETTINGS_ITEM,
       ...APP_SETTINGS_ITEMS
-        .filter((item) => installedAppCodes.has(item.appCode))
+        // WeldStash's settings (replenishment) exist on the Kubernetes editions only.
+        .filter((item) => installedAppCodes.has(item.appCode) && (item.appCode !== 'weldstash' || isFeatureAvailable('stash-replenishment')))
         .map(({ appCode, title, href, icon }): MenuItemProps => ({
           title: appCode === 'parcel' ? ts.menu.parcel : title,
           href,
@@ -157,6 +177,8 @@ export function useSettingsSidebarItems(enabled: boolean) {
           { title: ts.menu.teamMembers, href: '/settings/team', icon: Users },
           { title: ts.roles.title, href: '/settings/roles', icon: ShieldCheck },
           { title: ts.menu.sso, href: '/settings/sso', icon: Fingerprint },
+          // Kubernetes editions with AI configured (hidden elsewhere by the edition check below).
+          ...(canManageAi ? [{ title: ts.menu.ai, href: '/settings/ai', icon: Sparkles }] : []),
           { title: ts.menu.plans, href: '/settings/plans', icon: CreditCard },
           { title: ts.menu.billing, href: '/settings/billing', icon: Receipt },
           { title: ts.menu.businessSettings, href: '/settings/business', icon: Building, isActive: pathname === '/settings/business' || pathname === '/settings/general' },
@@ -182,7 +204,7 @@ export function useSettingsSidebarItems(enabled: boolean) {
     // Edition flags (4.F3): only pages this deployment serves (no billing,
     // SSO, integrations, … where the backend lacks them).
     return groups.map((group) => ({ ...group, items: group.items.filter((item) => isRouteOffered(item.href)) }));
-  }, [enabled, ts, t.helpdesk, pathname, installedAppCodes, hasEntityApps]);
+  }, [enabled, ts, t.helpdesk, pathname, installedAppCodes, hasEntityApps, canManageAi]);
 
   const sidebarProps = React.useMemo(
     () => ({ appName: ts.title, showBackButton: true, onBack: handleBack }),

@@ -20,7 +20,7 @@ import { usePathname } from '@/lib/router';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { getTranslations } from '@/lib/i18n';
-import { buildBookingPageUrl } from '@/lib/weldcalendar/booking-portal-url';
+import { buildBookingPageUrl, getBookingPortalUrl } from '@/lib/weldcalendar/booking-portal-url';
 import { DeleteBookingPageDialog } from './delete-booking-page-dialog';
 
 export interface BookingPageSidebarItem {
@@ -46,10 +46,13 @@ export function BookingPagesSidebarSection({ bookingPages, onAdd }: Readonly<Boo
   const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null);
 
   const orgSlug = organization?.slug || organization?.id || '';
+  // No booking portal on this deployment (a Kubernetes edition without one): no link to copy.
+  const hasBookingPortal = getBookingPortalUrl() !== null;
 
   const copyLink = (slug: string) => {
     // The public booking portal link, never the platform origin (which needs a login).
     const url = buildBookingPageUrl(orgSlug, slug);
+    if (!url) return;
     void navigator.clipboard.writeText(url);
     toast.success(t.toast.bookingLinkCopied);
   };
@@ -134,16 +137,18 @@ export function BookingPagesSidebarSection({ bookingPages, onAdd }: Readonly<Boo
               </div>
             </SidebarMenuButton>
             <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover/bp:opacity-100 focus-within:opacity-100 pointer-events-none group-hover/bp:pointer-events-auto focus-within:pointer-events-auto">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 hover:bg-black/[0.05] dark:hover:bg-black/20 rounded-md"
-                aria-label={t.bookingPagesSidebar.copyLinkFor.replace('{name}', bp.name)}
-                title={t.bookingPagesSidebar.copyLink}
-                onClick={(e) => { e.stopPropagation(); copyLink(bp.slug); }}
-              >
-                <Link2 className="h-3.5 w-3.5" />
-              </Button>
+              {hasBookingPortal && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 hover:bg-black/[0.05] dark:hover:bg-black/20 rounded-md"
+                  aria-label={t.bookingPagesSidebar.copyLinkFor.replace('{name}', bp.name)}
+                  title={t.bookingPagesSidebar.copyLink}
+                  onClick={(e) => { e.stopPropagation(); copyLink(bp.slug); }}
+                >
+                  <Link2 className="h-3.5 w-3.5" />
+                </Button>
+              )}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button

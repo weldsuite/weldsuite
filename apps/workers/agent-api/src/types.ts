@@ -27,7 +27,7 @@ export interface Env extends KitEnv {
    *  and WeldChat room runs) beyond the ~30s `waitUntil` budget. Hosted in
    *  this worker (class re-exported from src/index.ts, @weldsuite/agent-domain)
    *  under the `weldagent-job-v2*` names — app-api's old `weldagent-job*`
-   *  names keep draining (docs/plans/app-api-module-split.md). */
+   *  names keep draining (weldsuite-documentation/plans/app-api-module-split.md). */
   WELDAGENT_JOB?: Workflow<WeldAgentJob>;
 
   // --- AI (@weldsuite/ai) — Cloudflare AI Gateway ---------------------------
@@ -88,7 +88,7 @@ export interface Env extends KitEnv {
   /** Migration switch: `resend` sends system email through Resend instead of
    *  the SEND_EMAIL binding (@weldsuite/emails workerTransport). Removed
    *  together with Resend at the end of the migration
-   *  (docs/plans/system-email-cloudflare.md). */
+   *  (weldsuite-documentation/plans/system-email-cloudflare.md). */
   EMAIL_TRANSPORT?: string;
   /** Cloudflare `[[send_email]]` binding — the notification email channel. */
   SEND_EMAIL?: SendEmail;

@@ -46,7 +46,7 @@ Do the same for `@weldsuite/app-sdk` with the **same** org/repo/workflow values.
 
 ### After Trusted Publisher is saved
 
-1. Merge this docs/workflow PR to `develop` (if not already).
+1. Merge this docs/workflow PR to `main` (if not already).
 2. Actions → **Publish Weld CLI** → Run workflow:
    - version: `0.1.0` (or next semver)
    - dist-tag: `latest`
@@ -84,7 +84,7 @@ yet (so you can open package Settings and attach a Trusted Publisher), or for
 rare offline/emergency releases.
 
 ```bash
-git fetch origin develop && git checkout develop && git pull
+git fetch origin main && git checkout main && git pull
 cd packages/sdk/cli   # or packages/sdk/app-sdk
 
 # sanity (from repo root as needed)

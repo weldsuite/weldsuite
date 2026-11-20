@@ -73,7 +73,7 @@ export function Toolbar({ controller, onSortRange, onCreatePivot }: { controller
   const togglePanel = (panel: 'formats' | 'validation') => controller.openPanel(controller.panel === panel ? null : panel);
 
   return (
-    <div className="flex h-10 shrink-0 items-center gap-0.5 overflow-x-auto border-b px-2" role="toolbar" aria-label={t.weldsheets.title}>
+    <div className="flex h-12 shrink-0 items-center gap-0.5 overflow-x-auto border-b px-2" role="toolbar" aria-label={t.weldsheets.title}>
       <IconButton label={tt.undo} onClick={() => controller.undo()} disabled={!controller.canUndo}>
         <Undo2 />
       </IconButton>

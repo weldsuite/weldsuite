@@ -1,0 +1,13 @@
+{
+  "fields": [
+    { "name": "workspace_id", "type": "string", "required": true },
+    { "name": "project_id", "type": "string", "required": true },
+    { "name": "session_id", "type": "string", "required": true },
+    { "name": "seq", "type": "int32", "required": true },
+    { "name": "ts_start", "type": "timestamp", "required": true },
+    { "name": "ts_end", "type": "timestamp", "required": true },
+    { "name": "bytes", "type": "int64", "required": true },
+    { "name": "has_full_snapshot", "type": "bool", "required": true },
+    { "name": "r2_key", "type": "string", "required": true }
+  ]
+}

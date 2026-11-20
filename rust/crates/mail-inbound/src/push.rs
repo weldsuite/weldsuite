@@ -1,6 +1,7 @@
 //! `push-notifications.ts` and `expo-push.ts`: the WeldMail app's "new
 //! email" push to a member's devices through the Expo Push API, with the
-//! inbox badge, and invalid tokens switched off.
+//! inbox badge, and invalid tokens switched off. Its data names the install
+//! it comes from (`server`, `weldsuite_notifications::set_push_server`).
 
 use std::time::Duration;
 
@@ -179,6 +180,11 @@ pub async fn send_new_email_push(
                     json!(utf16_prefix(&email.subject, 120)),
                 );
                 data.insert("preview".to_owned(), json!(utf16_prefix(preview, 160)));
+                // The install the push comes from, which the app checks
+                // before acting on a tap (none on Global).
+                if let Some(server) = weldsuite_notifications::push_server() {
+                    data.insert("server".to_owned(), json!(server));
+                }
                 let mut message = Map::new();
                 message.insert("to".to_owned(), json!(token));
                 message.insert("title".to_owned(), json!(title));

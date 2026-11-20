@@ -9,32 +9,46 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+weldsuite-ai = { workspace = true }
 weldsuite-auth = { workspace = true }
 weldsuite-catalogs = { workspace = true }
+weldsuite-core-domain = { workspace = true }
+weldsuite-chat-domain = { workspace = true }
 weldsuite-db = { workspace = true }
+weldsuite-emails = { workspace = true }
 weldsuite-events = { workspace = true }
 weldsuite-kit = { workspace = true }
+weldsuite-notifications = { workspace = true }
+weldsuite-panel-domain = { workspace = true }
 weldsuite-permissions = { workspace = true }
 weldsuite-ports = { workspace = true }
+weldsuite-zod = { workspace = true }
 axum = { workspace = true, features = ["json", "query"] }
 bytes = { workspace = true }
+flate2 = { workspace = true }
 futures-util = { workspace = true }
 getrandom = { workspace = true }
+hmac = { workspace = true }
 hex = { workspace = true }
 http = { workspace = true }
 http-body-util = { workspace = true }
+jiff = { workspace = true }
 regex = { workspace = true }
 serde = { workspace = true }
-serde_json = { workspace = true }
+serde_json = { workspace = true, features = ["raw_value"] }
 sha2 = { workspace = true }
 sqlx = { workspace = true }
 time = { workspace = true, features = ["formatting", "parsing", "macros"] }
 tokio = { workspace = true, features = ["time"] }
+tower = { workspace = true, features = ["util"] }
 tracing = { workspace = true }
 url = { workspace = true }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+# The cert-manager adapter's tests run a fake Kubernetes API on a local port.
+axum = { workspace = true, features = ["http1", "json", "query", "tokio"] }
+reqwest = { workspace = true }
+tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "sync"] }
 
 [lints]
 workspace = true

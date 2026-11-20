@@ -3,7 +3,7 @@
  * fake of the D1 schedule index.
  *
  * The schedule index is keyed by the Clerk org id until phase 3 of the
- * workspace-id plan (docs/plans/workspace-id-standardization.md), so a request
+ * workspace-id plan (weldsuite-documentation/plans/workspace-id-standardization.md), so a request
  * whose `workspaces.id` differs from its org id must still index the org id.
  */
 

@@ -245,6 +245,13 @@ export const openDeskConversationSchema = z.object({
   priority: z.enum(DESK_PRIORITIES).optional(),
   tags: z.array(z.string().trim().min(1).max(DESK_MAX_TAG_LENGTH)).max(DESK_MAX_TAGS).optional(),
   departmentId: z.string().max(30).optional().describe('The team'),
+  // ITIL impact and urgency (ADR DESK-012). With the workspace's priority
+  // matrix on, the pair sets the priority, unless `priority` is sent too.
+  impact: z
+    .enum(DESK_IMPACTS)
+    .optional()
+    .describe('How much is affected: low, medium or high. With the priority matrix on, impact and urgency set the priority'),
+  urgency: z.enum(DESK_URGENCIES).optional().describe('How soon it needs fixing: low, medium or high'),
 });
 
 /**
@@ -266,6 +273,8 @@ export const updateDeskConversationSchema = z
     tags: z.array(z.string().trim().min(1).max(DESK_MAX_TAG_LENGTH)).max(DESK_MAX_TAGS).optional(),
     departmentId: z.string().max(30).nullable().optional(),
     customFields: z.record(z.string().max(100), z.unknown()).optional(),
+    impact: z.enum(DESK_IMPACTS).nullable().optional().describe('low, medium or high; null clears'),
+    urgency: z.enum(DESK_URGENCIES).nullable().optional().describe('low, medium or high; null clears'),
   })
   .refine((data) => Object.values(data).some((value) => value !== undefined), {
     message: 'Give a state, an assignee or a ticket field to change',

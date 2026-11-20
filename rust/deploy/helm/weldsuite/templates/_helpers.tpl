@@ -48,11 +48,17 @@ app.kubernetes.io/component: api
 {{/*
 The environment of every container that runs the binary: the server, the
 cron jobs and the migration Job read the same settings
-(rust/bins/weldsuite/src/config.rs).
+(rust/bins/weldsuite/src/config.rs). Without the bundled dependencies'
+settings, which weldsuite.env adds.
 */}}
-{{- define "weldsuite.env" -}}
+{{- define "weldsuite.envBase" -}}
 - name: PORT
   value: "8080"
+{{- /* What /version reports: the chart release and the image it installs. */}}
+- name: WELDSUITE_RELEASE
+  value: {{ .Chart.Version | quote }}
+- name: WELDSUITE_BUILD
+  value: {{ .Values.image.tag | default .Chart.AppVersion | quote }}
 - name: ENVIRONMENT
   value: {{ .Values.config.environment | quote }}
 - name: LOG_FORMAT
@@ -122,6 +128,36 @@ cron jobs and the migration Job read the same settings
 - name: OIDC_WEB_CLIENT_ID
   value: {{ . | toString | quote }}
 {{- end }}
+{{- with .oidc.mobileClientId }}
+- name: OIDC_MOBILE_CLIENT_ID
+  value: {{ . | toString | quote }}
+{{- end }}
+{{- with .oidc.desktopClientId }}
+- name: OIDC_DESKTOP_CLIENT_ID
+  value: {{ . | toString | quote }}
+{{- end }}
+{{- $weldid := eq ($.Values.config.identity.provider | default "") "weldid" }}
+{{- with .oidc.signIn }}
+{{- if and (eq . "platform") $weldid }}
+{{- fail "config.auth.oidc.signIn platform is Zitadel's login API; WeldID (config.identity.provider weldid) shows its own sign-in screens" }}
+{{- end }}
+{{- if and (eq . "platform") (not $.Values.config.identity.zitadel.apiUrl) }}
+{{- fail "config.auth.oidc.signIn platform needs config.identity.zitadel.apiUrl" }}
+{{- end }}
+- name: OIDC_SIGN_IN
+  value: {{ . | quote }}
+{{- end }}
+{{- $source := .oidc.workspaceSource | default (ternary "header" "" $weldid) }}
+{{- if $source }}
+{{- if not (has $source (list "claim" "header")) }}
+{{- fail "config.auth.oidc.workspaceSource must be claim or header" }}
+{{- end }}
+{{- if and $weldid (eq $source "claim") }}
+{{- fail "config.identity.provider weldid needs config.auth.oidc.workspaceSource header: WeldID's tokens name no workspace" }}
+{{- end }}
+- name: OIDC_WORKSPACE_SOURCE
+  value: {{ $source | quote }}
+{{- end }}
 {{- else if ne .provider "clerk" }}
 {{- fail "config.auth.provider must be clerk or oidc" }}
 {{- end }}
@@ -153,9 +189,9 @@ cron jobs and the migration Job read the same settings
 - name: NATS_ENTITY_EVENTS_SUBJECT
   value: {{ .Values.config.nats.entityEventsSubject | quote }}
 - name: NATS_ENSURE_STREAMS
-  value: {{ .Values.config.nats.ensureStreams | toString | quote }}
+  value: {{ or .Values.config.nats.ensureStreams .Values.bundle.nats | toString | quote }}
 {{- with .Values.config.files }}
-{{- if .endpoint }}
+{{- if and .endpoint (not $.Values.bundle.objectStorage) }}
 - name: S3_ENDPOINT
   value: {{ .endpoint | quote }}
 - name: S3_REGION
@@ -165,20 +201,44 @@ cron jobs and the migration Job read the same settings
 {{- if .publicBucket }}
 - name: S3_BUCKET_PUBLIC
   value: {{ .publicBucket | quote }}
+{{- if not .publicUrl }}
+{{- /* A public bucket with no public endpoint of its own: this server serves it, as it does the bundled store's. */}}
+- name: S3_PUBLIC_VIA_SERVER
+  value: "true"
+{{- end }}
 {{- end }}
 - name: S3_FORCE_PATH_STYLE
   value: {{ .forcePathStyle | toString | quote }}
 {{- end }}
 {{- end }}
+{{- with include "weldsuite.files.publicUrl" . }}
+{{- /* R2_PUBLIC_URL is the workers' name for it, which the modules read (chat attachments, inbound mail, …). */}}
+- name: S3_PUBLIC_URL
+  value: {{ . | quote }}
+- name: R2_PUBLIC_URL
+  value: {{ . | quote }}
+{{- end }}
+{{- if and .Values.config.panel.bucket (not .Values.bundle.objectStorage) }}
+{{- if not .Values.config.files.endpoint }}
+{{- fail "config.panel.bucket needs config.files.endpoint: the panel bucket is on the same object store" }}
+{{- end }}
+- name: S3_BUCKET_PANEL
+  value: {{ .Values.config.panel.bucket | quote }}
+{{- end }}
+- name: NATS_PANEL_EVENTS_MAX_AGE_DAYS
+  value: {{ .Values.config.panel.eventsMaxAgeDays | quote }}
+{{- include "weldsuite.panelDomainsEnv" . }}
 {{- with .Values.config.jobs }}
-{{- if .restate.ingressUrl }}
+{{- $ingressUrl := include "weldsuite.restate.ingressUrl" $ }}
+{{- $adminUrl := include "weldsuite.restate.adminUrl" $ }}
+{{- if $ingressUrl }}
 - name: RESTATE_INGRESS_URL
-  value: {{ .restate.ingressUrl | quote }}
+  value: {{ $ingressUrl | quote }}
 - name: JOBS_PORT
   value: {{ .port | quote }}
-{{- if .restate.adminUrl }}
+{{- if $adminUrl }}
 - name: RESTATE_ADMIN_URL
-  value: {{ .restate.adminUrl | quote }}
+  value: {{ $adminUrl | quote }}
 - name: RESTATE_DEPLOYMENT_URI
   value: {{ printf "http://%s-jobs.%s.svc:%v" (include "weldsuite.fullname" $) $.Release.Namespace .port | quote }}
 {{- end }}
@@ -192,6 +252,10 @@ cron jobs and the migration Job read the same settings
 - name: SYSTEM_EMAIL_FROM
   value: {{ . | quote }}
 {{- end }}
+{{- with .Values.config.mail.freeAddressDomain }}
+- name: WELDMAIL_DOMAIN
+  value: {{ . | quote }}
+{{- end }}
 {{- if .Values.clerkJwks.enabled }}
 - name: CLERK_JWKS_FILE
   value: /etc/weldsuite/clerk/jwks.json
@@ -200,12 +264,82 @@ cron jobs and the migration Job read the same settings
 - name: PROJECT_PORTAL_URL
   value: {{ . | quote }}
 {{- end }}
+{{- with (.Values.config.credits | default dict).mollie }}
+{{- with .webhookUrl }}
+- name: MOLLIE_WEBHOOK_URL
+  value: {{ . | quote }}
+{{- end }}
+{{- with .redirectUrl }}
+- name: MOLLIE_REDIRECT_URL
+  value: {{ . | quote }}
+{{- end }}
+{{- end }}
+{{- with (.Values.config.billing | default dict) }}
+{{- if eq (.provider | default "") "mollie" }}
+- name: BILLING_PROVIDER
+  value: "mollie"
+{{- with .issuerWorkspaceId }}
+- name: BILLING_ISSUER_WORKSPACE_ID
+  value: {{ . | quote }}
+{{- end }}
+{{- with .issuerEntityId }}
+- name: BILLING_ISSUER_ENTITY_ID
+  value: {{ . | quote }}
+{{- end }}
+{{- with .sellerCountry }}
+- name: BILLING_SELLER_COUNTRY
+  value: {{ . | quote }}
+{{- end }}
+{{- with .graceDays }}
+- name: BILLING_GRACE_DAYS
+  value: {{ . | quote }}
+{{- end }}
+{{- with .returnUrl }}
+- name: BILLING_RETURN_URL
+  value: {{ . | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
 {{- with .Values.config.sign.portalUrl }}
 - name: SIGN_PORTAL_URL
   value: {{ . | quote }}
 {{- end }}
+{{- with .Values.config.forms.portalUrl }}
+- name: FORMS_PORTAL_URL
+  value: {{ . | quote }}
+{{- end }}
+{{- with .Values.config.forms.botCheckProvider }}
+- name: BOT_CHECK_PROVIDER
+  value: {{ . | quote }}
+{{- end }}
+{{- with .Values.config.forms.turnstileSiteKey }}
+- name: TURNSTILE_SITE_KEY
+  value: {{ . | quote }}
+{{- end }}
+{{- with .Values.config.identity }}
+{{- $provider := .provider | default "" }}
+{{- if eq $provider "weldid" }}
+{{- if ne $.Values.config.auth.provider "oidc" }}
+{{- fail "config.identity.provider weldid needs config.auth.provider oidc, with WeldID's issuer" }}
+{{- end }}
+- name: IDENTITY_PROVIDER
+  value: "weldid"
+- name: WELDID_ADMIN_URL
+  value: {{ required "config.identity.weldid.adminUrl is required with config.identity.provider weldid" .weldid.adminUrl | quote }}
+- name: WELDID_CLIENT_ID
+  value: {{ required "config.identity.weldid.clientId is required with config.identity.provider weldid" .weldid.clientId | toString | quote }}
+{{- else if eq $provider "zitadel" }}
+{{- if not .zitadel.apiUrl }}
+{{- fail "config.identity.provider zitadel needs config.identity.zitadel.apiUrl" }}
+{{- end }}
+- name: IDENTITY_PROVIDER
+  value: "zitadel"
+{{- else if $provider }}
+{{- fail "config.identity.provider must be zitadel or weldid" }}
+{{- end }}
+{{- end }}
 {{- with .Values.config.identity.zitadel }}
-{{- if .apiUrl }}
+{{- if and .apiUrl (ne ($.Values.config.identity.provider | default "") "weldid") }}
 - name: ZITADEL_API_URL
   value: {{ .apiUrl | quote }}
 - name: ZITADEL_PROJECT_ID
@@ -226,8 +360,260 @@ cron jobs and the migration Job read the same settings
 {{- end }}
 - name: FIELD_ENCRYPTION_AAD_WRITES
   value: {{ .Values.config.aadWrites | toString | quote }}
+{{- include "weldsuite.aiEnv" . }}
+{{- include "weldsuite.sandboxEnv" . }}
+{{- include "weldsuite.publicUrlEnv" . }}
 {{- with .Values.config.extraEnv }}
 {{- toYaml . | nindent 0 }}
+{{- end }}
+{{- end }}
+
+{{- /*
+The environment of the server, the consume role and the cron jobs:
+weldsuite.envBase plus the bundled dependencies' settings (weldsuite.bundleEnv),
+which read the generated Secret. The migration hook Job takes envBase alone:
+it runs before that Secret (or a key a newly enabled bundle adds to it)
+exists, and needs only the databases.
+*/}}
+{{- define "weldsuite.env" -}}
+{{- include "weldsuite.envBase" . }}
+{{- include "weldsuite.bundleEnv" . }}
+{{- end }}
+
+{{- /*
+config.ai as the AI_* settings (weldsuite_ai::config, ADR AI-012). The keys
+come from the Secret. Only what is set is written, so the server's defaults
+apply otherwise; it checks the combination at start.
+*/}}
+{{- define "weldsuite.aiEnv" -}}
+{{- with .Values.config.ai }}
+{{- with .defaultProvider }}
+{{- if not (has . (list "mistral" "compat")) }}
+{{- fail "config.ai.defaultProvider must be mistral, compat or empty (anthropic and openai are workspace opt-ins: config.ai.optIn)" }}
+{{- end }}
+- name: AI_DEFAULT_PROVIDER
+  value: {{ . | quote }}
+{{- end }}
+{{- with (.mistral | default dict).baseUrl }}
+- name: AI_MISTRAL_BASE_URL
+  value: {{ . | quote }}
+{{- end }}
+{{- with (.anthropic | default dict).baseUrl }}
+- name: AI_ANTHROPIC_BASE_URL
+  value: {{ . | quote }}
+{{- end }}
+{{- with (.openai | default dict).baseUrl }}
+- name: AI_OPENAI_BASE_URL
+  value: {{ . | quote }}
+{{- end }}
+{{- range $provider, $sources := (.optIn | default dict) }}
+{{- $list := list }}
+{{- if $sources.weldsuiteKey }}{{- $list = append $list "weldsuite" }}{{- end }}
+{{- if $sources.ownKey }}{{- $list = append $list "own" }}{{- end }}
+{{- if not (has $provider (list "anthropic" "openai")) }}
+{{- fail (printf "config.ai.optIn.%s: only anthropic and openai are opt-in providers" $provider) }}
+{{- end }}
+{{- if $list }}
+- name: {{ printf "AI_OPTIN_%s" (upper $provider) }}
+  value: {{ join "," $list | quote }}
+{{- end }}
+{{- end }}
+{{- with .openaiCompatible }}
+{{- if .baseUrl }}
+- name: AI_COMPAT_BASE_URL
+  value: {{ .baseUrl | quote }}
+- name: AI_COMPAT_MODEL
+  value: {{ required "config.ai.openaiCompatible.model is required with config.ai.openaiCompatible.baseUrl" .model | quote }}
+{{- with .region }}
+{{- if not (has . (list "eu" "outside-eu")) }}
+{{- fail "config.ai.openaiCompatible.region must be eu or outside-eu" }}
+{{- end }}
+- name: AI_COMPAT_REGION
+  value: {{ . | quote }}
+{{- end }}
+{{- with .embedModel }}
+- name: AI_COMPAT_EMBED_MODEL
+  value: {{ . | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- with .fallbackModel }}
+- name: AI_FALLBACK_MODEL
+  value: {{ . | quote }}
+{{- end }}
+- name: AI_CREDIT_GATE
+  value: {{ .creditGate | default false | toString | quote }}
+{{- with .billing }}
+{{- if not (has . (list "credits" "display")) }}
+{{- fail "config.ai.billing must be credits or display" }}
+{{- end }}
+- name: AI_BILLING
+  value: {{ . | quote }}
+{{- end }}
+{{- with .workspaceConcurrency }}
+- name: AI_WORKSPACE_CONCURRENCY
+  value: {{ . | toString | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{- /*
+sandbox and searxng as the SANDBOX_* settings and SEARXNG_URL
+(weldsuite_sandbox::config, ADR AI-012 phase 5). SANDBOX_TOKEN_SECRET comes
+from the Secret (generated with secret.generate).
+*/}}
+{{- define "weldsuite.sandboxEnv" -}}
+{{- with .Values.sandbox }}
+{{- if .enabled }}
+- name: SANDBOX_ENABLED
+  value: "true"
+- name: SANDBOX_NAMESPACE
+  value: {{ .namespace | quote }}
+- name: SANDBOX_IMAGE
+  value: {{ include "weldsuite.sandbox.image" $ | quote }}
+{{- with .imagePullSecret }}
+- name: SANDBOX_IMAGE_PULL_SECRET
+  value: {{ . | quote }}
+{{- end }}
+- name: SANDBOX_RUNTIME_CLASS
+  value: {{ .runtimeClass.name | default "none" | quote }}
+- name: SANDBOX_CPU
+  value: {{ .resources.cpu | toString | quote }}
+- name: SANDBOX_CPU_REQUEST
+  value: {{ .resources.cpuRequest | toString | quote }}
+- name: SANDBOX_MEMORY
+  value: {{ .resources.memory | toString | quote }}
+- name: SANDBOX_DISK
+  value: {{ .resources.disk | toString | quote }}
+- name: SANDBOX_IDLE_TIMEOUT_SECONDS
+  value: {{ .idleTimeoutSeconds | toString | quote }}
+- name: SANDBOX_MAX_LIFETIME_SECONDS
+  value: {{ .maxLifetimeSeconds | toString | quote }}
+- name: SANDBOX_MAX_PER_WORKSPACE
+  value: {{ .maxPerWorkspace | toString | quote }}
+- name: SANDBOX_MAX_TOTAL
+  value: {{ .maxTotal | toString | quote }}
+- name: SANDBOX_DNS
+  value: {{ join "," .dns | quote }}
+{{- with .egressProbes }}
+- name: SANDBOX_EGRESS_PROBES
+  value: {{ join "," . | quote }}
+{{- end }}
+{{- with .nodeSelector }}
+- name: SANDBOX_NODE_SELECTOR
+  value: {{ toJson . | quote }}
+{{- end }}
+{{- with .tolerations }}
+- name: SANDBOX_TOLERATIONS
+  value: {{ toJson . | quote }}
+{{- end }}
+- name: SANDBOX_REQUIRE_ISOLATION
+  value: {{ .requireIsolation | toString | quote }}
+{{- if $.Values.searxng.enabled }}
+- name: SEARXNG_URL
+  value: {{ printf "http://%s.%s.svc:8080" (include "weldsuite.searxng.fullname" $) $.Release.Namespace | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{- /*
+WeldPanel's custom collector domains (ADR PANEL-014): "true" when
+config.panel.customDomains is enabled and names its collector host; without
+either the server has no provider and the domain routes answer 503.
+*/}}
+{{- define "weldsuite.panelDomains.enabled" -}}
+{{- with .Values.config.panel.customDomains }}
+{{- if and .enabled .collectorHost }}true{{ end }}
+{{- end }}
+{{- end }}
+
+{{- /*
+config.panel.customDomains as the PANEL_CUSTOM_DOMAINS and PANEL_DOMAINS_*
+settings (weldsuite_panel::CertManagerSettings): the server's namespace and
+Service, which the Ingresses it creates route to, the issuer and the class.
+*/}}
+{{- define "weldsuite.panelDomainsEnv" -}}
+{{- if eq (include "weldsuite.panelDomains.enabled" .) "true" }}
+{{- with .Values.config.panel.customDomains }}
+- name: PANEL_CUSTOM_DOMAINS
+  value: "cert-manager"
+- name: PANEL_COLLECTOR_HOST
+  value: {{ .collectorHost | quote }}
+- name: PANEL_DOMAINS_NAMESPACE
+  value: {{ $.Release.Namespace | quote }}
+- name: PANEL_DOMAINS_SERVICE
+  value: {{ include "weldsuite.fullname" $ | quote }}
+- name: PANEL_DOMAINS_SERVICE_PORT
+  value: "http"
+{{- with (.ingressClassName | default $.Values.ingress.className) }}
+- name: PANEL_DOMAINS_INGRESS_CLASS
+  value: {{ . | quote }}
+{{- end }}
+- name: PANEL_DOMAINS_ISSUER
+  value: {{ .issuerRef.name | quote }}
+- name: PANEL_DOMAINS_ISSUER_KIND
+  value: {{ .issuerRef.kind | quote }}
+{{- with .dnsResolver }}
+- name: PANEL_DNS_RESOLVER
+  value: {{ . | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{- /*
+A CEL condition: every label in .labels is on .object's metadata (default
+variables.target), for the panel domains' admission policy.
+*/}}
+{{- define "weldsuite.panelDomains.labelCheck" -}}
+{{- $object := .object | default "variables.target" }}
+{{- $checks := list }}
+{{- range $key, $value := .labels }}
+{{- $checks = append $checks (printf "'%s' in %s.metadata.labels && %s.metadata.labels['%s'] == '%s'" $key $object $object $key $value) }}
+{{- end }}
+{{- join " && " $checks }}
+{{- end }}
+
+{{- /* The sandbox pods' image; the admission policy admits only it. */}}
+{{- define "weldsuite.sandbox.image" -}}
+{{- printf "%s:%s" .Values.sandbox.image.repository (.Values.sandbox.image.tag | default .Chart.AppVersion) }}
+{{- end }}
+
+{{- define "weldsuite.searxng.fullname" -}}
+{{- printf "%s-searxng" (include "weldsuite.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "weldsuite.searxng.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "weldsuite.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: searxng
+{{- end }}
+
+{{- /*
+config.publicUrl as PUBLIC_URL, and every URL setting that names the
+install's own host (the platform, /api, /v1, the webhooks and the WeldPanel
+collector are all served there) set to it, unless extraEnv names the setting:
+extraEnv wins, without a duplicate entry in the container's env.
+*/}}
+{{- define "weldsuite.publicUrlEnv" -}}
+{{- with .Values.config.publicUrl }}
+{{- if not (regexMatch "^https?://[^/?#]+/?$" .) }}
+{{- fail (printf "config.publicUrl must be an origin such as https://weldsuite.example.com, got %q" .) }}
+{{- end }}
+{{- $url := trimSuffix "/" . }}
+{{- $named := dict }}
+{{- range $.Values.config.extraEnv }}
+{{- $_ := set $named (toString .name) true }}
+{{- end }}
+- name: PUBLIC_URL
+  value: {{ $url | quote }}
+{{- range list "PUBLIC_APP_URL" "APP_URL" "PLATFORM_URL" "APP_API_PUBLIC_URL" "PUBLIC_API_URL" "CONNECT_API_URL" "CONNECTOR_WEBHOOK_BASE_URL" "WEBHOOK_BASE_URL" "PANEL_COLLECTOR_URL" }}
+{{- if not (hasKey $named .) }}
+- name: {{ . }}
+  value: {{ $url | quote }}
+{{- end }}
+{{- end }}
 {{- end }}
 {{- end }}
 
@@ -274,6 +660,24 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 app.kubernetes.io/part-of: weldsuite
 {{- end }}
 
+{{- define "weldsuite.formsPortal.fullname" -}}
+{{- printf "%s-forms-portal" (include "weldsuite.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "weldsuite.formsPortal.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "weldsuite.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: forms-portal
+{{- end }}
+
+{{- define "weldsuite.formsPortal.labels" -}}
+helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" }}
+{{ include "weldsuite.formsPortal.selectorLabels" . }}
+app.kubernetes.io/version: {{ .Values.formsPortal.image.tag | default .Chart.AppVersion | quote }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+app.kubernetes.io/part-of: weldsuite
+{{- end }}
+
 {{- define "weldsuite.admin.fullname" -}}
 {{- printf "%s-admin" (include "weldsuite.fullname" .) | trunc 63 | trimSuffix "-" }}
 {{- end }}
@@ -295,6 +699,253 @@ app.kubernetes.io/part-of: weldsuite
 {{- /* Where the admin console reaches the server (its outbound-mail API): the server's Service. */ -}}
 {{- define "weldsuite.admin.serverUrl" -}}
 {{- printf "http://%s.%s.svc:%v" (include "weldsuite.fullname" .) .Release.Namespace .Values.service.port }}
+{{- end }}
+
+{{- define "weldsuite.objectStorage.fullname" -}}
+{{- printf "%s-s3" (include "weldsuite.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "weldsuite.objectStorage.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "weldsuite.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: object-storage
+{{- end }}
+
+{{- define "weldsuite.objectStorage.labels" -}}
+helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" }}
+{{ include "weldsuite.objectStorage.selectorLabels" . }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+app.kubernetes.io/part-of: weldsuite
+{{- end }}
+
+{{- /* Restate's URLs: config.jobs.restate's, else the bundled Restate's. */}}
+{{- define "weldsuite.restate.ingressUrl" -}}
+{{- if .Values.config.jobs.restate.ingressUrl }}
+{{- .Values.config.jobs.restate.ingressUrl }}
+{{- else if .Values.bundle.restate }}
+{{- printf "http://%s:8080" (include "weldsuite.restate.host" .) }}
+{{- end }}
+{{- end }}
+
+{{- /* The bundled Restate's Service: its chart names it after nameOverride
+(restate-helm's own default), without the release name. */}}
+{{- define "weldsuite.restate.host" -}}
+{{- default "restate" .Values.restate.nameOverride | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "weldsuite.restate.adminUrl" -}}
+{{- if .Values.config.jobs.restate.adminUrl }}
+{{- .Values.config.jobs.restate.adminUrl }}
+{{- else if .Values.bundle.restate }}
+{{- printf "http://%s:9070" (include "weldsuite.restate.host" .) }}
+{{- end }}
+{{- end }}
+
+{{- /*
+The settings of the bundled dependencies (bundle in values.yaml), from the
+generated Secret. Explicit env entries, so they win over the same keys in the
+release's Secret.
+*/}}
+{{- define "weldsuite.bundleEnv" -}}
+{{- $bundle := .Values.bundle }}
+{{- if and (or $bundle.valkey $bundle.nats $bundle.objectStorage) (not .Values.secret.generate) }}
+{{- fail "bundle.valkey, bundle.nats and bundle.objectStorage take their credentials from the generated Secret: set secret.generate" }}
+{{- end }}
+{{- $secret := .Values.secret.generatedName }}
+{{- if $bundle.postgres }}
+{{- $cluster := include "weldsuite.postgres.fullname" . }}
+{{- include "weldsuite.masterDatabaseEnv" . }}
+- name: POSTGRES_TENANT_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ $cluster }}-tenant
+      key: password
+{{- /* One shard, the same cluster; workspaces reach its primary directly. */}}
+- name: TENANT_SHARDS
+  value: {{ printf `[{"name":"%s","adminUrl":"postgres://tenant:$(POSTGRES_TENANT_PASSWORD)@%s-rw:5432/postgres?sslmode=require","poolerHost":"%s-rw"}]` $cluster $cluster $cluster | quote }}
+{{- end }}
+{{- if $bundle.valkey }}
+- name: VALKEY_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ $secret }}
+      key: VALKEY_PASSWORD
+- name: VALKEY_URL
+  value: {{ printf "redis://default:$(VALKEY_PASSWORD)@%s:6379" (include "weldsuite.subchartHost" (list . "valkey")) | quote }}
+{{- end }}
+{{- if $bundle.nats }}
+- name: NATS_TOKEN
+  valueFrom:
+    secretKeyRef:
+      name: {{ $secret }}
+      key: NATS_TOKEN
+- name: NATS_URL
+  value: {{ printf "nats://%s:4222" (include "weldsuite.subchartHost" (list . "nats")) | quote }}
+{{- end }}
+{{- if $bundle.objectStorage }}
+- name: S3_ENDPOINT
+  value: {{ printf "http://%s:9000" (include "weldsuite.objectStorage.fullname" .) | quote }}
+- name: S3_REGION
+  value: "us-east-1"
+- name: S3_BUCKET_PRIVATE
+  value: {{ .Values.objectStorage.buckets.private | quote }}
+- name: S3_BUCKET_PUBLIC
+  value: {{ .Values.objectStorage.buckets.public | quote }}
+{{- with .Values.objectStorage.buckets.panel }}
+- name: S3_BUCKET_PANEL
+  value: {{ . | quote }}
+{{- end }}
+- name: S3_FORCE_PATH_STYLE
+  value: "true"
+- name: S3_ACCESS_KEY_ID
+  valueFrom:
+    secretKeyRef:
+      name: {{ $secret }}
+      key: S3_ACCESS_KEY_ID
+- name: S3_SECRET_ACCESS_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ $secret }}
+      key: S3_SECRET_ACCESS_KEY
+- name: S3_ENSURE_BUCKETS
+  value: "true"
+{{- if not .Values.config.files.publicUrl }}
+{{- /* No public endpoint of its own: this server serves the public bucket (S3_PUBLIC_URL: weldsuite.files.publicUrl). */}}
+- name: S3_PUBLIC_VIA_SERVER
+  value: "true"
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{- /*
+Where browsers read public objects (avatars, product images, chat
+attachments): config.files.publicUrl; else, when this server serves the
+public bucket itself (the bundled store, or a publicBucket on an endpoint
+without a public URL of its own), <config.publicUrl>/api/storage/public.
+Empty without a public bucket.
+*/}}
+{{- define "weldsuite.files.publicUrl" -}}
+{{- $files := .Values.config.files }}
+{{- if $files.publicUrl }}
+{{- trimSuffix "/" $files.publicUrl }}
+{{- else if and .Values.config.publicUrl (or .Values.bundle.objectStorage (and $files.endpoint $files.publicBucket)) }}
+{{- printf "%s/api/storage/public" (trimSuffix "/" .Values.config.publicUrl) }}
+{{- end }}
+{{- end }}
+
+{{- /*
+A bundled subchart's Service name: its chart's usual fullname (the release
+name, or <release>-<name> when the release name doesn't contain it).
+Called with (list $ "valkey").
+*/}}
+{{- define "weldsuite.subchartHost" -}}
+{{- $root := index . 0 }}
+{{- $name := index . 1 }}
+{{- if contains $name $root.Release.Name }}
+{{- $root.Release.Name | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- printf "%s-%s" $root.Release.Name $name | trunc 63 | trimSuffix "-" }}
+{{- end }}
+{{- end }}
+
+{{- /* The keys the generated Secret makes (secret-generated.yaml), as JSON. */}}
+{{- define "weldsuite.generatedHexKeys" -}}
+{{- toJson (list "DATABASE_ENCRYPTION_KEY" "DATABASE_ENCRYPTION_KEY_V2" "WELDPASS_ROOT_KEY" "WELDREACH_WARMUP_KEY" "ADMIN_SESSION_SECRET" "AI_KEYS_ENCRYPTION_KEY") }}
+{{- end }}
+
+{{- define "weldsuite.generatedSecretKeys" -}}
+{{- toJson (list "SIGN_SESSION_SECRET" "SIGN_PORTAL_SECRET" "STORAGE_SIGNING_KEY" "REALTIME_INTERNAL_SECRET" "WIDGET_TOKEN_SECRET" "COLLAB_ROOMS_SECRET" "INTERNAL_API_SECRET" "MAIL_INBOUND_SECRET" "OUTBOUND_ADMIN_SECRET" "SANDBOX_TOKEN_SECRET" "BILLING_PAY_LINK_KEY") }}
+{{- end }}
+
+{{- /*
+A secretKeyRef for one key, for the pods that take single keys rather than
+the whole environment (the sign portal, the admin console, collab-rooms). It
+names the Secret the server's value comes from, as weldsuite.envFrom orders
+them: the release's Secret when it has the key (secret.values, or the
+existing Secret as lookup sees it), else the generated one for a key it
+makes. Called with (dict "root" $ "key" "NAME" "optional" true).
+*/}}
+{{- define "weldsuite.secretKeyRef" -}}
+{{- $root := .root }}
+{{- $key := .key }}
+{{- $name := include "weldsuite.secretName" $root }}
+{{- $made := concat (include "weldsuite.generatedHexKeys" $root | fromJsonArray) (include "weldsuite.generatedSecretKeys" $root | fromJsonArray) }}
+{{- if and $root.Values.secret.generate (has $key $made) }}
+{{- if hasKey ($root.Values.secret.values | default dict) $key }}
+{{- else if $root.Values.secret.existingSecret }}
+{{- $existing := lookup "v1" "Secret" $root.Release.Namespace $root.Values.secret.existingSecret }}
+{{- if not (and $existing $existing.data (hasKey $existing.data $key)) }}
+{{- $name = $root.Values.secret.generatedName }}
+{{- end }}
+{{- else }}
+{{- $name = $root.Values.secret.generatedName }}
+{{- end }}
+{{- end }}
+secretKeyRef:
+  name: {{ $name }}
+  key: {{ $key }}
+  {{- if .optional }}
+  optional: true
+  {{- end }}
+{{- end }}
+
+{{- /*
+Every pod that runs the binary loads the generated Secret (when there is
+one) before the release's own, so a key set in the latter wins.
+*/}}
+{{- define "weldsuite.envFrom" -}}
+{{- if .Values.secret.generate }}
+- secretRef:
+    name: {{ .Values.secret.generatedName }}
+    optional: true
+{{- end }}
+{{- if include "weldsuite.hasSecret" . }}
+- secretRef:
+    name: {{ include "weldsuite.secretName" . }}
+{{- end }}
+{{- end }}
+
+{{- /* Whether the release has a Secret of its own (existing or chart-made). */}}
+{{- define "weldsuite.hasSecret" -}}
+{{- if or .Values.secret.existingSecret .Values.secret.values }}true{{ end }}
+{{- end }}
+
+{{- /*
+Whether the migrations run in an init container of the server's pods
+instead of the pre-install/pre-upgrade hook Job: with the bundled Postgres,
+which doesn't exist yet when the hooks run. Each pod migrates before it
+serves; migrate's advisory lock lets one run at a time.
+*/}}
+{{- define "weldsuite.migrateInPod" -}}
+{{- if and .Values.migrations.enabled .Values.bundle.postgres }}true{{ end }}
+{{- end }}
+
+{{- /*
+DATABASE_URL_MASTER for any pod that opens the master database (the
+server's environment, the admin console, collab-rooms): the bundled
+Postgres's, from its owner password, else the release's Secret's key.
+*/}}
+{{- define "weldsuite.masterDatabaseEnv" -}}
+{{- if .Values.bundle.postgres }}
+{{- $cluster := include "weldsuite.postgres.fullname" . }}
+- name: POSTGRES_OWNER_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ $cluster }}-owner
+      key: password
+- name: DATABASE_URL_MASTER
+  value: {{ printf "postgres://weldsuite:$(POSTGRES_OWNER_PASSWORD)@%s-rw:5432/weldsuite_master?sslmode=require" $cluster | quote }}
+{{- else }}
+- name: DATABASE_URL_MASTER
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "weldsuite.secretName" . }}
+      key: DATABASE_URL_MASTER
+{{- end }}
+{{- end }}
+
+{{- define "weldsuite.postgres.fullname" -}}
+{{- printf "%s-pg" (include "weldsuite.fullname" .) | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{- define "weldsuite.collabRooms.fullname" -}}
@@ -330,6 +981,10 @@ app.kubernetes.io/part-of: weldsuite
 {{- default (printf "http://%s.%s.svc:%v" (include "weldsuite.fullname" .) .Release.Namespace .Values.service.port) .Values.signPortal.backendUrl }}
 {{- end }}
 
+{{- define "weldsuite.formsPortal.backendUrl" -}}
+{{- default (printf "http://%s.%s.svc:%v" (include "weldsuite.fullname" .) .Release.Namespace .Values.service.port) .Values.formsPortal.backendUrl }}
+{{- end }}
+
 {{/*
 The Secret the migration Job reads. A hook runs before the release's own
 resources exist, so a chart-made Secret (secret.values) gets a hook copy.
@@ -339,5 +994,34 @@ resources exist, so a chart-made Secret (secret.values) gets a hook copy.
 {{- .Values.secret.existingSecret }}
 {{- else }}
 {{- printf "%s-migrate" (include "weldsuite.fullname" .) }}
+{{- end }}
+{{- end }}
+
+{{/*
+METRICS_ADDR for the server and consume: /metrics on every address at the
+metrics port, apart from the API's, or off. The MTA sets its own: it runs on
+the host network, so it listens on the node's private address only.
+*/}}
+{{- define "weldsuite.metricsEnv" -}}
+- name: METRICS_ADDR
+  value: {{ ternary (printf "0.0.0.0:%v" .Values.metrics.port) "off" .Values.metrics.enabled | quote }}
+{{- end }}
+
+{{/* The container port Prometheus scrapes, with metrics.enabled. */}}
+{{- define "weldsuite.metricsPort" -}}
+{{- if .Values.metrics.enabled -}}
+- name: metrics
+  containerPort: {{ .Values.metrics.port }}
+  protocol: TCP
+{{- end }}
+{{- end }}
+
+{{/* The metrics port on a Service, with metrics.enabled. */}}
+{{- define "weldsuite.metricsServicePort" -}}
+{{- if .Values.metrics.enabled -}}
+- name: metrics
+  port: {{ .Values.metrics.port }}
+  targetPort: metrics
+  protocol: TCP
 {{- end }}
 {{- end }}

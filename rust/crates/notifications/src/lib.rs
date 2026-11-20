@@ -13,10 +13,15 @@
 //! (`DeferredNotificationEmailWorkflow`) is app-api's. Until then
 //! [`create_and_deliver`] logs a warning where it would hand the mail over;
 //! the WeldChat helpers exclude email anyway, as in TypeScript.
+//!
+//! Every push names the install it came from in its data's `server`
+//! ([`set_push_server`]): the mobile apps act on a tap only when that is the
+//! server they run against.
 
+mod preview;
 mod push;
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
@@ -27,9 +32,48 @@ use weldsuite_ports::{
     RealtimePublisher,
 };
 
+pub use preview::{notification_preview, strip_markdown};
 pub use push::{
     ApnsConfig, CallCancelReason, ExpoResult, cancel_incoming_call_push, send_expo_push,
 };
+
+/// The install's public platform origin, named in every push.
+static PUSH_SERVER: OnceLock<String> = OnceLock::new();
+
+/// Name this install in every push from now on: `server` in the data of the
+/// notifications' Expo pushes, of the call ring and its cancel (Expo and
+/// `VoIP`) and of the new-mail push. The mobile apps act on a notification
+/// tap only when `server` is the origin they talk to
+/// (`isNotificationForThisServer` in `@weldsuite/mobile-platform`), which
+/// for an EU or self-hosted build is its platform origin. Global's workers
+/// name no server, so a process that never calls this (Global's
+/// conformance comparisons) sends none, as they do.
+///
+/// Once per process, at start ([`platform_origin`]); later calls are
+/// ignored. An empty origin names nothing.
+pub fn set_push_server(origin: &str) {
+    let origin = origin.trim().trim_end_matches('/');
+    if !origin.is_empty() {
+        let _ = PUSH_SERVER.set(origin.to_owned());
+    }
+}
+
+/// The origin [`set_push_server`] named, if any.
+pub fn push_server() -> Option<&'static str> {
+    PUSH_SERVER.get().map(String::as_str)
+}
+
+/// The install's public platform origin from its settings: `PLATFORM_URL`,
+/// else `PUBLIC_URL`, else `PUBLIC_APP_URL` (the chart sets all three from
+/// `config.publicUrl`), trimmed and without a trailing slash; `None` when
+/// none is set.
+pub fn platform_origin(lookup: impl Fn(&str) -> Option<String>) -> Option<String> {
+    ["PLATFORM_URL", "PUBLIC_URL", "PUBLIC_APP_URL"]
+        .into_iter()
+        .filter_map(lookup)
+        .map(|value| value.trim().trim_end_matches('/').to_owned())
+        .find(|origin| !origin.is_empty())
+}
 
 /// Where notifications go out (`NotificationEnv`): the realtime port (in-app;
 /// `REALTIME`), live presence for the email gate, system mail
@@ -383,7 +427,9 @@ async fn deliver_in_app(notifier: &Notifier, params: &NewNotification, id: &str,
 
 /// `buildPushData`: string values only; `channelId` is renamed
 /// `chatChannelId` (Android reads `channelId` as its notification channel).
-pub(crate) fn push_data(params: &NewNotification) -> Map<String, Value> {
+/// Then `server`, the install the push comes from ([`set_push_server`]),
+/// when one is named.
+pub(crate) fn push_data(params: &NewNotification, server: Option<&str>) -> Map<String, Value> {
     let mut data = Map::new();
     data.insert(
         "actionUrl".to_owned(),
@@ -412,7 +458,15 @@ pub(crate) fn push_data(params: &NewNotification) -> Map<String, Value> {
         }
         data.insert(key.clone(), Value::from(value.as_str()));
     }
+    tag_server(&mut data, server);
     data
+}
+
+/// `server` in a push's data: the install it comes from, when named.
+pub(crate) fn tag_server(data: &mut Map<String, Value>, server: Option<&str>) {
+    if let Some(server) = server {
+        data.insert("server".to_owned(), Value::from(server));
+    }
 }
 
 /// The WeldChat helpers (`helpers/chat.ts`).
@@ -625,12 +679,65 @@ mod tests {
             .data
             .push(("channelId".to_owned(), "ignored".to_owned()));
         params.clerk_org_id = Some("org_1".to_owned());
-        let data = push_data(&params);
+        let data = push_data(&params, None);
         assert_eq!(data["chatChannelId"], "ch_1");
         assert!(!data.contains_key("channelId"));
         assert_eq!(data["clerkOrgId"], "org_1");
         assert_eq!(data["notificationType"], "chat_dm");
+        assert!(!data.contains_key("server"), "Global names no server");
         assert_eq!(params.body, "Sent you a direct message");
+    }
+
+    #[test]
+    fn push_data_names_the_server_it_comes_from() {
+        let mut params = chat::dm("org_1", "u2", "u1", "Ann", "ch_1", "hi");
+        // A caller's own `server` can't pose as another install.
+        params
+            .data
+            .push(("server".to_owned(), "https://elsewhere.example".to_owned()));
+        let data = push_data(&params, Some("https://app.test.weldsuite.eu"));
+        assert_eq!(data["server"], "https://app.test.weldsuite.eu");
+        assert_eq!(data["notificationType"], "chat_dm");
+    }
+
+    #[test]
+    fn the_platform_origin_comes_from_the_public_url_settings() {
+        let settings = |pairs: &'static [(&'static str, &'static str)]| {
+            move |name: &str| {
+                pairs
+                    .iter()
+                    .find(|(key, _)| *key == name)
+                    .map(|(_, value)| (*value).to_owned())
+            }
+        };
+        assert_eq!(
+            platform_origin(settings(&[
+                ("PUBLIC_APP_URL", "https://public-app.example"),
+                ("PUBLIC_URL", "https://public.example"),
+                ("PLATFORM_URL", "https://app.test.weldsuite.eu/"),
+            ]))
+            .as_deref(),
+            Some("https://app.test.weldsuite.eu"),
+            "PLATFORM_URL first, without the trailing slash"
+        );
+        assert_eq!(
+            platform_origin(settings(&[
+                ("PLATFORM_URL", "  "),
+                ("PUBLIC_URL", " https://public.example/ "),
+                ("PUBLIC_APP_URL", "https://public-app.example"),
+            ]))
+            .as_deref(),
+            Some("https://public.example")
+        );
+        assert_eq!(
+            platform_origin(settings(&[(
+                "PUBLIC_APP_URL",
+                "https://public-app.example"
+            )]))
+            .as_deref(),
+            Some("https://public-app.example")
+        );
+        assert_eq!(platform_origin(settings(&[])), None);
     }
 
     #[test]

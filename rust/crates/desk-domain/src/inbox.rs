@@ -208,6 +208,9 @@ pub struct IngestApi {
     pub name: Option<String>,
     pub email: Option<String>,
     pub contact_id: Option<String>,
+    /// Files the first message carries (WeldForms uploads), already stored
+    /// where the inbox can open them (`attachments`).
+    pub attachments: Option<Vec<Value>>,
     pub metadata: Map<String, Value>,
 }
 
@@ -342,7 +345,7 @@ async fn create_api_conversation(
             author_type: "visitor",
             author_id: visitor_id,
             body: Some(input.body.clone()),
-            attachments: None,
+            attachments: input.attachments.clone(),
             metadata: Some(metadata),
             assignee_id: None,
         },
@@ -368,7 +371,7 @@ async fn add_to(
             author_type: "visitor",
             author_id: visitor_id,
             body: Some(input.body.clone()),
-            attachments: None,
+            attachments: input.attachments.clone(),
             metadata: Some(metadata),
             assignee_id: None,
         },
@@ -480,6 +483,8 @@ fn has_ticket_fields(fields: &Update) -> bool {
         || fields.tags.is_some()
         || !matches!(fields.department_id, Field::Absent)
         || !fields.custom_fields.is_empty()
+        || !matches!(fields.impact, Field::Absent)
+        || !matches!(fields.urgency, Field::Absent)
 }
 
 /// `assertUsableReferences(db, fields)`: a ticket type or team that doesn't
@@ -1357,6 +1362,14 @@ mod tests {
         }));
         assert!(has_ticket_fields(&Update {
             tags: Some(Vec::new()),
+            ..Update::default()
+        }));
+        assert!(has_ticket_fields(&Update {
+            impact: Field::Set("high".into()),
+            ..Update::default()
+        }));
+        assert!(has_ticket_fields(&Update {
+            urgency: Field::Null,
             ..Update::default()
         }));
     }

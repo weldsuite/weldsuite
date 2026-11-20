@@ -1,7 +1,7 @@
 /**
  * Outbound mail guard: what the workspace may send through WeldMail, what it
  * has used and how its recent mail was delivered (mail-api
- * `GET /api/mail-sending/usage`). See docs/plans/weldmail-outbound-abuse.md.
+ * `GET /api/mail-sending/usage`). See weldsuite-documentation/plans/weldmail-outbound-abuse.md.
  */
 
 import { useQuery } from '@tanstack/react-query';

@@ -1,6 +1,6 @@
 # WeldSuite data-api worker — the data module's API.
 #
-# Split out of app-api (docs/plans/app-api-module-split.md). Serves the same
+# Split out of app-api (weldsuite-documentation/plans/app-api-module-split.md). Serves the same
 # /api/<object> paths app-api served for this module; only the host differs:
 #   data-api.weldsuite.org        production
 #   data-api-test.weldsuite.org   test

@@ -1,4 +1,4 @@
-import { Check, ChevronsUpDown, Copy, Loader2 } from 'lucide-react';
+import { Check, ChevronDown, Copy, Loader2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useUser } from '@/lib/auth';
 import { toast } from 'sonner';
@@ -63,7 +63,7 @@ export type DriveShareTarget =
    * A drive file shared from the module that opens it (a WeldDocs document): its id, name and in-app link.
    * `recordFile`: the module keeps it for one of its records (a WeldFlow project sheet), whose access it follows.
    */
-  | { kind: 'item'; fileId: string; name: string; link: string; recordFile?: boolean };
+  | { kind: 'item'; fileId: string; name: string; link: string; recordFile?: boolean; description?: string };
 
 interface ShareDialogProps {
   target: DriveShareTarget | null;
@@ -74,6 +74,15 @@ function targetName(target: DriveShareTarget | null): string {
   if (!target) return '';
   if (target.kind === 'item') return target.name;
   return target.kind === 'file' ? target.file.name : target.folder.name;
+}
+
+/** The line under the title: the module's own wording for what it shares, else the drive's for a file or folder. */
+function targetDescription(
+  target: DriveShareTarget | null,
+  share: { descriptionFile: string; descriptionFolder: string },
+): string {
+  if (target?.kind === 'item' && target.description) return target.description;
+  return target?.kind === 'folder' ? share.descriptionFolder : share.descriptionFile;
 }
 
 function targetLink(target: DriveShareTarget | null): string | null {
@@ -124,7 +133,8 @@ function TeammatePicker({ candidates, selected, onSelect, disabled }: Readonly<{
           <span className={selected ? 'truncate' : 'truncate text-muted-foreground'}>
             {selected ? personLabel({ ...selected, name: selected.name ?? null, email: selected.email ?? null }) : t.welddrive.share.addPeople}
           </span>
-          <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+          {/* The same arrow as the role select beside it. */}
+          <ChevronDown className="size-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
@@ -168,10 +178,12 @@ function TeammatePicker({ candidates, selected, onSelect, disabled }: Readonly<{
   );
 }
 
-function SharingBody({ item, sharing, onLeft }: Readonly<{
+function SharingBody({ item, sharing, onLeft, fromModule }: Readonly<{
   item: DriveItemRef;
   sharing: DriveItemSharing;
   onLeft: () => void;
+  /** Opened from the module that keeps it (a board, a document): no talk of WeldDrive. */
+  fromModule: boolean;
 }>) {
   const { t } = useI18n();
   const { user } = useUser();
@@ -251,7 +263,8 @@ function SharingBody({ item, sharing, onLeft }: Readonly<{
           <TeammatePicker candidates={candidates} selected={selected} onSelect={setSelected} disabled={busy} />
           <Select value={newRole} onValueChange={(v) => setNewRole(v as DriveShareRole)} disabled={busy}>
             <SelectTrigger className="h-9 w-[110px] shrink-0" aria-label={t.welddrive.share.addPeople}>
-              <SelectValue />
+              {/* Only the role's name: its description is for the open list. */}
+              <SelectValue>{t.welddrive.share.roles[newRole]}</SelectValue>
             </SelectTrigger>
             <SelectContent align="end">
               {(['viewer', 'editor'] as const).map((role) => (
@@ -304,18 +317,20 @@ function SharingBody({ item, sharing, onLeft }: Readonly<{
                 })}
               </SelectContent>
             </Select>
-            <p className="text-xs text-muted-foreground">{t.welddrive.share.generalAccessHints[sharing.generalAccess]}</p>
+            <p className="text-xs text-muted-foreground">
+              {(fromModule ? t.welddrive.share.moduleAccessHints : t.welddrive.share.generalAccessHints)[sharing.generalAccess]}
+            </p>
           </div>
         ) : (
           <DriveGeneralAccessLine access={sharing.effectiveGeneralAccess} />
         )}
+        {/* The notes under the access read as one block: the same small gap between each line. */}
         {sharing.effectiveGeneralAccess !== sharing.generalAccess && (
-          <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">{t.welddrive.share.restrictedByFolder}</p>
+          <p className="mt-1.5 text-xs text-amber-700 dark:text-amber-400">{t.welddrive.share.restrictedByFolder}</p>
         )}
+        {!canManage && <p className="mt-1.5 text-xs text-muted-foreground">{t.welddrive.share.viewOnlyNote}</p>}
+        <p className="mt-1.5 text-xs text-muted-foreground">{fromModule ? t.welddrive.share.moduleAdminNote : t.welddrive.share.adminNote}</p>
       </div>
-
-      {!canManage && <p className="text-xs text-muted-foreground">{t.welddrive.share.viewOnlyNote}</p>}
-      <p className="text-xs text-muted-foreground">{t.welddrive.share.adminNote}</p>
     </div>
   );
 }
@@ -348,13 +363,21 @@ export function ShareDialog({ target, onOpenChange }: Readonly<ShareDialogProps>
 
   return (
     <Dialog open={!!target} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-[520px]">
+      {/* Nothing is focused on open: the first field can be the link (while the
+          sharing loads), which then opens fully selected in blue. Tab still starts in the dialog. */}
+      <DialogContent
+        className="outline-none sm:max-w-[520px]"
+        onOpenAutoFocus={(e) => {
+          e.preventDefault();
+          (e.currentTarget as HTMLElement | null)?.focus({ preventScroll: true });
+        }}
+      >
         <DialogHeader>
           <DialogTitle className="truncate pr-6">
             {t.welddrive.share.title.replace('{name}', targetName(target))}
           </DialogTitle>
           <DialogDescription>
-            {target?.kind === 'folder' ? t.welddrive.share.descriptionFolder : t.welddrive.share.descriptionFile}
+            {targetDescription(target, t.welddrive.share)}
           </DialogDescription>
         </DialogHeader>
 
@@ -370,7 +393,7 @@ export function ShareDialog({ target, onOpenChange }: Readonly<ShareDialogProps>
             </div>
           )}
           {item && isError && <p className="text-sm text-destructive">{t.welddrive.toasts.failedToUpdateAccess}</p>}
-          {item && sharing && <SharingBody item={item} sharing={sharing} onLeft={() => onOpenChange(false)} />}
+          {item && sharing && <SharingBody item={item} sharing={sharing} onLeft={() => onOpenChange(false)} fromModule={target?.kind === 'item'} />}
 
           {link && (
             <div>
@@ -379,7 +402,8 @@ export function ShareDialog({ target, onOpenChange }: Readonly<ShareDialogProps>
                 <Input
                   readOnly
                   value={link}
-                  className="h-9 font-mono text-xs"
+                  // A link longer than the field ends in "…" instead of being cut mid-word.
+                  className="h-9 text-ellipsis font-mono text-xs"
                   onFocus={(e) => e.currentTarget.select()}
                   aria-label={t.welddrive.share.linkLabel}
                 />

@@ -1,7 +1,7 @@
 /**
  * US sales tax setup (pglite): agencies and their payable accounts, the manual
  * engine's jurisdictions, rates, zones and rules, exemption certificates, and
- * the calculation preview. docs/plans/weldbooks-us.md §3, §5, §6.
+ * the calculation preview. weldsuite-documentation/plans/weldbooks-us.md §3, §5, §6.
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';

@@ -86,7 +86,7 @@ fn parse_clock(value: Option<&Value>) -> Option<i64> {
 }
 
 /// `±HH`, `±HHMM` or `±HH:MM`: an offset time zone, as `Intl` takes it.
-fn offset_zone(text: &str) -> Option<TimeZone> {
+pub(crate) fn offset_zone(text: &str) -> Option<TimeZone> {
     let sign = match text.as_bytes().first()? {
         b'+' => 1,
         b'-' => -1,

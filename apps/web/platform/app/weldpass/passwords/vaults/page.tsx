@@ -14,12 +14,14 @@ import { useUser } from '@/lib/auth';
 import { toast } from 'sonner';
 import { LockKeyhole, SearchX } from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';
+import { ErrorState } from '@weldsuite/ui/components/error-banner';
 import { usePermissions } from '@weldsuite/permissions/react';
 import type { WeldPassVault } from '@weldsuite/app-api-client/domains/weldpass-passwords';
 import { PanelEntityList, type ColumnDef } from '@/components/panel-entity-list';
 import { useWeldPassVaults } from '@/hooks/queries/use-weldpass-passwords-queries';
 import { formatDateTime } from '@/lib/utils';
 import { emptyIcon, usePassBreadcrumbs } from '../../components/page-kit';
+import { errorMessage, isKeyUnavailable } from '../../components/shared';
 import { CreateVaultDialog } from '../components/create-vault-dialog';
 import { PasswordsGate } from '../components/passwords-gate';
 import { VaultSettingsDialog } from '../components/vault-settings-dialog';
@@ -132,6 +134,11 @@ function VaultsList() {
   const createButton = canCreate
     ? { label: tp('vaults.newVault'), onClick: () => setCreating(true) }
     : undefined;
+
+  // The server can't open vaults at all (its root key): say so, not "failed to load".
+  if (isKeyUnavailable(error)) {
+    return <ErrorState className="m-4" message={errorMessage(error, '')} />;
+  }
 
   return (
     <>

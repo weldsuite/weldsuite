@@ -23,6 +23,8 @@ export interface ConfirmDialogProps {
   cancelLabel?: string;
   variant?: 'default' | 'destructive';
   loading?: boolean;
+  /** Keeps Confirm disabled, e.g. until an acknowledgement in `description` is ticked. */
+  confirmDisabled?: boolean;
   onConfirm: () => void | Promise<void>;
 }
 
@@ -35,6 +37,7 @@ export function ConfirmDialog({
   cancelLabel,
   variant = 'default',
   loading = false,
+  confirmDisabled = false,
   onConfirm,
 }: Readonly<ConfirmDialogProps>) {
   const labels = useUiLabels();
@@ -68,7 +71,7 @@ export function ConfirmDialog({
           </Button>
           <Button
             type="button"
-            disabled={isLoading}
+            disabled={isLoading || confirmDisabled}
             onClick={handleConfirm}
             className={cn(variant === 'destructive' && buttonVariants({ variant: 'destructive' }))}
           >

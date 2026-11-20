@@ -29,7 +29,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
-import { Button } from '@weldsuite/ui/components/button';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import type { UnifiedFile } from '@/lib/api/domains/welddrive';
@@ -196,7 +195,8 @@ export async function downloadFile(
 interface DriveFileCardProps {
   file: UnifiedFile;
   isSelected?: boolean;
-  onClick: (e: React.MouseEvent) => void;
+  /** A click, or Enter / Space on the focused card. */
+  onClick: (e: React.MouseEvent | React.KeyboardEvent) => void;
   onDoubleClick?: () => void;
   onToggleStar?: (file: UnifiedFile) => void;
   onRename?: (file: UnifiedFile) => void;
@@ -250,6 +250,16 @@ function formatDate(dateStr: string): string {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+/**
+ * Enter or Space on a focused grid card acts as a click, as on a button. A key
+ * pressed on a control inside the card (its ⋮ menu) is left to that control.
+ */
+export function onCardKeyDown(e: React.KeyboardEvent<HTMLElement>, activate: (e: React.KeyboardEvent) => void) {
+  if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return;
+  e.preventDefault();
+  activate(e);
+}
+
 /** Marks an item only its owner and the people it is shared with can open. */
 export function DriveRestrictedIcon() {
   const { t } = useI18n();
@@ -265,19 +275,25 @@ export function DriveFileCard({ file, isSelected, onClick, onDoubleClick, onTogg
   const typeConfig = fileTypeIcons[file.fileType] || fileTypeIcons.file;
   const Icon = typeConfig.icon;
   const isImage = file.fileType === 'image' && (file.thumbnailUrl || file.url);
+  // A file from another module (Social, Mail, …) is starred, renamed, moved
+  // and deleted there, not in Drive.
+  const isDriveFile = file.source === 'drive';
   // A viewer opens and downloads; changing the file is for its owner and editors.
-  const canChange = file.accessRole !== 'viewer';
+  const canChange = isDriveFile && file.accessRole !== 'viewer';
   const openInSheets = useOpenInWeldSheets();
   const openInDocs = useOpenInWeldDocs();
   const openInBoard = useOpenInWeldBoard();
 
   return (
-    <Button
-      variant="ghost"
+    // A div acting as a button, not a <button>: the ⋮ menu inside it is a button of its own.
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onClick}
       onDoubleClick={onDoubleClick}
+      onKeyDown={(e) => onCardKeyDown(e, onClick)}
       className={cn(
-        "group relative flex flex-col rounded-xl border bg-card text-card-foreground transition-colors text-left w-[241px] h-[241px] overflow-hidden",
+        "group relative flex flex-col rounded-xl border bg-card text-card-foreground transition-colors text-left w-[241px] h-[241px] overflow-hidden cursor-pointer outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
         isSelected
           ? 'border-primary bg-primary/5 dark:bg-primary/10'
           : 'border-border/60 hover:border-border',
@@ -309,9 +325,9 @@ export function DriveFileCard({ file, isSelected, onClick, onDoubleClick, onTogg
         <div className="shrink-0 ml-auto opacity-0 group-hover:opacity-100 transition-opacity">
           <DropdownMenu>
             <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-              <div className="p-0.5 rounded-md hover:bg-muted cursor-pointer">
+              <button type="button" className="p-0.5 rounded-md hover:bg-muted cursor-pointer" aria-label={t.common.actions.openMenu}>
                 <MoreVertical className="h-4 w-4 text-muted-foreground" />
-              </div>
+              </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-52" sideOffset={4} onClick={(e) => e.stopPropagation()}>
               {file.url && (
@@ -358,10 +374,12 @@ export function DriveFileCard({ file, isSelected, onClick, onDoubleClick, onTogg
               )}
               <SendFileForSignatureItem file={file} iconClassName="h-4 w-4 mr-0.5" />
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => onToggleStar?.(file)}>
-                <Star className={cn("h-4 w-4 mr-0.5", file.isStarred && "fill-yellow-400 text-yellow-400")} />
-                {file.isStarred ? t.welddrive.page.actions.removeFromStarred : t.welddrive.page.actions.addToStarred}
-              </DropdownMenuItem>
+              {isDriveFile && (
+                <DropdownMenuItem onClick={() => onToggleStar?.(file)}>
+                  <Star className={cn("h-4 w-4 mr-0.5", file.isStarred && "fill-yellow-400 text-yellow-400")} />
+                  {file.isStarred ? t.welddrive.page.actions.removeFromStarred : t.welddrive.page.actions.addToStarred}
+                </DropdownMenuItem>
+              )}
               {canChange && (
                 <DropdownMenuItem onClick={() => onRename?.(file)}>
                   <Pencil className="h-4 w-4 mr-0.5" />
@@ -400,7 +418,7 @@ export function DriveFileCard({ file, isSelected, onClick, onDoubleClick, onTogg
           </DropdownMenu>
         </div>
       </div>
-    </Button>
+    </div>
   );
 }
 

@@ -994,13 +994,17 @@ export class SheetController {
     return parsed.value === null ? null : { v: parsed.value };
   }
 
-  /** The number format typing implies ("12%", "€ 5", a date), unless the cell already has one. */
+  /**
+   * The number format typing implies ("12%", "€ 5", a date, a formula that
+   * starts with a date function such as =TODAY()), unless the cell already has one.
+   */
   private impliedFormat(text: string, row: number, col: number): string | undefined {
     const parsed = parseInput(text, { locale: this.options.locale });
-    if (parsed.kind !== 'value' || !parsed.numFmt) return undefined;
+    const numFmt = parsed.kind === 'formula' ? formulaDateFormat(parsed.formula, this.options.locale) : parsed.numFmt;
+    if (!numFmt) return undefined;
     const current = this.engine.workbook.style(this.sheet, row, col)?.numFmt;
     if (current && current !== 'General') return undefined;
-    return parsed.numFmt;
+    return numFmt;
   }
 
   // -------------------------------------------------------------------------
@@ -1416,5 +1420,14 @@ function dateInputCode(locale: FormatLocale): string {
     default:
       return 'm/d/yyyy';
   }
+}
+
+/** Functions whose result is a date serial: a formula starting with one shows as a date, as in Excel. */
+const DATE_RESULT = /^\s*(TODAY|DATE|DATEVALUE|EDATE|EOMONTH|WORKDAY|WORKDAY\.INTL)\s*\(/i;
+
+/** The format a formula's result implies: a date for =TODAY() and the like, date and time for =NOW(). */
+export function formulaDateFormat(formula: string, locale: FormatLocale): string | undefined {
+  if (/^\s*NOW\s*\(/i.test(formula)) return `${dateInputCode(locale)} h:mm:ss`;
+  return DATE_RESULT.test(formula) ? dateInputCode(locale) : undefined;
 }
 

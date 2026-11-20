@@ -34,8 +34,10 @@ import { useMobileNavOptional } from '@/contexts/mobile-nav-context';
 import { toast } from 'sonner';
 import { useFetchVoiceToken } from '@/hooks/queries';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { toPublicPath } from '@/lib/workspace-url-rewrite';
-import { usePathname } from '@/lib/router';
+import { usePathname, useRouter } from '@/lib/router';
+import { isFeatureAvailable } from '@/lib/edition';
+import { DeskCallDetails } from '@/components/welddesk/phone/desk-call-details';
+import { DeskCallTranslation } from '@/components/welddesk/phone/call-translation/desk-call-translation';
 import {
   DIAL_PAD_DIGITS,
   MAX_PHONE_DIGITS,
@@ -55,6 +57,7 @@ function getStatusColor(status: CallStateValue['status'] | undefined): string {
   switch (status) {
     case 'dialing':
     case 'ringing':
+    case 'connecting':
       return 'text-yellow-500';
     case 'connected':
       return 'text-green-500';
@@ -334,6 +337,16 @@ function ActiveCallView({
         {statusText}
       </p>
 
+      {/* Who an inbound WeldDesk call is */}
+      {callState.direction === 'inbound' && callState.inbound && (
+        <DeskCallDetails details={callState.inbound} answeredAt={callState.startedAt?.getTime() ?? Date.now()} />
+      )}
+
+      {/* Live translation: only on an answered inbound WeldDesk call */}
+      {callState.direction === 'inbound' && callState.inbound?.callId && isConnected && (
+        <DeskCallTranslation callId={callState.inbound.callId} />
+      )}
+
       {/* Recording indicator */}
       {callState.isRecording && isConnected && (
         <div className="flex items-center gap-2 mb-4 px-3 py-1.5 bg-red-50 rounded-lg">
@@ -393,21 +406,27 @@ function ActiveCallView({
 
 function NoPhoneNumbersView({ onConfigure }: Readonly<{ onConfigure: () => void }>) {
   const t = useTranslations();
+  // Where numbers can't be bought or ported, there is nothing to configure.
+  const canGetNumber = isFeatureAvailable('phone-number-purchase');
 
   return (
     /* No phone numbers configured - match dialer height */
     <div className="p-4 flex flex-col items-center justify-center text-center" style={{ minHeight: '540px' }}>
       <h4 className="text-sm font-medium text-gray-900 dark:text-foreground mb-1">{t('sweep.weldcrm.globalCallPanel.noPhoneNumberConnected')}</h4>
       <p className="text-xs text-gray-500 mb-4">
-        {t('sweep.weldcrm.globalCallPanel.noPhoneNumberDescription')}
+        {canGetNumber
+          ? t('sweep.weldcrm.globalCallPanel.noPhoneNumberDescription')
+          : t('sweep.weldcrm.globalCallPanel.noPhoneNumberPurchaseUnavailable')}
       </p>
-      <Button
-        size="sm"
-        className="bg-primary text-primary-foreground hover:bg-primary/90"
-        onClick={onConfigure}
-      >
-        {t('sweep.weldcrm.globalCallPanel.configureNumber')}
-      </Button>
+      {canGetNumber && (
+        <Button
+          size="sm"
+          className="bg-primary text-primary-foreground hover:bg-primary/90"
+          onClick={onConfigure}
+        >
+          {t('sweep.weldcrm.globalCallPanel.configureNumber')}
+        </Button>
+      )}
     </div>
   );
 }
@@ -677,6 +696,8 @@ export function GlobalCallPanel() {
     initializeVoip,
     resetVoip,
     isVoipReady,
+    voipConnection,
+    voipCredential,
     initialDialerNumber,
     setInitialDialerNumber,
   } = useCall();
@@ -687,6 +708,7 @@ export function GlobalCallPanel() {
   const mobileNav = useMobileNavOptional();
   const agentRight = mobileNav?.showWeldAgent ? `${(mobileNav?.weldAgentWidth ?? 480) + 16}px` : '16px';
   const pathname = usePathname();
+  const router = useRouter();
   // The WeldCall page shows a live call itself; the panel covers it everywhere else
   const isCallOnPage = !!callState && isWeldCallDialerPath(pathname);
 
@@ -701,6 +723,8 @@ export function GlobalCallPanel() {
     enabled: isDialerOpen,
     voipConfigured,
     isVoipReady,
+    connection: voipConnection,
+    credential: voipCredential,
     initializeVoip,
     fetchVoiceToken,
     t,
@@ -813,7 +837,8 @@ export function GlobalCallPanel() {
 
   const handleConfigureNumber = () => {
     setIsDialerOpen(false);
-    window.location.href = toPublicPath('/settings/apps/phone-numbers');
+    // In-app navigation: no full page reload.
+    router.push('/settings/apps/phone-numbers');
   };
 
   if (!mounted || isCallOnPage || (!isDialerOpen && !callState)) return null;

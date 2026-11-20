@@ -92,6 +92,18 @@ async fn prepaid_seats(
         })));
     }
 
+    // Without billing on this install no seat can be bought, so none is
+    // counted against the plan: unlimited, as a licence without a cap.
+    if !state.plan_seat_limits {
+        let used = used_seats(caller, state, org_id, &workspace_id).await?;
+        return Ok(Some(json!({
+            "prepaidSeats": used,
+            "usedSeats": used,
+            "availableSeats": 0,
+            "canAddMore": true,
+        })));
+    }
+
     let mut included_users = 1;
     if let Some(plan_id) = plan_id.filter(|id| !id.is_empty()) {
         let plan: Option<Option<i32>> =

@@ -170,8 +170,17 @@ export function GeneralSection({ projectId, isAdmin }: Readonly<GeneralSectionPr
               value={name}
               onChange={(e) => setName(e.target.value)}
               disabled={disabled}
+              maxLength={255}
+              aria-invalid={!name.trim()}
+              aria-describedby={name.trim() ? undefined : 'name-required'}
               className="focus-visible:ring-0 focus-visible:ring-offset-0"
             />
+            {/* An empty name is not saved: say so instead of skipping silently. */}
+            {!name.trim() && !disabled && (
+              <p id="name-required" role="alert" className="text-xs text-destructive">
+                {t.projects.settings.nameRequired}
+              </p>
+            )}
           </div>
 
           <div className="space-y-2">

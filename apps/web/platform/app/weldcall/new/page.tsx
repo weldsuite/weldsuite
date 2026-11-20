@@ -13,12 +13,18 @@ import {
 import { useCall } from '@/contexts/call-context';
 import { WeldCallGate } from '../components/weldcall-gate';
 import { getTranslations } from '@/lib/i18n';
+import { isFeatureAvailable } from '@/lib/edition';
 import { ActiveCallStage } from './active-call-stage';
 
 type NewCallStrings = ReturnType<typeof getTranslations<'weldmeet'>>['weldcall']['newCall'];
 
-/** Under the dial controls while the workspace has no phone number: the dialer can't call out yet. */
+/**
+ * Under the dial controls while the workspace has no phone number: the dialer
+ * can't call out yet. Where numbers can't be bought or ported
+ * (`phone-number-purchase`), it says so instead of sending people to set one up.
+ */
 function NoNumberNotice({ tn, onConfigure }: Readonly<{ tn: NewCallStrings; onConfigure: () => void }>) {
+  const canGetNumber = isFeatureAvailable('phone-number-purchase');
   return (
     <div
       data-testid="weldcall-no-number"
@@ -28,11 +34,15 @@ function NoNumberNotice({ tn, onConfigure }: Readonly<{ tn: NewCallStrings; onCo
         <PhoneOff className="h-5 w-5 text-muted-foreground" />
       </div>
       <h2 className="text-base font-semibold">{tn.noNumberTitle}</h2>
-      <p className="mt-1 text-sm text-muted-foreground">{tn.noNumberDescription}</p>
-      <Button className="mt-4 gap-2 rounded-lg" onClick={onConfigure}>
-        <Phone className="h-4 w-4" />
-        {tn.configureNumber}
-      </Button>
+      <p className="mt-1 text-sm text-muted-foreground">
+        {canGetNumber ? tn.noNumberDescription : tn.noNumberPurchaseUnavailable}
+      </p>
+      {canGetNumber && (
+        <Button className="mt-4 gap-2 rounded-lg" onClick={onConfigure}>
+          <Phone className="h-4 w-4" />
+          {tn.configureNumber}
+        </Button>
+      )}
     </div>
   );
 }
@@ -114,21 +124,21 @@ function NewCallContent() {
           </p>
         </div>
 
-        {/* Action Row */}
-        <div className="flex items-center gap-3 mt-8 px-6">
+        {/* Action Row: wraps on a phone instead of running off the screen. */}
+        <div className="flex flex-wrap items-center justify-center gap-3 mt-8 px-6 max-w-full">
           <Button size="lg" className="gap-2 rounded-lg" onClick={handleNewCall}>
             <Plus className="h-5 w-5" />
             {tn.newCall}
           </Button>
 
-          <div className="relative group/input">
+          <div className="relative group/input max-w-full">
             <Keyboard className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder={tn.enterPhoneNumberPlaceholder}
               value={phoneNumber}
               onChange={(e) => setPhoneNumber(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleCallNumber()}
-              className="pl-10 pr-10 w-64 h-10 rounded-lg"
+              className="pl-10 pr-10 w-64 max-w-full h-10 rounded-lg"
             />
             <Button
               size="icon"

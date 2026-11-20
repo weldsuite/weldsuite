@@ -6,8 +6,8 @@ import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
 import { EmptyStateIllustration, type GroupConfig } from '@/components/entity-list';
+import { JurisdictionGate, JurisdictionUnavailable } from '@/components/accounting/jurisdiction-gate';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
-import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useCompleteDeadline, useReopenDeadline, useTaxCalendar } from '@/hooks/queries/use-weldbooks-assets-queries';
 import type { TaxDeadline } from '@/lib/api/domains/weldbooks-assets';
 import { useI18n } from '@/lib/i18n/provider';
@@ -20,12 +20,12 @@ import { MarkDoneDialog } from './components/mark-done-dialog';
 import { countStatuses, groupByMonth } from './deadline-status';
 
 /** The tax due-date calendar of a US entity: income tax, estimated tax, 1099s, payroll and every sales tax return. */
-export default function TaxCalendarPage() {
+function TaxCalendarPageContent() {
   const { t } = useI18n();
   const tc = t.weldbooksUs.assets.taxCalendar;
   const common = t.weldbooksUs.assets.common;
   const { can } = usePermissions();
-  const { code, isResolved, isError: jurisdictionError } = useCurrentJurisdiction();
+  const { code, jurisdiction } = useCurrentJurisdiction();
   const isUs = isUsJurisdictionCode(code);
   const { today, dateLocale } = useWeldbooksFormat();
 
@@ -104,15 +104,8 @@ export default function TaxCalendarPage() {
     onReopen: (item) => void undo(item),
   });
 
-  if (!isResolved && !jurisdictionError) return <PageLoader fullScreen={false} />;
-
-  if (!isUs || (data && !data.supported)) {
-    return (
-      <div className="space-y-2 p-4 sm:p-6">
-        <h1 className="text-2xl font-semibold">{tc.title}</h1>
-        <p className="text-sm text-muted-foreground">{common.usOnly}</p>
-      </div>
-    );
+  if (data && !data.supported) {
+    return <JurisdictionUnavailable feature={tc.title} country={jurisdiction?.name} />;
   }
 
   const yearNavigation = (
@@ -193,5 +186,14 @@ export default function TaxCalendarPage() {
         />
       ) : null}
     </div>
+  );
+}
+
+export default function TaxCalendarPage() {
+  const { t } = useI18n();
+  return (
+    <JurisdictionGate when={(j) => isUsJurisdictionCode(j.code)} feature={t.accounting.header.taxCalendar}>
+      <TaxCalendarPageContent />
+    </JurisdictionGate>
   );
 }

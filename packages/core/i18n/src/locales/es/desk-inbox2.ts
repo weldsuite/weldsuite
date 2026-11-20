@@ -78,6 +78,7 @@ export const deskInbox2 = {
     backToList: 'Volver a la lista',
     assign: 'Asignar',
     assignTooltip: 'Asignar (A)',
+    assignToMe: 'Asignarme',
     assignTeammates: 'Compañeros',
     assignTeams: 'Equipos',
     assignSearchPlaceholder: 'Buscar…',

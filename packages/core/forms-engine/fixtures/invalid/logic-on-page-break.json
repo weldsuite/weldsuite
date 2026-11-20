@@ -1,0 +1,39 @@
+{
+  "name": "Logic on a page break",
+  "definition": {
+    "blocks": [
+      {
+        "id": "b_1",
+        "ref": "first",
+        "type": "short_text",
+        "title": "first"
+      },
+      {
+        "id": "b_p",
+        "ref": "page",
+        "type": "page_break"
+      },
+      {
+        "id": "b_2",
+        "ref": "second",
+        "type": "short_text",
+        "title": "second"
+      }
+    ],
+    "endings": [
+      {
+        "id": "e_end",
+        "ref": "end",
+        "title": "End"
+      }
+    ],
+    "logic": [
+      {
+        "blockId": "b_p"
+      }
+    ]
+  },
+  "expectIssues": [
+    "logic_on_page_break"
+  ]
+}

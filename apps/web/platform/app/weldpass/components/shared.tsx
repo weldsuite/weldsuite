@@ -5,6 +5,8 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Card } from '@weldsuite/ui/components/card';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { WeldPassAutoSyncOutcome } from '@weldsuite/app-api-client/domains/weldpass';
+import { getTranslations } from '@/lib/i18n';
+import { apiErrorCode } from '@/lib/partner/api-errors';
 
 export function statusTone(status: string): 'default' | 'secondary' | 'destructive' | 'outline' {
   if (status === 'success') return 'default';
@@ -76,6 +78,17 @@ export function AutoSyncSummary({
   );
 }
 
+/**
+ * A call that failed because the server can't use its WeldPass root key (500
+ * `CRYPTO_ERROR`): the key is missing, or isn't the one the data was sealed
+ * with. Nothing the caller can fix; the pages say so instead of a bare error.
+ */
+export function isKeyUnavailable(err: unknown): boolean {
+  return apiErrorCode(err) === 'CRYPTO_ERROR';
+}
+
 export function errorMessage(err: unknown, fallback: string): string {
+  // The server's message talks about a vault, also when a project was being made.
+  if (isKeyUnavailable(err)) return getTranslations('weldpass').keyUnavailable;
   return err instanceof Error && err.message ? err.message : fallback;
 }

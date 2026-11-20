@@ -10,7 +10,6 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@weldsuite/ui/components/tooltip';
 import {
-  ExternalLink,
   Globe,
   Server,
   Info,
@@ -217,7 +216,6 @@ function EnterDomainStep({
       subtitle={tx.subtitle}
       sections={sections}
       summaryTitle={tx.summarySetupTitle}
-      summaryIcon={ExternalLink}
       summaryFields={summaryFields}
       onSubmit={handleSubmit}
       isPending={isPending}
@@ -489,7 +487,6 @@ function ExternalDomainWizard({ initial }: { initial: ResumedWizard }) {
         subtitle={tx.verifySubtitle}
         sections={sections}
         summaryTitle={tx.summaryVerificationTitle}
-        summaryIcon={Shield}
         summaryFields={summaryFields}
         onSubmit={(e) => {
           e.preventDefault();
@@ -655,7 +652,6 @@ function ExternalDomainWizard({ initial }: { initial: ResumedWizard }) {
         subtitle={tx.importSubtitle}
         sections={sections}
         summaryTitle={tx.summaryImportTitle}
-        summaryIcon={Database}
         summaryFields={summaryFields}
         summaryContent={summaryContent}
         onSubmit={(e) => {
@@ -728,7 +724,6 @@ function ExternalDomainWizard({ initial }: { initial: ResumedWizard }) {
       subtitle={tx.nameserversSubtitle}
       sections={sections}
       summaryTitle={tx.summaryConnectedTitle}
-      summaryIcon={ExternalLink}
       summaryFields={summaryFields}
       onSubmit={(e) => {
         e.preventDefault();

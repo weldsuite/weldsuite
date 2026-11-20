@@ -145,6 +145,13 @@ export interface WeldConfig {
 
   // Optional
   testMode?: boolean;
+  /**
+   * Where the widget is served from, when it isn't WeldSuite's own
+   * (`https://widget.weldsuite.org`): a deployment such as WeldSuite EU names
+   * its widget host here. Shorthand for `api.baseUrl`, which wins when both
+   * are set.
+   */
+  baseUrl?: string;
   api?: Partial<ApiConfig>;
   iframes?: Partial<IframeConfig>;
   position?: {
@@ -289,6 +296,7 @@ export function resolveConfig(config: WeldConfig): ResolvedConfig {
     api: {
       ...DEFAULT_CONFIG.api,
       widgetId: config.widgetId,
+      ...(config.baseUrl ? { baseUrl: config.baseUrl } : {}),
       ...config.api,
     },
     iframes: {

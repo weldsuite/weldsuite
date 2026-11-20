@@ -99,13 +99,13 @@ export const ChatWidgetClient = forwardRef<ChatWidgetClientHandle, ChatWidgetCli
           <h3 className="text-sm font-medium">{tw.settings}</h3>
           <div className="flex items-center justify-between rounded-lg border px-4 py-3">
             <div>
-              <p className="text-sm font-medium">{t.helpdesk.settingsClient.chatWidgetEnabled}</p>
-              <p className="text-xs text-muted-foreground">{tw.behavior}</p>
+              <p id="widget-enabled-label" className="text-sm font-medium">{t.helpdesk.settingsClient.chatWidgetEnabled}</p>
+              <p className="text-xs text-muted-foreground">{tcp.enabledHint}</p>
             </div>
-            <Switch checked={enabled} onCheckedChange={setEnabled} />
+            <Switch checked={enabled} onCheckedChange={setEnabled} aria-labelledby="widget-enabled-label" />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="widget-greeting">{tw.chatViewTitle}</Label>
+            <Label htmlFor="widget-greeting">{tcp.greetingLabel}</Label>
             <Textarea
               id="widget-greeting"
               value={greeting}
@@ -119,7 +119,7 @@ export const ChatWidgetClient = forwardRef<ChatWidgetClientHandle, ChatWidgetCli
           <h3 className="text-sm font-medium">{tw.appearance}</h3>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="widget-color">{tw.appearance}</Label>
+              <Label htmlFor="widget-color">{tcp.colorLabel}</Label>
               <div className="flex items-center gap-2">
                 <Input
                   id="widget-color"
@@ -128,13 +128,17 @@ export const ChatWidgetClient = forwardRef<ChatWidgetClientHandle, ChatWidgetCli
                   onChange={(e) => setPrimaryColor(e.target.value)}
                   className="h-9 w-14 p-1"
                 />
-                <Input value={primaryColor} onChange={(e) => setPrimaryColor(e.target.value)} />
+                <Input
+                  value={primaryColor}
+                  onChange={(e) => setPrimaryColor(e.target.value)}
+                  aria-label={tcp.colorLabel}
+                />
               </div>
             </div>
             <div className="space-y-2">
-              <Label>{tw.availability}</Label>
+              <Label htmlFor="widget-position">{tcp.positionLabel}</Label>
               <Select value={position} onValueChange={(value) => setPosition(value as 'right' | 'left')}>
-                <SelectTrigger>
+                <SelectTrigger id="widget-position">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

@@ -691,11 +691,13 @@ export default function BookingPageDetailPage() {
             <div className="px-5 py-4 space-y-2">
               <div>
                 <p className="text-sm font-medium">{tc.bookingDetail.bookingLinkTitle}</p>
-                <p className="text-xs text-muted-foreground">{tc.bookingDetail.bookingLinkHint}</p>
+                <p className="text-xs text-muted-foreground">
+                  {bookingPortalUrl ? tc.bookingDetail.bookingLinkHint : tc.bookingDetail.bookingLinkNoPortal}
+                </p>
               </div>
               <div className="flex items-stretch rounded-md border border-input bg-background overflow-hidden focus-within:ring-1 focus-within:ring-ring">
                 <span className="flex items-center px-3 text-xs text-muted-foreground bg-muted/50 border-r border-input select-none truncate max-w-[60%]">
-                  {bookingPortalUrl.replace(/^https?:\/\//, '')}/{orgSlug}/
+                  {bookingPortalUrl ? `${bookingPortalUrl.replace(/^https?:\/\//, '')}/` : ''}{orgSlug}/
                 </span>
                 <input
                   value={slug}

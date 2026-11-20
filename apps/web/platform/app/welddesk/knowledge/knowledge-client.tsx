@@ -19,6 +19,7 @@ import {
   DialogTitle,
 } from "@weldsuite/ui/components/dialog";
 import { Badge } from "@weldsuite/ui/components/badge";
+import { ConfirmDialog } from "@weldsuite/ui/components/confirm-dialog";
 import {
   MoreVertical,
   Edit,
@@ -228,6 +229,9 @@ export function KnowledgeClient({
   const [newArticleTitle, setNewArticleTitle] = useState("");
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
 
+  // Delete confirmation (article or folder)
+  const [pendingDelete, setPendingDelete] = useState<{ kind: 'article' | 'folder'; id: string } | null>(null);
+
   // Update state when props change
   useEffect(() => {
     setData(items);
@@ -302,22 +306,26 @@ export function KnowledgeClient({
     );
   };
 
-  const handleDeleteArticle = (id: string) => {
-    if (!confirm(t.helpdesk.knowledgeEditor.confirmDeleteArticle)) return;
+  // The row menus only ask; the ConfirmDialog below runs the delete.
+  const handleDeleteArticle = (id: string) => setPendingDelete({ kind: 'article', id });
+  const handleDeleteFolder = (id: string) => setPendingDelete({ kind: 'folder', id });
+
+  const deleteArticle = (id: string) => {
     deleteArticleMutation.mutate(id, {
       onSuccess: () => {
         toast.success(t.helpdesk.knowledgeEditor.articleDeleted);
         setData((prev) => prev.filter((a) => a.id !== id));
+        setPendingDelete(null);
       },
       onError: () => toast.error(t.helpdesk.knowledgeEditor.failedToDeleteArticle),
     });
   };
 
-  const handleDeleteFolder = (id: string) => {
-    if (!confirm(t.helpdesk.knowledge.confirmDeleteFolder)) return;
+  const deleteFolder = (id: string) => {
     deleteFolderMutation.mutate(id, {
       onSuccess: async () => {
         toast.success(t.helpdesk.knowledge.folderDeleted);
+        setPendingDelete(null);
         await refetchFolders();
       },
       onError: () => toast.error(t.helpdesk.knowledge.failedToDeleteFolder),
@@ -914,6 +922,28 @@ export function KnowledgeClient({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        onOpenChange={(next) => !next && setPendingDelete(null)}
+        title={
+          pendingDelete?.kind === 'folder'
+            ? t.helpdesk.helpArticles.deleteFolderTitle
+            : t.helpdesk.helpArticles.deleteArticleTitle
+        }
+        description={
+          pendingDelete?.kind === 'folder'
+            ? t.helpdesk.knowledge.confirmDeleteFolder
+            : t.helpdesk.knowledgeEditor.confirmDeleteArticle
+        }
+        confirmLabel={t.helpdesk.helpArticles.deleteItem}
+        variant="destructive"
+        loading={deleteArticleMutation.isPending || deleteFolderMutation.isPending}
+        onConfirm={() => {
+          if (pendingDelete?.kind === 'folder') deleteFolder(pendingDelete.id);
+          else if (pendingDelete) deleteArticle(pendingDelete.id);
+        }}
+      />
     </>
   );
 }

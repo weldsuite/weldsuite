@@ -83,7 +83,16 @@ fn normalise(value: &Value, key: &str) -> Value {
                 .map(|(k, v)| (k.clone(), normalise(v, k)))
                 .collect(),
         ),
-        Value::Number(_) if key == "duration" || key == "ts" => json!("<n>"),
+        // Wall-clock: how long the run took, and WeldDesk's ticket times
+        // (`reporting_times`), which count seconds since the ticket opened.
+        Value::Number(_)
+            if matches!(
+                key,
+                "duration" | "ts" | "resolutionSeconds" | "firstResponseSeconds"
+            ) =>
+        {
+            json!("<n>")
+        }
         Value::String(text) => {
             if is_iso(text) && !is_seeded(text) {
                 return json!("<ts>");
@@ -348,6 +357,7 @@ async fn run_case(db: &PgPool, clear: &[Value], case: &Value) -> Value {
         },
         assignment: None,
         merge: None,
+        ai: None,
     };
     let ctx = TestCtx {
         key: input["instanceId"].as_str().unwrap().to_owned(),

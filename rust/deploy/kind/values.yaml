@@ -7,6 +7,10 @@ image:
 replicaCount: 1
 config:
   environment: kind
+  # The script signs Clerk-style session tokens with its own key; its OIDC
+  # step switches to oidc later.
+  auth:
+    provider: clerk
   logFormat: text
   shutdownDelaySeconds: 1
   nats:

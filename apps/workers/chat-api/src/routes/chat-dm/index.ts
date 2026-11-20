@@ -6,6 +6,9 @@
  *   POST /                 — create-or-get a DM with a set of users
  *   GET  /:targetUserId    — get-or-create the 1:1 DM with a specific user
  *
+ * Both only take workspace members who have joined: someone invited but not
+ * yet accepted gets a 409 with `details.reason = 'invitation_pending'`.
+ *
  * New DMs notify the other participants over the realtime WorkspaceHub
  * (REALTIME binding) and via the `@weldsuite/notifications` helper.
  *
@@ -15,13 +18,18 @@
  * Permissions: messages:read | messages:create.
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { RealtimePublisher } from '@weldsuite/realtime/server';
 import { sendChatDmNotification } from '@weldsuite/notifications';
-import { createDmSchema, pinDmSchema } from '@weldsuite/app-api-client/schemas/chat-dm';
+import {
+  createDmSchema,
+  DM_INVITATION_PENDING,
+  isInvitePlaceholderUserId,
+  pinDmSchema,
+} from '@weldsuite/app-api-client/schemas/chat-dm';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { error, noContent, success } from '@weldsuite/worker-kit/response';
@@ -81,6 +89,33 @@ async function findUnknownWorkspaceUserIds(db: Database, userIds: string[]): Pro
     .where(inArray(schema.workspaceMembers.userId, userIds));
   const known = new Set(rows.map((r) => r.userId));
   return userIds.filter((id) => !known.has(id));
+}
+
+/**
+ * The subset of `userIds` that was invited to the workspace but has not
+ * accepted yet: a PENDING member row, or a user id that is still an
+ * invitation's placeholder. Nobody is messaged before they join: the invitee
+ * can't read the DM, and accepting moves their member row to a new user id,
+ * which would leave the DM with a placeholder nobody signs in as.
+ */
+async function findPendingInviteeUserIds(db: Database, userIds: string[]): Promise<string[]> {
+  if (userIds.length === 0) return [];
+  const rows = await db
+    .select({ userId: schema.workspaceMembers.userId })
+    .from(schema.workspaceMembers)
+    .where(
+      and(inArray(schema.workspaceMembers.userId, userIds), eq(schema.workspaceMembers.status, 'PENDING')),
+    );
+  const pending = new Set(rows.map((r) => r.userId));
+  return userIds.filter((id) => pending.has(id) || isInvitePlaceholderUserId(id));
+}
+
+/** 409 for a DM with someone who hasn't accepted their invitation; clients branch on `details.reason`. */
+function invitationPending(c: Context, userIds: string[]) {
+  return error.conflict(c, 'Some people have not accepted their workspace invitation yet', {
+    reason: DM_INVITATION_PENDING,
+    userIds,
+  });
 }
 
 app.get('/', requirePermission('messages:read'), async (c) => {
@@ -156,16 +191,18 @@ app.post('/', requirePermission('messages:create'), zValidator('json', createDmS
 
     const allUserIds = Array.from(new Set([userId, ...userIds]));
     const participantCount = allUserIds.length;
+    const otherUserIds = allUserIds.filter((id) => id !== userId);
 
-    const unknownUserIds = await findUnknownWorkspaceUserIds(
-      db,
-      allUserIds.filter((id) => id !== userId),
-    );
+    const unknownUserIds = await findUnknownWorkspaceUserIds(db, otherUserIds);
     if (unknownUserIds.length > 0) {
       return error.badRequest(c, 'Some users are not members of this workspace', {
         userIds: unknownUserIds,
       });
     }
+    // Checked before the existing-DM lookup, so a DM made with an invitee
+    // before this guard existed doesn't keep taking messages either.
+    const pendingUserIds = await findPendingInviteeUserIds(db, otherUserIds);
+    if (pendingUserIds.length > 0) return invitationPending(c, pendingUserIds);
 
     // Try to find an existing DM channel with exactly these participants.
     const userDmChannels = await db
@@ -223,7 +260,6 @@ app.post('/', requirePermission('messages:create'), zValidator('json', createDmS
     }
 
     // No existing DM — create one.
-    const otherUserIds = allUserIds.filter((id) => id !== userId);
     const otherMembers =
       otherUserIds.length > 0
         ? await db
@@ -301,6 +337,12 @@ app.get('/:targetUserId', requirePermission('messages:read'), async (c) => {
 
     const allUserIds = Array.from(new Set([userId, targetUserId])).sort(byCodeUnit);
     const participantCount = allUserIds.length;
+
+    // Before the existing-DM lookup, as in POST /.
+    if (targetUserId !== userId) {
+      const pendingUserIds = await findPendingInviteeUserIds(db, [targetUserId]);
+      if (pendingUserIds.length > 0) return invitationPending(c, pendingUserIds);
+    }
 
     const userDmChannels = await db
       .select({ channelId: chatChannelMembers.channelId })

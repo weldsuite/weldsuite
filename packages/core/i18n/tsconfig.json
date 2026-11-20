@@ -7,7 +7,9 @@
     },
     "types": [],
     "moduleResolution": "bundler",
-    "module": "ESNext"
+    "module": "ESNext",
+    "declaration": false,
+    "declarationMap": false
   },
   "include": ["src"],
   "exclude": ["node_modules", "dist"]

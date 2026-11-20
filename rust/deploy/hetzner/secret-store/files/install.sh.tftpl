@@ -1,0 +1,26 @@
+#!/bin/bash
+# The store's first boot (cloud-init runcmd, after the packages): installs
+# the pinned OpenBao release, puts the settings cloud-init wrote in
+# /etc/secret-store in place, and starts OpenBao and Caddy. OpenBao starts
+# uninitialised and sealed; README, "First start" takes it from there.
+# Output: /var/log/cloud-init-output.log.
+set -euo pipefail
+
+deb=/root/openbao.deb
+curl -fsSL -o "$deb" \
+  "https://github.com/openbao/openbao/releases/download/v${openbao_version}/openbao_${openbao_version}_linux_amd64.deb"
+echo "${openbao_deb_sha256}  $deb" | sha256sum -c -
+DEBIAN_FRONTEND=noninteractive apt-get install -y "$deb"
+rm -f "$deb"
+
+install -m 0640 -o root -g openbao /etc/secret-store/openbao.hcl /etc/openbao/openbao.hcl
+install -d -m 0750 -o openbao -g openbao /opt/openbao/data /var/log/openbao
+systemctl enable --now openbao
+
+# Caddy asks Let's Encrypt for the certificate once the hostname points
+# here, and keeps retrying until it does.
+install -m 0644 /etc/secret-store/Caddyfile /etc/caddy/Caddyfile
+systemctl restart caddy
+
+systemctl daemon-reload
+systemctl enable --now bao-snapshot.timer

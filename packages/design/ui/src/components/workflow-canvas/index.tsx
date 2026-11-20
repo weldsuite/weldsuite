@@ -9,8 +9,12 @@
  *   import { WorkflowCanvas } from '@weldsuite/ui/components/workflow-canvas';
  */
 
-export { WorkflowCanvas } from './workflow-canvas';
-export type { WorkflowCanvasProps } from './workflow-canvas';
+export { WorkflowCanvas, CanvasControls } from './workflow-canvas';
+export type { WorkflowCanvasProps, CanvasControlsLabels } from './workflow-canvas';
+
+// The card every node is drawn as, for other canvases in the same style.
+export { StepCard, STEP_HANDLE_CLASS } from './parts/step-card';
+export type { StepCardState } from './parts/step-card';
 
 // Named node components (for consumers that need to mount them in their own ReactFlow)
 export { TriggerNode } from './trigger-node';
@@ -30,6 +34,8 @@ export {
   getTotalNodeHeight,
   getActionIcon,
   getActionColor,
+  NODE_WIDTH,
+  NODE_HEIGHT,
   getConditionBranchIds,
   getLoopBodyBranchId,
   isBranchingStepType,

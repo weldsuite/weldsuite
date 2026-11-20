@@ -1,6 +1,6 @@
 /**
  * Object-mode coverage for the MCP server's copy of the mail routes (design
- * docs/plans/weldmail-mailbox-store-design.md, task D5): same route code as
+ * weldsuite-documentation/plans/weldmail-mailbox-store-design.md, task D5): same route code as
  * external-api's `src/test/mail-object-mode.test.ts`, dispatched the way a
  * tool call actually reaches it — through `apiApp.fetch()` with an
  * `McpSession` — so this exercises `src/api/lib/mail-store-context.ts` and the

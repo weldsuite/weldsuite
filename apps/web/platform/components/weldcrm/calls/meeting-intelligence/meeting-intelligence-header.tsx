@@ -1,5 +1,6 @@
 
 import { Button } from '@weldsuite/ui/components/button';
+import { RecordingHeader } from '@weldsuite/ui/components/recording-layout';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -8,7 +9,6 @@ import {
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import {
-  ChevronLeft,
   Loader2,
   MoreVertical,
   Phone,
@@ -36,6 +36,8 @@ interface MeetingIntelligenceHeaderProps {
   onDelete?: () => void;
   onMinimize?: () => void;
   onRename?: () => void;
+  onTitleChange?: (title: string) => void;
+  titleLabel?: string;
   onCopyJoinCode?: () => void;
   onCopyLink?: () => void;
   onScheduleAgain?: () => void;
@@ -56,6 +58,8 @@ export function MeetingIntelligenceHeader({
   onTranscribe,
   onDelete,
   onRename,
+  onTitleChange,
+  titleLabel,
   onCopyJoinCode,
   onCopyLink,
   onScheduleAgain,
@@ -71,126 +75,124 @@ export function MeetingIntelligenceHeader({
   const platformInfo = detectPlatform(call.platform, call.meetingUrl);
   const MediaIcon = mediaType === 'audio' ? Phone : Video;
 
+  // The shared recording header (WeldPanel replays use it too), with this page's actions.
   return (
-    <div className="h-[53px] flex-shrink-0 border-b border-gray-200 dark:border-border bg-white dark:bg-background flex items-center justify-between pl-6 pr-4">
-      <div className="flex items-center gap-3">
-        <Button
-          variant="outline"
-          size="icon"
-          onClick={onBack}
-          className="-ml-2 h-8 w-8"
-        >
-          <ChevronLeft className="h-4 w-4" />
-        </Button>
-        <div className="h-8 w-11 rounded-lg bg-gray-100 dark:bg-secondary border border-gray-200 dark:border-border flex items-center justify-center flex-shrink-0">
-          {platformInfo ? (
-            <img src={platformInfo.icon} alt={platformInfo.name} className="h-5 w-5" />
-          ) : (
-            <MediaIcon className="h-4 w-4 text-gray-500 dark:text-muted-foreground" />
-          )}
-        </div>
-        <span className="text-base font-semibold text-gray-900 dark:text-foreground truncate min-w-0">{call.subject || t('sweep.weldcrm.meetingIntelligenceHeader.untitledCall')}</span>
-      </div>
-      <div className="flex items-center gap-1">
-        {!hasTranscription && !isLoadingTranscription && onTranscribe && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8"
-            onClick={onTranscribe}
-            disabled={isTranscribing}
-          >
-            {isTranscribing ? (
-              <>
-                <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                {t('sweep.weldcrm.meetingIntelligenceHeader.transcribing')}
-              </>
-            ) : (
-              t('sweep.weldcrm.meetingIntelligenceHeader.transcribe')
-            )}
-          </Button>
-        )}
-        {headerActions?.map((action) => (
-          <Button
-            key={action.label}
-            variant={action.variant || 'ghost'}
-            size={action.showLabel ? 'sm' : 'icon-sm'}
-            className={action.showLabel ? 'h-8 gap-1.5' : undefined}
-            onClick={action.onClick}
-            disabled={action.disabled}
-            title={action.label}
-          >
-            {action.icon}
-            {action.showLabel && action.label}
-          </Button>
-        ))}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon-sm" className="data-[state=open]:bg-accent">
-              <MoreVertical className="h-4 w-4" />
+    <RecordingHeader
+      onBack={onBack}
+      backLabel={t('common.actions.back')}
+      icon={
+        platformInfo ? (
+          <img src={platformInfo.icon} alt={platformInfo.name} className="h-5 w-5" />
+        ) : (
+          <MediaIcon className="h-4 w-4 text-gray-500 dark:text-muted-foreground" />
+        )
+      }
+      title={call.subject || t('sweep.weldcrm.meetingIntelligenceHeader.untitledCall')}
+      onRename={onTitleChange}
+      titleLabel={titleLabel}
+      actions={
+        <>
+          {!hasTranscription && !isLoadingTranscription && onTranscribe && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8"
+              onClick={onTranscribe}
+              disabled={isTranscribing}
+            >
+              {isTranscribing ? (
+                <>
+                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                  {t('sweep.weldcrm.meetingIntelligenceHeader.transcribing')}
+                </>
+              ) : (
+                t('sweep.weldcrm.meetingIntelligenceHeader.transcribe')
+              )}
             </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-48">
-            {onCopyJoinCode && (
-              <DropdownMenuItem onClick={onCopyJoinCode}>
-                <Copy className="h-3.5 w-3.5 mr-0.5" />
-                {t('sweep.weldcrm.meetingIntelligenceHeader.copyJoinCode')}
-              </DropdownMenuItem>
-            )}
-            {onCopyLink && (
-              <DropdownMenuItem onClick={onCopyLink}>
-                <Link className="h-3.5 w-3.5 mr-0.5" />
-                {t('sweep.weldcrm.meetingIntelligenceHeader.copyMeetingLink')}
-              </DropdownMenuItem>
-            )}
-            {onRename && (
-              <DropdownMenuItem onClick={onRename}>
-                <Pencil className="h-3.5 w-3.5 mr-0.5" />
-                {t('sweep.weldcrm.meetingIntelligenceHeader.rename')}
-              </DropdownMenuItem>
-            )}
-            {onScheduleAgain && (
-              <DropdownMenuItem onClick={onScheduleAgain}>
-                <CalendarPlus className="h-3.5 w-3.5 mr-0.5" />
-                {t('sweep.weldcrm.meetingIntelligenceHeader.scheduleAgain')}
-              </DropdownMenuItem>
-            )}
-            {onDownloadRecording && (
-              <DropdownMenuItem onClick={onDownloadRecording}>
-                <Download className="h-3.5 w-3.5 mr-0.5" />
-                {t('sweep.weldcrm.meetingIntelligenceHeader.downloadRecording')}
-              </DropdownMenuItem>
-            )}
-            {onExportTranscript && (
-              <DropdownMenuItem onClick={onExportTranscript}>
-                <FileText className="h-3.5 w-3.5 mr-0.5" />
-                {t('sweep.weldcrm.meetingIntelligenceHeader.exportTranscript')}
-              </DropdownMenuItem>
-            )}
-            {onDeleteRecording && (
-              <DropdownMenuItem
-                className="text-red-500 focus:text-red-500 focus:bg-red-500/10"
-                onClick={onDeleteRecording}
-              >
-                <Trash2 className="h-3.5 w-3.5 mr-0.5 text-red-500" />
-                {deleteRecordingLabel ?? t('sweep.weldcrm.meetingIntelligenceHeader.deleteMeeting')}
-              </DropdownMenuItem>
-            )}
-            {onDelete && (
-              <>
-                <DropdownMenuSeparator />
+          )}
+          {headerActions?.map((action) => (
+            <Button
+              key={action.label}
+              variant={action.variant || 'ghost'}
+              size={action.showLabel ? 'sm' : 'icon-sm'}
+              className={action.showLabel ? 'h-8 gap-1.5' : undefined}
+              onClick={action.onClick}
+              disabled={action.disabled}
+              title={action.label}
+              aria-label={action.showLabel ? undefined : action.label}
+            >
+              {action.icon}
+              {action.showLabel && action.label}
+            </Button>
+          ))}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon-sm" className="data-[state=open]:bg-accent" aria-label={t('common.actions.openMenu')} title={t('common.actions.openMenu')}>
+                <MoreVertical className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              {onCopyJoinCode && (
+                <DropdownMenuItem onClick={onCopyJoinCode}>
+                  <Copy className="h-3.5 w-3.5 mr-0.5" />
+                  {t('sweep.weldcrm.meetingIntelligenceHeader.copyJoinCode')}
+                </DropdownMenuItem>
+              )}
+              {onCopyLink && (
+                <DropdownMenuItem onClick={onCopyLink}>
+                  <Link className="h-3.5 w-3.5 mr-0.5" />
+                  {t('sweep.weldcrm.meetingIntelligenceHeader.copyMeetingLink')}
+                </DropdownMenuItem>
+              )}
+              {onRename && (
+                <DropdownMenuItem onClick={onRename}>
+                  <Pencil className="h-3.5 w-3.5 mr-0.5" />
+                  {t('sweep.weldcrm.meetingIntelligenceHeader.rename')}
+                </DropdownMenuItem>
+              )}
+              {onScheduleAgain && (
+                <DropdownMenuItem onClick={onScheduleAgain}>
+                  <CalendarPlus className="h-3.5 w-3.5 mr-0.5" />
+                  {t('sweep.weldcrm.meetingIntelligenceHeader.scheduleAgain')}
+                </DropdownMenuItem>
+              )}
+              {onDownloadRecording && (
+                <DropdownMenuItem onClick={onDownloadRecording}>
+                  <Download className="h-3.5 w-3.5 mr-0.5" />
+                  {t('sweep.weldcrm.meetingIntelligenceHeader.downloadRecording')}
+                </DropdownMenuItem>
+              )}
+              {onExportTranscript && (
+                <DropdownMenuItem onClick={onExportTranscript}>
+                  <FileText className="h-3.5 w-3.5 mr-0.5" />
+                  {t('sweep.weldcrm.meetingIntelligenceHeader.exportTranscript')}
+                </DropdownMenuItem>
+              )}
+              {onDeleteRecording && (
                 <DropdownMenuItem
                   className="text-red-500 focus:text-red-500 focus:bg-red-500/10"
-                  onClick={onDelete}
+                  onClick={onDeleteRecording}
                 >
                   <Trash2 className="h-3.5 w-3.5 mr-0.5 text-red-500" />
-                  {t('sweep.weldcrm.meetingIntelligenceHeader.deleteMeeting')}
+                  {deleteRecordingLabel ?? t('sweep.weldcrm.meetingIntelligenceHeader.deleteMeeting')}
                 </DropdownMenuItem>
-              </>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-    </div>
+              )}
+              {onDelete && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="text-red-500 focus:text-red-500 focus:bg-red-500/10"
+                    onClick={onDelete}
+                  >
+                    <Trash2 className="h-3.5 w-3.5 mr-0.5 text-red-500" />
+                    {t('sweep.weldcrm.meetingIntelligenceHeader.deleteMeeting')}
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </>
+      }
+    />
   );
 }

@@ -2,7 +2,7 @@
  * US federal and state filings built from final payslips: Form 941 per
  * quarter, Form 940 and W-2/W-3 per year, and state withholding and
  * unemployment wage reports per quarter. WeldSuite prepares them; the
- * employer files and pays (self-service model, docs/plans/weldhr-payroll.md).
+ * employer files and pays (self-service model, weldsuite-documentation/plans/weldhr-payroll.md).
  *
  * Sources (fetched 9 October 2026):
  * - Instructions for Form 941 (03/2026), https://www.irs.gov/instructions/i941

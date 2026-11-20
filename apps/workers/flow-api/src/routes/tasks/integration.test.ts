@@ -458,6 +458,53 @@ describe('/api/tasks · project list pagination · pglite integration', () => {
   });
 });
 
+describe('/api/tasks · project search finds subtasks · pglite integration', () => {
+  const projectId = 'proj_subsearch';
+
+  beforeAll(async () => {
+    const now = new Date();
+    await db
+      .insert(schema.projects)
+      .values({ id: projectId, name: 'Sub search', createdAt: now, updatedAt: now } as typeof schema.projects.$inferInsert);
+    await db.insert(schema.tasks).values([
+      { id: 'task_ss_parent', title: 'Parent alpha', projectId, createdAt: now, updatedAt: now },
+      { id: 'task_ss_child', title: 'E2E Subtask B', projectId, parentTaskId: 'task_ss_parent', createdAt: now, updatedAt: now },
+      { id: 'task_ss_grand', title: 'Deep needle', projectId, parentTaskId: 'task_ss_child', createdAt: now, updatedAt: now },
+      { id: 'task_ss_other', title: 'Unrelated top', projectId, createdAt: now, updatedAt: now },
+      { id: 'task_ss_gone', title: 'Removed needle', projectId, parentTaskId: 'task_ss_other', deletedAt: now, createdAt: now, updatedAt: now },
+    ] as (typeof schema.tasks.$inferInsert)[]);
+  });
+
+  async function search(term: string) {
+    const { request } = createTestApp('/api/tasks', tasksRoutes, {
+      context: { permissions: permissions('tasks:read', 'projects:scope:all'), tenantDb: db },
+    });
+    const res = await request(
+      `/api/tasks?projectId=${projectId}&limit=50&includeSubtasks=true&search=${encodeURIComponent(term)}`,
+    );
+    expect(res.status).toBe(200);
+    return (await res.json()) as {
+      data: Array<{ id: string; children?: Array<{ id: string }> }>;
+      pagination: { totalCount: number };
+    };
+  }
+
+  it('returns the parent of a matching subtask, with the subtask in its tree', async () => {
+    const body = await search('E2E Subtask');
+    expect(body.data.map((row) => row.id)).toEqual(['task_ss_parent']);
+    expect(body.pagination.totalCount).toBe(1);
+    expect(body.data[0]!.children?.map((row) => row.id)).toEqual(['task_ss_child']);
+  });
+
+  it('walks up from a match at any depth, and ignores deleted subtasks', async () => {
+    expect((await search('needle')).data.map((row) => row.id)).toEqual(['task_ss_parent']);
+  });
+
+  it('still matches top-level tasks on their own fields', async () => {
+    expect((await search('Unrelated')).data.map((row) => row.id)).toEqual(['task_ss_other']);
+  });
+});
+
 describe('/api/tasks · CRM company link · pglite integration', () => {
   const companyId = 'company_link_acme';
   const deletedCompanyId = 'company_link_gone';

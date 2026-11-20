@@ -694,28 +694,31 @@ describe('assets from bill lines', () => {
 // ---------------------------------------------------------------------------
 
 describe('entities outside the US', () => {
-  it('a Dutch asset gets only the ledger book and needs its accounts named', async () => {
+  it('a Dutch asset gets only the ledger book, on the fixed asset accounts of the Dutch chart', async () => {
     const entity = await createEntity('Nederland BV', 'NL');
     const base = { name: 'Laptop', acquisitionDate: '2026-03-01', cost: 1200, usefulLifeYears: 4 };
-    const missing = await assets(entity.id, '', { method: 'POST', body: base });
-    expect(missing.status).toBe(400);
-    expect(missing.error?.message).toMatch(/accumulated depreciation account/);
-
-    await db.insert(schema.accounts).values([
-      { id: 'acc_nl_accum', entityId: entity.id, code: '0290', name: 'Cumulatieve afschrijving', type: 'asset', subtype: 'fixed_assets', normalSide: 'credit' },
-    ]);
-    const res = await assets(entity.id, '', {
-      method: 'POST',
-      body: { ...base, assetClass: '5', accumulatedDepreciationAccountId: 'acc_nl_accum', depreciationExpenseAccountId: entity.accounts['4700'] },
-    });
+    const res = await assets(entity.id, '', { method: 'POST', body: { ...base, assetClass: '5' } });
     expect(res.status).toBe(201);
     expect(res.data.books.map((b: { book: string }) => b.book)).toEqual(['book']);
-    expect(res.data.assetAccountId).toBeTruthy();
+    expect(res.data.assetAccountId).toBe(entity.accounts['0200']);
+    expect(res.data.accumulatedDepreciationAccountId).toBe(entity.accounts['0290']);
+    expect(res.data.depreciationExpenseAccountId).toBe(entity.accounts['4700']);
 
     const run = await assets(entity.id, '/depreciation/run', { method: 'POST', body: { through: '2026-04-30' } });
     expect(run.data.posted.map((p: { amount: number }) => p.amount)).toEqual([25, 25]);
     const report = await assets(entity.id, '/tax-depreciation?taxYear=2026');
     expect(report.data.lines).toEqual([]);
+  });
+
+  it('a Dutch entity seeded before its chart had an accumulated depreciation account is asked to name one', async () => {
+    const entity = await createEntity('Oud BV', 'NL');
+    await db.delete(schema.accounts).where(eq(schema.accounts.id, entity.accounts['0290']));
+    const missing = await assets(entity.id, '', {
+      method: 'POST',
+      body: { name: 'Laptop', acquisitionDate: '2026-03-01', cost: 1200, usefulLifeYears: 4 },
+    });
+    expect(missing.status).toBe(400);
+    expect(missing.error?.message).toMatch(/^Choose an accumulated depreciation account: this chart of accounts has no default/);
   });
 });
 

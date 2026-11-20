@@ -71,7 +71,7 @@ import { linkAccount } from '../../test/fake-review';
 
 const SECRET = 'sk_test_setup_state';
 const KEY = 'ab'.repeat(32);
-const PROVIDERS = 'https://app.weldsuite.org/w/org_alpha/weldmerge/settings?tab=providers';
+const PROVIDERS = 'https://app.weldsuite.org/w/org_alpha/settings/apps/weldmerge?tab=providers';
 
 let db: Database;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- pglite drizzle stands in for neon-http
@@ -146,18 +146,18 @@ describe('errors redirect to the providers tab and write nothing', () => {
     const calls = github();
     let res = await setup('');
     expect(res.status).toBe(302);
-    expect(locationOf(res)).toBe('https://app.weldsuite.org/weldmerge/settings?tab=providers&error=missing_params');
+    expect(locationOf(res)).toBe('https://app.weldsuite.org/settings/apps/weldmerge?tab=providers&error=missing_params');
 
     res = await setup(`?installation_id=abc&state=${await state()}`);
     expect(locationOf(res)).toContain('error=missing_params');
 
     res = await setup(`?installation_id=4242&state=${await state({}, 'another-secret')}`);
-    expect(locationOf(res)).toBe('https://app.weldsuite.org/weldmerge/settings?tab=providers&error=invalid_state');
+    expect(locationOf(res)).toBe('https://app.weldsuite.org/settings/apps/weldmerge?tab=providers&error=invalid_state');
     res = await setup('?installation_id=4242&state=not.a.jwt');
     expect(locationOf(res)).toContain('error=invalid_state');
 
     res = await setup(`?installation_id=4242&state=${await state({ workspaceId: 'ws_unknown' })}`);
-    expect(locationOf(res)).toBe('https://app.weldsuite.org/weldmerge/settings?tab=providers&error=workspace_unavailable');
+    expect(locationOf(res)).toBe('https://app.weldsuite.org/settings/apps/weldmerge?tab=providers&error=workspace_unavailable');
 
     res = await setup(`?installation_id=4242&code=c1&state=${await state()}`, { DATABASE_ENCRYPTION_KEY: undefined });
     expect(locationOf(res)).toBe(`${PROVIDERS}&error=configuration_error`);

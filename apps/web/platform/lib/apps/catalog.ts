@@ -153,6 +153,14 @@ const FALLBACK_CATALOG: Record<string, AppDefinition> = {
     category: 'Sales & Marketing',
     path: '/weldpanel',
   },
+  weldforms: {
+    code: 'weldforms',
+    name: 'WeldForms',
+    description: 'Forms and surveys with branching logic, quizzes and themes',
+    icon: 'ClipboardList',
+    category: 'Productivity',
+    path: '/weldforms',
+  },
   weldmerge: {
     code: 'weldmerge',
     name: 'WeldMerge',

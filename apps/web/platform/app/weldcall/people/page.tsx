@@ -242,6 +242,9 @@ function CallPeopleContent() {
     // Key from when this page was Contacts; kept so saved column layouts survive.
     gridViewName: 'weldcall-contact',
     entityNamePlural: tc.entityNamePlural,
+    // The list holds only people with a phone number, not every person.
+    emptyTitle: tc.emptyTitle,
+    emptyHint: tc.emptyHint,
     columns: buildCallPeopleColumns(tc),
     getEntityId: (p) => p.id,
     getEntityName: (p) => p.displayName,

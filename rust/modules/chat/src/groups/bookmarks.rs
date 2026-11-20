@@ -1,5 +1,6 @@
 //! `/api/chat-bookmarks` (`routes/chat-bookmarks/index.ts`): the caller's
-//! own saved messages, with the message and channel they point at.
+//! own saved messages, with the message and channel they point at. A deleted
+//! channel (soft-deleted, `deleted_at` set) hides the bookmarks into it.
 
 use std::sync::Arc;
 
@@ -85,7 +86,8 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
             " from chat_bookmarks t
              left join chat_messages m on t.message_id = m.id
              left join chat_channels c on t.channel_id = c.id
-             where t.user_id = $1 and ($2::text is null or t.channel_id = $2)
+             where t.user_id = $1 and c.deleted_at is null
+               and ($2::text is null or t.channel_id = $2)
                and ($3::text is null or (t.created_at < $3::timestamp
                     or (t.created_at = $3::timestamp and t.id < $4)))
              order by t.created_at desc, t.id desc limit $5"
@@ -99,7 +101,9 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         .await?;
         let total: i64 = sqlx::query_scalar(
             "select count(*) from chat_bookmarks t
-             where t.user_id = $1 and ($2::text is null or t.channel_id = $2)",
+             left join chat_channels c on t.channel_id = c.id
+             where t.user_id = $1 and c.deleted_at is null
+               and ($2::text is null or t.channel_id = $2)",
         )
         .bind(&caller.user_id)
         .bind(&channel)
@@ -121,7 +125,7 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
             " from chat_bookmarks t
              left join chat_messages m on t.message_id = m.id
              left join chat_channels c on t.channel_id = c.id
-             where t.id = $1 and t.user_id = $2 limit 1"
+             where t.id = $1 and t.user_id = $2 and c.deleted_at is null limit 1"
         ))
         .bind(&id)
         .bind(&caller.user_id)

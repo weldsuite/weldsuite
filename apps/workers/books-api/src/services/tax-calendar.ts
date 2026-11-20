@@ -1,5 +1,5 @@
 /**
- * The tax due-date calendar of a US entity (docs/plans/weldbooks-us.md §5, phase
+ * The tax due-date calendar of a US entity (weldsuite-documentation/plans/weldbooks-us.md §5, phase
  * 8): income tax returns and extensions, estimated tax, 1099s, payroll
  * deadlines (informational) and the sales tax returns of every agency, from the
  * domain's `taxCalendar`, merged with what the user marked done and with the

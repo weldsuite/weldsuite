@@ -11,7 +11,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { CursorStore } from '@weldsuite/realtime';
 
-const KEY_PREFIX = 'weldsuite.realtime.cursor.';
+/** Every stored cursor starts with this (so the per-server cleanup can find them). */
+export const CURSOR_KEY_PREFIX = 'weldsuite.realtime.cursor.';
+const KEY_PREFIX = CURSOR_KEY_PREFIX;
 
 export function createAsyncStorageCursorStore(workspaceId: string): CursorStore {
   const key = `${KEY_PREFIX}${workspaceId}`;

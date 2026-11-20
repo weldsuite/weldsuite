@@ -14,6 +14,21 @@ ignore = [
   # async-imap 0.12.0 (crates/adapters-oss, the IMAP mail adapter), the newest
   # release. Drop this once async-imap moves to core::pin::pin!.
   { id = "RUSTSEC-2026-0441", reason = "unmaintained, no fix: async-imap 0.12.0 still depends on pin-utils" },
+  # chrono is unmaintained (2026-11-17), not vulnerable, and no release is
+  # safe from the notice. Its users are async-imap 0.12.0 and, since WeldPanel's
+  # analytics store (EVT-019), Arrow 58 and iceberg 0.11 (crates/lakehouse).
+  # Drop this once all of them move to jiff or time.
+  { id = "RUSTSEC-2026-0543", reason = "unmaintained, no fix: async-imap 0.12.0, Arrow 58 and iceberg 0.11 depend on chrono" },
+  # The next three are unmaintained, not vulnerable, and come in with
+  # DataFusion 54 and Arrow 58 (crates/lakehouse, EVT-019; iceberg-datafusion
+  # 0.11 pins DataFusion 54). Re-check each when DataFusion is upgraded.
+  # chrono-tz: Arrow's time-zone support (arrow-array, arrow-cast).
+  { id = "RUSTSEC-2026-0555", reason = "unmaintained, no fix: Arrow 58 depends on chrono-tz" },
+  # humantime: DataFusion's config parsing (datafusion-common).
+  { id = "RUSTSEC-2026-0542", reason = "unmaintained, no fix: DataFusion 54 depends on humantime" },
+  # paste: a macro crate used by DataFusion 54, iceberg 0.11 and
+  # datafusion-functions-json; it leaves nothing behind at run time.
+  { id = "RUSTSEC-2024-0436", reason = "unmaintained, no fix: DataFusion 54, iceberg 0.11 and datafusion-functions-json depend on paste" },
 ]
 
 [licenses]
@@ -26,6 +41,10 @@ allow = [
   "Apache-2.0",
   "Apache-2.0 WITH LLVM-exception",
   "BSD-2-Clause",
+  # The bzip2 licence: BSD-style and permissive, no copyleft. libbz2-rs-sys,
+  # the Rust port of libbzip2, comes in through DataFusion 54's default
+  # compression codecs (crates/lakehouse, EVT-019). Accepted 2026-11-18.
+  "bzip2-1.0.6",
   "BSD-3-Clause",
   "BSL-1.0",
   "CC0-1.0",

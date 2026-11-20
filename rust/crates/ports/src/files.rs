@@ -39,6 +39,16 @@ pub struct StoredObject {
     pub bytes: Vec<u8>,
 }
 
+/// One object a listing names.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ListedObject {
+    pub key: String,
+    pub size: u64,
+    /// When it was last written, milliseconds since 1970 (S3's
+    /// `LastModified`); `None` when the store doesn't say.
+    pub last_modified_ms: Option<i64>,
+}
+
 /// What to store with an object's bytes.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PutOptions {
@@ -249,6 +259,18 @@ pub trait FileStore: Send + Sync {
     /// R2's `delete([...])`: every key, in as few requests as the store
     /// allows.
     fn delete_many(&self, keys: &[String]) -> impl Future<Output = Result<(), PortError>> + Send;
+
+    /// Every object whose key starts with `prefix`, in key order (R2's
+    /// `list({ prefix })` followed through its cursor, S3's
+    /// `ListObjectsV2`). For upkeep jobs (WeldPanel's orphan-file sweep),
+    /// not request paths. A store that can't list says so.
+    fn list(
+        &self,
+        prefix: &str,
+    ) -> impl Future<Output = Result<Vec<ListedObject>, PortError>> + Send {
+        let refused = PortError::backend(format!("this store can't list {prefix:?}"));
+        std::future::ready(Err(refused))
+    }
 }
 
 /// Object-safe [`FileStore`], for `Arc<dyn DynFileStore>`.
@@ -274,6 +296,10 @@ pub trait DynFileStore: Send + Sync {
     ) -> BoxFuture<'a, Result<Option<ObjectInfo>, PortError>>;
     fn delete_boxed<'a>(&'a self, key: &'a str) -> BoxFuture<'a, Result<(), PortError>>;
     fn delete_many_boxed<'a>(&'a self, keys: &'a [String]) -> BoxFuture<'a, Result<(), PortError>>;
+    fn list_boxed<'a>(
+        &'a self,
+        prefix: &'a str,
+    ) -> BoxFuture<'a, Result<Vec<ListedObject>, PortError>>;
 }
 
 impl<F: FileStore> DynFileStore for F {
@@ -315,6 +341,13 @@ impl<F: FileStore> DynFileStore for F {
     fn delete_many_boxed<'a>(&'a self, keys: &'a [String]) -> BoxFuture<'a, Result<(), PortError>> {
         Box::pin(self.delete_many(keys))
     }
+
+    fn list_boxed<'a>(
+        &'a self,
+        prefix: &'a str,
+    ) -> BoxFuture<'a, Result<Vec<ListedObject>, PortError>> {
+        Box::pin(self.list(prefix))
+    }
 }
 
 impl FileStore for dyn DynFileStore {
@@ -349,6 +382,10 @@ impl FileStore for dyn DynFileStore {
 
     async fn delete_many(&self, keys: &[String]) -> Result<(), PortError> {
         self.delete_many_boxed(keys).await
+    }
+
+    async fn list(&self, prefix: &str) -> Result<Vec<ListedObject>, PortError> {
+        self.list_boxed(prefix).await
     }
 }
 
@@ -390,6 +427,13 @@ impl<F: FileStore + ?Sized> FileStore for Arc<F> {
 
     fn delete_many(&self, keys: &[String]) -> impl Future<Output = Result<(), PortError>> + Send {
         (**self).delete_many(keys)
+    }
+
+    fn list(
+        &self,
+        prefix: &str,
+    ) -> impl Future<Output = Result<Vec<ListedObject>, PortError>> + Send {
+        (**self).list(prefix)
     }
 }
 
@@ -492,6 +536,23 @@ impl FileStore for MemoryFileStore {
         let keys: HashSet<&String> = keys.iter().collect();
         self.objects().retain(|key, _| !keys.contains(key));
         std::future::ready(Ok(()))
+    }
+
+    fn list(
+        &self,
+        prefix: &str,
+    ) -> impl Future<Output = Result<Vec<ListedObject>, PortError>> + Send {
+        let listed = self
+            .objects()
+            .iter()
+            .filter(|(key, _)| key.starts_with(prefix))
+            .map(|(key, object)| ListedObject {
+                key: key.clone(),
+                size: object.info.size,
+                last_modified_ms: None,
+            })
+            .collect();
+        std::future::ready(Ok(listed))
     }
 }
 

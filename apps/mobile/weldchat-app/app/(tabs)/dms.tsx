@@ -1,12 +1,13 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TouchableHighlight, RefreshControl, Image, ScrollView, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, TouchableHighlight, RefreshControl, ScrollView, Platform } from 'react-native';
+import { Image } from 'expo-image';
 import { Archive, Trash2, BellOff, Bell, Pin, PinOff, SquarePen, Users } from 'lucide-react-native';
 import Svg, { Defs, Pattern, Path, Rect } from 'react-native-svg';
 import { FlatList } from 'react-native-gesture-handler';
 import ReanimatedSwipeable, { type SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useUser } from '@clerk/expo';
+import { useUser } from '@weldsuite/mobile-platform/auth';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { BRAND } from '@/lib/brand';
 import { useI18n } from '@/lib/i18n';

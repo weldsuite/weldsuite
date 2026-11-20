@@ -8,12 +8,12 @@ import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { DropdownMenuItem } from '@weldsuite/ui/components/dropdown-menu';
 import { Input } from '@weldsuite/ui/components/input';
 import { InlineSpinner } from '@weldsuite/ui/components/page-loader';
+import { PromptDialog } from '@weldsuite/ui/components/prompt-dialog';
 import { useAppApi } from '@/lib/api/use-app-api';
 import { useI18n } from '@/lib/i18n/provider';
 import type { Person } from '@/components/record-comments/comment-parts';
 import type { BoardController } from '../editor/model/board-controller';
 import { boardsQueryKey } from '../store/use-board-store';
-import { AiDialog } from './ai-dialog';
 import { CommentsPanel } from './comments-panel';
 import { RecordsDialog, TasksDialog } from './records';
 
@@ -27,7 +27,7 @@ interface PanelState {
   records: boolean;
   /** Elements being made tasks (the dialog is open), or null. */
   tasks: string[] | null;
-  /** The AI dialog is open. */
+  /** The toolbar's AI button was pressed: the AI island opens. */
   ai: boolean;
 }
 
@@ -82,7 +82,6 @@ export function SidePanels({ controller, boardId, projectId, people, panels, can
       {state.open === 'versions' && <VersionsPanel boardId={boardId} canEdit={canEdit} onClose={() => panels.close()} />}
       <RecordsDialog controller={controller} open={state.records} onOpenChange={(open) => panels.openRecords(open)} />
       <TasksDialog boardId={boardId} elementIds={state.tasks} projectId={projectId} onOpenChange={(open) => !open && panels.openTasks(null)} />
-      {canEdit && <AiDialog controller={controller} boardId={boardId} open={state.ai} onOpenChange={(open) => panels.openAi(open)} />}
     </>
   );
 }
@@ -118,6 +117,7 @@ function VersionsPanel({ boardId, canEdit, onClose }: { boardId: string; canEdit
   const versions = useQuery({ queryKey: key, queryFn: async () => (await appApi.boards.versions(boardId, { limit: 100 })).data });
   const [name, setName] = useState('');
   const [restoring, setRestoring] = useState<BoardVersion | null>(null);
+  const [renaming, setRenaming] = useState<BoardVersion | null>(null);
   const refresh = () => queryClient.invalidateQueries({ queryKey: key });
 
   const save = useMutation({
@@ -137,9 +137,8 @@ function VersionsPanel({ boardId, canEdit, onClose }: { boardId: string; canEdit
     },
     onError: () => toast.error(tv.restoreFailed),
   });
-  const rename = async (version: BoardVersion) => {
-    const next = window.prompt(tv.namePrompt, version.name ?? '')?.trim();
-    if (!next || next === version.name) return;
+  const rename = async (version: BoardVersion, next: string) => {
+    if (next === version.name) return;
     try {
       await appApi.boards.renameVersion(boardId, version.id, { name: next.slice(0, 255) });
       void refresh();
@@ -188,7 +187,7 @@ function VersionsPanel({ boardId, canEdit, onClose }: { boardId: string; canEdit
               </div>
               {canEdit && (
                 <div className="flex shrink-0 gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
-                  <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => void rename(v)}>
+                  <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setRenaming(v)}>
                     {tv.rename}
                   </Button>
                   <Button size="sm" variant="outline" className="h-7 px-2 text-xs" disabled={restore.isPending} onClick={() => setRestoring(v)}>
@@ -200,6 +199,16 @@ function VersionsPanel({ boardId, canEdit, onClose }: { boardId: string; canEdit
           ))}
         </ul>
       </div>
+      <PromptDialog
+        open={renaming !== null}
+        onOpenChange={(open) => !open && setRenaming(null)}
+        title={tv.rename}
+        label={tv.namePrompt}
+        defaultValue={renaming?.name ?? ''}
+        confirmLabel={tv.save}
+        cancelLabel={t.weldboard.editor.comments.cancel}
+        onConfirm={(next) => (renaming ? rename(renaming, next) : undefined)}
+      />
       <ConfirmDialog
         open={restoring !== null}
         onOpenChange={(open) => !open && setRestoring(null)}

@@ -1,11 +1,11 @@
 ---
 name: extract-api-module
-description: "Move one weld* module's API out of apps/workers/app-api into its own worker (apps/workers/<module>-api), per docs/plans/app-api-module-split.md. Use when asked to extract, split out or move a module (crm, desk, mail, host, …) from app-api, or to continue the app-api module split."
+description: "Move one weld* module's API out of apps/workers/app-api into its own worker (apps/workers/<module>-api), per weldsuite-documentation/plans/app-api-module-split.md. Use when asked to extract, split out or move a module (crm, desk, mail, host, …) from app-api, or to continue the app-api module split."
 ---
 
 # Extract one module from app-api
 
-Plan: `docs/plans/app-api-module-split.md`. WeldPass (`apps/workers/pass-api`) is the
+Plan: `weldsuite-documentation/plans/app-api-module-split.md`. WeldPass (`apps/workers/pass-api`) is the
 finished reference. Keep **behaviour identical**: paths, responses, permissions and
 entity events do not change. Only where the code lives and which worker serves it.
 
@@ -115,8 +115,8 @@ queue it consumes) are not package material: stop and report them. Workflows: se
   3. app-api keeps its `[[workflows]]` blocks and re-exports the class from the domain
      package, with a comment `// Draining: in-flight instances only; remove after …`
      so old instances complete. Add a row to the "Workflows that drained in app-api" table
-     in docs/plans/app-api-module-split.md (class, old name, new name, longest instance
-     lifetime).
+     in `weldsuite-documentation/plans/app-api-module-split.md` (class, old name, new
+     name, longest instance lifetime), in a docs-repo PR (skill `weldsuite-docs`).
   4. Other workers that bind the workflow cross-script (`script_name = "weldsuite-app-api…"`):
      point them at the module worker's script and the new name.
 - **Crons**: the module worker's `[triggers]` + `scheduled()` run its sweeps; remove the

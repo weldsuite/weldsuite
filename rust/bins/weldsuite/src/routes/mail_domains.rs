@@ -22,8 +22,17 @@ use weldsuite_mail_domain::mta_domains::MtaDomainApi;
 use weldsuite_mail_domain::recipients::{DOH_ENDPOINT, DnsOverHttps};
 use weldsuite_ports::OutboundHttp;
 
-/// The process's adapter; conformance builds have none (the
-/// `/api/mail-domains` routes are not served on Kubernetes yet).
+/// Whether `read` describes an adapter, as [`from_env`] builds one: what
+/// `/config.json` says about custom mail domains (`mail-domains`,
+/// `crate::edition`), so the platform offers them exactly when the routes can
+/// register one.
+pub(crate) fn offered(read: impl Fn(&str) -> Option<String>) -> bool {
+    let set = |name: &str| read(name).is_some_and(|value| !value.trim().is_empty());
+    set("MAIL_MX_HOST") && set("MTA_API_URL") == set("MTA_API_SECRET")
+}
+
+/// The process's adapter; conformance builds have none (their mail suites
+/// run the worker's checks, without one).
 pub(crate) fn mail_domains() -> Option<Arc<dyn MailDomains>> {
     static DOMAINS: OnceLock<Option<Arc<dyn MailDomains>>> = OnceLock::new();
     if cfg!(feature = "conformance") {
@@ -123,6 +132,31 @@ mod tests {
             || Some(OutboundHttp(Arc::new(NoHttp))),
             Arc::new(NoDoh),
         )
+    }
+
+    #[test]
+    fn offered_follows_the_adapter() {
+        let cases: [&[(&str, &str)]; 4] = [
+            &[],
+            &[("MAIL_MX_HOST", "mx.eu.weldsuite.test")],
+            &[
+                ("MAIL_MX_HOST", "mx.eu.weldsuite.test"),
+                ("MTA_API_URL", "http://weldsuite-mta:8025"),
+                ("MTA_API_SECRET", "s3cret"),
+            ],
+            &[
+                ("MAIL_MX_HOST", "mx.eu.weldsuite.test"),
+                ("MTA_API_SECRET", "s3cret"),
+            ],
+        ];
+        for vars in cases {
+            let read = |name: &str| {
+                vars.iter()
+                    .find(|(key, _)| *key == name)
+                    .map(|(_, value)| (*value).to_owned())
+            };
+            assert_eq!(offered(read), adapter(vars).is_some(), "{vars:?}");
+        }
     }
 
     #[test]

@@ -13,7 +13,7 @@ import { FolderKanban, CheckSquare, Plus, Settings } from 'lucide-react-native';
 
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { EmptyState } from '@weldsuite/mobile-ui/components/EmptyState';
-import { useOrganization } from '@clerk/expo';
+import { useOrganization } from '@weldsuite/mobile-platform/auth';
 
 import { ACCENTS, BRAND, tint } from '@/lib/brand';
 import { formatShortDate, isTaskOverdue } from '@/lib/date';

@@ -91,7 +91,10 @@ function memberOfProject(projectId: AnyPgColumn | SQL, userId: string): SQL {
   return sql`exists (select 1 from ${projectMembers} where ${projectMembers.projectId} = ${projectId} and ${projectMembers.userId} = ${userId} and ${projectMembers.isActive} = true and ${projectMembers.deletedAt} is null)`;
 }
 
-export const DATA_SOURCES: Readonly<Record<SheetDataObjectKey, DataSource>> = {
+/** The objects listed from one tenant table here; `form_responses` is read through @weldsuite/forms-domain (form-responses.ts). */
+export type TableObjectKey = Exclude<SheetDataObjectKey, 'form_responses'>;
+
+export const DATA_SOURCES: Readonly<Record<TableObjectKey, DataSource>> = {
   companies: defineSource('companies', {
     table: schema.companies,
     softDeletes: true,

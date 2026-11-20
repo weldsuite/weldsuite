@@ -136,6 +136,20 @@ app.patch('/phone-numbers/:id', requirePermission('activities:update'), zValidat
       .where(and(eq(voipPhoneNumbers.id, id), isNull(voipPhoneNumbers.deletedAt)))
       .limit(1);
     if (!existing) return error.notFound(c, 'Phone number', id);
+    // A number on the customer's own phone system is shown as caller id only
+    // once Telnyx verified it is theirs (desk/phone/sip-trunks … /verification).
+    if (existing.provider === 'sip_trunk' && data.allowOutbound === true && !existing.callerIdVerifiedAt) {
+      return c.json(
+        {
+          error: {
+            code: 'caller_id_unverified',
+            message: 'Verify this number before using it for outgoing calls',
+            details: { reason: 'caller_id_unverified' },
+          },
+        },
+        409,
+      );
+    }
     const update: Record<string, any> = { updatedAt: new Date() };
     for (const [k, v] of Object.entries(data)) if (v !== undefined) update[k] = v;
     await db
@@ -167,6 +181,10 @@ app.delete('/phone-numbers/:id', requirePermission('activities:delete'), async (
       .where(and(eq(voipPhoneNumbers.id, id), isNull(voipPhoneNumbers.deletedAt)))
       .limit(1);
     if (!existing) return error.notFound(c, 'Phone number', id);
+    // A number on the customer's own phone system is removed from that system (desk/phone/sip-trunks).
+    if (existing.provider === 'sip_trunk') {
+      return error.conflict(c, 'This number belongs to a connected phone system: remove it there');
+    }
     await db
       .update(voipPhoneNumbers)
       .set({ deletedAt: new Date(), updatedAt: new Date() })

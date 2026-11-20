@@ -41,10 +41,18 @@ export type DueIndexKind =
   | 'sign_lifecycle'
   // WeldDesk (desk-api): SLA warnings and breaches coming due on inbox conversations.
   | 'desk_sla'
+  // WeldDesk (desk-api): scheduled report emails coming due (helpdesk_report_schedules).
+  | 'desk_report'
   // WeldFlow (flow-api): approval reminders a day before they are due, and overdue notices to the requester (FLOW-016).
   | 'approval_due'
   // WeldMerge (merge-api): chat subscriptions whose daily digest hour comes due.
-  | 'merge_digest';
+  | 'merge_digest'
+  // WeldForms (forms-api): invitation reminders coming due, and the daily response digest.
+  | 'forms_reminders'
+  | 'forms_digest'
+  // Asset register: app-api marks it when an asset_sources row is saved or started and
+  // desk-api's cron sweeps it (device imports coming due, and imports under way).
+  | 'asset_import';
 
 /** A due row as listed by the sweep; `version` is the compare-and-set token. */
 export interface DueIndexRow {

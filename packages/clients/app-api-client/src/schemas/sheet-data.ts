@@ -31,6 +31,7 @@ export const SHEET_DATA_OBJECT_KEYS = [
   'products',
   'orders',
   'invoices',
+  'form_responses',
 ] as const;
 export type SheetDataObjectKey = (typeof SHEET_DATA_OBJECT_KEYS)[number];
 
@@ -354,6 +355,22 @@ const OBJECT_DEFINITIONS = {
       { key: 'updatedAt', type: 'datetime' },
     ],
   },
+  // WeldForms: the completed responses of one form (`definition.formId`). These
+  // are the metadata columns; each question and hidden field of the form adds a
+  // column of its own (see FORM_RESPONSE_DYNAMIC_COLUMN), listed by
+  // @weldsuite/forms-domain. Keep the keys in step with FORM_RESPONSE_META_COLUMNS there.
+  form_responses: {
+    permission: 'form_responses:read',
+    fields: [
+      { key: 'number', type: 'number', default: true },
+      { key: 'submittedAt', type: 'datetime', default: true },
+      { key: 'respondentEmail', type: 'text', default: true },
+      { key: 'startedAt', type: 'datetime' },
+      { key: 'score', type: 'number' },
+      { key: 'durationSeconds', type: 'number' },
+      { key: 'personId', type: 'text' },
+    ],
+  },
 } as const satisfies Record<SheetDataObjectKey, { permission: string; fields: readonly SheetDataField[] }>;
 
 /** The field keys of one object, as literal types. */
@@ -425,6 +442,8 @@ export const sheetDataDefinitionSchema = z
     filters: z.array(sheetDataFilterSchema).max(MAX_SHEET_DATA_FILTERS).default([]),
     sort: sheetDataSortSchema.optional(),
     limit: z.number().int().min(1).max(MAX_SHEET_DATA_ROWS),
+    /** The parameter of `form_responses`: the form whose responses are listed. Absent on every other object. */
+    formId: z.string().min(1).max(30).optional(),
   })
   .superRefine((def, ctx) => {
     if (new Set(def.columns).size !== def.columns.length) {
@@ -448,7 +467,7 @@ export function checkSheetDataDefinition(objectType: SheetDataObjectKey, def: Sh
   if (!object) return `Unknown object '${String(objectType)}'`;
   const fields = new Map(object.fields.map((field) => [field.key, field]));
 
-  const problem = checkColumns(objectType, def, fields) ?? checkFilters(objectType, def, fields);
+  const problem = checkParameter(objectType, def) ?? checkColumns(objectType, def, fields) ?? checkFilters(objectType, def, fields);
   if (problem) return problem;
   if (def.sort && !fields.has(def.sort.field)) return `Unknown sort field '${def.sort.field}' on ${objectType}`;
   if (!Number.isInteger(def.limit) || def.limit < 1 || def.limit > MAX_SHEET_DATA_ROWS) {
@@ -462,7 +481,7 @@ function checkColumns(objectType: SheetDataObjectKey, def: SheetDataDefinitionIn
   if (def.columns.length > MAX_SHEET_DATA_COLUMNS) return `At most ${MAX_SHEET_DATA_COLUMNS} columns`;
   if (new Set(def.columns).size !== def.columns.length) return 'Each field can be a column only once';
   if (def.headers.length !== def.columns.length) return 'Every column needs exactly one header';
-  const unknown = def.columns.find((column) => !fields.has(column));
+  const unknown = def.columns.find((column) => !fields.has(column) && !(objectType === 'form_responses' && FORM_RESPONSE_DYNAMIC_COLUMN.test(column)));
   return unknown === undefined ? null : `Unknown field '${unknown}' on ${objectType}`;
 }
 
@@ -478,4 +497,18 @@ function checkFilters(objectType: SheetDataObjectKey, def: SheetDataDefinitionIn
     }
   }
   return null;
+}
+
+/**
+ * The columns a form adds to `form_responses` on top of its metadata fields: a
+ * question (`qb` + its block id without the underscore) or a hidden field
+ * (`h` + its name). Which ones exist depends on the form, so only forms-domain
+ * (`@weldsuite/forms-domain/columns`) knows; sheets-api rejects the rest when it lists.
+ */
+export const FORM_RESPONSE_DYNAMIC_COLUMN = /^(?:qb|h)[A-Za-z0-9]+$/;
+
+/** `form_responses` needs the form it lists; no other object takes one. */
+function checkParameter(objectType: SheetDataObjectKey, def: SheetDataDefinitionInput): string | null {
+  if (objectType === 'form_responses') return def.formId ? null : 'Pick the form whose responses to list';
+  return def.formId === undefined ? null : `A form only applies to form_responses, not ${objectType}`;
 }

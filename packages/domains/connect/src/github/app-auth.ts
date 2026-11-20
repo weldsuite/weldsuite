@@ -9,7 +9,7 @@
  * WeldConnect's GitHub integration deliberately reuses the GitHub App
  * installation workspaces already set up for WeldFlow's issue/PR sync
  * (`github_connections`, one row per workspace) rather than adding a second,
- * separate OAuth app — see "Provider pattern" in docs/plans/weldconnect.md.
+ * separate OAuth app — see "Provider pattern" in weldsuite-documentation/plans/weldconnect.md.
  * A `workflow_integrations` row of type `github` stores the installation id
  * in `settings.installationId`; no long-lived secret is stored for it at
  * all — every action mints a fresh ~1h installation token on demand.

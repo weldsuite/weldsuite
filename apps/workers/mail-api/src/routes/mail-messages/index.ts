@@ -10,7 +10,7 @@
  *
  * Every read/write of message data (list, stats, get, patch, delete, bulk,
  * labels) goes through `workspaceMailFromContext`'s `store`/`access`
- * (design docs/plans/weldmail-mailbox-store-design.md, task D2), so it works
+ * (design weldsuite-documentation/plans/weldmail-mailbox-store-design.md, task D2), so it works
  * the same in every mailbox-store mode. `/:id/reply` and `/:id/forward` are
  * send paths — out of scope here (task D1 routes sends through the store) —
  * so they keep calling `@weldsuite/mail-domain/messages`/`access` directly.
@@ -637,7 +637,7 @@ app.post(
  * The access check (`getMessageAccountId` + `checkAccountAccess`) stays the
  * direct-Postgres calls it always was — `MailAccess` is the object-mode
  * replacement for a different task, and `mail_accounts`/`workspace_members`
- * are never moved into the mailbox store (design docs/plans/
+ * are never moved into the mailbox store (design weldsuite-documentation/plans/
  * weldmail-mailbox-store-design.md §6/§9 task D1). Once the account is known,
  * the send itself goes through its mailbox's store: `sendAndPersist`/
  * `replyAndPersist` accept it as an optional `store` and fall back to

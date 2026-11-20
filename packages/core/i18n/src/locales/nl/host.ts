@@ -328,6 +328,48 @@ export const host = {
       saveFailed: 'De tarieven konden niet worden opgeslagen. Probeer het opnieuw.',
     },
 
+    adminPanelPricing: {
+      navJumpTo: 'WeldPanel-prijzen',
+      navArea: 'WeldPanel-prijzen',
+      navGroup: 'WeldPanel',
+      navPage: 'Tarieven boven de bundel',
+      cardTitle: 'WeldPanel-prijzen',
+      cardDescription: 'Credits per blok events en opnames boven de bundel van het abonnement',
+      title: 'WeldPanel-prijzen',
+      description:
+        'Credits die van het vooruitbetaalde tegoed worden afgeschreven wanneer een werkruimte in een maand meer events of opnames gebruikt dan het abonnement bevat. Gebruik wordt per blok afgerekend: het eerste event boven de bundel rekent een heel blok af.',
+      effectiveHeading: 'Geldende tarieven',
+      sourceCustom: 'Hier opgeslagen tarieven',
+      sourceDefault: 'Standaardwaarden (nog niets opgeslagen)',
+      eventsLabel: 'Events',
+      recordingsLabel: 'Opnames',
+      eventsUnit: 'credits / 10.000 events',
+      recordingsUnit: 'credits / 100 opnames',
+      editHeading: 'Tarieven aanpassen',
+      eventsInputLabel: 'Events (credits per 10.000)',
+      recordingsInputLabel: 'Opnames (credits per 100)',
+      inputHelp: 'Een geheel getal boven 0, hoogstens {max}.',
+      exampleHeading: 'Voorbeeld',
+      exampleLine:
+        '{events} events en {recordings} opnames boven de bundel kosten {eventsCredits} credits voor events en {recordingsCredits} voor opnames, samen {total} credits.',
+      exampleInvalid: 'Vul geldige tarieven in om een voorbeeld te zien.',
+      allowancesNote:
+        'De bundel per abonnement stel je hier niet in: die zit ingebouwd in WeldPanel (Free, Business, Scale en Enterprise).',
+      cacheNote:
+        'panel-api onthoudt deze tarieven ongeveer 60 seconden, dus een opgeslagen wijziging kan tot een minuut duren voor nieuwe afschrijvingen.',
+      defaultsNote:
+        'Standaard: {events} credits per 10.000 events, {recordings} credits per 100 opnames.',
+      resetButton: 'Standaardwaarden terugzetten',
+      saveButton: 'Tarieven opslaan',
+      saved: 'WeldPanel-prijzen opgeslagen',
+      lastUpdated: 'Laatst bijgewerkt op {at} door {by}',
+      neverUpdated: 'Nooit opgeslagen. De standaardwaarden gelden.',
+      unknownAdmin: 'onbekend',
+      invalidRate: 'Vul een geheel getal boven 0 in.',
+      rateOutOfRange: 'Tarieven mogen niet hoger zijn dan {max} credits per blok.',
+      saveFailed: 'De tarieven konden niet worden opgeslagen. Probeer het opnieuw.',
+    },
+
     // Domain availability checker
     availability: {
       enterDomain: 'Voer een domeinnaam in om beschikbaarheid te controleren',
@@ -655,6 +697,8 @@ export const host = {
       copyFailed: 'Kopiëren naar klembord mislukt',
       enabled: 'Ingeschakeld',
       disabled: 'Uitgeschakeld',
+      // A setting an external domain keeps at its own registrar (auto-renew, transfer lock).
+      notApplicable: 'Niet van toepassing',
       recordName: 'Naam',
       recordNamePlaceholder: '@ of subdomein',
       ttlSeconds: 'TTL (seconden)',
@@ -792,6 +836,8 @@ export const host = {
       disableAutoRenew: 'Automatisch verlengen uitschakelen',
       emptyTitle: 'Geen domeinen gevonden',
       emptyDescription: 'Registreer uw eerste domein om te beginnen',
+      // Editions without domain purchase (EU): a domain registered elsewhere is the way in.
+      emptyDescriptionExternal: 'Voeg een domein toe dat u elders hebt geregistreerd om de DNS hier te beheren',
       noResultsTitle: 'Geen domeinen gevonden',
       noResultsDescription: 'We konden geen domeinen vinden die overeenkomen met uw filter.',
     },

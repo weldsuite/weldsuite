@@ -6,7 +6,7 @@
  * Cloudflare zone — there is no per-workspace zone. Each environment has its
  * own apex (weldmail.com in production, weldmail.org on test), because a zone
  * has exactly one Email Routing catch-all and it must point at that
- * environment's inbound worker (docs/plans/weldmail-test-mail-zone.md).
+ * environment's inbound worker (weldsuite-documentation/plans/weldmail-test-mail-zone.md).
  *
  *   1. Resolving the apex zone id from Cloudflare.
  *   2. Enabling Email Routing on the zone (locks MX + SPF records).

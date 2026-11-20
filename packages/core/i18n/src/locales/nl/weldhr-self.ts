@@ -60,6 +60,21 @@ export const weldhrSelf = {
         milestones: 'Behaalde mijlpalen',
         milestonesHint: '{open} nog open',
       },
+      // Het overzicht als record: korte labels voor de Details-rijen en de lege staten van de lijsten.
+      record: {
+        clockedInSince: 'Ingeklokt sinds {time}',
+        notClockedIn: 'Niet ingeklokt',
+        toAcknowledge: 'Te bevestigen',
+        evaluation: 'Beoordeling',
+        milestones: 'Mijlpalen',
+        milestonesValue: '{achieved} van {total} behaald',
+        clients: 'Klanten',
+        time: 'Tijd',
+        leaveEmptyTitle: 'Nog geen verlofsaldi',
+        leaveEmptyDescription: 'Je verlofsoorten staan hier zodra HR ze toevoegt',
+        shiftsEmptyTitle: 'Geen komende diensten',
+        shiftsEmptyDescription: 'Diensten die voor je zijn ingepland staan hier',
+      },
       profile: {
         title: 'Profiel',
         email: 'E-mail',

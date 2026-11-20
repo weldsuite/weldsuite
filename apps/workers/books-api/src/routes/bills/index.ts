@@ -53,7 +53,8 @@ import {
   type DocumentTaxItem,
 } from '../../services/accounting-tax-resolve';
 import { brDocumentFiscalSchema, brLineFiscalSchema, cfopSchema, ncmSchema } from '../../lib/br-fiscal-schemas';
-import { postBill, PostingError } from '../../services/accounting-document-posting';
+import { postBill, PostingError, resolveBillDefaultExpenseAccount } from '../../services/accounting-document-posting';
+import { recordPayment } from '../../services/accounting-payments';
 import { draftRate } from '../../services/accounting-fx';
 import { exchangeRateSchema } from '../../lib/exchange-rate-schema';
 import { isGstEntity, resolveGstBillSupply } from '../../services/accounting-gst';
@@ -77,6 +78,16 @@ guardEntityRecords(app, schema.bills, { label: 'Bill' });
 guardEntityRecords(app, schema.documents, { prefix: '/from-document', param: 'documentId', label: 'Document' });
 
 type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
+
+const recordBillPaymentSchema = z.object({
+  amount: z.string(),
+  date: z.string(),
+  paymentMethod: z.string().max(30).optional(),
+  reference: z.string().optional(),
+  bankAccountId: z.string().optional(),
+  bankTransactionId: z.string().optional(),
+  notes: z.string().optional(),
+});
 
 /** 400 for errors the user can fix (closed period, lock date, posting rules, tax rates). */
 function accountingErrorResponse(c: Context<{ Bindings: Env; Variables: Variables }>, err: unknown): Response | undefined {
@@ -291,6 +302,23 @@ app.get('/', requirePermission('bills:read'), async (c) => {
   }
 });
 
+// GET /default-expense-account?contactId= — the account a bill line without an
+// account posts to, for the bill form before a bill exists: the supplier's
+// default expense account, else the entity's general expense account.
+// Registered before GET /:id so the path isn't read as a bill id.
+app.get('/default-expense-account', requirePermission('bills:read'), async (c) => {
+  const db = c.get('tenantDb');
+  try {
+    const entityId = await resolveEntityId(c, db);
+    if (!entityId) return error.badRequest(c, 'No accounting entity resolved');
+    const contactId = c.req.query('contactId') || null;
+    return success(c, { defaultExpenseAccount: await resolveBillDefaultExpenseAccount(db, { entityId, contactId }) });
+  } catch (err) {
+    console.error('[books-api/bills] default expense account failed:', err);
+    return error.internal(c, 'Failed to resolve the default expense account');
+  }
+});
+
 // GET /:id — includes items + payments
 app.get('/:id', requirePermission('bills:read'), async (c) => {
   const db = c.get('tenantDb');
@@ -304,16 +332,108 @@ app.get('/:id', requirePermission('bills:read'), async (c) => {
     const items = await db.select().from(billItems)
       .where(and(eq(billItems.billId, billId), isNull(billItems.deletedAt)))
       .orderBy(billItems.sortOrder);
-    const billPayments = await db.select().from(paymentsTable)
-      .where(and(eq(paymentsTable.billId, billId), isNull(paymentsTable.deletedAt)))
+    // Payments that settle this bill: directly (older single-bill payments) or
+    // through an allocation (a payment covering several bills).
+    const allocations = await db
+      .select({ paymentId: schema.paymentAllocations.paymentId, amount: schema.paymentAllocations.amount })
+      .from(schema.paymentAllocations)
+      .where(and(eq(schema.paymentAllocations.billId, billId), isNull(schema.paymentAllocations.deletedAt)));
+    const allocatedPaymentIds = allocations.map((a) => a.paymentId);
+    const paymentRows = await db.select().from(paymentsTable)
+      .where(and(
+        isNull(paymentsTable.deletedAt),
+        allocatedPaymentIds.length > 0
+          ? or(eq(paymentsTable.billId, billId), inArray(paymentsTable.id, allocatedPaymentIds))
+          : eq(paymentsTable.billId, billId),
+      ))
       .orderBy(desc(paymentsTable.date));
+    const allocatedAmount = new Map(allocations.map((a) => [a.paymentId, a.amount]));
+    const billPayments = paymentRows.map((p) => ({ ...p, allocatedAmount: allocatedAmount.get(p.id) ?? p.amount }));
 
     const [named] = await withContactNames(db, [bill]);
+    // Where a line without an account posts to; the form shows it before the bill is approved.
+    const defaultExpenseAccount = await resolveBillDefaultExpenseAccount(db, bill);
 
-    return success(c, { ...named, items, payments: billPayments });
+    return success(c, { ...named, items, payments: billPayments, defaultExpenseAccount });
   } catch (err) {
     console.error('[app-api/bills] get failed:', err);
     return error.internal(c, 'Failed to fetch bill');
+  }
+});
+
+// POST /:id/record-payment — pay this bill (posted: Dr payable / Cr bank, and
+// the bill's paid amount and status updated). Overpaying is refused.
+app.post('/:id/record-payment', requirePermission('banking:create'), zValidator('json', recordBillPaymentSchema), async (c) => {
+  const db = c.get('tenantDb');
+  const billId = c.req.param('id');
+  const data = c.req.valid('json');
+  const userId = c.get('userId') ?? null;
+  const { bills } = schema;
+
+  try {
+    const [bill] = await db.select().from(bills)
+      .where(and(eq(bills.id, billId), isNull(bills.deletedAt))).limit(1);
+    if (!bill) return error.notFound(c, 'Bill', billId);
+
+    const amount = Number.parseFloat(data.amount);
+    const result = await recordPayment(db, {
+      entityId: bill.entityId,
+      type: 'sent',
+      amount,
+      currency: bill.currency,
+      date: new Date(data.date),
+      paymentMethod: data.paymentMethod ?? null,
+      reference: data.reference ?? null,
+      notes: data.notes ?? null,
+      contactId: bill.contactId,
+      bankAccountId: data.bankAccountId ?? null,
+      bankTransactionId: data.bankTransactionId ?? null,
+      allocations: [{ billId, amount }],
+      userId,
+    });
+
+    const [updated] = await db
+      .select({ amountPaid: bills.amountPaid, balanceDue: bills.balanceDue, status: bills.status })
+      .from(bills)
+      .where(eq(bills.id, billId))
+      .limit(1);
+
+    await writeAccountingAudit(c, db, {
+      accountingEntityId: bill.entityId,
+      entityType: 'bill',
+      entityId: billId,
+      action: 'payment_recorded',
+      changes: {
+        amountPaid: { old: bill.amountPaid, new: updated?.amountPaid ?? null },
+        status: { old: bill.status, new: updated?.status ?? null },
+      },
+    });
+    publishEntityEvent({
+      c,
+      entityType: 'payment',
+      entityId: result.paymentId,
+      action: 'created',
+      data: {
+        id: result.paymentId,
+        billId,
+        amount: data.amount,
+        date: data.date,
+        method: data.paymentMethod ?? null,
+      },
+    });
+
+    return success(c, {
+      paymentId: result.paymentId,
+      journalEntryId: result.journalEntryId,
+      amountPaid: updated?.amountPaid ?? null,
+      balanceDue: updated?.balanceDue ?? null,
+      status: updated?.status ?? null,
+    }, 201);
+  } catch (err) {
+    const handled = accountingErrorResponse(c, err);
+    if (handled) return handled;
+    console.error('[books-api/bills] record-payment failed:', err);
+    return error.internal(c, 'Failed to record payment');
   }
 });
 

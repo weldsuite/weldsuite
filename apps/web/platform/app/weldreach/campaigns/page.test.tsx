@@ -14,6 +14,7 @@ const reach = vi.hoisted(() => ({
   createCampaign: vi.fn(),
   deleteCampaign: vi.fn(),
 }));
+vi.mock('@/hooks/use-create-intent', () => ({ useCreateIntent: () => undefined }));
 vi.mock('@/lib/api/use-app-api', () => ({ useAppApi: () => ({ reach }) }));
 const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }));
 vi.mock('@/lib/router', () => ({ useRouter: () => router }));

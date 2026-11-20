@@ -1,12 +1,14 @@
 //! Every connector's client behind one type (`createConnectorProviderClient`
 //! / `createConnectorClient`, the `ConnectorProviderClient` interface):
-//! WooCommerce, Shopify and Picqer ([`StoreClient`]), Moneybird and Stripe.
+//! WooCommerce, Shopify and Picqer ([`StoreClient`]), Moneybird, Stripe and
+//! Odoo.
 
 use serde_json::{Map, Value};
 use weldsuite_ports::OutboundHttp;
 
 use crate::clients::{ConnectorError, Kind, StoreClient, product_write_client};
 use crate::moneybird::Moneybird;
+use crate::odoo::Odoo;
 use crate::stripe::Stripe;
 pub use crate::stripe::{ListPage, Tested, WebhookCreated};
 
@@ -15,6 +17,9 @@ pub enum ProviderClient {
     Store(StoreClient),
     Moneybird(Moneybird),
     Stripe(Stripe),
+    /// Odoo syncs through its own runner ([`crate::odoo`]); this client
+    /// connects, tests and probes.
+    Odoo(Odoo),
 }
 
 impl ProviderClient {
@@ -33,6 +38,7 @@ impl ProviderClient {
                 credentials,
                 fallback,
             ))),
+            "odoo" => Odoo::from_credentials(credentials).map(Self::Odoo),
             "woocommerce" | "shopify" | "picqer" => {
                 product_write_client(provider, credentials, fallback).map(Self::Store)
             }
@@ -50,6 +56,7 @@ impl ProviderClient {
             Self::Store(store) => store.store_url(),
             Self::Moneybird(client) => client.store_url(),
             Self::Stripe(client) => client.store_url(),
+            Self::Odoo(client) => client.store_url(),
         }
     }
 
@@ -62,6 +69,7 @@ impl ProviderClient {
             }),
             Self::Moneybird(client) => client.test(http).await,
             Self::Stripe(client) => client.test(http).await,
+            Self::Odoo(client) => client.test(http).await,
         }
     }
 }
@@ -104,6 +112,8 @@ impl ProviderClient {
                     .list_sync(http, sync_name, cursor, modified_after)
                     .await
             }
+            // Never paged by the generic runner (`crate::odoo` runs its syncs).
+            Self::Odoo(_) => Ok(ListPage::empty()),
         }
     }
 
@@ -144,6 +154,7 @@ impl ProviderClient {
             Self::Store(StoreClient::Picqer(c)) => c.has_updates_since(http, resource, since).await,
             Self::Moneybird(c) => c.has_updates_since(http, resource, since).await,
             Self::Stripe(c) => c.has_updates_since(http, resource, since).await,
+            Self::Odoo(c) => crate::odoo::sync::has_updates_since(c, http, resource, since).await,
         }
     }
 
@@ -160,6 +171,7 @@ impl ProviderClient {
             #[allow(clippy::cast_precision_loss)]
             Self::Moneybird(c) => c.count_resource(http, resource).await.map(|n| n as f64),
             Self::Stripe(_) => Ok(0.0),
+            Self::Odoo(c) => crate::odoo::sync::count_resource(c, http, resource).await,
         }
     }
 
@@ -185,6 +197,8 @@ impl ProviderClient {
             }
             Self::Moneybird(c) => c.register_webhooks(http, delivery_url, topics).await,
             Self::Stripe(c) => c.register_webhooks(http, delivery_url, topics).await,
+            // A poll connector: Odoo has no webhooks to register.
+            Self::Odoo(_) => Ok(Vec::new()),
         }
     }
 
@@ -200,6 +214,7 @@ impl ProviderClient {
             Self::Store(StoreClient::Picqer(c)) => c.delete_webhook(http, id).await,
             Self::Moneybird(c) => c.delete_webhook(http, id).await,
             Self::Stripe(c) => c.delete_webhook(http, id).await,
+            Self::Odoo(_) => Ok(()),
         }
     }
 }

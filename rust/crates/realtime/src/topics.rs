@@ -12,6 +12,10 @@ pub(crate) const PERSONAL_PREFIXES: [&str; 4] = ["notification", "mail", "inbox"
 /// The topic presence events go on (`PRESENCE_TOPIC`).
 pub(crate) const PRESENCE_TOPIC: &str = "presence";
 
+/// The topic the call module publishes on when the set of callers waiting for
+/// an agent changes (`EXTRA_MEMBER_HUB_TOPICS`).
+pub(crate) const DESK_PHONE_QUEUE_TOPIC: &str = "desk_phone_queue";
+
 /// `topicMatches(subscription, eventTopic)`: the topic itself or a child of
 /// it (`project` matches `project.proj_1`).
 pub(crate) fn topic_matches(subscription: &str, topic: &str) -> bool {
@@ -65,14 +69,14 @@ impl Allowed {
     }
 }
 
-/// The non-personal catalog entity types and `presence`
+/// The non-personal catalog entity types, `presence` and the desk phone queue
 /// (`listMemberHubTopics`).
 static MEMBER_HUB_TOPICS: LazyLock<Vec<String>> = LazyLock::new(|| {
     weldsuite_catalogs::entity_events::ALL
         .iter()
         .map(|(entity_type, _)| *entity_type)
         .filter(|entity_type| !PERSONAL_PREFIXES.contains(entity_type))
-        .chain(std::iter::once(PRESENCE_TOPIC))
+        .chain([PRESENCE_TOPIC, DESK_PHONE_QUEUE_TOPIC])
         .map(str::to_owned)
         .collect()
 });
@@ -151,6 +155,7 @@ mod tests {
         assert!(member.permits("notification.u1"));
         assert!(!member.permits("notification"));
         assert!(member.permits("presence"));
+        assert!(member.permits("desk_phone_queue"));
         assert!(member.permits("task.t1"), "a catalog entity");
         assert!(!member.permits("made_up_topic"));
         let personal = personal_allowed("u1");

@@ -20,6 +20,7 @@
 //! events are the TypeScript routes'; their tests run against this crate in
 //! the `core: objects` conformance suites.
 
+mod asset_sources;
 mod fields;
 mod grid_views;
 mod js;
@@ -50,6 +51,12 @@ use weldsuite_events::{
 use weldsuite_kit::ApiError;
 use weldsuite_kit::validation::{Issues, json_body, query_values};
 use weldsuite_permissions::{PermissionGate, PermissionQueries, Permissions};
+
+pub use asset_sources::{
+    AssetImportServices, AssetImportSweepResult, AssetSourcesState,
+    DUE_KIND as ASSET_IMPORT_DUE_KIND, ImportTenant, ImportTenants, asset_sources_router,
+    run_asset_import_sweep,
+};
 
 /// What the handlers share.
 #[derive(Debug, Clone)]

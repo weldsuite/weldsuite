@@ -17,6 +17,12 @@ export interface FilterConfig {
   label: string;
   options: FilterOption[];
   filterType?: 'select' | 'text' | 'number' | 'date' | 'boolean';
+  /**
+   * The operators this field offers, a subset of its type's (e.g. only `is`
+   * for a value the backend can only include, never exclude). With a single
+   * operator the pill skips the condition step and opens the value picker.
+   */
+  operators?: string[];
   searchable?: boolean;
   getDisplayValue?: (value: string) => string;
 }
@@ -120,6 +126,8 @@ export interface EntityListProps<T extends { id: string }> {
     icon?: ReactNode;
     title: string;
     description: string;
+    /** A second button beside "Clear filter" (a Retry when the next page failed to load). */
+    action?: { label: string; onClick: () => void };
   };
 
   // Create button
@@ -133,6 +141,10 @@ export interface EntityListProps<T extends { id: string }> {
 
   // Action buttons rendered on the left side (next to filter pills)
   leftActionButtons?: ReactNode;
+
+  // Leaves out the built-in Filter button and pills, for a list that brings
+  // its own filter control in `leftActionButtons`.
+  hideFilter?: boolean;
 
   // Search
   searchPlaceholder?: string;
@@ -165,6 +177,12 @@ export interface EntityListProps<T extends { id: string }> {
 
   // Styling
   topBarClassName?: string;
+  /**
+   * Wraps the column header and the rows in a box with these classes, e.g. a
+   * border for a list that sits on a page rather than filling a panel. The
+   * last row's divider tucks under the box's bottom edge.
+   */
+  listClassName?: string;
   hideTopBar?: boolean;
   emptyStateClassName?: string;
   itemsClassName?: string;

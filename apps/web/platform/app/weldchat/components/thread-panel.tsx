@@ -124,7 +124,14 @@ export function ThreadPanel({ channelId, messageId }: Readonly<ThreadPanelProps>
             </button>
           )}
         </div>
-        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={closeThread}>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7"
+          onClick={closeThread}
+          aria-label={t.weldchat.threadPanel.close}
+          title={t.weldchat.threadPanel.close}
+        >
           <X className="h-4 w-4" />
         </Button>
       </div>

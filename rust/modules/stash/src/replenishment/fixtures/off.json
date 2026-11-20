@@ -1,0 +1,54 @@
+{
+  "description": "Rule off on flat demand.",
+  "notes": [
+    "Rule off: method none, no forecast, no policy, no suggestion; the history counts and the position are still reported."
+  ],
+  "input": {
+    "today": "2026-11-18",
+    "history_start": "2026-07-21",
+    "daily_demand": [[5,120]],
+    "first_activity": "2026-07-21",
+    "lead_time_days": 14,
+    "review_period_days": 7,
+    "service_level": 0.95,
+    "rule": {
+      "method": "off"
+    },
+    "supplier": {
+      "min_order_qty": null,
+      "order_multiple": 1,
+      "unit_cost": 2.5
+    },
+    "position": {
+      "on_hand": 40,
+      "allocated": 0,
+      "incoming": 0,
+      "open_demand": 0
+    },
+    "receipts": []
+  },
+  "tolerance": 0.000001,
+  "expected": {
+    "method": "none",
+    "confidence": "none",
+    "history_days": 120,
+    "nonzero_days": 120,
+    "avg_daily_demand": null,
+    "demand_std_dev": null,
+    "seasonality": null,
+    "forecast_30d": null,
+    "forecast_90d": null,
+    "safety_stock": null,
+    "reorder_point": null,
+    "order_up_to": null,
+    "inventory_position": 40,
+    "days_of_cover": null,
+    "stockout_date": null,
+    "suggested_qty": 0,
+    "suggested_value": null,
+    "daily_forecast": {
+      "len": 0,
+      "at": {}
+    }
+  }
+}

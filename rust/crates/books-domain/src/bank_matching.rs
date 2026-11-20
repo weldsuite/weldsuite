@@ -809,6 +809,83 @@ pub struct Matched {
 /// A document lookup: id, entity, contact, open balance.
 type DocumentRow = (String, Option<String>, Option<String>, Option<String>);
 
+/// The oldest payment of the document not yet tied to a bank line or deposit
+/// that moved `paid` through the bank (the net of any backup withholding).
+/// The line's bank account: its currency (outer `None` when the account is
+/// gone) and the ledger account it sits on.
+async fn line_bank(
+    db: &PgPool,
+    txn: &Value,
+) -> Result<(Option<Option<String>>, Option<String>), sqlx::Error> {
+    let bank: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+        "select currency, ledger_account_id from bank_accounts where id = $1 limit 1",
+    )
+    .bind(text(txn, "bankAccountId"))
+    .fetch_optional(db)
+    .await?;
+    Ok(match bank {
+        Some((currency, ledger)) => (Some(currency), ledger),
+        None => (None, None),
+    })
+}
+
+/// `findUnlinkedBankPayment`: a payment recorded by hand for the document that
+/// this bank line is the proof of: not linked to a line or a deposit yet, not
+/// a voided check, the same net amount, and the money went through this
+/// line's bank (the payment names this bank account and its journal entry
+/// booked the bank's ledger account). A check or cash receipt waiting in
+/// Undeposited Funds, a payment posted to a cash account or to another bank is
+/// never reused: linking it would leave the bank's ledger account without the
+/// money.
+async fn unlinked_payment_for(
+    db: &PgPool,
+    txn: &Value,
+    invoice: bool,
+    document_id: &str,
+    paid: f64,
+    ledger_account_id: Option<&str>,
+) -> Result<Option<String>, sqlx::Error> {
+    let Some(ledger_account_id) = ledger_account_id else {
+        return Ok(None);
+    };
+    let candidates: Vec<Value> = sqlx::query_scalar(concat!(
+        "select ",
+        crate::books_row!(payments),
+        " from payments t where t.entity_id = $1 and t.bank_account_id = $4 \
+         and t.deleted_at is null \
+         and t.bank_transaction_id is null and t.deposit_id is null and t.type = $2 \
+         and (case when $2 = 'received' then t.invoice_id else t.bill_id end) = $3 \
+         and (t.check_status is null or t.check_status <> 'voided') \
+         order by t.date, t.created_at"
+    ))
+    .bind(text(txn, "entityId"))
+    .bind(if invoice { "received" } else { "sent" })
+    .bind(document_id)
+    .bind(text(txn, "bankAccountId"))
+    .fetch_all(db)
+    .await?;
+    for payment in candidates.into_iter().map(|row| PAYMENTS.js(row)) {
+        if (payment_net_amount(&payment) - paid).abs() >= 0.005 {
+            continue;
+        }
+        let Some(entry_id) = text(&payment, "journalEntryId") else {
+            continue;
+        };
+        let bank_line: Option<String> = sqlx::query_scalar(
+            "select id from journal_lines where journal_entry_id = $1 and account_id = $2 \
+             and deleted_at is null limit 1",
+        )
+        .bind(entry_id)
+        .bind(ledger_account_id)
+        .fetch_optional(db)
+        .await?;
+        if bank_line.is_some() {
+            return Ok(text(&payment, "id").map(str::to_owned));
+        }
+    }
+    Ok(None)
+}
+
 /// `reconcileBankTransactionToDocument`: a new payment (money in against
 /// an invoice, out against a bill), posted, settling the document and the
 /// line in one go. (`!(amount > 0)` keeps JavaScript's NaN handling.)
@@ -857,12 +934,27 @@ pub async fn reconcile_to_document(
             if invoice { "invoice" } else { "bill" }
         )));
     }
-    let currency: Option<Option<String>> =
-        sqlx::query_scalar("select currency from bank_accounts where id = $1 limit 1")
-            .bind(text(txn, "bankAccountId"))
-            .fetch_optional(db)
-            .await?;
+    let (currency, ledger_account_id) = line_bank(db, txn).await?;
     let paid = round_money(amount.abs());
+
+    // The document may already be paid by a payment recorded by hand before
+    // the line arrived. Posting the line as a new payment would book the bank
+    // twice, so link that payment to the line instead (the same as matching
+    // the line to the payment).
+    if let Some(payment_id) = unlinked_payment_for(
+        db,
+        txn,
+        invoice,
+        &doc_id,
+        paid,
+        ledger_account_id.as_deref(),
+    )
+    .await?
+    {
+        return reconcile_to_payment(db, txn, &payment_id).await;
+    }
+
+    // Anything above the open balance stays on the contact as an unapplied credit.
     let allocated = round_money(f64::min(
         paid,
         parse_float(balance_due.as_deref().unwrap_or("0")),

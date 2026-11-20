@@ -250,6 +250,11 @@ pub(crate) async fn generate(db: &PgPool, params: &Generate) -> Result<Value, Pi
         return Err(pick("ALREADY_PICKING", "Order is already fulfilled"));
     }
     let warehouse_id = resolve_warehouse(db, params.warehouse_id.as_deref()).await?;
+    // Nothing is picked or allocated in a warehouse another system owns
+    // (ADR STASH-010); refused before the pick list is written.
+    if crate::ledger::warehouse_is_managed(db, &warehouse_id).await? {
+        return Err(PickError::Ledger(crate::ledger::managed_warehouse()));
+    }
     let open: Option<String> = sqlx::query_scalar(
         "select id from pick_lists where deleted_at is null and status = any($1) \
          and order_ids @> $2::jsonb limit 1",
@@ -1332,9 +1337,12 @@ pub(crate) async fn cancel(db: &PgPool, id: &str) -> Result<(), PickError> {
             continue;
         }
         match release_allocation(db, inventory, hold).await {
+            // A warehouse that became managed since keeps its allocations
+            // for the owning system's sync to overwrite; the list still
+            // cancels.
             Ok(())
             | Err(LedgerError::Stock {
-                code: "INSUFFICIENT_ALLOCATION",
+                code: "INSUFFICIENT_ALLOCATION" | crate::ledger::WAREHOUSE_MANAGED,
                 ..
             }) => {}
             Err(error) => return Err(error.into()),

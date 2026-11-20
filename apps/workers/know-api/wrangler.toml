@@ -1,6 +1,6 @@
 # WeldSuite know-api worker — the know module's API.
 #
-# Split out of app-api (docs/plans/app-api-module-split.md). Serves the same
+# Split out of app-api (weldsuite-documentation/plans/app-api-module-split.md). Serves the same
 # /api/<object> paths app-api served for this module; only the host differs:
 #   know-api.weldsuite.org        production
 #   know-api-test.weldsuite.org   test

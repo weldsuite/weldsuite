@@ -37,12 +37,13 @@
     "@weldsuite/text": "workspace:*",
     "@weldsuite/worker-kit": "workspace:*",
     "drizzle-orm": "^0.45.2",
-    "hono": "^4.13.13",
+    "hono": "^4.13.16",
     "postgres": "^3.4.7",
     "zod": "^3.24.2"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250110.0",
+    "@vitest/coverage-v8": "^4.1.12",
     "@weldsuite/typescript-config": "workspace:*",
     "typescript": "^5.9.2",
     "vitest": "^4.1.12",

@@ -12,7 +12,7 @@
  */
 
 import { and, desc, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
-import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
+import type { TenantDb } from './any-db';
 import {
   validateCustomFieldValue,
   type CustomFieldDefinitionLike,
@@ -50,7 +50,7 @@ import { deskMergeFollowUpTarget } from './desk-merge-target';
 
 export type { DeskConversation, DeskMessage, DeskVisitor };
 
-type AnyDb = PgDatabase<PgQueryResultHKT, typeof schema>;
+type AnyDb = TenantDb;
 
 const conversations = schema.deskConversations;
 const messages = schema.deskMessages;
@@ -60,6 +60,14 @@ export class DeskConversationNotFoundError extends Error {
   constructor(readonly conversationId: string) {
     super(`Conversation '${conversationId}' not found`);
     this.name = 'DeskConversationNotFoundError';
+  }
+}
+
+/** An append with a fixed `messageId` found that message on the timeline already; nothing was written. */
+export class DeskMessageExistsError extends Error {
+  constructor(readonly messageId: string) {
+    super(`Message '${messageId}' exists already`);
+    this.name = 'DeskMessageExistsError';
   }
 }
 
@@ -93,7 +101,7 @@ function driverErrors(err: unknown): Array<Record<string, unknown>> {
 }
 
 /** A unique index rejected the write; with `constraint`, that index in particular. */
-function isUniqueViolation(err: unknown, constraint?: string): boolean {
+export function isUniqueViolation(err: unknown, constraint?: string): boolean {
   return driverErrors(err).some((e) => {
     const message = asText(e.message);
     if (asText(e.code) !== '23505' && !/duplicate key value/i.test(message)) return false;
@@ -280,6 +288,12 @@ export interface AppendDeskMessageInput {
   metadata?: DeskMessageMetadata;
   /** Required when kind=event and eventType is assigned. */
   assigneeId?: string | null;
+  /**
+   * The message's id, for an entry the timeline may hold once: a second
+   * append with the same id writes nothing and throws DeskMessageExistsError.
+   * The primary key decides, so two appends at the same time cannot both win.
+   */
+  messageId?: string;
 }
 
 /** Conversation columns that a new message or event can change. */
@@ -399,7 +413,7 @@ export async function appendDeskMessage(
   const ownerPatch =
     eventType === 'assigned' || eventType === 'unassigned' ? { assigneeId: next.assigneeId } : {};
 
-  const messageId = input.generateId('dmsg');
+  const messageId = input.messageId ?? input.generateId('dmsg');
   const assigneePatch = input.assigneeId !== undefined ? { assigneeId: input.assigneeId } : null;
   const metadata: DeskMessageMetadata | null = input.metadata
     ? { ...input.metadata, ...assigneePatch }
@@ -418,7 +432,9 @@ export async function appendDeskMessage(
       attachments: input.attachments ?? null,
       metadata,
     })
+    .onConflictDoNothing({ target: messages.id })
     .returning();
+  if (!message && input.messageId) throw new DeskMessageExistsError(messageId);
 
   const times = await reportingTimesAfter(db, current, next, input, now);
 
@@ -989,7 +1005,7 @@ export interface ListDeskConversationsQuery {
 }
 
 /** `%term%` for ILIKE, with the user's own `%`, `_` and `\` taken literally. */
-function likePattern(term: string): string {
+export function likePattern(term: string): string {
   const escaped = term.replaceAll(/[\\%_]/g, String.raw`\$&`);
   return `%${escaped}%`;
 }
@@ -1521,6 +1537,8 @@ export interface IngestDeskApiInput {
   name?: string | null;
   email?: string | null;
   contactId?: string | null;
+  /** Files the first message carries (WeldForms uploads), already stored where the inbox can open them. */
+  attachments?: DeskMessageAttachment[];
   metadata?: DeskMessageMetadata;
 }
 
@@ -1564,6 +1582,7 @@ export async function ingestDeskApi(db: AnyDb, input: IngestDeskApiInput): Promi
       authorType: 'visitor',
       authorId: visitorId,
       body: input.body,
+      attachments: input.attachments,
       metadata,
     });
     const { state, waitingSince, assigneeId } = conversation;
@@ -1585,6 +1604,7 @@ export async function ingestDeskApi(db: AnyDb, input: IngestDeskApiInput): Promi
       contactId: input.contactId ?? null,
       title: input.title?.trim() || null,
       body: input.body,
+      attachments: input.attachments,
       authorType: 'visitor',
       authorId: visitorId,
       metadata,
@@ -1672,6 +1692,12 @@ const INTERNAL_DESK_EVENTS = new Set<string>([
   'merged_from',
   'incident_marked',
   'incident_unmarked',
+  'problem_linked',
+  'problem_unlinked',
+  'approval_requested',
+  'approval_approved',
+  'approval_rejected',
+  'fulfilment_started',
 ]);
 
 /** Notes, ticket-field changes and SLA events stay with the team. */

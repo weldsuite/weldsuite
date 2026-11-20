@@ -6,6 +6,9 @@ import { AppHeader } from '@/components/layout/app-header';
 import { ModuleContent } from '@/components/layout/module-content';
 import { EntityPermissionScope } from '@/components/legal-entity/entity-permission-scope';
 import { useCurrentLegalEntity } from '@/hooks/use-current-legal-entity';
+import { useI18n } from '@/lib/i18n/provider';
+import { weldbooksDateLocale } from '@/lib/weldbooks/format';
+import { setHrFormatLocale } from './components/shared';
 
 /**
  * WeldHR module layout — same shell as WeldCRM / WeldCommerce / WeldStash:
@@ -21,7 +24,10 @@ import { useCurrentLegalEntity } from '@/hooks/use-current-legal-entity';
 export default function WeldHrLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const { isInstalled, isLoading } = useAppAccess('weldhr');
   const t = useTranslations();
-  const { entityId, isLoading: entitiesLoading } = useCurrentLegalEntity({ app: 'weldhr', enabled: isInstalled });
+  const { entityId, entity, isLoading: entitiesLoading } = useCurrentLegalEntity({ app: 'weldhr', enabled: isInstalled });
+  const { language } = useI18n();
+  // Set while rendering, like the entity mirror, so the pages below format in it on this pass.
+  setHrFormatLocale(weldbooksDateLocale(language, entity?.locale));
 
   if (isLoading || (isInstalled && entitiesLoading)) return <PageLoader />;
   if (!isInstalled) {

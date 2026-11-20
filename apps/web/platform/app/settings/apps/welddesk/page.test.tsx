@@ -1,7 +1,10 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { en } from '@weldsuite/i18n/locales/en';
+import { setRuntimeConfig } from '@/lib/runtime-config';
 import HelpdeskSettingsPage from './page';
+
+afterEach(() => setRuntimeConfig(null));
 
 vi.mock('@/lib/router', () => ({
   Link: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
@@ -48,6 +51,17 @@ describe('WeldDesk settings page', () => {
       '/settings/apps/welddesk/assignment',
       '/settings/apps/welddesk/sla-policies',
       '/settings/apps/welddesk/priority-matrix',
+      '/settings/apps/welddesk/service-catalogue',
     ]);
+  });
+
+  it('leaves out the help center where the edition hosts none', () => {
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'desk'], unavailableFeatures: ['helpcenter-hosting'] });
+    render(<HelpdeskSettingsPage />);
+
+    const hrefs = screen.getAllByRole('link').map((link) => link.getAttribute('href'));
+
+    expect(hrefs).not.toContain('/settings/apps/welddesk/help-center');
+    expect(hrefs).toContain('/settings/apps/welddesk/chat-widget');
   });
 });

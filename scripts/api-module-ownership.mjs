@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Which module owns each app-api source file (docs/plans/app-api-module-split.md).
+ * Which module owns each app-api source file (weldsuite-documentation/plans/app-api-module-split.md).
  *
  *   pnpm api:ownership                  summary + files shared between modules
  *   pnpm api:ownership <module>         a module's files, what they import from

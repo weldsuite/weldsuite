@@ -16,9 +16,37 @@ export const MAX_STRING = 2048;
 export const MAX_ELEMENT_TEXT = 255;
 export const MAX_TITLE = 512;
 export const MAX_ID = 64;
+export const MAX_ERROR_MESSAGE = 1000;
+export const MAX_PEOPLE_OPS_PER_BATCH = 50;
+export const MAX_UNSET_KEYS = 50;
+export const MAX_GROUP_OPS_PER_BATCH = 50;
+/** Group types a project collects; the collector drops ops and `$group_<type>` properties of any further type. */
+export const MAX_GROUP_TYPES = 5;
+/** A group type: what `group(type, key)` sends as the `$group_<type>` event property. */
+export const GROUP_TYPE = /^[a-z][a-z0-9_]{0,31}$/;
+export const MAX_GROUP_KEY = 255;
+/** `POST /v1/track` takes at most this many events, `/v1/import` {@link MAX_IMPORT_EVENTS}. */
+export const MAX_TRACK_EVENTS = 100;
+export const MAX_IMPORT_EVENTS = 1000;
 
 /** `$`-prefixed names are reserved for events the SDK sends itself. */
-export const SYSTEM_EVENTS = ['$pageview', '$pageleave', '$autocapture'] as const;
+export const SYSTEM_EVENTS = [
+  '$pageview',
+  '$pageleave',
+  '$autocapture',
+  '$identify',
+  '$rageclick',
+  '$deadclick',
+  '$quickback',
+  '$excessivescroll',
+  '$exception',
+  '$webvitals',
+  '$screen',
+  '$app_opened',
+  '$app_backgrounded',
+  '$app_installed',
+  '$app_updated',
+] as const;
 export type SystemEventName = (typeof SYSTEM_EVENTS)[number];
 
 /**
@@ -29,6 +57,28 @@ export type SystemEventName = (typeof SYSTEM_EVENTS)[number];
 export const CUSTOM_EVENT_NAME = /^[A-Za-z0-9](?:[A-Za-z0-9 _.:/-]{0,98}[A-Za-z0-9_.:/-])?$/;
 /** Property keys: identifiers, kept SQL-safe because the query compiler reads them with `json_get_*`. */
 export const PROPERTY_KEY = /^[A-Za-z_]\w{0,63}$/;
+/** Reserved event keys about the page and the visitor: `$exception`'s source, line and column, `$quickback`'s page left, the first touch and `$group_<type>`. */
+export const PAGE_EVENT_KEY =
+  /^\$(?:source|line|col|from|initial_(?:referrer|referring_domain|utm_source|utm_medium|utm_campaign|utm_content|utm_term|landing_path)|group_[a-z][a-z0-9_]{0,31})$/;
+/** Reserved event keys about the device: `$webvitals`' measures, and the mobile SDK's device and screen. */
+export const DEVICE_EVENT_KEY =
+  /^\$(?:lcp|inp|fcp|ttfb|cls|lcp_el|inp_el|cls_el|nav_type|screen_name|os|os_version|device_type|device_model|app_id|app_version|app_build|screen_width|screen_height|locale)$/;
+/** What a property key is checked against: a RegExp, or {@link EVENT_PROPERTY_KEY}. */
+export interface KeyPattern {
+  test(key: string): boolean;
+}
+/**
+ * Event property keys: {@link PROPERTY_KEY} plus the reserved keys the SDKs set themselves
+ * ({@link PAGE_EVENT_KEY}, {@link DEVICE_EVENT_KEY}). `track()` takes only the former.
+ */
+export const EVENT_PROPERTY_KEY: KeyPattern = {
+  test: (key) => PROPERTY_KEY.test(key) || PAGE_EVENT_KEY.test(key) || DEVICE_EVENT_KEY.test(key),
+};
+/** Profile property keys: {@link PROPERTY_KEY} plus the reserved profile fields and the first-touch keys. */
+export const PROFILE_PROPERTY_KEY =
+  /^(?:[A-Za-z_]\w{0,63}|\$(?:email|name|avatar|created|initial_(?:referrer|referring_domain|utm_source|utm_medium|utm_campaign|utm_content|utm_term|landing_path)))$/;
+/** User ids: 1 to 255 characters, no control characters. */
+export const USER_ID = /^[^\u0000-\u001f\u007f-\u009f]{1,255}$/;
 
 export type PropertyValue = string | number | boolean | null;
 export type Properties = Record<string, PropertyValue>;
@@ -53,33 +103,85 @@ export interface WireEvent {
   anon_id?: string;
   /** Only with consent. */
   session_id?: string;
+  /** Only with consent, on every event after `identify()`. Matches {@link USER_ID}. */
+  user_id?: string;
   /** An absolute URL, at most 2048 characters. */
   url: string;
   title?: string;
   referrer?: string;
   /** Integer, 0 to 20000. */
   viewport_w?: number;
-  /** `$autocapture`: the clicked or submitted element. */
+  /** `$autocapture`, `$rageclick`, `$deadclick`: the element. */
   el?: WireElement;
-  /** `$autocapture` click position in the document, CSS pixels: integers, x 0 to 100000, y 0 to 1000000. */
+  /** Click position in the document, CSS pixels: integers, x 0 to 100000, y 0 to 1000000. */
   x?: number;
   y?: number;
-  /** `$pageleave`: furthest scroll reached, integer percent of the page height. */
+  /** Click position inside the element's box, 0 to 1. */
+  rel_x?: number;
+  rel_y?: number;
+  /** `$pageleave`, `$excessivescroll`: scroll depth, integer percent of the page height. */
   scroll_depth?: number;
-  /** At most {@link MAX_PROPERTIES} keys matching {@link PROPERTY_KEY}. */
+  /** `$exception`: the message, at most {@link MAX_ERROR_MESSAGE} characters. */
+  error_message?: string;
+  /** At most {@link MAX_PROPERTIES} keys matching {@link EVENT_PROPERTY_KEY}. */
   props?: Properties;
 }
+
+/** A profile operation (`people.set()` and friends): only with consent. Keys match {@link PROFILE_PROPERTY_KEY}. */
+export type WirePeopleOp =
+  | { op: 'set' | 'set_once'; user_id: string; ts: string; props: Properties }
+  | { op: 'unset'; user_id: string; ts: string; keys: string[] }
+  | { op: 'increment'; user_id: string; ts: string; props: Record<string, number> };
+
+/** A group profile operation (`group()`, `groups.set()` and friends): sent with or without consent. Keys match {@link PROFILE_PROPERTY_KEY}. */
+export type WireGroupOp =
+  | { op: 'set' | 'set_once'; type: string; key: string; props: Properties }
+  | { op: 'unset'; type: string; key: string; keys: string[] };
 
 export interface EventBatch {
   token: string;
   /** Client clock when the batch was sent. */
   sent_at: string;
-  lib: 'web' | 'server';
+  lib: 'web' | 'server' | 'mobile';
   lib_version: string;
   /** Whether the visitor has given consent (or the project needs none). */
   consent: boolean;
   /** 1 to {@link MAX_EVENTS_PER_BATCH} events. */
   events: WireEvent[];
+  /** At most {@link MAX_PEOPLE_OPS_PER_BATCH}, only with consent. */
+  people?: WirePeopleOp[];
+  /** At most {@link MAX_GROUP_OPS_PER_BATCH}. */
+  groups?: WireGroupOp[];
+}
+
+/** One event sent to `POST /v1/track` or `/v1/import` with a secret key. */
+export interface ServerEvent {
+  event_id: string;
+  name: SystemEventName | string;
+  ts: string;
+  /** Whoever the caller counts as the visitor (a user id or an anonymous id). Matches {@link USER_ID}. */
+  distinct_id: string;
+  user_id?: string;
+  anon_id?: string;
+  url?: string;
+  title?: string;
+  props?: Properties;
+}
+
+export interface ServerBatch {
+  lib: 'server';
+  lib_version: string;
+  events: ServerEvent[];
+  people?: WirePeopleOp[];
+  groups?: WireGroupOp[];
+}
+
+export type DeviceClass = 'desktop' | 'tablet' | 'mobile';
+
+/** < 768 px mobile, < 1024 px tablet, else desktop: the same split as the collector's `deviceClassFromViewport`. */
+export function deviceClassFromViewport(width: number): DeviceClass {
+  if (width < 768) return 'mobile';
+  return width < 1024 ? 'tablet' : 'desktop';
 }
 
 /** `GET /c/:token`: what the SDK needs before it collects anything. */
@@ -89,4 +191,17 @@ export interface ClientConfig {
   maskingLevel: 'strict' | 'balanced' | 'relaxed';
   /** URL patterns (`/admin/*`) where the SDK sends nothing. */
   excludedUrls: string[];
+  /** 0 to 1: the share of consented sessions the SDK records. */
+  recordingSampleRate: number;
+  /** Quota state or settings stop new recordings: the SDK doesn't load the recorder. */
+  recordingBlocked: boolean;
+  /** One masked page snapshot the project wants for a heatmap background. */
+  snapshot: { pageGroupId: string; urlPattern: string; deviceClass: DeviceClass } | null;
 }
+
+// ── Recordings (`POST /r`, `POST /snap`) ──────────────────────────────────
+
+/** A recording chunk or snapshot is at most this many compressed bytes. */
+export const MAX_BLOB_BYTES = 1024 * 1024;
+/** Chunk numbers run from 0 to this per session. */
+export const MAX_SEQ = 100000;

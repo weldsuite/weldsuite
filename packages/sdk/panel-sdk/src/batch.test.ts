@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildBatch, buildBatches } from './batch';
-import { cleanProps, normalizeEvent, utf8Length } from './event';
+import { cleanProps, normalizeEvent, normalizePeopleOp, utf8Length } from './event';
 import { excludedMatcher, resolveConfig } from './config';
 import { MAX_BATCH_BYTES, MAX_EVENTS_PER_BATCH } from './wire';
 
@@ -57,6 +57,61 @@ describe('buildBatches', () => {
   });
 });
 
+describe('buildBatches with profile operations', () => {
+  const op = (i: number) => ({ op: 'set' as const, user_id: 'user-1', ts: '2026-11-14T10:00:00.000Z', props: { n: i } });
+
+  it('adds them to the event batches, at most 50 a batch', () => {
+    const ops = Array.from({ length: 120 }, (_, i) => op(i));
+    const batches = buildBatches({ token: 'wpk_x', consent: true, events: events(250), people: ops });
+    expect(batches.map((b) => b.people?.length)).toEqual([50, 50, 20]);
+    expect(batches[0].people?.[0]).toEqual(op(0));
+  });
+
+  it('sends none without consent, and none without events', () => {
+    expect(buildBatches({ token: 'wpk_x', consent: false, events: events(1), people: [op(1)] })[0].people).toBeUndefined();
+    expect(buildBatches({ token: 'wpk_x', consent: true, events: [], people: [op(1)] })).toEqual([]);
+  });
+
+  it('keeps every batch within 64 KiB', () => {
+    const big = (i: number) => ({ op: 'set' as const, user_id: 'user-1', props: record(8, () => 'x'.repeat(2000), `p${i}_`) });
+    const batches = buildBatches({
+      token: 'wpk_x',
+      consent: true,
+      events: events(60, { props: { a: 'x'.repeat(1500) } }),
+      people: Array.from({ length: 6 }, (_, i) => big(i)),
+    });
+    for (const b of batches) expect(bytes(b)).toBeLessThanOrEqual(MAX_BATCH_BYTES);
+    // The first batch is nearly full of events; the second has room for some operations, the rest are left out.
+    expect(batches[0].people).toBeUndefined();
+    expect(batches[1].people?.length).toBeGreaterThan(0);
+    expect(batches[1].people?.length).toBeLessThan(6);
+  });
+});
+
+describe('normalizePeopleOp', () => {
+  it('maps email and name to the profile fields and drops what the collector refuses', () => {
+    expect(normalizePeopleOp({ op: 'set', user_id: ' user-1 ', ts: 0, props: { email: 'a@b.co', name: 'Ann', plan: 'pro', $evil: 1, nested: {} } })).toEqual({
+      op: 'set',
+      user_id: 'user-1',
+      ts: '1970-01-01T00:00:00.000Z',
+      props: { $email: 'a@b.co', $name: 'Ann', plan: 'pro' },
+    });
+  });
+
+  it('keeps numbers only for increment, and keys for unset', () => {
+    expect(normalizePeopleOp({ op: 'increment', user_id: 'u', props: { logins: 1, plan: 'pro' } })).toMatchObject({ props: { logins: 1 } });
+    expect(normalizePeopleOp({ op: 'unset', user_id: 'u', keys: ['email', 'plan', 'plan', 'bad key'] })).toMatchObject({ keys: ['$email', 'plan'] });
+  });
+
+  it('returns null without a valid user id or anything to change', () => {
+    expect(normalizePeopleOp({ op: 'set', user_id: '', props: { a: 1 } })).toBeNull();
+    expect(normalizePeopleOp({ op: 'set', user_id: 'x'.repeat(256), props: { a: 1 } })).toBeNull();
+    expect(normalizePeopleOp({ op: 'set', user_id: 'tab	here', props: { a: 1 } })).toBeNull();
+    expect(normalizePeopleOp({ op: 'set', user_id: 'u', props: { 'bad key': 1 } })).toBeNull();
+    expect(normalizePeopleOp({ op: 'unset', user_id: 'u', keys: [] })).toBeNull();
+  });
+});
+
 describe('buildBatch', () => {
   it('builds one batch', () => {
     const batch = buildBatch({ token: 'wpk_x', consent: false, events: events(3), sentAt: '2026-10-27T10:00:00Z', libVersion: '9.9.9' });
@@ -105,6 +160,14 @@ describe('normalizeEvent', () => {
     expect(e.el?.text).toHaveLength(255);
   });
 
+  it('keeps user_id, rel_x / rel_y and error_message, clamped', () => {
+    const e = normalizeEvent({ name: '$exception', url: URL_, user_id: ' 42 ', rel_x: 1.5, rel_y: 0.123456, error_message: 'm'.repeat(1200), props: { $source: 'https://x/app.js', $line: 3, $nope: 1 } })!;
+    expect(e).toMatchObject({ user_id: '42', rel_x: 1, rel_y: 0.1235 });
+    expect(e.error_message).toHaveLength(1000);
+    expect(e.props).toEqual({ $source: 'https://x/app.js', $line: 3 });
+    expect(normalizeEvent({ name: 'X', url: URL_, user_id: 'x'.repeat(300) })!.user_id).toBeUndefined();
+  });
+
   it('is idempotent', () => {
     const once = normalizeEvent({ name: 'Signed up', url: URL_, props: { plan: 'pro', seats: 3 } })!;
     expect(normalizeEvent(once)).toEqual(once);
@@ -139,7 +202,22 @@ describe('config', () => {
       consentMode: 'required',
       maskingLevel: 'strict',
       excludedUrls: [],
+      recordingSampleRate: 0,
+      recordingBlocked: true,
+      snapshot: null,
     });
+  });
+
+  it('reads the recording fields, clamping the sample rate and checking the snapshot request', () => {
+    const snapshot = { pageGroupId: 'pnh_1', urlPattern: '/products/*', deviceClass: 'mobile' as const };
+    expect(resolveConfig({ recordingSampleRate: 0.25, recordingBlocked: false, snapshot })).toMatchObject({
+      recordingSampleRate: 0.25,
+      recordingBlocked: false,
+      snapshot,
+    });
+    expect(resolveConfig({ recordingSampleRate: 7 }).recordingSampleRate).toBe(1);
+    expect(resolveConfig({ recordingSampleRate: -1 }).recordingSampleRate).toBe(0);
+    expect(resolveConfig({ snapshot: { ...snapshot, deviceClass: 'watch' as 'mobile' } }).snapshot).toBeNull();
   });
 
   it('matches excluded URL patterns against the whole path', () => {

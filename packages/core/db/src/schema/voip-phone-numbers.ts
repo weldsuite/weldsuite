@@ -63,9 +63,21 @@ export const voipPhoneNumbers = pgTable('voip_phone_numbers', {
   displayName: varchar('display_name', { length: 100 }),
   description: text('description'),
 
+  /**
+   * The customer's own phone system this number lives on (voip_sip_trunks);
+   * null for a number we host. Such a number has provider `sip_trunk`.
+   */
+  sipTrunkId: varchar('sip_trunk_id', { length: 30 }),
+  /**
+   * When a number we do not host was proven to be the workspace's, so it may
+   * be shown as the caller id on outbound calls. Null: not verified.
+   */
+  callerIdVerifiedAt: timestamp('caller_id_verified_at'),
+
   // Soft delete
   deletedAt: timestamp('deleted_at'),
 }, (table) => [
+  index('voip_phone_numbers_sip_trunk_idx').on(table.sipTrunkId),
   index('voip_phone_numbers_user_idx').on(table.assignedUserId),
   index('voip_phone_numbers_status_idx').on(table.status),
   index('voip_phone_numbers_country_idx').on(table.countryCode),

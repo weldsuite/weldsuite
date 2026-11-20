@@ -24,7 +24,7 @@ export const FLAGS = {
   // WeldFlow "Move to project" action (task list row + detail panel). Hidden
   // by default — rolled out gradually per user / %-rollout in Flagship.
   'weldflow-move-task': { type: 'boolean', default: false },
-  // WeldHR payroll (NL + US own engines; docs/plans/weldhr-payroll.md). Gates
+  // WeldHR payroll (NL + US own engines; weldsuite-documentation/plans/weldhr-payroll.md). Gates
   // the payroll screens and /api/weldhr/payroll/*. Off until rolled out per
   // workspace in Flagship.
   'weldhr-payroll': { type: 'boolean', default: false },
@@ -32,22 +32,22 @@ export const FLAGS = {
   // Needs the PKIoverheid certificate binding on hr-api; until then filings
   // are generated and downloaded, not sent.
   'weldhr-payroll-digipoort': { type: 'boolean', default: false },
-  // WeldReach global kill switch (docs/plans/weldreach.md). On by default;
+  // WeldReach global kill switch (weldsuite-documentation/plans/weldreach.md). On by default;
   // turning it off in Flagship stops every outreach SMTP send across all
   // workspaces within a minute. Campaigns keep their state and resume when
   // it is back on. Per-workspace suspension is done in the admin console.
   'weldreach-sending': { type: 'boolean', default: true },
-  // WeldReach warmup network kill switch (docs/plans/weldreach-warmup.md).
+  // WeldReach warmup network kill switch (weldsuite-documentation/plans/weldreach-warmup.md).
   // Off stops all warmup sends and engagements; mailboxes keep their ramp day
   // and continue when it is back on. Separate from weldreach-sending.
   'weldreach-warmup': { type: 'boolean', default: true },
-  // Outbound mail guard (docs/plans/weldmail-outbound-abuse.md): `off` skips
+  // Outbound mail guard (weldsuite-documentation/plans/weldmail-outbound-abuse.md): `off` skips
   // the per-workspace ledger, `shadow` decides and logs but never blocks,
   // `enforce` blocks. Sender ownership and complaint suppressions are enforced
   // in every mode. Starts in shadow to calibrate the thresholds; target it per
   // workspace (attribute `workspaceId`, the master id) in Flagship.
   'weldmail-outbound-guard': { type: 'string', default: 'shadow' },
-  // WeldMail mailbox store (docs/plans/weldmail-mailbox-store-design.md):
+  // WeldMail mailbox store (weldsuite-documentation/plans/weldmail-mailbox-store-design.md):
   // `postgres` reads and writes Postgres only (today's behaviour), `shadow`
   // writes both and reads Postgres, `object` writes both and reads the
   // mailbox Durable Object (falling back to Postgres on error), `object-only`

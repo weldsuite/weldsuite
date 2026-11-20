@@ -26,7 +26,6 @@ import {
   SelectValue,
 } from '@weldsuite/ui/components/select';
 import {
-  Phone,
   Plus,
   Loader2,
   Search,
@@ -931,7 +930,6 @@ export function NewNumberClient({
         subtitle={tn.subtitle}
         sections={sections}
         summaryTitle={isPreviewingNumber ? tn.numberSummary : tn.purchaseSummary}
-        summaryIcon={Phone}
         summaryFields={summaryFields}
         summaryBottomFields={!isPreviewingNumber && cartNumbers.length > 0 ? [
           {

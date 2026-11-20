@@ -86,6 +86,37 @@ describe('parseWithLexicon', () => {
     expect(shouldUnderstand('Budget spreadsheets')).toBe(true);
   });
 
+  it.each<[string, string, string]>([
+    ['document Offerte', 'document', 'Offerte'],
+    ['documenten van Piet', 'document', 'Piet'],
+    ['formulier Verzuim', 'form', 'Verzuim'],
+    ['files about Budget', 'drive_file', 'Budget'],
+    ['bestanden Jaarrekening', 'drive_file', 'Jaarrekening'],
+    ['gesprek met Jansen', 'conversation', 'Jansen'],
+    ['conversations from Acme', 'conversation', 'Acme'],
+    ['vergadering Planning', 'meeting', 'Planning'],
+    ['meeting with Acme', 'meeting', 'Acme'],
+    ['envelope NDA', 'sign_envelope', 'NDA'],
+    ['magazijn Rotterdam', 'warehouse', 'Rotterdam'],
+    ['warehouses in Utrecht', 'warehouse', 'Utrecht'],
+    ['workflow Onboarding', 'workflow', 'Onboarding'],
+    ['agent Sales', 'agent', 'Sales'],
+    ['campagne Najaar', 'reach_campaign', 'Najaar'],
+    ['campaign Autumn', 'reach_campaign', 'Autumn'],
+    ['kanaal Algemeen', 'chat_channel', 'Algemeen'],
+    ['channels about Sales', 'chat_channel', 'Sales'],
+    ['lijst Prospects', 'data_list', 'Prospects'],
+    ['lists Benelux', 'data_list', 'Benelux'],
+  ])('knows the type word of "%s"', (query, type, term) => {
+    expect(parseWithLexicon(query)).toMatchObject({ entityTypes: [type], lexicalTerm: term });
+    expect(shouldUnderstand(query)).toBe(true);
+  });
+
+  it('leaves "list" a function word, and "project" with WeldFlow', () => {
+    expect(parseWithLexicon('list invoices Acme')).toMatchObject({ entityTypes: ['invoice'], lexicalTerm: 'Acme' });
+    expect(parseWithLexicon('project Acme')!.entityTypes).toEqual(['project']);
+  });
+
   it('preserves the original casing of the extracted term', () => {
     expect(parseWithLexicon('ticket for ACME B.V.')!.lexicalTerm).toBe('ACME B.V.');
   });

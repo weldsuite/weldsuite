@@ -1,7 +1,9 @@
 //! Telnyx's REST API (`lib/telnyx.ts`, `lib/telnyx-porting.ts`): the two
 //! request helpers the worker has (the general one and the porting one,
-//! which classifies failures), Call Control actions, AI assistants and the
-//! webhook signature check.
+//! which classifies failures), Call Control actions (the WeldDesk phone
+//! queue's dial, bridge, speak, gather, playback and enqueue among them),
+//! the softphone's telephony credentials, AI assistants and the webhook
+//! signature check.
 
 use std::sync::Arc;
 
@@ -37,10 +39,26 @@ pub(crate) enum TelnyxError {
     OutsideBase,
     /// The `fetch` itself failed.
     Network(String),
-    /// A non-2xx answer: `Telnyx API error: <status> - <detail>`.
-    Api(String),
+    /// A non-2xx answer (`TelnyxApiError`): `Telnyx API error: <status> -
+    /// <detail>`, with the HTTP status.
+    Api {
+        message: String,
+        status: u16,
+    },
     /// A 2xx answer that isn't JSON.
     BadJson(String),
+    /// A 2xx answer without what was asked for.
+    Unexpected(&'static str),
+}
+
+impl TelnyxError {
+    /// `err instanceof TelnyxApiError && err.status`.
+    pub(crate) fn status(&self) -> Option<u16> {
+        match self {
+            Self::Api { status, .. } => Some(*status),
+            _ => None,
+        }
+    }
 }
 
 impl std::fmt::Display for TelnyxError {
@@ -48,9 +66,10 @@ impl std::fmt::Display for TelnyxError {
         match self {
             Self::NotConfigured => f.write_str("Telnyx API key is not configured"),
             Self::OutsideBase => f.write_str("Telnyx API endpoint is outside the API base"),
-            Self::Network(message) | Self::Api(message) | Self::BadJson(message) => {
+            Self::Network(message) | Self::Api { message, .. } | Self::BadJson(message) => {
                 f.write_str(message)
             }
+            Self::Unexpected(message) => f.write_str(message),
         }
     }
 }
@@ -262,10 +281,10 @@ impl Telnyx {
             } else {
                 String::new()
             };
-            return Err(TelnyxError::Api(format!(
-                "Telnyx API error: {} - {detail}",
-                response.status
-            )));
+            return Err(TelnyxError::Api {
+                message: format!("Telnyx API error: {} - {detail}", response.status),
+                status: response.status,
+            });
         }
         if response.status == 204 {
             return Ok(Value::Object(Map::new()));
@@ -428,12 +447,214 @@ impl Telnyx {
 
     /// `telnyxRecordStart(env, id)`: dual-channel mp3.
     pub(crate) async fn record_start(&self, id: &str) -> Result<Value, TelnyxError> {
+        self.record_start_with(id, Recording::default()).await
+    }
+
+    /// `telnyxRecordStart(env, id, opts)`: mp3, with the options the phone
+    /// queue passes.
+    pub(crate) async fn record_start_with(
+        &self,
+        id: &str,
+        recording: Recording<'_>,
+    ) -> Result<Value, TelnyxError> {
+        let mut body = Map::new();
+        let channels = if recording.single_channel {
+            "single"
+        } else {
+            "dual"
+        };
+        body.insert("channels".to_owned(), json!(channels));
+        body.insert("format".to_owned(), json!("mp3"));
+        if recording.play_beep {
+            body.insert("play_beep".to_owned(), json!(true));
+        }
+        if let Some(seconds) = recording.max_length.filter(|seconds| *seconds != 0) {
+            body.insert("max_length".to_owned(), json!(seconds));
+        }
         self.action(
             id,
             "record_start",
-            json!({ "channels": "dual", "format": "mp3" }),
+            with_client_state(body, recording.client_state),
         )
         .await
+    }
+
+    /// `telnyxDial(env, args)`: `POST /v2/calls`, dialling `to` (E.164 or
+    /// `sip:<username>@sip.telnyx.com`) on a Call Control connection. The
+    /// answer's `call_control_id` (`null` when it has none).
+    pub(crate) async fn dial(&self, dial: Dial<'_>) -> Result<Value, TelnyxError> {
+        let mut body = Map::new();
+        body.insert("connection_id".to_owned(), json!(dial.connection_id));
+        body.insert("to".to_owned(), json!(dial.to));
+        body.insert("from".to_owned(), json!(dial.from));
+        if js::truthy(dial.timeout_secs) {
+            body.insert("timeout_secs".to_owned(), dial.timeout_secs.clone());
+        }
+        let response = self
+            .request(
+                "POST",
+                "/calls",
+                Some(Body::Json(with_client_state(body, dial.client_state))),
+            )
+            .await?;
+        Ok(response["data"]["call_control_id"].clone())
+    }
+
+    /// `telnyxBridge(env, id, otherCallControlId)`: bridge this call to
+    /// another one, which takes a queued call out of its queue.
+    pub(crate) async fn bridge(&self, id: &str, other: &str) -> Result<Value, TelnyxError> {
+        self.action(id, "bridge", json!({ "call_control_id": other }))
+            .await
+    }
+
+    /// `telnyxSpeak(env, id, payload, { voice, language, clientState })`.
+    pub(crate) async fn speak(
+        &self,
+        id: &str,
+        payload: &str,
+        speech: Speech<'_>,
+    ) -> Result<Value, TelnyxError> {
+        let mut body = Map::new();
+        body.insert("payload".to_owned(), json!(payload));
+        body.insert("voice".to_owned(), json!(speech.voice));
+        if !speech.language.is_empty() {
+            body.insert("language".to_owned(), json!(speech.language));
+        }
+        self.action(id, "speak", with_client_state(body, speech.client_state))
+            .await
+    }
+
+    /// `telnyxGatherUsingSpeak(env, id, args)`: speak a prompt and collect
+    /// keypad digits; the result arrives as `call.gather.ended`.
+    pub(crate) async fn gather_using_speak(
+        &self,
+        id: &str,
+        gather: Gather<'_>,
+    ) -> Result<Value, TelnyxError> {
+        let mut body = Map::new();
+        body.insert("payload".to_owned(), json!(gather.payload));
+        body.insert("voice".to_owned(), json!(gather.speech.voice));
+        if !gather.speech.language.is_empty() {
+            body.insert("language".to_owned(), json!(gather.speech.language));
+        }
+        body.insert("minimum_digits".to_owned(), json!(gather.minimum_digits));
+        body.insert("maximum_digits".to_owned(), json!(gather.maximum_digits));
+        body.insert("maximum_tries".to_owned(), json!(gather.maximum_tries));
+        body.insert("timeout_millis".to_owned(), json!(gather.timeout_millis));
+        body.insert("valid_digits".to_owned(), json!(gather.valid_digits));
+        if !gather.invalid_payload.is_empty() {
+            body.insert("invalid_payload".to_owned(), json!(gather.invalid_payload));
+        }
+        self.action(
+            id,
+            "gather_using_speak",
+            with_client_state(body, gather.speech.client_state),
+        )
+        .await
+    }
+
+    /// `telnyxPlaybackStart(env, id, { audioUrl, loop: true })`.
+    pub(crate) async fn playback_start_looped(
+        &self,
+        id: &str,
+        audio_url: &str,
+    ) -> Result<Value, TelnyxError> {
+        self.action(
+            id,
+            "playback_start",
+            json!({ "audio_url": audio_url, "loop": "infinity" }),
+        )
+        .await
+    }
+
+    /// `telnyxPlaybackStop(env, id)`.
+    pub(crate) async fn playback_stop(&self, id: &str) -> Result<Value, TelnyxError> {
+        self.action(id, "playback_stop", json!({})).await
+    }
+
+    /// `telnyxEnqueue(env, id, { queueName, maxWaitTimeSecs, clientState })`:
+    /// park the call in a Telnyx queue. The queue answers `call.dequeued`
+    /// (reason `timeout`) when `max_wait_time_secs` runs out.
+    pub(crate) async fn enqueue(
+        &self,
+        id: &str,
+        queue_name: &str,
+        max_wait_time_secs: &Value,
+        client_state: Option<&str>,
+    ) -> Result<Value, TelnyxError> {
+        let mut body = Map::new();
+        body.insert("queue_name".to_owned(), json!(queue_name));
+        if js::truthy(max_wait_time_secs) {
+            body.insert("max_wait_time_secs".to_owned(), max_wait_time_secs.clone());
+        }
+        self.action(id, "enqueue", with_client_state(body, client_state))
+            .await
+    }
+
+    // ── Telephony credentials (one per member softphone) ────────────────────
+
+    /// `telnyxCreateCredential(env, { connectionId, name })`: a SIP
+    /// credential on the WebRTC connection, as `(id, sipUsername)`.
+    pub(crate) async fn create_credential(
+        &self,
+        connection_id: &str,
+        name: &str,
+    ) -> Result<(String, String), TelnyxError> {
+        let body = json!({ "connection_id": connection_id, "name": name });
+        let response = self
+            .request("POST", "/telephony_credentials", Some(Body::Json(body)))
+            .await?;
+        let (id, sip_username) = (&response["data"]["id"], &response["data"]["sip_username"]);
+        if !js::truthy(id) || !js::truthy(sip_username) {
+            return Err(TelnyxError::Unexpected(
+                "Telnyx credential answer has no id or sip_username",
+            ));
+        }
+        Ok((js::string(id), js::string(sip_username)))
+    }
+
+    /// `telnyxCredentialToken(env, credentialId)`: a short-lived WebRTC
+    /// login JWT (the answer is plain text).
+    pub(crate) async fn credential_token(
+        &self,
+        credential_id: &str,
+    ) -> Result<String, TelnyxError> {
+        let Some(key) = &self.api_key else {
+            return Err(TelnyxError::NotConfigured);
+        };
+        let url = Self::resolve(&format!(
+            "/telephony_credentials/{}/token",
+            js::encode_uri_component(credential_id)
+        ))?;
+        let request =
+            HttpRequest::empty("POST", url).header("Authorization", format!("Bearer {key}"));
+        let response = self
+            .http
+            .send(request)
+            .await
+            .map_err(|error| TelnyxError::Network(error.to_string()))?;
+        if !response.ok() {
+            // `response.statusText` reads as empty through the port.
+            return Err(TelnyxError::Api {
+                message: format!("Telnyx API error: {} - ", response.status),
+                status: response.status,
+            });
+        }
+        Ok(response.text())
+    }
+
+    /// `telnyxDeleteCredential(env, credentialId)`.
+    pub(crate) async fn delete_credential(&self, credential_id: &str) -> Result<(), TelnyxError> {
+        self.request(
+            "DELETE",
+            &format!(
+                "/telephony_credentials/{}",
+                js::encode_uri_component(credential_id)
+            ),
+            None,
+        )
+        .await
+        .map(|_| ())
     }
 
     /// `telnyxAiAssistantStart(env, id, assistantId, opts)`.
@@ -511,6 +732,53 @@ fn with_client_state(mut body: Map<String, Value>, client_state: Option<&str>) -
         body.insert("client_state".to_owned(), json!(state));
     }
     Value::Object(body)
+}
+
+/// `telnyxRecordStart`'s options beyond the mp3 format; the default is the
+/// dual-channel call recording.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct Recording<'a> {
+    /// `channels: 'single'` (a voicemail); else `dual`.
+    pub(crate) single_channel: bool,
+    /// A beep before the recording starts.
+    pub(crate) play_beep: bool,
+    /// The longest recording, in seconds.
+    pub(crate) max_length: Option<u32>,
+    pub(crate) client_state: Option<&'a str>,
+}
+
+/// `telnyxDial`'s arguments. `timeout_secs` is the route's number as it is
+/// stored (left out when falsy).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Dial<'a> {
+    pub(crate) connection_id: &'a str,
+    pub(crate) to: &'a str,
+    pub(crate) from: &'a str,
+    pub(crate) timeout_secs: &'a Value,
+    pub(crate) client_state: Option<&'a str>,
+}
+
+/// `TelnyxSpeakOptions`: how a text is spoken (`language` is left out when
+/// empty).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Speech<'a> {
+    pub(crate) voice: &'a str,
+    pub(crate) language: &'a str,
+    pub(crate) client_state: Option<&'a str>,
+}
+
+/// `telnyxGatherUsingSpeak`'s arguments (`invalid_payload` is left out when
+/// empty).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Gather<'a> {
+    pub(crate) payload: &'a str,
+    pub(crate) speech: Speech<'a>,
+    pub(crate) minimum_digits: u32,
+    pub(crate) maximum_digits: u32,
+    pub(crate) maximum_tries: u32,
+    pub(crate) timeout_millis: u32,
+    pub(crate) valid_digits: &'a str,
+    pub(crate) invalid_payload: &'a str,
 }
 
 /// `telnyxAiAssistantStart`'s options as the inbound route passes them.

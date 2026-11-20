@@ -12,11 +12,12 @@
 //! | `NATS_DEAD_LETTER_STREAM` | the dead-letter stream (default `ENTITY_EVENTS_DLQ`, subjects `<subject>-dlq.<subscriber>.…`) |
 //! | `CONSUME_SUBSCRIBERS` | the subscribers to run, comma separated (default: every ported one) |
 //! | `VALKEY_URL`, `VALKEY_REALTIME_PREFIX` | realtime publishes; without them the realtime subscriber does not run |
-//! | `EMBEDDINGS_URL`, `EMBEDDINGS_MODEL`, `EMBEDDINGS_API_KEY` | an OpenAI-compatible embeddings endpoint; without one the search-index subscriber does not run |
+//! | `EMBEDDINGS_URL`, `EMBEDDINGS_MODEL`, `EMBEDDINGS_API_KEY` | an OpenAI-compatible embeddings endpoint for the search index, for an install without AI (or whose AI has no embedding model); unmetered. With neither, the search-index subscriber does not run |
+//! | `AI_*`, `MISTRAL_API_KEY`, … (`weldsuite_ai::config`), `VALKEY_CACHE_PREFIX` | the install's AI, as for `serve`, for the subscribers that call a model (the search index's embeddings first, charged per workspace and batch); its workspace settings cached in Valkey under the cache prefix |
 //! | `RESTATE_INGRESS_URL` | where the `weldconnect` subscriber starts workflow runs (the jobs `serve` runs); without it that subscriber does not run |
-//! | `WEBHOOK_ALLOW_PRIVATE_NETWORKS` | `true` lets webhooks reach private addresses (refused by default) |
+//! | `WEBHOOK_ALLOW_PRIVATE_NETWORKS` | `true` lets webhooks and audit log streams reach private addresses (refused by default) |
 //! | `WEBHOOK_RETRY_SWEEP` | `false` stops this role from retrying failed webhook deliveries every ten minutes |
-//! | `CONSUME_DRAIN_SECONDS` | how long batches in hand may take to finish after SIGTERM (default 25) |
+//! | `CONSUME_DRAIN_SECONDS` | how long batches in hand, and the audit log stream flushes behind them (about 6 s), may take to finish after SIGTERM (default 25) |
 //! | `S3_BUCKET_MAIL` (+ `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE`) | the mail bucket Haraka spools inbound mail to; set, the `mail-inbound` subscriber runs (MAIL-010) |
 //! | `S3_BUCKET_PUBLIC`, `R2_PUBLIC_URL` (else `S3_PUBLIC_URL`) | where inbound attachments and contact avatars go, and their public URL (optional; without them a message keeps no attachments, as the worker without `STORAGE`) |
 //! | `NATS_MAIL_INBOUND_STREAM`, `NATS_MAIL_INBOUND_SUBJECT`, `NATS_MAIL_INBOUND_DLQ_STREAM` | the inbound mail stream (default `MAIL_INBOUND` on `mail.inbound`) and its dead letters (`MAIL_INBOUND_DLQ`, `mail-inbound-dlq.>`) |
@@ -26,6 +27,11 @@
 //! | `REACH_WARMUP_QUEUE` | `nats`: the WeldReach warmup dispatch publishes to NATS, and the `reach-warmup-send` and `reach-warmup-engage` subscribers run by default (stream `REACH_WARMUP` on `reach.warmup.send` / `reach.warmup.engage`; they need `WELDREACH_WARMUP_KEY`) |
 //! | `FEATURE_FLAGS`, `FEATURE_FLAGS_REFRESH_SECONDS` | as for `serve`: where `reach-send` reads the `weldreach-sending` kill switch, and the warmup subscribers `weldreach-warmup` |
 //! | `PORT`, `HOST`, `ENVIRONMENT`, `LOG_FORMAT`, `RUST_LOG` | probes (`/livez`, `/readyz`, `/health`) and logs |
+//! | `METRICS_ADDR` | as for `serve`: `GET /metrics` on a listener of its own (default `0.0.0.0:9464`; `off` or empty turns it off) |
+//! | `S3_BUCKET_PANEL` (+ the `S3_*` settings) | WeldPanel's store (`crate::panel_store`); set, the `panel-writer` and `panel-state` subscribers run by default (they need `VALKEY_URL` for their leases; `panel-state` keeps the collector's lists there, under `VALKEY_CACHE_PREFIX`) |
+//! | `NATS_PANEL_EVENTS_STREAM`, `NATS_PANEL_EVENTS_SUBJECT`, `NATS_PANEL_STATE_STREAM`, `NATS_PANEL_EVENTS_MAX_AGE_DAYS` | the streams `panel-writer` reads; with `NATS_ENSURE_STREAMS` it creates or updates them (an existing `PANEL_EVENTS` gets the max age), with `PANEL_DLQ` for bad rows |
+//! | `PANEL_WRITER_FLUSH_BYTES`, `PANEL_WRITER_FLUSH_SECONDS`, `PANEL_WRITER_MAX_PENDING` | when `panel-writer` commits: at this many bytes of messages (default 64 MiB) or when the oldest is this old (default 300), holding at most this many unacknowledged (default 200000) |
+//! | `HOSTNAME` | the pod, named as the leases' holder |
 
 use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -36,11 +42,12 @@ use weldsuite_db::{Keyring, WorkspaceConfig};
 use crate::config::LogFormat;
 
 /// The subscribers `weldsuite consume` can run.
-pub(crate) const PORTED: [&str; 5] = [
+pub(crate) const PORTED: [&str; 6] = [
     "audit",
     "search-index",
     "webhooks",
     "weldconnect",
+    "weldagent",
     "realtime",
 ];
 
@@ -60,6 +67,71 @@ pub(crate) const REACH_SEND: &str = "reach-send";
 /// `weldsuite cron reach-warmup-dispatch` publishes to.
 pub(crate) const REACH_WARMUP_SEND: &str = "reach-warmup-send";
 pub(crate) const REACH_WARMUP_ENGAGE: &str = "reach-warmup-engage";
+
+/// WeldPanel's rows into its Iceberg tables (ADR EVT-019): on the
+/// `PANEL_EVENTS` and `PANEL_STATE` streams the collector publishes to.
+pub(crate) const PANEL_WRITER: &str = "panel-writer";
+
+/// The collector's `PanelProject` calls (`panel.ops.v1.<ws>` on
+/// `PANEL_STATE`) into the tenant tables (ADR PANEL-004 on Kubernetes).
+pub(crate) const PANEL_STATE: &str = "panel-state";
+
+/// The `panel-writer` subscriber's settings (`S3_BUCKET_PANEL` set).
+#[derive(Clone, Debug)]
+pub(crate) struct PanelWriterConfig {
+    pub(crate) store: crate::panel_store::PanelStoreConfig,
+    pub(crate) streams: crate::panel_store::PanelStreams,
+    pub(crate) settings: super::panel_writer::WriterSettings,
+    /// The pod (`HOSTNAME`), named in the leases.
+    pub(crate) holder: String,
+}
+
+impl PanelWriterConfig {
+    fn from_lookup(
+        lookup: &impl Fn(&str) -> Option<String>,
+        problems: &mut Vec<String>,
+    ) -> Option<Self> {
+        let streams = crate::panel_store::PanelStreams::from_lookup(lookup, problems);
+        let store = crate::panel_store::PanelStoreConfig::from_lookup(lookup, problems)?;
+        let defaults = super::panel_writer::WriterSettings::default();
+        let mut number = |name: &str, default: u64| -> u64 {
+            match lookup(name) {
+                None => default,
+                Some(raw) => match raw.parse::<u64>() {
+                    Ok(value) if value > 0 => value,
+                    _ => {
+                        problems.push(format!("{name} must be a positive whole number"));
+                        default
+                    }
+                },
+            }
+        };
+        let flush_bytes = number(
+            "PANEL_WRITER_FLUSH_BYTES",
+            u64::try_from(defaults.flush_bytes).unwrap_or(u64::MAX),
+        );
+        let flush_seconds = number("PANEL_WRITER_FLUSH_SECONDS", defaults.flush_after.as_secs());
+        let max_pending = number(
+            "PANEL_WRITER_MAX_PENDING",
+            u64::try_from(defaults.max_pending).unwrap_or(u64::MAX),
+        );
+        Some(Self {
+            store,
+            streams,
+            settings: super::panel_writer::WriterSettings {
+                flush_bytes: usize::try_from(flush_bytes).unwrap_or(usize::MAX),
+                flush_after: Duration::from_secs(flush_seconds),
+                max_pending: usize::try_from(max_pending)
+                    .unwrap_or(usize::MAX)
+                    .max(defaults.fetch_batch + 1),
+                ..defaults
+            },
+            holder: lookup("HOSTNAME")
+                .filter(|name| !name.is_empty())
+                .unwrap_or_else(|| "consume".to_owned()),
+        })
+    }
+}
 
 /// Where the `mail-inbound` subscriber reads and writes.
 #[derive(Clone)]
@@ -163,6 +235,8 @@ pub(crate) struct EmbeddingsConfig {
 #[derive(Clone)]
 pub(crate) struct ConsumeConfig {
     pub(crate) listen: SocketAddr,
+    /// `METRICS_ADDR`, as for `serve`: `GET /metrics` apart from the probes.
+    pub(crate) metrics_addr: Option<SocketAddr>,
     pub(crate) environment: String,
     pub(crate) log_format: LogFormat,
     pub(crate) master_database_url: String,
@@ -184,6 +258,8 @@ pub(crate) struct ConsumeConfig {
     pub(crate) subscribers: Vec<String>,
     pub(crate) valkey_url: Option<String>,
     pub(crate) valkey_realtime_prefix: String,
+    /// `VALKEY_CACHE_PREFIX`, as for `serve`: the AI settings cache.
+    pub(crate) valkey_cache_prefix: String,
     /// `VALKEY_LEDGER_PREFIX`: the outbound ledgers `serve` keeps.
     pub(crate) valkey_ledger_prefix: String,
     pub(crate) embeddings: Option<EmbeddingsConfig>,
@@ -199,12 +275,20 @@ pub(crate) struct ConsumeConfig {
     /// `FEATURE_FLAGS=master-db`: flags from the master database, refreshed
     /// this often; `None` keeps every flag at its default.
     pub(crate) master_db_flags: Option<Duration>,
+    /// The install's AI settings, as for `serve`.
+    pub(crate) ai: weldsuite_ai::AiConfig,
+    /// `SANDBOX_*`, as for `serve`: the sandbox of the agents the weldagent
+    /// subscriber runs.
+    pub(crate) sandbox: Option<weldsuite_sandbox::SandboxConfig>,
+    /// The `panel-writer` subscriber's settings (`S3_BUCKET_PANEL` set).
+    pub(crate) panel: Option<PanelWriterConfig>,
 }
 
 impl fmt::Debug for ConsumeConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ConsumeConfig")
             .field("listen", &self.listen)
+            .field("metrics_addr", &self.metrics_addr)
             .field("environment", &self.environment)
             .field("stream", &self.stream)
             .field("subject_prefix", &self.subject_prefix)
@@ -230,6 +314,8 @@ impl fmt::Debug for ConsumeConfig {
                 &self.mail_inbound.as_ref().map(|m| m.mail.bucket.as_str()),
             )
             .field("drain", &self.drain)
+            .field("panel", &self.panel)
+            .field("ai", &self.ai)
             .finish_non_exhaustive()
     }
 }
@@ -265,7 +351,7 @@ fn flag(
 
 impl ConsumeConfig {
     pub(crate) fn from_env() -> Result<Self, ConsumeConfigError> {
-        Self::from_lookup(|name| std::env::var(name).ok().filter(|v| !v.is_empty()))
+        Self::from_lookup(crate::config::env_value)
     }
 
     /// `lookup` reads a variable; injectable for tests.
@@ -306,6 +392,10 @@ impl ConsumeConfig {
         let stream_max_bytes = number(&mut problems, "NATS_STREAM_MAX_BYTES", 0);
         let dead_letter_max_bytes = number(&mut problems, "NATS_DEAD_LETTER_MAX_BYTES", 0);
         let drain = number(&mut problems, "CONSUME_DRAIN_SECONDS", 25);
+        let metrics_addr = crate::monitoring::listen_addr(
+            lookup(crate::monitoring::METRICS_ADDR).as_deref(),
+            &mut problems,
+        );
 
         let master_database_url = lookup("DATABASE_URL_MASTER").unwrap_or_else(|| {
             problems.push("DATABASE_URL_MASTER is required".to_owned());
@@ -334,6 +424,7 @@ impl ConsumeConfig {
         let subject_prefix = lookup("NATS_ENTITY_EVENTS_SUBJECT")
             .unwrap_or_else(|| weldsuite_events::DEFAULT_SUBJECT_PREFIX.to_owned());
         let mail_inbound = MailInboundConfig::from_lookup(&lookup, &mut problems);
+        let panel = PanelWriterConfig::from_lookup(&lookup, &mut problems);
         let reach_send = match lookup("REACH_SEND_QUEUE").as_deref() {
             None | Some("inline") => false,
             Some("nats") => true,
@@ -359,6 +450,8 @@ impl ConsumeConfig {
                 .chain(reach_send.then_some(REACH_SEND))
                 .chain(reach_warmup.then_some(REACH_WARMUP_SEND))
                 .chain(reach_warmup.then_some(REACH_WARMUP_ENGAGE))
+                .chain(panel.is_some().then_some(PANEL_WRITER))
+                .chain(panel.is_some().then_some(PANEL_STATE))
                 .map(str::to_owned)
                 .collect(),
             Some(list) => list
@@ -373,6 +466,17 @@ impl ConsumeConfig {
                 if mail_inbound.is_none() {
                     problems
                         .push("CONSUME_SUBSCRIBERS: mail-inbound needs S3_BUCKET_MAIL".to_owned());
+                }
+                continue;
+            }
+            if id == PANEL_WRITER || id == PANEL_STATE {
+                if panel.is_none() {
+                    problems.push(format!("CONSUME_SUBSCRIBERS: {id} needs S3_BUCKET_PANEL"));
+                }
+                if lookup("VALKEY_URL").is_none() {
+                    problems.push(format!(
+                        "{id} needs VALKEY_URL: one replica works at a time, under a lease there"
+                    ));
                 }
                 continue;
             }
@@ -418,6 +522,8 @@ impl ConsumeConfig {
                 false
             }
         };
+        let ai = weldsuite_ai::AiConfig::from_lookup(&lookup, &mut problems);
+        let sandbox = weldsuite_sandbox::SandboxConfig::from_lookup(&lookup, &mut problems);
         let flags_refresh = match lookup("FEATURE_FLAGS_REFRESH_SECONDS") {
             None => 30,
             Some(value) => value.parse::<u64>().unwrap_or_else(|_| {
@@ -431,6 +537,7 @@ impl ConsumeConfig {
         }
         Ok(Self {
             listen: SocketAddr::new(host, port),
+            metrics_addr,
             environment: lookup("ENVIRONMENT").unwrap_or_else(|| "development".to_owned()),
             log_format,
             master_database_url,
@@ -461,6 +568,8 @@ impl ConsumeConfig {
             valkey_url: lookup("VALKEY_URL"),
             valkey_realtime_prefix: lookup("VALKEY_REALTIME_PREFIX")
                 .unwrap_or_else(|| "realtime:".to_owned()),
+            valkey_cache_prefix: lookup("VALKEY_CACHE_PREFIX")
+                .unwrap_or_else(|| "cache:".to_owned()),
             valkey_ledger_prefix: lookup("VALKEY_LEDGER_PREFIX")
                 .unwrap_or_else(|| "weldsuite:outbound:".to_owned()),
             embeddings,
@@ -471,6 +580,9 @@ impl ConsumeConfig {
             mail_inbound,
             mail_sending_events: MailSendingEventsConfig::from_lookup(&lookup),
             master_db_flags: flags_master_db.then(|| Duration::from_secs(flags_refresh)),
+            ai,
+            sandbox,
+            panel,
         })
     }
 }
@@ -568,7 +680,27 @@ mod tests {
         assert!(config.embeddings.is_none());
         assert_eq!(config.stream_max_bytes, None);
         assert_eq!(config.dead_letter_max_bytes, None);
+        assert_eq!(
+            config.metrics_addr.map(|addr| addr.to_string()).as_deref(),
+            Some("0.0.0.0:9464")
+        );
         assert!(!format!("{config:?}").contains("postgres://master"));
+    }
+
+    #[test]
+    fn metrics_can_be_turned_off_or_moved() {
+        let base = [
+            ("DATABASE_URL_MASTER", "postgres://master"),
+            ("NATS_URL", "nats://nats:4222"),
+        ];
+        let off = config(&[base[0], base[1], ("METRICS_ADDR", "off")]).expect("valid");
+        assert_eq!(off.metrics_addr, None);
+        let moved = config(&[base[0], base[1], ("METRICS_ADDR", "127.0.0.1:9100")]).expect("valid");
+        assert_eq!(
+            moved.metrics_addr.map(|addr| addr.to_string()).as_deref(),
+            Some("127.0.0.1:9100")
+        );
+        assert!(config(&[base[0], base[1], ("METRICS_ADDR", "9100")]).is_err());
     }
 
     #[test]
@@ -643,6 +775,57 @@ mod tests {
         assert_eq!(listed.valkey_ledger_prefix, "eu:outbound:");
         let without = config(&[base[0], base[1], ("CONSUME_SUBSCRIBERS", "audit")]).expect("valid");
         assert!(!without.subscribers.iter().any(|s| s == MAIL_SENDING_EVENTS));
+    }
+
+    #[test]
+    fn the_panel_bucket_turns_on_the_panel_writer() {
+        let base = [
+            ("DATABASE_URL_MASTER", "postgres://master"),
+            ("NATS_URL", "nats://nats:4222"),
+        ];
+        let without = config(&base).expect("valid");
+        assert!(!without.subscribers.iter().any(|s| s == PANEL_WRITER));
+        assert!(without.panel.is_none());
+        let with = config(&[
+            base[0],
+            base[1],
+            ("VALKEY_URL", "redis://valkey:6379"),
+            ("S3_BUCKET_PANEL", "weldsuite-panel"),
+            ("S3_ENDPOINT", "http://rustfs:9000"),
+            ("S3_ACCESS_KEY_ID", "k"),
+            ("S3_SECRET_ACCESS_KEY", "s"),
+            ("NATS_PANEL_EVENTS_MAX_AGE_DAYS", "7"),
+            ("PANEL_WRITER_FLUSH_SECONDS", "60"),
+            ("HOSTNAME", "weldsuite-consume-0"),
+        ])
+        .expect("valid");
+        assert!(with.subscribers.iter().any(|s| s == PANEL_WRITER));
+        // The collector's project state is applied beside it.
+        assert!(with.subscribers.iter().any(|s| s == PANEL_STATE));
+        let panel = with.panel.expect("the writer's settings");
+        assert_eq!(panel.settings.flush_after, Duration::from_secs(60));
+        assert_eq!(panel.settings.flush_bytes, 64 * 1024 * 1024);
+        assert_eq!(panel.streams.max_age, Duration::from_hours(7 * 24));
+        assert_eq!(panel.holder, "weldsuite-consume-0");
+        // Without Valkey there is no lease: refused, not silently off.
+        let error = config(&[
+            base[0],
+            base[1],
+            ("S3_BUCKET_PANEL", "weldsuite-panel"),
+            ("S3_ENDPOINT", "http://rustfs:9000"),
+            ("S3_ACCESS_KEY_ID", "k"),
+            ("S3_SECRET_ACCESS_KEY", "s"),
+            ("PANEL_WRITER_MAX_PENDING", "lots"),
+        ])
+        .expect_err("no valkey");
+        // The bad number, and each subscriber's lease.
+        assert_eq!(error.0.len(), 3, "{error}");
+        let error = config(&[base[0], base[1], ("CONSUME_SUBSCRIBERS", "panel-writer")])
+            .expect_err("no bucket");
+        assert_eq!(error.0.len(), 2, "{error}");
+        let error = config(&[base[0], base[1], ("CONSUME_SUBSCRIBERS", "panel-state")])
+            .expect_err("no bucket");
+        assert_eq!(error.0.len(), 2, "{error}");
     }
 
     #[test]

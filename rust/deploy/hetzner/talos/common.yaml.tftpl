@@ -70,3 +70,14 @@ apiVersion: v1alpha1
 kind: UserVolumeConfig
 name: local-storage
 volumeType: directory
+---
+# Talos's own service logs (machined, kubelet, etcd, containerd, …) go to the
+# Fluent Bit on the same node (flux/infrastructure/logging, on the host
+# network), which ships them to Loki. UDP: while Fluent Bit isn't running
+# (before Flux, or a cluster without the logging layer) they are dropped,
+# and `talosctl logs` still has them.
+machine:
+  logging:
+    destinations:
+      - endpoint: udp://127.0.0.1:6051/
+        format: json_lines

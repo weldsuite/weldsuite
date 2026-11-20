@@ -76,6 +76,30 @@ function messageText(message: DeskMessage): string {
   return `📎 ${files[0].name}${more}`;
 }
 
+/** An entity event's `changes`: each field that moved, from and to. */
+export type DeskEntityChanges = Record<string, { old: unknown; new: unknown }>;
+
+/** The ticket columns an attribute change can move: what desk-api puts in `changes` when an agent changes them. */
+const ATTRIBUTE_COLUMNS = ['ticketTypeId', 'priority', 'tags', 'departmentId'] as const;
+
+/**
+ * The `changes` of a conversation's `created` event, filled as desk-api fills
+ * them for an agent's attribute changes (`deskAttributeChanges`): every
+ * attribute the conversation starts with, from null. A request made from a
+ * catalogue item starts with its type, team and priority, so workflows that
+ * react to those see them on the first event. Undefined when it starts with
+ * none.
+ */
+export function deskCreatedChanges(conversation: DeskConversation): DeskEntityChanges | undefined {
+  const changes: DeskEntityChanges = {};
+  for (const key of ATTRIBUTE_COLUMNS) {
+    const value = conversation[key] ?? null;
+    if (value === null || (Array.isArray(value) && value.length === 0)) continue;
+    changes[key] = { old: null, new: value };
+  }
+  return Object.keys(changes).length > 0 ? changes : undefined;
+}
+
 /**
  * Push a new visitor message to the conversation room and the agents' inbox,
  * and to the hub as entity events (`desk_conversation created` for a new
@@ -89,9 +113,10 @@ export async function publishVisitorMessage(
   message: DeskMessage,
   visitorName: string,
   event: 'created' | 'updated',
+  changes?: DeskEntityChanges,
 ): Promise<void> {
   await Promise.all([
-    ...(event === 'created' ? [publishConversationEntityEvent(env, orgId, conversation, 'created')] : []),
+    ...(event === 'created' ? [publishConversationEntityEvent(env, orgId, conversation, 'created', changes)] : []),
     publishEntityEventRaw({
       env,
       workspaceId: orgId,
@@ -150,6 +175,7 @@ async function publishConversationEntityEvent(
   orgId: string,
   conversation: DeskConversation,
   action: 'created' | 'updated' | 'assigned',
+  changes?: DeskEntityChanges,
 ): Promise<void> {
   await publishEntityEventRaw({
     env,
@@ -159,6 +185,7 @@ async function publishConversationEntityEvent(
     action,
     entityId: conversation.id,
     data: conversation as unknown as Record<string, unknown>,
+    ...(changes ? { changes } : {}),
   });
 }
 

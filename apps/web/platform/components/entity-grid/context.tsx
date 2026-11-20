@@ -49,13 +49,34 @@ interface GridProviderProps<TEntity> {
   children: React.ReactNode;
 }
 
-type CalcValues = { allValues: unknown[]; values: unknown[]; fieldType: FieldType };
+type CalcValues = {
+  allValues: unknown[];
+  values: unknown[];
+  fieldType: FieldType;
+  /** `currency` columns: the ISO code all rows share, when they share one. */
+  currencyCode?: string;
+};
 
 const isEmptyCheckValue = (v: unknown) => v === false || v === null || v === undefined;
 const percentOf = (part: number, whole: number) =>
   whole > 0 ? `${Math.round((part / whole) * 100)}%` : '0%';
-const formatCalcNumber = (v: number, fieldType: FieldType) =>
-  fieldType === 'currency' ? `$${v.toLocaleString()}` : v.toLocaleString();
+/** A footer figure; money in the rows' currency when they share one, `$` as before otherwise. */
+function formatCalcNumber(v: number, fieldType: FieldType, currencyCode?: string, fractionDigits?: number): string {
+  if (fieldType !== 'currency') return fractionDigits === undefined ? v.toLocaleString() : v.toFixed(fractionDigits);
+  if (currencyCode) {
+    try {
+      return new Intl.NumberFormat(undefined, {
+        style: 'currency',
+        currency: currencyCode,
+        minimumFractionDigits: fractionDigits,
+        maximumFractionDigits: fractionDigits,
+      }).format(v);
+    } catch {
+      // An unknown code: fall through to the plain figure.
+    }
+  }
+  return `$${fractionDigits === undefined ? v.toLocaleString() : v.toFixed(fractionDigits)}`;
+}
 const numericValues = (values: unknown[]) => values.filter((v) => typeof v === 'number') as number[];
 const parseDateValues = (values: unknown[]) =>
   values
@@ -105,15 +126,15 @@ function calcCountOrPercent(type: CalculationType, { allValues, values }: CalcVa
   }
 }
 
-function calcNumeric(type: CalculationType, { values, fieldType }: CalcValues): string | null {
-  const fmt = (v: number) => formatCalcNumber(v, fieldType);
+function calcNumeric(type: CalculationType, { values, fieldType, currencyCode }: CalcValues): string | null {
+  const fmt = (v: number) => formatCalcNumber(v, fieldType, currencyCode);
   const nums = numericValues(values);
   switch (type) {
     case 'sum':
       return fmt(nums.reduce((acc, v) => acc + v, 0));
     case 'average': {
       const avg = nums.length > 0 ? nums.reduce((acc, v) => acc + v, 0) / nums.length : 0;
-      return fieldType === 'currency' ? `$${avg.toFixed(2)}` : avg.toFixed(2);
+      return formatCalcNumber(avg, fieldType, currencyCode, 2);
     }
     case 'median':
       return nums.length === 0 ? '0' : fmt(medianOf(nums));
@@ -160,9 +181,10 @@ function computeCalculation(
   allValues: unknown[],
   fieldType: FieldType,
   calculationType: CalculationType,
+  currencyCode?: string,
 ): string {
   const values = allValues.filter((v) => v !== null && v !== undefined && v !== '');
-  const ctx: CalcValues = { allValues, values, fieldType };
+  const ctx: CalcValues = { allValues, values, fieldType, currencyCode };
   return (
     calcCountOrPercent(calculationType, ctx) ??
     calcNumeric(calculationType, ctx) ??
@@ -509,7 +531,14 @@ export function GridProvider<TEntity>({
         toast.error(t('sweep.entities.cannotDeleteBuiltInColumns'));
         return;
       }
-      if (column.isEnrichField) {
+      // A custom field's column: the page confirms and deletes the attribute.
+      if (column.onDelete) {
+        column.onDelete();
+        return;
+      }
+      // Enrichment columns, and stored fields the page offers no delete for,
+      // are hidden: removing them here alone would come back on reload.
+      if (column.isEnrichField || !column.id.startsWith('custom_')) {
         setColumns((prev) => prev.map((c) => c.id === fieldId ? { ...c, visible: false } : c));
         toast.success(t('sweep.entities.columnHidden'));
       } else {
@@ -586,7 +615,12 @@ export function GridProvider<TEntity>({
         return column.getCalcValue ? column.getCalcValue(entity) : column.getValue(entity);
       });
 
-      return computeCalculation(allValues, fieldType, calculationType);
+      // One currency across the rows: show the figure in it.
+      const codes = column.getCurrency
+        ? new Set(entities.map((entity) => column.getCurrency?.(entity)).filter(Boolean))
+        : new Set<string>();
+      const currencyCode = codes.size === 1 ? (codes.values().next().value as string) : undefined;
+      return computeCalculation(allValues, fieldType, calculationType, currencyCode);
     },
     [columns, entities, customFieldData, config]
   );

@@ -1,7 +1,7 @@
 /**
  * Partnerportaal (doorverkooplicenties) en de schermen van een door een partner
  * beheerde werkruimte: Instellingen > Facturatie, meldingen, het gebiedsscherm
- * en de hint in de App Store. Plan: docs/plans/reseller-licensing.md.
+ * en de hint in de App Store. Plan: weldsuite-documentation/plans/reseller-licensing.md.
  *
  * Placeholders gebruiken `{name}` en worden gevuld met `format()` uit `useI18n()`.
  */

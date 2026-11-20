@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createClient } from './client';
 import { LIB_VERSION } from './event';
 import { OPT_OUT_KEY, stateKey, type VisitorState } from './storage';
-import { defineOn, installNetwork, onCleanup, resetPage, setup, HOST, TOKEN } from './test/harness';
+import { defineOn, installNetwork, onCleanup, resetPage, setup, FIRST_TOUCH, HOST, TOKEN } from './test/harness';
 import type { WireEvent } from './wire';
 
 afterEach(resetPage);
@@ -565,7 +565,7 @@ describe('track()', () => {
     await client.api.flush();
     expect(warn).not.toHaveBeenCalled();
     const [bad] = byName(await net.events(), 'Bad');
-    expect(bad.props).toEqual({ ok: 1, s: 'x'.repeat(2048) });
+    expect(bad.props).toEqual({ ok: 1, s: 'x'.repeat(2048), ...FIRST_TOUCH });
     expect(await net.names()).toEqual(['$pageview', 'Bad']);
   });
 

@@ -53,7 +53,21 @@ export type DeskEventType =
   | 'merged_into'
   | 'merged_from'
   | 'incident_marked'
-  | 'incident_unmarked';
+  | 'incident_unmarked'
+  // Problem management, internal (lib/desk-problems): metadata.problemId /
+  // problemNumber / problemTitle name the problem the incident was linked to
+  // or taken off.
+  | 'problem_linked'
+  | 'problem_unlinked'
+  // Service catalogue, internal (lib/desk-catalog). approval_requested: a step
+  // went to its approver (metadata.stepIndex, stepName, approverId).
+  // approval_approved / approval_rejected: a step was decided (the same, plus
+  // metadata.decidedById and metadata.comment). fulfilment_started: the item's
+  // tasks were created (metadata.taskIds).
+  | 'approval_requested'
+  | 'approval_approved'
+  | 'approval_rejected'
+  | 'fulfilment_started';
 
 /**
  * One ticket field an `attributes_changed` event changed. `from` / `to` are

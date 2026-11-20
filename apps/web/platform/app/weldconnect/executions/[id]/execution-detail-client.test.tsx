@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { en } from '@weldsuite/i18n/locales/en';
+import { ApiError } from '@weldsuite/api-client';
 import type { ExecutionDetailDto } from './execution-detail-client';
 
 const push = vi.fn();
@@ -168,5 +169,38 @@ describe('ExecutionDetailClient: Retry', () => {
     const dialog = screen.getByRole('dialog');
     expect(within(dialog).getByText(d.retryDialogDescription)).toBeTruthy();
     expect(within(dialog).queryByText(/Already successful/)).toBeNull();
+  });
+
+  it('offers no Retry once the workflow is deleted (the API would answer 404: TASK-1428)', () => {
+    render(
+      <ExecutionDetailClient
+        execution={makeExecution({ status: 'failed' })}
+        initialLogs={[]}
+        workflow={{ name: null, deleted: true }}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: d.retryExecution })).toBeNull();
+    expect(screen.queryByRole('button', { name: d.viewWorkflow })).toBeNull();
+  });
+
+  it("names the run after its workflow's current name", () => {
+    render(
+      <ExecutionDetailClient
+        execution={makeExecution({ status: 'failed' })}
+        initialLogs={[]}
+        workflow={{ name: 'Renamed workflow', deleted: false }}
+      />,
+    );
+    expect(screen.getAllByText(/Renamed workflow/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Notify team/)).toBeNull();
+  });
+
+  it('says why a retry was refused when the workflow is gone', () => {
+    render(<ExecutionDetailClient execution={makeExecution({ status: 'failed' })} initialLogs={[]} />);
+    fireEvent.click(screen.getByRole('button', { name: d.retryExecution }));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: d.retryDialogConfirm }));
+    const [, callbacks] = retryMutate.mock.calls[0] as [string, { onError: (err: unknown) => void }];
+    callbacks.onError(new ApiError('Workflow not found', 404, { error: { code: 'NOT_FOUND' } }));
+    expect(toastError).toHaveBeenCalledWith(d.toasts.workflowDeleted);
   });
 });

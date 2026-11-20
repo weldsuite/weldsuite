@@ -21,7 +21,7 @@
 import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, desc, eq, gte, inArray, isNull, like, lte, or, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, like, lte, ne, or, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent, computeChanges } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
@@ -32,7 +32,7 @@ import { generateId } from '@weldsuite/worker-kit/id';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { atomically } from '@weldsuite/worker-kit/atomically';
 import { nextEntityNumber, resolveEntityBaseCurrency, resolveEntityId } from '../../lib/entity-context';
-import { documentContactFields, loadContactSnapshot, withContactNames } from '../../lib/contact-snapshot';
+import { documentContactFields, loadContactSnapshot, withContactEmail, withContactNames } from '../../lib/contact-snapshot';
 import {
   ClosedPeriodError,
   LockedPeriodError,
@@ -574,8 +574,11 @@ app.get('/', requirePermission('invoices:read'), async (c) => {
     const statusFilter = c.req.query('status');
     if (statusFilter) conditions.push(eq(invoices.status, statusFilter));
 
+    // `type=invoice` is every invoice that is not a credit note (standard,
+    // proforma, correction): the invoice list, next to the credit notes list.
     const typeFilter = c.req.query('type');
-    if (typeFilter) conditions.push(eq(invoices.type, typeFilter));
+    if (typeFilter === 'invoice') conditions.push(ne(invoices.type, 'credit_note'));
+    else if (typeFilter) conditions.push(eq(invoices.type, typeFilter));
 
     const contactFilter = c.req.query('contactId');
     if (contactFilter) conditions.push(eq(invoices.contactId, contactFilter));
@@ -677,7 +680,8 @@ app.get('/:id', requirePermission('invoices:read'), async (c) => {
       .orderBy(desc(paymentsTable.date));
     const allocatedAmount = new Map(allocations.map((a) => [a.paymentId, a.amount]));
     const invoicePayments = paymentRows.map((p) => ({ ...p, allocatedAmount: allocatedAmount.get(p.id) ?? p.amount }));
-    const [named] = await withContactNames(db, [invoice]);
+    // Stored without the contact's name or email: the contact's current ones (the send dialog shows the email).
+    const named = await withContactEmail(db, (await withContactNames(db, [invoice]))[0]);
 
     // Credit notes issued against this invoice; once finalized they lower its open balance.
     const creditNotes =

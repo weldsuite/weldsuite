@@ -47,3 +47,13 @@
   X-Robots-Tag: noindex, nofollow
   Referrer-Policy: no-referrer
   Cache-Control: no-store
+
+# WeldPanel public share links (/s/panel/<token>): the token in the path is
+# the credential, so keep it out of search indexes and Referer headers. No
+# frame-ancestors / X-Frame-Options here on purpose: an embeddable link must
+# load in other sites' iframes, so the page itself refuses to show anything
+# when it is framed and its link does not allow embedding.
+/s/panel/*
+  X-Robots-Tag: noindex, nofollow
+  Referrer-Policy: no-referrer
+  Cache-Control: no-store

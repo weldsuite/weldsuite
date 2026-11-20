@@ -10,8 +10,9 @@
 import type { WeldstashStockRow } from '@weldsuite/core-api-client/schemas/weldstash';
 import type { ColumnDef } from '@/components/panel-entity-list';
 import { getTranslations } from '@/lib/i18n';
+import { OdooManagedBadge } from '../../components/odoo-managed-badge';
 
-export function buildStockColumns(): ColumnDef<WeldstashStockRow>[] {
+export function buildStockColumns(managedWarehouseIds: ReadonlySet<string> = new Set()): ColumnDef<WeldstashStockRow>[] {
   const t = getTranslations('common');
   return [
     {
@@ -35,6 +36,7 @@ export function buildStockColumns(): ColumnDef<WeldstashStockRow>[] {
       render: (s) => (
         <span className="text-muted-foreground truncate block">
           {s.warehouseName ?? s.warehouseId}
+          {managedWarehouseIds.has(s.warehouseId) && <OdooManagedBadge className="ml-2 align-middle" />}
         </span>
       ),
     },

@@ -7,9 +7,9 @@
  * useChatRealtime using the base URL below.
  */
 
-const REALTIME_URL =
-  process.env.EXPO_PUBLIC_REALTIME_URL || 'ws://localhost:8790';
+import { realtimeUrl } from '@weldsuite/mobile-platform/api';
 
+/** The booted server's realtime base URL (without `/ws`); read per call, never at import time. */
 export function getRealtimeBaseUrl(): string {
-  return REALTIME_URL;
+  return realtimeUrl();
 }

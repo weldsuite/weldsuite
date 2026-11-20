@@ -252,6 +252,66 @@ describe('porting events', () => {
     expect(await order('vpo_hook_empty')).toMatchObject({ status: 'submitted', lastErrorCode: 'completed_without_number' });
   });
 
+  it('makes a number that was on a phone system, or was removed, one we host', async () => {
+    await db.insert(schema.voipSipTrunks).values({
+      id: 'strk_hook_port', name: 'PBX', provider: 'other', authMode: 'ip', providerConnectionId: 'conn-pbx-port', status: 'active',
+    });
+    await db.insert(schema.voipPhoneNumbers).values([
+      {
+        id: 'vpn_hook_was_trunk', provider: 'sip_trunk', phoneNumber: '+31201260006', countryCode: 'NL', status: 'active',
+        sipTrunkId: 'strk_hook_port', providerConnectionId: 'conn-pbx-port', allowOutbound: false,
+        callerIdVerifiedAt: new Date('2026-10-01T00:00:00Z'),
+      },
+      {
+        id: 'vpn_hook_was_removed', provider: 'sip_trunk', phoneNumber: '+31201260007', countryCode: 'NL', status: 'inactive',
+        sipTrunkId: 'strk_hook_gone', providerConnectionId: 'conn-pbx-gone', allowOutbound: false,
+        deletedAt: new Date('2026-10-01T00:00:00Z'),
+      },
+    ]);
+    // The trunk's own claim on the first number is still in the registry.
+    await master.insert(masterSchema.phoneNumberRegistry).values({ phoneNumber: '+31201260006', clerkOrgId: ORG, voipPhoneNumberId: 'vpn_hook_was_trunk' });
+    const kinds = [
+      { order: 'vpo_hook_from_trunk', phone: '+31201260006', number: 'vpn_hook_was_trunk' },
+      { order: 'vpo_hook_from_removed', phone: '+31201260007', number: 'vpn_hook_was_removed' },
+    ];
+    for (const { order: id, phone, number } of kinds) {
+      await db.insert(schema.voipPortingOrders).values({
+        id, createdByUserId: 'user_porter', phoneNumber: phone, countryCode: 'NL', numberType: 'local', status: 'submitted',
+        telnyxPortingOrderId: `po-${id}`,
+      });
+      await master.insert(masterSchema.telnyxPortingOrderIndex).values({ telnyxPortingOrderId: `po-${id}`, clerkOrgId: ORG, draftId: id });
+      telnyx.on('GET', `/porting_orders/po-${id}`, { data: { id: `po-${id}`, status: 'ported', phone_numbers: [{ id: `pn-${number}`, phone_number: phone }] } });
+      await porting('ported', { id: `po-${id}` });
+
+      expect(await order(id)).toMatchObject({ status: 'completed', voipPhoneNumberId: number });
+      const [row] = await db.select().from(schema.voipPhoneNumbers).where(eq(schema.voipPhoneNumbers.phoneNumber, phone));
+      expect(row).toMatchObject({
+        id: number,
+        provider: 'telnyx',
+        sipTrunkId: null,
+        deletedAt: null,
+        providerPhoneNumberId: `pn-${number}`,
+        providerConnectionId: 'conn-1',
+        status: 'active',
+        callerIdVerifiedAt: null,
+        allowOutbound: true,
+      });
+      const [registered] = await master.select().from(masterSchema.phoneNumberRegistry).where(eq(masterSchema.phoneNumberRegistry.phoneNumber, phone));
+      expect(registered).toMatchObject({ clerkOrgId: ORG, voipPhoneNumberId: number, isActive: true });
+    }
+
+    // A call from the phone network now reaches it, as it reaches any number we host.
+    for (const action of ['answer', 'hangup']) telnyx.on('POST', `/calls/cc-inbound-ported/actions/${action}`, { data: { result: 'ok' } });
+    await deliver(
+      callEvent('call.initiated', {
+        direction: 'incoming', connection_id: 'conn-1', call_control_id: 'cc-inbound-ported', to: '+31201260006', from: '+31612350777',
+        call_session_id: 'sess-ported', call_leg_id: 'leg-ported',
+      }),
+    );
+    const [call] = await db.select().from(schema.voipCalls).where(eq(schema.voipCalls.providerCallId, 'cc-inbound-ported'));
+    expect(call).toMatchObject({ direction: 'inbound', toNumber: '+31201260006', sipTrunkId: null });
+  });
+
   it('closes a cancelled port', async () => {
     await porting('cancelled', { id: 'po-vpo_hook_cancelled' });
     expect(await order('vpo_hook_cancelled')).toMatchObject({ status: 'cancelled' });

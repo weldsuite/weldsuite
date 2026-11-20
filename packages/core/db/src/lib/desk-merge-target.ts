@@ -7,11 +7,11 @@
  */
 
 import { eq } from 'drizzle-orm';
-import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
+import type { TenantDb } from './any-db';
 import * as schema from '../schema';
 import type { DeskConversation } from '../schema/desk-conversations';
 
-type AnyDb = PgDatabase<PgQueryResultHKT, typeof schema>;
+type AnyDb = TenantDb;
 
 /** A merge chain longer than this is a data error; the last one reached is used. */
 const MAX_MERGE_HOPS = 10;

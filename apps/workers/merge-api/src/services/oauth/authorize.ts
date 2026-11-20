@@ -17,7 +17,7 @@ import { createOAuthState } from './state';
 export const redirectUriOf = (env: Pick<Env, 'APP_URL'>): string =>
   `${trimTrailingSlashes(env.APP_URL ?? '')}${MERGE_OAUTH_CALLBACK_PATH}`;
 
-/** A same-app relative path (`/weldmerge/settings`); anything else (an absolute URL, `//host`) is dropped. */
+/** A same-app relative path (`/settings/apps/weldmerge`); anything else (an absolute URL, `//host`) is dropped. */
 export function safeReturnTo(value: string | null | undefined): string | null {
   if (!value || value.length > 500) return null;
   if (!value.startsWith('/') || value.startsWith('//') || value.includes('\\')) return null;

@@ -6,6 +6,8 @@
 //!   with a TXT record, `sso:manage`.
 //! - `PUT|DELETE /connection`, `POST /connection/activate|deactivate`: the
 //!   SAML connection, `sso:manage`.
+//! - `POST /domains`, `DELETE /domains/{domain}`, `POST /domains/{domain}/verify`:
+//!   a WeldID connection's domains, `sso:manage` (404 without WeldID).
 //! - `GET /billing` (`sso:read`), `POST /billing/subscribe|cancel|resume`
 //!   (`billing:manage`): the paid add-on.
 //!
@@ -29,14 +31,22 @@
 //! (`@weldsuite/worker-kit/dns-lookup`), through [`DnsGateway`] when the
 //! request carries one (conformance builds: the test's fetch stub), else
 //! Cloudflare's resolver as the workers use it.
+//!
+//! With WeldID as the identity provider ([`CorePlatformState::sso`] set),
+//! the connection is an `OpenID` Connect connection at WeldID instead, with
+//! its own domains, and every route but `/billing` is served by [`weldid`]
+//! (ADR SEC-019, phase 5a). Conformance builds never set it, so what
+//! Global's tests see is unchanged.
+
+mod weldid;
 
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
 use axum::body::Bytes;
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post, put};
+use axum::routing::{delete, get, post, put};
 use axum::{Extension, Router};
 use http::{HeaderMap, StatusCode};
 use serde_json::{Value, json};
@@ -76,6 +86,16 @@ where
         .route(
             "/connection/deactivate",
             post(deactivate).route_layer(manage()),
+        )
+        // A WeldID connection's domains (WeldID mode only; Global has one).
+        .route("/domains", post(add_domain).route_layer(manage()))
+        .route(
+            "/domains/{domain}",
+            delete(remove_named_domain).route_layer(manage()),
+        )
+        .route(
+            "/domains/{domain}/verify",
+            post(verify_named_domain).route_layer(manage()),
         )
         .route("/billing", get(billing_unavailable).route_layer(read()))
         .route(
@@ -514,6 +534,21 @@ impl Context {
 
 type WorkspaceRow = (String, Option<String>, Option<String>, bool, bool);
 
+/// `planIncludesSso`: `plans.features.sso` of the workspace's plan.
+async fn plan_includes_sso(master: &PgPool, plan_id: Option<&str>) -> Result<bool, sqlx::Error> {
+    let Some(plan_id) = plan_id.filter(|plan| !plan.is_empty()) else {
+        return Ok(false);
+    };
+    let features: Option<Option<Value>> =
+        sqlx::query_scalar("select features from plans where id = $1 limit 1")
+            .bind(plan_id)
+            .fetch_optional(master)
+            .await?;
+    Ok(features
+        .flatten()
+        .is_some_and(|features| features.get("sso") == Some(&Value::Bool(true))))
+}
+
 /// `loadSsoContext(db, { clerkOrgId })`: `None` without a workspace.
 async fn load_context(master: &PgPool, clerk_org_id: &str) -> Result<Option<Context>, sqlx::Error> {
     let workspace: Option<WorkspaceRow> = sqlx::query_as(
@@ -532,17 +567,7 @@ async fn load_context(master: &PgPool, clerk_org_id: &str) -> Result<Option<Cont
     .bind(&id)
     .fetch_optional(master)
     .await?;
-    let mut plan_includes_sso = false;
-    if let Some(plan_id) = plan_id.filter(|plan| !plan.is_empty()) {
-        let features: Option<Option<Value>> =
-            sqlx::query_scalar("select features from plans where id = $1 limit 1")
-                .bind(plan_id)
-                .fetch_optional(master)
-                .await?;
-        plan_includes_sso = features
-            .flatten()
-            .is_some_and(|features| features.get("sso") == Some(&Value::Bool(true)));
-    }
+    let plan_includes_sso = plan_includes_sso(master, plan_id.as_deref()).await?;
     Ok(Some(Context {
         workspace: Workspace {
             id,
@@ -683,6 +708,9 @@ async fn context_of(caller: &Caller, master: &PgPool) -> PlatformResult<Context>
 
 /// `GET /`.
 async fn show(State(state): State<CorePlatformState>, caller: Caller) -> Response {
+    if let Some(directory) = state.sso.clone() {
+        return answer(weldid::show(&state, &caller, &*directory).await);
+    }
     answer(
         async {
             let master = caller.master(&state);
@@ -725,6 +753,15 @@ async fn claim_domain(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
+    if let Some(directory) = state.sso.clone() {
+        return answer(
+            async {
+                let domain = weldid::read_domain(&headers, &body)?;
+                weldid::add_domain(&state, &caller, &*directory, &domain).await
+            }
+            .await,
+        );
+    }
     answer(
         async {
             let domain = validate(&headers, &body, |issues, fields| {
@@ -854,6 +891,9 @@ async fn set_domain(master: &PgPool, ctx: Context, input: &str, actor: &str) -> 
 
 /// `DELETE /domain`.
 async fn remove_domain(State(state): State<CorePlatformState>, caller: Caller) -> Response {
+    if let Some(directory) = state.sso.clone() {
+        return answer(weldid::remove_domain(&state, &caller, &*directory, None).await);
+    }
     answer(
         async {
             let master = caller.master(&state);
@@ -897,6 +937,10 @@ async fn verify_domain(
     caller: Caller,
     dns: Option<Extension<DnsGateway>>,
 ) -> Response {
+    if let Some(directory) = state.sso.clone() {
+        // WeldID runs the DNS check itself: it acts on the result.
+        return answer(weldid::verify_domain(&state, &caller, &*directory, None).await);
+    }
     answer(
         async {
             let master = caller.master(&state);
@@ -1035,6 +1079,11 @@ async fn save_connection(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
+    if let Some(directory) = state.sso.clone() {
+        return answer(
+            weldid::save_connection(&state, &caller, &*directory, &headers, &body).await,
+        );
+    }
     answer(
         async {
             validate(&headers, &body, read_connection_input)?;
@@ -1059,6 +1108,9 @@ async fn save_connection(
 
 /// `DELETE /connection` (`removeSsoConnection`): deleting it is Clerk's.
 async fn remove_connection(State(state): State<CorePlatformState>, caller: Caller) -> Response {
+    if let Some(directory) = state.sso.clone() {
+        return answer(weldid::remove_connection(&state, &caller, &*directory).await);
+    }
     answer(
         async {
             let master = caller.master(&state);
@@ -1074,12 +1126,63 @@ async fn remove_connection(State(state): State<CorePlatformState>, caller: Calle
 
 /// `POST /connection/activate`.
 async fn activate(State(state): State<CorePlatformState>, caller: Caller) -> Response {
+    if let Some(directory) = state.sso.clone() {
+        return answer(weldid::set_enabled(&state, &caller, &*directory, true).await);
+    }
     answer(set_enabled(&state, &caller, true).await)
 }
 
 /// `POST /connection/deactivate`.
 async fn deactivate(State(state): State<CorePlatformState>, caller: Caller) -> Response {
+    if let Some(directory) = state.sso.clone() {
+        return answer(weldid::set_enabled(&state, &caller, &*directory, false).await);
+    }
     answer(set_enabled(&state, &caller, false).await)
+}
+
+// ── A WeldID connection's domains ───────────────────────────────────────────
+
+/// `POST /domains`.
+async fn add_domain(
+    State(state): State<CorePlatformState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let Some(directory) = state.sso.clone() else {
+        return weldid::not_offered();
+    };
+    answer(
+        async {
+            let domain = weldid::read_domain(&headers, &body)?;
+            weldid::add_domain(&state, &caller, &*directory, &domain).await
+        }
+        .await,
+    )
+}
+
+/// `DELETE /domains/{domain}`.
+async fn remove_named_domain(
+    State(state): State<CorePlatformState>,
+    caller: Caller,
+    Path(domain): Path<String>,
+) -> Response {
+    let Some(directory) = state.sso.clone() else {
+        return weldid::not_offered();
+    };
+    answer(weldid::remove_domain(&state, &caller, &*directory, Some(&domain)).await)
+}
+
+/// `POST /domains/{domain}/verify`.
+async fn verify_named_domain(
+    State(state): State<CorePlatformState>,
+    caller: Caller,
+    Path(domain): Path<String>,
+) -> Response {
+    let Some(directory) = state.sso.clone() else {
+        return weldid::not_offered();
+    };
+    answer(weldid::verify_domain(&state, &caller, &*directory, Some(&domain)).await)
 }
 
 /// `setSsoEnabled`: on needs entitlement, a verified domain and a complete

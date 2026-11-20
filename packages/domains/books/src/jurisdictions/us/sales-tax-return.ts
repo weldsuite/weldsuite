@@ -1,6 +1,6 @@
 /**
  * US sales tax return worksheet per agency and period, from tax-ledger rows
- * (docs/plans/weldbooks-us.md §5).
+ * (weldsuite-documentation/plans/weldbooks-us.md §5).
  *
  * The ledger has one row per document line per jurisdiction, so a line's gross
  * and its exemptions are read once, from the line's highest-level row, while

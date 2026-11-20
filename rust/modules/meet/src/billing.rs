@@ -1,8 +1,8 @@
 //! WeldMeet AI billing (`@weldsuite/meet-domain/billing`): the price list
 //! per meeting minute (master `system_settings` `weldmeet.ai_pricing`,
 //! cached 60 s in the workspace cache), the wallet the work is gated on and
-//! its balance. Charging happens in the AI workflow, which the Kubernetes
-//! editions don't run.
+//! its balance, and the charge for a finished transcript or summary
+//! ([`charge`], from the meeting-AI job in `crate::meeting_ai`).
 //!
 //! The worker also keeps the price list for 60 s per isolate; Rust reads the
 //! cache instead, which holds it for the same 60 s.
@@ -259,9 +259,147 @@ pub(crate) async fn gate(
     })
 }
 
+/// `billableMinutes(durationSeconds)`: whole meeting minutes, rounded up
+/// (61 s is 2).
+pub(crate) fn billable_minutes(seconds: f64) -> f64 {
+    if seconds.is_nan() || seconds <= 0.0 {
+        return 0.0;
+    }
+    (seconds / 60.0).ceil()
+}
+
+/// `MeetingAiKind`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AiKind {
+    Transcription,
+    Summary,
+}
+
+impl AiKind {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Transcription => "transcription",
+            Self::Summary => "summary",
+        }
+    }
+
+    /// The price of a minute of this kind.
+    pub(crate) fn rate(self, pricing: Pricing) -> f64 {
+        match self {
+            Self::Transcription => pricing.transcription,
+            Self::Summary => pricing.summary,
+        }
+    }
+
+    /// `SERVICE_TYPE[kind]`.
+    fn service_type(self) -> &'static str {
+        match self {
+            Self::Transcription => "meeting_transcription",
+            Self::Summary => "meeting_summary",
+        }
+    }
+}
+
+/// `ChargeMeetingAiParams`.
+#[derive(Debug, Clone)]
+pub(crate) struct Charge<'a> {
+    pub(crate) kind: AiKind,
+    pub(crate) session_id: &'a str,
+    pub(crate) minutes: f64,
+    pub(crate) rate_per_minute: f64,
+    /// Where the result came from, for the ledger (`rtk`, `whisper`,
+    /// `workers_ai`: the worker's names for the recorder's transcript, the
+    /// "transcribe afterwards" pass and the summary pass).
+    pub(crate) source: &'a str,
+    /// Tells a legitimate re-run apart (a second pass after a delete).
+    pub(crate) run_id: Option<&'a str>,
+}
+
+/// `chargeMeetingAi(metering, params)`: the credits charged. Consumes from
+/// the wallet of `workspace_id` (`workspaces.id`); when the balance is short
+/// the cost is booked as debt instead (the work is done). Both writes are
+/// idempotent on the key, so a retried step never charges twice.
+pub(crate) async fn charge(
+    master: &PgPool,
+    workspace_id: &str,
+    user_id: &str,
+    params: &Charge<'_>,
+) -> Result<i64, BillingError> {
+    use weldsuite_core_domain::credits::{
+        Consumed, CreditsError, GrantKind, LedgerEntry, consume_credits_by, grant_credits,
+    };
+    let failed = |error: CreditsError| BillingError::Failed(error.to_string());
+    #[allow(clippy::cast_possible_truncation)]
+    let credits = credits_for_minutes(params.minutes, params.rate_per_minute) as i64;
+    if credits <= 0 {
+        return Ok(0);
+    }
+    let key = format!(
+        "meet-{}:{}{}",
+        params.kind.as_str(),
+        params.session_id,
+        params
+            .run_id
+            .map(|run| format!(":{run}"))
+            .unwrap_or_default()
+    );
+    let description = format!(
+        "WeldMeet {}: {} min",
+        params.kind.as_str(),
+        js_number(params.minutes)
+    );
+    let meta = json!({
+        "minutes": js_number(params.minutes),
+        "ratePerMinute": js_number(params.rate_per_minute),
+        "source": params.source,
+    });
+    let entry = LedgerEntry {
+        workspace_id,
+        amount: credits,
+        service_type: Some(params.kind.service_type()),
+        idempotency_key: Some(key.clone()),
+        reference_id: Some(params.session_id),
+        reference_type: Some("meeting_session"),
+        description: Some(description.clone()),
+        metadata: Some(meta.clone()),
+    };
+    match consume_credits_by(master, &entry, Some(user_id))
+        .await
+        .map_err(failed)?
+    {
+        Consumed::Ok { .. } => Ok(credits),
+        Consumed::Insufficient { .. } => {
+            // The work is done and the wallet is short: record the debt.
+            let mut meta = meta;
+            meta["forcedSettlement"] = json!(true);
+            let debt = LedgerEntry {
+                amount: -credits,
+                idempotency_key: Some(format!("{key}:settle")),
+                description: Some(format!("{description}: settled into negative balance")),
+                metadata: Some(meta),
+                ..entry
+            };
+            grant_credits(master, &debt, GrantKind::Adjustment, Some(user_id))
+                .await
+                .map_err(failed)?;
+            Ok(credits)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn minutes_round_up() {
+        assert!((billable_minutes(61.0) - 2.0).abs() < f64::EPSILON);
+        assert!((billable_minutes(310.0) - 6.0).abs() < f64::EPSILON);
+        assert!(billable_minutes(0.0).abs() < f64::EPSILON);
+        assert!(billable_minutes(f64::NAN).abs() < f64::EPSILON);
+        assert!((credits_for_minutes(6.0, 2.0) - 12.0).abs() < f64::EPSILON);
+        assert!((AiKind::Summary.rate(defaults()) - DEFAULT_SUMMARY).abs() < f64::EPSILON);
+    }
 
     #[test]
     fn prices_parse_like_the_worker() {

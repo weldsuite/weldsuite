@@ -674,11 +674,38 @@ impl From<FeedError> for RunError {
     }
 }
 
+/// `SyncOptions`.
+#[derive(Debug, Clone, Default)]
+pub struct SyncOptions {
+    /// Ask the provider to fetch fresh data from the bank first ("sync now").
+    pub refresh: bool,
+    /// The member's IP address, for a refresh: Ponto synchronizes only with
+    /// the customer present.
+    pub customer_ip: Option<String>,
+}
+
 /// `syncConnection(ctx, connectionId, { refresh })`.
 pub async fn sync_connection(
     ctx: &FeedContext,
     connection_id: &str,
     refresh: bool,
+) -> Result<SyncOutcome, ServiceError> {
+    sync_connection_with(
+        ctx,
+        connection_id,
+        &SyncOptions {
+            refresh,
+            customer_ip: None,
+        },
+    )
+    .await
+}
+
+/// `syncConnection(ctx, connectionId, options)`.
+pub async fn sync_connection_with(
+    ctx: &FeedContext,
+    connection_id: &str,
+    options: &SyncOptions,
 ) -> Result<SyncOutcome, ServiceError> {
     let Some(row) = load_connection(&ctx.db, connection_id).await? else {
         return Ok(SyncOutcome::skipped(
@@ -706,13 +733,44 @@ pub async fn sync_connection(
         return Ok(SyncOutcome::skipped(connection_id, &status, "in_progress"));
     }
     let mut outcome = SyncOutcome::empty(connection_id, &status);
-    match run_sync(ctx, &provider, &row, &timestamp, &mut outcome, refresh).await {
+    match run_sync(ctx, &provider, &row, &timestamp, &mut outcome, options).await {
         Ok(()) => Ok(outcome),
-        Err(RunError::Feed(error)) => record_failure(ctx, &row, &error, &timestamp, outcome).await,
+        Err(RunError::Feed(error)) => {
+            keep_rotated_credentials(ctx, &provider, &row).await;
+            record_failure(ctx, &row, &error, &timestamp, outcome).await
+        }
         Err(RunError::Other(error)) => {
+            keep_rotated_credentials(ctx, &provider, &row).await;
             let _ = release(&ctx.db, &id, &json!({})).await;
             Err(error)
         }
+    }
+}
+
+/// `keepRotatedCredentials`: credentials the provider rotated before the run
+/// failed (Ponto's refresh token works once), stored, or the next sync could
+/// not sign in and the connection would wrongly ask for a reconnect.
+async fn keep_rotated_credentials(ctx: &FeedContext, provider: &Provider<'_>, row: &Value) {
+    let Some(credentials) =
+        provider.pending_credentials(text(row, "providerConnectionId").unwrap_or_default())
+    else {
+        return;
+    };
+    let id = text(row, "id").unwrap_or_default();
+    let stored = match ctx.seal(&credentials) {
+        Ok(sealed) => {
+            sqlx::query("update bank_connections set credentials_encrypted = $2 where id = $1")
+                .bind(id)
+                .bind(sealed)
+                .execute(&ctx.db)
+                .await
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+        }
+        Err(error) => Err(format!("{error:?}")),
+    };
+    if let Err(error) = stored {
+        tracing::error!(connection = %id, %error, "[bank-feeds] rotated credentials not stored");
     }
 }
 
@@ -723,7 +781,7 @@ async fn run_sync(
     row: &Value,
     timestamp: &str,
     outcome: &mut SyncOutcome,
-    refresh: bool,
+    options: &SyncOptions,
 ) -> Result<(), RunError> {
     let db = &ctx.db;
     let id = text(row, "id").unwrap_or_default().to_owned();
@@ -758,10 +816,12 @@ async fn run_sync(
     let mut stored: StoredConnection = to_stored(ctx, row, Some(by_feed_id.keys.clone()));
     let mut credentials_update: Option<Value> = None;
 
-    if refresh
+    if options.refresh
         && provider.capabilities()["onDemandRefresh"] == json!(true)
         && provider.has_refresh()
-        && let Err(error) = provider.refresh(&stored).await
+        && let Err(error) = provider
+            .refresh(&stored, options.customer_ip.as_deref())
+            .await
     {
         // A refused refresh must not stop the read of what the provider already has.
         tracing::warn!(connection = %id, %error, "[bank-feeds] refresh failed");
@@ -781,6 +841,8 @@ async fn run_sync(
     let start_cursor = row.get("syncCursor").cloned().unwrap_or(Value::Null);
     let mut cursor = start_cursor.clone();
     let mut account_statuses: Map<String, Value> = Map::new();
+    // The consent end the provider reports on this read, when it reports one.
+    let mut consent_reported: Option<String> = None;
     let mut restarts = 0;
     let mut page = 0;
     while page < MAX_PAGES {
@@ -800,6 +862,13 @@ async fn run_sync(
             for (key, value) in statuses {
                 account_statuses.insert(key.clone(), value.clone());
             }
+        }
+        if let Some(consent) = result
+            .consent_expires_at
+            .as_deref()
+            .and_then(crate::js::js_date)
+        {
+            consent_reported = Some(consent);
         }
         if let Some(credentials) = &result.credentials {
             credentials_update = Some(credentials.clone());
@@ -849,7 +918,10 @@ async fn run_sync(
         .map(|fa| text(fa, "status").unwrap_or_default().to_owned())
         .collect();
     let mut next_status = connection_status(&mapped_statuses).to_owned();
-    let consent = text(row, "consentExpiresAt").and_then(millis_of);
+    let consent = consent_reported
+        .as_deref()
+        .or_else(|| text(row, "consentExpiresAt"))
+        .and_then(millis_of);
     if next_status == "active" && consent.is_some() {
         #[allow(clippy::cast_precision_loss)]
         let days_left =
@@ -930,6 +1002,7 @@ async fn run_sync(
          sync_cursor = case when (metadata->>'resyncAt')::timestamptz > $3::timestamptz then null else $4::jsonb end, \
          last_synced_at = $3::timestamp, last_error = null, \
          credentials_encrypted = case when $5::text is null then credentials_encrypted else $5 end, \
+         consent_expires_at = case when $7::text is null then consent_expires_at else $7::timestamp end, \
          metadata = ((case when (metadata->>'resyncAt')::timestamptz > $3::timestamptz then coalesce(metadata, '{}'::jsonb) \
          else coalesce(metadata, '{}'::jsonb) - 'resyncAt' end - 'syncLockUntil') || $6::jsonb), \
          updated_at = $3::timestamp where id = $1",
@@ -940,6 +1013,7 @@ async fn run_sync(
     .bind(cursor.to_string())
     .bind(sealed)
     .bind(patch.to_string())
+    .bind(consent_reported.as_deref())
     .execute(db)
     .await?;
 

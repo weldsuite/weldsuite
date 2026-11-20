@@ -9,9 +9,16 @@
  * 'development'`) refuses the connection, as when billing-worker cannot be
  * reached. Every other URL (the harness's own loopback calls) goes to the
  * real fetch.
+ *
+ * `calls` keeps one backend's calls. Conformance mode runs a write on the
+ * Hono app first, on a copy of the database that is rolled back, and then on
+ * the Rust server, whose writes the test reads: the stub answers both and
+ * keeps the second run's calls, so a test counts the calls of the backend
+ * whose rows it sees (the harness compares the two runs' calls itself).
  */
 
 import { vi } from 'vitest';
+import { conformanceTenantDb } from '@weldsuite/worker-kit/testing';
 
 export const TELNYX = 'https://api.telnyx.com/v2';
 
@@ -47,6 +54,14 @@ function bodyOf(body: BodyInit | null | undefined): unknown {
 
 const realFetch = globalThis.fetch;
 
+const PROBE = {};
+/**
+ * True while conformance mode runs a write on the Hono app, before the Rust
+ * server runs it: the harness hands out the rolled-back copy of the tenant
+ * database for that run only.
+ */
+const inTypeScriptRunOfConformance = () => conformanceTenantDb(PROBE) !== PROBE;
+
 /**
  * Install the stub; `on(method, path, handler)` answers `path` (after
  * `/v2`, without the query). Unknown paths answer 404 with a Telnyx error.
@@ -62,7 +77,7 @@ export function stubTelnyx() {
       if (url.hostname !== 'api.telnyx.com') return realFetch(input, init);
       const method = (init?.method ?? 'GET').toUpperCase();
       const call = { method, url, body: bodyOf(init?.body) };
-      calls.push(call);
+      if (!inTypeScriptRunOfConformance()) calls.push(call);
       const handler = routes.get(`${method} ${url.pathname.replace(/^\/v2/, '')}`);
       if (!handler) return telnyxError(404, `no stub for ${method} ${url.pathname}`);
       return handler(call);

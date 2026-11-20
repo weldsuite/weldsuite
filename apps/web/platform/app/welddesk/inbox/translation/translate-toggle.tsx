@@ -44,7 +44,7 @@ export function TranslateToggle({
   const same = sameLanguage(language, target);
 
   return (
-    <div className="hidden md:flex items-center gap-1 flex-shrink-0" data-testid="desk-inbox-translate">
+    <div className="flex items-center gap-1 flex-shrink-0" data-testid="desk-inbox-translate">
       {language && (
         <span
           className="rounded-md border border-border px-1.5 py-0.5 text-[11px] font-medium uppercase text-muted-foreground"
@@ -68,7 +68,7 @@ export function TranslateToggle({
         data-testid="desk-inbox-translate-toggle"
       >
         {on && query.isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Languages className="h-4 w-4" />}
-        <span className="hidden lg:inline">{t.translate}</span>
+        <span className="hidden @3xl/desk-header:inline">{t.translate}</span>
       </Button>
     </div>
   );

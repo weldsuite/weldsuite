@@ -18,6 +18,7 @@ import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useWorkspaceId } from '@/contexts/workspace-context';
 import { useWeldPanelProject } from '@/hooks/queries/use-weldpanel-queries';
+import { isFeatureAvailable } from '@/lib/edition';
 import { useI18n } from '@/lib/i18n/provider';
 import { Link } from '@/lib/router';
 import { ProjectKindBadge, ProjectStatusBadge } from '../components/project-badges';
@@ -25,9 +26,10 @@ import { writeLastProjectId } from '../lib/last-project';
 import { DangerTab } from './danger-tab';
 import { GeneralTab } from './general-tab';
 import { InstallTab } from './install-tab';
+import { KeysTab } from './keys-tab';
 import { PrivacyTab } from './privacy-tab';
 
-type TabId = 'install' | 'general' | 'privacy' | 'danger';
+type TabId = 'install' | 'keys' | 'general' | 'privacy' | 'danger';
 
 export default function WeldPanelProjectPage() {
   const { projectId = '' } = useParams({ strict: false });
@@ -79,8 +81,11 @@ function ProjectView({ projectId }: Readonly<{ projectId: string }>) {
   }
 
   const showDanger = canManage || canDelete;
+  // Secret keys feed server-side ingest (`/v1/track`, `/v1/import`), which comes with the analytics
+  // store: the Kubernetes editions serve neither (`panel-analytics`).
+  const showKeys = canManage && isFeatureAvailable('panel-analytics');
   // A tab can disappear (permissions load after the first render); fall back rather than show nothing.
-  const activeTab: TabId = tab === 'danger' && !showDanger ? 'install' : tab;
+  const activeTab: TabId = (tab === 'danger' && !showDanger) || (tab === 'keys' && !showKeys) ? 'install' : tab;
 
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 p-4 sm:p-6">
@@ -106,6 +111,7 @@ function ProjectView({ projectId }: Readonly<{ projectId: string }>) {
       <Tabs value={activeTab} onValueChange={(value) => setTab(value as TabId)} className="gap-4">
         <TabsList className="h-auto max-w-full flex-wrap justify-start">
           <TabsTrigger value="install">{tp.tabs.install}</TabsTrigger>
+          {showKeys && <TabsTrigger value="keys">{t.weldpanel.observe.keys.title}</TabsTrigger>}
           <TabsTrigger value="general">{tp.tabs.general}</TabsTrigger>
           <TabsTrigger value="privacy">{tp.tabs.privacy}</TabsTrigger>
           {showDanger && <TabsTrigger value="danger">{tp.tabs.danger}</TabsTrigger>}
@@ -113,6 +119,11 @@ function ProjectView({ projectId }: Readonly<{ projectId: string }>) {
         <TabsContent value="install">
           <InstallTab project={project} />
         </TabsContent>
+        {showKeys && (
+          <TabsContent value="keys">
+            <KeysTab project={project} />
+          </TabsContent>
+        )}
         <TabsContent value="general">
           <GeneralTab project={project} canUpdate={canUpdate} />
         </TabsContent>

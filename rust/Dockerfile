@@ -2,7 +2,9 @@
 #
 # The `weldsuite` image (ADR OPS-013): the Rust backend, one binary on
 # distroless, run as nonroot, and the platform SPA it serves from /srv/spa on
-# the same origin (SPA_DIR, bins/weldsuite/src/spa.rs). For linux/amd64 and
+# the same origin (SPA_DIR, bins/weldsuite/src/spa.rs), and the helpdesk
+# widget it serves from /srv/helpdesk-widget on the widget's own hosts
+# (HELPDESK_WIDGET_DIR, HELPDESK_WIDGET_HOSTS). For linux/amd64 and
 # linux/arm64. The build stages run on the build machine's own platform: Rust
 # cross-compiles for the target, so an arm64 image doesn't build under
 # emulation, and the SPA is the same JavaScript for both.
@@ -19,6 +21,7 @@
 # console's (ADR FE-018) are targets of the same file:
 #
 #   docker build -f rust/Dockerfile --target sign-portal -t weldsuite-sign-portal:dev .
+#   docker build -f rust/Dockerfile --target forms-portal -t weldsuite-forms-portal:dev .
 #   docker build -f rust/Dockerfile --target admin -t weldsuite-admin:dev .
 #   docker build -f rust/Dockerfile --target collab-rooms -t weldsuite-collab-rooms:dev .
 
@@ -27,8 +30,8 @@ ARG NODE_VERSION=22
 
 # ── The frontends' dependencies ─────────────────────────────────────────────
 # The manifests alone first, so the install stays cached until a dependency
-# changes. Only the platform's, the portal's and the admin console's
-# (`--filter <app>...`).
+# changes. Only the platform's, the portals', the admin console's and the
+# helpdesk widget's (`--filter <app>...`).
 FROM --platform=$BUILDPLATFORM node:${NODE_VERSION}-bookworm-slim AS web-deps
 ENV CI=true \
     COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
@@ -37,10 +40,11 @@ RUN corepack enable
 WORKDIR /repo
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY patches patches
-COPY --parents apps/web/platform/package.json apps/web/sign-portal/package.json apps/web/admin/package.json packages/*/*/package.json ./
+COPY --parents apps/web/platform/package.json apps/web/sign-portal/package.json apps/web/forms-portal/package.json apps/web/admin/package.json apps/web/helpdesk-widget/package.json packages/*/*/package.json ./
 RUN --mount=type=cache,id=weldsuite-pnpm-store,target=/pnpm/store \
     pnpm install --frozen-lockfile --ignore-scripts --store-dir /pnpm/store \
-      --filter platform... --filter sign-portal... --filter admin... --filter @weldsuite/panel-sdk
+      --filter platform... --filter sign-portal... --filter forms-portal... --filter admin... \
+      --filter helpdesk-widget... --filter @weldsuite/panel-sdk
 COPY packages packages
 
 # ── The platform SPA, built for Kubernetes ──────────────────────────────────
@@ -57,6 +61,20 @@ RUN set -eux; \
     rm -f dist/stats.html; \
     UV_THREADPOOL_SIZE=16 node /usr/local/lib/precompress.mjs dist; \
     mv dist /spa
+
+# ── WeldDesk's helpdesk widget, the iframe app customers' sites embed ───────
+# apps/web/helpdesk-widget, built to call the widget API on its own origin
+# (/public/helpdesk-widget): the server serves it on HELPDESK_WIDGET_HOSTS
+# (widget.<domain>), never on the platform's origin, so one build serves
+# every cluster. Sites point the SDK's api.baseUrl at https://widget.<domain>.
+FROM web-deps AS helpdesk-widget
+COPY apps/web/helpdesk-widget apps/web/helpdesk-widget
+COPY rust/docker/precompress.mjs /usr/local/lib/precompress.mjs
+RUN set -eux; \
+    cd apps/web/helpdesk-widget; \
+    VITE_WIDGET_API_URL=/public/helpdesk-widget VITE_VERCEL_ANALYTICS=off pnpm build; \
+    node /usr/local/lib/precompress.mjs dist; \
+    mv dist /helpdesk-widget
 
 # ── WeldDocs', WeldSheets' and WeldBoard's rooms (rust/docs/collab-rooms.md) ─
 # The workers' DocRoom, SheetRoom and BoardRoom with the Node runtime of
@@ -98,13 +116,14 @@ USER nonroot:nonroot
 EXPOSE 8090
 CMD ["--enable-source-maps", "server.mjs"]
 
-# ── WeldPanel's browser SDK, the script the collector serves as /s.js ───────
+# ── WeldPanel's browser SDK and its plugins, the scripts the collector ──────
+# serves as /s.js, /rec.js (recordings) and /v.js (web vitals)
 FROM web-deps AS panel-sdk
 RUN set -eux; \
     cd packages/sdk/panel-sdk; \
     pnpm build; \
     mkdir /panel; \
-    mv dist/panel.global.js /panel/
+    mv dist/panel.global.js dist/panel-recorder.global.js dist/panel-vitals.global.js /panel/
 
 # ── The sign portal, TanStack Start's Node build ────────────────────────────
 FROM web-deps AS sign-portal-build
@@ -129,6 +148,23 @@ COPY --from=sign-portal-build /portal /app
 ENV NODE_ENV=production \
     PORT=3000 \
     SIGN_PORTAL_BACKEND=rust
+USER nonroot:nonroot
+EXPOSE 3000
+CMD ["node/server.mjs"]
+
+# ── The forms portal (WeldForms respondent page), TanStack Start's Node build ──
+FROM web-deps AS forms-portal-build
+COPY apps/web/forms-portal apps/web/forms-portal
+RUN set -eux;     cd apps/web/forms-portal;     pnpm build:node;     echo '{"type":"module"}' > dist/package.json;     mkdir /portal;     mv dist node /portal/
+
+# Node, the build and nothing else (every dependency is bundled). Configured by
+# FORMS_PORTAL_BACKEND_URL, FORMS_PORTAL_SECRET and FORMS_PORTAL_TRUSTED_PROXIES
+# (the Helm chart sets them).
+FROM gcr.io/distroless/nodejs22-debian12:nonroot AS forms-portal
+LABEL org.opencontainers.image.title="weldsuite-forms-portal"       org.opencontainers.image.description="The WeldForms respondent page for the Kubernetes editions"       org.opencontainers.image.source="https://github.com/weldsuite/weldsuite"       org.opencontainers.image.licenses="AGPL-3.0-only"
+WORKDIR /app
+COPY --from=forms-portal-build /portal /app
+ENV NODE_ENV=production     PORT=3000
 USER nonroot:nonroot
 EXPOSE 3000
 CMD ["node/server.mjs"]
@@ -196,11 +232,15 @@ COPY rust/bins bins
 # (crates/migrations/build.rs).
 COPY packages/core/db/drizzle drizzle
 ENV WELDSUITE_DRIZZLE_DIR=/src/drizzle
+# `release` ships. CI builds a pull request's image with `ci-image`
+# (rust/Cargo.toml), which skips the slow release settings. Any profile but
+# `dev`, whose output folder isn't named after it.
+ARG CARGO_PROFILE=release
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/target,id=weldsuite-target-${TARGETARCH} \
     target="$(cat /rust-target)" \
- && cargo build --release --locked --bin weldsuite --target "$target" \
- && cp "target/$target/release/weldsuite" /weldsuite
+ && cargo build --profile "$CARGO_PROFILE" --locked --bin weldsuite --target "$target" \
+ && cp "target/$target/$CARGO_PROFILE/weldsuite" /weldsuite
 
 # glibc + libgcc + CA certificates, no shell, uid 65532. The last stage, so
 # a build without --target makes this image.
@@ -211,11 +251,15 @@ LABEL org.opencontainers.image.title="weldsuite" \
       org.opencontainers.image.licenses="AGPL-3.0-only"
 COPY --from=build /weldsuite /usr/local/bin/weldsuite
 COPY --from=spa /spa /srv/spa
-# WeldPanel's SDK bundle (PANEL_SDK_FILE's default).
+COPY --from=helpdesk-widget /helpdesk-widget /srv/helpdesk-widget
+# WeldPanel's SDK bundles (the defaults of PANEL_SDK_FILE, PANEL_RECORDER_FILE
+# and PANEL_VITALS_FILE).
 COPY --from=panel-sdk /panel /srv/panel
 # Serve the SPA for every path the API doesn't answer; SPA_DIR= (empty) for
-# the API alone.
-ENV SPA_DIR=/srv/spa
+# the API alone. The widget is served only on the hosts HELPDESK_WIDGET_HOSTS
+# names (none by default).
+ENV SPA_DIR=/srv/spa \
+    HELPDESK_WIDGET_DIR=/srv/helpdesk-widget
 USER nonroot:nonroot
 EXPOSE 8080
 ENTRYPOINT ["/usr/local/bin/weldsuite"]

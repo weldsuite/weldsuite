@@ -56,6 +56,7 @@ import mailSending from './mail-sending';
 import mailThreads from './mail-threads';
 import milestones from './milestones';
 import opportunities from './opportunities';
+import panel from './panel';
 import orders from './orders';
 import people from './people';
 import pipelines from './pipelines';
@@ -88,6 +89,8 @@ import webhooks from './webhooks';
 import whiteboards from './whiteboards';
 import workflows from './workflows';
 import legalEntities from './legal-entities';
+import auditLogs from './audit-logs';
+import odata from './odata';
 
 export const v1 = new Hono<HonoEnv>();
 
@@ -104,6 +107,7 @@ v1.get('/', (c) => {
       '/v1/activities',
       '/v1/app-storage',
       '/v1/articles',
+      '/v1/audit-logs',
       '/v1/bank-accounts',
       '/v1/bank-transactions',
       '/v1/bills',
@@ -144,8 +148,10 @@ v1.get('/', (c) => {
       '/v1/mail-messages',
       '/v1/mail-threads',
       '/v1/milestones',
+      '/v1/odata',
       '/v1/opportunities',
       '/v1/orders',
+      '/v1/panel',
       '/v1/people',
       '/v1/payments',
       '/v1/pipeline-stages',
@@ -188,7 +194,9 @@ v1.get('/', (c) => {
       '/v1/webhooks',
       '/v1/whiteboards',
       '/v1/workflows',
-    ].filter((path) => path !== '/v1/boards' || !!c.env.BOARDS_INTERNAL),
+    ]
+      .filter((path) => path !== '/v1/boards' || !!c.env.BOARDS_INTERNAL)
+      .filter((path) => path !== '/v1/panel' || !!c.env.PANEL_INTERNAL),
   });
 });
 
@@ -212,6 +220,8 @@ v1.route('/accounting-documents', accountingDocuments);
 v1.route('/accounting-entities', accountingEntities);
 v1.route('/accounting-settings', accountingSettings);
 v1.route('/legal-entities', legalEntities);
+v1.route('/audit-logs', auditLogs);
+v1.route('/odata', odata);
 v1.route('/bank-accounts', bankAccounts);
 v1.route('/bank-transactions', bankTransactions);
 v1.route('/bills', bills);
@@ -262,6 +272,7 @@ v1.route('/mail-threads', mailThreads);
 v1.route('/milestones', milestones);
 v1.route('/opportunities', opportunities);
 v1.route('/orders', orders);
+v1.route('/panel', panel);
 v1.route('/people', people);
 v1.route('/pipeline-stages', pipelineStages);
 v1.route('/pipelines', pipelines);

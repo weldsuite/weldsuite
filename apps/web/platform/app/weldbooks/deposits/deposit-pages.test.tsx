@@ -13,7 +13,7 @@ vi.mock('@tanstack/react-router', () => ({
 vi.mock('@weldsuite/permissions/react', () => ({
   usePermissions: () => ({ can: (permission: string) => permissions.has(permission) }),
 }));
-vi.mock('@/lib/weldbooks/use-jurisdiction', () => ({ useCurrentJurisdiction: () => ({ code: jurisdiction.code }) }));
+vi.mock('@/lib/weldbooks/use-jurisdiction', () => ({ useCurrentJurisdiction: () => ({ code: jurisdiction.code, isError: false, isResolved: true }) }));
 vi.mock('@/lib/weldbooks/use-weldbooks-format', () => ({
   useWeldbooksFormat: () => ({
     formatMoney: (value: number | string) => `$${Number(value).toFixed(2)}`,

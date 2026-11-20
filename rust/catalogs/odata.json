@@ -1,0 +1,1389 @@
+{
+  "container": "Feed",
+  "entitySets": [
+    {
+      "entityType": "Conversation",
+      "key": "id",
+      "name": "Conversations",
+      "properties": [
+        {
+          "column": "id",
+          "filterable": true,
+          "name": "id",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "conversation_number",
+          "filterable": true,
+          "name": "conversationNumber",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.Int32"
+        },
+        {
+          "column": "title",
+          "filterable": true,
+          "name": "title",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "state",
+          "filterable": true,
+          "name": "state",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "channel",
+          "filterable": true,
+          "name": "channel",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "name",
+          "filterable": true,
+          "name": "name",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "email",
+          "filterable": true,
+          "name": "email",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "contact_id",
+          "filterable": true,
+          "name": "contactId",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "assignee_id",
+          "filterable": true,
+          "name": "assigneeId",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "ticket_type_id",
+          "filterable": true,
+          "name": "ticketTypeId",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "priority",
+          "filterable": true,
+          "name": "priority",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "impact",
+          "filterable": true,
+          "name": "impact",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "urgency",
+          "filterable": true,
+          "name": "urgency",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "tags",
+          "filterable": true,
+          "name": "tags",
+          "nullable": false,
+          "sortable": false,
+          "type": "Collection(Edm.String)"
+        },
+        {
+          "column": "department_id",
+          "filterable": true,
+          "name": "departmentId",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "created_at",
+          "filterable": true,
+          "name": "createdAt",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.DateTimeOffset"
+        },
+        {
+          "column": "updated_at",
+          "filterable": true,
+          "name": "updatedAt",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.DateTimeOffset"
+        },
+        {
+          "column": "waiting_since",
+          "filterable": true,
+          "name": "waitingSince",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.DateTimeOffset"
+        },
+        {
+          "column": "last_message_at",
+          "filterable": true,
+          "name": "lastMessageAt",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.DateTimeOffset"
+        },
+        {
+          "column": "rating",
+          "filterable": true,
+          "name": "rating",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.Int32"
+        },
+        {
+          "column": "rated_at",
+          "filterable": true,
+          "name": "ratedAt",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.DateTimeOffset"
+        },
+        {
+          "column": "external_id",
+          "filterable": true,
+          "name": "externalId",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "sla_policy_id",
+          "filterable": true,
+          "name": "slaPolicyId",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "sla_status",
+          "filterable": true,
+          "name": "slaStatus",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "sla_due_at",
+          "filterable": true,
+          "name": "slaDueAt",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.DateTimeOffset"
+        },
+        {
+          "column": "sla_metric",
+          "filterable": true,
+          "name": "slaMetric",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "first_response_at",
+          "filterable": true,
+          "name": "firstResponseAt",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.DateTimeOffset"
+        },
+        {
+          "column": "first_response_seconds",
+          "filterable": true,
+          "name": "firstResponseSeconds",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.Int32"
+        },
+        {
+          "column": "resolved_at",
+          "filterable": true,
+          "name": "resolvedAt",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.DateTimeOffset"
+        },
+        {
+          "column": "resolution_seconds",
+          "filterable": true,
+          "name": "resolutionSeconds",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.Int32"
+        },
+        {
+          "column": "parent_conversation_id",
+          "filterable": true,
+          "name": "parentConversationId",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "is_major_incident",
+          "filterable": true,
+          "name": "isMajorIncident",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.Boolean"
+        },
+        {
+          "column": "merged_into_id",
+          "filterable": true,
+          "name": "mergedIntoId",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "language",
+          "filterable": true,
+          "name": "language",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "problem_id",
+          "filterable": true,
+          "name": "problemId",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "catalog_item_id",
+          "filterable": true,
+          "name": "catalogItemId",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "approval_status",
+          "filterable": true,
+          "name": "approvalStatus",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        }
+      ],
+      "table": "desk_conversations"
+    },
+    {
+      "entityType": "Message",
+      "key": "id",
+      "name": "Messages",
+      "properties": [
+        {
+          "column": "id",
+          "filterable": true,
+          "name": "id",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "conversation_id",
+          "filterable": true,
+          "name": "conversationId",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "created_at",
+          "filterable": true,
+          "name": "createdAt",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.DateTimeOffset"
+        },
+        {
+          "column": "kind",
+          "filterable": true,
+          "name": "kind",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "author_type",
+          "filterable": true,
+          "name": "authorType",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "author_id",
+          "filterable": true,
+          "name": "authorId",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "metadata->>'eventType'",
+          "filterable": true,
+          "name": "eventType",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        }
+      ],
+      "table": "desk_messages"
+    },
+    {
+      "entityType": "SlaClock",
+      "key": "id",
+      "name": "SlaClocks",
+      "properties": [
+        {
+          "column": "id",
+          "filterable": true,
+          "name": "id",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "created_at",
+          "filterable": true,
+          "name": "createdAt",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.DateTimeOffset"
+        },
+        {
+          "column": "updated_at",
+          "filterable": true,
+          "name": "updatedAt",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.DateTimeOffset"
+        },
+        {
+          "column": "conversation_id",
+          "filterable": true,
+          "name": "conversationId",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "metric",
+          "filterable": true,
+          "name": "metric",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "policy_id",
+          "filterable": true,
+          "name": "policyId",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "target_minutes",
+          "filterable": true,
+          "name": "targetMinutes",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.Int32"
+        },
+        {
+          "column": "warn_before_minutes",
+          "filterable": true,
+          "name": "warnBeforeMinutes",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.Int32"
+        },
+        {
+          "column": "status",
+          "filterable": true,
+          "name": "status",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "started_at",
+          "filterable": true,
+          "name": "startedAt",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.DateTimeOffset"
+        },
+        {
+          "column": "elapsed_seconds",
+          "filterable": true,
+          "name": "elapsedSeconds",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.Int32"
+        },
+        {
+          "column": "due_at",
+          "filterable": true,
+          "name": "dueAt",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.DateTimeOffset"
+        },
+        {
+          "column": "warn_at",
+          "filterable": true,
+          "name": "warnAt",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.DateTimeOffset"
+        },
+        {
+          "column": "breached_at",
+          "filterable": true,
+          "name": "breachedAt",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.DateTimeOffset"
+        },
+        {
+          "column": "completed_at",
+          "filterable": true,
+          "name": "completedAt",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.DateTimeOffset"
+        },
+        {
+          "column": "warned_at",
+          "filterable": true,
+          "name": "warnedAt",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.DateTimeOffset"
+        },
+        {
+          "column": "breach_notified_at",
+          "filterable": true,
+          "name": "breachNotifiedAt",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.DateTimeOffset"
+        },
+        {
+          "column": "next_check_at",
+          "filterable": true,
+          "name": "nextCheckAt",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.DateTimeOffset"
+        }
+      ],
+      "table": "desk_sla_clocks"
+    },
+    {
+      "entityType": "Call",
+      "key": "id",
+      "name": "Calls",
+      "properties": [
+        {
+          "column": "id",
+          "filterable": true,
+          "name": "id",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "created_at",
+          "filterable": true,
+          "name": "createdAt",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.DateTimeOffset"
+        },
+        {
+          "column": "user_id",
+          "filterable": true,
+          "name": "userId",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "direction",
+          "filterable": true,
+          "name": "direction",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "status",
+          "filterable": true,
+          "name": "status",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "from_number",
+          "filterable": true,
+          "name": "fromNumber",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "to_number",
+          "filterable": true,
+          "name": "toNumber",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "initiated_at",
+          "filterable": true,
+          "name": "initiatedAt",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.DateTimeOffset"
+        },
+        {
+          "column": "answered_at",
+          "filterable": true,
+          "name": "answeredAt",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.DateTimeOffset"
+        },
+        {
+          "column": "ended_at",
+          "filterable": true,
+          "name": "endedAt",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.DateTimeOffset"
+        },
+        {
+          "column": "duration",
+          "filterable": true,
+          "name": "duration",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.Int32"
+        },
+        {
+          "column": "queue_entered_at",
+          "filterable": true,
+          "name": "queueEnteredAt",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.DateTimeOffset"
+        },
+        {
+          "column": "agent_answered_at",
+          "filterable": true,
+          "name": "agentAnsweredAt",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.DateTimeOffset"
+        },
+        {
+          "column": "answered_by_user_id",
+          "filterable": true,
+          "name": "answeredByUserId",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "outcome",
+          "filterable": true,
+          "name": "outcome",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "department_id",
+          "filterable": true,
+          "name": "departmentId",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "desk_conversation_id",
+          "filterable": true,
+          "name": "deskConversationId",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "is_recorded",
+          "filterable": true,
+          "name": "isRecorded",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.Boolean"
+        },
+        {
+          "column": "hangup_cause",
+          "filterable": true,
+          "name": "hangupCause",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "sip_trunk_id",
+          "filterable": true,
+          "name": "sipTrunkId",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        }
+      ],
+      "table": "voip_calls"
+    },
+    {
+      "entityType": "Team",
+      "key": "id",
+      "name": "Teams",
+      "properties": [
+        {
+          "column": "id",
+          "filterable": true,
+          "name": "id",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "name",
+          "filterable": true,
+          "name": "name",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "description",
+          "filterable": true,
+          "name": "description",
+          "nullable": true,
+          "sortable": false,
+          "type": "Edm.String"
+        },
+        {
+          "column": "email",
+          "filterable": true,
+          "name": "email",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "manager_id",
+          "filterable": true,
+          "name": "managerId",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "manager_name",
+          "filterable": true,
+          "name": "managerName",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "agent_ids",
+          "filterable": true,
+          "name": "agentIds",
+          "nullable": false,
+          "sortable": false,
+          "type": "Collection(Edm.String)"
+        },
+        {
+          "column": "agent_count",
+          "filterable": true,
+          "name": "agentCount",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.Int32"
+        },
+        {
+          "column": "auto_assignment",
+          "filterable": true,
+          "name": "autoAssignment",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.Boolean"
+        },
+        {
+          "column": "round_robin_assignment",
+          "filterable": true,
+          "name": "roundRobinAssignment",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.Boolean"
+        },
+        {
+          "column": "default_priority",
+          "filterable": true,
+          "name": "defaultPriority",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "is_active",
+          "filterable": true,
+          "name": "isActive",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.Boolean"
+        },
+        {
+          "column": "sort_order",
+          "filterable": true,
+          "name": "sortOrder",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.Int32"
+        },
+        {
+          "column": "created_at",
+          "filterable": true,
+          "name": "createdAt",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.DateTimeOffset"
+        },
+        {
+          "column": "updated_at",
+          "filterable": true,
+          "name": "updatedAt",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.DateTimeOffset"
+        }
+      ],
+      "softDelete": "deleted_at",
+      "table": "helpdesk_departments"
+    },
+    {
+      "entityType": "TicketType",
+      "key": "id",
+      "name": "TicketTypes",
+      "properties": [
+        {
+          "column": "id",
+          "filterable": true,
+          "name": "id",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "name",
+          "filterable": true,
+          "name": "name",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "description",
+          "filterable": true,
+          "name": "description",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "category",
+          "filterable": true,
+          "name": "category",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "disable_ai_autofill",
+          "filterable": true,
+          "name": "disableAiAutofill",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.Boolean"
+        },
+        {
+          "column": "default_priority",
+          "filterable": true,
+          "name": "defaultPriority",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "default_assignee_id",
+          "filterable": true,
+          "name": "defaultAssigneeId",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "default_department_id",
+          "filterable": true,
+          "name": "defaultDepartmentId",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "is_active",
+          "filterable": true,
+          "name": "isActive",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.Boolean"
+        },
+        {
+          "column": "sort_order",
+          "filterable": true,
+          "name": "sortOrder",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.Int32"
+        },
+        {
+          "column": "created_at",
+          "filterable": true,
+          "name": "createdAt",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.DateTimeOffset"
+        },
+        {
+          "column": "updated_at",
+          "filterable": true,
+          "name": "updatedAt",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.DateTimeOffset"
+        }
+      ],
+      "softDelete": "deleted_at",
+      "table": "helpdesk_ticket_types"
+    },
+    {
+      "entityType": "Agent",
+      "key": "id",
+      "name": "Agents",
+      "properties": [
+        {
+          "column": "id",
+          "filterable": true,
+          "name": "id",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "user_id",
+          "filterable": true,
+          "name": "userId",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "name",
+          "filterable": true,
+          "name": "name",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "email",
+          "filterable": true,
+          "name": "email",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "role",
+          "filterable": true,
+          "name": "role",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "role_id",
+          "filterable": true,
+          "name": "roleId",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "title",
+          "filterable": true,
+          "name": "title",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "status",
+          "filterable": true,
+          "name": "status",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "member_type",
+          "filterable": true,
+          "name": "memberType",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "status = 'ACTIVE'",
+          "filterable": true,
+          "name": "isActive",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.Boolean"
+        },
+        {
+          "column": "created_at",
+          "filterable": true,
+          "name": "createdAt",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.DateTimeOffset",
+          "withTimeZone": true
+        },
+        {
+          "column": "updated_at",
+          "filterable": true,
+          "name": "updatedAt",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.DateTimeOffset",
+          "withTimeZone": true
+        }
+      ],
+      "softDelete": "deleted_at",
+      "table": "workspace_members"
+    },
+    {
+      "entityType": "Problem",
+      "key": "id",
+      "name": "Problems",
+      "properties": [
+        {
+          "column": "id",
+          "filterable": true,
+          "name": "id",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "created_at",
+          "filterable": true,
+          "name": "createdAt",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.DateTimeOffset"
+        },
+        {
+          "column": "updated_at",
+          "filterable": true,
+          "name": "updatedAt",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.DateTimeOffset"
+        },
+        {
+          "column": "problem_number",
+          "filterable": true,
+          "name": "problemNumber",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.Int32"
+        },
+        {
+          "column": "title",
+          "filterable": true,
+          "name": "title",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "description",
+          "filterable": true,
+          "name": "description",
+          "nullable": true,
+          "sortable": false,
+          "type": "Edm.String"
+        },
+        {
+          "column": "status",
+          "filterable": true,
+          "name": "status",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "priority",
+          "filterable": true,
+          "name": "priority",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "root_cause",
+          "filterable": true,
+          "name": "rootCause",
+          "nullable": true,
+          "sortable": false,
+          "type": "Edm.String"
+        },
+        {
+          "column": "workaround",
+          "filterable": true,
+          "name": "workaround",
+          "nullable": true,
+          "sortable": false,
+          "type": "Edm.String"
+        },
+        {
+          "column": "resolution",
+          "filterable": true,
+          "name": "resolution",
+          "nullable": true,
+          "sortable": false,
+          "type": "Edm.String"
+        },
+        {
+          "column": "assignee_id",
+          "filterable": true,
+          "name": "assigneeId",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "department_id",
+          "filterable": true,
+          "name": "departmentId",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "article_id",
+          "filterable": true,
+          "name": "articleId",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "known_error_at",
+          "filterable": true,
+          "name": "knownErrorAt",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.DateTimeOffset"
+        },
+        {
+          "column": "resolved_at",
+          "filterable": true,
+          "name": "resolvedAt",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.DateTimeOffset"
+        },
+        {
+          "column": "closed_at",
+          "filterable": true,
+          "name": "closedAt",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.DateTimeOffset"
+        },
+        {
+          "column": "created_by_id",
+          "filterable": true,
+          "name": "createdById",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        }
+      ],
+      "table": "desk_problems"
+    },
+    {
+      "entityType": "CatalogItem",
+      "key": "id",
+      "name": "CatalogItems",
+      "properties": [
+        {
+          "column": "id",
+          "filterable": true,
+          "name": "id",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "name",
+          "filterable": true,
+          "name": "name",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "category",
+          "filterable": true,
+          "name": "category",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "ticket_type_id",
+          "filterable": true,
+          "name": "ticketTypeId",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "department_id",
+          "filterable": true,
+          "name": "departmentId",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "is_active",
+          "filterable": true,
+          "name": "isActive",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.Boolean"
+        },
+        {
+          "column": "created_at",
+          "filterable": true,
+          "name": "createdAt",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.DateTimeOffset"
+        },
+        {
+          "column": "updated_at",
+          "filterable": true,
+          "name": "updatedAt",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.DateTimeOffset"
+        }
+      ],
+      "table": "desk_catalog_items"
+    },
+    {
+      "entityType": "Article",
+      "key": "id",
+      "name": "Articles",
+      "properties": [
+        {
+          "column": "id",
+          "filterable": true,
+          "name": "id",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "title",
+          "filterable": true,
+          "name": "title",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "status",
+          "filterable": true,
+          "name": "status",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "visibility",
+          "filterable": true,
+          "name": "visibility",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "locale",
+          "filterable": true,
+          "name": "locale",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "category_id",
+          "filterable": true,
+          "name": "categoryId",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "category_name",
+          "filterable": true,
+          "name": "categoryName",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.String"
+        },
+        {
+          "column": "view_count",
+          "filterable": true,
+          "name": "viewCount",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.Int32"
+        },
+        {
+          "column": "like_count",
+          "filterable": true,
+          "name": "likeCount",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.Int32"
+        },
+        {
+          "column": "dislike_count",
+          "filterable": true,
+          "name": "dislikeCount",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.Int32"
+        },
+        {
+          "column": "helpful_count",
+          "filterable": true,
+          "name": "helpfulCount",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.Int32"
+        },
+        {
+          "column": "not_helpful_count",
+          "filterable": true,
+          "name": "notHelpfulCount",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.Int32"
+        },
+        {
+          "column": "created_at",
+          "filterable": true,
+          "name": "createdAt",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.DateTimeOffset"
+        },
+        {
+          "column": "updated_at",
+          "filterable": true,
+          "name": "updatedAt",
+          "nullable": false,
+          "sortable": true,
+          "type": "Edm.DateTimeOffset"
+        },
+        {
+          "column": "published_at",
+          "filterable": true,
+          "name": "publishedAt",
+          "nullable": true,
+          "sortable": true,
+          "type": "Edm.DateTimeOffset"
+        }
+      ],
+      "softDelete": "deleted_at",
+      "table": "helpdesk_articles"
+    }
+  ],
+  "namespace": "WeldSuite.Desk",
+  "pageSize": 1000
+}

@@ -64,7 +64,7 @@ export const PERMISSION_APPS: readonly PermissionAppDefinition[] = [
     code: 'welddesk',
     label: 'WeldDesk',
     objects: [
-      'tickets', 'conversations', 'articles', 'agents', 'departments', 'slas', 'settings',
+      'tickets', 'conversations', 'problems', 'articles', 'agents', 'departments', 'slas', 'settings',
       'companies', 'people', 'activities', 'telephony', 'workflows', 'integrations',
     ],
   },
@@ -167,6 +167,11 @@ export const PERMISSION_APPS: readonly PermissionAppDefinition[] = [
     code: 'weldsign',
     label: 'WeldSign',
     objects: ['sign_envelopes', 'sign_templates'],
+  },
+  {
+    code: 'weldforms',
+    label: 'WeldForms',
+    objects: ['forms', 'form_responses'],
   },
   {
     code: 'weldpanel',

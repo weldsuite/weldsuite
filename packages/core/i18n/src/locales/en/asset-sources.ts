@@ -1,0 +1,121 @@
+/**
+ * WeldDesk asset register: importing devices from Microsoft Intune (TASK-1234).
+ * Settings → Apps → WeldDesk → Asset register
+ * (apps/web/platform/app/settings/apps/welddesk/asset-register). The customer
+ * connects their own Microsoft Entra app registration; the import creates and
+ * updates assets in the asset register.
+ */
+export const assetSources = {
+  manage: 'Device import',
+  registerMissing: 'Set up the asset register first. Imported devices become assets in it.',
+  loadFailed: 'Could not load the device import',
+  intune: {
+    title: 'Microsoft Intune',
+    description: 'Import the managed devices of your Intune tenant into the asset register and keep them up to date.',
+    notConnected:
+      'Connect your Intune tenant to import its managed devices as assets. WeldSuite reads the devices through an app registration in your own Microsoft Entra tenant. Nothing is installed in your tenant, and you can disconnect at any time.',
+    stepsTitle: 'Set up the connection',
+    steps: {
+      register: 'In the Microsoft Entra admin center, go to App registrations and choose New registration. Pick single tenant.',
+      copyIds: 'Copy the Application (client) ID and the Directory (tenant) ID from the overview page.',
+      permission: 'Go to API permissions, Add a permission, Microsoft Graph, Application permissions, and add DeviceManagementManagedDevices.Read.All.',
+      consent: 'Choose Grant admin consent for your organization.',
+      secret: 'Go to Certificates & secrets, choose New client secret, and copy its Value.',
+    },
+    form: {
+      name: 'Name',
+      namePlaceholder: 'Contoso Intune',
+      tenantId: 'Directory (tenant) ID',
+      tenantIdPlaceholder: '00000000-0000-0000-0000-000000000000',
+      clientId: 'Application (client) ID',
+      clientIdPlaceholder: '00000000-0000-0000-0000-000000000000',
+      secret: 'Client secret',
+      secretHelp: 'The Value of the secret, not its Secret ID. It is stored encrypted and is never shown again.',
+      nameRequired: 'Enter a name',
+      tenantInvalid: 'Enter the tenant ID (a GUID) or a verified domain name',
+      clientRequired: 'Enter the application ID',
+      secretRequired: 'Enter the client secret',
+      testConnection: 'Test connection',
+      testing: 'Testing…',
+      connect: 'Connect',
+      connecting: 'Connecting…',
+      testOk: 'The connection works. The first page of devices has {count}.',
+      testOkNone: 'The connection works, but Intune returned no devices on the first page.',
+      testFailed: 'Could not test the connection',
+      connected: 'Intune connected. The first import starts shortly.',
+      connectFailed: 'Could not connect Intune',
+      duplicate: 'This app registration is already connected',
+    },
+    status: {
+      running: 'Import running',
+      ok: 'Up to date',
+      failed: 'Last import failed',
+      never: 'No import yet',
+    },
+    lastImport: 'Last import',
+    neverImported: 'Not imported yet',
+    nextImport: 'Next import',
+    scheduleOff: 'Scheduled imports are off',
+    stats: {
+      total: 'Devices read',
+      created: 'Created',
+      updated: 'Updated',
+      unchanged: 'Unchanged',
+      failed: 'Failed',
+    },
+    progress: 'Importing. {count} devices handled so far.',
+    syncNow: 'Sync now',
+    syncStarting: 'Starting…',
+    syncStarted: 'Import started',
+    syncFailed: 'Could not start the import',
+    alreadyRunning: 'An import is already running',
+    schedule: {
+      title: 'Scheduled imports',
+      description: 'Import automatically. You can always sync by hand.',
+      interval: 'Import every',
+      everyHour: 'Every hour',
+      everyHours: 'Every {hours} hours',
+      saved: 'Schedule saved',
+      saveFailed: 'Could not save the schedule',
+    },
+    secretDialog: {
+      open: 'Replace secret',
+      title: 'Replace the client secret',
+      description: 'Enter a new client secret value. The old one stops being used as soon as you save.',
+      save: 'Save secret',
+      saving: 'Saving…',
+      cancel: 'Cancel',
+      saved: 'Client secret replaced',
+      saveFailed: 'Could not replace the client secret',
+      test: 'Test new secret',
+      testOk: 'The new secret works.',
+    },
+    disconnect: {
+      action: 'Disconnect',
+      title: 'Disconnect Intune?',
+      description:
+        'Devices stop being imported. The assets that were imported stay in the asset register, and you can connect again later.',
+      confirm: 'Disconnect',
+      done: 'Intune disconnected',
+      failed: 'Could not disconnect Intune',
+    },
+    howItWorks:
+      'Name, serial number, model, operating system, compliance and last check-in are updated on every import. Asset type, status and owner are only set when an asset is created, so your changes stay. A device that disappears from Intune is not removed from the asset register.',
+    errors: {
+      invalid_secret: 'Microsoft rejected the client secret. Check that you copied the secret Value, not the Secret ID.',
+      secret_expired: 'The client secret has expired. Create a new one in the Entra admin center and replace it here.',
+      tenant_not_found: 'Microsoft could not find this tenant. Check the Directory (tenant) ID.',
+      app_not_found:
+        'The application was not found in this tenant. Check the Application (client) ID and that the app registration is in this directory.',
+      permission_missing:
+        'Microsoft refused access to the devices. Add the DeviceManagementManagedDevices.Read.All application permission, grant admin consent, and make sure the tenant has an Intune licence.',
+      throttled: 'Microsoft asked us to slow down. The import continues shortly.',
+      unreachable: 'Microsoft could not be reached. The import tries again on its next run.',
+      sign_in_failed: 'Microsoft did not accept the sign-in. Check the tenant ID, the client ID and the client secret.',
+      asset_register_missing: 'The asset register is not set up. Set it up before importing devices.',
+      run_timeout: 'The import did not finish within 24 hours and was stopped. It starts again on schedule.',
+      unknown: 'Something went wrong',
+    },
+    lastErrorTitle: 'The last import failed',
+  },
+};

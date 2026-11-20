@@ -19,6 +19,14 @@ export default defineConfig({
         find: /^@weldsuite\/panel-sdk\/dist\/panel\.global\.js$/,
         replacement: path.resolve(__dirname, './src/testing/sdk-bundle-stub.ts'),
       },
+      {
+        find: /^@weldsuite\/panel-sdk\/dist\/panel-vitals\.global\.js$/,
+        replacement: path.resolve(__dirname, './src/testing/vitals-bundle-stub.ts'),
+      },
+      {
+        find: /^@weldsuite\/panel-sdk\/dist\/panel-recorder\.global\.js$/,
+        replacement: path.resolve(__dirname, './src/testing/recorder-bundle-stub.ts'),
+      },
     ],
   },
 });

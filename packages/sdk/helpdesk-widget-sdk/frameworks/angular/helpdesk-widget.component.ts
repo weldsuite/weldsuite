@@ -52,6 +52,8 @@ import { WeldSDK, type WeldConfig, type WidgetEventHandler } from '../../src/ind
 })
 export class HelpdeskWidgetComponent implements OnInit, OnDestroy {
   @Input() widgetId!: string;
+  /** The widget host, when it isn't WeldSuite's own (a WeldSuite EU deployment's, say). */
+  @Input() baseUrl?: string;
   @Input() onReady?: WidgetEventHandler;
   @Input() onOpen?: WidgetEventHandler;
   @Input() onClose?: WidgetEventHandler;
@@ -66,6 +68,7 @@ export class HelpdeskWidgetComponent implements OnInit, OnDestroy {
 
     const config: WeldConfig = {
       widgetId: this.widgetId,
+      baseUrl: this.baseUrl,
       onReady: this.onReady,
       onOpen: this.onOpen,
       onClose: this.onClose,

@@ -1,0 +1,55 @@
+{
+  "description": "Brand-new product: created 10 days ago.",
+  "notes": [
+    "First activity 10 days ago (creation and first sale): fewer than 28 days -> no plan, no suggestion, confidence none.",
+    "history_days 10 (the 355 earlier days of the series are before the product existed), 8 of them with sales."
+  ],
+  "input": {
+    "today": "2026-11-18",
+    "history_start": "2025-11-18",
+    "daily_demand": [[0,355],3,0,2,4,1,0,5,2,3,1],
+    "first_activity": "2026-11-08",
+    "lead_time_days": 14,
+    "review_period_days": 7,
+    "service_level": 0.95,
+    "rule": {
+      "method": "auto"
+    },
+    "supplier": {
+      "min_order_qty": null,
+      "order_multiple": 1,
+      "unit_cost": 9
+    },
+    "position": {
+      "on_hand": 12,
+      "allocated": 0,
+      "incoming": 0,
+      "open_demand": 0
+    },
+    "receipts": []
+  },
+  "tolerance": 0.000001,
+  "expected": {
+    "method": "none",
+    "confidence": "none",
+    "history_days": 10,
+    "nonzero_days": 8,
+    "avg_daily_demand": null,
+    "demand_std_dev": null,
+    "seasonality": null,
+    "forecast_30d": null,
+    "forecast_90d": null,
+    "safety_stock": null,
+    "reorder_point": null,
+    "order_up_to": null,
+    "inventory_position": 12,
+    "days_of_cover": null,
+    "stockout_date": null,
+    "suggested_qty": 0,
+    "suggested_value": null,
+    "daily_forecast": {
+      "len": 0,
+      "at": {}
+    }
+  }
+}

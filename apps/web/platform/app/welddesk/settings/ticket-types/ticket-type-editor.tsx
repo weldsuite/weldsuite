@@ -129,7 +129,8 @@ interface TicketTypeEditorProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   editingType: TicketTypeConfig | null;
-  onSave: (type: TicketTypeConfig) => void;
+  /** Resolves true when the type was stored; on false the dialog stays open. */
+  onSave: (type: TicketTypeConfig) => Promise<boolean>;
 }
 
 // Options and conditions have no persisted id, so give each row object a stable
@@ -170,7 +171,16 @@ function removeStateAt(
   });
 }
 
-// Section header component for the collapsible sections
+/** The first state group with a state that has no name yet, if any. */
+function groupWithUnnamedState(groups: TicketTypeStateGroup[]): TicketTypeStateGroup | undefined {
+  return groups.find((group) => group.states.some((state) => !state.label.trim()));
+}
+
+/** The collapsible section's trigger: a real button, so it takes focus and Enter/Space. */
+const SECTION_TRIGGER_CLASS =
+  'block w-full text-left rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
+
+// Section header component for the collapsible sections (rendered inside the trigger button)
 function SectionHeader({
   title,
   count,
@@ -181,7 +191,7 @@ function SectionHeader({
   isOpen: boolean;
 }>) {
   return (
-    <div className="flex items-center gap-2 py-3 px-1 cursor-pointer select-none hover:bg-muted/50 rounded-md -mx-1">
+    <span className="flex items-center gap-2 py-3 px-1 cursor-pointer select-none hover:bg-muted/50 rounded-md -mx-1">
       {isOpen ? (
         <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
       ) : (
@@ -193,7 +203,7 @@ function SectionHeader({
           {count}
         </Badge>
       )}
-    </div>
+    </span>
   );
 }
 
@@ -223,6 +233,7 @@ export function TicketTypeEditor({ open, onOpenChange, editingType, onSave }: Re
   const [attributesOpen, setAttributesOpen] = useState(false);
   const [editingState, setEditingState] = useState<{ groupIndex: number; stateIndex: number } | null>(null);
   const [expandedFieldIndex, setExpandedFieldIndex] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (editingType) {
@@ -334,7 +345,8 @@ export function TicketTypeEditor({ open, onOpenChange, editingType, onSave }: Re
   };
 
   // ===== Submit =====
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
+    if (saving) return;
     if (!name.trim()) {
       toast.error(t.helpdesk.ticketTypesSettings.nameRequired);
       return;
@@ -351,13 +363,10 @@ export function TicketTypeEditor({ open, onOpenChange, editingType, onSave }: Re
       }
     }
 
-    for (const group of states) {
-      for (const state of group.states) {
-        if (!state.label.trim()) {
-          toast.error(t.helpdesk.ticketTypesSettings.allStatesInGroupMustHaveName.replace('{group}', group.groupLabel));
-          return;
-        }
-      }
+    const unnamedStateGroup = groupWithUnnamedState(states);
+    if (unnamedStateGroup) {
+      toast.error(t.helpdesk.ticketTypesSettings.allStatesInGroupMustHaveName.replace('{group}', unnamedStateGroup.groupLabel));
+      return;
     }
 
     const now = new Date().toISOString();
@@ -370,12 +379,18 @@ export function TicketTypeEditor({ open, onOpenChange, editingType, onSave }: Re
       fields: fields.map((f, i) => ({ ...f, order: i, key: f.key || generateFieldKey(f.label) })),
       states,
       sortOrder: editingType?.sortOrder ?? 0,
-      isActive: true,
+      // Editing a disabled type must not switch it back on.
+      isActive: editingType?.isActive ?? true,
       createdAt: editingType?.createdAt || now,
       updatedAt: now,
     };
 
-    onSave(savedType);
+    setSaving(true);
+    try {
+      if (!(await onSave(savedType))) return;
+    } finally {
+      setSaving(false);
+    }
     toast.success(isEditing ? tte.ticketTypeUpdated : tte.ticketTypeCreated);
     onOpenChange(false);
   };
@@ -411,9 +426,9 @@ export function TicketTypeEditor({ open, onOpenChange, editingType, onSave }: Re
           {/* ====== DETAILS Section ====== */}
           <Collapsible open={detailsOpen} onOpenChange={setDetailsOpen}>
             <CollapsibleTrigger asChild>
-              <div>
+              <button type="button" className={SECTION_TRIGGER_CLASS}>
                 <SectionHeader title={tte.detailsSection} isOpen={detailsOpen} />
-              </div>
+              </button>
             </CollapsibleTrigger>
             <CollapsibleContent>
               <div className="space-y-4 pb-4 pl-6">
@@ -487,9 +502,9 @@ export function TicketTypeEditor({ open, onOpenChange, editingType, onSave }: Re
           {/* ====== STATES Section ====== */}
           <Collapsible open={statesOpen} onOpenChange={setStatesOpen}>
             <CollapsibleTrigger asChild>
-              <div>
+              <button type="button" className={SECTION_TRIGGER_CLASS}>
                 <SectionHeader title={tte.statesSection} count={totalStates} isOpen={statesOpen} />
-              </div>
+              </button>
             </CollapsibleTrigger>
             <CollapsibleContent>
               <div className="pb-4 pl-6 space-y-5">
@@ -630,9 +645,9 @@ export function TicketTypeEditor({ open, onOpenChange, editingType, onSave }: Re
           {/* ====== ATTRIBUTES Section ====== */}
           <Collapsible open={attributesOpen} onOpenChange={setAttributesOpen}>
             <CollapsibleTrigger asChild>
-              <div>
+              <button type="button" className={SECTION_TRIGGER_CLASS}>
                 <SectionHeader title={tte.attributesSection} count={totalAttributes} isOpen={attributesOpen} />
-              </div>
+              </button>
             </CollapsibleTrigger>
             <CollapsibleContent>
               <div className="pb-4 pl-6 space-y-1.5">
@@ -963,7 +978,7 @@ export function TicketTypeEditor({ open, onOpenChange, editingType, onSave }: Re
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             {tte.cancel}
           </Button>
-          <Button onClick={handleSubmit}>
+          <Button onClick={handleSubmit} disabled={saving}>
             {isEditing ? tte.update : tte.create}
           </Button>
         </DialogFooter>

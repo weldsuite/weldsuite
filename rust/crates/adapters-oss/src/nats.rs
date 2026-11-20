@@ -15,6 +15,21 @@ pub const DEFAULT_ENTITY_EVENTS_STREAM: &str = "ENTITY_EVENTS";
 pub const DEFAULT_PANEL_EVENTS_STREAM: &str = "PANEL_EVENTS";
 /// Its subject prefix; the workspace id is the last token.
 pub const DEFAULT_PANEL_EVENTS_SUBJECT: &str = "panel.events.v1";
+/// WeldPanel's other rows (`identities_v1`, `people_v1`, `groups_v1`,
+/// `replay_chunks_v1`), one subject prefix each, and the collector's
+/// `PanelProject` calls (`panel.ops.v1`) that write the first three.
+pub const DEFAULT_PANEL_STATE_STREAM: &str = "PANEL_STATE";
+/// The subject prefix of the recording chunk index (`replay_chunks_v1`
+/// rows from the collector's `POST /r`), on the state stream.
+pub const PANEL_REPLAYS_SUBJECT: &str = "panel.replays.v1";
+/// The state stream's subject prefixes, the workspace id the last token.
+pub const PANEL_STATE_SUBJECTS: [&str; 5] = [
+    "panel.identities.v1",
+    "panel.people.v1",
+    "panel.groups.v1",
+    PANEL_REPLAYS_SUBJECT,
+    "panel.ops.v1",
+];
 
 /// How to reach NATS.
 #[derive(Clone, Default)]
@@ -120,6 +135,25 @@ pub fn panel_events_stream_config(
     stream::Config {
         name: name.to_owned(),
         subjects: vec![format!("{subject_prefix}.>")],
+        storage: stream::StorageType::File,
+        max_age,
+        duplicate_window: Duration::from_secs(120),
+        ..stream::Config::default()
+    }
+}
+
+/// WeldPanel's state stream: identity links, profile and group snapshots,
+/// the recording chunk index and the collector's project state calls
+/// (`<prefix>.<workspace>` for each of [`PANEL_STATE_SUBJECTS`]), on disk,
+/// deduplicated for two minutes, kept as long as the events (`panel-writer`
+/// commits the rows to their tables, `panel-state` applies the calls).
+pub fn panel_state_stream_config(name: &str, max_age: Duration) -> stream::Config {
+    stream::Config {
+        name: name.to_owned(),
+        subjects: PANEL_STATE_SUBJECTS
+            .iter()
+            .map(|prefix| format!("{prefix}.>"))
+            .collect(),
         storage: stream::StorageType::File,
         max_age,
         duplicate_window: Duration::from_secs(120),

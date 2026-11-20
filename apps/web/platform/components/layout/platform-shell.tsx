@@ -71,10 +71,10 @@ export function PlatformShell({ children, embedded }: Readonly<PlatformShellProp
 
   return (
     <MobileNavWrapper installedApps={installedApps}>
-      {/* Layered "chrome" shell: the whole viewport is a soft gray backdrop;
-          the far-left rail is transparent (chrome shows through), the module
-          sidebar becomes a floating rounded panel, and the page content sits
-          on top as a rounded card. The two color-mix tones derive from the
+      {/* Shell: the whole viewport is a soft gray "chrome" backdrop that the
+          transparent far-left rail shows; the module sidebar and the page
+          content sit flush against it and each other, separated only by
+          border lines. The two color-mix tones derive from the
           theme tokens so this tracks light/dark automatically. The panel tone
           is the plain theme background (header, module sidebar, page content
           and object panels share the original surface colour — white in light
@@ -116,23 +116,18 @@ export function PlatformShell({ children, embedded }: Readonly<PlatformShellProp
                   content for a spinner here (the old NavigationLoadingWrapper)
                   produced a spinner→skeleton→content triple flash. */}
               <NavigationProgressBar />
-              {/* Content card — the gray "chrome" surface, inset from the
-                  viewport. The module page inside renders its full-width header
+              {/* Page content, flush with the viewport edges (no inset card).
+                  The module page inside renders its full-width header
                   followed by <ModuleContent>, which lays the content, object
-                  panel(s) and drawers out as a flex row (rounded white cards
-                  separated by the row's gap). On mobile it stays full-bleed. */}
-              <div className="relative flex flex-1 min-w-0 h-full md:py-1 md:pr-1">
-                {/* Round all corners, except the left ones while an expanded
-                    module sidebar (the `peer` sibling) sits flush against the
-                    card — rounding there would carve a weird notch at the
-                    sidebar seam. Pages without a module sidebar (App Store) or
-                    with it collapsed (offcanvas) face the chrome on the left
-                    too, so they round. A border outlines the card; next to
-                    the sidebar its left edge is the vertical divider. */}
+                  panel(s) and drawers out as a flex row. */}
+              <div className="relative flex flex-1 min-w-0 h-full">
+                {/* The left border is the vertical divider: against the module
+                    sidebar when it is open, against the rail when there is
+                    none (App Store) or it is collapsed. */}
                 <main
                   id={MAIN_CONTENT_ID}
                   tabIndex={-1}
-                  className="relative z-10 flex flex-1 min-w-0 flex-col overflow-hidden bg-[var(--shell-panel)] outline-none md:rounded-md md:[.peer[data-state=expanded]~*_&]:rounded-l-none md:border md:border-border"
+                  className="relative z-10 flex flex-1 min-w-0 flex-col overflow-clip bg-[var(--shell-panel)] outline-none md:border-l md:border-border"
                 >
                   <AppAccessGuard>
                     {children}

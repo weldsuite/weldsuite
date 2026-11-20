@@ -162,6 +162,18 @@ pub(crate) fn assert_date_order(
     Ok(())
 }
 
+/// `assertBirthDate(dateOfBirth)`: a date of birth after today is a typo
+/// (TASK-1471).
+pub(crate) fn assert_birth_date(date_of_birth: Option<&str>) -> Result<(), HrError> {
+    if let Some(date) = date_of_birth
+        && !date.is_empty()
+        && date > today_iso().as_str()
+    {
+        return Err(HrError::validation("Date of birth cannot be in the future"));
+    }
+    Ok(())
+}
+
 /// `workingDaysBetween(start, end)`: Mon–Fri days in `[start, end]`.
 pub(crate) fn working_days_between(start: &str, end: &str) -> i64 {
     if end < start {

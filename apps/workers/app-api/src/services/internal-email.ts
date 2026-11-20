@@ -13,7 +13,7 @@
  * `sendWorkflowEmail` is the one guarded send: a WeldConnect `send_email` step
  * writes user-composed mail to arbitrary recipients, so it goes through the
  * outbound mail guard (`@weldsuite/mail-domain/outbound`,
- * docs/plans/weldmail-outbound-abuse.md), after checking that the From address
+ * weldsuite-documentation/plans/weldmail-outbound-abuse.md), after checking that the From address
  * is one of the workspace's own mailboxes. The transactional send carries
  * WeldSuite's own mail and stays outside the guard, so its From is pinned to
  * WeldSuite's own sender domains instead.

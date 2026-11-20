@@ -2,13 +2,14 @@ import type { ComponentType } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
   Inbox,
+  Radio,
   BarChart3,
+  MonitorPlay,
   Users,
   BookOpen,
   Globe,
   Briefcase,
   FolderOpen,
-  Settings,
   Server,
   Plus,
   SquareArrowOutUpRight,
@@ -72,6 +73,7 @@ import {
   ShieldCheck,
   Radar,
   CalendarClock,
+  BellRing,
   Banknote,
   Wallet,
   FileSpreadsheet,
@@ -85,7 +87,6 @@ import {
   Contact,
   Mailbox,
   ReceiptText,
-  Ungroup,
   TextAlignStart,
   SquareChartGantt,
   HandCoins,
@@ -96,8 +97,18 @@ import {
   UserX,
   ChartSpline,
   GitPullRequest,
+  TrendingUp,
+  Filter,
+  GitBranch,
+  Flame,
+  MousePointerClick,
   CircleDot,
   Repeat,
+  Magnet,
+  Activity,
+  Network,
+  Gauge,
+  Bug,
 } from 'lucide-react';
 import type { MenuGroupProps, AppLogo } from '@/components/app-sidebar-layout';
 import { HR_DASHBOARD_PERMISSIONS, MY_HR_GROUP_KEY, MY_HR_PATHS } from '@/app/weldhr/access';
@@ -152,7 +163,6 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.navigation.moduleSidebar.weldcommerce.categories, href: '/weldcommerce/categories', icon: FolderTree, permission: 'categories:read' },
           { title: t.navigation.moduleSidebar.weldcommerce.orders, href: '/weldcommerce/orders', icon: ShoppingCart, permission: 'orders:read' },
           { title: t.navigation.moduleSidebar.weldcommerce.customers, href: '/weldcommerce/customers', icon: Building, permission: 'companies:read' },
-          { title: t.navigation.moduleSidebar.weldcommerce.portal, href: '/weldcommerce/settings', icon: Globe, permission: 'companies:read' },
         ],
       },
     ],
@@ -187,6 +197,11 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.navigation.moduleSidebar.weldstash.suppliers, href: '/weldstash/suppliers', icon: Truck, permission: 'suppliers:read' },
           { title: t.navigation.moduleSidebar.weldstash.warehouses, href: '/weldstash/warehouses', icon: Warehouse, permission: 'warehouses:read' },
           { title: t.navigation.moduleSidebar.weldstash.stock, href: '/weldstash/stock', icon: Boxes, permission: 'inventory:read' },
+          { title: t.navigation.moduleSidebar.weldstash.purchaseOrders, href: '/weldstash/purchase-orders', icon: ClipboardCheck, permission: 'orders:read' },
+          // Replenishment is served by the Rust backend only (Kubernetes editions).
+          ...(isFeatureAvailable('stash-replenishment')
+            ? [{ title: t.navigation.moduleSidebar.weldstash.replenishment, href: '/weldstash/replenishment', icon: TrendingUp, permission: 'inventory:read' }]
+            : []),
           { title: t.navigation.moduleSidebar.weldstash.pickLists, href: '/weldstash/pick-lists', icon: ClipboardList, permission: 'picklists:read' },
           { title: t.navigation.moduleSidebar.weldstash.packing, href: '/weldstash/packing', icon: PackageCheck, permission: 'picklists:read' },
         ],
@@ -247,25 +262,77 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
       },
     ],
   },
-  // WeldPanel (product analytics and session recordings). Insights, funnels,
-  // recordings and the rest join the menu phase by phase (docs/plans/weldpanel.md).
+  // WeldPanel (product analytics and session recordings). The analysis pages
+  // need Basin, which only Global has: the Kubernetes editions list just the
+  // projects (and their install page). Users, Recordings, Heatmaps and
+  // Frustration are separate pages gated on their own permissions
+  // (weldsuite-documentation/plans/weldpanel.md, "Permissions").
   weldpanel: {
     appName: 'WeldPanel',
     appIcon: ChartSpline,
     appLogo: getAppLogoConfig('weldpanel'),
-    getMenuItems: (t) => [
-      {
-        group: t.navigation.moduleSidebar.groups.general,
-        items: [
-          { title: t.navigation.moduleSidebar.weldpanel.overview, href: '/weldpanel', icon: ChartSpline, permission: 'panel_projects:read' },
-          { title: t.navigation.moduleSidebar.weldpanel.projects, href: '/weldpanel/projects', icon: Globe, permission: 'panel_projects:read' },
-        ],
-      },
-    ],
+    getMenuItems: (t) => {
+      const nav = t.navigation.moduleSidebar.weldpanel;
+      const projects = { title: nav.projects, href: '/weldpanel/projects', icon: Globe, permission: 'panel_projects:read' };
+      if (!isFeatureAvailable('panel-analytics')) return [{ group: t.navigation.moduleSidebar.groups.general, items: [projects] }];
+      return [
+        {
+          group: t.navigation.moduleSidebar.groups.general,
+          items: [{ title: nav.overview, href: '/weldpanel', icon: ChartSpline, permission: 'panel_projects:read' }],
+        },
+        {
+          group: nav.groups.analyse,
+          items: [
+            { title: nav.insights, href: '/weldpanel/insights', icon: TrendingUp, permission: 'panel_reports:read' },
+            { title: nav.funnels, href: '/weldpanel/funnels', icon: Filter, permission: 'panel_reports:read' },
+            { title: nav.retention, href: '/weldpanel/retention', icon: Repeat, permission: 'panel_reports:read' },
+            { title: nav.flows, href: '/weldpanel/flows', icon: GitBranch, permission: 'panel_reports:read' },
+            { title: nav.stickiness, href: '/weldpanel/stickiness', icon: Magnet, permission: 'panel_reports:read' },
+            { title: nav.lifecycle, href: '/weldpanel/lifecycle', icon: Activity, permission: 'panel_reports:read' },
+            { title: nav.impact, href: '/weldpanel/impact', icon: Rocket, permission: 'panel_reports:read' },
+            { title: nav.signal, href: '/weldpanel/signal', icon: Target, permission: 'panel_reports:read' },
+            { title: nav.metricTrees, href: '/weldpanel/metric-trees', icon: Network, permission: 'panel_reports:read' },
+            { title: nav.performance, href: '/weldpanel/performance', icon: Gauge, permission: 'panel_reports:read' },
+          ],
+        },
+        {
+          group: nav.groups.behaviour,
+          items: [
+            { title: nav.live, href: '/weldpanel/live', icon: Radio, permission: 'panel_reports:read' },
+            { title: nav.users, href: '/weldpanel/users', icon: Users, permission: 'panel_people:read' },
+            { title: nav.groupProfiles, href: '/weldpanel/groups', icon: Building2, permission: 'panel_people:read' },
+            { title: nav.recordings, href: '/weldpanel/recordings', icon: MonitorPlay, permission: 'panel_recordings:read' },
+            { title: nav.heatmaps, href: '/weldpanel/heatmaps', icon: Flame, permission: 'panel_reports:read' },
+            { title: nav.frustration, href: '/weldpanel/frustration', icon: MousePointerClick, permission: 'panel_reports:read' },
+          ],
+        },
+        {
+          group: nav.groups.saved,
+          items: [
+            { title: nav.reports, href: '/weldpanel/reports', icon: BarChart3, permission: 'panel_reports:read' },
+            { title: nav.dashboards, href: '/weldpanel/dashboards', icon: LayoutDashboard, permission: 'panel_reports:read' },
+            { title: nav.cohorts, href: '/weldpanel/cohorts', icon: UsersRound, permission: 'panel_reports:read' },
+            { title: nav.alerts, href: '/weldpanel/alerts', icon: BellRing, permission: 'panel_reports:read' },
+            { title: nav.subscriptions, href: '/weldpanel/subscriptions', icon: CalendarClock, permission: 'panel_reports:read' },
+          ],
+        },
+        {
+          group: nav.groups.setup,
+          items: [
+            projects,
+            { title: nav.lexicon, href: '/weldpanel/lexicon', icon: BookOpen, permission: 'panel_reports:read' },
+            { title: nav.data, href: '/weldpanel/data', icon: Database, permission: 'panel_reports:read' },
+          ],
+        },
+      ];
+    },
   },
   // WeldMerge (pull requests and issues across git providers). Teams are picked
-  // on the Issues page; the sidebar is a static list per module. Its settings
-  // live in workspace Settings (Settings → Apps → WeldMerge).
+  // on the Issues page; the sidebar is a static list per module.
+  //
+  // No module menu has a settings item: an app's settings live only in
+  // workspace Settings (`/settings/apps/{appCode}`, listed by
+  // useSettingsSidebarItems). See AGENTS.md, "App settings live in Settings".
   weldmerge: {
     appName: 'WeldMerge',
     appIcon: GitPullRequest,
@@ -279,6 +346,20 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.navigation.moduleSidebar.weldmerge.issues, href: '/weldmerge/issues', icon: CircleDot, permission: 'merge_issues:read' },
           { title: t.navigation.moduleSidebar.weldmerge.cycles, href: '/weldmerge/cycles', icon: Repeat, permission: 'merge_issues:read' },
           { title: t.navigation.moduleSidebar.weldmerge.releases, href: '/weldmerge/releases', icon: Rocket, permission: 'merge_releases:read' },
+        ],
+      },
+    ],
+  },
+  // WeldForms. Folders are a filter on the home page, so the sidebar is static.
+  weldforms: {
+    appName: 'WeldForms',
+    appIcon: ClipboardList,
+    appLogo: getAppLogoConfig('weldforms'),
+    getMenuItems: (t) => [
+      {
+        group: t.navigation.moduleSidebar.groups.general,
+        items: [
+          { title: t.navigation.moduleSidebar.weldforms.forms, href: '/weldforms', icon: ClipboardList, permission: 'forms:read' },
         ],
       },
     ],
@@ -383,13 +464,6 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.navigation.moduleSidebar.weldhr.payRuns, href: '/weldhr/payroll/runs', icon: CalendarClock, permission: 'payroll:read' },
           { title: t.navigation.moduleSidebar.weldhr.payrollEmployees, href: '/weldhr/payroll/employees', icon: Users, permission: 'payroll:read' },
           { title: t.navigation.moduleSidebar.weldhr.filings, href: '/weldhr/payroll/filings', icon: FileSpreadsheet, permission: 'payroll:read' },
-          { title: t.navigation.moduleSidebar.weldhr.payrollSettings, href: '/weldhr/payroll/settings', icon: Settings, permission: 'payroll:manage' },
-        ],
-      },
-      {
-        group: t.navigation.moduleSidebar.groups.settings,
-        items: [
-          { title: t.navigation.moduleSidebar.weldhr.settings, href: '/weldhr/settings', icon: Settings, permission: 'employees:manage' },
         ],
       },
     ],
@@ -423,8 +497,9 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
     appIcon: Headphones,
     appLogo: getAppLogoConfig('welddesk'),
     // Everyday work only. The configuration pages (channels, voice agents,
-    // ticket types, assignment) live in Settings → Apps → WeldDesk. The inbox
-    // views share a path, so `useWelddeskSidebarItems` marks the active one.
+    // ticket types, assignment) live in Settings → Apps → WeldDesk, and only
+    // there (see AGENTS.md). The inbox views share a path, so
+    // `useWelddeskSidebarItems` marks the active one.
     getMenuItems: (t) => [
       {
         group: t.navigation.moduleSidebar.welddesk.groups.inbox,
@@ -432,6 +507,8 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.navigation.moduleSidebar.welddesk.allOpen, href: '/welddesk/inbox', icon: Inbox },
           { title: t.navigation.moduleSidebar.welddesk.assignedToMe, href: '/welddesk/inbox?assignee=mine', icon: User },
           { title: t.navigation.moduleSidebar.welddesk.unassigned, href: '/welddesk/inbox?assignee=unassigned', icon: UserX },
+          { title: t.navigation.moduleSidebar.welddesk.problems, href: '/welddesk/problems', icon: Bug, permission: 'problems:read' },
+          { title: t.navigation.moduleSidebar.welddesk.approvals, href: '/welddesk/approvals', icon: ClipboardCheck, permission: 'conversations:read' },
         ],
       },
       {
@@ -455,13 +532,12 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
         group: t.navigation.moduleSidebar.welddesk.groups.reports,
         items: [
           { title: t.navigation.moduleSidebar.welddesk.reportsOverview, href: '/welddesk/reports', icon: LayoutDashboard, permission: 'settings:read' },
+          // The wallboard is for the whole team: conversations:read, not settings:read.
+          { title: t.navigation.moduleSidebar.welddesk.wallboard, href: '/welddesk/reports/wallboard', icon: MonitorPlay, permission: 'conversations:read' },
+          { title: t.navigation.moduleSidebar.welddesk.phoneReport, href: '/welddesk/reports/phone', icon: Phone, permission: 'settings:read' },
           { title: t.navigation.moduleSidebar.welddesk.customReports, href: '/welddesk/reports/custom', icon: BarChart3, permission: 'settings:read' },
-        ],
-      },
-      {
-        group: t.navigation.moduleSidebar.groups.settings,
-        items: [
-          { title: t.navigation.moduleSidebar.welddesk.settings, href: '/settings/apps/welddesk', icon: Settings },
+          { title: t.navigation.moduleSidebar.welddesk.reportSchedules, href: '/welddesk/reports/schedules', icon: CalendarClock, permission: 'settings:read' },
+          { title: t.navigation.moduleSidebar.welddesk.biConnector, href: '/welddesk/reports/bi-connector', icon: Database, permission: 'settings:read' },
         ],
       },
     ],
@@ -594,6 +670,8 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.navigation.moduleSidebar.weldbooks.vatReturns, href: '/weldbooks/vat', icon: Receipt },
           { title: t.navigation.moduleSidebar.weldbooks.fixedAssets, href: '/weldbooks/fixed-assets', icon: SquareChartGantt },
           { title: t.navigation.moduleSidebar.weldbooks.payroll, href: '/weldbooks/payroll', icon: HandCoins },
+          // Opening and closing periods is month-end work, not configuration.
+          { title: t.navigation.moduleSidebar.weldbooks.fiscalPeriods, href: '/weldbooks/fiscal-periods', icon: CalendarRange },
         ],
       },
       {
@@ -624,14 +702,8 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.navigation.moduleSidebar.weldbooks.taxWorksheet, href: '/weldbooks/reports/tax-worksheet', icon: FileSpreadsheet },
         ],
       },
-      {
-        group: t.navigation.moduleSidebar.groups.settings,
-        items: [
-          { title: t.navigation.moduleSidebar.weldbooks.fiscalPeriods, href: '/weldbooks/fiscal-periods', icon: CalendarRange },
-          { title: t.navigation.moduleSidebar.weldbooks.dimensions, href: '/weldbooks/settings/dimensions', icon: Ungroup },
-          // The rest of the WeldBooks settings live on the entity in Settings → Entities.
-        ],
-      },
+      // No settings here: dimensions, sales tax and payment runs are in
+      // Settings → Apps → WeldBooks, the entity's books in Settings → Entities.
     ],
   },
   agents: {
@@ -662,16 +734,12 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.navigation.moduleSidebar.social.analytics, href: '/social/analytics', icon: BarChart3 },
           { title: t.navigation.moduleSidebar.social.campaigns, href: '/social/campaigns', icon: Megaphone },
           { title: t.navigation.moduleSidebar.social.approvals, href: '/social/approvals', icon: CircleCheck },
-        ],
-      },
-      {
-        group: t.navigation.moduleSidebar.groups.settings,
-        items: [
+          // The connected profiles you post to. Stays in the app: the
+          // providers' OAuth redirect URIs are registered on this path.
           { title: t.navigation.moduleSidebar.social.accounts, href: '/social/accounts', icon: Link2 },
-          { title: t.navigation.moduleSidebar.social.team, href: '/social/team', icon: Users },
-          { title: t.navigation.moduleSidebar.social.settings, href: '/social/settings', icon: Settings },
         ],
       },
+      // Team and settings are in Settings → Apps → WeldSocial.
     ],
   },
   home: {

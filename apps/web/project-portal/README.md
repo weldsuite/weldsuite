@@ -41,6 +41,6 @@ pnpm --filter project-portal dev    # http://localhost:3024/<workspace>
 ## Deploy
 
 Workers `weldsuite-project-portal-test` and `weldsuite-project-portal`, custom
-domains in `wrangler.toml`, released by `deploy.yml` (`start-workers`)
-after the workers. The build picks the environment
+domains in `wrangler.toml`, released by the deploy's `start-workers` job (run
+by `weldsuite-deploy`) after the workers. The build picks the environment
 (`CLOUDFLARE_ENV=test pnpm build`); the deploy is a plain `wrangler deploy`.

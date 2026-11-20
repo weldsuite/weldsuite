@@ -37,7 +37,7 @@ export const flowReporting = {
     preview: 'Bekijken als stakeholder',
     exitPreview: 'Terug naar bewerken',
     publish: 'Publiceren',
-    publishTo: 'Publiceren naar {count} ontvanger(s)',
+    publishTo: { one: 'Publiceren naar {count} ontvanger', other: 'Publiceren naar {count} ontvangers' },
     discard: 'Concept verwijderen',
     overall: 'Totaalstatus',
     filledIn: 'Ingevuld',

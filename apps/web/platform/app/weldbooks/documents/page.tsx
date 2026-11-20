@@ -32,6 +32,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@weldsuite/ui/components/alert-dialog';
+import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 import {
   FileText,
   Eye,
@@ -51,7 +52,15 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { accountingApi } from '@/lib/api/domains/weldbooks';
-import { RESCANNABLE_STATUSES, documentFileUrl, processErrorMessage } from './document-actions';
+import {
+  RESCANNABLE_STATUSES,
+  canOpenDocument,
+  documentFileUrl,
+  documentState,
+  isImageDocument,
+  processErrorMessage,
+  type DocumentState,
+} from './document-actions';
 import { useI18n } from '@/lib/i18n/provider';
 import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
@@ -141,6 +150,9 @@ const DOCUMENT_STATUS_TONES: Partial<Record<string, ChipTone>> = {
 
 const ACCEPTED_TYPES = 'application/pdf,.pdf,image/jpeg,image/jpg,image/png,image/webp';
 
+/** How long the "Done" line of a finished upload stays above the list. */
+const UPLOAD_DONE_VISIBLE_MS = 4000;
+
 /** PDFs and the image formats OCR reads. Some systems hand over a PDF with no type. */
 function isScannableFile(file: File): boolean {
   if (file.type === 'application/pdf' || /^image\/(jpe?g|png|webp)$/.test(file.type)) return true;
@@ -211,6 +223,8 @@ export default function DocumentInboxPage() {
   const [selectedDoc, setSelectedDoc] = useState<DocumentRow | null>(null);
   const [supplierDialog, setSupplierDialog] = useState<DocumentRow | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DocumentRow | null>(null);
+  const [uploadQueue, setUploadQueue] = useState<Array<{ id: string; name: string; phase: 'uploading' | 'processing' | 'done' | 'failed'; error?: string; docId?: string }>>([]);
+  const ocrAvailable = isFeatureAvailable('books-ocr');
 
   const processDoc = useMutation({
     mutationFn: (id: string) => accountingApi.processDocument(id),
@@ -251,6 +265,8 @@ export default function DocumentInboxPage() {
       void qc.invalidateQueries({ queryKey: accountingKeys.documents.stats() });
       setDeleteTarget(null);
       setSelectedDoc((current) => (current?.id === id ? null : current));
+      // Its upload line goes with it.
+      setUploadQueue((q) => q.filter((item) => item.docId !== id));
     },
     onError: (err) => {
       toast.error(err instanceof Error ? err.message : st('sweep.weldbooks.common.unknownError'));
@@ -274,7 +290,6 @@ export default function DocumentInboxPage() {
   });
 
   // ------------ Upload wiring ------------
-  const [uploadQueue, setUploadQueue] = useState<Array<{ id: string; name: string; phase: 'uploading' | 'processing' | 'done' | 'failed'; error?: string }>>([]);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -333,7 +348,9 @@ export default function DocumentInboxPage() {
           await processDoc.mutateAsync(docId);
         }
 
-        setUploadQueue((q) => q.map((it) => it.id === queueId ? { ...it, phase: 'done' } : it));
+        setUploadQueue((q) => q.map((it) => it.id === queueId ? { ...it, phase: 'done', docId } : it));
+        // A finished upload is in the list now: its line goes after a moment (a failed one stays to be read).
+        setTimeout(() => setUploadQueue((q) => q.filter((it) => it.id !== queueId)), UPLOAD_DONE_VISIBLE_MS);
       } catch (err) {
         const message = processErrorMessage(err, { insufficientCredits: td.insufficientCredits, fallback: st('sweep.weldbooks.common.unknownError') });
         setUploadQueue((q) => q.map((it) => it.id === queueId ? { ...it, phase: 'failed', error: message } : it));
@@ -436,14 +453,14 @@ export default function DocumentInboxPage() {
               {doc.status === 'failed' ? <RotateCcw className="h-4 w-4" /> : <Scan className="h-4 w-4" />}
             </Button>
           )}
-          {(doc.ocrResult || doc.status === 'failed') && (
+          {canOpenDocument(doc) && (
             <Button
               size="sm"
               variant="ghost"
               className="h-7 w-7 p-0"
               onClick={() => setSelectedDoc(doc)}
-              title={td.viewOcrResult}
-              aria-label={td.viewOcrResult}
+              title={doc.ocrResult ? td.viewOcrResult : td.openDocument}
+              aria-label={doc.ocrResult ? td.viewOcrResult : td.openDocument}
             >
               <Eye className="h-4 w-4" />
             </Button>
@@ -519,10 +536,22 @@ export default function DocumentInboxPage() {
         </div>
       )}
 
+      {!ocrAvailable && documents.length > 0 && (
+        <div className="px-4 pt-3">
+          <InfoBanner variant="info" title={td.noOcrTitle}>
+            {td.noOcrHint}
+          </InfoBanner>
+        </div>
+      )}
+
       <WeldbooksEntityList<DocumentRow>
         items={documents}
         isLoading={documentsQuery.isLoading}
         columns={columns}
+        onRowClick={(doc) => {
+          if (canOpenDocument(doc)) setSelectedDoc(doc);
+        }}
+        getRowLabel={(doc) => doc.fileName}
         groups={groups}
         filters={filterConfigs}
         activeFilters={filters}
@@ -545,19 +574,19 @@ export default function DocumentInboxPage() {
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              {selectedDoc?.ocrResult ? <FileCheck className="h-5 w-5" /> : <FileWarning className="h-5 w-5" />}
+              {selectedDoc?.ocrResult ? <FileCheck className="h-5 w-5" /> : null}
+              {!selectedDoc?.ocrResult && selectedDoc?.status === 'failed' ? <FileWarning className="h-5 w-5" /> : null}
+              {!selectedDoc?.ocrResult && selectedDoc?.status !== 'failed' ? <FileText className="h-5 w-5" /> : null}
               {selectedDoc?.ocrResult ? `${td.ocrResult} — ` : ''}{selectedDoc?.fileName}
             </DialogTitle>
           </DialogHeader>
-          {selectedDoc?.ocrResult ? (
-            <OcrResultView result={selectedDoc.ocrResult} matchedContactId={selectedDoc.matchedContactId ?? null} td={td} />
-          ) : (
-            selectedDoc && (
-              <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm">
-                <FileWarning className="h-4 w-4 mt-0.5 shrink-0 text-destructive" />
-                <span>{td.failedHint}</span>
-              </div>
-            )
+          {selectedDoc && <DocumentDialogBody doc={selectedDoc} ocrAvailable={ocrAvailable} td={td} />}
+          {selectedDoc?.fileKey && isImageDocument(selectedDoc) && (
+            <img
+              src={documentFileUrl(selectedDoc.fileKey)}
+              alt={td.previewAlt.replace('{name}', selectedDoc.fileName)}
+              className="max-h-[50vh] w-full rounded-md border object-contain"
+            />
           )}
           {selectedDoc?.fileKey && (
             <div>
@@ -606,11 +635,13 @@ export default function DocumentInboxPage() {
                     {td.retryProcessing}
                   </Button>
                 )}
-                <CreateBillButton
-                  doc={selectedDoc}
-                  label={selectedDoc.ocrResult ? td.createBill : td.enterManually}
-                  icon={selectedDoc.ocrResult ? Receipt : PencilLine}
-                />
+                {selectedDoc.status !== 'linked' && (
+                  <CreateBillButton
+                    doc={selectedDoc}
+                    label={createBillLabel(documentState(selectedDoc, ocrAvailable), td)}
+                    icon={selectedDoc.ocrResult ? Receipt : PencilLine}
+                  />
+                )}
               </div>
             </DialogFooter>
           )}
@@ -658,9 +689,39 @@ export default function DocumentInboxPage() {
   );
 }
 
+/** The button that opens the bill form for the document, named after what it starts from. */
+function createBillLabel(state: DocumentState, td: DocumentsTranslations): string {
+  if (state === 'ocr') return td.createBill;
+  if (state === 'failed') return td.enterManually;
+  return td.createBillFromDocument;
+}
+
+/** The OCR result of the document, or why there is none and what to do instead. */
+function DocumentDialogBody({
+  doc,
+  ocrAvailable,
+  td,
+}: Readonly<{ doc: DocumentRow; ocrAvailable: boolean; td: DocumentsTranslations }>) {
+  const state = documentState(doc, ocrAvailable);
+  if (state === 'ocr' && doc.ocrResult) {
+    return <OcrResultView result={doc.ocrResult} matchedContactId={doc.matchedContactId ?? null} td={td} />;
+  }
+  if (state === 'failed') {
+    return <InfoBanner variant="danger">{td.failedHint}</InfoBanner>;
+  }
+  if (state === 'noOcr') {
+    return (
+      <InfoBanner variant="info" title={td.noOcrTitle}>
+        {td.noOcrHint}
+      </InfoBanner>
+    );
+  }
+  return <InfoBanner variant="neutral">{td.notScannedHint}</InfoBanner>;
+}
+
 /**
  * Opens the bill form for a document: pre-filled from its OCR result, or empty
- * ("enter manually") when the scan failed. Either way the bill is linked to it.
+ * (entered by hand) without one. Either way the bill is linked to it.
  */
 function CreateBillButton({
   doc,

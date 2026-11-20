@@ -24,7 +24,15 @@ describe('route availability', () => {
     expect(routeRequirement('/social/posts')).toEqual({ modules: ['social'] });
     expect(routeRequirement('/settings/apps/weldmail/signatures')).toEqual({ modules: ['mail'] });
     expect(routeRequirement('/agents/abc')).toEqual({ modules: ['agent'] });
-    expect(routeRequirement('/settings/billing')).toEqual({ feature: 'billing' });
+    expect(routeRequirement('/settings/billing')).toEqual({ anyFeature: ['billing', 'credit-top-up'] });
+  });
+
+  it('offers the billing page for the credit top-up alone', () => {
+    setRuntimeConfig({ backend: 'rust', modules: ['core'], unavailableFeatures: ['billing'] });
+    expect(isRouteOffered('/settings/billing')).toBe(true);
+    expect(isRouteOffered('/settings/plans')).toBe(false);
+    setRuntimeConfig({ backend: 'rust', modules: ['core'], unavailableFeatures: ['billing', 'credit-top-up'] });
+    expect(isRouteOffered('/settings/billing')).toBe(false);
   });
 
   it('hides the WeldMail pages of a feature the backend lacks, and only those', () => {
@@ -34,7 +42,7 @@ describe('route availability', () => {
     expect(isRouteOffered('/weldmail/ai/smart-reply')).toBe(false);
     expect(isRouteOffered('/weldmail/domains')).toBe(false);
     expect(isRouteOffered('/weldmail/setup')).toBe(true);
-    expect(isRouteOffered('/weldmail/settings/labels')).toBe(true);
+    expect(isRouteOffered('/settings/apps/weldmail')).toBe(true);
   });
 
   it('hides buying and porting phone numbers without the feature, and only those', () => {
@@ -46,6 +54,27 @@ describe('route availability', () => {
     expect(isRouteOffered('/settings/apps/phone-numbers')).toBe(true);
   });
 
+  it('hides the WeldCommerce and WeldPanel settings without the backend behind them', () => {
+    expect(routeRequirement('/settings/apps/weldcommerce')).toEqual({ modules: ['commerce'], feature: 'commerce-portal' });
+    expect(routeRequirement('/settings/apps/weldpanel?tab=exports')).toEqual({ modules: ['panel'], feature: 'panel-analytics' });
+    setRuntimeConfig({ backend: 'rust', modules: ['commerce', 'panel'], unavailableFeatures: ['commerce-portal', 'panel-analytics'] });
+    expect(isRouteOffered('/settings/apps/weldcommerce')).toBe(false);
+    expect(isRouteOffered('/settings/apps/weldpanel')).toBe(false);
+    expect(isRouteOffered('/weldpanel/projects')).toBe(true);
+  });
+
+  it('hides WeldStash settings and Replenishment where stash-replenishment is missing, such as Global', () => {
+    expect(routeRequirement('/settings/apps/weldstash')).toEqual({ modules: ['stash'], feature: 'stash-replenishment' });
+    expect(routeRequirement('/weldstash/replenishment')).toEqual({ modules: ['stash'], feature: 'stash-replenishment' });
+    // Global has no runtime config: GLOBAL_UNAVAILABLE_FEATURES lists the feature.
+    expect(isRouteOffered('/settings/apps/weldstash')).toBe(false);
+    expect(isRouteOffered('/weldstash/replenishment')).toBe(false);
+    expect(isRouteOffered('/weldstash/purchase-orders')).toBe(true);
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'stash'], unavailableFeatures: [] });
+    expect(isRouteOffered('/settings/apps/weldstash')).toBe(true);
+    expect(isRouteOffered('/weldstash/replenishment?plan=x')).toBe(true);
+  });
+
   it('needs only core for platform pages', () => {
     for (const path of ['/', '/settings', '/settings/team', '/appstore', '/apps/my-app', '/objects/machines', '/documents/f_1', '/settings/apps/weldsuite']) {
       expect(routeRequirement(path), path).toBeNull();
@@ -54,7 +83,16 @@ describe('route availability', () => {
 
   it('ignores a query string and hash', () => {
     expect(routeRequirement('/weldcrm?new=1')).toEqual({ modules: ['crm'] });
-    expect(routeRequirement('/settings/billing#invoices')).toEqual({ feature: 'billing' });
+    expect(routeRequirement('/settings/billing#invoices')).toEqual({ anyFeature: ['billing', 'credit-top-up'] });
+  });
+
+  it('offers /settings/ai only where the install runs AI', () => {
+    expect(isRouteOffered('/settings/ai')).toBe(false);
+    setRuntimeConfig({
+      ...EU_CONFIG,
+      ai: { defaultProvider: 'mistral', providers: [{ id: 'mistral', region: 'eu', keySources: ['weldsuite'] }] },
+    });
+    expect(isRouteOffered('/settings/ai')).toBe(true);
   });
 
   it('matches whole segments only', () => {
@@ -99,5 +137,43 @@ describe('route availability', () => {
   it('offers a page shared by two modules when either is served', () => {
     setRuntimeConfig({ backend: 'rust', modules: ['core', 'hr'] });
     expect(isRouteOffered('/settings/entities')).toBe(true);
+  });
+
+  it('hides the integrations whose syncs the backend lacks, and MCP servers without WeldAgent', () => {
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'connect'], unavailableFeatures: ['integration-sync'] });
+    expect(isRouteOffered('/settings/integrations')).toBe(true);
+    for (const path of ['/settings/integrations/attio', '/settings/integrations/sendcloud', '/settings/integrations/int_1']) {
+      expect(isRouteOffered(path), path).toBe(false);
+    }
+    expect(isRouteOffered('/settings/integrations/mcp-servers')).toBe(false);
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'connect', 'agent'], unavailableFeatures: ['integration-sync'] });
+    expect(isRouteOffered('/settings/integrations/mcp-servers')).toBe(true);
+    setRuntimeConfig(null);
+    expect(isRouteOffered('/settings/integrations/attio')).toBe(true);
+  });
+
+  it('offers API keys on a Kubernetes edition only once it names the public API', () => {
+    expect(isRouteOffered('/settings/api-keys')).toBe(true);
+    setRuntimeConfig({ backend: 'rust', modules: ['core'] });
+    expect(isRouteOffered('/settings/api-keys')).toBe(false);
+    setRuntimeConfig({ backend: 'rust', modules: ['core'], env: { VITE_EXTERNAL_API_URL: 'https://api.example.eu' } });
+    expect(isRouteOffered('/settings/api-keys')).toBe(true);
+  });
+
+  it("offers WeldDesk's BI connector only where the public API it feeds from is named", () => {
+    expect(isRouteOffered('/welddesk/reports/bi-connector')).toBe(true);
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'desk'] });
+    expect(isRouteOffered('/welddesk/reports/bi-connector')).toBe(false);
+    expect(isRouteOffered('/welddesk/reports')).toBe(true);
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'desk'], env: { VITE_EXTERNAL_API_URL: 'https://api.example.eu' } });
+    expect(isRouteOffered('/welddesk/reports/bi-connector')).toBe(true);
+  });
+
+  it('hides the help center settings where the edition hosts no help center, and only those', () => {
+    expect(isRouteOffered('/settings/apps/welddesk/help-center')).toBe(true);
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'desk'], unavailableFeatures: ['helpcenter-hosting'] });
+    expect(isRouteOffered('/settings/apps/welddesk/help-center')).toBe(false);
+    expect(isRouteOffered('/settings/apps/welddesk/chat-widget')).toBe(true);
+    expect(isRouteOffered('/welddesk/help-center/articles')).toBe(true);
   });
 });

@@ -203,7 +203,7 @@ async function uploadToPresignedUrl(
         const etag = xhr.getResponseHeader('ETag');
         resolve(etag || undefined);
       } else {
-        reject(new Error(`Upload failed with status ${xhr.status}`));
+        reject(new Error(uploadErrorMessage(xhr) ?? `Upload failed with status ${xhr.status}`));
       }
     });
 
@@ -219,6 +219,23 @@ async function uploadToPresignedUrl(
     xhr.setRequestHeader('Content-Type', file.type);
     xhr.send(file);
   });
+}
+
+// Helper: the upload route's own reason (`{ error: "…" }`, or
+// `{ error: { message } }`), so a refusal such as "Storage is not configured"
+// reaches the user instead of a bare status code.
+export function uploadErrorMessage(xhr: Pick<XMLHttpRequest, 'responseText'>): string | undefined {
+  try {
+    const body = JSON.parse(xhr.responseText) as { error?: unknown };
+    if (typeof body.error === 'string' && body.error) return body.error;
+    if (body.error && typeof body.error === 'object') {
+      const message = (body.error as { message?: unknown }).message;
+      if (typeof message === 'string' && message) return message;
+    }
+  } catch {
+    // Not JSON: no reason to show.
+  }
+  return undefined;
 }
 
 // Helper: Format bytes to human readable

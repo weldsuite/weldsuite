@@ -56,16 +56,27 @@ fn tracer_provider() -> Result<SdkTracerProvider, Box<dyn std::error::Error>> {
         .build())
 }
 
+/// The JSON log lines: the event's fields flattened, with the current span
+/// and the span list, so a line inside a request carries the request span's
+/// fields (`server::RequestSpan`: never the query string).
+pub(crate) fn json_logs<S, W>(writer: W) -> impl Layer<S> + Send + Sync + 'static
+where
+    S: tracing::Subscriber + for<'span> tracing_subscriber::registry::LookupSpan<'span>,
+    W: for<'w> tracing_subscriber::fmt::MakeWriter<'w> + Send + Sync + 'static,
+{
+    tracing_subscriber::fmt::layer()
+        .json()
+        .flatten_event(true)
+        .with_writer(writer)
+}
+
 /// Install the global subscriber: `RUST_LOG` filter (default
 /// `default_filter`), the log format, and the OTLP layer when configured.
 pub(crate) fn init(format: LogFormat, default_filter: &str) -> Telemetry {
     let filter =
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_filter));
     let logs = match format {
-        LogFormat::Json => tracing_subscriber::fmt::layer()
-            .json()
-            .flatten_event(true)
-            .boxed(),
+        LogFormat::Json => json_logs(std::io::stdout).boxed(),
         LogFormat::Text => tracing_subscriber::fmt::layer().boxed(),
     };
 

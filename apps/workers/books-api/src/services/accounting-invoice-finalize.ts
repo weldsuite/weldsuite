@@ -3,7 +3,7 @@
  * requirements, then post it. Used by POST /:id/finalize, PATCH /:id/send on
  * a draft, auto-finalizing recurring invoices and the ledger catch-up.
  *
- * US sales tax (docs/plans/weldbooks-us.md §3):
+ * US sales tax (weldsuite-documentation/plans/weldbooks-us.md §3):
  * - the draft is recalculated first, so the tax that posts is today's answer
  *   for the saved lines and addresses;
  * - an invoice that needs tax but has no ship-to (or bill-to) state and ZIP is

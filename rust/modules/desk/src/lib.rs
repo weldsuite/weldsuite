@@ -85,6 +85,7 @@ mod knowledge;
 mod library;
 mod link;
 mod notify;
+pub mod report_sweep;
 mod routing;
 mod settings;
 mod simple;
@@ -139,6 +140,9 @@ pub struct DeskState {
     pub workflow: DynWorkflowEngine,
     /// Discord and Slack calls. A request's `RequestHttp` (conformance) wins.
     pub http: Option<DynDeskHttp>,
+    /// Outbound HTTP for push notifications (Expo); without it notifications
+    /// go out in-app and by email only. Conformance builds have none.
+    pub push_http: Option<weldsuite_ports::OutboundHttp>,
     /// Customer mail (email replies) and the outbound ledgers. A request's
     /// `RequestOutbound` (conformance) wins.
     pub outbound: OutboundBindings,
@@ -148,6 +152,9 @@ pub struct DeskState {
     /// WeldDesk's `AssignmentRouter` (round robin, a rotation per team) for
     /// re-routes; without it the pick is the local balanced one.
     pub assignment: Option<Arc<weldsuite_desk_domain::assignment_router::AssignmentRouter>>,
+    /// The install's AI (inbox translation); `None` with AI off. A request's
+    /// own `Ai` (conformance) wins.
+    pub ai: Option<weldsuite_ai::Ai>,
 }
 
 impl std::fmt::Debug for DeskState {
@@ -158,6 +165,7 @@ impl std::fmt::Debug for DeskState {
             .field("files", &self.files.is_some())
             .field("cache", &self.cache.is_some())
             .field("mail", &self.mail.is_some())
+            .field("ai", &self.ai.is_some())
             .finish_non_exhaustive()
     }
 }

@@ -7,9 +7,12 @@
     "prefixes": [
       "/api/access-requests",
       "/api/account",
+      "/api/ai-settings",
       "/api/api-keys",
       "/api/app-catalog",
       "/api/appstore",
+      "/api/asset-sources",
+      "/api/audit-log-streams",
       "/api/audit-logs",
       "/api/auth-desktop",
       "/api/auth-sessions",
@@ -107,7 +110,9 @@
       "/api/canned-responses",
       "/api/conversations",
       "/api/desk/assignment",
+      "/api/desk/catalog",
       "/api/desk/conversations",
+      "/api/desk/problems",
       "/api/desk/routing",
       "/api/desk/widget",
       "/api/helpcenter-settings",
@@ -334,8 +339,10 @@
       "/api/inventory-movements",
       "/api/pick-lists",
       "/api/pickers",
+      "/api/product-suppliers",
       "/api/purchase-orders",
       "/api/putaway",
+      "/api/replenishment",
       "/api/stock-adjustments",
       "/api/warehouse-locations",
       "/api/warehouse-zones",
@@ -501,7 +508,7 @@
       "/api/chat-agent",
       "/api/weldagent"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "agent-api"
   },
   {
@@ -655,7 +662,8 @@
     "devPort": 8825,
     "id": "panel",
     "prefixes": [
-      "/api/panel"
+      "/api/panel",
+      "/public/panel"
     ],
     "rust": true,
     "worker": "panel-api"
@@ -687,5 +695,19 @@
     ],
     "rust": true,
     "worker": "merge-api"
+  },
+  {
+    "apps": [
+      "weldforms"
+    ],
+    "binding": "FORMS_API",
+    "devPort": 8828,
+    "id": "forms",
+    "prefixes": [
+      "/api/forms",
+      "/public/forms"
+    ],
+    "rust": true,
+    "worker": "forms-api"
   }
 ]

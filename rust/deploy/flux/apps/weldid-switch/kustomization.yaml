@@ -1,0 +1,34 @@
+# The switch from Zitadel to WeldID (../../infrastructure/weldid/README.md,
+# "Switching"): values that move the platform, the admin console and Grafana
+# to WeldID, turn WeldID's Ingress on and Zitadel's off. Each is a ConfigMap
+# that a base HelmRelease already lists as an optional valuesFrom, after its
+# own values, so it does nothing until this layer makes it, and removing the
+# layer puts Zitadel back. Applied only on a cluster that lists
+# clusters/<cluster>/weldid-switch.yaml, after the weldid layer is ready.
+#
+# ${DOMAIN} is substituted (Flux postBuild); nothing else here may contain a
+# dollar-brace.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+generatorOptions:
+  disableNameSuffixHash: true
+  # helm-controller upgrades each release as soon as its values change.
+  labels:
+    reconcile.fluxcd.io/watch: Enabled
+configMapGenerator:
+  # The weldsuite release (../eu/weldsuite.yaml): server and admin console.
+  - name: weldsuite-values-weldid
+    namespace: weldsuite
+    files: [values.yaml=values/weldsuite.yaml]
+  # kube-prometheus-stack (infrastructure/monitoring/releases.yaml): Grafana.
+  - name: kube-prometheus-stack-values-weldid
+    namespace: monitoring
+    files: [values.yaml=values/kube-prometheus-stack.yaml]
+  # Zitadel (infrastructure/services/releases.yaml): off auth.${DOMAIN}.
+  - name: zitadel-values-weldid
+    namespace: zitadel
+    files: [values.yaml=values/zitadel.yaml]
+  # WeldID (infrastructure/weldid/release.yaml): on auth.${DOMAIN}.
+  - name: weldid-values-switch
+    namespace: weldid
+    files: [values.yaml=values/weldid.yaml]

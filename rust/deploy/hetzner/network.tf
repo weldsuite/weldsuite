@@ -64,8 +64,9 @@ resource "hcloud_firewall" "nodes" {
   }
 }
 
-# The LiveKit workers' media ports, on top of the firewall above. LiveKit
-# runs on their host network (rust/deploy/flux/infrastructure/video) and
+# The LiveKit nodes' media ports (livekit_worker_count workers or the
+# livekit_control_planes), on top of the firewall above. LiveKit runs on
+# their host network (rust/deploy/flux/infrastructure/video) and
 # hands clients the node's own public address, so these come straight in,
 # not through a load balancer. The ports match its values/livekit.yaml.
 # TURN over TLS needs nothing here: clients reach it on 443 through the
@@ -97,5 +98,18 @@ resource "hcloud_firewall" "livekit" {
     protocol    = "udp"
     port        = "3478"
     source_ips  = ["0.0.0.0/0", "::/0"]
+  }
+
+  lifecycle {
+    precondition {
+      condition     = alltrue([for node in var.livekit_control_planes : contains(keys(local.control_planes), node)])
+      error_message = "livekit_control_planes: ${join(", ", var.livekit_control_planes)} must be this cluster's control-plane nodes (${join(", ", keys(local.control_planes))})."
+    }
+    # Control-plane nodes are tainted while the cluster has general workers
+    # (talos.tf, allow_scheduling), so LiveKit's pods couldn't run there.
+    precondition {
+      condition     = length(var.livekit_control_planes) == 0 || length(local.workers) == 0
+      error_message = "livekit_control_planes: the control-plane nodes are tainted while worker_count > 0, so LiveKit can't run there; use livekit_worker_count."
+    }
   }
 }

@@ -8,8 +8,6 @@ import {
   BarChart3,
   ClipboardCheck,
   Inbox,
-  Gauge,
-  LayoutTemplate,
   type LucideIcon,
 } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/provider';
@@ -39,7 +37,7 @@ const findIconByLabel = findColoredSquareIconByLabel;
 const PROJECT_HREF_PREFIX = '/weldflow/project/';
 
 /** General pages that came after the first saved set of visible pages (see the load effect below). */
-const GENERAL_PAGES_ADDED_LATER = ['analytics', 'reviews', 'intake', 'capacity', 'templates'];
+const GENERAL_PAGES_ADDED_LATER = ['analytics', 'reviews', 'intake'];
 
 /** The project id behind a sidebar item's href (`/weldflow/project/:id`). */
 function projectIdFromHref(href: string | undefined): string {
@@ -121,7 +119,7 @@ export function useProjectsSidebarItems(isActive: boolean): {
 
   // Track which general pages are visible
   const [visibleGeneralPages, setVisibleGeneralPages] = React.useState<Set<string>>(
-    new Set(['my-tasks', 'reviews', 'all-projects', 'workload', 'intake', 'capacity', 'templates', 'analytics', 'timeline', 'list'])
+    new Set(['my-tasks', 'reviews', 'all-projects', 'workload', 'intake', 'analytics', 'timeline', 'list'])
   );
 
   // Load visible general pages from localStorage
@@ -439,8 +437,6 @@ export function useProjectsSidebarItems(isActive: boolean): {
     { id: 'all-projects', title: t.projects.sidebar.allProjects, href: '/weldflow/projects', icon: PanelsTopLeft, actions: [] },
     { id: 'workload', title: t.projects.sidebar.workload, href: '/weldflow/workload', icon: Users, actions: [] },
     { id: 'intake', title: t.projects.sidebar.intake, href: '/weldflow/intake', icon: Inbox, actions: [], permission: 'portfolio:read' },
-    { id: 'capacity', title: t.projects.sidebar.capacity, href: '/weldflow/capacity', icon: Gauge, actions: [], permission: 'portfolio:read' },
-    { id: 'templates', title: t.projects.sidebar.templates, href: '/weldflow/templates', icon: LayoutTemplate, actions: [], permission: 'projects:read' },
     { id: 'analytics', title: t.projects.sidebar.analytics, href: '/weldflow/analytics', icon: BarChart3, actions: [] },
   ];
 

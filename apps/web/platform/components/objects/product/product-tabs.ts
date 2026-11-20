@@ -1,4 +1,4 @@
-import { LayoutGrid, Boxes, ArrowLeftRight, FolderTree, Store } from 'lucide-react';
+import { LayoutGrid, Boxes, ArrowLeftRight, FolderTree, Store, Truck } from 'lucide-react';
 import type { ObjectPanelTabDescriptor } from '@/components/object-panel';
 
 /**
@@ -19,7 +19,7 @@ import type { ObjectPanelTabDescriptor } from '@/components/object-panel';
  * typed `entityKind: 'company' | 'person'` and query CRM surfaces.
  */
 export interface ProductTab extends ObjectPanelTabDescriptor {
-  id: 'overview' | 'stock' | 'movements' | 'categories' | 'channels';
+  id: 'overview' | 'stock' | 'movements' | 'categories' | 'channels' | 'suppliers';
   defaultVisibleInPanel?: boolean;
   defaultVisibleInFullscreen?: boolean;
   required?: boolean;
@@ -31,6 +31,8 @@ export function getProductTabs(labels: {
   movements: string;
   categories: string;
   salesChannels: string;
+  /** The Suppliers tab (product suppliers, Kubernetes editions); omitted when it is not offered. */
+  suppliers?: string;
   categoryCount?: number;
   salesChannelCount?: number;
 }): ProductTab[] {
@@ -66,6 +68,17 @@ export function getProductTabs(labels: {
       defaultVisibleInPanel: true,
       defaultVisibleInFullscreen: true,
     },
+    ...(labels.suppliers
+      ? [
+          {
+            id: 'suppliers' as const,
+            label: labels.suppliers,
+            icon: Truck,
+            defaultVisibleInPanel: true,
+            defaultVisibleInFullscreen: true,
+          },
+        ]
+      : []),
     {
       id: 'movements',
       label: labels.movements,

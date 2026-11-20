@@ -12,14 +12,25 @@
 mod activity;
 mod args;
 mod crud;
+mod incoming;
 mod inventory;
 mod js;
 mod ledger;
+mod odoo_push;
 mod pick_lists;
 mod pickers;
 mod picking;
+mod po_actions;
+mod po_guard;
+mod po_number;
+mod po_receive;
+mod po_totals;
+mod product_suppliers;
 mod purchase_order_items;
+#[cfg(test)]
+mod purchasing_tests;
 mod putaway;
+pub mod replenishment;
 mod rows;
 mod sendcloud;
 mod stock_adjustments;
@@ -89,9 +100,15 @@ where
         .nest("/pickers", pickers::routes(gate))
         .nest(
             "/purchase-orders",
-            crud::routes(&crud::PURCHASE_ORDERS, gate).merge(purchase_order_items::routes(gate)),
+            crud::routes(&crud::PURCHASE_ORDERS, gate)
+                .merge(purchase_order_items::routes(gate))
+                .merge(po_actions::routes(gate))
+                .merge(po_receive::routes(gate))
+                .merge(odoo_push::routes(gate)),
         )
+        .nest("/product-suppliers", product_suppliers::routes(gate))
         .nest("/putaway", putaway::routes(gate))
+        .nest("/replenishment", replenishment::routes(gate))
         .nest(
             "/warehouse-locations",
             crud::routes(&crud::WAREHOUSE_LOCATIONS, gate),

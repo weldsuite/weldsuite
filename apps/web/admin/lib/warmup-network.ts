@@ -6,7 +6,7 @@
 // `unpausedStatus` in `@weldsuite/reach-domain/warmup-pool`. The admin console
 // does not depend on that package (it pulls in the worker kit), so the tiny
 // rule is repeated here: change them together
-// (docs/plans/weldreach-warmup.md).
+// (weldsuite-documentation/plans/weldreach-warmup.md).
 
 /** Days of warmup sending before a mailbox may join campaigns. */
 export const WARMUP_MIN_DAYS = 14;

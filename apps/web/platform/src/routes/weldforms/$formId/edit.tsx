@@ -1,0 +1,6 @@
+import { createFileRoute } from '@tanstack/react-router';
+import PageComponent from '@/app/weldforms/form/edit/page';
+
+export const Route = createFileRoute('/weldforms/$formId/edit')({
+  component: PageComponent,
+});

@@ -9,22 +9,80 @@ use regex::Regex;
 use serde_json::{Map, Value, json};
 use weldsuite_kit::validation::{Field, Format, Issues, Number, Presence, Text};
 
+use super::wire_server::{group_op, items, people_op};
 use crate::js::Js;
+use crate::project_state::{GroupOp, PeopleOp};
 
 pub(crate) const MAX_EVENTS_PER_BATCH: usize = 100;
 /// `navigator.sendBeacon` refuses bodies over 64 KiB.
 pub(crate) const MAX_BATCH_BYTES: usize = 64 * 1024;
-const MAX_PROPERTIES: usize = 50;
-const MAX_STRING: usize = 2048;
+pub(super) const MAX_PROPERTIES: usize = 50;
+pub(super) const MAX_STRING: usize = 2048;
 const MAX_ELEMENT_TEXT: usize = 255;
 
-const SYSTEM_EVENTS: &[&str] = &["$pageview", "$pageleave", "$autocapture"];
+pub(super) const MAX_PEOPLE_OPS_PER_BATCH: usize = 50;
+pub(super) const MAX_GROUP_OPS_PER_BATCH: usize = 50;
+const MAX_ERROR_MESSAGE: usize = 1000;
+
+/// `LIBS`: the browser SDK, the server API, the React Native SDK.
+const LIBS: &[&str] = &["web", "server", "mobile"];
+
+const SYSTEM_EVENTS: &[&str] = &[
+    "$pageview",
+    "$pageleave",
+    "$autocapture",
+    "$identify",
+    "$rageclick",
+    "$deadclick",
+    "$quickback",
+    "$excessivescroll",
+    "$exception",
+    "$webvitals",
+    "$screen",
+    "$app_opened",
+    "$app_backgrounded",
+    "$app_installed",
+    "$app_updated",
+];
 
 static CUSTOM_EVENT_NAME: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^[A-Za-z0-9](?:[A-Za-z0-9 _.:/-]{0,98}[A-Za-z0-9_.:/-])?$").expect("a pattern")
 });
-static PROPERTY_KEY: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$").expect("a pattern"));
+/// `EVENT_PROPERTY_KEY`: identifiers, plus the reserved `$` keys the SDKs
+/// set themselves: `$exception`'s source, line and column, `$quickback`'s
+/// page left, the first touch (`$initial_*`), group membership
+/// (`$group_<type>`), `$webvitals`' measures and the mobile SDK's device and
+/// screen. Any other `$` key stays refused, so a client can't forge the
+/// collector's own (`$action`).
+static PROPERTY_KEY: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(concat!(
+        r"^(?:[A-Za-z_][A-Za-z0-9_]{0,63}|\$(?:source|line|col|from|",
+        r"initial_(?:referrer|referring_domain|utm_source|utm_medium|utm_campaign|utm_content|utm_term|landing_path)|",
+        r"group_[a-z][a-z0-9_]{0,31}|",
+        r"lcp|inp|fcp|ttfb|cls|lcp_el|inp_el|cls_el|nav_type|",
+        r"screen_name|os|os_version|device_type|device_model|app_id|app_version|app_build|",
+        r"screen_width|screen_height|locale))$",
+    ))
+    .expect("a pattern")
+});
+
+/// `USER_ID`: 1 to 255 UTF-16 units, no control characters.
+pub(super) fn is_user_id(text: &str) -> bool {
+    let units = text.encode_utf16().count();
+    (1..=255).contains(&units)
+        && !text
+            .chars()
+            .any(|c| matches!(c, '\u{0}'..='\u{1f}' | '\u{7f}'..='\u{9f}'))
+}
+
+/// `z.number().min(0).max(1)`.
+fn unit_interval() -> Number {
+    Number {
+        min: Some(0.0),
+        max: Some(1.0),
+        ..Number::default()
+    }
+}
 
 /// The `$autocapture` element.
 #[derive(Debug, Clone)]
@@ -43,6 +101,7 @@ pub(crate) struct WireEvent {
     pub(crate) ts: String,
     pub(crate) anon_id: Option<String>,
     pub(crate) session_id: Option<String>,
+    pub(crate) user_id: Option<String>,
     pub(crate) url: String,
     pub(crate) title: Option<String>,
     pub(crate) referrer: Option<String>,
@@ -50,7 +109,10 @@ pub(crate) struct WireEvent {
     pub(crate) el: Option<WireElement>,
     pub(crate) x: Option<i64>,
     pub(crate) y: Option<i64>,
+    pub(crate) rel_x: Option<f64>,
+    pub(crate) rel_y: Option<f64>,
     pub(crate) scroll_depth: Option<i64>,
+    pub(crate) error_message: Option<String>,
     /// In the body's key order (`JSON.stringify` writes it so).
     pub(crate) props: Option<Vec<(String, Js)>>,
 }
@@ -64,9 +126,15 @@ pub(crate) struct EventBatch {
     pub(crate) lib_version: String,
     pub(crate) consent: bool,
     pub(crate) events: Vec<WireEvent>,
+    /// The valid profile operations (`people`), each one read on its own;
+    /// applied only with consent.
+    pub(crate) people: Vec<PeopleOp>,
+    /// The valid group profile operations (`groups`); applied only with
+    /// consent too (ADR PANEL-006).
+    pub(crate) groups: Vec<GroupOp>,
 }
 
-const fn length(max: usize) -> Text {
+pub(super) const fn length(max: usize) -> Text {
     Text::length(None, Some(max))
 }
 
@@ -80,7 +148,7 @@ fn int(min: f64, max: f64) -> Number {
 }
 
 /// `events.2.url: Invalid url`: the first issue, as the route reports it.
-fn first_issue(issues: &[Value]) -> String {
+pub(super) fn first_issue(issues: &[Value]) -> String {
     let Some(issue) = issues.first() else {
         return "Invalid batch".to_owned();
     };
@@ -120,7 +188,7 @@ pub(crate) fn parse_event_batch(body: &Js) -> Result<EventBatch, String> {
                 ..Text::default()
             },
         );
-        let lib = issues.choice(fields, "lib", Presence::Required, &["web", "server"]);
+        let lib = issues.choice(fields, "lib", Presence::Required, LIBS);
         let lib_version = issues.text_with(fields, "lib_version", Presence::Required, length(32));
         let consent = issues.boolean(fields, "consent", Presence::Required);
         let events = issues.list(
@@ -129,6 +197,24 @@ pub(crate) fn parse_event_batch(body: &Js) -> Result<EventBatch, String> {
             Presence::Required,
             Some(1),
             Some(MAX_EVENTS_PER_BATCH),
+            |_, item| Some(item.clone()),
+        );
+        // Profile and group profile operations: the lengths are checked
+        // here, each operation on its own below.
+        issues.list(
+            fields,
+            "people",
+            Presence::Optional,
+            None,
+            Some(MAX_PEOPLE_OPS_PER_BATCH),
+            |_, item| Some(item.clone()),
+        );
+        issues.list(
+            fields,
+            "groups",
+            Presence::Optional,
+            None,
+            Some(MAX_GROUP_OPS_PER_BATCH),
             |_, item| Some(item.clone()),
         );
         (token, sent_at, lib, lib_version, consent, events)
@@ -185,6 +271,8 @@ pub(crate) fn parse_event_batch(body: &Js) -> Result<EventBatch, String> {
         lib_version,
         consent,
         events,
+        people: items(body, "people").iter().filter_map(people_op).collect(),
+        groups: items(body, "groups").iter().filter_map(group_op).collect(),
     })
 }
 
@@ -213,6 +301,15 @@ fn parse_event(raw: &Js) -> Result<WireEvent, Vec<Value>> {
     );
     let anon_id = issues.text_with(fields, "anon_id", Presence::Optional, length(64));
     let session_id = issues.text_with(fields, "session_id", Presence::Optional, length(64));
+    let user_id = issues.pattern(
+        fields,
+        "user_id",
+        Presence::Optional,
+        None,
+        None,
+        is_user_id,
+        "Invalid",
+    );
     let url = issues.text_with(
         fields,
         "url",
@@ -241,8 +338,16 @@ fn parse_event(raw: &Js) -> Result<WireEvent, Vec<Value>> {
     });
     let x = issues.whole_number(fields, "x", Presence::Optional, int(0.0, 100_000.0));
     let y = issues.whole_number(fields, "y", Presence::Optional, int(0.0, 1_000_000.0));
+    let rel_x = issues.number(fields, "rel_x", Presence::Optional, unit_interval());
+    let rel_y = issues.number(fields, "rel_y", Presence::Optional, unit_interval());
     let scroll_depth =
         issues.whole_number(fields, "scroll_depth", Presence::Optional, int(0.0, 100.0));
+    let error_message = issues.text_with(
+        fields,
+        "error_message",
+        Presence::Optional,
+        length(MAX_ERROR_MESSAGE),
+    );
     let props = properties(&mut issues, fields, raw.get("props"));
     if !issues.is_empty() {
         return Err(issues.issues_since(0).to_vec());
@@ -253,6 +358,7 @@ fn parse_event(raw: &Js) -> Result<WireEvent, Vec<Value>> {
         ts: ts.into_option().unwrap_or_default(),
         anon_id: anon_id.into_option(),
         session_id: session_id.into_option(),
+        user_id: user_id.into_option(),
         url: url.into_option().unwrap_or_default(),
         title: title.into_option(),
         referrer: referrer.into_option(),
@@ -260,7 +366,10 @@ fn parse_event(raw: &Js) -> Result<WireEvent, Vec<Value>> {
         el: el.into_option(),
         x: x.into_option(),
         y: y.into_option(),
+        rel_x: rel_x.into_option(),
+        rel_y: rel_y.into_option(),
         scroll_depth: scroll_depth.into_option(),
+        error_message: error_message.into_option(),
         props,
     })
 }
@@ -268,7 +377,7 @@ fn parse_event(raw: &Js) -> Result<WireEvent, Vec<Value>> {
 /// `z.union([z.enum(SYSTEM_EVENTS), z.string().regex(CUSTOM_EVENT_NAME)])`:
 /// a string that is neither fails the regex ("Invalid"); anything else
 /// fails both options' type checks, an `invalid_union`.
-fn name(issues: &mut Issues, fields: &Map<String, Value>) -> Option<String> {
+pub(super) fn name(issues: &mut Issues, fields: &Map<String, Value>) -> Option<String> {
     match fields.get("name") {
         Some(Value::String(text))
             if SYSTEM_EVENTS.contains(&text.as_str()) || CUSTOM_EVENT_NAME.is_match(text) =>
@@ -294,7 +403,7 @@ fn name(issues: &mut Issues, fields: &Map<String, Value>) -> Option<String> {
 
 /// `z.record(z.string().regex(PROPERTY_KEY), string | number | boolean |
 /// null).refine(at most 50 keys).optional()`, in the body's key order.
-fn properties(
+pub(super) fn properties(
     issues: &mut Issues,
     fields: &Map<String, Value>,
     raw: Option<&Js>,
@@ -358,4 +467,176 @@ fn properties(
         }));
     }
     (issues.count() == before).then(|| entries.clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn body(extra: &Value) -> Js {
+        let mut batch = json!({
+            "token": "wpk_0123456789abcdef0123456789abcdef",
+            "sent_at": "2026-10-27T12:00:00.000Z",
+            "lib": "web",
+            "lib_version": "0.1.0",
+            "consent": false,
+            "events": [{
+                "event_id": "evt-00000001", "name": "$pageview",
+                "ts": "2026-10-27T12:00:00.000Z", "url": "https://shop.example.com/",
+            }],
+        });
+        batch
+            .as_object_mut()
+            .expect("an object")
+            .extend(extra.as_object().expect("an object").clone());
+        serde_json::from_value(batch).expect("a body")
+    }
+
+    fn event_with(extra: &Value) -> Value {
+        let mut event = json!({
+            "event_id": "evt-00000001", "name": "$pageview",
+            "ts": "2026-10-27T12:00:00.000Z", "url": "https://shop.example.com/",
+        });
+        event
+            .as_object_mut()
+            .expect("an object")
+            .extend(extra.as_object().expect("an object").clone());
+        event
+    }
+
+    #[test]
+    fn accepts_the_three_libraries() {
+        for lib in ["web", "server", "mobile"] {
+            let batch = parse_event_batch(&body(&json!({ "lib": lib }))).expect("a batch");
+            assert_eq!(batch.lib, lib);
+        }
+        assert_eq!(
+            parse_event_batch(&body(&json!({ "lib": "ios" }))).expect_err("refused"),
+            "lib: Invalid enum value. Expected 'web' | 'server' | 'mobile', received 'ios'"
+        );
+    }
+
+    #[test]
+    fn accepts_the_web_vitals_and_mobile_event_names() {
+        for name in [
+            "$webvitals",
+            "$screen",
+            "$app_opened",
+            "$app_backgrounded",
+            "$app_installed",
+            "$app_updated",
+        ] {
+            let batch = parse_event_batch(&body(&json!({
+                "events": [event_with(&json!({ "name": name }))],
+            })))
+            .expect("a batch");
+            assert_eq!(batch.events[0].name, name);
+        }
+        assert_eq!(
+            parse_event_batch(&body(&json!({
+                "events": [event_with(&json!({ "name": "$app_crashed" }))],
+            })))
+            .expect_err("refused"),
+            "events.0.name: Invalid"
+        );
+    }
+
+    #[test]
+    fn accepts_the_reserved_property_keys_the_sdks_set() {
+        for key in [
+            "$source",
+            "$from",
+            "$initial_referrer",
+            "$initial_referring_domain",
+            "$initial_utm_source",
+            "$initial_utm_term",
+            "$initial_landing_path",
+            "$group_company",
+            "$group_a1_b",
+            "$lcp",
+            "$inp",
+            "$fcp",
+            "$ttfb",
+            "$cls",
+            "$lcp_el",
+            "$inp_el",
+            "$cls_el",
+            "$nav_type",
+            "$screen_name",
+            "$os",
+            "$os_version",
+            "$device_type",
+            "$device_model",
+            "$app_id",
+            "$app_version",
+            "$app_build",
+            "$screen_width",
+            "$screen_height",
+            "$locale",
+        ] {
+            assert!(PROPERTY_KEY.is_match(key), "{key}");
+        }
+        for key in [
+            "$action",
+            "$initial_utm",
+            "$group_",
+            "$group_Company",
+            "$group_1st",
+            "$group_abcdefghijklmnopqrstuvwxyz0123456",
+            "$lcp_x",
+            "$screen",
+            "$os\n",
+        ] {
+            assert!(!PROPERTY_KEY.is_match(key), "{key}");
+        }
+        let batch = parse_event_batch(&body(&json!({
+            "events": [event_with(&json!({
+                "name": "$webvitals",
+                "props": { "$lcp": 1200, "$cls": 0.02, "$nav_type": "navigate", "$group_company": "acme" },
+            }))],
+        })))
+        .expect("a batch");
+        let keys: Vec<&str> = batch.events[0]
+            .props
+            .as_deref()
+            .unwrap_or_default()
+            .iter()
+            .map(|(key, _)| key.as_str())
+            .collect();
+        // `json!` sorted them before the body was read.
+        assert_eq!(keys, ["$cls", "$group_company", "$lcp", "$nav_type"]);
+    }
+
+    #[test]
+    fn reads_up_to_fifty_group_operations_each_on_its_own() {
+        // An operation this version doesn't understand costs only itself.
+        let mut ops = vec![
+            json!({ "op": "set", "type": "company", "key": "acme", "props": { "plan": "pro" } });
+            49
+        ];
+        ops.push(json!({ "op": "nonsense" }));
+        let batch = parse_event_batch(&body(&json!({
+            "groups": ops,
+            "people": [
+                { "op": "unset", "user_id": "u-1", "ts": "2026-10-27T12:00:00.000Z", "keys": ["plan"] },
+                { "op": "set", "user_id": "", "ts": "2026-10-27T12:00:00.000Z", "props": {} },
+            ],
+        })))
+        .expect("a batch");
+        assert_eq!(batch.events.len(), 1);
+        assert_eq!(batch.groups.len(), 49);
+        assert_eq!(
+            serde_json::to_value(&batch.people).expect("json"),
+            json!([{ "op": "unset", "userId": "u-1", "ts": "2026-10-27T12:00:00.000Z", "keys": ["plan"] }])
+        );
+        assert_eq!(
+            parse_event_batch(&body(&json!({ "groups": vec![json!({}); 51] })))
+                .expect_err("refused"),
+            "groups: Array must contain at most 50 element(s)"
+        );
+        assert_eq!(
+            parse_event_batch(&body(&json!({ "groups": "acme" }))).expect_err("refused"),
+            "groups: Expected array, received string"
+        );
+    }
 }

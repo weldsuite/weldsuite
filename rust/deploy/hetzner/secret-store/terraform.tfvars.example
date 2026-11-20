@@ -1,0 +1,11 @@
+# One file per store (one store per cluster). The Hetzner token is
+# TF_VAR_hcloud_token in the shell that runs tofu, never in a file.
+name        = "weldsuite-eu-secrets"
+hostname    = "secrets.weldsuite.example.com"
+acme_email  = "ops@example.com"
+admin_cidrs = ["203.0.113.10/32"]
+ssh_keys    = ["ops"]
+
+# location    = "hel1"
+# server_type = "cpx02"
+# backups     = true

@@ -46,7 +46,7 @@ function sameMatrix(a: DeskPriorityMatrix, b: DeskPriorityMatrix): boolean {
 export function PriorityMatrixSettings() {
   const t = getTranslations('helpdesk').priorityMatrix;
   const priorities = getTranslations('deskInbox2').ticket.priorities;
-  const canUpdate = useCan('settings:update');
+  const canUpdate = useCan('welddesk:settings:update');
   const { data, isLoading, isError, refetch } = useDeskPriorityMatrix();
   const save = useSaveDeskPriorityMatrix();
   const [draft, setDraft] = useState<DeskPriorityMatrix | null>(null);

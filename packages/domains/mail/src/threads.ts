@@ -57,7 +57,7 @@ const { mailAccounts, mailMessages } = schema;
 // Every `mail_messages` column except bodies, raw MIME and the two JSONB
 // blobs no list view reads — `getTableColumns` + an omitting destructure so a
 // column added to the schema later shows up here too, the same "all but
-// these" rule the plan asks for (docs/plans/weldmail-mailbox-storage.md,
+// these" rule the plan asks for (weldsuite-documentation/plans/weldmail-mailbox-storage.md,
 // phase 1 item 1).
 const { textBody, htmlBody, rawMessage, headers, customFields, clickedLinks, ...threadListMessageColumns } =
   getTableColumns(mailMessages);

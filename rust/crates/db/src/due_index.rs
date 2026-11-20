@@ -6,6 +6,7 @@
 //!
 //! - Write paths call [`mark_due`] / [`sync_due`], which can only pull the
 //!   due time earlier. Best effort: a failure is logged, never returned.
+//!   [`set_due`] moves it either way, for a schedule the user moved.
 //! - A sweep ([`run_sweep`]) lists due rows, does the work, and stores the
 //!   re-derived time guarded by the row's `version`, so a write that lands
 //!   meanwhile is never overwritten. It never falls back to opening every
@@ -62,6 +63,33 @@ pub async fn mark_due(pool: &PgPool, kind: &str, workspace_id: &str, at: OffsetD
     }
     if let Err(error) = mark(pool, kind, workspace_id, at).await {
         tracing::warn!(%error, kind, workspace_id, "due index: mark failed");
+    }
+}
+
+/// Make `at` the workspace's due time, later or earlier than the row's
+/// (a schedule moved to another hour: [`mark_due`] would keep the old time
+/// when it is earlier, and the sweep would then run at both). Like a mark,
+/// it bumps the row's version, so a sweep that listed the row before does
+/// not overwrite it. Best effort.
+pub async fn set_due(pool: &PgPool, kind: &str, workspace_id: &str, at: OffsetDateTime) {
+    if workspace_id.is_empty() {
+        return;
+    }
+    let set = sqlx::query(
+        "insert into workspace_due_index (kind, workspace_id, next_due_at, updated_at, version)
+         values ($1, $2, $3::timestamptz, now(), 1)
+         on conflict (kind, workspace_id) do update set
+             next_due_at = excluded.next_due_at,
+             updated_at = excluded.updated_at,
+             version = workspace_due_index.version + 1",
+    )
+    .bind(kind)
+    .bind(workspace_id)
+    .bind(iso(at))
+    .execute(pool)
+    .await;
+    if let Err(error) = set {
+        tracing::warn!(%error, kind, workspace_id, "due index: set failed");
     }
 }
 

@@ -9,9 +9,9 @@
 //! `meeting.participantLeft`) and the post-meeting ones of `RealtimeKit`'s
 //! recorder (`recording.statusUpdate`, `meeting.transcript`,
 //! `meeting.summary`) are handled as the worker handles them. A mapping of
-//! type `call` belongs to a WeldChat call, which the Kubernetes editions
-//! don't have (`chat-calls` is unavailable there): it is acknowledged and
-//! nothing is done. The `LiveKit` equivalent is `crate::livekit_webhook`.
+//! type `call` belongs to a WeldChat call: its room's end and its leaves go
+//! to `crate::chat_calls`. The `LiveKit` equivalent is
+//! `crate::livekit_webhook`.
 
 use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
@@ -189,10 +189,12 @@ pub(crate) struct Mapping {
     pub(crate) kind: String,
     pub(crate) session_id: Option<String>,
     pub(crate) meeting_id: Option<String>,
+    /// A WeldChat call's room: the call.
+    pub(crate) call_id: Option<String>,
 }
 
 impl Mapping {
-    fn of(value: &Value, kind: Option<&str>) -> Option<Self> {
+    pub(crate) fn of(value: &Value, kind: Option<&str>) -> Option<Self> {
         let object = value.as_object()?;
         let field = |key: &str| object.get(key).and_then(Value::as_str).map(str::to_owned);
         Some(Self {
@@ -203,6 +205,7 @@ impl Mapping {
                 .unwrap_or_default(),
             session_id: field("sessionId"),
             meeting_id: field("meetingId"),
+            call_id: field("callId"),
         })
     }
 
@@ -211,6 +214,14 @@ impl Mapping {
             .then_some(self.session_id.as_deref())
             .flatten()
             .filter(|s| !s.is_empty())
+    }
+
+    /// The WeldChat call the room belongs to (`mapping.type === 'call' && mapping.callId`).
+    fn call(&self) -> Option<&str> {
+        (self.kind == "call")
+            .then_some(self.call_id.as_deref())
+            .flatten()
+            .filter(|c| !c.is_empty())
     }
 }
 
@@ -399,7 +410,19 @@ async fn handle(
         return Ok(());
     };
     match event_type.as_str() {
-        "meeting.ended" => meeting_ended(state, parts, &mapping, &room).await?,
+        "meeting.ended" => {
+            let times = crate::chat_calls::SessionTimes {
+                started_at: event
+                    .pointer("/meeting/startedAt")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+                ended_at: event
+                    .pointer("/meeting/endedAt")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+            };
+            meeting_ended(state, parts, &mapping, &room, &times).await?;
+        }
         "meeting.participantJoined" => {
             let ids = Joined {
                 custom_id: event
@@ -442,20 +465,32 @@ fn lifecycle_env(state: &MeetState, parts: &RequestParts) -> Env {
     }
 }
 
-/// `handleMeetingEnded(env, mapping, rtkMeetingId)`, shared with `LiveKit`'s
-/// `room_finished`.
+/// `handleMeetingEnded(env, mapping, rtkMeetingId, rtkSession)`, shared with
+/// `LiveKit`'s `room_finished`.
 pub(crate) async fn meeting_ended(
     state: &MeetState,
     parts: &RequestParts,
     mapping: &Mapping,
     room: &str,
+    times: &crate::chat_calls::SessionTimes,
 ) -> Result<(), String> {
     let db = parts.tenant(state, &mapping.org_id).await?;
+    if let Some(call_id) = mapping.call() {
+        return crate::chat_calls::meeting_ended(
+            state,
+            parts,
+            &db,
+            &mapping.org_id,
+            call_id,
+            room,
+            times,
+        )
+        .await;
+    }
     let (Some(session_id), Some(meeting_id)) = (
         mapping.session(),
         mapping.meeting_id.as_deref().filter(|m| !m.is_empty()),
     ) else {
-        // A WeldChat call's room: no calls on Kubernetes (see the module docs).
         return Ok(());
     };
     let Some(session) = lifecycle::session_row(&db, session_id)
@@ -558,7 +593,7 @@ fn with_peer_ids(p: &Value, ids: &[String]) -> Value {
 }
 
 /// `findLeavingParticipant(participants, ids)`.
-fn find_leaving(participants: &[Value], ids: &LeftIds) -> Option<usize> {
+pub(crate) fn find_leaving(participants: &[Value], ids: &LeftIds) -> Option<usize> {
     let cf = non_empty(ids.cf_session_id.as_ref());
     let custom = non_empty(ids.custom_id.as_ref());
     let index = participants
@@ -723,8 +758,11 @@ pub(crate) async fn participant_left(
     {
         return Ok(());
     }
+    if let Some(call_id) = mapping.call() {
+        return crate::chat_calls::participant_left(state, &db, &mapping.org_id, call_id, ids)
+            .await;
+    }
     let Some(session_id) = mapping.session() else {
-        // A WeldChat call: none on Kubernetes.
         return Ok(());
     };
     let left_at = crate::now();

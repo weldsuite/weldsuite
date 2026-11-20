@@ -295,7 +295,10 @@ fn last_for(id: &str, changes: &[Appended], fallback: &Value) -> Value {
         .map_or_else(|| fallback.clone(), |change| change.conversation.clone())
 }
 
-fn summary(row: &Value) -> Value {
+/// `deskConversationLinkSummaryOf(row)`: a linked conversation as the
+/// details panel lists it ([`crate::problems`] lists a problem's incidents
+/// in the same shape).
+pub(crate) fn summary(row: &Value) -> Value {
     json!({
         "id": row["id"],
         "conversationNumber": row["conversationNumber"],

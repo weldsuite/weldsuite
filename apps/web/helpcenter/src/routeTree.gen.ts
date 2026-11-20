@@ -16,6 +16,8 @@ import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as ApiFeedbackRouteImport } from './routes/api/feedback'
 import { Route as ArticlesSlugRouteImport } from './routes/articles.$slug'
+import { Route as CatalogIndexRouteImport } from './routes/catalog.index'
+import { Route as CatalogIdRouteImport } from './routes/catalog.$id'
 import { Route as CategoryIdRouteImport } from './routes/category.$id'
 import { Route as RequestsIndexRouteImport } from './routes/requests.index'
 import { Route as RequestsIdRouteImport } from './routes/requests.$id'
@@ -56,6 +58,16 @@ const ArticlesSlugRoute = ArticlesSlugRouteImport.update({
   path: '/articles/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CatalogIndexRoute = CatalogIndexRouteImport.update({
+  id: '/catalog/',
+  path: '/catalog/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CatalogIdRoute = CatalogIdRouteImport.update({
+  id: '/catalog/$id',
+  path: '/catalog/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CategoryIdRoute = CategoryIdRouteImport.update({
   id: '/category/$id',
   path: '/category/$id',
@@ -85,9 +97,11 @@ export interface FileRoutesByFullPath {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/api/feedback': typeof ApiFeedbackRoute
   '/articles/$slug': typeof ArticlesSlugRoute
+  '/catalog/$id': typeof CatalogIdRoute
   '/category/$id': typeof CategoryIdRoute
   '/requests/$id': typeof RequestsIdRoute
   '/requests/new': typeof RequestsNewRoute
+  '/catalog/': typeof CatalogIndexRoute
   '/requests/': typeof RequestsIndexRoute
 }
 export interface FileRoutesByTo {
@@ -98,9 +112,11 @@ export interface FileRoutesByTo {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/api/feedback': typeof ApiFeedbackRoute
   '/articles/$slug': typeof ArticlesSlugRoute
+  '/catalog/$id': typeof CatalogIdRoute
   '/category/$id': typeof CategoryIdRoute
   '/requests/$id': typeof RequestsIdRoute
   '/requests/new': typeof RequestsNewRoute
+  '/catalog': typeof CatalogIndexRoute
   '/requests': typeof RequestsIndexRoute
 }
 export interface FileRoutesById {
@@ -112,9 +128,11 @@ export interface FileRoutesById {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/api/feedback': typeof ApiFeedbackRoute
   '/articles/$slug': typeof ArticlesSlugRoute
+  '/catalog/$id': typeof CatalogIdRoute
   '/category/$id': typeof CategoryIdRoute
   '/requests/$id': typeof RequestsIdRoute
   '/requests/new': typeof RequestsNewRoute
+  '/catalog/': typeof CatalogIndexRoute
   '/requests/': typeof RequestsIndexRoute
 }
 export interface FileRouteTypes {
@@ -127,9 +145,11 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/api/feedback'
     | '/articles/$slug'
+    | '/catalog/$id'
     | '/category/$id'
     | '/requests/$id'
     | '/requests/new'
+    | '/catalog/'
     | '/requests/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -140,9 +160,11 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/api/feedback'
     | '/articles/$slug'
+    | '/catalog/$id'
     | '/category/$id'
     | '/requests/$id'
     | '/requests/new'
+    | '/catalog'
     | '/requests'
   id:
     | '__root__'
@@ -153,9 +175,11 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/api/feedback'
     | '/articles/$slug'
+    | '/catalog/$id'
     | '/category/$id'
     | '/requests/$id'
     | '/requests/new'
+    | '/catalog/'
     | '/requests/'
   fileRoutesById: FileRoutesById
 }
@@ -167,9 +191,11 @@ export interface RootRouteChildren {
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   ApiFeedbackRoute: typeof ApiFeedbackRoute
   ArticlesSlugRoute: typeof ArticlesSlugRoute
+  CatalogIdRoute: typeof CatalogIdRoute
   CategoryIdRoute: typeof CategoryIdRoute
   RequestsIdRoute: typeof RequestsIdRoute
   RequestsNewRoute: typeof RequestsNewRoute
+  CatalogIndexRoute: typeof CatalogIndexRoute
   RequestsIndexRoute: typeof RequestsIndexRoute
 }
 
@@ -224,6 +250,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ArticlesSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/catalog/': {
+      id: '/catalog/'
+      path: '/catalog'
+      fullPath: '/catalog/'
+      preLoaderRoute: typeof CatalogIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/catalog/$id': {
+      id: '/catalog/$id'
+      path: '/catalog/$id'
+      fullPath: '/catalog/$id'
+      preLoaderRoute: typeof CatalogIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/category/$id': {
       id: '/category/$id'
       path: '/category/$id'
@@ -263,9 +303,11 @@ const rootRouteChildren: RootRouteChildren = {
   SitemapDotxmlRoute: SitemapDotxmlRoute,
   ApiFeedbackRoute: ApiFeedbackRoute,
   ArticlesSlugRoute: ArticlesSlugRoute,
+  CatalogIdRoute: CatalogIdRoute,
   CategoryIdRoute: CategoryIdRoute,
   RequestsIdRoute: RequestsIdRoute,
   RequestsNewRoute: RequestsNewRoute,
+  CatalogIndexRoute: CatalogIndexRoute,
   RequestsIndexRoute: RequestsIndexRoute,
 }
 export const routeTree = rootRouteImport
@@ -273,11 +315,15 @@ export const routeTree = rootRouteImport
   ._addFileTypes<FileRouteTypes>()
 
 import type { getRouter } from './router.tsx'
+
 import type { startInstance } from './start.ts'
+
 declare module '@tanstack/react-start' {
   interface Register {
     ssr: true
+
     router: Awaited<ReturnType<typeof getRouter>>
+
     config: Awaited<ReturnType<typeof startInstance.getOptions>>
   }
 }

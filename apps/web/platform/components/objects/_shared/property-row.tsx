@@ -27,6 +27,7 @@
 
 import { useEffect, useRef, useState, type ComponentType, type KeyboardEvent } from 'react';
 import { Flag, Plus, X } from 'lucide-react';
+import { toast } from 'sonner';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { cn } from '@/lib/utils';
 import { KEEP_CONTROLS_ABOVE_OVERLAY, RowOverlayButton } from '@/components/shared/row-overlay-button';
@@ -81,6 +82,8 @@ export interface PropertyRowProps {
    * pass it for a read-only row whose `value` is an already formatted date.
    */
   tabular?: boolean;
+  /** Longest value the editor takes (the API's limit for the field). */
+  maxLength?: number;
 }
 
 const INPUT_TYPE_BY_ROW_TYPE: Record<PropertyRowType, string> = {
@@ -95,6 +98,18 @@ const INPUT_TYPE_BY_ROW_TYPE: Record<PropertyRowType, string> = {
 // `min-w-0` + `overflow-wrap:anywhere`: values are flex children, so a long
 // unbroken string (URL, email, pasted name) must be allowed to shrink and wrap
 // instead of stretching the row past the panel edge.
+/**
+ * Digits with the usual separators (+, spaces, dots, dashes, slashes,
+ * brackets) and an optional extension. "abc-not-phone" was saved, shown as a
+ * tel: link and offered a Call button (TASK-1463).
+ */
+export function isPhoneNumber(value: string): boolean {
+  const digits = value.replace(/\D/g, '').length;
+  // The separators already take spaces, so the extension needs no leading
+  // `\s*` of its own; one would let the two overlap and backtrack quadratically.
+  return digits >= 3 && /^\+?[\d\s().\-/]+(?:(?:x|ext\.?)\s*\d{1,6})?$/i.test(value.trim());
+}
+
 const LINK_CLASS = 'text-primary hover:underline inline-block min-w-0 max-w-full break-words [overflow-wrap:anywhere]';
 
 /** Read-mode render of a non-empty value: link for url/email/phone, plain text otherwise. */
@@ -116,7 +131,7 @@ function renderReadValue(type: PropertyRowType, value: string) {
       </a>
     );
   }
-  if (type === 'email' || type === 'phone') {
+  if (type === 'email' || (type === 'phone' && isPhoneNumber(value))) {
     return (
       <a
         href={`${type === 'email' ? 'mailto' : 'tel'}:${value}`}
@@ -141,6 +156,7 @@ export function PropertyRow({
   renderValue,
   accessory,
   tabular,
+  maxLength,
 }: Readonly<PropertyRowProps>) {
   const t = useTranslations();
   const tabularValue = tabular || type === 'date';
@@ -148,6 +164,11 @@ export function PropertyRow({
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState(value ?? '');
   const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
+  const valueCellRef = useRef<HTMLDivElement | null>(null);
+  // Set when the editor closes from the keyboard (Enter / Escape): focus goes
+  // back to the row instead of falling to <body>, where the next keystrokes
+  // ended up in the record's chat composer (TASK-1461).
+  const refocusRowRef = useRef(false);
 
   // Sync external value changes into the local draft while not editing.
   useEffect(() => {
@@ -155,16 +176,33 @@ export function PropertyRow({
   }, [value, isEditing]);
 
   useEffect(() => {
-    if (isEditing) inputRef.current?.focus();
+    if (isEditing) {
+      inputRef.current?.focus();
+      return;
+    }
+    if (!refocusRowRef.current) return;
+    refocusRowRef.current = false;
+    valueCellRef.current?.querySelector<HTMLElement>('[data-row-overlay]')?.focus();
   }, [isEditing]);
 
-  const commit = () => {
+  // `fromKeyboard`: Enter keeps the editor open on a refused value so it can
+  // be corrected; leaving the field puts the old value back.
+  const commit = (fromKeyboard = false) => {
     if (!onSave) {
       setIsEditing(false);
       return;
     }
     const next = draft.trim();
     const normalized = next === '' ? null : next;
+    if (type === 'phone' && normalized && normalized !== (value ?? '') && !isPhoneNumber(normalized)) {
+      toast.error(t('sweep.entities.invalidPhone'));
+      if (fromKeyboard) {
+        refocusRowRef.current = false;
+        return;
+      }
+      cancel();
+      return;
+    }
     if ((normalized ?? '') !== (value ?? '')) {
       void onSave(normalized);
     }
@@ -179,6 +217,7 @@ export function PropertyRow({
   const handleKey = (e: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     if (e.key === 'Escape') {
       e.preventDefault();
+      refocusRowRef.current = true;
       cancel();
       return;
     }
@@ -186,7 +225,8 @@ export function PropertyRow({
     // Address is multiline: Enter inserts a newline, Cmd/Ctrl+Enter commits.
     if (type !== 'address' || e.metaKey || e.ctrlKey) {
       e.preventDefault();
-      commit();
+      refocusRowRef.current = true;
+      commit(true);
     }
   };
 
@@ -198,8 +238,9 @@ export function PropertyRow({
         ref={inputRef as React.RefObject<HTMLTextAreaElement>}
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
+        onBlur={() => commit()}
         onKeyDown={handleKey}
+        maxLength={maxLength}
         rows={3}
         className="w-full bg-transparent border-0 p-0 text-sm outline-none resize-none"
       />
@@ -209,8 +250,9 @@ export function PropertyRow({
         type={INPUT_TYPE_BY_ROW_TYPE[type]}
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
+        onBlur={() => commit()}
         onKeyDown={handleKey}
+        maxLength={maxLength}
         className="w-full bg-transparent border-0 p-0 text-sm outline-none"
       />
     );
@@ -228,6 +270,7 @@ export function PropertyRow({
         <span>{label}</span>
       </div>
       <div
+        ref={valueCellRef}
         className={cn(
           // One box geometry in every state: the 1px border is always there
           // (transparent at rest), so the hover border and the edit border
@@ -406,10 +449,19 @@ export function TagsPropertyRow({ icon: Icon, label, value, placeholder, onChang
   // -1 = nothing highlighted, so Enter keeps committing what was typed.
   const [highlight, setHighlight] = useState(-1);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const boxRef = useRef<HTMLDivElement | null>(null);
+  // Escape closes the editor from the keyboard: focus goes back to the row.
+  const refocusRowRef = useRef(false);
   const tags = value ?? [];
 
   useEffect(() => {
-    if (isEditing) inputRef.current?.focus();
+    if (isEditing) {
+      inputRef.current?.focus();
+      return;
+    }
+    if (!refocusRowRef.current) return;
+    refocusRowRef.current = false;
+    boxRef.current?.querySelector<HTMLElement>('[data-row-overlay]')?.focus();
   }, [isEditing]);
 
   // Cheap (a handful of tags), so recomputed per render rather than memoised.
@@ -445,6 +497,7 @@ export function TagsPropertyRow({ icon: Icon, label, value, placeholder, onChang
       </div>
       <div className="min-w-0 -mx-2">
       <div
+        ref={boxRef}
         className={cn(
           // Same box as PropertyRow: an always-present 1px border (transparent
           // at rest) that shows on hover and while editing — no hover fill.
@@ -505,6 +558,7 @@ export function TagsPropertyRow({ icon: Icon, label, value, placeholder, onChang
               } else if (e.key === 'Backspace' && !draft && tags.length > 0) {
                 removeTag(tags[tags.length - 1]!);
               } else if (e.key === 'Escape') {
+                refocusRowRef.current = true;
                 setDraft('');
                 setIsEditing(false);
               }

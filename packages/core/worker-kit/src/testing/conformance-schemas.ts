@@ -245,6 +245,7 @@ import {
   deleteWorkspaceResultSchema,
   workspaceDeletionStatusSchema,
   workspaceNameUpdatedSchema,
+  workspaceSettingsReadSchema,
   workspaceSettingsSchema,
   workspaceSlugUpdatedSchema,
 } from '@weldsuite/app-api-client/schemas/workspace-settings';
@@ -405,6 +406,8 @@ import {
   unreadCountSchema,
 } from '@weldsuite/core-api-client/schemas/notifications';
 import { auditLogRefSchema, auditLogSchema } from '@weldsuite/core-api-client/schemas/audit-logs';
+import { auditLogStreamSchema, auditLogStreamTestResultSchema } from '@weldsuite/core-api-client/schemas/audit-log-streams';
+import { assetSourceSchema, assetSourceTestResultSchema } from '@weldsuite/core-api-client/schemas/asset-sources';
 import {
   assignAllMembersResultSchema,
   canManageAppsSchema,
@@ -545,7 +548,11 @@ import { HOST_ROUTES } from './conformance-schemas-host';
 import { INTEGRATION_WEBHOOK_ROUTES } from './conformance-schemas-integrations';
 import { PERSONAL_ROUTES } from './conformance-schemas-personal';
 import { PANEL_ROUTES } from './conformance-schemas-panel';
+import { PANEL_VISITOR_ROUTES } from './conformance-schemas-panel-visitors';
+import { PANEL_ANALYSIS_ROUTES } from './conformance-schemas-panel-analysis';
+import { PANEL_MONITOR_ROUTES } from './conformance-schemas-panel-monitor';
 import { MERGE_ROUTES } from './conformance-schemas-merge';
+import { FORMS_ROUTES } from './conformance-schemas-forms';
 
 /** The parts of a Zod schema this file needs, so worker-kit doesn't depend on zod. */
 interface ResponseSchema {
@@ -798,7 +805,7 @@ const ROUTES: RouteSchema[] = [
   { method: 'GET', route: '/api/app-catalog/:code/access-request', envelope: 'single', data: appAccessViewOrNullSchema },
   { method: 'POST', route: '/api/app-catalog/:code/access-request', envelope: 'single', data: appAccessViewSchema },
   // core: workspace settings, account, invitations, workspaces
-  { method: 'GET', route: '/api/workspace-settings', envelope: 'single', data: workspaceSettingsSchema.nullable() },
+  { method: 'GET', route: '/api/workspace-settings', envelope: 'single', data: workspaceSettingsReadSchema },
   { method: 'PUT', route: '/api/workspace-settings', envelope: 'single', data: workspaceSettingsSchema },
   { method: 'PUT', route: '/api/workspace-settings/name', envelope: 'single', data: workspaceNameUpdatedSchema },
   { method: 'POST', route: '/api/workspace-settings/slug', envelope: 'single', data: workspaceSlugUpdatedSchema },
@@ -844,6 +851,19 @@ const ROUTES: RouteSchema[] = [
   { method: 'GET', route: '/api/audit-logs/:id', envelope: 'single', data: auditLogSchema },
   { method: 'POST', route: '/api/audit-logs', envelope: 'single', data: auditLogRefSchema },
   { method: 'PATCH', route: '/api/audit-logs/:id', envelope: 'single', data: auditLogRefSchema },
+  // core: audit-log-streams (strict: a row never carries the token or `tokenEncrypted`)
+  { method: 'GET', route: '/api/audit-log-streams', envelope: 'list', data: auditLogStreamSchema.strict() },
+  { method: 'POST', route: '/api/audit-log-streams', envelope: 'single', data: auditLogStreamSchema.strict() },
+  { method: 'PATCH', route: '/api/audit-log-streams/:id', envelope: 'single', data: auditLogStreamSchema.strict() },
+  { method: 'POST', route: '/api/audit-log-streams/:id/test', envelope: 'single', data: auditLogStreamTestResultSchema.strict() },
+  // core: asset-sources (strict: a row never carries the client secret or `secretEncrypted`)
+  { method: 'GET', route: '/api/asset-sources', envelope: 'list', data: assetSourceSchema },
+  { method: 'POST', route: '/api/asset-sources', envelope: 'single', data: assetSourceSchema },
+  { method: 'GET', route: '/api/asset-sources/:id', envelope: 'single', data: assetSourceSchema },
+  { method: 'PATCH', route: '/api/asset-sources/:id', envelope: 'single', data: assetSourceSchema },
+  { method: 'POST', route: '/api/asset-sources/test', envelope: 'single', data: assetSourceTestResultSchema },
+  { method: 'POST', route: '/api/asset-sources/:id/test', envelope: 'single', data: assetSourceTestResultSchema },
+  { method: 'POST', route: '/api/asset-sources/:id/sync', envelope: 'single', data: assetSourceSchema },
   // core: appstore
   { method: 'GET', route: '/api/appstore/my-apps', envelope: 'single', data: myAppCodesSchema },
   { method: 'GET', route: '/api/appstore/installed-apps', envelope: 'array', data: workspaceInstalledAppSchema },
@@ -1419,8 +1439,13 @@ const ROUTES: RouteSchema[] = [
   ...INTEGRATION_WEBHOOK_ROUTES,
   ...PERSONAL_ROUTES,
   ...PANEL_ROUTES,
+  ...PANEL_VISITOR_ROUTES,
+  ...PANEL_ANALYSIS_ROUTES,
+  ...PANEL_MONITOR_ROUTES,
   // merge: WeldMerge (teams, issues, pull requests, connections, the GitHub event intake)
   ...MERGE_ROUTES,
+  // forms: WeldForms (forms, folders, themes, settings, the fill page, the respondent side)
+  ...FORMS_ROUTES,
   // pass: WeldPass secret vaults and the password manager
   { method: 'GET', route: '/api/weldpass/providers', envelope: 'array', data: weldpassProviderSchema },
   { method: 'GET', route: '/api/weldpass/projects', envelope: 'array', data: weldpassProjectSchema },

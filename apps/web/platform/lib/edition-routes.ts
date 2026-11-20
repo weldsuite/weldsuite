@@ -12,13 +12,22 @@
  */
 
 import type { ApiModuleId } from '@weldsuite/api-modules';
-import { isFeatureAvailable, isModuleOffered, moduleForApp, type EditionFeature } from '@/lib/edition';
+import { hasAiSettings, isFeatureAvailable, isModuleOffered, moduleForApp, type EditionFeature } from '@/lib/edition';
+import { getRuntimeConfig, publicEnv } from '@/lib/runtime-config';
 import { stripWorkspacePrefix } from '@/lib/workspace-url';
 
-/** What a page needs: one of these modules, and this feature. */
+/** What a page needs: one of these modules, this feature, and one of `anyFeature`. */
 export interface EditionRequirement {
   modules?: readonly ApiModuleId[];
   feature?: EditionFeature;
+  anyFeature?: readonly EditionFeature[];
+  /** The install runs AI with workspace settings (`ai` in `/config.json`): false on Global. */
+  ai?: boolean;
+  /**
+   * A public setting a Kubernetes edition must name in `/config.json` (`env`),
+   * such as the origin of a service it may not run. Global always has it.
+   */
+  publicEnv?: `VITE_${string}`;
 }
 
 /**
@@ -28,13 +37,16 @@ export interface EditionRequirement {
 const ROUTE_REQUIREMENTS: ReadonlyArray<readonly [prefix: string, requirement: EditionRequirement]> = [
   // WeldAgent is workspace-level: its pages have no app segment.
   ['/agents', { modules: ['agent'] }],
-  ['/new-chat', { modules: ['agent'] }],
+  ['/new-chat', { modules: ['agent'], feature: 'assistant-ai' }],
   // WeldChat's full-screen call room.
   ['/call-room', { modules: ['chat'] }],
   // Settings pages backed by a module or a feature rather than core.
   ['/settings/sso', { feature: 'sso-connections' }],
+  ['/settings/ai', { ai: true }],
   ['/settings/plans', { feature: 'billing' }],
-  ['/settings/billing', { feature: 'billing' }],
+  // Billing, or on the Kubernetes editions just the credit balance and its
+  // top-up (Mollie).
+  ['/settings/billing', { anyFeature: ['billing', 'credit-top-up'] }],
   // Buying and porting a number are Stripe checkouts through billing-worker.
   ['/settings/apps/phone-numbers/new-number', { modules: ['call'], feature: 'phone-number-purchase' }],
   ['/settings/apps/phone-numbers/port', { modules: ['call'], feature: 'phone-number-purchase' }],
@@ -42,14 +54,37 @@ const ROUTE_REQUIREMENTS: ReadonlyArray<readonly [prefix: string, requirement: E
   // WeldMail pages whose API is a feature the Kubernetes editions lack.
   ['/weldmail/ai', { modules: ['mail'], feature: 'mail-ai' }],
   ['/weldmail/domains', { modules: ['mail'], feature: 'mail-domains' }],
+  // MCP servers are WeldAgent's tools. Every other integration syncs or
+  // takes webhooks through workers the Kubernetes editions don't run yet.
+  ['/settings/integrations/mcp-servers', { modules: ['agent'] }],
+  ['/settings/integrations/', { modules: ['connect'], feature: 'integration-sync' }],
   ['/settings/integrations', { modules: ['connect'] }],
+  // The public API (external-api) has no Kubernetes port yet: keys need the
+  // origin they work against, which `/config.json` names once it has one.
+  ['/settings/api-keys', { publicEnv: 'VITE_EXTERNAL_API_URL' }],
+  // WeldDesk's BI connector is an OData feed on that same public API, read
+  // with one of those keys.
+  ['/welddesk/reports/bi-connector', { modules: ['desk'], publicEnv: 'VITE_EXTERNAL_API_URL' }],
+  // The public help center site runs on Global only (`{slug}.welddesk.org`).
+  ['/settings/apps/welddesk/help-center', { modules: ['desk'], feature: 'helpcenter-hosting' }],
   ['/settings/webhooks', { modules: ['connect'] }],
   // WeldBooks entities and WeldHR payroll employers share the page.
   ['/settings/entities', { modules: ['books', 'hr'] }],
   ['/settings/weldcrm', { modules: ['crm'] }],
+  // WeldCommerce's settings page is its customer portal's.
+  ['/settings/apps/weldcommerce', { modules: ['commerce'], feature: 'commerce-portal' }],
+  // WeldPanel's settings (usage, exports, API) need the analytics backend,
+  // which the Kubernetes editions lack: they serve only the Projects pages.
+  ['/settings/apps/weldpanel', { modules: ['panel'], feature: 'panel-analytics' }],
+  // WeldStash's settings and Replenishment exist only on the Rust backend
+  // (ADR OPS-025); its purchase orders keep their create, edit and delete on Global.
+  ['/settings/apps/weldstash', { modules: ['stash'], feature: 'stash-replenishment' }],
+  ['/weldstash/replenishment', { modules: ['stash'], feature: 'stash-replenishment' }],
 ];
 
 function matchesPrefix(pathname: string, prefix: string): boolean {
+  // A prefix ending in `/` matches only the pages below it, not the page itself.
+  if (prefix.endsWith('/')) return pathname.startsWith(prefix) && pathname.length > prefix.length;
   return pathname === prefix || pathname.startsWith(prefix + '/');
 }
 
@@ -74,6 +109,9 @@ export function routeRequirement(pathname: string): EditionRequirement | null {
 export function isRequirementMet(requirement: EditionRequirement | null): boolean {
   if (!requirement) return true;
   if (requirement.feature && !isFeatureAvailable(requirement.feature)) return false;
+  if (requirement.anyFeature && !requirement.anyFeature.some((feature) => isFeatureAvailable(feature))) return false;
+  if (requirement.ai && !hasAiSettings()) return false;
+  if (requirement.publicEnv && getRuntimeConfig() && !publicEnv(requirement.publicEnv)) return false;
   return !requirement.modules || requirement.modules.some((module) => isModuleOffered(module));
 }
 

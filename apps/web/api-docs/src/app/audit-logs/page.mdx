@@ -1,0 +1,228 @@
+# Audit logs
+
+The record of who changed what in a workspace, and when. Reads require the `audit_logs:read` scope. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## Read-only resource
+
+The audit log is written by WeldSuite itself, so it is read-only through the public API. `POST`, `PUT`, `PATCH` and `DELETE` on `/v1/audit-logs` answer `405 METHOD_NOT_ALLOWED`.
+
+The `audit_logs:read` scope shows the whole trail of the workspace, including the names and IP addresses of members. Give it to the one key your SIEM uses, not to general-purpose keys.
+
+---
+
+## The audit log model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier of the entry.</Property>
+  <Property name="createdAt" type="timestamp">When the change was made.</Property>
+  <Property name="action" type="string">What happened, for example `created`, `updated`, `deleted` or `stage_changed`.</Property>
+  <Property name="entityType" type="string">The kind of record that changed, for example `company`, `ticket` or `project`.</Property>
+  <Property name="entityId" type="string">Identifier of the record that changed.</Property>
+  <Property name="description" type="string">A readable summary of the change.</Property>
+  <Property name="changes" type="object | null">For an update, each changed field as `{ "from": …, "to": … }`. `null` when the entry has no field changes.</Property>
+  <Property name="performedBy" type="string | null">Identifier of the member who made the change. `null` for changes made by the system.</Property>
+  <Property name="performedByName" type="string | null">Name of that member at the time of the change.</Property>
+  <Property name="ipAddress" type="string | null">IP address the change came from, when known.</Property>
+  <Property name="source" type="string | null">Where the change came from, for example the app or an automation. `null` when not recorded.</Property>
+</Properties>
+
+---
+
+## List audit logs {{ tag: 'GET', label: '/v1/audit-logs' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list, newest first by default. See [Pagination](/pagination) for cursor semantics.
+
+    ### Query parameters
+
+    <Properties>
+      <Property name="limit" type="integer">Number of items to return. Minimum 1, maximum 200.</Property>
+      <Property name="cursor" type="string">Cursor from `pagination.cursor` on the previous page. Omit for the first page. A cursor that matches no entry answers `400`.</Property>
+      <Property name="order" type="string">`desc` (default, newest first) or `asc` (oldest first).</Property>
+      <Property name="since" type="timestamp">Only entries created at or after this ISO 8601 time.</Property>
+      <Property name="until" type="timestamp">Only entries created at or before this ISO 8601 time.</Property>
+      <Property name="action" type="string">Exact match on `action`.</Property>
+      <Property name="entityType" type="string">Exact match on `entityType`.</Property>
+      <Property name="entityId" type="string">Exact match on `entityId`.</Property>
+      <Property name="performedBy" type="string">Exact match on `performedBy`.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/audit-logs">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/audit-logs \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d entityType=ticket \
+      -d action=updated \
+      -d limit=25
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "aud_abc123",
+          "createdAt": "2026-11-09T09:30:12.481Z",
+          "action": "updated",
+          "entityType": "ticket",
+          "entityId": "tkt_abc123",
+          "description": "Ticket status changed",
+          "changes": { "status": { "from": "open", "to": "resolved" } },
+          "performedBy": "user_abc123",
+          "performedByName": "Sam Rivera",
+          "ipAddress": "203.0.113.7",
+          "source": "web"
+        }
+      ],
+      "pagination": { "totalCount": 1, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Poll forward
+
+To collect new entries as they appear, read oldest first and keep your place:
+
+1. Call `GET /v1/audit-logs?order=asc&since=<start>` with the time you want to start from.
+2. Follow `pagination.cursor` while `hasMore` is `true`.
+3. Store the `id` of the last entry you processed. On the next poll, pass it as `cursor` (with the same `order=asc`) to continue after it.
+
+Several entries can share the same millisecond, and `since` is inclusive, so a client that polls with `since` alone should de-duplicate on `id`.
+
+<Note>
+  A `cursor` that matches no entry answers `400 BAD_REQUEST` with `details.field` set to `cursor`. This is deliberate: a poller that lost its place should notice and start over from a `since` time, not silently skip entries.
+</Note>
+
+---
+
+## Retrieve an audit log {{ tag: 'GET', label: '/v1/audit-logs/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single entry by ID. An unknown ID answers `404`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/audit-logs/aud_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/audit-logs/aud_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "aud_abc123",
+        "createdAt": "2026-11-09T09:30:12.481Z",
+        "action": "updated",
+        "entityType": "ticket",
+        "entityId": "tkt_abc123",
+        "description": "Ticket status changed",
+        "changes": { "status": { "from": "open", "to": "resolved" } },
+        "performedBy": "user_abc123",
+        "performedByName": "Sam Rivera",
+        "ipAddress": "203.0.113.7",
+        "source": "web"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Log streaming {{ id: 'log-streaming' }}
+
+Instead of polling, WeldSuite can push the audit log to your SIEM as entries are written. Set it up in **Settings → Activity → Log streaming**, which needs permission to change workspace settings. A workspace can have up to five streams.
+
+- **Splunk HTTP Event Collector.** Use the HEC endpoint (`https://<host>:8088/services/collector/event`) and a HEC token. Optionally set the index, source, sourcetype and host of the events.
+- **HTTP collector.** Any HTTPS endpoint that accepts a `POST` of JSON. Optionally set the name of the header the token is sent in, and the body format.
+
+Destinations must use `https`, must not carry credentials in the URL, and must not be a private or local address. Redirects are not followed.
+
+### How delivery behaves
+
+- A new stream starts at the moment it is created. Earlier history is not replayed; read it through `GET /v1/audit-logs`.
+- Entries are delivered in order and at least once, in requests of up to 200 entries. Your collector may see an entry twice after a failed attempt, so de-duplicate on the event `id`.
+- After a failure the stream waits and tries again, with a delay that grows from one minute up to one hour. After 20 failures in a row the stream is switched off. Switching it back on, or resuming a paused stream, continues where it stopped.
+- **Send test event** in the settings sends one synthetic event (`action` `test`, `entityType` `audit_log_stream`) and shows what the destination answered.
+
+### Event format
+
+Each event has the same fields in both formats:
+
+<Properties>
+  <Property name="id" type="string">Identifier of the audit entry. Use it to de-duplicate.</Property>
+  <Property name="timestamp" type="timestamp">ISO 8601, UTC, with milliseconds.</Property>
+  <Property name="workspaceId" type="string | null">The workspace the entry belongs to.</Property>
+  <Property name="action" type="string">What happened.</Property>
+  <Property name="entityType" type="string">The kind of record that changed.</Property>
+  <Property name="entityId" type="string">Identifier of the record that changed.</Property>
+  <Property name="description" type="string">A readable summary of the change.</Property>
+  <Property name="actor" type="object">`{ "id": string | null, "name": string | null }`: who made the change.</Property>
+  <Property name="source" type="string | null">Where the change came from.</Property>
+  <Property name="changes" type="object | null">Changed fields as `{ "from": …, "to": … }`.</Property>
+  <Property name="ipAddress" type="string | null">IP address the change came from, when known.</Property>
+</Properties>
+
+### Splunk HEC request
+
+The request carries `Authorization: Splunk <token>` and one HEC envelope per line, with the event under `event`. `time` is in epoch seconds. `host` defaults to `weldsuite`, `source` to `weldsuite:audit` and `sourcetype` to `_json`; `index` is sent only when you set one.
+
+```json {{ title: 'Request body (two lines)' }}
+{"time":1794130212.481,"host":"weldsuite","source":"weldsuite:audit","sourcetype":"_json","event":{"id":"aud_abc123","timestamp":"2026-11-09T09:30:12.481Z","workspaceId":"ws_abc123","action":"updated","entityType":"ticket","entityId":"tkt_abc123","description":"Ticket status changed","actor":{"id":"user_abc123","name":"Sam Rivera"},"source":"web","changes":{"status":{"from":"open","to":"resolved"}},"ipAddress":"203.0.113.7"}}
+{"time":1794130215.002,"host":"weldsuite","source":"weldsuite:audit","sourcetype":"_json","event":{"id":"aud_abc124","timestamp":"2026-11-09T09:30:15.002Z","workspaceId":"ws_abc123","action":"created","entityType":"company","entityId":"cmp_abc123","description":"Company created","actor":{"id":"user_abc123","name":"Sam Rivera"},"source":"web","changes":null,"ipAddress":"203.0.113.7"}}
+```
+
+### HTTP collector request
+
+The default body is one JSON document with an `events` array and `Content-Type: application/json`:
+
+```json {{ title: 'Request body (one JSON document)' }}
+{
+  "events": [
+    {
+      "id": "aud_abc123",
+      "timestamp": "2026-11-09T09:30:12.481Z",
+      "workspaceId": "ws_abc123",
+      "action": "updated",
+      "entityType": "ticket",
+      "entityId": "tkt_abc123",
+      "description": "Ticket status changed",
+      "actor": { "id": "user_abc123", "name": "Sam Rivera" },
+      "source": "web",
+      "changes": { "status": { "from": "open", "to": "resolved" } },
+      "ipAddress": "203.0.113.7"
+    }
+  ]
+}
+```
+
+With the one-event-per-line format the body is NDJSON (`Content-Type: application/x-ndjson`): each line is one event object, with no wrapper.
+
+If you set a token, it goes in the `Authorization` header, or in the header name you chose, exactly as you typed it. Type the whole value, for example `Bearer abc123` or `ApiKey abc123`.
+
+A `2xx` answer counts as delivered. Anything else, including a redirect or a timeout (10 seconds), counts as a failure.

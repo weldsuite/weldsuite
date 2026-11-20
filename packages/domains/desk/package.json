@@ -6,6 +6,7 @@
   "private": true,
   "exports": {
     "./helpdesk-integrations": "./src/helpdesk-integrations.ts",
+    "./catalog": "./src/catalog.ts",
     "./inbox": "./src/inbox.ts"
   },
   "scripts": {
@@ -16,6 +17,8 @@
   },
   "dependencies": {
     "@weldsuite/db": "workspace:*",
+    "@weldsuite/entity-events": "workspace:*",
+    "@weldsuite/flow-domain": "workspace:*",
     "@weldsuite/notifications": "workspace:*",
     "@weldsuite/worker-kit": "workspace:*",
     "drizzle-orm": "^0.45.2"

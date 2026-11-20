@@ -38,7 +38,7 @@ export const flowReporting = {
     preview: 'Preview as stakeholder',
     exitPreview: 'Back to editing',
     publish: 'Publish',
-    publishTo: 'Publish to {count} recipient(s)',
+    publishTo: { one: 'Publish to {count} recipient', other: 'Publish to {count} recipients' },
     discard: 'Discard draft',
     overall: 'Overall status',
     filledIn: 'Filled in',

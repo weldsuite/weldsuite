@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useCreateIntent } from '@/hooks/use-create-intent';
 import { Hash, Lock, User, FolderPlus, Trash2, Pencil, SquarePen, Plus, BellOff, Bell, Archive, ArchiveRestore, Settings, AtSign, BookUser, Bookmark, ExternalLink, UserMinus, EyeOff, MoreHorizontal, MessagesSquare } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 
@@ -562,6 +563,8 @@ export function useWeldchatSidebarItems(isActive: boolean): {
 } {
   const [showNewChannel, setShowNewChannel] = React.useState(false);
   const [showNewDm, setShowNewDm] = React.useState(false);
+  useCreateIntent(() => setShowNewChannel(true), { ready: isActive, kind: 'channel' });
+  useCreateIntent(() => setShowNewDm(true), { ready: isActive, kind: 'dm' });
   const [showNewSection, setShowNewSection] = React.useState(false);
   const [pendingSectionId, setPendingSectionId] = React.useState<string | null>(null);
   const [renamingSectionId, setRenamingSectionId] = React.useState<string | null>(null);
@@ -626,7 +629,7 @@ export function useWeldchatSidebarItems(isActive: boolean): {
   const { mutate: unfollowRecordChat } = useUnfollowRecordChat();
   const { mutate: muteRecordChatsByType } = useMuteRecordChatsByType();
   const { open: openObjectPanel } = useObjectPanel();
-  const { push: pushRoute } = useRouter();
+  const { push: pushRoute, replace: replaceRoute } = useRouter();
   // "Hide this group" and its Undo; the record chats page shows the group again.
   const { setGroupHidden } = useGroupHidden();
 
@@ -1240,7 +1243,13 @@ export function useWeldchatSidebarItems(isActive: boolean): {
           onConfirm={() => {
             // Close on settle rather than optimistically — a failed delete
             // (e.g. the API's owner/admin check) must not look like it worked.
-            deleteChannel(pendingDelete.id, {
+            const deletedId = pendingDelete.id;
+            deleteChannel(deletedId, {
+              // Leave the conversation on screen when it is the one deleted, so
+              // its page stops polling a channel that no longer exists.
+              onSuccess: () => {
+                if (deletedId === activeChannelId) replaceRoute('/weldchat');
+              },
               onSettled: () => setPendingDelete(null),
             });
           }}

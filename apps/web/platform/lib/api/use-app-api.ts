@@ -26,6 +26,8 @@ import { createCompaniesApi } from '@weldsuite/app-api-client/domains/companies'
 import { createObjectTemplatesApi } from '@weldsuite/app-api-client/domains/object-templates';
 import { createTaskCommentsApi } from '@weldsuite/core-api-client/domains/task-comments';
 import { createSlasApi } from '@weldsuite/core-api-client/domains/slas';
+import { createAuditLogStreamsApi } from '@weldsuite/core-api-client/domains/audit-log-streams';
+import { createAssetSourcesApi } from '@weldsuite/core-api-client/domains/asset-sources';
 import { createProjectLabelsApi } from '@weldsuite/core-api-client/domains/project-labels';
 import { createProjectMembersApi } from '@weldsuite/core-api-client/domains/project-members';
 import { createGithubApi } from '@weldsuite/core-api-client/domains/github';
@@ -58,7 +60,11 @@ import { createMailWeldMailApi } from '@weldsuite/app-api-client/domains/mail-we
 import { createMailSendingApi } from '@weldsuite/app-api-client/domains/mail-sending';
 import { createMailAiApi } from '@weldsuite/app-api-client/domains/mail-ai';
 import { createAiApi } from '@weldsuite/app-api-client/domains/ai';
+import { createAiSettingsApi } from '@weldsuite/app-api-client/domains/ai-settings';
 import { createWmsSuppliersApi } from '@weldsuite/app-api-client/domains/wms-suppliers';
+import { createProductSuppliersApi } from '@weldsuite/app-api-client/domains/product-suppliers';
+import { createPurchaseOrdersApi } from '@weldsuite/app-api-client/domains/purchase-orders';
+import { createReplenishmentApi } from '@weldsuite/app-api-client/domains/replenishment';
 import { createFeatureFlagsApi } from '@weldsuite/app-api-client/domains/feature-flags';
 import { createWeldAgentApi } from '@weldsuite/app-api-client/domains/weldagent';
 import { createWeldAgentParityApi } from '@weldsuite/app-api-client/domains/weldagent-parity';
@@ -79,6 +85,11 @@ import { createDocsApi } from '@weldsuite/app-api-client/domains/docs';
 import { createBoardsApi } from '@weldsuite/app-api-client/domains/boards';
 import { createWeldSignApi } from '@weldsuite/app-api-client/domains/weldsign';
 import { createWeldPanelApi } from '@weldsuite/app-api-client/domains/weldpanel';
+import { createWeldPanelAnalysisApi } from '@weldsuite/app-api-client/domains/weldpanel-analysis';
+import { createWeldPanelCollabApi } from '@weldsuite/app-api-client/domains/weldpanel-collab';
+import { createWeldPanelGroupsApi } from '@weldsuite/app-api-client/domains/weldpanel-groups';
+import { createWeldPanelMonitorApi } from '@weldsuite/app-api-client/domains/weldpanel-monitor';
+import { createWeldFormsApi } from '@weldsuite/app-api-client/domains/weldforms';
 import { createWeldMergeApi } from '@weldsuite/app-api-client/domains/weldmerge';
 import { createAppAccessApi } from '@weldsuite/app-api-client/domains/app-access';
 import { createSsoApi } from '@weldsuite/app-api-client/domains/sso';
@@ -89,6 +100,7 @@ import { createWeldmeetRecordingsApi } from '@weldsuite/app-api-client/domains/w
 import { getApiOriginForPath } from '@/lib/api/public-env';
 import { hrLegalEntityHeaders } from '@/lib/api/legal-entity-scope';
 import { usePreviewMode } from '@/contexts/preview-mode-context';
+import { withWeldPanelSampleData } from '@/lib/dev/weldpanel-sample';
 
 /**
  * A token-aware ClientApi getter, cached and only recreated when the token
@@ -156,6 +168,8 @@ export function useAppApi() {
 
   const lazyClient = useMemo<ClientApi>(() => lazyClientFrom(getClient), [getClient]);
   const hrClient = useMemo<ClientApi>(() => lazyClientFrom(getHrClient), [getHrClient]);
+  // In a dev build with VITE_WELDPANEL_SAMPLE_DATA=true, WeldPanel answers from sample data (lib/dev/weldpanel-sample).
+  const panelClient = useMemo<ClientApi>(() => withWeldPanelSampleData(lazyClient), [lazyClient]);
 
   return useMemo(
     () => ({
@@ -178,6 +192,8 @@ export function useAppApi() {
       objectTemplates: createObjectTemplatesApi(lazyClient),
       taskComments: createTaskCommentsApi(lazyClient),
       slas: createSlasApi(lazyClient),
+      auditLogStreams: createAuditLogStreamsApi(lazyClient),
+      assetSources: createAssetSourcesApi(lazyClient),
       projectLabels: createProjectLabelsApi(lazyClient),
       projectMembers: createProjectMembersApi(lazyClient),
       github: createGithubApi(lazyClient),
@@ -212,6 +228,10 @@ export function useAppApi() {
       mailSending: createMailSendingApi(lazyClient),
       mailAi: createMailAiApi(lazyClient),
       wmsSuppliers: createWmsSuppliersApi(lazyClient),
+      // WeldStash purchasing and replenishment (the last two are served by the Rust backend only).
+      purchaseOrders: createPurchaseOrdersApi(lazyClient),
+      productSuppliers: createProductSuppliersApi(lazyClient),
+      replenishment: createReplenishmentApi(lazyClient),
       featureFlags: createFeatureFlagsApi(lazyClient),
       weldAgent: createWeldAgentApi(lazyClient),
       weldAgentParity: createWeldAgentParityApi(lazyClient),
@@ -234,6 +254,8 @@ export function useAppApi() {
       notifications: createNotificationsApi(lazyClient),
       search: createSearchApi(lazyClient),
       accessRequests: createAccessRequestsApi(lazyClient),
+      // Workspace AI settings (Kubernetes editions): providers, per-feature models, keys, usage.
+      aiSettings: createAiSettingsApi(lazyClient),
       // Reseller licensing: workspace-facing calls (managed billing, territory
       // requests, `/partner/me`). The portal itself is its own app
       // (apps/web/partner).
@@ -250,9 +272,18 @@ export function useAppApi() {
       boards: createBoardsApi(lazyClient),
       weldsign: createWeldSignApi(lazyClient),
       // WeldPanel (panel-api): projects and their install check.
-      weldpanel: createWeldPanelApi(lazyClient),
+      weldpanel: createWeldPanelApi(panelClient),
+      // WeldPanel analysis endpoints (explain, metric tree values), groups,
+      // collaboration (definitions, annotations, comments, versions, share links)
+      // and monitoring/data out (alerts, scheduled reports, exports, domains).
+      weldpanelAnalysis: createWeldPanelAnalysisApi(panelClient),
+      weldpanelGroups: createWeldPanelGroupsApi(panelClient),
+      weldpanelCollab: createWeldPanelCollabApi(panelClient),
+      weldpanelMonitor: createWeldPanelMonitorApi(panelClient),
       // WeldMerge (merge-api): issues, pull requests, git provider connections.
       weldmerge: createWeldMergeApi(lazyClient),
+      // WeldForms (forms-api): forms, folders, themes, responses, invitations, integrations.
+      weldforms: createWeldFormsApi(lazyClient),
       appAccess: createAppAccessApi(lazyClient),
       // Enterprise single sign-on: domain proof, SAML connection, on/off and
       // the add-on subscription (its billing paths are forwarded to billing-worker).
@@ -266,6 +297,6 @@ export function useAppApi() {
       // WeldMeet recordings, transcripts and summaries (meet-api, session-scoped).
       weldmeetRecordings: createWeldmeetRecordingsApi(lazyClient),
     }),
-    [lazyClient, hrClient],
+    [lazyClient, hrClient, panelClient],
   );
 }

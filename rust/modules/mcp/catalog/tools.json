@@ -4247,6 +4247,24 @@
        "type": "string",
        "maxLength": 30,
        "description": "The team"
+      },
+      "impact": {
+       "type": "string",
+       "enum": [
+        "low",
+        "medium",
+        "high"
+       ],
+       "description": "How much is affected: low, medium or high. With the priority matrix on, impact and urgency set the priority"
+      },
+      "urgency": {
+       "type": "string",
+       "enum": [
+        "low",
+        "medium",
+        "high"
+       ],
+       "description": "How soon it needs fixing: low, medium or high"
       }
      },
      "required": [
@@ -4282,7 +4300,7 @@
    "definition": {
     "name": "update_conversation",
     "title": "Update conversation",
-    "description": "Close or reopen a WeldDesk inbox conversation, or assign it to a teammate (null unassigns).",
+    "description": "Close or reopen a WeldDesk inbox conversation, assign it to a teammate (null unassigns), or set its ticket fields: type, priority, tags, team, impact and urgency.",
     "inputSchema": {
      "type": "object",
      "properties": {
@@ -4368,6 +4386,38 @@
         "maxLength": 100
        },
        "description": "The type's custom fields, by slug"
+      },
+      "impact": {
+       "anyOf": [
+        {
+         "type": "string",
+         "enum": [
+          "low",
+          "medium",
+          "high"
+         ]
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "low, medium or high; null clears"
+      },
+      "urgency": {
+       "anyOf": [
+        {
+         "type": "string",
+         "enum": [
+          "low",
+          "medium",
+          "high"
+         ]
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "low, medium or high; null clears"
       }
      },
      "required": [

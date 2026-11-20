@@ -71,6 +71,7 @@ const RAW_MIGRATION: ReadonlyArray<readonly [string, string, string, readonly st
   // ── welddesk (Helpdesk) ─────────────────────────────────────────────────
   ['welddesk', 'tickets',       'tickets',       ['read', 'create', 'update', 'delete']],
   ['welddesk', 'conversations', 'conversations', ['read', 'create', 'update', 'delete']],
+  ['welddesk', 'problems',      'problems',      ['read', 'create', 'update', 'delete']],
   ['welddesk', 'articles',      'articles',      ['read', 'create', 'update', 'delete']],
   ['welddesk', 'agents',        'agents',        ['read', 'create', 'update', 'delete', 'manage']],
   ['welddesk', 'departments',   'departments',   ['read', 'create', 'update', 'delete', 'manage']],

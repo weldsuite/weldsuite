@@ -31,7 +31,7 @@
  */
 
 import { and, asc, eq, inArray, isNotNull, isNull, lte, min, notInArray, sql } from 'drizzle-orm';
-import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
+import type { TenantDb } from './any-db';
 import * as schema from '../schema';
 import type { DeskConversation, DeskSlaStatus } from '../schema/desk-conversations';
 import type { DeskAuthorType } from '../schema/desk-messages';
@@ -43,7 +43,7 @@ import { refreshDeskEscalationCheck } from './desk-escalation-check';
 
 export type { DeskSlaClock, DeskSlaMetric, DeskSlaStatus };
 
-type AnyDb = PgDatabase<PgQueryResultHKT, typeof schema>;
+type AnyDb = TenantDb;
 
 const clocks = schema.deskSlaClocks;
 const conversations = schema.deskConversations;

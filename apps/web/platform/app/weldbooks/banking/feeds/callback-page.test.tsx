@@ -18,6 +18,7 @@ const navigate = vi.hoisted(() => vi.fn());
 vi.mock('@tanstack/react-router', () => ({ useRouter: () => ({ navigate }) }));
 
 import BankFeedsCallbackPage from './callback-page';
+import { forgetReturn } from './callback-return';
 import { readPendingLink, savePendingLink } from './launchers';
 import {
   installPointerPolyfills,
@@ -45,6 +46,8 @@ beforeEach(() => {
   toast.success.mockReset();
   navigate.mockReset();
   window.sessionStorage.clear();
+  // Each test is a new page load.
+  forgetReturn();
 });
 
 afterEach(() => {
@@ -102,6 +105,36 @@ describe('BankFeedsCallbackPage', () => {
     expect(navigate).not.toHaveBeenCalled();
   });
 
+  it('shows the outcome on a second mount instead of losing the link', async () => {
+    // The app shell can unmount and mount the page again while the code is being exchanged.
+    let answer: (value: unknown) => void = () => {};
+    api.post.mockReturnValue(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+    savePendingLink({
+      provider: 'ponto',
+      kind: 'redirect',
+      mode: 'create',
+      redirectUrl: REDIRECT_URL,
+      returnTo: '/weldbooks/banking',
+      state: 'state-1',
+    });
+    arriveAt('?code=auth-code&state=state-1');
+
+    const first = renderWithProviders(<BankFeedsCallbackPage />);
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+    first.unmount();
+    renderWithProviders(<BankFeedsCallbackPage />);
+    answer(completeResponse(makeConnection({ institutionName: 'ING', accounts: [makeAccount()] })));
+
+    expect(await screen.findByRole('dialog', { name: 'Link your ING accounts' })).toBeInTheDocument();
+    expect(api.post).toHaveBeenCalledTimes(1);
+    expect(toast.success).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(/could not be found/)).not.toBeInTheDocument();
+  });
+
   it('returns to the page the link started from when nothing needs mapping (a reconnect)', async () => {
     api.post.mockResolvedValue(completeResponse(makeConnection({ accounts: [makeAccount({ bankAccountId: 'ba_1' })] })));
     savePendingLink({
@@ -114,15 +147,28 @@ describe('BankFeedsCallbackPage', () => {
     });
     arriveAt('?code=again');
 
-    renderWithProviders(<BankFeedsCallbackPage />);
+    const page = renderWithProviders(<BankFeedsCallbackPage />);
 
-    await waitFor(() => expect(navigate).toHaveBeenCalledWith({ href: '/weldbooks/banking/feeds' }));
+    // Replaced, so Back skips the callback and its spent code.
+    await waitFor(() =>
+      expect(navigate).toHaveBeenCalledWith({ href: '/weldbooks/banking/feeds', replace: true }),
+    );
     expect(api.post).toHaveBeenCalledWith('/bank-connections/complete', {
       provider: 'ponto',
       payload: { code: 'again', redirectUrl: REDIRECT_URL },
       connectionId: 'bkc_1',
     });
     expect(toast.success).toHaveBeenCalledWith('First Platypus Bank reconnected.');
+
+    // Back at the same URL in the same page load: the finished return is not replayed.
+    page.unmount();
+    navigate.mockReset();
+    renderWithProviders(<BankFeedsCallbackPage />);
+    expect(await screen.findByText(/could not be found. Start again from Bank feeds/)).toBeInTheDocument();
+    expect(navigate).not.toHaveBeenCalled();
+    // One exchange (the reconnect's own sync is the other post).
+    expect(api.post.mock.calls.filter(([path]) => path === '/bank-connections/complete')).toHaveLength(1);
+    expect(toast.success).toHaveBeenCalledTimes(1);
   });
 
   it('refuses a return whose state is not the one that was sent', async () => {
