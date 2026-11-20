@@ -84,7 +84,7 @@ export class WeldIdError extends Error {
     this.code = code;
     this.what = what;
     this.status = status;
-    this.oauthError = reasonWord(reason);
+    this.serverReason = reasonWord(reason);
   }
 }
 
@@ -95,7 +95,9 @@ export class WeldIdError extends Error {
  */
 export function describeFailure(error) {
   if (error instanceof WeldIdError) {
-    const details = [error.what, typeof error.status === 'number' ? `HTTP ${error.status}` : undefined, error.oauthError].filter(Boolean);
+    // The server's own reason decides (invalid_grant ends the sign-in) but is
+    // never printed: only the fixed text, a fixed label and the HTTP status.
+    const details = [error.what, typeof error.status === 'number' ? `HTTP ${error.status}` : undefined].filter(Boolean);
     const text = FAILURES[error.code];
     return details.length ? `${text} (${details.join(', ')})` : text;
   }
@@ -172,7 +174,7 @@ async function getJson(url, { origin, what, headers } = {}) {
 
 /**
  * A call to WeldID's token endpoint, which must be on the issuer's origin;
- * throws a WeldIdError with `status` and `oauthError` set.
+ * throws a WeldIdError with `status` and `serverReason` (the OAuth error code) set.
  */
 async function tokenRequest(endpoint, issuerOrigin, params, timeoutMs = 15000) {
   const target = checkedUrl(endpoint, issuerOrigin, 'the token endpoint');
@@ -322,7 +324,7 @@ export async function login({ apiBase, file, openBrowser = true, log = console.l
     prompt: 'login',
   }).toString();
 
-  log(`Signing in to WeldID at ${printable(new URL(oidc.issuer).host)} (client ${printable(oidc.clientId)}).`);
+  log(`Signing in to WeldID at ${printable(new URL(oidc.issuer).host)}.`);
   log('Sign in as the TEST MEMBER, not as yourself. A private window is easiest. Open this link if no browser opens:\n');
   log(`  ${printable(authorize.href)}\n`);
   if (openBrowser) openInBrowser(authorize.href, oidc.issuerOrigin);
@@ -440,7 +442,7 @@ export async function startTokenBroker({ file, log = console.log }) {
         await sleep(1000 * attempt);
       }
     }
-    if (lastError.oauthError === 'invalid_grant') {
+    if (lastError.serverReason === 'invalid_grant') {
       fatal = new WeldIdError('SIGN_IN_ENDED');
       throw fatal;
     }
