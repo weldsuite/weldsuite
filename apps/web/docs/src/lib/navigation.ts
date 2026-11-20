@@ -68,10 +68,6 @@ export const navigation = [
     ],
   },
   {
-    title: 'WeldCommerce',
-    links: [{ title: 'Overview', href: '/weldcommerce' }],
-  },
-  {
     title: 'WeldStash',
     links: [{ title: 'Overview', href: '/weldstash' }],
   },

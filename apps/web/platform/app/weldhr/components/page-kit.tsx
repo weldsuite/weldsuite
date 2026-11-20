@@ -1,6 +1,6 @@
 /**
  * WeldHR page building blocks, matching the conventions of the mature
- * platform modules (WeldBooks, WeldCommerce, WeldStash, WeldDesk). The generic
+ * platform modules (WeldBooks, WeldStash, WeldDesk). The generic
  * pieces come from the component library (`@weldsuite/ui`); this file only
  * holds what is WeldHR's own.
  *

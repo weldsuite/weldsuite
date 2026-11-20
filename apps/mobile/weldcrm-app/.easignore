@@ -28,8 +28,6 @@ apps/workers/integration-webhook-worker
 apps/workers/realtime-worker
 apps/web/sites
 apps/web/helpcenter
-apps/web/parcel-tracking-portal
-apps/web/parcel-return-portal
 apps/tools/migrate-databases
 # Exclude every other mobile app from this app's EAS build.
 # The scaffolder adds a line for each sibling mobile app so

@@ -6,7 +6,7 @@ describe('appFromPathname', () => {
     ['/weldcrm/companies', 'weldcrm'],
     ['/welddesk', 'welddesk'],
     ['/social/posts', 'weldsocial'],
-    ['/apps/weldcommerce/orders', 'weldcommerce'],
+    ['/apps/weldstash/products', 'weldstash'],
     ['/apps/some-user-app', null],
     ['/settings/roles', null],
     ['/objects/machines', null],

@@ -20,7 +20,7 @@ const EU_CONFIG = {
   backend: 'rust',
   edition: 'eu',
   modules: ['core', 'know', 'sign', 'pass', 'calendar'],
-  unavailableFeatures: ['sso-connections', 'billing', 'reach-billing', 'credit-top-up', 'paid-apps', 'desktop-sign-in', 'analytics', 'search-reindex', 'company-logos', 'mail-domains', 'mail-free-addresses', 'mail-ai', 'chat-calls', 'helpcenter-custom-domains', 'helpcenter-hosting', 'payroll-digipoort', 'books-ocr', 'phone-number-purchase', 'vat-digipoort', 'domain-purchase', 'meet-transcription', 'meet-recordings', 'weldconnect-ai', 'agent-ai', 'desk-ai', 'forms-ai', 'data-regions', 'collab-rooms', 'assistant-ai', 'agent-sandbox', 'panel-analytics', 'integration-sync', 'commerce-portal'],
+  unavailableFeatures: ['sso-connections', 'billing', 'reach-billing', 'credit-top-up', 'paid-apps', 'desktop-sign-in', 'analytics', 'search-reindex', 'company-logos', 'mail-domains', 'mail-free-addresses', 'mail-ai', 'chat-calls', 'helpcenter-custom-domains', 'helpcenter-hosting', 'payroll-digipoort', 'books-ocr', 'phone-number-purchase', 'vat-digipoort', 'domain-purchase', 'meet-transcription', 'meet-recordings', 'weldconnect-ai', 'agent-ai', 'desk-ai', 'forms-ai', 'data-regions', 'collab-rooms', 'assistant-ai', 'agent-sandbox', 'panel-analytics', 'integration-sync'],
 };
 
 afterEach(() => setRuntimeConfig(null));
@@ -113,16 +113,15 @@ describe('edition flags', () => {
     for (const app of ['weldknow', 'weldsign', 'weldpass', 'weldcalendar', 'welddrive']) {
       expect(isAppOffered(app)).toBe(true);
     }
-    for (const app of ['weldcrm', 'weldmail', 'weldflow', 'weldchat', 'weldagent', 'weldmeet', 'parcel', 'social']) {
+    for (const app of ['weldcrm', 'weldmail', 'weldflow', 'weldchat', 'weldagent', 'weldmeet', 'social']) {
       expect(isAppOffered(app)).toBe(false);
     }
   });
 
   it("maps an app to the module whose own app it is, not to modules that merely serve it", () => {
-    // weldcommerce is listed by crm too, but it is commerce's own app.
-    expect(moduleForApp('weldcommerce')).toBe('commerce');
+    // welddesk is listed by crm too, but it is desk's own app.
+    expect(moduleForApp('welddesk')).toBe('desk');
     expect(moduleForApp('weldcrm')).toBe('crm');
-    expect(moduleForApp('parcel')).toBe('commerce');
     expect(moduleForApp('weldcalendar')).toBe('calendar');
   });
 
@@ -153,7 +152,6 @@ describe('edition flags', () => {
       ...Object.keys(APP_CODE_ALIASES),
       ...API_MODULES.flatMap((module) => module.apps ?? []),
       'weldagent',
-      'parcel',
     ]);
     for (const code of codes) {
       if (core.has(code)) expect(moduleForApp(code), code).toBe('core');

@@ -1,8 +1,8 @@
 /**
  * Response shapes of stash-api (WeldStash, the WMS): warehouses, zones,
  * locations, stock buckets and the stock ledger, movements, putaway tasks,
- * pick lists, pickers, suppliers, purchase orders, cycle counts, boxes and
- * the activity log.
+ * pick lists, pickers, suppliers, purchase orders, cycle counts, boxes, the
+ * activity log and the product catalogue.
  *
  * The platform reads these through TypeScript interfaces
  * (`domains/warehouses.ts`, `domains/inventory.ts`, `domains/pick-lists.ts`);
@@ -434,12 +434,6 @@ export const pickListShipResultSchema = z.object({
   status: z.string(),
   shipmentId: z.string().nullable().optional(),
   parcelId: z.string().nullable().optional(),
-  trackingNumber: z.string().nullable().optional(),
-  trackingUrl: z.string().nullable().optional(),
-  labelUrl: z.string().nullable().optional(),
-  labelPdfBase64: z.string().nullable().optional(),
-  carrierName: z.string().nullable().optional(),
-  shippingOptionCode: z.string().nullable().optional(),
 });
 
 // ── pickers ────────────────────────────────────────────────────────────────
@@ -534,3 +528,48 @@ export const wmsActivitySummarySchema = z.object({
   transfers: z.number().int(),
   uniqueUsers: z.number().int(),
 });
+
+// ── products ───────────────────────────────────────────────────────────────
+
+/** A `products` row, as GET /api/products and GET /api/products/:id answer it. */
+export const productRowSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    slug: z.string(),
+    sku: nullableString,
+    barcode: nullableString,
+    description: nullableString,
+    shortDescription: nullableString,
+    price: z.string(),
+    compareAtPrice: nullableString,
+    costPrice: nullableString,
+    currency: nullableString,
+    trackInventory: nullableBool,
+    inventoryQuantity: nullableInt,
+    lowStockThreshold: nullableInt,
+    allowBackorder: nullableBool,
+    weight: nullableString,
+    length: nullableString,
+    width: nullableString,
+    height: nullableString,
+    status: z.string(),
+    visibility: nullableString,
+    images: z.array(z.record(z.unknown())).nullable(),
+    featuredImageUrl: nullableString,
+    productType: nullableString,
+    vendor: nullableString,
+    brand: nullableString,
+    taxable: nullableBool,
+    taxClass: nullableString,
+    hasVariants: nullableBool,
+    tags: z.array(z.string()).nullable(),
+    attributes: jsonObject,
+    customFields: jsonObject,
+    salesCount: nullableInt,
+    publishedAt: nullableString,
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    deletedAt: nullableString,
+  })
+  .passthrough();

@@ -124,19 +124,14 @@ export function createPickListsApi(api: ClientApi) {
       return `/pick-lists/${id}/packing-slip`;
     },
 
-    ship(id: string, data?: { senderId?: number; shippingOptionCode?: string; weightKg?: number }): Promise<DataResponse<{
+    /** Ship a packed list: issues the stock and fulfils the order. No carrier is called. */
+    ship(id: string): Promise<DataResponse<{
       id: string;
       status: string;
       shipmentId?: string | null;
       parcelId?: string | null;
-      trackingNumber?: string | null;
-      trackingUrl?: string | null;
-      labelUrl?: string | null;
-      labelPdfBase64?: string | null;
-      carrierName?: string | null;
-      shippingOptionCode?: string | null;
     }>> {
-      return api.post(`/pick-lists/${id}/ship`, data ?? {});
+      return api.post(`/pick-lists/${id}/ship`, {});
     },
   };
 }

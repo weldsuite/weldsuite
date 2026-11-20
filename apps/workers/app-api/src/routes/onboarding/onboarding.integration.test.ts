@@ -450,7 +450,6 @@ describe('GET /api/onboarding/available-apps', () => {
     expect(res.status).toBe(200);
     const { data } = (await res.json()) as { data: Array<Record<string, unknown>> };
     expect(data.map((a) => a.code)).toEqual([
-      'commerce',
       'crm',
       'projects',
       'weldconnect',
@@ -463,7 +462,7 @@ describe('GET /api/onboarding/available-apps', () => {
       'weldpass',
       'weldhr',
     ]);
-    expect(data[1]).toEqual({
+    expect(data[0]).toEqual({
       code: 'crm',
       name: 'CRM',
       description: 'Manage leads, contacts, and sales pipelines',

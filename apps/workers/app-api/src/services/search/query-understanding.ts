@@ -160,8 +160,6 @@ const TYPE_KEYWORD_MAP: Record<string, SearchEntityType> = {
   pagina: 'knowledge_page', pagina_s: 'knowledge_page', kennisbank: 'knowledge_page',
   // product
   product: 'product', products: 'product', producten: 'product',
-  // order
-  order: 'order', orders: 'order', bestelling: 'order', bestellingen: 'order',
   // invoice
   invoice: 'invoice', invoices: 'invoice', factuur: 'invoice', facturen: 'invoice',
   // bill

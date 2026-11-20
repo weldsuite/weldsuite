@@ -47,8 +47,8 @@ fn build_navigate_url(row: &Value) -> Option<String> {
     let entity_type = text(row, "entityType").filter(|t| !t.is_empty())?;
     let entity_id = text(row, "entityId").filter(|t| !t.is_empty())?;
     match entity_type {
-        "crm_contact" => Some(build_result_url(SearchType::Contact, entity_id, None)),
-        "crm_customer" => Some(build_result_url(SearchType::Customer, entity_id, None)),
+        "crm_contact" => Some(build_result_url(SearchType::Contact, entity_id)),
+        "crm_customer" => Some(build_result_url(SearchType::Customer, entity_id)),
         "project" => {
             let id = text(row, "id").filter(|id| !id.is_empty());
             let board = row["metadata"]["weldBoardId"].as_str();
@@ -67,7 +67,7 @@ fn build_navigate_url(row: &Value) -> Option<String> {
             .as_str()
             .filter(|id| !id.is_empty())
             .map(|project| format!("/weldflow/project/{project}/documents")),
-        "helpdesk_ticket" => Some(build_result_url(SearchType::Ticket, entity_id, None)),
+        "helpdesk_ticket" => Some(build_result_url(SearchType::Ticket, entity_id)),
         "mail_message" => Some(format!("/weldmail/unified/inbox/{entity_id}")),
         "social_post" => Some("/social".to_owned()),
         _ => None,

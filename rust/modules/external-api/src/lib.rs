@@ -35,7 +35,6 @@ mod auth;
 mod books;
 mod calendar;
 mod chat;
-mod commerce;
 mod connect;
 mod crm;
 mod crud;
@@ -189,11 +188,6 @@ where
     let router = if mounts("desk") {
         // With WeldDesk's BI feed (`/v1/odata`), which desk owns too.
         odata::routes(inbox::routes(desk::routes(router)))
-    } else {
-        router
-    };
-    let router = if mounts("commerce") {
-        commerce::routes(router)
     } else {
         router
     };

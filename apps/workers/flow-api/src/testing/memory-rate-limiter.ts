@@ -13,7 +13,7 @@ import {
   type RateLimitCounterStore,
   type RateLimitNamespace,
   type RateLimitState,
-} from '@weldsuite/commerce-domain/portal-tokens';
+} from '@weldsuite/worker-kit/portal-tokens';
 
 const tick = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
 

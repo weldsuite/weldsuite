@@ -24,7 +24,6 @@ const LISTED_FEATURES: Readonly<Record<string, readonly EditionFeature[]>> = {
   weldconnect: ['weldconnect-ai'],
   weldbooks: ['books-ocr', 'vat-digipoort'],
   weldhr: ['payroll-digipoort'],
-  weldcommerce: ['commerce-portal'],
 };
 
 /** The features `appCode`'s listing describes that this deployment lacks (none on Global). */

@@ -129,11 +129,6 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     // Calendar pushes), which aren't ported. The connect routes answer, but
     // nothing would sync, so the platform hides those integrations.
     "integration-sync",
-    // WeldCommerce's customer portal: the orders portal has no image in the
-    // chart, so `commerce_portal_origin` would hand out Global's
-    // orders.weldsuite.org in the settings and the magic-link invites. The
-    // platform hides the portal settings.
-    "commerce-portal",
 ];
 
 /// The AI features (ADR AI-012): served on the install's AI provider

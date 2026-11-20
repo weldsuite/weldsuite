@@ -12,7 +12,6 @@ export const SEARCH_ENTITY_TYPES = [
   'ticket',
   'article',
   'product',
-  'order',
   'invoice',
   'bill',
   'project',

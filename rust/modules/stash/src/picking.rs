@@ -1,21 +1,19 @@
 //! Pick-list orchestration (`services/pick-lists.ts`): generate from an
 //! unfulfilled order (allocating stock), scan-confirm lines, complete, pack
-//! into a draft parcel, ship (through Sendcloud when the order needs a
-//! carrier) issuing the picked stock from the ledger, and cancel.
+//! into a draft parcel, ship (no carrier is called) issuing the picked
+//! stock from the ledger, and cancel.
 
 use std::fmt::Write as _;
 
 use serde_json::{Map, Value, json};
-use weldsuite_db::{Keyring, PgPool};
+use weldsuite_db::PgPool;
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::js_trim;
-use weldsuite_ports::OutboundHttp;
 
 use crate::js::{int, text, time_number, truthy};
 use crate::ledger::{
     Issue, LedgerError, allocate_stock, issue_allocated_stock, release_allocation,
 };
-use crate::sendcloud::{self, AnnounceError, Shipment};
 use crate::table::WriteError;
 use crate::tables::{ACTIVITY_LOGS, PARCELS, PICK_LIST_ITEMS, PICK_LISTS, SHIPMENTS};
 
@@ -34,8 +32,6 @@ pub(crate) enum PickError {
     Ledger(LedgerError),
     Database(sqlx::Error),
     Write(WriteError),
-    /// The Sendcloud call itself failed (the fetch threw): the route's 500.
-    Transport(String),
 }
 
 impl std::fmt::Display for PickError {
@@ -45,7 +41,6 @@ impl std::fmt::Display for PickError {
             Self::Ledger(error) => error.fmt(f),
             Self::Database(error) => error.fmt(f),
             Self::Write(error) => error.fmt(f),
-            Self::Transport(error) => f.write_str(error),
         }
     }
 }
@@ -943,155 +938,10 @@ pub(crate) async fn pack(db: &PgPool, id: &str, user_id: &str) -> Result<Option<
     ))
 }
 
-/// The ship action's options (`ShipPickListOptions`).
-pub(crate) struct ShipOptions {
-    pub(crate) sender_id: Option<f64>,
-    pub(crate) shipping_option_code: Option<String>,
-    pub(crate) weight_kg: Option<f64>,
-    pub(crate) clerk_org_id: String,
-    pub(crate) keyring: Keyring,
-    pub(crate) http: Option<OutboundHttp>,
-}
-
-/// What the announcement gave back.
-struct Carrier {
-    tracking_number: Value,
-    tracking_url: Value,
-    label_url: Value,
-    label_pdf_base64: Value,
-    name: Value,
-    shipping_option_code: Value,
-    sendcloud_parcel_id: Value,
-    sendcloud_shipment_id: Value,
-}
-
-/// `announceSendcloudParcel`.
-async fn announce(
-    db: &PgPool,
-    list: &Value,
-    order: Option<&Value>,
-    options: &ShipOptions,
-) -> Result<Carrier, PickError> {
-    let (Some(sender_id), Some(code), Some(weight)) = (
-        options.sender_id.filter(|id| *id != 0.0),
-        options
-            .shipping_option_code
-            .as_deref()
-            .filter(|code| !code.is_empty()),
-        options.weight_kg.filter(|weight| *weight != 0.0),
-    ) else {
-        return Err(pick(
-            "SHIPPING_NOT_CONFIGURED",
-            "Sender, parcel type, and weight are required to ship this order",
-        ));
-    };
-    // `resolveSendcloudClient`.
-    let stored = sendcloud::settings(db, &options.clerk_org_id).await?;
-    let secret = sendcloud::decrypt_secret(stored.secret_key.as_deref(), &options.keyring);
-    let (Some(public_key), Some(secret)) = (
-        stored.public_key.as_deref().filter(|key| !key.is_empty()),
-        secret.filter(|secret| !secret.is_empty()),
-    ) else {
-        return Err(pick(
-            "SHIPPING_NOT_CONFIGURED",
-            "Sendcloud is not connected",
-        ));
-    };
-    let enabled = |row: Option<&Value>| {
-        row.and_then(|row| row.get("enabled"))
-            .is_some_and(|enabled| match enabled {
-                Value::Bool(flag) => *flag,
-                Value::Null => false,
-                Value::Number(number) => number.as_f64().is_some_and(|n| n != 0.0),
-                Value::String(text) => !text.is_empty(),
-                _ => true,
-            })
-    };
-    let sender = stored
-        .senders
-        .iter()
-        .find(|row| row.get("id").and_then(Value::as_f64) == Some(sender_id));
-    let method = stored
-        .methods
-        .iter()
-        .find(|row| row.get("code").and_then(Value::as_str) == Some(code));
-    if !enabled(sender) || !enabled(method) {
-        return Err(pick(
-            "SHIPPING_NOT_CONFIGURED",
-            "Selected sender or parcel type is not enabled",
-        ));
-    }
-    let to_address =
-        sendcloud::to_address(order).map_err(|message| pick("MISSING_ADDRESS", message))?;
-    let order_number = order
-        .and_then(|order| order.get("orderNumber"))
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .or_else(|| text(list, "pickListNumber").map(str::to_owned));
-    let announced = sendcloud::announce(
-        options.http.as_ref(),
-        public_key,
-        &secret,
-        &Shipment {
-            sender_address_id: sender_id,
-            to_address,
-            shipping_option_code: code,
-            weight_kg: weight,
-            order_number: order_number.as_deref(),
-        },
-    )
-    .await
-    .map_err(|error| match error {
-        AnnounceError::Sendcloud(message) => pick("SENDCLOUD_FAILED", message),
-        AnnounceError::Transport(error) => PickError::Transport(error),
-    })?;
-    let tracking = announced
-        .parcel
-        .as_ref()
-        .and_then(|parcel| parcel.tracking_number.clone());
-    if !announced.errors.is_empty() || tracking.as_deref().is_none_or(str::is_empty) {
-        let message = announced
-            .errors
-            .first()
-            .and_then(|error| error.get("message"))
-            .and_then(Value::as_str)
-            .filter(|message| !message.is_empty())
-            .unwrap_or("Sendcloud did not announce the shipment");
-        return Err(pick("SENDCLOUD_FAILED", message));
-    }
-    let parcel = announced.parcel.unwrap_or_else(unreachable_parcel);
-    Ok(Carrier {
-        tracking_number: json!(parcel.tracking_number),
-        tracking_url: json!(parcel.tracking_url),
-        label_url: parcel.label_document_url,
-        label_pdf_base64: json!(parcel.label_pdf_base64),
-        name: json!(announced.carrier_name),
-        shipping_option_code: announced.shipping_option_code,
-        sendcloud_parcel_id: parcel.id,
-        sendcloud_shipment_id: announced.id,
-    })
-}
-
-/// Never reached: a missing parcel has no tracking number, refused above.
-fn unreachable_parcel() -> sendcloud::Parcel {
-    sendcloud::Parcel {
-        id: Value::Null,
-        tracking_number: None,
-        tracking_url: None,
-        label_pdf_base64: None,
-        label_document_url: Value::Null,
-    }
-}
-
-/// `shipPickList`: announce through Sendcloud when the order needs a
-/// carrier, then the shipment, the parcel, the stock issue, the order.
+/// `shipPickList`: the shipment, the parcel, the stock issue, the order. No
+/// carrier is called: carrier labels left with the shipping integration.
 #[allow(clippy::too_many_lines)] // one statement per step, as the TypeScript
-pub(crate) async fn ship(
-    db: &PgPool,
-    id: &str,
-    user_id: &str,
-    options: &ShipOptions,
-) -> Result<Option<Value>, PickError> {
+pub(crate) async fn ship(db: &PgPool, id: &str, user_id: &str) -> Result<Option<Value>, PickError> {
     let Some(list) = load_pick_list(db, id).await? else {
         return Ok(None);
     };
@@ -1110,24 +960,6 @@ pub(crate) async fn ship(
         ));
     }
     let order_id = first_order_id(&list);
-    let order = match &order_id {
-        Some(order_id) => order_contact(db, order_id).await?,
-        None => None,
-    };
-    let requires_shipping = order_requires_carrier(db, order_id.as_deref()).await?;
-    let mut carrier = Carrier {
-        tracking_number: Value::Null,
-        tracking_url: Value::Null,
-        label_url: Value::Null,
-        label_pdf_base64: Value::Null,
-        name: Value::Null,
-        shipping_option_code: json!(options.shipping_option_code),
-        sendcloud_parcel_id: Value::Null,
-        sendcloud_shipment_id: Value::Null,
-    };
-    if requires_shipping {
-        carrier = announce(db, &list, order.as_ref(), options).await?;
-    }
     let items = load_items(db, id).await?;
     let now = crate::now();
     let existing_shipment = truthy(&list, "shipmentId").map(str::to_owned);
@@ -1143,7 +975,6 @@ pub(crate) async fn ship(
             "type": "outbound",
             "parcelIds": parcel_id.iter().collect::<Vec<_>>(),
             "totalParcels": i32::from(parcel_id.is_some()),
-            "carrierName": carrier.name,
             "shippedAt": now,
             "createdAt": now,
             "updatedAt": now,
@@ -1157,29 +988,12 @@ pub(crate) async fn ship(
             .await?;
     }
     if let Some(parcel_id) = &parcel_id {
-        let labelled = !carrier.label_url.is_null() && carrier.label_url != json!("")
-            || carrier
-                .label_pdf_base64
-                .as_str()
-                .is_some_and(|label| !label.is_empty());
-        let mut change = json!({
+        let change = json!({
             "shipmentId": shipment_id,
             "status": "shipped",
             "shippedAt": now,
-            "trackingNumber": carrier.tracking_number,
-            "carrierName": carrier.name,
-            "serviceType": carrier.shipping_option_code,
-            "labelUrl": carrier.label_url,
-            "customFields": {
-                "sendcloudShipmentId": carrier.sendcloud_shipment_id,
-                "sendcloudParcelId": carrier.sendcloud_parcel_id,
-                "shippingOptionCode": carrier.shipping_option_code,
-            },
             "updatedAt": now,
         });
-        if labelled && let Value::Object(fields) = &mut change {
-            fields.insert("labelFormat".to_owned(), json!("PDF"));
-        }
         PARCELS
             .patch(
                 db,
@@ -1221,7 +1035,7 @@ pub(crate) async fn ship(
         }
     }
     if let Some(order_id) = &order_id {
-        mark_order_shipped(db, order_id, order.as_ref(), &carrier, &now).await?;
+        mark_order_shipped(db, order_id, &now).await?;
     }
     sqlx::query(
         "update pick_lists set status = 'shipped', shipped_at = $2::timestamp, shipment_id = $3, \
@@ -1242,8 +1056,6 @@ pub(crate) async fn ship(
         Some(json!({
             "shipmentId": shipment_id,
             "parcelId": parcel_id,
-            "trackingNumber": carrier.tracking_number,
-            "shippingOptionCode": carrier.shipping_option_code,
         })),
     )
     .await?;
@@ -1252,23 +1064,12 @@ pub(crate) async fn ship(
         "status": "shipped",
         "shipmentId": shipment_id,
         "parcelId": nullish(list.get("parcelId")),
-        "trackingNumber": carrier.tracking_number,
-        "trackingUrl": carrier.tracking_url,
-        "labelUrl": carrier.label_url,
-        "labelPdfBase64": carrier.label_pdf_base64,
-        "carrierName": carrier.name,
-        "shippingOptionCode": carrier.shipping_option_code,
     })))
 }
 
-/// `markOrderShipped`: partial or fulfilled, with the carrier's details.
-async fn mark_order_shipped(
-    db: &PgPool,
-    order_id: &str,
-    order: Option<&Value>,
-    carrier: &Carrier,
-    now: &str,
-) -> Result<(), PickError> {
+/// `markOrderShipped`: partial or fulfilled. Tracking details already on the
+/// order stay.
+async fn mark_order_shipped(db: &PgPool, order_id: &str, now: &str) -> Result<(), PickError> {
     let lines: Vec<(i32, Option<i32>)> =
         sqlx::query_as("select quantity, fulfilled_quantity from order_items where order_id = $1")
             .bind(order_id)
@@ -1277,35 +1078,16 @@ async fn mark_order_shipped(
     let remaining = lines
         .iter()
         .any(|(quantity, fulfilled)| i64::from(*quantity) - i64::from(fulfilled.unwrap_or(0)) > 0);
-    // `carrier.x ?? order?.x`: left out of the statement when both are
-    // missing (no order row), as Drizzle leaves out `undefined`.
-    let pick_value = |value: &Value, key: &str| -> Option<Value> {
-        if !value.is_null() {
-            return Some(value.clone());
-        }
-        order.map(|order| order.get(key).cloned().unwrap_or(Value::Null))
-    };
-    let mut change = Map::new();
-    change.insert(
-        "fulfillmentStatus".to_owned(),
-        json!(if remaining { "partial" } else { "fulfilled" }),
-    );
-    if let Some(value) = pick_value(&carrier.tracking_number, "trackingNumber") {
-        change.insert("trackingNumber".to_owned(), value);
-    }
-    if let Some(value) = pick_value(&carrier.tracking_url, "trackingUrl") {
-        change.insert("trackingUrl".to_owned(), value);
-    }
-    if let Some(value) = pick_value(&carrier.name, "shippingCarrier") {
-        change.insert("shippingCarrier".to_owned(), value);
-    }
-    change.insert("shippedAt".to_owned(), json!(now));
-    change.insert("updatedAt".to_owned(), json!(now));
+    let change = json!({
+        "fulfillmentStatus": if remaining { "partial" } else { "fulfilled" },
+        "shippedAt": now,
+        "updatedAt": now,
+    });
     crate::tables::ORDERS
         .patch(
             db,
             order_id,
-            crate::putaway::values_of(&crate::tables::ORDERS, &Value::Object(change)),
+            crate::putaway::values_of(&crate::tables::ORDERS, &change),
             false,
             &["shippedAt", "updatedAt"],
         )

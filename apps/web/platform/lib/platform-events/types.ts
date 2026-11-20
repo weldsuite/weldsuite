@@ -267,23 +267,6 @@ interface InventoryEvent extends PlatformEvent<InventoryEventData> {
 }
 
 // ============================================
-// Commerce Events
-// ============================================
-
-interface CommerceOrderEventData {
-  id: string;
-  orderNumber?: string;
-  status?: string;
-  customerName?: string;
-  total?: number;
-  changes?: Record<string, unknown>;
-}
-
-interface CommerceOrderEvent extends PlatformEvent<CommerceOrderEventData> {
-  entityType: 'commerce_order';
-}
-
-// ============================================
 // Accounting Events
 // ============================================
 
@@ -384,7 +367,6 @@ export type AnyPlatformEvent =
   | OpportunityEvent
   | ProductEvent
   | InventoryEvent
-  | CommerceOrderEvent
   | InvoiceEvent
   | BillEvent
   | PaymentEvent

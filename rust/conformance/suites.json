@@ -2166,9 +2166,6 @@
         "apps/workers/stash-api/src/routes/pick-lists/",
         "apps/workers/stash-api/src/services/",
         "packages/clients/core-api-client/src/schemas/pick-lists.ts",
-        "packages/clients/app-api-client/src/schemas/sendcloud.ts",
-        "packages/core/sendcloud/src/",
-        "packages/core/db/src/lib/crypto.ts",
         "apps/workers/stash-api/src/test/",
         "apps/workers/stash-api/src/types.ts",
         "packages/clients/app-api-client/src/schemas/stash-responses.ts",
@@ -2176,189 +2173,20 @@
       ]
     },
     {
-      "name": "commerce: catalog",
-      "module": "commerce",
-      "workspace": "apps/workers/commerce-api",
+      "name": "stash: products",
+      "module": "stash",
+      "workspace": "apps/workers/stash-api",
       "tests": [
-        "src/routes/products/integration.test.ts",
-        "src/routes/products/sales-channels.test.ts",
-        "src/routes/categories/integration.test.ts",
-        "src/routes/categories/routes.test.ts"
+        "src/routes/products/index.test.ts",
+        "src/routes/products/integration.test.ts"
       ],
       "paths": [
-        "apps/workers/commerce-api/src/routes/products/",
-        "apps/workers/commerce-api/src/routes/categories/",
-        "apps/workers/commerce-api/src/services/product-categories.ts",
-        "apps/workers/commerce-api/src/services/connectors/",
-        "packages/core/connectors/src/",
-        "packages/domains/connect/src/connectors/",
-        "packages/clients/app-api-client/src/schemas/product-categories.ts",
-        "packages/domains/commerce/src/",
-        "packages/clients/core-api-client/src/schemas/",
-        "rust/modules/commerce/",
-        "rust/crates/commerce-domain/",
-        "packages/core/worker-kit/src/testing/conformance-schemas-commerce.ts",
-        "packages/core/worker-kit/src/testing/conformance-schemas-commerce-shipping.ts",
-        "packages/clients/app-api-client/src/schemas/commerce-responses.ts",
-        "packages/clients/app-api-client/src/schemas/commerce-shipping-responses.ts"
-      ]
-    },
-    {
-      "name": "commerce: orders",
-      "module": "commerce",
-      "workspace": "apps/workers/commerce-api",
-      "tests": [
-        "src/routes/orders/integration.test.ts",
-        "src/routes/orders/calculate-tax.integration.test.ts",
-        "src/routes/orders/routes.test.ts"
-      ],
-      "paths": [
-        "apps/workers/commerce-api/src/routes/orders/",
-        "apps/workers/commerce-api/src/services/order-sales-tax.ts",
-        "apps/workers/commerce-api/src/services/order-sales-tax-fixtures.ts",
-        "packages/domains/books/src/sales-tax/",
-        "packages/domains/books/src/jurisdictions/",
-        "packages/domains/books/src/accounting-address.ts",
-        "packages/domains/commerce/src/",
-        "packages/clients/core-api-client/src/schemas/",
-        "rust/modules/commerce/",
-        "rust/crates/commerce-domain/",
-        "packages/core/worker-kit/src/testing/conformance-schemas-commerce.ts",
-        "packages/core/worker-kit/src/testing/conformance-schemas-commerce-shipping.ts",
-        "packages/clients/app-api-client/src/schemas/commerce-responses.ts",
-        "packages/clients/app-api-client/src/schemas/commerce-shipping-responses.ts",
-        "packages/domains/core/src/legal-entities/",
-        "rust/crates/legal-entities/"
-      ]
-    },
-    {
-      "name": "commerce: shipping",
-      "module": "commerce",
-      "workspace": "apps/workers/commerce-api",
-      "tests": [
-        "src/routes/_sweeps.test.ts",
-        "src/routes/carriers/routes.test.ts",
-        "src/routes/return-reasons/routes.test.ts",
-        "src/routes/return-rules/routes.test.ts",
-        "src/routes/pickups/routes.test.ts",
-        "src/routes/returns/routes.test.ts",
-        "src/routes/shipments/routes.test.ts",
-        "src/routes/shipping-rules/routes.test.ts",
-        "src/routes/shipping-prices/routes.test.ts",
-        "src/routes/parcels/routes.test.ts",
-        "src/routes/parcel-analytics/routes.test.ts",
-        "src/routes/parcel-notifications/routes.test.ts",
-        "src/routes/parcel-rates/routes.test.ts",
-        "src/routes/parcel-settings/routes.test.ts",
-        "src/routes/parcel-wallet/routes.test.ts"
-      ],
-      "coverage": [
-        "/api/carriers",
-        "/api/return-reasons",
-        "/api/return-rules",
-        "/api/pickups",
-        "/api/returns",
-        "/api/shipments",
-        "/api/shipping-rules",
-        "/api/shipping-prices",
-        "/api/parcels",
-        "/api/parcel-analytics",
-        "/api/parcel-notifications",
-        "/api/parcel-rates",
-        "/api/parcel-settings",
-        "/api/parcel-wallet"
-      ],
-      "paths": [
-        "apps/workers/commerce-api/src/routes/carriers/",
-        "apps/workers/commerce-api/src/routes/return-reasons/",
-        "apps/workers/commerce-api/src/routes/return-rules/",
-        "apps/workers/commerce-api/src/routes/pickups/",
-        "apps/workers/commerce-api/src/routes/returns/",
-        "apps/workers/commerce-api/src/routes/shipments/",
-        "apps/workers/commerce-api/src/routes/shipping-rules/",
-        "apps/workers/commerce-api/src/routes/shipping-prices/",
-        "apps/workers/commerce-api/src/routes/parcels/",
-        "apps/workers/commerce-api/src/routes/parcel-analytics/",
-        "apps/workers/commerce-api/src/routes/parcel-notifications/",
-        "apps/workers/commerce-api/src/routes/parcel-rates/",
-        "apps/workers/commerce-api/src/routes/parcel-settings/",
-        "apps/workers/commerce-api/src/routes/parcel-wallet/",
-        "apps/workers/commerce-api/src/routes/_sweeps.test.ts",
-        "packages/clients/app-api-client/src/schemas/parcel-notifications.ts",
-        "packages/clients/app-api-client/src/schemas/parcel-rates.ts",
-        "packages/clients/app-api-client/src/schemas/parcel-settings.ts",
-        "packages/clients/app-api-client/src/schemas/parcel-wallet.ts",
-        "apps/workers/commerce-api/src/testing/shipping-crud-suite.ts",
-        "packages/domains/commerce/src/",
-        "packages/clients/core-api-client/src/schemas/",
-        "rust/modules/commerce/",
-        "rust/crates/commerce-domain/",
-        "packages/core/worker-kit/src/testing/conformance-schemas-commerce.ts",
-        "packages/core/worker-kit/src/testing/conformance-schemas-commerce-shipping.ts",
-        "packages/clients/app-api-client/src/schemas/commerce-responses.ts",
-        "packages/clients/app-api-client/src/schemas/commerce-shipping-responses.ts"
-      ]
-    },
-    {
-      "name": "commerce: integrations",
-      "module": "commerce",
-      "workspace": "apps/workers/commerce-api",
-      "tests": [
-        "src/routes/sendcloud/integration.test.ts",
-        "src/routes/sendcloud/routes.test.ts",
-        "src/routes/printnode/routes.test.ts",
-        "src/routes/webhooks-woocommerce-auth.test.ts"
-      ],
-      "paths": [
-        "apps/workers/commerce-api/src/routes/sendcloud/",
-        "apps/workers/commerce-api/src/routes/printnode/",
-        "apps/workers/commerce-api/src/services/printnode.ts",
-        "apps/workers/commerce-api/src/routes/webhooks-woocommerce-auth.ts",
-        "packages/core/sendcloud/src/",
-        "packages/clients/app-api-client/src/schemas/sendcloud.ts",
-        "packages/domains/commerce/src/",
-        "packages/clients/core-api-client/src/schemas/",
-        "rust/modules/commerce/",
-        "rust/crates/commerce-domain/",
-        "packages/core/worker-kit/src/testing/conformance-schemas-commerce.ts",
-        "packages/core/worker-kit/src/testing/conformance-schemas-commerce-shipping.ts",
-        "packages/clients/app-api-client/src/schemas/commerce-responses.ts",
-        "packages/clients/app-api-client/src/schemas/commerce-shipping-responses.ts"
-      ]
-    },
-    {
-      "name": "commerce: portal",
-      "module": "commerce",
-      "workspace": "apps/workers/commerce-api",
-      "tests": [
-        "src/routes/public-commerce-portal/integration.test.ts",
-        "src/routes/public-commerce-portal/routes.test.ts",
-        "src/routes/commerce-portal/routes.test.ts"
-      ],
-      "paths": [
-        "apps/workers/commerce-api/src/routes/public-commerce-portal/",
-        "apps/workers/commerce-api/src/routes/commerce-portal/",
-        "apps/workers/commerce-api/src/middleware/",
-        "apps/workers/commerce-api/src/services/commerce-portal.ts",
-        "apps/workers/commerce-api/src/services/commerce-portal-mail.ts",
-        "apps/workers/commerce-api/src/services/commerce-portal-orders.ts",
-        "apps/workers/commerce-api/src/services/commerce-portal-invoices.ts",
-        "apps/workers/commerce-api/src/testing/",
-        "packages/domains/books/src/accounting-invoice-html.ts",
-        "packages/domains/books/src/accounting-compliance.ts",
-        "packages/domains/books/src/invoice-template/",
-        "packages/core/emails/src/",
-        "packages/clients/app-api-client/src/schemas/commerce-portal.ts",
-        "packages/domains/commerce/src/",
-        "packages/clients/core-api-client/src/schemas/",
-        "rust/modules/commerce/",
-        "rust/crates/commerce-domain/",
-        "packages/core/worker-kit/src/testing/conformance-schemas-commerce.ts",
-        "packages/core/worker-kit/src/testing/conformance-schemas-commerce-shipping.ts",
-        "packages/clients/app-api-client/src/schemas/commerce-responses.ts",
-        "packages/clients/app-api-client/src/schemas/commerce-shipping-responses.ts",
-        "packages/domains/core/src/legal-entities/",
-        "rust/crates/legal-entities/"
+        "apps/workers/stash-api/src/routes/products/",
+        "packages/clients/core-api-client/src/schemas/products.ts",
+        "packages/domains/books/src/jurisdictions/us/tax-codes.ts",
+        "apps/workers/stash-api/src/types.ts",
+        "rust/modules/stash/",
+        "rust/crates/books-domain/src/sales_tax/tax_codes.rs"
       ]
     },
     {
@@ -2627,7 +2455,8 @@
         "src/routes/connectors/moneybird.test.ts",
         "src/routes/connectors/sync.test.ts",
         "src/routes/connectors/connect.test.ts",
-        "src/routes/connectors/moneybird-push.test.ts"
+        "src/routes/connectors/moneybird-push.test.ts",
+        "src/routes/webhooks-woocommerce-auth.test.ts"
       ],
       "paths": [
         "apps/workers/connect-api/src/routes/external-webhooks/",
@@ -2637,6 +2466,7 @@
         "apps/workers/connect-api/src/services/integrations/",
         "apps/workers/connect-api/src/lib/crm-sync-index.ts",
         "apps/workers/connect-api/src/routes/connectors/",
+        "apps/workers/connect-api/src/routes/webhooks-woocommerce-auth.ts",
         "apps/workers/connect-api/src/services/connectors/",
         "packages/domains/connect/src/",
         "packages/core/connectors/src/",
@@ -3117,7 +2947,7 @@
       ]
     },
     {
-      "name": "external-api: articles and categories",
+      "name": "external-api: articles",
       "module": "external-api",
       "workspace": "apps/workers/external-api",
       "paths": [
@@ -3125,7 +2955,7 @@
         "rust/modules/external-api/"
       ],
       "tests": [
-        "src/test/articles-categories.test.ts"
+        "src/test/articles.test.ts"
       ]
     },
     {
@@ -3141,7 +2971,7 @@
       ]
     },
     {
-      "name": "external-api: commerce and social",
+      "name": "external-api: social accounts",
       "module": "external-api",
       "workspace": "apps/workers/external-api",
       "paths": [
@@ -3149,7 +2979,7 @@
         "rust/modules/external-api/"
       ],
       "tests": [
-        "src/test/commerce-social.test.ts"
+        "src/test/social-accounts.test.ts"
       ]
     },
     {
@@ -4060,7 +3890,9 @@
         "packages/domains/flow/src/",
         "packages/clients/app-api-client/src/schemas/project-portal.ts",
         "rust/modules/flow/",
-        "rust/crates/flow-domain/"
+        "rust/crates/flow-domain/",
+        "packages/core/worker-kit/src/portal/",
+        "rust/crates/kit/src/portal/"
       ],
       "excludedRoutes": [
         {

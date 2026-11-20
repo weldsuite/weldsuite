@@ -42,8 +42,6 @@ import './vat-return';
 import './sales-tax-agency';
 import './tax-exemption-certificate';
 import './product';
-import './category';
-import './order';
 import './supplier';
 import './warehouse';
 import './pick-list';

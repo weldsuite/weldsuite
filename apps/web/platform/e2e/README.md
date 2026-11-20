@@ -133,7 +133,7 @@ Every shared surface that specs need to target has a stable `data-testid`:
 ```
 app-sidebar                            → the fixed left rail
 app-nav-<key>                          → each sidebar entry
-                                         (home, commerce, crm, projects, helpdesk,
+                                         (home, crm, projects, helpdesk,
                                           mail, task, host, appstore)
 
 entity-grid                            → root of <EntityGrid />

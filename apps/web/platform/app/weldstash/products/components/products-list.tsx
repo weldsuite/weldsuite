@@ -9,8 +9,7 @@ import { useDeleteWeldstashProduct } from '@/hooks/queries/use-weldstash-queries
 import type { WeldstashProduct } from '@weldsuite/core-api-client/schemas/weldstash';
 import { getTranslations } from '@/lib/i18n';
 import { buildWeldstashProductColumns } from '../config/product-columns';
-// Same `products` table as WeldCommerce, so the form is shared rather than forked.
-import { ProductDialog } from '@/app/weldcommerce/products/components/product-dialog';
+import { ProductDialog } from './product-dialog';
 
 interface ProductsListProps {
   products: WeldstashProduct[];
@@ -31,7 +30,7 @@ export function ProductsList({
   hasMore,
   isFetchingMore,
 }: Readonly<ProductsListProps>) {
-  const t = getTranslations('commerce').module;
+  const t = getTranslations('weldstash');
   const deleteMut = useDeleteWeldstashProduct();
   const { open: openObjectPanel } = useObjectPanel();
   useObjectPanelUrlSync('/weldstash/products');

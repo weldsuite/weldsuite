@@ -47,7 +47,6 @@ const ENTITY_CONFIG: Record<
   ticket: { path: (id) => `/tickets/${id}`, titleFields: ['subject', 'title'] },
   article: { path: (id) => `/articles/${id}`, titleFields: ['title'] },
   product: { path: (id) => `/products/${id}`, titleFields: ['name', 'title'] },
-  order: { path: (id) => `/orders/${id}`, titleFields: ['orderNumber', 'name'] },
   invoice: { path: (id) => `/invoices/${id}`, titleFields: ['invoiceNumber', 'number', 'name'] },
   bill: { path: (id) => `/bills/${id}`, titleFields: ['billNumber', 'number', 'name'] },
   project: { path: (id) => `/projects/${id}`, titleFields: ['name', 'title', 'code'] },

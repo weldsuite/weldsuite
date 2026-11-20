@@ -64,7 +64,7 @@ where
 const SYSTEM_ROLE_ORDER: [&str; 4] = ["OWNER", "ADMIN", "MEMBER", "VIEWER"];
 
 /// App code → display name (`APP_NAMES`).
-const APP_NAMES: [(&str, &str); 25] = [
+const APP_NAMES: [(&str, &str); 24] = [
     ("crm", "CRM"),
     ("helpdesk", "WeldDesk"),
     ("mail", "WeldMail"),
@@ -88,7 +88,6 @@ const APP_NAMES: [(&str, &str); 25] = [
     ("weldcalendar", "WeldCalendar"),
     ("welddrive", "WeldDrive"),
     ("welddata", "WeldData"),
-    ("weldcommerce", "WeldCommerce"),
     ("weldads", "WeldAds"),
 ];
 

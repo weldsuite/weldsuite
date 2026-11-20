@@ -19,7 +19,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   Archive,
-  Ban,
   Bookmark,
   Briefcase,
   Building,
@@ -32,7 +31,6 @@ import {
   MapPin,
   Phone,
   Receipt,
-  Send,
   Smile,
   Tag,
   Trash2,
@@ -42,7 +40,6 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { getTranslations } from '@/lib/i18n';
 import { Button } from '@weldsuite/ui/components/button';
 import { EntityDetailView } from '@weldsuite/ui/components/entity-detail-view';
 import { useComposeSafe } from '@/contexts/compose-context';
@@ -100,12 +97,6 @@ import {
   useDeleteCompany,
 } from './use-company-data';
 import { useUnlinkPersonFromCompany } from '@/hooks/queries/use-person-companies-queries';
-import {
-  useCommercePortalAccess,
-  useInviteCommercePortalAccess,
-  useResendCommercePortalAccess,
-  useRevokeCommercePortalAccess,
-} from '@/hooks/queries/use-commerce-queries';
 import { EntityList, type ActiveFilter, type FilterConfig } from '@/components/entity-list';
 import { applySelectFilters } from '@/lib/list-filters';
 import {
@@ -495,7 +486,6 @@ function CompanyPeopleTab({
   onOpenPerson: (personId: string) => void;
 }>) {
   const st = useTranslations();
-  const portalT = getTranslations('commerce').module.portal;
   const unlinkMut = useUnlinkPersonFromCompany();
   const [linkOpen, setLinkOpen] = useState(false);
   // Previous / next in the person panel step through this company's people.
@@ -503,17 +493,6 @@ function CompanyPeopleTab({
     type: 'person',
     getId: (pc) => pc.personId,
   });
-  const accessQuery = useCommercePortalAccess(companyId);
-  const inviteMut = useInviteCommercePortalAccess();
-  const revokeMut = useRevokeCommercePortalAccess(companyId);
-  const resendMut = useResendCommercePortalAccess(companyId);
-  const accessByPerson = useMemo(() => {
-    const map = new Map<string, { id: string; status: string }>();
-    for (const row of accessQuery.data?.data ?? []) {
-      map.set(row.personId, { id: row.id, status: row.status });
-    }
-    return map;
-  }, [accessQuery.data]);
   const linkedIds = useMemo(
     () => new Set(employments.map((e) => e.personId)),
     [employments],
@@ -540,21 +519,8 @@ function CompanyPeopleTab({
           { value: 'past', label: st('sweep.entities.past') },
         ],
       },
-      ...(isFeatureAvailable('commerce-portal')
-        ? [
-            {
-              field: 'portal',
-              label: st('sweep.entities.filterPortalAccess'),
-              options: [
-                { value: 'active', label: portalT.statusActive },
-                { value: 'invited', label: portalT.statusInvited },
-                { value: 'none', label: st('sweep.entities.filterNoPortalAccess') },
-              ],
-            },
-          ]
-        : []),
     ],
-    [st, portalT],
+    [st],
   );
 
   const applyFilters = useCallback(
@@ -564,13 +530,8 @@ function CompanyPeopleTab({
           if (value === 'primary') return !!pc.isPrimary;
           return value === 'past' ? !!pc.endedAt : !pc.endedAt;
         },
-        portal: (pc, value) => {
-          const status = accessByPerson.get(pc.personId)?.status;
-          const access = status === 'active' || status === 'invited' ? status : 'none';
-          return access === value;
-        },
       }),
-    [accessByPerson],
+    [],
   );
 
   const headerColumns = useMemo(
@@ -587,10 +548,6 @@ function CompanyPeopleTab({
   const renderRow = useCallback(
     (pc: CompanyPersonListItem) => {
       const name = pc.person?.displayName ?? st('sweep.entities.deletedPerson');
-      const access = accessByPerson.get(pc.personId);
-      // No customer portal on this edition: nothing to invite to.
-      const canHavePortalAccess = isFeatureAvailable('commerce-portal') && !pc.endedAt && !!pc.person?.email;
-      const hasPortalAccess = !!access && access.status !== 'revoked';
       return (
         <LinkedRecordRow
           key={pc.id}
@@ -601,16 +558,10 @@ function CompanyPeopleTab({
           onOpen={() => onOpenPerson(pc.personId)}
           menuLabel={st('sweep.entities.moreActions')}
           status={
-            pc.endedAt || pc.isPrimary || access?.status === 'active' || access?.status === 'invited' ? (
+            pc.endedAt || pc.isPrimary ? (
               <>
                 {pc.endedAt && <LinkedRecordStatus tone="gray">{st('sweep.entities.past')}</LinkedRecordStatus>}
                 {pc.isPrimary && <LinkedRecordStatus tone="blue">{st('sweep.entities.primary')}</LinkedRecordStatus>}
-                {access?.status === 'active' && (
-                  <LinkedRecordStatus tone="green">{portalT.statusActive}</LinkedRecordStatus>
-                )}
-                {access?.status === 'invited' && (
-                  <LinkedRecordStatus tone="amber">{portalT.statusInvited}</LinkedRecordStatus>
-                )}
               </>
             ) : null
           }
@@ -620,50 +571,6 @@ function CompanyPeopleTab({
                 <SquareArrowOutUpRight />
                 {st('sweep.weldcrm.contactsSection.viewProfile')}
               </DropdownMenuItem>
-              {canHavePortalAccess && !hasPortalAccess && (
-                <DropdownMenuItem
-                  disabled={inviteMut.isPending}
-                  onClick={() => {
-                    inviteMut.mutate(
-                      { personId: pc.personId, companyId },
-                      {
-                        onSuccess: () => toast.success(portalT.invitedToast),
-                        onError: () => toast.error(portalT.inviteFailed),
-                      },
-                    );
-                  }}
-                >
-                  <Send />
-                  {portalT.invite}
-                </DropdownMenuItem>
-              )}
-              {canHavePortalAccess && hasPortalAccess && access && (
-                <>
-                  <DropdownMenuItem
-                    disabled={resendMut.isPending}
-                    onClick={() => {
-                      resendMut.mutate(access.id, {
-                        onSuccess: () => toast.success(portalT.resentToast),
-                        onError: () => toast.error(portalT.inviteFailed),
-                      });
-                    }}
-                  >
-                    <Send />
-                    {portalT.resend}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    disabled={revokeMut.isPending}
-                    onClick={() => {
-                      revokeMut.mutate(access.id, {
-                        onSuccess: () => toast.success(portalT.revokedToast),
-                      });
-                    }}
-                  >
-                    <Ban />
-                    {portalT.revoke}
-                  </DropdownMenuItem>
-                </>
-              )}
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 variant="destructive"
@@ -683,7 +590,7 @@ function CompanyPeopleTab({
         />
       );
     },
-    [accessByPerson, companyId, inviteMut, onOpenPerson, portalT, resendMut, revokeMut, unlinkMut, st],
+    [companyId, onOpenPerson, unlinkMut, st],
   );
 
   return (

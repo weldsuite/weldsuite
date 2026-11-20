@@ -28,6 +28,8 @@
     "./middleware/second-factor": "./src/middleware/second-factor.ts",
     "./middleware/workspace-db": "./src/middleware/workspace-db.ts",
     "./permission-cache": "./src/permission-cache.ts",
+    "./portal-slug": "./src/portal/portal-slug.ts",
+    "./portal-tokens": "./src/portal/portal-tokens.ts",
     "./pg-errors": "./src/pg-errors.ts",
     "./random": "./src/random.ts",
     "./response": "./src/response.ts",

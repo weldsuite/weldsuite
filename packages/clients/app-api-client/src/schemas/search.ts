@@ -13,7 +13,6 @@ export const SEARCH_ENTITY_TYPES = [
   'article',
   'knowledge_page',
   'product',
-  'order',
   'invoice',
   'bill',
   'project',

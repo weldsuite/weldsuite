@@ -113,7 +113,7 @@ ENVIRONMENT = "development"
 PARTNER_PORTAL_URL = "http://localhost:3203"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow,chat,agent,connect,reach,sheets,sign,docs,panel,board,merge,forms"
+API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,crm,data,books,calendar,meet,call,desk,mail,flow,chat,agent,connect,reach,sheets,sign,docs,panel,board,merge,forms"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
@@ -357,10 +357,6 @@ binding = "CRM_API"
 service = "weldsuite-crm-api-dev"
 
 [[services]]
-binding = "COMMERCE_API"
-service = "weldsuite-commerce-api-dev"
-
-[[services]]
 binding = "STASH_API"
 service = "weldsuite-stash-api-dev"
 
@@ -483,7 +479,7 @@ CLERK_AUTHORIZED_PARTIES = ""
 PARTNER_PORTAL_URL = "https://partner-test.weldsuite.org"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow,chat,agent,connect,reach,sheets,sign,docs,panel,board,merge,forms"
+API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,crm,data,books,calendar,meet,call,desk,mail,flow,chat,agent,connect,reach,sheets,sign,docs,panel,board,merge,forms"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 AI_BYOK_PROVIDERS = "anthropic"
@@ -653,10 +649,6 @@ binding = "CRM_API"
 service = "weldsuite-crm-api-test"
 
 [[env.test.services]]
-binding = "COMMERCE_API"
-service = "weldsuite-commerce-api-test"
-
-[[env.test.services]]
 binding = "STASH_API"
 service = "weldsuite-stash-api-test"
 
@@ -765,7 +757,7 @@ CLERK_AUTHORIZED_PARTIES = ""
 PARTNER_PORTAL_URL = "https://partner.weldsuite.org"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow,chat,agent,connect,reach,sheets,sign,docs,panel,board,merge,forms"
+API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,crm,data,books,calendar,meet,call,desk,mail,flow,chat,agent,connect,reach,sheets,sign,docs,panel,board,merge,forms"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 AI_BYOK_PROVIDERS = "anthropic"
@@ -940,10 +932,6 @@ service = "weldsuite-data-api"
 [[env.production.services]]
 binding = "CRM_API"
 service = "weldsuite-crm-api"
-
-[[env.production.services]]
-binding = "COMMERCE_API"
-service = "weldsuite-commerce-api"
 
 [[env.production.services]]
 binding = "STASH_API"

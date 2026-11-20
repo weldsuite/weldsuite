@@ -169,10 +169,6 @@ beforeAll(async () => {
     });
     await insert(schema.sheets, { id: `sht_${id}`, fileId: id, updatedAt: at(19) });
   }
-  // Ann can open WeldStash but not WeldCommerce.
-  await insert(schema.workspaceInstalledApps, { id: 'wia_commerce', appCode: 'weldcommerce', displayOrder: 1 });
-  await insert(schema.workspaceInstalledApps, { id: 'wia_stash', appCode: 'weldstash', displayOrder: 2 });
-  await insert(schema.userAppAssignments, { id: 'uaa_ann_stash', userId: ANN, appCode: 'weldstash' });
 }, 60_000);
 
 describe('POST /api/search', () => {
@@ -181,7 +177,7 @@ describe('POST /api/search', () => {
     expect(res.understanding.source).toBe('lexical');
     expect(res.data.map((g) => g.type)).toEqual([
       'contact', 'customer', 'lead', 'opportunity', 'ticket', 'conversation', 'article', 'knowledge_page',
-      'product', 'order', 'warehouse', 'invoice', 'bill', 'project', 'task', 'merge_issue', 'merge_pull_request',
+      'product', 'warehouse', 'invoice', 'bill', 'project', 'task', 'merge_issue', 'merge_pull_request',
       'document', 'sheet', 'board', 'form', 'sign_envelope', 'drive_file', 'meeting', 'chat_channel', 'reach_campaign',
       'data_list', 'panel_project', 'workflow', 'agent', 'domain',
     ]);

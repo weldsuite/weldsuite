@@ -1844,9 +1844,7 @@ export const sweep = {
     "fieldDate": "Datum",
     "filterAttachments": "Bijlagen",
     "filterCurrent": "Huidig",
-    "filterNoPortalAccess": "Geen toegang",
     "filterNotStarred": "Zonder ster",
-    "filterPortalAccess": "Portaaltoegang",
     "filterRead": "Gelezen",
     "filterStarred": "Met ster",
     "filterUnread": "Ongelezen",
@@ -4128,22 +4126,6 @@ export const sweep = {
       "noEmailsYetDescription": "De e-mailgeschiedenis met deze klant verschijnt hier zodra deze is gesynchroniseerd.",
       "noEmailsFound": "Geen e-mails gevonden",
       "noEmailsFoundDescription": "We konden geen e-mails vinden die overeenkomen met uw zoekopdracht."
-    },
-    "ordersSection": {
-      "orders": "Bestellingen",
-      "orderCount": "{count} bestellingen",
-      "newOrder": "Nieuwe bestelling",
-      "noOrdersYet": "Nog geen bestellingen",
-      "noOrdersYetDescription": "Bestellingen van deze klant verschijnen hier.",
-      "createOrder": "Bestelling aanmaken",
-      "totalOrders": "Totaal aantal bestellingen",
-      "totalValue": "Totale waarde",
-      "avgOrderValue": "Gemiddelde bestelwaarde",
-      "viewOrder": "Bestelling bekijken",
-      "editOrder": "Bestelling bewerken",
-      "trackShipment": "Zending volgen",
-      "createInvoice": "Factuur aanmaken",
-      "cancelOrder": "Bestelling annuleren"
     },
     "invoicesSection": {
       "invoices": "Facturen",

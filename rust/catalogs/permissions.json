@@ -5,7 +5,6 @@
     "calendar": "weldcalendar",
     "call": "weldcall",
     "chat": "weldchat",
-    "commerce": "weldcommerce",
     "connect": "weldconnect",
     "crm": "weldcrm",
     "data": "welddata",
@@ -44,20 +43,6 @@
         "telephony",
         "tasks",
         "workflows"
-      ]
-    },
-    {
-      "code": "weldcommerce",
-      "label": "WeldCommerce",
-      "objects": [
-        "products",
-        "orders",
-        "categories",
-        "discounts",
-        "websites",
-        "inventory",
-        "companies",
-        "people"
       ]
     },
     {

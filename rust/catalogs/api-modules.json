@@ -64,7 +64,6 @@
   {
     "apps": [
       "weldcrm",
-      "weldcommerce",
       "welddesk",
       "weldflow",
       "weldmail",
@@ -291,43 +290,7 @@
   },
   {
     "apps": [
-      "weldcommerce",
       "weldstash"
-    ],
-    "binding": "COMMERCE_API",
-    "devPort": 8806,
-    "id": "commerce",
-    "prefixes": [
-      "/api/carriers",
-      "/api/categories",
-      "/api/commerce-portal",
-      "/api/orders",
-      "/api/parcel-analytics",
-      "/api/parcel-notifications",
-      "/api/parcel-rates",
-      "/api/parcel-settings",
-      "/api/parcel-wallet",
-      "/api/parcels",
-      "/api/pickups",
-      "/api/printnode",
-      "/api/products",
-      "/api/return-reasons",
-      "/api/return-rules",
-      "/api/returns",
-      "/api/sendcloud",
-      "/api/shipments",
-      "/api/shipping-prices",
-      "/api/shipping-rules",
-      "/public/commerce-portal",
-      "/webhooks/woocommerce"
-    ],
-    "rust": true,
-    "worker": "commerce-api"
-  },
-  {
-    "apps": [
-      "weldstash",
-      "weldcommerce"
     ],
     "binding": "STASH_API",
     "devPort": 8807,
@@ -340,6 +303,7 @@
       "/api/pick-lists",
       "/api/pickers",
       "/api/product-suppliers",
+      "/api/products",
       "/api/purchase-orders",
       "/api/putaway",
       "/api/replenishment",
@@ -492,7 +456,8 @@
       "/api/workflow-variables",
       "/api/workflow-versions",
       "/api/workflow-webhooks",
-      "/api/workflows"
+      "/api/workflows",
+      "/webhooks/woocommerce"
     ],
     "rust": true,
     "worker": "connect-api"

@@ -122,23 +122,18 @@ describe('visibleCommands', () => {
     expect(titles(visibleCommands(commands, ''))).toEqual(['Settings']);
     expect(titles(visibleCommands(commands, 'billing'))).toContain('Billing');
     expect(titles(visibleCommands(commands, 'crm'))).toContain('WeldCRM');
-    expect(titles(visibleCommands(commands, 'parcel'))).not.toContain('Parcel Settings');
     expect(visibleCommands(commands, 'weldhr').some((command) => command.href === '/settings/apps/weldhr')).toBe(false);
     const withHr = settingsCommands(en, new Set(['weldhr']));
     expect(visibleCommands(withHr, 'weldhr').some((command) => command.href === '/settings/apps/weldhr')).toBe(true);
   });
 
   it('lists the settings of apps installed under a legacy code', () => {
-    const hrefs = settingsCommands(en, new Set(['accounting', 'commerce'])).map((command) => command.href);
+    const hrefs = settingsCommands(en, new Set(['accounting'])).map((command) => command.href);
     expect(hrefs).toContain('/settings/apps/weldbooks');
-    expect(hrefs).toContain('/settings/apps/weldcommerce');
   });
 
   it('matches app codes the way the Settings side nav does', () => {
     expect(settingsCommands(en, new Set(['social'])).map((command) => command.href)).toContain('/settings/apps/social');
-    expect(settingsCommands(en, new Set(['parcel'])).map((command) => command.href)).toContain('/settings/apps/parcel');
-    // WeldStash is not Parcel, whatever the permission aliases say.
-    expect(settingsCommands(en, new Set(['weldstash'])).map((command) => command.href)).not.toContain('/settings/apps/parcel');
   });
 
   it('requires every word in the query to match', () => {
@@ -193,8 +188,8 @@ describe('edition flags', () => {
   });
 
   it('offers no company or person creation without the crm module', () => {
-    setRuntimeConfig({ backend: 'rust', modules: ['core', 'commerce'] });
-    const access = { canSee: () => true, installedCodes: new Set(['weldcommerce']) };
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'stash'] });
+    const access = { canSee: () => true, installedCodes: new Set(['weldstash']) };
     const ids = actionCommands(en, 'light', access).map((command) => command.id);
     expect(ids).not.toContain('action:create-company');
     expect(ids).not.toContain('action:create-person');
@@ -348,7 +343,7 @@ describe('visibleCommands caps', () => {
 describe('Create action matching', () => {
   const commands = createCommands(en, {
     canSee: () => true,
-    installedCodes: new Set(['welddocs', 'weldforms', 'weldcommerce', 'weldstash', 'weldcrm', 'weldads', 'weldmail']),
+    installedCodes: new Set(['welddocs', 'weldforms', 'weldstash', 'weldcrm', 'weldads', 'weldmail']),
   });
   const ids = (query: string) => visibleCommands(commands, query).map((command) => command.id);
 

@@ -53,7 +53,6 @@ export const settings = {
       mail: 'Mail',
       domains: 'Domains',
       accounts: 'Accounts',
-      parcel: 'Parcel',
       desktopApp: 'Desktop app',
     },
 
@@ -76,10 +75,6 @@ export const settings = {
       integrations: 'Connect external services like Attio CRM',
       phoneNumbers: 'Manage phone numbers and VoIP settings',
       activityLog: 'View all entity changes and audit history',
-      commerceSettings: 'Commerce Settings',
-      configureCommerce: 'Configure commerce app',
-      parcelSettings: 'Parcel Settings',
-      configureParcel: 'Configure parcel app',
       helpdeskSettings: 'WeldDesk Settings',
       configureHelpdesk: 'Configure helpdesk app',
       mailDomains: 'Mail Domains',
@@ -733,10 +728,8 @@ export const settings = {
       modules: {
         helpdesk: 'WeldDesk',
         crm: 'WeldCRM',
-        commerce: 'WeldCommerce',
         mail: 'WeldMail',
         projects: 'WeldFlow',
-        parcel: 'WeldParcel',
         workflows: 'WeldConnect',
         weldchat: 'WeldChat',
         dailyDigest: 'WeldCalendar',
@@ -1115,7 +1108,6 @@ export const settings = {
           ecommerce: 'E-Commerce',
           warehouse: 'Warehouse',
           accounting: 'Accounting',
-          shipping: 'Shipping',
           support: 'Support',
           calendar: 'Calendar',
           ai: 'AI',
@@ -1134,15 +1126,12 @@ export const settings = {
           shopify: 'Import products, orders, and customers from one or more shops. Updates arrive over webhooks.',
           moneybird: 'Import contacts, sales invoices, products, and purchase invoices into WeldBooks.',
           picqer: 'Bidirectional sync of products, stock, warehouses, orders, pick lists, and purchases with Picqer WMS.',
-          sendcloud: 'Create shipping labels from WeldStash pick lists with your own Sendcloud account.',
         },
       },
       categories: {
         communication: 'Communication',
-        shipping: 'Shipping',
         accounting: 'Accounting',
         ecommerce: 'E-Commerce',
-        printing: 'Printing',
       },
       catalog: {
         googleMeet: {
@@ -1205,66 +1194,6 @@ export const settings = {
             'Click notifications to jump directly to relevant items',
           ],
         },
-        dhl: {
-          description: 'Manage shipments and track packages worldwide.',
-          overview:
-            'DHL integration streamlines your international shipping operations. Generate labels, track packages in real-time, and manage deliveries across the globe. Access competitive rates and reliable delivery services directly from your workspace.',
-          features: [
-            'Automated shipping label generation',
-            'Real-time package tracking',
-            'Rate comparison and optimization',
-            'Customs documentation for international shipments',
-            'Pickup scheduling',
-            'Delivery notifications and updates',
-          ],
-          howItWorks: [
-            'Enter your DHL account credentials',
-            'Configure default shipping preferences',
-            'Generate labels directly from orders',
-            'Track shipments from the shipping dashboard',
-            'Receive automatic status updates',
-          ],
-        },
-        ups: {
-          description: 'Ship and track deliveries with competitive rates.',
-          overview:
-            'UPS integration provides access to one of the world\'s largest delivery networks. Ship packages domestically and internationally with confidence. Get real-time tracking, competitive rates, and reliable delivery estimates.',
-          features: [
-            'Domestic and international shipping',
-            'Real-time tracking and notifications',
-            'Rate shopping across service levels',
-            'Address validation',
-            'Return label generation',
-            'Pickup scheduling and management',
-          ],
-          howItWorks: [
-            'Connect your UPS account',
-            'Set up shipping preferences and defaults',
-            'Create shipments from your orders',
-            'Print labels and schedule pickups',
-            'Track all shipments in one dashboard',
-          ],
-        },
-        postnl: {
-          description: 'Ship within Netherlands and internationally.',
-          overview:
-            'PostNL integration is perfect for businesses shipping within the Netherlands and across Europe. Access the extensive PostNL network with pickup points, track & trace, and reliable delivery services.',
-          features: [
-            'Dutch and European shipping services',
-            'Extensive pickup point network',
-            'Track & trace integration',
-            'Same-day delivery options',
-            'Letterbox packages support',
-            'Return management',
-          ],
-          howItWorks: [
-            'Enter your PostNL API credentials',
-            'Configure shipping products and services',
-            'Generate labels for your orders',
-            'Track shipments through the dashboard',
-            'Manage returns efficiently',
-          ],
-        },
         exactOnline: {
           description: 'Sync invoices and automate your bookkeeping.',
           overview:
@@ -1305,26 +1234,6 @@ export const settings = {
             'Generate reports from either platform',
           ],
         },
-        printnode: {
-          description: 'Automated cloud printing for labels and documents.',
-          overview:
-            'PrintNode integration enables automated cloud printing for your business. Print shipping labels, packing slips, invoices, and custom documents to any connected printer. Set up print rules to automate your workflow.',
-          features: [
-            'Cloud printing to any connected printer',
-            'Automatic label printing on order creation',
-            'Multiple printer support',
-            'Print queue management',
-            'Custom print templates',
-            'Print history and logging',
-          ],
-          howItWorks: [
-            'Create a PrintNode account and get your API key',
-            'Install the PrintNode client on your computers',
-            'Enter your API key in the integration settings',
-            'Configure default printers for different document types',
-            'Documents will print automatically based on your rules',
-          ],
-        },
       },
       woocommerce: {
         title: 'WooCommerce',
@@ -1352,51 +1261,11 @@ export const settings = {
         overview:
           'Enter your Picqer subdomain and API key. After the first import, Picqer pushes stock, pick list, order, and purchase changes over webhooks, with a periodic catch-up. Stock quantities treat Picqer as warehouse truth unless you override the object direction.',
       },
-      sendcloud: {
-        title: 'Sendcloud',
-        description: 'Connect your Sendcloud account to create shipping labels from WeldStash pick lists.',
-        overview:
-          'Bring your own Sendcloud API keys. WeldSuite syncs sender addresses and shipping options (parcel types) from your account. Enable the ones packing may use, then create a label when you ship a pick list.',
-        publicKey: 'Public key',
-        secretKey: 'Secret key',
-        publicKeyPlaceholder: 'Sendcloud public key',
-        secretKeyPlaceholder: 'Sendcloud secret key',
-        keysHelp: 'In Sendcloud go to Settings → Integrations → Sendcloud API to copy your public and secret keys.',
-        connect: 'Connect Sendcloud',
-        connectedAs: 'Connected as {name}',
-        lastSynced: 'Last synced {date}',
-        refresh: 'Refresh from Sendcloud',
-        senders: 'Senders',
-        sendersHelp: 'Enable the sender addresses packing can ship from. One sender is the default.',
-        parcelTypes: 'Parcel types',
-        parcelTypesHelp: 'These are Sendcloud shipping options. Enable the ones your warehouse uses.',
-        colName: 'Name',
-        colCarrier: 'Carrier',
-        colAddress: 'Address',
-        colEnabled: 'Enabled',
-        colDefault: 'Default',
-        emptySenders: 'No sender addresses yet. Refresh after adding them in Sendcloud.',
-        emptyMethods: 'No parcel types yet. Activate carriers in Sendcloud, then refresh.',
-        saveFailed: 'Failed to save Sendcloud settings',
-        connectFailed: 'Could not connect to Sendcloud. Check the API keys.',
-        synced: 'Senders and parcel types refreshed',
-        syncFailed: 'Failed to refresh Sendcloud catalog',
-      },
-      configurePrintNode: 'Configure PrintNode',
-      printNodeDescription: 'Enter your PrintNode API key to connect your printers',
-      apiKey: 'API Key',
-      apiKeyPlaceholder: 'Enter your PrintNode API key',
-      apiKeyHelp: 'You can find your API key in your PrintNode dashboard at printnode.com',
       messages: {
         disconnected: '{integration} disconnected',
-        disconnectFailed: 'Failed to disconnect {integration}',
-        enterApiKey: 'Please enter an API key',
         enterApiKeyFirst: 'Please enter an API key first',
         connectionSuccess: 'Connection successful!',
         connectionTestFailed: 'Connection test failed',
-        testFailed: 'Failed to test connection',
-        printNodeSaved: 'PrintNode settings saved',
-        printNodeSaveFailed: 'Failed to save PrintNode settings',
       },
       attio: {
         title: 'Attio CRM',
@@ -1941,11 +1810,6 @@ export const settings = {
     weldcalendar: {
       title: 'WeldCalendar',
       description: 'How your calendar handles scheduled tasks.',
-    },
-
-    weldcommerce: {
-      title: 'WeldCommerce',
-      description: 'The customer portal your B2B customers sign in to.',
     },
 
     social: {
@@ -2684,7 +2548,6 @@ export const settings = {
     apiKeyPermissions: {
       groups: {
         crm: 'CRM',
-        commerce: 'Commerce',
         projects: 'Projects',
         helpdesk: 'Helpdesk',
         files: 'Files',
@@ -2730,14 +2593,6 @@ export const settings = {
         quotes: {
           name: 'Quotes',
           description: 'CRM quotes',
-        },
-        products: {
-          name: 'Products',
-          description: 'Commerce products',
-        },
-        orders: {
-          name: 'Orders',
-          description: 'Commerce orders',
         },
         projects: {
           name: 'Projects',

@@ -13,7 +13,7 @@ import * as schema from '@weldsuite/db/schema';
 import { syncTicketTypeDefinitions } from '@weldsuite/db/lib/custom-field-ticket-types';
 import { appendDeskMessage } from '@weldsuite/db/lib/desk';
 import { upsertIdentifiedDeskVisitor, listDeskConversationsForPrincipal, deskPrincipalOf } from '@weldsuite/db/lib/desk-portal';
-import { RateLimitCounter, type RateLimitNamespace, type RateLimitState } from '@weldsuite/commerce-domain/portal-tokens';
+import { RateLimitCounter, type RateLimitNamespace, type RateLimitState } from '@weldsuite/worker-kit/portal-tokens';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { createMemoryKv } from '@weldsuite/worker-kit/testing/d1';
 import type { TicketTypeField } from '@weldsuite/db/schema';

@@ -4,7 +4,6 @@ import type { MenuGroupProps, AppLogo } from '@/components/app-sidebar-layout';
 import { LucideDynamicIcon } from '@weldsuite/ui/components/lucide-dynamic-icon';
 import { getAppLogoConfig, getAppLucideIcon } from '@/lib/apps/app-registry';
 import type { ModuleSidebarConfig } from './module-sidebar-configs';
-import type { TranslationsType } from '@/lib/i18n/types';
 
 /** Manifest navigation item shape (from weldapp.json → installed app manifest). */
 export interface UserAppNavItem {
@@ -14,23 +13,6 @@ export interface UserAppNavItem {
   icon?: string;
   permission?: string;
   group?: string;
-}
-
-/**
- * Fallback sidebar for known first-party hosted apps whose published manifest
- * predates the `navigation` field (or when production API stripped it).
- */
-export function getHostedAppNavFallbacks(t: TranslationsType): Record<string, UserAppNavItem[]> {
-  const commerce = t.navigation.moduleSidebar.weldcommerce;
-  return {
-    weldcommerce: [
-      { id: 'overview', label: commerce.overview, path: '/', icon: 'LayoutDashboard' },
-      { id: 'products', label: commerce.products, path: '/products', icon: 'Package', permission: 'products:read' },
-      { id: 'categories', label: commerce.categories, path: '/categories', icon: 'FolderTree', permission: 'categories:read' },
-      { id: 'orders', label: commerce.orders, path: '/orders', icon: 'ShoppingCart', permission: 'orders:read' },
-      { id: 'customers', label: commerce.customers, path: '/customers', icon: 'Building', permission: 'companies:read' },
-    ],
-  };
 }
 
 function isAppLogoUrl(value?: string | null): boolean {
@@ -113,14 +95,14 @@ export function buildUserAppSidebarConfig(input: {
       const items =
         input.navigation && input.navigation.length > 0
           ? input.navigation
-          : (getHostedAppNavFallbacks(t)[input.appCode] ?? [
+          : [
               {
                 id: 'home',
                 label: t.navigation.home,
                 path: '/',
                 icon: isAppLogoUrl(input.icon) ? 'LayoutDashboard' : (input.icon ?? 'LayoutDashboard'),
               },
-            ]);
+            ];
       const groups = new Map<string, MenuGroupProps['items']>();
       for (const item of items) {
         const group = item.group?.trim() || defaultGroup;

@@ -61,10 +61,8 @@ function makeAppLogoIcon(appCode: string, name: string) {
 // reached from (never the app's own sidebar or pages, see AGENTS.md).
 // Built once so the icon components keep their identity across renders.
 const APP_SETTINGS_ITEMS = [
-  { appCode: 'parcel', title: 'Parcel', href: '/settings/apps/parcel' },
   { appCode: 'weldbooks', title: 'WeldBooks', href: '/settings/apps/weldbooks' },
   { appCode: 'weldcalendar', title: 'WeldCalendar', href: '/settings/apps/weldcalendar' },
-  { appCode: 'weldcommerce', title: 'WeldCommerce', href: '/settings/apps/weldcommerce' },
   { appCode: 'weldcrm', title: 'WeldCRM', href: '/settings/apps/weldcrm' },
   { appCode: 'welddesk', title: 'WeldDesk', href: '/settings/apps/welddesk' },
   { appCode: 'weldflow', title: 'WeldFlow', href: '/settings/apps/weldflow' },
@@ -148,7 +146,7 @@ export function useSettingsSidebarItems(enabled: boolean) {
         // WeldStash's settings (replenishment) exist on the Kubernetes editions only.
         .filter((item) => installedAppCodes.has(item.appCode) && (item.appCode !== 'weldstash' || isFeatureAvailable('stash-replenishment')))
         .map(({ appCode, title, href, icon }): MenuItemProps => ({
-          title: appCode === 'parcel' ? ts.menu.parcel : title,
+          title,
           href,
           icon,
           // WeldDesk opens up to its own settings pages while one of them is open.

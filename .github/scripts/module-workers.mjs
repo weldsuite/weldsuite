@@ -92,7 +92,6 @@ const TEST_SECONDS = {
   'calendar-api': 43,
   'meet-api': 39,
   'pass-api': 30,
-  'commerce-api': 27,
   'agent-api': 24,
   'host-api': 24,
   'forms-api': 24,

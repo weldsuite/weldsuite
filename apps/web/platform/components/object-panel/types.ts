@@ -11,7 +11,6 @@ export type ObjectType =
   | 'deal'
   | 'task'
   | 'product'
-  | 'order'
   | (string & {});
 
 export interface ObjectPanelComponentProps {

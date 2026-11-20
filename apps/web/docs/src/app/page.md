@@ -40,7 +40,6 @@ Browse guides written for everyday setup — no technical background needed. {% 
 | [WeldChat](/weldchat) | Team messaging and calls |
 | [WeldCalendar](/weldcalendar) | Events and booking pages |
 | [WeldDesk](/welddesk) | Support inbox and tickets |
-| [WeldCommerce](/weldcommerce) | Online store products and orders |
 | [WeldStash](/weldstash) | Inventory and fulfillment |
 | [WeldBooks](/weldbooks) | Invoices, bills, accounting |
 | [WeldData](/welddata) | B2B lead search and lists |

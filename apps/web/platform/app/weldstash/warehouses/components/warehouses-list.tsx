@@ -30,7 +30,7 @@ export function WarehousesList({
   hasMore,
   isFetchingMore,
 }: Readonly<WarehousesListProps>) {
-  const t = getTranslations('commerce').module;
+  const t = getTranslations('weldstash');
   const ts = getTranslations('common');
   const deleteMut = useDeleteWeldstashWarehouse();
   const { open: openObjectPanel } = useObjectPanel();

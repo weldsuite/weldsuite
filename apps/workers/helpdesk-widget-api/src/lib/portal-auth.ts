@@ -1,7 +1,7 @@
 /**
  * Help-center sign-in: email codes and sessions, in KV.
  *
- * Same scheme as the commerce portal (@weldsuite/commerce-domain/portal-tokens,
+ * Same scheme as the project portal (@weldsuite/worker-kit/portal-tokens,
  * whose generic pieces are reused): a 6-digit code per (workspace, email),
  * stored hashed for 15 minutes and dropped after 8 wrong guesses; a session
  * token, stored hashed for 30 days. The atomic counters behind the rate
@@ -21,7 +21,7 @@ import {
   releaseRateLimit,
   sha256Hex,
   type RateLimitOutcome,
-} from '@weldsuite/commerce-domain/portal-tokens';
+} from '@weldsuite/worker-kit/portal-tokens';
 import { deskPortalSessionKey, readDeskPortalSession } from '@weldsuite/db/lib/desk-portal-session';
 import type { Env } from '../index';
 

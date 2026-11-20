@@ -45,8 +45,6 @@ const CHECKLIST_TASKS: ChecklistTask[] = [
   { key: 'task_created', appCode: 'weldconnect', href: '/weldconnect' },
   // Host
   { key: 'host_domain_added', appCode: 'weldhost', href: '/weldhost/domains' },
-  // Parcel
-  { key: 'parcel_carrier_configured', appCode: 'parcel', href: '/parcel/settings/carriers' },
   // WMS
   { key: 'wms_warehouse_added', appCode: 'wms', href: '/wms/warehouses' },
   // Accounting

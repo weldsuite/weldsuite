@@ -2050,7 +2050,7 @@ const DEMO_WORKFLOWS: WorkflowRow[] = [
   { name: 'Lead → CRM contact upsert', description: 'Create or update a CRM contact from new website leads', trigger: 'webhook', steps: 4, executions: 856, successRate: 96, status: 'active' },
   { name: 'Daily AP digest email', description: 'Send a digest of open bills + due dates every morning', trigger: 'schedule', steps: 6, executions: 124, successRate: 100, status: 'active' },
   { name: 'New ticket → Slack alert', description: 'Notify #support when a new high-priority ticket lands', trigger: 'webhook', steps: 5, executions: 421, successRate: 92, status: 'active' },
-  { name: 'Order confirmation → email', description: 'Send branded confirmation email on new commerce order', trigger: 'webhook', steps: 5, executions: 1892, successRate: 88, status: 'paused' },
+  { name: 'Order confirmation → email', description: 'Send branded confirmation email on new web shop order', trigger: 'webhook', steps: 5, executions: 1892, successRate: 88, status: 'paused' },
   { name: 'Domain renewal reminder', description: 'Email customers 30 days before their domain expires', trigger: 'schedule', steps: 3, executions: 18, successRate: 100, status: 'active' },
   { name: 'Welcome email sequence', description: 'Three-step onboarding sequence for new signups', trigger: 'manual', steps: 4, executions: 0, successRate: 0, status: 'draft' },
 ];
