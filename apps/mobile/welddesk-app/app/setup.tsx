@@ -6,7 +6,7 @@ import {
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useObserve } from 'expo-observe';
-import { useOrganizationList } from '@weldsuite/mobile-platform/auth';
+import { useOrganizationList, workspaceRefOf } from '@weldsuite/mobile-platform/auth';
 import {
   ArrowLeft, Bell, Check, ChevronDown, Inbox,
   Shield, Database, Zap,
@@ -554,7 +554,7 @@ export default function SetupScreen() {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ mode?: string }>();
   const { user } = useAuthSession();
-  const { setActive } = useOrganizationList();
+  const { setActive, userMemberships } = useOrganizationList();
   const { t } = useI18n();
 
   const mode: SetupMode = (params.mode === 'new' || params.mode === 'existing') ? params.mode : 'new';
@@ -596,7 +596,7 @@ export default function SetupScreen() {
         // Storage read failed — start fresh
       }
 
-      // Pre-fill from Clerk user
+      // Pre-fill from the signed-in person's profile
       if (user) {
         setFormData((prev) => ({
           ...prev,
@@ -612,7 +612,7 @@ export default function SetupScreen() {
     };
 
     void loadState();
-    // Mount-once: restore persisted draft + Clerk profile prefill. Re-running on
+    // Mount-once: restore persisted draft + profile prefill. Re-running on
     // user/totalSteps would overwrite in-progress edits.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -684,20 +684,23 @@ export default function SetupScreen() {
         country: workspaceData.country,
       });
 
-      if (!response.success || !response.data?.organizationId) {
+      // The id the sign-in knows the new workspace by: `workspaces.id` on
+      // WeldID (membership mode), the organization id elsewhere.
+      const workspaceRef = response.success && response.data ? workspaceRefOf(response.data) : null;
+      if (!workspaceRef) {
         const msg = (response as any).error?.message || t.setup.createWorkspaceError;
         setGlobalError(msg);
         setIsLoading(false);
         return;
       }
 
-      // Set the new org as active in Clerk
+      // Make it the active workspace, so provisioning's calls go to it.
       if (setActive) {
-        await setActive({ organization: response.data.organizationId });
+        await setActive({ organization: workspaceRef });
       }
 
       // Update API service with new org
-      api.setOrganizationId(response.data.organizationId);
+      api.setOrganizationId(workspaceRef);
 
       setFormData((prev) => ({ ...prev, workspace: workspaceData }));
       goToStep(3); // Provisioning
@@ -727,6 +730,10 @@ export default function SetupScreen() {
         storage.removeItem(STORAGE_KEYS.currentStep),
         storage.removeItem(STORAGE_KEYS.mode),
       ]);
+      // Read the workspace list again, now that it has the new one (WeldID
+      // lists workspaces from the server, not from the token). After the
+      // completed flag, so the guard doesn't send the person back here.
+      await userMemberships.revalidate?.().catch(() => undefined);
 
       router.replace('/(tabs)');
     } catch {

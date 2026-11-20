@@ -652,6 +652,7 @@ describe('the facade on OIDC in header mode (WeldID in membership mode)', () => 
     // The URL names the active workspace by `orgSlug || orgId`.
     expect(result.current.auth.orgSlug).toBe('new-co');
   });
+
 });
 
 describe('which id names a workspace just created (workspaceRefOf)', () => {

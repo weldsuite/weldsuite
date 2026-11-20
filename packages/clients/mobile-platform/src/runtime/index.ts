@@ -36,13 +36,17 @@ import type { RuntimeConfig } from '@weldsuite/app-api-client/schemas/runtime-co
 
 export * from './types';
 export { hostOf, normaliseServerAddress, type AddressResult } from './address';
-export { getMobileRuntime, peekMobileRuntime, setMobileRuntime, type BootResult } from './state';
+export { getMobileRuntime, NoServerError, peekMobileRuntime, setMobileRuntime, type BootResult } from './state';
 export { onClearServerData, onLeaveServer } from './switch';
-export { isServerPickerEnabled, euOriginOf } from './build';
+export { isServerPickerEnabled, euOriginOf, offersServer, shipsClerk } from './build';
 
 const store: KeyValueStore = AsyncStorage;
 
-/** Boot the runtime for this app. A ready result is kept for `getMobileRuntime()`. */
+/**
+ * Boot the runtime for this app. A ready result is kept for
+ * `getMobileRuntime()`. Rejects with `NoServerError` only for a build that
+ * leaves the app no server (an EU-only app without an EU address).
+ */
 export async function bootMobileRuntime(app: MobileAppIdentity, build: MobileBuildEnv): Promise<BootResult> {
   const result = await resolveMobileRuntime({ app, build, store });
   if (result.status === 'ready') setMobileRuntime(result.runtime);

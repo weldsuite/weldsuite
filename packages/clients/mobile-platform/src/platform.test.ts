@@ -234,10 +234,19 @@ describe('edition', () => {
     expect(edition.isModuleAvailable('mail')).toBe(true);
     expect(edition.isModuleAvailable('core')).toBe(true);
     expect(edition.isModuleAvailable('agent')).toBe(false);
-    expect(edition.isPushAvailable()).toBe(false);
+    // EU sends push through WeldSuite's Expo account (MOB-006, amended 2026-11-19).
+    expect(edition.isPushAvailable()).toBe(true);
     expect(edition.isNotificationForThisServer({ threadId: 't1' })).toBe(false);
     expect(edition.isNotificationForThisServer({ server: 'https://app.test.weldsuite.eu' })).toBe(true);
+    expect(edition.isNotificationForThisServer({ server: 'https://app.test.weldsuite.eu/' })).toBe(true);
     expect(edition.isNotificationForThisServer({ server: 'https://other.example' })).toBe(false);
+  });
+
+  it('keeps push off on a self-hosted server', () => {
+    setMobileRuntime(
+      buildServerRuntime(APP, BUILD, { kind: 'self-hosted', origin: 'https://weldsuite.acme.test' }, EU_CONFIG),
+    );
+    expect(edition.isPushAvailable()).toBe(false);
   });
 });
 
@@ -284,6 +293,58 @@ describe('auth facade', () => {
     expect(auth.useUser().isLoaded).toBe(false);
     expect(auth.useOrganization().isLoaded).toBe(false);
     expect(auth.useOrganizationList().isLoaded).toBe(false);
+  });
+
+  it('names workspaces by workspaces.id only in header mode (WeldID)', () => {
+    const created = { organizationId: 'org_acme', workspaceId: 'ws_acme' };
+    expect(auth.workspaceRefOf(created)).toBe('org_acme');
+    auth.setAuthImplementation(null);
+    setMobileRuntime(euRuntime);
+    expect(auth.workspaceRefOf(created)).toBe('org_acme');
+    auth.setAuthImplementation(null);
+    setMobileRuntime(headerRuntime);
+    expect(auth.workspaceRefOf(created)).toBe('ws_acme');
+    expect(auth.workspaceRefOf({ organizationId: 'org_acme' })).toBe('org_acme');
+    expect(auth.workspaceRefOf({})).toBeNull();
+  });
+
+  it('names the workspace on requests only where the token doesn’t', () => {
+    const facade = (workspaceIds?: 'organization' | 'workspace') => ({
+      provider: 'oidc' as const,
+      Provider: ({ children }: { children: ReactNode }) => children,
+      useAuth: () => ({ orgId: 'ws_acme' }) as never,
+      useUser: () => ({ isLoaded: false, isSignedIn: undefined, user: undefined }) as const,
+      useOrganization: () => ({ isLoaded: false, organization: undefined }),
+      useOrganizationList: () => ({
+        isLoaded: false,
+        setActive: undefined,
+        userMemberships: { data: undefined, isLoading: true, isFetching: false, hasNextPage: false, fetchNext: undefined },
+      }),
+      getToken: async () => null,
+      signOut: async () => {},
+      getActiveOrgId: () => 'ws_acme',
+      workspaceIds,
+    });
+    auth.setAuthImplementation(facade('workspace'));
+    expect(auth.useWorkspaceForRequests()).toBe('ws_acme');
+    auth.setAuthImplementation(facade('organization'));
+    expect(auth.useWorkspaceForRequests()).toBeNull();
+  });
+
+  it('reads the workspace list from the server it runs against', async () => {
+    setMobileRuntime(headerRuntime);
+    const { loadWorkspacesFromServer } = await import('./auth/oidc/adapter');
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({ data: [{ id: 'ws_acme', name: 'Acme', slug: 'acme', role: 'OWNER' }, { id: 'x' }] }),
+    );
+    await expect(loadWorkspacesFromServer('tok', fetchImpl as unknown as typeof fetch)).resolves.toEqual([
+      { id: 'ws_acme', name: 'Acme', slug: 'acme' },
+    ]);
+    expect(fetchImpl).toHaveBeenCalledWith('https://app.test.weldsuite.eu/api/workspaces', {
+      headers: { Authorization: 'Bearer tok', Accept: 'application/json' },
+    });
+    const refused = vi.fn(async () => new Response('{}', { status: 500 }));
+    await expect(loadWorkspacesFromServer('tok', refused as unknown as typeof fetch)).resolves.toBeNull();
   });
 
   it('does nothing on sign-out before the runtime booted', async () => {

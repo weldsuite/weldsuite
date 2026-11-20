@@ -48,6 +48,8 @@ export interface ServerCopy {
   bootFailedTitle: string;
   tryAgain: string;
   useCloud: string;
+  /** For apps that run on WeldSuite EU and self-hosted servers only. */
+  useEu: string;
   changeServer: string;
 
   /** Sign-in on a server that hosts its own sign-in page. */
@@ -95,6 +97,7 @@ const STRINGS: Record<keyof ServerCopy, readonly [en: string, nl: string]> = {
   bootFailedTitle: ['Can’t open {server}', '{server} kan niet worden geopend'],
   tryAgain: ['Try again', 'Opnieuw proberen'],
   useCloud: ['Use WeldSuite cloud', 'WeldSuite cloud gebruiken'],
+  useEu: ['Use WeldSuite EU', 'WeldSuite EU gebruiken'],
   changeServer: ['Change server', 'Andere server kiezen'],
   hostedSignIn: ['Sign in', 'Inloggen'],
   hostedSignUp: ['Create account', 'Account aanmaken'],

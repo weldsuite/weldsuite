@@ -5,12 +5,20 @@ import type {
   TypingUser,
   Attachment,
 } from '../types';
+import { socketUrl } from './workspace-client';
 
 export interface RoomClientConfig {
   /** WebSocket URL, e.g. wss://realtime.weldsuite.com/ws/conversation/conv_123 */
   url: string;
   /** Returns a Clerk JWT or widget token for authentication */
   getToken: () => Promise<string>;
+  /**
+   * The member's workspace, sent as `?workspace=` (membership mode only, as
+   * `WorkspaceClientConfig.workspace`): what a signed-in member's chat,
+   * conversation or support room belongs to. Unset for widget visitors and
+   * meeting guests, and on Clerk and claim-mode OIDC.
+   */
+  workspace?: string | null;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -62,9 +70,7 @@ export class RoomClient {
       // If disconnected while awaiting the token, bail out
       if (this.intentionalClose) return;
 
-      const url = new URL(this.config.url);
-      url.searchParams.set('token', token);
-      const ws = new WebSocket(url.toString());
+      const ws = new WebSocket(socketUrl(this.config.url, token, this.config.workspace));
       this.pendingWs = ws;
 
       await new Promise<void>((resolve, reject) => {

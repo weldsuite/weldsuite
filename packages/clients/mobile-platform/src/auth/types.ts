@@ -134,6 +134,8 @@ export interface ClerkProviderOptions {
 
 export interface HostedSignInOptions {
   intent?: 'sign-in' | 'sign-up';
+  /** The app's language (`en`, `nl`), for the provider's pages (`ui_locales`). */
+  locale?: string;
 }
 
 /** The result of a hosted sign-in: the person may close the browser. */
@@ -162,4 +164,11 @@ export interface AuthImplementation {
    * and on `claim`-mode OIDC.
    */
   getActiveOrgId?: () => string | null;
+  /**
+   * Which id names a workspace in the membership list, `orgId` and
+   * `setActive`: the provider's organization id (Clerk, `claim`-mode OIDC;
+   * the default) or `workspaces.id` (WeldID in membership mode). See
+   * `workspaceRefOf()`.
+   */
+  workspaceIds?: 'organization' | 'workspace';
 }

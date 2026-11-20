@@ -56,6 +56,14 @@ export interface MobileAppIdentity {
   /** API modules the app can't work without, besides core. */
   requiredModules: readonly ApiModuleId[];
   /**
+   * The servers this app runs against; all three when absent. Global is
+   * retired app by app (ADR OPS-025): an app without `global` boots on the
+   * EU server its build names (`EXPO_PUBLIC_EU_SERVER_URL`), never offers
+   * WeldSuite cloud, and ships no Clerk, so a server that signs in through
+   * Clerk is refused as having no mobile sign-in.
+   */
+  servers?: readonly ServerKind[];
+  /**
    * Further server requirements (true = this server can run the app), such
    * as WeldMeet needing the RealtimeKit video provider.
    */
@@ -123,9 +131,10 @@ export interface MobileRuntime {
   /** Backend version from `/config.json`; null on Global. */
   version: string | null;
   /**
-   * Push notifications. Global only until the content-free relay exists:
-   * EU promises push without content and a self-hosted server can't send
-   * through WeldSuite's Expo account.
+   * Push notifications: on Global and EU, which both send through
+   * WeldSuite's Expo account (EU with the message content, decided
+   * 2026-11-19, ADR MOB-006). Off on a self-hosted server, which can't send
+   * through that account until the push relay exists.
    */
   pushEnabled: boolean;
   /** This build shows the server picker. */

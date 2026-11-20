@@ -72,6 +72,9 @@ pub struct WidgetState {
     pub cache: Option<Arc<dyn DynCache>>,
     /// System mail (notification emails); without it they are skipped.
     pub mail: Option<Arc<dyn DynSystemMail>>,
+    /// Push notifications to the team (Expo); without it they are skipped.
+    /// Conformance builds have none.
+    pub push_http: Option<weldsuite_ports::OutboundHttp>,
     /// The master database (`widget_registry`, `workspaces`, `plans`).
     pub master: Option<PgPool>,
     /// Opens a workspace's tenant database by its Clerk org id.

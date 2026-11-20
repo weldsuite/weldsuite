@@ -396,7 +396,7 @@ pub(crate) async fn notify_team(
         realtime: state.realtime.clone(),
         presence: None,
         mail: state.mail.clone(),
-        http: None,
+        http: state.push_http.clone(),
         apns: None,
     };
     for batch in recipients.chunks(NOTIFY_BATCH) {

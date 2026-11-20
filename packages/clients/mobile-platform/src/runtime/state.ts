@@ -13,7 +13,7 @@ import {
   type RuntimeConfig,
 } from '@weldsuite/app-api-client/schemas/runtime-config';
 import { normaliseServerAddress } from './address';
-import { buildGlobalRuntime, buildServerRuntime, euOriginOf, isServerPickerEnabled } from './build';
+import { buildGlobalRuntime, buildServerRuntime, euOriginOf, isServerPickerEnabled, offersServer } from './build';
 import { assessServerConfig, fetchServerConfig } from './server-config';
 import type {
   MobileAppIdentity,
@@ -116,18 +116,45 @@ export type BootResult =
       build: MobileBuildEnv;
     };
 
-/** The server this device should use: the saved choice, resolved against this build. */
+/** A build that leaves the app no server to start on (an EU-only app without `EXPO_PUBLIC_EU_SERVER_URL`). */
+export class NoServerError extends Error {
+  constructor(app: MobileAppIdentity) {
+    super(
+      `${app.name} runs on WeldSuite EU, but this build names no EU server: set EXPO_PUBLIC_EU_SERVER_URL.`,
+    );
+    this.name = 'NoServerError';
+  }
+}
+
+/**
+ * Where the app starts when nothing (usable) is saved: WeldSuite cloud while
+ * the app offers it, else the EU server this build names.
+ */
+function defaultServerChoice(app: MobileAppIdentity, build: MobileBuildEnv): ServerChoice {
+  if (offersServer(app, 'global')) return { kind: 'global' };
+  const origin = offersServer(app, 'eu') ? euOriginOf(build) : null;
+  if (!origin) throw new NoServerError(app);
+  return { kind: 'eu', origin };
+}
+
+/**
+ * The server this device should use: the saved choice, resolved against
+ * this build and the servers the app offers.
+ */
 export async function resolveServerChoice(
+  app: MobileAppIdentity,
   build: MobileBuildEnv,
   store: KeyValueStore,
 ): Promise<ServerChoice> {
-  // With the picker off the app behaves exactly as before: Global.
-  if (!isServerPickerEnabled(build)) return { kind: 'global' };
+  const fallback = () => defaultServerChoice(app, build);
+  // With the picker off the app always starts on its default server.
+  if (!isServerPickerEnabled(build)) return fallback();
   const saved = await readServerChoice(store);
-  if (!saved || saved.kind === 'global') return { kind: 'global' };
+  if (!saved || !offersServer(app, saved.kind)) return fallback();
+  if (saved.kind === 'global') return saved;
   if (saved.kind === 'eu') {
     const origin = euOriginOf(build);
-    return origin ? { kind: 'eu', origin } : { kind: 'global' };
+    return origin ? { kind: 'eu', origin } : fallback();
   }
   return saved;
 }
@@ -140,20 +167,22 @@ export async function resolveServerChoice(
  */
 export async function resolveMobileRuntime(options: ResolveRuntimeOptions): Promise<BootResult> {
   const { app, build, store } = options;
-  const choice = await resolveServerChoice(build, store);
+  const choice = await resolveServerChoice(app, build, store);
   if (choice.kind === 'global' || !choice.origin) {
     return { status: 'ready', runtime: buildGlobalRuntime(app, build) };
   }
   const target = { kind: choice.kind, origin: choice.origin };
 
   let config = await readCachedServerConfig(store, target.origin);
-  if (config) {
+  if (config && !assessServerConfig(config, app)) {
     void fetchServerConfig(target.origin, { fetchImpl: options.fetchImpl }).then(async (fresh) => {
       if (!fresh.ok) return;
       await cacheServerConfig(store, target.origin, fresh.config);
       options.onRefreshed?.(fresh.config);
     });
   } else {
+    // No cached copy, or one this app couldn't use (say, from before the
+    // server allowed the mobile apps): ask the server now.
     const fetched = await fetchServerConfig(target.origin, { fetchImpl: options.fetchImpl });
     if (!fetched.ok) return { status: 'failed', choice: target, problem: fetched.problem, app, build };
     config = fetched.config;

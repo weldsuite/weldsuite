@@ -17,10 +17,13 @@ import { StyleSheet, Text, View } from 'react-native';
 import {
   bootMobileRuntime,
   euOriginOf,
+  isServerPickerEnabled,
+  offersServer,
   switchServer,
   type BootResult,
   type MobileAppIdentity,
   type MobileBuildEnv,
+  type ServerChoice,
 } from '@weldsuite/mobile-platform/runtime';
 import { AuthLoaded, AuthLoading, AuthProvider, type ClerkProviderOptions } from '@weldsuite/mobile-platform/auth';
 import { Button } from './Button';
@@ -40,7 +43,7 @@ export interface ServerRuntimeGateProps {
   onFailed?: () => void;
 }
 
-type GateState = { status: 'booting' } | BootResult;
+type GateState = { status: 'booting' } | { status: 'error'; error: unknown } | BootResult;
 
 export function ServerRuntimeGate({
   app,
@@ -55,18 +58,21 @@ export function ServerRuntimeGate({
 
   const boot = useCallback(() => {
     setState({ status: 'booting' });
-    void bootMobileRuntime(app, build).then(setState);
+    // A rejection is a build that leaves the app no server (`NoServerError`).
+    void bootMobileRuntime(app, build).then(setState, (error: unknown) => setState({ status: 'error', error }));
     // `app` and `build` are module constants in every app, so this runs once.
   }, [app, build]);
 
   useEffect(boot, [boot]);
 
   useEffect(() => {
-    if (state.status === 'failed') onFailed?.();
+    if (state.status === 'failed' || state.status === 'error') onFailed?.();
   }, [state.status, onFailed]);
 
   if (state.status === 'booting') return null;
   if (state.status === 'ready') return <>{children}</>;
+  // A broken build, not a server problem: the app's error boundary shows it.
+  if (state.status === 'error') throw state.error;
   return (
     <BootFailed
       result={state}
@@ -109,6 +115,17 @@ export function ServerAuthRoot({ children, loading = null, clerk, ...gate }: Rea
   );
 }
 
+/**
+ * The server the error screen offers to go back to: WeldSuite cloud while the
+ * app offers it, else WeldSuite EU (unless EU is the one that failed).
+ */
+function fallbackServer(result: Extract<BootResult, { status: 'failed' }>): ServerChoice | null {
+  if (offersServer(result.app, 'global')) return { kind: 'global' };
+  const euOrigin = euOriginOf(result.build);
+  if (!euOrigin || !offersServer(result.app, 'eu') || result.choice.kind === 'eu') return null;
+  return { kind: 'eu', origin: euOrigin };
+}
+
 function BootFailed({
   result,
   onRetry,
@@ -127,6 +144,7 @@ function BootFailed({
   const [leaving, setLeaving] = useState(false);
   const labels = serverCopy(language, copy);
   const server = serverDisplayName(result.choice, labels);
+  const fallback = fallbackServer(result);
 
   return (
     <View testID="server-boot-failed" style={[styles.container, { backgroundColor: colors.background }]}>
@@ -136,20 +154,26 @@ function BootFailed({
           {serverProblemMessage(result.problem, labels, result.app.name)}
         </Text>
         <View style={styles.actions}>
-          {result.problem === 'unreachable' ? (
+          {/* Also the only way out when there's no other server to go to (the server may change). */}
+          {result.problem === 'unreachable' || (!fallback && !isServerPickerEnabled(result.build)) ? (
             <Button title={labels.tryAgain} onPress={onRetry} fullWidth style={{ backgroundColor: accentColor }} />
           ) : null}
-          <Button
-            title={labels.useCloud}
-            variant="secondary"
-            loading={leaving}
-            onPress={() => {
-              setLeaving(true);
-              void switchServer({ kind: 'global' }).finally(() => setLeaving(false));
-            }}
-            fullWidth
-          />
-          <Button title={labels.changeServer} variant="ghost" onPress={() => setPicking(true)} fullWidth />
+          {fallback ? (
+            <Button
+              title={fallback.kind === 'global' ? labels.useCloud : labels.useEu}
+              variant="secondary"
+              loading={leaving}
+              onPress={() => {
+                setLeaving(true);
+                void switchServer(fallback).finally(() => setLeaving(false));
+              }}
+              fullWidth
+            />
+          ) : null}
+          {/* Without the picker the build always starts on its own server: nothing to change to. */}
+          {isServerPickerEnabled(result.build) ? (
+            <Button title={labels.changeServer} variant="ghost" onPress={() => setPicking(true)} fullWidth />
+          ) : null}
         </View>
       </View>
       <ServerPicker

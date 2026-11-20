@@ -1209,6 +1209,7 @@ pub(crate) async fn desk_sla_sweep(
         events: state.infra.events.clone(),
         realtime: None,
         mail: None,
+        push_http: None,
         outbound: weldsuite_mail_domain::outbound::OutboundBindings::default(),
         master: None,
         cache: None,

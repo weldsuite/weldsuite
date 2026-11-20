@@ -19,41 +19,16 @@ import * as WebBrowser from 'expo-web-browser';
 import * as AuthSession from 'expo-auth-session';
 import { Building2, Eye, EyeOff, Fingerprint } from 'lucide-react-native';
 import { LOGIN_COPY, type LoginLanguage, type LoginScreenCopy } from '../constants/login-copy';
-import { OidcSignInError, useAuthProvider, useHostedSignIn } from '@weldsuite/mobile-platform/auth';
-import { hostOf, peekMobileRuntime } from '@weldsuite/mobile-platform/runtime';
-import { fillCopy, SERVER_COPY, type ServerCopy } from '../constants/server-copy';
+import { useAuthProvider } from '@weldsuite/mobile-platform/auth';
+import { type ServerCopy } from '../constants/server-copy';
 import { ServerRow } from './ServerRow';
+import { HostedLoginScreen } from './HostedLoginScreen';
+import { FormErrorBox, LoginLogo, loginStyles, SubmitButton, useWarmUpBrowser, type ThemeColors } from './LoginParts';
 import { authErrorMessage, isValidEmail, passwordErrorMessage } from '../lib/auth-errors';
 
 WebBrowser.maybeCompleteAuthSession();
-import { Colors, Radii, Spacing } from '../constants/theme';
+import { Radii, Spacing } from '../constants/theme';
 import { useTheme } from '../contexts/ThemeContext';
-
-type ThemeColors = typeof Colors.light;
-
-/** White label on brand-colored CTAs — independent of light/dark primaryForeground. */
-const ACCENT_FOREGROUND = '#FFFFFF';
-
-/** ~12% tint of an accent, matching WeldBooks icon tiles. */
-function tint(hex: string, fallback: string): string {
-  const value = hex.replace('#', '');
-  if (value.length !== 6) return fallback;
-  const r = Number.parseInt(value.slice(0, 2), 16);
-  const g = Number.parseInt(value.slice(2, 4), 16);
-  const b = Number.parseInt(value.slice(4, 6), 16);
-  return `rgba(${r},${g},${b},0.12)`;
-}
-
-/** Android Custom Tabs drop the OAuth return if the browser isn't warmed up. */
-function useWarmUpBrowser() {
-  useEffect(() => {
-    if (Platform.OS !== 'android') return;
-    void WebBrowser.warmUpAsync();
-    return () => {
-      void WebBrowser.coolDownAsync();
-    };
-  }, []);
-}
 
 function ssoRedirectUrl() {
   return AuthSession.makeRedirectUri({ path: 'sso-callback' });
@@ -488,63 +463,6 @@ function mfaSwitchLabel(strategy: MfaStrategy, labels: LoginScreenCopy): string 
   if (strategy === 'totp') return labels.useAuthenticator;
   if (strategy === 'phone_code') return labels.sendSms;
   return labels.useBackup;
-}
-
-interface LoginLogoProps {
-  logoElement?: ReactNode;
-  logo?: ImageSourcePropType;
-  appName: string;
-  iconW: number;
-  iconH: number;
-  accentColor: string;
-  colors: ThemeColors;
-}
-
-function LoginLogo({ logoElement, logo, appName, iconW, iconH, accentColor, colors }: Readonly<LoginLogoProps>) {
-  if (logoElement) return <View style={styles.logoElement}>{logoElement}</View>;
-  if (logo) {
-    return (
-      <View style={[styles.brandTile, { backgroundColor: tint(accentColor, colors.secondary) }]}>
-        <Image source={logo} style={{ width: iconW, height: iconH }} resizeMode="contain" />
-      </View>
-    );
-  }
-  return <Text style={[styles.appNameTitle, { color: colors.text }]}>{appName}</Text>;
-}
-
-function FormErrorBox({ message, colors }: Readonly<{ message: string | null; colors: ThemeColors }>) {
-  if (!message) return null;
-  return (
-    <View testID="login-error" style={[styles.formErrorContainer, { backgroundColor: `${colors.destructive}1A` }]}>
-      <Text style={[styles.formErrorText, { color: colors.destructive }]}>{message}</Text>
-    </View>
-  );
-}
-
-interface SubmitButtonProps {
-  accentColor: string;
-  loading: boolean;
-  onPress: () => void;
-  label: string;
-  testID?: string;
-}
-
-function SubmitButton({ accentColor, loading, onPress, label, testID }: Readonly<SubmitButtonProps>) {
-  return (
-    <TouchableOpacity
-      testID={testID}
-      style={[styles.signInButton, { backgroundColor: accentColor }, loading && styles.buttonDisabled]}
-      onPress={onPress}
-      activeOpacity={0.8}
-      disabled={loading}
-    >
-      {loading ? (
-        <ActivityIndicator color={ACCENT_FOREGROUND} />
-      ) : (
-        <Text style={[styles.signInButtonText, { color: ACCENT_FOREGROUND }]}>{label}</Text>
-      )}
-    </TouchableOpacity>
-  );
 }
 
 function validateNewPassword(pwd: string): boolean {
@@ -1289,159 +1207,15 @@ function ClerkLoginScreen({
   );
 }
 
-/** Sign-in on the server's own page (OIDC): one button to sign in, one to sign up. */
-function HostedLoginScreen({
-  logoElement,
-  logo,
-  logoSize,
-  appName,
-  subtitle,
-  language = 'en',
-  copy,
-  accentColor = '#3B82F6',
-  serverCopy,
-}: Readonly<LoginScreenProps>) {
-  useWarmUpBrowser();
-  const { colors } = useTheme();
-  const hosted = useHostedSignIn();
-  const [busy, setBusy] = useState<'sign-in' | 'sign-up' | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const base = LOGIN_COPY[language];
-  const labels: ServerCopy = { ...SERVER_COPY[language], ...serverCopy };
-  const origin = peekMobileRuntime()?.server.origin;
-  const server = origin ? hostOf(origin) : appName;
-
-  const start = async (intent: 'sign-in' | 'sign-up') => {
-    if (!hosted || busy) return;
-    setBusy(intent);
-    setError(null);
-    try {
-      // 'cancelled' (the person closed the sheet) needs no message.
-      await hosted.signIn({ intent });
-    } catch (e) {
-      setError(e instanceof OidcSignInError && e.code === 'unreachable' ? labels.unreachable : labels.hostedFailed);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  return (
-    <SafeAreaView edges={['top', 'bottom']} style={[styles.container, { backgroundColor: colors.background }]}>
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <View style={styles.content}>
-          <LoginLogo
-            logoElement={logoElement}
-            logo={logo}
-            appName={appName}
-            iconW={logoSize?.width ?? 40}
-            iconH={logoSize?.height ?? 40}
-            accentColor={accentColor}
-            colors={colors}
-          />
-          <View style={styles.welcomeSection}>
-            <Text style={[styles.pageTitle, { color: colors.text }]}>{copy?.signInTitle ?? base.signInTitle}</Text>
-            <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
-              {copy?.subtitle ?? subtitle ?? base.subtitle}
-            </Text>
-          </View>
-          <View style={styles.formContainer}>
-            <FormErrorBox message={error} colors={colors} />
-            <SubmitButton
-              testID="hosted-sign-in"
-              accentColor={accentColor}
-              loading={busy === 'sign-in'}
-              onPress={() => void start('sign-in')}
-              label={labels.hostedSignIn}
-            />
-            <TouchableOpacity
-              testID="hosted-sign-up"
-              style={[styles.oauthButton, { backgroundColor: colors.secondary }, busy !== null && styles.buttonDisabled]}
-              onPress={() => void start('sign-up')}
-              activeOpacity={0.8}
-              disabled={busy !== null}
-              accessibilityRole="button"
-            >
-              {busy === 'sign-up' ? (
-                <ActivityIndicator color={colors.text} />
-              ) : (
-                <Text style={[styles.oauthButtonText, { color: colors.text }]}>{labels.hostedSignUp}</Text>
-              )}
-            </TouchableOpacity>
-            <Text style={[styles.hostedHint, { color: colors.mutedForeground }]}>
-              {fillCopy(labels.hostedHint, { server })}
-            </Text>
-          </View>
-          <ServerRow variant="login" language={language} copy={serverCopy} accentColor={accentColor} />
-        </View>
-      </ScrollView>
-    </SafeAreaView>
-  );
-}
-
-const styles = StyleSheet.create({
-  hostedHint: {
-    fontSize: 13,
-    lineHeight: 18,
-    marginTop: Spacing.md,
-    textAlign: 'center',
-  },
-  container: {
-    flex: 1,
-  },
+// What only Clerk's forms use; the layout shared with HostedLoginScreen is `loginStyles`.
+const ownStyles = StyleSheet.create({
   keyboardAvoid: {
     flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
-    paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.xl,
-    paddingBottom: Spacing.xl,
-  },
-  content: {
-    width: '100%',
-    maxWidth: 440,
-    alignSelf: 'center',
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  brandTile: {
-    width: 72,
-    height: 72,
-    borderRadius: Radii.xl,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: Spacing.xl,
-  },
-  logoElement: {
-    marginBottom: Spacing.xl,
-    alignSelf: 'flex-start',
-  },
-  appNameTitle: {
-    fontSize: 26,
-    fontWeight: '600',
-    letterSpacing: -0.4,
-    lineHeight: 32,
-    marginBottom: Spacing.xl,
-  },
-  welcomeSection: {
-    marginBottom: 28,
-  },
-  pageTitle: {
-    fontSize: 26,
-    fontWeight: '600',
-    letterSpacing: -0.4,
-    lineHeight: 32,
-    marginBottom: 4,
-  },
-  subtitle: {
-    fontSize: 15,
-    lineHeight: 22,
-  },
-  formContainer: {
-    width: '100%',
   },
   inputContainer: {
     width: '100%',
@@ -1473,32 +1247,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  formErrorContainer: {
-    width: '100%',
-    marginBottom: Spacing.lg,
-    padding: Spacing.md,
-    borderRadius: Radii.md,
-  },
-  formErrorText: {
-    fontSize: 14,
-    fontWeight: '500',
-    lineHeight: 20,
-  },
-  signInButton: {
-    width: '100%',
-    height: 52,
-    borderRadius: Radii.lg,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  signInButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    letterSpacing: -0.2,
-  },
   loadingText: {
     marginTop: Spacing.lg,
     fontSize: 15,
@@ -1526,14 +1274,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '500',
   },
-  oauthButton: {
-    width: '100%',
-    height: 52,
-    borderRadius: Radii.lg,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: Spacing.sm,
-  },
   oauthButtonContent: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1542,10 +1282,6 @@ const styles = StyleSheet.create({
   oauthIcon: {
     width: 20,
     height: 20,
-  },
-  oauthButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
   },
   appleIcon: {
     fontSize: 18,
@@ -1560,3 +1296,5 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 });
+
+const styles = { ...loginStyles, ...ownStyles };

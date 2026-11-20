@@ -46,19 +46,26 @@ export function isModuleAvailable(moduleId: string): boolean {
   return modules === 'all' || moduleId === 'core' || modules.has(moduleId);
 }
 
-/** Push notifications reach this app (Global only until the content-free relay). */
+/** Push notifications reach this app (Global and EU; not a self-hosted server until the push relay). */
 export function isPushAvailable(): boolean {
   return getMobileRuntime().pushEnabled;
 }
 
+function trimSlash(value: string): string {
+  return value.endsWith('/') ? value.slice(0, -1) : value;
+}
+
 /**
- * Whether a notification belongs to the server the app runs against. A
- * notification may carry `server` (an origin); one without is from Global,
- * the only server that sends push today.
+ * Whether a notification belongs to the server the app runs against. The
+ * Rust backend (EU) names itself in `server` (its platform origin); Global
+ * names no server. So a notification without one is Global's, and after
+ * leaving Global its taps are ignored, as are another server's.
  */
 export function isNotificationForThisServer(data: Record<string, unknown> | null | undefined): boolean {
   const runtime = getMobileRuntime();
-  const server = typeof data?.server === 'string' ? data.server : null;
-  if (server) return server === (runtime.server.origin ?? null) || (runtime.server.kind === 'global' && server === 'global');
-  return runtime.server.kind === 'global';
+  const server = typeof data?.server === 'string' ? trimSlash(data.server.trim()) : null;
+  if (!server) return runtime.server.kind === 'global';
+  if (runtime.server.kind === 'global') return server === 'global';
+  // The build's address, the API host or the web app's: whichever the server calls itself.
+  return [runtime.server.origin, runtime.apiOrigin, runtime.platformUrl].includes(server);
 }

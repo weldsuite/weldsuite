@@ -140,6 +140,9 @@ pub struct DeskState {
     pub workflow: DynWorkflowEngine,
     /// Discord and Slack calls. A request's `RequestHttp` (conformance) wins.
     pub http: Option<DynDeskHttp>,
+    /// Outbound HTTP for push notifications (Expo); without it notifications
+    /// go out in-app and by email only. Conformance builds have none.
+    pub push_http: Option<weldsuite_ports::OutboundHttp>,
     /// Customer mail (email replies) and the outbound ledgers. A request's
     /// `RequestOutbound` (conformance) wins.
     pub outbound: OutboundBindings,

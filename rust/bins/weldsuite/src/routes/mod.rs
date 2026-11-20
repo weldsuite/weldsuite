@@ -1959,6 +1959,10 @@ pub(crate) fn desk_widget(state: &AppState) -> Router {
         files: file_stores(state),
         cache: state.infra.cache.clone(),
         mail: state.infra.mail.clone(),
+        // Expo push for "new conversation" / "replied"; none in conformance builds.
+        push_http: (!cfg!(feature = "conformance"))
+            .then(shared_outbound)
+            .flatten(),
         master: Some(state.workspaces.master().clone()),
         workspaces: Some(Arc::clone(&state.workspaces)),
         // The helpdesk widget tests bind no `WORKFLOW_WORKER`: conformance
@@ -2007,6 +2011,11 @@ fn desk_state(state: &AppState) -> weldsuite_desk::DeskState {
         mail: state.infra.mail.clone(),
         workflow,
         http: Some(desk_http()),
+        // Expo push for ticket notifications; conformance builds send none,
+        // as desk-api's tests bind no push.
+        push_http: (!cfg!(feature = "conformance"))
+            .then(shared_outbound)
+            .flatten(),
         // Email replies go through WeldMail's relay and ledgers
         // ([`deployment_outbound`]); conformance takes the test's.
         outbound: deployment_outbound(state),

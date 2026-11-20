@@ -40,7 +40,6 @@ const singletons = [
   'react',
   'react-native',
   'expo',
-  '@clerk/expo',
   'react-native-reanimated',
   'react-native-worklets',
   'react-native-gesture-handler',
@@ -73,8 +72,20 @@ config.resolver.extraNodeModules = {
   'event-target-shim': eventTargetShimRoot,
 };
 
+// WeldDesk signs in through WeldID only (lib/server.ts: no WeldSuite cloud),
+// so it ships no Clerk: the auth facade in @weldsuite/mobile-platform still
+// imports its Clerk adapter for the apps that offer WeldSuite cloud, and
+// here that import resolves to an empty module. The adapter is never chosen
+// (the runtime refuses a Clerk server for this app), and none of Clerk's
+// code or native modules end up in the bundle. Drop this once the shared
+// packages lose Clerk with the last Global app.
+const isClerk = (moduleName) => moduleName === '@clerk/expo' || moduleName.startsWith('@clerk/');
+
 const defaultResolveRequest = config.resolver.resolveRequest;
 config.resolver.resolveRequest = (context, moduleName, platform) => {
+  if (isClerk(moduleName)) {
+    return { type: 'empty' };
+  }
   if (moduleName === 'event-target-shim') {
     return {
       type: 'sourceFile',

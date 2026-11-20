@@ -1,5 +1,6 @@
 /**
- * WeldDesk mobile API — desk conversations via app-api `/api/desk/*`.
+ * WeldDesk mobile API — desk conversations via the server's `/api/desk/*`
+ * (WeldSuite EU, or a self-hosted server).
  *
  * Matches the platform agent inbox surface (use-desk-queries).
  */
@@ -50,7 +51,8 @@ class WeldDeskApi {
   }
 
   setOrganizationId(_orgId: string | null) {
-    // No-op: app-api derives the workspace from the Clerk JWT's active org.
+    // No-op: the shared API client names the active workspace itself
+    // (`X-Weld-Workspace` from the auth session on WeldID).
   }
 
   getCurrentWorkspace(): Promise<ApiResponse<Workspace>> {

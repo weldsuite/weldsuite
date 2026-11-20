@@ -13,6 +13,7 @@ import type {
   MobileBuildEnv,
   MobileRuntime,
   ServerChoice,
+  ServerKind,
 } from './types';
 
 const LOCAL_APP_API = 'http://localhost:8789';
@@ -39,6 +40,19 @@ function realtimeBase(url: string): string {
 
 export function isServerPickerEnabled(build: MobileBuildEnv): boolean {
   return build.serverPicker?.trim().toLowerCase() === 'on';
+}
+
+/** Whether the app runs against this kind of server (`MobileAppIdentity.servers`; default all). */
+export function offersServer(app: Pick<MobileAppIdentity, 'servers'>, kind: ServerKind): boolean {
+  return !app.servers || app.servers.includes(kind);
+}
+
+/**
+ * Whether the app ships Clerk: only apps that still offer WeldSuite cloud
+ * (Global) do. The others refuse a server that signs in through Clerk.
+ */
+export function shipsClerk(app: Pick<MobileAppIdentity, 'servers'>): boolean {
+  return offersServer(app, 'global');
 }
 
 /** The EU origin this build knows, normalised; null when unset or invalid. */
@@ -131,7 +145,9 @@ export function buildServerRuntime(
     videoProvider: config.videoProvider ?? null,
     videoUrl: config.videoUrl ?? null,
     version: config.version ?? null,
-    pushEnabled: false,
+    // EU sends through WeldSuite's Expo account like Global; a self-hosted
+    // server can't (no push relay yet).
+    pushEnabled: choice.kind === 'eu',
     serverPickerEnabled: isServerPickerEnabled(build),
     euOrigin: euOriginOf(build),
   };

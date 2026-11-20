@@ -72,7 +72,7 @@ pub(crate) fn notifier(state: &DeskState) -> Notifier {
         realtime: state.realtime.clone(),
         presence: None,
         mail: state.mail.clone(),
-        http: None,
+        http: state.push_http.clone(),
         apns: None,
     }
 }

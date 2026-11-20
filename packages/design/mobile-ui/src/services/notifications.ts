@@ -3,6 +3,13 @@ import * as Device from 'expo-device';
 import * as Application from 'expo-application';
 import { Platform } from 'react-native';
 import { peekMobileRuntime } from '@weldsuite/mobile-platform/runtime';
+import { workspaceHeaders as runtimeWorkspaceHeaders } from '@weldsuite/mobile-platform/api';
+
+/** `X-Weld-Workspace` in WeldID's membership mode; nothing elsewhere, or before the runtime booted. */
+async function workspaceHeaders(): Promise<Record<string, string>> {
+  if (!peekMobileRuntime()) return {};
+  return runtimeWorkspaceHeaders().catch(() => ({}));
+}
 
 // Configure how notifications are displayed when app is in foreground
 Notifications.setNotificationHandler({
@@ -96,8 +103,8 @@ export async function registerDeviceToken(
   appCode: string = 'weldsuite',
   apiBaseUrl: string = defaultApiBaseUrl()
 ): Promise<boolean> {
-  // Push reaches the apps on Global only until the content-free relay
-  // exists (weldsuite-documentation/plans/mobile-server-choice.md, section 6).
+  // Global and EU send push; a self-hosted server can't until the push relay
+  // exists (ADR MOB-006).
   if (!isPushEnabled()) return false;
   try {
     const deviceId = await getDeviceId();
@@ -125,6 +132,8 @@ export async function registerDeviceToken(
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${accessToken}`,
+      // WeldID (membership mode): the token names no workspace, the request does.
+      ...(await workspaceHeaders()),
     };
     if (organizationId) {
       // app-api ignores this (org comes from the JWT); harmless hint for other backends.
@@ -177,7 +186,7 @@ export async function unregisterDeviceToken(
     const deviceId = `${await getDeviceId()}${deviceIdSuffix}`;
     const response = await fetch(`${apiBaseUrl}/api/push-tokens?deviceId=${encodeURIComponent(deviceId)}`, {
       method: 'DELETE',
-      headers: { Authorization: `Bearer ${accessToken}` },
+      headers: { Authorization: `Bearer ${accessToken}`, ...(await workspaceHeaders()) },
     });
     return response.ok;
   } catch {
