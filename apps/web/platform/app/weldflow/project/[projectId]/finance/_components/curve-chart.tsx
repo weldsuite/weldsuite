@@ -10,8 +10,8 @@ import { useMemo } from 'react';
 import { CartesianGrid, Line, LineChart, ReferenceLine, XAxis, YAxis } from 'recharts';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@weldsuite/ui/components/chart';
 import type { FinanceSnapshot, ProjectFinance } from '@weldsuite/app-api-client/domains/project-finance';
-import { FOLLOWING_TOOLTIP_PROPS, FollowingTooltip } from '@/app/weldbooks/dashboard/components/following-tooltip';
-import { MoneyTooltipRow } from '@/app/weldbooks/dashboard/components/money-tooltip-row';
+import { ChartTooltipRow } from '@weldsuite/ui/components/chart-tooltip-row';
+import { FOLLOWING_TOOLTIP_PROPS, FollowingTooltip } from '@weldsuite/ui/components/following-tooltip';
 import { buildCurve, formatMoney, formatPercent, type CurvePoint } from '../_lib/finance';
 import { useFinanceEnv } from './finance-parts';
 
@@ -137,7 +137,7 @@ export function CurveChart({
                       labelFormatter={(_, payload) => date(Number((payload?.[0]?.payload as CurvePoint | undefined)?.t))}
                       formatter={(n, name) => {
                         const series = name as Series;
-                        return <MoneyTooltipRow label={names[series]} color={COLORS[series]} dashed={DASHED[series]} value={value(Number(n))} />;
+                        return <ChartTooltipRow label={names[series]} color={COLORS[series]} dashed={DASHED[series]} value={value(Number(n))} />;
                       }}
                     />
                   </FollowingTooltip>

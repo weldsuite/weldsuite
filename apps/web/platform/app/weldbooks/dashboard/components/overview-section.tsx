@@ -54,7 +54,7 @@ export function OverviewSection({ dashboard }: Readonly<{ dashboard: Dashboard }
   const [range, setRange] = useState<Range>('12');
   const [compareChoice, setCompareChoice] = useState<Compare | 'off'>('previousPeriod');
   const compare = compareChoice === 'off' ? null : compareChoice;
-  const { months, sample } = useMemo(() => dashboardTrend(dashboard), [dashboard]);
+  const months = useMemo(() => dashboardTrend(dashboard), [dashboard]);
   const { charts, removeChart, setCharts, restoreChart, isSaving } = useDashboardCharts();
   const filter = useMemo(() => ({ size: Number(range), compare }), [range, compare]);
   /** The layout being edited; `null` while the overview is not being edited. */
@@ -81,7 +81,7 @@ export function OverviewSection({ dashboard }: Readonly<{ dashboard: Dashboard }
     off: tc.noComparisonShort,
   };
   const rangeLabel = rangeOptions.find((o) => o.value === range)?.label ?? '';
-  const body = { dashboard, months, sample, filter };
+  const body = { dashboard, months, filter };
   const addChart = () => router.push(CHART_BUILDER_PATH);
 
   /** "Add chart" while customizing keeps the new order: save it, then open the builder. */

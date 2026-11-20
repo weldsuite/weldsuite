@@ -4,30 +4,28 @@
  * segments (no smoothing, no area fill) and only the first and last x label,
  * pinned to the chart's edges.
  *
- * - `hero` is the "Today" chart: no y axis and no grid, just the baseline.
- * - `card` is an overview card chart: light horizontal grid lines with the
+ * - `hero` is a page's headline chart: no y axis and no grid, just the baseline.
+ * - `card` is a dashboard card's chart: light horizontal grid lines with the
  *   y labels on the right, at round values (€0, €10K, €20K, €30K).
  *
  * A point without a value is a gap, so a running total stops at "now".
+ * All-zero figures draw flat lines on the zero line.
  *
- * `sample` draws the example trend of a workspace with nothing booked yet: muted
- * dashed lines, no y labels (the values are made up), no tooltip, no hover dot,
- * and a "Sample data" caption underneath.
+ * The period can also draw as an `area` (the line over a soft fill) or as
+ * `bar`s, in any colour. Bars keep the dashed comparison line, drawn over
+ * them, so each period is one wide bar rather than half of a pair.
  *
- * A user's own overview chart can also draw the period as an `area` (the line
- * over a soft fill) or as `bar`s, in one of the theme's chart colours. Bars
- * keep the dashed comparison line, drawn over them, so each month is one wide
- * bar rather than half of a pair.
+ * The tooltip follows the pointer (`FollowingTooltip`) with a row per series
+ * (`ChartTooltipRow`). The chart holds no text of its own: names come in as
+ * labels and every value goes through the formatters it is given.
  */
 
 import { useId, useMemo } from 'react';
-import { useTranslations } from '@weldsuite/i18n/client';
 import { Area, Bar, CartesianGrid, ComposedChart, Line, XAxis, YAxis } from 'recharts';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@weldsuite/ui/components/chart';
-import { niceTicks, type SeriesPoint } from './dashboard-series';
-import { FOLLOWING_TOOLTIP_PROPS, FollowingTooltip } from './following-tooltip';
-import { MoneyTooltipRow } from './money-tooltip-row';
-import { useChartFormat } from './use-chart-format';
+import { ChartTooltipRow } from '@weldsuite/ui/components/chart-tooltip-row';
+import { FOLLOWING_TOOLTIP_PROPS, FollowingTooltip } from '@weldsuite/ui/components/following-tooltip';
+import { niceTicks } from '@weldsuite/ui/lib/nice-ticks';
 
 export const CURRENT_COLOR = 'var(--chart-1)';
 export const COMPARISON_COLOR = 'var(--muted-foreground)';
@@ -43,6 +41,39 @@ const AXIS_LABEL = 'fill-muted-foreground text-xs tabular-nums';
 const onPixelRow = (y: number) => Math.round(y - 0.5) + 0.5;
 /** Recharts' tick size (6) and our tick margin (8) between the plot and a y label, plus 2px of slack. */
 const Y_LABEL_OFFSET = 16;
+
+/** One x position: the period's value and, when there is one, the value it is compared with. */
+export interface ComparisonPoint {
+  /** The period's key, such as `2026-10`; the formatters turn it into text. */
+  month: string;
+  /** Leave it out for a gap. */
+  value?: number;
+  /** The key of the period it is compared with, such as `2025-10`. */
+  compareMonth?: string;
+  compareValue?: number;
+}
+
+export interface ComparisonChartProps {
+  points: ComparisonPoint[];
+  variant: 'hero' | 'card';
+  /** The period's name, for assistive tech and the chart config. */
+  label: string;
+  /** The comparison's name. */
+  compareLabel: string;
+  /** The text under each x end, from a point's `month`: "Dec 2025". */
+  formatTick: (month: string) => string;
+  /** A y-axis label (cards only), short: "€30K". */
+  formatAxisValue: (value: number) => string;
+  /** A value in the tooltip, in full: "€30,120.00". */
+  formatValue: (value: number) => string;
+  /** A row's period in the tooltip, from its `month` or `compareMonth`: "October 2026". */
+  formatPeriod: (month: string) => string;
+  className?: string;
+  /** How the period draws; `line` by default. */
+  shape?: 'line' | 'area' | 'bar';
+  /** The period's colour; `--chart-1` by default. */
+  color?: string;
+}
 
 /**
  * The widest of `labels` at the axis labels' 12px in the page's font, so the
@@ -61,36 +92,19 @@ function useTextWidth(labels: string[]): number {
   }, [key]);
 }
 
-type Props = Readonly<{
-  points: SeriesPoint[];
-  variant: 'hero' | 'card';
-  label: string;
-  compareLabel: string;
-  /** The text under each x end, from a `YYYY-MM` key. */
-  formatTick: (month: string) => string;
-  className?: string;
-  /** How the period draws; `line` by default. */
-  shape?: 'line' | 'area' | 'bar';
-  /** The period's colour; the dashboard's chart colour by default. */
-  color?: string;
-  /** The points are an example, not the workspace's figures. */
-  sample?: boolean;
-}>;
-
-export function ComparisonLineChart({
+export function ComparisonChart({
   points,
   variant,
   label,
   compareLabel,
   formatTick,
+  formatAxisValue,
+  formatValue,
+  formatPeriod,
   className,
   shape = 'line',
-  color: periodColor = CURRENT_COLOR,
-  sample = false,
-}: Props) {
-  const st = useTranslations();
-  const color = sample ? COMPARISON_COLOR : periodColor;
-  const format = useChartFormat();
+  color = CURRENT_COLOR,
+}: Readonly<ComparisonChartProps>) {
   const fillId = `fill-${useId().replace(/:/g, '')}`;
   const config = {
     value: { label, color },
@@ -102,7 +116,7 @@ export function ComparisonLineChart({
   const card = variant === 'card';
   const values = points.flatMap((p) => [p.value ?? 0, p.compareValue ?? 0]);
   const ticks = niceTicks(Math.min(0, ...values), Math.max(0, ...values));
-  const yLabelWidth = useTextWidth(ticks.map((t) => format.compactMoney(t)));
+  const yLabelWidth = useTextWidth(ticks.map((t) => formatAxisValue(t)));
   const domainMin = ticks[0];
   const domainMax = ticks[ticks.length - 1] || 1;
 
@@ -115,7 +129,6 @@ export function ComparisonLineChart({
   };
 
   return (
-    <>
     <ChartContainer config={config} className={className}>
       <ComposedChart
         accessibilityLayer
@@ -126,9 +139,9 @@ export function ComparisonLineChart({
       >
         <CartesianGrid vertical={false} stroke="var(--border)" horizontalCoordinatesGenerator={gridLines} />
         <YAxis
-          hide={!card || sample}
+          hide={!card}
           orientation="right"
-          width={card && !sample ? yLabelWidth + Y_LABEL_OFFSET : 0}
+          width={card ? yLabelWidth + Y_LABEL_OFFSET : 0}
           ticks={card ? ticks : undefined}
           interval={0}
           tickLine={false}
@@ -136,7 +149,7 @@ export function ComparisonLineChart({
           tickMargin={8}
           tick={({ x, y, payload }: { x: number; y: number; payload: { value: number } }) => (
             <text x={x} y={y} dy="0.355em" textAnchor="start" className={AXIS_LABEL}>
-              {format.compactMoney(payload.value)}
+              {formatAxisValue(payload.value)}
             </text>
           )}
           domain={
@@ -156,7 +169,6 @@ export function ComparisonLineChart({
             </text>
           )}
         />
-        {!sample && (
         <ChartTooltip
           {...FOLLOWING_TOOLTIP_PROPS}
           cursor={shape === 'bar' ? { fill: 'var(--muted)', opacity: 0.6 } : { stroke: 'var(--border)' }}
@@ -169,14 +181,14 @@ export function ComparisonLineChart({
                 payload={[...(props.payload ?? [])].sort((a, b) => Number(b.dataKey === 'value') - Number(a.dataKey === 'value'))}
                 hideLabel
                 formatter={(value, name, item) => {
-                  const point = item.payload as SeriesPoint;
+                  const point = item.payload as ComparisonPoint;
                   const isCurrent = name === 'value';
                   return (
-                    <MoneyTooltipRow
-                      label={format.monthLong((isCurrent ? point.month : point.compareMonth) ?? '')}
+                    <ChartTooltipRow
+                      label={formatPeriod((isCurrent ? point.month : point.compareMonth) ?? '')}
                       color={isCurrent ? color : COMPARISON_COLOR}
                       dashed={!isCurrent}
-                      value={format.formatMoney(Number(value))}
+                      value={formatValue(Number(value))}
                     />
                   );
                 }}
@@ -184,7 +196,6 @@ export function ComparisonLineChart({
             </FollowingTooltip>
           )}
         />
-        )}
         {shape === 'area' && (
           <defs>
             <linearGradient id={fillId} x1="0" y1="0" x2="0" y2="1">
@@ -203,9 +214,8 @@ export function ComparisonLineChart({
             stroke="var(--color-compareValue)"
             strokeWidth={1.5}
             strokeDasharray="4 4"
-            strokeOpacity={sample ? 0.5 : 1}
             dot={false}
-            activeDot={sample ? false : { r: 3, fill: COMPARISON_COLOR, stroke: 'var(--background)', strokeWidth: 2 }}
+            activeDot={{ r: 3, fill: COMPARISON_COLOR, stroke: 'var(--background)', strokeWidth: 2 }}
             isAnimationActive={false}
           />
         )}
@@ -215,10 +225,9 @@ export function ComparisonLineChart({
             type="linear"
             stroke="var(--color-value)"
             strokeWidth={2}
-            strokeDasharray={sample ? '4 4' : undefined}
             fill={`url(#${fillId})`}
             dot={false}
-            activeDot={sample ? false : { r: 4, fill: color, stroke: 'var(--background)', strokeWidth: 2 }}
+            activeDot={{ r: 4, fill: color, stroke: 'var(--background)', strokeWidth: 2 }}
             isAnimationActive={false}
           />
         )}
@@ -228,19 +237,12 @@ export function ComparisonLineChart({
             type="linear"
             stroke="var(--color-value)"
             strokeWidth={2}
-            strokeDasharray={sample ? '4 4' : undefined}
             dot={false}
-            activeDot={sample ? false : { r: 4, fill: color, stroke: 'var(--background)', strokeWidth: 2 }}
+            activeDot={{ r: 4, fill: color, stroke: 'var(--background)', strokeWidth: 2 }}
             isAnimationActive={false}
           />
         )}
       </ComposedChart>
     </ChartContainer>
-    {sample ? (
-      <p className="mt-2 text-xs text-muted-foreground" data-testid="sample-caption">
-        {st('sweep.weldbooks.records.sampleData')}
-      </p>
-    ) : null}
-    </>
   );
 }

@@ -19,9 +19,11 @@ vi.mock('./use-chart-format', () => {
   };
   return { useChartFormat: () => format };
 });
-// The chart is Recharts; what matters here is whether it is told it draws sample data.
-vi.mock('./comparison-line-chart', () => ({
-  ComparisonLineChart: ({ sample }: { sample?: boolean }) => <div data-testid="hero-chart" data-sample={String(sample)} />,
+// The chart is Recharts; what matters here is the values it is given.
+vi.mock('@weldsuite/ui/components/comparison-chart', () => ({
+  ComparisonChart: ({ points }: { points: Array<{ value?: number; compareValue?: number }> }) => (
+    <div data-testid="hero-chart" data-values={JSON.stringify(points.flatMap((p) => [p.value, p.compareValue]).filter((v) => v !== undefined))} />
+  ),
 }));
 
 import { TodaySection } from './today-section';
@@ -55,8 +57,14 @@ describe('TodaySection cash balance', () => {
     expect(within(cashCard()).getByText('€1000.00')).toBeInTheDocument();
   });
 
-  it('tells the chart when it draws the sample trend of a workspace with nothing booked', () => {
-    render(<TodaySection dashboard={dashboard()} />);
-    expect(screen.getByTestId('hero-chart')).toHaveAttribute('data-sample', 'true');
+  it('draws a workspace with nothing booked at zero: the figures and the lines', () => {
+    render(<TodaySection dashboard={dashboard({ cashBalance: '1450.25' })} />);
+    const values = JSON.parse(screen.getByTestId('hero-chart').dataset.values ?? '[]') as number[];
+    expect(values.length).toBeGreaterThan(0);
+    expect(values.every((v) => v === 0)).toBe(true);
+    const thisYear = screen.getByRole('button', { name: 'Revenue' }).parentElement as HTMLElement;
+    const lastYear = screen.getByText('Last year').parentElement as HTMLElement;
+    expect(within(thisYear).getByText('€0.00')).toBeInTheDocument();
+    expect(within(lastYear).getByText('€0.00')).toBeInTheDocument();
   });
 });
