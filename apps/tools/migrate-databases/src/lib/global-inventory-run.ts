@@ -97,7 +97,10 @@ async function inventoryWorkspace(row: ConnectionRow, ctx: Context): Promise<Wor
 }
 
 export interface InventoryRunOptions {
-  /** Reads `MASTER_DATABASE_URL`, the encryption keys, `NEON_API_KEY`, `CLERK_SECRET_KEY` and the mail-store admin settings. */
+  /**
+   * Reads `MASTER_DATABASE_URL` (or `DATABASE_URL_MASTER`, Doppler's name for it), the encryption keys, `NEON_API_KEY`,
+   * `CLERK_SECRET_KEY` and the mail-store admin settings.
+   */
   env: NodeJS.ProcessEnv;
   outDir: string;
   /** One workspace (`workspaces.id`) instead of all. */
@@ -112,8 +115,8 @@ export interface InventoryRunOptions {
 export async function runGlobalInventory(options: InventoryRunOptions): Promise<GlobalInventory> {
   const { env } = options;
   const log = options.log ?? (() => {});
-  const masterUrl = env.MASTER_DATABASE_URL;
-  if (!masterUrl) throw new Error('MASTER_DATABASE_URL is required');
+  const masterUrl = env.MASTER_DATABASE_URL || env.DATABASE_URL_MASTER;
+  if (!masterUrl) throw new Error('MASTER_DATABASE_URL (or DATABASE_URL_MASTER) is required');
   const ctx: Context = {
     keyring: keyringFromEnv({
       DATABASE_ENCRYPTION_KEY: env.DATABASE_ENCRYPTION_KEY,

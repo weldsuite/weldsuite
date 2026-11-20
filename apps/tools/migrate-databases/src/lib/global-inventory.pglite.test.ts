@@ -79,6 +79,38 @@ describe('Global inventory SQL on the migrated schema', () => {
     expect(inv.pending['sequence_enrollments.active']).toBe(0);
   });
 
+  it("counts brought mail domains apart from the workspace's weldmail domain, and WeldHost's DNSSEC zones", async () => {
+    await tenant.exec(`
+      insert into mail_domains (id, domain_name, is_active) values
+        ('mdom_t_custom', 'acme.test', true),
+        ('mdom_t_weldmail', 'acme.weldmail.com', true),
+        ('mdom_t_test', 'acme.WeldMail.org', true),
+        ('mdom_t_off', 'old.test', false);
+      insert into domains (id, name, tld, full_domain, registrar) values
+        ('dom_t_1', 'acme', 'test', 'acme.test', 'cloudflare'),
+        ('dom_t_2', 'other', 'test', 'other.test', null);
+      insert into dns_zones (id, domain_id, name, provider, dnssec_enabled) values
+        ('dnsz_t_1', 'dom_t_1', 'acme.test', 'cloudflare', true),
+        ('dnsz_t_2', 'dom_t_2', 'other.test', 'cloudflare', false);
+    `);
+    try {
+      const inv = await tenantInventory(queryOf(tenant));
+      expect(inv.errors).toEqual([]);
+      expect(inv.mail).toMatchObject({ customDomains: 1, weldmailDomains: 2 });
+      expect(inv.weldhost).toEqual({
+        domainsByRegistrar: { cloudflare: 1, '(none)': 1 },
+        zonesByProvider: { cloudflare: 2 },
+        dnssecZones: 1,
+      });
+    } finally {
+      await tenant.exec(`
+        delete from dns_zones where id in ('dnsz_t_1', 'dnsz_t_2');
+        delete from domains where id in ('dom_t_1', 'dom_t_2');
+        delete from mail_domains where id like 'mdom_t_%';
+      `);
+    }
+  });
+
   it('records a failing probe under its label and keeps going', async () => {
     const failing: Query = async (text) => {
       if (text.includes('from users')) throw new Error('boom at postgres://user:secret@host/db');
@@ -106,9 +138,12 @@ describe('Clerk inventory', () => {
     const page1 = Array.from({ length: 500 }, (_, i) => ({
       password_enabled: true,
       totp_enabled: i < 3,
-      external_accounts: i < 10 ? [{ provider: 'oauth_google' }, { provider: 'oauth_google' }] : [],
+      external_accounts:
+        i < 10 ? [{ provider: 'oauth_google', provider_user_id: i < 8 ? `g${i}` : null }, { provider: 'oauth_google' }] : [],
     }));
-    const page2 = [{ password_enabled: false, passkeys: [{}], external_accounts: [{ provider: 'oauth_microsoft' }], banned: true }];
+    const page2 = [
+      { password_enabled: false, passkeys: [{}], external_accounts: [{ provider: 'oauth_microsoft', provider_user_id: ' ' }], banned: true },
+    ];
     const inv = await clerkInventory(
       'sk_test',
       fakeFetch({
@@ -125,6 +160,7 @@ describe('Clerk inventory', () => {
       withPasskeys: 1,
       banned: 1,
       externalProviders: { oauth_google: 10, oauth_microsoft: 1 },
+      externalWithSubject: { oauth_google: 8 },
       samlConnections: { total: 2, active: 1 },
       oauthApplications: 3,
       errors: [],
@@ -196,7 +232,7 @@ describe('report', () => {
     const md = formatInventoryReport(inv);
     expect(md).toContain('1 workspace(s) with SSO enabled: ws_a (saml)');
     expect(md).toContain('Workspaces with mailboxes in Durable Objects: ws_a');
-    expect(md).toContain('5. **Regions.** aws-eu-central-1 1.');
+    expect(md).toContain('5. **Regions.** Live workspaces by region: aws-eu-central-1 1. Outside aws-eu-central-1: 0 (0 with an active member).');
     expect(md).toContain('| `ws_a` | pro | active | shared, aws-eu-central-1 | 3 |');
     expect(md).toContain('- ws_b: no tenant database');
   });
@@ -224,7 +260,7 @@ describe('the inventory run over the Postgres wire protocol', () => {
       for (const server of servers) await server.start();
       const logged: string[] = [];
       const inv = await runGlobalInventory({
-        env: { MASTER_DATABASE_URL: masterUrl, CLERK_SECRET_KEY: 'sk_test' },
+        env: { DATABASE_URL_MASTER: masterUrl, CLERK_SECRET_KEY: 'sk_test' },
         outDir: out,
         log: (line) => logged.push(line),
         fetchFn: fakeFetch({
@@ -262,7 +298,9 @@ describe('the inventory run over the Postgres wire protocol', () => {
   }, 60_000);
 
   it('needs MASTER_DATABASE_URL', async () => {
-    await expect(runGlobalInventory({ env: {}, outDir: os.tmpdir() })).rejects.toThrow('MASTER_DATABASE_URL is required');
+    await expect(runGlobalInventory({ env: {}, outDir: os.tmpdir() })).rejects.toThrow(
+      'MASTER_DATABASE_URL (or DATABASE_URL_MASTER) is required',
+    );
   });
 });
 
@@ -299,6 +337,8 @@ describe('report branches', () => {
         { source: 'bank_connections', provider: 'ponto', status: 'error', count: 1 },
       ],
       phoneNumbers: { telnyx: 2 },
+      mail: { ...tenantInv.mail, customDomains: 2, weldmailDomains: 1 },
+      weldhost: { domainsByRegistrar: { cloudflare: 2, '(none)': 1 }, zonesByProvider: { cloudflare: 2 }, dnssecZones: 1 },
       errors: ['mail_domains: boom'],
     };
     const inv: GlobalInventory = {
@@ -332,6 +372,7 @@ describe('report branches', () => {
         withEnterpriseAccount: 1,
         banned: 0,
         externalProviders: { oauth_google: 1 },
+        externalWithSubject: { oauth_google: 1 },
         samlConnections: { total: 1, active: 1 },
         oauthApplications: 2,
         errors: ['clerk oauth_applications: HTTP 500'],
@@ -342,6 +383,12 @@ describe('report branches', () => {
     expect(md).toContain('1 workspace(s) with SSO enabled: ws_live (?)');
     expect(md).toContain('Clerk SAML connections: 1 (1 active); users with an enterprise account: 1.');
     expect(md).toContain('2. **Clerk.** 3 users: 2 with a password, 1 with TOTP');
+    expect(md).toContain('Social links: oauth_google 1; with a provider subject: oauth_google 1.');
+    expect(md).toContain('3. **DNSSEC.** WeldHost zones with DNSSEC on: 1 (ws_live)');
+    expect(md).toContain('Domains by registrar: (none) 1, cloudflare 2.');
+    expect(md).toContain('Outside aws-eu-central-1: 1 (0 with an active member).');
+    expect(md).toContain('- Workspaces: 4 (2 active and not deleted; of those, 0 with an active member and 1 without a tenant database)');
+    expect(md).toContain('- Custom mail domains: 2 (plus 1 workspace weldmail domains)');
     expect(md).toContain('4. **Mailbox store modes.** Not read');
     expect(md).toContain('Commerce portal enabled in 1 workspace(s) (ws_live)');
     expect(md).toContain('   - `plan_1`: ? 10/month, 100/year, 5/user');
