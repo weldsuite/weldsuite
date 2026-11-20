@@ -168,6 +168,12 @@ describe('AppAccessGuard · apps that are not installed', () => {
     expect(replace).not.toHaveBeenCalled();
     expect(toastInfo).not.toHaveBeenCalled();
   });
+
+  it('lets the design pages through: they gate themselves on their flag', () => {
+    renderAt('/design/chat-visuals');
+    expect(replace).not.toHaveBeenCalled();
+    expect(toastInfo).not.toHaveBeenCalled();
+  });
 });
 
 describe('AppAccessGuard · edition flags', () => {

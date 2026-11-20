@@ -20,7 +20,19 @@ import { EditionUnavailablePage } from '@/components/edition-unavailable-page';
 // code, so both would otherwise trip the "app not installed" redirect below.
 // The host page does its own is-installed check against useInstalledUserApps,
 // and /apps/manage gates itself on the weldapps:develop permission.
-const ALWAYS_ALLOWED_PREFIXES = ['/settings', '/appstore', '/onboarding', '/agents', '/new-chat', '/documents', '/apps', '/preview'];
+// `/design` holds the team's design pages (the chat visuals gallery), which
+// gate themselves on their feature flag.
+const ALWAYS_ALLOWED_PREFIXES = [
+  '/settings',
+  '/appstore',
+  '/onboarding',
+  '/agents',
+  '/new-chat',
+  '/documents',
+  '/apps',
+  '/preview',
+  '/design',
+];
 
 /**
  * Path prefixes EXTERNAL_GUEST users can navigate to in v1. Anything else

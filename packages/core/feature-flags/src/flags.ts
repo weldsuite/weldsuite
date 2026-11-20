@@ -57,6 +57,10 @@ export const FLAGS = {
   // Target it per workspace (attribute `workspaceId`, the master id) in
   // Flagship.
   'weldmail-mailbox-store': { type: 'string', default: 'postgres' },
+  // The chat visuals gallery (/design/chat-visuals): the WeldSuite team's page
+  // for designing the charts, figures, tables and record cards the AI shows in
+  // chat (ADR AGENT-016). Off by default; turn it on for the team in Flagship.
+  'chat-visuals-gallery': { type: 'boolean', default: false },
 } as const satisfies Record<string, FlagDefinition>;
 
 export type FlagDefinition =

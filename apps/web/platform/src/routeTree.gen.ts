@@ -87,6 +87,7 @@ import { Route as WeldchatDirectoriesRouteImport } from './routes/weldchat/direc
 import { Route as WeldchatActivityRouteImport } from './routes/weldchat/activity'
 import { Route as W9TokenRouteImport } from './routes/w9/$token'
 import { Route as DocumentsFileIdRouteImport } from './routes/documents/$fileId'
+import { Route as DesignChatVisualsRouteImport } from './routes/design/chat-visuals'
 import { Route as WeldmailSetupRouteRouteImport } from './routes/weldmail/setup/route'
 import { Route as WeldmailAccountIdRouteRouteImport } from './routes/weldmail/$accountId/route'
 import { Route as WeldhrMeRouteRouteImport } from './routes/weldhr/me/route'
@@ -1029,6 +1030,11 @@ const W9TokenRoute = W9TokenRouteImport.update({
 const DocumentsFileIdRoute = DocumentsFileIdRouteImport.update({
   id: '/documents/$fileId',
   path: '/documents/$fileId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DesignChatVisualsRoute = DesignChatVisualsRouteImport.update({
+  id: '/design/chat-visuals',
+  path: '/design/chat-visuals',
   getParentRoute: () => rootRouteImport,
 } as any)
 const WeldmailSetupRouteRoute = WeldmailSetupRouteRouteImport.update({
@@ -4169,6 +4175,7 @@ export interface FileRoutesByFullPath {
   '/weldhr/me': typeof WeldhrMeRouteRouteWithChildren
   '/weldmail/$accountId': typeof WeldmailAccountIdRouteRouteWithChildren
   '/weldmail/setup': typeof WeldmailSetupRouteRouteWithChildren
+  '/design/chat-visuals': typeof DesignChatVisualsRoute
   '/documents/$fileId': typeof DocumentsFileIdRoute
   '/w9/$token': typeof W9TokenRoute
   '/weldchat/activity': typeof WeldchatActivityRoute
@@ -4755,6 +4762,7 @@ export interface FileRoutesByTo {
   '/preview/welddesk': typeof PreviewWelddeskRouteRouteWithChildren
   '/preview/weldmail': typeof PreviewWeldmailRouteRouteWithChildren
   '/weldmail/$accountId': typeof WeldmailAccountIdRouteRouteWithChildren
+  '/design/chat-visuals': typeof DesignChatVisualsRoute
   '/documents/$fileId': typeof DocumentsFileIdRoute
   '/w9/$token': typeof W9TokenRoute
   '/weldchat/activity': typeof WeldchatActivityRoute
@@ -5376,6 +5384,7 @@ export interface FileRoutesById {
   '/weldhr/me': typeof WeldhrMeRouteRouteWithChildren
   '/weldmail/$accountId': typeof WeldmailAccountIdRouteRouteWithChildren
   '/weldmail/setup': typeof WeldmailSetupRouteRouteWithChildren
+  '/design/chat-visuals': typeof DesignChatVisualsRoute
   '/documents/$fileId': typeof DocumentsFileIdRoute
   '/w9/$token': typeof W9TokenRoute
   '/weldchat/activity': typeof WeldchatActivityRoute
@@ -6011,6 +6020,7 @@ export interface FileRouteTypes {
     | '/weldhr/me'
     | '/weldmail/$accountId'
     | '/weldmail/setup'
+    | '/design/chat-visuals'
     | '/documents/$fileId'
     | '/w9/$token'
     | '/weldchat/activity'
@@ -6597,6 +6607,7 @@ export interface FileRouteTypes {
     | '/preview/welddesk'
     | '/preview/weldmail'
     | '/weldmail/$accountId'
+    | '/design/chat-visuals'
     | '/documents/$fileId'
     | '/w9/$token'
     | '/weldchat/activity'
@@ -7217,6 +7228,7 @@ export interface FileRouteTypes {
     | '/weldhr/me'
     | '/weldmail/$accountId'
     | '/weldmail/setup'
+    | '/design/chat-visuals'
     | '/documents/$fileId'
     | '/w9/$token'
     | '/weldchat/activity'
@@ -7844,6 +7856,7 @@ export interface RootRouteChildren {
   PreviewWeldhostRouteRoute: typeof PreviewWeldhostRouteRouteWithChildren
   PreviewWeldmailRouteRoute: typeof PreviewWeldmailRouteRouteWithChildren
   PreviewWeldsheetsRouteRoute: typeof PreviewWeldsheetsRouteRouteWithChildren
+  DesignChatVisualsRoute: typeof DesignChatVisualsRoute
   DocumentsFileIdRoute: typeof DocumentsFileIdRoute
   W9TokenRoute: typeof W9TokenRoute
   WeldsocialSplatRoute: typeof WeldsocialSplatRoute
@@ -8405,6 +8418,13 @@ declare module '@tanstack/react-router' {
       path: '/documents/$fileId'
       fullPath: '/documents/$fileId'
       preLoaderRoute: typeof DocumentsFileIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/design/chat-visuals': {
+      id: '/design/chat-visuals'
+      path: '/design/chat-visuals'
+      fullPath: '/design/chat-visuals'
+      preLoaderRoute: typeof DesignChatVisualsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/weldmail/setup': {
@@ -14299,6 +14319,7 @@ const rootRouteChildren: RootRouteChildren = {
   PreviewWeldhostRouteRoute: PreviewWeldhostRouteRouteWithChildren,
   PreviewWeldmailRouteRoute: PreviewWeldmailRouteRouteWithChildren,
   PreviewWeldsheetsRouteRoute: PreviewWeldsheetsRouteRouteWithChildren,
+  DesignChatVisualsRoute: DesignChatVisualsRoute,
   DocumentsFileIdRoute: DocumentsFileIdRoute,
   W9TokenRoute: W9TokenRoute,
   WeldsocialSplatRoute: WeldsocialSplatRoute,

@@ -62,6 +62,14 @@ const ENTITY_CONFIG: Record<
   merge_pull_request: { path: (id) => `/merge/pull-requests/${id}`, titleFields: ['title'] },
 };
 
+/**
+ * Whether a record of this type can be looked up for its live title; for the
+ * others `useEntityTitle` answers `notfound` without asking the API.
+ */
+export function hasEntityTitleLookup(type: string): boolean {
+  return Object.prototype.hasOwnProperty.call(ENTITY_CONFIG, type);
+}
+
 export type EntityTitleStatus = 'loading' | 'ok' | 'forbidden' | 'notfound' | 'error';
 
 export interface EntityTitleResult {

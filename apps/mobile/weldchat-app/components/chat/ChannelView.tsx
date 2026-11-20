@@ -28,6 +28,7 @@ import Animated, { FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withSpring
 import { scheduleOnRN } from 'react-native-worklets';
 import { Gesture, GestureDetector, FlatList } from 'react-native-gesture-handler';
 import { useRouter } from 'expo-router';
+import { readVisualsMetadata, visualTitle } from '@weldsuite/app-api-client/schemas/chat-visuals';
 
 import { Archive, Bell, BellOff, Bot, ChevronDown, ChevronLeft, Clock, FileText, Hash, Infinity as InfinityIcon, Lock, MessageSquare, Pencil, Phone, PhoneMissed, Reply, Video, X, type LucideIcon } from 'lucide-react-native';
 import { MenuView, type MenuAction } from '@expo/ui/community/menu';
@@ -815,6 +816,15 @@ function MessageExtras({
           })
         : null}
       {item.editedAt ? <Text style={styles.editedLabel}>{t.channel.edited}</Text> : null}
+      {item.authorType === 'agent'
+        ? readVisualsMetadata(item.metadata).map((visual, i) => (
+            <Text key={`visual-${i}`} style={styles.editedLabel}>
+              {t.channel.visualShown
+                .replace('{kind}', t.channel.visualKinds[visual.type])
+                .replace('{title}', visualTitle(visual))}
+            </Text>
+          ))
+        : null}
       {gallery.length > 0 && (
         <MessageAttachments
           attachments={gallery}

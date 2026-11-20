@@ -34,6 +34,7 @@ app.get('/', async (c) => {
   const weldflowMoveTask = flags ? await flags.isOn('weldflow-move-task') : false;
   const weldhrPayroll = flags ? await flags.isOn('weldhr-payroll') : false;
   const weldhrPayrollDigipoort = flags ? await flags.isOn('weldhr-payroll-digipoort') : false;
+  const chatVisualsGallery = flags ? await flags.isOn('chat-visuals-gallery') : false;
 
   // Never cache flag values — a dashboard flip must take effect immediately.
   c.header('Cache-Control', 'no-store');
@@ -43,6 +44,7 @@ app.get('/', async (c) => {
     'weldflow-move-task': weldflowMoveTask,
     'weldhr-payroll': weldhrPayroll,
     'weldhr-payroll-digipoort': weldhrPayrollDigipoort,
+    'chat-visuals-gallery': chatVisualsGallery,
   });
 });
 

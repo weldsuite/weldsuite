@@ -10,6 +10,7 @@ import {
   parseAgentQuestion,
   type AgentQuestion,
 } from '@weldsuite/app-api-client/schemas/weldagent-questions';
+import { isShowVisualTool } from '@weldsuite/app-api-client/schemas/chat-visuals';
 import type { WeldAgentMessage } from '@/hooks/queries/use-weldagent-queries';
 import type { ToolStep } from '@/components/weldagent/chat/chat-message';
 
@@ -187,6 +188,8 @@ export function buildThread(messages: WeldAgentMessage[]): ThreadItem[] {
 
     for (const inv of readInvocations(m.toolInvocations)) {
       if (inv.toolName === DELEGATION_TOOL_NAME) continue;
+      // A shown visual is in the reply itself, not a step worth listing.
+      if (isShowVisualTool(inv.toolName) && !failed(inv)) continue;
       const routine = scheduledRoutine(inv);
       if (routine) {
         routines.push(routine);
