@@ -14,6 +14,7 @@ import { AuthProvider } from '@/lib/auth';
 import { MixpanelIdentifier } from '@/providers/mixpanel-provider';
 import { queryClient } from '@/lib/query-client';
 import { RoutePendingSkeleton } from '@/components/route-pending-skeleton';
+import { RouteErrorFallback } from '@/components/route-error-fallback';
 import { installAppContextHeader } from '@/lib/api/app-context-header';
 import { workspaceUrlRewrite } from '@/lib/workspace-url-rewrite';
 import '../app/globals.css';
@@ -46,6 +47,10 @@ const router = createRouter({
   // flash it on and off.
   defaultPendingMinMs: 200,
   defaultPendingComponent: RoutePendingSkeleton,
+  // A page that fails renders its error inside the shell. Without this every
+  // route error reached the root route's boundary, which replaces the whole
+  // app — calls, meetings and the other global overlays included.
+  defaultErrorComponent: RouteErrorFallback,
   // NOTE: View Transitions (`defaultViewTransition`) deliberately left OFF — the
   // browser's default cross-fade adds a ~250ms opacity animation to every
   // navigation, which reads as "fade in" rather than instant. Content should

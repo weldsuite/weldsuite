@@ -15,7 +15,7 @@ vi.mock('@/lib/logger', () => ({
 
 vi.mock('@/lib/chunk-reload', () => ({
   isStaleChunkError: () => false,
-  reloadForStaleChunk: () => false,
+  reloadForStaleChunk: () => 'suppressed',
 }));
 
 import { RootErrorFallback, goHomeFromError } from './root-error-fallback';

@@ -439,6 +439,13 @@ export const common = {
       tryAgain: 'Try again',
       goHome: 'Go home',
     },
+    appUpdate: {
+      title: 'WeldSuite has been updated',
+      reloadAfterCall: 'The page reloads to the new version when your call ends.',
+      pageAfterCall:
+        'This page needs the new version. WeldSuite reloads when your call ends, or reload now to leave the call.',
+      reloadNow: 'Reload now',
+    },
     notFound: {
       title: 'Page not found',
       goHome: 'Go home',
