@@ -253,7 +253,7 @@ export interface ConvertReport {
   users: number;
   accounts: number;
   emailVerified: number;
-  passwords: number;
+  withDigest: number;
   totp: number;
   links: Record<string, number>;
   disabled: number;
@@ -270,8 +270,8 @@ export interface ConvertReport {
   /** Accounts imported bare because Clerk never proved their address, though they had a password, a key or a link. */
   unverifiedBare: number;
   /** Passwords the export doesn't carry as bcrypt: these people use "forgot password" or an email code. */
-  passwordNotBcrypt: number;
-  passwordNotExported: number;
+  digestNotBcrypt: number;
+  digestNotExported: number;
   /** Authenticator keys that aren't base32 of 128 bits or more, or that the export lacks: these people set one up again. */
   totpNotBase32: number;
   totpNotExported: number;
@@ -291,7 +291,7 @@ function emptyReport(): ConvertReport {
     users: 0,
     accounts: 0,
     emailVerified: 0,
-    passwords: 0,
+    withDigest: 0,
     totp: 0,
     links: {},
     disabled: 0,
@@ -299,8 +299,8 @@ function emptyReport(): ConvertReport {
     onlyInExport: [],
     onlyInApi: 0,
     unverifiedBare: 0,
-    passwordNotBcrypt: 0,
-    passwordNotExported: 0,
+    digestNotBcrypt: 0,
+    digestNotExported: 0,
     totpNotBase32: 0,
     totpNotExported: 0,
     linksLeftOut: {},
@@ -345,11 +345,11 @@ function tallyFactors(user: ClerkApiUser, report: ConvertReport): void {
 /** The export's bcrypt digest of the user, when it has one WeldID takes. */
 function passwordOf(user: ClerkApiUser, row: ClerkExportRow | undefined, report: ConvertReport): string | undefined {
   if (!row?.passwordDigest) {
-    if (user.password_enabled) report.passwordNotExported += 1;
+    if (user.password_enabled) report.digestNotExported += 1;
     return undefined;
   }
   if (row.passwordHasher === 'bcrypt' && BCRYPT.test(row.passwordDigest)) return row.passwordDigest;
-  report.passwordNotBcrypt += 1;
+  report.digestNotBcrypt += 1;
   return undefined;
 }
 
@@ -409,7 +409,8 @@ function credentialsOf(
 /** The user's own picture (not Clerk's default) when it is an https URL. */
 function pictureOf(user: ClerkApiUser, report: ConvertReport): string | undefined {
   if (!user.has_image || !isHttps(user.image_url)) return undefined;
-  if (new URL(user.image_url).hostname.endsWith('clerk.com')) report.clerkHostedPictures += 1;
+  const host = new URL(user.image_url).hostname;
+  if (host === 'clerk.com' || host.endsWith('.clerk.com')) report.clerkHostedPictures += 1;
   return user.image_url;
 }
 
@@ -445,7 +446,7 @@ function accountOf(
 function countAccount(account: WeldIdAccount, report: ConvertReport): void {
   report.accounts += 1;
   if (account.emailVerified) report.emailVerified += 1;
-  if (account.passwordHash) report.passwords += 1;
+  if (account.passwordHash) report.withDigest += 1;
   if (account.totpSecret) report.totp += 1;
   for (const link of account.links ?? []) bump(report.links, link.provider);
   if (account.disabled) report.disabled += 1;
@@ -487,11 +488,11 @@ export function formatConvertReport(report: ConvertReport): string[] {
   return [
     `Clerk users: ${report.users}; signed up after the export: ${report.onlyInApi}.`,
     `Import lines: ${report.accounts}; address proven: ${report.emailVerified}; disabled (banned): ${report.disabled}.`,
-    `With a bcrypt password: ${report.passwords}; an authenticator key: ${report.totp}; links: ${entries(report.links)}.`,
+    `With a bcrypt password: ${report.withDigest}; an authenticator key: ${report.totp}; links: ${entries(report.links)}.`,
     `Left out: no address ${report.noEmail.length}${listed(report.noEmail)}; ` +
       `in the export but no longer in Clerk ${report.onlyInExport.length}${listed(report.onlyInExport)}.`,
     `Imported without what they had: address never proven ${report.unverifiedBare}; ` +
-      `passwords not bcrypt ${report.passwordNotBcrypt}, not in the export ${report.passwordNotExported}; ` +
+      `passwords not bcrypt ${report.digestNotBcrypt}, not in the export ${report.digestNotExported}; ` +
       `keys not base32 ${report.totpNotBase32}, not in the export ${report.totpNotExported}; ` +
       `links ${entries(report.linksLeftOut)}.`,
     `Set up again after the move: passkeys ${report.passkeys} users, backup codes ${report.backupCodes} users.`,

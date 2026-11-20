@@ -193,7 +193,7 @@ describe('toWeldIdAccounts', () => {
       users: 6,
       accounts: 5,
       emailVerified: 4,
-      passwords: 2,
+      withDigest: 2,
       totp: 2,
       links: { google: 2 },
       disabled: 1,
@@ -201,8 +201,8 @@ describe('toWeldIdAccounts', () => {
       onlyInExport: [GINA],
       onlyInApi: 1,
       unverifiedBare: 1,
-      passwordNotBcrypt: 1,
-      passwordNotExported: 1,
+      digestNotBcrypt: 1,
+      digestNotExported: 1,
       totpNotBase32: 1,
       totpNotExported: 1,
       linksLeftOut: { microsoft: 1, apple: 1, github: 1 },
@@ -211,6 +211,24 @@ describe('toWeldIdAccounts', () => {
       enterpriseAccounts: 1,
       clerkHostedPictures: 1,
     });
+  });
+
+  it("counts pictures on Clerk's own host only", () => {
+    const user = (id: string, image_url: string): ClerkApiUser => ({
+      id,
+      primary_email_address_id: 'idn',
+      email_addresses: [{ id: 'idn', email_address: `${id}@example.com`, verification: verified }],
+      has_image: true,
+      image_url,
+    });
+    const { accounts, report } = toWeldIdAccounts(new Map(), [
+      user('user_a', 'https://img.clerk.com/a.png'),
+      user('user_b', 'https://clerk.com/b.png'),
+      user('user_c', 'https://img.evilclerk.com/c.png'),
+      user('user_d', 'https://clerk.com.example.org/d.png'),
+    ]);
+    expect(report.clerkHostedPictures).toBe(2);
+    expect(accounts.every((a) => a.picture)).toBe(true);
   });
 
   it('links Apple accounts only when asked', () => {
