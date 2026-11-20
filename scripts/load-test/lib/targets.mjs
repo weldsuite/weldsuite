@@ -16,7 +16,7 @@ export const TARGETS = ['global', 'eu'];
 
 export function targetOf(env) {
   const target = String(env.WELD_TARGET || 'global').toLowerCase();
-  if (!TARGETS.includes(target)) throw new Error(`Unknown target "${target}". Use global or eu.`);
+  if (!TARGETS.includes(target)) throw new Error('Unknown target (WELD_TARGET / --target): use global or eu.');
   return target;
 }
 
@@ -94,14 +94,14 @@ export function isProductionUrl(url) {
  * Refuse production unless both flags say so: WELD_ENV=production (`--env
  * production`) and ALLOW_PRODUCTION=yes. A BASE_URL, PUBLIC_API_URL or
  * EU_DOMAIN that points at a production host counts as production too.
- * Returns an error message, or null when the target is safe.
+ * Returns an error message (fixed text), or null when the target is safe.
  */
 export function productionRefusal(env) {
-  const productionHosts = allBases(env).filter(isProductionUrl);
-  const isProduction = envOf(env) === 'production' || productionHosts.length > 0;
+  const namesProductionHost = allBases(env).some(isProductionUrl);
+  const isProduction = envOf(env) === 'production' || namesProductionHost;
   if (!isProduction) return null;
   if (envOf(env) !== 'production') {
-    return `${productionHosts.join(', ')} is production. Pass --env production (and ALLOW_PRODUCTION=yes) if you really mean it.`;
+    return 'BASE_URL, PUBLIC_API_URL or EU_DOMAIN points at a production host. Pass --env production (and ALLOW_PRODUCTION=yes) if you really mean it.';
   }
   if (env.ALLOW_PRODUCTION !== 'yes') {
     return 'Refusing to pressure-test production. Set ALLOW_PRODUCTION=yes if you really mean it.';
@@ -109,7 +109,21 @@ export function productionRefusal(env) {
   return null;
 }
 
-/** "EU test (https://api.test.weldsuite.eu)", for logs and reports. */
+/**
+ * The target as fixed text, for the runner's own output: "EU test
+ * (api.test.weldsuite.eu)". Only constants, never a setting's value (the
+ * runner's environment also holds keys and tokens).
+ */
+export function targetName(env) {
+  const eu = targetOf(env) === 'eu';
+  const weldEnv = envOf(env);
+  if (env.BASE_URL || env.PUBLIC_API_URL || (eu && env.EU_DOMAIN)) return eu ? 'EU (custom host)' : 'Global (custom host)';
+  if (weldEnv === 'production') return eu ? 'EU production (api.weldsuite.eu)' : 'Global production (*-api.weldsuite.org)';
+  if (weldEnv === 'test') return eu ? 'EU test (api.test.weldsuite.eu)' : 'Global test (*-api-test.weldsuite.org)';
+  return eu ? 'EU (another environment)' : 'Global (another environment)';
+}
+
+/** "EU test (https://api.test.weldsuite.eu)", for the k6 reports. */
 export function describeTarget(env) {
   const target = targetOf(env) === 'eu' ? 'EU' : 'Global';
   return `${target} ${envOf(env)} (${platformBase(env, '<module>')})`;

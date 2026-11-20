@@ -29,13 +29,13 @@ import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describeTarget, platformBase, productionRefusal, targetOf, truthy } from './lib/targets.mjs';
-import { login, logout, sessionFile, startTokenBroker } from './lib/weldid.mjs';
+import { platformBase, productionRefusal, targetName, targetOf, truthy } from './lib/targets.mjs';
+import { describeFailure, login, logout, printable, sessionFile, startTokenBroker } from './lib/weldid.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const SCENARIOS = { platform: 'scenarios/platform.js', public: 'scenarios/public-api.js', cleanup: 'scenarios/cleanup.js' };
-const PROFILES = ['smoke', 'load', 'stress', 'spike', 'soak', 'breakpoint'];
-const COMMANDS = ['platform', 'public', 'all', 'cleanup', 'login', 'logout'];
+const PROFILES = new Set(['smoke', 'load', 'stress', 'spike', 'soak', 'breakpoint']);
+const COMMANDS = new Set(['platform', 'public', 'all', 'cleanup', 'login', 'logout']);
 
 function usage(message) {
   if (message) console.error(`\n${message}\n`);
@@ -78,8 +78,8 @@ function parseArgs(argv) {
     else positional.push(arg);
   }
   [opts.command, opts.profile = 'smoke'] = positional;
-  if (!COMMANDS.includes(opts.command)) usage('Pick what to test: platform, public, all or cleanup (or login / logout for EU).');
-  if (!PROFILES.includes(opts.profile)) usage(`Unknown profile "${opts.profile}".`);
+  if (!COMMANDS.has(opts.command)) usage('Pick what to test: platform, public, all or cleanup (or login / logout for EU).');
+  if (!PROFILES.has(opts.profile)) usage(`Unknown profile "${opts.profile}".`);
   return opts;
 }
 
@@ -121,12 +121,12 @@ function runK6(k6, scenario, label, env, opts) {
       K6_WEB_DASHBOARD_OPEN: 'false',
       K6_WEB_DASHBOARD_EXPORT: `results/${env.RUN_ID}-${label}-${env.PROFILE}.html`,
     });
-    console.log(`\n▶ ${label} / ${env.PROFILE} — live dashboard at http://localhost:5665\n`);
+    console.log(`\n▶ ${label} / ${opts.profile} — live dashboard at http://localhost:5665\n`);
   }
   return new Promise((resolve) => {
     const child = spawn(k6, ['run', SCENARIOS[scenario]], { cwd: here, env: childEnv, stdio: 'inherit' });
     child.on('error', (error) => {
-      console.error(`Could not start k6: ${error.message}`);
+      console.error(`Could not start k6 (${describeFailure(error)})`);
       resolve(1);
     });
     child.on('exit', (code, signal) => resolve(code ?? (signal ? 1 : 0)));
@@ -148,7 +148,7 @@ function reportWorkspaces(workspaces, env) {
   console.log('Workspaces this member can use:');
   for (const w of workspaces) {
     const slug = w.slug ? ` (${w.slug})` : '';
-    console.log(`  ${w.id}  ${w.name}${slug}  ${w.role || ''}`);
+    console.log(printable(`  ${w.id}  ${w.name}${slug}  ${w.role || ''}`));
   }
   const chosen = String(env.WELD_WORKSPACE || '')
     .split(',')
@@ -158,12 +158,15 @@ function reportWorkspaces(workspaces, env) {
     console.log('\nSet WELD_WORKSPACE=<the test workspace id> in scripts/load-test/.env (or pass --workspace); several, comma separated, spread the load.');
     return;
   }
+  // Only what the server sent and the entry's position are printed, never
+  // the setting itself: the environment the runner reads also holds secrets.
   console.log('');
   let ready = true;
-  for (const ref of chosen) {
+  for (const [index, ref] of chosen.entries()) {
     const match = workspaces.find((w) => w.id === ref || w.workspaceId === ref || w.slug === ref);
-    if (match) console.log(`WELD_WORKSPACE ${ref} is ${match.name}.`);
-    else console.log(`WELD_WORKSPACE ${ref} is not one of them: the run would get 403s there. Fix it in .env.`);
+    const entry = `WELD_WORKSPACE entry ${index + 1} of ${chosen.length}`;
+    if (match) console.log(printable(`${entry} is ${match.id}, ${match.name}.`));
+    else console.log(`${entry} is not one of them: the run would get 403s there. Fix it in .env.`);
     ready &&= Boolean(match);
   }
   if (ready) console.log('Ready.');
@@ -176,8 +179,9 @@ async function runLogin(env, opts) {
     await logout({ file });
     return;
   }
-  const result = await login({ apiBase, file, env, openBrowser: opts.browser });
-  console.log(`\nSigned in as ${result.email || result.subject}. The refresh token is in ${path.relative(here, file)} (git-ignored).`);
+  const result = await login({ apiBase, file, openBrowser: opts.browser });
+  console.log('');
+  console.log(printable(`Signed in as ${result.email || result.subject}. The refresh token is in scripts/load-test/.weldid/ (git-ignored).`));
   console.log("Close that browser window, but don't sign out there: that ends the test's session too.\n");
   if (!result.workspaces) {
     console.log(`Could not list the workspaces (GET /api/workspaces answered ${result.workspacesStatus}).`);
@@ -197,8 +201,8 @@ function settingsFor(opts) {
   let target;
   try {
     target = targetOf(env);
-  } catch (error) {
-    usage(error.message);
+  } catch {
+    usage('Unknown target (WELD_TARGET / --target): use global or eu.');
   }
   const refusal = productionRefusal(env);
   if (refusal) usage(refusal);
@@ -253,7 +257,7 @@ async function main() {
     return 0;
   }
 
-  console.log(`Target: ${describeTarget(env)}`);
+  console.log(`Target: ${targetName(env)}`);
   mkdirSync(path.join(here, 'results'), { recursive: true });
   const k6 = findK6();
   const sessions = memberSessions(env, target);
@@ -271,10 +275,10 @@ async function main() {
   return exitCode;
 }
 
-main().then(
-  (code) => process.exit(code),
-  (error) => {
-    console.error(`\n${error.message}\n`);
-    process.exit(2);
-  },
-);
+try {
+  process.exit(await main());
+} catch (error) {
+  // Fixed text per failure (lib/weldid.mjs), never the error's own message.
+  console.error(`\n${describeFailure(error)}\n`);
+  process.exit(2);
+}

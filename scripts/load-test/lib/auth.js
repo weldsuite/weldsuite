@@ -134,7 +134,7 @@ export function initialToken() {
     const which = WORKSPACES.length === 1 ? 'workspace' : String(WORKSPACES.length) + ' workspaces';
     console.log(`Auth: WeldID user ${claims.sub} (client ${client}), ${which} ${workspace} (X-Weld-Workspace), token valid for ${ttl}s`);
   } else {
-    workspace = (claims.o && claims.o.id) || claims.org_id;
+    workspace = claims.o?.id || claims.org_id;
     if (!workspace) {
       throw new Error(
         'The Clerk session has no active workspace (no org claim). Open the test workspace in the browser, then copy Clerk.session.id again.',
