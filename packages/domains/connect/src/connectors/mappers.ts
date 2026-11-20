@@ -34,6 +34,13 @@ export interface MappedOrder {
   externalId: string;
   values: Record<string, unknown>;
   lineItems: Array<{
+    /**
+     * The provider's own id for the line (WooCommerce and Shopify `id`,
+     * Picqer `idorder_product`). Ingest keeps it in
+     * `order_items.properties.externalLineId`, so a re-import updates the
+     * same item instead of replacing it.
+     */
+    externalLineId: string | null;
     externalProductId: string | null;
     sku: string | null;
     name: string;
@@ -439,6 +446,7 @@ function mapOrder(record: Record<string, unknown>, externalId: string, provider:
         : null)
       ?? pickString(customer ?? {}, ['id', 'idcustomer']),
     lineItems: lineItemsRaw.map((item) => ({
+      externalLineId: pickString(item, ['idorder_product', 'id']),
       externalProductId:
         pickString(item, ['product_id', 'idproduct']) && pickString(item, ['product_id', 'idproduct']) !== '0'
           ? pickString(item, ['product_id', 'idproduct'])
