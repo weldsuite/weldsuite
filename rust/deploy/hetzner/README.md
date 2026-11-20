@@ -1147,6 +1147,75 @@ certificate through Traefik. It needs the mail bucket
 `MAIL_INBOUND_SECRET` in `weldsuite-env`. A WeldMail domain's MX is
 `mx.<domain>`.
 
+## WeldHost DNS
+
+WeldHost keeps its customers' zones in Hetzner's Cloud DNS (ADR HOST-008)
+when `config.host.dnsProvider` is `hetzner`. Customers point their domains at
+branded nameservers, `ns1.weldhost.com` to `ns3.weldhost.com`, which are glue
+for Hetzner's three nameservers. Without these settings WeldHost uses
+Cloudflare, as Global does, and needs `CLOUDFLARE_API_TOKEN` and
+`CLOUDFLARE_ACCOUNT_ID`.
+
+1. **A Hetzner project for the zones only.** A Cloud API token reaches every
+   resource in its project, so keep customer zones out of the cluster's
+   project. Create a project (e.g. `weldhost-dns`), then a **Read & Write** API
+   token in it (Security → API tokens).
+2. **The token** goes into `weldsuite-env` as `HETZNER_DNS_API_TOKEN`. On EU
+   that is the deploy repo's SOPS file.
+3. **The chart:**
+
+   ```yaml
+   config:
+     host:
+       dnsProvider: hetzner
+       nameservers: [ns1.weldhost.com, ns2.weldhost.com, ns3.weldhost.com]
+   ```
+
+4. **Glue at weldhost.com's registrar.** Register each name as a host
+   (child nameserver) with the addresses of the Hetzner nameserver it stands
+   for. Check the addresses first (`dig +short A hydrogen.ns.hetzner.com`,
+   `… AAAA …`), because the glue has to follow them if Hetzner ever renumbers:
+
+   | Name | Stands for | IPv4 | IPv6 |
+   |---|---|---|---|
+   | `ns1.weldhost.com` | `hydrogen.ns.hetzner.com` | `213.133.100.98` | `2a01:4f8:0:1::add:1098` |
+   | `ns2.weldhost.com` | `oxygen.ns.hetzner.com` | `88.198.229.192` | `2a01:4f8:0:1::add:2992` |
+   | `ns3.weldhost.com` | `helium.ns.hetzner.de` | `193.47.99.5` | `2001:67c:192c::add:5` |
+
+5. **The same A and AAAA records in the weldhost.com zone**, DNS only, never
+   proxied. Resolvers that re-check the glue against the zone must get the
+   same addresses. weldhost.com's zone answers every name today (a wildcard
+   to Cloudflare's proxy), so without explicit records `ns1.weldhost.com`
+   resolves to the proxy and those resolvers get no answer.
+6. **Check:**
+
+   ```sh
+   dig +norec @a.gtld-servers.net ns1.weldhost.com A   # the glue, from .com
+   dig +short ns1.weldhost.com A                       # the zone agrees
+   dig @ns1.weldhost.com SOA <a customer domain>       # Hetzner answers through the brand
+   ```
+
+What happens:
+
+- Verifying an external domain's ownership makes the zone at Hetzner,
+  named after the domain (`dns_zones.external_zone_id` holds the name),
+  with the branded names as extra apex NS records. The wizard then shows
+  the branded names as the nameservers to set at the registrar.
+- Each zone carries the label `weldhost/workspace` with the workspace
+  (`workspaces.id`) that proved the domain. WeldHost only reads or writes a
+  zone whose label matches the caller's workspace, so a zone row pointed at
+  someone else's zone gets nowhere. Don't remove or edit the label by hand; a
+  zone made outside WeldHost needs it before WeldHost will touch it.
+- The zone turns `active` once the registry delegates to the branded names,
+  or to Hetzner's own. WeldHost reads Hetzner's delegation check, and when
+  that hasn't caught up yet, the domain's NS records over DNS over HTTPS.
+- Hetzner keeps its own three names in every zone's NS set and they can't be
+  removed. `dig NS <domain>` lists them next to the branded ones. The
+  registry, WHOIS and what customers type show only the branded names.
+- Hetzner's Cloud API allows 3600 requests an hour per project, shared by
+  every DNS change, sync and status poll. A record change costs three to
+  five requests.
+
 ## Monitoring, alerts and logs
 
 Three layers (`flux/infrastructure/monitoring`, `monitoring-config`,

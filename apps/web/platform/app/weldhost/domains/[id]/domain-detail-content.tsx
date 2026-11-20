@@ -62,6 +62,7 @@ import { copyText } from '@/lib/clipboard';
 import { UsedByWeldReachBadge } from '@/app/weldhost/components/used-by-weldreach-badge';
 import { DomainVerificationCard } from '@/components/objects/domain/domain-verification-card';
 import { hostErrorMessage, isManagedByWeldReach } from '@/app/weldhost/lib/weldreach';
+import { isManagedDnsZone } from '@/app/weldhost/lib/dns-zone';
 import { asText } from '@weldsuite/text';
 
 type DomainContact = Partial<ContactInput>;
@@ -162,7 +163,7 @@ export function DomainDetailContent({
   const deleteDnsRecord = useDeleteDnsRecord();
   // Whether the zone is editable. Internally this is gated on having a
   // configured DNS provider; the UI never surfaces the provider name.
-  const canManageDns = dnsZone?.provider === 'cloudflare' && !!dnsZone?.externalZoneId;
+  const canManageDns = isManagedDnsZone(dnsZone);
   // Test environment DNS sandbox (@weldsuite/cloudflare-zones/sandbox) zone ids start with `sbx`.
   const isSandboxDnsZone = !!dnsZone?.externalZoneId?.startsWith('sbx');
 

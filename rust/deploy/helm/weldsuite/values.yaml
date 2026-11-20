@@ -291,6 +291,18 @@ config:
   # (empty: https://sign.weldsuite.org). SIGN_SESSION_SECRET goes in the Secret.
   sign:
     portalUrl: ""
+  # WeldHost: where customer DNS zones live (ADR HOST-008). `hetzner` keeps
+  # them in Hetzner's Cloud DNS, with HETZNER_DNS_API_TOKEN in the Secret (a
+  # read and write token of a Hetzner project that holds nothing else: the
+  # token reaches every resource of its project). Empty: Cloudflare, as on
+  # Global (CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID in the Secret).
+  # nameservers are the branded names customers point their domains at
+  # (e.g. ns1.weldhost.com, ns2.weldhost.com, ns3.weldhost.com), one per
+  # Hetzner nameserver, made glue for its addresses at their own domain's
+  # registrar (deploy/hetzner README, "WeldHost DNS"). Empty: Hetzner's names.
+  host:
+    dnsProvider: ""
+    nameservers: []
   # WeldForms: the respondent page's origin; form and invitation links are
   # <portalUrl>/f/<publicId> (empty: https://forms.weldsuite.org). The portal and
   # the server share FORMS_PORTAL_SECRET (in the Secret); FORMS_SESSION_SECRET
@@ -498,6 +510,9 @@ config:
 #   AI_KEYS_ENCRYPTION_KEY       64 hex characters (`openssl rand -hex 32`): seals the API keys
 #                                workspaces bring (required with an ownKey opt-in; generated with
 #                                secret.generate). Losing it loses every stored own key, nothing else
+#   HETZNER_DNS_API_TOKEN        WeldHost's customer DNS zones at Hetzner (config.host.dnsProvider
+#                                hetzner): a read and write Cloud API token of a Hetzner project
+#                                that holds only those zones
 #   MOLLIE_API_KEY               Mollie's live_… (or test_…) API key: buying credits
 #                                (config.credits.mollie; optional, unset: no top-up) and
 #                                plan billing (config.billing, required with it)

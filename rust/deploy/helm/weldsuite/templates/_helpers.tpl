@@ -304,6 +304,19 @@ settings, which weldsuite.env adds.
 - name: SIGN_PORTAL_URL
   value: {{ . | quote }}
 {{- end }}
+{{- with .Values.config.host }}
+{{- with .dnsProvider }}
+{{- if not (has . (list "cloudflare" "hetzner")) }}
+{{- fail (printf "config.host.dnsProvider must be cloudflare or hetzner, not %q" .) }}
+{{- end }}
+- name: WELDHOST_DNS_PROVIDER
+  value: {{ . | quote }}
+{{- end }}
+{{- with .nameservers }}
+- name: WELDHOST_NAMESERVERS
+  value: {{ join "," . | quote }}
+{{- end }}
+{{- end }}
 {{- with .Values.config.forms.portalUrl }}
 - name: FORMS_PORTAL_URL
   value: {{ . | quote }}

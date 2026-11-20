@@ -101,7 +101,7 @@ async function run(d, page) {
   await page.getByText('Domain ownership verified').waitFor({ state: 'hidden', timeout: 15000 })
   await d.pause(600)
   await d.click(page.getByRole('button', { name: 'Import 4 records' }))
-  await page.getByText('Cloudflare Nameservers').first().waitFor({ state: 'visible' })
+  await page.getByText('WeldHost Nameservers').first().waitFor({ state: 'visible' })
   await d.pause(1200)
 
   await d.caption('Set these nameservers at your registrar. WeldHost shows them here', { holdMs: 3800 })

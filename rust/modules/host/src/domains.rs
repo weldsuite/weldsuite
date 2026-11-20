@@ -41,8 +41,8 @@ use crate::rows::{
 };
 use crate::weldreach::{changes_nameservers, connected_domain_ids, domain_in_use, is_domain_used};
 use crate::{
-    Caller, HostState, Providers, error_response, internal, json_response, now, validate,
-    validate_query,
+    Caller, DnsProvider, HostState, Providers, ZoneDns, error_response, internal, json_response,
+    now, validate, validate_query,
 };
 
 const STATUSES: [&str; 5] = ["active", "pending", "expired", "suspended", "cancelled"];
@@ -1862,6 +1862,7 @@ async fn renew(State(state): State<HostState>, caller: Caller, Path(id): Path<St
 
 // ── Nameservers, ownership and the zone ─────────────────────────────────────
 
+/// The worker's list, answered where `WELDHOST_NAMESERVERS` is unset.
 const REQUIRED_NAMESERVERS: [&str; 4] = [
     "ns1.weldhost.com",
     "ns2.weldhost.com",
@@ -1869,7 +1870,17 @@ const REQUIRED_NAMESERVERS: [&str; 4] = [
     "ns4.weldhost.com",
 ];
 
-async fn verify_nameservers(caller: Caller, Path(id): Path<String>) -> Response {
+async fn verify_nameservers(
+    State(state): State<HostState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
+    let configured = caller.providers(&state).nameservers;
+    let required: Vec<String> = if configured.is_empty() {
+        REQUIRED_NAMESERVERS.map(str::to_owned).to_vec()
+    } else {
+        configured
+    };
     let result: Result<Option<Value>, sqlx::Error> = async {
         let Some(domain) = live_domain(&caller.db, &id).await? else {
             return Ok(None);
@@ -1895,7 +1906,7 @@ async fn verify_nameservers(caller: Caller, Path(id): Path<String>) -> Response 
                 json!({
                     "success": true,
                     "verified": false,
-                    "requiredNameservers": REQUIRED_NAMESERVERS,
+                    "requiredNameservers": required,
                     "currentNameservers": current,
                     "message": "Nameserver verification initiated. DNS propagation can take up to 48 hours.",
                 }),
@@ -1917,19 +1928,30 @@ async fn verify_ownership(
         let Some(domain) = live_domain(&caller.db, &id).await? else {
             return Ok(ApiError::not_found("Domain", Some(&id)).into_response());
         };
-        if let Some(zone) = live_zone_of_domain(&caller.db, &id).await?
-            && text(&zone, "provider") == Some("cloudflare")
-        {
-            let nameservers = [zone.get("externalNameservers"), domain.get("nameservers")]
-                .into_iter()
-                .flatten()
-                .find(|v| !v.is_null())
-                .cloned()
-                .unwrap_or_else(|| json!([]));
-            let mut body = public_domain(domain);
-            body["nameservers"] = nameservers;
-            body["dnsZone"] = zone;
-            return Ok(Data(body).into_response());
+        // On a Hetzner install a `hetzner` row without an external id is a
+        // zone kept by hand (the column's default provider): the zone made
+        // below takes it over instead of answering it as made.
+        let mut take_over: Option<String> = None;
+        if let Some(zone) = live_zone_of_domain(&caller.db, &id).await? {
+            let provider = text(&zone, "provider");
+            let on_hetzner =
+                providers.dns_provider == DnsProvider::Hetzner && provider == Some("hetzner");
+            let hosted = text(&zone, "externalZoneId").is_some_and(|e| !e.is_empty());
+            if provider == Some("cloudflare") || (on_hetzner && hosted) {
+                let nameservers = [zone.get("externalNameservers"), domain.get("nameservers")]
+                    .into_iter()
+                    .flatten()
+                    .find(|v| !v.is_null())
+                    .cloned()
+                    .unwrap_or_else(|| json!([]));
+                let mut body = public_domain(domain);
+                body["nameservers"] = nameservers;
+                body["dnsZone"] = zone;
+                return Ok(Data(body).into_response());
+            }
+            if on_hetzner {
+                take_over = text(&zone, "id").map(str::to_owned);
+            }
         }
         let Some(token) = text(&domain, "nameserverVerificationToken").filter(|t| !t.is_empty()) else {
             return Ok(ApiError::bad_request(
@@ -1969,12 +1991,15 @@ async fn verify_ownership(
                 }),
             ));
         }
-        let (Some(api_token), Some(account)) = (providers.cf_token.clone(), providers.cf_account.clone()) else {
+        let Some((provider, dns, account)) = providers.new_zone_host() else {
             return Ok(ApiError::internal()
-                .with_message("Cloudflare integration is not configured.")
+                .with_message(format!(
+                    "{} integration is not configured.",
+                    providers.dns_provider.label()
+                ))
                 .into_response());
         };
-        let dns = providers.dns(&api_token);
+        let label = provider.label();
         let zone = match dns.create_zone(&account, &full).await {
             Ok(zone) => zone,
             Err(error) => {
@@ -1985,24 +2010,27 @@ async fn verify_ownership(
                             "success": false,
                             "error": {
                                 "code": "DOMAIN_IN_ANOTHER_CF_ACCOUNT",
-                                "message": "This domain is already registered on another Cloudflare account. Remove it there before adding it to WeldHost.",
+                                "message": match provider {
+                                    DnsProvider::Cloudflare => "This domain is already registered on another Cloudflare account. Remove it there before adding it to WeldHost.",
+                                    DnsProvider::Hetzner => "This domain already has a DNS zone at Hetzner, in another account or another workspace. Remove it there before adding it to WeldHost.",
+                                },
                             },
                         }),
                     ),
                     ZoneErrorKind::AuthFailed => ApiError::internal()
-                        .with_message("Cloudflare authentication failed.")
+                        .with_message(format!("{label} authentication failed."))
                         .into_response(),
                     ZoneErrorKind::InvalidDomain => ApiError::bad_request(error.message).into_response(),
                     ZoneErrorKind::Unknown => {
-                        tracing::error!(%error, "[domains.service] Cloudflare zone creation failed");
+                        tracing::error!(%error, "[domains.service] {label} zone creation failed");
                         ApiError::internal()
-                            .with_message("Failed to create Cloudflare zone.")
+                            .with_message(format!("Failed to create {label} zone."))
                             .into_response()
                     }
                 });
             }
         };
-        let zone_row_id = generate_id("zone");
+        let zone_row_id = take_over.clone().unwrap_or_else(|| generate_id("zone"));
         let persisted: Result<(), sqlx::Error> = async {
             sqlx::query(
                 "update domains set nameservers = $2, nameserver_verified = true,
@@ -2014,26 +2042,44 @@ async fn verify_ownership(
             .bind(now())
             .execute(&caller.db)
             .await?;
+            if take_over.is_some() {
+                sqlx::query(
+                    "update dns_zones set name = $3, status = 'pending', provider = $6::host_dns_provider,
+                       external_zone_id = $4, external_nameservers = $5, updated_at = $7::timestamp
+                     where id = $1 and domain_id = $2",
+                )
+                .bind(&zone_row_id)
+                .bind(&id)
+                .bind(&full)
+                .bind(&zone.id)
+                .bind(json!(zone.nameservers))
+                .bind(provider.as_str())
+                .bind(now())
+                .execute(&caller.db)
+                .await?;
+                return Ok(());
+            }
             sqlx::query(
                 "insert into dns_zones (id, domain_id, name, status, provider, external_zone_id,
                    external_nameservers)
-                 values ($1, $2, $3, 'pending', 'cloudflare', $4, $5)",
+                 values ($1, $2, $3, 'pending', $6::host_dns_provider, $4, $5)",
             )
             .bind(&zone_row_id)
             .bind(&id)
             .bind(&full)
             .bind(&zone.id)
             .bind(json!(zone.nameservers))
+            .bind(provider.as_str())
             .execute(&caller.db)
             .await?;
             Ok(())
         }
         .await;
         if let Err(error) = persisted {
-            tracing::error!(%error, "[domains.service] DB write failed after zone creation, rolling back CF zone");
+            tracing::error!(%error, "[domains.service] DB write failed after zone creation, rolling back the {label} zone");
             dns.delete_zone(&zone.id).await;
             return Ok(ApiError::internal()
-                .with_message("Failed to persist zone. The Cloudflare zone was rolled back.")
+                .with_message(format!("Failed to persist zone. The {label} zone was rolled back."))
                 .into_response());
         }
         let updated = any_domain(&caller.db, &id).await?.unwrap_or(Value::Null);
@@ -2063,41 +2109,46 @@ async fn refresh_zone_status(
         let Some((domain, zone)) = domain_with_zone(&caller.db, &id).await? else {
             return Ok(ApiError::not_found("Domain", Some(&id)).into_response());
         };
-        let zone = zone.filter(|z| text(z, "provider") == Some("cloudflare"));
-        let external = zone
-            .as_ref()
-            .and_then(|z| text(z, "externalZoneId"))
-            .filter(|e| !e.is_empty())
-            .map(str::to_owned);
-        let (Some(zone), Some(external)) = (zone, external) else {
-            return Ok(ApiError::bad_request("This domain does not have a Cloudflare zone yet.").into_response());
-        };
-        let Some(token) = providers.cf_token.clone() else {
-            return Ok(ApiError::internal()
-                .with_message("Cloudflare integration is not configured.")
+        let zone_dns = providers.zone_dns(zone.as_ref());
+        let (zone, provider, dns) = match (zone, zone_dns) {
+            (Some(zone), ZoneDns::Ready(provider, dns)) => (zone, provider, dns),
+            (_, ZoneDns::Unconfigured(provider)) => {
+                return Ok(ApiError::internal()
+                    .with_message(format!("{} integration is not configured.", provider.label()))
+                    .into_response());
+            }
+            _ => {
+                return Ok(ApiError::bad_request(format!(
+                    "This domain does not have a {} zone yet.",
+                    providers.dns_provider.label()
+                ))
                 .into_response());
+            }
         };
+        let label = provider.label();
+        let external = text(&zone, "externalZoneId").unwrap_or_default().to_owned();
         let zone_id = text(&zone, "id").unwrap_or_default().to_owned();
         let domain_status = text(&domain, "status").unwrap_or_default().to_owned();
-        let cf_zone = match providers.dns(&token).get_zone(&external).await {
+        let cf_zone = match dns.get_zone(&external).await {
             Ok(cf_zone) => cf_zone,
             Err(error) => {
-                tracing::error!(%error, "[domains.service] getCloudflareZone failed");
+                tracing::error!(%error, "[domains.service] get {label} zone failed");
                 return Ok(error_response(
                     StatusCode::SERVICE_UNAVAILABLE,
                     "SERVICE_UNAVAILABLE",
-                    "Could not reach Cloudflare. Try again in a moment.",
+                    &format!("Could not reach {label}. Try again in a moment."),
                 ));
             }
         };
         let Some(cf_zone) = cf_zone else {
             let at = now();
             sqlx::query(
-                "update dns_zones set status = 'error', sync_error = 'Zone no longer exists on Cloudflare',
+                "update dns_zones set status = 'error', sync_error = $3,
                    synced_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
             )
             .bind(&zone_id)
             .bind(&at)
+            .bind(format!("Zone no longer exists on {label}"))
             .execute(&caller.db)
             .await?;
             return Ok(Data(json!({
@@ -2123,7 +2174,7 @@ async fn refresh_zone_status(
             .bind(next)
             .bind(json!(cf_zone.nameservers))
             .bind(&at)
-            .bind((next == "error").then(|| format!("Cloudflare status: {}", cf_zone.status)))
+            .bind((next == "error").then(|| format!("{label} status: {}", cf_zone.status)))
             .execute(&caller.db)
             .await?;
         }
