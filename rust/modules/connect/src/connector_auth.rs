@@ -57,6 +57,16 @@ pub(crate) fn auth_env(overrides: &Overrides, state: &ConnectState) -> AuthEnv {
     }
 }
 
+/// ADR OPS-026: a store outside the EU (Stripe, Shopify) is connected and
+/// called only once the workspace has switched it on; `Err` is the 403.
+/// Moneybird, Picqer, Odoo and `WooCommerce` pass.
+#[allow(clippy::result_large_err)] // the refusal is answered as it is
+async fn outside_eu(db: &weldsuite_db::PgPool, provider: &str) -> Result<(), Response> {
+    weldsuite_outside_eu::require_integration(db, provider)
+        .await
+        .map_err(|error| error.to_api_error().into_response())
+}
+
 fn failed(error: &dyn std::fmt::Display) -> Response {
     tracing::error!(%error, "[app-api/connectors] request failed");
     ApiError::internal()
@@ -396,6 +406,9 @@ pub(crate) async fn connect(
         return ApiError::bad_request(message).into_response();
     }
     let db = caller.db.clone();
+    if let Err(refusal) = outside_eu(&db, &provider).await {
+        return refusal;
+    }
     if let Some(id) = entity.as_deref() {
         match entity_exists(&db, id).await {
             Ok(true) => {}
@@ -629,6 +642,9 @@ pub(crate) async fn authorize(
     if caller.clerk_org_id.is_empty() {
         return ApiError::org_required().into_response();
     }
+    if let Err(refusal) = outside_eu(&caller.db, &provider).await {
+        return refusal;
+    }
     let env = auth_env(&caller.overrides, &state);
     let enabled = normalize_enabled_syncs(&provider, syncs.as_deref());
     if provider != "woocommerce"
@@ -766,6 +782,9 @@ pub(crate) async fn oauth_callback(
         Ok(read) => read,
         Err(refusal) => return refusal.respond("Connector request failed"),
     };
+    if let Err(refusal) = outside_eu(&caller.db, &provider).await {
+        return refusal;
+    }
     let env = auth_env(&caller.overrides, &state);
     let resolve = |org: String| tenant_for(&state, &caller, org);
     let result = if provider == "stripe" {
@@ -913,6 +932,11 @@ pub(crate) async fn patch_connection(
         weldsuite_kit::validation::Field::Absent => {}
     };
     if let Some(patch) = &body_credentials {
+        // New credentials are checked with the store: not one outside the
+        // EU the workspace has switched off (ADR OPS-026).
+        if let Err(refusal) = outside_eu(&db, &provider).await {
+            return refusal;
+        }
         if provider == "stripe" {
             if existing
                 .get("apiKey")
@@ -1039,7 +1063,15 @@ pub(crate) async fn delete_connection(
     };
     let env = auth_env(&caller.overrides, &state);
     let credentials = decrypt_credentials(row.get("credentials"), &env.sync.keyring);
-    unregister_connection_webhooks(env.sync.http.as_ref(), &row, &credentials).await;
+    // A store outside the EU the workspace has switched off is not called,
+    // not even to remove webhooks or revoke access (ADR OPS-026); the
+    // connection is still disconnected here.
+    let reachable = outside_eu(&db, row["provider"].as_str().unwrap_or_default())
+        .await
+        .is_ok();
+    if reachable {
+        unregister_connection_webhooks(env.sync.http.as_ref(), &row, &credentials).await;
+    }
     let Some(cache) = env.cache.clone() else {
         // `env.WORKSPACE_CACHE.delete(...)` without the binding throws.
         return ApiError::internal().into_response();
@@ -1076,7 +1108,8 @@ pub(crate) async fn delete_connection(
                     .as_deref()
                     .map(weldsuite_kit::validation::js_trim)
                     .filter(|c| !c.is_empty());
-                if let (false, Some(client_id), Some(secret)) = (still_used, client_id, secret)
+                if let (false, Some(client_id), Some(secret), true) =
+                    (still_used, client_id, secret, reachable)
                     && let Err(error) = weldsuite_connect_domain::stripe::deauthorize(
                         env.sync.http.as_ref(),
                         secret,

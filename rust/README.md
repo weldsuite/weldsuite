@@ -592,6 +592,11 @@ rust/
   crates/merge-domain/  WeldMerge code merge and connect share (@weldsuite/merge-domain/installations): a GitHub App
                         installation recorded as a merge_connections row and in the master merge_provider_index,
                         its status and its removal
+  crates/outside-eu/    services outside the EU (ADR OPS-026): the one list of them (by company: where, what
+                        data, what uses it), a workspace's opt-ins (workspace_settings.features.outsideEu), and
+                        the check every call path makes on the EU edition (`require` in routes, `allowed` in jobs;
+                        installed from EDITION in main.rs, off in conformance builds); routes in
+                        modules/core-platform (`/api/outside-eu-services`), staff command `weldsuite admin outside-eu`
   crates/legal-entities/ legal entities (@weldsuite/core-domain/legal-entities): per-entity access, the
                         legal_entity_context layer and record guard for books and hr, the core service
                         (entities, registrations, bank accounts, access) and its request schemas
@@ -826,6 +831,13 @@ scripts and the self-hosted operator. The commands' rules and writes are in
   through Mollie (the credit note is made in WeldBooks, in the issuer
   workspace) and `retry-now` (charge a past-due workspace's open charge
   again). `bins/weldsuite/src/admin_billing.rs`.
+- **`outside-eu`**: a workspace's services outside the EU (ADR OPS-026,
+  `crates/outside-eu`): `list`, and `on`/`off` with
+  `--service <id>[,<id>…]`. `on --via move` records an integration the
+  workspace had connected on Global before it moved (OPS-025 decision 6).
+  The switch lives in the workspace's own database
+  (`workspace_settings.features.outsideEu`), so it and its audit row are two
+  writes. `bins/weldsuite/src/admin_outside_eu.rs`.
 - Every change needs `--reason`, runs in one transaction with its row in
   `admin_audit_events` (`actor_user_id` `cli`), refusals included, and
   `--dry-run` shows it without writing. `--json` prints JSON.

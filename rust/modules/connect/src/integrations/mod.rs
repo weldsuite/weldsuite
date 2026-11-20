@@ -294,12 +294,26 @@ pub(crate) enum ActionError {
     Other(String),
     /// Thrown: the route's catch answers its own 500.
     Thrown(String),
+    /// The provider is outside the EU and the workspace hasn't switched it
+    /// on (ADR OPS-026): 403.
+    OutsideEu(weldsuite_outside_eu::OutsideEuError),
 }
 
 impl From<sqlx::Error> for ActionError {
     fn from(error: sqlx::Error) -> Self {
         Self::Thrown(error.to_string())
     }
+}
+
+/// ADR OPS-026: Attio, `HubSpot` and Google Calendar are outside the EU, so
+/// on the EU edition a workspace connects, syncs and calls them only once it
+/// has switched the company on. `provider` is the connection's (`attio`,
+/// `hubspot`, `google_calendar`; MCP servers and unknown providers pass).
+#[allow(clippy::result_large_err)] // the refusal is answered as it is
+pub(crate) async fn outside_eu(db: &PgPool, provider: &str) -> Result<(), Response> {
+    weldsuite_outside_eu::require_integration(db, provider)
+        .await
+        .map_err(|error| error.to_api_error().into_response())
 }
 
 /// `triggerConnectionSync`: the stale-lock-aware guard, `syncing`, then the
@@ -325,6 +339,12 @@ pub(crate) async fn trigger_connection_sync(
     let Some((connection, fresh)) = found else {
         return Err(ActionError::NotFound);
     };
+    weldsuite_outside_eu::require_integration(
+        db,
+        connection["provider"].as_str().unwrap_or_default(),
+    )
+    .await
+    .map_err(ActionError::OutsideEu)?;
     if connection["status"].as_str() == Some("syncing") {
         if fresh {
             return Err(ActionError::Conflict(
@@ -388,6 +408,9 @@ pub(crate) async fn renew_google_calendar_watch(
     let Some(connection) = connection else {
         return Err(ActionError::NotFound);
     };
+    weldsuite_outside_eu::require(db, weldsuite_outside_eu::ServiceId::Google)
+        .await
+        .map_err(ActionError::OutsideEu)?;
     let tokens = &connection["oauth_tokens"];
     let Some(mut access_token) = tokens
         .get("accessToken")
@@ -474,6 +497,7 @@ pub(crate) fn action_response(
             }
         }
         Err(ActionError::Thrown(error)) => internal_error(&error, failed),
+        Err(ActionError::OutsideEu(error)) => error.to_api_error().into_response(),
     }
 }
 
@@ -993,7 +1017,16 @@ async fn disconnect(
             .map(|t| crate::js::js_string(Some(t)));
         let webhook_id = connection["webhook_id"].as_str().filter(|w| !w.is_empty());
         let provider = connection["provider"].as_str().and_then(Provider::of);
-        if let (Some(token), Some(webhook_id), Some(provider)) = (token, webhook_id, provider)
+        // A provider outside the EU the workspace has switched off is not
+        // called, not even to remove its webhooks (ADR OPS-026).
+        let reachable = outside_eu(
+            &caller.db,
+            connection["provider"].as_str().unwrap_or_default(),
+        )
+        .await
+        .is_ok();
+        if let (Some(token), Some(webhook_id), Some(provider), true) =
+            (token, webhook_id, provider, reachable)
             && let Err(error) = provider
                 .delete_webhooks(
                     &caller.http(&state),
@@ -1090,6 +1123,9 @@ async fn attio_authorize(
     let Some(org_id) = caller.org_id.clone() else {
         return ApiError::org_required().into_response();
     };
+    if let Err(refusal) = outside_eu(&caller.db, "attio").await {
+        return refusal;
+    }
     let Some(client_id) = caller.env_value(&state, "ATTIO_CLIENT_ID") else {
         return ApiError::internal()
             .with_message("Attio client ID not configured")
@@ -1132,6 +1168,9 @@ async fn generic_authorize(
         return ApiError::bad_request(format!("Provider {provider} is not supported"))
             .into_response();
     };
+    if let Err(refusal) = outside_eu(&caller.db, &provider).await {
+        return refusal;
+    }
     let (Some(client_id), _) = provider_credentials(&caller, &state, &provider) else {
         return ApiError::bad_request(format!("Provider {provider} is not configured"))
             .into_response();
@@ -1251,6 +1290,9 @@ async fn attio_callback(
     let Some(org_id) = caller.org_id.clone() else {
         return ApiError::org_required().into_response();
     };
+    if let Err(refusal) = outside_eu(&caller.db, "attio").await {
+        return refusal;
+    }
     let result: Result<Response, Refusal> = async {
         let cache = caller.workspace_cache(&state)?;
         let key = format!("attio_oauth_state:{oauth_state}");
@@ -1365,6 +1407,9 @@ async fn generic_callback(
         return ApiError::bad_request(format!("Provider {provider} is not supported"))
             .into_response();
     };
+    if let Err(refusal) = outside_eu(&caller.db, &provider).await {
+        return refusal;
+    }
     let result: Result<Response, Refusal> = async {
         let cache = caller.workspace_cache(&state)?;
         // `consumeOAuthState`.

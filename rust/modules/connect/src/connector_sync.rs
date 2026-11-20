@@ -78,6 +78,22 @@ impl Background {
     pub(crate) async fn run(
         self,
     ) -> Result<Vec<String>, weldsuite_connect_domain::sync::SyncError> {
+        // ADR OPS-026: a store outside the EU (Stripe, Shopify) is read only
+        // for a workspace that switched it on; otherwise nothing is synced.
+        if let Some(service) = outside_eu_service(&self.connection)
+            && !weldsuite_outside_eu::allowed(
+                &self.db,
+                service,
+                &format!(
+                    "connector sync {} in {}",
+                    self.connection["id"].as_str().unwrap_or_default(),
+                    self.workspace_id
+                ),
+            )
+            .await
+        {
+            return Ok(Vec::new());
+        }
         sync_connection(&SyncArgs {
             db: &self.db,
             env: &self.env,
@@ -90,6 +106,14 @@ impl Background {
         })
         .await
     }
+}
+
+/// The service outside the EU a connection's store is (`stripe`, `shopify`;
+/// ADR OPS-026), `None` for the EU and self-hosted ones.
+pub(crate) fn outside_eu_service(connection: &Value) -> Option<weldsuite_outside_eu::ServiceId> {
+    weldsuite_outside_eu::ServiceId::for_integration(
+        connection["provider"].as_str().unwrap_or_default(),
+    )
 }
 
 /// `c.executionCtx.waitUntil(syncConnection(…).catch(log))`.
@@ -136,6 +160,11 @@ pub(crate) async fn sync_now(
     }
     if caller.clerk_org_id.is_empty() {
         return ApiError::org_required().into_response();
+    }
+    if let Some(service) = outside_eu_service(&row)
+        && let Err(error) = weldsuite_outside_eu::require(&caller.db, service).await
+    {
+        return error.to_api_error().into_response();
     }
     let syncs: Option<Vec<String>> = syncs;
     let full = full.unwrap_or(false);

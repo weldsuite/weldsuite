@@ -129,6 +129,7 @@ fn failure(error: ServiceError) -> Refusal {
         },
         ServiceError::Database(error) => Refusal::Database(error),
         ServiceError::Other(message) => Refusal::Internal(message),
+        ServiceError::OutsideEu(error) => error.to_api_error().into(),
     }
 }
 
@@ -551,9 +552,18 @@ async fn sync(
             .is_ok_and(|b| b.get("refresh") == Some(&Value::Bool(true)));
         let entity_id = resolve_entity_id(&caller).await?;
         let ctx = feed_context(&caller, &state);
-        require_connection(&ctx.db, &id, entity_id.as_deref())
+        let row = require_connection(&ctx.db, &id, entity_id.as_deref())
             .await
             .map_err(failure)?;
+        // "Sync now" on a provider outside the EU the workspace hasn't
+        // switched on is a 403 (ADR OPS-026); the sweeps skip it instead.
+        ctx.outside_eu(
+            row.get("provider")
+                .and_then(Value::as_str)
+                .unwrap_or_default(),
+        )
+        .await
+        .map_err(|error| failure(error.into()))?;
         let options = SyncOptions {
             refresh,
             // The member's address: Ponto synchronizes only with the customer present.

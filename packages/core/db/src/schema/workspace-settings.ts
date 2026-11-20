@@ -49,6 +49,25 @@ export const workspaceSettings = pgTable('workspace_settings', {
     apiAccess?: boolean;
     customDomain?: boolean;
     whiteLabel?: boolean;
+    /**
+     * Services outside the EU the workspace switched on (ADR OPS-026), by
+     * service id (`telnyx`, `google`, …). Written only by the Rust backend
+     * (`rust/crates/outside-eu`), which refuses calls to a service that is
+     * off on the EU edition. No entry, or `enabled: false`, is off.
+     */
+    outsideEu?: Record<
+      string,
+      {
+        enabled: boolean;
+        enabledBy?: string;
+        enabledAt?: string;
+        acknowledgedAt?: string;
+        via?: 'admin' | 'staff' | 'move';
+        reason?: string;
+        disabledBy?: string;
+        disabledAt?: string;
+      }
+    >;
   }>(),
 
   // @deprecated - Billing is now managed via Clerk Billing. These columns are kept for migration/backwards compatibility.

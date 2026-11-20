@@ -205,10 +205,26 @@ pub async fn sweep_workspace(
     let mut next: Option<i64> = None;
     for connection in &connections {
         let at = if connection.due_at <= now {
-            match process(connect, clerk_org_id, connection, now).await {
-                "triggered" => counts.triggered += 1,
-                "renewed" => counts.renewed += 1,
-                _ => counts.failed += 1,
+            // ADR OPS-026: Attio, HubSpot and Google are outside the EU; a
+            // workspace that hasn't switched one on is skipped, not synced.
+            let switched_off =
+                match weldsuite_outside_eu::ServiceId::for_integration(&connection.provider) {
+                    Some(service) => {
+                        !weldsuite_outside_eu::allowed(
+                            db,
+                            service,
+                            &format!("crm sync {} in {clerk_org_id}", connection.id),
+                        )
+                        .await
+                    }
+                    None => false,
+                };
+            if !switched_off {
+                match process(connect, clerk_org_id, connection, now).await {
+                    "triggered" => counts.triggered += 1,
+                    "renewed" => counts.renewed += 1,
+                    _ => counts.failed += 1,
+                }
             }
             now + connection.interval_minutes * 60_000
         } else {

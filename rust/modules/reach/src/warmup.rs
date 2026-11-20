@@ -149,6 +149,18 @@ async fn visit(
         return Ok(None);
     }
     let tenant = (engine.tenants)(workspace.to_owned()).await?;
+    // Mailpool is outside the EU (ADR OPS-026): its mailboxes neither warm
+    // up nor provision for a workspace that has it switched off; looked at
+    // again tomorrow.
+    if !weldsuite_outside_eu::allowed(
+        &tenant.db,
+        weldsuite_outside_eu::ServiceId::Mailpool,
+        &format!("reach warmup {workspace}"),
+    )
+    .await
+    {
+        return Ok(Some(utc_tomorrow(at)));
+    }
     process_workspace(engine, mailpool, &tenant, at)
         .await
         .map_err(|e| e.message)

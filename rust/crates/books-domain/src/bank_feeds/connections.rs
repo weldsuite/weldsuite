@@ -308,6 +308,7 @@ pub async fn create_link_session(
     args: LinkSessionArgs,
 ) -> Result<Value, ServiceError> {
     let provider = ctx.provider(&args.provider_id)?;
+    ctx.outside_eu(provider.id).await?;
     let mut stored = None;
     if args.mode != "create" {
         let Some(connection_id) = args.connection_id.as_deref().filter(|c| !c.is_empty()) else {
@@ -385,6 +386,7 @@ pub async fn complete_link(
     user_id: Option<&str>,
 ) -> Result<Linked, ServiceError> {
     let provider = ctx.provider(provider_id)?;
+    ctx.outside_eu(provider.id).await?;
     let mut client = rec(Some(payload));
     client.remove("connection");
     let mut existing: Option<Value> = None;
@@ -884,6 +886,16 @@ async fn revoke(ctx: &FeedContext, row: &Value) -> Result<(), ServiceError> {
     let Ok(provider) = ctx.provider(text(row, "provider").unwrap_or_default()) else {
         return Ok(());
     };
+    // A provider outside the EU the workspace has switched off is not
+    // called, not even to revoke (ADR OPS-026): the connection still stops
+    // syncing here.
+    if ctx.outside_eu(provider.id).await.is_err() {
+        tracing::info!(
+            provider = provider.id,
+            "[bank-feeds] outside the EU and switched off: not revoked at the provider"
+        );
+        return Ok(());
+    }
     let ids: Vec<String> = stored_feed_accounts(row)
         .iter()
         .filter_map(|a| text(a, "providerAccountId").map(str::to_owned))
