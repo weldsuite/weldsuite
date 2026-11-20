@@ -2,8 +2,8 @@
  * `/auth/register` on an OIDC provider (EU): the screens Global shows, over
  * the backend's `/api/sign-in` (mocked here at `sign-in-api`).
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { en } from '@weldsuite/i18n/locales/en';
 
@@ -56,6 +56,12 @@ const originalLocation = window.location;
 let replace: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
+  // The code field (input-otp) re-reads its caret on timeouts of 0, 10 and
+  // 50 ms after every change, and never clears them on unmount. One firing
+  // after this file's jsdom is gone fails the run ("window is not defined").
+  // So timeouts run on a fake clock that keeps pace with real time, and
+  // afterEach drops whatever is left of it.
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true });
   vi.clearAllMocks();
   router.search = `authRequest=${REQUEST}`;
   // Zitadel's default rules: a symbol on top of Global's four.
@@ -67,6 +73,16 @@ beforeEach(() => {
     value: { ...originalLocation, replace },
   });
 });
+
+afterEach(() => {
+  // Unmount first (the shared setup's cleanup runs after this hook), then
+  // throw away the timeouts the code field left behind, unfired.
+  cleanup();
+  vi.useRealTimers();
+});
+
+/** user-event waits on setTimeout between keystrokes; move the fake clock with it. */
+const setupUser = () => userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
 
 async function fillIn(user: ReturnType<typeof userEvent.setup>, password: string) {
   await user.type(screen.getByLabelText(t.register.firstNameLabel), 'Jane');
@@ -97,7 +113,7 @@ describe('ProviderRegisterPage', () => {
   });
 
   it('checks the password against the provider’s rules, not Global’s', async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(<ProviderRegisterPage />);
     await waitFor(() => expect(api.loadPasswordPolicy).toHaveBeenCalled());
 
@@ -110,7 +126,7 @@ describe('ProviderRegisterPage', () => {
   });
 
   it('creates the account, verifies the address with the emailed code, and signs in', async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     api.signUp.mockResolvedValue({
       status: 'needs_email_verification',
       email: 'jane@acme.test',
@@ -140,7 +156,7 @@ describe('ProviderRegisterPage', () => {
   });
 
   it('says so when the address already has an account', async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     api.signUp.mockRejectedValue(new api.SignInError('EMAIL_TAKEN'));
     render(<ProviderRegisterPage />);
     await waitFor(() => expect(api.loadPasswordPolicy).toHaveBeenCalled());
@@ -153,7 +169,7 @@ describe('ProviderRegisterPage', () => {
   });
 
   it('sends the code again on request', async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     api.signUp.mockResolvedValue({
       status: 'needs_email_verification',
       email: 'jane@acme.test',
