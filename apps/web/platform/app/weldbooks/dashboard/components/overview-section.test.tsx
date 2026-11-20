@@ -36,7 +36,7 @@ vi.mock('./custom-chart-card', () => ({
 }));
 vi.mock('./dashboard-series', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./dashboard-series')>()),
-  dashboardTrend: () => ({ months: [], sample: false }),
+  dashboardTrend: () => [],
 }));
 
 import { CHART_BUILDER_PATH, OverviewSection } from './overview-section';

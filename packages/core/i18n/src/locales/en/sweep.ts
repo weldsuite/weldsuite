@@ -374,7 +374,6 @@ export const sweep = {
       "ledgerAccount": "Ledger account",
       "notLinked": "Not linked",
       "groupPartiallyPaid": "Partially paid",
-      "sampleData": "Sample data",
       "pdfDownloaded": "PDF downloaded"
     },
     "contactForm": {

@@ -96,7 +96,7 @@ function ChartBuilder({ dashboard, initial }: Readonly<{ dashboard: Dashboard; i
   const sourceInfo: Record<ChartSource, string> = tc.info;
   const { saveChart, isSaving } = useDashboardCharts();
   const [chart, setChart] = useState<DashboardChart>(() => initial ?? newDashboardChart());
-  const { months, sample } = useMemo(() => dashboardTrend(dashboard), [dashboard]);
+  const months = useMemo(() => dashboardTrend(dashboard), [dashboard]);
   const editing = Boolean(initial);
   const trend = isTrendSource(chart.source);
   const types = chartTypesFor(chart.source);
@@ -169,7 +169,7 @@ function ChartBuilder({ dashboard, initial }: Readonly<{ dashboard: Dashboard; i
         <div className="flex flex-1 items-center justify-center overflow-y-auto px-8 py-20">
           <div className="w-full max-w-[352px]">
             <OverviewCard title={title} info={info}>
-              <CustomChartBody chart={chart} dashboard={dashboard} months={months} sample={sample} filter={PREVIEW_FILTER} />
+              <CustomChartBody chart={chart} dashboard={dashboard} months={months} filter={PREVIEW_FILTER} />
             </OverviewCard>
           </div>
         </div>

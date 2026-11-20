@@ -289,7 +289,6 @@ export const accounting = {
         previousPeriodValue: '{amount} vorige periode',
         previousYearValue: '{amount} vorig jaar',
         lastYear: 'Vorig jaar',
-        noComparison: 'Geen gegevens voor deze periode',
         revenue: 'Omzet',
         expenses: 'Kosten',
         netProfit: 'Nettowinst',
