@@ -21,7 +21,7 @@ use weldsuite_kit::validation::{Field, Issues, Number, Presence};
 use weldsuite_kit::{ApiError, Created, Data};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
-use crate::dns_host::{Created as Outcome, RecordInput};
+use crate::dns_host::{Created as Outcome, Dns, RecordInput};
 use crate::dns_sync::{SyncResult, add_user_lock, record_locks, remove_user_lock, sync_zone};
 use crate::doh::scan_domain_records;
 use crate::js::{as_text, slice_utf16, text};
@@ -29,7 +29,10 @@ use crate::rows::{any_zone, live_domain, live_zone, live_zone_of_domain, one, zo
 use crate::weldreach::{
     domain_name_for_zone, duplicates_record, is_managed_record, mark_records, record_managed,
 };
-use crate::{Caller, HostState, internal, json_response, now, validate, validate_query};
+use crate::{
+    Caller, DnsProvider, HostState, Providers, ZoneDns, internal, json_response, now, validate,
+    validate_query,
+};
 
 const TYPES: [&str; 10] = [
     "A", "AAAA", "CNAME", "MX", "TXT", "NS", "SRV", "CAA", "PTR", "SOA",
@@ -75,10 +78,32 @@ where
         .route("/{id}/lock", post(lock).route_layer(need("dns:update")))
 }
 
-fn unconfigured() -> Response {
+fn unconfigured(provider: DnsProvider) -> Response {
     ApiError::internal()
-        .with_message("Cloudflare integration is not configured.")
+        .with_message(format!(
+            "{} integration is not configured.",
+            provider.label()
+        ))
         .into_response()
+}
+
+/// `This domain does not have a Cloudflare zone yet.`, with the install's
+/// provider.
+fn no_zone_yet(providers: &Providers) -> Response {
+    ApiError::bad_request(format!(
+        "This domain does not have a {} zone yet.",
+        providers.dns_provider.label()
+    ))
+    .into_response()
+}
+
+/// `This zone is not managed by Cloudflare.`, with the install's provider.
+fn not_managed(providers: &Providers) -> Response {
+    ApiError::bad_request(format!(
+        "This zone is not managed by {}.",
+        providers.dns_provider.label()
+    ))
+    .into_response()
 }
 
 /// A statement outside the route's `try`: the app's 500.
@@ -89,33 +114,34 @@ fn app_error(error: &sqlx::Error) -> Response {
 
 // ── Zones and readiness ─────────────────────────────────────────────────────
 
-/// `resolveCloudflareReady*`.
+/// `resolveCloudflareReady*`, for the zone's provider.
 enum Ready {
     NotFound,
     NoCfZone,
-    Misconfigured,
+    Misconfigured(DnsProvider),
     Ok {
         domain: Value,
         zone_id: String,
         external: String,
+        provider: DnsProvider,
+        dns: Dns,
     },
 }
 
-fn readiness(domain: Value, zone: Option<&Value>, token: Option<&str>) -> Ready {
-    let external = zone
-        .and_then(|z| text(z, "externalZoneId"))
-        .filter(|e| !e.is_empty());
-    let cloudflare = zone.and_then(|z| text(z, "provider")) == Some("cloudflare");
-    let (Some(zone), Some(external), true) = (zone, external, cloudflare) else {
-        return Ready::NoCfZone;
-    };
-    if token.is_none() {
-        return Ready::Misconfigured;
-    }
-    Ready::Ok {
-        domain,
-        zone_id: text(zone, "id").unwrap_or_default().to_owned(),
-        external: external.to_owned(),
+fn readiness(domain: Value, zone: Option<&Value>, providers: &Providers) -> Ready {
+    match providers.zone_dns(zone) {
+        ZoneDns::Unmanaged => Ready::NoCfZone,
+        ZoneDns::Unconfigured(provider) => Ready::Misconfigured(provider),
+        ZoneDns::Ready(provider, dns) => {
+            let zone = zone.unwrap_or(&Value::Null);
+            Ready::Ok {
+                domain,
+                zone_id: text(zone, "id").unwrap_or_default().to_owned(),
+                external: text(zone, "externalZoneId").unwrap_or_default().to_owned(),
+                provider,
+                dns,
+            }
+        }
     }
 }
 
@@ -123,20 +149,20 @@ fn readiness(domain: Value, zone: Option<&Value>, token: Option<&str>) -> Ready 
 async fn ready_by_domain(
     db: &PgPool,
     domain_id: &str,
-    token: Option<&str>,
+    providers: &Providers,
 ) -> Result<Ready, sqlx::Error> {
     let Some(domain) = live_domain(db, domain_id).await? else {
         return Ok(Ready::NotFound);
     };
     let zone = live_zone_of_domain(db, domain_id).await?;
-    Ok(readiness(domain, zone.as_ref(), token))
+    Ok(readiness(domain, zone.as_ref(), providers))
 }
 
 /// `resolveCloudflareReadyByZone(db, zoneId, token)`.
 async fn ready_by_zone(
     db: &PgPool,
     zone_id: &str,
-    token: Option<&str>,
+    providers: &Providers,
 ) -> Result<Ready, sqlx::Error> {
     let Some(zone) = live_zone(db, zone_id).await? else {
         return Ok(Ready::NotFound);
@@ -144,7 +170,7 @@ async fn ready_by_zone(
     let Some(domain) = live_domain(db, text(&zone, "domainId").unwrap_or_default()).await? else {
         return Ok(Ready::NotFound);
     };
-    Ok(readiness(domain, Some(&zone), token))
+    Ok(readiness(domain, Some(&zone), providers))
 }
 
 /// `listDnsRecordsByZone`: the local records, synced first when the zone
@@ -161,12 +187,10 @@ async fn list_by_zone(
     let summary = |zone: &Value| json!({ "id": zone["id"], "syncedAt": zone["syncedAt"], "syncError": zone["syncError"] });
     let mut synced = summary(&zone);
     let providers = caller.providers(state);
-    let external = text(&zone, "externalZoneId").filter(|e| !e.is_empty());
-    if text(&zone, "provider") == Some("cloudflare")
-        && let (Some(external), Some(token)) = (external, providers.cf_token.as_deref())
+    if let ZoneDns::Ready(_, dns) = providers.zone_dns(Some(&zone))
         && (records.is_empty() || zone["syncedAt"].is_null())
     {
-        let dns = providers.dns(token);
+        let external = text(&zone, "externalZoneId").unwrap_or_default();
         records = sync_zone(&caller.db, &dns, zone_id, Some(external))
             .await?
             .records;
@@ -256,36 +280,34 @@ async fn sync(
 ) -> Response {
     let providers = caller.providers(&state);
     let result: Result<Response, sqlx::Error> = async {
-        let (zone_id, external) =
-            match ready_by_zone(&caller.db, &zone_id, providers.cf_token.as_deref()).await? {
+        let (zone_id, external, provider, dns) =
+            match ready_by_zone(&caller.db, &zone_id, &providers).await? {
                 Ready::NotFound => {
                     return Ok(ApiError::not_found("DNS zone", Some(&zone_id)).into_response());
                 }
-                Ready::NoCfZone => {
-                    return Ok(
-                        ApiError::bad_request("This zone is not managed by Cloudflare.")
-                            .into_response(),
-                    );
-                }
-                Ready::Misconfigured => return Ok(unconfigured()),
+                Ready::NoCfZone => return Ok(not_managed(&providers)),
+                Ready::Misconfigured(provider) => return Ok(unconfigured(provider)),
                 Ready::Ok {
-                    zone_id, external, ..
-                } => (zone_id, external),
+                    zone_id,
+                    external,
+                    provider,
+                    dns,
+                    ..
+                } => (zone_id, external, provider, dns),
             };
-        let dns = providers.dns(providers.cf_token.as_deref().unwrap_or_default());
         let sync = sync_zone(&caller.db, &dns, &zone_id, Some(&external)).await?;
         if !sync.ok {
             let message = sync
                 .error
                 .clone()
-                .unwrap_or_else(|| "Cloudflare sync failed".to_owned());
+                .unwrap_or_else(|| format!("{} sync failed", provider.label()));
             let data = sync_body(&caller.db, sync).await?;
             return Ok(json_response(
                 StatusCode::BAD_GATEWAY,
                 json!({
                     "success": false,
                     "data": data,
-                    "error": { "code": "CLOUDFLARE_ERROR", "message": message },
+                    "error": { "code": provider.error_code(), "message": message },
                 }),
             ));
         }
@@ -306,9 +328,10 @@ fn importable(domain: &str, record: &Value) -> bool {
     if kind == "TXT" && field("name").to_lowercase() == verify {
         return false;
     }
-    !field("value")
-        .to_lowercase()
-        .ends_with(".ns.cloudflare.com")
+    let value = field("value").to_lowercase();
+    ![".ns.cloudflare.com", ".ns.hetzner.com", ".ns.hetzner.de"]
+        .iter()
+        .any(|host| value.ends_with(host))
 }
 
 async fn scan(
@@ -329,14 +352,16 @@ async fn scan(
         Ok(None) => return ApiError::not_found("Domain", Some(&domain_id)).into_response(),
         Err(error) => return app_error(&error),
     };
-    if zone.as_ref().and_then(|z| text(z, "provider")) != Some("cloudflare") {
-        return ApiError::bad_request(
-            "This domain does not have a Cloudflare zone yet. Complete verification first.",
-        )
+    let providers = caller.providers(&state);
+    let provider = zone.as_ref().and_then(|z| text(z, "provider"));
+    if provider != Some("cloudflare") && provider != Some(providers.dns_provider.as_str()) {
+        return ApiError::bad_request(format!(
+            "This domain does not have a {} zone yet. Complete verification first.",
+            providers.dns_provider.label()
+        ))
         .into_response();
     }
     let full = text(&domain, "fullDomain").unwrap_or_default().to_owned();
-    let providers = caller.providers(&state);
     let records: Vec<Value> = scan_domain_records(&providers.http, &full)
         .await
         .into_iter()
@@ -455,31 +480,27 @@ async fn import(
         Err(response) => return *response,
     };
     let providers = caller.providers(&state);
-    let Some(token) = providers.cf_token.clone() else {
-        return unconfigured();
-    };
+    if !providers.configured() {
+        return unconfigured(providers.dns_provider);
+    }
     let result: Result<Response, sqlx::Error> = async {
-        let (domain, zone_id, external) =
-            match ready_by_domain(&caller.db, &domain_id, Some(&token)).await? {
+        let (domain, zone_id, external, dns) =
+            match ready_by_domain(&caller.db, &domain_id, &providers).await? {
                 Ready::NotFound => {
                     return Ok(ApiError::not_found("Domain", Some(&domain_id)).into_response());
                 }
-                Ready::NoCfZone => {
-                    return Ok(ApiError::bad_request(
-                        "This domain does not have a Cloudflare zone yet.",
-                    )
-                    .into_response());
-                }
-                Ready::Misconfigured => return Ok(unconfigured()),
+                Ready::NoCfZone => return Ok(no_zone_yet(&providers)),
+                Ready::Misconfigured(provider) => return Ok(unconfigured(provider)),
                 Ready::Ok {
                     domain,
                     zone_id,
                     external,
-                } => (domain, zone_id, external),
+                    dns,
+                    ..
+                } => (domain, zone_id, external, dns),
             };
         let full = text(&domain, "fullDomain").unwrap_or_default().to_owned();
         let reach = domain_name_for_zone(&caller.db, &zone_id).await?;
-        let dns = providers.dns(&token);
         let (mut imported, mut skipped) = (0_u64, 0_u64);
         let mut failed: Vec<Value> = Vec::new();
         for (record, input) in &records {
@@ -512,6 +533,7 @@ async fn import(
 /// The 422 of a provider refusal, with the re-synced records.
 async fn provider_refused(
     db: &PgPool,
+    provider: DnsProvider,
     sync: SyncResult,
     message: &str,
 ) -> Result<Response, sqlx::Error> {
@@ -521,7 +543,7 @@ async fn provider_refused(
         json!({
             "success": false,
             "data": { "records": records },
-            "error": { "code": "CLOUDFLARE_ERROR", "message": message },
+            "error": { "code": provider.error_code(), "message": message },
         }),
     ))
 }
@@ -539,28 +561,26 @@ async fn create(
     };
     let providers = caller.providers(&state);
     let result: Result<Response, sqlx::Error> = async {
-        let (zone_id, external) =
-            match ready_by_domain(&caller.db, &domain_id, providers.cf_token.as_deref()).await? {
+        let (zone_id, external, provider, dns) =
+            match ready_by_domain(&caller.db, &domain_id, &providers).await? {
                 Ready::NotFound => {
                     return Ok(ApiError::not_found("Domain", Some(&domain_id)).into_response());
                 }
-                Ready::NoCfZone => {
-                    return Ok(ApiError::bad_request(
-                        "This domain does not have a Cloudflare zone yet.",
-                    )
-                    .into_response());
-                }
-                Ready::Misconfigured => return Ok(unconfigured()),
+                Ready::NoCfZone => return Ok(no_zone_yet(&providers)),
+                Ready::Misconfigured(provider) => return Ok(unconfigured(provider)),
                 Ready::Ok {
-                    zone_id, external, ..
-                } => (zone_id, external),
+                    zone_id,
+                    external,
+                    provider,
+                    dns,
+                    ..
+                } => (zone_id, external, provider, dns),
             };
         if let Some(reach) = domain_name_for_zone(&caller.db, &zone_id).await?
             && duplicates_record(&reach, &input.kind, &input.name, &input.content)
         {
             return Ok(record_managed());
         }
-        let dns = providers.dns(providers.cf_token.as_deref().unwrap_or_default());
         let refused = match dns.create_record(&external, &input).await {
             Ok(_) => None,
             Err(error) => {
@@ -570,7 +590,7 @@ async fn create(
         };
         let sync = sync_zone(&caller.db, &dns, &zone_id, Some(&external)).await?;
         if let Some(message) = refused {
-            return provider_refused(&caller.db, sync, &message).await;
+            return provider_refused(&caller.db, provider, sync, &message).await;
         }
         caller.publish(
             &state,
@@ -623,28 +643,35 @@ fn locked_response(record: &Value) -> Response {
     )
 }
 
+/// A record `guard` let through, with its zone and the zone's DNS host.
+struct Guarded {
+    record: Value,
+    zone: Value,
+    external: String,
+    provider: DnsProvider,
+    dns: Dns,
+}
+
 /// The checks `updateDnsRecord` and `deleteDnsRecord` share, up to the
 /// lock: `Err` with the refusal, or the record, its zone and the zone's
-/// external id.
+/// external id and DNS host.
 async fn guard(
     db: &PgPool,
+    providers: &Providers,
     id: &str,
     input: Option<&RecordInput>,
-) -> Result<Result<(Value, Value, String), Response>, sqlx::Error> {
+) -> Result<Result<Guarded, Response>, sqlx::Error> {
     let Some((record, zone)) = record_with_zone(db, id).await? else {
         return Ok(Err(
             ApiError::not_found("DNS record", Some(id)).into_response()
         ));
     };
-    let external = text(&zone, "externalZoneId")
-        .filter(|e| !e.is_empty())
-        .map(str::to_owned);
-    let (Some(external), true) = (external, text(&zone, "provider") == Some("cloudflare")) else {
-        return Ok(Err(ApiError::bad_request(
-            "This zone is not managed by Cloudflare.",
-        )
-        .into_response()));
+    let (provider, dns) = match providers.zone_dns(Some(&zone)) {
+        ZoneDns::Unmanaged => return Ok(Err(not_managed(providers))),
+        ZoneDns::Unconfigured(provider) => return Ok(Err(unconfigured(provider))),
+        ZoneDns::Ready(provider, dns) => (provider, dns),
     };
+    let external = text(&zone, "externalZoneId").unwrap_or_default().to_owned();
     let zone_id = text(&zone, "id").unwrap_or_default().to_owned();
     if let Some(reach) = domain_name_for_zone(db, &zone_id).await? {
         let field = |key: &str| record.get(key).map(as_text).unwrap_or_default();
@@ -659,7 +686,13 @@ async fn guard(
     if !record_locks(record.get("metadata")).is_empty() {
         return Ok(Err(locked_response(&record)));
     }
-    Ok(Ok((record, zone, external)))
+    Ok(Ok(Guarded {
+        record,
+        zone,
+        external,
+        provider,
+        dns,
+    }))
 }
 
 async fn update(
@@ -674,18 +707,27 @@ async fn update(
         Err(response) => return *response,
     };
     let providers = caller.providers(&state);
-    let Some(token) = providers.cf_token.clone() else {
-        return unconfigured();
-    };
+    if !providers.configured() {
+        return unconfigured(providers.dns_provider);
+    }
     let result: Result<Response, sqlx::Error> = async {
-        let (record, zone, external) = match guard(&caller.db, &id, Some(&input)).await? {
+        let Guarded {
+            record,
+            zone,
+            external,
+            provider,
+            dns,
+        } = match guard(&caller.db, &providers, &id, Some(&input)).await? {
             Ok(found) => found,
             Err(refusal) => return Ok(refusal),
         };
         let Some(record_external) = text(&record, "externalRecordId").filter(|e| !e.is_empty()) else {
-            return Ok(ApiError::bad_request("Record has no Cloudflare id — run a sync first.").into_response());
+            return Ok(ApiError::bad_request(format!(
+                "Record has no {} id — run a sync first.",
+                provider.label()
+            ))
+            .into_response());
         };
-        let dns = providers.dns(&token);
         let refused = match dns.update_record(&external, record_external, &input).await {
             Ok(()) => None,
             Err(error) => {
@@ -696,7 +738,7 @@ async fn update(
         let zone_id = text(&zone, "id").unwrap_or_default().to_owned();
         let sync = sync_zone(&caller.db, &dns, &zone_id, Some(&external)).await?;
         if let Some(message) = refused {
-            return provider_refused(&caller.db, sync, &message).await;
+            return provider_refused(&caller.db, provider, sync, &message).await;
         }
         caller.publish(
             &state,
@@ -717,15 +759,20 @@ async fn remove(
     Path(id): Path<String>,
 ) -> Response {
     let providers = caller.providers(&state);
-    let Some(token) = providers.cf_token.clone() else {
-        return unconfigured();
-    };
+    if !providers.configured() {
+        return unconfigured(providers.dns_provider);
+    }
     let result: Result<Response, sqlx::Error> = async {
-        let (record, zone, external) = match guard(&caller.db, &id, None).await? {
+        let Guarded {
+            record,
+            zone,
+            external,
+            provider,
+            dns,
+        } = match guard(&caller.db, &providers, &id, None).await? {
             Ok(found) => found,
             Err(refusal) => return Ok(refusal),
         };
-        let dns = providers.dns(&token);
         let mut refused = None;
         if let Some(record_external) = text(&record, "externalRecordId").filter(|e| !e.is_empty())
             && let Err(error) = dns.delete_record(&external, record_external).await
@@ -736,7 +783,7 @@ async fn remove(
         let zone_id = text(&zone, "id").unwrap_or_default().to_owned();
         let sync = sync_zone(&caller.db, &dns, &zone_id, Some(&external)).await?;
         if let Some(message) = refused {
-            return provider_refused(&caller.db, sync, &message).await;
+            return provider_refused(&caller.db, provider, sync, &message).await;
         }
         caller.publish(
             &state,

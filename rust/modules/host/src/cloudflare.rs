@@ -286,8 +286,13 @@ fn quote_txt(content: &str) -> String {
     format!("\"{}\"", content.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
+/// Whether TXT content is already zone-file strings (`"…" "…"`).
+pub(crate) fn is_quoted_txt(content: &str) -> bool {
+    QUOTED_TXT.is_match(content)
+}
+
 /// `unwrapTxtContent`.
-fn unwrap_txt(content: &str) -> String {
+pub(crate) fn unwrap_txt(content: &str) -> String {
     let trimmed = crate::js::js_trim(content);
     if !QUOTED_TXT.is_match(trimmed) {
         return content.to_owned();
