@@ -13,6 +13,7 @@ import {
   Video,
   Phone,
   Share2,
+  ShoppingBag,
   FolderKanban,
   Bot,
   Database,
@@ -331,6 +332,17 @@ export const APP_REGISTRY: Record<string, AppAssets> = {
     },
     sidebarIconClass: 'h-6 w-6 object-contain',
   },
+  // WeldCommerce (rebuilt, EU edition only; ADR COM-009). Icon-only logo like
+  // welddata/weldknow: wordmark variants need the brand typeface.
+  weldcommerce: {
+    lucideIcon: ShoppingBag,
+    shortName: 'Commerce',
+    icon: '/assets/images/weldcommerce/icon.svg',
+    logo: {
+      iconLight: '/assets/images/weldcommerce/logo-light.svg',
+      iconDark: '/assets/images/weldcommerce/logo-dark.svg',
+    },
+  },
   weldads: {
     lucideIcon: Megaphone,
     shortName: 'Ads',
@@ -410,6 +422,7 @@ const LEGACY_CODE_ALIASES: Record<string, string> = {
   host: 'weldhost',
   stash: 'weldstash',
   weldwms: 'weldstash',
+  commerce: 'weldcommerce',
   accounting: 'weldbooks',
   books: 'weldbooks',
   meet: 'weldmeet',

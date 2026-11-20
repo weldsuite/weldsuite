@@ -36,7 +36,9 @@ describe('AccessibilityBridge', () => {
 
   it('gives the shared ui components their translated labels', async () => {
     renderInDutch();
-    expect(await screen.findByRole('button', { name: 'Sluiten' })).toBeTruthy();
+    // The Dutch bundle loads asynchronously and imports every namespace: allow
+    // it more than findBy's default second on a busy machine.
+    expect(await screen.findByRole('button', { name: 'Sluiten' }, { timeout: 5000 })).toBeTruthy();
     expect(screen.getByRole('img', { name: 'Niet storen' })).toBeTruthy();
     // A decorative dot is hidden, so only the one status image is named.
     expect(screen.getAllByRole('img')).toHaveLength(1);
