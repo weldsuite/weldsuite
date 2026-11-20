@@ -1,0 +1,307 @@
+# Egress anywhere but the metadata service (169.254.169.254, Hetzner's, the
+# same address as most clouds'), for every pod in each namespace the base
+# layers run pods in. Hetzner's serves every node's user data, its Talos
+# machine configuration with the cluster's secrets, to anything on the node
+# that asks; nothing in the base layers needs it (no cloud controller manager,
+# no CSI driver; Talos reads it at boot, outside any pod).
+#
+# Egress only: what may reach these pods is unchanged. Only the one address:
+# Talos' host DNS, which CoreDNS forwards to, is link-local too
+# (169.254.116.108), so 169.254.0.0/16 would cut the cluster's DNS.
+#
+# Policies add up: a pod selected by an egress policy may send only what one
+# of them allows, and this one allows everything else, so it widens any
+# narrower egress policy in the same namespace. Hence not here:
+#   weldsuite-sandbox  the chart's sandbox has a default-deny of its own that
+#                      already keeps 169.254.0.0/16 out; this would open it
+#   flux-system        Flux's own allow-egress (flux install) allows all
+#                      egress, which no policy can take back
+#   weldid             opt-in, in its own layer (../weldid/network-policy.yaml)
+# A namespace a cluster adds gets a copy of one of these, in its own layer.
+# hostNetwork pods use the node's network, which no NetworkPolicy restricts.
+#
+# A cluster that adds Hetzner's cloud controller manager or CSI driver
+# (kube-system; both read the metadata service) deletes the kube-system one
+# in this layer's patches. The ipBlocks also cover the cluster's own pods
+# and nodes with kube-router (and Calico); a controller that never matches
+# pods by ipBlock (Cilium) needs a policy of its own kind instead.
+#
+# default: nothing of the base layers runs here; a throwaway pod does.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: block-metadata-service
+  namespace: default
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [169.254.169.254/32]
+        - ipBlock:
+            cidr: "::/0"
+---
+# kube-system: CoreDNS and metrics-server. The control plane, Flannel,
+#   kube-proxy and kube-router are hostNetwork.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: block-metadata-service
+  namespace: kube-system
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [169.254.169.254/32]
+        - ipBlock:
+            cidr: "::/0"
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: block-metadata-service
+  namespace: kubelet-serving-cert-approver
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [169.254.169.254/32]
+        - ipBlock:
+            cidr: "::/0"
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: block-metadata-service
+  namespace: external-secrets
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [169.254.169.254/32]
+        - ipBlock:
+            cidr: "::/0"
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: block-metadata-service
+  namespace: cert-manager
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [169.254.169.254/32]
+        - ipBlock:
+            cidr: "::/0"
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: block-metadata-service
+  namespace: traefik
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [169.254.169.254/32]
+        - ipBlock:
+            cidr: "::/0"
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: block-metadata-service
+  namespace: openebs
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [169.254.169.254/32]
+        - ipBlock:
+            cidr: "::/0"
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: block-metadata-service
+  namespace: cnpg-system
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [169.254.169.254/32]
+        - ipBlock:
+            cidr: "::/0"
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: block-metadata-service
+  namespace: postgres
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [169.254.169.254/32]
+        - ipBlock:
+            cidr: "::/0"
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: block-metadata-service
+  namespace: zitadel
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [169.254.169.254/32]
+        - ipBlock:
+            cidr: "::/0"
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: block-metadata-service
+  namespace: weldsuite
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [169.254.169.254/32]
+        - ipBlock:
+            cidr: "::/0"
+---
+# weldsuite-mail: the MTA is hostNetwork, Haraka (in weldsuite) is not.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: block-metadata-service
+  namespace: weldsuite-mail
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [169.254.169.254/32]
+        - ipBlock:
+            cidr: "::/0"
+---
+# livekit: LiveKit is hostNetwork; only what else runs here is covered.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: block-metadata-service
+  namespace: livekit
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [169.254.169.254/32]
+        - ipBlock:
+            cidr: "::/0"
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: block-metadata-service
+  namespace: marketing
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [169.254.169.254/32]
+        - ipBlock:
+            cidr: "::/0"
+---
+# monitoring: the node exporter is hostNetwork, the rest is not.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: block-metadata-service
+  namespace: monitoring
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [169.254.169.254/32]
+        - ipBlock:
+            cidr: "::/0"
+---
+# logging: Fluent Bit on the nodes is hostNetwork, Loki and the events
+#   collector are not.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: block-metadata-service
+  namespace: logging
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [169.254.169.254/32]
+        - ipBlock:
+            cidr: "::/0"
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: block-metadata-service
+  namespace: offsite-copy
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [169.254.169.254/32]
+        - ipBlock:
+            cidr: "::/0"

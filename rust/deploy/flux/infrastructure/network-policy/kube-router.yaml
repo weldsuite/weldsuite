@@ -1,0 +1,154 @@
+# kube-router's network policy controller and nothing else of kube-router
+# (--run-router=false --run-service-proxy=false --enable-cni=false): Flannel
+# keeps routing pod traffic and kube-proxy the Services, and kube-router turns
+# every NetworkPolicy into iptables rules and ipsets on each node. The same
+# pairing k3s runs by default (Flannel with kube-router's policy controller).
+# Calico in policy-only mode would replace Talos' Flannel with its own CNI
+# configuration (Canal), and Cilium replaces the CNI altogether: both mean a
+# maintenance window with every pod restarted.
+#
+# How it enforces (kube-router's pkg/controllers/netpol): a pod no policy
+# selects is left alone; a pod a policy selects gets a chain of its own, its
+# allowed peers as ipsets, everything else REJECTed. Replies to allowed
+# connections, and traffic from the pod's own node (the kubelet's probes),
+# always pass. hostNetwork pods are never selected: NetworkPolicy can't
+# restrict them. Rules are iptables through the nf_tables backend (the
+# image's iptables-wrapper picks it on Talos, which runs kube-proxy and
+# Flannel on nftables); the Talos kernel has every match it uses built in.
+#
+# A restart or upgrade leaves the rules in place until the new pod has
+# synced, so enforcement never pauses. Removing the layer does not remove
+# them: they stay on each node, stale, until it reboots (the README, "Agent
+# sandbox", step 2).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kube-router
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: kube-router
+---
+# Read-only: what its informers watch (all of them start, whichever
+# controllers run).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kube-router
+  labels:
+    app.kubernetes.io/name: kube-router
+rules:
+  - apiGroups: [""]
+    resources: [namespaces, pods, services, nodes]
+    verbs: [get, list, watch]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [get, list, watch]
+  - apiGroups: [discovery.k8s.io]
+    resources: [endpointslices]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kube-router
+  labels:
+    app.kubernetes.io/name: kube-router
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kube-router
+subjects:
+  - kind: ServiceAccount
+    name: kube-router
+    namespace: kube-system
+---
+# On every node, the tainted ones too (control planes, Postgres, mail): a
+# node without it doesn't enforce anything for the pods on it.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: kube-router
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: kube-router
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kube-router
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kube-router
+    spec:
+      serviceAccountName: kube-router
+      priorityClassName: system-node-critical
+      # It writes the node's own netfilter tables.
+      hostNetwork: true
+      # It resolves no names; the host's resolver keeps it independent of
+      # CoreDNS.
+      dnsPolicy: Default
+      nodeSelector:
+        kubernetes.io/os: linux
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: kube-router
+          image: docker.io/cloudnativelabs/kube-router:v2.11.2
+          args:
+            - --run-firewall=true
+            - --run-router=false
+            - --run-service-proxy=false
+            # Flannel's CNI configuration stays the node's: kube-router must
+            # never write one.
+            - --enable-cni=false
+            # The cluster's pods are IPv4 (Talos' default 10.244.0.0/16).
+            # A dual-stack cluster adds --enable-ipv6=true in this layer's
+            # patches.
+            - --enable-ipv4=true
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          securityContext:
+            privileged: true
+          # Its informers sync first (up to --cache-sync-timeout, a minute);
+          # then /healthz fails when the policy controller stops reporting a
+          # sync, and the kubelet restarts it (KubePodCrashLooping if it
+          # keeps failing).
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: 20244
+            periodSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 20244
+            periodSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              memory: 512Mi
+          volumeMounts:
+            - name: lib-modules
+              mountPath: /lib/modules
+              readOnly: true
+            - name: xtables-lock
+              mountPath: /run/xtables.lock
+      volumes:
+        - name: lib-modules
+          hostPath:
+            path: /lib/modules
+        - name: xtables-lock
+          hostPath:
+            path: /run/xtables.lock
+            type: FileOrCreate

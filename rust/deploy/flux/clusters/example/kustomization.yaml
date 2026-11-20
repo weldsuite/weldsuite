@@ -11,3 +11,8 @@ resources:
   # (infrastructure/weldid/README.md).
   # - weldid.yaml
   # - weldid-switch.yaml
+  # Opt-in: a copy of the object storage at a second provider
+  # (offsite-copy.yaml says what it needs first).
+  # - offsite-copy.yaml
+  # Opt-in: NetworkPolicy enforced beside Flannel (network-policy.yaml).
+  # - network-policy.yaml
