@@ -240,7 +240,10 @@ export interface TenantInventory {
   databaseBytes: number;
   members: Record<string, number>;
   mail: {
+    /** Domains the workspace brought, not counting its own `{slug}.weldmail.com` domain. */
     customDomains: number;
+    /** The workspace's own `{slug}.weldmail.com` (`.org` on test) domains, which provisioning adds. */
+    weldmailDomains: number;
     accounts: number;
     weldmailAddresses: number;
     messagesEstimate: number;
@@ -248,6 +251,8 @@ export interface TenantInventory {
     snoozed: number;
   };
   helpcenter: { customDomains: number; customDomainsVerified: number };
+  /** WeldHost: domains by registrar, DNS zones by provider, and zones WeldSuite has DNSSEC on for. */
+  weldhost: { domainsByRegistrar: Record<string, number>; zonesByProvider: Record<string, number>; dnssecZones: number };
   phoneNumbers: Record<string, number>;
   apiKeys: { workspaceKeys: number; workspaceKeysUsed30d: number; personalKeys: number; personalKeysUsed30d: number };
   integrations: IntegrationRow[];
@@ -257,6 +262,9 @@ export interface TenantInventory {
   storageBytes: { files: number; projectFiles: number; mailAttachments: number; mailboxes: number };
   errors: string[];
 }
+
+/** A `mail_domains` row for the workspace's own `{slug}.weldmail.com` domain (`.org` on test), not one it brought. */
+const WELDMAIL_DOMAIN = "(lower(domain_name) like '%.weldmail.com' or lower(domain_name) like '%.weldmail.org')";
 
 /** Connection tables: `<table>`, the provider expression, the status expression, and the live filter. */
 const INTEGRATION_SOURCES: ReadonlyArray<{ table: string; provider: string; status: string; where: string }> = [
@@ -283,8 +291,18 @@ export async function tenantInventory(query: Query): Promise<TenantInventory> {
     countMap(await query('select status, count(*) as n from workspace_members group by status'), 'status'),
   );
 
+  const mailDomains = await probe(errors, 'mail_domains', { custom: 0, weldmail: 0 }, async () => {
+    const [row] = await query(
+      `select count(*) filter (where not ${WELDMAIL_DOMAIN}) as custom,
+              count(*) filter (where ${WELDMAIL_DOMAIN}) as weldmail
+         from mail_domains where is_active and deleted_at is null`,
+    );
+    return { custom: num(row?.custom), weldmail: num(row?.weldmail) };
+  });
+
   const mail = {
-    customDomains: await count('mail_domains', 'select count(*) as n from mail_domains where is_active and deleted_at is null'),
+    customDomains: mailDomains.custom,
+    weldmailDomains: mailDomains.weldmail,
     accounts: await count('mail_accounts', 'select count(*) as n from mail_accounts'),
     weldmailAddresses: await count(
       'mail_accounts weldmail',
@@ -306,6 +324,19 @@ export async function tenantInventory(query: Query): Promise<TenantInventory> {
     );
     return { customDomains: num(row?.custom), customDomainsVerified: num(row?.verified) };
   });
+
+  const weldhost = {
+    domainsByRegistrar: await probe(errors, 'domains', {} as Record<string, number>, async () =>
+      countMap(
+        await query('select registrar, count(*) as n from domains where deleted_at is null group by registrar'),
+        'registrar',
+      ),
+    ),
+    zonesByProvider: await probe(errors, 'dns_zones', {} as Record<string, number>, async () =>
+      countMap(await query('select provider, count(*) as n from dns_zones where deleted_at is null group by provider'), 'provider'),
+    ),
+    dnssecZones: await count('dns_zones dnssec', 'select count(*) as n from dns_zones where deleted_at is null and dnssec_enabled'),
+  };
 
   const phoneNumbers = await probe(errors, 'voip_phone_numbers', {} as Record<string, number>, async () =>
     countMap(
@@ -396,7 +427,20 @@ export async function tenantInventory(query: Query): Promise<TenantInventory> {
     mailboxes: await count('mail_accounts storage', 'select coalesce(sum(storage_used), 0) as n from mail_accounts'),
   };
 
-  return { databaseBytes, members, mail, helpcenter, phoneNumbers, apiKeys, integrations, pending, portals, storageBytes, errors };
+  return {
+    databaseBytes,
+    members,
+    mail,
+    helpcenter,
+    weldhost,
+    phoneNumbers,
+    apiKeys,
+    integrations,
+    pending,
+    portals,
+    storageBytes,
+    errors,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -414,6 +458,8 @@ export interface ClerkInventory {
   banned: number;
   /** Social sign-in links by Clerk provider (`oauth_google`, …): what WeldID has to link by provider subject. */
   externalProviders: Record<string, number>;
+  /** The same, counting only links the Backend API gives a provider subject (`provider_user_id`) for. */
+  externalWithSubject: Record<string, number>;
   samlConnections: { total: number; active: number } | null;
   /** OAuth applications: on Global these are the MCP clients that registered themselves. */
   oauthApplications: number | null;
@@ -427,7 +473,7 @@ type ClerkUser = {
   two_factor_enabled?: boolean;
   banned?: boolean;
   passkeys?: unknown[];
-  external_accounts?: Array<{ provider?: string }>;
+  external_accounts?: Array<{ provider?: string; provider_user_id?: string | null }>;
   saml_accounts?: unknown[];
   enterprise_accounts?: unknown[];
 };
@@ -447,8 +493,13 @@ function tallyClerkUser(out: ClerkInventory, user: ClerkUser): void {
   ];
   out.users += 1;
   for (const [on, key] of flags) if (on) out[key] += 1;
-  for (const provider of new Set((user.external_accounts ?? []).map((a) => a.provider ?? '(unknown)'))) {
+  const accounts = user.external_accounts ?? [];
+  for (const provider of new Set(accounts.map((a) => a.provider ?? '(unknown)'))) {
     out.externalProviders[provider] = (out.externalProviders[provider] ?? 0) + 1;
+  }
+  const withSubject = accounts.filter((a) => (a.provider_user_id ?? '').trim() !== '');
+  for (const provider of new Set(withSubject.map((a) => a.provider ?? '(unknown)'))) {
+    out.externalWithSubject[provider] = (out.externalWithSubject[provider] ?? 0) + 1;
   }
 }
 
@@ -474,6 +525,7 @@ export async function clerkInventory(secretKey: string, fetchFn: typeof fetch = 
     withEnterpriseAccount: 0,
     banned: 0,
     externalProviders: {},
+    externalWithSubject: {},
     samlConnections: null,
     oauthApplications: null,
     errors,
@@ -604,10 +656,13 @@ function workspaceState(m: WorkspaceRow | undefined): string {
 function totalsSection(inv: GlobalInventory, tenants: TenantInventory[], live: WorkspaceRow[]): string[] {
   const { master } = inv;
   const partnerManaged = master.workspaces.filter((w) => w.partnerManaged).length;
+  const withMember = live.filter((w) => w.membersActive > 0).length;
+  const noDatabase = live.filter((w) => w.placement === 'none').length;
   return [
     '## Totals',
     '',
-    `- Workspaces: ${master.workspaces.length} (${live.length} active and not deleted)`,
+    `- Workspaces: ${master.workspaces.length} (${live.length} active and not deleted; of those, ${withMember} with an active member ` +
+      `and ${noDatabase} without a tenant database)`,
     `- Users: ${master.users.total} (${master.users.active} active)`,
     `- Tenant databases read: ${tenants.length}; total size ${mb(sum(tenants.map((t) => t.databaseBytes)))} MB`,
     `- Files recorded in tenant tables: ${mb(sum(tenants.map((t) => storage(t))))} MB (R2's own totals are in the Cloudflare dashboard)`,
@@ -637,13 +692,39 @@ function clerkLine(clerk: ClerkInventory | null): string {
   return (
     `2. **Clerk.** ${clerk.users} users: ${clerk.withPassword} with a password, ${clerk.withTotp} with TOTP, ` +
     `${clerk.withBackupCodes} with backup codes, ${clerk.withPasskeys} with passkeys, ${clerk.banned} banned. ` +
-    `Social links: ${entries(clerk.externalProviders)}.`
+    `Social links: ${entries(clerk.externalProviders)}; with a provider subject: ${entries(clerk.externalWithSubject)}.`
+  );
+}
+
+function dnssecLine(inv: GlobalInventory, tenants: TenantInventory[]): string {
+  const signed = inv.workspaces.filter((w) => (w.tenant?.weldhost.dnssecZones ?? 0) > 0).map((w) => w.id);
+  const zones = mergeCounts(tenants.map((t) => t.weldhost.zonesByProvider));
+  const registrars = mergeCounts(tenants.map((t) => t.weldhost.domainsByRegistrar));
+  return (
+    `3. **DNSSEC.** WeldHost zones with DNSSEC on: ${sum(tenants.map((t) => t.weldhost.dnssecZones))}${idList(signed)} ` +
+    `(WeldSuite's own setting; Cloudflare's per-zone state isn't read). Zones by provider: ${entries(zones)}. ` +
+    `Domains by registrar: ${entries(registrars)}.`
+  );
+}
+
+const FRANKFURT = 'aws-eu-central-1';
+
+function regionsLine(live: WorkspaceRow[]): string {
+  const placed = live.filter((w) => w.placement !== 'none');
+  const away = placed.filter((w) => w.region !== FRANKFURT);
+  const awayWithMember = away.filter((w) => w.membersActive > 0).length;
+  return (
+    `5. **Regions.** Live workspaces by region: ${entries(tally(placed, (w) => w.region ?? '(unknown)'))}. ` +
+    `Outside ${FRANKFURT}: ${away.length} (${awayWithMember} with an active member).`
   );
 }
 
 function mailStoreLine(inv: GlobalInventory): string {
   if (!inv.mailStoreChecked) {
-    return '4. **Mailbox store modes.** Not read (set `MAIL_STORE_ADMIN_URL`, `OUTBOUND_ADMIN_SECRET`, `MAIL_STORE_ADMIN_EMAIL`).';
+    return (
+      '4. **Mailbox store modes.** Not read (set `MAIL_STORE_ADMIN_URL` to mail-api\'s origin, `OUTBOUND_ADMIN_SECRET` ' +
+      "to mail-api's admin secret, and `MAIL_STORE_ADMIN_EMAIL` to the staff address mail-api logs as the acting admin)."
+    );
   }
   const modes = mergeCounts(inv.workspaces.map((w) => w.mailStoreModes ?? {}));
   const objectBacked = inv.workspaces
@@ -685,17 +766,15 @@ function apiLine(inv: GlobalInventory): string {
   );
 }
 
-function openQuestionsSection(inv: GlobalInventory, live: WorkspaceRow[]): string[] {
-  const placed = inv.master.workspaces.filter((w) => w.placement !== 'none');
-  const regions = tally(placed, (w) => w.region ?? '(unknown)');
+function openQuestionsSection(inv: GlobalInventory, tenants: TenantInventory[], live: WorkspaceRow[]): string[] {
   return [
     '## Open questions',
     '',
     ...ssoLines(inv),
     clerkLine(inv.clerk),
-    '3. **DNSSEC.** Not covered here.',
+    dnssecLine(inv, tenants),
     mailStoreLine(inv),
-    `5. **Regions.** ${entries(regions)}.`,
+    regionsLine(live),
     portalsLine(inv),
     ...plansLines(inv.master, live),
     apiLine(inv),
@@ -713,7 +792,8 @@ function whatMovesSection(master: MasterInventory, tenants: TenantInventory[]): 
   return [
     '## What else moves',
     '',
-    `- Custom mail domains: ${total((t) => t.mail.customDomains)}; free weldmail addresses: ${total((t) => t.mail.weldmailAddresses)}; ` +
+    `- Custom mail domains: ${total((t) => t.mail.customDomains)} (plus ${total((t) => t.mail.weldmailDomains)} workspace weldmail domains); ` +
+      `free weldmail addresses: ${total((t) => t.mail.weldmailAddresses)}; ` +
       `mailboxes: ${total((t) => t.mail.accounts)}; messages (estimate): ${total((t) => t.mail.messagesEstimate)}`,
     `- Help center custom domains: ${domains} (${verified} verified); registry: ${entries(master.helpcenterDomains)}`,
     `- Phone numbers: ${entries(mergeCounts(tenants.map((t) => t.phoneNumbers)))}`,
@@ -775,7 +855,7 @@ export function formatInventoryReport(inv: GlobalInventory): string {
     `Generated ${inv.generatedAt}. Read-only; counts only, no names, addresses or domains.`,
     '',
     ...totalsSection(inv, tenants, live),
-    ...openQuestionsSection(inv, live),
+    ...openQuestionsSection(inv, tenants, live),
     ...whatMovesSection(inv.master, tenants),
     '## Workspaces',
     '',

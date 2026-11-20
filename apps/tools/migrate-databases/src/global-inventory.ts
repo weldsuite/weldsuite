@@ -8,11 +8,16 @@
  *   pnpm --filter migrate-databases inventory:global [--out <dir>] [--only <workspaceId>] [--skip-clerk] [--skip-mail-store]
  *
  * Environment (the same names the migration runner reads):
- *   MASTER_DATABASE_URL                                required
+ *   MASTER_DATABASE_URL                                required (DATABASE_URL_MASTER, Doppler's name, also works)
  *   DATABASE_ENCRYPTION_KEY, DATABASE_ENCRYPTION_KEY_V2  to open stored tenant URLs
  *   NEON_API_KEY                                       fallback for workspaces without a stored URL
  *   CLERK_SECRET_KEY                                   Clerk's users, SAML connections and OAuth applications
- *   MAIL_STORE_ADMIN_URL, OUTBOUND_ADMIN_SECRET, MAIL_STORE_ADMIN_EMAIL   mailbox store modes (optional)
+ *   MAIL_STORE_ADMIN_URL, OUTBOUND_ADMIN_SECRET, MAIL_STORE_ADMIN_EMAIL   mailbox store modes (optional):
+ *     mail-api's origin, its admin secret, and the staff address it logs as the acting admin
+ *
+ * Against Global production, from Doppler (the URL and the address aren't secrets, so they go on the command line):
+ *   MAIL_STORE_ADMIN_URL=https://mail-api.weldsuite.org MAIL_STORE_ADMIN_EMAIL=<you> \
+ *     doppler run --project weldsuite --config prd -- pnpm --filter migrate-databases inventory:global
  */
 
 import 'dotenv/config';
