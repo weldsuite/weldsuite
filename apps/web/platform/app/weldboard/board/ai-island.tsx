@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useRef, useState, useSyncExternalStore } from 'react';
 import { toast } from 'sonner';
 import { useMutation } from '@tanstack/react-query';
 import { EllipsisVertical, Lightbulb, ScrollText, Shapes } from 'lucide-react';
@@ -22,7 +22,6 @@ import { useI18n } from '@/lib/i18n/provider';
 import { useRouter } from '@/lib/router';
 import { documentFromText } from '@/app/welddocs/store/doc-store';
 import type { BoardController } from '../editor/model/board-controller';
-import type { BoardPanels } from './panels';
 
 type MakeAction = Extract<BoardAiAction, 'mindmap' | 'diagram' | 'stickies'>;
 const MAKE: MakeAction[] = ['mindmap', 'diagram', 'stickies'];
@@ -49,7 +48,7 @@ function reveal(c: BoardController, ids: string[]): void {
  * selection or the board into a WeldDocs document. Everything is done on the
  * server (board-api `POST /:id/ai`); what it makes arrives over the room.
  */
-export function BoardAiIsland({ controller: c, boardId, panels }: { controller: BoardController; boardId: string; panels: BoardPanels }) {
+export function BoardAiIsland({ controller: c, boardId }: { controller: BoardController; boardId: string }) {
   const appApi = useAppApi();
   const router = useRouter();
   const { t, language } = useI18n();
@@ -60,14 +59,6 @@ export function BoardAiIsland({ controller: c, boardId, panels }: { controller: 
   const island = useRef<AgentIslandHandle>(null);
   const selected = c.selected.filter((el) => el.type !== 'connector' && el.type !== 'comment');
   const locale = (['en', 'nl', 'es', 'fr'] as const).find((l) => l === language);
-
-  // The toolbar's AI button opens the island.
-  const { ai } = useSyncExternalStore(panels.subscribe, panels.get);
-  useEffect(() => {
-    if (!ai) return;
-    island.current?.open();
-    panels.openAi(false);
-  }, [ai, panels]);
 
   const run = useMutation({
     mutationFn: async (input: BoardAiInput): Promise<BoardAiResult> => (await appApi.boards.ai(boardId, input)).data,
@@ -141,16 +132,16 @@ export function BoardAiIsland({ controller: c, boardId, panels }: { controller: 
           <DropdownMenuContent side="top" align="end" className="w-64" onCloseAutoFocus={controls.backToPrompt}>
             <DropdownMenuLabel>{selected.length ? ta.selectionLabel : ta.selectStickies}</DropdownMenuLabel>
             <DropdownMenuItem disabled={selected.length < 2} onSelect={() => void send('cluster')}>
-              <Shapes className="mr-2 size-4" />
+              <Shapes className="size-4" />
               {ta.cluster}
             </DropdownMenuItem>
             <DropdownMenuItem disabled={!selected.length} onSelect={() => void send('ideas')}>
-              <Lightbulb className="mr-2 size-4" />
+              <Lightbulb className="size-4" />
               {ta.ideas}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={() => void send('summarize')}>
-              <ScrollText className="mr-2 size-4" />
+              <ScrollText className="size-4" />
               {ta.summarize}
             </DropdownMenuItem>
           </DropdownMenuContent>

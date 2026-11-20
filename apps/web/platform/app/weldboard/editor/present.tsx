@@ -1,13 +1,16 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/provider';
 import type { BoardController } from './model/board-controller';
+import type { Camera } from './model/camera';
 import { slideFrames } from './navigation';
 import { BarButton } from './ui';
 
 /** Presenting: frames one by one in presentation order (slides, else every frame top to bottom). */
 export function usePresentation(c: BoardController) {
   const [index, setIndex] = useState<number | null>(null);
+  /** Where the person was before presenting, to go back there after. */
+  const before = useRef<Camera | null>(null);
   const frames = useCallback(() => {
     const { slides, others } = slideFrames(c);
     return slides.length ? slides : others;
@@ -30,15 +33,18 @@ export function usePresentation(c: BoardController) {
       const list = frames();
       if (!list.length) return false;
       const at = frameId ? Math.max(0, list.findIndex((f) => f.id === frameId)) : 0;
+      if (!c.presenting) before.current = c.camera;
       show(at);
       return true;
     },
-    [frames, show],
+    [c, frames, show],
   );
   const stop = useCallback(() => {
     setIndex(null);
     c.presenting = false;
     c.slide = null;
+    if (before.current) c.setCamera(before.current, true);
+    before.current = null;
     c.changed();
   }, [c]);
   return { index, total: frames().length, start, stop, show, presenting: index !== null };

@@ -79,6 +79,9 @@ export function AgentIsland({
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Clicked in the island since it opened: it no longer folds on mouse leave.
   const engagedRef = useRef(false);
+  // Closed (Escape, sent) with the mouse resting where the pill comes back: no
+  // hover-open until the mouse has left it, or it would spring open again.
+  const hoverBlockedRef = useRef(false);
   // Where the cursor was before the island took it (a field, a spot in a
   // text, the whiteboard), to put it back if the island is left unused.
   const returnFocusRef = useRef<{ el: HTMLElement; range: Range | null } | null>(null);
@@ -133,6 +136,7 @@ export function AgentIsland({
 
   const close = () => {
     setPrompt('');
+    hoverBlockedRef.current = true;
     foldBack(true);
   };
 
@@ -158,6 +162,7 @@ export function AgentIsland({
   // A short pause before a hover opens it, so the mouse passing by does not.
   const hoverPill = () => {
     clearTimer();
+    if (hoverBlockedRef.current) return;
     timerRef.current = setTimeout(() => openIsland(false), HOVER_OPEN_MS);
   };
 
@@ -186,9 +191,13 @@ export function AgentIsland({
       title={label}
       data-testid={`${testIdPrefix}-ai-pill`}
       onMouseEnter={hoverPill}
-      onMouseLeave={clearTimer}
+      onMouseLeave={() => {
+        clearTimer();
+        hoverBlockedRef.current = false;
+      }}
       onClick={() => openIsland(true)}
-      className="pointer-events-auto h-5 w-[92px] rounded-full p-0"
+      // Seen on any background (a light canvas as much as a page): a border and a shadow, and a 24px target.
+      className="pointer-events-auto h-6 w-[92px] rounded-full border border-border p-0 shadow-sm"
     >
       <Sparkle aria-hidden="true" className="size-3 fill-current" />
     </Button>
@@ -218,7 +227,7 @@ export function AgentIsland({
   return (
     <div className="relative flex w-full justify-center">
       {/* The pill stays under the island while it folds back into it. */}
-      {closing ? pill : <div aria-hidden="true" className="h-5" />}
+      {closing ? pill : <div aria-hidden="true" className="h-6" />}
       <div
         ref={islandRef}
         role="group"

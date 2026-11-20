@@ -137,13 +137,15 @@ export function RecordsDialog({ controller: c, open, onOpenChange }: { controlle
           <DialogTitle>{tr.title}</DialogTitle>
         </DialogHeader>
         <Input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder={tr.search} aria-label={tr.search} />
-        <div className="flex flex-wrap gap-1">
+        {/* The same chips as the templates' categories. */}
+        <div className="flex flex-wrap gap-2" role="group" aria-label={tr.kindsLabel}>
           {[null, ...KINDS].map((k) => (
             <button
               key={k ?? 'all'}
               type="button"
+              aria-pressed={kind === k}
               onClick={() => setKind(k)}
-              className={cn('rounded-full border px-2.5 py-0.5 text-xs', kind === k ? 'border-primary bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted')}
+              className={cn('rounded-full border px-3 py-1 text-xs', kind === k ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-muted')}
             >
               {k ? tr.kinds[k] : tr.all}
             </button>
@@ -155,7 +157,9 @@ export function RecordsDialog({ controller: c, open, onOpenChange }: { controlle
               <InlineSpinner />
             </div>
           )}
-          {!results.isFetching && debounced && items.length === 0 && <p className="py-4 text-center text-sm text-muted-foreground">{tr.empty}</p>}
+          {!debounced && <p className="py-4 text-center text-sm text-muted-foreground">{tr.hint}</p>}
+          {!results.isFetching && debounced && results.isError && <p className="py-4 text-center text-sm text-destructive">{tr.searchFailed}</p>}
+          {!results.isFetching && debounced && !results.isError && items.length === 0 && <p className="py-4 text-center text-sm text-muted-foreground">{tr.empty}</p>}
           <ul className="divide-y">
             {items.map((item) => (
               <li key={`${item.kind}:${item.id}`} className="flex items-center gap-3 py-2">
