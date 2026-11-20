@@ -7,11 +7,14 @@
  * follows `document.head`.
  */
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
 
 const COPIED = 'data-preview-copy';
+
+/** The frame's own document: empty, and in standards mode (it has a doctype). */
+const FRAME_DOCUMENT = '<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>';
 
 function copyStyles(target: Document): void {
   for (const node of Array.from(target.head.querySelectorAll(`[${COPIED}]`))) node.remove();
@@ -31,19 +34,16 @@ interface ThemedFrameProps {
 }
 
 export function ThemedFrame({ theme, width, title, children, className }: Readonly<ThemedFrameProps>) {
-  const frameRef = useRef<HTMLIFrameElement>(null);
+  // The frame's document, once its `srcdoc` has loaded.
+  const [doc, setDoc] = useState<Document | null>(null);
   // Where the children go: a node of our own in the frame's body, so the
   // portal can always take its content out again, even once the frame is gone.
   const [mount, setMount] = useState<HTMLElement | null>(null);
   const [height, setHeight] = useState(160);
 
-  // Set the frame up once: an empty document with the app's styles.
+  // Set the frame's document up: the app's styles, root classes and a node for the portal.
   useEffect(() => {
-    const doc = frameRef.current?.contentDocument;
     if (!doc) return;
-    doc.open();
-    doc.write('<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>');
-    doc.close();
     copyStyles(doc);
     // The app's root classes (fonts, text size) and inline variables, minus its own theme.
     const root = document.documentElement;
@@ -68,8 +68,9 @@ export function ThemedFrame({ theme, width, title, children, className }: Readon
     return () => {
       cancelAnimationFrame(pending);
       observer.disconnect();
+      node.remove();
     };
-  }, []);
+  }, [doc]);
 
   useEffect(() => {
     const doc = mount?.ownerDocument;
@@ -89,7 +90,8 @@ export function ThemedFrame({ theme, width, title, children, className }: Readon
   return (
     <>
       <iframe
-        ref={frameRef}
+        srcDoc={FRAME_DOCUMENT}
+        onLoad={(event) => setDoc(event.currentTarget.contentDocument)}
         title={title}
         style={{ width, height }}
         className={cn('block shrink-0 rounded-lg border bg-background', className)}
