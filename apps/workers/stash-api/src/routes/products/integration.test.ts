@@ -215,4 +215,26 @@ describe('/api/products · pglite integration', () => {
     expect((await load())?.taxClass).toBe('saas');
   });
 
+  it('DELETE /:id needs products:delete, soft-deletes, then answers 404', async () => {
+    const { request } = createTestApp('/api/products', productsRoutes, {
+      context: { permissions: permissions('products:create', 'products:read', 'products:delete'), tenantDb: db },
+    });
+    const created = await request('/api/products', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Short-lived', slug: 'short-lived-1' }),
+    });
+    const { data: product } = (await created.json()) as { data: { id: string } };
+
+    const { request: readOnly } = createTestApp('/api/products', productsRoutes, {
+      context: { permissions: permissions('products:read'), tenantDb: db },
+    });
+    expect((await readOnly(`/api/products/${product.id}`, { method: 'DELETE' })).status).toBe(403);
+
+    expect((await request(`/api/products/${product.id}`, { method: 'DELETE' })).status).toBe(204);
+    const [row] = await db.select().from(schema.products).where(eq(schema.products.id, product.id)).limit(1);
+    expect(row?.deletedAt).not.toBeNull();
+    expect((await request(`/api/products/${product.id}`)).status).toBe(404);
+    expect((await request(`/api/products/${product.id}`, { method: 'DELETE' })).status).toBe(404);
+  });
 });
