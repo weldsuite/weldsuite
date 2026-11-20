@@ -5,6 +5,9 @@
 //! - [`MESSAGES_METRIC`] `{pool, outcome}`: delivery attempts whose outcome
 //!   was recorded, one per recipient: `delivered`, `deferred` (4xx or a
 //!   broken connection; retried) or `bounced` (5xx, or out of retries).
+//! - [`WARMUP_CAPPED_METRIC`] `{pool, decision}`: recipients over their IP's
+//!   warm-up cap: `held` (they wait for the next UTC day) or `sent` (a soft
+//!   pool, `MTA_WARMUP_SOFT_POOLS`).
 //! - [`DB_POOL_CONNECTIONS_METRIC`] `{pool="mta", state}` (`idle`,
 //!   `in_use`) and [`DB_POOL_MAX_METRIC`] `{pool="mta"}`: the queue
 //!   database's pool, sampled every [`POOL_SAMPLE_INTERVAL`]. The same names
@@ -18,6 +21,7 @@ use tokio_util::sync::CancellationToken;
 use crate::store::Outcome;
 
 pub const MESSAGES_METRIC: &str = "weldsuite_mta_messages_total";
+pub const WARMUP_CAPPED_METRIC: &str = "weldsuite_mta_warmup_capped_total";
 pub const DB_POOL_CONNECTIONS_METRIC: &str = "weldsuite_db_pool_connections";
 pub const DB_POOL_MAX_METRIC: &str = "weldsuite_db_pool_max_connections";
 pub const POOL_SAMPLE_INTERVAL: Duration = Duration::from_secs(15);
@@ -37,6 +41,17 @@ pub(crate) fn count_delivery(pool: &str, outcome: &Outcome) {
         MESSAGES_METRIC,
         "pool" => pool.to_owned(),
         "outcome" => outcome_label(outcome)
+    )
+    .increment(1);
+}
+
+/// Count one recipient of `pool` over its IP's warm-up cap: `decision` is
+/// `held` or `sent`.
+pub(crate) fn count_warmup_capped(pool: &str, decision: &'static str) {
+    metrics::counter!(
+        WARMUP_CAPPED_METRIC,
+        "pool" => pool.to_owned(),
+        "decision" => decision
     )
     .increment(1);
 }
