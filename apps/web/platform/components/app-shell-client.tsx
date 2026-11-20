@@ -37,6 +37,7 @@ import { CommandPalette } from '@/components/layout/command-palette';
 import { WorkspaceLockGate } from '@/components/billing/workspace-lock-gate';
 import { ManagedWorkspaceBanner } from '@/components/partner/managed-workspace-banner';
 import { ActiveCallProvider } from '@/contexts/active-call-context';
+import { ReloadHoldDuringCalls } from '@/components/reload-hold-during-calls';
 import { WeldChatCallProvider } from '@/contexts/weldchat-call-context';
 import { WeldMeetCallProvider } from '@/contexts/weldmeet-call-context';
 import { EntitySheetHost } from '@/components/entity-sheet';
@@ -282,6 +283,9 @@ export function AppShellClient({ children }: Readonly<AppShellClientProps>) {
                   neither can see the other's call. Both register their live
                   call here to keep a user in at most one at a time. */}
               <ActiveCallProvider>
+                {/* A new frontend version waits for the call to end before
+                    reloading the page. */}
+                <ReloadHoldDuringCalls />
                 <WeldChatCallProvider>
                   <WeldMeetCallProvider>
                     {/* Post-trial paywall. Wraps the ENTIRE shell (sidebar +

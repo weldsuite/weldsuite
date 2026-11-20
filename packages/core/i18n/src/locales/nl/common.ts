@@ -445,6 +445,13 @@ export const common = {
       tryAgain: 'Opnieuw proberen',
       goHome: 'Naar home',
     },
+    appUpdate: {
+      title: 'WeldSuite is bijgewerkt',
+      reloadAfterCall: 'De pagina laadt de nieuwe versie zodra je gesprek is afgelopen.',
+      pageAfterCall:
+        'Deze pagina heeft de nieuwe versie nodig. WeldSuite herlaadt zodra je gesprek is afgelopen, of herlaad nu en verlaat het gesprek.',
+      reloadNow: 'Nu herladen',
+    },
     notFound: {
       title: 'Pagina niet gevonden',
       goHome: 'Naar home',
