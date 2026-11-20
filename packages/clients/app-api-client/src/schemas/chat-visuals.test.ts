@@ -177,6 +177,7 @@ describe('visualToCsv', () => {
         ['@SUM(A1)', 1],
         ['-dash', 2],
         ['\tTabbed', 3],
+        ['\rReturn', 4],
       ],
     };
     expect(visualToCsv(risky).split('\r\n').slice(1)).toEqual([
@@ -185,6 +186,7 @@ describe('visualToCsv', () => {
       `'@SUM(A1),1`,
       `'-dash,2`,
       `'\tTabbed,3`,
+      `"'\rReturn",4`,
     ]);
   });
 
