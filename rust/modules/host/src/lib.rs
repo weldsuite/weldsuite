@@ -141,6 +141,8 @@ pub(crate) struct Caller {
     pub(crate) db: PgPool,
     /// `c.get('clerkOrgId')`: the key of the process mapping the webhook reads.
     pub(crate) clerk_org_id: Option<String>,
+    /// `workspaces.id`: the owner Hetzner zones are labelled with.
+    workspace_id: String,
     pub(crate) events: EventContext,
     env: Option<RequestEnv>,
     cache: Option<Arc<dyn DynCache>>,
@@ -162,10 +164,12 @@ impl Caller {
 
     /// The request's providers and settings.
     pub(crate) fn providers(&self, state: &HostState) -> Providers {
-        Providers::new(
+        let mut providers = Providers::new(
             self.env.as_ref(),
             self.http.clone().or_else(|| state.http.clone()),
-        )
+        );
+        providers.workspace = Some(self.workspace_id.clone());
+        providers
     }
 
     /// The master database (`getMasterDb(c.env)`): the test's in
@@ -263,6 +267,10 @@ pub(crate) struct Providers {
     /// domains at (comma separated, e.g. `ns1.weldhost.com,ns2.weldhost.com`),
     /// glue for the provider's own. Empty: the provider's names.
     pub(crate) nameservers: Vec<String>,
+    /// The caller's workspace (`workspaces.id`, set by
+    /// [`Caller::providers`]): Hetzner zones are labelled with it and only
+    /// its own are touched. `None` (the webhook, the sweep) touches none.
+    pub(crate) workspace: Option<String>,
 }
 
 impl Providers {
@@ -287,6 +295,7 @@ impl Providers {
             nameservers: value("WELDHOST_NAMESERVERS")
                 .map(|list| nameserver_list(&list))
                 .unwrap_or_default(),
+            workspace: None,
             http,
         }
     }
@@ -313,6 +322,7 @@ impl Providers {
                     self.http.clone(),
                     token,
                     &self.nameservers,
+                    self.workspace.as_deref(),
                 )) as dns_host::Dns
             }),
         }
@@ -405,6 +415,7 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
             Ok(Self {
                 db: tenant.db.clone(),
                 clerk_org_id: tenant.clerk_org_id.clone(),
+                workspace_id: tenant.workspace_id.clone(),
                 events: EventContext::for_request(auth, tenant),
                 env: extensions.get::<RequestEnv>().cloned(),
                 cache: extensions

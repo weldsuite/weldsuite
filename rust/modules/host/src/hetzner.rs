@@ -3,8 +3,8 @@
 //! (`WELDHOST_DNS_PROVIDER=hetzner`, ADR HOST-008).
 //!
 //! - **Zones are addressed by name.** The API takes a zone's id or its name
-//!   everywhere, so `dns_zones.external_zone_id` holds the zone's name and
-//!   no call needs a lookup first. A numeric id still works.
+//!   everywhere, so `dns_zones.external_zone_id` holds the zone's name. A
+//!   numeric id still works.
 //! - **Branded nameservers.** With `WELDHOST_NAMESERVERS` set (e.g.
 //!   `ns1.weldhost.com,…`), a new zone gets those names as extra apex NS
 //!   records (Hetzner's own three can't be removed), they are the
@@ -25,11 +25,20 @@
 //!   waits a few seconds for it, so the re-sync that follows sees the change
 //!   and a refused value comes back as an error.
 //!
+//! - **Zones belong to a workspace.** Every workspace's zones share one
+//!   project and token, and a zone's id is its domain name, which anyone can
+//!   type into a zone row (`POST /api/dns-zones` takes `externalZoneId`). So
+//!   a zone is labelled with the workspace that proved the domain
+//!   (`weldhost/workspace`, at [`DnsHost::create_zone`]), and every read or
+//!   write first checks the label against the caller's workspace: a zone of
+//!   another workspace, or one without the label, is refused.
+//!
 //! One API token reaches every resource of its Hetzner project, so the
 //! customer zones get a project of their own.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::fmt;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use serde_json::{Map, Value, json};
@@ -51,6 +60,9 @@ const ACTION_WAITS_MS: [u64; 4] = [250, 750, 1500, 2500];
 
 /// The most pages of a zone's record sets read (50 sets a page).
 const MAX_PAGES: u32 = 200;
+
+/// The zone label naming the workspace that owns the zone (`workspaces.id`).
+const WORKSPACE_LABEL: &str = "weldhost/workspace";
 
 /// An error answer of the API, or a connection failure.
 #[derive(Debug, Clone)]
@@ -417,22 +429,92 @@ fn names(value: Option<&Value>) -> Vec<String> {
 
 // ── The client ──────────────────────────────────────────────────────────────
 
-/// Hetzner's Cloud DNS as the DNS host.
+/// Hetzner's Cloud DNS as the DNS host, for one workspace.
 pub(crate) struct HetznerDns {
     http: OutboundHttp,
     token: String,
     /// The branded nameservers, lower case without the final dot; empty:
     /// Hetzner's own are the ones customers use.
     nameservers: Vec<String>,
+    /// The caller's workspace (`workspaces.id`): the only one whose zones
+    /// this client touches. `None` touches none.
+    workspace: Option<String>,
+    /// The zones already checked to be the workspace's, by the id they were
+    /// asked for, with their names: one check a request.
+    owned: Mutex<HashMap<String, String>>,
 }
 
 impl HetznerDns {
-    pub(crate) fn new(http: OutboundHttp, token: &str, nameservers: &[String]) -> Self {
+    pub(crate) fn new(
+        http: OutboundHttp,
+        token: &str,
+        nameservers: &[String],
+        workspace: Option<&str>,
+    ) -> Self {
         Self {
             http,
             token: token.to_owned(),
             nameservers: nameservers.iter().map(|ns| bare(ns)).collect(),
+            workspace: workspace.filter(|w| !w.is_empty()).map(str::to_owned),
+            owned: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// `Ok` when a zone (the API's zone object) carries the caller's
+    /// workspace label.
+    fn check_owner(&self, zone: &Value) -> Result<(), ZoneError> {
+        let label = zone["labels"][WORKSPACE_LABEL].as_str();
+        match (self.workspace.as_deref(), label) {
+            (Some(workspace), Some(label)) if workspace == label => Ok(()),
+            _ => {
+                tracing::warn!(
+                    zone = zone["name"].as_str().unwrap_or_default(),
+                    "[hetzner-dns] refused a zone of another workspace"
+                );
+                Err(ZoneError {
+                    kind: ZoneErrorKind::Unknown,
+                    message: "This DNS zone belongs to another workspace.".to_owned(),
+                    codes: Vec::new(),
+                    status: Some(403),
+                })
+            }
+        }
+    }
+
+    fn remember(&self, zone_id: &str, name: &str) {
+        if let Ok(mut owned) = self.owned.lock() {
+            owned.insert(zone_id.to_owned(), name.to_owned());
+        }
+    }
+
+    /// The name of a zone the caller's workspace owns, by its id or name:
+    /// read once a request and checked against the workspace label.
+    async fn owned_zone(&self, zone_id: &str) -> Result<String, ZoneError> {
+        if let Some(name) = self
+            .owned
+            .lock()
+            .ok()
+            .and_then(|owned| owned.get(zone_id).cloned())
+        {
+            return Ok(name);
+        }
+        let path = format!("/zones/{}", encode_uri_path(zone_id));
+        let body = match self.call("GET", &path, None, 2).await {
+            Ok(body) => body,
+            Err(error) if error.not_found() => {
+                return Err(ZoneError {
+                    kind: ZoneErrorKind::Unknown,
+                    message: "This DNS zone no longer exists at Hetzner.".to_owned(),
+                    codes: Vec::new(),
+                    status: Some(404),
+                });
+            }
+            Err(error) => return Err(to_zone_error(&error)),
+        };
+        self.check_owner(&body["zone"])?;
+        let name = bare(body["zone"]["name"].as_str().unwrap_or(zone_id));
+        self.remember(zone_id, &name);
+        Ok(name)
     }
 
     /// One call; `retries` more after a connection failure, a rate limit or
@@ -527,18 +609,6 @@ impl HetznerDns {
     ) -> Result<(), ApiError> {
         let answer = self.call(method, path, body, retries).await?;
         self.settle(&answer).await
-    }
-
-    /// The zone's name: the external id itself, or the name of a numeric id.
-    async fn zone_name(&self, zone_id: &str) -> Result<String, ZoneError> {
-        if !zone_id.chars().all(|c| c.is_ascii_digit()) {
-            return Ok(bare(zone_id));
-        }
-        let body = self
-            .call("GET", &format!("/zones/{zone_id}"), None, 2)
-            .await
-            .map_err(|e| to_zone_error(&e))?;
-        Ok(bare(body["zone"]["name"].as_str().unwrap_or_default()))
     }
 
     fn rrset_path(zone: &str, name: &str, kind: &str) -> String {
@@ -690,10 +760,13 @@ impl DnsHost for HetznerDns {
     ) -> BoxFuture<'a, Result<Zone, ZoneError>> {
         Box::pin(async move {
             let name = bare(domain);
+            let Some(workspace) = self.workspace.as_deref() else {
+                return Err(unknown("A DNS zone needs the workspace it belongs to."));
+            };
             let body = json!({
                 "name": name,
                 "mode": "primary",
-                "labels": { "managed-by": "weldhost" },
+                "labels": { "managed-by": "weldhost", WORKSPACE_LABEL: workspace },
             });
             // Not idempotent: one attempt.
             let created = self
@@ -726,6 +799,7 @@ impl DnsHost for HetznerDns {
                     return Err(to_zone_error(&error));
                 }
             }
+            self.remember(&name, &name);
             Ok(Zone {
                 id: name,
                 nameservers: self.public_nameservers(&assigned),
@@ -743,7 +817,9 @@ impl DnsHost for HetznerDns {
                 Err(error) => return Err(to_zone_error(&error)),
             };
             let zone = &body["zone"];
+            self.check_owner(zone)?;
             let name = bare(zone["name"].as_str().unwrap_or(zone_id));
+            self.remember(zone_id, &name);
             let servers = &zone["authoritative_nameservers"];
             let assigned = names(servers.get("assigned"));
             let delegated = names(servers.get("delegated"));
@@ -780,7 +856,7 @@ impl DnsHost for HetznerDns {
         zone_id: &'a str,
     ) -> BoxFuture<'a, Result<Vec<DnsRecord>, ZoneError>> {
         Box::pin(async move {
-            let zone = self.zone_name(zone_id).await?;
+            let zone = self.owned_zone(zone_id).await?;
             let sets = self
                 .rrsets(&zone, None)
                 .await
@@ -807,7 +883,7 @@ impl DnsHost for HetznerDns {
         record: &'a RecordInput,
     ) -> BoxFuture<'a, Result<Created, ZoneError>> {
         Box::pin(async move {
-            let zone = self.zone_name(zone_id).await?;
+            let zone = self.owned_zone(zone_id).await?;
             let name = relative_name(&record.name, &zone);
             let value = hetzner_value(record, &zone);
             let existing = self
@@ -849,7 +925,7 @@ impl DnsHost for HetznerDns {
         record: &'a RecordInput,
     ) -> BoxFuture<'a, Result<(), ZoneError>> {
         Box::pin(async move {
-            let zone = self.zone_name(zone_id).await?;
+            let zone = self.owned_zone(zone_id).await?;
             let Some((rrset, old)) = self.find(&zone, record_id).await? else {
                 return Err(unknown(
                     "DNS record not found at Hetzner. Sync the zone and try again.",
@@ -923,7 +999,7 @@ impl DnsHost for HetznerDns {
         record_id: &'a str,
     ) -> BoxFuture<'a, Result<(), ZoneError>> {
         Box::pin(async move {
-            let zone = self.zone_name(zone_id).await?;
+            let zone = self.owned_zone(zone_id).await?;
             let Some((rrset, value)) = self.find(&zone, record_id).await? else {
                 return Ok(());
             };
@@ -956,10 +1032,13 @@ mod tests {
 
     use super::*;
 
-    /// Answers each request with the first route whose method and path
-    /// prefix match, and keeps every request.
+    type Route = (&'static str, &'static str, u16, Value);
+
+    /// Answers each request with the first route whose method and path match
+    /// (a path ending in `$` exactly, without the query; any other as a
+    /// prefix), and keeps every request.
     struct Stub {
-        routes: Vec<(&'static str, &'static str, u16, Value)>,
+        routes: Vec<Route>,
         seen: Mutex<Vec<HttpRequest>>,
     }
 
@@ -971,11 +1050,15 @@ mod tests {
                 .strip_prefix(API)
                 .unwrap_or(&request.url)
                 .to_owned();
+            let bare_path = path.split('?').next().unwrap_or_default();
             let found = self
                 .routes
                 .iter()
-                .find(|(method, prefix, _, _)| {
-                    *method == request.method && path.starts_with(prefix)
+                .find(|(method, route, _, _)| {
+                    *method == request.method
+                        && route
+                            .strip_suffix('$')
+                            .map_or_else(|| path.starts_with(route), |exact| bare_path == exact)
                 })
                 .map(|(_, _, status, body)| {
                     HttpResponse::new(*status, body.to_string().into_bytes())
@@ -991,13 +1074,34 @@ mod tests {
         }
     }
 
+    const WORKSPACE: &str = "ws_a";
+
     fn done() -> Value {
         json!({ "action": { "id": 1, "status": "success" } })
     }
 
-    fn dns(
-        routes: Vec<(&'static str, &'static str, u16, Value)>,
+    /// `GET /zones/example.com`: the zone, labelled with `owner` (none for
+    /// `None`), delegated to `delegated`.
+    fn zone_of(owner: Option<&str>, delegated: &Value) -> Value {
+        let labels = owner.map_or_else(|| json!({}), |o| json!({ WORKSPACE_LABEL: o }));
+        json!({ "zone": { "id": 7, "name": "example.com", "status": "ok", "labels": labels,
+            "authoritative_nameservers": { "assigned": ["hydrogen.ns.hetzner.com."], "delegated": delegated } } })
+    }
+
+    /// The caller's own zone.
+    fn own_zone() -> Route {
+        (
+            "GET",
+            "/zones/example.com$",
+            200,
+            zone_of(Some(WORKSPACE), &json!([])),
+        )
+    }
+
+    fn dns_as(
+        routes: Vec<Route>,
         nameservers: &[&str],
+        workspace: Option<&str>,
     ) -> (HetznerDns, Arc<Stub>) {
         let stub = Arc::new(Stub {
             routes,
@@ -1005,7 +1109,14 @@ mod tests {
         });
         let nameservers: Vec<String> = nameservers.iter().map(|s| (*s).to_owned()).collect();
         let http = OutboundHttp(Arc::clone(&stub) as Arc<dyn DynOutboundHttp>);
-        (HetznerDns::new(http, "token", &nameservers), stub)
+        (
+            HetznerDns::new(http, "token", &nameservers, workspace),
+            stub,
+        )
+    }
+
+    fn dns(routes: Vec<Route>, nameservers: &[&str]) -> (HetznerDns, Arc<Stub>) {
+        dns_as(routes, nameservers, Some(WORKSPACE))
     }
 
     fn input(kind: &str, name: &str, content: &str) -> RecordInput {
@@ -1054,6 +1165,10 @@ mod tests {
             hetzner_value(&input("CNAME", "www", "Target.example.net"), zone),
             "target.example.net."
         );
+        assert_eq!(
+            hetzner_value(&input("NS", "sub", "@"), zone),
+            "example.com."
+        );
         let mut mx = input("MX", "@", "mail.example.com");
         mx.priority = Some(10.0);
         assert_eq!(hetzner_value(&mx, zone), "10 mail.example.com.");
@@ -1061,6 +1176,9 @@ mod tests {
             hetzner_value(&input("MX", "@", "20 mx2.example.com"), zone),
             "20 mx2.example.com."
         );
+        let mut srv = input("SRV", "_sip._tcp", "0 5 5060 sip.example.com.");
+        srv.priority = Some(10.0);
+        assert_eq!(hetzner_value(&srv, zone), "10 5 5060 sip.example.com.");
         assert_eq!(
             hetzner_value(
                 &input("SRV", "_sip._tcp", "10 5 5060 sip.example.com"),
@@ -1073,12 +1191,25 @@ mod tests {
             "0 issue \"letsencrypt.org\""
         );
         assert_eq!(
+            hetzner_value(&input("CAA", "@", "128 iodef mailto:dns@example.com"), zone),
+            "128 iodef \"mailto:dns@example.com\""
+        );
+        assert_eq!(
             hetzner_value(&input("TXT", "@", "v=spf1 -all"), zone),
             "\"v=spf1 -all\""
+        );
+        assert_eq!(
+            hetzner_value(&input("TXT", "@", "\"already\" \"quoted\""), zone),
+            "\"already\" \"quoted\""
+        );
+        assert_eq!(
+            hetzner_value(&input("A", "@", " 192.0.2.1 "), zone),
+            "192.0.2.1"
         );
         assert_eq!(hetzner_ttl(None), json!(3600));
         assert_eq!(hetzner_ttl(Some(1.0)), Value::Null);
         assert_eq!(hetzner_ttl(Some(30.0)), json!(60));
+        assert_eq!(hetzner_ttl(Some(7200.0)), json!(7200));
     }
 
     #[test]
@@ -1089,6 +1220,19 @@ mod tests {
         assert_eq!(unwrap_txt(&quoted), key);
         assert_eq!(quote_txt("say \"hi\""), "\"say \\\"hi\\\"\"");
         assert_eq!(unwrap_txt(&quote_txt("say \"hi\"")), "say \"hi\"");
+        assert_eq!(quote_txt(""), "\"\"");
+    }
+
+    #[test]
+    fn duplicates_compare_without_case_dots_or_quotes() {
+        assert_eq!(
+            comparable("MX", "10  Mail.Example.com."),
+            comparable("MX", "10 mail.example.com")
+        );
+        assert_eq!(
+            comparable("TXT", "\"v=spf1 \" \"-all\""),
+            comparable("TXT", "\"v=spf1 -all\"")
+        );
     }
 
     #[test]
@@ -1105,6 +1249,8 @@ mod tests {
         let (name, _, hash) = parse_record_id(&id).expect("parses");
         assert!(name.is_none());
         assert!(is_record(&long, "\"x\"", &hash));
+        assert!(parse_record_id("not-an-id").is_none());
+        assert!(parse_record_id("/A/abc").is_none());
     }
 
     #[test]
@@ -1121,29 +1267,72 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn errors_map_to_the_routes_kinds() {
+        let error = |status: Option<u16>, code: &str| ApiError {
+            status,
+            code: code.to_owned(),
+            message: "boom".to_owned(),
+        };
+        assert_eq!(
+            to_zone_error(&error(Some(401), "unauthorized")).kind,
+            ZoneErrorKind::AuthFailed
+        );
+        assert_eq!(
+            to_zone_error(&error(Some(403), "token_readonly")).kind,
+            ZoneErrorKind::AuthFailed
+        );
+        assert_eq!(
+            to_zone_error(&error(Some(409), "uniqueness_error")).kind,
+            ZoneErrorKind::InAnotherAccount
+        );
+        let invalid = to_zone_error(&error(Some(400), "invalid_input"));
+        assert_eq!(
+            (invalid.kind, invalid.message.as_str()),
+            (ZoneErrorKind::InvalidDomain, "boom")
+        );
+        let other = to_zone_error(&error(None, "connection_error"));
+        assert_eq!(other.kind, ZoneErrorKind::Unknown);
+        assert_eq!(other.message, "Hetzner API error (no status): boom");
+        assert!(retryable(&error(None, "connection_error")));
+        assert!(retryable(&error(Some(429), "rate_limit_exceeded")));
+        assert!(!retryable(&error(Some(422), "invalid_input")));
+        assert_eq!(error(Some(404), "x").to_string(), "boom (x)");
+        let unparsable = answer(&HttpResponse::new(502, b"<html>".to_vec())).expect_err("fails");
+        assert_eq!(
+            (unparsable.code.as_str(), unparsable.message.as_str()),
+            ("http_502", "502 status code")
+        );
+    }
+
     #[tokio::test]
     async fn lists_records_as_cloudflare_shapes_them() {
         let (dns, _) = dns(
-            vec![(
-                "GET",
-                "/zones/example.com/rrsets",
-                200,
-                json!({
-                    "rrsets": [
-                        { "id": "@/SOA", "name": "@", "type": "SOA", "ttl": null, "records": [{ "value": "hydrogen.ns.hetzner.com. dns.hetzner.com. 1 2 3 4 5" }] },
-                        { "id": "@/NS", "name": "@", "type": "NS", "ttl": null, "records": [{ "value": "hydrogen.ns.hetzner.com." }] },
-                        { "id": "@/MX", "name": "@", "type": "MX", "ttl": 3600, "records": [{ "value": "10 mail.example.com.", "comment": "primary" }] },
-                        { "id": "@/TXT", "name": "@", "type": "TXT", "ttl": null, "records": [{ "value": "\"v=spf1 \" \"-all\"" }] },
-                        { "id": "_sip._tcp/SRV", "name": "_sip._tcp", "type": "SRV", "ttl": 300, "records": [{ "value": "10 5 5060 sip.example.com." }] },
-                        { "id": "www/CNAME", "name": "www", "type": "CNAME", "ttl": 300, "records": [{ "value": "example.com." }] },
-                    ],
-                    "meta": { "pagination": { "page": 1, "per_page": 50, "next_page": null } },
-                }),
-            )],
+            vec![
+                own_zone(),
+                (
+                    "GET",
+                    "/zones/example.com/rrsets",
+                    200,
+                    json!({
+                        "rrsets": [
+                            { "id": "@/SOA", "name": "@", "type": "SOA", "ttl": null, "records": [{ "value": "hydrogen.ns.hetzner.com. dns.hetzner.com. 1 2 3 4 5" }] },
+                            { "id": "@/NS", "name": "@", "type": "NS", "ttl": null, "records": [{ "value": "hydrogen.ns.hetzner.com." }] },
+                            { "id": "@/MX", "name": "@", "type": "MX", "ttl": 3600, "records": [{ "value": "10 mail.example.com.", "comment": "primary" }] },
+                            { "id": "@/TXT", "name": "@", "type": "TXT", "ttl": null, "records": [{ "value": "\"v=spf1 \" \"-all\"" }] },
+                            { "id": "_sip._tcp/SRV", "name": "_sip._tcp", "type": "SRV", "ttl": 300, "records": [{ "value": "10 5 5060 sip.example.com." }] },
+                            { "id": "www/CNAME", "name": "www", "type": "CNAME", "ttl": 300, "records": [{ "value": "example.com." }] },
+                            { "id": "@/CAA", "name": "@", "type": "CAA", "ttl": 300, "records": [{ "value": "0 issue \"letsencrypt.org\"" }] },
+                            { "id": "@/HTTPS", "name": "@", "type": "HTTPS", "ttl": 300, "records": [{ "value": "1 . alpn=h2" }] },
+                        ],
+                        "meta": { "pagination": { "page": 1, "per_page": 50, "next_page": null } },
+                    }),
+                ),
+            ],
             &[],
         );
         let records = dns.list_records("example.com").await.expect("lists");
-        assert_eq!(records.len(), 4);
+        assert_eq!(records.len(), 6);
         let mx = &records[0];
         assert_eq!(
             (mx.name.as_str(), mx.content.as_str()),
@@ -1159,6 +1348,42 @@ mod tests {
         assert_eq!(records[2].data["port"], json!(5060));
         assert_eq!(records[3].name, "www.example.com");
         assert_eq!(records[3].content, "example.com");
+        assert_eq!(records[4].data["tag"], json!("issue"));
+        assert_eq!(records[4].data["value"], json!("letsencrypt.org"));
+        assert_eq!(records[5].editable_type, None);
+    }
+
+    #[tokio::test]
+    async fn reads_every_page() {
+        let page = |sets: Value, next: Value| json!({ "rrsets": sets, "meta": { "pagination": { "page": 1, "per_page": 50, "next_page": next } } });
+        let (dns, stub) = dns(
+            vec![
+                own_zone(),
+                (
+                    "GET",
+                    "/zones/example.com/rrsets?per_page=50&page=2",
+                    200,
+                    page(
+                        json!([{ "name": "b", "type": "A", "ttl": 60, "records": [{ "value": "192.0.2.2" }] }]),
+                        Value::Null,
+                    ),
+                ),
+                (
+                    "GET",
+                    "/zones/example.com/rrsets?per_page=50&page=1",
+                    200,
+                    page(
+                        json!([{ "name": "a", "type": "A", "ttl": 60, "records": [{ "value": "192.0.2.1" }] }]),
+                        json!(2),
+                    ),
+                ),
+            ],
+            &[],
+        );
+        let records = dns.list_records("example.com").await.expect("lists");
+        let names: Vec<&str> = records.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(names, ["a.example.com", "b.example.com"]);
+        assert_eq!(sent(&stub).len(), 3);
     }
 
     #[tokio::test]
@@ -1192,10 +1417,37 @@ mod tests {
         );
         let calls = sent(&stub);
         assert_eq!(calls[0].2["name"], json!("example.com"));
+        assert_eq!(calls[0].2["labels"][WORKSPACE_LABEL], json!(WORKSPACE));
         assert_eq!(
             calls[1].2,
             json!({ "records": [{ "value": "ns1.weldhost.com." }, { "value": "ns2.weldhost.com." }, { "value": "ns3.weldhost.com." }] })
         );
+    }
+
+    #[tokio::test]
+    async fn a_zone_whose_branded_nameservers_fail_is_rolled_back() {
+        let (dns, stub) = dns(
+            vec![
+                (
+                    "POST",
+                    "/zones/example.com/rrsets/@/NS/actions/add_records",
+                    422,
+                    json!({ "error": { "code": "invalid_input", "message": "bad NS" } }),
+                ),
+                (
+                    "POST",
+                    "/zones",
+                    201,
+                    json!({ "zone": { "id": 7, "name": "example.com" }, "action": { "id": 2, "status": "success" } }),
+                ),
+                ("DELETE", "/zones/example.com$", 201, done()),
+            ],
+            &["ns1.weldhost.com"],
+        );
+        let error = dns.create_zone("", "example.com").await.expect_err("fails");
+        assert_eq!(error.message, "bad NS");
+        let calls = sent(&stub);
+        assert_eq!(calls.last().map(|c| c.0.as_str()), Some("DELETE"));
     }
 
     #[tokio::test]
@@ -1221,6 +1473,13 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn no_zone_is_made_without_a_workspace() {
+        let (dns, stub) = dns_as(vec![], &[], None);
+        assert!(dns.create_zone("", "example.com").await.is_err());
+        assert_eq!(sent(&stub), Vec::new());
+    }
+
+    #[tokio::test]
     async fn a_taken_zone_is_in_another_account() {
         let (dns, _) = dns(
             vec![(
@@ -1240,16 +1499,15 @@ mod tests {
 
     #[tokio::test]
     async fn a_zone_is_active_once_delegated_to_the_branded_names() {
-        let zone = |delegated: Value| {
-            json!({ "zone": { "id": 7, "name": "example.com", "status": "ok",
-                "authoritative_nameservers": { "assigned": ["hydrogen.ns.hetzner.com."], "delegated": delegated } } })
-        };
         let (active, _) = dns(
             vec![(
                 "GET",
-                "/zones/example.com",
+                "/zones/example.com$",
                 200,
-                zone(json!(["ns1.weldhost.com.", "ns2.weldhost.com."])),
+                zone_of(
+                    Some(WORKSPACE),
+                    &json!(["ns1.weldhost.com.", "ns2.weldhost.com."]),
+                ),
             )],
             &["ns1.weldhost.com", "ns2.weldhost.com"],
         );
@@ -1264,9 +1522,9 @@ mod tests {
         let (pending, _) = dns(
             vec![(
                 "GET",
-                "/zones/example.com",
+                "/zones/example.com$",
                 200,
-                zone(json!(["ns1.registrar.example."])),
+                zone_of(Some(WORKSPACE), &json!(["ns1.registrar.example."])),
             )],
             &["ns1.weldhost.com"],
         );
@@ -1281,14 +1539,85 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_zone_of_another_workspace_is_refused() {
+        for owner in [Some("ws_b"), None] {
+            let (dns, stub) = dns(
+                vec![
+                    (
+                        "GET",
+                        "/zones/example.com$",
+                        200,
+                        zone_of(owner, &json!([])),
+                    ),
+                    (
+                        "POST",
+                        "/zones/example.com/rrsets/www/A/actions/add_records",
+                        201,
+                        done(),
+                    ),
+                ],
+                &[],
+            );
+            let error = dns.list_records("example.com").await.expect_err("refused");
+            assert_eq!(error.message, "This DNS zone belongs to another workspace.");
+            assert!(
+                dns.create_record("example.com", &input("A", "www", "192.0.2.1"))
+                    .await
+                    .is_err()
+            );
+            assert!(dns.get_zone("example.com").await.is_err());
+            // Only the zone reads went out: nothing was listed or written.
+            assert!(
+                sent(&stub)
+                    .iter()
+                    .all(|(method, path, _)| method == "GET" && path == "/zones/example.com")
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn the_owner_is_checked_once_a_request() {
+        let (dns, stub) = dns(
+            vec![
+                own_zone(),
+                (
+                    "POST",
+                    "/zones/example.com/rrsets/www/A/actions/add_records",
+                    201,
+                    done(),
+                ),
+                (
+                    "GET",
+                    "/zones/example.com/rrsets",
+                    200,
+                    json!({ "rrsets": [], "meta": { "pagination": { "next_page": null } } }),
+                ),
+            ],
+            &[],
+        );
+        dns.create_record("example.com", &input("A", "www", "192.0.2.1"))
+            .await
+            .expect("created");
+        dns.list_records("example.com").await.expect("lists");
+        let zone_reads = sent(&stub)
+            .iter()
+            .filter(|(_, path, _)| path == "/zones/example.com")
+            .count();
+        assert_eq!(zone_reads, 1);
+    }
+
+    #[tokio::test]
     async fn a_duplicate_create_writes_nothing() {
         let (dns, stub) = dns(
-            vec![(
-                "GET",
-                "/zones/example.com/rrsets/www/A",
-                200,
-                json!({ "rrset": { "name": "www", "type": "A", "ttl": 3600, "records": [{ "value": "192.0.2.1" }] } }),
-            )],
+            vec![
+                own_zone(),
+                (
+                    "GET",
+                    "/zones/example.com/rrsets/www/A",
+                    200,
+                    json!({ "rrset": { "name": "www", "type": "A", "ttl": 3600, "records": [{ "value": "192.0.2.1" }] } }),
+                ),
+            ],
             &[],
         );
         let created = dns
@@ -1296,29 +1625,59 @@ mod tests {
             .await
             .expect("answers");
         assert_eq!(created, Created::Duplicate);
-        assert_eq!(sent(&stub).len(), 1);
+        assert_eq!(sent(&stub).len(), 2);
     }
 
     #[tokio::test]
     async fn creates_a_record_by_adding_to_its_set() {
         let (dns, stub) = dns(
-            vec![(
-                "POST",
-                "/zones/example.com/rrsets/@/TXT/actions/add_records",
-                201,
-                done(),
-            )],
+            vec![
+                own_zone(),
+                (
+                    "POST",
+                    "/zones/example.com/rrsets/@/TXT/actions/add_records",
+                    201,
+                    done(),
+                ),
+            ],
             &[],
         );
+        let mut record = input("TXT", "example.com", "v=spf1 -all");
+        record.comment = Some("spf".to_owned());
         let created = dns
-            .create_record("example.com", &input("TXT", "example.com", "v=spf1 -all"))
+            .create_record("example.com", &record)
             .await
             .expect("created");
         assert_eq!(created, Created::Created);
         let calls = sent(&stub);
         assert_eq!(
-            calls[1].2,
-            json!({ "ttl": 3600, "records": [{ "value": "\"v=spf1 -all\"" }] })
+            calls[2].2,
+            json!({ "ttl": 3600, "records": [{ "value": "\"v=spf1 -all\"", "comment": "spf" }] })
+        );
+    }
+
+    #[tokio::test]
+    async fn waits_for_a_running_action() {
+        let (dns, stub) = dns(
+            vec![
+                own_zone(),
+                (
+                    "POST",
+                    "/zones/example.com/rrsets/www/A/actions/add_records",
+                    201,
+                    json!({ "action": { "id": 9, "status": "running" } }),
+                ),
+                ("GET", "/zones/actions/9", 200, done()),
+            ],
+            &[],
+        );
+        dns.create_record("example.com", &input("A", "www", "192.0.2.1"))
+            .await
+            .expect("created");
+        assert!(
+            sent(&stub)
+                .iter()
+                .any(|(_, path, _)| path == "/zones/actions/9")
         );
     }
 
@@ -1327,9 +1686,16 @@ mod tests {
         let id = record_id("www", "A", "192.0.2.1");
         let (dns, stub) = dns(
             vec![
+                own_zone(),
                 (
                     "POST",
                     "/zones/example.com/rrsets/www/A/actions/set_records",
+                    201,
+                    done(),
+                ),
+                (
+                    "POST",
+                    "/zones/example.com/rrsets/www/A/actions/change_ttl",
                     201,
                     done(),
                 ),
@@ -1346,31 +1712,126 @@ mod tests {
             .await
             .expect("updated");
         let calls = sent(&stub);
-        assert_eq!(calls.len(), 2);
+        assert_eq!(calls.len(), 3);
         assert_eq!(
-            calls[1].2,
+            calls[2].2,
             json!({ "records": [{ "value": "192.0.2.2" }, { "value": "192.0.2.9" }] })
+        );
+        // A new TTL is the set's.
+        let mut longer = input("A", "www", "192.0.2.2");
+        longer.ttl = Some(7200.0);
+        dns.update_record("example.com", &id, &longer)
+            .await
+            .expect("updated");
+        let calls = sent(&stub);
+        assert_eq!(
+            calls.last().map(|c| c.2.clone()),
+            Some(json!({ "ttl": 7200 }))
         );
     }
 
     #[tokio::test]
+    async fn moves_a_record_to_another_set() {
+        let id = record_id("www", "A", "192.0.2.1");
+        let (dns, stub) = dns(
+            vec![
+                own_zone(),
+                (
+                    "POST",
+                    "/zones/example.com/rrsets/web/A/actions/add_records",
+                    201,
+                    done(),
+                ),
+                (
+                    "POST",
+                    "/zones/example.com/rrsets/www/A/actions/remove_records",
+                    201,
+                    done(),
+                ),
+                (
+                    "GET",
+                    "/zones/example.com/rrsets/www/A",
+                    200,
+                    json!({ "rrset": { "name": "www", "type": "A", "ttl": 3600, "records": [{ "value": "192.0.2.1" }] } }),
+                ),
+            ],
+            &[],
+        );
+        dns.update_record("example.com", &id, &input("A", "web", "192.0.2.1"))
+            .await
+            .expect("moved");
+        let paths: Vec<String> = sent(&stub).into_iter().map(|c| c.1).collect();
+        assert_eq!(
+            paths[2..],
+            [
+                "/zones/example.com/rrsets/web/A/actions/add_records".to_owned(),
+                "/zones/example.com/rrsets/www/A/actions/remove_records".to_owned(),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn updating_a_gone_record_is_an_error() {
+        let (dns, _) = dns(vec![own_zone()], &[]);
+        let error = dns
+            .update_record(
+                "example.com",
+                &record_id("www", "A", "192.0.2.1"),
+                &input("A", "www", "192.0.2.2"),
+            )
+            .await
+            .expect_err("gone");
+        assert!(error.message.contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn deletes_a_record_from_its_set() {
+        let (dns, stub) = dns(
+            vec![
+                own_zone(),
+                (
+                    "POST",
+                    "/zones/example.com/rrsets/www/A/actions/remove_records",
+                    201,
+                    done(),
+                ),
+                (
+                    "GET",
+                    "/zones/example.com/rrsets/www/A",
+                    200,
+                    json!({ "rrset": { "name": "www", "type": "A", "ttl": 3600, "records": [{ "value": "192.0.2.1" }] } }),
+                ),
+            ],
+            &[],
+        );
+        dns.delete_record("example.com", &record_id("www", "A", "192.0.2.1"))
+            .await
+            .expect("deleted");
+        let calls = sent(&stub);
+        assert_eq!(calls[2].2, json!({ "records": [{ "value": "192.0.2.1" }] }));
+    }
+
+    #[tokio::test]
     async fn deleting_a_gone_record_is_no_error() {
-        let (dns, stub) = dns(vec![], &[]);
+        let (dns, stub) = dns(vec![own_zone()], &[]);
         dns.delete_record("example.com", &record_id("www", "A", "192.0.2.1"))
             .await
             .expect("no error");
-        assert_eq!(sent(&stub).len(), 1);
+        assert_eq!(sent(&stub).len(), 2);
     }
 
     #[tokio::test]
     async fn a_failed_action_is_an_error() {
         let (dns, _) = dns(
-            vec![(
-                "POST",
-                "/zones/example.com/rrsets/www/CNAME/actions/add_records",
-                201,
-                json!({ "action": { "id": 3, "status": "error", "error": { "code": "invalid_input", "message": "CNAME conflicts with A" } } }),
-            )],
+            vec![
+                own_zone(),
+                (
+                    "POST",
+                    "/zones/example.com/rrsets/www/CNAME/actions/add_records",
+                    201,
+                    json!({ "action": { "id": 3, "status": "error", "error": { "code": "invalid_input", "message": "CNAME conflicts with A" } } }),
+                ),
+            ],
             &[],
         );
         let error = dns

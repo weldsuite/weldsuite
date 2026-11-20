@@ -1,5 +1,6 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { isApiError } from '@weldsuite/api-client';
 import { useAppApi } from '@/lib/api/use-app-api';
 import type {
   DomainListResponse,
@@ -196,7 +197,7 @@ export function useScanDnsRecords() {
   });
 }
 
-interface RefreshZoneStatusResponse {
+export interface RefreshZoneStatusResponse {
   data: {
     zoneStatus: 'active' | 'pending' | 'error';
     domainStatus: string;
@@ -225,13 +226,31 @@ export function useRefreshZoneStatus(domainId: string, enabled = true) {
       return res;
     },
     enabled: !!domainId && enabled,
-    refetchInterval: (query) => {
-      const data = query.state.data as RefreshZoneStatusResponse | undefined;
-      if (!data) return 20_000;
-      return data.data.zoneStatus === 'pending' ? 20_000 : false;
-    },
+    refetchInterval: (query) =>
+      zoneStatusRefetchInterval(
+        query.state.data as RefreshZoneStatusResponse | undefined,
+        query.state.error,
+      ),
     refetchOnWindowFocus: true,
   });
+}
+
+/**
+ * How often to ask for a zone's status: every 20 seconds while it waits for
+ * its delegation, not at all once it is settled. A 4xx before any answer
+ * means the domain has no zone the API watches (none made yet, or one at a
+ * DNS provider this deployment doesn't manage), which asking again won't
+ * change; other failures are retried.
+ */
+export function zoneStatusRefetchInterval(
+  data: RefreshZoneStatusResponse | undefined,
+  error: unknown,
+): number | false {
+  if (!data) {
+    const refused = isApiError(error) && error.status >= 400 && error.status < 500;
+    return refused ? false : 20_000;
+  }
+  return data.data.zoneStatus === 'pending' ? 20_000 : false;
 }
 
 export function useImportDnsRecords() {

@@ -1928,20 +1928,30 @@ async fn verify_ownership(
         let Some(domain) = live_domain(&caller.db, &id).await? else {
             return Ok(ApiError::not_found("Domain", Some(&id)).into_response());
         };
-        if let Some(zone) = live_zone_of_domain(&caller.db, &id).await?
-            && (text(&zone, "provider") == Some("cloudflare")
-                || text(&zone, "provider") == Some(providers.dns_provider.as_str()))
-        {
-            let nameservers = [zone.get("externalNameservers"), domain.get("nameservers")]
-                .into_iter()
-                .flatten()
-                .find(|v| !v.is_null())
-                .cloned()
-                .unwrap_or_else(|| json!([]));
-            let mut body = public_domain(domain);
-            body["nameservers"] = nameservers;
-            body["dnsZone"] = zone;
-            return Ok(Data(body).into_response());
+        // On a Hetzner install a `hetzner` row without an external id is a
+        // zone kept by hand (the column's default provider): the zone made
+        // below takes it over instead of answering it as made.
+        let mut take_over: Option<String> = None;
+        if let Some(zone) = live_zone_of_domain(&caller.db, &id).await? {
+            let provider = text(&zone, "provider");
+            let on_hetzner =
+                providers.dns_provider == DnsProvider::Hetzner && provider == Some("hetzner");
+            let hosted = text(&zone, "externalZoneId").is_some_and(|e| !e.is_empty());
+            if provider == Some("cloudflare") || (on_hetzner && hosted) {
+                let nameservers = [zone.get("externalNameservers"), domain.get("nameservers")]
+                    .into_iter()
+                    .flatten()
+                    .find(|v| !v.is_null())
+                    .cloned()
+                    .unwrap_or_else(|| json!([]));
+                let mut body = public_domain(domain);
+                body["nameservers"] = nameservers;
+                body["dnsZone"] = zone;
+                return Ok(Data(body).into_response());
+            }
+            if on_hetzner {
+                take_over = text(&zone, "id").map(str::to_owned);
+            }
         }
         let Some(token) = text(&domain, "nameserverVerificationToken").filter(|t| !t.is_empty()) else {
             return Ok(ApiError::bad_request(
@@ -2020,7 +2030,7 @@ async fn verify_ownership(
                 });
             }
         };
-        let zone_row_id = generate_id("zone");
+        let zone_row_id = take_over.clone().unwrap_or_else(|| generate_id("zone"));
         let persisted: Result<(), sqlx::Error> = async {
             sqlx::query(
                 "update domains set nameservers = $2, nameserver_verified = true,
@@ -2032,6 +2042,23 @@ async fn verify_ownership(
             .bind(now())
             .execute(&caller.db)
             .await?;
+            if take_over.is_some() {
+                sqlx::query(
+                    "update dns_zones set name = $3, status = 'pending', provider = $6::host_dns_provider,
+                       external_zone_id = $4, external_nameservers = $5, updated_at = $7::timestamp
+                     where id = $1 and domain_id = $2",
+                )
+                .bind(&zone_row_id)
+                .bind(&id)
+                .bind(&full)
+                .bind(&zone.id)
+                .bind(json!(zone.nameservers))
+                .bind(provider.as_str())
+                .bind(now())
+                .execute(&caller.db)
+                .await?;
+                return Ok(());
+            }
             sqlx::query(
                 "insert into dns_zones (id, domain_id, name, status, provider, external_zone_id,
                    external_nameservers)

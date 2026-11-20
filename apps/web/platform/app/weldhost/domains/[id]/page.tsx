@@ -9,7 +9,7 @@ import {
   useRefreshZoneStatus,
 } from '@/hooks/queries/use-host-queries';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
-import { isManagedDnsProvider } from '@/app/weldhost/lib/dns-zone';
+import { isManagedDnsZone } from '@/app/weldhost/lib/dns-zone';
 import { useI18n } from '@/lib/i18n/provider';
 import type { Domain } from '@weldsuite/core-api-client/schemas/domains';
 
@@ -26,7 +26,7 @@ export default function DomainDetailPage() {
 
   const zone = dnsData?.data ?? null;
   // Only poll the DNS host for domains that actually have a zone there.
-  useRefreshZoneStatus(id, isManagedDnsProvider(zone?.provider));
+  useRefreshZoneStatus(id, isManagedDnsZone(zone));
   // Fetch the actual DNS records for any zone the platform has.
   const { data: recordsData } = useDnsRecords(id, !!zone);
 

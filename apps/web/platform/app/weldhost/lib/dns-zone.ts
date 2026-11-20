@@ -17,3 +17,15 @@ export function isManagedDnsProvider(
   if (provider === 'cloudflare') return true;
   return provider === 'hetzner' && kubernetes;
 }
+
+/**
+ * Whether a domain's zone lives at a DNS provider WeldHost manages: its
+ * records can be edited there and its delegation is worth polling. A zone
+ * row without an external zone id has nothing at the provider yet.
+ */
+export function isManagedDnsZone(
+  zone: { provider?: string | null; externalZoneId?: string | null } | null | undefined,
+  kubernetes: boolean = offeredModules() !== null,
+): boolean {
+  return isManagedDnsProvider(zone?.provider, kubernetes) && !!zone?.externalZoneId;
+}

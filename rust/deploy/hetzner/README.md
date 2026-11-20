@@ -1201,6 +1201,11 @@ What happens:
   named after the domain (`dns_zones.external_zone_id` holds the name),
   with the branded names as extra apex NS records. The wizard then shows
   the branded names as the nameservers to set at the registrar.
+- Each zone carries the label `weldhost/workspace` with the workspace
+  (`workspaces.id`) that proved the domain. WeldHost only reads or writes a
+  zone whose label matches the caller's workspace, so a zone row pointed at
+  someone else's zone gets nowhere. Don't remove or edit the label by hand; a
+  zone made outside WeldHost needs it before WeldHost will touch it.
 - The zone turns `active` once the registry delegates to the branded names,
   or to Hetzner's own. WeldHost reads Hetzner's delegation check, and when
   that hasn't caught up yet, the domain's NS records over DNS over HTTPS.
