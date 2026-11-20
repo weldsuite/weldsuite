@@ -2505,6 +2505,12 @@ fn core_platform(router: Router<AppState>, state: &AppState) -> Router<AppState>
         router
     };
     router
+        // Rust only (ADR OPS-026); enforced on the EU edition, informational
+        // elsewhere (the platform shows the page on the EU edition only).
+        .nest(
+            "/outside-eu-services",
+            weldsuite_core_platform::outside_eu(platform.clone(), gate),
+        )
         .nest(
             "/notifications",
             weldsuite_core_platform::notifications(platform.clone(), gate),

@@ -269,6 +269,7 @@ import { Route as SettingsSecurityIndexRouteImport } from './routes/settings/sec
 import { Route as SettingsRolesIndexRouteImport } from './routes/settings/roles/index'
 import { Route as SettingsPrivacyIndexRouteImport } from './routes/settings/privacy/index'
 import { Route as SettingsPlansIndexRouteImport } from './routes/settings/plans/index'
+import { Route as SettingsOutsideEuIndexRouteImport } from './routes/settings/outside-eu/index'
 import { Route as SettingsObjectTemplatesIndexRouteImport } from './routes/settings/object-templates/index'
 import { Route as SettingsNotificationsIndexRouteImport } from './routes/settings/notifications/index'
 import { Route as SettingsLegalEntitiesIndexRouteImport } from './routes/settings/legal-entities/index'
@@ -1962,6 +1963,11 @@ const SettingsPrivacyIndexRoute = SettingsPrivacyIndexRouteImport.update({
 const SettingsPlansIndexRoute = SettingsPlansIndexRouteImport.update({
   id: '/plans/',
   path: '/plans/',
+  getParentRoute: () => SettingsRouteRoute,
+} as any)
+const SettingsOutsideEuIndexRoute = SettingsOutsideEuIndexRouteImport.update({
+  id: '/outside-eu/',
+  path: '/outside-eu/',
   getParentRoute: () => SettingsRouteRoute,
 } as any)
 const SettingsObjectTemplatesIndexRoute =
@@ -4240,6 +4246,7 @@ export interface FileRoutesByFullPath {
   '/settings/legal-entities/': typeof SettingsLegalEntitiesIndexRoute
   '/settings/notifications/': typeof SettingsNotificationsIndexRoute
   '/settings/object-templates/': typeof SettingsObjectTemplatesIndexRoute
+  '/settings/outside-eu/': typeof SettingsOutsideEuIndexRoute
   '/settings/plans/': typeof SettingsPlansIndexRoute
   '/settings/privacy/': typeof SettingsPrivacyIndexRoute
   '/settings/roles/': typeof SettingsRolesIndexRoute
@@ -4813,6 +4820,7 @@ export interface FileRoutesByTo {
   '/settings/legal-entities': typeof SettingsLegalEntitiesIndexRoute
   '/settings/notifications': typeof SettingsNotificationsIndexRoute
   '/settings/object-templates': typeof SettingsObjectTemplatesIndexRoute
+  '/settings/outside-eu': typeof SettingsOutsideEuIndexRoute
   '/settings/plans': typeof SettingsPlansIndexRoute
   '/settings/privacy': typeof SettingsPrivacyIndexRoute
   '/settings/roles': typeof SettingsRolesIndexRoute
@@ -5432,6 +5440,7 @@ export interface FileRoutesById {
   '/settings/legal-entities/': typeof SettingsLegalEntitiesIndexRoute
   '/settings/notifications/': typeof SettingsNotificationsIndexRoute
   '/settings/object-templates/': typeof SettingsObjectTemplatesIndexRoute
+  '/settings/outside-eu/': typeof SettingsOutsideEuIndexRoute
   '/settings/plans/': typeof SettingsPlansIndexRoute
   '/settings/privacy/': typeof SettingsPrivacyIndexRoute
   '/settings/roles/': typeof SettingsRolesIndexRoute
@@ -6059,6 +6068,7 @@ export interface FileRouteTypes {
     | '/settings/legal-entities/'
     | '/settings/notifications/'
     | '/settings/object-templates/'
+    | '/settings/outside-eu/'
     | '/settings/plans/'
     | '/settings/privacy/'
     | '/settings/roles/'
@@ -6632,6 +6642,7 @@ export interface FileRouteTypes {
     | '/settings/legal-entities'
     | '/settings/notifications'
     | '/settings/object-templates'
+    | '/settings/outside-eu'
     | '/settings/plans'
     | '/settings/privacy'
     | '/settings/roles'
@@ -7250,6 +7261,7 @@ export interface FileRouteTypes {
     | '/settings/legal-entities/'
     | '/settings/notifications/'
     | '/settings/object-templates/'
+    | '/settings/outside-eu/'
     | '/settings/plans/'
     | '/settings/privacy/'
     | '/settings/roles/'
@@ -9579,6 +9591,13 @@ declare module '@tanstack/react-router' {
       path: '/plans'
       fullPath: '/settings/plans/'
       preLoaderRoute: typeof SettingsPlansIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/outside-eu/': {
+      id: '/settings/outside-eu/'
+      path: '/outside-eu'
+      fullPath: '/settings/outside-eu/'
+      preLoaderRoute: typeof SettingsOutsideEuIndexRouteImport
       parentRoute: typeof SettingsRouteRoute
     }
     '/settings/object-templates/': {
@@ -12266,6 +12285,7 @@ interface SettingsRouteRouteChildren {
   SettingsLegalEntitiesIndexRoute: typeof SettingsLegalEntitiesIndexRoute
   SettingsNotificationsIndexRoute: typeof SettingsNotificationsIndexRoute
   SettingsObjectTemplatesIndexRoute: typeof SettingsObjectTemplatesIndexRoute
+  SettingsOutsideEuIndexRoute: typeof SettingsOutsideEuIndexRoute
   SettingsPlansIndexRoute: typeof SettingsPlansIndexRoute
   SettingsPrivacyIndexRoute: typeof SettingsPrivacyIndexRoute
   SettingsRolesIndexRoute: typeof SettingsRolesIndexRoute
@@ -12338,6 +12358,7 @@ const SettingsRouteRouteChildren: SettingsRouteRouteChildren = {
   SettingsLegalEntitiesIndexRoute: SettingsLegalEntitiesIndexRoute,
   SettingsNotificationsIndexRoute: SettingsNotificationsIndexRoute,
   SettingsObjectTemplatesIndexRoute: SettingsObjectTemplatesIndexRoute,
+  SettingsOutsideEuIndexRoute: SettingsOutsideEuIndexRoute,
   SettingsPlansIndexRoute: SettingsPlansIndexRoute,
   SettingsPrivacyIndexRoute: SettingsPrivacyIndexRoute,
   SettingsRolesIndexRoute: SettingsRolesIndexRoute,

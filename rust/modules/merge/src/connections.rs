@@ -94,6 +94,7 @@ pub(crate) async fn list(caller: Caller) -> Answer {
 /// App's slug is known).
 pub(crate) async fn connect_github(State(state): State<MergeState>, caller: Caller) -> Answer {
     let db = &caller.db;
+    crate::require_provider(db, "github", None).await?;
     let connection: Option<Value> = sqlx::query_scalar(
         "select to_jsonb(c) from merge_connections c where c.provider = 'github' and c.status = 'active' \
          and c.deleted_at is null order by c.created_at desc, c.id desc limit 1",

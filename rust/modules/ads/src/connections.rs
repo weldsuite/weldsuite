@@ -74,6 +74,15 @@ pub(crate) async fn list(caller: Caller) -> Response {
     }
 }
 
+/// Meta is outside the EU (ADR OPS-026): on the EU edition a workspace that
+/// hasn't switched it on is answered 403 `OUTSIDE_EU_SERVICE_OFF` and
+/// nothing is sent to Meta. Without enforcement this never refuses.
+async fn meta_switch(caller: &Caller) -> Result<(), Box<Response>> {
+    weldsuite_outside_eu::require(&caller.db, weldsuite_outside_eu::ServiceId::Meta)
+        .await
+        .map_err(|error| Box::new(error.to_api_error().into_response()))
+}
+
 /// `POST /api/ad-connections/facebook/authorize`: a state for this
 /// workspace, kept ten minutes, and the Facebook dialog to send the person to.
 pub(crate) async fn authorize(State(state): State<AdsState>, caller: Caller) -> Response {
@@ -82,6 +91,9 @@ pub(crate) async fn authorize(State(state): State<AdsState>, caller: Caller) -> 
             .with_message("Facebook OAuth is not configured")
             .into_response();
     };
+    if let Err(response) = meta_switch(&caller).await {
+        return *response;
+    }
     let Some(org_id) = caller.org_id.clone().filter(|org| !org.is_empty()) else {
         return ApiError::bad_request("No active workspace").into_response();
     };
@@ -182,6 +194,9 @@ pub(crate) async fn callback(
             .with_message("Facebook OAuth is not configured")
             .into_response();
     };
+    if let Err(response) = meta_switch(&caller).await {
+        return *response;
+    }
     match connect(&state, &caller, &org_id, &app_id, &app_secret, &code).await {
         Ok((connection_id, created)) => {
             let data = json!({ "id": connection_id, "platform": "facebook", "status": "active" });
@@ -320,6 +335,9 @@ pub(crate) async fn sync(
         }
         Err(error) => return internal(&error, "Internal server error"),
     };
+    if let Err(response) = meta_switch(&caller).await {
+        return *response;
+    }
     let workspace_id = if caller.org_id.as_deref().is_some_and(|org| !org.is_empty()) {
         caller.workspace_id.clone()
     } else {

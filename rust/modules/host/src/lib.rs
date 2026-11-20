@@ -235,6 +235,22 @@ impl DnsProvider {
     }
 }
 
+/// Whether the workspace's zones and records may go to `provider` (ADR
+/// OPS-026): Cloudflare is outside the EU, so on the EU edition only once
+/// the workspace has switched it on; `Err` is the 403 to answer. Hetzner is
+/// an EU company and needs no switch.
+#[allow(clippy::result_large_err)] // the refusal is answered as it is
+pub(crate) async fn dns_allowed(db: &PgPool, provider: DnsProvider) -> Result<(), Response> {
+    match provider {
+        DnsProvider::Cloudflare => {
+            weldsuite_outside_eu::require(db, weldsuite_outside_eu::ServiceId::Cloudflare)
+                .await
+                .map_err(|error| error.to_api_error().into_response())
+        }
+        DnsProvider::Hetzner => Ok(()),
+    }
+}
+
 /// The DNS host of one zone row.
 pub(crate) enum ZoneDns {
     /// A zone WeldHost doesn't manage: no external id, or a provider this

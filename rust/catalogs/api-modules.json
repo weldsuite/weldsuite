@@ -39,6 +39,7 @@
       "/api/object-templates",
       "/api/objects",
       "/api/onboarding",
+      "/api/outside-eu-services",
       "/api/partner",
       "/api/prepaid-seats",
       "/api/push-tokens",

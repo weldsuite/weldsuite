@@ -212,7 +212,18 @@ fn archive_discord_thread(state: &DeskState, caller: &Caller, conv: &Value) {
         .unwrap_or_default()
         .to_owned();
     let http = caller.http(state);
+    let db = caller.db.clone();
     background(state, async move {
+        // ADR OPS-026: left as it is while the workspace has Discord off.
+        if !weldsuite_outside_eu::allowed(
+            &db,
+            weldsuite_outside_eu::ServiceId::Discord,
+            "desk discord thread archive",
+        )
+        .await
+        {
+            return;
+        }
         if let Err(error) =
             crate::discord::close_ticket_thread(http.as_ref(), &token, &thread).await
         {

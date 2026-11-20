@@ -466,6 +466,18 @@ async fn load_mailbox(db: &PgPool, id: &str) -> ReachResult<Option<Value>> {
 
 const CONFIGURATION_ERROR_CODES: &[i64] = &[101, 201, 202, 301];
 
+/// Mailpool is outside the EU (ADR OPS-026): on the EU edition an event for
+/// a workspace that has it switched off is acknowledged and not acted on
+/// (nothing is fetched from Mailpool for it). Logged by the check.
+async fn mailpool_off(db: &PgPool, clerk_org_id: &str) -> bool {
+    !weldsuite_outside_eu::allowed(
+        db,
+        weldsuite_outside_eu::ServiceId::Mailpool,
+        &format!("mailpool webhook {clerk_org_id}"),
+    )
+    .await
+}
+
 async fn on_mailbox_updated(deps: &Deps, data: &Value) -> ReachResult<Value> {
     let Some(mailpool_id) = mailpool_id_of(data) else {
         return Ok(ignored("no_id"));
@@ -479,6 +491,9 @@ async fn on_mailbox_updated(deps: &Deps, data: &Value) -> ReachResult<Value> {
         .open_tenant(&clerk_org_id)
         .await
         .map_err(|e| weldsuite_reach_domain::ReachError::unexpected(&e))?;
+    if mailpool_off(&db, &clerk_org_id).await {
+        return Ok(ignored("outside_eu_off"));
+    }
     let Some(mailbox) = load_mailbox(&db, &entity_id)
         .await?
         .filter(|m| !matches!(text(m, "status"), Some("deleting" | "deleted")))
@@ -671,6 +686,9 @@ async fn on_mailbox_deleted(deps: &Deps, data: &Value) -> ReachResult<Value> {
         .open_tenant(&clerk_org_id)
         .await
         .map_err(|e| weldsuite_reach_domain::ReachError::unexpected(&e))?;
+    if mailpool_off(&db, &clerk_org_id).await {
+        return Ok(ignored("outside_eu_off"));
+    }
     let Some(mailbox) = load_mailbox(&db, &entity_id)
         .await?
         .filter(|m| !matches!(text(m, "status"), Some("deleting" | "deleted")))
@@ -711,6 +729,9 @@ async fn on_domain_updated(deps: &Deps, data: &Value) -> ReachResult<Value> {
         .open_tenant(&clerk_org_id)
         .await
         .map_err(|e| weldsuite_reach_domain::ReachError::unexpected(&e))?;
+    if mailpool_off(&db, &clerk_org_id).await {
+        return Ok(ignored("outside_eu_off"));
+    }
     let domain: Option<Value> =
         sqlx::query_scalar("select to_jsonb(t) from reach_domains t where t.id = $1 limit 1")
             .bind(&entity_id)

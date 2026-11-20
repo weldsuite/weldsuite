@@ -45,6 +45,7 @@ import { reachErrorMessage } from '@/lib/reach/errors';
 import { createReachSchemaOptions } from '@/lib/reach/zod-error-map';
 import { isFeatureAvailable } from '@/lib/edition';
 import { TIMEZONES } from '@/lib/timezones';
+import { OutsideEuNotice } from '@/components/outside-eu/outside-eu-notice';
 
 /** The settings form: everything the PATCH accepts except the onboarding flag. */
 const settingsFormSchema = updateReachSettingsSchema.omit({ completeOnboarding: true });
@@ -170,6 +171,9 @@ function SettingsForm({ settings }: Readonly<{ settings: ReachSettings }>) {
           </div>
         )}
       </div>
+
+      {/* EU edition: mailboxes come from Mailpool and domains run on Cloudflare's DNS, outside the EU (ADR OPS-026). */}
+      <OutsideEuNotice services={['mailpool', 'cloudflare']} />
 
       <Form {...form}>
         <form onSubmit={save} className="space-y-10" noValidate>

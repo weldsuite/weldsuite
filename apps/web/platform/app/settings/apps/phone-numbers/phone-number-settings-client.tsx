@@ -62,6 +62,7 @@ import { usePortingOrders, type PortingOrderStatus } from '@/hooks/use-porting';
 import { ExpandingSearchInput } from '@/components/settings/expanding-search-input';
 import { PendingNumberDocuments } from './pending-number-documents';
 import { isFeatureAvailable } from '@/lib/edition';
+import { OutsideEuNotice } from '@/components/outside-eu/outside-eu-notice';
 
 interface PhoneNumberSettingsClientProps {
   phoneNumbers: VoipPhoneNumber[];
@@ -479,6 +480,9 @@ export function PhoneNumberSettingsClient({
         <h1 className="text-2xl font-semibold tracking-tight">{tp.title}</h1>
         <p className="text-muted-foreground">{tp.description}</p>
       </div>
+
+      {/* EU edition: telephony runs on Telnyx, outside the EU (ADR OPS-026). */}
+      <OutsideEuNotice services={['telnyx']} />
 
       <PendingPortsSection />
 

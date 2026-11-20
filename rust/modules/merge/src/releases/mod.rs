@@ -788,7 +788,13 @@ pub(crate) async fn refresh(
         ));
     };
     let mut found: Option<Vec<Row>> = None;
-    if text(&repository, "provider") == "github" {
+    // ADR OPS-026: with GitHub off the release keeps to what is mirrored.
+    let github_on = match crate::require_provider(db, "github", None).await {
+        Ok(()) => true,
+        Err(crate::MergeError::OutsideEu(_)) => false,
+        Err(error) => return Err(error.into()),
+    };
+    if github_on && text(&repository, "provider") == "github" {
         let connection = find_connection(db, text(&repository, "connectionId")).await?;
         let client = connection
             .filter(|c| text(c, "status") == "active")

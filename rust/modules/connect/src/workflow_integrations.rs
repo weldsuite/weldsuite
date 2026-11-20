@@ -34,6 +34,21 @@ use crate::{Caller, ConnectState, Refusal, internal, now, validate};
 const GOOGLE_TYPES: &[&str] = &["google_sheets", "gmail", "google_calendar"];
 const STATE_TTL: Duration = Duration::from_secs(600);
 
+/// ADR OPS-026: an integration whose company is outside the EU is created,
+/// connected, tested and called only once the workspace switched it on
+/// (enforced on the EU edition; elsewhere this never reads the database).
+/// EU and unknown types pass. Removing one stays open.
+async fn outside_eu(db: &PgPool, kind: &str) -> Result<(), Refusal> {
+    weldsuite_outside_eu::require_integration(db, kind)
+        .await
+        .map_err(|error| Refusal::from(error.to_api_error()))
+}
+
+/// [`outside_eu`] for a stored integration's `type`.
+async fn outside_eu_row(db: &PgPool, row: &Value) -> Result<(), Refusal> {
+    outside_eu(db, row["type"].as_str().unwrap_or_default()).await
+}
+
 pub(crate) fn routes<Q: PermissionQueries + 'static>(
     gate: &Arc<PermissionGate<Q>>,
 ) -> Router<ConnectState> {
@@ -310,15 +325,18 @@ async fn create(
         Ok(data) => data,
         Err(refusal) => return refusal.respond("Failed to create integration"),
     };
+    let kind = data
+        .kind
+        .as_set()
+        .cloned()
+        .unwrap_or_else(|| "custom".into());
+    if let Err(refusal) = outside_eu(&caller.db, &kind).await {
+        return refusal.respond("Failed to create integration");
+    }
     let result = async {
         let id = generate_id("int");
         let stamp = now();
         let name = data.name.as_set().cloned().unwrap_or_default();
-        let kind = data
-            .kind
-            .as_set()
-            .cloned()
-            .unwrap_or_else(|| "custom".into());
         sqlx::query(
             "insert into workflow_integrations
                 (id, name, description, type, category, icon, credentials, settings, is_oauth,
@@ -369,6 +387,9 @@ async fn update_route(
     let result = async {
         if integration_row(&caller.db, &id).await?.is_none() {
             return Err(Refusal::not_found("Integration", &id));
+        }
+        if let Some(kind) = data.kind.as_set() {
+            outside_eu(&caller.db, kind).await?;
         }
         sqlx::query(
             "update workflow_integrations set updated_at = $2::timestamp,
@@ -435,9 +456,10 @@ async fn connect(
         Err(refusal) => return refusal.respond("Failed to connect integration"),
     };
     let result = async {
-        if integration_row(&caller.db, &id).await?.is_none() {
+        let Some(row) = integration_row(&caller.db, &id).await? else {
             return Err(Refusal::not_found("Integration", &id));
-        }
+        };
+        outside_eu_row(&caller.db, &row).await?;
         sqlx::query(
             "update workflow_integrations set status = 'connected', connected_at = $2::timestamp,
                 connected_by = $3, updated_at = $2::timestamp,
@@ -584,6 +606,7 @@ async fn test(
         let Some(row) = integration_row(&caller.db, &id).await? else {
             return Err(Refusal::not_found("Integration", &id));
         };
+        outside_eu_row(&caller.db, &row).await?;
         let http = caller.http(&state);
         let kind = row["type"].as_str().unwrap_or_default();
         if kind == "github" {
@@ -707,6 +730,7 @@ async fn slack_channels(
         if row["type"].as_str() != Some("slack") {
             return Err(Refusal::bad_request("Not a Slack integration"));
         }
+        outside_eu_row(&caller.db, &row).await?;
         let Some(token) = row["oauthTokens"]["accessToken"]
             .as_str()
             .filter(|t| !t.is_empty())
@@ -739,6 +763,7 @@ async fn github_repos(
         if row["type"].as_str() != Some("github") {
             return Err(Refusal::bad_request("Not a GitHub integration"));
         }
+        outside_eu_row(&caller.db, &row).await?;
         let Some(creds) = caller.github_app(&state) else {
             return Err(ApiError::internal()
                 .with_message("GitHub App is not configured")
@@ -779,6 +804,7 @@ async fn google_token(
             "Not a {expected} integration"
         )));
     }
+    outside_eu_row(&caller.db, &row).await?;
     let Some(token) = row["oauthTokens"]["accessToken"]
         .as_str()
         .filter(|t| !t.is_empty())
@@ -1057,6 +1083,9 @@ async fn authorize(
         return ApiError::bad_request(format!("Integration \"{provider}\" does not use OAuth"))
             .into_response();
     }
+    if let Err(refusal) = outside_eu(&caller.db, &provider).await {
+        return refusal.respond("Failed to authorize");
+    }
     let Some(client_id) = env_named(&caller, &state, def, "clientIdEnv") else {
         return ApiError::internal()
             .with_message(format!("OAuth not configured for {provider}"))
@@ -1144,6 +1173,7 @@ async fn callback(
             Some(def) if def["auth"]["kind"].as_str() == Some("oauth2") => def,
             _ => return Err(Refusal::not_found("Integration", &provider)),
         };
+        outside_eu(&caller.db, &provider).await?;
         let cache = kv(&caller, &state)?;
         let key = format!("wf_oauth_state:{oauth_state}");
         let stored: Value = cache
@@ -1351,6 +1381,7 @@ async fn apikey(
             Some(def) if def["auth"]["kind"].as_str() == Some("api_key") => def,
             _ => return Err(Refusal::not_found("Integration", &provider)),
         };
+        outside_eu(&caller.db, &provider).await?;
         let keyring = caller.keyring(&state);
         let mut sealed = Map::new();
         for (key, value) in &credentials {
@@ -1422,6 +1453,9 @@ async fn link(
     let Some(org_id) = caller.org_id.clone() else {
         return ApiError::bad_request("No active workspace").into_response();
     };
+    if let Err(refusal) = outside_eu(&caller.db, &provider).await {
+        return refusal.respond("Failed to link");
+    }
     let result = async {
         // The workspace's GitHub App installation, a WeldMerge connection
         // (`getConnectionByWorkspace`: the newest active one first).

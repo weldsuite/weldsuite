@@ -64,6 +64,22 @@ fn error(status: StatusCode, message: &str) -> Response {
     answer(status, json!({ "error": message }))
 }
 
+/// ADR OPS-026: Attio, `HubSpot` and Google are outside the EU. A delivery
+/// for a workspace that has switched the provider off is acknowledged (so
+/// the provider doesn't retry it) and not followed up: no record is fetched
+/// and no sync started. `None` when it may go on.
+async fn outside_eu_skip(db: &PgPool, provider: &str, connection_id: &str) -> Option<Response> {
+    let service = weldsuite_outside_eu::ServiceId::for_integration(provider)?;
+    let context = format!("crm webhook {connection_id}");
+    if weldsuite_outside_eu::allowed(db, service, &context).await {
+        return None;
+    }
+    Some(answer(
+        StatusCode::OK,
+        json!({ "status": "skipped", "reason": "outside_eu" }),
+    ))
+}
+
 /// A truthy value as a template string reads it (`${value}`).
 fn text(value: Option<&Value>) -> String {
     value.map_or_else(|| "undefined".to_owned(), |v| js_string(&Js::from_jsonb(v)))
@@ -1469,6 +1485,9 @@ async fn handle_connection_webhook(
         return Ok(error(StatusCode::BAD_REQUEST, "Unknown provider"));
     };
     let db = ctx.tenant_db(state, &workspace_id).await?;
+    if let Some(skipped) = outside_eu_skip(&db, &provider_name, connection_id).await {
+        return Ok(skipped);
+    }
     let Some((_, secret, tokens)) = load_connection(&db, connection_id).await? else {
         tracing::warn!("[Webhook] Connection not found in DB: {connection_id}");
         return Ok(error(StatusCode::NOT_FOUND, "Connection not found"));
@@ -1663,6 +1682,9 @@ async fn handle_hubspot(
         return Ok(error(StatusCode::NOT_FOUND, "Portal not connected"));
     };
     let db = ctx.tenant_db(state, &workspace_id).await?;
+    if let Some(skipped) = outside_eu_skip(&db, "hubspot", &connection_id).await {
+        return Ok(skipped);
+    }
     let Some((_, secret, tokens)) = load_connection(&db, &connection_id).await? else {
         if let Some(cache) = ctx.cache(state) {
             cache.delete_boxed(&key).await.map_err(|e| e.to_string())?;
@@ -1746,6 +1768,9 @@ async fn handle_gcal(
         return Ok(error(StatusCode::NOT_FOUND, "Connection not found"));
     };
     let db = ctx.tenant_db(state, &workspace_id).await?;
+    if let Some(skipped) = outside_eu_skip(&db, "google_calendar", connection_id).await {
+        return Ok(skipped);
+    }
     let Some((_, secret, _)) = load_connection(&db, connection_id).await? else {
         return Ok(error(StatusCode::NOT_FOUND, "Connection not found"));
     };

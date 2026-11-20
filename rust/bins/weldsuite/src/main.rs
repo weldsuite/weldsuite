@@ -7,6 +7,7 @@
 
 mod admin;
 mod admin_billing;
+mod admin_outside_eu;
 mod ai;
 mod billing;
 mod collab;
@@ -117,6 +118,13 @@ fn main() -> ExitCode {
             weldsuite_notifications::platform_origin(|name| std::env::var(name).ok())
     {
         weldsuite_notifications::set_push_server(&origin);
+    }
+    // ADR OPS-026: on the EU edition a service outside the EU is called for
+    // a workspace only once its admin switched it on (serve, consume and
+    // cron alike). Not in conformance builds: Global's workers have no switch.
+    if !cfg!(feature = "conformance") {
+        weldsuite_outside_eu::Enforcement::for_edition(std::env::var("EDITION").ok().as_deref())
+            .install();
     }
     match args.first().map(String::as_str) {
         Some("serve") => serve(),

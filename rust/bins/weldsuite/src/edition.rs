@@ -16,8 +16,9 @@
 //!   (`MOLLIE_API_KEY`); [`CHAT_CALLS_FEATURE`], without a video provider
 //!   (`weldsuite_video_rooms::configured`); [`AGENT_SANDBOX_FEATURE`], without WeldAgent's
 //!   sandbox (`SANDBOX_ENABLED`); [`PANEL_ANALYTICS_FEATURE`], without
-//!   WeldPanel's store (`S3_BUCKET_PANEL`); and [`SSO_CONNECTIONS_FEATURE`],
-//!   unless WeldID is the identity provider (`IDENTITY_PROVIDER=weldid`).
+//!   WeldPanel's store (`S3_BUCKET_PANEL`); [`SSO_CONNECTIONS_FEATURE`],
+//!   unless WeldID is the identity provider (`IDENTITY_PROVIDER=weldid`);
+//!   and [`OUTSIDE_EU_SERVICES_FEATURE`], unless this is the EU edition.
 //! - `ai`: the install's AI providers, with their region and the key sources
 //!   a workspace may use (`weldsuite_ai::AiConfig::describe`), when it has
 //!   one. The platform shows the AI settings page and the region labels from
@@ -164,6 +165,13 @@ pub(crate) const AI_FEATURES: &[&str] = &[
 /// claims and verifies a domain but every connection change answers 502, so
 /// the platform hides the page.
 pub(crate) const SSO_CONNECTIONS_FEATURE: &str = "sso-connections";
+
+/// Services outside the EU (ADR OPS-026, `/api/outside-eu-services`): on the
+/// EU edition each is off until a workspace admin switches it on, and the
+/// backend enforces it (`weldsuite_outside_eu`, installed in `main`). A
+/// self-hosted install may use any of them, its operator's choice, so it
+/// lists the settings page and the "leaves the EU" labels as unavailable.
+pub(crate) const OUTSIDE_EU_SERVICES_FEATURE: &str = "outside-eu-services";
 
 /// WeldAgent: offered by `/config.json` only with an AI provider.
 pub(crate) const AI_MODULE: &str = "agent";
@@ -457,6 +465,9 @@ impl EditionConfig {
         if !self.panel_analytics {
             features.push(PANEL_ANALYTICS_FEATURE);
         }
+        if self.edition != Edition::Eu {
+            features.push(OUTSIDE_EU_SERVICES_FEATURE);
+        }
         if !self.live_editing {
             features.push(COLLAB_ROOMS_FEATURE);
         }
@@ -528,7 +539,13 @@ mod tests {
                 .as_array()
                 .map(Vec::len)
                 .unwrap_or_default(),
-            UNAVAILABLE_FEATURES.len() + AI_FEATURES.len() + 10
+            UNAVAILABLE_FEATURES.len() + AI_FEATURES.len() + 11
+        );
+        // Self-hosted: the operator decides about services outside the EU.
+        assert!(
+            body["unavailableFeatures"]
+                .as_array()
+                .is_some_and(|f| f.contains(&json!(OUTSIDE_EU_SERVICES_FEATURE)))
         );
         assert_eq!(
             body["unavailableFeatures"]
@@ -641,6 +658,8 @@ mod tests {
             REACH_BILLING_FEATURE,
             AGENT_SANDBOX_FEATURE,
             PANEL_ANALYTICS_FEATURE,
+            // Self-hosted: the operator decides about services outside the EU.
+            OUTSIDE_EU_SERVICES_FEATURE,
         ]);
         assert_eq!(body["unavailableFeatures"], json!(lacks));
         // A blank list is no service.
@@ -875,6 +894,7 @@ mod tests {
             &SSO_CONNECTIONS_FEATURE,
             &AGENT_SANDBOX_FEATURE,
             &PANEL_ANALYTICS_FEATURE,
+            &OUTSIDE_EU_SERVICES_FEATURE,
         ]) {
             assert!(
                 feature.chars().all(|c| c.is_ascii_lowercase() || c == '-'),

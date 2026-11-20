@@ -150,15 +150,11 @@ async fn connect(
         Err(response) => return *response,
     };
     let org = caller.clerk_org_id.clone().unwrap_or_default();
-    match get_connect_url(
-        &caller.db,
-        &caller.context(&state),
-        &org,
-        &platform,
-        redirect.as_deref(),
-    )
-    .await
-    {
+    let context = match caller.postpeer(&state).await {
+        Ok(context) => context,
+        Err(response) => return *response,
+    };
+    match get_connect_url(&caller.db, &context, &org, &platform, redirect.as_deref()).await {
         Ok(result) => Data(result).into_response(),
         Err(error) => refused(&error, "Failed to start account connection"),
     }
@@ -167,7 +163,11 @@ async fn connect(
 /// `POST /api/social-accounts/sync`: import the workspace's PostPeer channels.
 async fn sync(State(state): State<SocialState>, caller: Caller) -> Response {
     let org = caller.clerk_org_id.clone().unwrap_or_default();
-    match sync_accounts(&caller.db, &caller.context(&state), &org, &caller.user_id).await {
+    let context = match caller.postpeer(&state).await {
+        Ok(context) => context,
+        Err(response) => return *response,
+    };
+    match sync_accounts(&caller.db, &context, &org, &caller.user_id).await {
         Ok(result) => Data(result).into_response(),
         Err(error) => refused(&error, "Failed to sync social accounts"),
     }

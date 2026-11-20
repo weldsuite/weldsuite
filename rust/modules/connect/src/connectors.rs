@@ -347,6 +347,11 @@ async fn test(
     if get_connector(&provider).is_none() {
         return ApiError::bad_request(format!("Unknown connector '{provider}'")).into_response();
     }
+    // ADR OPS-026: not even a test against a store outside the EU the
+    // workspace has switched off.
+    if let Err(error) = weldsuite_outside_eu::require_integration(&caller.db, &provider).await {
+        return error.to_api_error().into_response();
+    }
     let http = caller.overrides.http(&state);
     let tested = test_connector_credentials(&provider, &creds, http.as_ref())
         .await

@@ -186,6 +186,36 @@ impl Caller {
         )
     }
 
+    /// [`context`](Self::context) for a route that calls PostPeer. PostPeer
+    /// is outside the EU (ADR OPS-026): on the EU edition a workspace that
+    /// hasn't switched it on gets the 403 `OUTSIDE_EU_SERVICE_OFF` answer
+    /// instead, and nothing is called. Without enforcement this is
+    /// `context`.
+    pub(crate) async fn postpeer(&self, state: &SocialState) -> Result<Context, Box<Response>> {
+        postpeer_switch(&self.db)
+            .await
+            .map_err(|error| Box::new(error.to_api_error().into_response()))?;
+        Ok(self.context(state))
+    }
+
+    /// [`context`](Self::context) for a route that calls PostPeer only for a
+    /// post already scheduled there (cancel, delete): with PostPeer switched
+    /// off (OPS-026) the context has no key, so a draft goes ahead and a
+    /// scheduled post is refused; the refusal is returned to answer with.
+    pub(crate) async fn postpeer_if_on(
+        &self,
+        state: &SocialState,
+    ) -> (Context, Option<weldsuite_outside_eu::OutsideEuError>) {
+        let mut context = self.context(state);
+        match postpeer_switch(&self.db).await {
+            Ok(()) => (context, None),
+            Err(error) => {
+                context.api_key = None;
+                (context, Some(error))
+            }
+        }
+    }
+
     #[allow(dead_code)]
     pub(crate) fn cache(&self, state: &SocialState) -> Option<Arc<dyn DynCache>> {
         if self.env.is_some() {
@@ -193,6 +223,13 @@ impl Caller {
         }
         state.cache.clone()
     }
+}
+
+/// PostPeer's outside-EU switch for the workspace (ADR OPS-026).
+pub(crate) async fn postpeer_switch(
+    db: &PgPool,
+) -> Result<(), weldsuite_outside_eu::OutsideEuError> {
+    weldsuite_outside_eu::require(db, weldsuite_outside_eu::ServiceId::PostPeer).await
 }
 
 /// `c.env.<name>`: the request's env (conformance), else the process's.
