@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import type { ReactElement, Ref } from 'react';
 import { en } from '@weldsuite/i18n/locales/en';
 import PageView from './page-view';
 
@@ -35,9 +36,23 @@ vi.mock('@weldsuite/ui/components/page-loader', () => ({
   PageLoader: () => <div>loading</div>,
 }));
 
+// What the editor would do on a load from the server, and how it reports a local edit.
+const replaceContent = vi.fn();
+let editBody: ((blocks: unknown[]) => void) | undefined;
+
 vi.mock('@/components/block-editor/block-editor', () => ({
-  BlockEditor: ({ onEditorReady }: { onEditorReady: (editor: unknown) => void }) => {
+  BlockEditor: ({
+    onEditorReady,
+    onContentChange,
+    ref,
+  }: {
+    onEditorReady: (editor: unknown) => void;
+    onContentChange?: (blocks: unknown[]) => void;
+    ref?: Ref<{ replaceContent: typeof replaceContent }>;
+  }) => {
     onEditorReady(fakeEditor);
+    editBody = onContentChange;
+    if (ref && typeof ref === 'object') ref.current = { replaceContent };
     return <div data-testid="block-editor" />;
   },
 }));
@@ -176,6 +191,17 @@ describe('WeldKnow page title', () => {
     expect(updateMetaMutate).not.toHaveBeenCalled();
   });
 
+  it('shows a teammate naming a new page while its empty title has the caret', () => {
+    const { rerender } = render(<PageView pageId="kpag_1" />);
+    expect(document.activeElement).toBe(titleField());
+    page = { ...page, title: 'Day One' };
+    rerender(<PageView pageId="kpag_1" />);
+
+    expect(titleField().value).toBe('Day One');
+    fireEvent.blur(titleField());
+    expect(updateMetaMutate).not.toHaveBeenCalled();
+  });
+
   it('keeps a title being typed when the stored title changes underneath it', () => {
     page.title = 'Onboarding Guide';
     const { rerender } = render(<PageView pageId="kpag_1" />);
@@ -193,5 +219,69 @@ describe('WeldKnow page title', () => {
 
     expect(titleField().disabled).toBe(true);
     expect(document.activeElement).not.toBe(titleField());
+  });
+});
+
+describe('WeldKnow page body sync', () => {
+  const body = (text: string) => [{ id: 'blk_1', type: 'paragraph', content: [{ type: 'text', text }] }];
+
+  /** A local edit, saved once the autosave delay has passed. */
+  function editAndSave(text: string) {
+    act(() => {
+      editBody?.(body(text));
+      vi.advanceTimersByTime(1500);
+    });
+  }
+
+  /** The page as the server now has it, as a realtime refetch delivers it. */
+  function serverHas(text: string, rerender: (ui: ReactElement) => void) {
+    page = { ...page, contentJson: body(text) };
+    rerender(<PageView pageId="kpag_1" />);
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    page = {
+      id: 'kpag_1',
+      spaceId: 'ks_1',
+      parentId: null,
+      title: 'Onboarding Guide',
+      icon: null,
+      coverImage: null,
+      isLocked: false,
+      contentJson: body('Hello'),
+    };
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('does not reload its own save when it echoes back', () => {
+    const { rerender } = render(<PageView pageId="kpag_1" />);
+    editAndSave('Hello mine');
+    serverHas('Hello mine', rerender);
+
+    expect(replaceContent).not.toHaveBeenCalled();
+  });
+
+  it('loads an edit made elsewhere', () => {
+    const { rerender } = render(<PageView pageId="kpag_1" />);
+    serverHas('Hello theirs', rerender);
+
+    expect(replaceContent).toHaveBeenCalledWith(body('Hello theirs'));
+  });
+
+  it('loads its own earlier save when that reaches the server after an edit made elsewhere', () => {
+    const { rerender } = render(<PageView pageId="kpag_1" />);
+    editAndSave('Mine');
+    serverHas('Theirs', rerender);
+    expect(replaceContent).toHaveBeenLastCalledWith(body('Theirs'));
+
+    // Our save landed last, so the server holds it: the editor must show it, not stay on theirs.
+    serverHas('Mine', rerender);
+    expect(replaceContent).toHaveBeenLastCalledWith(body('Mine'));
+    expect(replaceContent).toHaveBeenCalledTimes(2);
   });
 });
