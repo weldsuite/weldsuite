@@ -95,6 +95,14 @@
       "preview": "Betaal {amount} vóór {date} om {plan} te houden.",
       "subject": "Betaling mislukt voor \"{workspace}\""
     },
+    "failedNoMethod": {
+      "body": "Het {plan}-abonnement van {workspace} is verlengd, maar er is geen betaalmethode om {amount} mee te betalen. Je abonnement blijft werken tot {date}. Voeg voor die datum een betaalmethode toe om het te houden.",
+      "button": "Betalen en betaalmethode toevoegen",
+      "heading": "Je abonnement heeft een betaalmethode nodig",
+      "note": "Met de betaling van het openstaande bedrag sla je ook de betaalmethode op voor de volgende verlengingen. Je krijgt deze e-mail omdat je de facturatie van de werkruimte beheert.",
+      "preview": "Voeg vóór {date} een betaalmethode toe om {plan} te houden.",
+      "subject": "Voeg een betaalmethode toe voor \"{workspace}\""
+    },
     "kicker": "Facturatie",
     "plan": "Abonnement",
     "reminder": {
@@ -104,6 +112,23 @@
       "note": "Je krijgt deze e-mail omdat je de facturatie van de werkruimte beheert.",
       "preview": "Betaal {amount} vóór {date} om {plan} te houden.",
       "subject": "Herinnering: er staat een betaling open voor \"{workspace}\""
+    },
+    "reminderNoMethod": {
+      "body": "Voor het {plan}-abonnement van {workspace} staat nog {amount} open, omdat er geen betaalmethode is. Is dat op {date} niet betaald, dan gaat de werkruimte over op het gratis abonnement.",
+      "button": "Betalen en betaalmethode toevoegen",
+      "heading": "Je abonnement heeft nog een betaalmethode nodig",
+      "note": "Met de betaling van het openstaande bedrag sla je ook de betaalmethode op voor de volgende verlengingen. Je krijgt deze e-mail omdat je de facturatie van de werkruimte beheert.",
+      "preview": "Voeg vóór {date} een betaalmethode toe om {plan} te houden.",
+      "subject": "Herinnering: \"{workspace}\" heeft nog een betaalmethode nodig"
+    },
+    "renewsOn": "Wordt verlengd op",
+    "upcoming": {
+      "body": "Het {plan}-abonnement van {workspace} wordt op {date} verlengd, maar er is nog geen betaalmethode om de verlenging mee te betalen. Voeg vóór {date} een betaalmethode toe om {plan} te houden.",
+      "button": "Betaalmethode toevoegen",
+      "heading": "Voeg vóór {date} een betaalmethode toe",
+      "note": "Lukt de betaling van de verlenging niet, dan blijft je abonnement nog even werken en gaat de werkruimte daarna over op het gratis abonnement. Je krijgt deze e-mail omdat je de facturatie van de werkruimte beheert.",
+      "preview": "Voeg vóór {date} een betaalmethode toe om {plan} te houden.",
+      "subject": "Voeg vóór {date} een betaalmethode toe voor \"{workspace}\""
     },
     "workspace": "Werkruimte"
   },

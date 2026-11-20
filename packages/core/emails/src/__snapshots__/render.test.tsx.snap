@@ -388,6 +388,58 @@ Of open deze link: https://app.weldsuite.eu/public/billing/pay/token
 WeldSuite https://weldsuite.org"
 `;
 
+exports[`'billing.dunning' / 'failedNoMethod' / 'en' > matches the text snapshot 1`] = `
+"Add a payment method for "Acme Studio"
+
+Billing
+
+Your plan needs a payment method
+
+The Business plan of Acme Studio renewed, but there is no payment method on file to charge € 90,75 to. Your plan keeps working until 28 december 2026. Add a payment method before then to keep it.
+
+Workspace: Acme Studio
+
+Plan: Business
+
+Amount due: € 90,75
+
+Plan ends on: 28 december 2026
+
+Paying the open amount saves your payment method for the next renewals. You get this email because you manage billing for the workspace.
+
+Pay and add payment method https://app.weldsuite.eu/public/billing/pay/token
+
+Or open this link: https://app.weldsuite.eu/public/billing/pay/token
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'billing.dunning' / 'failedNoMethod' / 'nl' > matches the text snapshot 1`] = `
+"Voeg een betaalmethode toe voor "Acme Studio"
+
+Facturatie
+
+Je abonnement heeft een betaalmethode nodig
+
+Het Business-abonnement van Acme Studio is verlengd, maar er is geen betaalmethode om € 90,75 mee te betalen. Je abonnement blijft werken tot 28 december 2026. Voeg voor die datum een betaalmethode toe om het te houden.
+
+Werkruimte: Acme Studio
+
+Abonnement: Business
+
+Openstaand bedrag: € 90,75
+
+Abonnement stopt op: 28 december 2026
+
+Met de betaling van het openstaande bedrag sla je ook de betaalmethode op voor de volgende verlengingen. Je krijgt deze e-mail omdat je de facturatie van de werkruimte beheert.
+
+Betalen en betaalmethode toevoegen https://app.weldsuite.eu/public/billing/pay/token
+
+Of open deze link: https://app.weldsuite.eu/public/billing/pay/token
+
+WeldSuite https://weldsuite.org"
+`;
+
 exports[`'billing.dunning' / 'reminder' / 'en' > matches the text snapshot 1`] = `
 "Reminder: a payment is open for "Acme Studio"
 
@@ -436,6 +488,106 @@ Je krijgt deze e-mail omdat je de facturatie van de werkruimte beheert.
 Nu betalen https://app.weldsuite.eu/public/billing/pay/token
 
 Of open deze link: https://app.weldsuite.eu/public/billing/pay/token
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'billing.dunning' / 'reminderNoMethod' / 'en' > matches the text snapshot 1`] = `
+"Reminder: "Acme Studio" still needs a payment method
+
+Billing
+
+Your plan still needs a payment method
+
+The Business plan of Acme Studio still has € 90,75 open because there is no payment method on file. If it isn’t paid by 28 december 2026, the workspace moves to the Free plan.
+
+Workspace: Acme Studio
+
+Plan: Business
+
+Amount due: € 90,75
+
+Plan ends on: 28 december 2026
+
+Paying the open amount saves your payment method for the next renewals. You get this email because you manage billing for the workspace.
+
+Pay and add payment method https://app.weldsuite.eu/public/billing/pay/token
+
+Or open this link: https://app.weldsuite.eu/public/billing/pay/token
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'billing.dunning' / 'reminderNoMethod' / 'nl' > matches the text snapshot 1`] = `
+"Herinnering: "Acme Studio" heeft nog een betaalmethode nodig
+
+Facturatie
+
+Je abonnement heeft nog een betaalmethode nodig
+
+Voor het Business-abonnement van Acme Studio staat nog € 90,75 open, omdat er geen betaalmethode is. Is dat op 28 december 2026 niet betaald, dan gaat de werkruimte over op het gratis abonnement.
+
+Werkruimte: Acme Studio
+
+Abonnement: Business
+
+Openstaand bedrag: € 90,75
+
+Abonnement stopt op: 28 december 2026
+
+Met de betaling van het openstaande bedrag sla je ook de betaalmethode op voor de volgende verlengingen. Je krijgt deze e-mail omdat je de facturatie van de werkruimte beheert.
+
+Betalen en betaalmethode toevoegen https://app.weldsuite.eu/public/billing/pay/token
+
+Of open deze link: https://app.weldsuite.eu/public/billing/pay/token
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'billing.dunning' / 'upcoming' / 'en' > matches the text snapshot 1`] = `
+"Add a payment method for "Acme Studio" before 14 december 2026
+
+Billing
+
+Add a payment method before 14 december 2026
+
+The Business plan of Acme Studio renews on 14 december 2026, but there is no payment method on file to charge it to. Add a payment method before 14 december 2026 to keep Business.
+
+Workspace: Acme Studio
+
+Plan: Business
+
+Renews on: 14 december 2026
+
+If the renewal can’t be charged, your plan keeps working for a short grace period and then moves to the Free plan. You get this email because you manage billing for the workspace.
+
+Add payment method https://app.weldsuite.eu/settings/billing
+
+Or open this link: https://app.weldsuite.eu/settings/billing
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'billing.dunning' / 'upcoming' / 'nl' > matches the text snapshot 1`] = `
+"Voeg vóór 14 december 2026 een betaalmethode toe voor "Acme Studio"
+
+Facturatie
+
+Voeg vóór 14 december 2026 een betaalmethode toe
+
+Het Business-abonnement van Acme Studio wordt op 14 december 2026 verlengd, maar er is nog geen betaalmethode om de verlenging mee te betalen. Voeg vóór 14 december 2026 een betaalmethode toe om Business te houden.
+
+Werkruimte: Acme Studio
+
+Abonnement: Business
+
+Wordt verlengd op: 14 december 2026
+
+Lukt de betaling van de verlenging niet, dan blijft je abonnement nog even werken en gaat de werkruimte daarna over op het gratis abonnement. Je krijgt deze e-mail omdat je de facturatie van de werkruimte beheert.
+
+Betaalmethode toevoegen https://app.weldsuite.eu/settings/billing
+
+Of open deze link: https://app.weldsuite.eu/settings/billing
 
 WeldSuite https://weldsuite.org"
 `;

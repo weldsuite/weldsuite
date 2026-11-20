@@ -300,6 +300,7 @@ fn render(case: &Case) -> RenderedEmail {
                 kind: match p["kind"].as_str() {
                     Some("reminder") => billing::DunningKind::Reminder,
                     Some("ended") => billing::DunningKind::Ended,
+                    Some("upcoming") => billing::DunningKind::Upcoming,
                     _ => billing::DunningKind::Failed,
                 },
                 workspace_name: s(p, "workspaceName"),
@@ -307,6 +308,7 @@ fn render(case: &Case) -> RenderedEmail {
                 amount: s(p, "amount"),
                 ends_on: s(p, "endsOn"),
                 url: s(p, "url"),
+                no_method: p["noMethod"].as_bool() == Some(true),
             },
         ),
         "billing.invoice" => billing::invoice(

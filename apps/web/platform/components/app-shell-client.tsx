@@ -36,6 +36,7 @@ import { PlatformShell } from '@/components/layout/platform-shell';
 import { CommandPalette } from '@/components/layout/command-palette';
 import { WorkspaceLockGate } from '@/components/billing/workspace-lock-gate';
 import { ManagedWorkspaceBanner } from '@/components/partner/managed-workspace-banner';
+import { PaymentMethodNeededNotice } from '@/components/billing/payment-method-needed-banner';
 import { ActiveCallProvider } from '@/contexts/active-call-context';
 import { ReloadHoldDuringCalls } from '@/components/reload-hold-during-calls';
 import { WeldChatCallProvider } from '@/contexts/weldchat-call-context';
@@ -301,6 +302,9 @@ export function AppShellClient({ children }: Readonly<AppShellClientProps>) {
                       <DesktopNotificationBridge />
                       {/* Read-only / partner past-due notice for managed workspaces. */}
                       <ManagedWorkspaceBanner />
+                      {/* Mollie: a paid plan with no payment method to renew on
+                          (workspaces that moved from Global), for billing managers. */}
+                      <PaymentMethodNeededNotice />
                       <PlatformShell>
                         {children}
                         <Suspense fallback={null}>

@@ -566,6 +566,12 @@ pub(crate) async fn mail(
         .as_ref()
         .and_then(Account::past_due_since)
         .map(|since| since + time::Duration::days(state.settings.grace_days));
+    // A renewal refused for want of a mandate (a workspace that moved from
+    // Global, say): its emails ask for a payment method.
+    let no_method = matches!(
+        kind,
+        BillingMailKind::PaymentFailed | BillingMailKind::PaymentReminder
+    ) && !account.as_ref().is_some_and(Account::can_charge);
     let pay_url = (kind != BillingMailKind::PlanEnded).then(|| {
         state
             .settings
@@ -585,6 +591,7 @@ pub(crate) async fn mail(
         pay_url,
         ends_on: ends.map(|at| notify::date_text(at, language)),
         billing_url: state.settings.return_url.clone(),
+        no_method,
     };
     notify::send(state.mailer.as_ref(), &message).await;
     Ok(())
