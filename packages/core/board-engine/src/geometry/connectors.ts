@@ -314,6 +314,15 @@ interface Node {
 /** Extra cost of a turn, so routes prefer fewer bends. */
 const BEND = 40;
 
+/**
+ * Costs closer than this are equal. Lengths are summed from absolute
+ * coordinates, so two routes of the same length can differ in the last bits
+ * by where they are on the board; without a tolerance the tie would go one
+ * way here and the other a little further on, and a line being moved would
+ * flip between its two shapes.
+ */
+const SAME_COST = 1e-3;
+
 /** Moves to the four neighbours of a grid node, with the direction each travels in. */
 const STEPS: readonly (readonly [number, number, 1 | 2])[] = [
   [1, 0, 1],
@@ -354,7 +363,7 @@ function startDirection(ds: Point | null): Travel {
 /** Takes the open node with the lowest estimated cost (the first of equals). */
 function takeCheapest(open: Node[]): Node {
   let bi = 0;
-  for (let k = 1; k < open.length; k++) if (open[k]!.f < open[bi]!.f) bi = k;
+  for (let k = 1; k < open.length; k++) if (open[k]!.f < open[bi]!.f - SAME_COST) bi = k;
   return open.splice(bi, 1)[0]!;
 }
 
@@ -380,7 +389,7 @@ function expand(s: Search, node: Node): void {
     if (s.blocked(b) || s.obstacles.some((o) => segmentCrosses(a, b, o))) continue;
     const g = node.g + Math.abs(b.x - a.x) + Math.abs(b.y - a.y) + bendCost(node.d, dir);
     const k = `${s.key(ni, nj)}:${dir}`;
-    if ((s.best.get(k) ?? Infinity) <= g) continue;
+    if ((s.best.get(k) ?? Infinity) <= g + SAME_COST) continue;
     s.best.set(k, g);
     s.open.push({ i: ni, j: nj, d: dir, g, f: g + remaining(s, ni, nj), prev: node });
   }

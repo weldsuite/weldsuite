@@ -79,6 +79,12 @@ export function AgentIsland({
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Clicked in the island since it opened: it no longer folds on mouse leave.
   const engagedRef = useRef(false);
+  // Closed (Escape, sent) with the mouse over the island, where the pill comes
+  // back: no hover-open until the mouse moves off the pill, or it would spring
+  // open again. Closed with the mouse elsewhere, the next hover opens it.
+  const hoverBlockedRef = useRef(false);
+  // Lifts that block (and stops watching the mouse for it).
+  const unblockHoverRef = useRef<(() => void) | null>(null);
   // Where the cursor was before the island took it (a field, a spot in a
   // text, the whiteboard), to put it back if the island is left unused.
   const returnFocusRef = useRef<{ el: HTMLElement; range: Range | null } | null>(null);
@@ -88,6 +94,7 @@ export function AgentIsland({
     timerRef.current = null;
   };
   useEffect(() => clearTimer, []);
+  useEffect(() => () => unblockHoverRef.current?.(), []);
 
   const focusPrompt = () => islandRef.current?.querySelector('textarea')?.focus();
 
@@ -131,8 +138,26 @@ export function AgentIsland({
     else returnFocusRef.current = null;
   };
 
+  const blockHoverWhileResting = () => {
+    unblockHoverRef.current?.();
+    if (!islandRef.current?.matches(':hover')) return;
+    hoverBlockedRef.current = true;
+    const pill = `[data-testid="${testIdPrefix}-ai-pill"]`;
+    const onMove = (e: PointerEvent) => {
+      if (!(e.target instanceof Element && e.target.closest(pill))) unblock();
+    };
+    const unblock = () => {
+      hoverBlockedRef.current = false;
+      document.removeEventListener('pointermove', onMove);
+      unblockHoverRef.current = null;
+    };
+    document.addEventListener('pointermove', onMove);
+    unblockHoverRef.current = unblock;
+  };
+
   const close = () => {
     setPrompt('');
+    blockHoverWhileResting();
     foldBack(true);
   };
 
@@ -158,6 +183,7 @@ export function AgentIsland({
   // A short pause before a hover opens it, so the mouse passing by does not.
   const hoverPill = () => {
     clearTimer();
+    if (hoverBlockedRef.current) return;
     timerRef.current = setTimeout(() => openIsland(false), HOVER_OPEN_MS);
   };
 
@@ -186,9 +212,13 @@ export function AgentIsland({
       title={label}
       data-testid={`${testIdPrefix}-ai-pill`}
       onMouseEnter={hoverPill}
-      onMouseLeave={clearTimer}
+      onMouseLeave={() => {
+        clearTimer();
+        unblockHoverRef.current?.();
+      }}
       onClick={() => openIsland(true)}
-      className="pointer-events-auto h-5 w-[92px] rounded-full p-0"
+      // Seen on any background (a light canvas as much as a page): a border and a shadow, and a 24px target.
+      className="pointer-events-auto h-6 w-[92px] rounded-full border border-border p-0 shadow-sm"
     >
       <Sparkle aria-hidden="true" className="size-3 fill-current" />
     </Button>
@@ -218,7 +248,7 @@ export function AgentIsland({
   return (
     <div className="relative flex w-full justify-center">
       {/* The pill stays under the island while it folds back into it. */}
-      {closing ? pill : <div aria-hidden="true" className="h-5" />}
+      {closing ? pill : <div aria-hidden="true" className="h-6" />}
       <div
         ref={islandRef}
         role="group"

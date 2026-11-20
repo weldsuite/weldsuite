@@ -89,7 +89,8 @@ interface Placed {
 }
 
 const HANDLE_RADIUS = 7;
-const ROTATE_OFFSET = 26;
+// Clear of the top connect handle (18px out, 5px round) with room to spare.
+const ROTATE_OFFSET = 34;
 const CONNECT_OFFSET = 18;
 const DRAG_START = 3;
 
@@ -138,10 +139,18 @@ function connectorHandles(c: BoardController, el: BoardElement): HandleAt[] {
 
 const ALL_RESIZE_HANDLES: ResizeHandle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
 const CORNER_HANDLES: ResizeHandle[] = ['nw', 'ne', 'se', 'sw'];
+/** A text box's height follows its text: only its width and (from a corner) its size change. */
+const TEXT_HANDLES: ResizeHandle[] = ['nw', 'ne', 'e', 'se', 'sw', 'w'];
 const CONNECT_SIDES: Side[] = ['top', 'right', 'bottom', 'left'];
 const SIDE_HANDLE: Record<Side, ResizeHandle> = { top: 'n', right: 'e', bottom: 's', left: 'w' };
 /** The way a connect handle sticks out from its side, before rotating. */
 const SIDE_DIRECTION: Record<Side, Point> = { top: { x: 0, y: -1 }, right: { x: 1, y: 0 }, bottom: { x: 0, y: 1 }, left: { x: -1, y: 0 } };
+
+function resizeHandlesFor(single: BoardElement | null): ResizeHandle[] {
+  if (single?.type === 'sticky') return CORNER_HANDLES;
+  if (single?.type === 'text' && !single.autoFit) return TEXT_HANDLES;
+  return ALL_RESIZE_HANDLES;
+}
 
 /** The handles on a selection's box: resize, rotate, and (one connectable element, select tool) the connect handles. */
 function frameHandles(c: BoardController, { box, rotation }: { box: Rect; rotation: number }, single: BoardElement | null): HandleAt[] {
@@ -157,9 +166,12 @@ function frameHandles(c: BoardController, { box, rotation }: { box: Rect; rotati
     sw: { x: box.x, y: box.y + box.h },
     w: { x: box.x, y: center.y },
   };
-  const sides = single?.type === 'sticky' ? CORNER_HANDLES : ALL_RESIZE_HANDLES;
+  // A comment pin is only moved: no resizing or turning.
+  if (single?.type === 'comment') return out;
+  const sides = resizeHandlesFor(single);
   for (const h of sides) out.push({ handle: { kind: 'resize', handle: h }, at: toScreen(c.camera, rotatePoint(local[h], center, rotation)) });
-  if (!single || single.type !== 'pen') {
+  // Pen strokes and frames (slides, containers) don't turn.
+  if (!single || (single.type !== 'pen' && single.type !== 'frame')) {
     const top = toScreen(c.camera, rotatePoint(local.n, center, rotation));
     const up = rotatePoint({ x: 0, y: -ROTATE_OFFSET }, { x: 0, y: 0 }, rotation);
     out.push({ handle: { kind: 'rotate' }, at: { x: top.x + up.x, y: top.y + up.y } });
@@ -170,6 +182,29 @@ function frameHandles(c: BoardController, { box, rotation }: { box: Rect; rotati
       const dir = rotatePoint(SIDE_DIRECTION[side], { x: 0, y: 0 }, rotation);
       out.push({ handle: { kind: 'connect', side }, at: { x: p.x + dir.x * CONNECT_OFFSET, y: p.y + dir.y * CONNECT_OFFSET } });
     }
+  }
+  return out;
+}
+
+/** The link badge's radius, in screen pixels. */
+export const LINK_BADGE_RADIUS = 9;
+/** How far the badge's centre sits in from the element's corner: clear of the corner's resize handle. */
+export const LINK_BADGE_INSET = LINK_BADGE_RADIUS + 7;
+
+/**
+ * The link badges in view: one in the top-right corner of each element that
+ * has a link (a link or file card shows its own), on elements big enough on
+ * screen to carry one. Screen pixels.
+ */
+export function linkBadges(c: BoardController): { el: BoardElement; at: Point }[] {
+  const out: { el: BoardElement; at: Point }[] = [];
+  for (const id of c.index.query(c.visible())) {
+    const el = c.board.get(id);
+    if (!el?.link || el.type === 'link' || el.type === 'file' || el.type === 'connector' || el.type === 'comment' || el.type === 'pen') continue;
+    const b = c.boundsOf(el);
+    if (b.w * c.camera.zoom < 48 || b.h * c.camera.zoom < 32) continue;
+    const corner = toScreen(c.camera, { x: b.x + b.w, y: b.y });
+    out.push({ el, at: { x: corner.x - LINK_BADGE_INSET, y: corner.y + LINK_BADGE_INSET } });
   }
   return out;
 }
@@ -218,6 +253,8 @@ export class Interactions {
   onVote: ((el: BoardElement, take: boolean) => boolean) | null = null;
   /** Opens what a file, link or image card points at (double-click). */
   onOpen: ((el: BoardElement) => void) | null = null;
+  /** Opens a link from an element's link badge. */
+  onOpenLink: ((url: string) => void) | null = null;
   /** Called to pick an image for the image tool. */
   onPickImage: ((at: Point) => void) | null = null;
 
@@ -240,6 +277,13 @@ export class Interactions {
     return best?.h ?? null;
   }
 
+  /** The element whose link badge is under `screen`, if any. */
+  linkBadgeAt(screen: Point): BoardElement | null {
+    if (this.c.editing) return null;
+    const hit = linkBadges(this.c).find(({ at }) => Math.hypot(at.x - screen.x, at.y - screen.y) <= LINK_BADGE_RADIUS + 2);
+    return hit?.el ?? null;
+  }
+
   /** What the cursor should look like at a point. */
   cursorAt(screen: Point): string {
     const c = this.c;
@@ -248,6 +292,7 @@ export class Interactions {
     if (c.tool !== 'select') return c.tool === 'text' ? 'text' : 'crosshair';
     const h = this.hitHandle(screen);
     if (h) return cursorForHandle(h, selectionFrame(c)?.rotation ?? 0);
+    if (this.linkBadgeAt(screen)) return 'pointer';
     const p = toBoard(c.camera, screen);
     const el = c.index.hit(p, this.tolerance());
     if (el && c.editing?.id === el.id) return 'text';
@@ -319,6 +364,12 @@ export class Interactions {
       return;
     }
     if (info.button !== 0) return;
+    // A link badge opens its link, for those who may only look too (a selection's handle comes first).
+    const badge = c.tool === 'select' && !this.hitHandle(info.screen) ? this.linkBadgeAt(info.screen) : null;
+    if (badge?.link) {
+      this.onOpenLink?.(badge.link);
+      return;
+    }
     if (c.readOnly) {
       if (c.tool === 'comment' && c.canComment) this.placeComment(p);
       else if (!this.voteAt(p, info)) this.drag = { kind: 'pan', start: info.screen, camera: { ...c.camera } };
@@ -771,22 +822,25 @@ export class Interactions {
   }
 
   /**
-   * Right-click: the element under the pointer becomes the selection, unless it
-   * is already part of it. True when there is a selection to show the menu for.
-   * In the text being edited the press stays with the text (no menu).
+   * A right-click: on an element, selects it (or keeps the selection it is in)
+   * for the selection's menu; on empty board, clears the selection for the
+   * board's own menu. Null for the browser's menu (in text being edited).
    */
-  contextMenu(screen: Point): boolean {
+  contextMenu(screen: Point): 'selection' | 'canvas' | null {
     const c = this.c;
-    if (c.readOnly) return false;
+    if (c.readOnly) return null;
     const p = toBoard(c.camera, screen);
-    if (this.editedTextOffsetAt(p) !== null) return false;
+    if (this.editedTextOffsetAt(p) !== null) return null;
     if (c.editing) c.stopEditing();
     const hit = c.index.hit(p, this.tolerance());
-    if (!hit) return false;
+    if (!hit) {
+      c.select([]);
+      return 'canvas';
+    }
     const target = c.selection.has(hit.id) ? hit : outerGroup(c, hit);
     if (!c.selection.has(target.id)) c.select([target.id]);
     c.changed();
-    return true;
+    return 'selection';
   }
 
   // ---------------------------------------------------------------- helpers
@@ -905,6 +959,9 @@ export class Interactions {
     c.apply(mindMapLayoutOps(c.board, el.mindmap.root), { gesture });
     c.history.seal();
     c.startEditing(ids.node, 0);
+    // The new node may land off-screen: follow it.
+    const node = c.board.get(ids.node);
+    if (node) c.reveal(c.boundsOf(node));
     return true;
   }
 
@@ -1083,7 +1140,7 @@ export class Interactions {
 
   /** The text offset under a board point, or null for an element without a text box. */
   private textOffsetAt(el: BoardElement, p: Point): number | null {
-    const t = elementTextLayout(el, { measurer: this.c.measurer });
+    const t = elementTextLayout(el, { measurer: this.c.measurer, showAuthors: this.c.showAuthors });
     if (!t) return null;
     const local = el.rotation ? rotatePoint(p, { x: el.x + el.w / 2, y: el.y + el.h / 2 }, -el.rotation) : p;
     return offsetAt(t.layout, local.x - t.x, local.y - t.y);

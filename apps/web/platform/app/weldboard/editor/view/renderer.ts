@@ -137,7 +137,7 @@ export class BoardRenderer {
   drawContent(ctx: CanvasRenderingContext2D, width: number, height: number, options: { hidden?: ReadonlySet<string>; faded?: ReadonlySet<string>; background?: string } = {}): void {
     const c = this.c;
     const cam = c.camera;
-    ctx.fillStyle = options.background ?? c.board.props.background ?? '#f7f8fa';
+    ctx.fillStyle = options.background ?? c.board.props.background ?? c.canvasBackground;
     ctx.fillRect(0, 0, width, height);
     if (c.showGrid && c.board.props.grid !== 'none') this.drawGrid(ctx, width, height, c.board.props.grid ?? 'dots');
 
