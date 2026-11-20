@@ -862,7 +862,10 @@ these first:
    (`--run-firewall=true --run-router=false --run-service-proxy=false
    --enable-cni=false`, the pairing k3s ships), and in every namespace the
    base layers run pods in a policy that lets pods reach anything but
-   `169.254.169.254` (`metadata-service.yaml` says which and why). The other
+   `169.254.169.254` (`metadata-service.yaml` says which and why). Each
+   policy goes with the layer that makes its namespace: WeldID's is in the
+   `weldid` layer and Zitadel's in Zitadel's own release, so a cluster
+   without either has nothing to apply in a namespace it lacks. The other
    way, Cilium instead of Flannel (`cluster.network.cni.name: none` in the
    Talos config), takes a maintenance window in which every pod restarts.
 

@@ -1,6 +1,9 @@
 # Egress anywhere but the metadata service (169.254.169.254, Hetzner's, the
 # same address as most clouds'), for every pod in each namespace the base
-# layers run pods in. Hetzner's serves every node's user data, its Talos
+# layers run pods in. Each policy goes with the layer that makes its
+# namespace: here only namespaces every cluster has (Kubernetes' own, and
+# those ../controllers always makes), so the layer never applies to one a
+# cluster went without. Hetzner's serves every node's user data, its Talos
 # machine configuration with the cluster's secrets, to anything on the node
 # that asks; nothing in the base layers needs it (no cloud controller manager,
 # no CSI driver; Talos reads it at boot, outside any pod).
@@ -11,12 +14,15 @@
 #
 # Policies add up: a pod selected by an egress policy may send only what one
 # of them allows, and this one allows everything else, so it widens any
-# narrower egress policy in the same namespace. Hence not here:
+# narrower egress policy in the same namespace. Not here:
 #   weldsuite-sandbox  the chart's sandbox has a default-deny of its own that
 #                      already keeps 169.254.0.0/16 out; this would open it
 #   flux-system        Flux's own allow-egress (flux install) allows all
 #                      egress, which no policy can take back
 #   weldid             opt-in, in its own layer (../weldid/network-policy.yaml)
+#   zitadel            in Zitadel's own release (extraManifests in
+#                      ../services/values/zitadel.yaml), so a cluster that
+#                      removed Zitadel (WeldID instead) has none to apply
 # A namespace a cluster adds gets a copy of one of these, in its own layer.
 # hostNetwork pods use the node's network, which no NetworkPolicy restricts.
 #
@@ -162,22 +168,6 @@ kind: NetworkPolicy
 metadata:
   name: block-metadata-service
   namespace: postgres
-spec:
-  podSelector: {}
-  policyTypes: [Egress]
-  egress:
-    - to:
-        - ipBlock:
-            cidr: 0.0.0.0/0
-            except: [169.254.169.254/32]
-        - ipBlock:
-            cidr: "::/0"
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: block-metadata-service
-  namespace: zitadel
 spec:
   podSelector: {}
   policyTypes: [Egress]
