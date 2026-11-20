@@ -57,6 +57,8 @@ servers later; only this OpenTofu module is replaced by Talos on bare metal.
 | Haraka | this repository (`rust/deploy/haraka`) | WeldMail's MX at `mx.<domain>`, port 25 on the ingress load balancer ("Mail" below) |
 | WeldAgent sandbox | this repository (`rust/deploy/sandbox`), gVisor from the Talos extension | Pods the server starts per agent conversation in `weldsuite-sandbox` ("Agent sandbox" below) |
 | SearXNG | 2026.10.28-c360868e5 (Valkey 9.1.2 beside it) | WeldAgent's web search, asked only by the server ("Agent sandbox" below) |
+| kube-router (opt-in) | v2.11.2 | Its network policy controller alone, beside Flannel: NetworkPolicy enforced, the metadata service out of pods' reach (`network-policy` layer; "Agent sandbox" below) |
+| rclone (opt-in) | 1.75.2 | A daily copy of the buckets to a second provider (`offsite-copy` layer; "Offsite copy" below) |
 
 Every version is pinned and was released at least two weeks before it was
 pinned. `validate.sh` fails when a HelmRelease's pin and the one it checks
@@ -180,7 +182,8 @@ a time.
   layer go in that layer's `patches` in `layers.yaml`.
 - The secrets layer's `components` in `layers.yaml` name the optional parts
   your cluster runs: `mta`, `monitoring` and `logging` in the example, plus
-  `marketing` and `registry` (`flux/secrets/kustomization.yaml` lists them).
+  `marketing`, `offsite-copy` and `registry` (`flux/secrets/kustomization.yaml`
+  lists them).
   A store of another kind than the Vault API (Scaleway, a cloud's secret
   manager): replace the ClusterSecretStore's `spec.provider` in that layer's
   `patches`, and fill the store by hand from `store.example.yaml`.
@@ -849,17 +852,73 @@ these first:
    give them a pool of their own and set `sandbox.nodeSelector` and
    `sandbox.tolerations`.
 2. **A CNI that enforces NetworkPolicy.** Talos' default, Flannel, routes pod
-   traffic but ignores NetworkPolicy, so today every pod can reach every
-   other pod, the Kubernetes API and the **Hetzner metadata service, which
-   serves each server's user data: the Talos machine configuration, secrets
-   included**. Either replace Flannel with Cilium (`cluster.network.cni.name:
-   none` in the Talos config, then Cilium from Flux; a maintenance window, the
-   pods restart) or add a policy-only controller beside Flannel (kube-router
-   with only its firewall: `--run-firewall=true --run-router=false
-   --run-service-proxy=false`, or Calico in policy-only mode). Then
-   `weldsuite doctor` shows `pass  sandbox isolation`. The chart's other
-   NetworkPolicies (`networkPolicy.enabled`) start working at the same time:
-   check them on the test cluster first.
+   traffic but ignores NetworkPolicy, so without more every pod can reach
+   every other pod, the Kubernetes API and the **Hetzner metadata service,
+   which serves each server's user data: the Talos machine configuration,
+   secrets included**. The opt-in `network-policy` layer
+   (`flux/infrastructure/network-policy`, `flux/clusters/example/network-policy.yaml`)
+   fixes that and leaves Flannel alone: kube-router's network policy
+   controller and nothing else of kube-router on every node
+   (`--run-firewall=true --run-router=false --run-service-proxy=false
+   --enable-cni=false`, the pairing k3s ships), and in every namespace the
+   base layers run pods in a policy that lets pods reach anything but
+   `169.254.169.254` (`metadata-service.yaml` says which and why). Each
+   policy goes with the layer that makes its namespace: WeldID's is in the
+   `weldid` layer and Zitadel's in Zitadel's own release, so a cluster
+   without either has nothing to apply in a namespace it lacks. The other
+   way, Cilium instead of Flannel (`cluster.network.cni.name: none` in the
+   Talos config), takes a maintenance window in which every pod restarts.
+
+   From then on **every** NetworkPolicy in the cluster is enforced:
+
+   - the new ones, egress only (nothing that reaches a pod changes);
+   - Flux's own three in `flux-system`, which `flux install` makes: Flux's
+     controllers then take connections only from `flux-system`, plus
+     metrics on 8080 and webhooks on 9292 from any pod. Prometheus scrapes
+     8080; nothing else calls them;
+   - the weldsuite chart's, where they are on: the sandbox's default-deny
+     (the point: it's what makes `sandbox isolation` pass), SearXNG's, and
+     `networkPolicy.enabled` (off in the EU values; check its `*From` lists
+     on the test cluster before turning it on). WeldID's chart keeps its
+     `networkPolicy` off. No other chart in the base layers renders one.
+
+   Still open after it: hostNetwork pods (LiveKit, the MTA, Fluent Bit, the
+   node exporter, Flannel, kube-proxy, kube-router itself) use the node's
+   network, which no NetworkPolicy restricts, so they can still reach the
+   metadata service; so can `flux-system`, whose `allow-egress` allows all
+   egress, and any namespace you add until it gets a copy of the policy.
+
+   **Rollout**: the test cluster first, a day of normal use, then production.
+
+   1. List `network-policy.yaml` in the cluster's `kustomization.yaml`.
+      `flux get kustomizations network-policy` turns ready once kube-router
+      runs on every node: `kubectl -n kube-system get ds kube-router`, and
+      `kubectl -n kube-system logs -l app.kubernetes.io/name=kube-router`
+      without errors.
+   2. A throwaway pod can't reach the metadata service, and still reaches
+      DNS, other namespaces and the outside:
+
+      ```bash
+      kubectl -n default run np-check --rm -it --restart=Never --image=busybox:1.37.0 -- sh -c '
+        wget -q -T 5 -O- http://169.254.169.254/hetzner/v1/metadata/hostname; echo "metadata: $?";
+        wget -q -T 5 -O- http://kube-prometheus-stack-prometheus.monitoring.svc:9090/-/ready; echo " prometheus: $?";
+        wget -q -T 5 -O /dev/null http://example.com; echo "outside: $?"'
+      ```
+
+      `metadata` must fail at once ("Connection refused": kube-router
+      rejects), the other two print 0. Before the layer, the first prints
+      the node's name.
+   3. `kubectl -n weldsuite exec deploy/weldsuite -- weldsuite doctor
+      --no-model-calls` (step 5 below): with the sandbox on, `sandbox
+      isolation` passes.
+   4. Nothing else changed: Flux reconciles (`flux get all -A`), and
+      Alertmanager stays quiet (no `EndpointDown`, `CoreWorkloadDown`,
+      `KubePodCrashLooping` for kube-router).
+
+   **Taking it out**: remove the layer. Flux deletes kube-router and the
+   policies, but the rules kube-router wrote stay in each node's netfilter
+   tables, enforcing what was there, until the node reboots (`talosctl -n
+   <node> reboot`, one node at a time).
 3. **The token secret.** `SANDBOX_TOKEN_SECRET` in `weldsuite-env`, the same
    on every replica: `fill-secrets.mjs --update` generates it.
 4. **The nodes' public addresses** in `sandbox.deniedCidrs` (`tofu output`):
@@ -1363,6 +1422,147 @@ The bootstrap only matters when the `Cluster` is created. Practise it: build
 a throwaway cluster from the backups now and then, check the data, and tear
 it down (WeldSuite does this monthly).
 
+### Offsite copy
+
+The files (the private and public buckets, WeldMail's spool, WeldPanel's
+tables) live at one provider with no copy anywhere, and so do the Postgres
+backups, at whichever provider `BACKUP_S3_ENDPOINT` names; if that is the
+files' provider too, one provider's outage or one leaked key reaches both.
+The opt-in `offsite-copy` layer (`flux/infrastructure/offsite-copy`) copies
+the buckets you list to a bucket at another provider once a day: rclone in a
+CronJob, each bucket in `OFFSITE_SOURCE_BUCKETS` to `OFFSITE_BUCKET/<bucket>/`,
+after the nightly base backups. List the backup bucket when it is at the
+files' provider, and the logs bucket if you want it. The copy is a day
+behind at most: WAL archived since the last run isn't in it yet. The secret
+store has backups of its own (`secret-store/README.md`).
+
+1. **A bucket at another provider** (`OFFSITE_BUCKET`), with versioning on,
+   and two keys: at the source, one that can list and read every listed
+   bucket (and nothing more, where the store can limit a key); at the
+   destination, one that can list, read and write `OFFSITE_BUCKET` and, in
+   copy mode, not delete.
+2. **Settings** (`cluster-settings.yaml`): `OFFSITE_SOURCE_S3_ENDPOINT` and
+   `OFFSITE_SOURCE_S3_REGION` (the store the buckets are in, `https://…`),
+   `OFFSITE_SOURCE_BUCKETS` (space-separated), `OFFSITE_S3_ENDPOINT`,
+   `OFFSITE_S3_REGION` and `OFFSITE_BUCKET`. Optional: `OFFSITE_SCHEDULE`
+   (cron, UTC; `0 5 * * *`), `OFFSITE_MODE` (`copy` or `sync`; `copy`) and
+   `OFFSITE_RCLONE_FLAGS` (`--checksum --transfers 8 --checkers 16`).
+3. **Keys** in the store's `weldsuite/offsite-copy`, which the secrets
+   layer's `offsite-copy` component writes to the Secret
+   `offsite-copy/offsite-copy-s3` (`source-access-key-id`,
+   `source-secret-access-key`, `destination-access-key-id`,
+   `destination-secret-access-key`):
+
+   ```bash
+   OFFSITE_SOURCE_S3_ACCESS_KEY_ID=… OFFSITE_SOURCE_S3_SECRET_ACCESS_KEY=… \
+   OFFSITE_S3_ACCESS_KEY_ID=… OFFSITE_S3_SECRET_ACCESS_KEY=… \
+     node rust/deploy/flux/scripts/seed-secrets.mjs   # SECRET_STORE_* as in step 4
+   ```
+
+4. **Layers**: `offsite-copy` in the secrets layer's `components`, and
+   `offsite-copy.yaml` in the cluster's `kustomization.yaml`
+   (`flux/clusters/example/offsite-copy.yaml`).
+5. **The first copy by hand**, and watch it: it moves everything and can
+   take more than a day; later runs move only what changed.
+
+   ```bash
+   kubectl -n offsite-copy create job --from=cronjob/offsite-copy offsite-copy-first
+   kubectl -n offsite-copy logs -f job/offsite-copy-first
+   ```
+
+   `OffsiteCopyStale` warns when no run has copied every bucket for 26
+   hours (`flux/infrastructure/monitoring-config/ALERTS.md`).
+
+**Copy, never delete.** In copy mode (the default) nothing at the
+destination is ever deleted: an object deleted at the source, by mistake, a
+bug or someone holding the cluster's keys, stays in the copy, and the
+destination key needs no right to delete. An object changed at the source
+replaces its copy, which is what the destination's versioning is for. The
+destination only grows, so prune it there, with lifecycle rules, which count
+from the day an object reached the destination:
+
+- the backup bucket's folder (`<backup bucket>/`): expire objects some days
+  after the source's retention (30 days at the source, 45 here). WAL and
+  base backups are written once, and barman deletes them at the source
+  after 30 days. A lifecycle rule doesn't know whether the source still
+  makes backups: if it stops, the copy's run out after 45 days too
+  (`PostgresBackupStale` fires long before);
+- versions an overwrite left behind (noncurrent versions): expire after 30
+  days;
+- no age rule on the file buckets' folders: their objects live for years,
+  and the next run would copy an expired one straight back. What the source
+  deleted stays in the copy until you switch to sync.
+
+**Sync with a backup folder** (`OFFSITE_MODE: sync`): each bucket's folder
+then matches the source, and what a run would delete or overwrite moves to
+`OFFSITE_BUCKET/_replaced/<day>/<bucket>/` instead. A lifecycle rule that
+expires `_replaced/` after N days gives N days to notice a mass deletion
+before the copy loses it too. The destination key must be able to delete,
+so the copy is only as safe as that key; add `--max-delete <n>` to
+`OFFSITE_RCLONE_FLAGS` so that a run that would delete more than n objects
+stops instead.
+
+**What a run compares** (`OFFSITE_RCLONE_FLAGS`). `--checksum` (the
+default) decides from the two listings alone, by size and the MD5 in each
+object's ETag, with a HEAD only for objects uploaded in parts, whose ETag
+isn't an MD5. Every run compares every object, so a copy that failed for
+days catches up by itself. For buckets with millions of objects, `--max-age
+72h --no-traverse` looks only at objects changed in the last three days,
+without listing the destination; but a copy that fails for longer than
+that misses objects for good, so keep a weekly full run too (a second
+CronJob without those flags, in the layer's patches). `--fast-list` makes
+fewer list requests for more memory; `--bwlimit 50M` spares the uplink.
+
+**Restoring from the copy.** Postgres: an ObjectStore on the copy, with the
+destination's endpoint and a key that can read it, then `bootstrap.recovery`
+from it as above. For `master`, a Secret with the key (`kubectl -n postgres
+create secret generic offsite-s3 --from-literal=ACCESS_KEY_ID=…
+--from-literal=ACCESS_SECRET_KEY=…`), and in your cluster's configs-extra:
+
+```yaml
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: master-offsite
+  namespace: postgres
+spec:
+  configuration:
+    # The backups' own destinationPath, under the copy's bucket.
+    destinationPath: s3://<OFFSITE_BUCKET>/<BACKUP_S3_BUCKET>/master
+    endpointURL: <OFFSITE_S3_ENDPOINT>
+    s3Credentials:
+      accessKeyId: { name: offsite-s3, key: ACCESS_KEY_ID }
+      secretAccessKey: { name: offsite-s3, key: ACCESS_SECRET_KEY }
+    wal:
+      compression: gzip
+    data:
+      compression: gzip
+```
+
+with `barmanObjectName: master-offsite` and `serverName: master` in the
+patch's `externalClusters` above; it keeps archiving to `master-backups`
+under a new `serverName`. Files: rclone back, from any machine, with the
+destination key and one that can write where the files go (the original
+buckets, or new ones at any provider that `FILES_S3_ENDPOINT` and the
+`FILES_BUCKET_*` settings then name):
+
+```bash
+export RCLONE_CONFIG_OFFSITE_TYPE=s3 RCLONE_CONFIG_OFFSITE_PROVIDER=Other \
+  RCLONE_CONFIG_OFFSITE_ENDPOINT=<OFFSITE_S3_ENDPOINT> RCLONE_CONFIG_OFFSITE_REGION=<OFFSITE_S3_REGION> \
+  RCLONE_CONFIG_OFFSITE_ACCESS_KEY_ID=… RCLONE_CONFIG_OFFSITE_SECRET_ACCESS_KEY=…
+export RCLONE_CONFIG_FILES_TYPE=s3 RCLONE_CONFIG_FILES_PROVIDER=Other \
+  RCLONE_CONFIG_FILES_ENDPOINT=<FILES_S3_ENDPOINT> RCLONE_CONFIG_FILES_REGION=<FILES_S3_REGION> \
+  RCLONE_CONFIG_FILES_ACCESS_KEY_ID=… RCLONE_CONFIG_FILES_SECRET_ACCESS_KEY=…
+rclone copy offsite:<OFFSITE_BUCKET>/<bucket> files:<bucket> --checksum --transfers 16
+```
+
+To take the buckets back as they were before a bad night (objects
+overwritten at the source, and so in the copy), also set
+`RCLONE_CONFIG_OFFSITE_VERSION_AT="2026-11-20 03:00:00"`: rclone then reads
+the copy's versions as of that time (on that remote only; it makes the remote
+read-only, so never as a global `--s3-version-at`). In sync mode, older
+objects are also in `_replaced/<day>/`.
+
 ## Cost
 
 Estimates at Hetzner list prices: the default topology ≈ €310/month, ten
@@ -1448,5 +1648,6 @@ Be clear about this before anyone signs a contract:
   above).
 - **Operations** (P5): the EU registry and signed images (5.4), observability
   and alerting (5.5), the drill runner (5.6), DNS failover between locations,
-  object storage replication, HA for Valkey (Sentinel or replicas) and a
-  three-node Restate cluster.
+  object storage replication (the opt-in offsite copy, "Backups and
+  restores", is a daily copy, not a replica to fail over to), HA for Valkey
+  (Sentinel or replicas) and a three-node Restate cluster.

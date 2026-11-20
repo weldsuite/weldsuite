@@ -1,0 +1,19 @@
+# Egress anywhere but the metadata service, as for the base layers'
+# namespaces (../network-policy/metadata-service.yaml, which says why). Here
+# because this namespace exists only where WeldID runs. A no-op until the
+# cluster enforces NetworkPolicy (the opt-in network-policy layer).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: block-metadata-service
+  namespace: weldid
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [169.254.169.254/32]
+        - ipBlock:
+            cidr: "::/0"

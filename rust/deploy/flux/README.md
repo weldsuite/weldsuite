@@ -20,6 +20,13 @@ infrastructure/
                 which brings the CRDs; dashboards/generate.mjs writes them); ALERTS.md: what each
                 alert means and what to do
   logging/      Loki on the cluster's logs bucket, Fluent Bit on every node and for the events
+  offsite-copy/ OPT-IN: rclone in a CronJob, copying the buckets a cluster lists to a bucket at another
+                provider once a day (clusters/example/offsite-copy.yaml; ../hetzner/README.md,
+                "Offsite copy"); its alert is in monitoring-config
+  network-policy/
+                OPT-IN: kube-router's network policy controller beside Flannel, so NetworkPolicies are
+                enforced, and a policy per namespace that keeps pods off the metadata service
+                (clusters/example/network-policy.yaml; ../hetzner/README.md, "Agent sandbox")
   weldid/       OPT-IN: WeldID, WeldSuite's own OIDC provider replacing Zitadel (ADR SEC-019), with its
                 namespace (namespace/), CNPG cluster, backups, alerts; README.md there says how to turn it
                 on and switch to it (clusters/example/weldid.yaml, weldid-switch.yaml)
@@ -31,7 +38,7 @@ apps/marketing/ the marketing site (WeldSuite's test cluster only, so far: its i
                 pulled with the marketing/ghcr token)
 secrets/        the secrets layer: the ClusterSecretStore (the cluster's secret store) and an
                 ExternalSecret for every Secret the layers read, no values; mta/, marketing/,
-                monitoring/, logging/, registry/: components a cluster adds; weldid/: WeldID's, its
+                monitoring/, logging/, offsite-copy/, registry/: components a cluster adds; weldid/: WeldID's, its
                 own layer; store.example.yaml: every value the store holds
 scripts/        seed-secrets.mjs: fills a cluster's secret store (--import: from a SOPS file),
                 --check: the secrets layer against store.example.yaml;
@@ -57,7 +64,9 @@ nothing the build is made from (ADR OPS-020). A self-hosted install follows a re
 Order: `sources` → `controllers` → `secrets` → `configs` (with a cluster's
 own `configs-extra` next to it) → `services` → `apps`, and `video` after
 `services`, beside `apps`; `monitoring` after `secrets`, then
-`monitoring-config` and `logging` after it. A cluster that turns WeldID on adds
+`monitoring-config` and `logging` after it. The opt-in `network-policy` comes
+after `controllers`, and `offsite-copy` after `secrets` (with the secrets
+layer's `offsite-copy` component). A cluster that turns WeldID on adds
 `weldid-namespace` → `weldid-secrets` → `weldid` (after `services` and `monitoring`), and to
 sign in with it `weldid-switch` (`../hetzner/README.md`, "WeldID instead of Zitadel"). Each
 HelmRelease's values are in a `values/` file
@@ -66,7 +75,8 @@ chart at the pinned version.
 
 Rules:
 - Pin every chart and image to a release at least two weeks old; change the
-  pin in `../validate.sh` with it (the script fails when they differ).
+  pin in `../validate.sh` with it (the script fails when they differ, and
+  when a layer's own manifest runs an image it doesn't pin).
 - Never commit a secret value, encrypted or not: values live in the
   cluster's secret store, and `secrets/` holds only the ExternalSecrets that
   read them. A new Secret is an ExternalSecret in `secrets/` (or one of its

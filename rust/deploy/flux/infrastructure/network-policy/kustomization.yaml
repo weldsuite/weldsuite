@@ -1,0 +1,24 @@
+# NetworkPolicy enforcement beside Flannel (rust/deploy/hetzner/README.md,
+# "Agent sandbox", step 2), OPT-IN (clusters/example/network-policy.yaml).
+# Talos' default CNI, Flannel, routes pod traffic but ignores NetworkPolicy:
+# without this layer every NetworkPolicy in the cluster is a no-op, and every
+# pod can reach the Hetzner metadata service, which serves each node's user
+# data (its Talos machine configuration, secrets included).
+#
+#   kube-router.yaml       kube-router's network policy controller alone, on
+#                          every node; Flannel and kube-proxy stay as they are
+#   metadata-service.yaml  in every namespace the base layers run pods in,
+#                          egress anywhere but 169.254.169.254
+#
+# Once it runs, every NetworkPolicy in the cluster is enforced, not only
+# these: Flux's own in flux-system, and whichever the charts render (the
+# weldsuite chart's networkPolicy.enabled, its sandbox's, SearXNG's). Roll it
+# out on the test cluster first (the README says what to check).
+#
+# After the controllers layer, which makes the namespaces. Nothing here is
+# substituted.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - kube-router.yaml
+  - metadata-service.yaml

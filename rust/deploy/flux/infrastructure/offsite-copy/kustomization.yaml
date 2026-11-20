@@ -1,0 +1,27 @@
+# The offsite copy of the object storage (rust/deploy/hetzner/README.md,
+# "Backups and restores"), OPT-IN (clusters/example/offsite-copy.yaml): a
+# CronJob that copies the buckets a cluster names from its own S3 store to a
+# bucket at another provider, with rclone. After the secrets layer, whose
+# offsite-copy component writes its two keys (offsite-copy-s3); the namespace
+# is in ../controllers. Its alert, OffsiteCopyStale, is in
+# ../monitoring-config/rules/offsite-copy.yaml, which stays quiet on a
+# cluster without this layer.
+#
+# Settings (cluster-settings.yaml): OFFSITE_SOURCE_S3_ENDPOINT,
+# OFFSITE_SOURCE_S3_REGION, OFFSITE_SOURCE_BUCKETS, OFFSITE_S3_ENDPOINT,
+# OFFSITE_S3_REGION and OFFSITE_BUCKET; OFFSITE_SCHEDULE, OFFSITE_MODE and
+# OFFSITE_RCLONE_FLAGS have defaults (cronjob.yaml).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - cronjob.yaml
+generatorOptions:
+  disableNameSuffixHash: true
+configMapGenerator:
+  # A shell script with its own variables: Flux must leave it alone.
+  - name: offsite-copy-script
+    namespace: offsite-copy
+    files: [copy.sh]
+    options:
+      annotations:
+        kustomize.toolkit.fluxcd.io/substitute: disabled
