@@ -23,6 +23,7 @@ const CAROL = 'user_2NNEqL2nrIRdJ194ndJqAHwCar3';
 const DAVE = 'user_2NNEqL2nrIRdJ194ndJqAHwDav4';
 const ERIN = 'user_2NNEqL2nrIRdJ194ndJqAHwEri5';
 const FRANK = 'user_2NNEqL2nrIRdJ194ndJqAHwFra6';
+const GINA = 'user_2NNEqL2nrIRdJ194ndJqAHwGin7';
 
 const DIGEST = '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy';
 const KEY = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP';
@@ -35,6 +36,8 @@ const EXPORT = [
   `${CAROL},Carol,,carol,1700000000002,,\t+31600000000,,,\t+31600000000,,,,`,
   `${DAVE},"Dave ""D""",Smith,,1700000000003,dave@example.com,,dave@example.com,,,,3132333435363738393031323334353637383930,$argon2id$v=19$m=65536$abc$def,argon2id`,
   `${ERIN},Erin,,,1700000000004,erin@example.com,,"erin@example.com|erin@work.example",,,,${KEY},${DIGEST},Bcrypt`,
+  // Deleted in Clerk after the export: the API no longer has her.
+  `${GINA},Gina,,,1700000000005,gina@example.com,,gina@example.com,,,,${KEY},${DIGEST},bcrypt`,
 ].join('\r\n');
 
 const verified = { status: 'verified' };
@@ -95,6 +98,17 @@ const API_USERS: ClerkApiUser[] = [
     password_enabled: true,
     totp_enabled: true,
   },
+  {
+    id: ERIN,
+    first_name: 'Erin',
+    primary_email_address_id: 'idn_erin',
+    email_addresses: [
+      { id: 'idn_erin', email_address: 'erin@example.com', verification: verified },
+      { id: 'idn_work', email_address: 'erin@work.example', verification: verified },
+    ],
+    password_enabled: true,
+    totp_enabled: true,
+  },
 ];
 
 describe('parseCsv', () => {
@@ -108,13 +122,19 @@ describe('parseCsv', () => {
       ['multi\nline', 'z'],
     ]);
     expect(() => parseCsv('a,"open')).toThrow(/never ends/);
+    // A comma at the very end, text after a closing quote, blank lines.
+    expect(parseCsv('x,\n"a"b,c,')).toEqual([
+      ['x', ''],
+      ['ab', 'c', ''],
+    ]);
+    expect(parseCsv('\n\n')).toEqual([]);
   });
 });
 
 describe('readClerkExport', () => {
   it('finds columns by header name and splits several addresses', () => {
     const rows = readClerkExport(EXPORT);
-    expect([...rows.keys()]).toEqual([ADA, BOB, CAROL, DAVE, ERIN]);
+    expect([...rows.keys()]).toEqual([ADA, BOB, CAROL, DAVE, ERIN, GINA]);
     const ada = rows.get(ADA)!;
     expect(ada.lastName).toBe('Lovelace, Countess');
     expect(ada.verifiedEmails).toEqual(['ada@example.com', 'ada@old.example']);
@@ -165,7 +185,7 @@ describe('toWeldIdAccounts', () => {
         emailVerified: true,
         links: [{ provider: 'google', subject: '104857600000000000006', email: 'frank@gmail.com' }],
       },
-      // Only in the export: proven by its verified addresses there.
+      // Gina is in the export but no longer in Clerk: left out.
       { id: ERIN, email: 'erin@example.com', givenName: 'Erin', emailVerified: true, passwordHash: DIGEST, totpSecret: KEY },
     ]);
 
@@ -178,7 +198,7 @@ describe('toWeldIdAccounts', () => {
       links: { google: 2 },
       disabled: 1,
       noEmail: [CAROL],
-      onlyInExport: 1,
+      onlyInExport: [GINA],
       onlyInApi: 1,
       unverifiedBare: 1,
       passwordNotBcrypt: 1,
@@ -223,6 +243,7 @@ describe('toWeldIdAccounts', () => {
       expect(text).not.toContain(secret);
     }
     expect(text).toContain(CAROL);
+    expect(text).toContain(GINA);
   });
 });
 

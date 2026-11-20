@@ -27,6 +27,9 @@
  * - Passkeys and backup codes: Clerk exports neither. Those people set them up again.
  * - Credentials of an account whose address Clerk never proved: WeldID gives
  *   such an account to whoever proves the address, so it is imported bare.
+ * - Users the export has and Clerk no longer does (deleted, or removed by an
+ *   admin, since the export): the Backend API decides who is imported, so
+ *   nobody comes back with an old password. The report lists their ids.
  *
  * Nothing here logs an address, a digest or a key: the report holds counts,
  * and ids only for accounts that can't be imported.
@@ -41,44 +44,57 @@ const BASE32_KEY = /^[A-Z2-7]{26,}=*$/;
 // The CSV
 // ---------------------------------------------------------------------------
 
-/** RFC 4180: quoted fields with `""` for a quote, CRLF or LF, a final newline optional. */
+/** Characters that end an unquoted field. */
+const FIELD_END = new Set([',', '\r', '\n']);
+
+/** An unquoted run from `start` up to a comma, a line break or the end: its text and where it stops. */
+function readUnquoted(body: string, start: number): [string, number] {
+  let end = start;
+  while (end < body.length && !FIELD_END.has(body[end])) end += 1;
+  return [body.slice(start, end), end];
+}
+
+/**
+ * The field at `start`: its text, and the index of what ends it (a comma, a
+ * line break or the end). A quoted field takes `""` for a quote and may hold
+ * commas and line breaks.
+ */
+function readField(body: string, start: number): [string, number] {
+  if (body[start] !== '"') return readUnquoted(body, start);
+  let text = '';
+  let from = start + 1;
+  for (;;) {
+    const close = body.indexOf('"', from);
+    if (close < 0) throw new Error('CSV: a quoted field never ends');
+    text += body.slice(from, close);
+    if (body[close + 1] !== '"') {
+      const [rest, end] = readUnquoted(body, close + 1);
+      return [text + rest, end];
+    }
+    text += '"';
+    from = close + 2;
+  }
+}
+
+/** RFC 4180: quoted fields with `""` for a quote, CRLF or LF, a final newline optional, a BOM ignored. */
 export function parseCsv(text: string): string[][] {
+  const body = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
   const rows: string[][] = [];
   let row: string[] = [];
-  let field = '';
-  let quoted = false;
-  const body = text.startsWith('﻿') ? text.slice(1) : text;
-  for (let i = 0; i < body.length; i += 1) {
-    const c = body[i];
-    if (quoted) {
-      if (c === '"' && body[i + 1] === '"') {
-        field += '"';
-        i += 1;
-      } else if (c === '"') {
-        quoted = false;
-      } else {
-        field += c;
-      }
-    } else if (c === '"' && field === '') {
-      quoted = true;
-    } else if (c === ',') {
-      row.push(field);
-      field = '';
-    } else if (c === '\n' || c === '\r') {
-      if (c === '\r' && body[i + 1] === '\n') i += 1;
-      row.push(field);
-      rows.push(row);
-      row = [];
-      field = '';
-    } else {
-      field += c;
+  let at = 0;
+  while (at < body.length) {
+    const [value, end] = readField(body, at);
+    row.push(value);
+    if (body[end] === ',') {
+      at = end + 1;
+      continue;
     }
-  }
-  if (quoted) throw new Error('CSV: a quoted field never ends');
-  if (field !== '' || row.length > 0) {
-    row.push(field);
     rows.push(row);
+    row = [];
+    at = end + (body[end] === '\r' && body[end + 1] === '\n' ? 2 : 1);
   }
+  // A comma at the very end leaves one empty field.
+  if (row.length > 0) rows.push([...row, '']);
   return rows.filter((r) => !(r.length === 1 && r[0] === ''));
 }
 
@@ -231,8 +247,9 @@ export interface ConvertOptions {
   appleLinks?: boolean;
 }
 
-/** What the conversion did, in counts; ids only of accounts left out. */
+/** What the conversion did, in counts; ids only of users left out. */
 export interface ConvertReport {
+  /** Clerk's users now (the Backend API's). */
   users: number;
   accounts: number;
   emailVerified: number;
@@ -240,10 +257,15 @@ export interface ConvertReport {
   totp: number;
   links: Record<string, number>;
   disabled: number;
-  /** Accounts without a usable address: left out (ids, never addresses). */
+  /** Users without a usable address: left out (ids, never addresses). */
   noEmail: string[];
-  /** Users only in the CSV (deleted since the export?) or only in the API (signed up since?). */
-  onlyInExport: number;
+  /**
+   * Users in the export whom Clerk no longer has (deleted, or removed by an
+   * admin, since the export): left out, so nobody comes back with an old
+   * password. Ids, for the operator to look at.
+   */
+  onlyInExport: string[];
+  /** Users who signed up after the export: imported without a password or key. */
   onlyInApi: number;
   /** Accounts imported bare because Clerk never proved their address, though they had a password, a key or a link. */
   unverifiedBare: number;
@@ -264,61 +286,8 @@ export interface ConvertReport {
   clerkHostedPictures: number;
 }
 
-function bump(record: Record<string, number>, key: string): void {
-  record[key] = (record[key] ?? 0) + 1;
-}
-
-function primaryAddress(user: ClerkApiUser | undefined): { email: string; verified: boolean } | null {
-  const address = user?.email_addresses?.find((a) => a.id === user.primary_email_address_id);
-  const email = address?.email_address?.trim();
-  return email ? { email, verified: address?.verification?.status === 'verified' } : null;
-}
-
-function isHttps(url: string | null | undefined): url is string {
-  try {
-    return Boolean(url) && new URL(url as string).protocol === 'https:';
-  } catch {
-    return false;
-  }
-}
-
-/** The Google and Apple links of `user`, with what's left out counted. */
-function linksOf(
-  user: ClerkApiUser | undefined,
-  options: ConvertOptions,
-  report: ConvertReport,
-): NonNullable<WeldIdAccount['links']> {
-  const links: NonNullable<WeldIdAccount['links']> = [];
-  for (const account of user?.external_accounts ?? []) {
-    const status = account.verification?.status;
-    if (status && status !== 'verified') continue;
-    const provider = (account.provider ?? (account.google_id ? 'google' : '')).replace(/^oauth_/, '');
-    const subject = (account.provider_user_id ?? account.google_id ?? '').trim();
-    if (subject === '') {
-      bump(report.linksLeftOut, `${provider || 'unknown'} (no subject)`);
-      continue;
-    }
-    if (provider === 'google' || (provider === 'apple' && options.appleLinks)) {
-      const email = account.email_address?.trim();
-      links.push({ provider, subject, ...(email ? { email } : {}) });
-    } else {
-      bump(report.linksLeftOut, provider || 'unknown');
-    }
-  }
-  return links;
-}
-
-/**
- * One import line per Clerk user that has an address: the API's users in
- * their order, then any the export has and the API doesn't. The API's view
- * wins where both say something (it is read at the time of the run).
- */
-export function toWeldIdAccounts(
-  exported: Map<string, ClerkExportRow>,
-  apiUsers: ClerkApiUser[],
-  options: ConvertOptions = {},
-): { accounts: WeldIdAccount[]; report: ConvertReport } {
-  const report: ConvertReport = {
+function emptyReport(): ConvertReport {
+  return {
     users: 0,
     accounts: 0,
     emailVerified: 0,
@@ -327,7 +296,7 @@ export function toWeldIdAccounts(
     links: {},
     disabled: 0,
     noEmail: [],
-    onlyInExport: 0,
+    onlyInExport: [],
     onlyInApi: 0,
     unverifiedBare: 0,
     passwordNotBcrypt: 0,
@@ -340,95 +309,188 @@ export function toWeldIdAccounts(
     enterpriseAccounts: 0,
     clerkHostedPictures: 0,
   };
-  const byId = new Map(apiUsers.map((u) => [u.id, u]));
-  const ids = [...byId.keys(), ...[...exported.keys()].filter((id) => !byId.has(id))];
-  const accounts: WeldIdAccount[] = [];
+}
 
-  for (const id of ids) {
-    const api = byId.get(id);
-    const row = exported.get(id);
-    report.users += 1;
-    if (!api) report.onlyInExport += 1;
-    if (!row) report.onlyInApi += 1;
-    if ((api?.passkeys?.length ?? 0) > 0) report.passkeys += 1;
-    if (api?.backup_code_enabled) report.backupCodes += 1;
-    if ((api?.saml_accounts?.length ?? 0) + (api?.enterprise_accounts?.length ?? 0) > 0) report.enterpriseAccounts += 1;
+function bump(record: Record<string, number>, key: string): void {
+  record[key] = (record[key] ?? 0) + 1;
+}
 
-    const fromApi = primaryAddress(api);
-    const email = fromApi?.email ?? row?.primaryEmail ?? '';
-    if (email === '') {
-      report.noEmail.push(id);
-      continue;
-    }
-    const verified = fromApi
-      ? fromApi.verified
-      : Boolean(row?.verifiedEmails.some((v) => v.toLowerCase() === email.toLowerCase()));
+/** `{ [key]: value }` for a non-empty value (trimmed), else nothing: for spreading optional fields. */
+function field<K extends string>(key: K, value: string | null | undefined): Partial<Record<K, string>> {
+  const text = value?.trim();
+  return text ? ({ [key]: text } as Partial<Record<K, string>>) : {};
+}
 
-    let passwordHash: string | undefined;
-    if (row?.passwordDigest) {
-      if (row.passwordHasher === 'bcrypt' && BCRYPT.test(row.passwordDigest)) passwordHash = row.passwordDigest;
-      else report.passwordNotBcrypt += 1;
-    } else if (api?.password_enabled) {
-      report.passwordNotExported += 1;
-    }
+function primaryAddress(user: ClerkApiUser): { email: string; verified: boolean } | null {
+  const address = user.email_addresses?.find((a) => a.id === user.primary_email_address_id);
+  const email = address?.email_address?.trim();
+  return email ? { email, verified: address?.verification?.status === 'verified' } : null;
+}
 
-    let totpSecret: string | undefined;
-    const key = (row?.totpSecret ?? '').replace(/[\s-]/g, '').toUpperCase();
-    if (key !== '') {
-      if (BASE32_KEY.test(key)) totpSecret = key;
-      else report.totpNotBase32 += 1;
-    } else if (api?.totp_enabled) {
-      report.totpNotExported += 1;
-    }
-
-    let links = linksOf(api, options, report);
-    if (!verified && (passwordHash || totpSecret || links.length > 0)) {
-      report.unverifiedBare += 1;
-      passwordHash = undefined;
-      totpSecret = undefined;
-      links = [];
-    }
-
-    const givenName = (api?.first_name ?? row?.firstName ?? '').trim();
-    const familyName = (api?.last_name ?? row?.lastName ?? '').trim();
-    const picture = api?.has_image && isHttps(api.image_url) ? api.image_url : undefined;
-    if (picture && new URL(picture).hostname.endsWith('clerk.com')) report.clerkHostedPictures += 1;
-
-    const account: WeldIdAccount = {
-      id,
-      email,
-      ...(givenName ? { givenName } : {}),
-      ...(familyName ? { familyName } : {}),
-      ...(picture ? { picture } : {}),
-      emailVerified: verified,
-      ...(passwordHash ? { passwordHash } : {}),
-      ...(totpSecret ? { totpSecret } : {}),
-      ...(links.length > 0 ? { links } : {}),
-      ...(api?.banned ? { disabled: true } : {}),
-    };
-    accounts.push(account);
-    report.accounts += 1;
-    if (verified) report.emailVerified += 1;
-    if (passwordHash) report.passwords += 1;
-    if (totpSecret) report.totp += 1;
-    for (const link of links) bump(report.links, link.provider);
-    if (account.disabled) report.disabled += 1;
+function isHttps(url: string | null | undefined): url is string {
+  try {
+    return Boolean(url) && new URL(url as string).protocol === 'https:';
+  } catch {
+    return false;
   }
+}
+
+/** Passkeys, backup codes and SAML or enterprise accounts: counted, never imported. */
+function tallyFactors(user: ClerkApiUser, report: ConvertReport): void {
+  if ((user.passkeys?.length ?? 0) > 0) report.passkeys += 1;
+  if (user.backup_code_enabled) report.backupCodes += 1;
+  if ((user.saml_accounts?.length ?? 0) + (user.enterprise_accounts?.length ?? 0) > 0) report.enterpriseAccounts += 1;
+}
+
+/** The export's bcrypt digest of the user, when it has one WeldID takes. */
+function passwordOf(user: ClerkApiUser, row: ClerkExportRow | undefined, report: ConvertReport): string | undefined {
+  if (!row?.passwordDigest) {
+    if (user.password_enabled) report.passwordNotExported += 1;
+    return undefined;
+  }
+  if (row.passwordHasher === 'bcrypt' && BCRYPT.test(row.passwordDigest)) return row.passwordDigest;
+  report.passwordNotBcrypt += 1;
+  return undefined;
+}
+
+/** The export's authenticator key of the user, as base32 of 128 bits or more. */
+function totpOf(user: ClerkApiUser, row: ClerkExportRow | undefined, report: ConvertReport): string | undefined {
+  const key = (row?.totpSecret ?? '').replace(/[\s-]/g, '').toUpperCase();
+  if (key === '') {
+    if (user.totp_enabled) report.totpNotExported += 1;
+    return undefined;
+  }
+  if (BASE32_KEY.test(key)) return key;
+  report.totpNotBase32 += 1;
+  return undefined;
+}
+
+type Link = NonNullable<WeldIdAccount['links']>[number];
+
+/** The Google and Apple links of `user`, with what's left out counted. */
+function linksOf(user: ClerkApiUser, options: ConvertOptions, report: ConvertReport): Link[] {
+  const links: Link[] = [];
+  for (const account of user.external_accounts ?? []) {
+    const status = account.verification?.status;
+    if (status && status !== 'verified') continue;
+    const provider = (account.provider ?? (account.google_id ? 'google' : '')).replace(/^oauth_/, '');
+    const subject = (account.provider_user_id ?? account.google_id ?? '').trim();
+    if (subject === '') {
+      bump(report.linksLeftOut, `${provider || 'unknown'} (no subject)`);
+    } else if (provider === 'google' || (provider === 'apple' && options.appleLinks)) {
+      links.push({ provider, subject, ...field('email', account.email_address) });
+    } else {
+      bump(report.linksLeftOut, provider || 'unknown');
+    }
+  }
+  return links;
+}
+
+/**
+ * The password, key and links of `user`. Only with an address Clerk proved:
+ * WeldID gives an unproven account to whoever proves the address, so it is
+ * imported bare.
+ */
+function credentialsOf(
+  user: ClerkApiUser,
+  row: ClerkExportRow | undefined,
+  verified: boolean,
+  options: ConvertOptions,
+  report: ConvertReport,
+): { passwordHash?: string; totpSecret?: string; links: Link[] } {
+  const passwordHash = passwordOf(user, row, report);
+  const totpSecret = totpOf(user, row, report);
+  const links = linksOf(user, options, report);
+  if (verified || (!passwordHash && !totpSecret && links.length === 0)) return { passwordHash, totpSecret, links };
+  report.unverifiedBare += 1;
+  return { links: [] };
+}
+
+/** The user's own picture (not Clerk's default) when it is an https URL. */
+function pictureOf(user: ClerkApiUser, report: ConvertReport): string | undefined {
+  if (!user.has_image || !isHttps(user.image_url)) return undefined;
+  if (new URL(user.image_url).hostname.endsWith('clerk.com')) report.clerkHostedPictures += 1;
+  return user.image_url;
+}
+
+/** One user's import line, or null (counted) when it has no address. */
+function accountOf(
+  user: ClerkApiUser,
+  row: ClerkExportRow | undefined,
+  options: ConvertOptions,
+  report: ConvertReport,
+): WeldIdAccount | null {
+  if (!row) report.onlyInApi += 1;
+  tallyFactors(user, report);
+  const address = primaryAddress(user);
+  if (!address) {
+    report.noEmail.push(user.id);
+    return null;
+  }
+  const { passwordHash, totpSecret, links } = credentialsOf(user, row, address.verified, options, report);
+  return {
+    id: user.id,
+    email: address.email,
+    ...field('givenName', user.first_name ?? row?.firstName),
+    ...field('familyName', user.last_name ?? row?.lastName),
+    ...field('picture', pictureOf(user, report)),
+    emailVerified: address.verified,
+    ...field('passwordHash', passwordHash),
+    ...field('totpSecret', totpSecret),
+    ...(links.length > 0 ? { links } : {}),
+    ...(user.banned ? { disabled: true } : {}),
+  };
+}
+
+function countAccount(account: WeldIdAccount, report: ConvertReport): void {
+  report.accounts += 1;
+  if (account.emailVerified) report.emailVerified += 1;
+  if (account.passwordHash) report.passwords += 1;
+  if (account.totpSecret) report.totp += 1;
+  for (const link of account.links ?? []) bump(report.links, link.provider);
+  if (account.disabled) report.disabled += 1;
+}
+
+/**
+ * One import line per Clerk user with an address, in the API's order. The
+ * Backend API is read at the time of the run and decides who is imported
+ * and how: the export only adds the digest and the key. A user the export
+ * has and the API no longer does is left out (and listed in the report).
+ */
+export function toWeldIdAccounts(
+  exported: Map<string, ClerkExportRow>,
+  apiUsers: ClerkApiUser[],
+  options: ConvertOptions = {},
+): { accounts: WeldIdAccount[]; report: ConvertReport } {
+  const report = emptyReport();
+  const accounts: WeldIdAccount[] = [];
+  for (const user of apiUsers) {
+    report.users += 1;
+    const account = accountOf(user, exported.get(user.id), options, report);
+    if (account) {
+      accounts.push(account);
+      countAccount(account, report);
+    }
+  }
+  const live = new Set(apiUsers.map((u) => u.id));
+  report.onlyInExport = [...exported.keys()].filter((id) => !live.has(id));
   return { accounts, report };
 }
 
-/** The report as lines for the operator (counts; ids only of accounts left out). */
+/** The report as lines for the operator (counts; ids only of users left out). */
 export function formatConvertReport(report: ConvertReport): string[] {
   const entries = (record: Record<string, number>) =>
     Object.entries(record)
       .map(([k, v]) => `${k} ${v}`)
       .join(', ') || 'none';
+  const listed = (ids: string[]) => (ids.length > 0 ? ` (${ids.join(', ')})` : '');
   return [
-    `Clerk users: ${report.users} (only in the export: ${report.onlyInExport}, only in the API: ${report.onlyInApi}).`,
+    `Clerk users: ${report.users}; signed up after the export: ${report.onlyInApi}.`,
     `Import lines: ${report.accounts}; address proven: ${report.emailVerified}; disabled (banned): ${report.disabled}.`,
     `With a bcrypt password: ${report.passwords}; an authenticator key: ${report.totp}; links: ${entries(report.links)}.`,
-    `Left out: no address ${report.noEmail.length}${report.noEmail.length ? ` (${report.noEmail.join(', ')})` : ''}; ` +
-      `imported bare (address never proven) ${report.unverifiedBare}; ` +
+    `Left out: no address ${report.noEmail.length}${listed(report.noEmail)}; ` +
+      `in the export but no longer in Clerk ${report.onlyInExport.length}${listed(report.onlyInExport)}.`,
+    `Imported without what they had: address never proven ${report.unverifiedBare}; ` +
       `passwords not bcrypt ${report.passwordNotBcrypt}, not in the export ${report.passwordNotExported}; ` +
       `keys not base32 ${report.totpNotBase32}, not in the export ${report.totpNotExported}; ` +
       `links ${entries(report.linksLeftOut)}.`,
