@@ -902,7 +902,10 @@ async fn a_workspace_moved_from_global_adds_a_payment_method() {
     assert_eq!(report.past_due, 1, "{report:?}");
     assert_eq!(report.method_notices, 0, "{report:?}");
     let acc = account_of(&master, MOVED).await;
-    assert!(acc["past_due_payment_id"].is_string(), "{acc}");
+    assert!(
+        acc["past_due_payment_id"].is_string(),
+        "the refused renewal is the open charge"
+    );
     assert!(
         acc["dunning_reminded_at"].is_null(),
         "the reminder still comes"
@@ -918,7 +921,7 @@ async fn a_workspace_moved_from_global_adds_a_payment_method() {
             .pay_url
             .as_deref()
             .is_some_and(|url| url.starts_with("https://app.weldsuite.test/public/billing/pay/")),
-        "{failed:?}"
+        "the failure email carries the pay link"
     );
 
     // 4. Halfway through the grace period: the reminder, worded the same way.
@@ -955,7 +958,10 @@ async fn a_workspace_moved_from_global_adds_a_payment_method() {
     assert_eq!(pay(&state, &mollie, &id, t3).await, Settled::PastDuePaid);
     let acc = account_of(&master, MOVED).await;
     assert_eq!(acc["mandate_id"], "mdt_billingdb1");
-    assert!(acc["past_due_payment_id"].is_null(), "{acc}");
+    assert!(
+        acc["past_due_payment_id"].is_null(),
+        "paying cleared the open charge"
+    );
 
     // 6. With a payment method, the next renewal brings no notice.
     let report = run_renewals(&state, datetime!(2027-01-02 12:00:00 UTC)).await;
