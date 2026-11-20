@@ -26,7 +26,7 @@ function saveBlob(blob: Blob, fileName: string): void {
 /** The visual's data as a CSV file (with a BOM so Excel reads the accents). */
 export function downloadVisualCsv(visual: ChatVisual, headers: Partial<VisualCsvHeaders>): void {
   const csv = visualToCsv(visual, headers);
-  saveBlob(new Blob(['﻿', csv], { type: 'text/csv;charset=utf-8' }), visualFileName(visual, 'csv'));
+  saveBlob(new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8' }), visualFileName(visual, 'csv'));
 }
 
 const PAINT_PROPERTIES = ['fill', 'stroke', 'stroke-width', 'stroke-dasharray', 'opacity', 'fill-opacity', 'stroke-opacity'] as const;

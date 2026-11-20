@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import type { ChatVisual as Spec } from '@weldsuite/app-api-client/schemas/chat-visuals';
 
@@ -17,9 +17,13 @@ vi.mock('@weldsuite/ui/components/chart', () => ({
   ChartLegendContent: () => null,
 }));
 
-const openSheet = vi.fn();
+const openPanel = vi.fn();
 const push = vi.fn();
-vi.mock('@/components/entity-sheet/use-entity-sheet', () => ({ useEntitySheet: () => ({ open: openSheet }) }));
+vi.mock('@/components/object-panel/use-object-panel', () => ({ useObjectPanel: () => ({ open: openPanel }) }));
+vi.mock('@/components/object-panel/object-panel-registry', () => ({
+  // Tickets and tasks have a panel; spreadsheets don't.
+  resolveObjectPanel: (type: string) => (type === 'ticket' || type === 'task' ? { type } : undefined),
+}));
 vi.mock('@/lib/router', () => ({ useRouter: () => ({ push }) }));
 vi.mock('@/app/weldchat/hooks/use-entity-title', () => ({
   hasEntityTitleLookup: (type: string) => type === 'ticket',
@@ -27,8 +31,11 @@ vi.mock('@/app/weldchat/hooks/use-entity-title', () => ({
     id === 'tkt_1' ? { status: 'ok', title: 'Renamed ticket' } : { status: 'loading', title: null },
 }));
 
+const downloads = vi.hoisted(() => ({ csv: vi.fn(), png: vi.fn(async () => undefined) }));
+vi.mock('./download', () => ({ downloadVisualCsv: downloads.csv, downloadChartPng: downloads.png }));
+
 import { ChatVisual } from './chat-visual';
-import { ChatVisualActionsProvider } from './visual-actions-context';
+import { ChatVisualActionsProvider, usePrefillComposer } from './visual-actions-context';
 import { seriesColor, toSlices } from './visual-chart';
 
 function renderVisual(visual: Spec, ask?: (prompt: string) => void) {
@@ -111,17 +118,36 @@ describe('record cards', () => {
     ],
   };
 
-  it('shows the live title and opens the record', () => {
+  it('shows the live title and opens the record in the object panel, beside the chat', () => {
     renderVisual(records);
     expect(screen.getByText('Renamed ticket')).toBeTruthy();
     expect(screen.queryByText('Old title')).toBeNull();
     fireEvent.click(screen.getByText('Renamed ticket'));
-    expect(openSheet).toHaveBeenCalledWith('ticket', 'tkt_1');
+    expect(openPanel).toHaveBeenCalledWith({ type: 'ticket', id: 'tkt_1' });
   });
 
   it('keeps the snapshot label for a type without a title lookup', () => {
     renderVisual(records);
     expect(screen.getByText('A task')).toBeTruthy();
+  });
+
+  it('opens the page of a record without a panel', () => {
+    renderVisual({ type: 'records', items: [{ entityType: 'sheet', id: 'sht_1', label: 'Budget' }] });
+    fireEvent.click(screen.getByText('Budget'));
+    expect(push).toHaveBeenCalledWith('/weldsheets/sht_1');
+  });
+
+  it('neither looks up nor opens sample records (the gallery)', () => {
+    openPanel.mockClear();
+    render(
+      <ChatVisualActionsProvider sampleRecords>
+        <ChatVisual visual={records} />
+      </ChatVisualActionsProvider>,
+    );
+    expect(screen.getByText('Old title')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Old title/ })).toBeNull();
+    fireEvent.click(screen.getByText('Old title'));
+    expect(openPanel).not.toHaveBeenCalled();
   });
 });
 
@@ -158,5 +184,108 @@ describe('chart', () => {
   it('takes the theme colours, then lighter mixes', () => {
     expect(seriesColor(0)).toBe('var(--chart-1)');
     expect(seriesColor(5)).toContain('color-mix');
+  });
+});
+
+describe('every chart kind', () => {
+  const base = {
+    type: 'chart' as const,
+    title: 'Revenue',
+    labels: ['Jan', 'Feb', 'Mar'],
+    series: [
+      { name: 'NL', values: [3, 5, null] },
+      { name: 'BE', values: [1, 2, 4] },
+    ],
+  };
+
+  it.each([
+    ['bar', {}],
+    ['bar', { horizontal: true, stacked: true }],
+    ['line', {}],
+    ['area', { stacked: true }],
+  ] as const)('draws a %s chart %o with its data for screen readers', (kind, extra) => {
+    renderVisual({ ...base, kind, ...extra } as Spec, vi.fn());
+    expect(screen.getByTestId('chart')).toBeTruthy();
+    expect(within(screen.getByRole('table')).getAllByRole('row')).toHaveLength(4);
+  });
+
+  it.each(['pie', 'donut'] as const)('draws a %s with a legend of its slices', (kind) => {
+    renderVisual({ ...base, kind, series: [{ name: 'Leads', values: [5, 0, 2] }] } as Spec, vi.fn());
+    // Empty slices are left out of the legend.
+    const legend = screen.getAllByRole('listitem').map((item) => item.textContent);
+    expect(legend).toEqual(['Jan5', 'Mar2']);
+  });
+});
+
+describe('actions', () => {
+  const chart: Spec = {
+    type: 'chart',
+    kind: 'bar',
+    title: 'Tickets per status',
+    description: 'Mostly solved',
+    labels: ['Open', 'Solved'],
+    series: [{ name: 'Tickets', values: [3, 9] }],
+    caption: 'Today',
+  };
+
+  it('expands into a dialog with the description and caption', () => {
+    renderVisual(chart);
+    fireEvent.click(screen.getByRole('button', { name: 'Expand' }));
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByRole('heading', { name: 'Tickets per status' })).toBeTruthy();
+    expect(within(dialog).getByText('Mostly solved · Today')).toBeTruthy();
+  });
+
+  it('opens all rows of a long table in the dialog', () => {
+    renderVisual(table);
+    fireEvent.click(screen.getByRole('button', { name: 'Show all 12 rows' }));
+    const dialog = screen.getByRole('dialog');
+    expect(within(within(dialog).getAllByRole('rowgroup')[1]).getAllByRole('row')).toHaveLength(12);
+  });
+
+  it('downloads the data as CSV, and a chart as PNG', async () => {
+    downloads.csv.mockClear();
+    renderVisual(chart);
+    const trigger = screen.getByRole('button', { name: 'Download' });
+    fireEvent.keyDown(trigger, { key: 'Enter' });
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Download as CSV' }));
+    expect(downloads.csv).toHaveBeenCalledWith(chart, expect.objectContaining({ label: 'Label', value: 'Value' }));
+
+    fireEvent.keyDown(trigger, { key: 'Enter' });
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Download as PNG' }));
+    expect(downloads.png).toHaveBeenCalled();
+  });
+
+  it('offers no PNG for anything but a chart', async () => {
+    renderVisual(table);
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Download' }), { key: 'Enter' });
+    expect(await screen.findByRole('menuitem', { name: 'Download as CSV' })).toBeTruthy();
+    expect(screen.queryByRole('menuitem', { name: 'Download as PNG' })).toBeNull();
+  });
+});
+
+describe('usePrefillComposer', () => {
+  function Chat() {
+    const [value, setValue] = useState('');
+    const { ask, composerRef } = usePrefillComposer(setValue);
+    return (
+      <div>
+        <button type="button" onClick={() => ask('Tell me more')}>
+          ask
+        </button>
+        <div ref={composerRef}>
+          <textarea aria-label="composer" value={value} onChange={(e) => setValue(e.target.value)} />
+        </div>
+      </div>
+    );
+  }
+
+  it('puts the follow-up in the composer and focuses it, cursor at the end', async () => {
+    render(<Chat />);
+    fireEvent.click(screen.getByRole('button', { name: 'ask' }));
+    const composer = screen.getByRole('textbox', { name: 'composer' }) as HTMLTextAreaElement;
+    expect(composer.value).toBe('Tell me more');
+    await vi.waitFor(() => expect(document.activeElement).toBe(composer));
+    expect(composer.selectionStart).toBe('Tell me more'.length);
   });
 });

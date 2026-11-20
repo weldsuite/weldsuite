@@ -1,5 +1,5 @@
 /**
- * The chat visuals gallery (`/design/chat-visuals`, ADR AGENT-016): where the
+ * The chat visuals gallery (`/agents/visuals`, ADR AGENT-017): where the
  * WeldSuite team designs the charts, figures, tables and record cards the AI
  * shows in chat. Every example renders with the real components, live while
  * its spec is edited, in both themes and at the widths the chat has (the
@@ -15,9 +15,8 @@ import { EmptyState } from '@weldsuite/ui/components/empty-state';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@weldsuite/ui/components/tabs';
 import { ToggleGroup, ToggleGroupItem } from '@weldsuite/ui/components/toggle-group';
-import { BreadcrumbHeader } from '@/components/breadcrumb-header';
-import { ModuleContent } from '@/components/layout/module-content';
 import { ChatVisual, fill } from '@/components/weldagent/visuals/chat-visual';
+import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { ChatVisualActionsProvider } from '@/components/weldagent/visuals/visual-actions-context';
 import { useFeatureFlagStatus } from '@/hooks/queries/use-feature-flags-queries';
 import { getTranslations } from '@/lib/i18n';
@@ -102,7 +101,7 @@ function Gallery() {
                 <p className="text-xs text-muted-foreground">{t.interactiveHint}</p>
               </div>
               <div className="max-w-[720px]">
-                <ChatVisualActionsProvider ask={(prompt) => toast(fill(t.wouldAsk, { prompt }))} lookUpRecords={false}>
+                <ChatVisualActionsProvider ask={(prompt) => toast(fill(t.wouldAsk, { prompt }))} sampleRecords>
                   <ChatVisual visual={visual} className="my-0" />
                 </ChatVisualActionsProvider>
               </div>
@@ -135,7 +134,7 @@ function Gallery() {
                           {t[theme]} · {t.widths[key]} {WIDTHS[key]}px
                         </figcaption>
                         <ThemedFrame theme={theme} width={WIDTHS[key]} title={`${t[theme]} ${WIDTHS[key]}px`}>
-                          <ChatVisualActionsProvider lookUpRecords={false}>
+                          <ChatVisualActionsProvider sampleRecords>
                             <ChatVisual visual={visual} className="my-0" />
                           </ChatVisualActionsProvider>
                         </ThemedFrame>
@@ -159,7 +158,9 @@ function Gallery() {
 }
 
 export default function ChatVisualsGalleryPage() {
-  const t = getTranslations('common').ai.visuals.gallery;
+  const common = getTranslations('common');
+  const t = common.ai.visuals.gallery;
+  useBreadcrumbs([{ label: common.agents.pageTitle, href: '/agents' }, { label: t.title }]);
   const enabled = useGalleryEnabled();
 
   let body;
@@ -167,18 +168,10 @@ export default function ChatVisualsGalleryPage() {
   else if (enabled) body = <Gallery />;
   else body = <EmptyState icon={Palette} title={t.notAvailable} className="py-24" />;
 
+  // Inside the agents layout (its header and content frame); this page scrolls itself.
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
-      <BreadcrumbHeader
-        segments={[
-          { label: 'WeldSuite', href: '/' },
-          { label: t.breadcrumb, href: '/design/chat-visuals' },
-          { label: t.title, href: '/design/chat-visuals' },
-        ]}
-      />
-      <ModuleContent className="overflow-y-auto">
-        <div className="mx-auto w-full max-w-[1600px] px-6 py-6">{body}</div>
-      </ModuleContent>
+    <div className="h-full w-full overflow-y-auto">
+      <div className="mx-auto w-full max-w-[1600px] px-6 py-6">{body}</div>
     </div>
   );
 }

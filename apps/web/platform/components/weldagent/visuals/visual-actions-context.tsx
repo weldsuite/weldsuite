@@ -9,21 +9,21 @@ import { createContext, useCallback, useContext, useMemo, useRef, type ReactNode
 export interface ChatVisualActions {
   ask?: (prompt: string) => void;
   /**
-   * Whether record cards look up each record's current title (default). The
-   * gallery turns it off: its sample records don't exist, and would all show
-   * as deleted.
+   * The records are samples (the gallery): record cards neither look up the
+   * current title nor open, since the records don't exist and would show as
+   * deleted.
    */
-  lookUpRecords?: boolean;
+  sampleRecords?: boolean;
 }
 
 const ChatVisualActionsContext = createContext<ChatVisualActions>({});
 
 export function ChatVisualActionsProvider({
   ask,
-  lookUpRecords,
+  sampleRecords,
   children,
 }: Readonly<ChatVisualActions & { children: ReactNode }>) {
-  const value = useMemo(() => ({ ask, lookUpRecords }), [ask, lookUpRecords]);
+  const value = useMemo(() => ({ ask, sampleRecords }), [ask, sampleRecords]);
   return <ChatVisualActionsContext.Provider value={value}>{children}</ChatVisualActionsContext.Provider>;
 }
 

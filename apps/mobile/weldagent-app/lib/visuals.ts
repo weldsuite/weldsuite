@@ -1,5 +1,5 @@
 /**
- * Chart geometry for the chat visuals (ADR AGENT-016), drawn with
+ * Chart geometry for the chat visuals (ADR AGENT-017), drawn with
  * react-native-svg: scales, ticks, line and area paths, pie arcs. Pure
  * functions, so the drawing is tested without a renderer.
  */
@@ -15,7 +15,7 @@ export function seriesColor(index: number): string {
 
 /** A round step (1, 2, 5 × 10ⁿ) that splits `span` into about `count` parts. */
 export function niceStep(span: number, count: number): number {
-  if (!(span > 0) || count < 1) return 1;
+  if (span <= 0 || !Number.isFinite(span) || count < 1) return 1;
   const raw = span / count;
   const magnitude = 10 ** Math.floor(Math.log10(raw));
   const residual = raw / magnitude;

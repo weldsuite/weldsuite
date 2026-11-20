@@ -1,6 +1,6 @@
 /**
  * Display tools: the model shows a chart, stat tiles, a table or record cards
- * by calling one of these with a spec (ADR AGENT-016). The tool only checks
+ * by calling one of these with a spec (ADR AGENT-017). The tool only checks
  * the spec; the runtime puts the visual into the reply (a stream marker, see
  * `@weldsuite/app-api-client/schemas/chat-visuals`) and each client draws it.
  *

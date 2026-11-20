@@ -10,6 +10,15 @@ import {
   visualFileName,
   visualFromToolCall,
   visualToCsv,
+  visualToRows,
+  visualToPlainText,
+  visualTitle,
+  visualSummaryLine,
+  readVisualsMetadata,
+  formatVisualNumber,
+  formatVisualValue,
+  formatVisualChange,
+  compareVisualCells,
   type ChatVisual,
 } from './chat-visuals';
 import { encodeQuestionMarker } from './weldagent-questions';
@@ -158,6 +167,27 @@ describe('visualToCsv', () => {
     expect(visualToCsv(table)).toBe('Deal,Amount\r\n"Acme, renewal",12000\r\n"Globex ""big"" deal",8000.5');
   });
 
+  it('defuses text a spreadsheet would run as a formula, and leaves numbers alone', () => {
+    const risky: ChatVisual = {
+      type: 'table',
+      columns: [{ label: 'Subject' }, { label: 'Delta' }],
+      rows: [
+        ['=HYPERLINK("https://evil.example","Open")', -3],
+        ['+cmd|calc', 0],
+        ['@SUM(A1)', 1],
+        ['-dash', 2],
+        ['\tTabbed', 3],
+      ],
+    };
+    expect(visualToCsv(risky).split('\r\n').slice(1)).toEqual([
+      `"'=HYPERLINK(""https://evil.example"",""Open"")",-3`,
+      `'+cmd|calc,0`,
+      `'@SUM(A1),1`,
+      `'-dash,2`,
+      `'\tTabbed,3`,
+    ]);
+  });
+
   it('takes translated headers', () => {
     expect(visualToCsv(chart, { label: 'Label NL' }).split('\r\n')[0]).toBe('Label NL,Tickets');
   });
@@ -173,5 +203,143 @@ describe('recordPagePath', () => {
   it('links records that have a page', () => {
     expect(recordPagePath('task', 'tsk_1')).toBe('/weldflow/task/tsk_1');
     expect(recordPagePath('lead', 'led_1')).toBeNull();
+  });
+
+  it.each([
+    ['article', '/welddesk/help-center/articles/a1'],
+    ['invoice', '/weldbooks/invoices/a1'],
+    ['bill', '/weldbooks/bills/a1'],
+    ['project', '/weldflow/project/a1'],
+    ['domain', '/weldhost/domains/a1'],
+    ['sheet', '/weldsheets/a1'],
+    ['board', '/weldboard/a1'],
+  ])('links a %s', (type, path) => {
+    expect(recordPagePath(type, 'a1')).toBe(path);
+  });
+
+  it('encodes the id', () => {
+    expect(recordPagePath('task', 'a/b')).toBe('/weldflow/task/a%2Fb');
+  });
+});
+
+describe('formatting', () => {
+  it('writes numbers the way the spec asks, in the locale', () => {
+    expect(formatVisualNumber(1234.5, undefined, 'en')).toBe('1,234.5');
+    expect(formatVisualNumber(1234.5, { style: 'number', decimals: 0 }, 'en')).toBe('1,235');
+    expect(formatVisualNumber(48210, { style: 'currency', currency: 'EUR' }, 'nl')).toContain('48.210');
+    expect(formatVisualNumber(48210, { style: 'currency', currency: 'EUR' }, 'en', { compact: true })).toBe('€48.2K');
+    expect(formatVisualNumber(12.5, { style: 'percent' }, 'en')).toBe('12.5%');
+    expect(formatVisualNumber(1_200_000, { style: 'compact' }, 'en')).toBe('1.2M');
+    expect(formatVisualNumber(1200, undefined, 'en', { compact: true })).toBe('1.2K');
+    // A currency without a code is a plain number.
+    expect(formatVisualNumber(10, { style: 'currency' }, 'en')).toBe('10');
+  });
+
+  it('survives a currency code Intl rejects', () => {
+    expect(formatVisualNumber(5, { style: 'currency', currency: 'ZZ' as never }, 'en')).toContain('5');
+  });
+
+  it('writes cells and changes', () => {
+    expect(formatVisualValue(null, undefined, 'en')).toBe('');
+    expect(formatVisualValue(undefined, undefined, 'en')).toBe('');
+    expect(formatVisualValue('text', undefined, 'en')).toBe('text');
+    expect(formatVisualValue(true, undefined, 'en')).toBe('✓');
+    expect(formatVisualValue(false, undefined, 'en')).toBe('–');
+    expect(formatVisualValue(3, { style: 'percent' }, 'en')).toBe('3%');
+    expect(formatVisualChange(12.5, 'en')).toBe('+12.5%');
+    expect(formatVisualChange(-3, 'en')).toBe('-3%');
+    expect(formatVisualChange(0, 'en')).toBe('0%');
+  });
+
+  it('orders cells: numbers by value, text by locale, empty last', () => {
+    expect(compareVisualCells(2, 10, 'en')).toBeLessThan(0);
+    expect(compareVisualCells('item 2', 'item 10', 'en')).toBeLessThan(0);
+    expect(compareVisualCells(null, 1, 'en')).toBeGreaterThan(0);
+    expect(compareVisualCells('', 'a', 'en')).toBeGreaterThan(0);
+    expect(compareVisualCells(null, undefined, 'en')).toBe(0);
+  });
+});
+
+describe('titles, plain text and rows of every type', () => {
+  const stats: ChatVisual = { type: 'stats', items: [{ label: 'Revenue', value: 10 }, { label: 'Churn', value: 2 }] };
+  const records: ChatVisual = {
+    type: 'records',
+    items: [
+      {
+        entityType: 'task',
+        id: 'tsk_1',
+        label: 'Ship it',
+        status: 'Open',
+        subtitle: 'Ops',
+        fields: [{ label: 'Due', value: 'Friday' }],
+      },
+    ],
+  };
+  const untitledTable: ChatVisual = { type: 'table', columns: [{ label: 'Deal' }, { label: 'Stage' }], rows: [['A', null]] };
+
+  it('names an untitled visual by its labels', () => {
+    expect(visualTitle(stats)).toBe('Revenue, Churn');
+    expect(visualTitle(untitledTable)).toBe('Deal, Stage');
+    expect(visualTitle(records)).toBe('Ship it');
+    expect(visualSummaryLine(stats)).toBe('[Figures: Revenue, Churn]');
+    expect(visualToPlainText(stats)).toBe('[Figures: Revenue, Churn]');
+  });
+
+  it('gives the model the data of each kind of visual', () => {
+    const withChange: ChatVisual = { type: 'stats', items: [{ label: 'Revenue', value: 10, change: 5 }] };
+    expect(replyToPlainText(encodeVisualMarker(withChange), { detail: 'data' })).toBe(
+      '[Figures: Revenue — shown to the user: Revenue 10 (+5%)]',
+    );
+    expect(replyToPlainText(encodeVisualMarker(untitledTable), { detail: 'data' })).toBe(
+      '[Table: Deal, Stage — shown to the user: Deal | Stage\nA | ]',
+    );
+    expect(replyToPlainText(encodeVisualMarker(records), { detail: 'data' })).toBe(
+      '[Records: Ship it — shown to the user: task tsk_1 "Ship it" (Open)]',
+    );
+  });
+
+  it('cuts very long data short', () => {
+    const labels = Array.from({ length: 200 }, (_, i) => `Label number ${i}`);
+    const long: ChatVisual = {
+      type: 'chart',
+      kind: 'line',
+      title: 'Long',
+      labels,
+      series: [{ name: 'x', values: labels.map(() => 123456) }],
+    };
+    expect(visualToPlainText(long, { detail: 'data' }).endsWith('…]')).toBe(true);
+  });
+
+  it('writes questions back as text too', () => {
+    const question = { question: 'Which period?', options: [{ label: 'Month' }, { label: 'Year' }] };
+    expect(replyToPlainText(`Sure.${encodeQuestionMarker(question)}`)).toBe(
+      'Sure.\n\n[Asked the user: Which period? Options: Month / Year]',
+    );
+  });
+
+  it('gives every type its rows for CSV', () => {
+    expect(visualToRows(stats)).toEqual([
+      ['Label', 'Value', 'Change (%)'],
+      ['Revenue', 10, null],
+      ['Churn', 2, null],
+    ]);
+    expect(visualToRows(records)).toEqual([
+      ['Label', 'Type', 'Status', 'Details', 'Id'],
+      ['Ship it', 'task', 'Open', 'Ops · Due: Friday', 'tsk_1'],
+    ]);
+    expect(visualFileName({ ...stats, title: '!!!' }, 'csv')).toBe('stats.csv');
+  });
+});
+
+describe('readVisualsMetadata', () => {
+  it('reads the valid visuals of a WeldChat message', () => {
+    expect(readVisualsMetadata({ visuals: [chart, { type: 'nope' }, table] })).toEqual([chart, table]);
+  });
+
+  it('reads nothing from other metadata', () => {
+    expect(readVisualsMetadata(null)).toEqual([]);
+    expect(readVisualsMetadata('x')).toEqual([]);
+    expect(readVisualsMetadata({ visuals: 'x' })).toEqual([]);
+    expect(readVisualsMetadata({ approvals: [] })).toEqual([]);
   });
 });

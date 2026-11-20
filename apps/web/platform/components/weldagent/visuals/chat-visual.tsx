@@ -1,6 +1,6 @@
 /**
  * One visual in an AI reply: a chart, stat tiles, a table or record cards
- * (ADR AGENT-016). The frame carries the title and the actions: expand to a
+ * (ADR AGENT-017). The frame carries the title and the actions: expand to a
  * dialog, download the data (and a chart as an image), and, where the chat
  * allows it, ask about a bar, slice, row or tile.
  */

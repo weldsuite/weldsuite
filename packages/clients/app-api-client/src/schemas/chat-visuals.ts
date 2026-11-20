@@ -1,6 +1,6 @@
 /**
  * Chat visuals — charts, stat tiles, tables and record cards an AI reply can
- * show (ADR AGENT-016). Shared by the agent runtime (the `show_*` tools and
+ * show (ADR AGENT-017). Shared by the agent runtime (the `show_*` tools and
  * the stream marker), the platform and the mobile apps (the renderers).
  *
  * The model never writes markup: it calls a `show_*` tool with a spec, the
@@ -268,6 +268,33 @@ function tidy(text: string): string {
  * finished streaming becomes a `pending-visual` part (a question still
  * streaming is just left out).
  */
+/** The JSON after a marker's prefix, or undefined when it does not parse. */
+function markerJson(body: string, prefix: string): unknown {
+  try {
+    return JSON.parse(body.slice(prefix.length));
+  } catch {
+    return undefined;
+  }
+}
+
+/** What one complete marker carries: a visual, a question, or nothing (malformed or unknown). */
+function readMarker(body: string): { visual: ChatVisual } | { question: AgentQuestion } | null {
+  if (body.startsWith(VISUAL_PREFIX)) {
+    const visual = parseChatVisual(markerJson(body, VISUAL_PREFIX));
+    return visual ? { visual } : null;
+  }
+  if (body.startsWith(ASK_PREFIX)) {
+    const question = parseAgentQuestion(markerJson(body, ASK_PREFIX));
+    return question ? { question } : null;
+  }
+  return null;
+}
+
+/** Whether a marker cut off mid-stream is (or may still become) a visual. */
+function isPendingVisual(body: string): boolean {
+  return body.length > 0 && (body.startsWith(VISUAL_PREFIX) || VISUAL_PREFIX.startsWith(body));
+}
+
 export function splitReplyParts(raw: string): ReplyParts {
   const parts: ReplyPart[] = [];
   const questions: AgentQuestion[] = [];
@@ -276,32 +303,21 @@ export function splitReplyParts(raw: string): ReplyParts {
     if (clean) parts.push({ kind: 'text', text: clean });
   };
   let rest = raw;
-  for (;;) {
-    const start = rest.indexOf(MARKER);
-    if (start < 0) {
-      pushText(rest);
-      break;
-    }
+  let start = rest.indexOf(MARKER);
+  while (start >= 0) {
     pushText(rest.slice(0, start));
     const end = rest.indexOf(MARKER, start + 1);
-    const body = end < 0 ? rest.slice(start + 1) : rest.slice(start + 1, end);
     if (end < 0) {
-      if (body.length > 0 && (body.startsWith(VISUAL_PREFIX) || VISUAL_PREFIX.startsWith(body))) parts.push({ kind: 'pending-visual' });
-      break;
+      if (isPendingVisual(rest.slice(start + 1))) parts.push({ kind: 'pending-visual' });
+      return { parts, questions };
     }
-    try {
-      if (body.startsWith(VISUAL_PREFIX)) {
-        const visual = parseChatVisual(JSON.parse(body.slice(VISUAL_PREFIX.length)));
-        if (visual) parts.push({ kind: 'visual', visual });
-      } else if (body.startsWith(ASK_PREFIX)) {
-        const question = parseAgentQuestion(JSON.parse(body.slice(ASK_PREFIX.length)));
-        if (question) questions.push(question);
-      }
-    } catch {
-      // A malformed marker is dropped.
-    }
+    const carried = readMarker(rest.slice(start + 1, end));
+    if (carried && 'visual' in carried) parts.push({ kind: 'visual', visual: carried.visual });
+    else if (carried) questions.push(carried.question);
     rest = rest.slice(end + 1);
+    start = rest.indexOf(MARKER);
   }
+  pushText(rest);
   return { parts, questions };
 }
 
@@ -373,25 +389,38 @@ function cellText(value: TableCell | undefined): string {
   return String(value);
 }
 
+/** One chart series as text: `Tickets: Open 12, Solved 30`. */
+function seriesText(labels: string[], series: ChartVisual['series'][number]): string {
+  const points = labels.map((label, i) => `${label} ${series.values[i] ?? '-'}`);
+  return `${series.name}: ${points.join(', ')}`;
+}
+
+/** One stat as text: `Revenue 1200 (+12.5%)`. */
+function statText(item: StatItem): string {
+  if (item.change === undefined) return `${item.label} ${item.value}`;
+  const sign = item.change > 0 ? '+' : '';
+  return `${item.label} ${item.value} (${sign}${item.change}%)`;
+}
+
+/** One record as text: `ticket tkt_1 "Login fails" (Open)`. */
+function recordText(item: RecordItem): string {
+  const base = `${item.entityType} ${item.id} "${item.label}"`;
+  return item.status ? `${base} (${item.status})` : base;
+}
+
 /** A visual's data as compact text the model can read back next turn. */
 function visualDataText(visual: ChatVisual): string {
   switch (visual.type) {
     case 'chart':
-      return visual.series
-        .map((s) => `${s.name}: ${visual.labels.map((label, i) => `${label} ${s.values[i] ?? '-'}`).join(', ')}`)
-        .join('; ');
+      return visual.series.map((s) => seriesText(visual.labels, s)).join('; ');
     case 'stats':
-      return visual.items
-        .map((item) => `${item.label} ${item.value}${item.change === undefined ? '' : ` (${item.change > 0 ? '+' : ''}${item.change}%)`}`)
-        .join(', ');
+      return visual.items.map(statText).join(', ');
     case 'table':
       return [visual.columns.map((c) => c.label).join(' | '), ...visual.rows.map((row) => row.map(cellText).join(' | '))].join(
         '\n',
       );
     case 'records':
-      return visual.items
-        .map((item) => `${item.entityType} ${item.id} "${item.label}"${item.status ? ` (${item.status})` : ''}`)
-        .join(', ');
+      return visual.items.map(recordText).join(', ');
     default:
       return '';
   }
@@ -451,9 +480,16 @@ const DEFAULT_CSV_HEADERS: VisualCsvHeaders = {
   id: 'Id',
 };
 
+/** Text a spreadsheet would read as a formula (`=HYPERLINK(…)`, `+cmd|…`, `@SUM(…)`). */
+const FORMULA_START = /^[=+\-@\t\r]/;
+
 function csvCell(value: unknown): string {
   if (value === null || value === undefined) return '';
-  const text = String(value);
+  const raw = String(value);
+  // Cell text comes from the model, which copies workspace data outsiders can
+  // write (ticket subjects, lead names): never let Excel or Sheets run it.
+  // Numbers stay as they are, so negative numbers still export as numbers.
+  const text = typeof value === 'string' && FORMULA_START.test(raw) ? `'${raw}` : raw;
   return /[",\n\r;]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 

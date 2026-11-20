@@ -2,8 +2,10 @@
  * Record cards from a `show_records` spec. The title is looked up live (a
  * renamed ticket shows its new name; one the reader cannot see or that was
  * deleted is greyed out); the rest is what the AI saw when it answered. A
- * click opens the record the way a tagged record in chat does: its sheet, or
- * its page when it has no sheet (cmd/ctrl-click: a new tab).
+ * click opens the record in the page's object panel, beside the chat, or its
+ * page when it has no panel (cmd/ctrl-click: a new tab). Not through the
+ * entity sheet: its host sits in the app shell, outside the page's row, and
+ * the in-flow panels it mounts there end up below the page.
  */
 
 import { useCallback, useRef, type MouseEvent } from 'react';
@@ -28,8 +30,9 @@ import { SoftBadge } from '@weldsuite/ui/components/soft-badge';
 import { cn } from '@/lib/utils';
 import { useRouter } from '@/lib/router';
 import { toPublicPath } from '@/lib/workspace-url-rewrite';
-import { useEntitySheet } from '@/components/entity-sheet/use-entity-sheet';
-import { hasEntitySheetRenderer } from '@/components/entity-sheet/registry-meta';
+import { useObjectPanel } from '@/components/object-panel/use-object-panel';
+import { resolveObjectPanel } from '@/components/object-panel/object-panel-registry';
+import type { ObjectType } from '@/components/object-panel/types';
 import type { EntitySheetType } from '@/components/entity-sheet/types';
 import { hasEntityTitleLookup, useEntityTitle } from '@/app/weldchat/hooks/use-entity-title';
 import { useChatVisualActions } from './visual-actions-context';
@@ -54,25 +57,39 @@ export interface RecordCardLabels {
   deleted: (name: string) => string;
 }
 
-/** The entity sheet's name for a record type, or null for a type it does not know. */
-function sheetTypeOf(type: string): EntitySheetType | null {
+/** The entity types' names for the same records as object panels. */
+const PANEL_TYPE: Partial<Record<RecordItem['entityType'], ObjectType>> = {
+  contact: 'person',
+  customer: 'company',
+};
+
+/** The title lookup's name for a record type, or null for a type it does not know. */
+function titleTypeOf(type: string): EntitySheetType | null {
   return SEARCH_ENTITY_TYPES_SET.has(type) ? (type as EntitySheetType) : null;
+}
+
+/** The object panel that shows this record type, or null when it has none. */
+function panelTypeOf(type: RecordItem['entityType']): ObjectType | null {
+  const candidate = PANEL_TYPE[type] ?? (type as ObjectType);
+  return resolveObjectPanel(candidate) ? candidate : null;
 }
 
 function RecordCard({ item, labels }: Readonly<{ item: RecordItem; labels: RecordCardLabels }>) {
   const router = useRouter();
-  const { open: openEntitySheet } = useEntitySheet();
+  const { open: openPanel } = useObjectPanel();
   const newTab = useRef(false);
-  const { lookUpRecords = true } = useChatVisualActions();
-  const sheetType = sheetTypeOf(item.entityType);
+  const { sampleRecords = false } = useChatVisualActions();
+  const titleType = titleTypeOf(item.entityType);
   // A type the title lookup does not know is never fetched (an empty id disables it).
-  const lookedUp = lookUpRecords && sheetType !== null && hasEntityTitleLookup(sheetType);
-  const { status, title } = useEntityTitle(sheetType ?? 'task', lookedUp ? item.id : '');
-  const hasSheet = sheetType !== null && hasEntitySheetRenderer(sheetType);
+  const lookedUp = !sampleRecords && titleType !== null && hasEntityTitleLookup(titleType);
+  const { status, title } = useEntityTitle(titleType ?? 'task', lookedUp ? item.id : '');
+  // The record opens in the page's own object panel, beside the chat, like a
+  // record opened from a list; a record type without one opens its page.
+  const panelType = panelTypeOf(item.entityType);
   const pageHref = recordPagePath(item.entityType, item.id);
   const name = lookedUp && status === 'ok' && title ? title : item.label;
   const unavailable = lookedUp && (status === 'forbidden' || status === 'notfound');
-  const openable = !unavailable && (hasSheet || !!pageHref);
+  const openable = !sampleRecords && !unavailable && (panelType !== null || !!pageHref);
   const Icon = ICONS[item.entityType] ?? FileText;
 
   const captureIntent = useCallback((event: MouseEvent) => {
@@ -88,10 +105,10 @@ function RecordCard({ item, labels }: Readonly<{ item: RecordItem; labels: Recor
         window.open(toPublicPath(pageHref), '_blank', 'noopener');
         return;
       }
-      if (hasSheet && sheetType) openEntitySheet(sheetType, item.id);
+      if (panelType) openPanel({ type: panelType, id: item.id });
       else if (pageHref) router.push(pageHref);
     },
-    [hasSheet, sheetType, pageHref, openEntitySheet, item.id, router],
+    [panelType, pageHref, openPanel, item.id, router],
   );
 
   let tooltip = labels.open(name);

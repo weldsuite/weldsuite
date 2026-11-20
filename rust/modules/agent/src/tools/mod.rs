@@ -28,12 +28,17 @@ mod sandbox_tools;
 pub mod schema;
 mod sheet_tools;
 mod ticket_tools;
+mod visual_tools;
 
 pub use modules::{ModuleCall, ModuleTools, install_module_tools};
 pub use sandbox_tools::{
     SandboxAccess, is_sandbox_tool, model_can_use_computer, tool_result_messages,
 };
 pub use sheet_tools::{SHEET_SCOPED_TOOL_IDS, sheet_call_allowed, sheet_not_allowed};
+pub use visual_tools::{
+    VISUAL_TOOL_IDS, extract_visuals, reply_to_plain_text, shown_visual_marker,
+    visual_to_plain_text,
+};
 pub use weldsuite_sandbox::ToolOutput;
 
 use std::sync::LazyLock;
@@ -55,8 +60,8 @@ pub const AGENT_EDIT_TOOL_IDS: [&str; 5] = [
 ];
 
 /// Tools every agent has, whatever its grants (`alwaysOn` in
-/// `resolveAgentTools`).
-const ALWAYS_ON: [&str; 7] = [
+/// `resolveAgentTools`), the display tools included (they read nothing).
+const ALWAYS_ON: [&str; 11] = [
     "agent.ask_user",
     "agent.save_setup",
     "agent.save_skill",
@@ -64,6 +69,10 @@ const ALWAYS_ON: [&str; 7] = [
     "agent.create_routine",
     "agent.list_routines",
     "agent.update_routine",
+    "agent.show_chart",
+    "agent.show_stats",
+    "agent.show_table",
+    "agent.show_records",
 ];
 
 /// What a tool answers a person who may not change the agent.
@@ -72,7 +81,7 @@ pub(crate) fn not_editor() -> Value {
 }
 
 /// Tool ids ported to Rust.
-pub const PORTED: [&str; 36] = [
+pub const PORTED: [&str; 40] = [
     "tickets.list",
     "tickets.create",
     "sheets.create",
@@ -93,6 +102,10 @@ pub const PORTED: [&str; 36] = [
     "merge.list_pull_requests",
     "merge.open_draft_pull_request",
     "merge.update_issue",
+    "agent.show_chart",
+    "agent.show_stats",
+    "agent.show_table",
+    "agent.show_records",
     "agent.save_setup",
     "agent.ask_user",
     "agent.list_routines",
@@ -130,7 +143,7 @@ pub struct ToolSpec {
 
 /// `PLATFORM_TOOLS`: every tool this edition can run, in catalog order — the
 /// TypeScript array's order (agent, people, tickets, tasks, projects, sheets,
-/// boards, merge, chat, browser), which the builder's catalog and the
+/// boards, merge, display, chat, browser), which the builder's catalog and the
 /// `toolPermissions` list follow.
 pub fn platform_tools() -> &'static [ToolSpec] {
     static TOOLS: LazyLock<Vec<ToolSpec>> = LazyLock::new(|| {
@@ -144,6 +157,7 @@ pub fn platform_tools() -> &'static [ToolSpec] {
         tools.extend(sheet_tools::specs());
         tools.extend(board_tools::specs());
         tools.extend(merge_tools::specs());
+        tools.extend(visual_tools::specs());
         tools.extend(chat_tools::specs());
         tools.extend(sandbox_tools::specs());
         tools
@@ -255,8 +269,9 @@ pub fn effective_agent_permissions(
 
 /// `resolveAgentTools(agentPermissions, enabledTools, canEdit)`: the registry
 /// filtered to what the agent may use. `agent.save_setup` is always available
-/// so unfinished agents can finish onboarding, and `agent.ask_user` so any
-/// agent can put a question to the user.
+/// so unfinished agents can finish onboarding, `agent.ask_user` so any agent
+/// can put a question to the user, and the display tools so any agent can
+/// show data.
 pub fn resolve_agent_tools(
     agent_permissions: &[String],
     enabled_tools: &[String],
@@ -449,6 +464,7 @@ pub async fn execute_tool(ctx: &ToolContext, name: &str, args: &Value) -> Result
         .ok_or_else(|| ToolError::UnknownTool(name.to_owned()))?;
     let args = schema::validate(&tool.parameters, args).map_err(ToolError::InvalidArguments)?;
     match tool.id {
+        id if visual_tools::is_visual_tool_id(id) => visual_tools::execute(id, &args),
         id if id.starts_with("agent.") => agent_tools::execute(ctx, id, &args).await,
         id if id.starts_with("chat.") => chat_tools::execute(ctx, id, &args).await,
         id if id.starts_with("tickets.") => ticket_tools::execute(ctx, id, &args).await,

@@ -29,7 +29,7 @@ use crate::approvals::{
 };
 use crate::tools::{
     SandboxAccess, ToolContext, ToolError, ToolSpec, execute_tool_with, is_sandbox_tool,
-    offered_tools, tool_defs, tools_for_agent_turn,
+    offered_tools, reply_to_plain_text, shown_visual_marker, tool_defs, tools_for_agent_turn,
 };
 use weldsuite_sandbox::Image;
 
@@ -84,6 +84,7 @@ pub fn build_system_prompt(name: &str, system_prompt: &str, has_sandbox_tools: b
          You act on workspace data only through the WeldSuite tools you have been given. Never invent IDs or claim you mutated data without a successful tool result. \
          {PRESENTATION_RULES} {tools_hint}\
          When you need a decision or a missing detail from the user, ask it with ask_user (one question, concrete options) and end your turn. \
+         To present numbers or a list of records, show them with show_chart, show_stats, show_table or show_records rather than a long markdown table or list. \
          Be concise and practical.\n\n{}",
         if own.is_empty() {
             "Help the user with their workspace tasks."
@@ -234,9 +235,12 @@ pub fn to_model_history(rows: &[Value]) -> Vec<ChatMsg> {
                     content: content.to_owned(),
                 }),
                 Some("assistant") => {
+                    // Visuals the reply showed come back as text with their
+                    // numbers, so a follow-up about them can be answered.
+                    let content = reply_to_plain_text(content);
                     let tools = summarize_tool_invocations(&row["toolInvocations"]);
                     let content = if tools.is_empty() {
-                        content.to_owned()
+                        content
                     } else {
                         format!("{content}\n\n{tools}")
                     };
@@ -571,11 +575,13 @@ pub fn actor_may_edit(
 /// [`AiError`]: the 402 gate, no provider, or a provider failure the AI crate
 /// could not fall back from.
 /// Run the tool calls of one model answer; the answers go back to the model.
-/// `asked` is set when `ask_user` ended the turn.
+/// `asked` is set when `ask_user` ended the turn; `shown` gets the marker
+/// of each visual a display tool showed, in order.
 async fn run_tool_calls(
     input: &TurnInput<'_>,
     tool_calls: &[ToolCall],
     invocations: &mut Vec<Value>,
+    shown: &mut Vec<String>,
 ) -> (Vec<Message>, bool) {
     let mut answers: Vec<Part> = Vec::new();
     let mut screenshots: Vec<Message> = Vec::new();
@@ -596,6 +602,13 @@ async fn run_tool_calls(
             )
         };
         asked |= tool_call.name == "ask_user" && !is_error;
+        if !is_error {
+            shown.extend(shown_visual_marker(
+                &tool_call.name,
+                &tool_call.arguments,
+                &answer,
+            ));
+        }
         invocations.push(stored);
         answers.push(Part::ToolResult {
             call_id: tool_call.id.clone(),
@@ -715,8 +728,20 @@ pub async fn stream_turn(input: TurnInput<'_>, out: mpsc::Sender<String>) {
             role: Role::Assistant,
             content: assistant,
         });
-        let (answers, asked) = run_tool_calls(&input, &answer.tool_calls, &mut invocations).await;
+        let mut shown = Vec::new();
+        let (answers, asked) =
+            run_tool_calls(&input, &answer.tool_calls, &mut invocations, &mut shown).await;
         messages.extend(answers);
+        // The visuals the tools showed go out where they were shown.
+        for marker in shown {
+            if separate && !gone {
+                gone = out.send("\n\n".to_owned()).await.is_err();
+            }
+            if !gone {
+                gone = out.send(marker).await.is_err();
+            }
+            separate = true;
+        }
         if asked || tokens >= max_tokens_total {
             return;
         }
@@ -746,6 +771,7 @@ pub async fn run_turn(input: TurnInput<'_>) -> Result<TurnResult, AiError> {
     let defs = tool_defs(&input.tools);
     let mut result = TurnResult::default();
     let mut last_text = String::new();
+    let mut shown: Vec<String> = Vec::new();
 
     for step in 0..max_iterations {
         let mut request = ChatRequest {
@@ -768,7 +794,7 @@ pub async fn run_turn(input: TurnInput<'_>) -> Result<TurnResult, AiError> {
             last_text.clone_from(&reply.text);
         }
         if reply.tool_calls.is_empty() {
-            result.text = reply.text;
+            result.text = with_visuals(&shown, reply.text);
             return Ok(result);
         }
         let mut assistant = vec![Part::Text(reply.text.clone())];
@@ -777,20 +803,38 @@ pub async fn run_turn(input: TurnInput<'_>) -> Result<TurnResult, AiError> {
             role: Role::Assistant,
             content: assistant,
         });
-        let (answers, asked) =
-            run_tool_calls(&input, &reply.tool_calls, &mut result.invocations).await;
+        let (answers, asked) = run_tool_calls(
+            &input,
+            &reply.tool_calls,
+            &mut result.invocations,
+            &mut shown,
+        )
+        .await;
         messages.extend(answers);
         // `ask_user` ends the turn: the answer arrives as the next message.
         if asked {
-            result.text = reply.text;
+            result.text = with_visuals(&shown, reply.text);
             return Ok(result);
         }
         if result.tokens >= max_tokens_total {
             break;
         }
     }
-    result.text = last_text;
+    result.text = with_visuals(&shown, last_text);
     Ok(result)
+}
+
+/// A finished reply with the visuals its turn showed (their markers) before
+/// its text, so the stored turn draws them like the streamed one.
+fn with_visuals(shown: &[String], text: String) -> String {
+    if shown.is_empty() {
+        return text;
+    }
+    let mut parts = shown.to_vec();
+    if !text.trim().is_empty() {
+        parts.push(text);
+    }
+    parts.join("\n\n")
 }
 
 #[cfg(test)]

@@ -90,28 +90,19 @@ interface VisualChartProps {
   otherLabel: string;
 }
 
-export function VisualChart({ visual, locale, expanded = false, onPick, surfaceRef, otherLabel }: Readonly<VisualChartProps>) {
-  const config = useMemo<ChartConfig>(() => {
-    if (visual.kind === 'pie' || visual.kind === 'donut') {
-      return { value: { label: visual.series[0]?.name ?? visual.title } };
-    }
-    return Object.fromEntries(visual.series.map((s, i) => [`s${i}`, { label: s.name, color: seriesColor(i) }]));
-  }, [visual]);
-  const rows = useMemo(() => toRows(visual), [visual]);
-  const format = (value: number, compact = false) => formatNumber(value, visual.format, locale, { compact });
-  const height = expanded ? 'h-[min(60vh,420px)]' : 'h-56';
-  const single = visual.series.length === 1;
+type Format = (value: number, compact?: boolean) => string;
 
-  const pickIndex = (index: number) => {
-    if (!onPick || !Number.isInteger(index) || index < 0 || index >= visual.labels.length) return;
-    const value = single ? visual.series[0].values[index] : null;
-    onPick({ label: visual.labels[index], ...(typeof value === 'number' ? { value } : {}) });
-  };
-  const onChartClick = onPick
-    ? (state: MouseHandlerDataParam) => pickIndex(Number(state.activeTooltipIndex))
-    : undefined;
+/** The library chart's config: one entry per series (`s0`, `s1`, …), or the value of a pie. */
+function chartConfig(visual: ChartVisual): ChartConfig {
+  if (visual.kind === 'pie' || visual.kind === 'donut') {
+    return { value: { label: visual.series[0]?.name ?? visual.title } };
+  }
+  return Object.fromEntries(visual.series.map((s, i) => [`s${i}`, { label: s.name, color: seriesColor(i) }]));
+}
 
-  const tooltip = (
+/** The tooltip: a swatch, the series (or slice) name and the value as the spec formats it. */
+function valueTooltip(config: ChartConfig, format: Format) {
+  return (
     <ChartTooltip
       content={
         <ChartTooltipContent
@@ -131,103 +122,129 @@ export function VisualChart({ visual, locale, expanded = false, onPick, surfaceR
       }
     />
   );
+}
 
-  if (visual.kind === 'pie' || visual.kind === 'donut') {
-    const slices = toSlices(visual, otherLabel);
-    return (
-      <div ref={surfaceRef}>
-        <ChartContainer config={config} className={cn('aspect-auto w-full', height, onPick && 'cursor-pointer')}>
-          <PieChart>
-            {tooltip}
-            <Pie
-              data={slices}
-              dataKey="value"
-              nameKey="label"
-              innerRadius={visual.kind === 'donut' ? '55%' : 0}
-              outerRadius="85%"
-              strokeWidth={2}
-              stroke="var(--background)"
-              isAnimationActive={false}
-              onClick={(_: unknown, index: number) => {
-                const slice = slices[index];
-                if (slice && slice.index >= 0) pickIndex(slice.index);
-              }}
-            >
-              {slices.map((slice, i) => (
-                <Cell key={`${slice.label}-${slice.index}`} fill={seriesColor(i)} />
-              ))}
-            </Pie>
-          </PieChart>
-        </ChartContainer>
-        <ul className="mt-2 flex flex-wrap justify-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-          {slices.map((slice, i) => (
-            <li key={`${slice.label}-${slice.index}`} className="flex items-center gap-1.5">
-              <span className="size-2 shrink-0 rounded-[2px]" style={{ background: seriesColor(i) }} />
-              {slice.label}
-              <span className="tabular-nums text-foreground">{format(slice.value)}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
-    );
-  }
+interface ChartPartProps {
+  visual: ChartVisual;
+  config: ChartConfig;
+  format: Format;
+  /** Tailwind classes for the chart box (height, cursor). */
+  boxClass: string;
+  /** A label (by index) was clicked; absent when the chat cannot ask. */
+  pickIndex?: (index: number) => void;
+  surfaceRef?: Ref<HTMLDivElement>;
+}
 
-  const horizontal = visual.kind === 'bar' && visual.horizontal === true;
-  const legend = visual.series.length > 1 ? <ChartLegend content={<ChartLegendContent />} /> : null;
-  const valueAxis = (
-    <YAxis
-      tickLine={false}
-      axisLine={false}
-      width={48}
-      tickFormatter={(v: number) => format(v, true)}
-    />
+function PieVisual({ visual, config, format, boxClass, pickIndex, surfaceRef, otherLabel }: Readonly<ChartPartProps & { otherLabel: string }>) {
+  const slices = toSlices(visual, otherLabel);
+  const onSliceClick = pickIndex
+    ? (_: unknown, index: number) => {
+        const slice = slices[index];
+        if (slice && slice.index >= 0) pickIndex(slice.index);
+      }
+    : undefined;
+  return (
+    <div ref={surfaceRef}>
+      <ChartContainer config={config} className={boxClass}>
+        <PieChart>
+          {valueTooltip(config, format)}
+          <Pie
+            data={slices}
+            dataKey="value"
+            nameKey="label"
+            innerRadius={visual.kind === 'donut' ? '55%' : 0}
+            outerRadius="85%"
+            strokeWidth={2}
+            stroke="var(--background)"
+            isAnimationActive={false}
+            onClick={onSliceClick}
+          >
+            {slices.map((slice, i) => (
+              <Cell key={`${slice.label}-${slice.index}`} fill={seriesColor(i)} />
+            ))}
+          </Pie>
+        </PieChart>
+      </ChartContainer>
+      <ul className="mt-2 flex flex-wrap justify-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+        {slices.map((slice, i) => (
+          <li key={`${slice.label}-${slice.index}`} className="flex items-center gap-1.5">
+            <span className="size-2 shrink-0 rounded-[2px]" style={{ background: seriesColor(i) }} />
+            {slice.label}
+            <span className="tabular-nums text-foreground">{format(slice.value)}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
-  const labelAxis = <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} minTickGap={16} />;
-  const margin = { left: 0, right: 8, top: 8, bottom: 0 };
+}
+
+const MARGIN = { left: 0, right: 8, top: 8, bottom: 0 };
+
+/** The bars of every series; stacked bars have square corners so the stack reads as one. */
+function bars(visual: ChartVisual, horizontal: boolean) {
   const stackId = visual.stacked ? 'stack' : undefined;
-  const container = cn('aspect-auto w-full', height, onPick && 'cursor-pointer');
+  const rounded: [number, number, number, number] = horizontal ? [0, 3, 3, 0] : [3, 3, 0, 0];
+  return visual.series.map((s, i) => (
+    <Bar
+      key={`${s.name}-${i}`}
+      dataKey={`s${i}`}
+      stackId={stackId}
+      fill={`var(--color-s${i})`}
+      radius={stackId ? 0 : rounded}
+      isAnimationActive={false}
+    />
+  ));
+}
+
+function CartesianVisual({ visual, config, format, boxClass, pickIndex, surfaceRef }: Readonly<ChartPartProps>) {
+  const rows = useMemo(() => toRows(visual), [visual]);
+  const onClick = pickIndex
+    ? (state: MouseHandlerDataParam) => pickIndex(Number(state.activeTooltipIndex))
+    : undefined;
+  const shared = (
+    <>
+      {valueTooltip(config, format)}
+      {visual.series.length > 1 ? <ChartLegend content={<ChartLegendContent />} /> : null}
+    </>
+  );
+  const axes = (
+    <>
+      <CartesianGrid vertical={false} />
+      <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} minTickGap={16} />
+      <YAxis tickLine={false} axisLine={false} width={48} tickFormatter={(v: number) => format(v, true)} />
+    </>
+  );
 
   let chart;
-  if (visual.kind === 'bar' && horizontal) {
+  if (visual.kind === 'bar' && visual.horizontal) {
     chart = (
-      <BarChart data={rows} layout="vertical" margin={margin} onClick={onChartClick}>
+      <BarChart data={rows} layout="vertical" margin={MARGIN} onClick={onClick}>
         <CartesianGrid horizontal={false} />
         <XAxis type="number" tickLine={false} axisLine={false} tickFormatter={(v: number) => format(v, true)} />
         <YAxis type="category" dataKey="label" tickLine={false} axisLine={false} width={96} />
-        {tooltip}
-        {legend}
-        {visual.series.map((_, i) => (
-          <Bar key={i} dataKey={`s${i}`} stackId={stackId} fill={`var(--color-s${i})`} radius={stackId ? 0 : [0, 3, 3, 0]} isAnimationActive={false} />
-        ))}
+        {shared}
+        {bars(visual, true)}
       </BarChart>
     );
   } else if (visual.kind === 'bar') {
     chart = (
-      <BarChart data={rows} margin={margin} onClick={onChartClick}>
-        <CartesianGrid vertical={false} />
-        {labelAxis}
-        {valueAxis}
-        {tooltip}
-        {legend}
-        {visual.series.map((_, i) => (
-          <Bar key={i} dataKey={`s${i}`} stackId={stackId} fill={`var(--color-s${i})`} radius={stackId ? 0 : [3, 3, 0, 0]} isAnimationActive={false} />
-        ))}
+      <BarChart data={rows} margin={MARGIN} onClick={onClick}>
+        {axes}
+        {shared}
+        {bars(visual, false)}
       </BarChart>
     );
   } else if (visual.kind === 'area') {
     chart = (
-      <AreaChart data={rows} margin={margin} onClick={onChartClick}>
-        <CartesianGrid vertical={false} />
-        {labelAxis}
-        {valueAxis}
-        {tooltip}
-        {legend}
-        {visual.series.map((_, i) => (
+      <AreaChart data={rows} margin={MARGIN} onClick={onClick}>
+        {axes}
+        {shared}
+        {visual.series.map((s, i) => (
           <Area
-            key={i}
+            key={`${s.name}-${i}`}
             dataKey={`s${i}`}
             type="monotone"
-            stackId={stackId}
+            stackId={visual.stacked ? 'stack' : undefined}
             stroke={`var(--color-s${i})`}
             fill={`var(--color-s${i})`}
             fillOpacity={0.25}
@@ -240,15 +257,12 @@ export function VisualChart({ visual, locale, expanded = false, onPick, surfaceR
     );
   } else {
     chart = (
-      <LineChart data={rows} margin={margin} onClick={onChartClick}>
-        <CartesianGrid vertical={false} />
-        {labelAxis}
-        {valueAxis}
-        {tooltip}
-        {legend}
-        {visual.series.map((_, i) => (
+      <LineChart data={rows} margin={MARGIN} onClick={onClick}>
+        {axes}
+        {shared}
+        {visual.series.map((s, i) => (
           <Line
-            key={i}
+            key={`${s.name}-${i}`}
             dataKey={`s${i}`}
             type="monotone"
             stroke={`var(--color-s${i})`}
@@ -264,11 +278,28 @@ export function VisualChart({ visual, locale, expanded = false, onPick, surfaceR
 
   return (
     <div ref={surfaceRef}>
-      <ChartContainer config={config} className={container}>
+      <ChartContainer config={config} className={boxClass}>
         {chart}
       </ChartContainer>
     </div>
   );
+}
+
+export function VisualChart({ visual, locale, expanded = false, onPick, surfaceRef, otherLabel }: Readonly<VisualChartProps>) {
+  const config = useMemo(() => chartConfig(visual), [visual]);
+  const format: Format = (value, compact = false) => formatNumber(value, visual.format, locale, { compact });
+  const boxClass = cn('aspect-auto w-full', expanded ? 'h-[min(60vh,420px)]' : 'h-56', onPick && 'cursor-pointer');
+  // A click picks a label; with one series (or a slice) its value comes along.
+  const pickIndex = onPick
+    ? (index: number) => {
+        if (!Number.isInteger(index) || index < 0 || index >= visual.labels.length) return;
+        const value = visual.series.length === 1 ? visual.series[0].values[index] : null;
+        onPick({ label: visual.labels[index], ...(typeof value === 'number' ? { value } : {}) });
+      }
+    : undefined;
+  const props = { visual, config, format, boxClass, pickIndex, surfaceRef };
+  if (visual.kind === 'pie' || visual.kind === 'donut') return <PieVisual {...props} otherLabel={otherLabel} />;
+  return <CartesianVisual {...props} />;
 }
 
 /**

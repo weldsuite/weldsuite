@@ -17,7 +17,7 @@ export const featureFlagsResponseSchema = z.object({
   'weldhr-payroll': z.boolean(),
   /** Sending the Dutch loonaangifte over Digipoort. */
   'weldhr-payroll-digipoort': z.boolean(),
-  /** The team's chat visuals gallery (/design/chat-visuals). */
+  /** The team's chat visuals gallery (/agents/visuals). */
   'chat-visuals-gallery': z.boolean(),
 });
 

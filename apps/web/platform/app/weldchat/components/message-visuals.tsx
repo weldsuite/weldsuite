@@ -1,6 +1,6 @@
 /**
  * The visuals an agent showed in its reply (`metadata.visuals`, ADR
- * AGENT-016): charts, stat tiles, tables and record cards under the message
+ * AGENT-017): charts, stat tiles, tables and record cards under the message
  * text. "Ask about this" writes `@Agent Tell me more about …` in the composer
  * of the thread the message is in.
  */

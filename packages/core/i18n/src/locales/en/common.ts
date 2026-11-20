@@ -1156,7 +1156,6 @@ export const common = {
         },
         gallery: {
           title: 'Chat visuals',
-          breadcrumb: 'Design',
           intro:
             'The charts, figures, tables and record cards the AI shows in chat. Pick an example, change its spec and check it in both themes and at every width.',
           notAvailable: 'This page is not available in your workspace.',

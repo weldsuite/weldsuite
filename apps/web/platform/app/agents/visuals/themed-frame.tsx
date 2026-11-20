@@ -32,7 +32,9 @@ interface ThemedFrameProps {
 
 export function ThemedFrame({ theme, width, title, children, className }: Readonly<ThemedFrameProps>) {
   const frameRef = useRef<HTMLIFrameElement>(null);
-  const [body, setBody] = useState<HTMLElement | null>(null);
+  // Where the children go: a node of our own in the frame's body, so the
+  // portal can always take its content out again, even once the frame is gone.
+  const [mount, setMount] = useState<HTMLElement | null>(null);
   const [height, setHeight] = useState(160);
 
   // Set the frame up once: an empty document with the app's styles.
@@ -53,7 +55,9 @@ export function ThemedFrame({ theme, width, title, children, className }: Readon
     doc.body.style.margin = '0';
     // The frame grows with its content (below); it never scrolls itself.
     doc.documentElement.style.overflow = 'hidden';
-    setBody(doc.body);
+    const node = doc.createElement('div');
+    doc.body.appendChild(node);
+    setMount(node);
 
     let pending = 0;
     const observer = new MutationObserver(() => {
@@ -68,19 +72,19 @@ export function ThemedFrame({ theme, width, title, children, className }: Readon
   }, []);
 
   useEffect(() => {
-    const doc = body?.ownerDocument;
+    const doc = mount?.ownerDocument;
     if (!doc) return;
     doc.documentElement.classList.toggle('dark', theme === 'dark');
     doc.documentElement.style.colorScheme = theme;
-  }, [body, theme]);
+  }, [mount, theme]);
 
   // The frame is as tall as what it shows.
   useEffect(() => {
-    if (!body) return;
-    const observer = new ResizeObserver(() => setHeight(Math.max(80, Math.ceil(body.scrollHeight))));
-    observer.observe(body);
+    if (!mount) return;
+    const observer = new ResizeObserver(() => setHeight(Math.max(80, Math.ceil(mount.scrollHeight))));
+    observer.observe(mount);
     return () => observer.disconnect();
-  }, [body]);
+  }, [mount]);
 
   return (
     <>
@@ -90,7 +94,7 @@ export function ThemedFrame({ theme, width, title, children, className }: Readon
         style={{ width, height }}
         className={cn('block shrink-0 rounded-lg border bg-background', className)}
       />
-      {body && createPortal(<div className="p-3">{children}</div>, body)}
+      {mount && createPortal(<div className="p-3">{children}</div>, mount)}
     </>
   );
 }

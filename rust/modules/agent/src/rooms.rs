@@ -33,7 +33,7 @@ use crate::agents::get_agent;
 use crate::approvals::approval_label;
 use crate::run::{RunEnv, tool_context, turn_sandbox};
 use crate::runs::{RunCompletion, complete_agent_run, create_agent_run, mark_run_running};
-use crate::tools::EventSink;
+use crate::tools::{EventSink, extract_visuals, visual_to_plain_text};
 
 /// How many earlier messages an agent reads before the one it answers.
 const ROOM_CONTEXT_LIMIT: i64 = 12;
@@ -318,8 +318,8 @@ async fn load_room_context(
     exclude_message_id: &str,
     thread_id: Option<&str>,
 ) -> Result<Vec<ChatMsg>, sqlx::Error> {
-    let rows: Vec<(String, String, String, String)> = sqlx::query_as(
-        "select id, author_name, author_type, content from chat_messages
+    let rows: Vec<(String, String, String, String, Option<Value>)> = sqlx::query_as(
+        "select id, author_name, author_type, content, metadata from chat_messages
          where channel_id = $1 and deleted_at is null
            and (case when $2::text is null then parent_id is null else (id = $2 or parent_id = $2) end)
          order by created_at desc limit $3",
@@ -333,13 +333,22 @@ async fn load_room_context(
         .into_iter()
         .rev()
         .filter(|(id, ..)| id != exclude_message_id)
-        .map(|(_, name, author_type, content)| ChatMsg {
-            role: if author_type == "agent" {
-                weldsuite_ai::Role::Assistant
-            } else {
-                weldsuite_ai::Role::User
-            },
-            content: format!("[{name}]: {content}"),
+        .map(|(_, name, author_type, content, metadata)| {
+            // Visuals an agent showed, with their numbers, so "what about
+            // March?" can be answered.
+            let mut parts = vec![content];
+            if let Some(visuals) = metadata.as_ref().and_then(|m| m["visuals"].as_array()) {
+                parts.extend(visuals.iter().map(|v| visual_to_plain_text(v, true)));
+            }
+            parts.retain(|part| !part.is_empty());
+            ChatMsg {
+                role: if author_type == "agent" {
+                    weldsuite_ai::Role::Assistant
+                } else {
+                    weldsuite_ai::Role::User
+                },
+                content: format!("[{name}]: {}", parts.join("\n\n")),
+            }
         })
         .collect())
 }
@@ -443,7 +452,7 @@ async fn post_agent_message(
         }
         let extra_meta: serde_json::Map<String, Value> = metadata
             .iter()
-            .filter(|(k, _)| k.as_str() == "approvals")
+            .filter(|(k, _)| matches!(k.as_str(), "approvals" | "visuals"))
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
         if !extra_meta.is_empty() {
@@ -712,20 +721,33 @@ async fn reply_as_agent(
     };
     // Actions the agent parked for approval ride on its reply, so the room can
     // show Approve / Reject under it; with nothing else to say, it says that.
+    // Visuals it showed ride on the reply too (`metadata.visuals`): the room
+    // draws them under the text, and `content` stays plain text for the
+    // mobile app, notifications and search (`roomReplyMessage`).
     let approvals = pending_approvals_of(&done.invocations);
+    let (shown_text, visuals) = extract_visuals(&done.text);
     let text = {
-        let t = done.text.trim();
-        if t.is_empty() && !approvals.is_empty() {
+        let t = shown_text.trim();
+        if !t.is_empty() {
+            t.to_owned()
+        } else if !approvals.is_empty() {
             approvals_notice(&approvals)
         } else {
-            t.to_owned()
+            visuals
+                .iter()
+                .map(|v| visual_to_plain_text(v, false))
+                .collect::<Vec<_>>()
+                .join("\n")
         }
     };
-    let extra = if approvals.is_empty() {
-        json!({})
-    } else {
-        json!({ "approvals": approvals })
-    };
+    let mut extra = serde_json::Map::new();
+    if !approvals.is_empty() {
+        extra.insert("approvals".into(), json!(approvals));
+    }
+    if !visuals.is_empty() {
+        extra.insert("visuals".into(), Value::Array(visuals));
+    }
+    let extra = Value::Object(extra);
     let posted = if text.is_empty() {
         None
     } else {

@@ -165,6 +165,11 @@ function failed(inv: Invocation): boolean {
   return !!r && typeof r === 'object' && typeof r.error === 'string';
 }
 
+/** A visual the agent showed is in the reply itself, not a step worth listing; a failed one still is. */
+function isNotShownVisual(inv: Invocation): boolean {
+  return !isShowVisualTool(inv.toolName) || failed(inv);
+}
+
 /** Message lists merged into one, deduplicated by id, oldest first (later lists win). */
 export function mergeMessages(...lists: WeldAgentMessage[][]): WeldAgentMessage[] {
   const byId = new Map<string, WeldAgentMessage>();
@@ -186,10 +191,8 @@ export function buildThread(messages: WeldAgentMessage[]): ThreadItem[] {
     const approvals: ThreadApproval[] = [];
     const routines: ThreadRoutine[] = [];
 
-    for (const inv of readInvocations(m.toolInvocations)) {
+    for (const inv of readInvocations(m.toolInvocations).filter(isNotShownVisual)) {
       if (inv.toolName === DELEGATION_TOOL_NAME) continue;
-      // A shown visual is in the reply itself, not a step worth listing.
-      if (isShowVisualTool(inv.toolName) && !failed(inv)) continue;
       const routine = scheduledRoutine(inv);
       if (routine) {
         routines.push(routine);

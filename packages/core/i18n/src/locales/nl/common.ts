@@ -1153,7 +1153,6 @@ export const common = {
         },
         gallery: {
           title: 'Chatvisuals',
-          breadcrumb: 'Ontwerp',
           intro:
             'De grafieken, kerncijfers, tabellen en recordkaarten die de AI in de chat toont. Kies een voorbeeld, pas de spec aan en bekijk het in beide thema’s en op elke breedte.',
           notAvailable: 'Deze pagina is niet beschikbaar in je werkruimte.',
