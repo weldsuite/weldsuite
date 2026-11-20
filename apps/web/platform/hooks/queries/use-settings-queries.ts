@@ -163,11 +163,12 @@ export function useWorkspaceMembers(page?: number, pageSize?: number, enabled = 
  * one page (the server caps that at 100). Assignee pickers that claim the
  * whole directory use this instead.
  */
-export function useWorkspaceMemberDirectory(enabled = true) {
+export function useWorkspaceMemberDirectory(enabled = true, options?: { staleTime?: number }) {
   const { getClient } = useAppApiClient();
   return useQuery({
     queryKey: settingsKeys.members({ directory: 'all', memberType: 'all' }),
     enabled,
+    staleTime: options?.staleTime,
     queryFn: async () => {
       const client = await getClient();
       const data = await collectWorkspaceMemberPages<WorkspaceMember>(async (cursor) => {

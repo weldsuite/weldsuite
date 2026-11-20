@@ -57,6 +57,7 @@ import { formatLocalized } from '@/lib/i18n/date-locale';
 import { format, isThisYear, isToday } from 'date-fns';
 import { attachmentIcon } from '@/app/weldmail/lib/attachment-icon';
 import { useUser } from '@/lib/auth';
+import { useCurrentUserAvatar } from '@/hooks/use-member-avatar';
 import { ComposeSurface } from '@/app/weldmail/components/compose-surface';
 import type { ComposeAiOptions } from '@/app/weldmail/components/compose-ai-island';
 import { withPendingInput } from '@/app/weldmail/components/compose-recipients';
@@ -1147,6 +1148,7 @@ function messageActionLabels(
 export function MessageDetail({ message, thread = [], accountId, folder, availableLabels = [], onLabelsChange, threadId, drafts = [], onClose }: Readonly<MessageDetailProps>) {
   const { t, plural } = useI18n();
   const { user } = useUser();
+  const selfAvatar = useCurrentUserAvatar();
   const notifySendError = useNotifySendError();
   const router = useRouter();
   const pathname = usePathname();
@@ -2068,7 +2070,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     return (
       <div className="flex items-start gap-3 px-3 md:px-4 pt-2 pb-4">
         <SenderAvatar
-          avatarUrl={user?.imageUrl ?? undefined}
+          avatarUrl={selfAvatar}
           sender={user?.fullName || accountEmail || ''}
           fallbackChar="?"
           fallbackClassName="text-white text-sm font-medium"

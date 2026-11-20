@@ -10,6 +10,7 @@ import { useCreateCustomerNote, useUpdateCustomerNote, useDeleteCustomerNote } f
 import { useWorkspaceMembers } from '@/hooks/queries/use-settings-queries';
 import type { Member } from '@weldsuite/core-api-client/schemas/members';
 import { useUser } from '@/lib/auth';
+import { useCurrentUserAvatar } from '@/hooks/use-member-avatar';
 import { toast } from 'sonner';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter } from '@/components/entity-list';
@@ -59,6 +60,7 @@ export function NotesSection({ customer, activities }: Readonly<NotesSectionProp
   const deleteNoteMutation = useDeleteCustomerNote();
   const { data: membersData } = useWorkspaceMembers(1, 100);
   const { user } = useUser();
+  const selfAvatar = useCurrentUserAvatar();
   // The compact panel (~500px) gets a stripped-down layout; expanded panel
   // mirrors the page route's full-width layout.
   const isPanel = (mode === 'panel' && !isExpanded) || mode === 'embedded';
@@ -78,7 +80,7 @@ export function NotesSection({ customer, activities }: Readonly<NotesSectionProp
     activities.map(a => activityToNote(a, customerName, memberById, {
       id: user?.id,
       name: user?.fullName || user?.firstName || user?.primaryEmailAddress?.emailAddress,
-      picture: user?.imageUrl,
+      picture: selfAvatar,
     }))
   );
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
@@ -89,9 +91,9 @@ export function NotesSection({ customer, activities }: Readonly<NotesSectionProp
     setNotes(activities.map(a => activityToNote(a, customerName, memberById, {
       id: user?.id,
       name: user?.fullName || user?.firstName || user?.primaryEmailAddress?.emailAddress,
-      picture: user?.imageUrl,
+      picture: selfAvatar,
     })));
-  }, [activities, customerName, memberById, user?.id, user?.fullName, user?.firstName, user?.primaryEmailAddress?.emailAddress, user?.imageUrl]);
+  }, [activities, customerName, memberById, user?.id, user?.fullName, user?.firstName, user?.primaryEmailAddress?.emailAddress, selfAvatar]);
 
   // Memoize available authors for filters
   const availableAuthors = useMemo(() =>
@@ -243,7 +245,7 @@ export function NotesSection({ customer, activities }: Readonly<NotesSectionProp
         customerId: customer.id,
         customerName,
         authorName: currentAuthorName,
-        authorAvatar: user?.imageUrl || undefined,
+        authorAvatar: selfAvatar,
       } as Note;
       setNotes([newNote, ...notes]);
       setSelectedNote(newNote);

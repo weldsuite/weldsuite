@@ -22,6 +22,7 @@ import {
 } from '@weldsuite/ui/components/select';
 import { useParams } from '@/lib/router';
 import { useUser, useOrganization } from '@/lib/auth';
+import { useCurrentUserAvatar } from '@/hooks/use-member-avatar';
 import { useBookingPage, useUpdateBookingPage, useCreateBookingPage, type BookingPage, type BookingQuestion } from '@/hooks/queries/use-calendar-queries';
 import { getBookingPortalUrl } from '@/lib/weldcalendar/booking-portal-url';
 import { useSetAtom } from 'jotai';
@@ -193,7 +194,7 @@ export default function BookingPageDetailPage() {
   // Guests book through the public booking portal, never through the platform origin.
   const bookingPortalUrl = getBookingPortalUrl();
   const userName = user?.fullName || user?.firstName || 'User';
-  const userAvatar = user?.imageUrl;
+  const userAvatar = useCurrentUserAvatar();
 
   const [discardDialogOpen, setDiscardDialogOpen] = useState(false);
 

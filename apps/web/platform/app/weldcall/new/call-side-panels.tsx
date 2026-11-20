@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { useUser } from '@/lib/auth';
+import { useCurrentUserAvatar } from '@/hooks/use-member-avatar';
 import { ChevronLeft, Mic, MicOff } from 'lucide-react';
 import { Separator } from '@weldsuite/ui/components/separator';
 import {
@@ -118,6 +119,7 @@ function PersonRow({ name, detail, initials, picture, colorSeed, inCall, micEnab
 
 export function CallPeoplePanel({ callState }: Readonly<{ callState: CallStateValue }>) {
   const { user } = useUser();
+  const avatar = useCurrentUserAvatar();
   const tn = getTranslations('weldmeet').weldcall.newCall;
   const isConnected = callState.status === 'connected';
   const { contactName } = callState;
@@ -135,7 +137,7 @@ export function CallPeoplePanel({ callState }: Readonly<{ callState: CallStateVa
           name={tn.you}
           detail={formatPhoneDisplay(callState.fromNumber)}
           initials={getInitials(user?.fullName || tn.you)}
-          picture={user?.imageUrl}
+          picture={avatar}
           colorSeed={user?.id ?? 'self'}
           inCall
           micEnabled={!callState.isMuted}

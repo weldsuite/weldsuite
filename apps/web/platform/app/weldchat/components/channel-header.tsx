@@ -6,6 +6,7 @@ import { useEntitySheet } from '@/components/entity-sheet/use-entity-sheet';
 import { useObjectPanel } from '@/components/object-panel';
 import { useRouter } from '@/lib/router';
 import { useUser } from '@/lib/auth';
+import { useCurrentUserAvatar } from '@/hooks/use-member-avatar';
 import { ActiveCallBanner } from './active-call-banner';
 import { weldchatKeys } from '@/hooks/queries/use-weldchat-queries';
 import type { ChatChannel, ChatChannelMember } from '@/hooks/queries/use-weldchat-queries';
@@ -128,10 +129,11 @@ export function ChannelHeader({ channel, onOpenMemberPanel }: Readonly<ChannelHe
   const isDm = channel.type === 'dm';
   const isRecordChat = channel.type === 'entity';
   const { user } = useUser();
+  const selfAvatar = useCurrentUserAvatar();
   const self: DmPerson = {
     name: user?.fullName ?? undefined,
     email: user?.primaryEmailAddress?.emailAddress,
-    picture: user?.imageUrl,
+    picture: selfAvatar,
   };
   const dmOther = isDm ? dmCounterpart(channel, self) : null;
 

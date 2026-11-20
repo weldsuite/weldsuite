@@ -5,6 +5,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@/lib/auth';
+import { useCurrentUserAvatar } from '@/hooks/use-member-avatar';
 import { projectKeys } from '@/hooks/queries/use-projects-queries';
 import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
 import { useAppApiClient } from '@/lib/api/use-app-api';
@@ -338,15 +339,16 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
   const targetProgress = useGoalTargetProgress(projectId);
   const [targetsGoalId, setTargetsGoalId] = useState<string | null>(null);
   const { user } = useUser();
+  const selfAvatar = useCurrentUserAvatar();
   const defaultOwner = useMemo(() => {
     const name = user?.fullName || user?.primaryEmailAddress?.emailAddress || '';
     return {
       name,
-      avatar: user?.imageUrl,
+      avatar: selfAvatar,
       initials: ownerInitials(name),
       color: '#8b5cf6',
     };
-  }, [user]);
+  }, [user, selfAvatar]);
   const { open: openObjectPanel } = useObjectPanel();
   const canvasRef = useRef<HTMLDivElement>(null);
   const [existingTasks] = useState<ExistingTask[]>(initialTasks);

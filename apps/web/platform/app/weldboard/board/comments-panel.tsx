@@ -3,12 +3,11 @@ import { Check, MoreVertical, RotateCcw, X } from 'lucide-react';
 import { toast } from 'sonner';
 import type { BoardElement } from '@weldsuite/board-engine';
 import type { RecordCommentMessage } from '@weldsuite/app-api-client';
-import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
 import { Button } from '@weldsuite/ui/components/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@weldsuite/ui/components/dropdown-menu';
 import { useI18n } from '@/lib/i18n/provider';
 import { RecordChatPanelBar } from '@/app/weldchat/components/record-chat-panel-bar';
-import { CommentBody, CommentComposer, initials, type ComposerLabels, type Person } from '@/components/record-comments/comment-parts';
+import { CommentAuthorAvatar, CommentBody, CommentComposer, type ComposerLabels, type Person } from '@/components/record-comments/comment-parts';
 import { fromChatContent } from '@/components/record-comments/mentions';
 import { useRecordComments, type RecordCommentsState } from '@/components/record-comments/use-record-comments';
 import type { BoardController } from '../editor/model/board-controller';
@@ -229,9 +228,7 @@ function CommentEntry({
   const labels: ComposerLabels = { placeholder: tc.placeholder, submit: tc.save, cancel: tc.cancel, noMatch: tc.noMatch };
   return (
     <div className="flex gap-2">
-      <Avatar className="mt-0.5 size-6 shrink-0" aria-hidden>
-        <AvatarFallback className="bg-primary/10 text-[10px] font-semibold text-primary">{initials(message.authorName)}</AvatarFallback>
-      </Avatar>
+      <CommentAuthorAvatar message={message} />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2">
           <span className="truncate text-sm font-medium">{message.authorName}</span>

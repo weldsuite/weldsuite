@@ -12,6 +12,7 @@
 
 import { useMemo, useState, type ReactNode } from 'react';
 import { useUser } from '@/lib/auth';
+import { useCurrentUserAvatar } from '@/hooks/use-member-avatar';
 import { useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { MessageItem } from '@/app/weldchat/components/message-item';
@@ -210,6 +211,7 @@ function FirstMessageComposer({
   onSent: (channel: ObjectChannel, message: unknown) => void;
 }>) {
   const t = useTranslations();
+  const selfAvatar = useCurrentUserAvatar();
   const { data: membersData } = useWorkspaceMembers();
   const membersMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -244,7 +246,7 @@ function FirstMessageComposer({
             channelId: '',
             authorId: currentUser?.id ?? '',
             authorName: currentUser?.fullName || currentUser?.firstName || t('sweep.entities.you'),
-            authorAvatar: currentUser?.imageUrl ?? null,
+            authorAvatar: selfAvatar ?? null,
             content: payload.content,
             htmlContent: null,
             type: 'message',

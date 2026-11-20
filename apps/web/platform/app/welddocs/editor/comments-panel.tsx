@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { Check, MoreVertical, RotateCcw, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
+import { MemberAvatar } from '@/components/member-avatar';
 import type { RecordCommentMessage } from '@weldsuite/app-api-client';
 import { Button } from '@weldsuite/ui/components/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@weldsuite/ui/components/dropdown-menu';
@@ -312,7 +312,7 @@ function ThreadCard({
       </div>
       {suggestion !== null && (
         <div>
-          <Byline name={root.author.id === me ? tr.you : root.author.name || tr.someone} at={root.createdAt} language={language} />
+          <Byline name={root.author.id === me ? tr.you : root.author.name || tr.someone} userId={root.author.id} at={root.createdAt} language={language} />
           <p className="mt-1 text-sm">{suggestion}</p>
           {!controller.readOnly && (
             <div className="mt-2 flex gap-1">
@@ -395,14 +395,36 @@ function describeSuggestion(controller: DocController, id: string, tr: Review): 
   return tr.suggestedAdd.replace('{text}', clip(added));
 }
 
-function Byline({ name, at, edited, language, children }: { name: string; at: number; edited?: boolean; language: string; children?: React.ReactNode }) {
+function Byline({
+  name,
+  userId,
+  picture,
+  at,
+  edited,
+  language,
+  children,
+}: {
+  name: string;
+  /** The author's user id, to show their current profile picture. */
+  userId?: string | null;
+  picture?: string | null;
+  at: number;
+  edited?: boolean;
+  language: string;
+  children?: React.ReactNode;
+}) {
   const { t } = useI18n();
   const when = new Intl.DateTimeFormat(language, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(at));
   return (
     <div className="flex items-start gap-2">
-      <Avatar className="size-7 shrink-0">
-        <AvatarFallback className="bg-blue-600 text-xs font-medium text-white">{initials(name)}</AvatarFallback>
-      </Avatar>
+      <MemberAvatar
+        userId={userId}
+        name={name}
+        picture={picture}
+        className="size-7 shrink-0"
+        fallbackClassName="bg-blue-600 text-xs font-medium text-white"
+        fallback={initials(name)}
+      />
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-medium">{name}</div>
         <div className="text-xs text-muted-foreground">
@@ -439,7 +461,14 @@ function CommentEntry({
   const labels: ComposerLabels = { placeholder: tr.commentPlaceholder, submit: tr.save, cancel: tr.cancel, noMatch: tr.mentionNoMatch };
   return (
     <div>
-      <Byline name={own ? tr.you : message.authorName || tr.someone} at={new Date(message.createdAt).getTime()} edited={message.isEdited} language={language}>
+      <Byline
+        name={own ? tr.you : message.authorName || tr.someone}
+        userId={message.authorId}
+        picture={message.authorAvatar}
+        at={new Date(message.createdAt).getTime()}
+        edited={message.isEdited}
+        language={language}
+      >
         {own && (
           <DropdownMenu modal={false}>
             <DropdownMenuTrigger asChild>

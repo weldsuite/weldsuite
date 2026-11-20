@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@weldsuite/i18n/client', () => ({ useTranslations: () => (key: string) => key }));
 vi.mock('@/lib/auth', () => ({ useUser: () => ({ user: null }) }));
+vi.mock('@/hooks/use-member-avatar', () => ({ useCurrentUserAvatar: () => undefined }));
 vi.mock('@/lib/api/domains/weldchat-entity', () => ({
   weldchatEntityApi: { getEntityChannel: mocks.getEntityChannel, sendEntityMessage: vi.fn() },
 }));

@@ -4,7 +4,7 @@
  */
 
 import { useMemo } from 'react';
-import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
+import { MemberAvatar } from '@/components/member-avatar';
 import { Button } from '@weldsuite/ui/components/button';
 import { EmptyStateIllustration } from '@/components/entity-list';
 import { Loader2, MessageSquare } from 'lucide-react';
@@ -165,14 +165,14 @@ function ChatHistoryMessage({ message, compact }: Readonly<{ message: MeetingCha
         {compact ? (
           <div className="w-6 flex-shrink-0" />
         ) : (
-          <Avatar className="h-6 w-6 flex-shrink-0 mt-0.5">
-            {message.authorAvatar && (
-              <AvatarImage src={message.authorAvatar} />
-            )}
-            <AvatarFallback className="text-[8px]">
-              {(message.authorName || '?')[0].toUpperCase()}
-            </AvatarFallback>
-          </Avatar>
+          <MemberAvatar
+            userId={message.authorId}
+            name={message.authorName}
+            picture={message.authorAvatar}
+            className="h-6 w-6 flex-shrink-0 mt-0.5"
+            fallbackClassName="text-[8px]"
+            fallback={(message.authorName || '?')[0].toUpperCase()}
+          />
         )}
         <div className="flex-1 min-w-0">
           {!compact && (

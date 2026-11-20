@@ -9,6 +9,9 @@ import { useI18n } from '@/lib/i18n/provider';
 
 interface RawTeamAgent {
   id: string;
+  /** The workspace member behind the agent; their profile picture is the avatar. */
+  userId?: string;
+  avatar?: string | null;
   name: string;
   email: string;
   role?: string;
@@ -80,6 +83,8 @@ export default function SupportTeamPage() {
     name: agent.name,
     email: agent.email,
     avatar: getInitials(agent.name),
+    userId: agent.userId,
+    picture: agent.avatar ?? null,
     role: (agent.role || 'agent').replace('_', ' '),
     activeTickets: agent.currentActiveTickets || 0,
     resolvedToday: agent.ticketsResolved || 0,

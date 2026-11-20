@@ -55,6 +55,10 @@ vi.mock('@weldsuite/weldmeet-ui/providers/livekit', () => ({
   initLiveKitMeeting: (options: unknown) => video.init(options),
 }));
 
+vi.mock('@/hooks/use-member-avatar', () => ({
+  useMemberAvatar: (_userId: string | null | undefined, fallback?: string | null) => fallback ?? undefined,
+}));
+
 vi.mock('@/lib/i18n/provider', () => ({
   useI18n: () => ({
     t: {

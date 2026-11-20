@@ -5,6 +5,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
 import { Textarea } from '@weldsuite/ui/components/textarea';
 import type { GateApproval, PhaseGate } from '@weldsuite/app-api-client/domains/project-schedule';
+import { MemberAvatar } from '@/components/member-avatar';
 import { Link } from '@/lib/router';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
@@ -95,9 +96,14 @@ function Approvers({ projectId, gate }: Readonly<{ projectId: string; gate: Phas
             const name = nameOf.get(approverId) ?? '';
             return (
               <li key={approverId} className="flex items-center gap-3">
-                <span aria-hidden className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium">
-                  {initialsOf(name) || <UserIcon className="size-4 text-muted-foreground" />}
-                </span>
+                <MemberAvatar
+                  userId={approverId}
+                  name={name}
+                  aria-hidden
+                  className="size-8 shrink-0"
+                  fallbackClassName="text-xs font-medium"
+                  fallback={initialsOf(name) || <UserIcon className="size-4 text-muted-foreground" />}
+                />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-medium">{approval?.roleLabel ?? (index === 0 ? copy.sponsor : copy.board)}</div>
                   {name && <div className="truncate text-xs text-muted-foreground">{name}</div>}

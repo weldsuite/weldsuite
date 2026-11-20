@@ -61,6 +61,7 @@ import { useAppApiClient } from '@/lib/api/use-app-api';
 import { usePathname, useRouter } from '@/lib/router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@/lib/auth';
+import { useCurrentUserAvatar } from '@/hooks/use-member-avatar';
 import { toast } from 'sonner';
 import { findDmChannelIdForUser, resolveOneToOneDmTarget } from '../lib/dm-links';
 import { parseWeldChatPath } from '../lib/route-segments';
@@ -639,10 +640,11 @@ export function useWeldchatSidebarItems(isActive: boolean): {
   const { getClient } = useAppApiClient();
   const queryClient = useQueryClient();
   const { user } = useUser();
+  const selfAvatar = useCurrentUserAvatar();
   const self: SelfIdentity = {
     id: user?.id ?? null,
     name: user?.fullName || user?.primaryEmailAddress?.emailAddress || '',
-    picture: user?.imageUrl,
+    picture: selfAvatar,
   };
 
   const t = getTranslations('weldchat');

@@ -11,7 +11,12 @@ import {
   useUpdateWorkingHours,
   type WorkingHours,
 } from '@/hooks/queries/use-settings-queries';
-import { useAppApiClient } from '@/lib/api/use-app-api';
+import {
+  useSelfProfile,
+  useUpdateSelfProfile,
+  useUploadSelfAvatar,
+} from '@/hooks/queries/use-self-profile-queries';
+import { useCurrentUserAvatar } from '@/hooks/use-member-avatar';
 import { useI18n } from '@/lib/i18n/provider';
 import { toast } from 'sonner';
 import { getBrowserTimezone } from '@/lib/timezones';
@@ -22,74 +27,68 @@ import {
   validateProfile,
 } from '@/lib/profile-validation';
 
-/** Shape returned by GET|PUT /api/settings/profile. */
-interface SelfProfileResponse {
-  id: string;
-  email: string;
-  name: string;
-  nickname: string;
-  picture: string;
-  phone: string;
-  company: string;
-  jobTitle: string;
-  bio: string;
-  timezone: string;
+const EMPTY_PROFILE: ProfileData = {
+  name: '',
+  email: '',
+  nickname: '',
+  phone: '',
+  jobTitle: '',
+  bio: '',
+  timezone: 'UTC',
+  avatar: '',
+};
+
+function readAsDataUrl(file: File): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
 
 export default function SettingsProfilePage() {
-  const [loading, setLoading] = React.useState(true);
-  const [saving, setSaving] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
-  const [profileData, setProfileData] = React.useState<ProfileData>({
-    name: '',
-    email: '',
-    nickname: '',
-    phone: '',
-    jobTitle: '',
-    bio: '',
-    timezone: 'UTC',
-    avatar: '',
-  });
+  const [profileData, setProfileData] = React.useState<ProfileData>(EMPTY_PROFILE);
   const [profileChanged, setProfileChanged] = React.useState(false);
-  const { getClient } = useAppApiClient();
   const { t } = useI18n();
   const ts = t.settings.profile;
 
-  // Load profile on mount
-  React.useEffect(() => {
-    const loadProfile = async () => {
-      try {
-        const client = await getClient();
-        // app-api answers `{ data }` and throws on non-2xx — reaching this line
-        // IS the success signal (there is no `success` flag to branch on).
-        const { data } = await client.get<{ data: SelfProfileResponse }>('/settings/profile');
-        if (data) {
-          // 'UTC' is the API's untouched default, not a choice: show the
-          // browser's zone instead (and offer Save, so it is persisted).
-          const tz = resolveProfileTimezone(data.timezone, getBrowserTimezone());
-          setProfileData({
-            name: data.name || '',
-            email: data.email || '',
-            nickname: data.nickname || '',
-            phone: data.phone || '',
-            jobTitle: data.jobTitle || '',
-            bio: data.bio || '',
-            timezone: tz.timezone,
-            avatar: data.picture || '',
-          });
-          if (tz.prefilled) setProfileChanged(true);
-        }
-      } catch (error) {
-        console.error('Failed to load profile:', error);
-        toast.error(ts.messages.loadFailed);
-      } finally {
-        setLoading(false);
-      }
-    };
+  // The profile is shared with the rest of the app (it is where your avatar
+  // everywhere comes from), so saves and uploads go through its cache.
+  const { data: profile, isPending, isError } = useSelfProfile();
+  const updateProfile = useUpdateSelfProfile();
+  const uploadAvatar = useUploadSelfAvatar();
+  // The same picture the sidebar, your messages and your teammates show.
+  const avatar = useCurrentUserAvatar();
+  const saving = updateProfile.isPending || uploadAvatar.isPending;
 
-    void loadProfile();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only profile load; ts.messages.loadFailed shouldn't trigger a refetch on locale change.
-  }, [getClient]);
+  // Fill the form from the first profile that arrives; a later refetch must
+  // not overwrite what the user is typing.
+  const formFilled = React.useRef(false);
+  React.useEffect(() => {
+    if (!profile || formFilled.current) return;
+    formFilled.current = true;
+    // 'UTC' is the API's untouched default, not a choice: show the
+    // browser's zone instead (and offer Save, so it is persisted).
+    const tz = resolveProfileTimezone(profile.timezone, getBrowserTimezone());
+    setProfileData({
+      name: profile.name || '',
+      email: profile.email || '',
+      nickname: profile.nickname || '',
+      phone: profile.phone || '',
+      jobTitle: profile.jobTitle || '',
+      bio: profile.bio || '',
+      timezone: tz.timezone,
+      avatar: profile.picture || '',
+    });
+    if (tz.prefilled) setProfileChanged(true);
+  }, [profile]);
+
+  React.useEffect(() => {
+    if (isError) toast.error(ts.messages.loadFailed);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per failed load; ts.messages.loadFailed shouldn't re-toast on locale change.
+  }, [isError]);
 
   const handleProfileChange = (field: string, value: string) => {
     setProfileData(prev => ({
@@ -101,10 +100,8 @@ export default function SettingsProfilePage() {
 
   const handleProfileSave = async () => {
     if (hasProfileErrors(validateProfile(profileData))) return;
-    setSaving(true);
     try {
-      const client = await getClient();
-      const updateData = {
+      await updateProfile.mutateAsync({
         name: profileData.name.trim(),
         nickname: profileData.nickname,
         phone: normalizePhone(profileData.phone),
@@ -113,40 +110,29 @@ export default function SettingsProfilePage() {
         // The Timezone picker enables Save, so it has to be sent — omitting it
         // silently discarded the edit while still toasting success.
         timezone: profileData.timezone,
-      };
-      await client.put<{ data: SelfProfileResponse }>('/settings/profile', updateData);
+      });
       toast.success(ts.messages.updateSuccess);
       setProfileChanged(false);
     } catch (error) {
       console.error('Error saving profile:', error);
       toast.error(ts.messages.updateFailed);
-    } finally {
-      setSaving(false);
     }
   };
 
   const handleAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+    const input = event.target;
+    const file = input.files?.[0];
     if (!file) return;
 
-    setSaving(true);
     try {
-      const client = await getClient();
-      // Convert file to base64 for API transport
-      const reader = new FileReader();
-      const base64 = await new Promise<string>((resolve, reject) => {
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-
-      const { data } = await client.put<{ data: { imageUrl: string } }>('/settings/profile/avatar', {
-        file: base64,
+      // The API takes the image as a base64 data URL.
+      const imageUrl = await uploadAvatar.mutateAsync({
+        file: await readAsDataUrl(file),
         fileName: file.name,
         contentType: file.type,
       });
-      if (data?.imageUrl) {
-        setProfileData(prev => ({ ...prev, avatar: data.imageUrl }));
+      if (imageUrl) {
+        setProfileData(prev => ({ ...prev, avatar: imageUrl }));
         toast.success(ts.messages.avatarSuccess);
       } else {
         toast.error(ts.messages.avatarFailed);
@@ -155,19 +141,18 @@ export default function SettingsProfilePage() {
       console.error('Error uploading avatar:', error);
       toast.error(ts.messages.avatarFailed);
     } finally {
-      setSaving(false);
-      event.target.value = '';
+      input.value = '';
     }
   };
 
-  if (loading) {
+  if (isPending) {
     return <PageLoader fullScreen={false} />;
   }
 
   return (
     <div className="space-y-12">
       <ProfileSection
-        profileData={profileData}
+        profileData={{ ...profileData, avatar: avatar ?? profileData.avatar }}
         profileChanged={profileChanged}
         loading={saving}
         fileInputRef={fileInputRef}

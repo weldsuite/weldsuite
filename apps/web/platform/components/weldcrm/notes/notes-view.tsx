@@ -19,6 +19,7 @@ import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useObjectPanel } from '@/components/object-panel';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { useUser } from '@/lib/auth';
+import { useCurrentUserAvatar } from '@/hooks/use-member-avatar';
 import { usePinnedNote } from '@/contexts/pinned-note-context';
 import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter, type RowHandlers } from '@/components/entity-list';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -81,6 +82,7 @@ export function NotesView({ initialNotes = [] }: Readonly<NotesViewProps>) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user } = useUser();
+  const selfAvatar = useCurrentUserAvatar();
   const { setOnUnpin } = usePinnedNote();
   const { open: openPanel } = useObjectPanel();
   const createNoteMutation = useCreateNote();
@@ -223,7 +225,7 @@ export function NotesView({ initialNotes = [] }: Readonly<NotesViewProps>) {
       recordName: record.displayName,
       recordAvatar: record.avatarUrl,
       authorName: user?.fullName || user?.firstName || user?.primaryEmailAddress?.emailAddress || t('sweep.weldcrm.notesView.you'),
-      authorAvatar: user?.imageUrl || undefined,
+      authorAvatar: selfAvatar,
     };
     setSelectedNote(newNote);
     setShowEditor(true);

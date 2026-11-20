@@ -2,7 +2,7 @@
  * `/auth/login` on an OIDC provider (EU): the screens Global shows, over the
  * backend's `/api/sign-in` (mocked here at `sign-in-api`).
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { en } from '@weldsuite/i18n/locales/en';
@@ -79,6 +79,11 @@ const CREDENTIALS = {
 
 // jsdom lays nothing out; the code field (input-otp) asks where its slots are.
 document.elementFromPoint = () => null;
+
+// input-otp re-syncs the caret on timers it never clears (0, 10 and 50 ms after each
+// change). Let them run before the file's DOM is torn down, or one fires into a
+// missing `window` and fails the run with an unhandled error.
+afterAll(() => new Promise<void>((resolve) => setTimeout(resolve, 100)));
 
 const originalLocation = window.location;
 let replace: ReturnType<typeof vi.fn>;

@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider, type UseQueryResult } from '@tanstack
 
 vi.mock('@weldsuite/i18n/client', () => ({ useTranslations: () => (key: string) => key }));
 vi.mock('@/lib/auth', () => ({ useUser: () => ({ user: null }) }));
+vi.mock('@/hooks/use-member-avatar', () => ({ useCurrentUserAvatar: () => undefined }));
 vi.mock('@/app/weldchat/components/message-input', () => ({
   MessageInput: ({ channelId }: { channelId: string }) => <div data-testid={channelId ? 'live-composer' : 'first-composer'} />,
 }));
