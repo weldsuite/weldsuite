@@ -348,6 +348,10 @@ config:
     sellerCountry: "NL"
     # Days a past-due plan keeps working before it ends on Free (1 to 90).
     graceDays: 14
+    # Days before its renewal that a paid plan without a payment method (a
+    # workspace moved from Global) is warned: one email, and a banner for
+    # billing managers through the grace period (1 to 60).
+    renewalNoticeDays: 14
     # Where checkouts return (empty: <publicUrl>/settings/billing).
     returnUrl: ""
   # The identity provider's management API (Zitadel, ADR SEC-012):

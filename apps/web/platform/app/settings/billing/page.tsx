@@ -521,6 +521,8 @@ function DirectBillingSettings() {
       <MollieBillingNotices
         outstanding={subscription?.outstanding}
         scheduledChange={subscription?.scheduledChange}
+        paymentMethodRequired={subscription?.paymentMethodRequired}
+        planName={subscription?.planName}
         canPay={canManageBilling}
       />
 

@@ -294,6 +294,10 @@ settings, which weldsuite.env adds.
 - name: BILLING_GRACE_DAYS
   value: {{ . | quote }}
 {{- end }}
+{{- with .renewalNoticeDays }}
+- name: BILLING_RENEWAL_NOTICE_DAYS
+  value: {{ . | quote }}
+{{- end }}
 {{- with .returnUrl }}
 - name: BILLING_RETURN_URL
   value: {{ . | quote }}

@@ -245,6 +245,12 @@ pub(crate) async fn set_next_charge(
 }
 
 /// Past due on `payment_row_id` since `since` (kept when already past due).
+///
+/// `dunning_reminded_at` holds, before an account is past due, the renewal
+/// its billing owners were warned about for want of a payment method (one
+/// email per renewal, `renewals::warn_without_payment_method`); while past
+/// due, when they were reminded halfway through the grace period. Going past
+/// due clears the first, so the reminder still goes out.
 pub(crate) async fn set_past_due(
     tx: &mut sqlx::PgConnection,
     workspace_id: &str,
@@ -253,7 +259,10 @@ pub(crate) async fn set_past_due(
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
         "update billing_accounts set past_due_since = coalesce(past_due_since, $3::timestamp),
-             past_due_payment_id = $2, updated_at = now()
+             past_due_payment_id = $2,
+             dunning_reminded_at = case when past_due_since is null then null
+                                        else dunning_reminded_at end,
+             updated_at = now()
          where workspace_id = $1",
     )
     .bind(workspace_id)
