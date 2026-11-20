@@ -990,6 +990,8 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot, tableLabels 
           onDoubleClick={onDoubleClick}
           onContextMenu={onContextMenuOpen}
           role="grid"
+          // Focusable as the grid it is; the keyboard itself stays in the cell editor inside it.
+          tabIndex={-1}
           aria-rowcount={sheet.rowCount}
           aria-colcount={sheet.colCount}
           aria-label={sheet.name}

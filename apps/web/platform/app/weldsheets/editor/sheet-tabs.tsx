@@ -87,6 +87,17 @@ export function SheetTabs({ controller }: { controller: SheetController }) {
                     setOver(null);
                   }}
                   onClick={() => controller.setActiveSheet(sheet.id)}
+                  onKeyDown={(e) => {
+                    // A focused tab: Enter or Space opens its sheet, F2 renames it (as a double click does).
+                    if (e.target !== e.currentTarget) return;
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      controller.setActiveSheet(sheet.id);
+                    } else if (e.key === 'F2' && editable) {
+                      e.preventDefault();
+                      setRenaming(sheet.id);
+                    }
+                  }}
                   onDoubleClick={() => editable && setRenaming(sheet.id)}
                   className={`relative flex max-w-48 shrink-0 cursor-pointer items-center border-r px-4 ${
                     active ? 'bg-background font-medium text-primary' : 'text-muted-foreground hover:bg-accent'
@@ -209,6 +220,9 @@ function RenameField({
   onCancel: () => void;
 }) {
   const settled = useRef(false);
+  const ref = useRef<HTMLInputElement>(null);
+  // Focused (its text selected, by onFocus) as soon as it opens.
+  useEffect(() => ref.current?.focus(), []);
   useEffect(
     () => () => {
       requestAnimationFrame(() => {
@@ -225,7 +239,7 @@ function RenameField({
   };
   return (
     <input
-      autoFocus
+      ref={ref}
       defaultValue={name}
       aria-label={label}
       className="w-28 bg-transparent outline-none"

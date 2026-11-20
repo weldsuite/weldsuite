@@ -91,11 +91,15 @@ export function FindBar({ controller }: { controller: SheetController }) {
     toast.success(count === 1 ? tf.replacedOne : format(tf.replaced, { count }));
   };
 
-  const onKeyDown = (e: React.KeyboardEvent) => {
+  // Keys anywhere in the bar, heard on the bar itself so the options menu (portaled out of it) keeps its own Escape.
+  // Enter steps through matches only from a text box: on a button it presses the button.
+  const onKey = useRef<(e: KeyboardEvent) => void>(() => {});
+  onKey.current = (e) => {
+    if (e.isComposing) return;
     if (e.key === 'Escape') {
       e.preventDefault();
       close();
-    } else if (e.key === 'Enter') {
+    } else if (e.key === 'Enter' && e.target instanceof HTMLInputElement) {
       e.preventDefault();
       go(e.shiftKey ? -1 : 1);
     } else if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'h')) {
@@ -103,6 +107,14 @@ export function FindBar({ controller }: { controller: SheetController }) {
       controller.openFind(e.key === 'h' ? 'replace' : 'find');
     }
   };
+  const barRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const bar = barRef.current;
+    if (!bar) return;
+    const listener = (e: KeyboardEvent) => onKey.current(e);
+    bar.addEventListener('keydown', listener);
+    return () => bar.removeEventListener('keydown', listener);
+  }, []);
 
   const statusText = () => {
     if (!query) return '';
@@ -115,10 +127,10 @@ export function FindBar({ controller }: { controller: SheetController }) {
 
   return (
     <div
+      ref={barRef}
       style={{ top: COL_HEADER_HEIGHT + 4 }}
       className="absolute right-5 z-30 flex w-[min(420px,calc(100%-2rem))] flex-col gap-2 rounded-md border bg-popover p-2 text-sm text-popover-foreground shadow-md"
       role="search"
-      onKeyDown={onKeyDown}
     >
       <div className="flex items-center gap-1">
         <div className="relative min-w-0 flex-1">
@@ -139,14 +151,7 @@ export function FindBar({ controller }: { controller: SheetController }) {
               <Settings2 className="size-4" />
             </Button>
           </PopoverTrigger>
-          <PopoverContent
-            align="end"
-            className="flex w-60 flex-col gap-2 p-3 text-sm"
-            // Escape closes the options only: the bar sees it through the portal otherwise.
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') e.stopPropagation();
-            }}
-          >
+          <PopoverContent align="end" className="flex w-60 flex-col gap-2 p-3 text-sm">
             {(['matchCase', 'wholeCell', 'formulas', 'allSheets'] as const).map((key) => (
               <label key={key} className="flex items-center gap-2">
                 <Checkbox checked={opts[key]} onCheckedChange={(v) => setOpt(key, v === true)} />
