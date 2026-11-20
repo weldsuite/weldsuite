@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { Bookmark, Check, X } from 'lucide-react';
 import { useNavigate } from '@tanstack/react-router';
-import { MemberAvatar } from '@/components/member-avatar';
+import { BookmarkAuthorAvatar } from './bookmark-author-avatar';
 import { Button } from '@weldsuite/ui/components/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
 import {
@@ -176,14 +176,7 @@ export function BookmarksPanel({ embedded = false }: { embedded?: boolean } = {}
     >
       <div className="flex-1 min-w-0 flex items-start gap-3">
         <div className="relative flex-shrink-0 mt-0.5">
-          <MemberAvatar
-            userId={bk.messageAuthorId}
-            name={bk.messageAuthorName}
-            picture={bk.messageAuthorAvatar}
-            className="h-6 w-6"
-            fallbackClassName="text-[10px]"
-            fallback={(bk.messageAuthorName || '?')[0]?.toUpperCase()}
-          />
+          <BookmarkAuthorAvatar bookmark={bk} />
           <span className="absolute -bottom-0.5 -right-0.5 h-[12px] w-[12px] rounded-full bg-background flex items-center justify-center">
             <Bookmark className="h-2.5 w-2.5 text-foreground" />
           </span>

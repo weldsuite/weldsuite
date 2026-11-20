@@ -1,14 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, MessageSquarePlus, MoreVertical, RotateCcw } from 'lucide-react';
 import { toast } from 'sonner';
-import { MemberAvatar } from '@/components/member-avatar';
 import { formatA1 } from '@weldsuite/sheets-engine';
 import type { RecordCommentMessage } from '@weldsuite/app-api-client';
 import { Button } from '@weldsuite/ui/components/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@weldsuite/ui/components/dropdown-menu';
 import { useI18n } from '@/lib/i18n/provider';
 import { RecordChatPanelBar } from '@/app/weldchat/components/record-chat-panel-bar';
-import { CommentBody, CommentComposer, initials, type ComposerLabels, type Person } from '@/components/record-comments/comment-parts';
+import { CommentAuthorAvatar, CommentBody, CommentComposer, type ComposerLabels, type Person } from '@/components/record-comments/comment-parts';
 import { fromChatContent } from '@/components/record-comments/mentions';
 import { useRecordComments, type RecordCommentsState } from '@/components/record-comments/use-record-comments';
 import { addThread, newCommentId, removeThread, setResolved, threadsOf, type Thread } from '../model/comments';
@@ -257,15 +256,7 @@ function CommentEntry({
   const labels: ComposerLabels = { placeholder: tc.placeholder, submit: tc.save, cancel: tc.cancel, noMatch: tc.noMatch };
   return (
     <div className="flex gap-2">
-      <MemberAvatar
-        userId={message.authorId}
-        name={message.authorName}
-        picture={message.authorAvatar}
-        className="mt-0.5 size-6 shrink-0"
-        aria-hidden
-        fallbackClassName="bg-primary/10 text-[10px] font-semibold text-primary"
-        fallback={initials(message.authorName)}
-      />
+      <CommentAuthorAvatar message={message} />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2">
           <span className="truncate text-sm font-medium">{message.authorName}</span>
