@@ -4,7 +4,7 @@
  * summary, for comparing runs).
  */
 
-import { PROFILE, RUN_ID, SCALE, WELD_ENV, WRITE_RATIO } from './config.js';
+import { IS_EU, listOf, PROFILE, RUN_ID, SCALE, TARGET_LABEL, WORKSPACES, WRITE_RATIO } from './config.js';
 
 function fmtMs(n) {
   if (n === undefined) return '-';
@@ -57,6 +57,14 @@ function breakpointLine(elapsed) {
   return `- **No breaking point found** up to ${Math.round(target)} iterations/s. Run again with a higher SCALE.`;
 }
 
+/** ", over 5 workspaces" when the VUs were spread over several. */
+function spread(api) {
+  let count = 1;
+  if (api === 'public') count = listOf(__ENV.WELD_API_KEY).length;
+  else if (IS_EU) count = WORKSPACES.length;
+  return count > 1 ? `, over ${count} workspaces` : '';
+}
+
 export function buildReport(api, data) {
   const metrics = data.metrics;
   const value = (name, field) => (metrics[name] && metrics[name].values ? metrics[name].values[field] : undefined);
@@ -65,12 +73,13 @@ export function buildReport(api, data) {
   const thresholds = thresholdResults(metrics);
   const totalRequests = rows.reduce((sum, row) => sum + row.count, 0);
   const rateLimited = value('rate_limited', 'count') || 0;
+  const byProxy = value('rate_limited_proxy', 'count') || 0;
   const failedMetric = `http_req_failed{api:${api}}`;
 
   const lines = [
     `# WeldSuite pressure test: ${api} / ${PROFILE}`,
     '',
-    `Run ${RUN_ID} against **${WELD_ENV}**, scale ${SCALE}, write share ${Math.round(WRITE_RATIO * 100)}%.`,
+    `Run ${RUN_ID} against **${TARGET_LABEL}**, scale ${SCALE}, write share ${Math.round(WRITE_RATIO * 100)}%${spread(api)}.`,
     '',
     `- Duration: ${elapsed.toFixed(0)}s`,
     `- Peak virtual users: ${value('vus_max', 'value') ?? '-'}`,
@@ -78,6 +87,12 @@ export function buildReport(api, data) {
     `- Failed requests: ${fmtPct(value(failedMetric, 'rate'))}`,
   ];
   if (rateLimited) lines.push(`- Rate limited (429): ${rateLimited}`);
+  if (byProxy) {
+    const proxy = IS_EU ? 'Traefik, 100 requests/s per client address and Traefik pod' : 'the edge in front';
+    lines.push(
+      `- **Of those, ${byProxy} came from the proxy (${proxy}), not from WeldSuite.** This machine's address hit its limit: past this rate the numbers describe the proxy. Spread the load over more addresses (README, "Capacity of the EU install").`,
+    );
+  }
   lines.push(`- Checks passed: ${fmtPct(value('checks', 'rate'))}`);
   if (PROFILE === 'breakpoint') lines.push(breakpointLine(elapsed));
 
