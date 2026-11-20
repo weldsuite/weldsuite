@@ -8,7 +8,9 @@
 //! schema (built from the journaled migrations by `scripts/rust-test-db.ts`)
 //! when `WELDSUITE_TEST_MASTER_URL` and `WELDSUITE_TEST_TENANT_URL` are set,
 //! and returns early otherwise. It only ever switches `discord` and
-//! `gitlab`, so tests of other crates on the same database keep theirs.
+//! `gitlab`, and puts `workspace_settings` back as it found it
+//! (`SettingsSnapshot`), so tests of other crates on the same database never
+//! see its rows.
 
 use std::sync::Arc;
 
@@ -21,6 +23,7 @@ use weldsuite_auth::AuthContext;
 use weldsuite_core_platform::{AuditStreamGateway, AuditStreamTest, CorePlatformState};
 use weldsuite_db::{PgPool, Tenant, WorkspaceRestrictions, master_pool};
 use weldsuite_events::{EntityEventPublisher, TaskTracker};
+use weldsuite_outside_eu::store::SettingsSnapshot;
 use weldsuite_outside_eu::{Enforcement, ServiceId};
 use weldsuite_permissions::ResolvedPermissions;
 use weldsuite_permissions::{MemberRow, PermissionGate, PermissionQueries, Permissions};
@@ -225,15 +228,14 @@ async fn a_member_cannot_switch_and_never_reaches_the_database() {
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
 
-#[tokio::test]
 #[allow(
     clippy::too_many_lines,
     reason = "one switch's whole life, step by step"
 )]
-async fn an_admin_switches_a_service_on_and_off_and_the_backend_follows() {
-    let Some((master, tenant)) = pools() else {
-        return;
-    };
+async fn an_admin_switches_a_service_on_and_off_and_the_backend_follows(
+    master: PgPool,
+    tenant: PgPool,
+) {
     let admin = harness(
         tenant.clone(),
         master.clone(),
@@ -356,11 +358,16 @@ async fn an_admin_switches_a_service_on_and_off_and_the_backend_follows() {
     );
 }
 
-#[tokio::test]
-async fn the_move_from_global_records_an_opt_in() {
-    let Some((_master, tenant)) = pools() else {
-        return;
+async fn the_move_from_global_records_an_opt_in(tenant: PgPool) {
+    let rows = || async {
+        sqlx::query_scalar::<_, i64>(
+            "select count(*) from workspace_settings where deleted_at is null",
+        )
+        .fetch_one(&tenant)
+        .await
+        .expect("count")
     };
+    let rows_before = rows().await;
     let at = "2026-11-20T10:00:00.000Z";
     let change = |enabled| weldsuite_outside_eu::Change {
         service: ServiceId::GitLab,
@@ -374,6 +381,8 @@ async fn the_move_from_global_records_an_opt_in() {
     weldsuite_outside_eu::store::set(&tenant, &change(true))
         .await
         .expect("set");
+    // The one settings row: created when there was none, kept when there was.
+    assert_eq!(rows().await, rows_before.max(1));
     let opt_ins = weldsuite_outside_eu::store::read(&tenant)
         .await
         .expect("read");
@@ -391,7 +400,8 @@ async fn the_move_from_global_records_an_opt_in() {
     sqlx::query(
         "update workspace_settings
          set features = coalesce(features, '{}'::jsonb) || '{\"multiCurrency\": true}'::jsonb
-         where deleted_at is null",
+         where id = (select id from workspace_settings where deleted_at is null
+                     order by created_at limit 1)",
     )
     .execute(&tenant)
     .await
@@ -412,4 +422,32 @@ async fn the_move_from_global_records_an_opt_in() {
             .await
             .is_err()
     );
+}
+
+/// Runs `body` on the shared test database, then puts `workspace_settings`
+/// back as it was, even when `body` panics: CI runs every crate's database
+/// tests on one database, and billing's reads the oldest settings row.
+async fn on_shared_settings<F>(tenant: &PgPool, body: F)
+where
+    F: Future<Output = ()> + Send + 'static,
+{
+    let snapshot = SettingsSnapshot::take(tenant).await.expect("snapshot");
+    let outcome = tokio::spawn(body).await;
+    snapshot.restore(tenant).await.expect("restore");
+    if let Err(error) = outcome {
+        std::panic::resume_unwind(error.into_panic());
+    }
+}
+
+#[tokio::test]
+async fn switches_on_the_tenant_database() {
+    let Some((master, tenant)) = pools() else {
+        return;
+    };
+    let (m, t) = (master.clone(), tenant.clone());
+    on_shared_settings(&tenant, async move {
+        an_admin_switches_a_service_on_and_off_and_the_backend_follows(m, t.clone()).await;
+        the_move_from_global_records_an_opt_in(t).await;
+    })
+    .await;
 }

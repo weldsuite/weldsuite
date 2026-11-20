@@ -203,7 +203,7 @@ pub async fn is_on(db: &PgPool, service: ServiceId) -> Result<bool, sqlx::Error>
 }
 
 /// Switches one service on or off: `(before, after)`. A workspace without a
-/// `workspace_settings` row gets one.
+/// `workspace_settings` row gets one; one with a row keeps it.
 pub async fn set(db: &PgPool, change: &Change<'_>) -> Result<(OptIn, OptIn), sqlx::Error> {
     let mut tx = db.begin().await?;
     let row: Option<(String, Option<Value>)> = sqlx::query_as(
@@ -241,14 +241,18 @@ pub async fn set(db: &PgPool, change: &Change<'_>) -> Result<(OptIn, OptIn), sql
                 .execute(&mut *tx)
                 .await?;
             }
+            // The workspace's one settings row. Every settings writer updates
+            // the existing row and inserts only when there is none, so this
+            // never becomes an older second row that would shadow a later
+            // one (billing's buyer and the settings routes read the oldest).
+            // Stamped with the database's clock, never the caller's `at`.
             None => {
                 sqlx::query(
                     "insert into workspace_settings (id, features, created_at, updated_at)
-                     values ($1, $2::jsonb, $3::timestamptz, $3::timestamptz)",
+                     values ($1, $2::jsonb, now(), now())",
                 )
                 .bind(generate_id("ws"))
                 .bind(&features)
-                .bind(change.at)
                 .execute(&mut *tx)
                 .await?;
             }
@@ -256,6 +260,41 @@ pub async fn set(db: &PgPool, change: &Change<'_>) -> Result<(OptIn, OptIn), sql
     }
     tx.commit().await?;
     Ok((before, after))
+}
+
+/// For tests on a shared database (CI runs every crate's database tests on
+/// one): every `workspace_settings` row's `features` before the test, put
+/// back after it, so a switch the test made, or the row it created, never
+/// reaches another crate's test (billing's reads the oldest row).
+#[derive(Debug, Clone)]
+pub struct SettingsSnapshot {
+    rows: Vec<(String, Option<Value>)>,
+}
+
+impl SettingsSnapshot {
+    pub async fn take(db: &PgPool) -> Result<Self, sqlx::Error> {
+        let rows = sqlx::query_as("select id, features from workspace_settings")
+            .fetch_all(db)
+            .await?;
+        Ok(Self { rows })
+    }
+
+    /// Deletes the rows created since, and puts every row's `features` back.
+    pub async fn restore(&self, db: &PgPool) -> Result<(), sqlx::Error> {
+        let ids: Vec<&str> = self.rows.iter().map(|(id, _)| id.as_str()).collect();
+        sqlx::query("delete from workspace_settings where not (id = any($1))")
+            .bind(&ids)
+            .execute(db)
+            .await?;
+        for (id, features) in &self.rows {
+            sqlx::query("update workspace_settings set features = $2 where id = $1")
+                .bind(id)
+                .bind(features)
+                .execute(db)
+                .await?;
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]

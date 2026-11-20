@@ -22,6 +22,7 @@ use weldsuite_call::CallState;
 use weldsuite_db::{MasterDb, PgPool, Tenant, WorkspaceRestrictions, master_pool};
 use weldsuite_events::{EntityEventPublisher, TaskTracker};
 use weldsuite_kit::RequestEnv;
+use weldsuite_outside_eu::store::SettingsSnapshot;
 use weldsuite_outside_eu::{Change, Enforcement, OFF_CODE, ServiceId, Via, store};
 use weldsuite_permissions::{
     MemberRow, PermissionGate, PermissionQueries, Permissions, ResolvedPermissions,
@@ -188,11 +189,23 @@ fn pools() -> Option<(PgPool, PgPool)> {
     Some((master, tenant))
 }
 
+/// CI runs every crate's database tests on one database: `workspace_settings`
+/// goes back as it was after the test, even when it panics, so no other
+/// crate's test (billing reads the oldest settings row) sees its row.
 #[tokio::test]
 async fn telnyx_is_called_only_once_the_workspace_switched_it_on() {
     let Some((master, tenant)) = pools() else {
         return;
     };
+    let snapshot = SettingsSnapshot::take(&tenant).await.expect("snapshot");
+    let outcome = tokio::spawn(telnyx_follows_the_switch(master, tenant.clone())).await;
+    snapshot.restore(&tenant).await.expect("restore");
+    if let Err(error) = outcome {
+        std::panic::resume_unwind(error.into_panic());
+    }
+}
+
+async fn telnyx_follows_the_switch(master: PgPool, tenant: PgPool) {
     Enforcement::Enforced.install();
     assert!(weldsuite_outside_eu::enforced());
     switch(&tenant, false).await;

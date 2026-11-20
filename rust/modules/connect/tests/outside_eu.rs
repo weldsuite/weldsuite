@@ -21,6 +21,7 @@ use weldsuite_auth::AuthContext;
 use weldsuite_connect::ConnectState;
 use weldsuite_db::{PgPool, Tenant, WorkspaceRestrictions};
 use weldsuite_events::{EntityEventPublisher, TaskTracker};
+use weldsuite_outside_eu::store::SettingsSnapshot;
 use weldsuite_outside_eu::{Change, Enforcement, ServiceId, Via, store};
 use weldsuite_permissions::{
     MemberRow, PermissionGate, PermissionQueries, Permissions, ResolvedPermissions,
@@ -153,6 +154,9 @@ async fn forget(db: &PgPool, body: &Value) {
     }
 }
 
+/// CI runs every crate's database tests on one database: `workspace_settings`
+/// goes back as it was after the test, even when it panics, so no other
+/// crate's test (billing reads the oldest settings row) sees its row.
 #[tokio::test]
 async fn a_service_outside_the_eu_is_created_only_once_switched_on() {
     let Ok(url) = std::env::var("WELDSUITE_TEST_TENANT_URL") else {
@@ -164,6 +168,15 @@ async fn a_service_outside_the_eu_is_created_only_once_switched_on() {
         .connect(&url)
         .await
         .expect("tenant database");
+    let snapshot = SettingsSnapshot::take(&db).await.expect("snapshot");
+    let outcome = tokio::spawn(asana_follows_the_switch(db.clone())).await;
+    snapshot.restore(&db).await.expect("restore");
+    if let Err(error) = outcome {
+        std::panic::resume_unwind(error.into_panic());
+    }
+}
+
+async fn asana_follows_the_switch(db: PgPool) {
     Enforcement::Enforced.install();
     assert!(weldsuite_outside_eu::enforced());
     let app = app(db.clone());

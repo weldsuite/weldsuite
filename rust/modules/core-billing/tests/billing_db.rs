@@ -246,12 +246,11 @@ async fn reset(master: &PgPool, tenant: &PgPool) {
     ] {
         exec(master, sql, &[WS]).await;
     }
-    exec(
-        tenant,
-        "delete from workspace_settings where id = 'wss_billingdb1'",
-        &[],
-    )
-    .await;
+    // Every settings row, not just this test's: the buyer is the workspace's
+    // oldest row (`buyer.rs`), and CI runs every crate's database tests on one
+    // database, so a row an earlier test left would be read instead of the
+    // seeded one.
+    exec(tenant, "delete from workspace_settings", &[]).await;
 }
 
 async fn seed(master: &PgPool, tenant: &PgPool) {

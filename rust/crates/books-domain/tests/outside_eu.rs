@@ -17,7 +17,7 @@ use weldsuite_books_domain::bank_feeds::sync::sync_connection;
 use weldsuite_books_domain::bank_feeds::{FeedConfig, FeedContext, ServiceError};
 use weldsuite_db::{Keyring, master_pool};
 use weldsuite_kit::generate_id;
-use weldsuite_outside_eu::store::{Change, Via, set};
+use weldsuite_outside_eu::store::{Change, SettingsSnapshot, Via, set};
 use weldsuite_outside_eu::{Enforcement, OutsideEuError, ServiceId};
 use weldsuite_ports::{
     BoxFuture, DynOutboundHttp, HttpRequest, HttpResponse, OutboundHttp, PortError,
@@ -65,16 +65,28 @@ fn switch(enabled: bool) -> Change<'static> {
     }
 }
 
+/// CI runs every crate's database tests on one database: `workspace_settings`
+/// goes back as it was after the test, even when it panics, so no other
+/// crate's test (billing reads the oldest settings row) sees its row.
 #[tokio::test]
-#[allow(clippy::too_many_lines)] // one scenario, step by step
 async fn plaid_is_called_only_once_the_workspace_switched_it_on() {
     let Ok(tenant_url) = std::env::var("WELDSUITE_TEST_TENANT_URL") else {
         eprintln!("WELDSUITE_TEST_TENANT_URL not set; skipping");
         return;
     };
+    let db = master_pool(&tenant_url, 2).expect("tenant pool");
+    let snapshot = SettingsSnapshot::take(&db).await.expect("snapshot");
+    let outcome = tokio::spawn(plaid_follows_the_switch(db.clone())).await;
+    snapshot.restore(&db).await.expect("restore");
+    if let Err(error) = outcome {
+        std::panic::resume_unwind(error.into_panic());
+    }
+}
+
+#[allow(clippy::too_many_lines)] // one scenario, step by step
+async fn plaid_follows_the_switch(db: weldsuite_db::PgPool) {
     Enforcement::Enforced.install();
     assert!(weldsuite_outside_eu::enforced());
-    let db = master_pool(&tenant_url, 2).expect("tenant pool");
     set(&db, &switch(false)).await.expect("plaid off");
 
     let plaid = Arc::new(FakePlaid::default());
