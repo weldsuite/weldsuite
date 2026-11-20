@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
 import { toast } from 'sonner';
 import { fillTarget } from '../model/autofill';
-import { cellHint, selectedHintCell } from '../model/cell-hint';
+import { cellHint, selectedHintCell, type CellHintStrings } from '../model/cell-hint';
 import { copySelection, moveCells, pasteInto } from '../model/clipboard';
 import { FormulaAssistPopup, useFormulaAssist } from '../formula-assist';
 import { acceptsReference, referenceText, refsInEdit } from '../model/formula-edit';
@@ -488,6 +488,11 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot, tableLabels 
       e.preventDefault();
       return;
     }
+    startPress(hit, e);
+  };
+
+  /** A press on a cell or header: points at it for the formula being typed, else commits the edit and selects. */
+  const startPress = (hit: Hit, e: React.PointerEvent<HTMLDivElement>) => {
     const input = activeInput();
     const caretPos = input?.selectionStart ?? 0;
     const pointing = hit.area === 'cell' && !!editing && acceptsReference(editing.text, caretPos);
@@ -781,19 +786,22 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot, tableLabels 
 
   const updateCursor = (e: React.PointerEvent<HTMLDivElement>) => {
     const { hit, x, y } = pointAt(e);
-    const onChart = hit.area === 'cell' ? chartAt(layout, sheet, x, y, controller.selectedChart) : null;
-    let cursor = 'cell';
+    // The mark where rows or columns are hidden: a press shows them again.
     const marker = controller.readOnly ? undefined : hiddenMarkerAt(layout, sheet, x, y);
-    const title = marker ? (marker.axis === 'col' ? t.weldsheets.menu.unhideColumns : t.weldsheets.menu.unhideRows) : '';
+    const unhide = marker?.axis === 'col' ? t.weldsheets.menu.unhideColumns : t.weldsheets.menu.unhideRows;
+    const title = marker ? unhide : '';
     if (e.currentTarget.title !== title) e.currentTarget.title = title;
-    if (marker) cursor = 'pointer';
-    else if (onChart) cursor = chartCursor(onChart.handle, controller.readOnly);
-    else if (hit.resize) cursor = hit.resize.axis === 'col' ? 'col-resize' : 'row-resize';
-    else if (hit.area === 'cell' && onFillHandle(x, y)) cursor = 'crosshair';
-    else if (hit.area === 'cell' && onSelectionEdge(x, y)) cursor = 'grab';
-    else if (onSelectedHeader(hit)) cursor = 'grab';
-    else if (hit.area !== 'cell') cursor = 'default';
-    e.currentTarget.style.cursor = cursor;
+    e.currentTarget.style.cursor = marker ? 'pointer' : cursorAt(hit, x, y);
+  };
+
+  /** What a press at this point would do, as a cursor. */
+  const cursorAt = (hit: Hit, x: number, y: number): string => {
+    const onChart = hit.area === 'cell' ? chartAt(layout, sheet, x, y, controller.selectedChart) : null;
+    if (onChart) return chartCursor(onChart.handle, controller.readOnly);
+    if (hit.resize) return hit.resize.axis === 'col' ? 'col-resize' : 'row-resize';
+    if (hit.area !== 'cell') return onSelectedHeader(hit) ? 'grab' : 'default';
+    if (onFillHandle(x, y)) return 'crosshair';
+    return onSelectionEdge(x, y) ? 'grab' : 'cell';
   };
 
   const onDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -954,14 +962,13 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot, tableLabels 
     el.scrollLeft += e.deltaX;
   };
 
-  // The hint of the cell under the pointer, else of the selected one (what a keyboard user reaches).
-  // Not while a selection is being dragged out or holds more than one cell: the hint would cover what it spans.
-  const selectedHint = editing || dragRef.current ? null : selectedHintCell(controller);
-  const hintAt = tipCell ?? selectedHint;
-  const hint = hintAt ? cellHint(controller, hintAt.row, hintAt.col, t.weldsheets.cellHints) : null;
-  const hintCell = hintAt && hint ? cellRect(hintAt.row, hintAt.col) : null;
-  // Not for a cell scrolled out of view.
-  const hintRect = hintCell && hintCell.y >= COL_HEADER_HEIGHT && hintCell.y < size.height && hintCell.x + hintCell.w > headerW && hintCell.x < size.width ? hintCell : null;
+  const hint = visibleHint(controller, {
+    pointer: tipCell,
+    busy: !!editing || !!dragRef.current,
+    strings: t.weldsheets.cellHints,
+    cellRect,
+    view: { ...size, headerW },
+  });
 
   return (
     <div ref={containerRef} className="relative min-h-0 flex-1 overflow-hidden select-none" data-testid="sheet-grid">
@@ -1073,19 +1080,7 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot, tableLabels 
       {cellMenu?.kind === 'list' && (
         <ListMenu controller={controller} row={cellMenu.row} col={cellMenu.col} rect={cellRect(cellMenu.row, cellMenu.col)} onClose={() => setCellMenu(null)} />
       )}
-      {hint && hintRect && (
-        <div
-          id={HINT_ID}
-          role="tooltip"
-          className="pointer-events-none absolute z-20 max-w-64 rounded-md border bg-popover px-2.5 py-1.5 text-xs text-popover-foreground shadow-md"
-          style={{
-            left: clamp(hintRect.x, 4, Math.max(4, size.width - 268)),
-            ...(hintRect.y + hintRect.h + 64 > size.height ? { top: hintRect.y - 4, transform: 'translateY(-100%)' } : { top: hintRect.y + hintRect.h + 4 }),
-          }}
-        >
-          {hint}
-        </div>
-      )}
+      {hint && <CellHintTooltip text={hint.text} rect={hint.rect} width={size.width} height={size.height} />}
       {editorVisible && <FormulaAssistPopup assist={assist} controller={controller} style={{ left: editRect.x, top: editRect.y + editRect.h + 2 }} />}
     </div>
   );
@@ -1097,6 +1092,47 @@ function measureEditor(text: string, style: Parameters<typeof fontFor>[0]): numb
 
 function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n));
+}
+
+/**
+ * The hint to show: of the cell under the pointer, else of the selected one (what a keyboard user reaches).
+ * Not while editing or dragging out a selection (it would cover what that spans), and not for a cell scrolled out of view.
+ */
+function visibleHint(
+  controller: SheetController,
+  opts: {
+    pointer: CellPos | null;
+    busy: boolean;
+    strings: CellHintStrings;
+    cellRect: (row: number, col: number) => Rect;
+    view: { width: number; height: number; headerW: number };
+  },
+): { text: string; rect: Rect } | null {
+  const at = opts.pointer ?? (opts.busy ? null : selectedHintCell(controller));
+  const text = at && cellHint(controller, at.row, at.col, opts.strings);
+  if (!at || !text) return null;
+  const rect = opts.cellRect(at.row, at.col);
+  const { width, height, headerW } = opts.view;
+  const inView = rect.y >= COL_HEADER_HEIGHT && rect.y < height && rect.x + rect.w > headerW && rect.x < width;
+  return inView ? { text, rect } : null;
+}
+
+/** A cell's hint under it, or above it when there is no room below; kept inside the grid's width. */
+function CellHintTooltip({ text, rect, width, height }: { text: string; rect: Rect; width: number; height: number }) {
+  const below = rect.y + rect.h + 64 <= height;
+  return (
+    <div
+      id={HINT_ID}
+      role="tooltip"
+      className="pointer-events-none absolute z-20 max-w-64 rounded-md border bg-popover px-2.5 py-1.5 text-xs text-popover-foreground shadow-md"
+      style={{
+        left: clamp(rect.x, 4, Math.max(4, width - 268)),
+        ...(below ? { top: rect.y + rect.h + 4 } : { top: rect.y - 4, transform: 'translateY(-100%)' }),
+      }}
+    >
+      {text}
+    </div>
+  );
 }
 
 /** Pixels a frame to scroll a drag held at `p`, before `lo` (back) or within a few pixels of `hi` (on): faster further out. */

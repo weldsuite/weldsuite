@@ -137,8 +137,11 @@ export function formulaSuggestions(text: string, caret: number, definedNames: re
   const rank = (s: FormulaSuggestion) => (s.kind === 'function' ? POPULAR.indexOf(key(s)) : -1);
   const byPopularity = (a: FormulaSuggestion, b: FormulaSuggestion) => {
     const [ra, rb] = [rank(a), rank(b)];
-    if (ra >= 0 || rb >= 0) return ra < 0 ? 1 : rb < 0 ? -1 : ra - rb;
-    return byName(a, b);
+    // Popular functions first, in POPULAR's order; the rest by name.
+    if (ra < 0 && rb < 0) return byName(a, b);
+    if (ra < 0) return 1;
+    if (rb < 0) return -1;
+    return ra - rb;
   };
   const starting = all.filter((s) => key(s).startsWith(upper)).sort(byPopularity);
   const containing = reference ? [] : all.filter((s) => !key(s).startsWith(upper) && key(s).includes(upper)).sort(byName);

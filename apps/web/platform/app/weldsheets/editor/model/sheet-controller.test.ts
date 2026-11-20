@@ -885,6 +885,21 @@ describe('rows that fit wrapped text', () => {
     expect(ctl.sheet.rows.sizeOf(0)).toBe(ctl.sheet.rows.defaultSize);
   });
 
+  it('keeps fitting rows, in one undo step, once the undo history is full', () => {
+    const { ctl } = make();
+    ctl.autoFit = tall(ctl);
+    // Past the 200-step undo limit, so the history's length no longer changes.
+    for (let i = 0; i < 205; i++) ctl.setInput(5, 5, `edit ${i}`);
+    ctl.setInput(0, 0, 'long text');
+    ctl.select({ ranges: [{ r1: 0, c1: 0, r2: 0, c2: 0 }], active: { row: 0, col: 0 }, anchor: { row: 0, col: 0 } });
+    ctl.format({ wrap: 'wrap' });
+    expect(ctl.sheet.rows.sizeOf(0)).toBe(60);
+    ctl.undo();
+    expect(ctl.sheet.rows.sizeOf(0)).toBe(ctl.sheet.rows.defaultSize);
+    expect(ctl.cellStyle(0, 0)?.wrap).toBeUndefined();
+    expect(ctl.engine.getValue(ctl.activeSheetId, 0, 0)).toBe('long text');
+  });
+
   it('shrinks a fitted row back when wrap goes off, never below the default', () => {
     const { ctl } = make();
     ctl.autoFit = tall(ctl);

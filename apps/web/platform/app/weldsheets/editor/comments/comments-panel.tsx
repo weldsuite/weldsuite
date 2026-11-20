@@ -54,6 +54,8 @@ export function CommentsPanel({ controller, sheetId, people }: { controller: She
   );
   const names = useMemo(() => new Map(people.map((p) => [p.id, p.name])), [people]);
   const shown = threads.filter(({ thread }) => filter === 'all' || (filter === 'resolved') === !!thread.comment.resolved);
+  const emptyFiltered = filter === 'resolved' ? tc.noneResolved : tc.noneOpen;
+  const emptyText = threads.length === 0 ? tc.none : emptyFiltered;
   const here = (thread: Thread) => thread.tabId === sheet.id && thread.comment.cell?.row === row && thread.comment.cell.col === col;
   const focused = controller.focusedThread;
   const labels: ComposerLabels = { placeholder: tc.placeholder, submit: tc.comment, cancel: tc.cancel, noMatch: tc.noMatch };
@@ -105,7 +107,7 @@ export function CommentsPanel({ controller, sheetId, people }: { controller: She
         ))}
       </div>
       {comments.isError && <p className="text-sm text-destructive">{tc.loadFailed}</p>}
-      {shown.length === 0 && !composing && <EmptyText>{threads.length === 0 ? tc.none : filter === 'resolved' ? tc.noneResolved : tc.noneOpen}</EmptyText>}
+      {shown.length === 0 && !composing && <EmptyText>{emptyText}</EmptyText>}
       {shown.map(({ thread, tabName }) => (
         <ThreadCard
           key={thread.comment.id}

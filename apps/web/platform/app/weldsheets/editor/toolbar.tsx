@@ -94,7 +94,10 @@ export function Toolbar({ controller, onSortRange, onCreatePivot }: { controller
   const freeze = controller.sheet.freeze;
   const upToRow = row + 1 > 2;
   const upToColumn = col + 1 > 2;
-  const frozen = (n: number, upTo: boolean, at: number) => (upTo && n === at ? 'up' : n <= 2 ? String(n) : '');
+  const frozen = (n: number, upTo: boolean, at: number) => {
+    if (upTo && n === at) return 'up';
+    return n <= 2 ? String(n) : '';
+  };
 
   const groups: { key: string; node: ReactNode }[] = [
     {

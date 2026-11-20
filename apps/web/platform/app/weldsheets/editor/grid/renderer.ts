@@ -451,20 +451,23 @@ function drawErrorMark(ctx: CanvasRenderingContext2D, color: string, cell: Rect)
 
 /** Corner marks for errors and refused values, drawn over borders so nothing hides them. */
 function drawStatusMarks(ctx: CanvasRenderingContext2D, state: RenderState, rows: Segment[], cols: Segment[]): void {
+  const hasRules = state.controller.sheet.validations.length > 0;
+  for (const r of rows) {
+    for (const c of cols) drawStatusMark(ctx, state, r, c, hasRules);
+  }
+}
+
+/** One cell's corner mark, on a merge's top-left cell only (its corner is the merge's). */
+function drawStatusMark(ctx: CanvasRenderingContext2D, state: RenderState, r: Segment, c: Segment, hasRules: boolean): void {
   const { controller, theme } = state;
   const sheet = controller.sheet;
-  const hasRules = sheet.validations.length > 0;
-  for (const r of rows) {
-    for (const c of cols) {
-      const merge = sheet.merges.length ? sheet.mergeAt(r.index, c.index) : undefined;
-      if (merge && (merge.r1 !== r.index || merge.c1 !== c.index)) continue;
-      const value = controller.engine.getValue(sheet.id, r.index, c.index);
-      if (value === null) continue;
-      const cell = merge ? rangeRect(state.layout, sheet, merge) : { x: c.start, y: r.start, w: c.size, h: r.size };
-      if (isError(value)) drawErrorMark(ctx, theme.errorMark, cell);
-      else if (hasRules && controller.isInvalid(r.index, c.index)) drawInvalidMark(ctx, theme.errorMark, cell);
-    }
-  }
+  const merge = sheet.merges.length ? sheet.mergeAt(r.index, c.index) : undefined;
+  if (merge && (merge.r1 !== r.index || merge.c1 !== c.index)) return;
+  const value = controller.engine.getValue(sheet.id, r.index, c.index);
+  if (value === null) return;
+  const cell = merge ? rangeRect(state.layout, sheet, merge) : { x: c.start, y: r.start, w: c.size, h: r.size };
+  if (isError(value)) drawErrorMark(ctx, theme.errorMark, cell);
+  else if (hasRules && controller.isInvalid(r.index, c.index)) drawInvalidMark(ctx, theme.errorMark, cell);
 }
 
 /** Find: a tint over every match in view, a stronger one on the current match. */

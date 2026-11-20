@@ -455,12 +455,7 @@ export class SheetController {
     const key = row * 16_384 + col;
     const memo = this.ruleMemo.styles;
     if (!memo.has(key)) {
-      // The rule being edited stands in for its saved self, or comes first when new.
-      const formats = preview
-        ? sheet.conditionalFormats.some((f) => f.id === preview.id)
-          ? sheet.conditionalFormats.map((f) => (f.id === preview.id ? preview : f))
-          : [preview, ...sheet.conditionalFormats]
-        : sheet.conditionalFormats;
+      const formats = preview ? withPreview(sheet.conditionalFormats, preview) : sheet.conditionalFormats;
       memo.set(key, conditionalStyleAt(this.engine, { id: sheet.id, conditionalFormats: formats }, row, col, this.ruleMemo.formats));
     }
     return memo.get(key);
@@ -569,8 +564,12 @@ export class SheetController {
     this.apply(op);
     const entry = this.undoStack.at(-1);
     const next = this.readOnly || !entry ? null : after();
-    if (!next || !entry) return;
-    const normalized = normalize(next);
+    if (next && entry) this.foldInto(entry, next);
+  }
+
+  /** Applies `op` as part of an undo step already taken, so one undo reverts both. */
+  private foldInto(entry: UndoEntry, op: Op): void {
+    const normalized = normalize(op);
     const inverse = this.run(normalized);
     entry.op = { type: 'batch', ops: [entry.op, normalized] };
     entry.inverse = { type: 'batch', ops: [inverse, entry.inverse] };
@@ -1182,15 +1181,13 @@ export class SheetController {
    * `rows` is read after the change.
    */
   private withRowFit(rows: (() => Iterable<number>) | null, change: () => void): void {
-    const depth = this.undoStack.length;
+    // The change's own undo step, told apart by identity: the stack's length stops changing once it is full.
+    const top = this.undoStack.at(-1);
     change();
-    if (!rows || !this.autoFit || this.undoStack.length !== depth + 1) return;
+    const entry = this.undoStack.at(-1);
+    if (!rows || !this.autoFit || !entry || entry === top) return;
     const entries = this.fitEntries(rows());
-    if (entries.length === 0) return;
-    this.apply({ type: 'resizeDims', sheetId: this.activeSheetId, axis: 'row', entries });
-    if (this.undoStack.length !== depth + 2) return;
-    const [a, b] = this.undoStack.splice(depth, 2) as [UndoEntry, UndoEntry];
-    this.undoStack.push({ op: { type: 'batch', ops: [a.op, b.op] }, inverse: { type: 'batch', ops: [b.inverse, a.inverse] }, sheetId: a.sheetId, selection: a.selection });
+    if (entries.length > 0) this.foldInto(entry, { type: 'resizeDims', sheetId: this.activeSheetId, axis: 'row', entries });
   }
 
   /** Effective style of the active cell (toolbar state). */
@@ -1357,9 +1354,7 @@ export class SheetController {
     const count = axis === 'col' ? sheet.colCount : sheet.rowCount;
     const [first, last] = [hidden[0], hidden.at(-1)];
     if (first === undefined || last === undefined || hidden.some((i) => dims.sizeOf(i) > 0)) return;
-    let to = -1;
-    for (let i = last + 1; i < count && to < 0; i++) if (dims.sizeOf(i) > 0) to = i;
-    for (let i = first - 1; i >= 0 && to < 0; i--) if (dims.sizeOf(i) > 0) to = i;
+    const to = visibleNeighbour((i) => dims.sizeOf(i) > 0, count, first, last);
     if (to < 0) return;
     const whole = isWholeColumns(primaryRange(this.selection)) || isWholeRows(primaryRange(this.selection));
     const { row, col } = this.selection.active;
@@ -1590,6 +1585,19 @@ function wrapStep(v: number, lo: number, hi: number): [number, number] {
   if (v > hi) return [lo, 1];
   if (v < lo) return [hi, -1];
   return [v, 0];
+}
+
+/** The first visible index after `last`, else the last one before `first`; -1 when there is none. */
+function visibleNeighbour(visible: (i: number) => boolean, count: number, first: number, last: number): number {
+  for (let i = last + 1; i < count; i++) if (visible(i)) return i;
+  for (let i = first - 1; i >= 0; i--) if (visible(i)) return i;
+  return -1;
+}
+
+/** The rule being edited stands in for its saved self, or comes first when it is new. */
+function withPreview(formats: ConditionalFormat[], preview: ConditionalFormat): ConditionalFormat[] {
+  if (!formats.some((f) => f.id === preview.id)) return [preview, ...formats];
+  return formats.map((f) => (f.id === preview.id ? preview : f));
 }
 
 function decimalsOf(n: number): number {
