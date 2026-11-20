@@ -36,6 +36,7 @@ import { Input } from '@weldsuite/ui/components/input';
 import { Button } from '@weldsuite/ui/components/button';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
+import { MemberAvatar } from '@/components/member-avatar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import {
   Command,
@@ -2721,10 +2722,15 @@ export function CommentsList({
 
             return (
               <div key={comment.id} className="flex gap-2 px-2 py-1.5 rounded-xl hover:bg-muted/30 group">
-                <Avatar className="w-6 h-6 flex-shrink-0 mt-0.5">
-                  {comment.authorAvatar && <AvatarImage src={comment.authorAvatar} alt={comment.authorName} />}
-                  <AvatarFallback className="text-[10px] font-medium text-muted-foreground">{initials}</AvatarFallback>
-                </Avatar>
+                <MemberAvatar
+                  userId={comment.authorId}
+                  name={comment.authorName}
+                  picture={comment.authorAvatar}
+                  alt={comment.authorName}
+                  className="w-6 h-6 flex-shrink-0 mt-0.5"
+                  fallbackClassName="text-[10px] font-medium text-muted-foreground"
+                  fallback={initials}
+                />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs font-medium text-foreground">{comment.authorName}</span>

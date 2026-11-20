@@ -27,6 +27,7 @@ import {
 } from '@weldsuite/ui/components/select';
 import { ScrollArea } from '@weldsuite/ui/components/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
+import { MemberAvatar } from '@/components/member-avatar';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { cn } from '@/lib/utils';
 import { useMessages, useWorkspaceMembers } from '@/hooks/queries/use-weldchat-queries';
@@ -39,6 +40,7 @@ interface RawChatFilterAttachment {
 interface RawChatFilterMessage {
   id: string;
   content?: string;
+  authorId?: string | null;
   authorName?: string;
   authorAvatar?: string | null;
   createdAt?: string;
@@ -473,14 +475,14 @@ export function ChatFiltersPanel({ embedded = false }: { embedded?: boolean } = 
             >
               <div className="flex-1 min-w-0 flex items-start gap-3">
                 <div className="relative flex-shrink-0 mt-0.5">
-                  <Avatar className="h-6 w-6">
-                    {msg.authorAvatar && (
-                      <AvatarImage src={msg.authorAvatar} />
-                    )}
-                    <AvatarFallback className="text-[10px]">
-                      {(msg.authorName || '?')[0]?.toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
+                  <MemberAvatar
+                    userId={msg.authorId}
+                    name={msg.authorName}
+                    picture={msg.authorAvatar}
+                    className="h-6 w-6"
+                    fallbackClassName="text-[10px]"
+                    fallback={(msg.authorName || '?')[0]?.toUpperCase()}
+                  />
                   <span className="absolute -bottom-0.5 -right-0.5 h-[12px] w-[12px] rounded-full bg-background flex items-center justify-center">
                     <CategoryIcon className="h-2.5 w-2.5 text-foreground" />
                   </span>

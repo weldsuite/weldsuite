@@ -1,6 +1,7 @@
 
 import { useMemo } from 'react';
 import { useUser } from '@/lib/auth';
+import { useCurrentUserAvatar } from '@/hooks/use-member-avatar';
 import { NotesView } from '@/components/weldcrm/notes/notes-view';
 import { useNotes } from '@/hooks/queries/use-notes-queries';
 import { useWorkspaceMembers } from '@/hooks/queries/use-settings-queries';
@@ -56,6 +57,7 @@ function resolveRecord(activity: NoteActivity): {
 
 export default function NotesPage() {
   const { user } = useUser();
+  const selfAvatar = useCurrentUserAvatar();
   const { data, isPending } = useNotes({ limit: 100 });
   const { data: membersData } = useWorkspaceMembers(1, 100);
 
@@ -81,7 +83,6 @@ export default function NotesPage() {
       user?.firstName ||
       user?.primaryEmailAddress?.emailAddress ||
       undefined;
-    const currentUserAvatar = user?.imageUrl || undefined;
 
     return (data.data as unknown as NoteActivity[]).map((activity) => {
       const authorId = activity.assignedToId || activity.createdBy;
@@ -93,7 +94,7 @@ export default function NotesPage() {
         ? currentUserName ?? member?.name
         : member?.name ?? activity.assignedTo ?? undefined;
       const authorAvatar = isCurrentUser
-        ? currentUserAvatar ?? member?.picture
+        ? selfAvatar ?? member?.picture
         : member?.picture ?? undefined;
 
       return {
@@ -110,7 +111,7 @@ export default function NotesPage() {
         authorAvatar,
       };
     });
-  }, [data, memberById, user]);
+  }, [data, memberById, user, selfAvatar]);
 
   // `isPending` rather than `isLoading`: while the persisted query cache is
   // still restoring after a reload the query is idle (`isLoading` false) with

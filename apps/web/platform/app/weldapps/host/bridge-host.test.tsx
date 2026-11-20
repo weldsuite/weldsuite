@@ -9,6 +9,7 @@ vi.mock('@clerk/clerk-react', () => ({
   useAuth: () => ({ getToken }),
   useUser: () => ({ user: { id: 'usr_1', fullName: 'Ada Lovelace', firstName: 'Ada', imageUrl: '' } }),
 }));
+vi.mock('@/hooks/use-member-avatar', () => ({ useCurrentUserAvatar: () => 'https://cdn.test/avatars/ada.png' }));
 vi.mock('@/lib/router', () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock('@/hooks/use-theme', () => ({ useTheme: () => ({ resolvedTheme: 'light' }) }));
 vi.mock('@/lib/i18n/provider', () => ({
@@ -86,6 +87,8 @@ describe('useBridgeHost (protocol 2)', () => {
     fromApp({ type: 'weldapp:ready' });
     const init = posted.find((p) => p.message.type === 'weldapp:init')?.message.payload;
     expect(init).toMatchObject({ appCode: 'demo', protocol: 2, token: null, tokenExpiresAt: null, surface: 'page' });
+    // The member's profile picture, not the sign-in provider's image.
+    expect(init?.user).toEqual({ id: 'usr_1', name: 'Ada Lovelace', imageUrl: 'https://cdn.test/avatars/ada.png' });
     expect(getToken).not.toHaveBeenCalled();
     expect(mintSessionToken).not.toHaveBeenCalled();
   });

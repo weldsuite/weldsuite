@@ -8,6 +8,7 @@ import { UnifiedModuleSidebar } from './unified-module-sidebar';
 import { MainContentArea } from './main-content-area';
 import { useInstalledApps } from '@/hooks/use-installed-apps';
 import { useUser, useOrganization, useOrganizationList } from '@/lib/auth';
+import { useCurrentUserAvatar } from '@/hooks/use-member-avatar';
 import { AppAccessGuard } from '@/components/app-access-guard';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
@@ -42,6 +43,8 @@ interface PlatformShellProps {
 export function PlatformShell({ children, embedded }: Readonly<PlatformShellProps>) {
   const { data: installedApps = [] } = useInstalledApps();
   const { user } = useUser();
+  // Your profile picture (settings), not the sign-in provider's.
+  const avatar = useCurrentUserAvatar();
   const { organization } = useOrganization();
   const { userMemberships } = useOrganizationList({ userMemberships: true });
 
@@ -49,7 +52,7 @@ export function PlatformShell({ children, embedded }: Readonly<PlatformShellProp
     ? {
         name: user.fullName || user.firstName || '',
         email: user.emailAddresses[0]?.emailAddress || '',
-        avatar: user.imageUrl,
+        avatar,
       }
     : undefined;
 

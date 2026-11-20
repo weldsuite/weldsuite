@@ -73,6 +73,8 @@ export default function MemberDetailPage() {
     name: agent.name,
     email: agent.email,
     avatar: getInitials(agent.name),
+    userId: agent.userId,
+    picture: agent.avatar ?? null,
     role: (agent.role || 'agent').replace('_', ' '),
     status: getAgentStatus(agent),
     activeTickets: agent.currentActiveTickets || 0,

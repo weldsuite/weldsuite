@@ -382,9 +382,9 @@ export function SidebarUserMenu({
           className="h-auto w-full justify-start gap-2 px-2.5 has-[>svg]:px-2.5 py-1.5 data-[state=open]:bg-accent data-[state=open]:text-accent-foreground dark:data-[state=open]:bg-accent/50"
         >
           <div className="relative flex-shrink-0">
-            <Avatar className="h-7 w-7 !rounded-[12px]">
-              <AvatarImage className="!rounded-[12px]" src={user?.avatar} alt={user?.name} />
-              <AvatarFallback className="!rounded-[12px]">{userInitials}</AvatarFallback>
+            <Avatar className="h-7 w-7">
+              <AvatarImage src={user?.avatar} alt={user?.name} />
+              <AvatarFallback>{userInitials}</AvatarFallback>
             </Avatar>
             {statusIndicator}
           </div>

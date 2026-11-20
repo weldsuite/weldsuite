@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo, type ReactNode } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useAuth } from '@/lib/auth';
-import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
+import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
+import { MemberAvatar } from '@/components/member-avatar';
 import { ReactionBar } from './reaction-bar';
 import { MessageActions } from './message-actions';
 import { MessageContextMenu } from './message-context-menu';
@@ -162,14 +163,14 @@ function ForwardedMessage({
         </span>
       </div>
       <div className="flex items-start gap-2">
-        <Avatar className="h-5 w-5 flex-shrink-0 mt-0.5">
-          {forwardedFrom.authorAvatar && (
-            <AvatarImage src={forwardedFrom.authorAvatar} />
-          )}
-          <AvatarFallback className="text-[9px]">
-            {(forwardedFrom.authorName || '?')[0].toUpperCase()}
-          </AvatarFallback>
-        </Avatar>
+        <MemberAvatar
+          userId={forwardedFrom.authorId}
+          name={forwardedFrom.authorName}
+          picture={forwardedFrom.authorAvatar}
+          className="h-5 w-5 flex-shrink-0 mt-0.5"
+          fallbackClassName="text-[9px]"
+          fallback={(forwardedFrom.authorName || '?')[0].toUpperCase()}
+        />
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">
             <span className="text-xs font-semibold">{forwardedFrom.authorName}</span>
@@ -216,6 +217,7 @@ function isImageUrl(avatar: string | null | undefined): avatar is string {
 }
 
 interface ReplyToMessagePreview {
+  authorId?: string | null;
   authorAvatar?: string | null;
   authorName?: string;
   content?: string;
@@ -517,14 +519,14 @@ function MessageAvatar({
       className="h-7 w-7 p-0 flex-shrink-0 rounded-[9px] focus:outline-none focus-visible:ring-2 focus-visible:ring-ring hover:opacity-80 transition-opacity"
       title={t.weldchat.messageItem.viewProfile.replace('{name}', message.authorName ?? '')}
     >
-      <Avatar className="h-7 w-7">
-        {message.authorAvatar && (
-          <AvatarImage src={message.authorAvatar} />
-        )}
-        <AvatarFallback className="text-[9px]">
-          {(message.authorName || '?')[0].toUpperCase()}
-        </AvatarFallback>
-      </Avatar>
+      <MemberAvatar
+        userId={message.authorId}
+        name={message.authorName}
+        picture={message.authorAvatar}
+        className="h-7 w-7"
+        fallbackClassName="text-[9px]"
+        fallback={(message.authorName || '?')[0].toUpperCase()}
+      />
     </Button>
   );
 }
@@ -608,15 +610,21 @@ export function MessageItem({
         <div className="flex items-center gap-1.5 ml-[13px] mb-0.5 text-xs text-muted-foreground">
           <div className="w-[22px] h-3 border-l-2 border-t-2 border-muted-foreground/40 rounded-tl-md" />
           <div className="flex items-center gap-1.5 -translate-y-[4px]">
-            <Avatar className="h-4 w-4">
-              {isImageUrl(replyToMessage.authorAvatar) && <AvatarImage src={replyToMessage.authorAvatar} />}
-              <AvatarFallback className="text-[8px]">
-                {/* An agent's avatar is its emoji icon, not an image. */}
-                {replyToMessage.authorAvatar && !isImageUrl(replyToMessage.authorAvatar)
-                  ? replyToMessage.authorAvatar
-                  : (replyToMessage.authorName || '?')[0]}
-              </AvatarFallback>
-            </Avatar>
+            {replyToMessage.authorAvatar && !isImageUrl(replyToMessage.authorAvatar) ? (
+              // An agent's avatar is its emoji icon, not an image.
+              <Avatar className="h-4 w-4">
+                <AvatarFallback className="text-[8px]">{replyToMessage.authorAvatar}</AvatarFallback>
+              </Avatar>
+            ) : (
+              <MemberAvatar
+                userId={replyToMessage.authorId}
+                name={replyToMessage.authorName}
+                picture={replyToMessage.authorAvatar}
+                className="h-4 w-4"
+                fallbackClassName="text-[8px]"
+                fallback={(replyToMessage.authorName || '?')[0]}
+              />
+            )}
             <span className="font-semibold text-foreground/70">{replyToMessage.authorName}</span>
             <span className="truncate max-w-[300px]">{messagePreviewText(replyToMessage.content ?? '', membersMap)}</span>
           </div>

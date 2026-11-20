@@ -15,6 +15,7 @@
 import { useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery, keepPreviousData, type QueryClient, type QueryKey, type InfiniteData } from '@tanstack/react-query';
 import { useAuth, useUser } from '@/lib/auth';
+import { useCurrentUserAvatar } from '@/hooks/use-member-avatar';
 import { toast } from 'sonner';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { isModuleOffered } from '@/lib/edition';
@@ -172,6 +173,7 @@ export interface ChatBookmark {
   channelId: string;
   channelType?: string | null;
   messageContent?: string | null;
+  messageAuthorId?: string | null;
   messageAuthorName?: string | null;
   messageAuthorAvatar?: string | null;
   messageCreatedAt?: string | null;
@@ -694,6 +696,7 @@ export function useSendMessage() {
   const { getClient } = useAppApiClient();
   const { userId } = useAuth();
   const { user } = useUser();
+  const selfAvatar = useCurrentUserAvatar();
   return useMutation({
      
     mutationFn: async ({
@@ -726,7 +729,7 @@ export function useSendMessage() {
         htmlContent: variables.htmlContent,
         authorId: userId,
         authorName: user?.fullName || user?.firstName || 'You',
-        authorAvatar: user?.imageUrl || null,
+        authorAvatar: selfAvatar ?? null,
         type: variables.type || 'message',
         parentId: variables.parentId,
         attachments: variables.attachments,

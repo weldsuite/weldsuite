@@ -54,7 +54,7 @@ interface MessagesQueryResult {
 
 /** Quote of a Discord-style inline reply, stored at `metadata.replyTo`. */
 function inlineReplyOf(message: ChatMessage) {
-  const metadata = message.metadata as { replyTo?: { authorName?: string; authorAvatar?: string | null; content?: string } } | null | undefined;
+  const metadata = message.metadata as { replyTo?: { authorId?: string; authorName?: string; authorAvatar?: string | null; content?: string } } | null | undefined;
   return metadata?.replyTo ?? undefined;
 }
 

@@ -5,7 +5,7 @@ import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { format } from 'date-fns';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import { Badge } from '@weldsuite/ui/components/badge';
-import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
+import { MemberAvatar } from '@/components/member-avatar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@weldsuite/ui/components/tabs';
 import { CheckCircle, Clock, Mail, User, Phone, Calendar, Building, MoreVertical, Eye, Star, TrendingUp } from 'lucide-react';
 import { EntityDataTable, type ColumnDefinition } from '@/components/entity-overview';
@@ -33,7 +33,10 @@ interface MemberDetailClientProps {
     id: string;
     name: string;
     email: string;
+    /** Initials, shown until the picture loads or when there is none. */
     avatar: string;
+    userId?: string;
+    picture?: string | null;
     role: string;
     status: 'online' | 'away' | 'offline';
     activeTickets: number;
@@ -199,11 +202,14 @@ export function MemberDetailClient({ memberData }: Readonly<MemberDetailClientPr
         <CardHeader>
           <div className="flex items-start gap-4">
             <div className="relative">
-              <Avatar className="h-20 w-20">
-                <AvatarFallback className="bg-primary text-primary-foreground text-2xl">
-                  {memberData.avatar}
-                </AvatarFallback>
-              </Avatar>
+              <MemberAvatar
+                userId={memberData.userId}
+                name={memberData.name}
+                picture={memberData.picture}
+                className="h-20 w-20"
+                fallbackClassName="bg-primary text-primary-foreground text-2xl"
+                fallback={memberData.avatar}
+              />
               <div className={`absolute bottom-0 right-0 h-5 w-5 rounded-full border-4 border-background ${getStatusColor(memberData.status)}`} />
             </div>
             <div className="flex-1">

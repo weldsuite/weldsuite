@@ -42,6 +42,10 @@ vi.mock('@cloudflare/realtimekit', () => ({
   },
 }));
 
+vi.mock('@/hooks/use-member-avatar', () => ({
+  useMemberAvatar: (_userId: string | null | undefined, fallback?: string | null) => fallback ?? undefined,
+}));
+
 vi.mock('@/lib/i18n/provider', () => ({
   useI18n: () => ({
     t: {

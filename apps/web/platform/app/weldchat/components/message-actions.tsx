@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
 import { cn } from '@/lib/utils';
 import { Button } from '@weldsuite/ui/components/button';
-import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
+import { MemberAvatar } from '@/components/member-avatar';
 import {
   Reply,
   MessageSquare,
@@ -411,12 +411,14 @@ export function MessageActions({ message, channelId, readBy, onOpenChange }: Rea
                         key={user.userId}
                         className="flex items-center gap-2 px-2 py-1.5"
                       >
-                        <Avatar className="h-5 w-5">
-                          {user.userAvatar && <AvatarImage src={user.userAvatar} />}
-                          <AvatarFallback className="text-[8px]">
-                            {(user.userName || '?')[0].toUpperCase()}
-                          </AvatarFallback>
-                        </Avatar>
+                        <MemberAvatar
+                          userId={user.userId}
+                          name={user.userName}
+                          picture={user.userAvatar}
+                          className="h-5 w-5"
+                          fallbackClassName="text-[8px]"
+                          fallback={(user.userName || '?')[0].toUpperCase()}
+                        />
                         <span className="text-sm truncate">{user.userName}</span>
                       </div>
                     ))}
@@ -449,6 +451,8 @@ export function MessageActions({ message, channelId, readBy, onOpenChange }: Rea
         }}
         messageContent={message.content ?? ''}
         originalAuthor={message.authorName ?? ''}
+        originalAuthorId={message.authorId}
+        originalAuthorAvatar={message.authorAvatar}
         messageId={message.id}
         sourceChannelId={channelId}
       />

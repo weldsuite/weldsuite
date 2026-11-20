@@ -9,7 +9,7 @@ import {
 } from '@weldsuite/ui/components/dialog';
 import { Button } from '@weldsuite/ui/components/button';
 import { Textarea } from '@weldsuite/ui/components/textarea';
-import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
+import { MemberAvatar } from '@/components/member-avatar';
 import {
   Popover,
   PopoverContent,
@@ -68,6 +68,9 @@ interface ForwardMessageDialogProps {
   onOpenChange: (open: boolean) => void;
   messageContent: string;
   originalAuthor: string;
+  /** The original author's user id, for their current avatar. */
+  originalAuthorId?: string | null;
+  originalAuthorAvatar?: string | null;
   messageId?: string;
   sourceChannelId?: string;
 }
@@ -77,6 +80,8 @@ export function ForwardMessageDialog({
   onOpenChange,
   messageContent,
   originalAuthor,
+  originalAuthorId,
+  originalAuthorAvatar,
   messageId,
   sourceChannelId,
 }: Readonly<ForwardMessageDialogProps>) {
@@ -346,11 +351,14 @@ export function ForwardMessageDialog({
           {/* Original message preview */}
           <div className="rounded-md border bg-muted/30 px-2.5">
             <div className="flex items-start gap-2.5 py-2.5">
-              <Avatar className="h-7 w-7 flex-shrink-0">
-                <AvatarFallback className="text-xs bg-primary/10 text-primary font-semibold">
-                  {(originalAuthor || '?')[0].toUpperCase()}
-                </AvatarFallback>
-              </Avatar>
+              <MemberAvatar
+                userId={originalAuthorId}
+                name={originalAuthor}
+                picture={originalAuthorAvatar}
+                className="h-7 w-7 flex-shrink-0"
+                fallbackClassName="text-xs bg-primary/10 text-primary font-semibold"
+                fallback={(originalAuthor || '?')[0].toUpperCase()}
+              />
               <div className="min-w-0 flex-1 leading-snug">
                 <div className="text-sm font-semibold text-foreground">{originalAuthor}</div>
                 <div className="text-sm text-foreground/80 break-words whitespace-pre-wrap line-clamp-4 mt-0.5">
