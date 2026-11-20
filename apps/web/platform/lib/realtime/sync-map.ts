@@ -381,13 +381,9 @@ export const platformSyncMap: EntitySyncMap = {
   // both keys so either emitter refreshes stock/movements.
   inventory: inv(['weldstash', 'stock'], ['weldstash', 'movements']),
   wms_inventory: inv(['weldstash', 'stock'], ['weldstash', 'movements']),
-  // Shared `products` table: commerce + WMS UIs both listen. Catalog twin
-  // `wms_product` covers connectors/future emitters.
-  product: inv(
-    ['weldcommerce', 'products'],
-    ['weldstash', 'products'],
-    ['weldstash', 'stock'],
-  ),
+  // stash-api's product routes publish `product`. Catalog twin `wms_product`
+  // covers connectors/future emitters.
+  product: inv(['weldstash', 'products'], ['weldstash', 'stock']),
   wms_product: inv(['weldstash', 'products'], ['weldstash', 'stock']),
   wms_adjustment: inv(['weldstash', 'stock'], ['weldstash', 'movements']),
   picklist: inv(['weldstash', 'pickLists'], ['weldstash', 'stock']),
@@ -411,38 +407,6 @@ export const platformSyncMap: EntitySyncMap = {
   replenishment_settings: inv(['weldstash', 'replenishment', 'settings'], ['weldstash', 'replenishment', 'plans']),
   replenishment_run: inv(['weldstash', 'replenishment', 'runs'], ['weldstash', 'replenishment', 'plans']),
   sales_history_import: inv(['weldstash', 'replenishment', 'imports']),
-
-  // =========================================================================
-  // WeldCommerce — Products, Orders, Fulfillment, Website builder (catalog)
-  // =========================================================================
-  // Real UI today: products / categories / orders via commerceKeys
-  // (`['weldcommerce', …]` in use-commerce-queries.ts). Runtime order routes
-  // publish `commerce_order`; connector ingest may emit legacy `order`.
-  category: inv(['weldcommerce', 'categories'], ['weldcommerce', 'products']),
-  commerce_order: inv(['weldcommerce', 'orders']),
-  order: inv(['weldcommerce', 'orders']),
-  // Commerce customers UI is people/companies filters; primary sync is
-  // company/person. Alias covers any future commerce_customer emitters.
-  commerce_customer: inv(['companies'], ['people']),
-  // Provisional kebab prefixes — API (and/or catalog) ahead of list hooks.
-  discount: inv(['weldcommerce', 'discounts']),
-  website: inv(['weldcommerce', 'websites']),
-  website_domain: inv(['weldcommerce', 'websites'], ['weldcommerce', 'website-domains']),
-  // Builder pages/sections: dual-invalidate so future detail hooks under
-  // website-pages / website-sections refresh without bare ['weldcommerce'].
-  website_page: inv(['weldcommerce', 'websites'], ['weldcommerce', 'website-pages']),
-  website_section: inv(
-    ['weldcommerce', 'websites'],
-    ['weldcommerce', 'website-sections'],
-    ['weldcommerce', 'website-pages'],
-  ),
-  cart: inv(['weldcommerce', 'carts']),
-  return: inv(['weldcommerce', 'returns']),
-  return_reason: inv(['weldcommerce', 'return-reasons']),
-  return_rule: inv(['weldcommerce', 'return-rules']),
-  shipment: inv(['weldcommerce', 'shipments']),
-  shipping_price: inv(['weldcommerce', 'shipping-prices']),
-  shipping_rule: inv(['weldcommerce', 'shipping-rules']),
 
   // =========================================================================
   // WeldDesk — Helpdesk
@@ -556,8 +520,6 @@ export const platformSyncMap: EntitySyncMap = {
   // Workspace — Notifications, Automation (WeldFlow workflows), Settings
   // =========================================================================
   notification: { invalidate: [notificationKeys.all] },
-  // Parcel SMS/WhatsApp/webhook templates (API + portals); no platform list hooks yet.
-  notification_template: inv(['parcel-notifications']),
   digest_settings: inv(['task-digest', 'settings']),
   workspace_settings: inv(['settings', 'workspace']),
   workflow: inv(
@@ -708,18 +670,6 @@ export const platformSyncMap: EntitySyncMap = {
   social_post: inv(['social']),
   social_settings: inv(['social']),
   social_team_member: inv(['social']),
-
-  // =========================================================================
-  // Parcels — no platform TanStack hooks yet (portals are out of scope).
-  // Provisional ['parcel'] root for catalog completeness / future UI.
-  // =========================================================================
-  parcel: inv(['parcel']),
-  parcel_box: inv(['parcel']),
-  parcel_carrier: inv(['parcel']),
-  parcel_order: inv(['parcel']),
-  parcel_pickup: inv(['parcel']),
-  parcel_wallet: inv(['parcel']),
-  parcel_settings: inv(['parcel']),
 
   // =========================================================================
   // WeldAds — weldadsKeys.all in use-weldads-queries.ts

@@ -12,12 +12,12 @@ WeldStash tracks stock across locations and supports pick, pack, and ship workfl
 
 ## What you can do
 
-- **Products** — SKUs tied to commerce or internal catalog
+- **Products** — your catalog: SKUs, barcodes, prices, images and sales tax codes
 - **Suppliers** — vendor records and purchase context
 - **Warehouses** — multiple storage locations
 - **Stock levels** — on-hand quantities per SKU and location
 - **Pick lists** — batch picking for orders
-- **Packing** — pack stations, slips, and handoff to shipping
+- **Packing** — pack picked orders, print packing slips, and mark them shipped
 
 ---
 
@@ -26,12 +26,11 @@ WeldStash tracks stock across locations and supports pick, pack, and ship workfl
 1. Define **warehouses** and **products**.
 2. Receive stock (adjust quantities or import).
 3. Generate **pick lists** from open orders.
-4. **Pack** orders and print labels from the packing view.
-5. Mark shipments complete so [WeldCommerce](/weldcommerce) orders update.
+4. **Pack** orders and print packing slips from the packing view.
+5. **Mark as shipped**: WeldStash issues the picked stock and marks the order shipped.
 
 ---
 
 ## Next steps
 
-- [WeldCommerce overview](/weldcommerce)
 - [WeldBooks overview](/weldbooks) — purchase documents and COGS

@@ -26,7 +26,6 @@ import {
 import type { Env, Variables } from '../../types';
 import { error } from '@weldsuite/worker-kit/response';
 import { runSearch, getPermittedTypes, type PermissionLike } from '../../services/search';
-import { listMemberAppCodes } from '../../services/member-apps';
 import { understandQuery, applyPermittedTypes } from '../../services/search/query-understanding';
 import { resolveAiMetering } from '@weldsuite/core-domain/ai-billing';
 
@@ -88,7 +87,6 @@ app.post('/', zValidator('json', searchInputSchema), async (c) => {
       lexicalTerm: parsed.lexicalTerm,
       // Spreadsheets are visible per person (WeldDrive sharing), not per workspace.
       userId: c.get('userId') ?? null,
-      memberApps: async () => new Set(await listMemberAppCodes(db, c.get('userId'))),
     });
 
     return c.json({

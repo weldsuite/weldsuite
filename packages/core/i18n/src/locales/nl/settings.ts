@@ -53,7 +53,6 @@ export const settings = {
       mail: 'Mail',
       domains: 'Domeinen',
       accounts: 'Accounts',
-      parcel: 'Pakketten',
       desktopApp: 'Desktop-app',
     },
 
@@ -76,10 +75,6 @@ export const settings = {
       integrations: 'Externe diensten zoals Attio CRM koppelen',
       phoneNumbers: 'Telefoonnummers en VoIP-instellingen beheren',
       activityLog: 'Alle entiteitswijzigingen en auditgeschiedenis bekijken',
-      commerceSettings: 'Commerce-instellingen',
-      configureCommerce: 'Commerce-app configureren',
-      parcelSettings: 'Pakketinstellingen',
-      configureParcel: 'Pakket-app configureren',
       helpdeskSettings: 'WeldDesk-instellingen',
       configureHelpdesk: 'Helpdesk-app configureren',
       mailDomains: 'Mail-domeinen',
@@ -730,10 +725,8 @@ export const settings = {
       modules: {
         helpdesk: 'WeldDesk',
         crm: 'WeldCRM',
-        commerce: 'WeldCommerce',
         mail: 'WeldMail',
         projects: 'WeldFlow',
-        parcel: 'WeldParcel',
         workflows: 'WeldConnect',
         weldchat: 'WeldChat',
         dailyDigest: 'WeldCalendar',
@@ -1110,7 +1103,6 @@ export const settings = {
           ecommerce: 'E-commerce',
           warehouse: 'Magazijn',
           accounting: 'Boekhouding',
-          shipping: 'Verzending',
           support: 'Support',
           calendar: 'Agenda',
           ai: 'AI',
@@ -1129,15 +1121,12 @@ export const settings = {
           shopify: 'Importeer producten, bestellingen en klanten uit een of meer shops. Updates komen binnen via webhooks.',
           moneybird: 'Importeer contacten, verkoopfacturen, producten en inkoopfacturen naar WeldBooks.',
           picqer: 'Tweerichtingssynchronisatie van producten, voorraad, magazijnen, bestellingen, picklijsten en inkopen met Picqer WMS.',
-          sendcloud: 'Maak verzendlabels vanuit WeldStash-picklijsten met je eigen Sendcloud-account.',
         },
       },
       categories: {
         communication: 'Communicatie',
-        shipping: 'Verzending',
         accounting: 'Boekhouding',
         ecommerce: 'E-commerce',
-        printing: 'Printen',
       },
       catalog: {
         googleMeet: {
@@ -1200,66 +1189,6 @@ export const settings = {
             'Klik op meldingen om direct naar het betreffende item te gaan',
           ],
         },
-        dhl: {
-          description: 'Beheer zendingen en volg pakketten wereldwijd.',
-          overview:
-            'De DHL-integratie stroomlijnt je internationale verzendprocessen. Maak labels aan, volg pakketten in realtime en beheer leveringen over de hele wereld. Gebruik concurrerende tarieven en betrouwbare bezorgdiensten rechtstreeks vanuit je werkruimte.',
-          features: [
-            'Automatisch verzendlabels aanmaken',
-            'Pakketten in realtime volgen',
-            'Tarieven vergelijken en optimaliseren',
-            'Douanedocumentatie voor internationale zendingen',
-            'Ophaalafspraken plannen',
-            'Bezorgmeldingen en updates',
-          ],
-          howItWorks: [
-            'Voer je DHL-accountgegevens in',
-            'Stel je standaardverzendvoorkeuren in',
-            'Maak labels rechtstreeks vanuit bestellingen',
-            'Volg zendingen in het verzenddashboard',
-            'Ontvang automatische statusupdates',
-          ],
-        },
-        ups: {
-          description: 'Verzend en volg leveringen tegen concurrerende tarieven.',
-          overview:
-            'De UPS-integratie geeft toegang tot een van de grootste bezorgnetwerken ter wereld. Verzend pakketten binnen- en buitenland met vertrouwen. Profiteer van realtime tracking, concurrerende tarieven en betrouwbare bezorgschattingen.',
-          features: [
-            'Binnenlandse en internationale verzending',
-            'Realtime tracking en meldingen',
-            'Tarieven vergelijken per serviceniveau',
-            'Adresvalidatie',
-            'Retourlabels aanmaken',
-            'Ophaalafspraken plannen en beheren',
-          ],
-          howItWorks: [
-            'Koppel je UPS-account',
-            'Stel verzendvoorkeuren en standaardwaarden in',
-            'Maak zendingen aan vanuit je bestellingen',
-            'Print labels en plan ophaalafspraken',
-            'Volg alle zendingen in één dashboard',
-          ],
-        },
-        postnl: {
-          description: 'Verzend binnen Nederland en internationaal.',
-          overview:
-            'De PostNL-integratie is ideaal voor bedrijven die binnen Nederland en door heel Europa verzenden. Maak gebruik van het uitgebreide PostNL-netwerk met afhaalpunten, track & trace en betrouwbare bezorgdiensten.',
-          features: [
-            'Nederlandse en Europese verzenddiensten',
-            'Uitgebreid netwerk van afhaalpunten',
-            'Track & trace-integratie',
-            'Bezorgopties op dezelfde dag',
-            'Ondersteuning voor brievenbuspakjes',
-            'Retourbeheer',
-          ],
-          howItWorks: [
-            'Voer je PostNL API-gegevens in',
-            'Configureer verzendproducten en diensten',
-            'Maak labels aan voor je bestellingen',
-            'Volg zendingen via het dashboard',
-            'Beheer retouren efficiënt',
-          ],
-        },
         exactOnline: {
           description: 'Synchroniseer facturen en automatiseer je boekhouding.',
           overview:
@@ -1300,26 +1229,6 @@ export const settings = {
             'Genereer rapporten vanuit beide platformen',
           ],
         },
-        printnode: {
-          description: 'Geautomatiseerd cloudprinten voor labels en documenten.',
-          overview:
-            'De PrintNode-integratie maakt geautomatiseerd cloudprinten voor je bedrijf mogelijk. Print verzendlabels, pakbonnen, facturen en eigen documenten naar elke aangesloten printer. Stel printregels in om je workflow te automatiseren.',
-          features: [
-            'Cloudprinten naar elke aangesloten printer',
-            'Automatisch labels printen bij het aanmaken van een bestelling',
-            'Ondersteuning voor meerdere printers',
-            'Beheer van de printwachtrij',
-            'Eigen printsjablonen',
-            'Printgeschiedenis en logboek',
-          ],
-          howItWorks: [
-            'Maak een PrintNode-account aan en haal je API-sleutel op',
-            'Installeer de PrintNode-client op je computers',
-            'Voer je API-sleutel in bij de integratie-instellingen',
-            'Stel standaardprinters in voor verschillende documenttypen',
-            'Documenten worden automatisch geprint op basis van je regels',
-          ],
-        },
       },
       woocommerce: {
         title: 'WooCommerce',
@@ -1347,51 +1256,11 @@ export const settings = {
         overview:
           'Vul je Picqer-subdomein en API-sleutel in. Na de eerste import pusht Picqer voorraad-, picklijst-, order- en inkoopwijzigingen via webhooks, met een periodieke inhaal-sync. Voorraadhoeveelheden behandelen Picqer als magazijnwaarheid tenzij je de objectrichting overschrijft.',
       },
-      sendcloud: {
-        title: 'Sendcloud',
-        description: 'Koppel je Sendcloud-account om verzendlabels te maken vanuit WeldStash-picklijsten.',
-        overview:
-          'Gebruik je eigen Sendcloud API-sleutels. WeldSuite synchroniseert afzenderadressen en verzendopties (pakkettypes) uit je account. Zet aan welke packing mag gebruiken en maak een label wanneer je een picklijst verzendt.',
-        publicKey: 'Public key',
-        secretKey: 'Secret key',
-        publicKeyPlaceholder: 'Sendcloud public key',
-        secretKeyPlaceholder: 'Sendcloud secret key',
-        keysHelp: 'In Sendcloud: Instellingen → Integraties → Sendcloud API om je public en secret key te kopiëren.',
-        connect: 'Sendcloud verbinden',
-        connectedAs: 'Verbonden als {name}',
-        lastSynced: 'Laatst gesynchroniseerd {date}',
-        refresh: 'Vernieuwen vanuit Sendcloud',
-        senders: 'Afzenders',
-        sendersHelp: 'Zet de afzenderadressen aan vanaf waar packing mag verzenden. Eén afzender is de standaard.',
-        parcelTypes: 'Pakkettypes',
-        parcelTypesHelp: 'Dit zijn Sendcloud-verzendopties. Zet aan welke je magazijn gebruikt.',
-        colName: 'Naam',
-        colCarrier: 'Vervoerder',
-        colAddress: 'Adres',
-        colEnabled: 'Aan',
-        colDefault: 'Standaard',
-        emptySenders: 'Nog geen afzenderadressen. Vernieuw nadat je ze in Sendcloud hebt toegevoegd.',
-        emptyMethods: 'Nog geen pakkettypes. Activeer vervoerders in Sendcloud en vernieuw daarna.',
-        saveFailed: 'Sendcloud-instellingen opslaan mislukt',
-        connectFailed: 'Verbinden met Sendcloud mislukt. Controleer de API-sleutels.',
-        synced: 'Afzenders en pakkettypes vernieuwd',
-        syncFailed: 'Sendcloud-catalogus vernieuwen mislukt',
-      },
-      configurePrintNode: 'PrintNode configureren',
-      printNodeDescription: 'Voer uw PrintNode API-sleutel in om uw printers te koppelen',
-      apiKey: 'API-sleutel',
-      apiKeyPlaceholder: 'Voer uw PrintNode API-sleutel in',
-      apiKeyHelp: 'U kunt uw API-sleutel vinden in uw PrintNode-dashboard op printnode.com',
       messages: {
         disconnected: '{integration} verbroken',
-        disconnectFailed: 'Kan {integration} niet verbreken',
-        enterApiKey: 'Voer een API-sleutel in',
         enterApiKeyFirst: 'Voer eerst een API-sleutel in',
         connectionSuccess: 'Verbinding succesvol!',
         connectionTestFailed: 'Verbindingstest mislukt',
-        testFailed: 'Kan verbinding niet testen',
-        printNodeSaved: 'PrintNode-instellingen opgeslagen',
-        printNodeSaveFailed: 'Kan PrintNode-instellingen niet opslaan',
       },
       attio: {
         title: 'Attio CRM',
@@ -1937,11 +1806,6 @@ export const settings = {
     weldcalendar: {
       title: 'WeldCalendar',
       description: 'Hoe je agenda met ingeplande taken omgaat.',
-    },
-
-    weldcommerce: {
-      title: 'WeldCommerce',
-      description: 'Het klantportaal waarop je zakelijke klanten inloggen.',
     },
 
     social: {
@@ -2680,7 +2544,6 @@ export const settings = {
     apiKeyPermissions: {
       groups: {
         crm: 'CRM',
-        commerce: 'Commerce',
         projects: 'Projecten',
         helpdesk: 'Helpdesk',
         files: 'Bestanden',
@@ -2726,14 +2589,6 @@ export const settings = {
         quotes: {
           name: 'Offertes',
           description: 'CRM-offertes',
-        },
-        products: {
-          name: 'Producten',
-          description: 'Commerce-producten',
-        },
-        orders: {
-          name: 'Bestellingen',
-          description: 'Commerce-bestellingen',
         },
         projects: {
           name: 'Projecten',

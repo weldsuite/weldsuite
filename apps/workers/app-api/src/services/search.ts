@@ -53,12 +53,6 @@ export interface RunSearchParams {
    */
   lexicalTerm?: string;
   /**
-   * The apps the caller can open, for picking where a product links (see
-   * `buildResultUrl`). Only called when products match, so other searches
-   * skip the lookup.
-   */
-  memberApps?: () => Promise<ReadonlySet<string>>;
-  /**
    * Who is searching. Records that are visible per person rather than per
    * workspace (Drive files follow WeldDrive sharing, forms, meetings, signature
    * requests, channels and agents their own rules) are filtered by it; with no
@@ -105,7 +99,6 @@ const CANONICAL_ORDER: SearchEntityType[] = [
   'article',
   'knowledge_page',
   'product',
-  'order',
   'warehouse',
   'invoice',
   'bill',
@@ -152,10 +145,7 @@ const CANONICAL_ORDER: SearchEntityType[] = [
  * a ticket opens as an entity sheet over the inbox. `/welddesk` itself
  * redirects to the inbox and drops the query, hence the explicit path.
  *
- * Products and orders open as object panels on their list page. WeldCommerce
- * and WeldStash list the same products, which link to WeldCommerce unless
- * `memberApps` shows the member can only open WeldStash (WeldCommerce would
- * show them its "not installed" screen). Only WeldCommerce has an orders list.
+ * Products open as object panels on the WeldStash products list.
  *
  * Spreadsheets have a page of their own: `/weldsheets/:id`. So do documents
  * (`/welddocs/:id`), forms (`/weldforms/:id`, which opens the editor), desk
@@ -192,11 +182,7 @@ function hasRecordPage(type: SearchEntityType): type is keyof typeof RECORD_PAGE
   return type in RECORD_PAGE;
 }
 
-export function buildResultUrl(
-  type: SearchEntityType,
-  id: string,
-  memberApps?: ReadonlySet<string>,
-): string {
+export function buildResultUrl(type: SearchEntityType, id: string): string {
   if (hasRecordPage(type)) return `${RECORD_PAGE[type]}/${id}`;
   switch (type) {
     case 'contact':
@@ -209,15 +195,8 @@ export function buildResultUrl(
       return `/weldcrm?entity=opportunity:${encodeURIComponent(id)}`;
     case 'ticket':
       return `/welddesk/inbox?entity=ticket:${encodeURIComponent(id)}`;
-    case 'product': {
-      const app =
-        memberApps && !memberApps.has('weldcommerce') && memberApps.has('weldstash')
-          ? 'weldstash'
-          : 'weldcommerce';
-      return `/${app}/products?stack=product:${encodeURIComponent(id)}`;
-    }
-    case 'order':
-      return `/weldcommerce/orders?stack=order:${encodeURIComponent(id)}`;
+    case 'product':
+      return `/weldstash/products?stack=product:${encodeURIComponent(id)}`;
     case 'merge_issue':
       return `/weldmerge/issues/${encodeURIComponent(id)}`;
     case 'merge_pull_request':
@@ -724,58 +703,6 @@ export async function searchProducts(
   }));
 
   return { type: 'product', items, totalCount: items.length, hasMore };
-}
-
-export async function searchOrders(
-  db: Database,
-  _workspaceId: string,
-  q: string,
-  limit: number,
-): Promise<SearchResultGroup> {
-  const { orders } = schema;
-  const term = `%${q.toLowerCase()}%`;
-  const score = sql<number>`GREATEST(
-    ${scoreColumn(orders.orderNumber, q)},
-    ${scoreColumn(orders.customerName, q)},
-    ${emailScore(orders.customerEmail, q)}
-  )`;
-
-  const rows = await db
-    .select({
-      id: orders.id,
-      orderNumber: orders.orderNumber,
-      customerName: orders.customerName,
-      status: orders.status,
-      total: orders.total,
-      currency: orders.currency,
-      score,
-      updatedAt: orders.updatedAt,
-    })
-    .from(orders)
-    .where(
-      and(
-        isNull(orders.deletedAt),
-        or(
-          sql`lower(${orders.orderNumber}) LIKE ${term}`,
-          sql`lower(${orders.customerName}) LIKE ${term}`,
-          sql`lower(${orders.customerEmail}) LIKE ${term}`,
-        ),
-      ),
-    )
-    .orderBy(desc(score), desc(orders.updatedAt), desc(orders.id))
-    .limit(limit + 1);
-
-  const hasMore = rows.length > limit;
-  const items: SearchResultItem[] = rows.slice(0, limit).map((r) => ({
-    id: r.id,
-    type: 'order',
-    title: r.orderNumber ? `Order ${r.orderNumber}` : 'Order',
-    subtitle: r.customerName || r.status || null,
-    url: buildResultUrl('order', r.id),
-    score: typeof r.score === 'number' ? r.score : Number(r.score) || null,
-  }));
-
-  return { type: 'order', items, totalCount: items.length, hasMore };
 }
 
 export async function searchInvoices(
@@ -1830,7 +1757,6 @@ const ENTITY_REGISTRY: EntityRegistration[] = [
   { type: 'article', permission: 'articles:read', search: searchArticles },
   { type: 'knowledge_page', permission: 'knowledge:read', search: searchKnowledgePages },
   { type: 'product', permission: 'products:read', search: searchProducts },
-  { type: 'order', permission: 'orders:read', search: searchOrders },
   { type: 'warehouse', permission: 'warehouses:read', search: searchWarehouses },
   { type: 'invoice', permission: 'invoices:read', search: searchInvoices },
   { type: 'bill', permission: 'bills:read', search: searchBills },
@@ -1887,32 +1813,8 @@ export async function runSearch(
   );
 
   return {
-    groups: await linkProductsToMemberApps(groups, params.memberApps),
+    groups,
     permittedTypes: permitted.map((r) => r.type),
   };
 }
 
-/**
- * Product hits are built with the WeldCommerce URL; once the member's apps are
- * known, relink them. A failed lookup keeps the WeldCommerce links.
- */
-async function linkProductsToMemberApps(
-  groups: SearchResultGroup[],
-  memberApps: RunSearchParams['memberApps'],
-): Promise<SearchResultGroup[]> {
-  if (!memberApps || !groups.some((g) => g.type === 'product' && g.items.length > 0)) {
-    return groups;
-  }
-  let apps: ReadonlySet<string>;
-  try {
-    apps = await memberApps();
-  } catch (err) {
-    console.error('[app-api/search] Failed to resolve member apps:', err);
-    return groups;
-  }
-  return groups.map((g) =>
-    g.type === 'product'
-      ? { ...g, items: g.items.map((item) => ({ ...item, url: buildResultUrl('product', item.id, apps) })) }
-      : g,
-  );
-}

@@ -1,6 +1,6 @@
 ---
 name: frontend-nextjs
-description: Use for the Next.js apps, sites (customer websites), helpcenter (knowledge base), helpdesk-widget, parcel-tracking-portal, parcel-return-portal, booking-portal, meeting-portal. These DO have server components and SSR, unlike the platform SPA.
+description: Use for the Next.js apps, sites (customer websites), helpcenter (knowledge base), helpdesk-widget, booking-portal, meeting-portal. These DO have server components and SSR, unlike the platform SPA.
 model: sonnet
 ---
 
@@ -11,8 +11,6 @@ You are the Next.js Apps specialist for WeldSuite.
 - `apps/web/sites`, customer-facing websites (Next 15, port 3007). Uses `@weldsuite/site-components` blocks.
 - `apps/web/helpcenter`, knowledge base (Next 16, port 3008). Flexsearch-powered.
 - `apps/web/helpdesk-widget`, Vite SPA (NOT Next) but pairs with the SDK.
-- `apps/web/parcel-tracking-portal`, Next 15, port 3018, Mapbox GL.
-- `apps/web/parcel-return-portal`, Next 15, port 3017.
 - `apps/web/booking-portal`, `apps/web/meeting-portal`, public-facing Next apps.
 
 ## Rules
@@ -29,7 +27,6 @@ You are the Next.js Apps specialist for WeldSuite.
 
 - Customer-facing portals → `external-api` worker.
 - helpdesk-widget → `helpdesk-widget-api` (@weldsuite/realtime real-time).
-- parcel portals → parcel/return data lives in the `commerce-api` worker (`apps/workers/commerce-api/src/routes/parcels/`, `returns/`, `parcel-*`). The portals make no API calls of their own today; verify before wiring one.
 
 ## Definition of done
 

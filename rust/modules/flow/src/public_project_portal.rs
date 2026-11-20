@@ -3,8 +3,8 @@
 //! `lib/portal-session.ts`).
 //!
 //! The workspace comes from a slug (sign-in) or from the session (everything
-//! after), the caller from a hashed session token in the workspace cache, like
-//! the commerce portal (COM-007). Conformance builds put the test's tenant on
+//! after), the caller from a hashed session token in the workspace cache
+//! ([`weldsuite_kit::portal`]). Conformance builds put the test's tenant on
 //! the request and skip the master lookup, as the worker's tests do.
 //!
 //! ```text
@@ -49,13 +49,6 @@ use http::{HeaderMap, HeaderValue, StatusCode};
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
 use weldsuite_catalogs::entity_events::{EventName, PROJECT_MESSAGE_CREATED};
-use weldsuite_commerce_domain::portal_slug::normalize_portal_slug;
-use weldsuite_commerce_domain::portal_tokens::{
-    PortalKv, kv_delete, kv_get_json, kv_put_json, random_otp, random_token, sha256_hex,
-};
-use weldsuite_commerce_domain::rate_limit::{
-    RateLimitCounters, RateLimitOutcome, RequestRateLimiter, consume_rate_limit, release_rate_limit,
-};
 use weldsuite_db::Tenant;
 use weldsuite_emails::EmailLocale;
 use weldsuite_events::{EntityEvent, EventContext};
@@ -69,6 +62,13 @@ use weldsuite_flow_domain::project_portal::{
     messages as portal_messages, normalize_portal_email, portal_code_input, portal_code_key,
     portal_message_metadata, portal_session_key, portal_slug_key, present_message,
     session_expires_at, session_needs_refresh,
+};
+use weldsuite_kit::portal::rate_limit::{
+    RateLimitCounters, RateLimitOutcome, RequestRateLimiter, consume_rate_limit, release_rate_limit,
+};
+use weldsuite_kit::portal::slug::normalize_portal_slug;
+use weldsuite_kit::portal::tokens::{
+    PortalKv, kv_delete, kv_get_json, kv_put_json, random_otp, random_token, sha256_hex,
 };
 use weldsuite_kit::validation::{Format, Issues, Presence, Text, js_trim};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
@@ -1384,7 +1384,7 @@ async fn answer(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use weldsuite_commerce_domain::rate_limit::RateLimitVerdict;
+    use weldsuite_kit::portal::rate_limit::RateLimitVerdict;
 
     fn bytes(value: &Value) -> Bytes {
         Bytes::from(value.to_string())

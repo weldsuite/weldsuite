@@ -22,7 +22,6 @@ const RECORD_NOUN: Record<SearchEntityType, string> = {
   article: 'help center article',
   knowledge_page: 'knowledge page',
   product: 'product',
-  order: 'order',
   invoice: 'invoice',
   bill: 'bill',
   project: 'project',

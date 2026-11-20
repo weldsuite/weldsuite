@@ -1,8 +1,7 @@
 //! What the sales tax engines need from the tenant database
 //! (`sales-tax/load.ts`): the entity's engine and (decrypted) credentials,
 //! its agencies as registrations, and for the manual engine its
-//! jurisdictions, rates, zones and taxability rules. books-api and
-//! commerce-api both call it.
+//! jurisdictions, rates, zones and taxability rules. books-api calls it.
 
 use serde_json::Value;
 use weldsuite_db::{Keyring, PgPool, decrypt_field};

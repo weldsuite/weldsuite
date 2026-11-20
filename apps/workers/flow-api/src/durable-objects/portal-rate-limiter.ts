@@ -3,8 +3,8 @@
  * limits (`/public/project-portal/auth/request-code` and `/auth/verify`). One
  * instance per limiter key. A Durable Object handles one call at a time, so
  * "count, compare, write" cannot interleave the way it can in KV. The
- * arithmetic is the commerce portal's `RateLimitCounter`; this class wires it
- * to the object's storage, as commerce-api's and helpdesk-widget-api's copies do.
+ * arithmetic is worker-kit's portal `RateLimitCounter`; this class wires it
+ * to the object's storage, as helpdesk-widget-api's copy does.
  */
 
 import { DurableObject } from 'cloudflare:workers';
@@ -12,7 +12,7 @@ import {
   RateLimitCounter,
   type RateLimitState,
   type RateLimitVerdict,
-} from '@weldsuite/commerce-domain/portal-tokens';
+} from '@weldsuite/worker-kit/portal-tokens';
 
 const STATE_KEY = 'window';
 

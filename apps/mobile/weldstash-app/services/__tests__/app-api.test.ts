@@ -35,7 +35,6 @@ describe('services/app-api', () => {
           'pickLists',
           'products',
           'pushTokens',
-          'sendcloud',
           'warehouses',
           'workspaces',
         ].sort(),

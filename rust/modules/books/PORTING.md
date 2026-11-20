@@ -31,7 +31,7 @@ rust/crates/books-domain/        weldsuite-books-domain       everything shared:
                                                               glue (Caller, Refusal, validation, paging), entity
                                                               context, guards, the posting engine, currency/FX,
                                                               jurisdictions, and every service two areas (or another
-                                                              module: commerce, hr, connect) need
+                                                              module: stash, hr, connect) need
 rust/modules/books/              weldsuite-books              area 0, the foundation: entities, settings, GL accounts,
                                                               journal entries, fiscal periods, tax rates, FX rates,
                                                               dimensions
@@ -268,8 +268,8 @@ Services: `sales-tax/*`, `sales-tax-returns/*`, `sales-tax-reports`,
 Avalara and Stripe Tax: outbound calls), `us-compliance/{nexus,tax-calendar}`,
 `jurisdictions/us/{sales-tax-return,nexus-thresholds,states,tax-codes}`.
 Owns `books_domain::sales_tax` (the engine and `sales-tax/document-tax`):
-sales and purchases call it for US documents, and **commerce** calls it for
-order tax (`order-sales-tax.ts`). Port the engine first; it unblocks both.
+sales and purchases call it for US documents (commerce's order tax went with
+WeldCommerce, removed to be rebuilt). Port the engine first; it unblocks both.
 
 ### 5. Reports and US compliance — `books-reports` (~16k)
 
@@ -461,14 +461,10 @@ Stripe Financial Connections, Ponto (mTLS), Enable Banking, Gusto, Digipoort
 
 ## Other modules that use books
 
-- **commerce** (`order-sales-tax.ts`, `commerce-portal-invoices.ts`): on
-  `address::normalize_postal_address`, `sales_tax` (`load::load_sales_tax_context`
-  and the engines, Stripe Tax and Avalara through the request's outbound
-  HTTP, `load_customer_certificates`, rounding, `tax_codes`), `invoice_html`
-  (`generate_invoice_html`) and `compliance`. Done: commerce's private
-  copies are gone (only `isAcceptedProductTaxClass`, a commerce rule, is
-  commerce's `tax_class.rs`); the `commerce: *` suites stay at zero
-  differences, the portal's invoice rendering tests included.
+- **stash** (`routes/products/tax-schemas.ts`): `sales_tax::tax_codes`, for
+  the product tax class `isAcceptedProductTaxClass` accepts
+  (`modules/stash/src/products.rs`). WeldCommerce (its order tax and the
+  portal's invoices) was removed to be rebuilt.
 - **connect** (`connectors/ingest.ts`): `roles::promote_accounting_role`
   (foundation).
 - **hr**: `payroll::post_weldhr_import` (foundation; see above).

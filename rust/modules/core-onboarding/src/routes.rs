@@ -590,15 +590,7 @@ const fn app(
 }
 
 /// `FALLBACK_CATALOG`, copied from the workers.
-const FALLBACK_CATALOG: [FallbackApp; 13] = [
-    app(
-        "commerce",
-        "Commerce",
-        "Comprehensive e-commerce platform for online selling, product management, and order processing",
-        "ShoppingCart",
-        "Sales & Marketing",
-        "/commerce",
-    ),
+const FALLBACK_CATALOG: [FallbackApp; 12] = [
     app(
         "crm",
         "CRM",

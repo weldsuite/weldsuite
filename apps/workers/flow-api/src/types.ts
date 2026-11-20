@@ -1,4 +1,4 @@
-import type { RateLimitNamespace } from '@weldsuite/commerce-domain/portal-tokens';
+import type { RateLimitNamespace } from '@weldsuite/worker-kit/portal-tokens';
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
 import type { DeferredEmailParams } from '@weldsuite/notifications/types';
 import type { KitEnv, KitVariables } from '@weldsuite/worker-kit';

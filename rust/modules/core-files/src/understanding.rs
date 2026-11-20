@@ -141,8 +141,8 @@ fn keyword_type(word: &str) -> Option<SearchType> {
     use SearchType::{
         Agent, Article, Bill, Board, ChatChannel, Contact, Conversation, Customer, DataList,
         Document, Domain, DriveFile, Form, Invoice, KnowledgePage, Lead, Meeting, MergeIssue,
-        MergePullRequest, Opportunity, Order, Product, Project, ReachCampaign, Sheet, SignEnvelope,
-        Task, Ticket, Warehouse, Workflow,
+        MergePullRequest, Opportunity, Product, Project, ReachCampaign, Sheet, SignEnvelope, Task,
+        Ticket, Warehouse, Workflow,
     };
     Some(match word {
         "contact" | "contacts" | "contactpersoon" | "contactpersonen" | "person" | "people"
@@ -155,7 +155,6 @@ fn keyword_type(word: &str) -> Option<SearchType> {
         "article" | "articles" | "artikel" | "artikelen" => Article,
         "wiki" | "page" | "pages" | "pagina" | "pagina_s" | "kennisbank" => KnowledgePage,
         "product" | "products" | "producten" => Product,
-        "order" | "orders" | "bestelling" | "bestellingen" => Order,
         "invoice" | "invoices" | "factuur" | "facturen" => Invoice,
         "bill" | "bills" | "rekening" | "rekeningen" | "inkoopfactuur" | "inkoopfacturen" => Bill,
         "project" | "projects" | "projecten" => Project,

@@ -12,31 +12,17 @@ const env = vi.hoisted(() => ({
   permissions: null as { can: (permission: string) => boolean } | null,
 }));
 
-vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock('@weldsuite/permissions/react', () => ({
   usePermissionsMaybe: () => env.permissions,
 }));
-vi.mock('@/components/object-panel', () => ({
-  useObjectPanel: () => ({ open: vi.fn() }),
-  useObjectPanelNavigationSource: () => undefined,
-}));
-vi.mock('@/hooks/queries/use-commerce-queries', () => ({
-  useCommerceProduct: () => ({
-    data: { data: { id: 'prod_1', name: 'Widget', sku: 'W-1', status: 'active', price: '10', currency: 'EUR', salesChannels: [], images: [] } },
+vi.mock('@/hooks/queries/use-weldstash-queries', () => ({
+  useWeldstashProduct: () => ({
+    data: { data: { id: 'prod_1', name: 'Widget', sku: 'W-1', status: 'active', price: '10', currency: 'EUR', images: [] } },
     isLoading: false,
     error: null,
   }),
-  useCommerceProductCategories: () => ({ data: { data: [] } }),
-  useAttachCategoryProducts: () => ({ mutateAsync: vi.fn(), isPending: false }),
-  useDetachCategoryProduct: () => ({ mutateAsync: vi.fn(), isPending: false }),
-}));
-vi.mock('@/hooks/queries/use-weldstash-queries', () => ({
   useWeldstashStock: () => ({ data: { data: [] } }),
   useWeldstashMovements: () => ({ data: { data: [] } }),
-}));
-vi.mock('./category-picker-dialog', () => ({ CategoryPickerDialog: () => null }));
-vi.mock('@/app/weldcommerce/products/components/product-sales-channels-editor', () => ({
-  ProductSalesChannelsEditor: () => <div>channels editor</div>,
 }));
 vi.mock('@/app/weldstash/product-suppliers/components/product-suppliers-section', () => ({
   ProductSuppliersSection: ({ side, productId }: { side: string; productId: string }) => (

@@ -15,6 +15,7 @@ pub mod cursor;
 pub mod id;
 pub mod log_safe;
 pub mod pagination;
+pub mod portal;
 pub mod request_env;
 pub mod request_id;
 pub mod response;

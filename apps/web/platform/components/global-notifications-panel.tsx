@@ -22,7 +22,7 @@ import { webHrefForAction } from '@/lib/weldagent/action-links';
 import { isHrefOffered } from '@/lib/edition-routes';
 import { useI18n } from '@/lib/i18n/provider';
 
-type NotificationType = 'message' | 'task' | 'mention' | 'system' | 'order' | 'invoice' | 'calendar' | 'mail' | 'helpdesk' | 'crm' | 'commerce' | 'parcel' | 'projects';
+type NotificationType = 'message' | 'task' | 'mention' | 'system' | 'invoice' | 'calendar' | 'mail' | 'helpdesk' | 'crm' | 'projects';
 
 interface DisplayNotification {
   id: string;
@@ -53,14 +53,11 @@ function mapCategoryToType(category: string): NotificationType {
     mail: 'mail',
     helpdesk: 'helpdesk',
     crm: 'crm',
-    commerce: 'commerce',
-    parcel: 'parcel',
     projects: 'projects',
     task: 'task',
     system: 'system',
     calendar: 'calendar',
     invoice: 'invoice',
-    order: 'order',
     message: 'message',
     mention: 'mention',
   };

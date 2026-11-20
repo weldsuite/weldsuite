@@ -29,7 +29,6 @@ import articles from './articles';
 import boards from './boards';
 import calendarEvents from './calendar-events';
 import calendars from './calendars';
-import categories from './categories';
 import channelMembers from './channel-members';
 import channels from './channels';
 import chatBookmarks from './chat-bookmarks';
@@ -57,7 +56,6 @@ import mailThreads from './mail-threads';
 import milestones from './milestones';
 import opportunities from './opportunities';
 import panel from './panel';
-import orders from './orders';
 import people from './people';
 import pipelines from './pipelines';
 import pipelineStages from './pipeline-stages';
@@ -67,7 +65,6 @@ import projectLabels from './project-labels';
 import projectMembers from './project-members';
 import projectMessages from './project-messages';
 import projectSheets from './project-sheets';
-import products from './products';
 import projects from './projects';
 import quotes from './quotes';
 import reach from './reach';
@@ -114,7 +111,6 @@ v1.get('/', (c) => {
       '/v1/boards',
       '/v1/calendar-events',
       '/v1/calendars',
-      '/v1/categories',
       '/v1/channel-members',
       '/v1/channels',
       '/v1/chat-bookmarks',
@@ -150,13 +146,11 @@ v1.get('/', (c) => {
       '/v1/milestones',
       '/v1/odata',
       '/v1/opportunities',
-      '/v1/orders',
       '/v1/panel',
       '/v1/people',
       '/v1/payments',
       '/v1/pipeline-stages',
       '/v1/pipelines',
-      '/v1/products',
       '/v1/project-documents',
       '/v1/project-files',
       '/v1/project-labels',
@@ -242,7 +236,6 @@ v1.route('/articles', articles);
 v1.route('/boards', boards);
 v1.route('/calendar-events', calendarEvents);
 v1.route('/calendars', calendars);
-v1.route('/categories', categories);
 v1.route('/channel-members', channelMembers);
 v1.route('/channels', channels);
 v1.route('/chat-bookmarks', chatBookmarks);
@@ -271,12 +264,10 @@ v1.route('/mail-messages', mailMessages);
 v1.route('/mail-threads', mailThreads);
 v1.route('/milestones', milestones);
 v1.route('/opportunities', opportunities);
-v1.route('/orders', orders);
 v1.route('/panel', panel);
 v1.route('/people', people);
 v1.route('/pipeline-stages', pipelineStages);
 v1.route('/pipelines', pipelines);
-v1.route('/products', products);
 v1.route('/project-documents', productDocuments);
 v1.route('/project-files', projectFiles);
 v1.route('/project-labels', projectLabels);

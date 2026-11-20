@@ -38,7 +38,6 @@ pub(crate) enum SearchType {
     Article,
     KnowledgePage,
     Product,
-    Order,
     Warehouse,
     Invoice,
     Bill,
@@ -66,7 +65,7 @@ pub(crate) enum SearchType {
 /// (`ENTITY_REGISTRY`), in canonical order (`CANONICAL_ORDER`, which the
 /// registry follows too). Where an object is shared between several apps the
 /// key names the app the module's own routes are checked in.
-const REGISTRY: [(SearchType, &str, &str); 31] = [
+const REGISTRY: [(SearchType, &str, &str); 30] = [
     (SearchType::Contact, "contact", "contacts:read"),
     (SearchType::Customer, "customer", "contacts:read"),
     (SearchType::Lead, "lead", "leads:read"),
@@ -84,7 +83,6 @@ const REGISTRY: [(SearchType, &str, &str); 31] = [
         "knowledge:read",
     ),
     (SearchType::Product, "product", "products:read"),
-    (SearchType::Order, "order", "orders:read"),
     (SearchType::Warehouse, "warehouse", "warehouses:read"),
     (SearchType::Invoice, "invoice", "invoices:read"),
     (SearchType::Bill, "bill", "bills:read"),
@@ -134,7 +132,7 @@ const REGISTRY: [(SearchType, &str, &str); 31] = [
 
 /// `SEARCH_ENTITY_TYPES`: the names `types` accepts, in the schema's own
 /// order (the enum's message lists them so), which is not the canonical one.
-pub(crate) const ENTITY_TYPES: [&str; 31] = [
+pub(crate) const ENTITY_TYPES: [&str; 30] = [
     "contact",
     "customer",
     "lead",
@@ -143,7 +141,6 @@ pub(crate) const ENTITY_TYPES: [&str; 31] = [
     "article",
     "knowledge_page",
     "product",
-    "order",
     "invoice",
     "bill",
     "project",
@@ -195,12 +192,9 @@ impl SearchType {
     }
 }
 
-/// Where a result opens in the platform (`buildResultUrl`).
-pub(crate) fn build_result_url(
-    kind: SearchType,
-    id: &str,
-    member_apps: Option<&[String]>,
-) -> String {
+/// Where a result opens in the platform (`buildResultUrl`). Products open
+/// as object panels on the WeldStash products list.
+pub(crate) fn build_result_url(kind: SearchType, id: &str) -> String {
     let encoded = encode_uri_component(id);
     match kind {
         SearchType::Contact => format!("/weldcrm/people?stack=person:{encoded}"),
@@ -210,16 +204,7 @@ pub(crate) fn build_result_url(
         SearchType::Ticket => format!("/welddesk/inbox?entity=ticket:{encoded}"),
         SearchType::Article => format!("/welddesk/help-center/articles/{id}"),
         SearchType::KnowledgePage => format!("/weldknow/page/{id}"),
-        SearchType::Product => {
-            let has = |code: &str| member_apps.is_some_and(|apps| apps.iter().any(|a| a == code));
-            let app = if member_apps.is_some() && !has("weldcommerce") && has("weldstash") {
-                "weldstash"
-            } else {
-                "weldcommerce"
-            };
-            format!("/{app}/products?stack=product:{encoded}")
-        }
-        SearchType::Order => format!("/weldcommerce/orders?stack=order:{encoded}"),
+        SearchType::Product => format!("/weldstash/products?stack=product:{encoded}"),
         SearchType::Invoice => format!("/weldbooks/invoices/{id}"),
         SearchType::Bill => format!("/weldbooks/bills/{id}"),
         SearchType::Project => format!("/weldflow/project/{id}"),
@@ -390,21 +375,6 @@ const PRODUCTS: &str = "select jsonb_build_object('row', row, 'score', score) fr
     from products
     where deleted_at is null and (lower(name) like $3 or lower(sku) like $3
       or lower(barcode) like $3)) s
-  order by score desc, updated_at desc, id desc limit $4";
-
-const ORDERS: &str = "select jsonb_build_object('row', row, 'score', score) from (
-    select id, updated_at, greatest(
-        case when lower(order_number) = $1 then 1.0 when lower(order_number) like $2 then 0.9
-             when lower(order_number) like $3 then 0.6 else 0 end,
-        case when lower(customer_name) = $1 then 1.0 when lower(customer_name) like $2 then 0.9
-             when lower(customer_name) like $3 then 0.6 else 0 end,
-        case when lower(customer_email) = $1 then 1.0 when lower(customer_email) like $2 then 0.7
-             when lower(customer_email) like $3 then 0.3 else 0 end) as score,
-      jsonb_build_object('id', id, 'orderNumber', order_number,
-        'customerName', customer_name, 'status', status) as row
-    from orders
-    where deleted_at is null and (lower(order_number) like $3 or lower(customer_name) like $3
-      or lower(customer_email) like $3)) s
   order by score desc, updated_at desc, id desc limit $4";
 
 const INVOICES: &str = "select jsonb_build_object('row', row, 'score', score) from (
@@ -808,10 +778,6 @@ fn describe(kind: SearchType, row: &Value) -> (String, Option<String>) {
                 None => owned(s("shortDescription")),
             },
         ),
-        SearchType::Order => (
-            first(&[s("orderNumber")]).map_or_else(|| "Order".to_owned(), |n| format!("Order {n}")),
-            owned(first(&[s("customerName"), s("status")])),
-        ),
         SearchType::Invoice => (
             first(&[s("invoiceNumber")])
                 .map_or_else(|| "Invoice".to_owned(), |n| format!("Invoice {n}")),
@@ -958,7 +924,7 @@ fn group(kind: SearchType, rows: &[Value], limit: usize) -> Value {
                 "type": kind.as_str(),
                 "title": title,
                 "subtitle": subtitle,
-                "url": build_result_url(kind, id, None),
+                "url": build_result_url(kind, id),
                 "score": score_of(wrapped),
             })
         })
@@ -1043,7 +1009,6 @@ async fn search_rows(
         SearchType::Article => ARTICLES,
         SearchType::KnowledgePage => KNOWLEDGE_PAGES,
         SearchType::Product => PRODUCTS,
-        SearchType::Order => ORDERS,
         SearchType::Invoice => INVOICES,
         SearchType::Bill => BILLS,
         SearchType::Project => PROJECTS,
@@ -1423,72 +1388,6 @@ async fn search_files(
     .await
 }
 
-// ── Member apps ────────────────────────────────────────────────────────────
-
-/// The apps an EMPLOYEE member opens, whatever their assignments say.
-const EMPLOYEE_MEMBER_APPS: [&str; 2] = ["weldhr", "weldchat"];
-
-/// The apps a member can open (`listMemberAppCodes`), in installed order.
-async fn list_member_app_codes(db: &PgPool, user_id: &str) -> Result<Vec<String>, sqlx::Error> {
-    let installed: Vec<String> = sqlx::query_scalar(
-        "select app_code from workspace_installed_apps
-         where is_active = true and deleted_at is null
-         order by display_order asc, created_at asc, app_code asc",
-    )
-    .fetch_all(db)
-    .await?;
-    let member: Option<(Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
-        "select role, role_id, member_type::text from workspace_members
-         where user_id = $1 and deleted_at is null limit 1",
-    )
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
-    let (role, role_id, member_type) = member.unwrap_or_default();
-    let role = role.map(|r| r.to_uppercase());
-    if matches!(role.as_deref(), Some("OWNER" | "ADMIN")) {
-        return Ok(installed);
-    }
-    if member_type.as_deref() == Some("EMPLOYEE") {
-        return Ok(installed
-            .into_iter()
-            .filter(|code| EMPLOYEE_MEMBER_APPS.contains(&code.as_str()))
-            .collect());
-    }
-    if installed.is_empty() {
-        return Ok(installed);
-    }
-    let mut effective = std::collections::HashSet::new();
-    if let Some(role_id) = role_id.filter(|id| !id.is_empty()) {
-        let apps: Option<Option<Value>> = sqlx::query_scalar(
-            "select apps from roles where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(&role_id)
-        .fetch_optional(db)
-        .await?;
-        if let Some(Value::Array(apps)) = apps.flatten() {
-            for code in apps.iter().filter_map(Value::as_str) {
-                if installed.iter().any(|i| i == code) {
-                    effective.insert(code.to_owned());
-                }
-            }
-        }
-    }
-    let assigned: Vec<String> = sqlx::query_scalar(
-        "select app_code from user_app_assignments
-         where user_id = $1 and is_active = true and app_code = any($2)",
-    )
-    .bind(user_id)
-    .bind(&installed)
-    .fetch_all(db)
-    .await?;
-    effective.extend(assigned);
-    Ok(installed
-        .into_iter()
-        .filter(|code| effective.contains(code))
-        .collect())
-}
-
 // ── The route ──────────────────────────────────────────────────────────────
 
 struct SearchInput {
@@ -1605,33 +1504,6 @@ pub(crate) async fn search(
             for kind in &filtered {
                 let rows = search_rows(&caller.db, *kind, term, input.limit, &mut who).await?;
                 groups.push((*kind, group(*kind, &rows, input.limit)));
-            }
-            // Products link to WeldStash when that is the app the member has.
-            let has_products = groups.iter().any(|(kind, group)| {
-                *kind == SearchType::Product
-                    && group["items"].as_array().is_some_and(|i| !i.is_empty())
-            });
-            if has_products && let Some(user_id) = &caller.user_id {
-                match list_member_app_codes(&caller.db, user_id).await {
-                    Ok(apps) => {
-                        for (kind, group) in &mut groups {
-                            if *kind != SearchType::Product {
-                                continue;
-                            }
-                            if let Some(items) = group["items"].as_array_mut() {
-                                for item in items {
-                                    let id = item["id"].as_str().unwrap_or_default().to_owned();
-                                    item["url"] = json!(build_result_url(
-                                        SearchType::Product,
-                                        &id,
-                                        Some(&apps)
-                                    ));
-                                }
-                            }
-                        }
-                    }
-                    Err(error) => tracing::error!(%error, "search: resolving member apps failed"),
-                }
             }
             let entity_types: Vec<&str> = parsed.entity_types.iter().map(|t| t.as_str()).collect();
             Ok(json_response(
@@ -1765,17 +1637,12 @@ mod tests {
     #[test]
     fn urls_and_titles() {
         assert_eq!(
-            build_result_url(SearchType::Contact, "per 1", None),
+            build_result_url(SearchType::Contact, "per 1"),
             "/weldcrm/people?stack=person:per%201"
         );
-        let stash = vec!["weldstash".to_owned()];
         assert_eq!(
-            build_result_url(SearchType::Product, "p1", Some(&stash)),
+            build_result_url(SearchType::Product, "p1"),
             "/weldstash/products?stack=product:p1"
-        );
-        assert_eq!(
-            build_result_url(SearchType::Product, "p1", None),
-            "/weldcommerce/products?stack=product:p1"
         );
         let (title, subtitle) = describe(
             SearchType::Contact,
@@ -1822,7 +1689,6 @@ mod tests {
                 "article",
                 "knowledge_page",
                 "product",
-                "order",
                 "warehouse",
                 "invoice",
                 "bill",
@@ -1881,7 +1747,7 @@ mod tests {
                 "/weldpanel/projects/pnp_1",
             ),
         ] {
-            assert_eq!(build_result_url(kind, id, None), url);
+            assert_eq!(build_result_url(kind, id), url);
         }
         let (title, subtitle) = describe(
             SearchType::Conversation,
@@ -1937,11 +1803,11 @@ mod tests {
     #[test]
     fn weldmerge_results() {
         assert_eq!(
-            build_result_url(SearchType::MergeIssue, "mis_1", None),
+            build_result_url(SearchType::MergeIssue, "mis_1"),
             "/weldmerge/issues/mis_1"
         );
         assert_eq!(
-            build_result_url(SearchType::MergePullRequest, "mpr 1", None),
+            build_result_url(SearchType::MergePullRequest, "mpr 1"),
             "/weldmerge/pull-requests/mpr%201"
         );
         let (title, subtitle) = describe(

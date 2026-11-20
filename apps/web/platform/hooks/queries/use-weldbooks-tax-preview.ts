@@ -173,7 +173,7 @@ function toOption(row: ProductRow): ProductOption {
 export function useProductOptions(enabled: boolean) {
   const { getClient } = useAppApiClient();
   return useQuery({
-    queryKey: ['weldcommerce', 'products', 'invoice-picker'] as const,
+    queryKey: ['weldstash', 'products', 'invoice-picker'] as const,
     enabled,
     staleTime: 60_000,
     queryFn: async () => {

@@ -669,8 +669,9 @@ pub(crate) async fn authorize(
             .await
         }
         _ => {
-            // The callback path belongs to commerce-api; the request's own origin
-            // is where it is served (`originForPathFrom`).
+            // The callback path's owner comes from api-modules (connect, this
+            // module); the request's own origin is where it is served
+            // (`originForPathFrom`).
             let origin = request_origin(&headers, &uri);
             start_woo_app_auth(
                 &caller.db,
@@ -694,7 +695,7 @@ pub(crate) async fn authorize(
 }
 
 /// `originForPathFrom(new URL(c.req.url).origin, WOOCOMMERCE_AUTH_CALLBACK_PATH)`:
-/// the request's own origin, which serves commerce's callback too.
+/// the request's own origin, which serves the callback too.
 fn request_origin(headers: &HeaderMap, uri: &http::Uri) -> Option<String> {
     if let (Some(scheme), Some(authority)) = (uri.scheme_str(), uri.authority()) {
         return Some(format!("{scheme}://{authority}"));

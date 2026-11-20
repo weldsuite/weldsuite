@@ -2,7 +2,7 @@
  * Customer Detail Component Types
  *
  * Shared type definitions for the customer detail view component
- * used across CRM, Commerce, WMS, and Mail apps.
+ * used across CRM, WMS, and Mail apps.
  *
  * NOTE: Types are defined locally to avoid importing from server-only modules
  * (like worker-client.ts) which would break client components.
@@ -141,7 +141,7 @@ export interface Opportunity {
 // ============================================================================
 
 /**
- * Order from Commerce module (simplified for customer context)
+ * Order (simplified for customer context)
  */
 export interface CustomerOrder {
   id: string;
@@ -436,11 +436,6 @@ export type TasksSectionProps = SectionProps;
 
 // Future: file data
 export type FilesSectionProps = SectionProps;
-
-export interface OrdersSectionProps extends SectionProps {
-  orders: CustomerOrder[];
-  totalCount: number;
-}
 
 export interface InvoicesSectionProps extends SectionProps {
   invoices: CustomerInvoice[];

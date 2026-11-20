@@ -3,8 +3,8 @@
  * workflows (builder, dashboard, executions, schedules, templates, triggers,
  * variables, webhooks, GitHub), integrations and connectors, outbound
  * external webhooks, GitHub connections/links, the public workflow trigger
- * webhook, the GitHub App install callback and workflow-worker's internal
- * create_customer action.
+ * webhook, the GitHub App install callback, the WooCommerce app-auth callback
+ * and workflow-worker's internal create_customer action.
  *
  * Split out of app-api (weldsuite-documentation/plans/app-api-module-split.md). It serves the
  * same /api/<object> paths app-api served for this module; the prefixes it
@@ -23,6 +23,7 @@ import { integrationsInternalRoutes } from './routes/integrations/internal';
 import { internalWorkflowActionsRoutes } from './routes/internal-workflow-actions';
 import { githubCallbackRoutes } from './routes/public-github-callback';
 import { publicWorkflowWebhookRoutes } from './routes/public-workflow-webhook';
+import { woocommerceAuthWebhookRoutes } from './routes/webhooks-woocommerce-auth';
 import { workflowBuilderRoutes } from './routes/workflow-builder';
 import { workflowDashboardRoutes } from './routes/workflow-dashboard';
 import { workflowExecutionsRoutes } from './routes/workflow-executions';
@@ -55,6 +56,11 @@ app.route('/api/internal/workflow-actions', internalWorkflowActionsRoutes);
 // Mounted more specifically than the authed /api/workflows router below, so
 // only /api/workflows/webhook/* bypasses Clerk. Must stay ABOVE the guard.
 app.route('/api/workflows/webhook', publicWorkflowWebhookRoutes);
+
+// WooCommerce /wc-auth/v1 callback — PUBLIC (moved from commerce-api). The
+// shop POSTs the API keys here and needs HTTP 200 or it deletes them. Auth is
+// the HMAC `user_id` minted by POST /api/connectors/authorize.
+app.route('/webhooks/woocommerce', woocommerceAuthWebhookRoutes);
 
 // The helpdesk Discord/Slack OAuth callbacks (/api/integrations/helpdesk) live
 // in desk-api; @weldsuite/api-modules gives desk that longer prefix, so they

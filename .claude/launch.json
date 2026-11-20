@@ -104,16 +104,6 @@
       "autoPort": true
     },
     {
-      "name": "parcel-return-portal",
-      "runtimeExecutable": "pnpm",
-      "runtimeArgs": [
-        "--filter",
-        "parcel-return-portal",
-        "dev"
-      ],
-      "port": 3017
-    },
-    {
       "name": "project-portal",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": [
@@ -132,16 +122,6 @@
         "dev"
       ],
       "port": 3023
-    },
-    {
-      "name": "parcel-tracking-portal",
-      "runtimeExecutable": "pnpm",
-      "runtimeArgs": [
-        "--filter",
-        "parcel-tracking-portal",
-        "dev"
-      ],
-      "port": 3018
     },
     {
       "name": "meeting-portal",

@@ -102,7 +102,7 @@ The **server-side pattern** is recommended for WeldSuite because it:
 import { getTranslations } from '@/lib/i18n';
 
 export default async function ProductsPage() {
-  const t = await getTranslations('commerce');
+  const t = await getTranslations('weldstash');
 
   return (
     <div>
@@ -120,7 +120,7 @@ export default async function ProductsPage() {
 import { type TranslationProp } from '@/lib/i18n/types';
 
 interface ProductTableProps {
-  t: TranslationProp<'commerce'>;
+  t: TranslationProp<'weldstash'>;
 }
 
 export function ProductTable({ t }: ProductTableProps) {

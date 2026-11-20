@@ -288,35 +288,6 @@ const ROUTES: VolatileRoute[] = [
   // were computed (`asOf`, each backend's own "now"); a read, so the
   // timestamp is not masked as a write's would be.
   { method: 'GET', route: '/api/project-finance/:projectId', fields: [{ path: 'data.asOf' }] },
-  // WeldCommerce: a webhook's drawn signing secret (`whksec_` + 32 random
-  // characters), and how long its test delivery took.
-  {
-    method: 'POST',
-    route: '/api/parcel-notifications/webhooks',
-    fields: [{ path: 'data.secret', pattern: /^whksec_[A-Za-z0-9]{32}$/g, replacement: 'whksec_<volatile>' }],
-  },
-  { method: 'POST', route: '/api/parcel-notifications/webhooks/:id/test', fields: [{ path: 'data.responseTimeMs' }] },
-  // `Date.now()` in base 36 plus random characters (`ORD-…-XXXX`, `RMA-…-XXXX`).
-  { method: 'POST', route: '/api/orders', events: [{ path: 'data.orderNumber' }], fields: [] },
-  {
-    method: 'POST',
-    route: '/public/commerce-portal/orders',
-    fields: [{ path: 'data.orderNumber' }],
-    events: [{ path: 'data.orderNumber' }],
-  },
-  {
-    method: 'POST',
-    route: '/public/commerce-portal/returns',
-    fields: [{ path: 'data.returnNumber' }],
-    events: [{ path: 'data.returnNumber' }],
-  },
-  // The order portal's buyer session and company-picker tokens: 32 random bytes per run.
-  {
-    method: 'POST',
-    route: '/public/commerce-portal/auth/verify',
-    fields: [{ path: 'data.token' }, { path: 'data.pickerToken' }],
-  },
-  { method: 'POST', route: '/public/commerce-portal/auth/select-company', fields: [{ path: 'data.token' }] },
   // The client project portal's session token: 32 random bytes per run (FLOW-020).
   { method: 'POST', route: '/public/project-portal/auth/verify', fields: [{ path: 'data.token' }] },
   // WeldMeet's instant meeting reports how long each step took (and leaves the

@@ -75,8 +75,8 @@ Screens live in `apps/web/platform/app/<app code>/`.
 | WeldSheets | Spreadsheets with live co-editing | `sheets-api` |
 | WeldForms | Forms and surveys | `forms-api` |
 | WeldSign | Electronic signatures | `sign-api` |
-| WeldCommerce | Products, orders, websites and the site builder | `commerce-api` |
-| WeldStash | Warehouse management | `stash-api` |
+| WeldCommerce | Being rebuilt from scratch (see below); no API today | none |
+| WeldStash | Warehouse management, and the product catalogue (`/api/products`) until WeldCommerce is back | `stash-api` |
 | WeldBooks | Double-entry accounting, per-country tax | `books-api` |
 | WeldHR | HR and payroll (NL, US) | `hr-api` |
 | WeldHost | Domains and DNS | `host-api` |
@@ -93,6 +93,16 @@ Screens live in `apps/web/platform/app/<app code>/`.
 Old module names (`task`, `accounting`, `wms`, …) still appear in places;
 `normalizeAppCode` in `@weldsuite/permissions` maps them.
 
+**WeldCommerce is being rebuilt from scratch.** Its code was removed on
+2026-11-20: the `commerce-api` worker and the Rust `commerce` module, the
+platform pages, the B2B order portal, all shipping (Sendcloud, PrintNode,
+parcels, returns, the parcel portals), and the public API and MCP commerce
+surface. The tenant tables (`products`, `orders`, `categories`, `parcels`, …)
+stay. `/api/products` is served by `stash-api` (and the Rust stash module) in
+the meantime, and WeldStash ships pick lists without a carrier. The rebuild is
+for the EU edition only: build it in `rust/modules/commerce`, not as a new
+TypeScript worker.
+
 ## Repository map
 
 **`apps/web/`**, browser frontends (dev port in brackets):
@@ -101,9 +111,7 @@ Old module names (`task`, `accounting`, `wms`, …) still appear in places;
   Node build for Kubernetes), `helpcenter` (3008), `sign-portal` (3023),
   `project-portal` (3024), `forms-portal` (3025).
 - Next.js: `sites` (3007, customer websites), `api-docs` (3009), `docs` (3010,
-  help.weldsuite.org), `booking-portal` (3019), `meeting-portal` (3020),
-  `commerce-portal` (3021), `parcel-return-portal` (3017),
-  `parcel-tracking-portal` (3018).
+  help.weldsuite.org), `booking-portal` (3019), `meeting-portal` (3020).
 - Vite SPAs: `developer` (WeldApps developer portal), `partner` (3203,
   reseller portal), `weldmail` and `weldcalendar` (consumer apps on a personal
   Weld account, served by `personal-api`), `helpdesk-widget` (3100).

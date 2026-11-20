@@ -25,7 +25,7 @@ import { visitorAuthMiddleware } from './middleware/visitor-auth';
 import type { DeskWidgetSettings } from '@weldsuite/db/schema/desk-widget-settings';
 import type { DeskVisitor } from '@weldsuite/db/schema/desk-visitors';
 import type { DeskPrincipal } from '@weldsuite/db/lib/desk-portal';
-import type { RateLimitNamespace } from '@weldsuite/commerce-domain/portal-tokens';
+import type { RateLimitNamespace } from '@weldsuite/worker-kit/portal-tokens';
 import type { SystemEmailEnv } from '@weldsuite/emails/transports/binding';
 import type { Database } from './db';
 

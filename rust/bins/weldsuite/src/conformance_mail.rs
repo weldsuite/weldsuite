@@ -291,11 +291,11 @@ impl MailBridges {
     }
 }
 
-/// WeldCommerce's portal rate limits (`PORTAL_RATE_LIMITER`): one counter
+/// The public portals' rate limits (`PORTAL_RATE_LIMITER`): one counter
 /// object per limiter key, its `hit(max, windowSeconds)` and `release()`
 /// through the ledger bridge, so both backends count on the test's
 /// in-memory namespace.
-impl weldsuite_commerce_domain::rate_limit::RateLimitCounters for BridgedNamespace {
+impl weldsuite_kit::portal::rate_limit::RateLimitCounters for BridgedNamespace {
     fn hit<'a>(
         &'a self,
         name: &'a str,
@@ -303,7 +303,7 @@ impl weldsuite_commerce_domain::rate_limit::RateLimitCounters for BridgedNamespa
         window_seconds: u64,
     ) -> BoxFuture<
         'a,
-        Result<weldsuite_commerce_domain::rate_limit::RateLimitVerdict, weldsuite_ports::PortError>,
+        Result<weldsuite_kit::portal::rate_limit::RateLimitVerdict, weldsuite_ports::PortError>,
     > {
         Box::pin(async move {
             #[derive(serde::Deserialize)]
@@ -316,7 +316,7 @@ impl weldsuite_commerce_domain::rate_limit::RateLimitCounters for BridgedNamespa
                 .call(name, "hit", json!([max, window_seconds]))
                 .await
                 .map_err(|error| weldsuite_ports::PortError::backend(error.0))?;
-            Ok(weldsuite_commerce_domain::rate_limit::RateLimitVerdict {
+            Ok(weldsuite_kit::portal::rate_limit::RateLimitVerdict {
                 allowed: verdict.allowed,
                 count: verdict.count,
                 remaining: verdict.remaining,
@@ -342,15 +342,14 @@ impl MailBridges {
     pub(crate) fn portal_rate_limiter(
         &self,
         ledgers: &HashMap<String, String>,
-    ) -> weldsuite_commerce_domain::rate_limit::RequestRateLimiter {
-        weldsuite_commerce_domain::rate_limit::RequestRateLimiter(
+    ) -> weldsuite_kit::portal::rate_limit::RequestRateLimiter {
+        weldsuite_kit::portal::rate_limit::RequestRateLimiter(
             ledgers.get("PORTAL_RATE_LIMITER").map(|bridge| {
                 Arc::new(BridgedNamespace {
                     bridge: bridge.trim_end_matches('/').to_owned(),
                     binding: "PORTAL_RATE_LIMITER",
                     client: self.client.clone(),
-                })
-                    as Arc<dyn weldsuite_commerce_domain::rate_limit::RateLimitCounters>
+                }) as Arc<dyn weldsuite_kit::portal::rate_limit::RateLimitCounters>
             }),
         )
     }

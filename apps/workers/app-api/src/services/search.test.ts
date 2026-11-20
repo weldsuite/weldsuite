@@ -9,7 +9,7 @@
  * against the platform's route tree.
  */
 
-import { describe, it, expect, beforeAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import {
@@ -28,7 +28,6 @@ import {
   type RunSearchParams,
 } from './search';
 
-const COMMERCE_PRODUCT = '/weldcommerce/products?stack=product:prd_1';
 const STASH_PRODUCT = '/weldstash/products?stack=product:prd_1';
 
 describe('buildResultUrl · platform routes', () => {
@@ -56,9 +55,8 @@ describe('buildResultUrl · records outside the CRM', () => {
     ['ticket', 'tkt_1', '/welddesk/inbox?entity=ticket:tkt_1'],
     ['article', 'art_1', '/welddesk/help-center/articles/art_1'],
     ['knowledge_page', 'kp_1', '/weldknow/page/kp_1'],
-    // Object panels on the WeldCommerce lists.
-    ['product', 'prd_1', '/weldcommerce/products?stack=product:prd_1'],
-    ['order', 'ord_1', '/weldcommerce/orders?stack=order:ord_1'],
+    // An object panel on the WeldStash products list.
+    ['product', 'prd_1', STASH_PRODUCT],
     ['invoice', 'inv_1', '/weldbooks/invoices/inv_1'],
     ['bill', 'bill_1', '/weldbooks/bills/bill_1'],
     ['project', 'prj_1', '/weldflow/project/prj_1'],
@@ -86,64 +84,23 @@ describe('buildResultUrl · records outside the CRM', () => {
   });
 });
 
-// WeldCommerce and WeldStash list the same products; each module's layout
-// shows "not installed" to a member who can't open it.
-describe('buildResultUrl · product destination', () => {
-  it.each<[string, string[] | undefined, string]>([
-    ['apps unknown', undefined, COMMERCE_PRODUCT],
-    ['both apps', ['weldcommerce', 'weldstash'], COMMERCE_PRODUCT],
-    ['WeldCommerce only', ['weldcommerce'], COMMERCE_PRODUCT],
-    ['WeldStash only', ['weldstash'], STASH_PRODUCT],
-    ['neither app', ['weldcrm'], COMMERCE_PRODUCT],
-  ])('%s', (_label, apps, url) => {
-    expect(buildResultUrl('product', 'prd_1', apps && new Set(apps))).toBe(url);
-  });
-
-  it('links WeldStash products to a route the platform has', () => {
-    expect(isPlatformRoute(STASH_PRODUCT)).toBe(true);
-  });
-});
-
 describe('runSearch · product links', () => {
   let db: Database;
-
-  function search(q: string, memberApps: RunSearchParams['memberApps']) {
-    return runSearch(db, 'ws_test', {
-      q,
-      types: ['product'],
-      limit: 5,
-      perms: { hasAny: () => true },
-      memberApps,
-    });
-  }
 
   beforeAll(async () => {
     db = (await createPgliteDb()).db;
     await db.insert(schema.products).values({ id: 'prd_1', name: 'Hex bolt', slug: 'hex-bolt' });
   }, 60_000);
 
-  it('links into WeldStash for a member without WeldCommerce', async () => {
-    const { groups } = await search('bolt', async () => new Set(['weldstash']));
+  it('links a product into WeldStash', async () => {
+    const { groups } = await runSearch(db, 'ws_test', {
+      q: 'bolt',
+      types: ['product'],
+      limit: 5,
+      perms: { hasAny: () => true },
+    });
     expect(groups[0]!.items).toEqual([expect.objectContaining({ id: 'prd_1', url: STASH_PRODUCT })]);
-  });
-
-  it('keeps WeldCommerce links for a member who has it', async () => {
-    const { groups } = await search('bolt', async () => new Set(['weldcommerce', 'weldstash']));
-    expect(groups[0]!.items).toEqual([expect.objectContaining({ id: 'prd_1', url: COMMERCE_PRODUCT })]);
-  });
-
-  it('skips the app lookup when no product matches', async () => {
-    const memberApps = vi.fn(async () => new Set(['weldstash']));
-    const { groups } = await search('no such product', memberApps);
-    expect(groups[0]!.items).toEqual([]);
-    expect(memberApps).not.toHaveBeenCalled();
-  });
-
-  it('keeps WeldCommerce links when the app lookup fails', async () => {
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const { groups } = await search('bolt', () => Promise.reject(new Error('db down')));
-    expect(groups[0]!.items).toEqual([expect.objectContaining({ id: 'prd_1', url: COMMERCE_PRODUCT })]);
-    consoleError.mockRestore();
+    expect(isPlatformRoute(STASH_PRODUCT)).toBe(true);
   });
 });
 

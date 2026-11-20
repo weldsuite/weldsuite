@@ -54,11 +54,9 @@ describe('route availability', () => {
     expect(isRouteOffered('/settings/apps/phone-numbers')).toBe(true);
   });
 
-  it('hides the WeldCommerce and WeldPanel settings without the backend behind them', () => {
-    expect(routeRequirement('/settings/apps/weldcommerce')).toEqual({ modules: ['commerce'], feature: 'commerce-portal' });
+  it('hides the WeldPanel settings without the backend behind them', () => {
     expect(routeRequirement('/settings/apps/weldpanel?tab=exports')).toEqual({ modules: ['panel'], feature: 'panel-analytics' });
-    setRuntimeConfig({ backend: 'rust', modules: ['commerce', 'panel'], unavailableFeatures: ['commerce-portal', 'panel-analytics'] });
-    expect(isRouteOffered('/settings/apps/weldcommerce')).toBe(false);
+    setRuntimeConfig({ backend: 'rust', modules: ['panel'], unavailableFeatures: ['panel-analytics'] });
     expect(isRouteOffered('/settings/apps/weldpanel')).toBe(false);
     expect(isRouteOffered('/weldpanel/projects')).toBe(true);
   });

@@ -19,7 +19,7 @@ With WeldHost you can:
 - Register a new domain or connect one you already own
 - Manage DNS for that domain from inside WeldSuite
 - Keep SSL and related settings with the domain
-- Point other WeldSuite apps (WeldMail, Help Center, commerce sites) at a WeldHost domain
+- Point other WeldSuite apps (WeldMail, Help Center, websites) at a WeldHost domain
 
 Once your domain is connected and its nameservers point at WeldHost, you manage records here instead of at your old DNS provider.
 

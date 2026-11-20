@@ -2,11 +2,9 @@
 export type ModuleKey =
   | 'general'
   | 'crm'
-  | 'commerce'
   | 'accounting'
   | 'mail'
   | 'helpdesk'
-  | 'parcel'
   | 'projects'
   | 'tasks'
   | 'host';
@@ -14,11 +12,9 @@ export type ModuleKey =
 // App permissions type (matches database schema)
 export interface AppPermissions {
   crm?: boolean;
-  commerce?: boolean;
   accounting?: boolean;
   mail?: boolean;
   helpdesk?: boolean;
-  parcel?: boolean;
   projects?: boolean;
   tasks?: boolean;
   host?: boolean;
@@ -271,7 +267,6 @@ export interface ChartData {
 export type MentionEntityType =
   | 'product'
   | 'customer'
-  | 'order'
   | 'contact'
   | 'task'
   | 'project'
@@ -311,7 +306,6 @@ export interface MentionCategory {
 export const MENTION_CATEGORIES: MentionCategory[] = [
   { type: 'product', label: 'Product', pluralLabel: 'Products', icon: 'package' },
   { type: 'customer', label: 'Customer', pluralLabel: 'Customers', icon: 'users' },
-  { type: 'order', label: 'Order', pluralLabel: 'Orders', icon: 'shopping-cart' },
   { type: 'contact', label: 'Contact', pluralLabel: 'Contacts', icon: 'user' },
   { type: 'task', label: 'Task', pluralLabel: 'Tasks', icon: 'check-square' },
   { type: 'project', label: 'Project', pluralLabel: 'Projects', icon: 'folder' },

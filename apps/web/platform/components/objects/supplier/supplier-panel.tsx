@@ -20,7 +20,7 @@ import {
 import { detailsTab, extraTab } from '@/components/objects/_shared/focused-tabs';
 
 export function SupplierPanel(props: Readonly<ObjectPanelComponentProps>) {
-  const t = getTranslations('commerce').module;
+  const t = getTranslations('weldstash');
   const { id } = props;
   const { data, isLoading, error } = useWeldstashSupplier(id);
   const supplier = data?.data;

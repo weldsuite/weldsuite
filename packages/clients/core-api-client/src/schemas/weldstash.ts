@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 // ============================================================================
-// Products (shared `products` table — also used by WeldCommerce)
+// Products (the shared `products` table; WeldStash serves /api/products)
 // ============================================================================
 
 export const createProductSchema = z.object({
@@ -35,8 +35,8 @@ export const createProductSchema = z.object({
     .optional(),
 
   // US sales tax (`products.taxable` / `products.tax_class`), set from the
-  // WeldCommerce product form. `taxClass` is a WeldBooks tax code or a Stripe /
-  // Avalara provider code; commerce-api checks which, so this schema only
+  // product form. `taxClass` is a WeldBooks tax code or a Stripe / Avalara
+  // provider code; stash-api checks which, so this schema only
   // carries the values through. `null` clears the code.
   taxable: z.boolean().optional(),
   taxClass: z.string().max(50).nullable().optional(),

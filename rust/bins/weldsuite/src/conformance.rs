@@ -386,7 +386,7 @@ impl Pools {
             self.mail
                 .bindings(context.send_email.as_deref(), &context.ledgers),
         ));
-        // WeldCommerce's portal rate limits: the test's namespace, or none.
+        // The public portals' rate limits: the test's namespace, or none.
         extensions.insert(self.mail.portal_rate_limiter(&context.ledgers));
         // WeldDocs', WeldSheets' and WeldBoard's rooms and engines: the test's
         // own fakes, served by the ledger bridge in the collab-rooms service's
@@ -1004,7 +1004,7 @@ pub(crate) async fn meet_public(
 }
 
 /// Middleware for public routes that publish entity events as the
-/// request's user (WeldCommerce's portal): the test's session context
+/// request's user (the project portal): the test's session context
 /// sets `userId`, so the user goes in as the request's `AuthContext`.
 /// Runs inside [`public`].
 pub(crate) async fn public_session(mut request: Request, next: Next) -> Response {

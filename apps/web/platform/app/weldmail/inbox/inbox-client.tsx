@@ -34,10 +34,8 @@ import {
   FileText,
   LayoutGrid,
   Globe,
-  ShoppingCart,
   Users,
   Server,
-  Package,
   Megaphone,
   Headphones,
   Warehouse,
@@ -3564,18 +3562,6 @@ export function InboxClient({
             
             {/* Apps Grid */}
             <div className="grid grid-cols-3 gap-3 mb-3">
-              {/* Commerce */}
-              <Button variant="ghost" 
-                onClick={() => {
-                  setSelectedApp({ name: 'Commerce', icon: ShoppingCart });
-                  setShowAppDetailModal(true);
-                }}
-                className="flex flex-col items-start justify-center p-2.5 h-[74px] rounded-lg border border-gray-200 dark:border-border hover:bg-gray-50 dark:hover:bg-accent/50 transition-colors"
-              >
-                <ShoppingCart className="h-5 w-5 text-gray-700 dark:text-muted-foreground mb-1.5" />
-                <span className="text-sm font-medium text-gray-900 dark:text-foreground">Commerce</span>
-              </Button>
-              
               {/* CRM */}
               <Button variant="ghost" 
                 onClick={() => {
@@ -3610,18 +3596,6 @@ export function InboxClient({
               >
                 <Server className="h-5 w-5 text-gray-700 dark:text-muted-foreground mb-1.5" />
                 <span className="text-sm font-medium text-gray-900 dark:text-foreground">Host</span>
-              </Button>
-              
-              {/* Parcel */}
-              <Button variant="ghost" 
-                onClick={() => {
-                  setSelectedApp({ name: 'Parcel', icon: Package });
-                  setShowAppDetailModal(true);
-                }}
-                className="flex flex-col items-start justify-center p-2.5 h-[74px] rounded-lg border border-gray-200 dark:border-border hover:bg-gray-50 dark:hover:bg-accent/50 transition-colors"
-              >
-                <Package className="h-5 w-5 text-gray-700 dark:text-muted-foreground mb-1.5" />
-                <span className="text-sm font-medium text-gray-900 dark:text-foreground">Parcel</span>
               </Button>
               
               {/* Campaign */}
@@ -3764,7 +3738,7 @@ export function InboxClient({
 
                   <span className="text-gray-500 dark:text-muted-foreground">{t.mail.inboxPage.senderWebsite}</span>
                   <button type="button" className="text-gray-900 dark:text-foreground flex items-center gap-1 hover:underline">
-                    commerce.weldsuite.com
+                    weldsuite.com
                     <ExternalLink className="h-3 w-3" />
                   </button>
 

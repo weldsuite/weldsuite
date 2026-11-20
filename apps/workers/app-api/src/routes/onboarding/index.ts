@@ -82,15 +82,6 @@ const DEFAULT_WORKSPACE_APPS = ['crm', 'projects', 'weldconnect', 'mail', 'helpd
  */
 const FALLBACK_CATALOG = [
   {
-    code: 'commerce',
-    name: 'Commerce',
-    description:
-      'Comprehensive e-commerce platform for online selling, product management, and order processing',
-    icon: 'ShoppingCart',
-    category: 'Sales & Marketing',
-    path: '/commerce',
-  },
-  {
     code: 'crm',
     name: 'CRM',
     description: 'Manage leads, contacts, and sales pipelines',

@@ -145,7 +145,7 @@ const d1Connector =
   ['integration-sync-worker', 'integration-webhook-worker', 'app-api'].some((w) =>
     workersJson.includes(w),
   ) ||
-  ['connect-api', 'commerce-api'].some((w) => moduleWorkersJson.includes(w));
+  moduleWorkersJson.includes('connect-api');
 const d1Schedule =
   changed('d1_schedule_migrations') ||
   workersJson.includes('workflow-worker') ||

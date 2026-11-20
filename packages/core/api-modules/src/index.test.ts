@@ -164,11 +164,11 @@ describe('origins', () => {
   });
 
   it('points callback URLs at the worker that owns the path', () => {
-    expect(originForPathFrom('https://connect-api.weldsuite.org', '/webhooks/woocommerce/auth')).toBe(
-      'https://commerce-api.weldsuite.org',
+    expect(originForPathFrom('https://crm-api.weldsuite.org', '/webhooks/woocommerce/auth')).toBe(
+      'https://connect-api.weldsuite.org',
     );
     expect(originForPathFrom('https://app-api-test.weldsuite.org', '/webhooks/woocommerce/auth')).toBe(
-      'https://commerce-api-test.weldsuite.org',
+      'https://connect-api-test.weldsuite.org',
     );
     expect(originForPathFrom('https://crm-api.weldsuite.org', '/api/workspaces')).toBe(
       'https://app-api.weldsuite.org',

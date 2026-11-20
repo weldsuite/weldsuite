@@ -1,6 +1,6 @@
 /**
  * A workspace slug as the portal's URL carries it (`projects.weldsuite.org/<workspace>`).
- * The pattern is flow-api's own (`PORTAL_SLUG_PATTERN` in commerce-domain's
+ * The pattern is flow-api's own (`PORTAL_SLUG_PATTERN` in worker-kit's
  * portal-slug): lowercase letters, digits and hyphens. Anything else cannot be
  * a workspace, so it is a 404 here and never reaches a cookie name or the API.
  */
