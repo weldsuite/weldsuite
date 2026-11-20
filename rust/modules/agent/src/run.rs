@@ -25,7 +25,7 @@ use crate::agents::get_agent;
 use crate::approvals::persist_assistant_message;
 use crate::routines::complete_routine_run;
 use crate::runs::{RunCompletion, complete_agent_run, create_agent_run, mark_run_running};
-use crate::tools::{EventSink, ToolContext};
+use crate::tools::{EventSink, ToolContext, reply_to_summary_text};
 
 /// `metadata.kind` of an assistant message posted by a routine run
 /// (`ROUTINE_RESULT_KIND`).
@@ -426,7 +426,11 @@ pub async fn run_agent(ai: Option<&Ai>, params: RunParams) -> Result<RunOutcome,
                             "success": t["state"] == "result" })
                 })
                 .collect();
-            let summary: String = done.text.chars().take(2000).collect();
+            // Visual markers read as one line each, before the cut (`replyToPlainText` in TypeScript).
+            let summary: String = reply_to_summary_text(&done.text)
+                .chars()
+                .take(2000)
+                .collect();
             complete_agent_run(
                 db,
                 &run_id,
@@ -476,7 +480,10 @@ pub async fn run_agent(ai: Option<&Ai>, params: RunParams) -> Result<RunOutcome,
         } else {
             "failed"
         };
-        let summary: String = outcome.text.chars().take(2000).collect();
+        let summary: String = reply_to_summary_text(&outcome.text)
+            .chars()
+            .take(2000)
+            .collect();
         complete_routine_run(
             db,
             routine_run_id,

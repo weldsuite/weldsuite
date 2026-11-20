@@ -26,7 +26,9 @@ import {
   encodeQuestionMarker,
   parseAgentQuestion,
 } from '@weldsuite/app-api-client/schemas/weldagent-questions';
+import { encodeVisualMarker } from '@weldsuite/app-api-client/schemas/chat-visuals';
 import { schema } from '@weldsuite/worker-kit/db';
+import { VISUAL_TOOL_IDS, shownVisual } from './visual-tools';
 import type { WeldAgentEnv as Env } from './env';
 import {
   resolveAiMetering,
@@ -231,6 +233,7 @@ export function buildSystemPrompt(agent: AgentExecutorInput['agent']): string {
     'Prefer WeldSuite tools (people, tickets, tasks, chat) when they fit. When you have them, use your sandbox (bash, files) for scripts, data work and code, ' +
     'web search / fetch to look things up, and browser_* only for interactive websites without an API. ' +
     'When you need a decision or a missing detail from the user, ask it with ask_user (one question, concrete options) and end your turn. ' +
+    'To present numbers or a list of records, show them with show_chart, show_stats, show_table or show_records rather than a long markdown table or list. ' +
     'Be concise and practical.\n\n' +
     (agent.systemPrompt?.trim() || 'Help the user with their workspace tasks.')
   );
@@ -591,6 +594,20 @@ class TurnFollower {
     this.emit(encodeQuestionMarker(question));
   }
 
+  /**
+   * A visual the agent showed (`show_*`), inline where it was called: in the
+   * stream for the client to draw, and in the stored text so the saved turn
+   * draws it in the same place (a WeldChat room reply lifts it out again).
+   */
+  private emitVisual(name: string, input: unknown, result: unknown): void {
+    const visual = shownVisual(name, input, result);
+    if (!visual) return;
+    const marker = encodeVisualMarker(visual);
+    this.outcome.texts.push(marker);
+    this.beginMessage();
+    this.emit(marker);
+  }
+
   private onPreviewStart(ev: EventOf<'event_start'>): void {
     if (ev.event.type !== 'agent.message') return;
     this.beginMessage();
@@ -681,6 +698,7 @@ class TurnFollower {
     const agent = await this.threadAgent(ev.session_thread_id);
     const { result, isError } = await this.params.onCustomTool(ev.name, ev.input, agent);
     if (ev.name === ASK_USER_TOOL_NAME && !isError) this.emitQuestion(ev.input);
+    if (!isError) this.emitVisual(ev.name, ev.input, result);
     await this.send([
       {
         type: 'user.custom_tool_result',
@@ -992,8 +1010,11 @@ interface SubagentTeam {
   members: SubagentMember[];
 }
 
-/** Platform tools a sub-agent never gets: it does not interview the user or set itself up. */
-const WORKER_EXCLUDED_TOOLS = new Set(['agent.ask_user', 'agent.save_setup']);
+/**
+ * Platform tools a sub-agent never gets: it does not interview the user, set
+ * itself up or show visuals (its report goes to the primary agent, not the user).
+ */
+const WORKER_EXCLUDED_TOOLS = new Set(['agent.ask_user', 'agent.save_setup', ...VISUAL_TOOL_IDS]);
 
 function workerTools(permissions: string[], enabledTools: string[], canEdit = true): PlatformToolDefinition[] {
   return resolveAgentTools(permissions, enabledTools, canEdit).filter((tool) => !WORKER_EXCLUDED_TOOLS.has(tool.id));

@@ -28,6 +28,7 @@ import Animated, { FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withSpring
 import { scheduleOnRN } from 'react-native-worklets';
 import { Gesture, GestureDetector, FlatList } from 'react-native-gesture-handler';
 import { useRouter } from 'expo-router';
+import { readVisualsMetadata, uniqueKeys, visualTitle } from '@weldsuite/app-api-client/schemas/chat-visuals';
 
 import { Archive, Bell, BellOff, Bot, ChevronDown, ChevronLeft, Clock, FileText, Hash, Infinity as InfinityIcon, Lock, MessageSquare, Pencil, Phone, PhoneMissed, Reply, Video, X, type LucideIcon } from 'lucide-react-native';
 import { MenuView, type MenuAction } from '@expo/ui/community/menu';
@@ -644,6 +645,20 @@ function CallerAvatar({ name, avatar, styles }: Readonly<{ name: string; avatar?
   );
 }
 
+/** An agent reply's visuals, named in a muted line each (the app does not draw them). */
+function VisualLines({ metadata, t, styles }: Readonly<{ metadata: Message['metadata']; t: Translations; styles: Styles }>) {
+  const visuals = readVisualsMetadata(metadata);
+  const lines = visuals.map((visual) =>
+    t.channel.visualShown.replace('{kind}', t.channel.visualKinds[visual.type]).replace('{title}', visualTitle(visual)),
+  );
+  const keys = uniqueKeys(lines);
+  return lines.map((line, i) => (
+    <Text key={keys[i]} style={styles.editedLabel}>
+      {line}
+    </Text>
+  ));
+}
+
 function DateSeparator({ label, styles }: Readonly<{ label: string; styles: Styles }>) {
   return (
     <View style={styles.dateSeparator}>
@@ -815,6 +830,7 @@ function MessageExtras({
           })
         : null}
       {item.editedAt ? <Text style={styles.editedLabel}>{t.channel.edited}</Text> : null}
+      {item.authorType === 'agent' ? <VisualLines metadata={item.metadata} t={t} styles={styles} /> : null}
       {gallery.length > 0 && (
         <MessageAttachments
           attachments={gallery}

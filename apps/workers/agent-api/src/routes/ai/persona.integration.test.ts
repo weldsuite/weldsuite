@@ -147,10 +147,14 @@ describe('default WeldAgent (no agentId)', () => {
     { text: 'You have 1 task due: Overdue report.' },
   ];
 
-  const toolNames = (model: MockLanguageModelV4, request = 0, kind: 'generate' | 'stream' = 'generate') =>
+  /** The display tools (show_chart …) are offered to everyone (visual-tools.ts); these are the rest. */
+  const DISPLAY_TOOLS = ['show_chart', 'show_records', 'show_stats', 'show_table'];
+  const allToolNames = (model: MockLanguageModelV4, request = 0, kind: 'generate' | 'stream' = 'generate') =>
     ((kind === 'generate' ? model.doGenerateCalls : model.doStreamCalls)[request].tools ?? [])
       .map((tool) => ('name' in tool ? tool.name : ''))
       .sort();
+  const toolNames = (model: MockLanguageModelV4, request = 0, kind: 'generate' | 'stream' = 'generate') =>
+    allToolNames(model, request, kind).filter((name) => !DISPLAY_TOOLS.includes(name));
 
   it('looks the answer up with tools instead of inventing it (/chat)', async () => {
     const model = scriptedModel(plateScript);
@@ -164,6 +168,8 @@ describe('default WeldAgent (no agentId)', () => {
 
     // Offered the read tools this user may use: tasks and projects, not people or tickets, nothing that writes.
     expect(toolNames(model)).toEqual(['get_project', 'list_projects', 'list_tasks']);
+    // And the display tools, which read nothing.
+    expect(allToolNames(model).filter((name) => DISPLAY_TOOLS.includes(name))).toEqual(DISPLAY_TOOLS);
     // The system prompt carries the rules and today's date.
     const system = JSON.stringify(model.doGenerateCalls[0].prompt[0]);
     expect(system).toContain('Only state counts, names, records');
@@ -207,14 +213,14 @@ describe('default WeldAgent (no agentId)', () => {
     expect(JSON.stringify(model.doGenerateCalls[0].prompt[0])).not.toContain('list_tasks');
   });
 
-  it('offers no tools, and says so, to a caller who may read nothing', async () => {
+  it('offers no lookup tools, and says so, to a caller who may read nothing', async () => {
     const model = scriptedModel([{ text: "I can't see your workspace from here." }]);
     hoisted.model = model;
     const { request } = app('weldagent:use', 'agents:read', 'tasks:create');
 
     const res = await post(request, '/chat', 'Show my open tasks');
     expect(res.status).toBe(200);
-    expect(model.doGenerateCalls[0].tools ?? []).toEqual([]);
+    expect(toolNames(model)).toEqual([]);
     expect(JSON.stringify(model.doGenerateCalls[0].prompt[0])).toContain('no lookup tools for this user');
   });
 
@@ -288,6 +294,6 @@ describe('default WeldAgent (no agentId)', () => {
     const model = scriptedModel([{ text: 'Which sheet?' }]);
     hoisted.model = model;
     await post(app('weldagent:use', 'agents:read', 'sheets:read', 'sheets:update').request, '/chat', 'Add a total row');
-    expect(model.doGenerateCalls[0].tools ?? []).toEqual([]);
+    expect(toolNames(model)).toEqual([]);
   });
 });
