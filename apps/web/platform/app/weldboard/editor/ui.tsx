@@ -194,15 +194,45 @@ export function BarPopover({
 
 /**
  * A row that scrolls sideways when there is more than fits: its edges fade
- * where there is more to see, a chevron there scrolls on, and a mouse wheel
- * scrolls it. Each end is a marker watched by an IntersectionObserver
+ * where there is more to see, a chevron there scrolls on, and (with
+ * `wheelScrolls`) a mouse wheel scrolls it. Each end is a marker watched by an IntersectionObserver
  * (scroll-driven animations are not widely available yet); scroll padding
  * keeps a focused item out of the fades. `className` styles the row itself,
  * `outerClassName` the box around it.
  */
-export function ScrollFade({ children, className, outerClassName }: { children: ReactNode; className?: string; outerClassName?: string }) {
+export function ScrollFade({
+  children,
+  className,
+  outerClassName,
+  wheelScrolls = false,
+}: {
+  children: ReactNode;
+  className?: string;
+  outerClassName?: string;
+  /**
+   * An up/down mouse wheel scrolls the row sideways. Only for a row on
+   * something that doesn't scroll itself (the board's tool row): on a page
+   * the wheel would move the page and the row at once.
+   */
+  wheelScrolls?: boolean;
+}) {
   const { t } = useI18n();
   const ref = useRef<HTMLDivElement>(null);
+  // Native and not passive, so it can keep the wheel from the page, and only while the row has further to go.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !wheelScrolls) return;
+    const onWheel = (e: WheelEvent) => {
+      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+      const delta = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+      const room = delta > 0 ? el.scrollWidth - el.clientWidth - el.scrollLeft : el.scrollLeft;
+      if (room < 1) return;
+      e.preventDefault();
+      el.scrollLeft += delta;
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [wheelScrolls]);
   const startMark = useRef<HTMLSpanElement>(null);
   const endMark = useRef<HTMLSpanElement>(null);
   const [edges, setEdges] = useState({ start: false, end: false });
@@ -255,9 +285,6 @@ export function ScrollFade({ children, className, outerClassName }: { children: 
         ref={ref}
         className={cn('flex min-w-0 flex-1 items-center overflow-x-auto scroll-px-8 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden', className)}
         style={edges.start || edges.end ? { maskImage: mask, WebkitMaskImage: mask } : undefined}
-        onWheel={(e) => {
-          if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) e.currentTarget.scrollLeft += e.deltaY;
-        }}
       >
         <span ref={startMark} aria-hidden className="w-px shrink-0 self-stretch" />
         {children}

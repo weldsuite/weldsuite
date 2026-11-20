@@ -79,9 +79,12 @@ export function AgentIsland({
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Clicked in the island since it opened: it no longer folds on mouse leave.
   const engagedRef = useRef(false);
-  // Closed (Escape, sent) with the mouse resting where the pill comes back: no
-  // hover-open until the mouse has left it, or it would spring open again.
+  // Closed (Escape, sent) with the mouse over the island, where the pill comes
+  // back: no hover-open until the mouse moves off the pill, or it would spring
+  // open again. Closed with the mouse elsewhere, the next hover opens it.
   const hoverBlockedRef = useRef(false);
+  // Lifts that block (and stops watching the mouse for it).
+  const unblockHoverRef = useRef<(() => void) | null>(null);
   // Where the cursor was before the island took it (a field, a spot in a
   // text, the whiteboard), to put it back if the island is left unused.
   const returnFocusRef = useRef<{ el: HTMLElement; range: Range | null } | null>(null);
@@ -91,6 +94,7 @@ export function AgentIsland({
     timerRef.current = null;
   };
   useEffect(() => clearTimer, []);
+  useEffect(() => () => unblockHoverRef.current?.(), []);
 
   const focusPrompt = () => islandRef.current?.querySelector('textarea')?.focus();
 
@@ -134,9 +138,26 @@ export function AgentIsland({
     else returnFocusRef.current = null;
   };
 
+  const blockHoverWhileResting = () => {
+    unblockHoverRef.current?.();
+    if (!islandRef.current?.matches(':hover')) return;
+    hoverBlockedRef.current = true;
+    const pill = `[data-testid="${testIdPrefix}-ai-pill"]`;
+    const onMove = (e: PointerEvent) => {
+      if (!(e.target instanceof Element && e.target.closest(pill))) unblock();
+    };
+    const unblock = () => {
+      hoverBlockedRef.current = false;
+      document.removeEventListener('pointermove', onMove);
+      unblockHoverRef.current = null;
+    };
+    document.addEventListener('pointermove', onMove);
+    unblockHoverRef.current = unblock;
+  };
+
   const close = () => {
     setPrompt('');
-    hoverBlockedRef.current = true;
+    blockHoverWhileResting();
     foldBack(true);
   };
 
@@ -193,7 +214,7 @@ export function AgentIsland({
       onMouseEnter={hoverPill}
       onMouseLeave={() => {
         clearTimer();
-        hoverBlockedRef.current = false;
+        unblockHoverRef.current?.();
       }}
       onClick={() => openIsland(true)}
       // Seen on any background (a light canvas as much as a page): a border and a shadow, and a 24px target.

@@ -676,7 +676,7 @@ export function BoardEditor(props: BoardEditorProps) {
               {!presentation.presenting && (
                 <div className="flex h-12 shrink-0 items-center border-b bg-muted/30 px-2">
                   {/* The tools scroll on a narrow window; zoom stays put on the right. */}
-                  <ScrollFade outerClassName="flex-1 items-center" className="gap-0.5">
+                  <ScrollFade outerClassName="flex-1 items-center" className="gap-0.5" wheelScrolls>
                     <UndoRedo controller={c} />
                     <Divider />
                     <Toolbar controller={c} onImage={() => {
