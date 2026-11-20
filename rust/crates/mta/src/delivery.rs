@@ -9,9 +9,11 @@
 //!    a minute, no attempt counted).
 //! 4. Connect to the MX hosts in preference order (two addresses each); an
 //!    opportunistic handshake that fails is retried in plaintext.
-//! 5. Per recipient: the IP's warm-up cap, the provider's per-minute budget,
-//!    then one transaction with the recipient's VERP return path and the
-//!    message DKIM-signed for its From domain.
+//! 5. Per recipient: the IP's warm-up cap ([`crate::warmup`]; over it a
+//!    recipient waits for the next UTC day, unless its pool is soft), the
+//!    provider's per-minute budget, then one transaction with the
+//!    recipient's VERP return path and the message DKIM-signed for its From
+//!    domain.
 //!
 //! Outcomes: `250` delivered; 4xx and broken connections defer (retry
 //! schedule, then expired after `MTA_MAX_QUEUE_AGE`); 5xx bounce, hard when
@@ -36,8 +38,9 @@ use crate::shaping::{Shaper, Slot, classify};
 use crate::smtp::client::{
     ClientSettings, ConnectError, Connection, Needs, SendOutcome, TlsMode, TlsOutcome,
 };
-use crate::store::{Claimed, Outcome, Store, StoredMessage};
+use crate::store::{Claimed, Outcome, Reservation, Store, StoredMessage};
 use crate::verp;
+use crate::warmup::Warmup;
 
 /// Everything a worker needs.
 pub struct Delivery {
@@ -53,7 +56,9 @@ pub struct Delivery {
     pub owner: String,
     pub bounce_domain: Option<String>,
     pub max_queue_age: Duration,
-    pub warmup: Vec<u32>,
+    pub warmup: Warmup,
+    /// Pools whose mail passes the warm-up cap (`MTA_WARMUP_SOFT_POOLS`).
+    pub warmup_soft_pools: Vec<String>,
     pub concurrency: usize,
     /// Connect to MX addresses in private space too (tests and labs only:
     /// `MTA_ALLOW_PRIVATE_DESTINATIONS`).
@@ -544,18 +549,40 @@ impl Delivery {
             .source_ip
             .map_or_else(|| "default".to_owned(), |ip| ip.to_string());
         let mut signed = HashMap::new();
+        // Set once the IP's cap holds a send: the rest of the group's
+        // strict-pool recipients wait this long too.
+        let mut held_for: Option<Duration> = None;
         for (index, claimed) in group.iter().enumerate() {
             let Some(message) = messages.get(&claimed.message_id) else {
                 continue;
             };
-            match self.store.reserve_ip(&source, &self.warmup).await {
-                Ok(true) => {}
-                Ok(false) => {
+            let soft = self.warmup_soft_pools.contains(&claimed.pool);
+            if let Some(wait) = held_for
+                && !soft
+            {
+                crate::monitoring::count_warmup_capped(&claimed.pool, "held");
+                self.release_all(std::slice::from_ref(claimed), wait).await;
+                continue;
+            }
+            match self.store.reserve_ip(&source, &self.warmup, soft).await {
+                Ok(Reservation::Granted) => {}
+                Ok(Reservation::OverCap { cap, sent }) => {
+                    crate::monitoring::count_warmup_capped(&claimed.pool, "sent");
+                    if sent == cap.saturating_add(1) {
+                        tracing::warn!(
+                            ip = %source, pool = %claimed.pool, cap,
+                            "warm-up cap passed: this pool's mail goes out anyway (MTA_WARMUP_SOFT_POOLS)"
+                        );
+                    }
+                }
+                Ok(Reservation::Held { cap }) => {
                     let wait = self.store.seconds_to_tomorrow().await.unwrap_or(3600.0);
-                    tracing::info!(ip = %source, "warm-up cap reached for today");
-                    self.release_all(&group[index..], Duration::from_secs_f64(wait.max(60.0)))
-                        .await;
-                    break;
+                    let wait = Duration::from_secs_f64(wait.max(60.0));
+                    tracing::info!(ip = %source, pool = %claimed.pool, cap, "warm-up cap reached for today; held until tomorrow (UTC)");
+                    crate::monitoring::count_warmup_capped(&claimed.pool, "held");
+                    self.release_all(std::slice::from_ref(claimed), wait).await;
+                    held_for = Some(wait);
+                    continue;
                 }
                 Err(error) => {
                     tracing::warn!(%error, "warm-up counter unavailable");
