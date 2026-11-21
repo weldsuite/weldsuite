@@ -164,7 +164,6 @@ export const weldchat = {
       emoji: 'Emoji',
       mentionSomeone: 'Iemand vermelden',
       formatting: 'Opmaak',
-      recordClip: 'Clip opnemen',
       recordVoiceClip: 'Voiceclip opnemen',
       sendMessage: 'Bericht versturen',
       stopRecording: 'Opname stoppen',

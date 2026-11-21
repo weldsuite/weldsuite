@@ -165,7 +165,6 @@ export const weldchat = {
       emoji: 'Emoji',
       mentionSomeone: 'Mention someone',
       formatting: 'Formatting',
-      recordClip: 'Record a clip',
       recordVoiceClip: 'Record voice clip',
       sendMessage: 'Send message',
       stopRecording: 'Stop recording',

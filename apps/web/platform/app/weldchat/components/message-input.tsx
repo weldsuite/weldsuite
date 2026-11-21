@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo, type ReactNode } from 'react';
-import { Plus, Smile, AtSign, X, CornerDownRight, MessageSquare, FileText, Baseline, Bold, Italic, Underline, Strikethrough, Code, List, ListOrdered, Video, Mic, Square, Loader2, Pencil } from 'lucide-react';
+import { Plus, Smile, AtSign, X, CornerDownRight, MessageSquare, FileText, Baseline, Bold, Italic, Underline, Strikethrough, Code, List, ListOrdered, Mic, Square, Loader2, Pencil } from 'lucide-react';
 import {
   Popover,
   PopoverContent,
@@ -35,7 +35,6 @@ import {
   type ReplyTo,
 } from './chat-context';
 import { THREAD_SUGGESTION_DEPTH, stashThreadDraft, takeThreadDraft } from './reply-chain';
-import { ClipRecorder } from './clip-recorder';
 import { TypingIndicator } from './typing-indicator';
 import { useClipRecorder } from '@/hooks/weldchat/use-clip-recorder';
 import { useDraftAutosave } from '@/hooks/weldchat/use-draft-autosave';
@@ -211,7 +210,6 @@ export function MessageInput({
   const [inlineUploadingCount, setInlineUploadingCount] = useState(0);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [showToolbar, setShowToolbar] = useState(false);
-  const [showClipRecorder, setShowClipRecorder] = useState(false);
   const [isVoiceRecording, setIsVoiceRecording] = useState(false);
   const [voiceUploading, setVoiceUploading] = useState(false);
   // True only AFTER this session has actually produced a recording — prevents
@@ -1418,17 +1416,6 @@ export function MessageInput({
                 </Button>
                 {attachmentsEnabled && (
                 <>
-                <div className="w-px h-4 bg-gray-200 dark:bg-border mx-1" />
-                <Button
-                  variant="ghost"
-                  onClick={() => setShowClipRecorder(true)}
-                  disabled={isPending}
-                  size="icon"
-                  className={composerIconButtonClass}
-                  title={t.weldchat.messageInput.recordClip}
-                >
-                  <Video className="h-[18px] w-[18px]" />
-                </Button>
                 <div className="relative">
                   <Button
                     variant="ghost"
@@ -1546,14 +1533,6 @@ export function MessageInput({
               </div>
             </ComposerActions>
       </ComposerFrame>
-
-      {/* Clip Recorder Dialog */}
-      <ClipRecorder
-        open={showClipRecorder}
-        onClose={() => setShowClipRecorder(false)}
-        onClipReady={handleClipReady}
-        initialMode="video"
-      />
     </div>
   );
 }
