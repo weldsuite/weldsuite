@@ -7500,6 +7500,7 @@ dependencies = [
  "sqlx",
  "time",
  "tokio",
+ "tower",
  "tracing",
  "weldsuite-auth",
  "weldsuite-catalogs",
