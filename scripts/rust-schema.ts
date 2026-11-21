@@ -24,20 +24,24 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const requireFrom = createRequire(path.join(repo, 'packages/core/db/package.json'));
 const load = (specifier: string) => import(pathToFileURL(requireFrom.resolve(specifier)).href);
-// Loaded in main(): drizzle-orm from the schema package, so `is()` sees its classes.
-/* eslint-disable @typescript-eslint/no-explicit-any */
-let getTableColumns: (table: any) => Record<string, any>;
-let is: (value: unknown, type: any) => boolean;
-let PgTable: any;
-let getTableConfig: (table: any) => any;
-let isPgEnum: (value: unknown) => boolean;
+
+/** drizzle-orm, loaded from the schema package in main() so `is()` sees its classes. */
+interface Drizzle {
+  getTableColumns: (table: any) => Record<string, any>;
+  is: (value: unknown, type: any) => boolean;
+  PgTable: any;
+  getTableConfig: (table: any) => any;
+  isPgEnum: (value: unknown) => boolean;
+}
 
 const check = process.argv.includes('--check');
 const outRoot = path.join(repo, 'rust/crates/schema/src');
@@ -73,26 +77,38 @@ const SEA_ORM_RESERVED = new Set(['entity', 'model', 'column', 'active_model', '
 
 const pascal = (text: string) =>
   text
-    .split(/[^A-Za-z0-9]+/)
+    .split(/[^A-Za-z\d]+/)
     .filter(Boolean)
     .map((part) => part[0].toUpperCase() + part.slice(1))
     .join('');
 
-const camel = (column: string) => column.replace(/_([a-z0-9])/g, (_, c: string) => c.toUpperCase());
+const camel = (column: string) => column.replace(/_([a-z\d])/g, (_, c: string) => c.toUpperCase());
 
 /** A snake_case Rust identifier for a SQL name. */
 function ident(name: string): string {
   let out = name
-    .replaceAll(/([a-z0-9])([A-Z])/g, '$1_$2')
-    .replaceAll(/[^A-Za-z0-9]+/g, '_')
+    .replaceAll(/([a-z\d])([A-Z])/g, '$1_$2')
+    .replaceAll(/[^A-Za-z\d]+/g, '_')
     .replaceAll(/^_|_$/g, '')
     .toLowerCase();
-  if (/^[0-9]/.test(out)) out = `n${out}`;
+  if (/^\d/.test(out)) out = `n${out}`;
   if (RUST_KEYWORDS.has(out) || SEA_ORM_RESERVED.has(out)) out = `${out}_`;
   return out;
 }
 
 const str = (text: string) => JSON.stringify(text);
+
+/** `base`, or `suffixed(2)`, `suffixed(3)`, … until one isn't in `used`; then it is. */
+function uniqueName(base: string, used: Set<string>, suffixed: (i: number) => string): string {
+  let name = base;
+  let i = 2;
+  while (used.has(name)) {
+    name = suffixed(i);
+    i += 1;
+  }
+  used.add(name);
+  return name;
+}
 
 interface Snapshot {
   tables: Record<string, any>;
@@ -107,6 +123,10 @@ function latestSnapshot(dir: string): { file: string; snapshot: Snapshot } {
   return { file, snapshot: JSON.parse(readFileSync(path.join(repo, dir, file), 'utf8')) };
 }
 
+// ---------------------------------------------------------------------------
+// Columns
+// ---------------------------------------------------------------------------
+
 interface RustColumn {
   field: string;
   column: string;
@@ -116,309 +136,228 @@ interface RustColumn {
   serde: string[];
 }
 
+/** A column's Rust type, its `#[sea_orm]` attributes, extra serde attributes and `js` serializer. */
+interface Mapping {
+  rustType: string;
+  attrs: string[];
+  serde: string[];
+  js?: string;
+}
+
+const plain = (rustType: string, attrs: string[] = [], js?: string): Mapping => ({ rustType, attrs, serde: [], js });
+
+const varchar = (col: any): Mapping => {
+  const length = col.length ? `StringLen::N(${col.length})` : 'StringLen::None';
+  return plain('String', [`column_type = "String(${length})"`]);
+};
+
+/** sqlx decodes numeric without its display scale, so a declared scale is applied when printing; an unconstrained numeric prints normalized. */
+const numeric = (col: any, nullable: boolean): Mapping => {
+  const scale = col.scale ?? (col.precision === undefined ? undefined : 0);
+  const columnType = col.precision === undefined ? 'Decimal(None)' : `Decimal(Some((${col.precision}, ${scale})))`;
+  const attrs = [`column_type = "${columnType}"`];
+  if (scale === undefined) return plain('BigDecimal', attrs, 'js::numeric');
+  const method = nullable ? 'serialize_option' : 'serialize';
+  const serializer = `crate::js::Numeric::<${scale}>::${method}`;
+  return { rustType: 'BigDecimal', attrs, serde: [`serialize_with = ${str(serializer)}`] };
+};
+
+const timestampType = (col: any) => (col.withTimezone ? 'TimeDateTimeWithTimeZone' : 'TimeDateTime');
+
+// Drizzle returns a JS bigint for `mode: 'bigint'`, which JSON can't carry; the
+// routes that use these columns serialize them themselves.
+const MAPPERS: Record<string, (col: any, nullable: boolean) => Mapping> = {
+  PgVarchar: varchar,
+  PgChar: varchar,
+  PgText: () => plain('String', ['column_type = "Text"']),
+  PgInteger: () => plain('i32'),
+  PgSerial: () => plain('i32'),
+  PgSmallInt: () => plain('i16'),
+  PgSmallSerial: () => plain('i16'),
+  PgBigInt53: () => plain('i64'),
+  PgBigSerial53: () => plain('i64'),
+  PgBigInt64: () => plain('i64', [], 'js::bigint'),
+  PgBigSerial64: () => plain('i64', [], 'js::bigint'),
+  PgReal: () => plain('f32', [], 'js::real'),
+  PgDoublePrecision: () => plain('f64'),
+  PgNumeric: numeric,
+  PgNumericNumber: () => plain('BigDecimal', [], 'js::numeric_number'),
+  PgBoolean: () => plain('bool'),
+  PgJson: () => plain('Json', ['column_type = "Json"']),
+  PgJsonb: () => plain('Json', ['column_type = "JsonBinary"']),
+  PgTimestamp: (col) => plain(timestampType(col), [], col.withTimezone ? 'js::timestamptz' : 'js::timestamp'),
+  PgTimestampString: (col) =>
+    plain(timestampType(col), [], col.withTimezone ? 'js::timestamptz_text' : 'js::timestamp_text'),
+  PgDate: () => plain('TimeDate', [], 'js::date_as_timestamp'),
+  PgDateString: () => plain('TimeDate', [], 'js::date'),
+  PgVector: (col) => plain('PgVector', [`column_type = "Vector(Some(${col.dimensions}))"`]),
+};
+
+/** `crate::js::<module>`, or its `option` twin for a nullable column. */
+const jsPath = (module: string, nullable: boolean) => (nullable ? `crate::${module}::option` : `crate::${module}`);
+
 /** The Rust type and serde handling of one Drizzle column. */
 function mapColumn(col: any, enumTypes: Map<string, string>, where: string): Omit<RustColumn, 'field' | 'column' | 'prop'> {
   const nullable = !col.notNull;
-  const attrs: string[] = [];
-  const serde: string[] = [];
-  let rustType: string;
-  let with_: string | null = null;
-  switch (col.columnType) {
-    case 'PgVarchar':
-    case 'PgChar':
-      rustType = 'String';
-      attrs.push(
-        col.length ? `column_type = "String(StringLen::N(${col.length}))"` : 'column_type = "String(StringLen::None)"',
-      );
-      break;
-    case 'PgText':
-      rustType = 'String';
-      attrs.push('column_type = "Text"');
-      break;
-    case 'PgInteger':
-    case 'PgSerial':
-      rustType = 'i32';
-      break;
-    case 'PgSmallInt':
-    case 'PgSmallSerial':
-      rustType = 'i16';
-      break;
-    case 'PgBigInt53':
-    case 'PgBigSerial53':
-      rustType = 'i64';
-      break;
-    case 'PgBigInt64':
-    case 'PgBigSerial64':
-      // Drizzle returns a JS bigint, which JSON can't carry; the routes that
-      // use these columns serialize them themselves.
-      rustType = 'i64';
-      with_ = 'js::bigint';
-      break;
-    case 'PgReal':
-      rustType = 'f32';
-      with_ = 'js::real';
-      break;
-    case 'PgDoublePrecision':
-      rustType = 'f64';
-      break;
-    case 'PgNumeric': {
-      rustType = 'BigDecimal';
-      // sqlx decodes numeric without its display scale, so a declared scale
-      // is applied when printing; an unconstrained numeric prints normalized.
-      const scale = col.scale ?? (col.precision !== undefined ? 0 : undefined);
-      attrs.push(
-        col.precision !== undefined
-          ? `column_type = "Decimal(Some((${col.precision}, ${scale})))"`
-          : 'column_type = "Decimal(None)"',
-      );
-      if (scale === undefined) {
-        with_ = 'js::numeric';
-      } else {
-        serde.push(
-          `serialize_with = ${str(`crate::js::Numeric::<${scale}>::${nullable ? 'serialize_option' : 'serialize'}`)}`,
-        );
-      }
-      break;
-    }
-    case 'PgNumericNumber':
-      rustType = 'BigDecimal';
-      with_ = 'js::numeric_number';
-      break;
-    case 'PgBoolean':
-      rustType = 'bool';
-      break;
-    case 'PgJson':
-      rustType = 'Json';
-      attrs.push('column_type = "Json"');
-      break;
-    case 'PgJsonb':
-      rustType = 'Json';
-      attrs.push('column_type = "JsonBinary"');
-      break;
-    case 'PgTimestamp':
-      rustType = col.withTimezone ? 'TimeDateTimeWithTimeZone' : 'TimeDateTime';
-      with_ = col.withTimezone ? 'js::timestamptz' : 'js::timestamp';
-      break;
-    case 'PgTimestampString':
-      rustType = col.withTimezone ? 'TimeDateTimeWithTimeZone' : 'TimeDateTime';
-      with_ = col.withTimezone ? 'js::timestamptz_text' : 'js::timestamp_text';
-      break;
-    case 'PgDate':
-      rustType = 'TimeDate';
-      with_ = 'js::date_as_timestamp';
-      break;
-    case 'PgDateString':
-      rustType = 'TimeDate';
-      with_ = 'js::date';
-      break;
-    case 'PgEnumColumn': {
-      const name = enumTypes.get(col.enum.enumName);
-      if (!name) throw new Error(`${where}: enum ${col.enum.enumName} is not exported`);
-      rustType = `super::enums::${name}`;
-      break;
-    }
-    case 'PgVector':
-      rustType = 'PgVector';
-      attrs.push(`column_type = "Vector(Some(${col.dimensions}))"`);
-      break;
-    default:
-      throw new Error(`${where}: column type ${col.columnType} has no Rust mapping yet`);
+  let mapping: Mapping | undefined;
+  if (col.columnType === 'PgEnumColumn') {
+    const name = enumTypes.get(col.enum.enumName);
+    if (!name) throw new Error(`${where}: enum ${col.enum.enumName} is not exported`);
+    mapping = plain(`super::enums::${name}`);
+  } else {
+    mapping = MAPPERS[col.columnType]?.(col, nullable);
   }
-  if (with_) serde.push(`with = ${str(nullable ? `crate::${with_}::option` : `crate::${with_}`)}`);
-  if (nullable) rustType = `Option<${rustType}>`;
-  return { rustType, attrs, serde };
+  if (!mapping) throw new Error(`${where}: column type ${col.columnType} has no Rust mapping yet`);
+  const serde = [...mapping.serde];
+  if (mapping.js) serde.push(`with = ${str(jsPath(mapping.js, nullable))}`);
+  const rustType = nullable ? `Option<${mapping.rustType}>` : mapping.rustType;
+  return { rustType, attrs: mapping.attrs, serde };
+}
+
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
+
+interface EnumDef {
+  name: string;
+  values: string[];
+  rust: string;
 }
 
 function enumVariant(value: string, used: Set<string>): string {
   let name = pascal(value) || 'Empty';
-  if (/^[0-9]/.test(name)) name = `V${name}`;
-  let unique = name;
-  for (let i = 2; used.has(unique); i++) unique = `${name}${i}`;
-  used.add(unique);
-  return unique;
+  if (/^\d/.test(name)) name = `V${name}`;
+  return uniqueName(name, used, (i) => `${name}${i}`);
 }
 
-function renderEnums(enums: Array<{ name: string; values: string[]; rust: string }>, header: string): string {
-  const out = [header, '', 'use sea_orm::entity::prelude::*;', ''];
-  for (const e of enums) {
-    const used = new Set<string>();
-    out.push(
-      `/// \`${e.name}\`.`,
-      '#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, EnumIter, DeriveActiveEnum, serde::Serialize)]',
-      `#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = ${str(e.name)})]`,
-      `pub enum ${e.rust} {`,
-    );
-    for (const value of e.values) {
-      out.push(`    #[sea_orm(string_value = ${str(value)})]`, `    #[serde(rename = ${str(value)})]`, `    ${enumVariant(value, used)},`);
-    }
-    out.push('}', '');
-  }
-  return out.join('\n');
+function renderEnum(e: EnumDef): string[] {
+  const used = new Set<string>();
+  const variants = e.values.flatMap((value) => [
+    `    #[sea_orm(string_value = ${str(value)})]`,
+    `    #[serde(rename = ${str(value)})]`,
+    `    ${enumVariant(value, used)},`,
+  ]);
+  return [
+    `/// \`${e.name}\`.`,
+    '#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, EnumIter, DeriveActiveEnum, serde::Serialize)]',
+    `#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = ${str(e.name)})]`,
+    `pub enum ${e.rust} {`,
+    ...variants,
+    '}',
+    '',
+  ];
+}
+
+function renderEnums(enums: EnumDef[], header: string): string {
+  return [header, '', 'use sea_orm::entity::prelude::*;', '', ...enums.flatMap(renderEnum)].join('\n');
+}
+
+const strList = (items: string[]) => items.map(str).join(', ');
+const some = (value: string) => `Some(${str(value)})`;
+
+function ddlColumn(c: any): string {
+  const fallback = c.default === undefined ? 'None' : some(String(c.default));
+  const generated = c.generated ? some(c.generated.as) : 'None';
+  return `DdlColumn { name: ${str(c.name)}, sql_type: ${str(c.type)}, not_null: ${c.notNull}, primary_key: ${c.primaryKey}, default: ${fallback}, generated: ${generated} }`;
+}
+
+function ddlIndexColumn(c: any): string {
+  return `IndexColumn { expression: ${str(c.expression)}, is_expression: ${c.isExpression}, asc: ${c.asc} }`;
+}
+
+function ddlIndex(i: any): string {
+  const columns = i.columns.map(ddlIndexColumn).join(', ');
+  const filter = i.where ? some(i.where) : 'None';
+  return `Index { name: ${str(i.name)}, columns: &[${columns}], unique: ${i.isUnique}, method: ${str(i.method)}, filter: ${filter} }`;
+}
+
+function ddlForeignKey(f: any): string {
+  const onDelete = str(f.onDelete ?? 'no action');
+  const onUpdate = str(f.onUpdate ?? 'no action');
+  return `ForeignKey { name: ${str(f.name)}, columns: &[${strList(f.columnsFrom)}], references: ${str(f.tableTo)}, referenced_columns: &[${strList(f.columnsTo)}], on_delete: ${onDelete}, on_update: ${onUpdate} }`;
+}
+
+function ddlUnique(u: any): string {
+  return `Unique { name: ${str(u.name)}, columns: &[${strList(u.columns)}], nulls_not_distinct: ${u.nullsNotDistinct} }`;
+}
+
+function ddlCheck(c: any): string {
+  return `Check { name: ${str(c.name)}, expression: ${str(c.value)} }`;
+}
+
+function ddlPrimaryKey(p: any): string {
+  return `DdlPrimaryKey { name: ${str(p.name)}, columns: &[${strList(p.columns)}] }`;
+}
+
+function ddlList(items: string[]): string {
+  if (!items.length) return '&[]';
+  const body = items.join(',\n        ');
+  return `&[\n        ${body},\n    ]`;
 }
 
 /** The snapshot's table definition as `crate::ddl::Table` data. */
 function renderDdl(t: any): string {
-  const cols = Object.values<any>(t.columns).map(
-    (c) =>
-      `DdlColumn { name: ${str(c.name)}, sql_type: ${str(c.type)}, not_null: ${c.notNull}, primary_key: ${c.primaryKey}, default: ${
-        c.default === undefined ? 'None' : `Some(${str(String(c.default))})`
-      }, generated: ${c.generated ? `Some(${str(c.generated.as)})` : 'None'} }`,
-  );
-  const indexes = Object.values<any>(t.indexes ?? {}).map(
-    (i) =>
-      `Index { name: ${str(i.name)}, columns: &[${i.columns
-        .map((c: any) => `IndexColumn { expression: ${str(c.expression)}, is_expression: ${c.isExpression}, asc: ${c.asc} }`)
-        .join(', ')}], unique: ${i.isUnique}, method: ${str(i.method)}, filter: ${i.where ? `Some(${str(i.where)})` : 'None'} }`,
-  );
-  const fks = Object.values<any>(t.foreignKeys ?? {}).map(
-    (f) =>
-      `ForeignKey { name: ${str(f.name)}, columns: &[${f.columnsFrom.map(str).join(', ')}], references: ${str(
-        f.tableTo,
-      )}, referenced_columns: &[${f.columnsTo.map(str).join(', ')}], on_delete: ${str(f.onDelete ?? 'no action')}, on_update: ${str(
-        f.onUpdate ?? 'no action',
-      )} }`,
-  );
-  const uniques = Object.values<any>(t.uniqueConstraints ?? {}).map(
-    (u) => `Unique { name: ${str(u.name)}, columns: &[${u.columns.map(str).join(', ')}], nulls_not_distinct: ${u.nullsNotDistinct} }`,
-  );
-  const checks = Object.values<any>(t.checkConstraints ?? {}).map((c) => `Check { name: ${str(c.name)}, expression: ${str(c.value)} }`);
-  const pks = Object.values<any>(t.compositePrimaryKeys ?? {}).map(
-    (p) => `DdlPrimaryKey { name: ${str(p.name)}, columns: &[${p.columns.map(str).join(', ')}] }`,
-  );
-  const list = (items: string[]) => (items.length ? `&[\n        ${items.join(',\n        ')},\n    ]` : '&[]');
+  const pks = Object.values<any>(t.compositePrimaryKeys ?? {}).map(ddlPrimaryKey);
+  const primaryKey = pks.length ? `Some(${pks[0]})` : 'None';
   return [
     '/// The table as the migrations define it.',
     'pub const DDL: Table = Table {',
     `    name: ${str(t.name)},`,
-    `    columns: ${list(cols)},`,
-    `    primary_key: ${pks.length ? `Some(${pks[0]})` : 'None'},`,
-    `    indexes: ${list(indexes)},`,
-    `    foreign_keys: ${list(fks)},`,
-    `    uniques: ${list(uniques)},`,
-    `    checks: ${list(checks)},`,
+    `    columns: ${ddlList(Object.values<any>(t.columns).map(ddlColumn))},`,
+    `    primary_key: ${primaryKey},`,
+    `    indexes: ${ddlList(Object.values<any>(t.indexes ?? {}).map(ddlIndex))},`,
+    `    foreign_keys: ${ddlList(Object.values<any>(t.foreignKeys ?? {}).map(ddlForeignKey))},`,
+    `    uniques: ${ddlList(Object.values<any>(t.uniqueConstraints ?? {}).map(ddlUnique))},`,
+    `    checks: ${ddlList(Object.values<any>(t.checkConstraints ?? {}).map(ddlCheck))},`,
     '};',
   ].join('\n');
 }
 
-interface Written {
-  rel: string;
-  text: string;
+function renderField(c: RustColumn): string[] {
+  const attrs = c.attrs.length ? [`    #[sea_orm(${c.attrs.join(', ')})]`] : [];
+  const serde = [`rename = ${str(c.prop)}`, ...c.serde].join(', ');
+  return [...attrs, `    #[serde(${serde})]`, `    pub ${c.field}: ${c.rustType},`];
 }
 
-function generate(kind: Kind, schema: Record<string, unknown>): { files: Written[]; warnings: string[] } {
-  const { file: snapshotFile, snapshot } = latestSnapshot(kind.snapshots);
-  const header = `//! Generated by \`pnpm rust:schema\` (scripts/rust-schema.ts) from \`${kind.entry}\`\n//! and ${snapshotFile}; don't edit.`;
-  const warnings: string[] = [];
-  const files: Written[] = [];
+function renderEntity(header: string, name: string, columns: RustColumn[], snap: any): string {
+  return [
+    header,
+    '//!',
+    `//! \`${name}\`.`,
+    '',
+    'use sea_orm::entity::prelude::*;',
+    '',
+    '#[allow(unused_imports)]',
+    'use crate::ddl::{Check, Column as DdlColumn, ForeignKey, Index, IndexColumn, PrimaryKey as DdlPrimaryKey, Table, Unique};',
+    '',
+    '#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]',
+    `#[sea_orm(table_name = ${str(name)})]`,
+    'pub struct Model {',
+    ...columns.flatMap(renderField),
+    '}',
+    '',
+    '#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]',
+    'pub enum Relation {}',
+    '',
+    'impl ActiveModelBehavior for ActiveModel {}',
+    '',
+    renderDdl(snap),
+    '',
+  ].join('\n');
+}
 
-  // Enums: Rust names by Postgres name.
-  const enumTypes = new Map<string, string>();
-  const enums: Array<{ name: string; values: string[]; rust: string }> = [];
-  const usedEnumNames = new Set<string>();
-  for (const value of Object.values(schema)) {
-    if (!isPgEnum(value)) continue;
-    const e = value as { enumName: string; enumValues: string[] };
-    if (enumTypes.has(e.enumName)) continue;
-    let rust = pascal(e.enumName);
-    for (let i = 2; usedEnumNames.has(rust); i++) rust = `${pascal(e.enumName)}${i}`;
-    usedEnumNames.add(rust);
-    enumTypes.set(e.enumName, rust);
-    enums.push({ name: e.enumName, values: [...e.enumValues], rust });
-  }
-  enums.sort((a, b) => a.name.localeCompare(b.name));
-  files.push({ rel: `${kind.name}/enums.rs`, text: renderEnums(enums, `${header}\n//!\n//! The Postgres enums of the ${kind.name} database.`) });
-
-  // Tables.
-  const tables = new Map<string, any>();
-  for (const value of Object.values(schema)) {
-    if (!is(value, PgTable)) continue;
-    const config = getTableConfig(value);
-    if (config.schema && config.schema !== 'public') continue;
-    if (!tables.has(config.name)) tables.set(config.name, value);
-  }
-  const modules: string[] = [];
-  const tableNames = new Map<string, string>();
-  const usedModules = new Set<string>(['enums']);
-  for (const [name, table] of [...tables].sort(([a], [b]) => a.localeCompare(b))) {
-    const config = getTableConfig(table);
-    const snap = snapshot.tables[`public.${name}`];
-    if (!snap) {
-      warnings.push(`${kind.name}: table ${name} is in the schema but not in ${snapshotFile} (no migration yet); skipped`);
-      continue;
-    }
-    let module = ident(name);
-    for (let i = 2; usedModules.has(module); i++) module = `${ident(name)}_${i}`;
-    usedModules.add(module);
-
-    const props = Object.entries<any>(getTableColumns(table));
-    const compositePk = new Set<string>(config.primaryKeys.flatMap((pk: any) => pk.columns.map((c: any) => c.name)));
-    const hasPk = props.some(([, c]) => c.primary) || compositePk.size > 0;
-    const usedFields = new Set<string>();
-    const columns: RustColumn[] = props.map(([prop, col]) => {
-      const where = `${kind.name}.${name}.${col.name}`;
-      let field = ident(col.name);
-      for (let i = 2; usedFields.has(field); i++) field = `${ident(col.name)}_${i}`;
-      usedFields.add(field);
-      const mapped = mapColumn(col, enumTypes, where);
-      const attrs = [...mapped.attrs];
-      if (field !== col.name) attrs.unshift(`column_name = ${str(col.name)}`);
-      if (col.primary || compositePk.has(col.name)) attrs.unshift('primary_key', 'auto_increment = false');
-      return { field, column: col.name, prop, ...mapped, attrs };
-    });
-    if (!hasPk) {
-      warnings.push(`${kind.name}.${name}: no primary key; skipped (SeaORM needs one)`);
-      continue;
-    }
-
-    const lines = [
-      `${header}`,
-      `//!`,
-      `//! \`${name}\`.`,
-      '',
-      'use sea_orm::entity::prelude::*;',
-      '',
-      '#[allow(unused_imports)]',
-      'use crate::ddl::{Check, Column as DdlColumn, ForeignKey, Index, IndexColumn, PrimaryKey as DdlPrimaryKey, Table, Unique};',
-      '',
-      '#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]',
-      `#[sea_orm(table_name = ${str(name)})]`,
-      'pub struct Model {',
-    ];
-    for (const c of columns) {
-      if (c.attrs.length) lines.push(`    #[sea_orm(${c.attrs.join(', ')})]`);
-      if (c.prop !== camel(c.column)) {
-        warnings.push(`${kind.name}.${name}.${c.column}: property ${c.prop} is not the column's camelCase`);
-      }
-      lines.push(`    #[serde(${[`rename = ${str(c.prop)}`, ...c.serde].join(', ')})]`);
-      lines.push(`    pub ${c.field}: ${c.rustType},`);
-    }
-    lines.push(
-      '}',
-      '',
-      '#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]',
-      'pub enum Relation {}',
-      '',
-      'impl ActiveModelBehavior for ActiveModel {}',
-      '',
-      renderDdl(snap),
-      '',
-    );
-    files.push({ rel: `${kind.name}/${module}.rs`, text: lines.join('\n') });
-    modules.push(module);
-    tableNames.set(module, name);
-  }
-
-  const mod = [
-    `${header}`,
+function renderMod(header: string, kind: Kind, modules: Array<{ module: string; table: string }>): string {
+  return [
+    header,
     '//!',
     `//! The ${kind.name} database: one SeaORM entity per table.`,
     '',
     'pub mod enums;',
-    ...modules.map((m) => `pub mod ${m};`),
+    ...modules.map(({ module }) => `pub mod ${module};`),
     '',
     `/// Every table's definition, in name order.`,
     'pub const TABLES: &[crate::ddl::Table] = &[',
-    ...modules.map((m) => `    ${m}::DDL,`),
+    ...modules.map(({ module }) => `    ${module}::DDL,`),
     '];',
     '',
     '/// Every row of `table` through its entity (`Entity::find().all`), as JSON;',
@@ -435,70 +374,189 @@ function generate(kind: Kind, schema: Record<string, unknown>): { files: Written
     '        rows.iter().map(|row| serde_json::to_value(row).unwrap_or_default()).collect()',
     '    }',
     '    Ok(Some(match table {',
-    ...modules.map((m) => `        ${str(tableNames.get(m)!)} => json(Box::pin(${m}::Entity::find().all(db)).await?),`),
+    ...modules.map(
+      ({ module, table }) => `        ${str(table)} => json(Box::pin(${module}::Entity::find().all(db)).await?),`,
+    ),
     '        _ => return Ok(None),',
     '    }))',
     '}',
     '',
-  ];
-  files.push({ rel: `${kind.name}/mod.rs`, text: mod.join('\n') });
+  ].join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// Generation
+// ---------------------------------------------------------------------------
+
+interface Written {
+  rel: string;
+  text: string;
+}
+
+/** The schema's Postgres enums, by name, with a unique Rust name each. */
+function collectEnums(drizzle: Drizzle, schema: Record<string, unknown>): { enumTypes: Map<string, string>; enums: EnumDef[] } {
+  const enumTypes = new Map<string, string>();
+  const enums: EnumDef[] = [];
+  const used = new Set<string>();
+  const pgEnums = Object.values(schema).filter(drizzle.isPgEnum) as Array<{ enumName: string; enumValues: string[] }>;
+  for (const e of pgEnums) {
+    if (enumTypes.has(e.enumName)) continue;
+    const base = pascal(e.enumName);
+    const rust = uniqueName(base, used, (i) => `${base}${i}`);
+    enumTypes.set(e.enumName, rust);
+    enums.push({ name: e.enumName, values: [...e.enumValues], rust });
+  }
+  enums.sort((a, b) => a.name.localeCompare(b.name));
+  return { enumTypes, enums };
+}
+
+/** The schema's tables in the `public` schema, by name, in name order. */
+function collectTables(drizzle: Drizzle, schema: Record<string, unknown>): Array<[string, any]> {
+  const tables = new Map<string, any>();
+  for (const value of Object.values(schema)) {
+    if (!drizzle.is(value, drizzle.PgTable)) continue;
+    const config = drizzle.getTableConfig(value);
+    const isPublic = !config.schema || config.schema === 'public';
+    if (isPublic && !tables.has(config.name)) tables.set(config.name, value);
+  }
+  return [...tables].sort(([a], [b]) => a.localeCompare(b));
+}
+
+/** One table's columns as Rust fields; `null` when SeaORM can't take it (no primary key). */
+function tableColumns(
+  drizzle: Drizzle,
+  table: any,
+  where: string,
+  enumTypes: Map<string, string>,
+): RustColumn[] | null {
+  const config = drizzle.getTableConfig(table);
+  const props = Object.entries<any>(drizzle.getTableColumns(table));
+  const compositePk = new Set<string>(config.primaryKeys.flatMap((pk: any) => pk.columns.map((c: any) => c.name)));
+  const usedFields = new Set<string>();
+  const columns = props.map(([prop, col]): RustColumn => {
+    const base = ident(col.name);
+    const field = uniqueName(base, usedFields, (i) => `${base}_${i}`);
+    const mapped = mapColumn(col, enumTypes, `${where}.${col.name}`);
+    const attrs = [...mapped.attrs];
+    if (field !== col.name) attrs.unshift(`column_name = ${str(col.name)}`);
+    if (col.primary || compositePk.has(col.name)) attrs.unshift('primary_key', 'auto_increment = false');
+    return { field, column: col.name, prop, ...mapped, attrs };
+  });
+  const hasPk = props.some(([, c]) => c.primary) || compositePk.size > 0;
+  return hasPk ? columns : null;
+}
+
+function generate(drizzle: Drizzle, kind: Kind, schema: Record<string, unknown>): { files: Written[]; warnings: string[] } {
+  const { file: snapshotFile, snapshot } = latestSnapshot(kind.snapshots);
+  const header = `//! Generated by \`pnpm rust:schema\` (scripts/rust-schema.ts) from \`${kind.entry}\`\n//! and ${snapshotFile}; don't edit.`;
+  const warnings: string[] = [];
+  const { enumTypes, enums } = collectEnums(drizzle, schema);
+  const enumsHeader = `${header}\n//!\n//! The Postgres enums of the ${kind.name} database.`;
+  const files: Written[] = [{ rel: `${kind.name}/enums.rs`, text: renderEnums(enums, enumsHeader) }];
+
+  const modules: Array<{ module: string; table: string }> = [];
+  const usedModules = new Set<string>(['enums']);
+  for (const [name, table] of collectTables(drizzle, schema)) {
+    const snap = snapshot.tables[`public.${name}`];
+    if (!snap) {
+      warnings.push(`${kind.name}: table ${name} is in the schema but not in ${snapshotFile} (no migration yet); skipped`);
+      continue;
+    }
+    const base = ident(name);
+    const module = uniqueName(base, usedModules, (i) => `${base}_${i}`);
+    const columns = tableColumns(drizzle, table, `${kind.name}.${name}`, enumTypes);
+    if (!columns) {
+      warnings.push(`${kind.name}.${name}: no primary key; skipped (SeaORM needs one)`);
+      continue;
+    }
+    for (const c of columns.filter((c) => c.prop !== camel(c.column))) {
+      warnings.push(`${kind.name}.${name}.${c.column}: property ${c.prop} is not the column's camelCase`);
+    }
+    files.push({ rel: `${kind.name}/${module}.rs`, text: renderEntity(header, name, columns, snap) });
+    modules.push({ module, table: name });
+  }
+  files.push({ rel: `${kind.name}/mod.rs`, text: renderMod(header, kind, modules) });
   return { files, warnings };
+}
+
+// ---------------------------------------------------------------------------
+// Output
+// ---------------------------------------------------------------------------
+
+/**
+ * rustfmt from Cargo's own bin directory (rustup's proxy, which follows
+ * rust/rust-toolchain.toml from rust/), not whatever comes first on PATH.
+ */
+function rustfmtBinary(): string {
+  const cargoHome = process.env.CARGO_HOME ?? path.join(homedir(), '.cargo');
+  return path.join(cargoHome, 'bin', process.platform === 'win32' ? 'rustfmt.exe' : 'rustfmt');
 }
 
 /** Format generated files as the workspace does (rust/rustfmt.toml). */
 function rustfmt(files: string[]) {
+  const binary = rustfmtBinary();
   for (let i = 0; i < files.length; i += 100) {
-    const run = spawnSync('rustfmt', ['--edition', '2024', '--config', 'max_width=100', ...files.slice(i, i + 100)], {
-      stdio: 'inherit',
-    });
-    if (run.status !== 0) throw new Error('rustfmt failed');
+    const args = ['--edition', '2024', '--config', 'max_width=100', ...files.slice(i, i + 100)];
+    const run = spawnSync(binary, args, { cwd: path.join(repo, 'rust'), stdio: 'inherit' });
+    if (run.status !== 0) throw new Error(`rustfmt failed (${binary})`);
   }
 }
 
-async function main() {
-  ({ getTableColumns, is } = await load('drizzle-orm'));
-  ({ PgTable, getTableConfig, isPgEnum } = await load('drizzle-orm/pg-core'));
-  // A checkout with core.autocrlf has CRLF files; compare text, not bytes.
-  const read = (file: string) => readFileSync(file, 'utf8').replaceAll('\r\n', '\n');
-  let stale = 0;
-  const allWarnings: string[] = [];
-  for (const kind of KINDS) {
-    const schema = await import(pathToFileURL(path.join(repo, kind.entry)).href);
-    const { files, warnings } = generate(kind, schema);
-    allWarnings.push(...warnings);
-    const dir = path.join(outRoot, kind.name);
-    const wanted = new Set(files.map((f) => path.join(outRoot, f.rel)));
-    if (check) {
-      const scratch = mkdtempSync(path.join(tmpdir(), 'rust-schema-'));
-      mkdirSync(path.join(scratch, kind.name));
-      for (const f of files) writeFileSync(path.join(scratch, f.rel), f.text);
-      rustfmt(files.map((f) => path.join(scratch, f.rel)));
-      for (const f of files) {
-        const target = path.join(outRoot, f.rel);
-        if (!existsSync(target) || read(target) !== read(path.join(scratch, f.rel))) {
-          console.error(`stale: rust/crates/schema/src/${f.rel}`);
-          stale++;
-        }
-      }
-      for (const f of existsSync(dir) ? readdirSync(dir) : []) {
-        if (!wanted.has(path.join(dir, f))) {
-          console.error(`stale: rust/crates/schema/src/${kind.name}/${f} (no such table)`);
-          stale++;
-        }
-      }
-      rmSync(scratch, { recursive: true, force: true });
-      continue;
-    }
-    if (existsSync(dir)) {
-      for (const f of readdirSync(dir)) if (!wanted.has(path.join(dir, f))) rmSync(path.join(dir, f));
-    }
-    mkdirSync(dir, { recursive: true });
-    for (const f of files) writeFileSync(path.join(outRoot, f.rel), f.text);
-    rustfmt(files.map((f) => path.join(outRoot, f.rel)));
-    console.log(`${kind.name}: ${files.length - 2} tables, enums and mod.rs written`);
+// A checkout with core.autocrlf has CRLF files; compare text, not bytes.
+const readText = (file: string) => readFileSync(file, 'utf8').replaceAll('\r\n', '\n');
+
+/** Print the files of `kind` that differ from what would be written; return how many. */
+function checkKind(kind: Kind, files: Written[]): number {
+  const scratch = mkdtempSync(path.join(tmpdir(), 'rust-schema-'));
+  mkdirSync(path.join(scratch, kind.name));
+  for (const f of files) writeFileSync(path.join(scratch, f.rel), f.text);
+  rustfmt(files.map((f) => path.join(scratch, f.rel)));
+  const changed = files.filter((f) => {
+    const target = path.join(outRoot, f.rel);
+    return !existsSync(target) || readText(target) !== readText(path.join(scratch, f.rel));
+  });
+  rmSync(scratch, { recursive: true, force: true });
+
+  const dir = path.join(outRoot, kind.name);
+  const wanted = new Set(files.map((f) => path.basename(f.rel)));
+  const extra = existsSync(dir) ? readdirSync(dir).filter((f) => !wanted.has(f)) : [];
+  for (const f of changed) console.error(`stale: rust/crates/schema/src/${f.rel}`);
+  for (const f of extra) console.error(`stale: rust/crates/schema/src/${kind.name}/${f} (no such table)`);
+  return changed.length + extra.length;
+}
+
+/** Write the files of `kind`, removing modules of tables that are gone. */
+function writeKind(kind: Kind, files: Written[]) {
+  const dir = path.join(outRoot, kind.name);
+  const wanted = new Set(files.map((f) => path.basename(f.rel)));
+  if (existsSync(dir)) {
+    for (const f of readdirSync(dir).filter((name) => !wanted.has(name))) rmSync(path.join(dir, f));
   }
-  for (const w of allWarnings) console.warn(`warning: ${w}`);
-  if (check && stale) {
+  mkdirSync(dir, { recursive: true });
+  for (const f of files) writeFileSync(path.join(outRoot, f.rel), f.text);
+  rustfmt(files.map((f) => path.join(outRoot, f.rel)));
+  console.log(`${kind.name}: ${files.length - 2} tables, enums and mod.rs written`);
+}
+
+async function main() {
+  const [orm, pgCore] = await Promise.all([load('drizzle-orm'), load('drizzle-orm/pg-core')]);
+  const drizzle: Drizzle = {
+    getTableColumns: orm.getTableColumns,
+    is: orm.is,
+    PgTable: pgCore.PgTable,
+    getTableConfig: pgCore.getTableConfig,
+    isPgEnum: pgCore.isPgEnum,
+  };
+  const schemas = await Promise.all(KINDS.map((kind) => import(pathToFileURL(path.join(repo, kind.entry)).href)));
+  const results = KINDS.map((kind, i) => ({ kind, ...generate(drizzle, kind, schemas[i]) }));
+
+  let stale = 0;
+  for (const { kind, files } of results) {
+    if (check) stale += checkKind(kind, files);
+    else writeKind(kind, files);
+  }
+  for (const warning of results.flatMap((r) => r.warnings)) console.warn(`warning: ${warning}`);
+  if (stale) {
     console.error(`${stale} file(s) stale: run pnpm rust:schema`);
     process.exit(1);
   }
