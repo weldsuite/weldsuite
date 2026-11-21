@@ -15,6 +15,10 @@
 //! starter data seeded on a workspace's first request ([`defaults`]), and
 //! the readable 400s of `hrJson` ([`validation`]).
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
 // The routes follow the TypeScript services function by function (long
 // handlers, many arguments, names like `row`/`rows`), and amounts and counts
 // are JavaScript numbers (`f64`), converted where a column is an integer.

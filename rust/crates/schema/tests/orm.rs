@@ -5,6 +5,10 @@
 //! Runs when `WELDSUITE_TEST_TENANT_URL` points at a database built by
 //! `pnpm exec tsx scripts/rust-test-db.ts`; skipped otherwise.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
 #![allow(clippy::unwrap_used)]
 
 use sea_orm::{ActiveModelTrait, ActiveValue::Set, EntityTrait};

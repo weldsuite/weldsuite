@@ -7,6 +7,11 @@
 //! them), and skips otherwise. Every row it writes is its own (`LC`-prefixed
 //! ids), and each test clears them first.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+
 use std::sync::Arc;
 
 use base64::Engine;

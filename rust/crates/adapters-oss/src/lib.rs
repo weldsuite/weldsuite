@@ -25,6 +25,11 @@
 //! Adapters take their settings as arguments; the server reads them from the
 //! environment.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
+
 mod cnpg;
 pub mod collab;
 mod embeddings;

@@ -23,6 +23,11 @@
 //! [`migrate_database`] is the library entry the `DatabaseProvisioner`
 //! adapter calls to bring a new tenant database to the journal level.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "the migration runner applies SQL by nature (ADR DATA-019)"
+)]
+
 mod apply;
 mod journal;
 mod tenants;

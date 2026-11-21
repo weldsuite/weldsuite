@@ -7,6 +7,11 @@
 //! the caller set, defaults filled in), as JSON objects keyed like the
 //! TypeScript types.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
+
 pub mod activities;
 pub mod companies;
 pub mod company_attributes;

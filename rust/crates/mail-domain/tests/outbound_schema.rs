@@ -7,6 +7,10 @@
 //! Runs when `WELDSUITE_TEST_MASTER_URL` and `WELDSUITE_TEST_TENANT_URL` are
 //! set; otherwise it returns early.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
 #![allow(clippy::too_many_lines)] // each test walks one scenario through, step by step
 
 use std::sync::Arc;

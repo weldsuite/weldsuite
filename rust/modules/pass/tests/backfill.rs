@@ -5,6 +5,11 @@
 //!
 //! Runs when `WELDSUITE_TEST_TENANT_URL` is set; otherwise it returns early.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+
 use weldsuite_db::master_pool;
 use weldsuite_pass::envelope::{SecretLocation, checksum_for, seal_secret, sha256_hex};
 use weldsuite_pass::{

@@ -27,6 +27,11 @@
 //! - [`monitoring`]: the Prometheus metrics (deliveries, the database pool).
 //! - [`config`], [`run`]: settings and the process.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
+
 pub mod api;
 pub mod config;
 pub mod crypto;

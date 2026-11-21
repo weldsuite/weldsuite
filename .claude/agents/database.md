@@ -72,7 +72,12 @@ the newest migration's snapshot disagree.
 ## Query patterns
 
 - SeaORM through the entities for new code (`weldsuite_db::orm`, `OrmConn`
-  inside a transaction). Raw SQL only when necessary, always parameterized.
+  inside a transaction; `rust/README.md`, "Queries"). Raw `sqlx::query*` is a
+  clippy error outside the crates listed in
+  `rust/crates/schema/tests/raw_sql.rs`; never add one there. SQL that stays
+  SQL (CTE reports, bulk statements) gets
+  `#[allow(clippy::disallowed_methods, reason = "…")]` on its function,
+  always parameterized.
 - **Cursor pagination** everywhere new. No offset pagination.
 - `limit + 1` trick for `hasMore` detection.
 - Index sort column + tiebreaker (usually `created_at`, `id`).

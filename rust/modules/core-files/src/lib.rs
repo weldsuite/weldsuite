@@ -21,6 +21,11 @@
 //! - the 30-day purge of trashed files, a job ([`TrashPurgeJob`]) that
 //!   `DELETE /api/files/:id` starts with a delay.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
+
 mod drive;
 mod files;
 mod folders;

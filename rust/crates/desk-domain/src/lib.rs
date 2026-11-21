@@ -63,6 +63,11 @@
 //! Small on purpose: add what a ported route uses, with the TypeScript
 //! function it mirrors named in its doc comment.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
+
 pub mod articles;
 pub mod assignment;
 pub mod assignment_router;

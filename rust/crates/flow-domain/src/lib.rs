@@ -3,6 +3,11 @@
 //! sheets-api, connect-api and workflow-worker import them in TypeScript.
 //! Route-only code stays in `rust/modules/flow`.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
+
 pub mod acceptance;
 pub mod access;
 pub mod analytics;

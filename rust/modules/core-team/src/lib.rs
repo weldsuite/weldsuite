@@ -33,6 +33,11 @@
 //! [`weldsuite_ports::Identity`] port; billing (Stripe) is Global-only and
 //! skipped as the workers skip it without the binding.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
+
 mod access;
 mod groups;
 

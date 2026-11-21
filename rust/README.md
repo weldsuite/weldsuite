@@ -775,6 +775,45 @@ its id goes into `RUST_PORTED_MODULES` (`@weldsuite/api-modules`), the server
 mounts it, and its suite becomes part of the parity gate: CI runs it on every
 PR that touches the module, so a feature lands in both backends.
 
+## Queries
+
+New queries go through the SeaORM entities of `crates/schema` (ADR DATA-019),
+on the pools `weldsuite-db` already hands out:
+
+```rust
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+use weldsuite_db::orm;
+use weldsuite_schema::tenant::people;
+
+let person = people::Entity::find_by_id(id.to_owned())
+    .filter(people::Column::DeletedAt.is_null())
+    .one(&orm(&tenant.pool))
+    .await?;
+// The row as the API returns it: Drizzle's JSON shape, decided by the entity.
+let json = person.map(serde_json::to_value).transpose()?;
+```
+
+Inside a transaction `atomically_with` opened, `OrmConn::new(tx)` makes its
+connection a SeaORM one, so ORM statements commit or roll back with the SQL
+around them (`crates/db/src/orm.rs`).
+
+`clippy.toml` disallows `sqlx::query`, `query_as`, `query_scalar` and their
+`_with` forms. The crates written before the entities allow them at their root
+(`#![allow(clippy::disallowed_methods, reason = "not converted to the ORM
+yet …")]`) and are listed in `crates/schema/tests/raw_sql.rs`:
+
+- a new crate never gets that line, and the test fails if one does;
+- converting a crate means dropping the line and its entry in the list, one
+  module per PR;
+- SQL that stays SQL (reports with CTEs and window functions, bulk `INSERT …
+  SELECT` / `UPDATE … FROM`, the WeldPanel compiler) takes
+  `#[allow(clippy::disallowed_methods, reason = "…")]` on its function, and
+  the test requires the reason;
+- tests, examples and benches may write SQL for their fixtures.
+
+Until a crate is converted, a query a change touches anyway moves to the ORM
+when that is easy; a new route in an old crate uses the ORM.
+
 ## Migrations
 
 The schema is the entities in `crates/schema` (ADR DATA-019). To change it,

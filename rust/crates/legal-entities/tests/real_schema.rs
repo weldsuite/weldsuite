@@ -8,6 +8,11 @@
 //! has an `_lert_` id, is removed before and after, and the scenarios run in
 //! one test, one after another (the default entity is one per database).
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+
 use std::sync::Arc;
 
 use axum::body::Body;

@@ -7,6 +7,10 @@
 //! Needs `WELDSUITE_TEST_MASTER_URL` and `WELDSUITE_TEST_TENANT_URL` (built
 //! by `scripts/rust-test-db.ts`); skips without them.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
 #![allow(clippy::unwrap_used, clippy::too_many_lines, clippy::type_complexity)]
 
 use std::sync::{Arc, Mutex, PoisonError};

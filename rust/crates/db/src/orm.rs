@@ -57,6 +57,10 @@ impl<'c> OrmConn<'c> {
     }
 }
 
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the bridge itself: SeaORM's statements run through sqlx here"
+)]
 fn query(stmt: &Statement) -> sqlx::query::Query<'_, Postgres, SqlxValues> {
     let values = stmt.values.clone().unwrap_or(Values(Vec::new()));
     sqlx::query_with(sqlx::AssertSqlSafe(stmt.sql.as_str()), SqlxValues(values))

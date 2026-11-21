@@ -6,6 +6,11 @@
 //! shared with other tests, so every row here has its own ids and is deleted
 //! at the end.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+
 use serde_json::json;
 use sqlx::PgPool;
 use weldsuite_db::{Keyring, WorkspaceConfig, Workspaces, master_pool};
