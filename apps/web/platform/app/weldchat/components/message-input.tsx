@@ -1282,10 +1282,12 @@ export function MessageInput({
                 </div>
               )}
 
-              {/* Formatting toolbar: compact 28px buttons, icons lined up
-                  with the text below (4px row padding + 6px button inset). */}
+              {/* Formatting toolbar: compact 28px buttons. Its line runs into
+                  the box's border (out past the box's 10px padding, in the
+                  border's colour); the icons still line up with the text below
+                  (14px row padding + 6px button inset = 10px + 10px). */}
               {showToolbar && (
-                <div className="mb-1.5 flex items-center gap-0.5 border-b border-gray-100 px-1 pb-1.5 dark:border-border/50">
+                <div className="-mx-[10px] mb-1.5 flex items-center gap-0.5 border-b border-gray-200 px-[14px] pb-1.5 dark:border-border">
                   {[
                     [
                       { icon: Bold, command: 'bold', title: st('sweep.weldchat.messageInput.bold') },
