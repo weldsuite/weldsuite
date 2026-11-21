@@ -559,6 +559,11 @@ rust/
                         ingest, mail rules, notifications, the WeldDesk and WeldBooks inboxes; the `RCPT TO` check
                         `serve` answers and the `mail.inbound` subscriber `consume` runs; tests/fixtures from
                         `pnpm rust:mail-inbound-fixtures` (the worker's own code, on pglite where it writes)
+  crates/mta/           WeldSuite's own MTA (MAIL-011, `weldsuite mta`): submission, the queue in its own database,
+                        direct delivery with DKIM, shaping, the bounce MX, MTA-STS and TLS-RPT; the per-IP warm-up
+                        (warmup.rs: a daily cap that rises one step only after a UTC day that sent half of it,
+                        `MTA_WARMUP_*`; `weldsuite mta warmup` shows each IP's step). Running it:
+                        deploy/hetzner/README.md, "Mail"
   crates/sandbox/       WeldAgent's sandbox on Kubernetes: gVisor pods through the Kubernetes API, the client of the agent
                         in them, SearXNG search, the sandbox and web tools, the isolation check (see "AI")
   crates/adapters-oss/  open-source adapters: Valkey cache + pub/sub, NATS JetStream, Restate jobs, flags in the master DB,

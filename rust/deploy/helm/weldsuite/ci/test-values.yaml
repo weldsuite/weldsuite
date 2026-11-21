@@ -153,6 +153,7 @@ mta:
   bounceDomain: bounces.example.org
   spfInclude: _spf.example.org
   warmupSchedule: "50,100,200"
+  warmupSoftPools: [system]
   pools:
     - name: system
       hostname: mail1-system.example.org

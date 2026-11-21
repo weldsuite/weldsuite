@@ -1046,11 +1046,34 @@ mail-tester.com.
 ### 4. Warm-up
 
 Receivers trust an address by its history, and a new one has none. The MTA
-caps each address's deliveries per day (`MTA_WARMUP_SCHEDULE`, default 50,
-100, 200, 400, 800, 1,500, 3,000, 6,000, 12,000, 25,000, 50,000 on days 1 to
-11, unlimited after); what is over the cap waits in the queue, it is not
-lost, but it still bounces after `mta.maxQueueAge` (5 days). So:
+caps each address's deliveries per UTC day and raises the cap one step at a
+time (`mta.warmupSchedule`, `MTA_WARMUP_SCHEDULE`: by default 50, 100, 200,
+400, 800, 1,500, 3,000, 6,000, 12,000, 25,000, 50,000, then no cap).
 
+**An address moves up a step only after a day on which it sent at least
+half of that step's cap** (`mta.warmupAdvancePercent`, 50). A quiet day, or
+a day without mail, keeps it where it is, and no day moves it more than one
+step. So an address that sends a few messages a day stays at 50 a day
+however long it has existed, and one with a backlog moves up a step a day
+(no cap after eleven full days). The step is worked out from the address's
+daily counts of the last 60 days: one that goes quiet for two months comes
+back down to what its recent days earn. What is over the cap waits in the
+queue for the next UTC day; it is not lost, and holding it is not a
+delivery attempt. So:
+
+- `$M warmup` shows each address's step, today's cap, what it sent today and
+  what it takes to advance. The MTA logs `warm-up step advanced` on the
+  first send of a day that starts a new step, and `today reached the advance
+  share` when a day has earned the next one.
+- **Time-critical mail.** Sign-in codes, password resets and invitations
+  (the server's, WeldID's and Zitadel's) all go through the `system` pool,
+  and a code the cap holds until tomorrow is no use. While the `system`
+  address's daily volume can pass its cap, set `mta.warmupSoftPools:
+  [system]`: that pool's mail then goes out over the cap, logged once a day
+  (`warm-up cap passed`) and counted in
+  `weldsuite_mta_warmup_capped_total{decision="sent"}` (held mail is
+  `decision="held"`). Those sends count as the address's volume, so it still
+  moves up a step a day. Keep `customer` strict.
 - Send the platform's own mail (the `system` pool) first; move customer
   mail over as the `customer` addresses warm up. Expect some deferrals
   (421/451 from Microsoft and Yahoo) the first week: the MTA retries.
@@ -1058,9 +1081,11 @@ lost, but it still bounces after `mta.maxQueueAge` (5 days). So:
   mail above 0.3%) and hard bounces low: the MTA suppresses a hard-bounced
   recipient per pool for `mta.suppressDays` (30).
 - Watch the queue: `$M queue` (counts by pool and status). A growing
-  `deferred` count on day one is the cap, not a fault.
-- A new address (a node added, a primary IP replaced) starts again at day
-  one. An address with history can skip it: `mta.warmupSchedule: "off"`.
+  `queued` count with `$M warmup` showing the cap reached is the cap, not a
+  fault.
+- A new address (a node added, a primary IP replaced) starts again at the
+  first step. An address with history can skip it: `mta.warmupSchedule:
+  "off"`.
 
 ### 5. Postmaster tools and feedback loops
 
@@ -1135,7 +1160,9 @@ update as the other settings: v4.19's projection then sets the column twice
 change, the activation included, until it gives up on that event after five
 failures. Both senders' mail counts against the system
 address's warm-up cap (step 4), and a code that waits a day in the queue is
-no use, so don't send a large batch of invitations in the first week.
+no use: make `system` a soft pool while its volume can pass the cap (step
+4, "Time-critical mail"), and don't send a large batch of invitations in the
+first week.
 
 ### Inbound: Haraka
 

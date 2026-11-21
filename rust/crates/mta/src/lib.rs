@@ -16,7 +16,8 @@
 //!   outbox in the MTA's own Postgres database.
 //! - [`submission`]: the submission policy (auth → pool, sender and
 //!   suppression checks, enqueue).
-//! - [`delivery`], [`shaping`], [`retry`]: the delivery workers.
+//! - [`delivery`], [`shaping`], [`warmup`], [`retry`]: the delivery
+//!   workers, and each IP's daily cap while it builds a reputation.
 //! - [`verp`], [`feedback`], [`inbound`]: the return path (VERP addresses,
 //!   DSN and ARF reports, the bounce MX).
 //! - [`mta_sts`], [`tlsrpt`]: MTA-STS policies and TLS-RPT reports.
@@ -48,6 +49,7 @@ pub mod submission;
 pub mod tls;
 pub mod tlsrpt;
 pub mod verp;
+pub mod warmup;
 
 #[cfg(test)]
 mod e2e;
