@@ -75,7 +75,7 @@ Screens live in `apps/web/platform/app/<app code>/`.
 | WeldSheets | Spreadsheets with live co-editing | `sheets-api` |
 | WeldForms | Forms and surveys | `forms-api` |
 | WeldSign | Electronic signatures | `sign-api` |
-| WeldCommerce | Being rebuilt from scratch (see below); no API today | none |
+| WeldCommerce | Being rebuilt from scratch (see below), EU edition only; phase 0 serves the overview | `rust/modules/commerce` (Rust only, no TypeScript worker) |
 | WeldStash | Warehouse management, and the product catalogue (`/api/products`) until WeldCommerce is back | `stash-api` |
 | WeldBooks | Double-entry accounting, per-country tax | `books-api` |
 | WeldHR | HR and payroll (NL, US) | `hr-api` |

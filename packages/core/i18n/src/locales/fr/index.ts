@@ -4,6 +4,7 @@ import { assets } from './assets';
 import { banking } from './banking';
 import { bills } from './bills';
 import { weldstash } from './weldstash';
+import { commerce } from './commerce';
 import { common } from './common';
 import { crm } from './crm';
 import { customers } from './customers';
@@ -41,6 +42,7 @@ export const fr = {
   banking,
   bills,
   weldstash,
+  commerce,
   common,
   crm,
   customers,

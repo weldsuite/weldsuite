@@ -175,6 +175,7 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
     let router = flow(router, state);
     let router = hr(router, state);
     let router = stash(router, state);
+    let router = commerce(router, state);
     let router = books::api(router, state);
     let router = host::api(router, state);
     let router = panel(router, state);
@@ -251,6 +252,19 @@ fn stash(router: Router<AppState>, state: &AppState) -> Router<AppState> {
         weldsuite_stash::router(stash, &state.permissions)
             .route_layer(axum::Extension(replenishment)),
     )
+}
+
+/// WeldCommerce (`weldsuite-commerce`), rebuilt in Rust only (ADR COM-009):
+/// its routes at their own prefixes (`/commerce`, …), once the module is
+/// marked ported. There is no TypeScript worker, so no conformance suite.
+fn commerce(router: Router<AppState>, state: &AppState) -> Router<AppState> {
+    if !mounts("commerce") {
+        return router;
+    }
+    let commerce = weldsuite_commerce::CommerceState {
+        events: state.infra.events.clone(),
+    };
+    router.merge(weldsuite_commerce::router(commerce, &state.permissions))
 }
 
 /// WeldCRM (`weldsuite-crm`): crm-api's routes at their own prefixes

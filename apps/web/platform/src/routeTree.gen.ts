@@ -32,6 +32,7 @@ import { Route as WelddeskRouteRouteImport } from './routes/welddesk/route'
 import { Route as WelddataRouteRouteImport } from './routes/welddata/route'
 import { Route as WeldcrmRouteRouteImport } from './routes/weldcrm/route'
 import { Route as WeldconnectRouteRouteImport } from './routes/weldconnect/route'
+import { Route as WeldcommerceRouteRouteImport } from './routes/weldcommerce/route'
 import { Route as WeldchatRouteRouteImport } from './routes/weldchat/route'
 import { Route as WeldcallRouteRouteImport } from './routes/weldcall/route'
 import { Route as WeldcalendarRouteRouteImport } from './routes/weldcalendar/route'
@@ -65,6 +66,7 @@ import { Route as WelddeskIndexRouteImport } from './routes/welddesk/index'
 import { Route as WelddataIndexRouteImport } from './routes/welddata/index'
 import { Route as WeldcrmIndexRouteImport } from './routes/weldcrm/index'
 import { Route as WeldconnectIndexRouteImport } from './routes/weldconnect/index'
+import { Route as WeldcommerceIndexRouteImport } from './routes/weldcommerce/index'
 import { Route as WeldchatIndexRouteImport } from './routes/weldchat/index'
 import { Route as WeldcallIndexRouteImport } from './routes/weldcall/index'
 import { Route as WeldcalendarIndexRouteImport } from './routes/weldcalendar/index'
@@ -749,6 +751,11 @@ const WeldconnectRouteRoute = WeldconnectRouteRouteImport.update({
   path: '/weldconnect',
   getParentRoute: () => rootRouteImport,
 } as any)
+const WeldcommerceRouteRoute = WeldcommerceRouteRouteImport.update({
+  id: '/weldcommerce',
+  path: '/weldcommerce',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const WeldchatRouteRoute = WeldchatRouteRouteImport.update({
   id: '/weldchat',
   path: '/weldchat',
@@ -913,6 +920,11 @@ const WeldconnectIndexRoute = WeldconnectIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => WeldconnectRouteRoute,
+} as any)
+const WeldcommerceIndexRoute = WeldcommerceIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => WeldcommerceRouteRoute,
 } as any)
 const WeldchatIndexRoute = WeldchatIndexRouteImport.update({
   id: '/',
@@ -4076,6 +4088,7 @@ export interface FileRoutesByFullPath {
   '/weldcalendar': typeof WeldcalendarRouteRouteWithChildren
   '/weldcall': typeof WeldcallRouteRouteWithChildren
   '/weldchat': typeof WeldchatRouteRouteWithChildren
+  '/weldcommerce': typeof WeldcommerceRouteRouteWithChildren
   '/weldconnect': typeof WeldconnectRouteRouteWithChildren
   '/weldcrm': typeof WeldcrmRouteRouteWithChildren
   '/welddata': typeof WelddataRouteRouteWithChildren
@@ -4142,6 +4155,7 @@ export interface FileRoutesByFullPath {
   '/weldcalendar/': typeof WeldcalendarIndexRoute
   '/weldcall/': typeof WeldcallIndexRoute
   '/weldchat/': typeof WeldchatIndexRoute
+  '/weldcommerce/': typeof WeldcommerceIndexRoute
   '/weldconnect/': typeof WeldconnectIndexRoute
   '/weldcrm/': typeof WeldcrmIndexRoute
   '/welddata/': typeof WelddataIndexRoute
@@ -4722,6 +4736,7 @@ export interface FileRoutesByTo {
   '/weldcalendar': typeof WeldcalendarIndexRoute
   '/weldcall': typeof WeldcallIndexRoute
   '/weldchat': typeof WeldchatIndexRoute
+  '/weldcommerce': typeof WeldcommerceIndexRoute
   '/weldconnect': typeof WeldconnectIndexRoute
   '/weldcrm': typeof WeldcrmIndexRoute
   '/welddata': typeof WelddataIndexRoute
@@ -5270,6 +5285,7 @@ export interface FileRoutesById {
   '/weldcalendar': typeof WeldcalendarRouteRouteWithChildren
   '/weldcall': typeof WeldcallRouteRouteWithChildren
   '/weldchat': typeof WeldchatRouteRouteWithChildren
+  '/weldcommerce': typeof WeldcommerceRouteRouteWithChildren
   '/weldconnect': typeof WeldconnectRouteRouteWithChildren
   '/weldcrm': typeof WeldcrmRouteRouteWithChildren
   '/welddata': typeof WelddataRouteRouteWithChildren
@@ -5336,6 +5352,7 @@ export interface FileRoutesById {
   '/weldcalendar/': typeof WeldcalendarIndexRoute
   '/weldcall/': typeof WeldcallIndexRoute
   '/weldchat/': typeof WeldchatIndexRoute
+  '/weldcommerce/': typeof WeldcommerceIndexRoute
   '/weldconnect/': typeof WeldconnectIndexRoute
   '/weldcrm/': typeof WeldcrmIndexRoute
   '/welddata/': typeof WelddataIndexRoute
@@ -5898,6 +5915,7 @@ export interface FileRouteTypes {
     | '/weldcalendar'
     | '/weldcall'
     | '/weldchat'
+    | '/weldcommerce'
     | '/weldconnect'
     | '/weldcrm'
     | '/welddata'
@@ -5964,6 +5982,7 @@ export interface FileRouteTypes {
     | '/weldcalendar/'
     | '/weldcall/'
     | '/weldchat/'
+    | '/weldcommerce/'
     | '/weldconnect/'
     | '/weldcrm/'
     | '/welddata/'
@@ -6544,6 +6563,7 @@ export interface FileRouteTypes {
     | '/weldcalendar'
     | '/weldcall'
     | '/weldchat'
+    | '/weldcommerce'
     | '/weldconnect'
     | '/weldcrm'
     | '/welddata'
@@ -7091,6 +7111,7 @@ export interface FileRouteTypes {
     | '/weldcalendar'
     | '/weldcall'
     | '/weldchat'
+    | '/weldcommerce'
     | '/weldconnect'
     | '/weldcrm'
     | '/welddata'
@@ -7157,6 +7178,7 @@ export interface FileRouteTypes {
     | '/weldcalendar/'
     | '/weldcall/'
     | '/weldchat/'
+    | '/weldcommerce/'
     | '/weldconnect/'
     | '/weldcrm/'
     | '/welddata/'
@@ -7718,6 +7740,7 @@ export interface RootRouteChildren {
   WeldcalendarRouteRoute: typeof WeldcalendarRouteRouteWithChildren
   WeldcallRouteRoute: typeof WeldcallRouteRouteWithChildren
   WeldchatRouteRoute: typeof WeldchatRouteRouteWithChildren
+  WeldcommerceRouteRoute: typeof WeldcommerceRouteRouteWithChildren
   WeldconnectRouteRoute: typeof WeldconnectRouteRouteWithChildren
   WeldcrmRouteRoute: typeof WeldcrmRouteRouteWithChildren
   WelddataRouteRoute: typeof WelddataRouteRouteWithChildren
@@ -7932,6 +7955,13 @@ declare module '@tanstack/react-router' {
       path: '/weldconnect'
       fullPath: '/weldconnect'
       preLoaderRoute: typeof WeldconnectRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/weldcommerce': {
+      id: '/weldcommerce'
+      path: '/weldcommerce'
+      fullPath: '/weldcommerce'
+      preLoaderRoute: typeof WeldcommerceRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/weldchat': {
@@ -8164,6 +8194,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/weldconnect/'
       preLoaderRoute: typeof WeldconnectIndexRouteImport
       parentRoute: typeof WeldconnectRouteRoute
+    }
+    '/weldcommerce/': {
+      id: '/weldcommerce/'
+      path: '/'
+      fullPath: '/weldcommerce/'
+      preLoaderRoute: typeof WeldcommerceIndexRouteImport
+      parentRoute: typeof WeldcommerceRouteRoute
     }
     '/weldchat/': {
       id: '/weldchat/'
@@ -12770,6 +12807,17 @@ const WeldchatRouteRouteWithChildren = WeldchatRouteRoute._addFileChildren(
   WeldchatRouteRouteChildren,
 )
 
+interface WeldcommerceRouteRouteChildren {
+  WeldcommerceIndexRoute: typeof WeldcommerceIndexRoute
+}
+
+const WeldcommerceRouteRouteChildren: WeldcommerceRouteRouteChildren = {
+  WeldcommerceIndexRoute: WeldcommerceIndexRoute,
+}
+
+const WeldcommerceRouteRouteWithChildren =
+  WeldcommerceRouteRoute._addFileChildren(WeldcommerceRouteRouteChildren)
+
 interface WeldconnectRouteRouteChildren {
   WeldconnectIndexRoute: typeof WeldconnectIndexRoute
   WeldconnectConnectorsCallbackRoute: typeof WeldconnectConnectorsCallbackRoute
@@ -14101,6 +14149,7 @@ const rootRouteChildren: RootRouteChildren = {
   WeldcalendarRouteRoute: WeldcalendarRouteRouteWithChildren,
   WeldcallRouteRoute: WeldcallRouteRouteWithChildren,
   WeldchatRouteRoute: WeldchatRouteRouteWithChildren,
+  WeldcommerceRouteRoute: WeldcommerceRouteRouteWithChildren,
   WeldconnectRouteRoute: WeldconnectRouteRouteWithChildren,
   WeldcrmRouteRoute: WeldcrmRouteRouteWithChildren,
   WelddataRouteRoute: WelddataRouteRouteWithChildren,

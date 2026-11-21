@@ -143,6 +143,9 @@ export const navigation = {
         campaigns: 'Campaigns',
         accounts: 'Ad accounts',
       },
+      weldcommerce: {
+        overview: 'Overview',
+      },
       weldstash: {
         overview: 'Overview',
         products: 'Products',

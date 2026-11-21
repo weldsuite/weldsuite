@@ -19,6 +19,7 @@ const APP_NAMES: Record<string, string> = {
   weldconnect: 'WeldConnect',
   weldhost: 'WeldHost',
   weldstash: 'WeldStash',
+  weldcommerce: 'WeldCommerce',
   weldbooks: 'WeldBooks',
   social: 'Social',
   weldchat: 'WeldChat',

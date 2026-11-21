@@ -224,6 +224,11 @@ pub struct ProductVariant {
 /// An order line (`MappedOrder.lineItems[]`).
 #[derive(Debug, Clone)]
 pub struct OrderLine {
+    /// The provider's own id for the line (WooCommerce and Shopify `id`,
+    /// Picqer `idorder_product`). Ingest keeps it in
+    /// `order_items.properties.externalLineId`, so a re-import updates the
+    /// same item instead of replacing it.
+    pub external_line_id: Option<String>,
     pub external_product_id: Option<String>,
     pub sku: Option<String>,
     pub name: String,
@@ -858,6 +863,7 @@ fn map_order(record: &Value, external_id: &str, provider: &str) -> Option<Mapped
     let line_items = lines_raw
         .iter()
         .map(|item| OrderLine {
+            external_line_id: ps(item, &["idorder_product", "id"]),
             external_product_id: nonzero(ps(item, &["product_id", "idproduct"])),
             sku: psm(item, &["sku", "productcode"], 100),
             name: psm(item, &["name", "title"], 255).unwrap_or_else(|| "Item".to_owned()),
@@ -2057,5 +2063,37 @@ mod tests {
             Some(1_767_348_000_000)
         );
         assert!(js_date_loose("garbage").is_none());
+    }
+
+    #[test]
+    fn order_lines_keep_their_own_id() {
+        let lines = |mapped: Option<Mapped>| match mapped {
+            Some(Mapped::Order { line_items, .. }) => line_items,
+            other => panic!("not an order: {other:?}"),
+        };
+        let woo = lines(map_order(
+            &json!({ "id": 88, "number": "88", "line_items": [
+                { "id": 501, "name": "Helmet", "quantity": 1, "price": "50" },
+                { "name": "Gift wrap" }
+            ] }),
+            "88",
+            "woocommerce",
+        ));
+        assert_eq!(
+            woo.iter()
+                .map(|l| l.external_line_id.as_deref())
+                .collect::<Vec<_>>(),
+            [Some("501"), None]
+        );
+        let picqer = lines(map_order(
+            &json!({ "idorder": 9, "orderid": "O-9", "products": [
+                { "idorder_product": 77, "idproduct": 5, "productcode": "PQ-5", "name": "Box", "amount": 2 }
+            ] }),
+            "9",
+            "picqer",
+        ));
+        assert_eq!(picqer[0].external_line_id.as_deref(), Some("77"));
+        assert_eq!(picqer[0].external_product_id.as_deref(), Some("5"));
+        assert!((picqer[0].quantity - 2.0).abs() < f64::EPSILON);
     }
 }

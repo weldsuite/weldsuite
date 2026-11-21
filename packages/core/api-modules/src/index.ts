@@ -25,6 +25,7 @@ export type ApiModuleId =
   | 'mail'
   | 'flow'
   | 'books'
+  | 'commerce'
   | 'stash'
   | 'host'
   | 'calendar'
@@ -83,6 +84,12 @@ export interface ApiModule {
    * `RUST_PORTED_MODULES` (playbook step 6), then run `pnpm rust:catalogs`.
    */
   rust: boolean;
+  /**
+   * Built only in the Rust backend, with no TypeScript worker
+   * (`RUST_ONLY_MODULES`). It has no conformance suite to pass; its own Rust
+   * tests carry the weight (ADR COM-009).
+   */
+  rustOnly: boolean;
 }
 
 /**
@@ -94,7 +101,16 @@ export interface ApiModule {
  * tests check that), and every route of its suites must be reached
  * (`pnpm rust:conformance`).
  */
-export const RUST_PORTED_MODULES: ReadonlySet<ApiModuleId> = new Set<ApiModuleId>(['core', 'know', 'sign', 'pass', 'calendar', 'crm', 'flow', 'mail', 'chat', 'desk', 'stash', 'ads', 'social', 'data', 'hr', 'call', 'host', 'meet', 'reach', 'books', 'docs', 'panel', 'sheets', 'connect', 'board', 'merge', 'forms', 'agent']);
+export const RUST_PORTED_MODULES: ReadonlySet<ApiModuleId> = new Set<ApiModuleId>(['core', 'know', 'sign', 'pass', 'calendar', 'crm', 'flow', 'mail', 'chat', 'desk', 'stash', 'commerce', 'ads', 'social', 'data', 'hr', 'call', 'host', 'meet', 'reach', 'books', 'docs', 'panel', 'sheets', 'connect', 'board', 'merge', 'forms', 'agent']);
+
+/**
+ * Modules built only in the Rust backend (ADR COM-009): no TypeScript worker
+ * under `apps/workers/`, no app-api forward, nothing on Global. Each is also in
+ * `RUST_PORTED_MODULES` (so the Rust server mounts it) and its edition feature
+ * is in `GLOBAL_UNAVAILABLE_FEATURES` (so Global's platform hides it). The
+ * Rust catalogs test exempts these from needing a conformance suite.
+ */
+export const RUST_ONLY_MODULES: ReadonlySet<ApiModuleId> = new Set<ApiModuleId>(['commerce']);
 
 /**
  * Features built only in the Rust backend. Global is being retired (ADR
@@ -107,6 +123,8 @@ export const RUST_PORTED_MODULES: ReadonlySet<ApiModuleId> = new Set<ApiModuleId
  * Deleted together with Global.
  */
 export const GLOBAL_UNAVAILABLE_FEATURES: readonly string[] = [
+  // The rebuilt WeldCommerce, a Rust-only module (ADR COM-009).
+  'commerce',
   // WeldStash purchasing and replenishment (ADR STASH-008).
   'stash-replenishment',
 ];
@@ -124,6 +142,7 @@ const mod = (
   prefixes,
   apps,
   rust: RUST_PORTED_MODULES.has(id),
+  rustOnly: RUST_ONLY_MODULES.has(id),
 });
 
 export const API_MODULES: readonly ApiModule[] = [
@@ -348,6 +367,10 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/fiscal-documents',
     '/api/received-fiscal-documents',
     '/public/fiscal-webhooks',
+  ]),
+  // WeldCommerce, rebuilt in Rust only (ADR COM-009); phase 0 serves the overview.
+  mod('commerce', 8806, ['weldcommerce'], [
+    '/api/commerce',
   ]),
   mod('stash', 8807, ['weldstash'], [
     '/api/boxes',

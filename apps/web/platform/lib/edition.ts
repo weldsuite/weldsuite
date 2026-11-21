@@ -179,6 +179,11 @@ export const EDITION_FEATURES = [
    * just its create, edit and delete.
    */
   'stash-replenishment',
+  /**
+   * The rebuilt WeldCommerce (ADR COM-009): a Rust-only module, so it is in
+   * `GLOBAL_UNAVAILABLE_FEATURES` and Global hides the whole module.
+   */
+  'commerce',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];
@@ -204,6 +209,8 @@ const MODULE_FEATURES: Readonly<Partial<Record<ApiModuleId, EditionFeature>>> = 
   docs: 'collab-rooms',
   sheets: 'collab-rooms',
   board: 'collab-rooms',
+  // Rust only; on Global there is nothing to call (ADR COM-009).
+  commerce: 'commerce',
 };
 
 /** Canonical app code → the module whose own app it is. */
