@@ -299,4 +299,45 @@ async fn infected_files_are_never_stored_and_pending_ones_are_rescanned() {
     }
     assert!(!spool.keys().iter().any(|k| k.contains("/quarantine/")));
     assert_eq!(due_rows(&master).await, 0);
+
+    // 4. An infected file only found by the rescan, after the reader starred
+    //    and trashed the message: it moves to Spam as "move to Spam" does,
+    //    keeping the star and leaving the trash.
+    scanner.set_available(false);
+    deliver(
+        &subscriber,
+        &spool,
+        "inbound/threats-3.eml",
+        &message_with_files("threats-3", EICAR),
+    )
+    .await;
+    exec(
+        &tenant,
+        &[
+            "update mail_messages set labels = '[\"TRASH\", \"STARRED\"]'::jsonb, is_trash = true, is_starred = true
+             where message_id = '<threats-3@stranger-threats.test>'",
+        ],
+    )
+    .await;
+    scanner.set_available(true);
+    let report = rescan_due(&rescan, later).await.expect("the rescan");
+    assert_eq!(report.infected, 1, "{report:?}");
+    let (labels, is_spam, is_trash, threats): (
+        serde_json::Value,
+        Option<bool>,
+        Option<bool>,
+        Option<serde_json::Value>,
+    ) = sqlx::query_as(
+        "select labels, is_spam, is_trash, threats from mail_messages
+         where message_id = '<threats-3@stranger-threats.test>'",
+    )
+    .fetch_one(&tenant)
+    .await
+    .expect("the message");
+    assert_eq!(labels, json!(["STARRED", "SPAM"]));
+    assert_eq!(is_spam, Some(true));
+    assert_eq!(is_trash, Some(false));
+    let threats = threats.expect("threats");
+    assert_eq!(threats[0]["kind"], "attachment");
+    assert_eq!(threats[0]["fileName"], "report.pdf");
 }

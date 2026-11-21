@@ -279,9 +279,17 @@ export function AppShellClient({ children }: Readonly<AppShellClientProps>) {
     return null;
   }
 
+  return <WorkspaceShell pathname={pathname}>{children}</WorkspaceShell>;
+}
+
+/**
+ * A workspace page once signed in and activated: bare for the chromeless
+ * pages, otherwise the full platform shell with the module-specific
+ * providers and global overlays.
+ */
+function WorkspaceShell({ pathname, children }: Readonly<AppShellClientProps & { pathname: string }>) {
   if (CHROMELESS_WORKSPACE_PATHS.has(stripWorkspacePrefix(pathname))) return <>{children}</>;
 
-  // Full platform shell with module-specific providers
   return (
     <ComposeProvider>
       <PinnedNoteProvider>

@@ -240,7 +240,10 @@ async fn settle_row(
 }
 
 /// An infected file found after delivery: its message gets the `threats`
-/// entry and goes to Spam, as it would have at delivery.
+/// entry and goes to Spam, as it would have at delivery. The move is the
+/// mailbox's own "move to Spam" (`labels::move_messages_to_location`): only
+/// the other locations leave the labels, so stars, importance and the
+/// reader's own labels stay, and a message already in the trash leaves it.
 async fn mark_message_dangerous(
     db: &PgPool,
     attachment: &mail_attachments::Model,
@@ -263,13 +266,17 @@ async fn mark_message_dangerous(
         Some(&attachment.id),
         signature,
     ));
-    let now = timestamp(weldsuite_mail_domain::outbound::clock::now_ms());
+    let now_ms = weldsuite_mail_domain::outbound::clock::now_ms();
+    let id = message.id.clone();
     let mut row: mail_messages::ActiveModel = message.into();
     row.threats = Set(Some(Value::Array(threats)));
-    row.is_spam = Set(Some(true));
-    row.labels = Set(Some(serde_json::json!(["SPAM"])));
-    row.updated_at = Set(now);
+    row.updated_at = Set(timestamp(now_ms));
     row.update(&orm)
+        .await
+        .map_err(|error| Stop::Failed(error.to_string()))?;
+    let now = time::OffsetDateTime::from_unix_timestamp_nanos(i128::from(now_ms) * 1_000_000)
+        .unwrap_or_else(|_| time::OffsetDateTime::now_utc());
+    weldsuite_mail_domain::labels::move_messages_to_location(db, &[id], "SPAM", now)
         .await
         .map(|_| ())
         .map_err(|error| Stop::Failed(error.to_string()))

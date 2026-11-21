@@ -113,31 +113,63 @@ export default function LinkInterstitialPage() {
     return <PageLoader label={copy.checking} appearDelayMs={0} />;
   }
 
-  const reasonKeys =
-    decision.action === 'warn' || decision.action === 'block'
-      ? decision.reasons.map((reason) => linkReasonKey(reason)).filter(Boolean)
-      : [];
+  return <LinkDecisionCard decision={decision} host={target.host} url={target.url} copy={copy} />;
+}
+
+type LinkCopy = ReturnType<typeof useI18n>['t']['mail']['linkProtection'];
+type ShownDecision = Exclude<LinkDecision, { action: 'forward' }>;
+
+/** The heading and banner text of each verdict the reader gets to see. */
+function decisionText(action: ShownDecision['action'], copy: LinkCopy): { title: string; description: string } {
+  switch (action) {
+    case 'block':
+      return { title: copy.maliciousTitle, description: copy.maliciousDescription };
+    case 'warn':
+      return { title: copy.suspiciousTitle, description: copy.suspiciousDescription };
+    case 'unverified':
+      return { title: copy.unverifiedTitle, description: copy.unverifiedDescription };
+  }
+}
+
+/** The actions under a verdict: blocked links only go back (plus a small way through below). */
+function DecisionActions({ action, url, copy }: Readonly<{ action: ShownDecision['action']; url: string; copy: LinkCopy }>) {
+  if (action === 'block') return <Button onClick={goBack}>{copy.goBack}</Button>;
+  const unverified = action === 'unverified';
+  return (
+    <>
+      <Button variant={unverified ? 'outline' : 'default'} onClick={goBack}>
+        {copy.goBack}
+      </Button>
+      <Button variant={unverified ? 'default' : 'outline'} onClick={() => openDestination(url)}>
+        {unverified ? copy.openLink : copy.openAnyway}
+      </Button>
+    </>
+  );
+}
+
+/** A suspicious, dangerous or unchecked link: what was found, where it goes, and the reader's choice. */
+function LinkDecisionCard({
+  decision,
+  host,
+  url,
+  copy,
+}: Readonly<{ decision: ShownDecision; host: string; url: string; copy: LinkCopy }>) {
+  const blocked = decision.action === 'block';
+  const text = decisionText(decision.action, copy);
+  const reasonKeys = 'reasons' in decision ? decision.reasons.map((reason) => linkReasonKey(reason)).filter(Boolean) : [];
 
   return (
     <Shell>
       <div className="mb-4 flex items-center gap-3">
-        {decision.action === 'block' ? (
+        {blocked ? (
           <ShieldAlert className="h-8 w-8 shrink-0 text-destructive" aria-hidden />
         ) : (
           <ShieldQuestion className="h-8 w-8 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden />
         )}
-        <h1 className="text-lg font-semibold text-foreground">
-          {decision.action === 'block' && copy.maliciousTitle}
-          {decision.action === 'warn' && copy.suspiciousTitle}
-          {decision.action === 'unverified' && copy.unverifiedTitle}
-        </h1>
+        <h1 className="text-lg font-semibold text-foreground">{text.title}</h1>
       </div>
 
-      <InfoBanner variant={decision.action === 'block' ? 'danger' : 'warning'}>
-        {decision.action === 'block' && copy.maliciousDescription}
-        {decision.action === 'warn' && copy.suspiciousDescription}
-        {decision.action === 'unverified' && copy.unverifiedDescription}
-      </InfoBanner>
+      <InfoBanner variant={blocked ? 'danger' : 'warning'}>{text.description}</InfoBanner>
 
       {reasonKeys.length > 0 && (
         <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-foreground">
@@ -150,39 +182,25 @@ export default function LinkInterstitialPage() {
       <dl className="mt-5 space-y-3">
         <div>
           <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{copy.destination}</dt>
-          <dd className="mt-1 break-all text-xl font-semibold text-foreground">{target.host}</dd>
+          <dd className="mt-1 break-all text-xl font-semibold text-foreground">{host}</dd>
         </div>
         <div>
           <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{copy.fullAddress}</dt>
           <dd className="mt-1 break-all rounded-md border border-border bg-muted px-3 py-2 font-mono text-xs text-muted-foreground">
-            {target.url}
+            {url}
           </dd>
         </div>
       </dl>
 
       <div className="mt-6 flex flex-wrap items-center justify-end gap-2">
-        {decision.action === 'block' ? (
-          <Button onClick={goBack}>{copy.goBack}</Button>
-        ) : (
-          <>
-            <Button variant={decision.action === 'unverified' ? 'outline' : 'default'} onClick={goBack}>
-              {copy.goBack}
-            </Button>
-            <Button
-              variant={decision.action === 'unverified' ? 'default' : 'outline'}
-              onClick={() => openDestination(target.url)}
-            >
-              {decision.action === 'unverified' ? copy.openLink : copy.openAnyway}
-            </Button>
-          </>
-        )}
+        <DecisionActions action={decision.action} url={url} copy={copy} />
       </div>
 
-      {decision.action === 'block' && (
+      {blocked && (
         <div className="mt-4 text-center">
           <button
             type="button"
-            onClick={() => openDestination(target.url)}
+            onClick={() => openDestination(url)}
             className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
           >
             {copy.openAtOwnRisk}
