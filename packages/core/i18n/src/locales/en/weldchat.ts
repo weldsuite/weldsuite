@@ -614,6 +614,7 @@ export const weldchat = {
     unreadSeparator: 'New messages',
     messageItem: {
       forwardedFrom: 'Forwarded from',
+      pinnedMessage: 'Pinned a message.',
       commentOn: 'Comment on {place}',
       aDirectMessage: 'a direct message',
       reply: 'reply',

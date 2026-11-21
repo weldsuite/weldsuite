@@ -22,7 +22,7 @@ import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { RoomClient } from '@weldsuite/realtime/client';
 import { useChatContext } from './chat-context';
-import { isSystemNotice } from '../lib/system-notice';
+import { isPinNotice, isSystemNotice } from '../lib/system-notice';
 import { buildCallHistory } from '../lib/call-history';
 import { isFeatureAvailable } from '@/lib/edition';
 import { flashMessageWhenMounted } from '../lib/jump-to-message';
@@ -485,8 +485,9 @@ export function MessageList({
             !replyToMessage &&
             !startsUnread &&
             prevMessage.authorId === message.authorId &&
-            // A call reads as a message from its caller, so it groups like one.
-            (!isSystemNotice(prevMessage) || callHistory.calls.has(prevMessage.id)) &&
+            // A call or a pin notice reads as a message from its caller or
+            // pinner, so it groups like one.
+            (!isSystemNotice(prevMessage) || callHistory.calls.has(prevMessage.id) || isPinNotice(prevMessage)) &&
             !showDate &&
             !Number.isNaN(timeDiff) &&
             timeDiff >= 0 &&

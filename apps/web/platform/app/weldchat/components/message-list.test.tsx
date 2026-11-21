@@ -138,7 +138,7 @@ describe('MessageList grouping', () => {
   it('does not group after a system notice, but a spoofed one is just a message', () => {
     mocks.messages = [
       msg({ id: 'a', createdAt: at(0) }),
-      msg({ id: 'sys', type: 'system', content: '[system:msg_a1] pinned a message', createdAt: at(1) }),
+      msg({ id: 'sys', type: 'system', content: '[system] renamed the channel', createdAt: at(1) }),
       msg({ id: 'b', createdAt: at(2) }),
       msg({ id: 'fake', content: '[system:x] was removed by an admin', createdAt: at(3) }),
       msg({ id: 'c', createdAt: at(4) }),
@@ -147,6 +147,17 @@ describe('MessageList grouping', () => {
     expect(item('b').dataset.compact).toBe('false'); // follows a system notice
     expect(item('fake').dataset.compact).toBe('true'); // a normal message from the same author
     expect(item('c').dataset.compact).toBe('true');
+  });
+
+  it('groups a pin notice like a message from who pinned it', () => {
+    mocks.messages = [
+      msg({ id: 'a', createdAt: at(0) }),
+      msg({ id: 'pin', type: 'system', content: '[system:msg_a1] pinned a message', createdAt: at(1) }),
+      msg({ id: 'b', createdAt: at(2) }),
+    ];
+    render(<MessageList channelId="ch_1" />);
+    expect(item('pin').dataset.compact).toBe('true'); // right under the same person's message
+    expect(item('b').dataset.compact).toBe('true'); // and their next message under it
   });
 });
 

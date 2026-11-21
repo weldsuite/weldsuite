@@ -613,6 +613,7 @@ export const weldchat = {
     unreadSeparator: 'Nieuwe berichten',
     messageItem: {
       forwardedFrom: 'Doorgestuurd van',
+      pinnedMessage: 'Heeft een bericht vastgemaakt.',
       commentOn: 'Opmerking bij {place}',
       aDirectMessage: 'een direct bericht',
       reply: 'antwoord',

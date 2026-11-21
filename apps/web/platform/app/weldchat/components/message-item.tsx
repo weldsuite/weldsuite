@@ -1,4 +1,4 @@
-import { useRef, useState, useMemo, type ReactNode } from 'react';
+import { useRef, useState, useMemo, type ComponentProps, type ReactNode } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useAuth } from '@/lib/auth';
 import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
@@ -35,7 +35,7 @@ import { MessageApprovals } from './message-approvals';
 import { MessageVisuals } from './message-visuals';
 import { MessageWeldMergeCard } from './message-weldmerge-card';
 import { fileTokenIds } from '../lib/render-tokens';
-import { isSystemNotice, matchSystemNotice } from '../lib/system-notice';
+import { isPinNotice, isSystemNotice, matchSystemNotice } from '../lib/system-notice';
 import type { CallSummary } from '../lib/call-history';
 import { getRecordChatTypeInfo } from '../lib/record-chat-types';
 import type { ChatMessage } from '@/hooks/queries/use-weldchat-queries';
@@ -433,11 +433,73 @@ function callRowTemplate(tc: CallHistoryStrings, state: CallRowState, isMine: bo
 }
 
 /**
- * One call in the conversation, drawn like a message from the caller: their
- * avatar, name and the time, and under it how the call went ("You missed the
- * call."). Calls and messages from the same person close together share one
- * header (`compact`). Only a call that ran says how long it lasted; a live
- * call you are not in offers Join call.
+ * A notice drawn like a message from the person it is about (the caller, who
+ * pinned): their avatar, name and the time, and under it one line with an
+ * icon. Notices and messages from the same person close together share one
+ * header (`compact`), as messages do.
+ */
+function NoticeRow({
+  message,
+  authorId,
+  authorName,
+  compact,
+  icon: Icon,
+  iconClassName,
+  children,
+  ...rowProps
+}: Readonly<
+  Omit<ComponentProps<'div'>, 'className'> & {
+    message: MessageItemMessage;
+    authorId?: string | null;
+    authorName: string;
+    compact?: boolean;
+    icon: LucideIcon;
+    iconClassName?: string;
+  }
+>) {
+  const { openUserProfile } = useChatContext();
+  // Posted under that person; drawn as them, never as a workflow.
+  const author: MessageItemMessage = { ...message, authorType: 'user', authorId: authorId ?? undefined, authorName };
+  const openAuthor = () => {
+    if (authorId) openUserProfile(authorId);
+  };
+
+  return (
+    <div
+      data-message-id={message.id}
+      {...rowProps}
+      className={cn(
+        'group group/message relative border-l-2 border-l-transparent px-2 pb-0.5 transition-colors hover:bg-muted/50 md:px-4',
+        compact ? 'pt-0.5' : 'pt-2',
+      )}
+    >
+      <div className="flex items-start gap-2 md:gap-3">
+        <MessageAvatar message={author} compact={compact} onAuthorClick={openAuthor} />
+        <div className="min-w-0 flex-1">
+          {!compact && (
+            <div className="flex items-center gap-2">
+              <Button type="button" variant="ghost" onClick={openAuthor} className={AUTHOR_NAME_CLASS}>
+                {authorName}
+              </Button>
+              <span className="text-xs text-muted-foreground" title={formatFullTime(message.createdAt ?? undefined)}>
+                {shortTime(message.createdAt ?? undefined)}
+              </span>
+            </div>
+          )}
+          <p className="flex min-h-5 flex-wrap items-center gap-x-1.5 text-sm text-foreground">
+            <Icon aria-hidden className={cn('size-[15px] shrink-0', iconClassName)} />
+            {children}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * One call in the conversation, as a message from the caller, with how the
+ * call went under their name ("You missed the call."). Only a call that ran
+ * says how long it lasted; a live call you are not in offers Join call.
  */
 function CallNoticeRow({
   message,
@@ -455,68 +517,77 @@ function CallNoticeRow({
 }>) {
   const { t, format } = useI18n();
   const { userId } = useAuth();
-  const { openUserProfile } = useChatContext();
   const callContext = useWeldChatCallOptional();
   const tc = t.weldchat.callHistory;
   const isMine = !!userId && call.initiatorId === userId;
   const state = callRowState(call, isLive, isMine);
-  const Icon = callRowIcon(state);
   const seconds = state === 'answered' ? callSeconds(call) : undefined;
   const text = format(callRowTemplate(tc, state, isMine, seconds !== undefined), {
     duration: seconds === undefined ? '' : lastedText(tc, format, seconds),
   });
   const canJoin = state === 'live' && !!liveCallId && !!callContext && callContext.callId !== liveCallId;
-  // The notice is posted under the caller; drawn as them, never as a workflow.
-  const caller: MessageItemMessage = {
-    ...message,
-    authorType: 'user',
-    authorId: call.initiatorId ?? message.authorId,
-    authorName: call.initiatorName || message.authorName || t.weldchat.callRoom.participant,
-  };
-  const openCaller = () => {
-    if (caller.authorId) openUserProfile(caller.authorId);
-  };
 
   return (
-    <div
-      data-message-id={message.id}
+    <NoticeRow
+      message={message}
+      authorId={call.initiatorId ?? message.authorId}
+      authorName={call.initiatorName || message.authorName || t.weldchat.callRoom.participant}
+      compact={compact}
+      icon={callRowIcon(state)}
+      iconClassName={CALL_ICON_COLOR[state]}
       data-testid="chat-call-notice"
       data-call-state={state}
-      className={cn(
-        'group group/message relative border-l-2 border-l-transparent px-2 pb-0.5 transition-colors hover:bg-muted/50 md:px-4',
-        compact ? 'pt-0.5' : 'pt-2',
-      )}
     >
-      <div className="flex items-start gap-2 md:gap-3">
-        <MessageAvatar message={caller} compact={compact} onAuthorClick={openCaller} />
-        <div className="min-w-0 flex-1">
-          {!compact && (
-            <div className="flex items-center gap-2">
-              <Button type="button" variant="ghost" onClick={openCaller} className={AUTHOR_NAME_CLASS}>
-                {caller.authorName}
-              </Button>
-              <span className="text-xs text-muted-foreground" title={formatFullTime(message.createdAt ?? undefined)}>
-                {shortTime(message.createdAt ?? undefined)}
-              </span>
-            </div>
-          )}
-          <p className="flex min-h-5 flex-wrap items-center gap-x-1.5 text-sm text-foreground">
-            <Icon aria-hidden className={cn('size-[15px] shrink-0', CALL_ICON_COLOR[state])} />
-            <span>{text}</span>
-            {canJoin && (
-              <Button
-                type="button"
-                variant="link"
-                onClick={() => callContext.joinCall(liveCallId)}
-                className="h-auto p-0 text-sm"
-              >
-                {tc.joinCall}
-              </Button>
-            )}
-          </p>
-        </div>
-      </div>
-    </div>
+      <span>{text}</span>
+      {canJoin && (
+        <Button
+          type="button"
+          variant="link"
+          onClick={() => callContext.joinCall(liveCallId)}
+          className="h-auto p-0 text-sm"
+        >
+          {tc.joinCall}
+        </Button>
+      )}
+    </NoticeRow>
+  );
+}
+
+/** Scroll to a message in the list and flash it (a pin notice's link to what was pinned). */
+function jumpToMessage(messageId: string) {
+  const el = document.querySelector(`[data-message-id="${messageId}"]`);
+  if (!el) return;
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  el.classList.add('pinned-highlight');
+  setTimeout(() => el.classList.remove('pinned-highlight'), 1000);
+}
+
+/** "Pinned a message." under the name of who pinned it; the line jumps to that message. */
+function PinNoticeRow({
+  message,
+  pinnedMessageId,
+  compact,
+}: Readonly<{ message: MessageItemMessage; pinnedMessageId?: string; compact?: boolean }>) {
+  const { t } = useI18n();
+  const label = t.weldchat.messageItem.pinnedMessage;
+  return (
+    <NoticeRow
+      message={message}
+      authorId={message.authorId}
+      authorName={message.authorName || t.weldchat.callRoom.participant}
+      compact={compact}
+      icon={Pin}
+      iconClassName="text-muted-foreground"
+      data-testid="chat-pin-notice"
+    >
+      {pinnedMessageId ? (
+        <button type="button" onClick={() => jumpToMessage(pinnedMessageId)} className="text-left hover:underline">
+          {label}
+        </button>
+      ) : (
+        <span>{label}</span>
+      )}
+    </NoticeRow>
   );
 }
 
@@ -533,13 +604,7 @@ function SystemMessage({
     : message.content;
 
   const handleSystemClick = () => {
-    if (!linkedMessageId) return;
-    const el = document.querySelector(`[data-message-id="${linkedMessageId}"]`);
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      el.classList.add('pinned-highlight');
-      setTimeout(() => el.classList.remove('pinned-highlight'), 1000);
-    }
+    if (linkedMessageId) jumpToMessage(linkedMessageId);
   };
 
   const SystemIcon = systemIcon(labelText?.toLowerCase() || '');
@@ -718,7 +783,11 @@ export function MessageItem({
         />
       );
     }
-    return <SystemMessage message={message} systemMatch={matchSystemNotice(message)} />;
+    const systemMatch = matchSystemNotice(message);
+    if (isPinNotice(message)) {
+      return <PinNoticeRow message={message} pinnedMessageId={systemMatch?.[1]} compact={compact} />;
+    }
+    return <SystemMessage message={message} systemMatch={systemMatch} />;
   }
 
   const timeStr = new Date(message.createdAt ?? '').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
