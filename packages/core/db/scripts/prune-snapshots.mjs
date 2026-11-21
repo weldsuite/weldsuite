@@ -2,8 +2,8 @@
 /**
  * Deletes all but the newest KEEP Drizzle snapshots in each migration folder
  * under drizzle/: since ADR DATA-019 only the personal migrations. The master
- * and tenant ones moved to rust/migrations, and scripts/db-generate.ts prunes
- * those itself.
+ * and tenant ones moved to rust/migrations, and their generator
+ * (`pnpm db:generate`, rust/crates/schema) prunes those itself.
  *
  * drizzle-kit writes a full copy of the schema (`meta/<n>_snapshot.json`) on
  * every `db:generate`, and only ever reads the newest one back: it is the

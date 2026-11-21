@@ -13,12 +13,15 @@ publish.workspace = true
 all-tables = []
 
 [dependencies]
+indexmap = { workspace = true }
 sea-orm = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 time = { workspace = true, features = ["formatting", "macros"] }
+uuid = { workspace = true, features = ["v4"] }
 
 [dev-dependencies]
+flate2 = { workspace = true }
 weldsuite-db = { workspace = true }
 sea-query-sqlx = { workspace = true }
 sqlx = { workspace = true }

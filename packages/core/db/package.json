@@ -7,8 +7,8 @@
   "scripts": {
     "lint": "eslint .",
     "type-check": "tsc --noEmit",
-    "db:generate": "tsx ../../../scripts/db-generate.ts tenant",
-    "db:generate:master": "tsx ../../../scripts/db-generate.ts master",
+    "db:generate": "cd ../../../rust && cargo run -q -p weldsuite-schema --bin weldsuite-schema -- generate tenant",
+    "db:generate:master": "cd ../../../rust && cargo run -q -p weldsuite-schema --bin weldsuite-schema -- generate master",
     "db:generate:personal": "drizzle-kit generate --config=drizzle.personal.config.ts && node scripts/prune-snapshots.mjs",
     "db:prune-snapshots": "node scripts/prune-snapshots.mjs",
     "db:migrate:master": "drizzle-kit migrate --config=drizzle.master.config.ts",

@@ -15,6 +15,9 @@
 #![allow(clippy::doc_markdown, clippy::too_many_lines)]
 
 pub mod ddl;
+pub mod diff;
+pub mod drizzle;
+pub mod generate;
 pub mod js;
 pub mod snapshot;
 
