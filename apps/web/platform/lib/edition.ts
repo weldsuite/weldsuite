@@ -163,11 +163,12 @@ export const EDITION_FEATURES = [
    */
   'panel-analytics',
   /**
-   * Third-party integrations whose syncs and webhooks run in
-   * integration-sync-worker and integration-webhook-worker (CRM, e-commerce,
-   * accounting and shipping connectors, Slack, Discord, GitHub, Google
-   * Calendar): the Kubernetes editions don't run them yet. Their entries
-   * under Settings › Integrations are hidden.
+   * The third-party integrations the Kubernetes editions don't offer yet: the
+   * CRM sync (Attio, HubSpot, Salesforce), Slack, Discord, GitHub and Google
+   * Calendar. Their entries under Settings › Integrations are hidden. Not
+   * WeldConnect's store and accounting connectors (WooCommerce, Shopify,
+   * Moneybird, Picqer): the Rust backend runs their syncs, webhooks,
+   * catch-up and Moneybird push, so their pages stay (`lib/edition-routes.ts`).
    */
   'integration-sync',
   /**
