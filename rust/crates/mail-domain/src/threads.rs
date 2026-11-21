@@ -472,7 +472,7 @@ pub async fn list_threads(
         }
     }
     let found: Vec<Value> = sqlx::query_scalar(
-        "select (to_jsonb(m) - 'text_body' - 'html_body' - 'raw_message' - 'headers'
+        "select (to_jsonb(m) - (case when m.threats is null then 'threats' else '' end) - 'text_body' - 'html_body' - 'raw_message' - 'headers'
                  - 'custom_fields' - 'clicked_links')
          from mail_messages m
          where m.account_id = any($1::text[])
@@ -573,7 +573,7 @@ pub async fn thread_by_key(
     thread_key: &str,
 ) -> Result<Option<Value>, sqlx::Error> {
     let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(m) from mail_messages m
+        "select to_jsonb(m) - (case when m.threats is null then 'threats' else '' end) from mail_messages m
          where m.account_id = $1 and coalesce(m.thread_id, m.id) = $2 and m.deleted_at is null
          order by m.sent_date asc, m.id asc",
     )

@@ -8983,17 +8983,20 @@ dependencies = [
  "base64 0.22.1",
  "lettre",
  "regex",
+ "sea-orm",
  "serde",
  "serde_json",
  "sqlx",
  "time",
  "tokio",
  "tracing",
+ "url",
  "uuid",
  "weldsuite-catalogs",
  "weldsuite-db",
  "weldsuite-kit",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -9004,6 +9007,7 @@ dependencies = [
  "base64 0.22.1",
  "encoding_rs",
  "regex",
+ "sea-orm",
  "serde",
  "serde_json",
  "sha2 0.11.1",
@@ -9022,6 +9026,7 @@ dependencies = [
  "weldsuite-mail-domain",
  "weldsuite-notifications",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]

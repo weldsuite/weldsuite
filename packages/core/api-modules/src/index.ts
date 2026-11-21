@@ -127,6 +127,8 @@ export const GLOBAL_UNAVAILABLE_FEATURES: readonly string[] = [
   'commerce',
   // WeldStash purchasing and replenishment (ADR STASH-008).
   'stash-replenishment',
+  // WeldMail attachment scanning and link protection, built only in Rust.
+  'mail-threat-protection',
 ];
 
 const mod = (

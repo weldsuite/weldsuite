@@ -185,6 +185,15 @@ export const EDITION_FEATURES = [
    * `GLOBAL_UNAVAILABLE_FEATURES` and Global hides the whole module.
    */
   'commerce',
+  /**
+   * WeldMail threat protection: virus scanning of inbound attachments (ClamAV)
+   * and dangerous-link protection (a threat feed plus URL heuristics, checked
+   * at click time through `POST /api/mail-messages/:id/link-check`). Built only
+   * in Rust, so it is in `GLOBAL_UNAVAILABLE_FEATURES`. Every Kubernetes install
+   * offers the link check (it needs no scanner); attachment verdicts appear only
+   * where the chart runs clamd (`mailInbound.clamav`).
+   */
+  'mail-threat-protection',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];

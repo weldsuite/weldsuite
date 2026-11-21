@@ -90,10 +90,10 @@ use weldsuite_subscribers::{
     filter_subject, run_webhook_retry_sweep, subscriber,
 };
 
-pub(crate) use config::ConsumeConfig;
+pub(crate) use config::{ConsumeConfig, MailInboundConfig};
 use config::{
-    MAIL_INBOUND, MAIL_SENDING_EVENTS, MailInboundConfig, MailSendingEventsConfig, PANEL_STATE,
-    PANEL_WRITER, REACH_SEND, REACH_WARMUP_ENGAGE, REACH_WARMUP_SEND,
+    MAIL_INBOUND, MAIL_SENDING_EVENTS, MailSendingEventsConfig, PANEL_STATE, PANEL_WRITER,
+    REACH_SEND, REACH_WARMUP_ENGAGE, REACH_WARMUP_SEND,
 };
 
 type Error = Box<dyn std::error::Error>;
@@ -240,7 +240,12 @@ fn mail_inbound_handler(
         assignment_router: Some(crate::routes::desk_assignment_router()),
         // The auto-labels (feature `mail`); without AI they label nothing.
         ai: services.ai.clone(),
+        // Attachments through clamd (`CLAMD_ADDRESS`); without it, none.
+        scanner: inbound.clamd.as_ref().map(config::ClamdConfig::scanner),
     };
+    if ctx.scanner.is_none() {
+        tracing::info!("mail-inbound: CLAMD_ADDRESS is not set; attachments are not scanned");
+    }
     if !ctx.fan_out.books {
         tracing::info!(
             "mail-inbound: WeldBooks is not served here; accounting inboxes are skipped"

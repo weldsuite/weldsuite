@@ -17,6 +17,7 @@ import {
   Tag,
   Loader2,
   AlertTriangle,
+  ShieldAlert,
   Ban,
   MailX,
   Paperclip,
@@ -113,7 +114,10 @@ import {
 import { useNotifySendError } from '../lib/use-notify-send-error';
 import { replaceBodyKeepingSignature, userWrittenText, type SignatureMode } from '../lib/signature';
 import { useComposeSignature } from './compose-signature';
-import { saveMailAttachment } from '../lib/download-attachment';
+import { attachmentScanState, isAttachmentForwardable, type AttachmentScanState } from '../lib/attachment-scan';
+import type { MailAttachmentScanStatus } from '@weldsuite/app-api-client/schemas/mail-attachments';
+import { MailThreatBanner } from './mail-threat-banner';
+import { useSaveMailAttachment } from './use-save-mail-attachment';
 import type { Mail as MailTypes } from '@/lib/api/types/apps/mail.types';
 import { CustomerDetailPanel } from './customer-detail-panel';
 import { CalendarInviteCard } from './calendar-invite-card';
@@ -261,7 +265,11 @@ function ThreadMessageContent({ threadMsg }: Readonly<{ threadMsg: EmailMessage 
 
   let mainContent: React.ReactNode;
   if (main) {
-    mainContent = isHtml ? <IsolatedHtmlContent html={main} /> : <div className="whitespace-pre-wrap">{main}</div>;
+    mainContent = isHtml ? (
+      <IsolatedHtmlContent html={main} linkProtection={{ messageId: threadMsg.id }} />
+    ) : (
+      <div className="whitespace-pre-wrap">{main}</div>
+    );
   } else if (threadMsg.bodyText) {
     mainContent = <div className="whitespace-pre-wrap">{threadMsg.bodyText}</div>;
   } else {
@@ -270,6 +278,7 @@ function ThreadMessageContent({ threadMsg }: Readonly<{ threadMsg: EmailMessage 
 
   return (
     <div className="px-3 md:px-4 pb-5 pt-0 overflow-x-auto group/email">
+      <MailThreatBanner threats={threadMsg.threats} className="mb-3" />
       <div className="text-sm text-foreground leading-relaxed">
         {mainContent}
         {quoted && (
@@ -286,7 +295,7 @@ function ThreadMessageContent({ threadMsg }: Readonly<{ threadMsg: EmailMessage 
             {showQuoted && (
               <div className="mt-2">
                 {isHtml ? (
-                  <IsolatedHtmlContent html={quoted} />
+                  <IsolatedHtmlContent html={quoted} linkProtection={{ messageId: threadMsg.id }} />
                 ) : (
                   <div className="whitespace-pre-wrap">{quoted}</div>
                 )}
@@ -774,7 +783,8 @@ function RecipientsPopover({ allRecipients, open, onOpenChange, onSelect }: Read
   );
 }
 
-function MessageBodyContent({ mainContent, isHtml, bodyHtml, bodyText }: Readonly<{
+function MessageBodyContent({ messageId, mainContent, isHtml, bodyHtml, bodyText }: Readonly<{
+  messageId: string;
   mainContent: string;
   isHtml: boolean;
   bodyHtml?: string;
@@ -783,17 +793,18 @@ function MessageBodyContent({ mainContent, isHtml, bodyHtml, bodyText }: Readonl
   const { t } = useI18n();
   if (mainContent) {
     return isHtml ? (
-      <IsolatedHtmlContent html={mainContent} />
+      <IsolatedHtmlContent html={mainContent} linkProtection={{ messageId }} />
     ) : (
       <div className="whitespace-pre-wrap">{mainContent}</div>
     );
   }
-  if (bodyHtml) return <IsolatedHtmlContent html={bodyHtml} />;
+  if (bodyHtml) return <IsolatedHtmlContent html={bodyHtml} linkProtection={{ messageId }} />;
   if (bodyText) return <div className="whitespace-pre-wrap">{bodyText}</div>;
   return <div className="text-gray-400 italic">{t.mail.messageDetail.noContent}</div>;
 }
 
-function QuotedContent({ quotedContent, isHtml, showQuoted, onToggle }: Readonly<{
+function QuotedContent({ messageId, quotedContent, isHtml, showQuoted, onToggle }: Readonly<{
+  messageId: string;
   quotedContent: string;
   isHtml: boolean;
   showQuoted: boolean;
@@ -814,7 +825,7 @@ function QuotedContent({ quotedContent, isHtml, showQuoted, onToggle }: Readonly
       {showQuoted && (
         <div className="mt-2">
           {isHtml ? (
-            <IsolatedHtmlContent html={quotedContent} />
+            <IsolatedHtmlContent html={quotedContent} linkProtection={{ messageId }} />
           ) : (
             <div className="whitespace-pre-wrap">{quotedContent}</div>
           )}
@@ -824,41 +835,100 @@ function QuotedContent({ quotedContent, isHtml, showQuoted, onToggle }: Readonly
   );
 }
 
-function AttachmentsSection({ hasLoadedAttachments, otherAttachments }: Readonly<{
-  hasLoadedAttachments: boolean;
-  otherAttachments: { id: string; fileName: string; size: number; contentType?: string | null }[];
+interface AttachmentChipData {
+  id: string;
+  fileName: string;
+  size: number;
+  contentType?: string | null;
+  scanStatus?: MailAttachmentScanStatus | null;
+  scanSignature?: string | null;
+}
+
+/**
+ * One attachment chip. A file the virus scan blocked (infected) or still holds
+ * (pending) is not a button: it can't be clicked, and the server refuses it
+ * anyway. A file the scanner could not read still downloads, with a warning.
+ */
+function AttachmentChip({ att, onDownload }: Readonly<{
+  att: AttachmentChipData;
+  onDownload: (att: AttachmentChipData) => void;
 }>) {
   const { t } = useI18n();
-  const download = (att: { id: string; fileName: string }) => {
-    saveMailAttachment(att.id, att.fileName).catch(() =>
-      toast.error(t.mail.messageDetail.failedToDownloadAttachment),
+  const copy = t.mail.messageDetail;
+  const state: AttachmentScanState = attachmentScanState(att);
+  const TypeIcon = attachmentIcon(att.fileName, att.contentType);
+
+  if (state === 'infected') {
+    const hint = copy.attachmentInfectedHint.replace('{signature}', att.scanSignature ?? '');
+    return (
+      <div
+        title={`${att.fileName}: ${hint}`}
+        className="inline-flex cursor-not-allowed items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-1.5 text-sm text-destructive"
+      >
+        <ShieldAlert className="h-4 w-4 shrink-0" aria-hidden />
+        <span className="flex min-w-0 flex-col leading-tight">
+          <span className="max-w-[200px] truncate line-through">{att.fileName}</span>
+          <span className="text-xs font-medium">
+            {copy.attachmentInfected}
+            {att.scanSignature ? ` · ${att.scanSignature}` : ''}
+          </span>
+        </span>
+      </div>
     );
-  };
+  }
+
+  if (state === 'pending') {
+    return (
+      <div
+        title={copy.attachmentScanningHint}
+        className="inline-flex cursor-not-allowed items-center gap-2 rounded-md border border-border bg-muted/50 px-3 py-1.5 text-sm text-muted-foreground"
+      >
+        <TypeIcon className="h-4 w-4 shrink-0" aria-hidden />
+        <span className="flex min-w-0 flex-col leading-tight">
+          <span className="max-w-[200px] truncate">{att.fileName}</span>
+          <span className="text-xs">{copy.attachmentScanning}</span>
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      onClick={() => onDownload(att)}
+      title={state === 'scan-failed' ? `${att.fileName}: ${copy.attachmentScanFailedHint}` : att.fileName}
+    >
+      <TypeIcon />
+      <span className="max-w-[200px] truncate">{att.fileName}</span>
+      <span className="text-xs text-muted-foreground">{formatAttachmentSize(att.size)}</span>
+      {state === 'scan-failed' && (
+        <span className="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400">
+          <AlertTriangle className="h-3 w-3" aria-hidden />
+          {copy.attachmentScanFailed}
+        </span>
+      )}
+    </Button>
+  );
+}
+
+function AttachmentsSection({ hasLoadedAttachments, otherAttachments }: Readonly<{
+  hasLoadedAttachments: boolean;
+  otherAttachments: AttachmentChipData[];
+}>) {
+  const { t } = useI18n();
+  const saveAttachment = useSaveMailAttachment();
+  const download = (att: { id: string; fileName: string }) => saveAttachment(att.id, att.fileName);
   return (
     <div className="mt-4 md:mt-6 space-y-2">
       {hasLoadedAttachments ? (
         otherAttachments.length > 0 && (
-          <>
-            <div className="flex flex-wrap gap-2">
-              {otherAttachments.map((att) => {
-                const TypeIcon = attachmentIcon(att.fileName, att.contentType);
-                return (
-                  <Button
-                    key={att.id}
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => download(att)}
-                    title={att.fileName}
-                  >
-                    <TypeIcon />
-                    <span className="truncate max-w-[200px]">{att.fileName}</span>
-                    <span className="text-xs text-muted-foreground">{formatAttachmentSize(att.size)}</span>
-                  </Button>
-                );
-              })}
-            </div>
-          </>
+          <div className="flex flex-wrap gap-2">
+            {otherAttachments.map((att) => (
+              <AttachmentChip key={att.id} att={att} onDownload={download} />
+            ))}
+          </div>
         )
       ) : (
         <div className="text-sm text-gray-400">{t.mail.messageDetail.loadingAttachments}</div>
@@ -1373,7 +1443,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     isForwarding && !!message.hasAttachments,
   );
   const forwardedAttachments = (forwardAttachmentsData?.data ?? []).filter(
-    (att) => !att.isInline && !excludedForwardAttachmentIds.includes(att.id),
+    (att) => !att.isInline && isAttachmentForwardable(att) && !excludedForwardAttachmentIds.includes(att.id),
   );
 
   // Calendar invites (.ics) get a dedicated "Add to Weld Calendar" card; the
@@ -2677,8 +2747,10 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
           data-action-bar={showActionBar}
           className="pl-[calc(0.75rem+40px)] pr-3 md:pl-[calc(1rem+40px)] md:pr-4 group/email pb-6 data-[action-bar=true]:pb-1 md:data-[action-bar=true]:pb-3"
         >
+          <MailThreatBanner threats={newestMessage.threats} className="mb-3" />
           <div className="text-gray-700 dark:text-foreground text-sm leading-relaxed overflow-x-auto">
             <MessageBodyContent
+              messageId={newestMessage.id}
               mainContent={mainContent}
               isHtml={isHtml}
               bodyHtml={newestMessage.bodyHtml}
@@ -2686,6 +2758,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
             />
             {quotedContent && (
               <QuotedContent
+                messageId={newestMessage.id}
                 quotedContent={quotedContent}
                 isHtml={isHtml}
                 showQuoted={showQuoted}

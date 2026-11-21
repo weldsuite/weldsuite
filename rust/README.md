@@ -1504,6 +1504,29 @@ On Global, Cloudflare Email Routing hands each message to
    Parity: `modules/reach/tests/inbound_parity.rs` against fixtures
    reach-api wrote (`pnpm rust:reach-inbound-fixtures`, checked in CI).
 
+**Threat protection** (Kubernetes only; Global never had it). Before any
+mailbox stores a message, `consume` streams each attachment to clamd
+(`CLAMD_ADDRESS`, the chart's `mailInbound.clamav`: ClamAV's official image,
+freshclam inside) and checks each link (`crates/mail-domain/src/threats.rs`):
+against master `mail_threat_indicators`, which `weldsuite cron
+mail-threat-feeds` fills from the feeds in `MAIL_THREAT_FEEDS` (none by
+default: which lists may be used commercially is the operator's call), and
+against heuristics (an IP address for a host, credentials before the host, a
+homograph punycode domain). An infected file is never written to a bucket;
+its row keeps the name and `scan_signature`, and the message goes to Spam
+with a `threats` entry, as it does for a link a feed lists. When clamd can't
+be reached the message is still stored: its files wait in the mail bucket
+under `mail/<ws>/<mailbox>/<msg>/quarantine/`, `scan_status` `pending`, and
+the workspace is marked due (`mail_attachment_scan`) for `weldsuite cron
+mail-attachment-scan`, which moves cleared files to `STORAGE` and sends a
+message with an infected one to Spam. The download route answers 403
+`ATTACHMENT_INFECTED` or 409 `ATTACHMENT_SCAN_PENDING`, forwards leave such
+files out, the helpdesk and accounting fan-out gets nothing from a dangerous
+message and no pending file, and the platform opens every link of a received
+message through `/weldmail/link`, which asks `POST
+/api/mail-messages/{id}/link-check` first. Without `CLAMD_ADDRESS` nothing is
+scanned and attachments are stored as before.
+
 Differences from Global, on purpose: one delivery per message with every
 accepted recipient as the envelope (Cloudflare calls the worker once per
 recipient, so its helpdesk and accounting fan-out ran once per recipient);

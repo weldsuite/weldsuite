@@ -1,7 +1,7 @@
 
 import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { usePathname } from '@/lib/router';
-import { isWorkspaceScopedPath } from '@/lib/workspace-url';
+import { isWorkspaceScopedPath, stripWorkspacePrefix } from '@/lib/workspace-url';
 import { useWorkspaceUrlGate, type WorkspaceUrlGate } from '@/components/workspace-url-gate';
 import { WorkspaceLinkProblem } from '@/components/workspace/workspace-link-problem';
 import { useAuth, useOrganizationList } from '@/lib/auth';
@@ -120,6 +120,13 @@ function detectEmbeddedRoute(): boolean {
   }
   return isEmbedded;
 }
+
+/**
+ * Workspace pages that render bare (no sidebar, no overlays) but still after
+ * sign-in and workspace activation: WeldMail's link interstitial opens in its
+ * own tab and calls the API as the signed-in member.
+ */
+const CHROMELESS_WORKSPACE_PATHS: ReadonlySet<string> = new Set(['/weldmail/link']);
 
 /** Routes rendered without PlatformShell (no sidebar). */
 function isMinimalPath(pathname: string): boolean {
@@ -271,6 +278,8 @@ export function AppShellClient({ children }: Readonly<AppShellClientProps>) {
     window.location.href = '/onboarding';
     return null;
   }
+
+  if (CHROMELESS_WORKSPACE_PATHS.has(stripWorkspacePrefix(pathname))) return <>{children}</>;
 
   // Full platform shell with module-specific providers
   return (

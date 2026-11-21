@@ -20,6 +20,7 @@
 //! | `DatabaseProvisioner` | [`CnpgProvisioner`] (CloudNativePG shards behind `PgBouncer`) | Neon provisioning |
 //! | `BatchHandler` (consuming) | [`run_consumer`] on a durable `JetStream` consumer | Queue consumers of the hub subscribers |
 //! | `Embeddings` | [`OpenAiEmbeddings`] (any OpenAI-compatible endpoint) | Workers AI through the AI Gateway |
+//! | `VirusScanner` | [`ClamdScanner`] (clamd's `INSTREAM` over TCP) | nothing: Global never scanned attachments |
 //! | (leases) | [`ValkeyLease`]: one holder at a time for a named piece of work | a Durable Object's single instance |
 //!
 //! Adapters take their settings as arguments; the server reads them from the
@@ -30,6 +31,7 @@
     reason = "not converted to the ORM yet (ADR DATA-019)"
 )]
 
+mod clamd;
 mod cnpg;
 pub mod collab;
 mod embeddings;
@@ -52,6 +54,7 @@ mod zitadel;
 mod zitadel_api;
 mod zitadel_sign_in;
 
+pub use clamd::ClamdScanner;
 pub use cnpg::{CnpgOptions, CnpgProvisioner, CnpgShard, database_names};
 pub use embeddings::{OpenAiEmbeddings, OpenAiEmbeddingsOptions};
 pub use flags::{DEFAULT_FLAG_REFRESH, MasterDbFlagSource};

@@ -177,6 +177,12 @@ pub struct Model {
     pub custom_fields: Option<Json>,
     #[serde(rename = "sizeBytes")]
     pub size_bytes: Option<i32>,
+    /// What the inbound threat checks found (`crates/mail-inbound`'s
+    /// `threats`): infected attachments and dangerous links, as
+    /// `[{ kind, verdict, … }]`. Null: nothing found, or never checked.
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "threats")]
+    pub threats: Option<Json>,
     #[serde(rename = "createdAt", with = "crate::js::timestamp")]
     pub created_at: TimeDateTime,
     #[serde(rename = "updatedAt", with = "crate::js::timestamp")]

@@ -33,7 +33,7 @@ rusty-s3 = { workspace = true }
 redis = { workspace = true, features = ["tokio-comp", "connection-manager", "tokio-rustls-comp"] }
 serde_json = { workspace = true, features = ["raw_value"] }
 sqlx = { workspace = true }
-tokio = { workspace = true, features = ["macros", "net", "rt", "sync", "time"] }
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "sync", "time"] }
 tokio-rustls = { workspace = true }
 tracing = { workspace = true }
 unicode-normalization = { workspace = true }
