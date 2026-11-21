@@ -696,9 +696,10 @@ async fn ingest_order(
         }
     }
     tx.commit().await?;
-    if channel.created {
-        publish(args, "commerce_channel", "created", &channel.id).await;
-    }
+    // A store's channel, made here with its first order, publishes no
+    // `commerce_channel` event: a sync answers with the same events as the
+    // TypeScript ingest, which has no channels (the "connect: integrations"
+    // conformance suite). The channels list reads it fresh when opened.
     Ok(Upserted {
         action: if existing {
             Action::Updated
