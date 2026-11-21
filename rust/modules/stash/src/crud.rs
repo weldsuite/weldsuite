@@ -727,10 +727,10 @@ pub(crate) static PURCHASE_ORDERS: Crud = Crud {
     resource: "Purchase order",
     id_prefix: "po",
     gates: Gates {
-        read: "orders:read",
-        create: "orders:create",
-        update: "orders:update",
-        delete: "orders:delete",
+        read: "purchase_orders:read",
+        create: "purchase_orders:create",
+        update: "purchase_orders:update",
+        delete: "purchase_orders:delete",
     },
     messages: Messages {
         list: "Failed to list purchase orders",

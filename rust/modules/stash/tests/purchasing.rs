@@ -29,9 +29,9 @@ use weldsuite_stash::StashState;
 const USER: &str = "user_purch_test";
 
 const ALL: &[&str] = &[
-    "orders:read",
-    "orders:create",
-    "orders:update",
+    "purchase_orders:read",
+    "purchase_orders:create",
+    "purchase_orders:update",
     "suppliers:read",
     "suppliers:create",
     "suppliers:update",
@@ -405,7 +405,7 @@ fn item<'a>(items: &'a Value, id: &str) -> &'a Value {
 
 #[tokio::test]
 async fn the_routes_check_their_permission_first() {
-    let reader = harness(lazy_pool(), &["orders:read", "suppliers:read"]);
+    let reader = harness(lazy_pool(), &["purchase_orders:read", "suppliers:read"]);
     for (method, path, body) in [
         ("POST", "/purchase-orders/po_x/approve", None),
         (

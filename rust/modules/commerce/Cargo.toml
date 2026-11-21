@@ -13,6 +13,7 @@ weldsuite-auth = { workspace = true }
 # The tax codes a product's `taxClass` may name (sales_tax::tax_codes).
 weldsuite-books-domain = { workspace = true }
 weldsuite-catalogs = { workspace = true }
+weldsuite-commerce-domain = { workspace = true }
 weldsuite-db = { workspace = true }
 weldsuite-events = { workspace = true }
 weldsuite-kit = { workspace = true }

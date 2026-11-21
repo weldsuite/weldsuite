@@ -123,11 +123,15 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     // install keeps every workspace in its own one cluster, so there is no
     // choice to offer (onboarding's `region` only lands in the metadata).
     "data-regions",
-    // Third-party integrations: their syncs and webhooks run in Global's
-    // integration-sync-worker and integration-webhook-worker (the CRM_SYNC
-    // Workflow, connector syncs, Slack, Discord and GitHub events, Google
-    // Calendar pushes), which aren't ported. The connect routes answer, but
-    // nothing would sync, so the platform hides those integrations.
+    // Third-party integrations under Settings › Integrations (the CRM,
+    // accounting and warehouse connectors, Slack, Discord, GitHub, Google
+    // Calendar): on Global their syncs and webhooks run in
+    // integration-sync-worker and integration-webhook-worker, and the
+    // platform hides them here until each is offered on its own. Shopify and
+    // WooCommerce are: their store syncs (connect's connectors,
+    // `/webhooks/connectors/:id`, `weldsuite cron connector-catchup`) run in
+    // this binary and feed WeldCommerce's order hub, under the platform's
+    // `store-sync` feature, which is never listed.
     "integration-sync",
 ];
 
@@ -587,6 +591,20 @@ mod tests {
         };
         assert!(!on.unavailable_features().contains(&SSO_CONNECTIONS_FEATURE));
         assert!(!UNAVAILABLE_FEATURES.contains(&SSO_CONNECTIONS_FEATURE));
+    }
+
+    /// Shopify and WooCommerce run here (`store-sync`, never listed); the rest
+    /// of Settings › Integrations stays hidden (`integration-sync`), whatever
+    /// the edition.
+    #[test]
+    fn offers_the_store_syncs_but_not_the_other_integrations() {
+        for edition in ["eu", "self-hosted"] {
+            let (config, problems) = read(&[("EDITION", edition)]);
+            assert!(problems.is_empty(), "{problems:?}");
+            let lacks = config.unavailable_features();
+            assert!(lacks.contains(&"integration-sync"), "{edition}");
+            assert!(!lacks.contains(&"store-sync"), "{edition}");
+        }
     }
 
     #[test]

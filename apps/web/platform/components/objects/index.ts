@@ -43,6 +43,8 @@ import './sales-tax-agency';
 import './tax-exemption-certificate';
 import './product';
 import './category';
+import './order';
+import './discount';
 import './supplier';
 import './warehouse';
 import './pick-list';

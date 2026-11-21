@@ -303,7 +303,10 @@
     "id": "commerce",
     "prefixes": [
       "/api/categories",
-      "/api/commerce"
+      "/api/commerce",
+      "/api/commerce-settings",
+      "/api/discounts",
+      "/api/orders"
     ],
     "rust": true,
     "rustOnly": true,

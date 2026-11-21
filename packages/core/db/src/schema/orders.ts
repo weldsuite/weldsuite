@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import {
   pgTable,
   varchar,
@@ -6,7 +7,9 @@ import {
   jsonb,
   text,
   numeric,
+  boolean,
   index,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
 // Shared orders table
@@ -113,6 +116,27 @@ export const orders = pgTable('orders', {
 
   // Creator
   createdBy: varchar('created_by', { length: 255 }),
+
+  // WeldCommerce (rebuild, phase 2)
+  // Sales channel the order came in through (phase 5 adds the channels table).
+  channelId: varchar('channel_id', { length: 30 }),
+  // Legal entity that sells the order (WeldBooks invoices it).
+  entityId: varchar('entity_id', { length: 30 }),
+  // True when line prices already include VAT.
+  pricesIncludeTax: boolean('prices_include_tax').notNull().default(false),
+  // ISO 3166-1 alpha-2 country the goods go to; drives the VAT treatment.
+  destinationCountry: varchar('destination_country', { length: 2 }),
+  buyerVatNumber: varchar('buyer_vat_number', { length: 50 }),
+  vatTreatment: varchar('vat_treatment', { length: 30 }),
+  // The buyer's own PO number.
+  customerReference: varchar('customer_reference', { length: 100 }),
+  // 'not_required' | 'pending' | 'approved' | 'rejected'
+  approvalStatus: varchar('approval_status', { length: 20 }).notNull().default('not_required'),
+  placedByPersonId: varchar('placed_by_person_id', { length: 30 }),
+  // Client-supplied key that makes order creation safe to retry.
+  idempotencyKey: varchar('idempotency_key', { length: 100 }),
+  // SHA-256 (hex) of the guest order link token (COM-012): a guest sees only that one order.
+  guestAccessTokenHash: varchar('guest_access_token_hash', { length: 64 }),
 }, (table) => [
   index('orders_order_number_idx').on(table.orderNumber),
   index('orders_customer_idx').on(table.customerId),
@@ -121,6 +145,17 @@ export const orders = pgTable('orders', {
   index('orders_status_idx').on(table.status),
   index('orders_payment_status_idx').on(table.paymentStatus),
   index('orders_created_at_idx').on(table.createdAt),
+  index('orders_channel_idx').on(table.channelId),
+  uniqueIndex('orders_guest_access_token_uidx')
+    .on(table.guestAccessTokenHash)
+    .where(sql`${table.guestAccessTokenHash} IS NOT NULL`),
+  uniqueIndex('orders_idempotency_key_uidx')
+    .on(table.idempotencyKey)
+    .where(sql`${table.idempotencyKey} IS NOT NULL`),
+  // An order number is unique within its source, among live orders.
+  uniqueIndex('orders_source_order_number_uidx')
+    .on(table.source, table.orderNumber)
+    .where(sql`${table.deletedAt} IS NULL`),
 ]);
 
 export type Order = typeof orders.$inferSelect;
@@ -131,6 +166,7 @@ export const orderItems = pgTable('order_items', {
   id: varchar('id', { length: 30 }).primaryKey(),
   orderId: varchar('order_id', { length: 30 }).notNull(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
 
   // Product Reference
   productId: varchar('product_id', { length: 30 }),
@@ -147,6 +183,9 @@ export const orderItems = pgTable('order_items', {
   unitPrice: numeric('unit_price', { precision: 18, scale: 2 }).notNull(),
   discountAmount: numeric('discount_amount', { precision: 18, scale: 2 }).default('0'),
   taxAmount: numeric('tax_amount', { precision: 18, scale: 2 }).default('0'),
+  // VAT category of the line ('standard', 'reduced', ...) and the rate applied, in percent.
+  vatCategory: varchar('vat_category', { length: 30 }),
+  taxRate: numeric('tax_rate', { precision: 7, scale: 4 }),
   total: numeric('total', { precision: 18, scale: 2 }).notNull(),
 
   // Weight
@@ -158,8 +197,12 @@ export const orderItems = pgTable('order_items', {
 
   // Customization
   properties: jsonb('properties').$type<Record<string, unknown>>(),
+
+  // The provider's line id for imported orders (was properties.externalLineId).
+  externalLineId: varchar('external_line_id', { length: 100 }),
 }, (table) => [
   index('order_items_order_idx').on(table.orderId),
+  index('order_items_order_external_line_idx').on(table.orderId, table.externalLineId),
   index('order_items_product_idx').on(table.productId),
 ]);
 

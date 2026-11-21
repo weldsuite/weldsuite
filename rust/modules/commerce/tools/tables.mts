@@ -1,7 +1,8 @@
 /**
  * Generates rust/modules/commerce/src/tables.rs: the tenant tables of the
  * catalogue (products, their variants, categories and the manual category
- * members), as Drizzle sees them (property → column, kind) with the database
+ * members) and of phase 2 (orders and their items, discounts and their
+ * redemptions, the commerce settings), as Drizzle sees them (property → column, kind) with the database
  * defaults of the latest tenant snapshot, and the insert / patch SQL that
  * writes a `{ column: value }` JSON object the way Drizzle's would: a column
  * the object leaves out gets its database default (insert) or keeps its value
@@ -36,7 +37,33 @@ const snapshot = JSON.parse(readFileSync(path.join(snapshotDir, latest), 'utf8')
 };
 
 /** The tables, by their export name in @weldsuite/db/schema. */
-const TABLES = ['products', 'productVariants', 'categories', 'categoryProducts'] as const;
+const TABLES = [
+  'products',
+  'productVariants',
+  'categories',
+  'categoryProducts',
+  // Phase 2: orders, discount codes and the numbering settings.
+  'orders',
+  'orderItems',
+  'discounts',
+  'discountRedemptions',
+  'commerceSettings',
+  // Phase 4: channels, shipping rates, storefront keys, prices and carts.
+  'commerceChannels',
+  'commerceShippingRates',
+  'commerceChannelKeys',
+  'productPrices',
+  'carts',
+  'cartItems',
+  // Phase 5: payments, refunds and the payment provider connection.
+  'commercePayments',
+  'commerceRefunds',
+  'commercePaymentConnections',
+  // Phase 6: B2B buyers, per-company settings and order approvals.
+  'commerceBuyers',
+  'commerceCompanySettings',
+  'orderApprovals',
+] as const;
 
 type Kind = 'Text' | 'Number' | 'Bool' | 'Json' | 'Date' | 'DateString' | 'Numeric' | 'Array' | 'Other';
 

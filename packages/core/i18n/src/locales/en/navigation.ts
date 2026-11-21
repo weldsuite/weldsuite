@@ -147,6 +147,8 @@ export const navigation = {
         overview: 'Overview',
         products: 'Products',
         categories: 'Categories',
+        orders: 'Orders',
+        discounts: 'Discounts',
       },
       weldstash: {
         overview: 'Overview',

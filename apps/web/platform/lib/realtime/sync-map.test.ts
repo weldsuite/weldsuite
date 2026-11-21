@@ -329,6 +329,23 @@ describe('platformSyncMap — WeldStash', () => {
     ]);
   });
 
+  it('order refreshes the WeldCommerce orders, the overview, the discount use counts and WeldStash orders', () => {
+    expect(platformSyncMap.order?.invalidate).toEqual([
+      ['weldcommerce', 'orders'],
+      ['weldcommerce', 'overview'],
+      ['weldcommerce', 'discounts'],
+      ['weldstash', 'orders'],
+    ]);
+  });
+
+  it('commerce_settings refreshes the WeldCommerce settings', () => {
+    expect(platformSyncMap.commerce_settings?.invalidate).toEqual([['weldcommerce', 'settings']]);
+  });
+
+  it('discount refreshes the WeldCommerce discounts', () => {
+    expect(platformSyncMap.discount?.invalidate).toEqual([['weldcommerce', 'discounts']]);
+  });
+
   it('category refreshes the WeldCommerce categories and the products that show them', () => {
     expect(platformSyncMap.category?.invalidate).toEqual([
       ['weldcommerce', 'categories'],

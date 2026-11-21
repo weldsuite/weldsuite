@@ -54,9 +54,13 @@ const ROUTE_REQUIREMENTS: ReadonlyArray<readonly [prefix: string, requirement: E
   // WeldMail pages whose API is a feature the Kubernetes editions lack.
   ['/weldmail/ai', { modules: ['mail'], feature: 'mail-ai' }],
   ['/weldmail/domains', { modules: ['mail'], feature: 'mail-domains' }],
-  // MCP servers are WeldAgent's tools. Every other integration syncs or
-  // takes webhooks through workers the Kubernetes editions don't run yet.
+  // MCP servers are WeldAgent's tools. Shopify and WooCommerce feed
+  // WeldCommerce's order hub, and both backends sync them. Every other
+  // integration syncs or takes webhooks through workers the Kubernetes
+  // editions don't run yet.
   ['/settings/integrations/mcp-servers', { modules: ['agent'] }],
+  ['/settings/integrations/shopify', { modules: ['connect'], feature: 'store-sync' }],
+  ['/settings/integrations/woocommerce', { modules: ['connect'], feature: 'store-sync' }],
   ['/settings/integrations/', { modules: ['connect'], feature: 'integration-sync' }],
   ['/settings/integrations', { modules: ['connect'] }],
   // The public API (external-api) has no Kubernetes port yet: keys need the

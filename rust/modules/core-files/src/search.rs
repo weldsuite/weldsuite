@@ -38,6 +38,7 @@ pub(crate) enum SearchType {
     Article,
     KnowledgePage,
     Product,
+    Order,
     Warehouse,
     Invoice,
     Bill,
@@ -65,7 +66,7 @@ pub(crate) enum SearchType {
 /// (`ENTITY_REGISTRY`), in canonical order (`CANONICAL_ORDER`, which the
 /// registry follows too). Where an object is shared between several apps the
 /// key names the app the module's own routes are checked in.
-const REGISTRY: [(SearchType, &str, &str); 30] = [
+const REGISTRY: [(SearchType, &str, &str); 31] = [
     (SearchType::Contact, "contact", "contacts:read"),
     (SearchType::Customer, "customer", "contacts:read"),
     (SearchType::Lead, "lead", "leads:read"),
@@ -83,6 +84,7 @@ const REGISTRY: [(SearchType, &str, &str); 30] = [
         "knowledge:read",
     ),
     (SearchType::Product, "product", "products:read"),
+    (SearchType::Order, "order", "orders:read"),
     (SearchType::Warehouse, "warehouse", "warehouses:read"),
     (SearchType::Invoice, "invoice", "invoices:read"),
     (SearchType::Bill, "bill", "bills:read"),
@@ -132,7 +134,7 @@ const REGISTRY: [(SearchType, &str, &str); 30] = [
 
 /// `SEARCH_ENTITY_TYPES`: the names `types` accepts, in the schema's own
 /// order (the enum's message lists them so), which is not the canonical one.
-pub(crate) const ENTITY_TYPES: [&str; 30] = [
+pub(crate) const ENTITY_TYPES: [&str; 31] = [
     "contact",
     "customer",
     "lead",
@@ -141,6 +143,7 @@ pub(crate) const ENTITY_TYPES: [&str; 30] = [
     "article",
     "knowledge_page",
     "product",
+    "order",
     "invoice",
     "bill",
     "project",
@@ -195,6 +198,12 @@ impl SearchType {
 /// Where a result opens in the platform (`buildResultUrl`). Products open
 /// as object panels on the WeldStash products list.
 pub(crate) fn build_result_url(kind: SearchType, id: &str) -> String {
+    build_result_url_for(kind, id, false)
+}
+
+/// [`build_result_url`] for a member who has the WeldCommerce app (`commerce`):
+/// products open on its products page, orders on its orders page.
+pub(crate) fn build_result_url_for(kind: SearchType, id: &str, commerce: bool) -> String {
     let encoded = encode_uri_component(id);
     match kind {
         SearchType::Contact => format!("/weldcrm/people?stack=person:{encoded}"),
@@ -204,7 +213,9 @@ pub(crate) fn build_result_url(kind: SearchType, id: &str) -> String {
         SearchType::Ticket => format!("/welddesk/inbox?entity=ticket:{encoded}"),
         SearchType::Article => format!("/welddesk/help-center/articles/{id}"),
         SearchType::KnowledgePage => format!("/weldknow/page/{id}"),
+        SearchType::Product if commerce => format!("/weldcommerce/products?open={encoded}"),
         SearchType::Product => format!("/weldstash/products?stack=product:{encoded}"),
+        SearchType::Order => format!("/weldcommerce/orders?open={encoded}"),
         SearchType::Invoice => format!("/weldbooks/invoices/{id}"),
         SearchType::Bill => format!("/weldbooks/bills/{id}"),
         SearchType::Project => format!("/weldflow/project/{id}"),
@@ -375,6 +386,23 @@ const PRODUCTS: &str = "select jsonb_build_object('row', row, 'score', score) fr
     from products
     where deleted_at is null and (lower(name) like $3 or lower(sku) like $3
       or lower(barcode) like $3)) s
+  order by score desc, updated_at desc, id desc limit $4";
+
+const ORDERS: &str = "select jsonb_build_object('row', row, 'score', score) from (
+    select id, updated_at, greatest(
+        case when lower(order_number) = $1 then 1.0 when lower(order_number) like $2 then 0.9
+             when lower(order_number) like $3 then 0.6 else 0 end,
+        case when lower(customer_name) = $1 then 1.0 when lower(customer_name) like $2 then 0.9
+             when lower(customer_name) like $3 then 0.6 else 0 end,
+        case when lower(customer_email) = $1 then 1.0 when lower(customer_email) like $2 then 0.7
+             when lower(customer_email) like $3 then 0.3 else 0 end,
+        case when lower(external_order_id) = $1 then 1.0 when lower(external_order_id) like $2 then 0.9
+             when lower(external_order_id) like $3 then 0.6 else 0 end) as score,
+      jsonb_build_object('id', id, 'orderNumber', order_number, 'customerName', customer_name,
+        'customerEmail', customer_email, 'total', total::text, 'currency', currency) as row
+    from orders
+    where deleted_at is null and (lower(order_number) like $3 or lower(customer_name) like $3
+      or lower(customer_email) like $3 or lower(external_order_id) like $3)) s
   order by score desc, updated_at desc, id desc limit $4";
 
 const INVOICES: &str = "select jsonb_build_object('row', row, 'score', score) from (
@@ -778,6 +806,18 @@ fn describe(kind: SearchType, row: &Value) -> (String, Option<String>) {
                 None => owned(s("shortDescription")),
             },
         ),
+        SearchType::Order => (first(&[s("orderNumber")]).unwrap_or("Order").to_owned(), {
+            let total = first(&[s("total")]).map(|total| match first(&[s("currency")]) {
+                Some(currency) => format!("{total} {currency}"),
+                None => total.to_owned(),
+            });
+            let parts: Vec<String> = first(&[s("customerName"), s("customerEmail")])
+                .map(str::to_owned)
+                .into_iter()
+                .chain(total)
+                .collect();
+            (!parts.is_empty()).then(|| parts.join(" · "))
+        }),
         SearchType::Invoice => (
             first(&[s("invoiceNumber")])
                 .map_or_else(|| "Invoice".to_owned(), |n| format!("Invoice {n}")),
@@ -911,7 +951,7 @@ fn score_of(row: &Value) -> Value {
 }
 
 /// One type's group from its rows (`limit + 1` of them at most).
-fn group(kind: SearchType, rows: &[Value], limit: usize) -> Value {
+fn group(kind: SearchType, rows: &[Value], limit: usize, commerce: bool) -> Value {
     let items: Vec<Value> = rows
         .iter()
         .take(limit)
@@ -924,7 +964,7 @@ fn group(kind: SearchType, rows: &[Value], limit: usize) -> Value {
                 "type": kind.as_str(),
                 "title": title,
                 "subtitle": subtitle,
-                "url": build_result_url(kind, id),
+                "url": build_result_url_for(kind, id, commerce),
                 "score": score_of(wrapped),
             })
         })
@@ -1009,6 +1049,7 @@ async fn search_rows(
         SearchType::Article => ARTICLES,
         SearchType::KnowledgePage => KNOWLEDGE_PAGES,
         SearchType::Product => PRODUCTS,
+        SearchType::Order => ORDERS,
         SearchType::Invoice => INVOICES,
         SearchType::Bill => BILLS,
         SearchType::Project => PROJECTS,
@@ -1503,7 +1544,10 @@ pub(crate) async fn search(
             };
             for kind in &filtered {
                 let rows = search_rows(&caller.db, *kind, term, input.limit, &mut who).await?;
-                groups.push((*kind, group(*kind, &rows, input.limit)));
+                groups.push((
+                    *kind,
+                    group(*kind, &rows, input.limit, can("weldcommerce:products:read")),
+                ));
             }
             let entity_types: Vec<&str> = parsed.entity_types.iter().map(|t| t.as_str()).collect();
             Ok(json_response(
@@ -1644,6 +1688,20 @@ mod tests {
             build_result_url(SearchType::Product, "p1"),
             "/weldstash/products?stack=product:p1"
         );
+        assert_eq!(
+            build_result_url_for(SearchType::Product, "p1", true),
+            "/weldcommerce/products?open=p1"
+        );
+        assert_eq!(
+            build_result_url(SearchType::Order, "ord_1"),
+            "/weldcommerce/orders?open=ord_1"
+        );
+        let (title, subtitle) = describe(
+            SearchType::Order,
+            &json!({ "orderNumber": "WC-1001", "customerName": "Ann", "customerEmail": null, "total": "12.50", "currency": "EUR" }),
+        );
+        assert_eq!(title, "WC-1001");
+        assert_eq!(subtitle.as_deref(), Some("Ann · 12.50 EUR"));
         let (title, subtitle) = describe(
             SearchType::Contact,
             &json!({ "fullName": " ", "firstName": "Ann", "lastName": null, "email": "a@b.c", "title": "" }),
@@ -1689,6 +1747,7 @@ mod tests {
                 "article",
                 "knowledge_page",
                 "product",
+                "order",
                 "warehouse",
                 "invoice",
                 "bill",

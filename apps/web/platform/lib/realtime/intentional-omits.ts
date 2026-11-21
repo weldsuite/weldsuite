@@ -24,10 +24,8 @@ export const PLATFORM_SYNC_MAP_INTENTIONAL_OMITS = {
     'WeldFlow kanban stage page fetches imperatively (no useQuery); CRM pipeline_stage covers CRM',
   // WeldCommerce and shipping were removed from the platform: no screen keeps
   // a query cache for these catalog types any more.
-  order: 'WeldCommerce removed: no platform orders list or detail cache',
   commerce_order: 'WeldCommerce removed: no platform orders list or detail cache',
   commerce_customer: 'WeldCommerce removed: customers are CRM companies, synced as company/person',
-  discount: 'WeldCommerce removed: no platform discounts cache',
   website: 'WeldCommerce removed: no platform websites cache',
   website_domain: 'WeldCommerce removed: no platform website domains cache',
   website_page: 'WeldCommerce removed: no platform website pages cache',

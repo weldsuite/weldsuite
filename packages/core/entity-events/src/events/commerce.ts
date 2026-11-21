@@ -5,12 +5,13 @@
  * can listen to (mapped from order:created inside agent-dispatch).
  */
 export const COMMERCE_ENTITY_EVENTS = {
-  order: ['created', 'updated', 'deleted', 'placed', 'cancelled', 'completed'],
+  order: ['created', 'updated', 'deleted', 'placed', 'cancelled', 'completed', 'paid', 'refunded'],
   commerce_order: ['created', 'updated', 'deleted', 'placed', 'cancelled', 'completed'],
   product: ['created', 'updated', 'deleted', 'archived'],
   category: ['created', 'updated', 'deleted'],
   commerce_customer: ['created', 'updated', 'deleted'],
   discount: ['created', 'updated', 'deleted'],
+  commerce_settings: ['updated'],
   website: ['created', 'updated', 'deleted', 'archived'],
   website_domain: ['created', 'updated', 'deleted'],
   website_page: ['created', 'updated', 'deleted', 'archived'],

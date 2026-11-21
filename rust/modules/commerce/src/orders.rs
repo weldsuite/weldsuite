@@ -1,0 +1,896 @@
+//! `/api/orders`: sales orders. Every write goes through
+//! `weldsuite_commerce_domain::orders::write` (ADR COM-010); this file reads
+//! and validates requests, presents rows and publishes the entity events.
+//!
+//! - Phase 2 computes no VAT: `taxTotal` is `"0.00"`, `vatTreatment` null.
+//! - `POST /` accepts an `Idempotency-Key` header (or `idempotencyKey` in the
+//!   body): a retry answers with the first order and writes nothing.
+//! - Addresses are stored with `region`; rows an import wrote with `state`
+//!   read back with `region` too.
+
+use std::sync::Arc;
+
+use axum::Router;
+use axum::body::Bytes;
+use axum::extract::{Path, RawQuery, State};
+use axum::response::{IntoResponse, Response};
+use axum::routing::{get, post};
+use http::HeaderMap;
+use serde_json::{Map, Value, json};
+use weldsuite_catalogs::entity_events::{
+    ORDER_CANCELLED, ORDER_COMPLETED, ORDER_CREATED, ORDER_PAID, ORDER_UPDATED,
+};
+use weldsuite_catalogs::permission_keys::{ORDERS_CREATE, ORDERS_READ, ORDERS_UPDATE};
+use weldsuite_commerce_domain::money::{self, Cents};
+use weldsuite_commerce_domain::orders::lines::LineInput;
+use weldsuite_commerce_domain::orders::plan::{self, QuoteInput};
+use weldsuite_commerce_domain::orders::write::{self, NewOrder, Patch, Payment};
+use weldsuite_commerce_domain::orders::{self as domain_orders};
+use weldsuite_kit::validation::{
+    Field, Format, Issues, Number, Presence, Text, js_date_parse, js_iso_from_millis,
+};
+use weldsuite_kit::{Created, Data};
+use weldsuite_permissions::{PermissionGate, PermissionQueries};
+
+use crate::js::query_set;
+use crate::wire::{
+    amount, body_or_empty, invalid, iso, read_address, read_currency, read_date, read_money,
+    read_text, refuse,
+};
+use crate::{Caller, CommerceState, Refusal, internal, validate};
+
+pub(crate) fn routes<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<CommerceState>
+where
+    Q: PermissionQueries + 'static,
+{
+    let read = || gate.require([ORDERS_READ]);
+    let update = || gate.require([ORDERS_UPDATE]);
+    Router::new()
+        .route("/", get(list).route_layer(read()))
+        .route("/", post(create).route_layer(gate.require([ORDERS_CREATE])))
+        .route(
+            "/quote",
+            post(quote).route_layer(gate.require([ORDERS_CREATE])),
+        )
+        .route(
+            "/{id}",
+            get(detail)
+                .route_layer(read())
+                .patch(patch_order)
+                .route_layer(update()),
+        )
+        .route("/{id}/cancel", post(cancel).route_layer(update()))
+        .route("/{id}/mark-paid", post(mark_paid).route_layer(update()))
+}
+
+// ── presenting ──────────────────────────────────────────────────────────────
+
+const FIELDS_OF_SUMMARY: &str = "jsonb_build_object(\
+    'id', o.id, 'orderNumber', o.order_number, 'status', o.status, \
+    'paymentStatus', coalesce(o.payment_status, 'pending'), \
+    'fulfillmentStatus', coalesce(o.fulfillment_status, 'unfulfilled'), \
+    'approvalStatus', o.approval_status, 'source', coalesce(o.source, 'web'), \
+    'channelId', o.channel_id, 'customerName', o.customer_name, \
+    'customerEmail', o.customer_email, 'personId', o.person_id, \
+    'companyId', pa.company_id, 'companyName', co.display_name, \
+    'currency', coalesce(o.currency, 'EUR'), 'total', o.total::text, \
+    'itemCount', coalesce(o.item_count, 0), 'totalQuantity', coalesce(o.total_quantity, 0), \
+    'createdAt', to_jsonb(o.created_at), 'updatedAt', to_jsonb(o.updated_at))";
+
+const FROM_SUMMARY: &str = " from orders o \
+    left join parties pa on pa.id = o.counterparty_id \
+    left join companies co on co.id = pa.company_id";
+
+fn summary(mut row: Value) -> Value {
+    if let Value::Object(fields) = &mut row {
+        for key in ["createdAt", "updatedAt"] {
+            let stamp = iso(fields.get(key).unwrap_or(&Value::Null));
+            fields.insert(key.to_owned(), stamp);
+        }
+        let placed = fields.get("createdAt").cloned().unwrap_or(Value::Null);
+        fields.insert("placedAt".to_owned(), placed);
+    }
+    row
+}
+
+/// An address as the API writes it: `region`, where an import wrote `state`.
+fn address(value: &Value) -> Value {
+    match value {
+        Value::Object(fields) => {
+            let mut out = fields.clone();
+            if let Some(state) = out.remove("state")
+                && !out.contains_key("region")
+            {
+                out.insert("region".to_owned(), state);
+            }
+            Value::Object(out)
+        }
+        _ => Value::Null,
+    }
+}
+
+fn text_or_null(row: &Value, key: &str) -> Value {
+    row.get(key).cloned().unwrap_or(Value::Null)
+}
+
+fn item(row: &Value) -> Value {
+    json!({
+        "id": row["id"],
+        "productId": text_or_null(row, "productId"),
+        "variantId": text_or_null(row, "variantId"),
+        "sku": text_or_null(row, "sku"),
+        "name": row["name"],
+        "variantName": row.pointer("/properties/variantName").cloned().unwrap_or(Value::Null),
+        "imageUrl": text_or_null(row, "imageUrl"),
+        "quantity": row["quantity"],
+        "fulfilledQuantity": row.get("fulfilledQuantity").filter(|v| !v.is_null()).cloned().unwrap_or(json!(0)),
+        "unitPrice": amount(&row["unitPrice"], "0.00"),
+        "discountAmount": amount(&row["discountAmount"], "0.00"),
+        "taxAmount": amount(&row["taxAmount"], "0.00"),
+        "taxRate": text_or_null(row, "taxRate"),
+        "total": amount(&row["total"], "0.00"),
+    })
+}
+
+/// The order of the API from its row, items, the company behind its
+/// counterparty and the invoice made from it.
+#[allow(
+    clippy::too_many_lines,
+    reason = "one entry per property of the API's order"
+)]
+fn present(
+    order: &Value,
+    items: &[Value],
+    company: Option<(String, Option<String>)>,
+    invoice: Option<Value>,
+) -> Value {
+    let (company_id, company_name) = company.map_or((Value::Null, Value::Null), |(id, name)| {
+        (json!(id), json!(name))
+    });
+    let text = |key: &str| text_or_null(order, key);
+    let created = iso(order.get("createdAt").unwrap_or(&Value::Null));
+    let date = |key: &str| order.get(key).map_or(Value::Null, iso);
+    Value::Object(
+        [
+            ("id", json!(order["id"])),
+            ("orderNumber", json!(order["orderNumber"])),
+            ("status", json!(order["status"])),
+            (
+                "paymentStatus",
+                json!(
+                    order
+                        .get("paymentStatus")
+                        .filter(|v| !v.is_null())
+                        .cloned()
+                        .unwrap_or(json!("pending"))
+                ),
+            ),
+            (
+                "fulfillmentStatus",
+                json!(
+                    order
+                        .get("fulfillmentStatus")
+                        .filter(|v| !v.is_null())
+                        .cloned()
+                        .unwrap_or(json!("unfulfilled"))
+                ),
+            ),
+            ("approvalStatus", json!(order["approvalStatus"])),
+            (
+                "source",
+                json!(
+                    order
+                        .get("source")
+                        .filter(|v| !v.is_null())
+                        .cloned()
+                        .unwrap_or(json!("web"))
+                ),
+            ),
+            ("channelId", json!(text("channelId"))),
+            ("customerName", json!(text("customerName"))),
+            ("customerEmail", json!(text("customerEmail"))),
+            ("personId", json!(text("personId"))),
+            ("companyId", json!(company_id)),
+            ("companyName", json!(company_name)),
+            (
+                "currency",
+                json!(
+                    order
+                        .get("currency")
+                        .filter(|v| !v.is_null())
+                        .cloned()
+                        .unwrap_or(json!("EUR"))
+                ),
+            ),
+            ("total", json!(amount(&order["total"], "0.00"))),
+            (
+                "itemCount",
+                json!(
+                    order
+                        .get("itemCount")
+                        .filter(|v| !v.is_null())
+                        .cloned()
+                        .unwrap_or(json!(0))
+                ),
+            ),
+            (
+                "totalQuantity",
+                json!(
+                    order
+                        .get("totalQuantity")
+                        .filter(|v| !v.is_null())
+                        .cloned()
+                        .unwrap_or(json!(0))
+                ),
+            ),
+            ("placedAt", json!(created)),
+            ("createdAt", json!(created)),
+            ("updatedAt", json!(date("updatedAt"))),
+            ("items", json!(items.iter().map(item).collect::<Vec<_>>())),
+            ("subtotal", json!(amount(&order["subtotal"], "0.00"))),
+            (
+                "discountTotal",
+                json!(amount(&order["discountTotal"], "0.00")),
+            ),
+            (
+                "shippingTotal",
+                json!(amount(&order["shippingTotal"], "0.00")),
+            ),
+            ("taxTotal", json!(amount(&order["taxTotal"], "0.00"))),
+            (
+                "pricesIncludeTax",
+                json!(
+                    order
+                        .get("pricesIncludeTax")
+                        .cloned()
+                        .unwrap_or(json!(false))
+                ),
+            ),
+            ("discountCode", json!(text("discountCode"))),
+            ("discountId", json!(text("discountId"))),
+            (
+                "billingAddress",
+                json!(order.get("billingAddress").map_or(Value::Null, address)),
+            ),
+            (
+                "shippingAddress",
+                json!(order.get("shippingAddress").map_or(Value::Null, address)),
+            ),
+            ("customerPhone", json!(text("customerPhone"))),
+            ("customerReference", json!(text("customerReference"))),
+            ("customerNote", json!(text("customerNote"))),
+            ("internalNote", json!(text("internalNote"))),
+            ("destinationCountry", json!(text("destinationCountry"))),
+            ("buyerVatNumber", json!(text("buyerVatNumber"))),
+            ("vatTreatment", json!(text("vatTreatment"))),
+            ("paymentMethod", json!(text("paymentMethod"))),
+            ("paymentReference", json!(text("paymentReference"))),
+            ("paidAt", json!(date("paidAt"))),
+            ("cancelledAt", json!(date("cancelledAt"))),
+            ("cancelReason", json!(text("cancelReason"))),
+            ("completedAt", json!(date("completedAt"))),
+            ("externalOrderId", json!(text("externalOrderId"))),
+            (
+                "tags",
+                json!(
+                    order
+                        .get("tags")
+                        .filter(|v| v.is_array())
+                        .cloned()
+                        .unwrap_or(json!([]))
+                ),
+            ),
+            ("invoice", json!(invoice.unwrap_or(Value::Null))),
+            ("editable", json!(domain_orders::editable(order, items))),
+            (
+                "cancellable",
+                json!(domain_orders::cancellable(order, items)),
+            ),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_owned(), value))
+        .collect(),
+    )
+}
+
+/// The order `id` as the API presents it, on any connection.
+async fn fetch(db: &weldsuite_db::PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
+    let mut conn = db.acquire().await?;
+    let Some(stored) = domain_orders::load(&mut conn, id, false).await? else {
+        return Ok(None);
+    };
+    let company: Option<(String, Option<String>)> = sqlx::query_as(
+        "select pa.company_id, co.display_name from parties pa \
+         join companies co on co.id = pa.company_id \
+         where pa.id = $1 and pa.company_id is not null limit 1",
+    )
+    .bind(stored.text("counterpartyId"))
+    .fetch_optional(&mut *conn)
+    .await?;
+    let invoice: Option<(String, Option<String>, String)> = sqlx::query_as(
+        "select id, invoice_number, status from invoices \
+         where commerce_order_id = $1 and deleted_at is null \
+         order by created_at desc, id desc limit 1",
+    )
+    .bind(id)
+    .fetch_optional(&mut *conn)
+    .await?;
+    let invoice =
+        invoice.map(|(id, number, status)| json!({ "id": id, "number": number, "status": status }));
+    Ok(Some(present(
+        &stored.order,
+        &stored.items,
+        company,
+        invoice,
+    )))
+}
+
+/// The event data of an order.
+fn event(order: &Value) -> Value {
+    json!({
+        "id": order["id"],
+        "orderNumber": order["orderNumber"],
+        "status": order["status"],
+        "paymentStatus": order["paymentStatus"],
+        "total": order["total"],
+        "currency": order["currency"],
+        "customerName": order["customerName"],
+        "customerEmail": order["customerEmail"],
+        "personId": order["personId"],
+        "companyId": order["companyId"],
+        "source": order["source"],
+    })
+}
+
+// ── list ────────────────────────────────────────────────────────────────────
+
+/// Params `$1..$10`: search, status, payment status, fulfillment status,
+/// source, channel, company, person, from, to (exclusive).
+const WHERE_SQL: &str = " where o.deleted_at is null \
+    and ($1::text is null or o.order_number ilike $1 or o.customer_name ilike $1 \
+         or o.customer_email ilike $1 or o.external_order_id ilike $1) \
+    and ($2::text is null or o.status = $2) \
+    and ($3::text is null or o.payment_status = $3) \
+    and ($4::text is null or o.fulfillment_status = $4) \
+    and ($5::text is null or o.source = $5) \
+    and ($6::text is null or o.channel_id = $6) \
+    and ($7::text is null or pa.company_id = $7) \
+    and ($8::text is null or o.person_id = $8) \
+    and ($9::text is null or o.created_at >= $9::timestamp) \
+    and ($10::text is null or o.created_at < $10::timestamp)";
+
+/// `(column, descending)` of a `sort`.
+fn sort_of(sort: &str) -> Option<(&'static str, bool)> {
+    Some(match sort {
+        "createdAt" => ("o.created_at", false),
+        "-createdAt" => ("o.created_at", true),
+        "total" => ("o.total", false),
+        "-total" => ("o.total", true),
+        "orderNumber" => ("o.order_number", false),
+        _ => return None,
+    })
+}
+
+fn like(value: &str) -> String {
+    format!("%{}%", crate::rules::like_literal(value))
+}
+
+/// A `from` / `to` day or instant as Postgres reads it; `to` is exclusive,
+/// so a bare day takes the whole day.
+fn bound(text: &str, upper: bool) -> Option<String> {
+    let millis = js_date_parse(text)?;
+    let end = if upper {
+        millis
+            + if text.trim().len() == 10 {
+                86_400_000.0
+            } else {
+                1.0
+            }
+    } else {
+        millis
+    };
+    js_iso_from_millis(end)
+}
+
+#[allow(
+    clippy::too_many_lines,
+    reason = "the filters, the keyset and the page"
+)]
+async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
+    const FAILED: &str = "Failed to list orders";
+    let query = query.as_deref();
+    let param = |name: &str| query_set(query, name);
+    let sort = param("sort").unwrap_or_else(|| "-createdAt".to_owned());
+    let Some((column, descending)) = sort_of(&sort) else {
+        return invalid("sort", "Unknown sort").respond(FAILED);
+    };
+    let mut from = None;
+    let mut to = None;
+    for (name, upper, slot) in [("from", false, &mut from), ("to", true, &mut to)] {
+        if let Some(text) = param(name) {
+            match bound(&text, upper) {
+                Some(stamp) => *slot = Some(stamp),
+                None => return invalid(name, "Must be an ISO date").respond(FAILED),
+            }
+        }
+    }
+    let limit = weldsuite_kit::parse_limit(param("limit").as_deref(), 50, 100);
+    let search = param("search").map(|s| like(&s));
+    let operator = if descending { "<" } else { ">" };
+    let direction = if descending { "desc" } else { "asc" };
+    let keyset = format!(
+        " and ($11::text is null or not exists (select 1 from orders where id = $11) \
+           or (({column}, o.id) {operator} (select {c}, c.id from orders c where c.id = $11)))",
+        c = column.replace("o.", "c."),
+    );
+    let select = format!(
+        "select {FIELDS_OF_SUMMARY}{FROM_SUMMARY}{WHERE_SQL}{keyset} \
+         order by {column} {direction}, o.id {direction} limit $12"
+    );
+    let count = format!("select count(*){FROM_SUMMARY}{WHERE_SQL}");
+    let cursor = param("cursor");
+    macro_rules! bind_filters {
+        ($q:expr) => {
+            $q.bind(search.as_deref())
+                .bind(param("status"))
+                .bind(param("paymentStatus"))
+                .bind(param("fulfillmentStatus"))
+                .bind(param("source"))
+                .bind(param("channelId"))
+                .bind(param("companyId"))
+                .bind(param("personId"))
+                .bind(from.as_deref())
+                .bind(to.as_deref())
+        };
+    }
+    let rows: Result<Vec<Value>, sqlx::Error> =
+        bind_filters!(sqlx::query_scalar(sqlx::AssertSqlSafe(select)))
+            .bind(cursor.as_deref())
+            .bind(i64::from(limit) + 1)
+            .fetch_all(&caller.db)
+            .await;
+    let total: Result<i64, sqlx::Error> =
+        bind_filters!(sqlx::query_scalar(sqlx::AssertSqlSafe(count)))
+            .fetch_one(&caller.db)
+            .await;
+    match (rows, total) {
+        (Ok(rows), Ok(total)) => weldsuite_kit::Page::of(
+            rows.into_iter().map(summary).collect(),
+            usize::try_from(limit).unwrap_or(50),
+            |row: &Value| row["id"].as_str().unwrap_or_default(),
+        )
+        .into_list(u64::try_from(total).unwrap_or(0))
+        .into_response(),
+        (Err(error), _) | (_, Err(error)) => internal(&error, FAILED),
+    }
+}
+
+async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
+    const FAILED: &str = "Failed to fetch order";
+    match fetch(&caller.db, &id).await {
+        Ok(Some(order)) => Data(order).into_response(),
+        Ok(None) => Refusal::not_found("Order", &id).respond(FAILED),
+        Err(error) => internal(&error, FAILED),
+    }
+}
+
+// ── request bodies ──────────────────────────────────────────────────────────
+
+fn read_id(issues: &mut Issues, fields: &Map<String, Value>, key: &str) -> Field<String> {
+    issues.text_with(
+        fields,
+        key,
+        Presence::Nullish,
+        Text::trimmed(Some(1), Some(30)),
+    )
+}
+
+fn read_email(issues: &mut Issues, fields: &Map<String, Value>) -> Field<String> {
+    let rules = Text {
+        trim: true,
+        format: Some(Format::Email),
+        max: Some(255),
+        ..Text::default()
+    };
+    match issues.text_with(fields, "customerEmail", Presence::Nullish, rules) {
+        Field::Set(text) if text.is_empty() => Field::Null,
+        other => other,
+    }
+}
+
+fn read_items(issues: &mut Issues, fields: &Map<String, Value>) -> Option<Vec<LineInput>> {
+    issues
+        .list(
+            fields,
+            "items",
+            Presence::Optional,
+            Some(1),
+            Some(500),
+            |issues, raw| {
+                let item = issues.object(raw)?;
+                let before = issues.count();
+                let id = read_id(issues, item, "id").into_option();
+                let variant_id = read_id(issues, item, "variantId").into_option();
+                let product_id = read_id(issues, item, "productId").into_option();
+                let name = read_text(issues, item, "name", 255).into_option();
+                let quantity = issues
+                    .whole_number(
+                        item,
+                        "quantity",
+                        Presence::Required,
+                        Number {
+                            min: Some(1.0),
+                            max: Some(100_000.0),
+                            ..Number::default()
+                        },
+                    )
+                    .into_option();
+                let unit_price =
+                    read_money(issues, item, "unitPrice", Presence::Nullish).into_option();
+                if issues.count() > before {
+                    return None;
+                }
+                let free = variant_id.is_none() && product_id.is_none() && id.is_none();
+                if free && (name.is_none() || unit_price.is_none()) {
+                    issues.custom_here(
+                        "A line names a variant or product, or has a name and a unitPrice",
+                    );
+                    return None;
+                }
+                Some(LineInput {
+                    id,
+                    product_id,
+                    variant_id,
+                    name,
+                    quantity: quantity?,
+                    unit_price,
+                })
+            },
+        )
+        .into_option()
+}
+
+/// What the create and quote bodies share.
+struct OrderBody {
+    company_id: Option<String>,
+    person_id: Option<String>,
+    customer_name: Option<String>,
+    customer_email: Option<String>,
+    customer_phone: Option<String>,
+    currency: String,
+    items: Vec<LineInput>,
+    discount_code: Option<String>,
+    shipping: Cents,
+    billing_address: Option<Value>,
+    shipping_address: Option<Value>,
+    customer_reference: Option<String>,
+    customer_note: Option<String>,
+    internal_note: Option<String>,
+    status: String,
+    tags: Vec<String>,
+    idempotency_key: Option<String>,
+}
+
+fn read_tags(issues: &mut Issues, fields: &Map<String, Value>) -> Option<Vec<String>> {
+    issues
+        .list(
+            fields,
+            "tags",
+            Presence::Optional,
+            None,
+            Some(50),
+            |issues, tag| issues.item_text(tag, Text::trimmed(Some(1), Some(50))),
+        )
+        .into_option()
+}
+
+fn read_order(issues: &mut Issues, fields: &Map<String, Value>) -> OrderBody {
+    OrderBody {
+        company_id: read_id(issues, fields, "companyId").into_option(),
+        person_id: read_id(issues, fields, "personId").into_option(),
+        customer_name: read_text(issues, fields, "customerName", 255).into_option(),
+        customer_email: read_email(issues, fields).into_option(),
+        customer_phone: read_text(issues, fields, "customerPhone", 50).into_option(),
+        currency: read_currency(issues, fields, Presence::Required)
+            .into_option()
+            .unwrap_or_default(),
+        items: read_items(issues, fields).unwrap_or_default(),
+        discount_code: read_text(issues, fields, "discountCode", 100).into_option(),
+        shipping: read_money(issues, fields, "shippingTotal", Presence::Nullish)
+            .into_option()
+            .unwrap_or(0),
+        billing_address: read_address(issues, fields, "billingAddress").into_option(),
+        shipping_address: read_address(issues, fields, "shippingAddress").into_option(),
+        customer_reference: read_text(issues, fields, "customerReference", 100).into_option(),
+        customer_note: read_text(issues, fields, "customerNote", 5000).into_option(),
+        internal_note: read_text(issues, fields, "internalNote", 5000).into_option(),
+        status: issues
+            .choice(
+                fields,
+                "status",
+                Presence::Optional,
+                &["pending", "confirmed"],
+            )
+            .into_option()
+            .unwrap_or_else(|| "confirmed".to_owned()),
+        tags: read_tags(issues, fields).unwrap_or_default(),
+        idempotency_key: read_text(issues, fields, "idempotencyKey", 100).into_option(),
+    }
+}
+
+fn line_json(line: &weldsuite_commerce_domain::orders::lines::Line, discount: Cents) -> Value {
+    let gross = Cents::from(line.quantity) * line.unit_price;
+    json!({
+        "variantId": line.variant_id,
+        "productId": line.product_id,
+        "sku": line.sku,
+        "name": line.name,
+        "variantName": line.variant_name,
+        "quantity": line.quantity,
+        "unitPrice": money::format(line.unit_price),
+        "discountAmount": money::format(discount),
+        "total": money::format(gross - discount),
+        "problem": line.problem,
+    })
+}
+
+/// `POST /quote`: the order priced, nothing written. One line per item, in
+/// the request's order; a bad code is `discountProblem`, not an error.
+async fn quote(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
+    const FAILED: &str = "Failed to quote order";
+    let body = match validate(&headers, &body, read_order) {
+        Ok(body) => body,
+        Err(refusal) => return refusal.respond(FAILED),
+    };
+    let result = async {
+        let mut conn = caller.db.acquire().await?;
+        plan::quote(
+            &mut conn,
+            &QuoteInput {
+                currency: &body.currency,
+                lines: &body.items,
+                discount_code: body.discount_code.as_deref(),
+                shipping: body.shipping,
+                company_id: body.company_id.as_deref(),
+                person_id: body.person_id.as_deref(),
+                email: body.customer_email.as_deref(),
+            },
+        )
+        .await
+    }
+    .await;
+    match result {
+        Ok(quote) => {
+            let plan = &quote.plan;
+            Data(json!({
+                "currency": body.currency,
+                "lines": quote.lines.iter().enumerate()
+                    .map(|(index, line)| line_json(line, plan.line_discounts[index]))
+                    .collect::<Vec<_>>(),
+                "subtotal": money::format(plan.totals.subtotal),
+                "discountTotal": money::format(plan.totals.discount_total),
+                "shippingTotal": money::format(plan.totals.shipping_total),
+                "taxTotal": money::format(plan.totals.tax_total),
+                "total": money::format(plan.totals.total),
+                "discount": plan.discount.as_ref().map(|d| json!({
+                    "id": d.id, "code": d.code, "type": d.kind, "value": d.value,
+                })),
+                "discountProblem": plan.discount_problem.map(weldsuite_commerce_domain::discount::Problem::as_str),
+            }))
+            .into_response()
+        }
+        Err(error) => internal(&error, FAILED),
+    }
+}
+
+async fn create(
+    State(state): State<CommerceState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    const FAILED: &str = "Failed to create order";
+    let body = match validate(&headers, &body, read_order) {
+        Ok(body) => body,
+        Err(refusal) => return refusal.respond(FAILED),
+    };
+    let key = headers
+        .get("idempotency-key")
+        .and_then(|v| v.to_str().ok())
+        .map(|k| k.trim().to_owned())
+        .filter(|k| !k.is_empty())
+        .or(body.idempotency_key.clone());
+    if key.as_ref().is_some_and(|k| k.chars().count() > 100) {
+        return invalid("idempotencyKey", "At most 100 characters").respond(FAILED);
+    }
+    let new = NewOrder {
+        source: "manual".to_owned(),
+        channel_id: None,
+        currency: body.currency,
+        company_id: body.company_id,
+        person_id: body.person_id,
+        customer_name: body.customer_name,
+        customer_email: body.customer_email,
+        customer_phone: body.customer_phone,
+        lines: body.items,
+        discount_code: body.discount_code,
+        shipping: body.shipping,
+        billing_address: body.billing_address,
+        shipping_address: body.shipping_address,
+        customer_reference: body.customer_reference,
+        customer_note: body.customer_note,
+        internal_note: body.internal_note,
+        status: body.status,
+        tags: body.tags,
+        created_by: caller.user_id.clone(),
+        idempotency_key: key,
+    };
+    let created = async {
+        let mut tx = caller.db.begin().await?;
+        let created = write::create(&mut tx, &new).await.map_err(refuse)?;
+        tx.commit().await?;
+        Ok::<_, Refusal>(created)
+    }
+    .await;
+    match created {
+        Ok(created) => {
+            if !created.replayed
+                && let Ok(Some(order)) = fetch(&caller.db, &created.id).await
+            {
+                caller.publish(&state, ORDER_CREATED, &created.id, &event(&order));
+            }
+            Created(json!({ "id": created.id, "orderNumber": created.order_number }))
+                .into_response()
+        }
+        Err(refusal) => refusal.respond(FAILED),
+    }
+}
+
+fn read_patch(issues: &mut Issues, fields: &Map<String, Value>) -> Patch {
+    let shipping_total =
+        read_money(issues, fields, "shippingTotal", Presence::Optional).into_option();
+    Patch {
+        billing_address: read_address(issues, fields, "billingAddress"),
+        shipping_address: read_address(issues, fields, "shippingAddress"),
+        customer_reference: read_text(issues, fields, "customerReference", 100),
+        customer_note: read_text(issues, fields, "customerNote", 5000),
+        internal_note: read_text(issues, fields, "internalNote", 5000),
+        tags: read_tags(issues, fields),
+        status: issues
+            .choice(
+                fields,
+                "status",
+                Presence::Optional,
+                &["pending", "confirmed", "processing", "completed"],
+            )
+            .into_option(),
+        company_id: read_id(issues, fields, "companyId"),
+        person_id: read_id(issues, fields, "personId"),
+        customer_name: read_text(issues, fields, "customerName", 255),
+        customer_email: read_email(issues, fields),
+        customer_phone: read_text(issues, fields, "customerPhone", 50),
+        shipping_total,
+        discount_code: read_text(issues, fields, "discountCode", 100),
+        items: read_items(issues, fields),
+    }
+}
+
+async fn patch_order(
+    State(state): State<CommerceState>,
+    caller: Caller,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    const FAILED: &str = "Failed to update order";
+    let (headers, body) = body_or_empty(&headers, &body);
+    let patch = match validate(&headers, &body, read_patch) {
+        Ok(patch) => patch,
+        Err(refusal) => return refusal.respond(FAILED),
+    };
+    let done = async {
+        let mut tx = caller.db.begin().await?;
+        let done = write::update(&mut tx, &id, &patch).await.map_err(refuse)?;
+        tx.commit().await?;
+        Ok::<_, Refusal>(done)
+    }
+    .await;
+    match done {
+        Ok(done) => {
+            respond_with_order(
+                &state,
+                &caller,
+                &id,
+                &[ORDER_UPDATED],
+                done.completed.then_some(ORDER_COMPLETED),
+                FAILED,
+            )
+            .await
+        }
+        Err(refusal) => refusal.respond(FAILED),
+    }
+}
+
+/// The order after a write, with its events published.
+async fn respond_with_order(
+    state: &CommerceState,
+    caller: &Caller,
+    id: &str,
+    events: &[weldsuite_catalogs::entity_events::EventName],
+    extra: Option<weldsuite_catalogs::entity_events::EventName>,
+    failed: &str,
+) -> Response {
+    match fetch(&caller.db, id).await {
+        Ok(Some(order)) => {
+            let data = event(&order);
+            for name in events.iter().copied().chain(extra) {
+                caller.publish(state, name, id, &data);
+            }
+            Data(order).into_response()
+        }
+        Ok(None) => Refusal::not_found("Order", id).respond(failed),
+        Err(error) => internal(&error, failed),
+    }
+}
+
+async fn cancel(
+    State(state): State<CommerceState>,
+    caller: Caller,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    const FAILED: &str = "Failed to cancel order";
+    let (headers, body) = body_or_empty(&headers, &body);
+    let reason = match validate(&headers, &body, |issues, fields| {
+        read_text(issues, fields, "reason", 500).into_option()
+    }) {
+        Ok(reason) => reason,
+        Err(refusal) => return refusal.respond(FAILED),
+    };
+    let done = async {
+        let mut tx = caller.db.begin().await?;
+        write::cancel(&mut tx, &id, reason.as_deref())
+            .await
+            .map_err(refuse)?;
+        tx.commit().await?;
+        Ok::<_, Refusal>(())
+    }
+    .await;
+    match done {
+        Ok(()) => respond_with_order(&state, &caller, &id, &[ORDER_CANCELLED], None, FAILED).await,
+        Err(refusal) => refusal.respond(FAILED),
+    }
+}
+
+async fn mark_paid(
+    State(state): State<CommerceState>,
+    caller: Caller,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    const FAILED: &str = "Failed to mark order paid";
+    let (headers, body) = body_or_empty(&headers, &body);
+    let payment = match validate(&headers, &body, |issues, fields| Payment {
+        paid_at: read_date(issues, fields, "paidAt", Presence::Nullish).into_option(),
+        method: read_text(issues, fields, "paymentMethod", 100).into_option(),
+        reference: read_text(issues, fields, "paymentReference", 255).into_option(),
+    }) {
+        Ok(payment) => payment,
+        Err(refusal) => return refusal.respond(FAILED),
+    };
+    let done = async {
+        let mut tx = caller.db.begin().await?;
+        write::mark_paid(&mut tx, &id, &payment)
+            .await
+            .map_err(refuse)?;
+        tx.commit().await?;
+        Ok::<_, Refusal>(())
+    }
+    .await;
+    match done {
+        Ok(()) => respond_with_order(&state, &caller, &id, &[ORDER_PAID], None, FAILED).await,
+        Err(refusal) => refusal.respond(FAILED),
+    }
+}

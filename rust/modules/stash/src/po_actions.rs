@@ -31,7 +31,7 @@ use weldsuite_catalogs::entity_events::{
     EventName, PURCHASE_ORDER_APPROVED, PURCHASE_ORDER_CANCELLED, PURCHASE_ORDER_CLOSED,
     PURCHASE_ORDER_ORDERED,
 };
-use weldsuite_catalogs::permission_keys::{ORDERS_READ, ORDERS_UPDATE};
+use weldsuite_catalogs::permission_keys::{PURCHASE_ORDERS_READ, PURCHASE_ORDERS_UPDATE};
 use weldsuite_kit::validation::Presence;
 use weldsuite_kit::{Data, List, Pagination};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
@@ -50,7 +50,7 @@ pub(crate) fn routes<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<StashState>
 where
     Q: PermissionQueries + 'static,
 {
-    let update = || gate.require([ORDERS_UPDATE]);
+    let update = || gate.require([PURCHASE_ORDERS_UPDATE]);
     Router::new()
         .route("/{id}/approve", post(approve).route_layer(update()))
         .route(
@@ -61,7 +61,7 @@ where
         .route("/{id}/close", post(close).route_layer(update()))
         .route(
             "/{id}/receipts",
-            get(receipts).route_layer(gate.require([ORDERS_READ])),
+            get(receipts).route_layer(gate.require([PURCHASE_ORDERS_READ])),
         )
 }
 

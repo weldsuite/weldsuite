@@ -12,6 +12,8 @@ export type ObjectType =
   | 'task'
   | 'product'
   | 'category'
+  | 'order'
+  | 'discount'
   | (string & {});
 
 export interface ObjectPanelComponentProps {

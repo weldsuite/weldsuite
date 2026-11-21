@@ -8,6 +8,7 @@ import { ErrorState } from '@weldsuite/ui/components/error-banner';
 import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 import { formatPanelDate, formatPanelMoney } from '@/components/objects/_shared/simple-object-panel';
 import { useCommerceOverview, type CommerceRecentOrder } from '@/hooks/queries/use-commerce-queries';
+import { Link } from '@/lib/router';
 import { getTranslations } from '@/lib/i18n';
 import { fill } from './lib/text';
 
@@ -57,7 +58,16 @@ export default function WeldCommerceOverview() {
   }
 
   const columns: ListTableColumn<CommerceRecentOrder>[] = [
-    { id: 'order', header: t.columns.order, accessor: (row) => row.orderNumber ?? row.id },
+    {
+      id: 'order',
+      header: t.columns.order,
+      // Opens the order's panel on the orders list.
+      cell: (row) => (
+        <Link href={`/weldcommerce/orders?open=${row.id}`} className="font-medium text-primary hover:underline">
+          {row.orderNumber ?? row.id}
+        </Link>
+      ),
+    },
     { id: 'customer', header: t.columns.customer, accessor: (row) => row.customerName ?? '—' },
     { id: 'status', header: t.columns.status, cell: (row) => <StatusBadge value={row.status} /> },
     { id: 'payment', header: t.columns.payment, cell: (row) => <StatusBadge value={row.paymentStatus} /> },

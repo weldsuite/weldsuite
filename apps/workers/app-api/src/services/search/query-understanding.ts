@@ -189,6 +189,8 @@ const TYPE_KEYWORD_MAP: Record<string, SearchEntityType> = {
   // sign_envelope (WeldSign)
   envelope: 'sign_envelope', envelopes: 'sign_envelope',
   envelop: 'sign_envelope', enveloppen: 'sign_envelope',
+  // order (WeldCommerce)
+  order: 'order', orders: 'order', bestelling: 'order', bestellingen: 'order',
   // warehouse (WeldStash)
   warehouse: 'warehouse', warehouses: 'warehouse', magazijn: 'warehouse', magazijnen: 'warehouse',
   // workflow (WeldConnect)

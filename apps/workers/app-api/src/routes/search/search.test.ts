@@ -177,7 +177,7 @@ describe('POST /api/search', () => {
     expect(res.understanding.source).toBe('lexical');
     expect(res.data.map((g) => g.type)).toEqual([
       'contact', 'customer', 'lead', 'opportunity', 'ticket', 'conversation', 'article', 'knowledge_page',
-      'product', 'warehouse', 'invoice', 'bill', 'project', 'task', 'merge_issue', 'merge_pull_request',
+      'product', 'order', 'warehouse', 'invoice', 'bill', 'project', 'task', 'merge_issue', 'merge_pull_request',
       'document', 'sheet', 'board', 'form', 'sign_envelope', 'drive_file', 'meeting', 'chat_channel', 'reach_campaign',
       'data_list', 'panel_project', 'workflow', 'agent', 'domain',
     ]);
@@ -185,7 +185,7 @@ describe('POST /api/search', () => {
     expect(byType.get('knowledge_page')?.items.map((i) => i.id)).toEqual(['kpg_acme']);
     expect(byType.get('domain')?.items.map((i) => i.id)).toEqual(['dom_acme']);
     expect(byType.get('sheet')?.items.map((i) => i.id)).toEqual(['sht_fil_sheet_open']);
-    expect(byType.get('product')?.items[0]?.url).toBe('/weldstash/products?stack=product:prd_acme');
+    expect(byType.get('product')?.items[0]?.url).toBe('/weldcommerce/products?open=prd_acme');
     expect(byType.get('contact')?.items.map((i) => i.id)).toEqual(['per_mail', 'per_acme']);
   });
 

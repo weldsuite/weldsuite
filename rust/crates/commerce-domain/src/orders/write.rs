@@ -1,0 +1,1278 @@
+//! The only way an order and its items are created or changed (ADR COM-010).
+//!
+//! Every function runs on the caller's connection, normally inside the
+//! caller's transaction: the order, its items, the number taken from the
+//! settings and a discount's redemption and counter then commit or roll back
+//! together. The functions publish nothing; the caller publishes the entity
+//! event after the commit.
+//!
+//! - [`create`]: a manual order. Numbered from the settings, priced from the
+//!   catalogue, the discount code redeemed, safe to retry with an
+//!   idempotency key.
+//! - [`update`]: notes, addresses, tags and status always; the customer,
+//!   shipping and items (stable item ids) and the discount code only while
+//!   the order is editable, with the totals and the redemption recalculated.
+//! - [`cancel`], [`mark_paid`].
+//! - [`import`]: an order a store sync brought in; the store's own numbers
+//!   and totals stay, the items are brought in line with the store's lines
+//!   without replacing them.
+
+use std::collections::HashSet;
+
+use serde_json::{Map, Value, json};
+use sqlx::PgConnection;
+use weldsuite_books_domain::table::Table;
+use weldsuite_kit::generate_id;
+use weldsuite_kit::validation::Field;
+
+use crate::error::{Error, LineProblem};
+use crate::money::{self, Cents};
+use crate::numbering;
+use crate::orders::lines::{self, Line, LineInput};
+use crate::orders::plan::{self, Plan};
+use crate::orders::{self, Stored};
+use crate::status;
+use crate::tables::{ORDER_ITEMS, ORDERS};
+use crate::totals;
+
+fn put(values: &mut Map<String, Value>, table: &Table, prop: &str, value: Value) {
+    debug_assert!(table.column(prop).is_some(), "{} has no {prop}", table.name);
+    table.set(values, prop, value);
+}
+
+fn amount(cents: Cents) -> Value {
+    json!(money::format(cents))
+}
+
+/// A tri-state field as a column value: set, cleared, or left out.
+fn apply<T: Into<Value> + Clone>(
+    values: &mut Map<String, Value>,
+    table: &Table,
+    prop: &str,
+    field: &Field<T>,
+) {
+    match field {
+        Field::Set(value) => put(values, table, prop, value.clone().into()),
+        Field::Null => put(values, table, prop, Value::Null),
+        Field::Absent => {}
+    }
+}
+
+// ── the customer ────────────────────────────────────────────────────────────
+
+/// Who buys, as the order records it.
+#[derive(Debug, Default)]
+struct Customer {
+    counterparty_id: Option<String>,
+    person_id: Option<String>,
+    name: Option<String>,
+    email: Option<String>,
+    phone: Option<String>,
+}
+
+async fn party_of(
+    conn: &mut PgConnection,
+    company: bool,
+    id: &str,
+    owner: &str,
+) -> Result<Option<String>, sqlx::Error> {
+    let found: Option<String> = sqlx::query_scalar(if company {
+        "select id from parties where company_id = $1 and deleted_at is null limit 1"
+    } else {
+        "select id from parties where person_id = $1 and deleted_at is null limit 1"
+    })
+    .bind(id)
+    .fetch_optional(&mut *conn)
+    .await?;
+    if found.is_some() {
+        return Ok(found);
+    }
+    // The wrapping party WeldCRM creates with a company or a person, made
+    // here when it is not there yet (the same insert the connector ingest
+    // does for a buyer).
+    let sql = if company {
+        "insert into parties (id, kind, company_id, role, display_name, billing_address, \
+           archived_at, owner_id, created_at, updated_at) \
+         select $1, 'company', c.id, 'customer', c.display_name, c.primary_address, \
+           c.archived_at, $3, $4::timestamp, $4::timestamp \
+         from companies c where c.id = $2 and c.deleted_at is null returning id"
+    } else {
+        "insert into parties (id, kind, person_id, role, display_name, billing_address, \
+           archived_at, owner_id, created_at, updated_at) \
+         select $1, 'person', p.id, 'customer', p.display_name, p.primary_address, \
+           p.archived_at, $3, $4::timestamp, $4::timestamp \
+         from people p where p.id = $2 and p.deleted_at is null returning id"
+    };
+    sqlx::query_scalar(sql)
+        .bind(generate_id("party"))
+        .bind(id)
+        .bind(owner)
+        .bind(crate::now())
+        .fetch_optional(&mut *conn)
+        .await
+}
+
+type Identity = (Option<String>, Option<String>, Option<String>);
+
+async fn identity(
+    conn: &mut PgConnection,
+    company: bool,
+    id: &str,
+) -> Result<Option<Identity>, sqlx::Error> {
+    sqlx::query_as(if company {
+        "select display_name, email, phone from companies where id = $1 and deleted_at is null"
+    } else {
+        "select display_name, email, coalesce(mobile_phone, direct_phone) \
+         from people where id = $1 and deleted_at is null"
+    })
+    .bind(id)
+    .fetch_optional(&mut *conn)
+    .await
+}
+
+/// The buyer: a company (its party is the counterparty) and/or a person.
+/// Without a company, the person's own party is.
+async fn customer(
+    conn: &mut PgConnection,
+    company_id: Option<&str>,
+    person_id: Option<&str>,
+    owner: &str,
+) -> Result<Customer, Error> {
+    let mut out = Customer::default();
+    let mut company = None;
+    if let Some(id) = company_id {
+        let found = identity(conn, true, id)
+            .await?
+            .ok_or_else(|| Error::invalid("companyId", "Company not found"))?;
+        out.counterparty_id = party_of(conn, true, id, owner).await?;
+        company = Some(found);
+    }
+    let mut person = None;
+    if let Some(id) = person_id {
+        let found = identity(conn, false, id)
+            .await?
+            .ok_or_else(|| Error::invalid("personId", "Person not found"))?;
+        if out.counterparty_id.is_none() {
+            out.counterparty_id = party_of(conn, false, id, owner).await?;
+        }
+        out.person_id = Some(id.to_owned());
+        person = Some(found);
+    }
+    let first =
+        |a: Option<&Identity>, b: Option<&Identity>, pick: fn(&Identity) -> &Option<String>| {
+            a.and_then(|i| pick(i).clone())
+                .or_else(|| b.and_then(|i| pick(i).clone()))
+        };
+    out.name = first(person.as_ref(), company.as_ref(), |i| &i.0);
+    out.email = first(person.as_ref(), company.as_ref(), |i| &i.1);
+    out.phone = first(person.as_ref(), company.as_ref(), |i| &i.2);
+    Ok(out)
+}
+
+// ── redemptions ─────────────────────────────────────────────────────────────
+
+async fn redeem(
+    conn: &mut PgConnection,
+    order_id: &str,
+    redeemed: &plan::Redeemed,
+    person_id: Option<&str>,
+    email: Option<&str>,
+    currency: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "insert into discount_redemptions \
+           (id, discount_id, order_id, person_id, customer_email, amount, currency) \
+         values ($1, $2, $3, $4, $5, $6::numeric, $7)",
+    )
+    .bind(generate_id("dred"))
+    .bind(&redeemed.id)
+    .bind(order_id)
+    .bind(person_id)
+    .bind(email)
+    .bind(money::format(redeemed.amount))
+    .bind(currency)
+    .execute(&mut *conn)
+    .await?;
+    sqlx::query("update discounts set usage_count = coalesce(usage_count, 0) + 1 where id = $1")
+        .bind(&redeemed.id)
+        .execute(&mut *conn)
+        .await?;
+    Ok(())
+}
+
+/// Give back the order's redemptions: the rows go and the counters drop.
+async fn release(conn: &mut PgConnection, order_id: &str) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "with gone as (delete from discount_redemptions where order_id = $1 returning discount_id) \
+         update discounts d set usage_count = greatest(coalesce(d.usage_count, 0) - g.n, 0) \
+         from (select discount_id, count(*)::int as n from gone group by discount_id) g \
+         where d.id = g.discount_id",
+    )
+    .bind(order_id)
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
+}
+
+/// Bring the order's redemption in line with `redeemed`.
+async fn sync_redemption(
+    conn: &mut PgConnection,
+    order_id: &str,
+    redeemed: Option<&plan::Redeemed>,
+    person_id: Option<&str>,
+    email: Option<&str>,
+    currency: &str,
+) -> Result<(), sqlx::Error> {
+    let current: Option<String> = sqlx::query_scalar(
+        "select discount_id from discount_redemptions where order_id = $1 limit 1",
+    )
+    .bind(order_id)
+    .fetch_optional(&mut *conn)
+    .await?;
+    match (current.as_deref(), redeemed) {
+        (Some(have), Some(want)) if have == want.id => {
+            sqlx::query(
+                "update discount_redemptions set amount = $3::numeric, person_id = $4, \
+                   customer_email = $5, currency = $6 \
+                 where order_id = $1 and discount_id = $2",
+            )
+            .bind(order_id)
+            .bind(&want.id)
+            .bind(money::format(want.amount))
+            .bind(person_id)
+            .bind(email)
+            .bind(currency)
+            .execute(&mut *conn)
+            .await?;
+        }
+        (have, want) => {
+            if have.is_some() {
+                release(conn, order_id).await?;
+            }
+            if let Some(want) = want {
+                redeem(conn, order_id, want, person_id, email, currency).await?;
+            }
+        }
+    }
+    Ok(())
+}
+
+// ── items ───────────────────────────────────────────────────────────────────
+
+fn item_values(
+    order_id: &str,
+    line: &Line,
+    discount: Cents,
+    total: Cents,
+    properties: Value,
+    now: &str,
+) -> Map<String, Value> {
+    let t = &ORDER_ITEMS;
+    let mut values = Map::new();
+    put(&mut values, t, "orderId", json!(order_id));
+    put(&mut values, t, "productId", json!(line.product_id));
+    put(&mut values, t, "variantId", json!(line.variant_id));
+    put(&mut values, t, "sku", json!(line.sku));
+    put(&mut values, t, "name", json!(line.name));
+    put(&mut values, t, "imageUrl", json!(line.image_url));
+    put(&mut values, t, "quantity", json!(line.quantity));
+    put(&mut values, t, "unitPrice", amount(line.unit_price));
+    put(&mut values, t, "discountAmount", amount(discount));
+    put(&mut values, t, "taxAmount", amount(0));
+    put(&mut values, t, "total", amount(total));
+    put(&mut values, t, "properties", properties);
+    put(&mut values, t, "updatedAt", json!(now));
+    values
+}
+
+async fn insert_item(
+    conn: &mut PgConnection,
+    order_id: &str,
+    line: &Line,
+    discount: Cents,
+    total: Cents,
+    now: &str,
+) -> Result<(), sqlx::Error> {
+    let properties = lines::properties(None, line.variant_name.as_deref());
+    let mut values = item_values(order_id, line, discount, total, properties, now);
+    put(&mut values, &ORDER_ITEMS, "id", json!(generate_id("oitm")));
+    put(&mut values, &ORDER_ITEMS, "createdAt", json!(now));
+    ORDER_ITEMS.insert_raw(&mut *conn, values).await?;
+    Ok(())
+}
+
+fn line_problems(resolved: &[Line]) -> Result<(), Error> {
+    let problems: Vec<LineProblem> = resolved
+        .iter()
+        .enumerate()
+        .filter_map(|(index, line)| line.problem.map(|problem| LineProblem { index, problem }))
+        .collect();
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(Error::LineProblems(problems))
+    }
+}
+
+/// The header columns an order's amounts and discount decide.
+fn plan_values(values: &mut Map<String, Value>, plan: &Plan, lines: &[Line], metadata: &Value) {
+    let t = &ORDERS;
+    put(values, t, "subtotal", amount(plan.totals.subtotal));
+    put(
+        values,
+        t,
+        "discountTotal",
+        amount(plan.totals.discount_total),
+    );
+    put(
+        values,
+        t,
+        "shippingTotal",
+        amount(plan.totals.shipping_total),
+    );
+    put(values, t, "taxTotal", amount(plan.totals.tax_total));
+    put(values, t, "total", amount(plan.totals.total));
+    let quantities: Vec<i64> = lines.iter().map(|l| l.quantity).collect();
+    let (item_count, total_quantity) = totals::counts(&quantities);
+    put(values, t, "itemCount", json!(item_count));
+    put(values, t, "totalQuantity", json!(total_quantity));
+    put(
+        values,
+        t,
+        "discountCode",
+        plan.discount
+            .as_ref()
+            .map_or(Value::Null, |d| json!(d.code)),
+    );
+    put(
+        values,
+        t,
+        "discountId",
+        plan.discount.as_ref().map_or(Value::Null, |d| json!(d.id)),
+    );
+    let mut metadata = metadata.as_object().cloned().unwrap_or_default();
+    metadata.insert(
+        "shippingRequested".to_owned(),
+        amount(plan.shipping_requested),
+    );
+    match plan
+        .discount
+        .as_ref()
+        .map(|d| d.shipping_waived)
+        .filter(|w| *w > 0)
+    {
+        Some(waived) => metadata.insert("shippingDiscount".to_owned(), amount(waived)),
+        None => metadata.remove("shippingDiscount"),
+    };
+    put(values, t, "metadata", Value::Object(metadata));
+}
+
+// ── create ──────────────────────────────────────────────────────────────────
+
+/// A manual order.
+#[derive(Debug, Clone, Default)]
+pub struct NewOrder {
+    /// `manual` for staff-entered orders.
+    pub source: String,
+    pub channel_id: Option<String>,
+    pub currency: String,
+    pub company_id: Option<String>,
+    pub person_id: Option<String>,
+    pub customer_name: Option<String>,
+    pub customer_email: Option<String>,
+    pub customer_phone: Option<String>,
+    pub lines: Vec<LineInput>,
+    pub discount_code: Option<String>,
+    pub shipping: Cents,
+    pub billing_address: Option<Value>,
+    pub shipping_address: Option<Value>,
+    pub customer_reference: Option<String>,
+    pub customer_note: Option<String>,
+    pub internal_note: Option<String>,
+    /// `pending` or `confirmed`.
+    pub status: String,
+    pub tags: Vec<String>,
+    pub created_by: String,
+    /// A client key that makes a retry return the first order.
+    pub idempotency_key: Option<String>,
+}
+
+/// The order that was placed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Created {
+    pub id: String,
+    pub order_number: String,
+    /// The idempotency key had placed this order already; nothing was written.
+    pub replayed: bool,
+}
+
+/// Place an order.
+///
+/// # Errors
+/// [`Error::Invalid`] for a company or person that is gone,
+/// [`Error::LineProblems`] for lines the catalogue cannot price,
+/// [`Error::Discount`] for a code that does not apply.
+#[allow(
+    clippy::too_many_lines,
+    reason = "the order, then its items, then the redemption"
+)]
+pub async fn create(conn: &mut PgConnection, new: &NewOrder) -> Result<Created, Error> {
+    if let Some(key) = &new.idempotency_key {
+        sqlx::query("select pg_advisory_xact_lock(hashtext($1))")
+            .bind(format!("weldcommerce:order-key:{key}"))
+            .execute(&mut *conn)
+            .await?;
+        let found: Option<(String, String)> = sqlx::query_as(
+            "select id, order_number from orders where idempotency_key = $1 limit 1",
+        )
+        .bind(key)
+        .fetch_optional(&mut *conn)
+        .await?;
+        if let Some((id, order_number)) = found {
+            return Ok(Created {
+                id,
+                order_number,
+                replayed: true,
+            });
+        }
+    }
+    let buyer = customer(
+        conn,
+        new.company_id.as_deref(),
+        new.person_id.as_deref(),
+        &new.created_by,
+    )
+    .await?;
+    let resolved = lines::resolve(conn, &new.currency, &new.lines, &[]).await?;
+    line_problems(&resolved)?;
+    let email = new.customer_email.clone().or_else(|| buyer.email.clone());
+    let plan = plan::plan(
+        conn,
+        &plan::Input {
+            currency: &new.currency,
+            lines: &resolved,
+            discount_code: new.discount_code.as_deref(),
+            shipping: new.shipping,
+            person_id: buyer.person_id.as_deref(),
+            counterparty_id: buyer.counterparty_id.as_deref(),
+            email: email.as_deref(),
+            order_id: None,
+            lock: true,
+        },
+    )
+    .await?;
+    if let Some(problem) = plan.discount_problem {
+        return Err(Error::Discount(problem));
+    }
+    let order_number = numbering::take(conn, &new.source).await?;
+    let id = generate_id("ord");
+    let now = crate::now();
+    let t = &ORDERS;
+    let mut values = Map::new();
+    put(&mut values, t, "id", json!(id));
+    put(&mut values, t, "orderNumber", json!(order_number));
+    put(&mut values, t, "source", json!(new.source));
+    put(&mut values, t, "channelId", json!(new.channel_id));
+    put(&mut values, t, "status", json!(new.status));
+    put(&mut values, t, "paymentStatus", json!("pending"));
+    put(&mut values, t, "currency", json!(new.currency));
+    put(
+        &mut values,
+        t,
+        "counterpartyId",
+        json!(buyer.counterparty_id),
+    );
+    put(&mut values, t, "personId", json!(buyer.person_id));
+    put(
+        &mut values,
+        t,
+        "customerName",
+        json!(new.customer_name.clone().or(buyer.name)),
+    );
+    put(&mut values, t, "customerEmail", json!(email));
+    put(
+        &mut values,
+        t,
+        "customerPhone",
+        json!(new.customer_phone.clone().or(buyer.phone)),
+    );
+    put(&mut values, t, "billingAddress", json!(new.billing_address));
+    put(
+        &mut values,
+        t,
+        "shippingAddress",
+        json!(new.shipping_address),
+    );
+    put(
+        &mut values,
+        t,
+        "customerReference",
+        json!(new.customer_reference),
+    );
+    put(&mut values, t, "customerNote", json!(new.customer_note));
+    put(&mut values, t, "internalNote", json!(new.internal_note));
+    put(&mut values, t, "tags", json!(new.tags));
+    put(&mut values, t, "createdBy", json!(new.created_by));
+    put(&mut values, t, "idempotencyKey", json!(new.idempotency_key));
+    put(&mut values, t, "approvalStatus", json!("not_required"));
+    put(&mut values, t, "createdAt", json!(now));
+    put(&mut values, t, "updatedAt", json!(now));
+    plan_values(&mut values, &plan, &resolved, &Value::Null);
+    ORDERS.insert_raw(&mut *conn, values).await?;
+    for (index, line) in resolved.iter().enumerate() {
+        let total = plan.line_total(&resolved, index);
+        insert_item(conn, &id, line, plan.line_discounts[index], total, &now).await?;
+    }
+    if let Some(redeemed) = &plan.discount {
+        redeem(
+            conn,
+            &id,
+            redeemed,
+            buyer.person_id.as_deref(),
+            email.as_deref(),
+            &new.currency,
+        )
+        .await?;
+    }
+    Ok(Created {
+        id,
+        order_number,
+        replayed: false,
+    })
+}
+
+// ── update ──────────────────────────────────────────────────────────────────
+
+/// A change to an order. A field left out is left alone.
+#[derive(Debug, Default)]
+pub struct Patch {
+    pub billing_address: Field<Value>,
+    pub shipping_address: Field<Value>,
+    pub customer_reference: Field<String>,
+    pub customer_note: Field<String>,
+    pub internal_note: Field<String>,
+    pub tags: Option<Vec<String>>,
+    pub status: Option<String>,
+    // Only while the order is editable:
+    pub company_id: Field<String>,
+    pub person_id: Field<String>,
+    pub customer_name: Field<String>,
+    pub customer_email: Field<String>,
+    pub customer_phone: Field<String>,
+    pub shipping_total: Option<Cents>,
+    pub discount_code: Field<String>,
+    /// The full list: a line with an `id` updates that item, a line without
+    /// one is added, an item that is not listed is removed.
+    pub items: Option<Vec<LineInput>>,
+}
+
+/// What an update did, for the events the caller publishes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Updated {
+    /// The status moved to `completed`.
+    pub completed: bool,
+}
+
+fn differs(field: &Field<String>, current: Option<&str>) -> bool {
+    match field {
+        Field::Absent => false,
+        Field::Null => current.is_some_and(|c| !c.is_empty()),
+        Field::Set(value) => current != Some(value.as_str()),
+    }
+}
+
+fn requested_shipping(order: &Value) -> Cents {
+    order
+        .pointer("/metadata/shippingRequested")
+        .and_then(Value::as_str)
+        .or_else(|| order.get("shippingTotal").and_then(Value::as_str))
+        .and_then(money::parse)
+        .unwrap_or(0)
+}
+
+async fn company_of(
+    conn: &mut PgConnection,
+    counterparty: Option<&str>,
+) -> Result<Option<String>, sqlx::Error> {
+    let Some(party) = counterparty else {
+        return Ok(None);
+    };
+    let found: Option<Option<String>> =
+        sqlx::query_scalar("select company_id from parties where id = $1 limit 1")
+            .bind(party)
+            .fetch_optional(&mut *conn)
+            .await?;
+    Ok(found.flatten())
+}
+
+/// What an edit of an editable order touches.
+#[allow(clippy::struct_excessive_bools, reason = "one flag per kind of edit")]
+struct Edits {
+    customer: bool,
+    shipping: bool,
+    discount: bool,
+    items: bool,
+}
+
+impl Edits {
+    fn any(&self) -> bool {
+        self.customer || self.shipping || self.discount || self.items
+    }
+}
+
+fn detect(stored: &Stored, patch: &Patch, company: Option<&str>) -> Edits {
+    let order = &stored.order;
+    let customer = differs(&patch.person_id, stored.text("personId"))
+        || differs(&patch.company_id, company)
+        || differs(&patch.customer_name, stored.text("customerName"))
+        || differs(&patch.customer_email, stored.text("customerEmail"))
+        || differs(&patch.customer_phone, stored.text("customerPhone"));
+    let shipping = patch
+        .shipping_total
+        .is_some_and(|typed| typed != requested_shipping(order));
+    let stored_code = stored
+        .text("discountCode")
+        .unwrap_or_default()
+        .trim()
+        .to_lowercase();
+    let discount = match &patch.discount_code {
+        Field::Absent => false,
+        Field::Null => !stored_code.is_empty(),
+        Field::Set(code) => code.trim().to_lowercase() != stored_code,
+    };
+    Edits {
+        customer,
+        shipping,
+        discount,
+        items: patch.items.is_some(),
+    }
+}
+
+fn not_editable(stored: &Stored) -> Error {
+    let reason = if stored
+        .text("externalOrderId")
+        .is_some_and(|id| !id.is_empty())
+    {
+        "The order is synced from a store; change it there"
+    } else {
+        "The order can no longer be edited: it is cancelled, completed, paid or partly fulfilled"
+    };
+    Error::NotEditable(reason.to_owned())
+}
+
+fn check_item_ids(stored: &Stored, inputs: &[LineInput]) -> Result<(), Error> {
+    let have: HashSet<&str> = stored
+        .items
+        .iter()
+        .filter_map(|item| item.get("id").and_then(Value::as_str))
+        .collect();
+    let mut seen = HashSet::new();
+    for (index, input) in inputs.iter().enumerate() {
+        if let Some(id) = &input.id
+            && (!have.contains(id.as_str()) || !seen.insert(id.as_str()))
+        {
+            return Err(Error::invalid(
+                format!("items.{index}.id"),
+                "Not an item of this order, or listed twice",
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Write the lines of an items edit: update in place, insert new, delete a
+/// removed one unless a pick list holds it.
+async fn write_items(
+    conn: &mut PgConnection,
+    stored: &Stored,
+    resolved: &[Line],
+    plan: &Plan,
+    now: &str,
+) -> Result<(), Error> {
+    let order_id = stored.text("id").unwrap_or_default();
+    let listed: HashSet<&str> = resolved.iter().filter_map(|l| l.id.as_deref()).collect();
+    let removed: Vec<String> = stored
+        .items
+        .iter()
+        .filter_map(|item| item.get("id").and_then(Value::as_str))
+        .filter(|id| !listed.contains(id))
+        .map(str::to_owned)
+        .collect();
+    if !removed.is_empty() {
+        let gone: Vec<String> = sqlx::query_scalar(
+            "delete from order_items t where t.id = any($1) \
+               and coalesce(t.fulfilled_quantity, 0) = 0 \
+               and not exists (select 1 from pick_list_items p where p.order_item_id = t.id) \
+             returning t.id",
+        )
+        .bind(&removed)
+        .fetch_all(&mut *conn)
+        .await?;
+        if gone.len() != removed.len() {
+            return Err(Error::NotEditable(
+                "An item that is on a pick list cannot be removed".to_owned(),
+            ));
+        }
+    }
+    for (index, line) in resolved.iter().enumerate() {
+        let total = plan.line_total(resolved, index);
+        let discount = plan.line_discounts[index];
+        match &line.id {
+            Some(id) => {
+                let existing = stored
+                    .items
+                    .iter()
+                    .find(|item| item.get("id").and_then(Value::as_str) == Some(id.as_str()));
+                let properties = lines::properties(
+                    existing.and_then(|item| item.get("properties")),
+                    line.variant_name.as_deref(),
+                );
+                let values = item_values(order_id, line, discount, total, properties, now);
+                ORDER_ITEMS.patch_raw(&mut *conn, id, values, false).await?;
+            }
+            None => insert_item(conn, order_id, line, discount, total, now).await?,
+        }
+    }
+    Ok(())
+}
+
+/// Change an order.
+///
+/// # Errors
+/// [`Error::NotFound`]; [`Error::NotEditable`] when the customer, shipping,
+/// discount code or items change on an order that is not editable;
+/// [`Error::InvalidTransition`] for a status that moves backwards or is
+/// `cancelled`; [`Error::LineProblems`], [`Error::Discount`] and
+/// [`Error::Invalid`] as for [`create`].
+#[allow(
+    clippy::too_many_lines,
+    reason = "one pass over what the patch touches"
+)]
+pub async fn update(conn: &mut PgConnection, id: &str, patch: &Patch) -> Result<Updated, Error> {
+    let stored = orders::load(conn, id, true)
+        .await?
+        .ok_or_else(|| Error::not_found("Order", id))?;
+    let order = &stored.order;
+    let now = crate::now();
+    let t = &ORDERS;
+    let mut values = Map::new();
+    put(&mut values, t, "updatedAt", json!(now));
+    apply(&mut values, t, "billingAddress", &patch.billing_address);
+    apply(&mut values, t, "shippingAddress", &patch.shipping_address);
+    apply(
+        &mut values,
+        t,
+        "customerReference",
+        &patch.customer_reference,
+    );
+    apply(&mut values, t, "customerNote", &patch.customer_note);
+    apply(&mut values, t, "internalNote", &patch.internal_note);
+    if let Some(tags) = &patch.tags {
+        put(&mut values, t, "tags", json!(tags));
+    }
+
+    let mut completed = false;
+    if let Some(to) = &patch.status {
+        let from = stored.text("status").unwrap_or("pending");
+        if to != from {
+            if !status::can_move(from, to) {
+                return Err(Error::InvalidTransition {
+                    from: from.to_owned(),
+                    to: to.clone(),
+                });
+            }
+            put(&mut values, t, "status", json!(to));
+            if to == "completed" {
+                put(&mut values, t, "completedAt", json!(now));
+                completed = true;
+            }
+        }
+    }
+
+    let company = company_of(conn, stored.text("counterpartyId")).await?;
+    let edits = detect(&stored, patch, company.as_deref());
+    if edits.any() {
+        if !stored.editable() {
+            return Err(not_editable(&stored));
+        }
+        let owner = stored.text("createdBy").unwrap_or_default().to_owned();
+        let mut person_id = stored.text("personId").map(str::to_owned);
+        let mut email = stored.text("customerEmail").map(str::to_owned);
+        let mut counterparty = stored.text("counterpartyId").map(str::to_owned);
+        if edits.customer {
+            let company_new = match &patch.company_id {
+                Field::Set(id) => Some(id.clone()),
+                Field::Null => None,
+                Field::Absent => company.clone(),
+            };
+            let person_new = match &patch.person_id {
+                Field::Set(id) => Some(id.clone()),
+                Field::Null => None,
+                Field::Absent => person_id.clone(),
+            };
+            let buyer =
+                customer(conn, company_new.as_deref(), person_new.as_deref(), &owner).await?;
+            counterparty = buyer.counterparty_id;
+            person_id = buyer.person_id;
+            put(&mut values, t, "counterpartyId", json!(counterparty));
+            put(&mut values, t, "personId", json!(person_id));
+            // A customer the order has no name or e-mail for lends it.
+            if stored.text("customerName").is_none_or(str::is_empty)
+                && patch.customer_name.is_absent()
+            {
+                put(&mut values, t, "customerName", json!(buyer.name));
+            }
+            if email.is_none() && patch.customer_email.is_absent() {
+                email.clone_from(&buyer.email);
+                put(&mut values, t, "customerEmail", json!(buyer.email));
+            }
+            if stored.text("customerPhone").is_none_or(str::is_empty)
+                && patch.customer_phone.is_absent()
+            {
+                put(&mut values, t, "customerPhone", json!(buyer.phone));
+            }
+        }
+        apply(&mut values, t, "customerName", &patch.customer_name);
+        apply(&mut values, t, "customerPhone", &patch.customer_phone);
+        if let Field::Set(address) = &patch.customer_email {
+            email = Some(address.clone());
+        } else if patch.customer_email == Field::Null {
+            email = None;
+        }
+        apply(&mut values, t, "customerEmail", &patch.customer_email);
+
+        let currency = stored.text("currency").unwrap_or("EUR").to_owned();
+        let resolved: Vec<Line> = if let Some(inputs) = &patch.items {
+            check_item_ids(&stored, inputs)?;
+            let resolved = lines::resolve(conn, &currency, inputs, &stored.items).await?;
+            line_problems(&resolved)?;
+            resolved
+        } else {
+            stored.items.iter().map(lines::stored_line).collect()
+        };
+        let code: Option<String> = match &patch.discount_code {
+            Field::Set(code) => Some(code.clone()),
+            Field::Null => None,
+            Field::Absent => stored
+                .text("discountId")
+                .and(stored.text("discountCode"))
+                .map(str::to_owned),
+        };
+        let shipping = patch
+            .shipping_total
+            .unwrap_or_else(|| requested_shipping(order));
+        let plan = plan::plan(
+            conn,
+            &plan::Input {
+                currency: &currency,
+                lines: &resolved,
+                discount_code: code.as_deref(),
+                shipping,
+                person_id: person_id.as_deref(),
+                counterparty_id: counterparty.as_deref(),
+                email: email.as_deref(),
+                order_id: Some(id),
+                lock: true,
+            },
+        )
+        .await?;
+        if let Some(problem) = plan.discount_problem {
+            return Err(Error::Discount(problem));
+        }
+        if patch.items.is_some() {
+            write_items(conn, &stored, &resolved, &plan, &now).await?;
+        } else {
+            for (index, item) in stored.items.iter().enumerate() {
+                let Some(item_id) = item.get("id").and_then(Value::as_str) else {
+                    continue;
+                };
+                let mut change = Map::new();
+                put(
+                    &mut change,
+                    &ORDER_ITEMS,
+                    "discountAmount",
+                    amount(plan.line_discounts[index]),
+                );
+                put(
+                    &mut change,
+                    &ORDER_ITEMS,
+                    "total",
+                    amount(plan.line_total(&resolved, index)),
+                );
+                put(&mut change, &ORDER_ITEMS, "updatedAt", json!(now));
+                ORDER_ITEMS
+                    .patch_raw(&mut *conn, item_id, change, false)
+                    .await?;
+            }
+        }
+        plan_values(
+            &mut values,
+            &plan,
+            &resolved,
+            order.get("metadata").unwrap_or(&Value::Null),
+        );
+        sync_redemption(
+            conn,
+            id,
+            plan.discount.as_ref(),
+            person_id.as_deref(),
+            email.as_deref(),
+            &currency,
+        )
+        .await?;
+    }
+    ORDERS.patch_raw(&mut *conn, id, values, true).await?;
+    Ok(Updated { completed })
+}
+
+// ── cancel, pay ─────────────────────────────────────────────────────────────
+
+/// Cancel an order and give back its discount redemption.
+///
+/// # Errors
+/// [`Error::NotFound`]; [`Error::NotCancellable`] once it is cancelled,
+/// completed or has fulfilled items.
+pub async fn cancel(conn: &mut PgConnection, id: &str, reason: Option<&str>) -> Result<(), Error> {
+    let stored = orders::load(conn, id, true)
+        .await?
+        .ok_or_else(|| Error::not_found("Order", id))?;
+    if !stored.cancellable() {
+        return Err(Error::NotCancellable);
+    }
+    let now = crate::now();
+    let t = &ORDERS;
+    let mut values = Map::new();
+    put(&mut values, t, "status", json!("cancelled"));
+    put(&mut values, t, "cancelledAt", json!(now));
+    put(&mut values, t, "cancelReason", json!(reason));
+    put(&mut values, t, "updatedAt", json!(now));
+    ORDERS.patch_raw(&mut *conn, id, values, true).await?;
+    release(conn, id).await?;
+    Ok(())
+}
+
+/// How an order was paid.
+#[derive(Debug, Clone, Default)]
+pub struct Payment {
+    /// ISO timestamp; now when left out.
+    pub paid_at: Option<String>,
+    pub method: Option<String>,
+    pub reference: Option<String>,
+}
+
+/// Record the payment of an order; a pending order becomes confirmed.
+///
+/// # Errors
+/// [`Error::NotFound`]; [`Error::AlreadyPaid`]; [`Error::NotEditable`] for a
+/// cancelled order.
+pub async fn mark_paid(conn: &mut PgConnection, id: &str, payment: &Payment) -> Result<(), Error> {
+    let stored = orders::load(conn, id, true)
+        .await?
+        .ok_or_else(|| Error::not_found("Order", id))?;
+    if status::is_paid(stored.text("paymentStatus").unwrap_or("pending")) {
+        return Err(Error::AlreadyPaid);
+    }
+    if stored.text("status") == Some("cancelled") {
+        return Err(Error::NotEditable(
+            "A cancelled order cannot be paid".to_owned(),
+        ));
+    }
+    let now = crate::now();
+    let t = &ORDERS;
+    let mut values = Map::new();
+    put(&mut values, t, "paymentStatus", json!("paid"));
+    put(
+        &mut values,
+        t,
+        "paidAt",
+        json!(payment.paid_at.clone().unwrap_or_else(|| now.clone())),
+    );
+    put(&mut values, t, "paymentMethod", json!(payment.method));
+    put(&mut values, t, "paymentReference", json!(payment.reference));
+    if stored.text("status") == Some("pending") {
+        put(&mut values, t, "status", json!("confirmed"));
+    }
+    put(&mut values, t, "updatedAt", json!(now));
+    ORDERS.patch_raw(&mut *conn, id, values, true).await?;
+    Ok(())
+}
+
+// ── import ──────────────────────────────────────────────────────────────────
+
+/// A line of a store's order.
+#[derive(Debug, Clone)]
+pub struct ImportLine {
+    /// The store's own id for the line: a re-import updates the same item.
+    pub external_line_id: Option<String>,
+    /// The product the store's product maps to, when it is known here.
+    pub product_id: Option<String>,
+    pub sku: Option<String>,
+    pub name: String,
+    pub quantity: f64,
+    pub unit_price: String,
+    pub total: String,
+    pub image_url: Option<String>,
+}
+
+/// A store's order, mapped to this table's properties.
+#[derive(Debug)]
+pub struct Import<'a> {
+    /// The order's id: the one the store's order maps to, or a new one.
+    pub id: &'a str,
+    /// The order exists (an update); otherwise it is inserted.
+    pub existing: bool,
+    /// The mapped order columns, by property. The store's order number,
+    /// totals and statuses are kept as they are.
+    pub header: Map<String, Value>,
+    pub lines: &'a [ImportLine],
+    /// The buyer the store's customer maps to.
+    pub person_id: Option<&'a str>,
+    pub owner_id: &'a str,
+}
+
+struct Stock {
+    id: String,
+    product_id: Option<String>,
+    variant_id: Option<String>,
+    sku: Option<String>,
+    external_line_id: Option<String>,
+    properties: Option<Value>,
+}
+
+impl Stock {
+    /// The store line it was imported from: the column, else the property an
+    /// older import kept.
+    fn line_id(&self) -> Option<&str> {
+        self.external_line_id
+            .as_deref()
+            .filter(|id| !id.is_empty())
+            .or_else(|| {
+                self.properties
+                    .as_ref()?
+                    .get("externalLineId")?
+                    .as_str()
+                    .filter(|id| !id.is_empty())
+            })
+    }
+}
+
+/// By the store's line id, else (an item imported before line ids were kept)
+/// by `(variant_id, product_id, sku)`, the first such item in creation
+/// order. Each item is matched once.
+fn match_item<'a>(
+    line: &ImportLine,
+    product_id: Option<&str>,
+    existing: &'a [Stock],
+    claimed: &[String],
+) -> Option<&'a Stock> {
+    let free = || existing.iter().filter(|item| !claimed.contains(&item.id));
+    line.external_line_id
+        .as_deref()
+        .and_then(|id| free().find(|item| item.line_id() == Some(id)))
+        .or_else(|| {
+            free().find(|item| {
+                item.line_id().is_none()
+                    && item.variant_id.is_none()
+                    && item.product_id.as_deref() == product_id
+                    && item.sku == line.sku
+            })
+        })
+}
+
+fn number_json(number: f64) -> Value {
+    #[allow(clippy::cast_possible_truncation)]
+    if number.fract() == 0.0 && number.abs() < 9_007_199_254_740_992.0 {
+        json!(number as i64)
+    } else if number.is_finite() {
+        json!(number)
+    } else {
+        Value::Null
+    }
+}
+
+/// Write a store's order: the header as mapped, then the items brought in
+/// line with the store's lines without replacing them, so their ids stay put
+/// (WeldStash pick lists point at them, and WeldStash owns
+/// `fulfilled_quantity`, which this never writes). Matched items are updated
+/// in place and stamped with the line id, new lines inserted, and a line the
+/// store dropped is deleted only while nothing was fulfilled from it and no
+/// pick list holds it. `item_count` and `total_quantity` then follow what is
+/// stored, and the buyer's party becomes the counterparty once.
+///
+/// # Errors
+/// A failed statement (a duplicate order number within the source included).
+pub async fn import(conn: &mut PgConnection, import: &Import<'_>) -> Result<(), sqlx::Error> {
+    let now = crate::now();
+    let mut header = import.header.clone();
+    header.insert("updatedAt".to_owned(), json!(now));
+    if import.existing {
+        header.insert("deletedAt".to_owned(), Value::Null);
+        let columns = ORDERS.values(&header);
+        ORDERS
+            .patch_raw(&mut *conn, import.id, columns, false)
+            .await?;
+    } else {
+        header.insert("id".to_owned(), json!(import.id));
+        let columns = ORDERS.values(&header);
+        ORDERS.insert_raw(&mut *conn, columns).await?;
+    }
+    import_items(conn, import, &now).await?;
+    if let Some(person_id) = import.person_id {
+        link_counterparty(conn, import.id, person_id, import.owner_id).await?;
+    }
+    Ok(())
+}
+
+#[allow(
+    clippy::too_many_lines,
+    reason = "the store's lines, then what it dropped, then the counts"
+)]
+async fn import_items(
+    conn: &mut PgConnection,
+    import: &Import<'_>,
+    now: &str,
+) -> Result<(), sqlx::Error> {
+    type Row = (
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<Value>,
+    );
+    let rows: Vec<Row> = sqlx::query_as(
+        "select id, product_id, variant_id, sku, external_line_id, properties from order_items \
+         where order_id = $1 order by created_at asc, id asc",
+    )
+    .bind(import.id)
+    .fetch_all(&mut *conn)
+    .await?;
+    let existing: Vec<Stock> = rows
+        .into_iter()
+        .map(
+            |(id, product_id, variant_id, sku, external_line_id, properties)| Stock {
+                id,
+                product_id,
+                variant_id,
+                sku,
+                external_line_id,
+                properties,
+            },
+        )
+        .collect();
+
+    let t = &ORDER_ITEMS;
+    let mut claimed: Vec<String> = Vec::new();
+    for line in import.lines {
+        let mut values = Map::new();
+        put(&mut values, t, "sku", json!(line.sku));
+        put(&mut values, t, "name", json!(line.name));
+        put(&mut values, t, "imageUrl", json!(line.image_url));
+        put(&mut values, t, "quantity", number_json(line.quantity));
+        put(&mut values, t, "unitPrice", json!(line.unit_price));
+        put(&mut values, t, "total", json!(line.total));
+        put(&mut values, t, "updatedAt", json!(now));
+        if let Some(found) = match_item(line, line.product_id.as_deref(), &existing, &claimed) {
+            claimed.push(found.id.clone());
+            put(
+                &mut values,
+                t,
+                "productId",
+                json!(line.product_id.clone().or_else(|| found.product_id.clone())),
+            );
+            if let Some(line_id) = &line.external_line_id {
+                put(&mut values, t, "externalLineId", json!(line_id));
+            }
+            ORDER_ITEMS
+                .patch_raw(&mut *conn, &found.id, values, false)
+                .await?;
+            continue;
+        }
+        put(&mut values, t, "id", json!(generate_id("oitm")));
+        put(&mut values, t, "orderId", json!(import.id));
+        put(&mut values, t, "productId", json!(line.product_id));
+        put(
+            &mut values,
+            t,
+            "externalLineId",
+            json!(line.external_line_id),
+        );
+        put(&mut values, t, "createdAt", json!(now));
+        ORDER_ITEMS.insert_raw(&mut *conn, values).await?;
+    }
+
+    let vanished: Vec<String> = existing
+        .iter()
+        .filter(|item| !claimed.contains(&item.id))
+        .map(|item| item.id.clone())
+        .collect();
+    if !vanished.is_empty() {
+        let removed: Vec<String> = sqlx::query_scalar(
+            "delete from order_items t \
+             where t.id = any($1) and coalesce(t.fulfilled_quantity, 0) = 0 \
+               and not exists (select 1 from pick_list_items p where p.order_item_id = t.id) \
+             returning t.id",
+        )
+        .bind(&vanished)
+        .fetch_all(&mut *conn)
+        .await?;
+        let kept = vanished.len() - removed.len();
+        if kept > 0 {
+            tracing::warn!(
+                order_id = import.id,
+                kept,
+                "[commerce] kept items the store no longer lists (fulfilled or on a pick list)"
+            );
+        }
+    }
+
+    let (item_count, total_quantity): (i64, i64) = sqlx::query_as(
+        "select count(*), coalesce(sum(quantity), 0)::bigint from order_items where order_id = $1",
+    )
+    .bind(import.id)
+    .fetch_one(&mut *conn)
+    .await?;
+    let differs = |key: &str, stored: i64| {
+        #[allow(clippy::cast_precision_loss)]
+        let stored = stored as f64;
+        import.header.get(key).and_then(Value::as_f64) != Some(stored)
+    };
+    if differs("itemCount", item_count) || differs("totalQuantity", total_quantity) {
+        let mut counts = Map::new();
+        put(&mut counts, &ORDERS, "itemCount", json!(item_count));
+        put(&mut counts, &ORDERS, "totalQuantity", json!(total_quantity));
+        ORDERS
+            .patch_raw(&mut *conn, import.id, counts, false)
+            .await?;
+    }
+    Ok(())
+}
+
+/// An imported order whose buyer is known gets that person's party as its
+/// counterparty, which WeldBooks invoices. Only while it has none: a
+/// counterparty someone chose stays.
+async fn link_counterparty(
+    conn: &mut PgConnection,
+    order_id: &str,
+    person_id: &str,
+    owner: &str,
+) -> Result<(), sqlx::Error> {
+    let current: Option<Option<String>> =
+        sqlx::query_scalar("select counterparty_id from orders where id = $1 limit 1")
+            .bind(order_id)
+            .fetch_optional(&mut *conn)
+            .await?;
+    // No order, or one that already has a counterparty.
+    if !matches!(current, Some(None)) {
+        return Ok(());
+    }
+    let Some(party) = party_of(conn, false, person_id, owner).await? else {
+        return Ok(());
+    };
+    sqlx::query("update orders set counterparty_id = $1 where id = $2 and counterparty_id is null")
+        .bind(party)
+        .bind(order_id)
+        .execute(&mut *conn)
+        .await?;
+    Ok(())
+}

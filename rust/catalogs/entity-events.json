@@ -201,6 +201,9 @@
     "cancelled",
     "completed"
   ],
+  "commerce_settings": [
+    "updated"
+  ],
   "company": [
     "created",
     "updated",
@@ -910,7 +913,9 @@
     "deleted",
     "placed",
     "cancelled",
-    "completed"
+    "completed",
+    "paid",
+    "refunded"
   ],
   "panel_alert": [
     "created",

@@ -99,6 +99,7 @@ const CANONICAL_ORDER: SearchEntityType[] = [
   'article',
   'knowledge_page',
   'product',
+  'order',
   'warehouse',
   'invoice',
   'bill',
@@ -145,7 +146,9 @@ const CANONICAL_ORDER: SearchEntityType[] = [
  * a ticket opens as an entity sheet over the inbox. `/welddesk` itself
  * redirects to the inbox and drops the query, hence the explicit path.
  *
- * Products open as object panels on the WeldStash products list.
+ * Products open as object panels on the WeldStash products list, or on
+ * WeldCommerce's own products page for a member who has the WeldCommerce app;
+ * orders open from WeldCommerce's orders page (`?open=<id>`).
  *
  * Spreadsheets have a page of their own: `/weldsheets/:id`. So do documents
  * (`/welddocs/:id`), forms (`/weldforms/:id`, which opens the editor), desk
@@ -182,7 +185,11 @@ function hasRecordPage(type: SearchEntityType): type is keyof typeof RECORD_PAGE
   return type in RECORD_PAGE;
 }
 
-export function buildResultUrl(type: SearchEntityType, id: string): string {
+export function buildResultUrl(
+  type: SearchEntityType,
+  id: string,
+  options: { commerce?: boolean } = {},
+): string {
   if (hasRecordPage(type)) return `${RECORD_PAGE[type]}/${id}`;
   switch (type) {
     case 'contact':
@@ -196,7 +203,11 @@ export function buildResultUrl(type: SearchEntityType, id: string): string {
     case 'ticket':
       return `/welddesk/inbox?entity=ticket:${encodeURIComponent(id)}`;
     case 'product':
-      return `/weldstash/products?stack=product:${encodeURIComponent(id)}`;
+      return options.commerce
+        ? `/weldcommerce/products?open=${encodeURIComponent(id)}`
+        : `/weldstash/products?stack=product:${encodeURIComponent(id)}`;
+    case 'order':
+      return `/weldcommerce/orders?open=${encodeURIComponent(id)}`;
     case 'merge_issue':
       return `/weldmerge/issues/${encodeURIComponent(id)}`;
     case 'merge_pull_request':
@@ -660,8 +671,10 @@ export async function searchProducts(
   _workspaceId: string,
   q: string,
   limit: number,
+  caller?: SearchCaller,
 ): Promise<SearchResultGroup> {
   const { products } = schema;
+  const commerce = caller?.can('weldcommerce:products:read') ?? false;
   const term = `%${q.toLowerCase()}%`;
   const score = sql<number>`GREATEST(
     ${scoreColumn(products.name, q)},
@@ -698,11 +711,68 @@ export async function searchProducts(
     type: 'product',
     title: r.name || 'Product',
     subtitle: r.sku ? `SKU: ${r.sku}` : (r.shortDescription ?? null),
-    url: buildResultUrl('product', r.id),
+    url: buildResultUrl('product', r.id, { commerce }),
     score: typeof r.score === 'number' ? r.score : Number(r.score) || null,
   }));
 
   return { type: 'product', items, totalCount: items.length, hasMore };
+}
+
+export async function searchOrders(
+  db: Database,
+  _workspaceId: string,
+  q: string,
+  limit: number,
+): Promise<SearchResultGroup> {
+  const { orders } = schema;
+  const term = `%${q.toLowerCase()}%`;
+  const score = sql<number>`GREATEST(
+    ${scoreColumn(orders.orderNumber, q)},
+    ${scoreColumn(orders.customerName, q)},
+    ${scoreColumn(orders.customerEmail, q)},
+    ${scoreColumn(orders.externalOrderId, q)}
+  )`;
+
+  const rows = await db
+    .select({
+      id: orders.id,
+      orderNumber: orders.orderNumber,
+      customerName: orders.customerName,
+      customerEmail: orders.customerEmail,
+      total: orders.total,
+      currency: orders.currency,
+      score,
+      updatedAt: orders.updatedAt,
+    })
+    .from(orders)
+    .where(
+      and(
+        isNull(orders.deletedAt),
+        or(
+          sql`lower(${orders.orderNumber}) LIKE ${term}`,
+          sql`lower(${orders.customerName}) LIKE ${term}`,
+          sql`lower(${orders.customerEmail}) LIKE ${term}`,
+          sql`lower(${orders.externalOrderId}) LIKE ${term}`,
+        ),
+      ),
+    )
+    .orderBy(desc(score), desc(orders.updatedAt), desc(orders.id))
+    .limit(limit + 1);
+
+  const hasMore = rows.length > limit;
+  const items: SearchResultItem[] = rows.slice(0, limit).map((r) => ({
+    id: r.id,
+    type: 'order',
+    title: r.orderNumber,
+    subtitle:
+      [r.customerName ?? r.customerEmail, `${r.total} ${r.currency ?? ''}`.trim()]
+        .filter(Boolean)
+        .join(' · ') || null,
+    url: buildResultUrl('order', r.id),
+    score: typeof r.score === 'number' ? r.score : Number(r.score) || null,
+  }));
+
+  return { type: 'order', items, totalCount: items.length, hasMore };
 }
 
 export async function searchInvoices(
@@ -1757,6 +1827,7 @@ const ENTITY_REGISTRY: EntityRegistration[] = [
   { type: 'article', permission: 'articles:read', search: searchArticles },
   { type: 'knowledge_page', permission: 'knowledge:read', search: searchKnowledgePages },
   { type: 'product', permission: 'products:read', search: searchProducts },
+  { type: 'order', permission: 'orders:read', search: searchOrders },
   { type: 'warehouse', permission: 'warehouses:read', search: searchWarehouses },
   { type: 'invoice', permission: 'invoices:read', search: searchInvoices },
   { type: 'bill', permission: 'bills:read', search: searchBills },

@@ -150,6 +150,32 @@ describe('route availability', () => {
     expect(isRouteOffered('/settings/integrations/attio')).toBe(true);
   });
 
+  it('offers the Shopify and WooCommerce pages under store-sync, apart from the other integrations', () => {
+    for (const path of ['/settings/integrations/shopify', '/settings/integrations/woocommerce?success=1']) {
+      expect(routeRequirement(path), path).toEqual({ modules: ['connect'], feature: 'store-sync' });
+    }
+    for (const path of ['/settings/integrations/moneybird', '/settings/integrations/picqer', '/settings/integrations/shopifyx']) {
+      expect(routeRequirement(path), path).toEqual({ modules: ['connect'], feature: 'integration-sync' });
+    }
+    // What a Kubernetes edition answers: store syncs served, the rest hidden.
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'connect'], unavailableFeatures: ['integration-sync'] });
+    expect(isRouteOffered('/settings/integrations/shopify')).toBe(true);
+    expect(isRouteOffered('/settings/integrations/woocommerce')).toBe(true);
+    for (const path of ['/settings/integrations/moneybird', '/settings/integrations/slack', '/settings/integrations/github']) {
+      expect(isRouteOffered(path), path).toBe(false);
+    }
+    // Still the connect module's pages, and hidden by a backend that lists the feature.
+    setRuntimeConfig({ backend: 'rust', modules: ['core'], unavailableFeatures: ['integration-sync'] });
+    expect(isRouteOffered('/settings/integrations/shopify')).toBe(false);
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'connect'], unavailableFeatures: ['store-sync'] });
+    expect(isRouteOffered('/settings/integrations/woocommerce')).toBe(false);
+    expect(isRouteOffered('/settings/integrations/attio')).toBe(true);
+    // Global offers both.
+    setRuntimeConfig(null);
+    expect(isRouteOffered('/settings/integrations/shopify')).toBe(true);
+    expect(isRouteOffered('/settings/integrations/moneybird')).toBe(true);
+  });
+
   it('offers API keys on a Kubernetes edition only once it names the public API', () => {
     expect(isRouteOffered('/settings/api-keys')).toBe(true);
     setRuntimeConfig({ backend: 'rust', modules: ['core'] });

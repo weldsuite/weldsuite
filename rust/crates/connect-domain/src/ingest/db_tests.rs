@@ -97,12 +97,12 @@ fn order(id: &str, modified: &str, lines: &[Value]) -> Value {
     })
 }
 
-/// `(id, name, quantity, total, fulfilled_quantity, properties)` by name.
-type Item = (String, String, i32, String, Option<i32>, Option<Value>);
+/// `(id, name, quantity, total, fulfilled_quantity, external_line_id)` by name.
+type Item = (String, String, i32, String, Option<i32>, Option<String>);
 
 async fn items(db: &PgPool, order_id: &str) -> Vec<Item> {
     sqlx::query_as(
-        "select id, name, quantity, total::text, fulfilled_quantity, properties
+        "select id, name, quantity, total::text, fulfilled_quantity, external_line_id
          from order_items where order_id = $1 order by name",
     )
     .bind(order_id)
@@ -205,9 +205,9 @@ async fn reimport_updates_items_in_place_and_links_the_buyer_once() {
             .map(|i| (i.1.as_str(), i.2, i.5.clone()))
             .collect::<Vec<_>>(),
         [
-            ("Cup", 4, Some(json!({ "externalLineId": "7002" }))),
-            ("Kettle", 2, Some(json!({ "externalLineId": "7001" }))),
-            ("Saucer", 1, Some(json!({ "externalLineId": "7003" }))),
+            ("Cup", 4, Some("7002".to_owned())),
+            ("Kettle", 2, Some("7001".to_owned())),
+            ("Saucer", 1, Some("7003".to_owned())),
         ]
     );
     let (cup, kettle, saucer) = (&before[0].0, &before[1].0, &before[2].0);
@@ -284,10 +284,10 @@ async fn reimport_updates_items_in_place_and_links_the_buyer_once() {
         ),
         (kettle, "Kettle", 3, "90.00", Some(2))
     );
-    assert_eq!(after[1].5, Some(json!({ "externalLineId": "7001" })));
+    assert_eq!(after[1].5, Some("7001".to_owned()));
     assert_eq!(
         (after[2].1.as_str(), after[2].2, after[2].5.clone()),
-        ("Lid", 1, Some(json!({ "externalLineId": "7004" })))
+        ("Lid", 1, Some("7004".to_owned()))
     );
     assert!(![cup, kettle, saucer].contains(&&after[2].0));
 
@@ -369,8 +369,8 @@ async fn matches_items_imported_before_line_ids_and_stamps_them() {
     .await;
     assert_eq!((result.modified, result.failed), (1, 0));
 
-    let stamped: Vec<(String, i32, Option<i32>, Option<Value>)> = sqlx::query_as(
-        "select id, quantity, fulfilled_quantity, properties from order_items
+    let stamped: Vec<(String, i32, Option<i32>, Option<String>)> = sqlx::query_as(
+        "select id, quantity, fulfilled_quantity, external_line_id from order_items
          where order_id = $1 order by created_at, id",
     )
     .bind(&order_id)
@@ -380,24 +380,9 @@ async fn matches_items_imported_before_line_ids_and_stamps_them() {
     assert_eq!(
         stamped,
         [
-            (
-                format!("oitm_1{sfx}"),
-                1,
-                Some(1),
-                Some(json!({ "externalLineId": "8001" }))
-            ),
-            (
-                format!("oitm_2{sfx}"),
-                2,
-                Some(0),
-                Some(json!({ "externalLineId": "8002" }))
-            ),
-            (
-                format!("oitm_3{sfx}"),
-                1,
-                Some(0),
-                Some(json!({ "externalLineId": "8003" }))
-            ),
+            (format!("oitm_1{sfx}"), 1, Some(1), Some("8001".to_owned())),
+            (format!("oitm_2{sfx}"), 2, Some(0), Some("8002".to_owned())),
+            (format!("oitm_3{sfx}"), 1, Some(0), Some("8003".to_owned())),
         ]
     );
     let updated = order_row(&db, &connection_id, &number).await;

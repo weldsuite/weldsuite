@@ -29,12 +29,15 @@ export function ProductPickerDialog({
   existingIds,
   onConfirm,
   isSaving,
+  title,
 }: Readonly<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
   existingIds: string[];
   onConfirm: (productIds: string[]) => Promise<void> | void;
   isSaving?: boolean;
+  /** The dialog's heading; defaults to the category wording. */
+  title?: string;
 }>) {
   const t = getTranslations('commerce').categories.picker;
   const tc = getTranslations('common');
@@ -73,7 +76,7 @@ export function ProductPickerDialog({
     <Dialog open={open} onOpenChange={close}>
       <DialogContent className="max-w-lg" aria-describedby={undefined}>
         <DialogHeader>
-          <DialogTitle>{t.title}</DialogTitle>
+          <DialogTitle>{title ?? t.title}</DialogTitle>
         </DialogHeader>
 
         <div className="relative">

@@ -16,6 +16,10 @@
 //!   automated categories evaluated on read ([`rules`]; ADR COM-010
 //!   re-adopting COM-001 and COM-002).
 //!
+//! Phase 2 is the order book: `/api/orders` ([`orders`]), `/api/discounts`
+//! ([`discounts`]) and `/api/commerce-settings` ([`settings`]). Every order
+//! write goes through `weldsuite-commerce-domain` (ADR COM-010).
+//!
 //! Everything but the products route is Rust only, with no TypeScript worker
 //! to compare it with and so no conformance suite: those routes have their
 //! own tests in `tests/`.
@@ -25,12 +29,16 @@
 mod tables;
 mod args;
 mod categories;
+mod discounts;
 mod js;
+mod orders;
 mod overview;
 mod products;
 mod rules;
+mod settings;
 mod table;
 mod variants;
+mod wire;
 
 use std::sync::Arc;
 
@@ -73,6 +81,9 @@ where
         .nest("/commerce", overview::routes(gate))
         .nest("/products", products::routes(gate))
         .nest("/categories", categories::routes(gate))
+        .nest("/orders", orders::routes(gate))
+        .nest("/discounts", discounts::routes(gate))
+        .nest("/commerce-settings", settings::routes(gate))
         .with_state(state)
 }
 

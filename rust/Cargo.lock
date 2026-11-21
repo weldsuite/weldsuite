@@ -7549,11 +7549,25 @@ dependencies = [
  "weldsuite-auth",
  "weldsuite-books-domain",
  "weldsuite-catalogs",
+ "weldsuite-commerce-domain",
  "weldsuite-db",
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-permissions",
  "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-commerce-domain"
+version = "0.0.0"
+dependencies = [
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "weldsuite-books-domain",
+ "weldsuite-db",
+ "weldsuite-kit",
 ]
 
 [[package]]
@@ -7618,6 +7632,7 @@ dependencies = [
  "url",
  "uuid",
  "weldsuite-books-domain",
+ "weldsuite-commerce-domain",
  "weldsuite-db",
  "weldsuite-events",
  "weldsuite-kit",

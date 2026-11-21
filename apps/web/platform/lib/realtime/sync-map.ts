@@ -415,6 +415,13 @@ export const platformSyncMap: EntitySyncMap = {
   // Products and variants refresh through `product` above. A category change
   // also moves which categories a product shows.
   category: inv(['weldcommerce', 'categories'], ['weldcommerce', 'products']),
+  // Orders (phase 2): the list, the panel and the quote cache; the overview
+  // counts them, and WeldStash's order list reads the same orders. A code's
+  // use count moves with an order, so the discounts refresh too.
+  order: inv(['weldcommerce', 'orders'], ['weldcommerce', 'overview'], ['weldcommerce', 'discounts'], ['weldstash', 'orders']),
+  discount: inv(['weldcommerce', 'discounts']),
+  // The order number prefix, the next number and the default currency (Settings → Apps → WeldCommerce).
+  commerce_settings: inv(['weldcommerce', 'settings']),
 
   // =========================================================================
   // WeldDesk — Helpdesk

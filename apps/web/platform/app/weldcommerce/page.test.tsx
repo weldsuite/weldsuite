@@ -19,6 +19,14 @@ vi.mock('@/hooks/queries/use-commerce-queries', () => ({
   }),
 }));
 
+vi.mock('@/lib/router', () => ({
+  Link: ({ href, children, className }: { href: string; children?: React.ReactNode; className?: string }) => (
+    <a href={href} className={className}>
+      {children}
+    </a>
+  ),
+}));
+
 import WeldCommerceOverview from './page';
 
 const full: CommerceOverview = {
@@ -81,6 +89,9 @@ describe('WeldCommerce overview', () => {
 
     expect(screen.getByText('Recent orders')).toBeTruthy();
     expect(screen.getByText('1001')).toBeTruthy();
+    // Each order opens its panel on the orders list.
+    expect(screen.getByRole('link', { name: '1001' }).getAttribute('href')).toBe('/weldcommerce/orders?open=ord_1');
+    expect(screen.getByRole('link', { name: 'ord_2' }).getAttribute('href')).toBe('/weldcommerce/orders?open=ord_2');
     expect(screen.getByText('Grace Hopper')).toBeTruthy();
     // An order without a number shows its id; statuses read as words.
     expect(screen.getByText('ord_2')).toBeTruthy();
