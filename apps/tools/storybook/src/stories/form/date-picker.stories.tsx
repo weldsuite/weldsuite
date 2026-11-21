@@ -31,3 +31,18 @@ export const WithPreselectedDate: Story = {
     return <DatePicker date={date} onDateChange={setDate} />;
   },
 };
+
+/** Only days from tomorrow on can be picked (`disabledDays`), e.g. when something should end. */
+export const FutureDaysOnly: Story = {
+  render: () => {
+    const [date, setDate] = useState<Date | undefined>();
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(0, 0, 0, 0);
+    return (
+      <div className="w-[280px]">
+        <DatePicker date={date} onDateChange={setDate} placeholder="Unpin on" disabledDays={{ before: tomorrow }} />
+      </div>
+    );
+  },
+};

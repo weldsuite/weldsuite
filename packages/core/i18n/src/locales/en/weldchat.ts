@@ -575,12 +575,13 @@ export const weldchat = {
     },
     pinDuration: {
       title: 'Pin message',
-      description: 'Choose how long to keep this message pinned.',
+      keepPinned: 'Keep pinned',
+      until: 'Until {date}',
       unpinOn: 'Unpin on',
       selectDate: 'Select date',
+      notify: 'Notify everyone in the chat',
       cancel: 'Cancel',
-      pinSilently: 'Pin silently',
-      pinWithAlert: 'Pin with alert',
+      pin: 'Pin',
       durations: {
         h24: '24 hours',
         d7: '7 days',

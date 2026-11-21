@@ -574,12 +574,13 @@ export const weldchat = {
     },
     pinDuration: {
       title: 'Bericht vastmaken',
-      description: 'Kies hoe lang je dit bericht wilt vastmaken.',
+      keepPinned: 'Vastgemaakt houden',
+      until: 'Tot {date}',
       unpinOn: 'Losmaken op',
       selectDate: 'Datum kiezen',
+      notify: 'Iedereen in de chat laten weten',
       cancel: 'Annuleren',
-      pinSilently: 'Stil vastmaken',
-      pinWithAlert: 'Vastmaken met melding',
+      pin: 'Vastmaken',
       durations: {
         h24: '24 uur',
         d7: '7 dagen',

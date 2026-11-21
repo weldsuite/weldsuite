@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { format, type Locale } from "date-fns"
+import type { Matcher } from "react-day-picker"
 import { Calendar as CalendarIcon } from "lucide-react"
 import { cn } from "../lib/utils"
 import { Button } from "./button"
@@ -19,6 +20,8 @@ interface DatePickerProps
   placeholder?: string
   /** date-fns locale for the trigger label and the calendar; US English when left out. */
   locale?: Locale
+  /** Days that can't be picked, e.g. `{ before: tomorrow }` for a date in the future. */
+  disabledDays?: Matcher | Matcher[]
 }
 
 /**
@@ -31,6 +34,7 @@ export function DatePicker({
   onDateChange,
   placeholder = "Pick a date",
   locale,
+  disabledDays,
   className,
   ...props
 }: Readonly<DatePickerProps>) {
@@ -58,6 +62,7 @@ export function DatePicker({
           selected={date}
           defaultMonth={date}
           locale={locale}
+          disabled={disabledDays}
           onSelect={(next) => {
             onDateChange?.(next)
             setOpen(false)
