@@ -57,7 +57,7 @@ describe('NewCommerceOrderPage', () => {
     const user = userEvent.setup();
     render(<NewCommerceOrderPage />);
     await user.click(screen.getByRole('button', { name: 'saved' }));
-    expect(env.push).toHaveBeenCalledWith('/weldcommerce/orders?open=ord_9');
+    expect(env.push).toHaveBeenCalledWith('/weldcommerce/orders?stack=order:ord_9');
     await user.click(screen.getByRole('button', { name: 'cancel' }));
     expect(env.push).toHaveBeenLastCalledWith('/weldcommerce/orders');
   });

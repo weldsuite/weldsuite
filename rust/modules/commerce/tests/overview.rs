@@ -60,6 +60,7 @@ fn app(db: PgPool, permissions: &[&str]) -> Router {
             Some(Arc::new(RecordingEventBus::new()) as Arc<dyn DynEventBus>),
             TaskTracker::new(),
         ),
+        http: None,
     };
     let gate = Arc::new(PermissionGate::new(|_| Ok(NoQueries)));
     let resolved = ResolvedPermissions {

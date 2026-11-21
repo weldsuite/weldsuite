@@ -58,6 +58,10 @@ export interface OrderFormValues {
   customerReference: string;
   customerNote: string;
   internalNote: string;
+  /** Catalogue prices include VAT; off adds the VAT on top. */
+  pricesIncludeTax: boolean;
+  /** A business in another EU country; a valid number means no VAT (reverse charge). */
+  buyerVatNumber: string;
   status: 'pending' | 'confirmed';
 }
 
@@ -98,6 +102,8 @@ export function emptyOrderValues(currency: string): OrderFormValues {
     customerReference: '',
     customerNote: '',
     internalNote: '',
+    pricesIncludeTax: true,
+    buyerVatNumber: '',
     status: 'confirmed',
   };
 }
@@ -137,6 +143,8 @@ export function valuesFromOrder(order: Order): OrderFormValues {
     customerReference: order.customerReference ?? '',
     customerNote: order.customerNote ?? '',
     internalNote: order.internalNote ?? '',
+    pricesIncludeTax: order.pricesIncludeTax,
+    buyerVatNumber: order.buyerVatNumber ?? '',
     status: 'confirmed',
   };
 }
@@ -199,8 +207,16 @@ export function toOrderInput(values: OrderFormValues): OrderInput {
     customerReference: blankToNull(values.customerReference),
     customerNote: blankToNull(values.customerNote),
     internalNote: blankToNull(values.internalNote),
+    pricesIncludeTax: values.pricesIncludeTax,
+    buyerVatNumber: blankToNull(values.buyerVatNumber),
     status: values.status,
   };
+}
+
+/** Only the country of an address matters to the quote, and only once it is a country code. */
+function quoteAddress(values: AddressValues): OrderAddress | null {
+  const country = values.country.trim();
+  return /^[A-Za-z]{2}$/.test(country) ? { country: country.toUpperCase() } : null;
 }
 
 export interface QuoteRequest {
@@ -234,6 +250,10 @@ export function toQuoteRequest(values: OrderFormValues): QuoteRequest | null {
       items,
       discountCode: blankToNull(values.discountCode),
       shippingTotal: shipping !== null && MONEY_PATTERN.test(shipping) ? shipping : null,
+      shippingAddress: quoteAddress(values.shippingAddress),
+      billingAddress: quoteAddress(values.billingAddress),
+      pricesIncludeTax: values.pricesIncludeTax,
+      buyerVatNumber: blankToNull(values.buyerVatNumber),
     },
     lineIndexes,
   };
@@ -241,8 +261,11 @@ export function toQuoteRequest(values: OrderFormValues): QuoteRequest | null {
 
 /**
  * The body of `PATCH /orders/:id`. Addresses, reference and notes can always
- * change; the customer, items, shipping and code only while the order is
- * editable, and the API refuses them otherwise.
+ * change; the customer, items, shipping, code, price basis and buyer VAT
+ * number only while the order is editable, and the API refuses them
+ * otherwise. The items, the code, the price basis and the VAT number are sent
+ * only when they changed: an edit of an editable order recalculates its VAT,
+ * and a code that has expired since is no reason to refuse a changed note.
  */
 export function toOrderPatch(values: OrderFormValues, order: Order): OrderPatch {
   const patch: OrderPatch = {
@@ -253,6 +276,11 @@ export function toOrderPatch(values: OrderFormValues, order: Order): OrderPatch 
     internalNote: blankToNull(values.internalNote),
   };
   if (!order.editable) return patch;
+  const original = valuesFromOrder(order);
+  const items = values.items.map(toPatchItem);
+  const itemsChanged = JSON.stringify(items) !== JSON.stringify(original.items.map(toPatchItem));
+  const code = blankToNull(values.discountCode);
+  const vatNumber = blankToNull(values.buyerVatNumber);
   return {
     ...patch,
     companyId: values.companyId,
@@ -261,8 +289,10 @@ export function toOrderPatch(values: OrderFormValues, order: Order): OrderPatch 
     customerEmail: blankToNull(values.customerEmail),
     customerPhone: blankToNull(values.customerPhone),
     shippingTotal: blankToNull(values.shippingTotal),
-    discountCode: blankToNull(values.discountCode),
-    items: values.items.map(toPatchItem),
+    ...(itemsChanged ? { items } : {}),
+    ...(code !== blankToNull(original.discountCode) ? { discountCode: code } : {}),
+    ...(values.pricesIncludeTax !== original.pricesIncludeTax ? { pricesIncludeTax: values.pricesIncludeTax } : {}),
+    ...(vatNumber !== blankToNull(original.buyerVatNumber) ? { buyerVatNumber: vatNumber } : {}),
   };
 }
 
@@ -335,6 +365,8 @@ export function buildOrderFormSchema() {
     customerReference: z.string().max(255),
     customerNote: z.string().max(5000),
     internalNote: z.string().max(5000),
+    pricesIncludeTax: z.boolean(),
+    buyerVatNumber: z.string().max(50),
     status: z.enum(['pending', 'confirmed']),
   });
 }

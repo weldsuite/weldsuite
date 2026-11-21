@@ -37,6 +37,22 @@ describe('isAcceptedProductTaxClass', () => {
   });
 });
 
+describe('vatCategory', () => {
+  it.each(['standard', 'reduced', 'super_reduced', 'zero', 'exempt'])('accepts %s', (vatCategory) => {
+    expect(createProductBodySchema.safeParse({ name: 'Tea', vatCategory }).success).toBe(true);
+    expect(updateProductBodySchema.safeParse({ vatCategory }).success).toBe(true);
+  });
+
+  it('rejects anything else, null included', () => {
+    expect(updateProductBodySchema.safeParse({ vatCategory: 'low' }).success).toBe(false);
+    expect(updateProductBodySchema.safeParse({ vatCategory: null }).success).toBe(false);
+  });
+
+  it('may be left out', () => {
+    expect(updateProductBodySchema.safeParse({}).success).toBe(true);
+  });
+});
+
 describe('productTaxClassSchema', () => {
   it('keeps a missing value missing', () => {
     expect(productTaxClassSchema.parse(undefined)).toBeUndefined();

@@ -45,9 +45,13 @@ export const productTaxClassSchema = z
     message: 'Unknown tax code: use a WeldBooks code, a Stripe txcd_ code or an Avalara code',
   });
 
+/** EU VAT category (`products.vat_category`, ADR COM-014). The Rust commerce module validates the same list. */
+export const PRODUCT_VAT_CATEGORIES = ['standard', 'reduced', 'super_reduced', 'zero', 'exempt'] as const;
+
 const taxFields = {
   taxable: z.boolean().optional(),
   taxClass: productTaxClassSchema,
+  vatCategory: z.enum(PRODUCT_VAT_CATEGORIES).optional(),
 };
 
 export const createProductBodySchema = baseCreateProductSchema.extend(taxFields);

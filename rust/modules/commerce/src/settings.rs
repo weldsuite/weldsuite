@@ -9,7 +9,7 @@ use axum::Router;
 use axum::body::Bytes;
 use axum::extract::State;
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, patch};
 use http::HeaderMap;
 use serde_json::{Value, json};
 use weldsuite_catalogs::entity_events::COMMERCE_SETTINGS_UPDATED;
@@ -26,13 +26,16 @@ pub(crate) fn routes<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<CommerceState>
 where
     Q: PermissionQueries + 'static,
 {
-    Router::new().route(
-        "/",
-        get(read)
-            .route_layer(gate.require([COMMERCE_SETTINGS_READ]))
-            .patch(update)
-            .route_layer(gate.require([COMMERCE_SETTINGS_UPDATE])),
-    )
+    // One `route` per method (`route_layer` wraps every method chained).
+    Router::new()
+        .route(
+            "/",
+            get(read).route_layer(gate.require([COMMERCE_SETTINGS_READ])),
+        )
+        .route(
+            "/",
+            patch(update).route_layer(gate.require([COMMERCE_SETTINGS_UPDATE])),
+        )
 }
 
 fn present(settings: &Settings) -> Value {

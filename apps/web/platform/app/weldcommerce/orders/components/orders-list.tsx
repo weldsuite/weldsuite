@@ -6,6 +6,7 @@ import { useCreateIntent } from '@/hooks/use-create-intent';
 import { PanelEntityList } from '@/components/panel-entity-list';
 import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
 import type { OrderSummary } from '@/hooks/queries/use-commerce-orders-queries';
+import { useCommerceChannels } from '@/hooks/queries/use-commerce-channels-queries';
 import { useRouter } from '@/lib/router';
 import { getTranslations } from '@/lib/i18n';
 import { buildOrderColumns } from '../config/order-columns';
@@ -54,7 +55,12 @@ export function OrdersList({
     if (canCreate) goToNew();
   });
 
-  const columns = useMemo(() => buildOrderColumns(), []);
+  // The channel column and filter name the channels the member may read; without that permission they stay out.
+  const canReadChannels = permissions?.can('commerce_channels:read') ?? false;
+  const channels = useCommerceChannels({}, canReadChannels).data?.data;
+  const channelList = useMemo(() => (canReadChannels ? (channels ?? []) : []), [canReadChannels, channels]);
+  const channelNames = useMemo(() => new Map(channelList.map((c) => [c.id, c.name] as const)), [channelList]);
+  const columns = useMemo(() => buildOrderColumns(channelNames), [channelNames]);
   const isFiltered = search.trim() !== '' || Object.values(filters).some(Boolean);
   const create = canCreate ? { label: to.newButton, onClick: goToNew } : undefined;
 
@@ -83,7 +89,7 @@ export function OrdersList({
       onSearchChange={onSearchChange}
       searchPlaceholder={to.searchPlaceholder}
       hideFilter
-      leftActionButtons={<OrderFilters values={filters} onChange={onFilterChange} onClear={onClearFilters} />}
+      leftActionButtons={<OrderFilters values={filters} onChange={onFilterChange} onClear={onClearFilters} channels={channelList} />}
       createButton={create}
       hasMore={hasMore}
       isLoadingMore={isFetchingMore}

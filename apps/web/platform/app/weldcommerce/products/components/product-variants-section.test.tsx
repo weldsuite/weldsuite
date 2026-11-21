@@ -279,6 +279,15 @@ describe('variantPatch', () => {
     expect(variantPatch(variant({ price: '0.00' }), { ...values, price: '' })).toEqual({ price: null });
   });
 
+  it('sends the variant’s own VAT category, null to inherit the product’s, and nothing when it did not change', () => {
+    expect(variantPatch(base, { ...values, vatCategory: null })).toEqual({});
+    expect(variantPatch(base, { ...values })).toEqual({});
+    expect(variantPatch(base, { ...values, vatCategory: 'zero' })).toEqual({ vatCategory: 'zero' });
+    const own = variant({ price: '10.00', vatCategory: 'reduced' });
+    expect(variantPatch(own, { ...values, vatCategory: 'reduced' })).toEqual({});
+    expect(variantPatch(own, { ...values, vatCategory: null })).toEqual({ vatCategory: null });
+  });
+
   it('sets a first price, and refuses one that is not a price', () => {
     expect(variantPatch(variant(), { ...values, price: '0' })).toEqual({ price: '0' });
     expect(variantPatch(base, { ...values, price: '1.234' })).toBeNull();

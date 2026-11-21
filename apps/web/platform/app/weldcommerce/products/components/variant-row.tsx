@@ -6,12 +6,14 @@ import { Label } from '@weldsuite/ui/components/label';
 import { FieldError } from '@weldsuite/ui/components/field';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { formatPanelMoney } from '@/components/objects/_shared/simple-object-panel';
-import type { CommerceVariant, UpdateVariantInput } from '@/hooks/queries/use-commerce-queries';
+import type { CommerceVariant, UpdateVariantInput, VatCategory } from '@/hooks/queries/use-commerce-queries';
 import { getTranslations } from '@/lib/i18n';
 import { VARIANT_STATUSES, parsePriceInput, variantTitle } from '../../lib/variants';
 import { fill } from '../../lib/text';
 import { useReturnFocus } from '../../lib/use-return-focus';
 import { StatusBadge, statusLabel } from '../config/product-columns';
+import { vatCategoryLabel } from '../../lib/vat';
+import { VatCategorySelect } from './vat-category-select';
 
 /** SKUs and barcodes are codes, not words: no spellcheck, capitals or autocorrect. */
 const CODE_INPUT = { spellCheck: false, autoCapitalize: 'none', autoCorrect: 'off' } as const;
@@ -19,7 +21,7 @@ const CODE_INPUT = { spellCheck: false, autoCapitalize: 'none', autoCorrect: 'of
 /** What changed between the variant and the edit form, as a PATCH body; null when the price is not a price. */
 export function variantPatch(
   variant: CommerceVariant,
-  values: { sku: string; barcode: string; price: string; status: string },
+  values: { sku: string; barcode: string; price: string; status: string; vatCategory?: VatCategory | null },
 ): UpdateVariantInput | null {
   const price = parsePriceInput(values.price);
   if (price === undefined) return null;
@@ -33,6 +35,10 @@ export function variantPatch(
     price === null || variant.price == null ? price === (variant.price ?? null) : Number(price) === Number(variant.price);
   if (!samePrice) patch.price = price;
   if (values.status !== variant.status) patch.status = values.status;
+  // `null` is "use the product's"; a form that does not ask leaves it alone.
+  if (values.vatCategory !== undefined && values.vatCategory !== (variant.vatCategory ?? null)) {
+    patch.vatCategory = values.vatCategory;
+  }
   return patch;
 }
 
@@ -44,6 +50,7 @@ export function variantPatch(
 export function VariantRow({
   variant,
   productPrice,
+  productVatCategory = 'standard',
   currency,
   canEdit,
   isEditing,
@@ -54,6 +61,8 @@ export function VariantRow({
 }: Readonly<{
   variant: CommerceVariant;
   productPrice: string | number | null | undefined;
+  /** What a variant without a category of its own is taxed as. */
+  productVatCategory?: string | null;
   currency: string | null | undefined;
   canEdit: boolean;
   isEditing: boolean;
@@ -79,7 +88,7 @@ export function VariantRow({
         <div className="min-w-0">
           <div className="truncate text-sm font-medium">{title}</div>
           <div className="truncate text-xs text-muted-foreground">
-            {[variant.sku, variant.barcode].filter(Boolean).join(' · ') || '—'}
+            {[variant.sku, variant.barcode, variant.vatCategory ? vatCategoryLabel(variant.vatCategory) : null].filter(Boolean).join(' · ') || '—'}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -117,17 +126,19 @@ export function VariantRow({
           )}
         </div>
       </div>
-      {isEditing && <VariantEditForm variant={variant} onCancel={onCancel} onSave={onSave} />}
+      {isEditing && <VariantEditForm variant={variant} productVatCategory={productVatCategory} onCancel={onCancel} onSave={onSave} />}
     </li>
   );
 }
 
 function VariantEditForm({
   variant,
+  productVatCategory,
   onCancel,
   onSave,
 }: Readonly<{
   variant: CommerceVariant;
+  productVatCategory?: string | null;
   onCancel: () => void;
   onSave: (patch: UpdateVariantInput) => Promise<boolean>;
 }>) {
@@ -138,6 +149,7 @@ function VariantEditForm({
     barcode: variant.barcode ?? '',
     price: variant.price ?? '',
     status: variant.status,
+    vatCategory: variant.vatCategory ?? null,
   });
   const [priceInvalid, setPriceInvalid] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -233,6 +245,15 @@ function VariantEditForm({
             </SelectContent>
           </Select>
         </div>
+      </div>
+      <div className="grid gap-1.5">
+        <Label htmlFor={id('vat')}>{t.vatCategory}</Label>
+        <VatCategorySelect
+          id={id('vat')}
+          value={values.vatCategory}
+          inheritFrom={productVatCategory ?? 'standard'}
+          onChange={(vatCategory) => setValues({ ...values, vatCategory })}
+        />
       </div>
       <div className="flex justify-end gap-2">
         <Button type="button" variant="outline" size="sm" onClick={onCancel}>

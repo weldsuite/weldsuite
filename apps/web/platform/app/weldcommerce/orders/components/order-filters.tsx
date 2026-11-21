@@ -16,13 +16,15 @@ import {
 /** The channels an order can come from, in the order the filter offers them. */
 export const ORDER_SOURCES = ['manual', 'storefront', 'shopify', 'woocommerce', 'picqer'] as const;
 
-export type OrderFilterKey = 'status' | 'paymentStatus' | 'fulfillmentStatus' | 'source' | 'from' | 'to';
+export type OrderFilterKey = 'status' | 'paymentStatus' | 'fulfillmentStatus' | 'source' | 'channelId' | 'from' | 'to';
 export type OrderFilterValues = Partial<Record<OrderFilterKey, string>>;
 
 interface OrderFiltersProps {
   values: OrderFilterValues;
   onChange: (key: OrderFilterKey, value: string | undefined) => void;
   onClear: () => void;
+  /** The workspace's channels; the Channel filter shows once there are any. */
+  channels?: readonly { id: string; name: string }[];
 }
 
 /**
@@ -31,7 +33,7 @@ interface OrderFiltersProps {
  * date inputs are native: the browser brings the date picker, the keyboard
  * entry and the locale's format.
  */
-export function OrderFilters({ values, onChange, onClear }: Readonly<OrderFiltersProps>) {
+export function OrderFilters({ values, onChange, onClear, channels = [] }: Readonly<OrderFiltersProps>) {
   const t = getTranslations('commerce').orders.filters;
   const hasFilters = Object.values(values).some(Boolean);
 
@@ -69,6 +71,15 @@ export function OrderFilters({ values, onChange, onClear }: Readonly<OrderFilter
         allLabel={t.allSources}
         ariaLabel={t.source}
       />
+      {channels.length > 0 && (
+        <FilterSelect
+          value={values.channelId}
+          onChange={(value) => onChange('channelId', value)}
+          options={channels.map((channel) => ({ value: channel.id, label: channel.name }))}
+          allLabel={t.allChannels}
+          ariaLabel={t.channel}
+        />
+      )}
       <Input
         type="date"
         aria-label={t.from}

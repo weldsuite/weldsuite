@@ -75,8 +75,21 @@ describe('toOrderInput', () => {
       customerReference: 'PO-77',
       customerNote: null,
       internalNote: null,
+      pricesIncludeTax: true,
+      buyerVatNumber: null,
       status: 'confirmed',
     });
+  });
+
+  it('carries the price basis and the buyer VAT number', () => {
+    const input = toOrderInput({
+      ...emptyOrderValues('EUR'),
+      items: [catalogLine],
+      pricesIncludeTax: false,
+      buyerVatNumber: ' DE123456789 ',
+    });
+    expect(input.pricesIncludeTax).toBe(false);
+    expect(input.buyerVatNumber).toBe('DE123456789');
   });
 });
 
@@ -105,7 +118,26 @@ describe('toQuoteRequest', () => {
       ],
       discountCode: 'SPRING',
       shippingTotal: '5',
+      shippingAddress: null,
+      billingAddress: null,
+      pricesIncludeTax: true,
+      buyerVatNumber: null,
     });
+  });
+
+  it('sends only the country of an address, once it is a country code, and the VAT facts', () => {
+    const request = toQuoteRequest({
+      ...emptyOrderValues('EUR'),
+      items: [catalogLine],
+      shippingAddress: { ...emptyAddress(), city: 'Berlin', country: 'de' },
+      billingAddress: { ...emptyAddress(), country: 'D' },
+      buyerVatNumber: 'DE123456789',
+      pricesIncludeTax: false,
+    });
+    expect(request?.input.shippingAddress).toEqual({ country: 'DE' });
+    expect(request?.input.billingAddress).toBeNull();
+    expect(request?.input.buyerVatNumber).toBe('DE123456789');
+    expect(request?.input.pricesIncludeTax).toBe(false);
   });
 
   it('does not send a shipping amount that is not money yet', () => {
@@ -124,7 +156,9 @@ const order = {
   customerEmail: 'ada@example.com',
   customerPhone: null,
   shippingTotal: '6.95',
-  discountCode: null,
+  discountCode: 'SPRING',
+  pricesIncludeTax: true,
+  buyerVatNumber: null,
   billingAddress: { city: 'Utrecht', country: 'NL' },
   shippingAddress: null,
   customerReference: null,
@@ -156,6 +190,31 @@ describe('editing an order', () => {
       { productId: 'prod_1', quantity: 2, unitPrice: null },
     ]);
     expect(patch.customerNote).toBe('Leave at the door');
+  });
+
+  it('leaves out the items and the code when they did not change, and sends them when they did', () => {
+    const untouched = toOrderPatch({ ...valuesFromOrder(order), internalNote: 'call back' }, order);
+    expect('items' in untouched).toBe(false);
+    expect('discountCode' in untouched).toBe(false);
+    expect('pricesIncludeTax' in untouched).toBe(false);
+    expect('buyerVatNumber' in untouched).toBe(false);
+    expect(untouched.internalNote).toBe('call back');
+
+    const original = valuesFromOrder(order);
+    const changed = toOrderPatch(
+      {
+        ...original,
+        items: [{ ...original.items[0], quantity: 3 }],
+        discountCode: '',
+        pricesIncludeTax: false,
+        buyerVatNumber: 'DE123456789',
+      },
+      order,
+    );
+    expect(changed.items).toEqual([{ id: 'item_1', productId: 'prod_1', quantity: 3, unitPrice: '10.00' }]);
+    expect(changed.discountCode).toBeNull();
+    expect(changed.pricesIncludeTax).toBe(false);
+    expect(changed.buyerVatNumber).toBe('DE123456789');
   });
 
   it('patches only addresses, reference and notes once the order is no longer editable', () => {

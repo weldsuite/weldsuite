@@ -89,8 +89,28 @@ export interface OrderItem {
   unitPrice: string;
   discountAmount: string;
   taxAmount: string;
+  /** Percent with two decimals ("21.00"). */
   taxRate: string | null;
+  /** `standard`, `reduced`, `super_reduced`, `zero` or `exempt`; null on an item from before VAT was calculated. */
+  vatCategory: string | null;
+  /** What the buyer pays for the line, VAT included. */
   total: string;
+}
+
+/** How the VAT of an order was worked out (`imported`: a store's order, its own tax stands). */
+export type VatTreatment =
+  | 'domestic'
+  | 'oss'
+  | 'reverse_charge'
+  | 'seller_rate_cross_border'
+  | 'outside_eu'
+  | 'imported';
+
+/** VAT per rate: `base` is the net amount the rate applied to. */
+export interface OrderTaxLine {
+  rate: string;
+  base: string;
+  amount: string;
 }
 
 export interface OrderInvoiceRef {
@@ -116,7 +136,13 @@ export interface Order extends OrderSummary {
   internalNote: string | null;
   destinationCountry: string | null;
   buyerVatNumber: string | null;
-  vatTreatment: string | null;
+  /** Null: no VAT was calculated (an order from before VAT). */
+  vatTreatment: VatTreatment | null;
+  /** VIES could not be asked: the buyer was charged as a consumer. Recalculate when it is back. */
+  viesUnavailable: boolean;
+  /** Gross prices of a zero-rated sale: the seller's VAT taken off the shown prices. */
+  vatRelief: string;
+  taxLines: OrderTaxLine[];
   paymentMethod: string | null;
   paymentReference: string | null;
   paidAt: string | null;
@@ -172,6 +198,10 @@ export interface OrderInput {
   customerReference?: string | null;
   customerNote?: string | null;
   internalNote?: string | null;
+  /** Catalogue prices include VAT; the API's default is true. */
+  pricesIncludeTax?: boolean;
+  /** A business in another EU country: a valid number means reverse charge. */
+  buyerVatNumber?: string | null;
   status?: 'pending' | 'confirmed';
   tags?: string[];
 }
@@ -198,6 +228,8 @@ export interface OrderPatch {
   customerPhone?: string | null;
   shippingTotal?: string | null;
   discountCode?: string | null;
+  pricesIncludeTax?: boolean;
+  buyerVatNumber?: string | null;
   items?: OrderPatchItem[];
 }
 
@@ -224,6 +256,10 @@ export interface OrderQuoteLine {
   quantity: number;
   unitPrice: string;
   discountAmount: string;
+  taxRate: string | null;
+  taxAmount: string;
+  vatCategory: string;
+  /** With VAT. */
   total: string;
   problem: QuoteLineProblem | null;
 }
@@ -239,6 +275,12 @@ export interface OrderQuote {
   total: string;
   discount: { id: string; code: string; type: string; value: string } | null;
   discountProblem: DiscountProblem | null;
+  vatTreatment: VatTreatment | null;
+  destinationCountry: string | null;
+  viesUnavailable: boolean;
+  pricesIncludeTax: boolean;
+  vatRelief: string;
+  taxLines: OrderTaxLine[];
 }
 
 export interface MarkPaidInput {
@@ -442,6 +484,19 @@ export function useCancelCommerceOrder() {
     mutationFn: async ({ id, reason }: { id: string; reason?: string }) => {
       const client = await getClient();
       return client.post<DataResponse<Order>>(`/orders/${id}/cancel`, reason ? { reason } : {});
+    },
+    onSuccess: invalidate,
+  });
+}
+
+/** `POST /orders/:id/recalculate-tax`: the VAT of an editable order again (409 `ORDER_TAX_LOCKED` otherwise). */
+export function useRecalculateCommerceOrderTax() {
+  const { getClient } = useAppApiClient();
+  const invalidate = useInvalidateOrders();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const client = await getClient();
+      return client.post<DataResponse<Order>>(`/orders/${id}/recalculate-tax`, {});
     },
     onSuccess: invalidate,
   });

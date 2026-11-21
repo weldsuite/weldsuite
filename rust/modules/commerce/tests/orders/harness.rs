@@ -25,6 +25,7 @@ pub(crate) const USER: &str = "user_orders_test";
 pub(crate) const ALL: &[&str] = &[
     "products:read",
     "products:create",
+    "products:update",
     "orders:read",
     "orders:create",
     "orders:update",
@@ -78,6 +79,7 @@ pub(crate) fn app(db: PgPool, permissions: &[&str]) -> TestApp {
             Some(Arc::clone(&bus) as Arc<dyn DynEventBus>),
             tracker.clone(),
         ),
+        http: None,
     };
     let gate = Arc::new(PermissionGate::new(|_| Ok(NoQueries)));
     let resolved = ResolvedPermissions {
@@ -194,12 +196,160 @@ pub(crate) fn lazy_pool() -> PgPool {
 /// The real tenant schema (`WELDSUITE_TEST_TENANT_URL`), or `None` to skip.
 /// The database is shared: tests create rows with fresh ids, names and
 /// codes, and assume nothing about what else is there.
-pub(crate) fn tenant() -> Option<PgPool> {
-    let Ok(url) = std::env::var("WELDSUITE_TEST_TENANT_URL") else {
+///
+/// Orders need a seller for VAT: the shared database gets one Dutch entity
+/// registered for the One-Stop Shop, made `commerce_settings.default_entity_id`
+/// (idempotent, so tests in parallel agree). A test that needs another
+/// seller (none, outside the EU, no OSS) uses [`isolated`].
+pub(crate) async fn tenant() -> Option<PgPool> {
+    let url = tenant_url()?;
+    let db = master_pool(&url, 8).expect("tenant pool");
+    seller(&db).await;
+    Some(db)
+}
+
+fn tenant_url() -> Option<String> {
+    let url = std::env::var("WELDSUITE_TEST_TENANT_URL").ok();
+    if url.is_none() {
         eprintln!("WELDSUITE_TEST_TENANT_URL not set; skipping");
-        return None;
-    };
-    Some(master_pool(&url, 8).expect("tenant pool"))
+    }
+    url
+}
+
+/// The shared seller of the tests.
+pub(crate) const SELLER: &str = "ent_wc_test_nl";
+
+async fn seller(db: &PgPool) {
+    let mut tx = db.begin().await.expect("tx");
+    sqlx::query("select pg_advisory_xact_lock(hashtext('weldcommerce:settings'))")
+        .execute(&mut *tx)
+        .await
+        .expect("lock");
+    sqlx::query(
+        "insert into entities (id, name, jurisdiction_code, base_currency, is_active)          values ($1, 'WeldCommerce test seller', 'NL', 'EUR', true)          on conflict (id) do update set deleted_at = null, is_active = true, jurisdiction_code = 'NL'",
+    )
+    .bind(SELLER)
+    .execute(&mut *tx)
+    .await
+    .expect("entity");
+    sqlx::query(
+        "insert into legal_entity_registrations (id, entity_id, type, number)          values ('ler_wc_test_oss', $1, 'oss', 'NL123456789B01')          on conflict (id) do update set deleted_at = null, valid_from = null, valid_to = null",
+    )
+    .bind(SELLER)
+    .execute(&mut *tx)
+    .await
+    .expect("oss");
+    sqlx::query(
+        "insert into commerce_settings (id) select 'cset_wc_test'          where not exists (select 1 from commerce_settings)",
+    )
+    .execute(&mut *tx)
+    .await
+    .expect("settings row");
+    sqlx::query("update commerce_settings set default_entity_id = $1")
+        .bind(SELLER)
+        .execute(&mut *tx)
+        .await
+        .expect("default entity");
+    tx.commit().await.expect("commit");
+}
+
+/// A tenant database of its own: a schema with an empty copy of every table,
+/// for the tests that change the seller. Its pool uses only that schema, so
+/// nothing of the shared database leaks in (a default entity of another
+/// test, say). Dropped with [`Isolated::drop_schema`].
+pub(crate) struct Isolated {
+    pub(crate) db: PgPool,
+    admin: PgPool,
+    schema: String,
+}
+
+pub(crate) async fn isolated() -> Option<Isolated> {
+    let url = tenant_url()?;
+    let admin = master_pool(&url, 2).expect("admin pool");
+    let schema = fresh("iso_");
+    sqlx::query(sqlx::AssertSqlSafe(format!("create schema {schema}")))
+        .execute(&admin)
+        .await
+        .expect("schema");
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "do $$ declare t text; begin            for t in select tablename from pg_tables where schemaname = 'public' loop              execute format('create table {schema}.%I (like public.%I including all)', t, t);            end loop; end $$"
+    )))
+    .execute(&admin)
+    .await
+    .expect("copy tables");
+    let path = format!("set search_path to {schema}");
+    let db = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(4)
+        .after_connect(move |conn, _| {
+            let path = path.clone();
+            Box::pin(async move {
+                sqlx::query(sqlx::AssertSqlSafe(path)).execute(conn).await?;
+                Ok(())
+            })
+        })
+        .connect(&url)
+        .await
+        .expect("isolated pool");
+    Some(Isolated { db, admin, schema })
+}
+
+impl Isolated {
+    /// An entity in `country`, made the workspace's default entity; its id.
+    pub(crate) async fn seller(&self, country: &str, oss: bool) -> String {
+        let id = fresh("ent_iso_");
+        sqlx::query(
+            "insert into entities (id, name, jurisdiction_code, base_currency, is_active, is_default)              values ($1, 'Isolated seller', $2, 'EUR', true, true)",
+        )
+        .bind(&id)
+        .bind(country)
+        .execute(&self.db)
+        .await
+        .expect("entity");
+        if oss {
+            sqlx::query(
+                "insert into legal_entity_registrations (id, entity_id, type, number)                  values ($1, $2, 'oss', 'NL123456789B01')",
+            )
+            .bind(fresh("ler_"))
+            .bind(&id)
+            .execute(&self.db)
+            .await
+            .expect("oss");
+        }
+        id
+    }
+
+    pub(crate) async fn drop_schema(self) {
+        self.db.close().await;
+        let _ = sqlx::query(sqlx::AssertSqlSafe(format!(
+            "drop schema {} cascade",
+            self.schema
+        )))
+        .execute(&self.admin)
+        .await;
+    }
+}
+
+/// A VIES answer for `number`, as the cache holds it (fresh): the engine
+/// reads it instead of asking VIES.
+pub(crate) async fn vies(db: &PgPool, number: &str, valid: bool) {
+    sqlx::query(
+        "insert into vies_checks (id, vat_number, country_code, valid, checked_at)          values ($1, $2, left($2, 2), $3, now() at time zone 'utc')          on conflict (vat_number) do update set valid = excluded.valid,            checked_at = excluded.checked_at",
+    )
+    .bind(fresh("vies_"))
+    .bind(number)
+    .bind(valid)
+    .execute(db)
+    .await
+    .expect("vies");
+}
+
+/// A German VAT number no other test uses.
+pub(crate) fn german_vat() -> String {
+    let n = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock")
+        .as_nanos();
+    format!("DE{:09}", n % 1_000_000_000)
 }
 
 /// A value no other test (or run) uses.

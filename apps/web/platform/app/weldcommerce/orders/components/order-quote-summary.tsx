@@ -6,10 +6,12 @@
 
 import { Check } from 'lucide-react';
 import { InlineSpinner } from '@weldsuite/ui/components/page-loader';
+import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 import type { DiscountProblem, OrderQuote } from '@/hooks/queries/use-commerce-orders-queries';
 import { getTranslations } from '@/lib/i18n';
 import { fill } from '../../lib/text';
 import { money } from '../../lib/orders';
+import { rateText, vatTreatmentText } from '../../lib/vat';
 
 /** A discount problem in words; null when there is none. */
 export function discountProblemText(problem: DiscountProblem | string | null | undefined): string | null {
@@ -43,7 +45,9 @@ export function OrderQuoteSummary({
 }>) {
   const t = getTranslations('commerce').orders.quote;
   const tp = getTranslations('commerce').orders.panel.totals;
+  const tv = getTranslations('commerce').orders.panel.vat;
   const showTotals = hasItems && quote !== undefined;
+  const treatment = quote ? vatTreatmentText(quote.vatTreatment, quote.destinationCountry) : null;
 
   return (
     <section aria-labelledby="order-quote-title" className="grid gap-3 rounded-lg border p-4">
@@ -69,9 +73,22 @@ export function OrderQuoteSummary({
           <Row label={tp.subtotal} value={money(quote.subtotal, currency)} />
           {Number(quote.discountTotal) > 0 && <Row label={tp.discount} value={`−${money(quote.discountTotal, currency)}`} />}
           <Row label={tp.shipping} value={money(quote.shippingTotal, currency)} />
-          {Number(quote.taxTotal) > 0 && <Row label={tp.tax} value={money(quote.taxTotal, currency)} />}
+          {Number(quote.vatRelief) > 0 && <Row label={tv.relief} value={`−${money(quote.vatRelief, currency)}`} />}
+          {quote.taxLines
+            .filter((line) => Number(line.amount) > 0)
+            .map((line) => (
+              <Row key={line.rate} label={fill(quote.pricesIncludeTax ? tv.rateIncluded : tv.rate, { rate: rateText(line.rate) })} value={money(line.amount, currency)} />
+            ))}
           <Row label={tp.total} value={money(quote.total, currency)} strong />
         </dl>
+      )}
+
+      {showTotals && (
+        <div className="grid gap-2 text-xs text-muted-foreground">
+          {treatment && <p>{treatment}</p>}
+          <p>{quote.pricesIncludeTax ? t.vatIncluded : t.vatExcluded}</p>
+          {quote.viesUnavailable && <InfoBanner variant="warning">{tv.viesWarning}</InfoBanner>}
+        </div>
       )}
 
       {quote?.discount && (

@@ -10,18 +10,30 @@
  * changes it.
  */
 
-import { Package } from 'lucide-react';
+import { Loader2, Package } from 'lucide-react';
+import { toast } from 'sonner';
+import { Button } from '@weldsuite/ui/components/button';
+import { InfoBanner } from '@weldsuite/ui/components/info-banner';
+import { usePermissionsMaybe } from '@weldsuite/permissions/react';
 import { SoftBadge } from '@weldsuite/ui/components/soft-badge';
 import { getTranslations } from '@/lib/i18n';
 import { useObjectPanel } from '@/components/object-panel';
-import { useCommerceOrder, type Order, type OrderAddress, type OrderItem } from '@/hooks/queries/use-commerce-orders-queries';
+import {
+  useCommerceOrder,
+  useRecalculateCommerceOrderTax,
+  type Order,
+  type OrderAddress,
+  type OrderItem,
+} from '@/hooks/queries/use-commerce-orders-queries';
 import { fill } from '@/app/weldcommerce/lib/text';
+import { rateText, vatCategoryLabel, vatTreatmentText } from '@/app/weldcommerce/lib/vat';
 import {
   addressLines,
   approvalStatusLabel,
   fulfillmentStatusLabel,
   fulfillmentStatusTone,
   money,
+  orderErrorMessage,
   orderStatusLabel,
   orderStatusTone,
   paymentStatusLabel,
@@ -41,7 +53,7 @@ import { OrderActions } from './order-actions';
 
 function Totals({ order }: Readonly<{ order: Order }>) {
   const t = getTranslations('commerce').orders.panel;
-  const rows: Array<{ label: string; value: string; show: boolean; strong?: boolean }> = [
+  const rows: Array<{ label: string; value: string; show: boolean; strong?: boolean; note?: boolean }> = [
     { label: t.totals.subtotal, value: money(order.subtotal, order.currency), show: true },
     {
       label: order.discountCode ? fill(t.discountWithCode, { code: order.discountCode }) : t.totals.discount,
@@ -49,7 +61,18 @@ function Totals({ order }: Readonly<{ order: Order }>) {
       show: Number(order.discountTotal) > 0,
     },
     { label: t.totals.shipping, value: money(order.shippingTotal, order.currency), show: true },
-    { label: t.totals.tax, value: money(order.taxTotal, order.currency), show: Number(order.taxTotal) > 0 },
+    {
+      label: t.vat.relief,
+      value: `−${money(order.vatRelief, order.currency)}`,
+      show: Number(order.vatRelief) > 0,
+    },
+    // With VAT-inclusive prices the tax is inside the total: said so, not added.
+    {
+      label: order.pricesIncludeTax ? t.totals.taxIncluded : t.totals.tax,
+      value: money(order.taxTotal, order.currency),
+      show: Number(order.taxTotal) > 0,
+      note: order.pricesIncludeTax,
+    },
     { label: t.totals.total, value: money(order.total, order.currency), show: true, strong: true },
   ];
   return (
@@ -61,10 +84,77 @@ function Totals({ order }: Readonly<{ order: Order }>) {
           .map((row) => (
             <div key={row.label} className={row.strong ? 'flex justify-between border-t pt-1.5 text-sm font-semibold' : 'flex justify-between text-sm'}>
               <dt className={row.strong ? undefined : 'text-muted-foreground'}>{row.label}</dt>
-              <dd className="tabular-nums">{row.value}</dd>
+              <dd className={row.note ? 'tabular-nums text-muted-foreground' : 'tabular-nums'}>{row.value}</dd>
             </div>
           ))}
       </dl>
+    </div>
+  );
+}
+
+/**
+ * How the VAT was worked out, in words: the treatment, the destination, the
+ * price basis, the VAT per rate, and a warning when VIES could not be asked.
+ * A member who may update the order can have the VAT worked out again while
+ * the order is editable; after that it is locked.
+ */
+function VatSection({ order }: Readonly<{ order: Order }>) {
+  const t = getTranslations('commerce').orders.panel.vat;
+  const permissions = usePermissionsMaybe();
+  const canUpdate = permissions?.can('orders:update') ?? false;
+  const recalculate = useRecalculateCommerceOrderTax();
+  const sentence = vatTreatmentText(order.vatTreatment, order.destinationCountry);
+
+  const run = async () => {
+    try {
+      await recalculate.mutateAsync(order.id);
+      toast.success(t.toastRecalculated);
+    } catch (err) {
+      toast.error(orderErrorMessage(err, getTranslations('commerce').orders.errors.generic));
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      <SectionHeader>{t.title}</SectionHeader>
+      <div className="mx-4 space-y-2">
+        <p className="text-sm">{sentence ?? t.none}</p>
+        {order.viesUnavailable && <InfoBanner variant="warning">{t.viesWarning}</InfoBanner>}
+        {order.vatTreatment && order.vatTreatment !== 'imported' && (
+          <dl className="space-y-1 text-sm">
+            {order.destinationCountry && (
+              <div className="flex justify-between">
+                <dt className="text-muted-foreground">{t.destination}</dt>
+                <dd>{order.destinationCountry}</dd>
+              </div>
+            )}
+            {order.buyerVatNumber && (
+              <div className="flex justify-between">
+                <dt className="text-muted-foreground">{t.buyerVat}</dt>
+                <dd className="tabular-nums">{order.buyerVatNumber}</dd>
+              </div>
+            )}
+            {order.taxLines.map((line) => (
+              <div key={line.rate} className="flex justify-between">
+                <dt className="text-muted-foreground">{fill(t.onBase, { rate: rateText(line.rate), base: money(line.base, order.currency) })}</dt>
+                <dd className="tabular-nums">{money(line.amount, order.currency)}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
+        {order.vatTreatment && order.vatTreatment !== 'imported' && (
+          <p className="text-xs text-muted-foreground">{order.pricesIncludeTax ? t.pricesIncluded : t.pricesExcluded}</p>
+        )}
+        {order.vatTreatment !== 'imported' && canUpdate && order.editable && (
+          <Button type="button" size="sm" variant="outline" disabled={recalculate.isPending} onClick={() => void run()}>
+            {recalculate.isPending && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
+            {recalculate.isPending ? t.recalculating : t.recalculate}
+          </Button>
+        )}
+        {order.vatTreatment !== null && order.vatTreatment !== 'imported' && !order.editable && (
+          <p className="text-xs text-muted-foreground">{t.locked}</p>
+        )}
+      </div>
     </div>
   );
 }
@@ -105,7 +195,13 @@ function ItemRow({ item, currency }: Readonly<{ item: OrderItem; currency: strin
           {item.variantName ? <span className="text-muted-foreground"> · {item.variantName}</span> : null}
         </span>
         <span className="block truncate text-xs text-muted-foreground">
-          {[item.sku, `${item.quantity} × ${money(item.unitPrice, currency)}`, fill(t.fulfilledOf, { fulfilled: item.fulfilledQuantity, quantity: item.quantity })]
+          {[
+            item.sku,
+            `${item.quantity} × ${money(item.unitPrice, currency)}`,
+            item.taxRate === null ? null : fill(t.vat.rate, { rate: rateText(item.taxRate) }),
+            item.vatCategory && item.vatCategory !== 'standard' ? vatCategoryLabel(item.vatCategory) : null,
+            fill(t.fulfilledOf, { fulfilled: item.fulfilledQuantity, quantity: item.quantity }),
+          ]
             .filter(Boolean)
             .join(' · ')}
         </span>
@@ -144,6 +240,7 @@ export function OrderPanel(props: Readonly<ObjectPanelComponentProps>) {
     <div className="space-y-3">
       <OrderActions order={o} />
       <Totals order={o} />
+      <VatSection order={o} />
       <div className="space-y-1">
         <SectionHeader>{tp.sections.fulfilment}</SectionHeader>
         <p className="px-4 text-xs text-muted-foreground">{tp.fulfilmentHint}</p>
@@ -213,7 +310,7 @@ export function OrderPanel(props: Readonly<ObjectPanelComponentProps>) {
       hasData={!!order}
       title={order?.orderNumber}
       subtitle={order?.companyName ?? customer}
-      openHref={order ? `/weldcommerce/orders?open=${order.id}` : undefined}
+      openHref={order ? `/weldcommerce/orders?stack=order:${encodeURIComponent(order.id)}` : undefined}
       tabs={[detailsTab(tp.tabDetails), { ...extraTab('items', tp.tabItems, Package), count: order?.items.length || undefined }]}
       renderTab={(tabId) => (tabId === 'items' && order ? <OrderItems order={order} /> : null)}
       statusBadges={

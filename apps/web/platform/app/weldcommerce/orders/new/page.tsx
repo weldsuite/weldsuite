@@ -48,7 +48,7 @@ export default function NewCommerceOrderPage() {
       </div>
       <OrderForm
         defaultCurrency={defaultCurrency}
-        onSaved={(id) => router.push(`/weldcommerce/orders?open=${id}`)}
+        onSaved={(id) => router.push(`/weldcommerce/orders?stack=order:${encodeURIComponent(id)}`)}
         onCancel={() => router.push('/weldcommerce/orders')}
       />
     </div>

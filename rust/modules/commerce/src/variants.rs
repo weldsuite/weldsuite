@@ -290,9 +290,15 @@ struct VariantBody {
     sku: Field<String>,
     barcode: Field<String>,
     price: Field<String>,
+    /// The variant's VAT category; null inherits the product's.
+    vat_category: Field<String>,
     status: Option<String>,
     position: Option<i64>,
 }
+
+/// `products.vat_category` / `product_variants.vat_category`.
+pub(crate) const VAT_CATEGORIES: [&str; 5] =
+    ["standard", "reduced", "super_reduced", "zero", "exempt"];
 
 /// `{ Size: "M", … }`: one to three names, each with a value.
 fn read_option_values(
@@ -401,6 +407,7 @@ fn read_variant(issues: &mut Issues, fields: &Map<String, Value>, partial: bool)
         sku: read_code(issues, fields, "sku"),
         barcode: read_code(issues, fields, "barcode"),
         price: read_price(issues, fields),
+        vat_category: issues.choice(fields, "vatCategory", Presence::Nullish, &VAT_CATEGORIES),
         status: issues
             .text_with(
                 fields,
@@ -755,6 +762,9 @@ async fn create_variant(
     if let Some(price) = written(body.price) {
         PRODUCT_VARIANTS.set(&mut values, "price", price);
     }
+    if let Field::Set(category) = &body.vat_category {
+        PRODUCT_VARIANTS.set(&mut values, "vatCategory", json!(category));
+    }
     if let Some(status) = body.status {
         PRODUCT_VARIANTS.set(&mut values, "status", json!(status));
     }
@@ -909,6 +919,11 @@ async fn update_variant(
     }
     if let Some(price) = written(body.price) {
         t.set(&mut values, "price", price);
+    }
+    match &body.vat_category {
+        Field::Set(category) => t.set(&mut values, "vatCategory", json!(category)),
+        Field::Null => t.set(&mut values, "vatCategory", Value::Null),
+        Field::Absent => {}
     }
     if let Some(status) = body.status {
         t.set(&mut values, "status", json!(status));

@@ -9,6 +9,7 @@
 
 use serde_json::{Value, json};
 use sqlx::PgConnection;
+use weldsuite_books_domain::tax::eu_vat::{VatCategory, effective_category};
 
 use crate::money::{self, Cents};
 
@@ -36,6 +37,10 @@ pub struct Line {
     pub image_url: Option<String>,
     pub quantity: i64,
     pub unit_price: Cents,
+    /// How the line is taxed (`products.vat_category`, the variant's when it
+    /// has one): `standard`, `reduced`, `super_reduced`, `zero` or `exempt`.
+    /// A free line, or an item stored before VAT was computed, is `standard`.
+    pub vat_category: String,
     /// `PRODUCT_NOT_FOUND`, `INACTIVE`, `CURRENCY_MISMATCH` or `NO_PRICE`.
     pub problem: Option<&'static str>,
 }
@@ -52,6 +57,9 @@ pub struct Catalogue {
     pub currency: Option<String>,
     pub status: String,
     pub image_url: Option<String>,
+    /// The product's or variant's `vat_category` (a variant's is null when it
+    /// inherits the product's).
+    pub vat_category: Option<String>,
 }
 
 fn text(row: &Value, key: &str) -> Option<String> {
@@ -75,8 +83,24 @@ impl Catalogue {
             currency: text(row, "currency"),
             status: text(row, "status").unwrap_or_default(),
             image_url: text(row, "imageUrl"),
+            vat_category: text(row, "vatCategory"),
         })
     }
+}
+
+/// The line's VAT category: the variant's when it has one, else the
+/// product's, else `standard` (never a lower rate by default).
+fn category_of(product: Option<&Catalogue>, variant: Option<&Catalogue>) -> String {
+    let product_category = product
+        .and_then(|p| p.vat_category.as_deref())
+        .unwrap_or("standard");
+    effective_category(
+        product_category,
+        variant.and_then(|v| v.vat_category.as_deref()),
+    )
+    .unwrap_or(VatCategory::Standard)
+    .as_str()
+    .to_owned()
 }
 
 /// The item an input keeps: its stored values.
@@ -98,6 +122,7 @@ fn kept(stored: &Value) -> Line {
             .and_then(Value::as_str)
             .and_then(money::parse)
             .unwrap_or(0),
+        vat_category: text(stored, "vatCategory").unwrap_or_else(|| "standard".to_owned()),
         problem: None,
     }
 }
@@ -137,6 +162,7 @@ pub fn build(
         image_url: None,
         quantity: input.quantity,
         unit_price: input.unit_price.unwrap_or(0),
+        vat_category: "standard".to_owned(),
         problem: None,
     };
     let named = input.variant_id.is_some() || input.product_id.is_some();
@@ -168,6 +194,7 @@ pub fn build(
             line.name.clone_from(&product.name);
         }
         line.variant_name = variant.map(|v| v.name.clone());
+        line.vat_category = category_of(Some(product), variant);
         let inactive =
             product.status == "archived" || variant.is_some_and(|v| v.status != "active");
         if inactive {
@@ -215,12 +242,12 @@ async fn catalogue(
 
 const VARIANTS_SQL: &str = "select jsonb_build_object('id', v.id, 'productId', v.product_id, \
        'name', v.name, 'sku', v.sku, 'price', v.price::text, 'currency', v.currency, \
-       'status', v.status, 'imageUrl', v.image_url) \
+       'status', v.status, 'imageUrl', v.image_url, 'vatCategory', v.vat_category) \
      from product_variants v where v.id = any($1) and v.deleted_at is null";
 
 const PRODUCTS_SQL: &str = "select jsonb_build_object('id', p.id, 'name', p.name, 'sku', p.sku, \
        'price', p.price::text, 'currency', p.currency, 'status', p.status, \
-       'imageUrl', p.featured_image_url) \
+       'imageUrl', p.featured_image_url, 'vatCategory', p.vat_category) \
      from products p where p.id = any($1) and p.deleted_at is null";
 
 /// Settle every input of a request. `stored` are the order's current items
@@ -305,6 +332,7 @@ mod tests {
             currency: Some("EUR".into()),
             status: status.into(),
             image_url: None,
+            vat_category: None,
         }
     }
 
@@ -351,6 +379,43 @@ mod tests {
             "EUR",
         );
         assert_eq!(line.unit_price, 1999);
+    }
+
+    #[test]
+    fn the_vat_category_is_the_variants_else_the_products_else_standard() {
+        let mut product = row("p1", Some(1999), "active");
+        product.vat_category = Some("reduced".into());
+        let mut variant = row("v1", Some(2499), "active");
+        variant.product_id = Some("p1".into());
+        let of = |product: &Catalogue, variant: Option<&Catalogue>| {
+            build(
+                &input(Some("p1"), variant.map(|_| "v1")),
+                variant,
+                Some(product),
+                "EUR",
+            )
+            .vat_category
+        };
+        assert_eq!(of(&product, None), "reduced");
+        // A variant without a category inherits the product's.
+        assert_eq!(of(&product, Some(&variant)), "reduced");
+        variant.vat_category = Some("zero".into());
+        assert_eq!(of(&product, Some(&variant)), "zero");
+        // Unknown text is never a lower rate.
+        product.vat_category = Some("cheap".into());
+        variant.vat_category = None;
+        assert_eq!(of(&product, Some(&variant)), "standard");
+        // A free line is standard, a stored item keeps its own.
+        let mut free = input(None, None);
+        free.name = Some("Custom".into());
+        free.unit_price = Some(100);
+        assert_eq!(build(&free, None, None, "EUR").vat_category, "standard");
+        let item = json!({ "id": "oitm_1", "vatCategory": "super_reduced", "quantity": 1 });
+        assert_eq!(stored_line(&item).vat_category, "super_reduced");
+        assert_eq!(
+            stored_line(&json!({ "id": "oitm_2" })).vat_category,
+            "standard"
+        );
     }
 
     #[test]

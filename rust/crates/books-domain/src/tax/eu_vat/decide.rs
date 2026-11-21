@@ -156,9 +156,10 @@ pub struct EuVatResult {
     pub invoice_notice: Option<&'static str>,
 }
 
+/// The country whose rules apply: `EL` is Greece, Monaco (`MC`) French VAT
+/// territory.
 fn iso(country: &str) -> String {
-    let upper = country.trim().to_ascii_uppercase();
-    if upper == "EL" { "GR".into() } else { upper }
+    rates::territory(country)
 }
 
 /// The treatment of a sale, and the country whose rates apply.
@@ -168,7 +169,7 @@ pub fn decide_treatment(
     buyer_vat: BuyerVat,
     oss_registered: bool,
 ) -> (EuTreatment, Option<String>) {
-    if !rates::is_eu_member(buyer_country) {
+    if !rates::is_eu_member(&iso(buyer_country)) {
         return (EuTreatment::OutsideEu, None);
     }
     if iso(seller_country) == iso(buyer_country) {
@@ -224,11 +225,16 @@ pub fn tax_on_net(net_minor: i64, rate_bps: u32) -> i64 {
 /// that tax; with prices excluding VAT the net is its price and the gross is
 /// net plus tax.
 ///
-/// Errors when the seller is not in the EU or a rate is missing: never zero
-/// tax.
+/// Monaco (`MC`) is French VAT territory and is taxed as France. Errors when
+/// the seller is not in the EU, the buyer is in Northern Ireland (`XI`: EU
+/// rules for goods, UK rules for the rest, not modelled) or a rate is
+/// missing: never zero tax.
 pub fn calculate(input: &DestinationInput<'_>) -> Result<EuVatResult, RateError> {
     if !rates::is_eu_member(input.seller_country) {
         return Err(RateError::NotEuCountry(input.seller_country.to_owned()));
+    }
+    if iso(input.buyer_country) == "XI" {
+        return Err(RateError::UnsupportedDestination("XI".to_owned()));
     }
     let (treatment, rate_country) = decide_treatment(
         input.seller_country,
@@ -253,7 +259,7 @@ pub fn calculate(input: &DestinationInput<'_>) -> Result<EuVatResult, RateError>
         buyer_country: iso(input.buyer_country),
         rate_country,
         vies_unavailable: input.buyer_vat == BuyerVat::Unavailable
-            && rates::is_eu_member(input.buyer_country)
+            && rates::is_eu_member(&iso(input.buyer_country))
             && treatment != EuTreatment::Domestic,
         prices_include_vat: input.prices_include_vat,
         lines,

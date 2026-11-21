@@ -1,13 +1,18 @@
-//! What an order would be: its lines, the discount code's effect and the
-//! totals. Reads the discount (and its counters) but writes nothing, so the
-//! quote route and the writes share it.
+//! What an order would be: its lines, the discount code's effect, the VAT
+//! and the totals. Reads the discount (and its counters) and the seller's
+//! VAT facts but writes nothing, so the quote route and the writes share it.
+//!
+//! [`plan`] is the amounts before VAT; [`price`] adds the VAT of
+//! [`crate::vat`] and settles `tax_total` and `total`.
 
 use sqlx::PgConnection;
 
 use crate::discount::{self, Applied, Context, EvalLine, Kind, Problem};
+use crate::error::Error;
 use crate::money::{self, Cents};
 use crate::orders::lines::Line;
 use crate::totals::{self, Totals};
+use crate::vat::{self, Buyer, Taxation, Vat};
 
 /// The discount code on the order, when it applies.
 #[derive(Debug, Clone)]
@@ -29,6 +34,10 @@ pub struct Input<'a> {
     pub currency: &'a str,
     pub lines: &'a [Line],
     pub discount_code: Option<&'a str>,
+    /// The discount the order already holds, kept as it is: re-priced by id,
+    /// without the status, date and usage gates (the code may have expired
+    /// or been archived since). Wins over `discount_code`.
+    pub keep_discount_id: Option<&'a str>,
     /// The shipping the staff member typed.
     pub shipping: Cents,
     /// Who buys: the discount's per-customer limit and eligibility.
@@ -46,7 +55,10 @@ pub struct Input<'a> {
 pub struct Plan {
     /// The discount on each line, aligned with `Input::lines`.
     pub line_discounts: Vec<Cents>,
+    /// Before [`price`], without VAT; after it, the order's amounts.
     pub totals: Totals,
+    /// The order's VAT; set by [`price`].
+    pub vat: Option<Vat>,
     /// The shipping as typed, before a free-shipping code.
     pub shipping_requested: Cents,
     pub discount: Option<Redeemed>,
@@ -54,10 +66,14 @@ pub struct Plan {
 }
 
 impl Plan {
-    /// A line's item `total`.
+    /// A line's item `total`: what the buyer pays for it (with its VAT when
+    /// the prices exclude it).
     #[must_use]
     pub fn line_total(&self, lines: &[Line], index: usize) -> Cents {
-        totals_line(&lines[index], self.line_discounts[index]).total()
+        match self.vat.as_ref().and_then(|vat| vat.lines.get(index)) {
+            Some(line) => line.gross,
+            None => totals_line(&lines[index], self.line_discounts[index]).total(),
+        }
     }
 }
 
@@ -78,11 +94,26 @@ pub async fn plan(conn: &mut PgConnection, input: &Input<'_>) -> Result<Plan, sq
     let mut applied: Option<Applied> = None;
     let mut redeemed: Option<Redeemed> = None;
     let mut problem = None;
-    if let Some(code) = input.discount_code.map(str::trim).filter(|c| !c.is_empty()) {
-        match discount::load(conn, code, input.lock).await? {
+    let code = input.discount_code.map(str::trim).filter(|c| !c.is_empty());
+    let loaded = match (input.keep_discount_id, code) {
+        (Some(id), _) => Some((discount::load_by_id(conn, id, input.lock).await?, true)),
+        (None, Some(code)) => Some((discount::load(conn, code, input.lock).await?, false)),
+        (None, None) => None,
+    };
+    if let Some((loaded, keep)) = loaded {
+        match loaded {
             None => problem = Some(Problem::NotFound),
             Some(loaded) => {
                 let mut rule = loaded.rule.clone();
+                if keep {
+                    // Already redeemed by this order: only what the lines and
+                    // the buyer decide is checked again.
+                    rule.active = true;
+                    rule.not_started = false;
+                    rule.expired = false;
+                    rule.usage_limit = None;
+                    rule.usage_limit_per_customer = None;
+                }
                 let buyer: Vec<&str> = [input.person_id, input.counterparty_id]
                     .into_iter()
                     .flatten()
@@ -156,10 +187,42 @@ pub async fn plan(conn: &mut PgConnection, input: &Input<'_>) -> Result<Plan, sq
     Ok(Plan {
         line_discounts,
         totals: totals::totals(&lines, shipping),
+        vat: None,
         shipping_requested: input.shipping,
         discount: redeemed,
         discount_problem: problem,
     })
+}
+
+/// [`plan`] with the order's VAT: the seller's engine decides the treatment
+/// and the rate of every line, and `tax_total` and `total` follow.
+///
+/// # Errors
+/// A failed statement, and the VAT refusals of [`vat::compute`]: no seller,
+/// a seller outside the EU, a bad destination country, the engine failing.
+pub async fn price(
+    conn: &mut PgConnection,
+    tax: &Taxation<'_>,
+    input: &Input<'_>,
+    buyer: &Buyer<'_>,
+) -> Result<Plan, Error> {
+    let mut plan = plan(conn, input).await?;
+    let vat = vat::compute(
+        conn,
+        tax,
+        buyer,
+        &vat::Basis {
+            lines: input.lines,
+            discounts: &plan.line_discounts,
+            shipping: plan.totals.shipping_total,
+            pre_tax_total: plan.totals.total,
+        },
+    )
+    .await?;
+    plan.totals.tax_total = vat.tax_total;
+    plan.totals.total = vat.total;
+    plan.vat = Some(vat);
+    Ok(plan)
 }
 
 fn kind_text(kind: Kind) -> &'static str {
@@ -177,8 +240,10 @@ pub fn amount(cents: Cents) -> String {
 }
 
 /// A request to price an order without placing it.
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct QuoteInput<'a> {
+    pub tax: Taxation<'a>,
+    pub buyer: Buyer<'a>,
     pub currency: &'a str,
     pub lines: &'a [crate::orders::lines::LineInput],
     pub discount_code: Option<&'a str>,
@@ -196,12 +261,12 @@ pub struct Quote {
 }
 
 /// Price an order: the lines from the catalogue, the code's effect and the
-/// totals. A line the catalogue cannot price carries its `problem`; a code
-/// that does not apply is in `plan.discount_problem`.
+/// VAT and totals. A line the catalogue cannot price carries its `problem`; a
+/// code that does not apply is in `plan.discount_problem`.
 ///
 /// # Errors
-/// A failed statement.
-pub async fn quote(conn: &mut PgConnection, input: &QuoteInput<'_>) -> Result<Quote, sqlx::Error> {
+/// A failed statement, and the VAT refusals of [`price`].
+pub async fn quote(conn: &mut PgConnection, input: &QuoteInput<'_>) -> Result<Quote, Error> {
     let lines = crate::orders::lines::resolve(conn, input.currency, input.lines, &[]).await?;
     // The buyer's party, when there is one already (a quote creates nothing).
     let mut counterparty: Option<String> = None;
@@ -223,12 +288,14 @@ pub async fn quote(conn: &mut PgConnection, input: &QuoteInput<'_>) -> Result<Qu
         .fetch_optional(&mut *conn)
         .await?;
     }
-    let plan = plan(
+    let plan = price(
         conn,
+        &input.tax,
         &Input {
             currency: input.currency,
             lines: &lines,
             discount_code: input.discount_code,
+            keep_discount_id: None,
             shipping: input.shipping,
             person_id: input.person_id,
             counterparty_id: counterparty.as_deref(),
@@ -236,6 +303,7 @@ pub async fn quote(conn: &mut PgConnection, input: &QuoteInput<'_>) -> Result<Qu
             order_id: None,
             lock: false,
         },
+        &input.buyer,
     )
     .await?;
     Ok(Quote { lines, plan })

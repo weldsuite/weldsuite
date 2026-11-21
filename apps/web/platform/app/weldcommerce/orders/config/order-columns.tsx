@@ -42,7 +42,8 @@ function CustomerCell({ order }: Readonly<{ order: OrderSummary }>) {
   );
 }
 
-export function buildOrderColumns(): ColumnDef<OrderSummary>[] {
+/** `channelNames` maps a channel id to its name; an order of a channel not in it (or none) shows a dash. */
+export function buildOrderColumns(channelNames: ReadonlyMap<string, string> = new Map()): ColumnDef<OrderSummary>[] {
   const t = getTranslations('commerce').orders;
   return [
     {
@@ -80,6 +81,14 @@ export function buildOrderColumns(): ColumnDef<OrderSummary>[] {
       header: t.columns.source,
       width: 'hidden @5xl/list:block w-[110px]',
       render: (o) => <span className="block truncate text-muted-foreground">{sourceLabel(o.source)}</span>,
+    },
+    {
+      id: 'channel',
+      header: t.columns.channel,
+      width: 'hidden @5xl/list:block w-[140px]',
+      render: (o) => (
+        <span className="block truncate text-muted-foreground">{(o.channelId && channelNames.get(o.channelId)) || '—'}</span>
+      ),
     },
     {
       id: 'items',

@@ -73,6 +73,9 @@ const quote: OrderQuote = {
       quantity: 1,
       unitPrice: '120.00',
       discountAmount: '0.00',
+      taxRate: '21.00',
+      taxAmount: '20.83',
+      vatCategory: 'standard',
       total: '120.00',
       problem: null,
     },
@@ -84,6 +87,12 @@ const quote: OrderQuote = {
   total: '120.00',
   discount: null,
   discountProblem: null,
+  vatTreatment: 'domestic',
+  destinationCountry: 'NL',
+  viesUnavailable: false,
+  pricesIncludeTax: true,
+  vatRelief: '0.00',
+  taxLines: [{ rate: '21.00', base: '99.17', amount: '20.83' }],
 };
 
 function setup(props: { order?: Order } = {}) {
@@ -260,6 +269,8 @@ function order(overrides: Partial<Order> = {}): Order {
     customerReference: 'PO-1',
     customerNote: null,
     internalNote: null,
+    pricesIncludeTax: true,
+    buyerVatNumber: null,
     editable: true,
     items: [
       { id: 'item_1', productId: 'prod_1', variantId: null, sku: 'COAT', name: 'Wool coat', variantName: null, quantity: 1, unitPrice: '120.00' },
@@ -273,7 +284,8 @@ describe('OrderForm, editing an order', () => {
     setup({ order: order() });
     expect(screen.getByLabelText('Customer name')).toHaveProperty('value', 'Ada Lovelace');
     expect(screen.getByLabelText('Currency')).toHaveProperty('disabled', true);
-    expect(screen.queryByRole('switch')).toBeNull();
+    expect(screen.queryByRole('switch', { name: 'Confirm the order straight away' })).toBeNull();
+    expect(screen.getByRole('switch', { name: 'Prices include VAT' }).getAttribute('aria-checked')).toBe('true');
     expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy();
   });
 
@@ -288,6 +300,10 @@ describe('OrderForm, editing an order', () => {
     expect(call.id).toBe('ord_1');
     expect(call.data.items).toEqual([{ id: 'item_1', productId: 'prod_1', quantity: 3, unitPrice: '120.00' }]);
     expect(call.data.customerReference).toBe('PO-1');
+    // The code and the VAT facts did not change: they are not sent.
+    expect('discountCode' in call.data).toBe(false);
+    expect('buyerVatNumber' in call.data).toBe(false);
+    expect('pricesIncludeTax' in call.data).toBe(false);
     expect(toast.success).toHaveBeenCalledWith('Order updated');
     expect(onSaved).toHaveBeenCalledWith('ord_1');
   });
@@ -299,6 +315,7 @@ describe('OrderForm, editing an order', () => {
     expect(screen.getByLabelText('Discount code')).toHaveProperty('disabled', true);
     expect(screen.getByLabelText('Shipping')).toHaveProperty('disabled', true);
     expect(screen.getByLabelText('Quantity')).toHaveProperty('disabled', true);
+    expect(screen.getByLabelText('Buyer VAT number')).toHaveProperty('disabled', true);
     expect(screen.queryByRole('button', { name: 'Add product' })).toBeNull();
     expect(screen.queryByRole('button', { name: /Remove Wool coat/ })).toBeNull();
     // No price check for an order that cannot be repriced.
@@ -312,6 +329,18 @@ describe('OrderForm, editing an order', () => {
       ['billingAddress', 'customerNote', 'customerReference', 'internalNote', 'shippingAddress'].sort(),
     );
     expect(data.internalNote).toBe('Called the buyer');
+  });
+
+  it('sends only the items and the VAT facts that changed, and none of them for a changed note', async () => {
+    const { user } = setup({ order: order() });
+    await user.type(screen.getByLabelText('Internal note'), 'x');
+    await user.type(screen.getByLabelText('Buyer VAT number'), 'DE123456789');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(env.update).toHaveBeenCalled());
+    const data = (env.update.mock.calls[0][0] as { data: Record<string, unknown> }).data;
+    expect(data.buyerVatNumber).toBe('DE123456789');
+    expect('items' in data).toBe(false);
+    expect('discountCode' in data).toBe(false);
   });
 
   it('keeps the dialog open and words a refusal from the server', async () => {

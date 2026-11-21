@@ -167,6 +167,16 @@ export function orderErrorMessage(err: unknown, fallback: string): string {
       return t.alreadyPaid;
     case 'DISCOUNT_NOT_APPLICABLE':
       return t.discountNotApplicable;
+    case 'ORDER_TAX_LOCKED':
+      return t.taxLocked;
+    case 'SELLER_ENTITY_REQUIRED':
+      return t.sellerEntityRequired;
+    case 'SELLER_ENTITY_NOT_EU':
+      return t.sellerNotEu;
+    case 'DESTINATION_NOT_SUPPORTED':
+      return t.destinationNotSupported;
+    case 'TAX_ENGINE_UNAVAILABLE':
+      return t.taxEngineUnavailable;
     default:
       return message ?? (err instanceof Error && err.message ? err.message : fallback);
   }

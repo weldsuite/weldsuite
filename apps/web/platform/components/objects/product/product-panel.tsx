@@ -17,6 +17,7 @@ import { isFeatureAvailable } from '@/lib/edition';
 import { ProductSuppliersSection } from '@/app/weldstash/product-suppliers/components/product-suppliers-section';
 import { ProductVariantsSection } from '@/app/weldcommerce/products/components/product-variants-section';
 import { ProductCategoriesSection } from '@/app/weldcommerce/products/components/product-categories-section';
+import { ProductPricesSection } from '@/app/weldcommerce/products/components/product-prices-section';
 import {
   useWeldstashProduct,
   useWeldstashStock,
@@ -31,6 +32,7 @@ import {
   LineItemList,
   type ObjectPanelComponentProps,
 } from '@/components/objects/_shared/simple-object-panel';
+import { vatCategoryLabel } from '@/app/weldcommerce/lib/vat';
 import { getProductTabs } from './product-tabs';
 
 /** Which of the optional tabs this member sees, and whether they may edit variants. */
@@ -74,6 +76,7 @@ export function ProductPanel(props: Readonly<ObjectPanelComponentProps>) {
   const tabs = getProductTabs({
     suppliers: showSuppliers ? tw.titleForProduct : undefined,
     variants: inCommerce ? tc.variants.tab : undefined,
+    prices: inCommerce ? tc.prices.tab : undefined,
     categories: showCategories ? tc.productCategories.tab : undefined,
     details: t.panel.tabDetails,
     stock: t.panel.tabStock,
@@ -88,6 +91,18 @@ export function ProductPanel(props: Readonly<ObjectPanelComponentProps>) {
           productPrice={product?.price}
           currency={product?.currency}
           productOptions={product?.options}
+          productVatCategory={product?.vatCategory ?? 'standard'}
+          canEdit={canEditVariants}
+        />
+      );
+    }
+
+    if (tabId === 'prices' && inCommerce) {
+      return (
+        <ProductPricesSection
+          productId={id}
+          basePrice={product?.price}
+          baseCurrency={product?.currency}
           canEdit={canEditVariants}
         />
       );
@@ -163,7 +178,7 @@ export function ProductPanel(props: Readonly<ObjectPanelComponentProps>) {
           />
         ) : undefined
       }
-      openHref={product ? `/${listApp}/products?open=${product.id}` : undefined}
+      openHref={product ? `/${listApp}/products?stack=product:${encodeURIComponent(product.id)}` : undefined}
       tabs={tabs}
       renderTab={renderTab}
       statusBadges={
@@ -199,6 +214,7 @@ export function ProductPanel(props: Readonly<ObjectPanelComponentProps>) {
                 value: stockRows.length > 0 ? totalOnHand : product.inventoryQuantity ?? 0,
               },
               { label: t.fields.lowStockAt, value: product.lowStockThreshold },
+              ...(inCommerce ? [{ label: tc.products.vat.label, value: vatCategoryLabel(product.vatCategory ?? 'standard') }] : []),
               { label: t.fields.brand, value: product.brand },
               { label: t.fields.vendor, value: product.vendor },
               { label: t.fields.created, value: formatPanelDate(product.createdAt), tabular: true },

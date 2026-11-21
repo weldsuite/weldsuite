@@ -179,7 +179,9 @@ pub async fn calculate_eu_destination_tax(
     let seller = seller_country(db, args.entity_id).await?;
     let today = rates::today();
     let date = args.date.unwrap_or(&today);
-    let vat = buyer_vat(db, http, &seller, buyer_country, args.buyer_vat_number).await?;
+    // Monaco is French VAT territory: its buyers hold French VAT numbers.
+    let territory = rates::territory(buyer_country);
+    let vat = buyer_vat(db, http, &seller, &territory, args.buyer_vat_number).await?;
     let oss = oss_registered(db, args.entity_id, date).await?;
     Ok(decide::calculate(&DestinationInput {
         seller_country: &seller,

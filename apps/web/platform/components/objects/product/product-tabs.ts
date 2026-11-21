@@ -1,4 +1,4 @@
-import { LayoutGrid, Boxes, ArrowLeftRight, Truck, Layers, FolderTree } from 'lucide-react';
+import { LayoutGrid, Boxes, ArrowLeftRight, Truck, Layers, FolderTree, Coins } from 'lucide-react';
 import type { ObjectPanelTabDescriptor } from '@/components/object-panel';
 
 /**
@@ -11,6 +11,7 @@ import type { ObjectPanelTabDescriptor } from '@/components/object-panel';
  *
  *   overview    → the product record, its images and description
  *   variants    → `/products/:id/variants`           (WeldCommerce only)
+ *   prices      → `/products/:id/prices`             (WeldCommerce only)
  *   stock       → `/inventory?productId=`            (per-warehouse levels)
  *   categories  → `/products/:id/categories`         (WeldCommerce only)
  *   movements   → `/inventory-movements?productId=`  (the ledger history)
@@ -19,7 +20,7 @@ import type { ObjectPanelTabDescriptor } from '@/components/object-panel';
  * typed `entityKind: 'company' | 'person'` and query CRM surfaces.
  */
 export interface ProductTab extends ObjectPanelTabDescriptor {
-  id: 'overview' | 'variants' | 'stock' | 'categories' | 'movements' | 'suppliers';
+  id: 'overview' | 'variants' | 'prices' | 'stock' | 'categories' | 'movements' | 'suppliers';
   defaultVisibleInPanel?: boolean;
   defaultVisibleInFullscreen?: boolean;
   required?: boolean;
@@ -38,6 +39,8 @@ export function getProductTabs(labels: {
   suppliers?: string;
   /** The Variants tab (WeldCommerce); omitted elsewhere. */
   variants?: string;
+  /** The Prices tab, prices per currency (WeldCommerce); omitted elsewhere. */
+  prices?: string;
   /** The Categories tab (WeldCommerce); omitted elsewhere. */
   categories?: string;
 }): ProductTab[] {
@@ -51,6 +54,7 @@ export function getProductTabs(labels: {
       defaultVisibleInFullscreen: true,
     },
     ...optionalTab('variants', labels.variants, Layers),
+    ...optionalTab('prices', labels.prices, Coins),
     {
       id: 'stock',
       label: labels.stock,

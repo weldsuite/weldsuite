@@ -124,6 +124,12 @@ fn product_schema(issues: &mut Issues, fields: &Body, partial: bool) -> Body {
     text(issues, "categoryId", Presence::Nullish, None, None);
     text(issues, "imageUrl", Presence::Optional, None, None);
     issues.boolean(fields, "taxable", Presence::Optional);
+    issues.choice(
+        fields,
+        "vatCategory",
+        Presence::Optional,
+        &crate::variants::VAT_CATEGORIES,
+    );
     let mut data = fields.clone();
     // `productTaxClassSchema`: `.max(50).nullish()`, trimmed, `''` as null,
     // then refined (a refinement settles after every other check).

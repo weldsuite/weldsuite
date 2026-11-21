@@ -385,6 +385,22 @@ async fn matches_items_imported_before_line_ids_and_stamps_them() {
             (format!("oitm_3{sfx}"), 1, Some(0), Some("8003".to_owned())),
         ]
     );
+    // The TypeScript import also keeps the id in `properties`.
+    let props: Vec<Option<Value>> = sqlx::query_scalar(
+        "select properties from order_items where order_id = $1 order by created_at, id",
+    )
+    .bind(&order_id)
+    .fetch_all(&db)
+    .await
+    .unwrap();
+    assert_eq!(
+        props,
+        [
+            Some(json!({ "externalLineId": "8001" })),
+            Some(json!({ "externalLineId": "8002" })),
+            Some(json!({ "externalLineId": "8003" })),
+        ]
+    );
     let updated = order_row(&db, &connection_id, &number).await;
     assert_eq!(
         (&updated["item_count"], &updated["total_quantity"]),

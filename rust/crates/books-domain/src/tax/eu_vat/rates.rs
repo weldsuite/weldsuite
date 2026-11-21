@@ -60,6 +60,10 @@ impl VatCategory {
 pub enum RateError {
     /// Not an EU member state.
     NotEuCountry(String),
+    /// A destination whose VAT treatment is not modelled: `XI` (Northern
+    /// Ireland follows EU VAT rules for goods, UK rules otherwise). The
+    /// caller refuses the sale instead of zero-rating it.
+    UnsupportedDestination(String),
     /// Not `YYYY-MM-DD`.
     InvalidDate(String),
     /// The table has no rate for the country on that date (before it starts).
@@ -72,6 +76,9 @@ impl std::fmt::Display for RateError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NotEuCountry(country) => write!(f, "{country} is not an EU member state"),
+            Self::UnsupportedDestination(country) => {
+                write!(f, "VAT to {country} is not supported")
+            }
             Self::InvalidDate(date) => write!(f, "{date} is not a YYYY-MM-DD date"),
             Self::NoRateOnDate { country, date } => {
                 write!(f, "no VAT rate for {country} on {date}")
@@ -121,6 +128,13 @@ fn normalize(country: &str) -> String {
     } else {
         upper
     }
+}
+
+/// The country whose VAT rules apply to a buyer in `country`: Monaco is
+/// French VAT territory, so `MC` is `FR`; Greece's `EL` is `GR`.
+pub fn territory(country: &str) -> String {
+    let iso = normalize(country);
+    if iso == "MC" { "FR".to_owned() } else { iso }
 }
 
 /// Whether `country` (ISO 3166-1 alpha-2, or Greece's `EL`) is an EU member state.

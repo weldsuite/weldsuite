@@ -162,6 +162,7 @@ export const LEGAL_ENTITY_REGISTRATION_TYPES = [
   'gstin',
   'pan',
   'eori',
+  'oss',
   'nl_payroll_tax',
   'us_state_withholding',
   'us_state_unemployment',

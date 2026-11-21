@@ -58,6 +58,7 @@ use weldsuite_events::{EntityEventPublisher, EventContext, iso_timestamp, publis
 use weldsuite_kit::ApiError;
 use weldsuite_kit::validation::{Issues, json_body, query_values};
 use weldsuite_permissions::{PermissionGate, PermissionQueries, Permissions};
+use weldsuite_ports::OutboundHttp;
 
 use crate::table::WriteError;
 
@@ -66,6 +67,10 @@ use crate::table::WriteError;
 pub struct CommerceState {
     /// Entity events (`publishEntityEvent`).
     pub events: EntityEventPublisher,
+    /// Third-party HTTP, for VIES (the buyer's VAT number). Without it VIES
+    /// reads as unavailable: the buyer is charged as a consumer and the
+    /// order is flagged.
+    pub http: Option<OutboundHttp>,
 }
 
 /// WeldCommerce's routes, relative to `/api` (`/commerce/overview`,

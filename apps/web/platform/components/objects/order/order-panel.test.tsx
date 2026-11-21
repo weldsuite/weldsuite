@@ -19,6 +19,8 @@ const env = vi.hoisted(() => ({
   open: vi.fn(),
   isLoading: false,
   error: null as Error | null,
+  canUpdate: true,
+  recalculate: vi.fn(),
 }));
 
 vi.mock('@/components/object-panel', () => ({ useObjectPanel: () => ({ open: env.open }) }));
@@ -28,7 +30,10 @@ vi.mock('@/hooks/queries/use-commerce-orders-queries', () => ({
     isLoading: env.isLoading,
     error: env.error,
   }),
+  useRecalculateCommerceOrderTax: () => ({ mutateAsync: env.recalculate, isPending: false }),
 }));
+vi.mock('@weldsuite/permissions/react', () => ({ usePermissionsMaybe: () => ({ can: () => env.canUpdate }) }));
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock('./order-actions', () => ({ OrderActions: ({ order }: { order: Order }) => <div data-testid="actions">{order.orderNumber}</div> }));
 vi.mock('@/components/objects/_shared/simple-object-panel', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/components/objects/_shared/simple-object-panel')>()),
@@ -118,6 +123,7 @@ function order(overrides: Partial<Order> = {}): Order {
         discountAmount: '0.00',
         taxAmount: '0.00',
         taxRate: null,
+        vatCategory: null,
         total: '90.00',
       },
       {
@@ -134,6 +140,7 @@ function order(overrides: Partial<Order> = {}): Order {
         discountAmount: '0.00',
         taxAmount: '0.00',
         taxRate: null,
+        vatCategory: null,
         total: '35.00',
       },
     ],
@@ -153,6 +160,9 @@ function order(overrides: Partial<Order> = {}): Order {
     destinationCountry: null,
     buyerVatNumber: null,
     vatTreatment: null,
+    viesUnavailable: false,
+    vatRelief: '0.00',
+    taxLines: [],
     paymentMethod: null,
     paymentReference: null,
     paidAt: null,
@@ -175,6 +185,9 @@ beforeEach(() => {
   env.isLoading = false;
   env.error = null;
   env.open.mockReset();
+  env.canUpdate = true;
+  env.recalculate.mockReset();
+  env.recalculate.mockResolvedValue({});
 });
 
 describe('OrderPanel', () => {
@@ -182,7 +195,7 @@ describe('OrderPanel', () => {
     render(<OrderPanel {...props} />);
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('WC-1001');
     expect(screen.getByTestId('subtitle').textContent).toBe('Acme');
-    expect(screen.getByTestId('open-href').getAttribute('href')).toBe('/weldcommerce/orders?open=ord_1');
+    expect(screen.getByTestId('open-href').getAttribute('href')).toBe('/weldcommerce/orders?stack=order:ord_1');
   });
 
   it('shows the order, payment and fulfilment statuses', () => {
@@ -217,6 +230,53 @@ describe('OrderPanel', () => {
     expect(extras.getByText('Subtotal')).toBeTruthy();
     expect(extras.queryByText('Tax')).toBeNull();
     expect(extras.getByText('Total').parentElement?.textContent).toContain('125.00');
+  });
+
+  it('says how the VAT was worked out, per rate, and offers to recalculate while the order is editable', async () => {
+    env.order = order({
+      vatTreatment: 'oss',
+      destinationCountry: 'DE',
+      pricesIncludeTax: true,
+      buyerVatNumber: null,
+      taxTotal: '19.96',
+      taxLines: [{ rate: '19.00', base: '105.04', amount: '19.96' }],
+    });
+    const user = userEvent.setup();
+    render(<OrderPanel {...props} />);
+    const extras = within(screen.getByTestId('extras'));
+    expect(extras.getByText(/One-Stop Shop.*VAT at the rate of DE/)).toBeTruthy();
+    expect(extras.getByText('Prices include VAT')).toBeTruthy();
+    expect(extras.getByText('19% on €105.04', { exact: false })).toBeTruthy();
+    expect(extras.queryByText(/VIES/)).toBeNull();
+    await user.click(extras.getByRole('button', { name: 'Recalculate VAT' }));
+    expect(env.recalculate).toHaveBeenCalledWith('ord_1');
+  });
+
+  it('warns when VIES was unavailable, and locks the VAT of an order that can no longer be edited', () => {
+    env.order = order({ vatTreatment: 'oss', destinationCountry: 'DE', viesUnavailable: true, editable: false });
+    render(<OrderPanel {...props} />);
+    const extras = within(screen.getByTestId('extras'));
+    expect(extras.getByText(/VIES was unavailable/)).toBeTruthy();
+    expect(extras.queryByRole('button', { name: 'Recalculate VAT' })).toBeNull();
+    expect(extras.getByText(/The VAT is locked/)).toBeTruthy();
+  });
+
+  it('shows no recalculate button without orders:update, and says an imported order keeps the store’s tax', () => {
+    env.canUpdate = false;
+    env.order = order({ vatTreatment: 'oss', destinationCountry: 'DE' });
+    const { unmount } = render(<OrderPanel {...props} />);
+    expect(screen.queryByRole('button', { name: 'Recalculate VAT' })).toBeNull();
+    unmount();
+    env.canUpdate = true;
+    env.order = order({ vatTreatment: 'imported' });
+    render(<OrderPanel {...props} />);
+    expect(screen.getByText(/the store’s own tax stands/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Recalculate VAT' })).toBeNull();
+  });
+
+  it('shows no VAT calculated for an order from before VAT', () => {
+    render(<OrderPanel {...props} />);
+    expect(screen.getByText('No VAT was calculated for this order.')).toBeTruthy();
   });
 
   it('shows the fulfilment hint with how many items are fulfilled', () => {

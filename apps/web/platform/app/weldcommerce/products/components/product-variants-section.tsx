@@ -38,6 +38,7 @@ export function ProductVariantsSection({
   productPrice,
   currency,
   productOptions,
+  productVatCategory = 'standard',
   canEdit,
 }: Readonly<{
   productId: string;
@@ -45,6 +46,8 @@ export function ProductVariantsSection({
   currency: string | null | undefined;
   /** The product's `options`, which keep the seller's option order. */
   productOptions?: readonly { name: string; values: readonly string[] }[] | null;
+  /** The product's VAT category, which a variant without its own uses. */
+  productVatCategory?: string | null;
   canEdit: boolean;
 }>) {
   const t = getTranslations('commerce');
@@ -138,6 +141,7 @@ export function ProductVariantsSection({
               key={variant.id}
               variant={variant}
               productPrice={productPrice}
+              productVatCategory={productVatCategory}
               currency={currency}
               canEdit={canEdit}
               isEditing={editingId === variant.id}

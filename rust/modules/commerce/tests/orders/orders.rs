@@ -27,7 +27,7 @@ async fn place(app: &TestApp, product: &str, quantity: i64, extra: Value) -> (St
 
 #[tokio::test]
 async fn quote_prices_without_writing_and_keeps_the_lines_in_order() {
-    let Some(db) = tenant() else { return };
+    let Some(db) = tenant().await else { return };
     let app = app(db.clone(), ALL);
     let widget = priced(&app, "19.99").await;
     let code = fresh("Q").to_uppercase();
@@ -67,7 +67,9 @@ async fn quote_prices_without_writing_and_keeps_the_lines_in_order() {
     assert_eq!(quote["subtotal"], "159.97");
     assert_eq!(quote["discountTotal"], "16.00");
     assert_eq!(quote["shippingTotal"], "4.95");
-    assert_eq!(quote["taxTotal"], "0.00");
+    // Catalogue prices include VAT (21% at the Dutch seller): the tax is inside the total.
+    assert_ne!(quote["taxTotal"], "0.00");
+    assert_eq!(quote["vatTreatment"], "domestic");
     assert_eq!(quote["total"], "148.92");
     assert_eq!(quote["discount"]["code"], json!(code));
     assert_eq!(quote["discountProblem"], Value::Null);
@@ -101,7 +103,7 @@ async fn quote_prices_without_writing_and_keeps_the_lines_in_order() {
 
 #[tokio::test]
 async fn placing_an_order_numbers_prices_and_publishes() {
-    let Some(db) = tenant() else { return };
+    let Some(db) = tenant().await else { return };
     let app = app(db.clone(), ALL);
     let widget = priced(&app, "12.50").await;
     let acme = company(&db, "Acme BV").await;
@@ -138,7 +140,9 @@ async fn placing_an_order_numbers_prices_and_publishes() {
     assert_eq!(order["subtotal"], "50.00");
     assert_eq!(order["shippingTotal"], "5.00");
     assert_eq!(order["total"], "55.00");
-    assert_eq!(order["taxTotal"], "0.00");
+    // 50.00 and 5.00 shipping, VAT-inclusive at 21%: 8.68 + 0.87.
+    assert_eq!(order["taxTotal"], "9.55");
+    assert_eq!(order["vatTreatment"], "domestic");
     assert_eq!(order["itemCount"], 1);
     assert_eq!(order["totalQuantity"], 4);
     assert_eq!(order["companyId"], json!(acme));
@@ -207,7 +211,7 @@ async fn placing_an_order_numbers_prices_and_publishes() {
 
 #[tokio::test]
 async fn invalid_orders_are_refused() {
-    let Some(db) = tenant() else { return };
+    let Some(db) = tenant().await else { return };
     let app = app(db, ALL);
     let widget = priced(&app, "10").await;
     for (body, what) in [
@@ -269,7 +273,7 @@ async fn invalid_orders_are_refused() {
 
 #[tokio::test]
 async fn a_retry_with_the_same_key_returns_the_first_order() {
-    let Some(db) = tenant() else { return };
+    let Some(db) = tenant().await else { return };
     let app = app(db.clone(), ALL);
     let widget = priced(&app, "9.99").await;
     let key = fresh("key-");
@@ -291,7 +295,7 @@ async fn a_retry_with_the_same_key_returns_the_first_order() {
 
 #[tokio::test]
 async fn discount_codes_apply_redeem_and_refuse() {
-    let Some(db) = tenant() else { return };
+    let Some(db) = tenant().await else { return };
     let app = app(db.clone(), ALL);
     let widget = priced(&app, "100").await;
     let code = fresh("SAVE").to_uppercase();
@@ -369,7 +373,7 @@ async fn discount_codes_apply_redeem_and_refuse() {
 
 #[tokio::test]
 async fn every_discount_problem_is_reported() {
-    let Some(db) = tenant() else { return };
+    let Some(db) = tenant().await else { return };
     let app = app(db, ALL);
     let widget = priced(&app, "50").await;
     let other = priced(&app, "50").await;
@@ -440,7 +444,7 @@ async fn every_discount_problem_is_reported() {
 
 #[tokio::test]
 async fn editing_keeps_item_ids_and_recalculates() {
-    let Some(db) = tenant() else { return };
+    let Some(db) = tenant().await else { return };
     let app = app(db.clone(), ALL);
     let a = priced(&app, "10").await;
     let b = priced(&app, "20").await;
@@ -558,7 +562,7 @@ async fn editing_keeps_item_ids_and_recalculates() {
 
 #[tokio::test]
 async fn status_moves_forward_and_completes() {
-    let Some(db) = tenant() else { return };
+    let Some(db) = tenant().await else { return };
     let app = app(db, ALL);
     let widget = priced(&app, "10").await;
     let (id, _) = place(&app, &widget, 1, json!({ "status": "pending" })).await;
@@ -600,7 +604,7 @@ async fn status_moves_forward_and_completes() {
 
 #[tokio::test]
 async fn paid_orders_keep_their_items_and_fulfilled_ones_cannot_cancel() {
-    let Some(db) = tenant() else { return };
+    let Some(db) = tenant().await else { return };
     let app = app(db.clone(), ALL);
     let widget = priced(&app, "30").await;
     let (id, _) = place(&app, &widget, 2, json!({ "status": "pending" })).await;
@@ -664,7 +668,7 @@ async fn paid_orders_keep_their_items_and_fulfilled_ones_cannot_cancel() {
 
 #[tokio::test]
 async fn cancelling_closes_the_order() {
-    let Some(db) = tenant() else { return };
+    let Some(db) = tenant().await else { return };
     let app = app(db, ALL);
     let widget = priced(&app, "15").await;
     let (id, _) = place(&app, &widget, 1, json!({})).await;
@@ -701,7 +705,7 @@ async fn cancelling_closes_the_order() {
 
 #[tokio::test]
 async fn orders_are_scoped_to_their_tenant_database() {
-    let Some(db) = tenant() else { return };
+    let Some(db) = tenant().await else { return };
     let app_a = app(db.clone(), ALL);
     let widget = priced(&app_a, "5").await;
     let (id, _) = place(&app_a, &widget, 1, json!({})).await;
@@ -721,7 +725,7 @@ async fn orders_are_scoped_to_their_tenant_database() {
 
 #[tokio::test]
 async fn the_list_sorts_pages_and_filters_by_date() {
-    let Some(db) = tenant() else { return };
+    let Some(db) = tenant().await else { return };
     let app = app(db, ALL);
     let widget = priced(&app, "10").await;
     let tag = fresh("sort");
@@ -773,7 +777,7 @@ async fn the_list_sorts_pages_and_filters_by_date() {
 
 #[tokio::test]
 async fn an_order_made_into_an_invoice_shows_it() {
-    let Some(db) = tenant() else { return };
+    let Some(db) = tenant().await else { return };
     let app = app(db.clone(), ALL);
     let widget = priced(&app, "10").await;
     let (id, _) = place(&app, &widget, 1, json!({})).await;

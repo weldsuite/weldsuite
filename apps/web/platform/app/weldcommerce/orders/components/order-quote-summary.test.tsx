@@ -13,6 +13,12 @@ const quote: OrderQuote = {
   total: '95.00',
   discount: { id: 'dsc_1', code: 'SPRING', type: 'percentage', value: '10' },
   discountProblem: null,
+  vatTreatment: 'domestic',
+  destinationCountry: 'NL',
+  viesUnavailable: false,
+  pricesIncludeTax: true,
+  vatRelief: '0.00',
+  taxLines: [{ rate: '21.00', base: '78.51', amount: '16.49' }],
 };
 
 function show(props: Partial<Parameters<typeof OrderQuoteSummary>[0]> = {}) {
@@ -55,10 +61,25 @@ describe('OrderQuoteSummary', () => {
     expect(screen.queryByText('Tax')).toBeNull();
   });
 
-  it('leaves out the discount row when nothing is taken off, and shows tax when there is some', () => {
-    show({ quote: { ...quote, discountTotal: '0.00', taxTotal: '21.00', discount: null } });
+  it('says how the VAT was worked out, shows it per rate inside the total, and warns when VIES was down', () => {
+    show({ quote: { ...quote, viesUnavailable: true, vatTreatment: 'oss', destinationCountry: 'DE', taxLines: [{ rate: '19.00', base: '10.00', amount: '1.90' }] } });
+    expect(screen.getByText(/One-Stop Shop.*rate of DE/)).toBeTruthy();
+    expect(screen.getByText('Prices include VAT')).toBeTruthy();
+    expect(screen.getByText('Includes VAT 19%').nextElementSibling?.textContent).toContain('1.90');
+    expect(screen.getByText(/VIES was unavailable/)).toBeTruthy();
+  });
+
+  it('adds the VAT on top for net prices, and shows what a zero-rated sale took off', () => {
+    show({ quote: { ...quote, pricesIncludeTax: false, vatRelief: '2.10', taxLines: [{ rate: '21.00', base: '10.00', amount: '2.10' }] } });
+    expect(screen.getByText('VAT is added to the prices')).toBeTruthy();
+    expect(screen.getByText('VAT 21%').nextElementSibling?.textContent).toContain('2.10');
+    expect(screen.getByText('VAT removed from the prices').nextElementSibling?.textContent).toContain('2.10');
+  });
+
+  it('leaves out the discount row when nothing is taken off, and shows the VAT when there is some', () => {
+    show({ quote: { ...quote, discountTotal: '0.00', taxTotal: '21.00', discount: null, taxLines: [{ rate: '21.00', base: '100.00', amount: '21.00' }] } });
     expect(screen.queryByText('Discount')).toBeNull();
-    expect(screen.getByText('Tax').nextElementSibling?.textContent).toContain('21.00');
+    expect(screen.getByText('Includes VAT 21%').nextElementSibling?.textContent).toContain('21.00');
     expect(screen.queryByText(/applied/)).toBeNull();
   });
 

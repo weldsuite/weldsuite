@@ -9,7 +9,7 @@ use axum::Router;
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{delete, get, patch, post};
 use http::{HeaderMap, StatusCode};
 use serde_json::{Map, Value, json};
 use sqlx::{Postgres, Transaction};
@@ -39,14 +39,16 @@ where
             "/",
             post(create).route_layer(gate.require([DISCOUNTS_CREATE])),
         )
+        // One `route` per method: `route_layer` wraps every method already
+        // chained, so chaining them would stack the permissions.
+        .route("/{id}", get(detail).route_layer(read()))
         .route(
             "/{id}",
-            get(detail)
-                .route_layer(read())
-                .patch(update)
-                .route_layer(gate.require([DISCOUNTS_UPDATE]))
-                .delete(remove)
-                .route_layer(gate.require([DISCOUNTS_DELETE])),
+            patch(update).route_layer(gate.require([DISCOUNTS_UPDATE])),
+        )
+        .route(
+            "/{id}",
+            delete(remove).route_layer(gate.require([DISCOUNTS_DELETE])),
         )
         .route("/{id}/redemptions", get(redemptions).route_layer(read()))
 }

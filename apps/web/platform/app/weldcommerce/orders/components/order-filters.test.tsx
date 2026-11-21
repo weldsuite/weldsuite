@@ -3,10 +3,10 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { OrderFilters } from './order-filters';
 
-function renderFilters(values = {}) {
+function renderFilters(values = {}, channels?: { id: string; name: string }[]) {
   const onChange = vi.fn();
   const onClear = vi.fn();
-  render(<OrderFilters values={values} onChange={onChange} onClear={onClear} />);
+  render(<OrderFilters values={values} onChange={onChange} onClear={onClear} channels={channels} />);
   return { onChange, onClear, user: userEvent.setup() };
 }
 
@@ -27,6 +27,21 @@ describe('OrderFilters', () => {
     }
     expect(screen.getByLabelText('From')).toBeTruthy();
     expect(screen.getByLabelText('To')).toBeTruthy();
+  });
+
+  it('shows the Channel filter only when the workspace has channels, and reports a chosen one', async () => {
+    renderFilters();
+    expect(screen.queryByRole('combobox', { name: 'Channel' })).toBeNull();
+  });
+
+  it('reports a chosen channel', async () => {
+    const { user, onChange } = renderFilters({}, [
+      { id: 'ch_1', name: 'Webshop NL' },
+      { id: 'ch_2', name: 'B2B portal' },
+    ]);
+    await user.click(screen.getByRole('combobox', { name: 'Channel' }));
+    await user.click(await screen.findByRole('option', { name: 'B2B portal' }));
+    expect(onChange).toHaveBeenCalledWith('channelId', 'ch_2');
   });
 
   it('shows no Clear button until a filter is set', () => {

@@ -75,6 +75,7 @@ pub(crate) fn app(db: PgPool, permissions: &[&str]) -> TestApp {
             Some(Arc::clone(&bus) as Arc<dyn DynEventBus>),
             tracker.clone(),
         ),
+        http: None,
     };
     let gate = Arc::new(PermissionGate::new(|_| Ok(NoQueries)));
     let resolved = ResolvedPermissions {

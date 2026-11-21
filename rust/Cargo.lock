@@ -7568,6 +7568,7 @@ dependencies = [
  "weldsuite-books-domain",
  "weldsuite-db",
  "weldsuite-kit",
+ "weldsuite-ports",
 ]
 
 [[package]]

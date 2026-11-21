@@ -218,6 +218,28 @@ pub(crate) fn refuse(error: Error) -> Refusal {
             format!("The next order number cannot go below {current}"),
             Some(json!({ "current": current })),
         ),
+        error @ Error::SellerEntityRequired => {
+            conflict("SELLER_ENTITY_REQUIRED", error.to_string(), None)
+        }
+        Error::SellerNotEu { country } => conflict(
+            "SELLER_ENTITY_NOT_EU",
+            format!(
+                "The seller entity is in {country}: WeldCommerce calculates VAT for EU sellers only"
+            ),
+            Some(json!({ "country": country })),
+        ),
+        Error::DestinationNotSupported { country } => conflict(
+            "DESTINATION_NOT_SUPPORTED",
+            format!("VAT to {country} is not supported yet"),
+            Some(json!({ "country": country })),
+        ),
+        error @ Error::TaxLocked => conflict("ORDER_TAX_LOCKED", error.to_string(), None),
+        Error::TaxEngineUnavailable(why) => ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "TAX_ENGINE_UNAVAILABLE",
+            format!("The VAT could not be calculated: {why}"),
+        )
+        .into(),
     }
 }
 

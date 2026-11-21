@@ -13,3 +13,4 @@ mod harness;
 mod orders;
 mod permissions;
 mod settings;
+mod vat;

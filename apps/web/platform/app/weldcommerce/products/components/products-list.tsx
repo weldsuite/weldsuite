@@ -103,9 +103,9 @@ export function ProductsList({
       />
       {confirmDelete.dialog}
 
-      {createOpen && <ProductDialog open={createOpen} onOpenChange={setCreateOpen} />}
+      {createOpen && <ProductDialog open={createOpen} onOpenChange={setCreateOpen} showVatCategory />}
       {editing && (
-        <ProductDialog open onOpenChange={(open) => !open && setEditing(undefined)} product={editing} />
+        <ProductDialog open onOpenChange={(open) => !open && setEditing(undefined)} product={editing} showVatCategory />
       )}
     </>
   );

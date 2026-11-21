@@ -34,6 +34,11 @@ vi.mock('@/app/weldcommerce/products/components/product-variants-section', () =>
     <div data-testid="variants-section">{`${productId}:${canEdit ? 'edit' : 'read'}`}</div>
   ),
 }));
+vi.mock('@/app/weldcommerce/products/components/product-prices-section', () => ({
+  ProductPricesSection: ({ productId, canEdit }: { productId: string; canEdit: boolean }) => (
+    <div data-testid="prices-section">{`${productId}:${canEdit ? 'edit' : 'read'}`}</div>
+  ),
+}));
 vi.mock('@/app/weldcommerce/products/components/product-categories-section', () => ({
   ProductCategoriesSection: ({ productId }: { productId: string }) => <div data-testid="categories-section">{productId}</div>,
 }));
@@ -110,14 +115,15 @@ describe('ProductPanel in WeldCommerce', () => {
     setRuntimeConfig({ backend: 'rust', modules: ['core', 'stash', 'commerce'], unavailableFeatures: [] } as never);
   }
 
-  it('adds the Variants and Categories tabs and links to the WeldCommerce list', () => {
+  it('adds the Variants, Prices and Categories tabs and links to the WeldCommerce list', () => {
     offerCommerce();
     env.permissions = { app: 'weldcommerce', can: (permission) => permission !== 'weldstash:suppliers:read' };
     render(<ProductPanel {...props} />);
-    expect(screen.getAllByRole('heading').map((h) => h.textContent)).toEqual(['Details', 'Variants', 'Stock', 'Categories', 'Movements']);
+    expect(screen.getAllByRole('heading').map((h) => h.textContent)).toEqual(['Details', 'Variants', 'Prices', 'Stock', 'Categories', 'Movements']);
     expect(screen.getByTestId('variants-section')).toHaveTextContent('prod_1:edit');
+    expect(screen.getByTestId('prices-section')).toHaveTextContent('prod_1:edit');
     expect(screen.getByTestId('categories-section')).toHaveTextContent('prod_1');
-    expect(screen.getByTestId('open-href')).toHaveAttribute('href', '/weldcommerce/products?open=prod_1');
+    expect(screen.getByTestId('open-href')).toHaveAttribute('href', '/weldcommerce/products?stack=product:prod_1');
   });
 
   it('shows variants read-only without products:update, and no categories without categories:read', () => {
@@ -125,6 +131,7 @@ describe('ProductPanel in WeldCommerce', () => {
     env.permissions = { app: 'weldcommerce', can: (permission) => permission === 'products:read' };
     render(<ProductPanel {...props} />);
     expect(screen.getByTestId('variants-section')).toHaveTextContent('prod_1:read');
+    expect(screen.getByTestId('prices-section')).toHaveTextContent('prod_1:read');
     expect(screen.queryByTestId('tab-categories')).not.toBeInTheDocument();
   });
 
@@ -133,8 +140,9 @@ describe('ProductPanel in WeldCommerce', () => {
     env.permissions = { app: 'weldstash', can: () => true };
     render(<ProductPanel {...props} />);
     expect(screen.queryByTestId('tab-variants')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('tab-prices')).not.toBeInTheDocument();
     expect(screen.queryByTestId('tab-categories')).not.toBeInTheDocument();
-    expect(screen.getByTestId('open-href')).toHaveAttribute('href', '/weldstash/products?open=prod_1');
+    expect(screen.getByTestId('open-href')).toHaveAttribute('href', '/weldstash/products?stack=product:prod_1');
   });
 
   it('has neither tab where WeldCommerce is not offered (Global)', () => {

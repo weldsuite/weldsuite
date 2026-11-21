@@ -14,10 +14,14 @@ const env = vi.hoisted(() => ({
   open: vi.fn(),
   push: vi.fn(),
   createIntent: null as null | (() => void),
+  channels: [] as { id: string; name: string }[],
 }));
 
 vi.mock('@weldsuite/permissions/react', () => ({
   usePermissionsMaybe: () => ({ can: (permission: string) => env.allowed.has(permission) }),
+}));
+vi.mock('@/hooks/queries/use-commerce-channels-queries', () => ({
+  useCommerceChannels: () => ({ data: { data: env.channels } }),
 }));
 vi.mock('@/lib/router', () => ({ useRouter: () => ({ push: env.push }) }));
 vi.mock('@/components/object-panel', () => ({
@@ -121,9 +125,31 @@ function renderList(overrides: Partial<Parameters<typeof OrdersList>[0]> = {}) {
 
 beforeEach(() => {
   env.allowed = new Set(['orders:create']);
+  env.channels = [{ id: 'ch_1', name: 'Webshop NL' }];
   env.open.mockReset();
   env.push.mockReset();
   env.createIntent = null;
+});
+
+describe('OrdersList channels', () => {
+  it('shows the channel name in the Channel column, and a dash for an order without one', () => {
+    env.allowed = new Set(['orders:create', 'commerce_channels:read']);
+    renderList({ orders: [row({ channelId: 'ch_1' }), row({ id: 'ord_2', orderNumber: 'WC-1002', channelId: null })] });
+    expect(screen.getByTestId('ord_1-channel').textContent).toBe('Webshop NL');
+    expect(screen.getByTestId('ord_2-channel').textContent).toBe('—');
+  });
+
+  it('offers the Channel filter only to a member who may read channels', () => {
+    renderList();
+    expect(screen.queryByRole('combobox', { name: 'Channel' })).toBeNull();
+    expect(screen.getByTestId('ord_1-channel').textContent).toBe('—');
+  });
+
+  it('offers the Channel filter with the workspace channels', () => {
+    env.allowed = new Set(['orders:create', 'commerce_channels:read']);
+    renderList();
+    expect(screen.getByRole('combobox', { name: 'Channel' })).toBeTruthy();
+  });
 });
 
 describe('OrdersList', () => {

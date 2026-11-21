@@ -45,6 +45,10 @@ pub enum RegistrationType {
     Gstin,
     Pan,
     Eori,
+    /// The One-Stop Shop for EU distance sales: `books-domain`'s EU
+    /// destination VAT charges the buyer's country rate only while the
+    /// entity has a live `oss` registration (ADR COM-014).
+    Oss,
     NlPayrollTax,
     UsStateWithholding,
     UsStateUnemployment,
@@ -53,7 +57,7 @@ pub enum RegistrationType {
 
 impl RegistrationType {
     /// In the schema's order.
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 12] = [
         Self::Vat,
         Self::CompanyRegistration,
         Self::Rsin,
@@ -61,6 +65,7 @@ impl RegistrationType {
         Self::Gstin,
         Self::Pan,
         Self::Eori,
+        Self::Oss,
         Self::NlPayrollTax,
         Self::UsStateWithholding,
         Self::UsStateUnemployment,
@@ -76,6 +81,7 @@ impl RegistrationType {
             Self::Gstin => "gstin",
             Self::Pan => "pan",
             Self::Eori => "eori",
+            Self::Oss => "oss",
             Self::NlPayrollTax => "nl_payroll_tax",
             Self::UsStateWithholding => "us_state_withholding",
             Self::UsStateUnemployment => "us_state_unemployment",
@@ -1107,6 +1113,20 @@ mod tests {
             Some("Enter a number")
         );
         assert_eq!(check(RegistrationType::Other, "anything"), None);
+        // The OSS identification number has no fixed format (a union-scheme
+        // number is the VAT number, a non-union one starts with `EU`).
+        assert_eq!(check(RegistrationType::Oss, "EU372012345"), None);
+        assert_eq!(check(RegistrationType::Oss, "NL123456789B01"), None);
+        assert_eq!(check(RegistrationType::Oss, ""), Some("Enter a number"));
+    }
+
+    #[test]
+    fn oss_is_a_registration_type() {
+        assert_eq!(RegistrationType::parse("oss"), Some(RegistrationType::Oss));
+        assert_eq!(RegistrationType::Oss.as_str(), "oss");
+        // Not a primary type: an entity holds at most one live row, which
+        // the VAT engine looks up by its type.
+        assert!(!RegistrationType::Oss.is_primary_type());
     }
 
     #[test]

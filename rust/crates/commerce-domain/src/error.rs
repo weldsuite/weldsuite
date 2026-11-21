@@ -48,6 +48,25 @@ pub enum Error {
     SequenceBackwards {
         current: i64,
     },
+    /// No seller entity: neither `commerce_settings.default_entity_id` nor
+    /// the workspace's default legal entity names a live one (409
+    /// `SELLER_ENTITY_REQUIRED`).
+    SellerEntityRequired,
+    /// The seller entity is outside the EU: milestone 1 has EU VAT rules only
+    /// (409 `SELLER_ENTITY_NOT_EU`).
+    SellerNotEu {
+        country: String,
+    },
+    /// The destination's VAT is not modelled (Northern Ireland, `XI`): the
+    /// sale is refused, not zero-rated (409 `DESTINATION_NOT_SUPPORTED`).
+    DestinationNotSupported {
+        country: String,
+    },
+    /// The VAT engine could not answer (503 `TAX_ENGINE_UNAVAILABLE`). The
+    /// write stops: a failure never becomes zero tax.
+    TaxEngineUnavailable(String),
+    /// The order's tax is locked: it is not editable (409 `ORDER_TAX_LOCKED`).
+    TaxLocked,
 }
 
 impl Error {
@@ -94,6 +113,22 @@ impl fmt::Display for Error {
             Self::SequenceBackwards { current } => {
                 write!(f, "The next order number cannot go below {current}")
             }
+            Self::SellerEntityRequired => f.write_str(
+                "Orders need a seller: set up a legal entity in WeldBooks and make it the default",
+            ),
+            Self::SellerNotEu { country } => write!(
+                f,
+                "The seller entity is in {country}: WeldCommerce calculates VAT for EU sellers only"
+            ),
+            Self::DestinationNotSupported { country } => {
+                write!(f, "VAT to {country} is not supported yet")
+            }
+            Self::TaxEngineUnavailable(why) => {
+                write!(f, "The VAT could not be calculated: {why}")
+            }
+            Self::TaxLocked => f.write_str(
+                "The VAT of this order is locked: it can no longer be edited, so it is not recalculated",
+            ),
         }
     }
 }

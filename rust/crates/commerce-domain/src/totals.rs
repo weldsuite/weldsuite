@@ -1,10 +1,11 @@
 //! An order's amounts: the pure sums.
 //!
 //! `subtotal` is quantity times unit price before any discount;
-//! `discount_total` the item discounts; `total` is
-//! `subtotal - discount_total + shipping_total + tax_total`. Phase 2 computes
-//! no VAT, so `tax_total` is zero and an item's `total` is
-//! `quantity * unit_price - discount`.
+//! `discount_total` the item discounts; before VAT, `total` is
+//! `subtotal - discount_total + shipping_total` and `tax_total` zero. The VAT
+//! of [`crate::vat`] then settles `tax_total` and `total` (`plan::price`): the
+//! prices include VAT (the total is unchanged, the tax inside it), or VAT comes
+//! on top, or a zero-rated sale strips the seller's VAT from them.
 
 use crate::money::Cents;
 
@@ -46,13 +47,12 @@ pub struct Totals {
 pub fn totals(lines: &[Line], shipping: Cents) -> Totals {
     let subtotal: Cents = lines.iter().map(Line::gross).sum();
     let discount_total: Cents = lines.iter().map(|l| l.discount).sum();
-    let tax_total = 0;
     Totals {
         subtotal,
         discount_total,
         shipping_total: shipping,
-        tax_total,
-        total: subtotal - discount_total + shipping + tax_total,
+        tax_total: 0,
+        total: subtotal - discount_total + shipping,
     }
 }
 

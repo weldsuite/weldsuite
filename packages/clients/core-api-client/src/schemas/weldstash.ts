@@ -17,6 +17,8 @@ export const createProductSchema = z.object({
   status: z.enum(['active', 'inactive', 'draft']).default('active'),
   brand: z.string().max(255).optional(),
   vendor: z.string().max(255).optional(),
+  /** EU VAT category (WeldCommerce, ADR COM-014); the API's default is `standard`. */
+  vatCategory: z.enum(['standard', 'reduced', 'super_reduced', 'zero', 'exempt']).optional(),
 
   // Media. The `products` table has carried `images` (jsonb) and
   // `featured_image_url` all along; they were simply absent from this form
@@ -176,6 +178,8 @@ export interface WeldstashProduct {
   taxable?: boolean | null;
   /** A WeldBooks tax code or a Stripe / Avalara code; older rows may hold a legacy word. */
   taxClass?: string | null;
+  /** `standard`, `reduced`, `super_reduced`, `zero` or `exempt` (WeldCommerce). */
+  vatCategory?: string | null;
   createdAt: string;
   updatedAt: string;
 }

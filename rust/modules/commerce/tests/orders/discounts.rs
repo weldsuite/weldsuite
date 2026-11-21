@@ -8,7 +8,7 @@ use crate::harness::{ALL, app, discount, fresh, ids, read, tenant};
 
 #[tokio::test]
 async fn create_read_update_and_delete() {
-    let Some(db) = tenant() else { return };
+    let Some(db) = tenant().await else { return };
     let app = app(db, ALL);
     let code = fresh("SPRING").to_uppercase();
     let id = discount(
@@ -55,7 +55,7 @@ async fn create_read_update_and_delete() {
 
 #[tokio::test]
 async fn a_code_is_unique_ignoring_case_among_non_archived() {
-    let Some(db) = tenant() else { return };
+    let Some(db) = tenant().await else { return };
     let app = app(db, ALL);
     let code = fresh("Dup");
     let first = discount(
@@ -106,7 +106,7 @@ async fn a_code_is_unique_ignoring_case_among_non_archived() {
 
 #[tokio::test]
 async fn validation_and_effective_status() {
-    let Some(db) = tenant() else { return };
+    let Some(db) = tenant().await else { return };
     let app = app(db.clone(), ALL);
     for (body, field) in [
         (

@@ -13,6 +13,8 @@ publish.workspace = true
 weldsuite-books-domain = { workspace = true }
 weldsuite-db = { workspace = true }
 weldsuite-kit = { workspace = true }
+# The outbound HTTP port VIES is asked through.
+weldsuite-ports = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
 tracing = { workspace = true }

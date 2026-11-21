@@ -8,7 +8,7 @@ import { getTranslations } from '@/lib/i18n';
 import { OrdersList } from './components/orders-list';
 import type { OrderFilterKey, OrderFilterValues } from './components/order-filters';
 
-const FILTER_KEYS: readonly OrderFilterKey[] = ['status', 'paymentStatus', 'fulfillmentStatus', 'source', 'from', 'to'];
+const FILTER_KEYS: readonly OrderFilterKey[] = ['status', 'paymentStatus', 'fulfillmentStatus', 'source', 'channelId', 'from', 'to'];
 
 function OrdersPageContent() {
   const t = getTranslations('commerce').orders;

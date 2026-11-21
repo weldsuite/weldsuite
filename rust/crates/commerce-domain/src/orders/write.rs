@@ -7,11 +7,16 @@
 //! event after the commit.
 //!
 //! - [`create`]: a manual order. Numbered from the settings, priced from the
-//!   catalogue, the discount code redeemed, safe to retry with an
-//!   idempotency key.
+//!   catalogue, VAT from the WeldBooks engine ([`crate::vat`], ADR COM-014),
+//!   the discount code redeemed, safe to retry with an idempotency key.
 //! - [`update`]: notes, addresses, tags and status always; the customer,
-//!   shipping and items (stable item ids) and the discount code only while
-//!   the order is editable, with the totals and the redemption recalculated.
+//!   shipping, items (stable item ids), buyer VAT number, price basis and
+//!   the discount code only while the order is editable, with the totals, the
+//!   VAT and the redemption recalculated. A change of the destination country
+//!   on an editable order recalculates too.
+//! - [`recalculate`]: the VAT of an editable order again, nothing else
+//!   changed (after VIES came back, say). **Tax lock**: the VAT of an order
+//!   that is no longer editable never changes.
 //! - [`cancel`], [`mark_paid`].
 //! - [`import`]: an order a store sync brought in; the store's own numbers
 //!   and totals stay, the items are brought in line with the store's lines
@@ -34,6 +39,7 @@ use crate::orders::{self, Stored};
 use crate::status;
 use crate::tables::{ORDER_ITEMS, ORDERS};
 use crate::totals;
+use crate::vat::{self, Buyer, Taxation, VatLine};
 
 fn put(values: &mut Map<String, Value>, table: &Table, prop: &str, value: Value) {
     debug_assert!(table.column(prop).is_some(), "{} has no {prop}", table.name);
@@ -262,11 +268,11 @@ async fn sync_redemption(
 fn item_values(
     order_id: &str,
     line: &Line,
-    discount: Cents,
-    total: Cents,
+    amounts: (Cents, Cents, &VatLine),
     properties: Value,
     now: &str,
 ) -> Map<String, Value> {
+    let (discount, total, vat) = amounts;
     let t = &ORDER_ITEMS;
     let mut values = Map::new();
     put(&mut values, t, "orderId", json!(order_id));
@@ -278,7 +284,14 @@ fn item_values(
     put(&mut values, t, "quantity", json!(line.quantity));
     put(&mut values, t, "unitPrice", amount(line.unit_price));
     put(&mut values, t, "discountAmount", amount(discount));
-    put(&mut values, t, "taxAmount", amount(0));
+    put(&mut values, t, "taxAmount", amount(vat.tax));
+    put(
+        &mut values,
+        t,
+        "taxRate",
+        json!(vat::rate_percent(vat.rate_bps)),
+    );
+    put(&mut values, t, "vatCategory", json!(vat.category));
     put(&mut values, t, "total", amount(total));
     put(&mut values, t, "properties", properties);
     put(&mut values, t, "updatedAt", json!(now));
@@ -289,12 +302,11 @@ async fn insert_item(
     conn: &mut PgConnection,
     order_id: &str,
     line: &Line,
-    discount: Cents,
-    total: Cents,
+    amounts: (Cents, Cents, &VatLine),
     now: &str,
 ) -> Result<(), sqlx::Error> {
     let properties = lines::properties(None, line.variant_name.as_deref());
-    let mut values = item_values(order_id, line, discount, total, properties, now);
+    let mut values = item_values(order_id, line, amounts, properties, now);
     put(&mut values, &ORDER_ITEMS, "id", json!(generate_id("oitm")));
     put(&mut values, &ORDER_ITEMS, "createdAt", json!(now));
     ORDER_ITEMS.insert_raw(&mut *conn, values).await?;
@@ -317,6 +329,18 @@ fn line_problems(resolved: &[Line]) -> Result<(), Error> {
 /// The header columns an order's amounts and discount decide.
 fn plan_values(values: &mut Map<String, Value>, plan: &Plan, lines: &[Line], metadata: &Value) {
     let t = &ORDERS;
+    if let Some(vat) = &plan.vat {
+        put(values, t, "pricesIncludeTax", json!(vat.prices_include_tax));
+        put(values, t, "vatTreatment", json!(vat.treatment));
+        put(
+            values,
+            t,
+            "destinationCountry",
+            json!(vat.destination_country),
+        );
+        put(values, t, "buyerVatNumber", json!(vat.buyer_vat_number));
+        put(values, t, "taxLines", vat.tax_lines_json());
+    }
     put(values, t, "subtotal", amount(plan.totals.subtotal));
     put(
         values,
@@ -364,7 +388,64 @@ fn plan_values(values: &mut Map<String, Value>, plan: &Plan, lines: &[Line], met
         Some(waived) => metadata.insert("shippingDiscount".to_owned(), amount(waived)),
         None => metadata.remove("shippingDiscount"),
     };
+    vat_metadata(&mut metadata, plan.vat.as_ref());
     put(values, t, "metadata", Value::Object(metadata));
+}
+
+/// The VAT facts that have no column: the VIES flag, shipping's own VAT (an
+/// order's shipping is one amount, taxed as a line of its own), and the VAT
+/// a zero-rated sale took off VAT-inclusive prices.
+fn vat_metadata(metadata: &mut Map<String, Value>, vat: Option<&vat::Vat>) {
+    let Some(vat) = vat else {
+        return;
+    };
+    if vat.vies_unavailable {
+        metadata.insert("viesUnavailable".to_owned(), json!(true));
+    } else {
+        metadata.remove("viesUnavailable");
+    }
+    match &vat.shipping {
+        Some(shipping) => metadata.insert(
+            "shippingVat".to_owned(),
+            json!({
+                "rate": vat::rate_percent(shipping.rate_bps),
+                "net": money::format(shipping.net),
+                "tax": money::format(shipping.tax),
+                "gross": money::format(shipping.gross),
+            }),
+        ),
+        None => metadata.remove("shippingVat"),
+    };
+    if vat.vat_relief > 0 {
+        metadata.insert("vatRelief".to_owned(), amount(vat.vat_relief));
+    } else {
+        metadata.remove("vatRelief");
+    }
+}
+
+/// What a stored order records of its buyer for VAT: the price basis, the
+/// shipping and billing countries and the VAT number.
+struct StoredBuyer {
+    prices_include_tax: bool,
+    shipping_country: Option<String>,
+    billing_country: Option<String>,
+    vat_number: Option<String>,
+}
+
+fn stored_buyer(order: &Value) -> StoredBuyer {
+    StoredBuyer {
+        prices_include_tax: order
+            .get("pricesIncludeTax")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        shipping_country: vat::country_of(order.get("shippingAddress")),
+        billing_country: vat::country_of(order.get("billingAddress")),
+        vat_number: order
+            .get("buyerVatNumber")
+            .and_then(Value::as_str)
+            .filter(|t| !t.is_empty())
+            .map(str::to_owned),
+    }
 }
 
 // ── create ──────────────────────────────────────────────────────────────────
@@ -389,6 +470,11 @@ pub struct NewOrder {
     pub customer_reference: Option<String>,
     pub customer_note: Option<String>,
     pub internal_note: Option<String>,
+    /// The prices on the order include VAT (catalogue prices do).
+    pub prices_include_tax: bool,
+    /// The buyer's VAT number, as typed; VIES checks it for a sale to
+    /// another EU country.
+    pub buyer_vat_number: Option<String>,
     /// `pending` or `confirmed`.
     pub status: String,
     pub tags: Vec<String>,
@@ -411,12 +497,18 @@ pub struct Created {
 /// # Errors
 /// [`Error::Invalid`] for a company or person that is gone,
 /// [`Error::LineProblems`] for lines the catalogue cannot price,
-/// [`Error::Discount`] for a code that does not apply.
+/// [`Error::Discount`] for a code that does not apply, and the VAT refusals
+/// ([`Error::SellerEntityRequired`], [`Error::SellerNotEu`],
+/// [`Error::TaxEngineUnavailable`]): nothing is written then.
 #[allow(
     clippy::too_many_lines,
     reason = "the order, then its items, then the redemption"
 )]
-pub async fn create(conn: &mut PgConnection, new: &NewOrder) -> Result<Created, Error> {
+pub async fn create(
+    conn: &mut PgConnection,
+    tax: &Taxation<'_>,
+    new: &NewOrder,
+) -> Result<Created, Error> {
     if let Some(key) = &new.idempotency_key {
         sqlx::query("select pg_advisory_xact_lock(hashtext($1))")
             .bind(format!("weldcommerce:order-key:{key}"))
@@ -446,18 +538,28 @@ pub async fn create(conn: &mut PgConnection, new: &NewOrder) -> Result<Created, 
     let resolved = lines::resolve(conn, &new.currency, &new.lines, &[]).await?;
     line_problems(&resolved)?;
     let email = new.customer_email.clone().or_else(|| buyer.email.clone());
-    let plan = plan::plan(
+    let shipping_country = vat::country_of(new.shipping_address.as_ref());
+    let billing_country = vat::country_of(new.billing_address.as_ref());
+    let plan = plan::price(
         conn,
+        tax,
         &plan::Input {
             currency: &new.currency,
             lines: &resolved,
             discount_code: new.discount_code.as_deref(),
+            keep_discount_id: None,
             shipping: new.shipping,
             person_id: buyer.person_id.as_deref(),
             counterparty_id: buyer.counterparty_id.as_deref(),
             email: email.as_deref(),
             order_id: None,
             lock: true,
+        },
+        &Buyer {
+            prices_include_tax: new.prices_include_tax,
+            shipping_country: shipping_country.as_deref(),
+            billing_country: billing_country.as_deref(),
+            vat_number: new.buyer_vat_number.as_deref(),
         },
     )
     .await?;
@@ -521,7 +623,8 @@ pub async fn create(conn: &mut PgConnection, new: &NewOrder) -> Result<Created, 
     ORDERS.insert_raw(&mut *conn, values).await?;
     for (index, line) in resolved.iter().enumerate() {
         let total = plan.line_total(&resolved, index);
-        insert_item(conn, &id, line, plan.line_discounts[index], total, &now).await?;
+        let amounts = (plan.line_discounts[index], total, vat_line(&plan, index));
+        insert_item(conn, &id, line, amounts, &staggered(&now, index)).await?;
     }
     if let Some(redeemed) = &plan.discount {
         redeem(
@@ -561,6 +664,8 @@ pub struct Patch {
     pub customer_phone: Field<String>,
     pub shipping_total: Option<Cents>,
     pub discount_code: Field<String>,
+    pub buyer_vat_number: Field<String>,
+    pub prices_include_tax: Option<bool>,
     /// The full list: a line with an `id` updates that item, a line without
     /// one is added, an item that is not listed is removed.
     pub items: Option<Vec<LineInput>>,
@@ -612,12 +717,61 @@ struct Edits {
     shipping: bool,
     discount: bool,
     items: bool,
+    /// The VAT's facts changed: the destination country, the buyer's VAT
+    /// number or the price basis.
+    tax: bool,
 }
 
 impl Edits {
     fn any(&self) -> bool {
-        self.customer || self.shipping || self.discount || self.items
+        self.customer || self.shipping || self.discount || self.items || self.tax
     }
+}
+
+/// An address field after a patch: what it sets, clears or leaves.
+fn merged_address(field: &Field<Value>, stored: Option<&Value>) -> Option<Value> {
+    match field {
+        Field::Set(address) => Some(address.clone()),
+        Field::Null => None,
+        Field::Absent => stored.filter(|a| !a.is_null()).cloned(),
+    }
+}
+
+fn merged_text(field: &Field<String>, stored: Option<String>) -> Option<String> {
+    match field {
+        Field::Set(text) => Some(text.clone()),
+        Field::Null => None,
+        Field::Absent => stored,
+    }
+}
+
+fn destination(shipping: Option<&Value>, billing: Option<&Value>) -> Option<String> {
+    vat::country_of(shipping).or_else(|| vat::country_of(billing))
+}
+
+fn tax_facts_changed(stored: &Stored, patch: &Patch) -> bool {
+    let order = &stored.order;
+    let before = destination(order.get("shippingAddress"), order.get("billingAddress"));
+    let after = destination(
+        merged_address(&patch.shipping_address, order.get("shippingAddress")).as_ref(),
+        merged_address(&patch.billing_address, order.get("billingAddress")).as_ref(),
+    );
+    // The stored destination is the effective one (an order with no address
+    // is taxed as a domestic sale), so a first address in that same country
+    // changes nothing.
+    let country_changed = match (&after, &before) {
+        (Some(country), _) => stored.text("destinationCountry") != Some(country.as_str()),
+        (None, Some(_)) => true,
+        (None, None) => false,
+    };
+    let known = stored_buyer(order);
+    // An address of an order that is no longer editable is just recorded:
+    // its tax stays (the lock), so the country alone is no edit there.
+    (country_changed && stored.editable())
+        || patch
+            .prices_include_tax
+            .is_some_and(|p| p != known.prices_include_tax)
+        || differs(&patch.buyer_vat_number, known.vat_number.as_deref())
 }
 
 fn detect(stored: &Stored, patch: &Patch, company: Option<&str>) -> Edits {
@@ -645,6 +799,7 @@ fn detect(stored: &Stored, patch: &Patch, company: Option<&str>) -> Edits {
         shipping,
         discount,
         items: patch.items.is_some(),
+        tax: tax_facts_changed(stored, patch),
     }
 }
 
@@ -682,6 +837,31 @@ fn check_item_ids(stored: &Stored, inputs: &[LineInput]) -> Result<(), Error> {
 
 /// Write the lines of an items edit: update in place, insert new, delete a
 /// removed one unless a pick list holds it.
+/// `now` plus `index` milliseconds: items are read back in creation order,
+/// so the lines of one request must not share a timestamp (their ids are not
+/// ordered).
+fn staggered(now: &str, index: usize) -> String {
+    let millis = weldsuite_kit::validation::js_date_parse(now).unwrap_or(0.0);
+    #[allow(clippy::cast_precision_loss)]
+    let at = millis + index as f64;
+    weldsuite_kit::validation::js_iso_from_millis(at).unwrap_or_else(|| now.to_owned())
+}
+
+/// The VAT of line `index` (an order priced by [`plan::price`] has one).
+fn vat_line(plan: &Plan, index: usize) -> &VatLine {
+    static NONE: VatLine = VatLine {
+        category: "standard",
+        rate_bps: 0,
+        net: 0,
+        tax: 0,
+        gross: 0,
+    };
+    plan.vat
+        .as_ref()
+        .and_then(|vat| vat.lines.get(index))
+        .unwrap_or(&NONE)
+}
+
 async fn write_items(
     conn: &mut PgConnection,
     stored: &Stored,
@@ -717,20 +897,20 @@ async fn write_items(
     for (index, line) in resolved.iter().enumerate() {
         let total = plan.line_total(resolved, index);
         let discount = plan.line_discounts[index];
-        match &line.id {
-            Some(id) => {
-                let existing = stored
-                    .items
-                    .iter()
-                    .find(|item| item.get("id").and_then(Value::as_str) == Some(id.as_str()));
-                let properties = lines::properties(
-                    existing.and_then(|item| item.get("properties")),
-                    line.variant_name.as_deref(),
-                );
-                let values = item_values(order_id, line, discount, total, properties, now);
-                ORDER_ITEMS.patch_raw(&mut *conn, id, values, false).await?;
-            }
-            None => insert_item(conn, order_id, line, discount, total, now).await?,
+        let amounts = (discount, total, vat_line(plan, index));
+        if let Some(id) = &line.id {
+            let existing = stored
+                .items
+                .iter()
+                .find(|item| item.get("id").and_then(Value::as_str) == Some(id.as_str()));
+            let properties = lines::properties(
+                existing.and_then(|item| item.get("properties")),
+                line.variant_name.as_deref(),
+            );
+            let values = item_values(order_id, line, amounts, properties, now);
+            ORDER_ITEMS.patch_raw(&mut *conn, id, values, false).await?;
+        } else {
+            insert_item(conn, order_id, line, amounts, &staggered(now, index)).await?;
         }
     }
     Ok(())
@@ -748,7 +928,12 @@ async fn write_items(
     clippy::too_many_lines,
     reason = "one pass over what the patch touches"
 )]
-pub async fn update(conn: &mut PgConnection, id: &str, patch: &Patch) -> Result<Updated, Error> {
+pub async fn update(
+    conn: &mut PgConnection,
+    tax: &Taxation<'_>,
+    id: &str,
+    patch: &Patch,
+) -> Result<Updated, Error> {
     let stored = orders::load(conn, id, true)
         .await?
         .ok_or_else(|| Error::not_found("Order", id))?;
@@ -850,29 +1035,37 @@ pub async fn update(conn: &mut PgConnection, id: &str, patch: &Patch) -> Result<
         } else {
             stored.items.iter().map(lines::stored_line).collect()
         };
-        let code: Option<String> = match &patch.discount_code {
-            Field::Set(code) => Some(code.clone()),
-            Field::Null => None,
-            Field::Absent => stored
-                .text("discountId")
-                .and(stored.text("discountCode"))
-                .map(str::to_owned),
-        };
+        let (code, keep) = discount_source(&stored, &patch.discount_code);
         let shipping = patch
             .shipping_total
             .unwrap_or_else(|| requested_shipping(order));
-        let plan = plan::plan(
+        let known = stored_buyer(order);
+        let shipping_address =
+            merged_address(&patch.shipping_address, order.get("shippingAddress"));
+        let billing_address = merged_address(&patch.billing_address, order.get("billingAddress"));
+        let shipping_country = vat::country_of(shipping_address.as_ref());
+        let billing_country = vat::country_of(billing_address.as_ref());
+        let vat_number = merged_text(&patch.buyer_vat_number, known.vat_number);
+        let plan = plan::price(
             conn,
+            tax,
             &plan::Input {
                 currency: &currency,
                 lines: &resolved,
                 discount_code: code.as_deref(),
+                keep_discount_id: keep.as_deref(),
                 shipping,
                 person_id: person_id.as_deref(),
                 counterparty_id: counterparty.as_deref(),
                 email: email.as_deref(),
                 order_id: Some(id),
                 lock: true,
+            },
+            &Buyer {
+                prices_include_tax: patch.prices_include_tax.unwrap_or(known.prices_include_tax),
+                shipping_country: shipping_country.as_deref(),
+                billing_country: billing_country.as_deref(),
+                vat_number: vat_number.as_deref(),
             },
         )
         .await?;
@@ -882,28 +1075,7 @@ pub async fn update(conn: &mut PgConnection, id: &str, patch: &Patch) -> Result<
         if patch.items.is_some() {
             write_items(conn, &stored, &resolved, &plan, &now).await?;
         } else {
-            for (index, item) in stored.items.iter().enumerate() {
-                let Some(item_id) = item.get("id").and_then(Value::as_str) else {
-                    continue;
-                };
-                let mut change = Map::new();
-                put(
-                    &mut change,
-                    &ORDER_ITEMS,
-                    "discountAmount",
-                    amount(plan.line_discounts[index]),
-                );
-                put(
-                    &mut change,
-                    &ORDER_ITEMS,
-                    "total",
-                    amount(plan.line_total(&resolved, index)),
-                );
-                put(&mut change, &ORDER_ITEMS, "updatedAt", json!(now));
-                ORDER_ITEMS
-                    .patch_raw(&mut *conn, item_id, change, false)
-                    .await?;
-            }
+            write_item_amounts(conn, &stored, &resolved, &plan, &now).await?;
         }
         plan_values(
             &mut values,
@@ -923,6 +1095,139 @@ pub async fn update(conn: &mut PgConnection, id: &str, patch: &Patch) -> Result<
     }
     ORDERS.patch_raw(&mut *conn, id, values, true).await?;
     Ok(Updated { completed })
+}
+
+/// The discount an edit prices with: `(code to look up, discount id to keep)`.
+/// A patch that leaves the code out, or sends the one the order holds, keeps
+/// the stored discount by id (no status, date or usage gates: the code may
+/// have expired or been archived since it was redeemed); only a different
+/// code is looked up and checked in full.
+fn discount_source(stored: &Stored, field: &Field<String>) -> (Option<String>, Option<String>) {
+    let held_code = stored.text("discountCode").filter(|c| !c.trim().is_empty());
+    let held = stored
+        .text("discountId")
+        .filter(|_| held_code.is_some())
+        .map(str::to_owned);
+    match field {
+        Field::Absent => (None, held),
+        Field::Null => (None, None),
+        Field::Set(code) => {
+            let same =
+                held_code.is_some_and(|c| c.trim().to_lowercase() == code.trim().to_lowercase());
+            if same && held.is_some() {
+                (None, held)
+            } else {
+                (Some(code.clone()), None)
+            }
+        }
+    }
+}
+
+/// Write each item's discount, VAT and total after the order was re-priced
+/// without changing its items.
+async fn write_item_amounts(
+    conn: &mut PgConnection,
+    stored: &Stored,
+    resolved: &[Line],
+    plan: &Plan,
+    now: &str,
+) -> Result<(), Error> {
+    for (index, item) in stored.items.iter().enumerate() {
+        let Some(item_id) = item.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        let vat = vat_line(plan, index);
+        let mut change = Map::new();
+        let t = &ORDER_ITEMS;
+        put(
+            &mut change,
+            t,
+            "discountAmount",
+            amount(plan.line_discounts[index]),
+        );
+        put(&mut change, t, "taxAmount", amount(vat.tax));
+        put(
+            &mut change,
+            t,
+            "taxRate",
+            json!(vat::rate_percent(vat.rate_bps)),
+        );
+        put(&mut change, t, "vatCategory", json!(vat.category));
+        put(
+            &mut change,
+            t,
+            "total",
+            amount(plan.line_total(resolved, index)),
+        );
+        put(&mut change, t, "updatedAt", json!(now));
+        ORDER_ITEMS
+            .patch_raw(&mut *conn, item_id, change, false)
+            .await?;
+    }
+    Ok(())
+}
+
+/// Work the VAT of an editable order out again, nothing else changed (after
+/// VIES came back, or the seller's OSS registration was added).
+///
+/// # Errors
+/// [`Error::NotFound`]; [`Error::TaxLocked`] when the order is not editable
+/// (cancelled, completed, paid, partly fulfilled, or synced from a store);
+/// the VAT refusals as for [`create`].
+pub async fn recalculate(
+    conn: &mut PgConnection,
+    tax: &Taxation<'_>,
+    id: &str,
+) -> Result<(), Error> {
+    let stored = orders::load(conn, id, true)
+        .await?
+        .ok_or_else(|| Error::not_found("Order", id))?;
+    if !stored.editable() {
+        return Err(Error::TaxLocked);
+    }
+    let order = &stored.order;
+    let now = crate::now();
+    let currency = stored.text("currency").unwrap_or("EUR").to_owned();
+    let resolved: Vec<Line> = stored.items.iter().map(lines::stored_line).collect();
+    let (_, keep) = discount_source(&stored, &Field::Absent);
+    let known = stored_buyer(order);
+    let plan = plan::price(
+        conn,
+        tax,
+        &plan::Input {
+            currency: &currency,
+            lines: &resolved,
+            discount_code: None,
+            keep_discount_id: keep.as_deref(),
+            shipping: requested_shipping(order),
+            person_id: stored.text("personId"),
+            counterparty_id: stored.text("counterpartyId"),
+            email: stored.text("customerEmail"),
+            order_id: Some(id),
+            lock: true,
+        },
+        &Buyer {
+            prices_include_tax: known.prices_include_tax,
+            shipping_country: known.shipping_country.as_deref(),
+            billing_country: known.billing_country.as_deref(),
+            vat_number: known.vat_number.as_deref(),
+        },
+    )
+    .await?;
+    if let Some(problem) = plan.discount_problem {
+        return Err(Error::Discount(problem));
+    }
+    write_item_amounts(conn, &stored, &resolved, &plan, &now).await?;
+    let mut values = Map::new();
+    put(&mut values, &ORDERS, "updatedAt", json!(now));
+    plan_values(
+        &mut values,
+        &plan,
+        &resolved,
+        order.get("metadata").unwrap_or(&Value::Null),
+    );
+    ORDERS.patch_raw(&mut *conn, id, values, true).await?;
+    Ok(())
 }
 
 // ── cancel, pay ─────────────────────────────────────────────────────────────
@@ -1182,6 +1487,16 @@ async fn import_items(
             );
             if let Some(line_id) = &line.external_line_id {
                 put(&mut values, t, "externalLineId", json!(line_id));
+                // The TypeScript import keeps the id in `properties` too:
+                // merged in, so every other key stays.
+                let mut properties = found
+                    .properties
+                    .as_ref()
+                    .and_then(Value::as_object)
+                    .cloned()
+                    .unwrap_or_default();
+                properties.insert("externalLineId".to_owned(), json!(line_id));
+                put(&mut values, t, "properties", Value::Object(properties));
             }
             ORDER_ITEMS
                 .patch_raw(&mut *conn, &found.id, values, false)
@@ -1197,6 +1512,14 @@ async fn import_items(
             "externalLineId",
             json!(line.external_line_id),
         );
+        if let Some(line_id) = &line.external_line_id {
+            put(
+                &mut values,
+                t,
+                "properties",
+                json!({ "externalLineId": line_id }),
+            );
+        }
         put(&mut values, t, "createdAt", json!(now));
         ORDER_ITEMS.insert_raw(&mut *conn, values).await?;
     }

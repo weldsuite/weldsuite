@@ -271,6 +271,39 @@ export function OrderForm({ order, defaultCurrency, onSaved, onCancel }: Readonl
             />
           </Section>
 
+          <Section title={tf.sectionVat}>
+            <FormField
+              control={form.control}
+              name="pricesIncludeTax"
+              render={({ field }) => (
+                <FormItem className="flex items-start gap-3">
+                  <FormControl>
+                    <Switch checked={field.value} onCheckedChange={field.onChange} disabled={locked} />
+                  </FormControl>
+                  <div className="grid gap-0.5">
+                    <FormLabel>{tf.pricesIncludeTax}</FormLabel>
+                    <FormDescription>{tf.pricesIncludeTaxHint}</FormDescription>
+                  </div>
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="buyerVatNumber"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{tf.buyerVatNumber}</FormLabel>
+                  <FormControl>
+                    <Input {...field} autoComplete="off" autoCapitalize="characters" spellCheck={false} maxLength={50} disabled={locked} />
+                  </FormControl>
+                  <FormDescription>{tf.buyerVatNumberHint}</FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <p className="text-xs text-muted-foreground">{tf.vatAddressHint}</p>
+          </Section>
+
           {!locked && (
             <OrderQuoteSummary
               quote={quote}

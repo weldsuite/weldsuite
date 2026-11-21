@@ -74,6 +74,9 @@ export type CommerceProduct = WeldstashProduct & {
   variantCount?: number | null;
 };
 
+/** How a product is taxed (EU VAT, ADR COM-014). A variant may be null: it then uses the product's. */
+export type VatCategory = 'standard' | 'reduced' | 'super_reduced' | 'zero' | 'exempt';
+
 export interface CommerceVariant {
   id: string;
   productId: string;
@@ -86,6 +89,8 @@ export interface CommerceVariant {
   /** A decimal string; null uses the product's price. */
   price: string | null;
   currency: string | null;
+  /** Null inherits the product's VAT category. */
+  vatCategory?: VatCategory | null;
   status: string;
   position: number;
   inventoryQuantity: number;
@@ -106,6 +111,8 @@ export interface UpdateVariantInput {
   sku?: string | null;
   barcode?: string | null;
   price?: string | null;
+  /** `null` goes back to the product's category. */
+  vatCategory?: VatCategory | null;
   status?: string;
   position?: number;
   optionValues?: Record<string, string>;

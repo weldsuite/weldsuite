@@ -2,7 +2,11 @@
 //! `weldsuite_commerce_domain::orders::write` (ADR COM-010); this file reads
 //! and validates requests, presents rows and publishes the entity events.
 //!
-//! - Phase 2 computes no VAT: `taxTotal` is `"0.00"`, `vatTreatment` null.
+//! - VAT comes from the WeldBooks engine for the seller entity (ADR COM-014,
+//!   `weldsuite_commerce_domain::vat`): when an order is placed, and when
+//!   staff edit an editable order. An order that is no longer editable keeps
+//!   its VAT (409 `ORDER_TAX_LOCKED` on `POST /:id/recalculate-tax`). A store's
+//!   order keeps the store's own tax and reads `vatTreatment: "imported"`.
 //! - `POST /` accepts an `Idempotency-Key` header (or `idempotencyKey` in the
 //!   body): a retry answers with the first order and writes nothing.
 //! - Addresses are stored with `region`; rows an import wrote with `state`
@@ -14,7 +18,7 @@ use axum::Router;
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{get, patch, post};
 use http::HeaderMap;
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
@@ -26,6 +30,7 @@ use weldsuite_commerce_domain::orders::lines::LineInput;
 use weldsuite_commerce_domain::orders::plan::{self, QuoteInput};
 use weldsuite_commerce_domain::orders::write::{self, NewOrder, Patch, Payment};
 use weldsuite_commerce_domain::orders::{self as domain_orders};
+use weldsuite_commerce_domain::vat::{Buyer, Taxation, country_of};
 use weldsuite_kit::validation::{
     Field, Format, Issues, Number, Presence, Text, js_date_parse, js_iso_from_millis,
 };
@@ -45,6 +50,9 @@ where
 {
     let read = || gate.require([ORDERS_READ]);
     let update = || gate.require([ORDERS_UPDATE]);
+    // One `route` per method: `route_layer` wraps every method already
+    // chained on its `MethodRouter`, so chaining GET and PATCH would make
+    // the GET need both permissions.
     Router::new()
         .route("/", get(list).route_layer(read()))
         .route("/", post(create).route_layer(gate.require([ORDERS_CREATE])))
@@ -52,15 +60,14 @@ where
             "/quote",
             post(quote).route_layer(gate.require([ORDERS_CREATE])),
         )
-        .route(
-            "/{id}",
-            get(detail)
-                .route_layer(read())
-                .patch(patch_order)
-                .route_layer(update()),
-        )
+        .route("/{id}", get(detail).route_layer(read()))
+        .route("/{id}", patch(patch_order).route_layer(update()))
         .route("/{id}/cancel", post(cancel).route_layer(update()))
         .route("/{id}/mark-paid", post(mark_paid).route_layer(update()))
+        .route(
+            "/{id}/recalculate-tax",
+            post(recalculate_tax).route_layer(update()),
+        )
 }
 
 // ── presenting ──────────────────────────────────────────────────────────────
@@ -113,6 +120,53 @@ fn text_or_null(row: &Value, key: &str) -> Value {
     row.get(key).cloned().unwrap_or(Value::Null)
 }
 
+/// A percentage as text with two decimals (`"21.00"`); null stays null.
+fn percent(value: Option<&Value>) -> Value {
+    let number = match value {
+        Some(Value::String(text)) => text.parse::<f64>().ok(),
+        Some(Value::Number(number)) => number.as_f64(),
+        _ => None,
+    };
+    number.map_or(Value::Null, |n| json!(format!("{n:.2}")))
+}
+
+/// The VAT per rate as the API writes it: `{ rate, base, amount }`.
+fn tax_lines(order: &Value) -> Value {
+    let lines = order
+        .get("taxLines")
+        .and_then(Value::as_array)
+        .map(|lines| {
+            lines
+                .iter()
+                .map(|line| {
+                    json!({
+                        "rate": percent(line.get("rate")),
+                        "base": amount(line.get("base").unwrap_or(&Value::Null), "0.00"),
+                        "amount": amount(line.get("price").unwrap_or(&Value::Null), "0.00"),
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    json!(lines)
+}
+
+/// `vatTreatment`: as stored, `"imported"` for a store's order that has
+/// none (the store's own tax stands), else null.
+fn vat_treatment(order: &Value) -> Value {
+    match order.get("vatTreatment").filter(|v| !v.is_null()) {
+        Some(stored) => stored.clone(),
+        None if order
+            .get("externalOrderId")
+            .and_then(Value::as_str)
+            .is_some_and(|id| !id.is_empty()) =>
+        {
+            json!("imported")
+        }
+        None => Value::Null,
+    }
+}
+
 fn item(row: &Value) -> Value {
     json!({
         "id": row["id"],
@@ -127,7 +181,8 @@ fn item(row: &Value) -> Value {
         "unitPrice": amount(&row["unitPrice"], "0.00"),
         "discountAmount": amount(&row["discountAmount"], "0.00"),
         "taxAmount": amount(&row["taxAmount"], "0.00"),
-        "taxRate": text_or_null(row, "taxRate"),
+        "taxRate": percent(row.get("taxRate")),
+        "vatCategory": text_or_null(row, "vatCategory"),
         "total": amount(&row["total"], "0.00"),
     })
 }
@@ -262,7 +317,24 @@ fn present(
             ("internalNote", json!(text("internalNote"))),
             ("destinationCountry", json!(text("destinationCountry"))),
             ("buyerVatNumber", json!(text("buyerVatNumber"))),
-            ("vatTreatment", json!(text("vatTreatment"))),
+            ("vatTreatment", vat_treatment(order)),
+            (
+                "viesUnavailable",
+                json!(
+                    order
+                        .pointer("/metadata/viesUnavailable")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
+                ),
+            ),
+            (
+                "vatRelief",
+                amount(
+                    order.pointer("/metadata/vatRelief").unwrap_or(&Value::Null),
+                    "0.00",
+                ),
+            ),
+            ("taxLines", tax_lines(order)),
             ("paymentMethod", json!(text("paymentMethod"))),
             ("paymentReference", json!(text("paymentReference"))),
             ("paidAt", json!(date("paidAt"))),
@@ -566,9 +638,15 @@ struct OrderBody {
     customer_reference: Option<String>,
     customer_note: Option<String>,
     internal_note: Option<String>,
+    prices_include_tax: bool,
+    buyer_vat_number: Option<String>,
     status: String,
     tags: Vec<String>,
     idempotency_key: Option<String>,
+}
+
+fn read_vat_number(issues: &mut Issues, fields: &Map<String, Value>) -> Field<String> {
+    read_text(issues, fields, "buyerVatNumber", 50)
 }
 
 fn read_tags(issues: &mut Issues, fields: &Map<String, Value>) -> Option<Vec<String>> {
@@ -604,6 +682,11 @@ fn read_order(issues: &mut Issues, fields: &Map<String, Value>) -> OrderBody {
         customer_reference: read_text(issues, fields, "customerReference", 100).into_option(),
         customer_note: read_text(issues, fields, "customerNote", 5000).into_option(),
         internal_note: read_text(issues, fields, "internalNote", 5000).into_option(),
+        prices_include_tax: issues
+            .boolean(fields, "pricesIncludeTax", Presence::Optional)
+            .into_option()
+            .unwrap_or(true),
+        buyer_vat_number: read_vat_number(issues, fields).into_option(),
         status: issues
             .choice(
                 fields,
@@ -618,8 +701,12 @@ fn read_order(issues: &mut Issues, fields: &Map<String, Value>) -> OrderBody {
     }
 }
 
-fn line_json(line: &weldsuite_commerce_domain::orders::lines::Line, discount: Cents) -> Value {
-    let gross = Cents::from(line.quantity) * line.unit_price;
+fn line_json(
+    line: &weldsuite_commerce_domain::orders::lines::Line,
+    discount: Cents,
+    total: Cents,
+    vat: Option<&weldsuite_commerce_domain::vat::VatLine>,
+) -> Value {
     json!({
         "variantId": line.variant_id,
         "productId": line.product_id,
@@ -629,24 +716,44 @@ fn line_json(line: &weldsuite_commerce_domain::orders::lines::Line, discount: Ce
         "quantity": line.quantity,
         "unitPrice": money::format(line.unit_price),
         "discountAmount": money::format(discount),
-        "total": money::format(gross - discount),
+        "taxRate": vat.map(|v| weldsuite_commerce_domain::vat::rate_percent(v.rate_bps)),
+        "taxAmount": money::format(vat.map_or(0, |v| v.tax)),
+        "vatCategory": vat.map_or(line.vat_category.as_str(), |v| v.category),
+        "total": money::format(total),
         "problem": line.problem,
     })
 }
 
 /// `POST /quote`: the order priced, nothing written. One line per item, in
 /// the request's order; a bad code is `discountProblem`, not an error.
-async fn quote(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
+async fn quote(
+    State(state): State<CommerceState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     const FAILED: &str = "Failed to quote order";
     let body = match validate(&headers, &body, read_order) {
         Ok(body) => body,
         Err(refusal) => return refusal.respond(FAILED),
     };
+    let shipping_country = country_of(body.shipping_address.as_ref());
+    let billing_country = country_of(body.billing_address.as_ref());
     let result = async {
-        let mut conn = caller.db.acquire().await?;
+        let mut conn = caller.db.acquire().await.map_err(refuse_db)?;
         plan::quote(
             &mut conn,
             &QuoteInput {
+                tax: Taxation {
+                    db: &caller.db,
+                    http: state.http.as_ref(),
+                },
+                buyer: Buyer {
+                    prices_include_tax: body.prices_include_tax,
+                    shipping_country: shipping_country.as_deref(),
+                    billing_country: billing_country.as_deref(),
+                    vat_number: body.buyer_vat_number.as_deref(),
+                },
                 currency: &body.currency,
                 lines: &body.items,
                 discount_code: body.discount_code.as_deref(),
@@ -662,11 +769,27 @@ async fn quote(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
     match result {
         Ok(quote) => {
             let plan = &quote.plan;
+            let vat = plan.vat.as_ref();
             Data(json!({
                 "currency": body.currency,
                 "lines": quote.lines.iter().enumerate()
-                    .map(|(index, line)| line_json(line, plan.line_discounts[index]))
+                    .map(|(index, line)| line_json(
+                        line,
+                        plan.line_discounts[index],
+                        plan.line_total(&quote.lines, index),
+                        vat.and_then(|v| v.lines.get(index)),
+                    ))
                     .collect::<Vec<_>>(),
+                "vatTreatment": vat.map(|v| v.treatment),
+                "destinationCountry": vat.map(|v| v.destination_country.clone()),
+                "viesUnavailable": vat.is_some_and(|v| v.vies_unavailable),
+                "pricesIncludeTax": body.prices_include_tax,
+                "vatRelief": money::format(vat.map_or(0, |v| v.vat_relief)),
+                "taxLines": vat.map(|v| v.tax_lines.iter().map(|t| json!({
+                    "rate": weldsuite_commerce_domain::vat::rate_percent(t.rate_bps),
+                    "base": money::format(t.base),
+                    "amount": money::format(t.amount),
+                })).collect::<Vec<_>>()).unwrap_or_default(),
                 "subtotal": money::format(plan.totals.subtotal),
                 "discountTotal": money::format(plan.totals.discount_total),
                 "shippingTotal": money::format(plan.totals.shipping_total),
@@ -679,8 +802,13 @@ async fn quote(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
             }))
             .into_response()
         }
-        Err(error) => internal(&error, FAILED),
+        Err(error) => refuse(error).respond(FAILED),
     }
+}
+
+/// A failed connection checkout as the domain's database error.
+fn refuse_db(error: sqlx::Error) -> weldsuite_commerce_domain::Error {
+    weldsuite_commerce_domain::Error::Database(error)
 }
 
 async fn create(
@@ -720,6 +848,8 @@ async fn create(
         customer_reference: body.customer_reference,
         customer_note: body.customer_note,
         internal_note: body.internal_note,
+        prices_include_tax: body.prices_include_tax,
+        buyer_vat_number: body.buyer_vat_number,
         status: body.status,
         tags: body.tags,
         created_by: caller.user_id.clone(),
@@ -727,7 +857,11 @@ async fn create(
     };
     let created = async {
         let mut tx = caller.db.begin().await?;
-        let created = write::create(&mut tx, &new).await.map_err(refuse)?;
+        let tax = Taxation {
+            db: &caller.db,
+            http: state.http.as_ref(),
+        };
+        let created = write::create(&mut tx, &tax, &new).await.map_err(refuse)?;
         tx.commit().await?;
         Ok::<_, Refusal>(created)
     }
@@ -771,6 +905,10 @@ fn read_patch(issues: &mut Issues, fields: &Map<String, Value>) -> Patch {
         customer_phone: read_text(issues, fields, "customerPhone", 50),
         shipping_total,
         discount_code: read_text(issues, fields, "discountCode", 100),
+        buyer_vat_number: read_vat_number(issues, fields),
+        prices_include_tax: issues
+            .boolean(fields, "pricesIncludeTax", Presence::Optional)
+            .into_option(),
         items: read_items(issues, fields),
     }
 }
@@ -790,7 +928,13 @@ async fn patch_order(
     };
     let done = async {
         let mut tx = caller.db.begin().await?;
-        let done = write::update(&mut tx, &id, &patch).await.map_err(refuse)?;
+        let tax = Taxation {
+            db: &caller.db,
+            http: state.http.as_ref(),
+        };
+        let done = write::update(&mut tx, &tax, &id, &patch)
+            .await
+            .map_err(refuse)?;
         tx.commit().await?;
         Ok::<_, Refusal>(done)
     }
@@ -830,6 +974,33 @@ async fn respond_with_order(
         }
         Ok(None) => Refusal::not_found("Order", id).respond(failed),
         Err(error) => internal(&error, failed),
+    }
+}
+
+/// `POST /:id/recalculate-tax`: the VAT of an editable order again, nothing
+/// else changed. 409 `ORDER_TAX_LOCKED` once the order is not editable.
+async fn recalculate_tax(
+    State(state): State<CommerceState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
+    const FAILED: &str = "Failed to recalculate the VAT of the order";
+    let done = async {
+        let mut tx = caller.db.begin().await?;
+        let tax = Taxation {
+            db: &caller.db,
+            http: state.http.as_ref(),
+        };
+        write::recalculate(&mut tx, &tax, &id)
+            .await
+            .map_err(refuse)?;
+        tx.commit().await?;
+        Ok::<_, Refusal>(())
+    }
+    .await;
+    match done {
+        Ok(()) => respond_with_order(&state, &caller, &id, &[ORDER_UPDATED], None, FAILED).await,
+        Err(refusal) => refusal.respond(FAILED),
     }
 }
 

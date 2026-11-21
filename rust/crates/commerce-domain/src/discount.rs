@@ -391,6 +391,31 @@ pub async fn load(
     Ok(row.as_ref().and_then(rule_of))
 }
 
+/// The discount `id`, deleted or not, with the same rule as [`load`]: for an
+/// order that already holds it, so a later edit re-prices what was redeemed
+/// instead of looking the code up again.
+///
+/// # Errors
+/// A failed statement.
+pub async fn load_by_id(
+    conn: &mut PgConnection,
+    id: &str,
+    lock: bool,
+) -> Result<Option<Loaded>, sqlx::Error> {
+    let mut sql = RULE_SQL.replace(
+        "t.deleted_at is null and lower(trim(t.code)) = lower(trim($1))",
+        "t.id = $1",
+    );
+    if lock {
+        sql = sql.replace(" limit 1", " limit 1 for update of t");
+    }
+    let row: Option<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
+        .bind(id)
+        .fetch_optional(&mut *conn)
+        .await?;
+    Ok(row.as_ref().and_then(rule_of))
+}
+
 /// How often this buyer redeemed the discount: by person, or by e-mail
 /// address when the order carries one. `except_order` leaves that order's own
 /// redemption out (an order being edited).

@@ -290,6 +290,30 @@ fn buyer_outside_the_eu_carries_no_eu_vat() {
 }
 
 #[test]
+fn monaco_is_taxed_as_france() {
+    let lines = [line(VatCategory::Standard, 10_000, 1)];
+    let oss = decide::calculate(&input("NL", "MC", BuyerVat::None, true, &lines)).expect("oss");
+    assert_eq!(oss.treatment, EuTreatment::Oss);
+    assert_eq!(oss.rate_country.as_deref(), Some("FR"));
+    assert_eq!(oss.tax_total_minor, 2000);
+    let home = decide::calculate(&input("FR", "MC", BuyerVat::None, false, &lines)).expect("home");
+    assert_eq!(home.treatment, EuTreatment::Domestic);
+    let business =
+        decide::calculate(&input("NL", "mc", BuyerVat::Valid, true, &lines)).expect("b2b");
+    assert_eq!(business.treatment, EuTreatment::ReverseCharge);
+}
+
+#[test]
+fn northern_ireland_is_refused_not_zero_rated() {
+    let lines = [line(VatCategory::Standard, 10_000, 1)];
+    let error =
+        decide::calculate(&input("NL", "XI", BuyerVat::None, true, &lines)).expect_err("error");
+    assert_eq!(error, RateError::UnsupportedDestination("XI".to_owned()));
+    // Great Britain stays outside the EU.
+    assert!(decide::calculate(&input("NL", "GB", BuyerVat::None, true, &lines)).is_ok());
+}
+
+#[test]
 fn a_seller_outside_the_eu_is_an_error_not_zero_tax() {
     let lines = [line(VatCategory::Standard, 10_000, 1)];
     let error =

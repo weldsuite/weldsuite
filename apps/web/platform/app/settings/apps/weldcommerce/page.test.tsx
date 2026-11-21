@@ -14,10 +14,19 @@ const env = vi.hoisted(() => ({
     refetch: () => void;
   },
   update: vi.fn(),
+  search: {} as { tab?: string; channel?: string },
+  navigate: vi.fn(),
 }));
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 
 vi.mock('sonner', () => ({ toast }));
+vi.mock('@tanstack/react-router', () => ({
+  useSearch: () => env.search,
+  useNavigate: () => env.navigate,
+}));
+vi.mock('./channels-tab', () => ({
+  ChannelsTab: ({ channelId }: { channelId?: string }) => <p>channels tab {channelId ?? 'list'}</p>,
+}));
 vi.mock('@weldsuite/permissions/react', () => ({
   usePermissionsMaybe: () => ({ can: (permission: string) => env.allowed.has(permission) }),
 }));
@@ -38,6 +47,8 @@ beforeEach(() => {
   env.available = true;
   env.access = { isInstalled: true, isLoading: false };
   env.settings = { data: { data: stored }, isPending: false, isError: false, refetch: vi.fn() };
+  env.search = {};
+  env.navigate.mockReset();
   env.update.mockReset();
   env.update.mockImplementation(async (body: Partial<CommerceSettings>) => ({ data: { ...stored, ...body } }));
   toast.success.mockReset();
@@ -89,6 +100,40 @@ describe('WeldCommerceSettingsPage', () => {
     await waitFor(() => expect(env.update).toHaveBeenCalled());
     expect(env.update).toHaveBeenCalledWith({ orderNumberPrefix: 'SO-', nextOrderNumber: 2000, defaultCurrency: 'USD' });
     expect(toast.success).toHaveBeenCalledWith('Settings saved');
+  });
+
+  it('leaves the next order number out of a save that did not touch it (orders move it on the server)', async () => {
+    const user = userEvent.setup();
+    render(<WeldCommerceSettingsPage />);
+    await user.type(screen.getByLabelText('Order number prefix'), 'X');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(env.update).toHaveBeenCalled());
+    expect(env.update).toHaveBeenCalledWith({ orderNumberPrefix: 'WC-X', defaultCurrency: 'EUR' });
+  });
+
+  it('asks for the current settings when the tab opens', () => {
+    render(<WeldCommerceSettingsPage />);
+    expect(env.settings.refetch).toHaveBeenCalled();
+  });
+
+  it('has no tabs for a member without channel access, and General shows', () => {
+    render(<WeldCommerceSettingsPage />);
+    expect(screen.queryByRole('tab', { name: 'Channels' })).toBeNull();
+    expect(screen.getByLabelText('Order number prefix')).toBeTruthy();
+  });
+
+  it('shows the Channels tab from ?tab=channels for a member who may read channels', () => {
+    env.allowed.add('commerce_channels:read');
+    env.search = { tab: 'channels', channel: 'ch_1' };
+    render(<WeldCommerceSettingsPage />);
+    expect(screen.getByText('channels tab ch_1')).toBeTruthy();
+    expect(screen.queryByLabelText('Order number prefix')).toBeNull();
+  });
+
+  it('falls back to General for ?tab=channels without channel access', () => {
+    env.search = { tab: 'channels' };
+    render(<WeldCommerceSettingsPage />);
+    expect(screen.getByLabelText('Order number prefix')).toBeTruthy();
   });
 
   it('refuses a currency that is not three letters, without saving', async () => {

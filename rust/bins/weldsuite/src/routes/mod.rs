@@ -267,6 +267,7 @@ fn commerce(router: Router<AppState>, state: &AppState) -> Router<AppState> {
     }
     let commerce = weldsuite_commerce::CommerceState {
         events: state.infra.events.clone(),
+        http: shared_outbound(),
     };
     router.merge(weldsuite_commerce::router(commerce, &state.permissions))
 }

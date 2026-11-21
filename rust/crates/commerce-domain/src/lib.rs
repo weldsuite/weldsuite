@@ -20,6 +20,7 @@ pub mod status;
 #[rustfmt::skip]
 pub mod tables;
 pub mod totals;
+pub mod vat;
 
 pub use error::{Error, LineProblem};
 

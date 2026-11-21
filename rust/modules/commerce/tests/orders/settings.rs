@@ -7,7 +7,7 @@ use crate::harness::{ALL, app, tenant};
 
 #[tokio::test]
 async fn read_creates_the_defaults_and_update_keeps_the_sequence_up() {
-    let Some(db) = tenant() else { return };
+    let Some(db) = tenant().await else { return };
     let app = app(db, ALL);
 
     let (status, body) = app.get("/commerce-settings").await;
