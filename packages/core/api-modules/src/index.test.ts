@@ -237,6 +237,7 @@ describe('licence gate lookups', () => {
     // Global's stash-api serves `/api/products`.
     expect(findModuleForPath('/api/products/prod_1/variants').id).toBe('stash');
     expect(findModuleForPath('/api/categories/cat_1/products').id).toBe('commerce');
+    expect(findModuleForPath('/api/commerce-channels/chan_1/keys').id).toBe('commerce');
     expect(findModuleForPath('/api/categories-x').id).toBe('core');
     const commerceOnly = licensed('weldcommerce');
     expect(missingLicensedAppForPath('/api/products/prod_1/variants', commerceOnly)).toBeNull();

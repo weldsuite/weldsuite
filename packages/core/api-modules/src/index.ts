@@ -375,6 +375,7 @@ export const API_MODULES: readonly ApiModule[] = [
   mod('commerce', 8806, ['weldcommerce'], [
     '/api/categories',
     '/api/commerce',
+    '/api/commerce-channels',
     '/api/commerce-settings',
     '/api/discounts',
     '/api/orders',

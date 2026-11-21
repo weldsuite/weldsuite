@@ -12,6 +12,7 @@ use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use weldsuite_books_domain::roles::{PromoteTo, promote_accounting_role};
 use weldsuite_books_domain::table::Table;
+use weldsuite_commerce_domain::channels::{Connector, ensure_connector};
 use weldsuite_commerce_domain::orders::write::{Import, ImportLine, import};
 use weldsuite_db::PgPool;
 use weldsuite_events::{EntityEvent, EntityEventPublisher, EventContext, EventSource, EventType};
@@ -647,12 +648,32 @@ async fn ingest_order(
     let existing = found.is_some();
     let order_id = found.unwrap_or_else(|| generate_id("ord"));
     let mut tx = args.db.begin().await?;
+    // The order belongs to its store connection's sales channel (ADR COM-011).
+    let store_name = args
+        .display_name
+        .or(args.store_url)
+        .map_or_else(|| provider_label(args.provider), str::to_owned);
+    let channel = ensure_connector(
+        &mut tx,
+        &Connector {
+            connection_id: args.connection_id,
+            provider: args.provider,
+            name: &store_name,
+            currency: values
+                .get("currency")
+                .and_then(Value::as_str)
+                .unwrap_or("EUR"),
+        },
+    )
+    .await?;
+    let mut header = values.clone();
+    header.insert("channelId".to_owned(), json!(channel.id));
     import(
         &mut tx,
         &Import {
             id: &order_id,
             existing,
-            header: values.clone(),
+            header,
             lines: &lines,
             person_id: values.get("personId").and_then(Value::as_str),
             owner_id: args.owner_id,
@@ -675,6 +696,9 @@ async fn ingest_order(
         }
     }
     tx.commit().await?;
+    if channel.created {
+        publish(args, "commerce_channel", "created", &channel.id).await;
+    }
     Ok(Upserted {
         action: if existing {
             Action::Updated

@@ -15,7 +15,9 @@ weldsuite-db = { workspace = true }
 weldsuite-kit = { workspace = true }
 # The outbound HTTP port VIES is asked through.
 weldsuite-ports = { workspace = true }
+hex = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 sqlx = { workspace = true }
 tracing = { workspace = true }
 

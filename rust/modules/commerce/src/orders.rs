@@ -745,7 +745,6 @@ async fn quote(
             &mut conn,
             &QuoteInput {
                 tax: Taxation {
-                    db: &caller.db,
                     http: state.http.as_ref(),
                 },
                 buyer: Buyer {
@@ -858,7 +857,6 @@ async fn create(
     let created = async {
         let mut tx = caller.db.begin().await?;
         let tax = Taxation {
-            db: &caller.db,
             http: state.http.as_ref(),
         };
         let created = write::create(&mut tx, &tax, &new).await.map_err(refuse)?;
@@ -929,7 +927,6 @@ async fn patch_order(
     let done = async {
         let mut tx = caller.db.begin().await?;
         let tax = Taxation {
-            db: &caller.db,
             http: state.http.as_ref(),
         };
         let done = write::update(&mut tx, &tax, &id, &patch)
@@ -988,7 +985,6 @@ async fn recalculate_tax(
     let done = async {
         let mut tx = caller.db.begin().await?;
         let tax = Taxation {
-            db: &caller.db,
             http: state.http.as_ref(),
         };
         write::recalculate(&mut tx, &tax, &id)

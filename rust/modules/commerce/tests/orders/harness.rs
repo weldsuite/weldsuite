@@ -203,7 +203,7 @@ pub(crate) fn lazy_pool() -> PgPool {
 /// seller (none, outside the EU, no OSS) uses [`isolated`].
 pub(crate) async fn tenant() -> Option<PgPool> {
     let url = tenant_url()?;
-    let db = master_pool(&url, 8).expect("tenant pool");
+    let db = master_pool(&url, 1).expect("tenant pool");
     seller(&db).await;
     Some(db)
 }
@@ -279,7 +279,7 @@ pub(crate) async fn isolated() -> Option<Isolated> {
     .expect("copy tables");
     let path = format!("set search_path to {schema}");
     let db = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(4)
+        .max_connections(1)
         .after_connect(move |conn, _| {
             let path = path.clone();
             Box::pin(async move {

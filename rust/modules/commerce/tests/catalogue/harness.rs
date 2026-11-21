@@ -197,7 +197,7 @@ pub(crate) fn tenant() -> Option<PgPool> {
         eprintln!("WELDSUITE_TEST_TENANT_URL not set; skipping");
         return None;
     };
-    Some(master_pool(&url, 8).expect("tenant pool"))
+    Some(master_pool(&url, 1).expect("tenant pool"))
 }
 
 /// A value no other test (or run) uses.

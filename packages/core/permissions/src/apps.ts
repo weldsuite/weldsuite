@@ -44,7 +44,7 @@ export const PERMISSION_APPS: readonly PermissionAppDefinition[] = [
     // objects of WeldStash too, which fulfils the orders.
     code: 'weldcommerce',
     label: 'WeldCommerce',
-    objects: ['products', 'categories', 'orders', 'discounts', 'commerce_settings', 'companies', 'people'],
+    objects: ['products', 'categories', 'orders', 'discounts', 'commerce_settings', 'commerce_channels', 'companies', 'people'],
   },
   {
     code: 'weldstash',

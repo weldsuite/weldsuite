@@ -26,7 +26,9 @@ pub use decide::{
     BuyerVat, DestinationInput, DestinationLine, EuTreatment, EuVatLine, EuVatResult, SupplyKind,
     ZeroRatedGross, calculate, decide_treatment, tax_in_gross, tax_on_net,
 };
-pub use destination::{EuTaxArgs, EuVatError, calculate_eu_destination_tax};
+pub use destination::{
+    EuTaxArgs, EuVatError, calculate_eu_destination_tax, calculate_eu_destination_tax_on,
+};
 pub use rates::{
     RateError, VatCategory, is_eu_member, latest_rate_bps, member_states, rate_bps, source,
     standard_rate_bps, today, vat_prefix,

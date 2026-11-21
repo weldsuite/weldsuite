@@ -422,6 +422,10 @@ export const platformSyncMap: EntitySyncMap = {
   discount: inv(['weldcommerce', 'discounts']),
   // The order number prefix, the next number and the default currency (Settings → Apps → WeldCommerce).
   commerce_settings: inv(['weldcommerce', 'settings']),
+  // Sales channels (phase 4): the list, the keys and the shipping rates share one cache; an order shows its channel's name.
+  commerce_channel: inv(['weldcommerce', 'channels'], ['weldcommerce', 'orders']),
+  commerce_channel_key: inv(['weldcommerce', 'channels']),
+  commerce_shipping_rate: inv(['weldcommerce', 'channels']),
 
   // =========================================================================
   // WeldDesk — Helpdesk

@@ -1302,6 +1302,26 @@ pub async fn mark_paid(conn: &mut PgConnection, id: &str, payment: &Payment) -> 
     Ok(())
 }
 
+/// A storefront order placed on invoice (a B2B channel): the payment is
+/// owed, not pending, and the order is confirmed.
+///
+/// # Errors
+/// [`Error::NotFound`].
+pub async fn place_on_invoice(conn: &mut PgConnection, id: &str) -> Result<(), Error> {
+    let now = crate::now();
+    let t = &ORDERS;
+    let mut values = Map::new();
+    put(&mut values, t, "paymentStatus", json!("on_invoice"));
+    put(&mut values, t, "paymentMethod", json!("invoice"));
+    put(&mut values, t, "status", json!("confirmed"));
+    put(&mut values, t, "updatedAt", json!(now));
+    ORDERS
+        .patch_raw(&mut *conn, id, values, true)
+        .await?
+        .ok_or_else(|| Error::not_found("Order", id))?;
+    Ok(())
+}
+
 // ── import ──────────────────────────────────────────────────────────────────
 
 /// A line of a store's order.

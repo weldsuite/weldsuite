@@ -11,11 +11,15 @@
 //! It never writes `fulfilled_quantity` or `fulfillment_status` (WeldStash
 //! owns them, STASH-001/006), and it reserves no stock.
 
+pub mod carts;
+pub mod channels;
+pub mod checkout;
 pub mod discount;
 pub mod error;
 pub mod money;
 pub mod numbering;
 pub mod orders;
+pub mod prices;
 pub mod status;
 #[rustfmt::skip]
 pub mod tables;

@@ -461,3 +461,83 @@ async fn two_stores_of_one_provider_may_share_an_order_number() {
         json!(3)
     );
 }
+
+/// A store's orders carry the channel of their connection (ADR COM-011): made
+/// on the first order (`type` = the provider, `active`, named after the store,
+/// in the order's currency), reused for the next, never with keys or rates.
+#[tokio::test]
+async fn imported_orders_carry_the_connections_channel() {
+    let Some(db) = tenant().await else { return };
+    let sfx = suffix();
+    let (connection_id, _) = seed(&db, &sfx).await;
+    let (first, second) = (format!("701{sfx}"), format!("702{sfx}"));
+
+    ingest(
+        &db,
+        &connection_id,
+        vec![order(
+            &first,
+            "2026-04-01T10:00:00",
+            &[line(8001, "Kettle", "KET-9", 1, 30)],
+        )],
+    )
+    .await;
+    let created = order_row(&db, &connection_id, &first).await;
+    let channel_id = created["channel_id"].as_str().expect("channel").to_owned();
+    let channel: Value =
+        sqlx::query_scalar("select to_jsonb(c) from commerce_channels c where id = $1")
+            .bind(&channel_id)
+            .fetch_one(&db)
+            .await
+            .unwrap();
+    assert_eq!(channel["type"], "woocommerce");
+    assert_eq!(channel["connection_id"], json!(connection_id));
+    assert_eq!(channel["status"], "active");
+    assert_eq!(channel["name"], "Orders shop");
+    assert_eq!(channel["currency"], "EUR");
+    assert_eq!(channel["deleted_at"], json!(null));
+    let (keys, rates): (i64, i64) = sqlx::query_as(
+        "select (select count(*) from commerce_channel_keys where channel_id = $1),
+                (select count(*) from commerce_shipping_rates where channel_id = $1)",
+    )
+    .bind(&channel_id)
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    assert_eq!((keys, rates), (0, 0));
+
+    // The next order, and a re-import of the first, use the same channel.
+    ingest(
+        &db,
+        &connection_id,
+        vec![
+            order(
+                &second,
+                "2026-04-02T10:00:00",
+                &[line(8002, "Cup", "CUP-9", 1, 5)],
+            ),
+            order(
+                &first,
+                "2026-04-03T10:00:00",
+                &[line(8001, "Kettle", "KET-9", 2, 30)],
+            ),
+        ],
+    )
+    .await;
+    assert_eq!(
+        order_row(&db, &connection_id, &second).await["channel_id"],
+        json!(channel_id)
+    );
+    assert_eq!(
+        order_row(&db, &connection_id, &first).await["channel_id"],
+        json!(channel_id)
+    );
+    let channels: i64 = sqlx::query_scalar(
+        "select count(*) from commerce_channels where connection_id = $1 and deleted_at is null",
+    )
+    .bind(&connection_id)
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    assert_eq!(channels, 1);
+}

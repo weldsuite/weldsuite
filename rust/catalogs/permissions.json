@@ -55,6 +55,7 @@
         "orders",
         "discounts",
         "commerce_settings",
+        "commerce_channels",
         "companies",
         "people"
       ]
@@ -1068,6 +1069,28 @@
         {
           "key": "commerce_settings:update",
           "label": "Edit commerce settings"
+        }
+      ]
+    },
+    {
+      "key": "commerce_channels",
+      "label": "Sales channels",
+      "permissions": [
+        {
+          "key": "commerce_channels:read",
+          "label": "View sales channels"
+        },
+        {
+          "key": "commerce_channels:create",
+          "label": "Create sales channels"
+        },
+        {
+          "key": "commerce_channels:update",
+          "label": "Edit sales channels"
+        },
+        {
+          "key": "commerce_channels:delete",
+          "label": "Delete sales channels"
         }
       ]
     },

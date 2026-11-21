@@ -269,7 +269,17 @@ fn commerce(router: Router<AppState>, state: &AppState) -> Router<AppState> {
         events: state.infra.events.clone(),
         http: shared_outbound(),
     };
-    router.merge(weldsuite_commerce::router(commerce, &state.permissions))
+    // The master database holds the storefront key registry (conformance
+    // builds have none: the key routes answer 503 there).
+    let api = weldsuite_commerce::router(commerce, &state.permissions);
+    let api = if cfg!(feature = "conformance") {
+        api
+    } else {
+        api.layer(axum::Extension(weldsuite_commerce::StorefrontRegistry(
+            state.workspaces.master().clone(),
+        )))
+    };
+    router.merge(api)
 }
 
 /// WeldCRM (`weldsuite-crm`): crm-api's routes at their own prefixes
@@ -1916,6 +1926,26 @@ pub(crate) fn desk_widget(state: &AppState) -> Router {
             crate::conformance::public,
         ));
     Router::new().nest("/public/helpdesk-widget", widget)
+}
+
+/// WeldCommerce's public storefront API (`/storefront/v1`, ADR COM-011):
+/// the catalogue, carts and checkout of a sales channel, authenticated by the
+/// channel's key (`wcp_`/`wcs_`) and answering CORS per key itself, so it is
+/// merged outside the server's first-party CORS, like the widget.
+pub(crate) fn commerce_storefront(state: &AppState) -> Router {
+    if !mounts("commerce") {
+        return Router::new();
+    }
+    weldsuite_commerce::storefront::storefront_router(
+        weldsuite_commerce::storefront::StorefrontState {
+            events: state.infra.events.clone(),
+            http: shared_outbound(),
+            master: state.workspaces.master().clone(),
+            workspaces: Arc::clone(&state.workspaces),
+            cache: state.infra.cache.clone(),
+            trusted_proxies: state.trusted_proxies,
+        },
+    )
 }
 
 /// WeldDesk's handle on the app, with the helpdesk workflow engine in this

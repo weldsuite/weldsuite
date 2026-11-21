@@ -30,21 +30,21 @@ use serde_json::{Value, json};
 use sqlx::PgConnection;
 use weldsuite_books_domain::tax::eu_vat::{
     DestinationLine, EuTaxArgs, EuVatError, EuVatLine, EuVatResult, RateError, SupplyKind,
-    VatCategory, ZeroRatedGross, calculate_eu_destination_tax, is_eu_member,
+    VatCategory, ZeroRatedGross, calculate_eu_destination_tax_on, is_eu_member,
 };
-use weldsuite_db::PgPool;
 use weldsuite_ports::OutboundHttp;
 
 use crate::error::Error;
 use crate::money::{self, Cents};
 use crate::orders::lines::Line;
 
-/// What the engine needs to reach: the tenant database (the seller's
-/// registrations, the VIES cache) and the outbound HTTP port (VIES). Without
-/// the port VIES reads as unavailable.
+/// What the engine needs besides the caller's connection: the outbound HTTP
+/// port (VIES). Without it VIES reads as unavailable. There is deliberately no
+/// pool here: the engine reads the seller, the OSS registration and the VIES
+/// cache on the connection of the order's transaction, because a tenant pool
+/// may hold a single connection.
 #[derive(Clone, Copy)]
 pub struct Taxation<'a> {
-    pub db: &'a PgPool,
     pub http: Option<&'a OutboundHttp>,
 }
 
@@ -320,8 +320,8 @@ pub async fn compute(
         .filter(|n| !n.is_empty())
         .map(str::to_owned);
     let lines = engine_lines(basis)?;
-    let result = calculate_eu_destination_tax(
-        tax.db,
+    let result = calculate_eu_destination_tax_on(
+        conn,
         tax.http,
         &EuTaxArgs {
             entity_id: &entity_id,

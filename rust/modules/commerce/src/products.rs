@@ -72,6 +72,7 @@ where
             axum::routing::delete(remove).route_layer(gate.require([PRODUCTS_DELETE])),
         )
         .merge(crate::variants::routes(gate))
+        .merge(crate::prices::routes(gate))
         .merge(crate::categories::product_routes(gate))
 }
 

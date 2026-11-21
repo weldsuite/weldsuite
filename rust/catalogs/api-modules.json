@@ -304,6 +304,7 @@
     "prefixes": [
       "/api/categories",
       "/api/commerce",
+      "/api/commerce-channels",
       "/api/commerce-settings",
       "/api/discounts",
       "/api/orders"

@@ -256,6 +256,8 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
   objectPermissions('categories',    'Categories'),
   // WeldCommerce settings: order numbering and the default currency.
   objectPermissions('commerce_settings', 'Commerce settings', ['read', 'update']),
+  // WeldCommerce sales channels, their storefront keys and shipping rates.
+  objectPermissions('commerce_channels', 'Sales channels', ['read', 'create', 'update', 'delete']),
   objectPermissions('websites',      'Websites',             ['read', 'create', 'update', 'delete', 'manage']),
 
   // ── Accounting (WeldBooks) ────────────────────────────────────────────

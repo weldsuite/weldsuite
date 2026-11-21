@@ -8,7 +8,7 @@
 //! keeps its rate-table, US, India and Brazil behaviour.
 
 use serde_json::{Value, json};
-use sqlx::PgPool;
+use sqlx::{PgConnection, PgPool};
 use weldsuite_ports::OutboundHttp;
 
 use super::decide::{
@@ -92,12 +92,12 @@ pub struct EuTaxArgs<'a> {
 }
 
 /// The entity's country, from `entities.jurisdiction_code`.
-async fn seller_country(db: &PgPool, entity_id: &str) -> Result<String, EuVatError> {
+async fn seller_country(conn: &mut PgConnection, entity_id: &str) -> Result<String, EuVatError> {
     let code: Option<String> = sqlx::query_scalar(
         "select jurisdiction_code from entities where id = $1 and deleted_at is null limit 1",
     )
     .bind(entity_id)
-    .fetch_optional(db)
+    .fetch_optional(&mut *conn)
     .await?;
     let code = code.ok_or_else(|| EuVatError::EntityNotFound(entity_id.to_owned()))?;
     if rates::is_eu_member(&code) {
@@ -108,7 +108,11 @@ async fn seller_country(db: &PgPool, entity_id: &str) -> Result<String, EuVatErr
 }
 
 /// Whether the entity has a live `oss` registration on `date`.
-async fn oss_registered(db: &PgPool, entity_id: &str, date: &str) -> Result<bool, sqlx::Error> {
+async fn oss_registered(
+    conn: &mut PgConnection,
+    entity_id: &str,
+    date: &str,
+) -> Result<bool, sqlx::Error> {
     sqlx::query_scalar(
         "select exists(select 1 from legal_entity_registrations \
          where entity_id = $1 and type = 'oss' and deleted_at is null \
@@ -117,13 +121,13 @@ async fn oss_registered(db: &PgPool, entity_id: &str, date: &str) -> Result<bool
     )
     .bind(entity_id)
     .bind(date)
-    .fetch_one(db)
+    .fetch_one(&mut *conn)
     .await
 }
 
 /// What VIES says about the buyer, for a sale to another member state.
 async fn buyer_vat(
-    db: &PgPool,
+    conn: &mut PgConnection,
     http: Option<&OutboundHttp>,
     seller: &str,
     buyer_country: &str,
@@ -144,7 +148,7 @@ async fn buyer_vat(
     if normalized.country_code != rates::vat_prefix(buyer_country) {
         return Ok(BuyerVat::Invalid);
     }
-    let check = crate::compliance::check_vat_number(db, http, &normalized.full).await?;
+    let check = crate::compliance::check_vat_number_on(conn, http, &normalized.full).await?;
     Ok(match (check.available, check.valid) {
         (false, _) => BuyerVat::Unavailable,
         (true, true) => BuyerVat::Valid,
@@ -170,19 +174,31 @@ pub async fn calculate_eu_destination_tax(
     http: Option<&OutboundHttp>,
     args: &EuTaxArgs<'_>,
 ) -> Result<EuVatResult, EuVatError> {
+    let mut conn = db.acquire().await?;
+    calculate_eu_destination_tax_on(&mut conn, http, args).await
+}
+
+/// [`calculate_eu_destination_tax`] on the caller's connection. A caller
+/// inside a transaction (an order being written) uses this one: the tenant
+/// pool may hold a single connection, which the transaction already has.
+pub async fn calculate_eu_destination_tax_on(
+    conn: &mut PgConnection,
+    http: Option<&OutboundHttp>,
+    args: &EuTaxArgs<'_>,
+) -> Result<EuVatResult, EuVatError> {
     let buyer_country = args.buyer_country.trim();
     if buyer_country.len() != 2 || !buyer_country.bytes().all(|b| b.is_ascii_alphabetic()) {
         return Err(EuVatError::InvalidBuyerCountry(
             args.buyer_country.to_owned(),
         ));
     }
-    let seller = seller_country(db, args.entity_id).await?;
+    let seller = seller_country(conn, args.entity_id).await?;
     let today = rates::today();
     let date = args.date.unwrap_or(&today);
     // Monaco is French VAT territory: its buyers hold French VAT numbers.
     let territory = rates::territory(buyer_country);
-    let vat = buyer_vat(db, http, &seller, &territory, args.buyer_vat_number).await?;
-    let oss = oss_registered(db, args.entity_id, date).await?;
+    let vat = buyer_vat(conn, http, &seller, &territory, args.buyer_vat_number).await?;
+    let oss = oss_registered(conn, args.entity_id, date).await?;
     Ok(decide::calculate(&DestinationInput {
         seller_country: &seller,
         buyer_country,

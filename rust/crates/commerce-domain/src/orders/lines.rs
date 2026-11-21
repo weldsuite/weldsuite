@@ -12,6 +12,7 @@ use sqlx::PgConnection;
 use weldsuite_books_domain::tax::eu_vat::{VatCategory, effective_category};
 
 use crate::money::{self, Cents};
+use crate::prices;
 
 /// A line as the request wrote it.
 #[derive(Debug, Clone, Default)]
@@ -275,6 +276,27 @@ pub async fn resolve(
     let mut product_ids: Vec<String> = fresh.iter().filter_map(|i| i.product_id.clone()).collect();
     product_ids.extend(variants.iter().filter_map(|v| v.product_id.clone()));
     let products = catalogue(conn, PRODUCTS_SQL, &product_ids).await?;
+    // What the catalogue sells for in the order's currency (`product_prices`
+    // first, the base price when the currency is the base one).
+    let targets: Vec<prices::Target> = fresh
+        .iter()
+        .filter(|input| input.unit_price.is_none())
+        .filter_map(|input| {
+            let product_id = input.product_id.clone().or_else(|| {
+                input.variant_id.as_ref().and_then(|id| {
+                    variants
+                        .iter()
+                        .find(|v| v.id == *id)
+                        .and_then(|v| v.product_id.clone())
+                })
+            })?;
+            Some(prices::Target {
+                product_id,
+                variant_id: input.variant_id.clone(),
+            })
+        })
+        .collect();
+    let resolved = prices::resolve_many(conn, &targets, currency).await?;
 
     Ok(inputs
         .iter()
@@ -299,7 +321,19 @@ pub async fn resolve(
                 .as_ref()
                 .or_else(|| variant.and_then(|v| v.product_id.as_ref()));
             let product = product_id.and_then(|id| products.iter().find(|p| p.id == *id));
-            build(input, variant, product, currency)
+            let mut line = build(input, variant, product, currency);
+            if input.unit_price.is_none()
+                && !matches!(line.problem, Some("PRODUCT_NOT_FOUND" | "INACTIVE"))
+                && let Some(product) = product
+                && let Some(price) = resolved.get(&prices::Target {
+                    product_id: product.id.clone(),
+                    variant_id: input.variant_id.clone(),
+                })
+            {
+                line.unit_price = price.price;
+                line.problem = None;
+            }
+            line
         })
         .collect())
 }

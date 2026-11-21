@@ -20,6 +20,11 @@
 //! ([`discounts`]) and `/api/commerce-settings` ([`settings`]). Every order
 //! write goes through `weldsuite-commerce-domain` (ADR COM-010).
 //!
+//! Phase 4 (staff side): sales channels `/api/commerce-channels` ([`channels`]:
+//! keys, shipping rates), a product's prices per currency
+//! `/api/products/:id/prices` ([`prices`]) and the master key registry they
+//! write ([`StorefrontRegistry`]).
+//!
 //! Everything but the products route is Rust only, with no TypeScript worker
 //! to compare it with and so no conformance suite: those routes have their
 //! own tests in `tests/`.
@@ -29,13 +34,16 @@
 mod tables;
 mod args;
 mod categories;
+mod channels;
 mod discounts;
 mod js;
 mod orders;
 mod overview;
+mod prices;
 mod products;
 mod rules;
 mod settings;
+pub mod storefront;
 mod table;
 mod variants;
 mod wire;
@@ -61,6 +69,12 @@ use weldsuite_permissions::{PermissionGate, PermissionQueries, Permissions};
 use weldsuite_ports::OutboundHttp;
 
 use crate::table::WriteError;
+
+/// The master database, where the storefront key registry lives
+/// (`storefront_key_registry`). The server adds it to the commerce routes as
+/// a request extension; without it the key routes answer 503.
+#[derive(Clone, Debug)]
+pub struct StorefrontRegistry(pub PgPool);
 
 /// What the commerce handlers share.
 #[derive(Clone, Debug)]
@@ -89,12 +103,17 @@ where
         .nest("/orders", orders::routes(gate))
         .nest("/discounts", discounts::routes(gate))
         .nest("/commerce-settings", settings::routes(gate))
+        .nest("/commerce-channels", channels::routes(gate))
         .with_state(state)
 }
 
 /// Who is asking, in which workspace, with what permissions.
 pub(crate) struct Caller {
     pub(crate) db: PgPool,
+    /// `workspaces.id` (`ws_...`, ADR SEC-011).
+    pub(crate) workspace_id: String,
+    /// The master database, when the server provides one.
+    pub(crate) registry: Option<PgPool>,
     pub(crate) user_id: String,
     pub(crate) permissions: Permissions,
     pub(crate) events: EventContext,
@@ -130,6 +149,11 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
         {
             Ok(Self {
                 db: tenant.db.clone(),
+                workspace_id: tenant.workspace_id.clone(),
+                registry: parts
+                    .extensions
+                    .get::<StorefrontRegistry>()
+                    .map(|registry| registry.0.clone()),
                 user_id: auth.user_id.clone(),
                 permissions: permissions.clone(),
                 events: EventContext::for_request(auth, tenant),

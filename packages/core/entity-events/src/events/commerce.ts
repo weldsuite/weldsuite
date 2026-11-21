@@ -12,6 +12,10 @@ export const COMMERCE_ENTITY_EVENTS = {
   commerce_customer: ['created', 'updated', 'deleted'],
   discount: ['created', 'updated', 'deleted'],
   commerce_settings: ['updated'],
+  // Sales channels (phase 4). A key event never carries the secret.
+  commerce_channel: ['created', 'updated', 'deleted'],
+  commerce_channel_key: ['created', 'revoked', 'rotated'],
+  commerce_shipping_rate: ['created', 'updated', 'deleted'],
   website: ['created', 'updated', 'deleted', 'archived'],
   website_domain: ['created', 'updated', 'deleted'],
   website_page: ['created', 'updated', 'deleted', 'archived'],

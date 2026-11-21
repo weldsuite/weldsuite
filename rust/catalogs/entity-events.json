@@ -188,6 +188,16 @@
     "updated",
     "deleted"
   ],
+  "commerce_channel": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "commerce_channel_key": [
+    "created",
+    "revoked",
+    "rotated"
+  ],
   "commerce_customer": [
     "created",
     "updated",
@@ -203,6 +213,11 @@
   ],
   "commerce_settings": [
     "updated"
+  ],
+  "commerce_shipping_rate": [
+    "created",
+    "updated",
+    "deleted"
   ],
   "company": [
     "created",
