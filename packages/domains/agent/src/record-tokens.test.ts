@@ -68,4 +68,10 @@ describe('text full of unclosed tags', () => {
     expect(Date.now() - started).toBeLessThan(500);
     expect(found).toEqual([{ type: 'ticket', id: 'tkt_1', label: 'Refund' }]);
   });
+
+  it('keeps a label that contains <', () => {
+    expect(taggedRecords('See <@ticket:tkt_2|Price < 100>')).toEqual([
+      { type: 'ticket', id: 'tkt_2', label: 'Price < 100' },
+    ]);
+  });
 });
