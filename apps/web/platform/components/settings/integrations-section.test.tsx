@@ -30,15 +30,15 @@ describe('IntegrationsSection', () => {
     expect(shown()).toEqual(ALL);
   });
 
-  it('lists only the store syncs on a Kubernetes edition without integration-sync', () => {
+  it('lists only the store and accounting connectors on a Kubernetes edition without integration-sync', () => {
     setRuntimeConfig({ backend: 'rust', edition: 'eu', modules: ['core', 'connect'], unavailableFeatures: ['integration-sync'] });
     render(<IntegrationsSection />);
-    expect(shown()).toEqual(['WooCommerce', 'Shopify']);
+    expect(shown()).toEqual(['WooCommerce', 'Shopify', 'Moneybird', 'Picqer']);
   });
 
   it('adds MCP servers where WeldAgent is served', () => {
     setRuntimeConfig({ backend: 'rust', edition: 'eu', modules: ['core', 'connect', 'agent'], unavailableFeatures: ['integration-sync'] });
     render(<IntegrationsSection />);
-    expect(shown()).toEqual(['MCP Servers', 'WooCommerce', 'Shopify']);
+    expect(shown()).toEqual(['MCP Servers', 'WooCommerce', 'Shopify', 'Moneybird', 'Picqer']);
   });
 });
