@@ -957,8 +957,5 @@ pub async fn order_of(db: &PgPool, payment: &Value) -> Result<Option<(String, St
 /// # Errors
 /// A failed statement.
 pub async fn order_exists(conn: &mut PgConnection, order_id: &str) -> Result<bool, DbErr> {
-    Ok(orders::load(conn, order_id, false)
-        .await
-        .map_err(db::from_sqlx)?
-        .is_some())
+    Ok(orders::load(conn, order_id, false).await?.is_some())
 }

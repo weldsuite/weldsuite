@@ -15,15 +15,54 @@
 //!
 //! Every function runs on the caller's connection, inside its transaction.
 
+use sea_orm::ActiveValue::Set;
+use sea_orm::prelude::BigDecimal;
+use sea_orm::sea_query::{Expr, Query};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use sqlx::PgConnection;
+use time::PrimitiveDateTime;
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{
+    commerce_buyers, commerce_company_settings, invoices, order_approvals, orders, parties, people,
+};
 
+use crate::db;
 use crate::error::Error;
 use crate::money::{self, Cents};
 use crate::orders::write;
+use crate::prices::parse_numeric;
 
-const TS: &str = "'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'";
+/// `to_char(at, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`: milliseconds, truncated.
+fn iso(at: PrimitiveDateTime) -> String {
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
+        at.year(),
+        u8::from(at.month()),
+        at.day(),
+        at.hour(),
+        at.minute(),
+        at.second(),
+        at.millisecond()
+    )
+}
+
+/// Whether `total` is past a limit in `currency` (a limit in another
+/// currency is not applied).
+fn exceeds(
+    limit: Option<(Option<BigDecimal>, Option<String>)>,
+    total: Cents,
+    currency: &str,
+) -> bool {
+    matches!(
+        limit,
+        Some((Some(amount), Some(code)))
+            if code.eq_ignore_ascii_case(currency)
+                && parse_numeric(&amount).is_some_and(|limit| total > limit)
+    )
+}
 
 /// Why the order needs an approval, when it does: `buyer_limit` (above the
 /// buyer's spend limit) before `company_threshold`.
@@ -36,30 +75,26 @@ pub async fn reason_for(
     company_id: &str,
     total: Cents,
     currency: &str,
-) -> Result<Option<&'static str>, sqlx::Error> {
-    let limit: Option<(Option<String>, Option<String>)> = sqlx::query_as(
-        "select spend_limit::text, spend_limit_currency from commerce_buyers where id = $1",
-    )
-    .bind(buyer_id)
-    .fetch_optional(&mut *conn)
-    .await?;
-    if let Some((Some(amount), Some(code))) = limit
-        && code.eq_ignore_ascii_case(currency)
-        && money::parse(&amount).is_some_and(|limit| total > limit)
-    {
+) -> Result<Option<&'static str>, DbErr> {
+    let limit = commerce_buyers::Entity::find_by_id(buyer_id.to_owned())
+        .select_only()
+        .column(commerce_buyers::Column::SpendLimit)
+        .column(commerce_buyers::Column::SpendLimitCurrency)
+        .into_tuple()
+        .one(&db::on(conn))
+        .await?;
+    if exceeds(limit, total, currency) {
         return Ok(Some("buyer_limit"));
     }
-    let threshold: Option<(Option<String>, Option<String>)> = sqlx::query_as(
-        "select approval_threshold::text, approval_threshold_currency \
-         from commerce_company_settings where company_id = $1",
-    )
-    .bind(company_id)
-    .fetch_optional(&mut *conn)
-    .await?;
-    if let Some((Some(amount), Some(code))) = threshold
-        && code.eq_ignore_ascii_case(currency)
-        && money::parse(&amount).is_some_and(|limit| total > limit)
-    {
+    let threshold = commerce_company_settings::Entity::find()
+        .select_only()
+        .column(commerce_company_settings::Column::ApprovalThreshold)
+        .column(commerce_company_settings::Column::ApprovalThresholdCurrency)
+        .filter(commerce_company_settings::Column::CompanyId.eq(company_id))
+        .into_tuple()
+        .one(&db::on(conn))
+        .await?;
+    if exceeds(threshold, total, currency) {
         return Ok(Some("company_threshold"));
     }
     Ok(None)
@@ -74,23 +109,22 @@ pub async fn request(
     order_id: &str,
     reason: &str,
     requested_by_person_id: Option<&str>,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update orders set approval_status = 'pending', updated_at = now() at time zone 'utc' \
-         where id = $1",
-    )
-    .bind(order_id)
-    .execute(&mut *conn)
-    .await?;
-    sqlx::query(
-        "insert into order_approvals (id, order_id, reason, requested_by_person_id, decision) \
-         values ($1, $2, $3, $4, 'pending')",
-    )
-    .bind(generate_id("oapr"))
-    .bind(order_id)
-    .bind(reason)
-    .bind(requested_by_person_id)
-    .execute(&mut *conn)
+) -> Result<(), DbErr> {
+    orders::Entity::update_many()
+        .col_expr(orders::Column::ApprovalStatus, Expr::value("pending"))
+        .col_expr(orders::Column::UpdatedAt, Expr::value(db::now()))
+        .filter(orders::Column::Id.eq(order_id))
+        .exec(&db::on(conn))
+        .await?;
+    order_approvals::ActiveModel {
+        id: Set(generate_id("oapr")),
+        order_id: Set(order_id.to_owned()),
+        reason: Set(reason.to_owned()),
+        requested_by_person_id: Set(requested_by_person_id.map(str::to_owned)),
+        decision: Set("pending".to_owned()),
+        ..Default::default()
+    }
+    .insert(&db::on(conn))
     .await?;
     Ok(())
 }
@@ -108,6 +142,38 @@ fn money_of(value: &Value) -> Option<(Cents, String)> {
     ))
 }
 
+/// `sum(orders.total)`.
+fn sum_of_totals() -> Expr {
+    // Scoped: `ExprTrait` is implemented for numbers too, and would make
+    // their `max` ambiguous elsewhere in this module.
+    use sea_orm::sea_query::ExprTrait;
+    Expr::col((orders::Entity, orders::Column::Total)).sum()
+}
+
+/// The order has no invoice that counts yet: none live, or only cancelled,
+/// void or written-off ones.
+fn not_invoiced() -> Expr {
+    use sea_orm::sea_query::ExprTrait;
+    Expr::not_exists(
+        Query::select()
+            .expr(Expr::val(1))
+            .from(invoices::Entity)
+            .and_where(
+                Expr::col((invoices::Entity, invoices::Column::CommerceOrderId))
+                    .equals((orders::Entity, orders::Column::Id)),
+            )
+            .and_where(Expr::col((invoices::Entity, invoices::Column::DeletedAt)).is_null())
+            .and_where(
+                Expr::col((invoices::Entity, invoices::Column::Status)).is_not_in([
+                    "cancelled",
+                    "void",
+                    "written_off",
+                ]),
+            )
+            .to_owned(),
+    )
+}
+
 /// Pay on invoice: the company's party has payment terms, and the order
 /// stays within its credit limit.
 ///
@@ -121,13 +187,16 @@ pub async fn check_invoice_terms(
     total: Cents,
     currency: &str,
 ) -> Result<(), Error> {
-    let party: Option<(Option<String>, Option<Value>, Option<String>)> = sqlx::query_as(
-        "select payment_terms, credit_limit, outstanding_balance::text from parties \
-         where id = $1 and deleted_at is null",
-    )
-    .bind(party_id)
-    .fetch_optional(&mut *conn)
-    .await?;
+    let party: Option<(Option<String>, Option<Value>, Option<BigDecimal>)> =
+        parties::Entity::find_by_id(party_id.to_owned())
+            .filter(parties::Column::DeletedAt.is_null())
+            .select_only()
+            .column(parties::Column::PaymentTerms)
+            .column(parties::Column::CreditLimit)
+            .column(parties::Column::OutstandingBalance)
+            .into_tuple()
+            .one(&db::on(conn))
+            .await?;
     let Some((terms, limit, balance)) = party else {
         return Err(Error::NoPaymentTerms);
     };
@@ -140,19 +209,21 @@ pub async fn check_invoice_terms(
     if !limit_currency.eq_ignore_ascii_case(currency) {
         return Ok(());
     }
-    let open: String = sqlx::query_scalar(
-        "select coalesce(sum(o.total), 0)::text from orders o \
-         where o.counterparty_id = $1 and o.id <> $2 and o.deleted_at is null \
-           and o.payment_status = 'on_invoice' and o.status <> 'cancelled' \
-           and not exists (select 1 from invoices i where i.commerce_order_id = o.id \
-             and i.deleted_at is null and i.status not in ('cancelled', 'void', 'written_off'))",
-    )
-    .bind(party_id)
-    .bind(order_id)
-    .fetch_one(&mut *conn)
-    .await?;
-    let taken =
-        balance.as_deref().and_then(money::parse).unwrap_or(0) + money::parse(&open).unwrap_or(0);
+    let open: Option<Option<BigDecimal>> = orders::Entity::find()
+        .select_only()
+        .column_as(sum_of_totals(), "open")
+        .filter(orders::Column::CounterpartyId.eq(party_id))
+        .filter(orders::Column::Id.ne(order_id))
+        .filter(orders::Column::DeletedAt.is_null())
+        .filter(orders::Column::PaymentStatus.eq("on_invoice"))
+        .filter(orders::Column::Status.ne("cancelled"))
+        .filter(not_invoiced())
+        .into_tuple()
+        .one(&db::on(conn))
+        .await?;
+    // `coalesce(sum(total), 0)`.
+    let open = open.flatten().as_ref().map_or(Some(0), parse_numeric);
+    let taken = balance.as_ref().and_then(parse_numeric).unwrap_or(0) + open.unwrap_or(0);
     if taken + total > limit {
         return Err(Error::CreditLimitExceeded {
             available: (limit - taken).max(0),
@@ -206,18 +277,24 @@ pub async fn decide(
         return Err(Error::NotPending);
     }
     let decision = if approve { "approved" } else { "rejected" };
-    let changed = sqlx::query(
-        "update order_approvals set decision = $2, comment = $3, approver_person_id = $4, \
-           decided_at = now() at time zone 'utc', updated_at = now() at time zone 'utc' \
-         where order_id = $1 and decision = 'pending'",
-    )
-    .bind(order_id)
-    .bind(decision)
-    .bind(comment)
-    .bind(by.person_id)
-    .execute(&mut *conn)
-    .await?
-    .rows_affected();
+    let now = db::now();
+    let changed = order_approvals::Entity::update_many()
+        .col_expr(order_approvals::Column::Decision, Expr::value(decision))
+        .col_expr(
+            order_approvals::Column::Comment,
+            Expr::value(comment.map(str::to_owned)),
+        )
+        .col_expr(
+            order_approvals::Column::ApproverPersonId,
+            Expr::value(by.person_id.map(str::to_owned)),
+        )
+        .col_expr(order_approvals::Column::DecidedAt, Expr::value(now))
+        .col_expr(order_approvals::Column::UpdatedAt, Expr::value(now))
+        .filter(order_approvals::Column::OrderId.eq(order_id))
+        .filter(order_approvals::Column::Decision.eq("pending"))
+        .exec(&db::on(conn))
+        .await?
+        .rows_affected;
     if changed == 0 {
         return Err(Error::NotPending);
     }
@@ -230,15 +307,16 @@ pub async fn decide(
     if let Some(staff) = &by.staff {
         metadata.insert("approvalDecidedBy".to_owned(), staff.clone());
     }
-    sqlx::query(
-        "update orders set approval_status = $2, metadata = $3, \
-           updated_at = now() at time zone 'utc' where id = $1",
-    )
-    .bind(order_id)
-    .bind(decision)
-    .bind(Value::Object(metadata.clone()))
-    .execute(&mut *conn)
-    .await?;
+    orders::Entity::update_many()
+        .col_expr(orders::Column::ApprovalStatus, Expr::value(decision))
+        .col_expr(
+            orders::Column::Metadata,
+            Expr::value(Value::Object(metadata.clone())),
+        )
+        .col_expr(orders::Column::UpdatedAt, Expr::value(db::now()))
+        .filter(orders::Column::Id.eq(order_id))
+        .exec(&db::on(conn))
+        .await?;
     let method = stored.text("paymentMethod").map(str::to_owned);
     if approve {
         if stored.text("paymentStatus") == Some("on_invoice") {
@@ -252,14 +330,16 @@ pub async fn decide(
         )
         .await?;
     }
-    let requested: Option<String> = sqlx::query_scalar(
-        "select requested_by_person_id from order_approvals where order_id = $1 \
-         order by created_at desc, id desc limit 1",
-    )
-    .bind(order_id)
-    .fetch_optional(&mut *conn)
-    .await?
-    .flatten();
+    let requested: Option<String> = order_approvals::Entity::find()
+        .select_only()
+        .column(order_approvals::Column::RequestedByPersonId)
+        .filter(order_approvals::Column::OrderId.eq(order_id))
+        .order_by_desc(order_approvals::Column::CreatedAt)
+        .order_by_desc(order_approvals::Column::Id)
+        .into_tuple::<Option<String>>()
+        .one(&db::on(conn))
+        .await?
+        .flatten();
     Ok(Decided {
         order_id: order_id.to_owned(),
         approved: approve,
@@ -300,17 +380,23 @@ fn actor(person: Option<(String, Option<String>, Option<String>)>, staff: Option
     }
 }
 
-async fn person_actor(
+/// A person as an actor: id, name and e-mail (deleted or not).
+pub(crate) async fn person_actor(
     conn: &mut PgConnection,
     id: Option<&str>,
-) -> Result<Option<(String, Option<String>, Option<String>)>, sqlx::Error> {
+) -> Result<Option<(String, Option<String>, Option<String>)>, DbErr> {
     let Some(id) = id else {
         return Ok(None);
     };
-    sqlx::query_as("select id, display_name, email from people where id = $1")
-        .bind(id)
-        .fetch_optional(&mut *conn)
-        .await
+    let found: Option<(String, String, Option<String>)> = people::Entity::find_by_id(id.to_owned())
+        .select_only()
+        .column(people::Column::Id)
+        .column(people::Column::DisplayName)
+        .column(people::Column::Email)
+        .into_tuple()
+        .one(&db::on(conn))
+        .await?;
+    Ok(found.map(|(id, name, email)| (id, Some(name), email)))
 }
 
 /// The order's approval for the staff API (`Order.approval`), or null.
@@ -321,26 +407,19 @@ pub async fn approval_view(
     conn: &mut PgConnection,
     order_id: &str,
     metadata: Option<&Value>,
-) -> Result<Value, sqlx::Error> {
-    #[allow(clippy::type_complexity)]
-    let row: Option<(
-        String,
-        String,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-    )> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "select reason, decision, comment, to_char(decided_at, {TS}), \
-               requested_by_person_id, approver_person_id \
-             from order_approvals where order_id = $1 order by created_at desc, id desc limit 1"
-    )))
-    .bind(order_id)
-    .fetch_optional(&mut *conn)
-    .await?;
-    let Some((reason, decision, comment, decided_at, requested, approver)) = row else {
+) -> Result<Value, DbErr> {
+    let row = order_approvals::Entity::find()
+        .filter(order_approvals::Column::OrderId.eq(order_id))
+        .order_by_desc(order_approvals::Column::CreatedAt)
+        .order_by_desc(order_approvals::Column::Id)
+        .one(&db::on(conn))
+        .await?;
+    let Some(row) = row else {
         return Ok(Value::Null);
     };
+    let (reason, decision, comment) = (row.reason, row.decision, row.comment);
+    let decided_at = row.decided_at.map(iso);
+    let (requested, approver) = (row.requested_by_person_id, row.approver_person_id);
     let requested_by = person_actor(conn, requested.as_deref()).await?;
     let decided_by = person_actor(conn, approver.as_deref()).await?;
     let staff = metadata.and_then(|m| m.get("approvalDecidedBy"));

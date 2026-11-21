@@ -19,10 +19,19 @@
 //! - Categories match a product's manual members; an automated category's
 //!   rules are not evaluated here.
 
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, Order, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect, Select,
+};
 use serde_json::Value;
 use sqlx::PgConnection;
+use time::PrimitiveDateTime;
+use weldsuite_schema::tenant::{category_products, discount_redemptions, discounts};
 
+use crate::db;
 use crate::money::{self, Cents};
+use crate::prices::parse_numeric;
 
 /// Why a code does not apply. `as_str` is the API's `discountProblem`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -281,22 +290,6 @@ pub fn effective_status(
     }
 }
 
-/// The columns [`load`] reads and the flags it derives, as one JSON object.
-const RULE_SQL: &str = "select (to_jsonb(t) || jsonb_build_object(\
-       'value', t.value::text, 'max_discount_amount', t.max_discount_amount::text, \
-       'minimum_subtotal', t.minimum_subtotal::text, \
-       'not_started', coalesce(t.starts_at > (now() at time zone 'utc'), false), \
-       'expired', coalesce(t.ends_at <= (now() at time zone 'utc'), false), \
-       'category_product_ids', coalesce((select jsonb_agg(cp.product_id) \
-           from category_products cp \
-           where t.applies_to = 'categories' \
-             and cp.category_id in (select jsonb_array_elements_text(\
-                 case when jsonb_typeof(t.category_ids) = 'array' \
-                      then t.category_ids else '[]'::jsonb end))), '[]'::jsonb) \
-     )) from discounts t \
-     where t.deleted_at is null and lower(trim(t.code)) = lower(trim($1)) \
-     order by (t.status <> 'archived') desc, t.updated_at desc, t.id desc limit 1";
-
 /// A discount row and its [`Rule`].
 #[derive(Debug, Clone)]
 pub struct Loaded {
@@ -322,50 +315,113 @@ fn strings(value: Option<&Value>) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn cents(value: Option<&Value>) -> Option<Cents> {
-    value.and_then(Value::as_str).and_then(money::parse)
+/// An optional `integer` column as the rule reads it.
+fn wide(value: Option<i32>) -> Option<i64> {
+    value.map(i64::from)
 }
 
-fn rule_of(row: &Value) -> Option<Loaded> {
-    let text = |key: &str| row.get(key).and_then(Value::as_str);
-    let flag = |key: &str| row.get(key).and_then(Value::as_bool).unwrap_or(false);
-    let rule = Rule {
-        id: text("id")?.to_owned(),
-        name: text("name").unwrap_or_default().to_owned(),
-        code: text("code").unwrap_or_default().to_owned(),
-        kind: Kind::parse(text("type")?)?,
-        value: cents(row.get("value")).unwrap_or(0),
-        currency: text("currency").map(str::to_owned),
-        max_discount: cents(row.get("max_discount_amount")),
-        scope: match text("applies_to") {
-            Some("products") => Scope::Products,
-            Some("categories") => Scope::Categories,
+/// `jsonb_array_elements_text` of one element: a JSON null is SQL null.
+fn element_text(value: &Value) -> Option<String> {
+    match value {
+        Value::Null => None,
+        Value::String(text) => Some(text.clone()),
+        other => Some(other.to_string()),
+    }
+}
+
+/// `row` as a rule, its date flags against `now`. `category_product_ids`
+/// are the manual members of its categories ([`category_product_ids`]).
+fn rule_of(
+    row: discounts::Model,
+    category_product_ids: Vec<String>,
+    now: PrimitiveDateTime,
+) -> Option<Loaded> {
+    let mut rule = Rule {
+        kind: Kind::parse(&row.type_)?,
+        id: row.id,
+        name: row.name,
+        code: row.code.unwrap_or_default(),
+        value: parse_numeric(&row.value).unwrap_or(0),
+        currency: row.currency,
+        max_discount: row.max_discount_amount.as_ref().and_then(parse_numeric),
+        scope: match row.applies_to.as_str() {
+            "products" => Scope::Products,
+            "categories" => Scope::Categories,
             _ => Scope::All,
         },
-        product_ids: strings(row.get("product_ids")),
-        variant_ids: strings(row.get("variant_ids")),
-        category_product_ids: strings(row.get("category_product_ids")),
-        minimum_subtotal: cents(row.get("minimum_subtotal")),
-        minimum_quantity: row.get("minimum_quantity").and_then(Value::as_i64),
-        usage_limit: row.get("usage_limit").and_then(Value::as_i64),
-        usage_limit_per_customer: row.get("usage_limit_per_customer").and_then(Value::as_i64),
-        usage_count: row.get("usage_count").and_then(Value::as_i64).unwrap_or(0),
-        active: text("status") == Some("active"),
-        not_started: flag("not_started"),
-        expired: flag("expired"),
+        product_ids: strings(row.product_ids.as_ref()),
+        variant_ids: strings(row.variant_ids.as_ref()),
+        category_product_ids,
+        minimum_subtotal: row.minimum_subtotal.as_ref().and_then(parse_numeric),
+        minimum_quantity: wide(row.minimum_quantity),
+        usage_limit: wide(row.usage_limit),
+        usage_limit_per_customer: wide(row.usage_limit_per_customer),
+        usage_count: wide(row.usage_count).unwrap_or(0),
+        active: row.status == "active",
+        not_started: row.starts_at.is_some_and(|starts| starts > now),
+        expired: row.ends_at.is_some_and(|ends| ends <= now),
         customer_eligible: true,
     };
     // `once_per_customer` is the legacy spelling of a per-customer limit of 1.
-    let mut rule = rule;
-    if flag("once_per_customer") {
+    if row.once_per_customer.unwrap_or(false) {
         rule.usage_limit_per_customer = Some(rule.usage_limit_per_customer.map_or(1, |l| l.min(1)));
     }
     Some(Loaded {
         rule,
-        customer_ids: strings(row.get("customer_ids")),
-        eligibility: text("customer_eligibility").unwrap_or("all").to_owned(),
-        value_text: text("value").unwrap_or("0").to_owned(),
+        customer_ids: strings(row.customer_ids.as_ref()),
+        eligibility: row.customer_eligibility.unwrap_or_else(|| "all".to_owned()),
+        // `value::text` of a `numeric(18, 2)`.
+        value_text: row.value.with_scale(2).to_plain_string(),
     })
+}
+
+/// The products in a `categories` discount's categories (their manual
+/// members); none for any other scope.
+async fn category_product_ids(
+    conn: &mut PgConnection,
+    row: &discounts::Model,
+) -> Result<Vec<String>, DbErr> {
+    if row.applies_to != "categories" {
+        return Ok(Vec::new());
+    }
+    let categories: Vec<String> = row
+        .category_ids
+        .as_ref()
+        .and_then(Value::as_array)
+        .map(|items| items.iter().filter_map(element_text).collect())
+        .unwrap_or_default();
+    if categories.is_empty() {
+        return Ok(Vec::new());
+    }
+    category_products::Entity::find()
+        .select_only()
+        .column(category_products::Column::ProductId)
+        .filter(category_products::Column::CategoryId.is_in(categories))
+        .into_tuple()
+        .all(&db::on(conn))
+        .await
+}
+
+/// The first discount `query` finds, the non-archived one first, as a rule;
+/// with `lock`, its row is locked until the transaction ends.
+async fn load_rule(
+    conn: &mut PgConnection,
+    query: Select<discounts::Entity>,
+    lock: bool,
+) -> Result<Option<Loaded>, DbErr> {
+    let now = db::now();
+    let mut query = query
+        .order_by(discounts::Column::Status.ne("archived"), Order::Desc)
+        .order_by_desc(discounts::Column::UpdatedAt)
+        .order_by_desc(discounts::Column::Id);
+    if lock {
+        query = query.lock_exclusive();
+    }
+    let Some(row) = query.one(&db::on(conn)).await? else {
+        return Ok(None);
+    };
+    let categories = category_product_ids(conn, &row).await?;
+    Ok(rule_of(row, categories, now))
 }
 
 /// The discount with `code` (case-insensitive, trimmed), the non-archived one
@@ -378,17 +434,14 @@ pub async fn load(
     conn: &mut PgConnection,
     code: &str,
     lock: bool,
-) -> Result<Option<Loaded>, sqlx::Error> {
-    let sql = if lock {
-        RULE_SQL.replace(" limit 1", " limit 1 for update of t")
-    } else {
-        RULE_SQL.to_owned()
-    };
-    let row: Option<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
-        .bind(code)
-        .fetch_optional(&mut *conn)
-        .await?;
-    Ok(row.as_ref().and_then(rule_of))
+) -> Result<Option<Loaded>, DbErr> {
+    let query = discounts::Entity::find()
+        .filter(discounts::Column::DeletedAt.is_null())
+        .filter(Expr::cust_with_values(
+            r#"lower(trim("discounts"."code")) = lower(trim($1))"#,
+            [code.to_owned()],
+        ));
+    load_rule(conn, query, lock).await
 }
 
 /// The discount `id`, deleted or not, with the same rule as [`load`]: for an
@@ -401,19 +454,21 @@ pub async fn load_by_id(
     conn: &mut PgConnection,
     id: &str,
     lock: bool,
-) -> Result<Option<Loaded>, sqlx::Error> {
-    let mut sql = RULE_SQL.replace(
-        "t.deleted_at is null and lower(trim(t.code)) = lower(trim($1))",
-        "t.id = $1",
-    );
-    if lock {
-        sql = sql.replace(" limit 1", " limit 1 for update of t");
-    }
-    let row: Option<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
-        .bind(id)
-        .fetch_optional(&mut *conn)
-        .await?;
-    Ok(row.as_ref().and_then(rule_of))
+) -> Result<Option<Loaded>, DbErr> {
+    let query = discounts::Entity::find().filter(discounts::Column::Id.eq(id));
+    load_rule(conn, query, lock).await
+}
+
+/// `lower(customer_email) = lower(email)`.
+fn same_email(email: &str) -> Expr {
+    // Scoped: `ExprTrait` is implemented for numbers too, and would make
+    // their `min` and `max` ambiguous elsewhere in this module.
+    use sea_orm::sea_query::ExprTrait;
+    Func::lower(Expr::col((
+        discount_redemptions::Entity,
+        discount_redemptions::Column::CustomerEmail,
+    )))
+    .eq(Func::lower(Expr::val(email)))
 }
 
 /// How often this buyer redeemed the discount: by person, or by e-mail
@@ -428,23 +483,30 @@ pub async fn customer_uses(
     person_id: Option<&str>,
     email: Option<&str>,
     except_order: Option<&str>,
-) -> Result<i64, sqlx::Error> {
+) -> Result<i64, DbErr> {
     if person_id.is_none() && email.is_none() {
         return Ok(0);
     }
-    sqlx::query_scalar(
-        "select count(*) from discount_redemptions r \
-         where r.discount_id = $1 \
-           and ($4::text is null or r.order_id <> $4) \
-           and ((r.person_id is not null and r.person_id = $2) \
-             or (r.customer_email is not null and lower(r.customer_email) = lower($3)))",
-    )
-    .bind(discount_id)
-    .bind(person_id)
-    .bind(email)
-    .bind(except_order)
-    .fetch_one(&mut *conn)
-    .await
+    // A missing person or e-mail matches nothing (`= null`).
+    let mut buyer = Condition::any();
+    if let Some(person) = person_id {
+        buyer = buyer.add(discount_redemptions::Column::PersonId.eq(person));
+    }
+    if let Some(email) = email {
+        buyer = buyer.add(
+            Condition::all()
+                .add(discount_redemptions::Column::CustomerEmail.is_not_null())
+                .add(same_email(email)),
+        );
+    }
+    let mut query = discount_redemptions::Entity::find()
+        .filter(discount_redemptions::Column::DiscountId.eq(discount_id))
+        .filter(buyer);
+    if let Some(order) = except_order {
+        query = query.filter(discount_redemptions::Column::OrderId.ne(order));
+    }
+    let uses = query.count(&db::on(conn)).await?;
+    Ok(i64::try_from(uses).unwrap_or(i64::MAX))
 }
 
 impl Loaded {

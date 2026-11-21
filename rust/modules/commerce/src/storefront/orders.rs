@@ -56,7 +56,7 @@ async fn visible(
     only: Option<&str>,
     after: Option<&(String, String)>,
     limit: i64,
-) -> Result<Vec<(Value, String)>, sqlx::Error> {
+) -> Result<Vec<(Value, String)>, weldsuite_commerce_domain::Error> {
     let company = loaded
         .active
         .as_ref()
@@ -170,8 +170,8 @@ pub(crate) async fn guest(
         .fetch_optional(&mut *conn)
         .await?;
         match matched {
-            Some(id) => checkout::order_view(&mut conn, &id).await.map(Some),
-            None => Ok(None),
+            Some(id) => Ok(Some(checkout::order_view(&mut conn, &id).await?)),
+            None => Ok::<_, weldsuite_commerce_domain::Error>(None),
         }
     }
     .await;
@@ -306,7 +306,7 @@ pub(crate) async fn reorder(
         .bind(&id)
         .fetch_all(&mut *conn)
         .await?;
-        Ok::<_, sqlx::Error>(Some(rows))
+        Ok::<_, weldsuite_commerce_domain::Error>(Some(rows))
     }
     .await;
     let rows = match lines {

@@ -127,9 +127,7 @@ fn says(error: &DbErr) -> String {
 /// A failed statement.
 pub async fn seller_entity(db: &PgPool) -> Result<Option<String>, DbErr> {
     let mut conn = db.acquire().await.map_err(db::from_sqlx)?;
-    crate::vat::seller_entity_id(&mut conn)
-        .await
-        .map_err(db::from_sqlx)
+    crate::vat::seller_entity_id(&mut conn).await
 }
 
 /// `commerce_settings.auto_invoice` (on when there is no row).

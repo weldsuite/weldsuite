@@ -9,9 +9,13 @@ pub mod lines;
 pub mod plan;
 pub mod write;
 
-use serde_json::Value;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
+use serde_json::{Map, Value};
 use sqlx::PgConnection;
+use weldsuite_books_domain::table::Table;
+use weldsuite_schema::tenant::{order_items, orders};
 
+use crate::db;
 use crate::status::{self, Facts};
 use crate::tables::{ORDER_ITEMS, ORDERS};
 
@@ -78,33 +82,38 @@ pub fn cancellable(order: &Value, items: &[Value]) -> bool {
     status::cancellable(facts(order, items))
 }
 
+/// A row as [`Table::js`] reads one: the entity's JSON (Drizzle's shape),
+/// cut to `table`'s properties in its order, so a column the entity has and
+/// the generated table does not (`orders.guest_access_token_hash`) stays out.
+fn drizzle(table: &Table, row: Result<Value, serde_json::Error>) -> Result<Value, DbErr> {
+    let Value::Object(mut row) = row.map_err(|error| DbErr::Json(error.to_string()))? else {
+        return Err(DbErr::Json(format!("{} row is not an object", table.name)));
+    };
+    let mut out = Map::with_capacity(table.columns.len());
+    for column in table.columns {
+        let value = row.remove(column.prop).unwrap_or(Value::Null);
+        out.insert(column.prop.to_owned(), value);
+    }
+    Ok(Value::Object(out))
+}
+
 /// The live order `id` with its items, in creation order; `lock` holds the
 /// order row until the transaction ends.
 ///
 /// # Errors
 /// A failed statement.
-pub async fn load(
-    conn: &mut PgConnection,
-    id: &str,
-    lock: bool,
-) -> Result<Option<Stored>, sqlx::Error> {
-    let sql = if lock {
-        ORDERS
-            .select_live
-            .replace(" limit 1", " limit 1 for update of t")
-    } else {
-        ORDERS.select_live.to_owned()
-    };
-    let row: Option<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
-        .bind(id)
-        .fetch_optional(&mut *conn)
-        .await?;
-    let Some(row) = row else {
+pub async fn load(conn: &mut PgConnection, id: &str, lock: bool) -> Result<Option<Stored>, DbErr> {
+    let mut query =
+        orders::Entity::find_by_id(id.to_owned()).filter(orders::Column::DeletedAt.is_null());
+    if lock {
+        query = query.lock_exclusive();
+    }
+    let Some(row) = query.one(&db::on(conn)).await? else {
         return Ok(None);
     };
     let items = items(conn, id).await?;
     Ok(Some(Stored {
-        order: ORDERS.js(row),
+        order: drizzle(&ORDERS, serde_json::to_value(&row))?,
         items,
     }))
 }
@@ -113,13 +122,14 @@ pub async fn load(
 ///
 /// # Errors
 /// A failed statement.
-pub async fn items(conn: &mut PgConnection, order_id: &str) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select {} from order_items t where t.order_id = $1 order by t.created_at asc, t.id asc",
-        ORDER_ITEMS.row
-    )))
-    .bind(order_id)
-    .fetch_all(&mut *conn)
-    .await?;
-    Ok(rows.into_iter().map(|row| ORDER_ITEMS.js(row)).collect())
+pub async fn items(conn: &mut PgConnection, order_id: &str) -> Result<Vec<Value>, DbErr> {
+    order_items::Entity::find()
+        .filter(order_items::Column::OrderId.eq(order_id))
+        .order_by_asc(order_items::Column::CreatedAt)
+        .order_by_asc(order_items::Column::Id)
+        .all(&db::on(conn))
+        .await?
+        .iter()
+        .map(|row| drizzle(&ORDER_ITEMS, serde_json::to_value(row)))
+        .collect()
 }
