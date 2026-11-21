@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, useMemo, type ReactNode } from 'react';
+import { Fragment, useState, useRef, useCallback, useEffect, useMemo, type ReactNode } from 'react';
 import { Plus, Smile, AtSign, X, CornerDownRight, MessageSquare, FileText, Baseline, Bold, Italic, Underline, Strikethrough, Code, List, ListOrdered, Mic, Square, Loader2, Pencil } from 'lucide-react';
 import {
   Popover,
@@ -1282,50 +1282,44 @@ export function MessageInput({
                 </div>
               )}
 
-              {/* Formatting toolbar */}
+              {/* Formatting toolbar: compact 28px buttons, icons lined up
+                  with the text below (4px row padding + 6px button inset). */}
               {showToolbar && (
-                <div className="flex items-center gap-0.5 px-[10px] -mt-[2px] pt-[2px] pb-2 mb-2 border-b border-gray-100 dark:border-border/50">
+                <div className="mb-1.5 flex items-center gap-0.5 border-b border-gray-100 px-1 pb-1.5 dark:border-border/50">
                   {[
-                    { icon: Bold, command: 'bold', title: st('sweep.weldchat.messageInput.bold') },
-                    { icon: Italic, command: 'italic', title: st('sweep.weldchat.messageInput.italic') },
-                    { icon: Underline, command: 'underline', title: st('sweep.weldchat.messageInput.underline') },
-                    { icon: Strikethrough, command: 'strikeThrough', title: st('sweep.weldchat.messageInput.strikethrough') },
-                    { icon: Code, command: 'code', title: st('sweep.weldchat.messageInput.code') },
-                  ].map(({ icon: Icon, command, title }) => (
-                    <Button
-                      key={command}
-                      variant="ghost"
-                      onMouseDown={(e) => { e.preventDefault(); applyFormat(command); }}
-                      className={cn(
-                        "p-1.5 rounded-md transition-colors",
-                        activeFormats.has(command)
-                          ? "bg-gray-200 dark:bg-accent text-gray-800 dark:text-foreground"
-                          : "text-gray-500 hover:text-gray-700 dark:text-muted-foreground dark:hover:text-foreground hover:bg-gray-100 dark:hover:bg-accent"
-                      )}
-                      title={title}
-                    >
-                      <Icon className="h-4 w-4" />
-                    </Button>
-                  ))}
-                  <div className="w-px h-4 bg-gray-200 dark:bg-border mx-1" />
-                  {[
-                    { icon: List, command: 'insertUnorderedList', title: st('sweep.weldchat.messageInput.bulletList') },
-                    { icon: ListOrdered, command: 'insertOrderedList', title: st('sweep.weldchat.messageInput.numberedList') },
-                  ].map(({ icon: Icon, command, title }) => (
-                    <Button
-                      key={command}
-                      variant="ghost"
-                      onMouseDown={(e) => { e.preventDefault(); applyFormat(command); }}
-                      className={cn(
-                        "p-1.5 rounded-md transition-colors",
-                        activeFormats.has(command)
-                          ? "bg-gray-200 dark:bg-accent text-gray-800 dark:text-foreground"
-                          : "text-gray-500 hover:text-gray-700 dark:text-muted-foreground dark:hover:text-foreground hover:bg-gray-100 dark:hover:bg-accent"
-                      )}
-                      title={title}
-                    >
-                      <Icon className="h-4 w-4" />
-                    </Button>
+                    [
+                      { icon: Bold, command: 'bold', title: st('sweep.weldchat.messageInput.bold') },
+                      { icon: Italic, command: 'italic', title: st('sweep.weldchat.messageInput.italic') },
+                      { icon: Underline, command: 'underline', title: st('sweep.weldchat.messageInput.underline') },
+                      { icon: Strikethrough, command: 'strikeThrough', title: st('sweep.weldchat.messageInput.strikethrough') },
+                      { icon: Code, command: 'code', title: st('sweep.weldchat.messageInput.code') },
+                    ],
+                    [
+                      { icon: List, command: 'insertUnorderedList', title: st('sweep.weldchat.messageInput.bulletList') },
+                      { icon: ListOrdered, command: 'insertOrderedList', title: st('sweep.weldchat.messageInput.numberedList') },
+                    ],
+                  ].map((group, index) => (
+                    <Fragment key={group[0].command}>
+                      {index > 0 && <div className="mx-1 h-4 w-px bg-gray-200 dark:bg-border" />}
+                      {group.map(({ icon: Icon, command, title }) => (
+                        <Button
+                          key={command}
+                          variant="ghost"
+                          size="icon"
+                          onMouseDown={(e) => { e.preventDefault(); applyFormat(command); }}
+                          aria-pressed={activeFormats.has(command)}
+                          className={cn(
+                            "size-7 rounded-md transition-colors",
+                            activeFormats.has(command)
+                              ? "bg-gray-200 text-gray-800 dark:bg-accent dark:text-foreground"
+                              : "text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-muted-foreground dark:hover:bg-accent dark:hover:text-foreground"
+                          )}
+                          title={title}
+                        >
+                          <Icon className="size-4" />
+                        </Button>
+                      ))}
+                    </Fragment>
                   ))}
                 </div>
               )}
