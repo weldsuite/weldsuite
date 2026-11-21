@@ -8,7 +8,6 @@
     clippy::disallowed_methods,
     reason = "test fixtures are written in SQL"
 )]
-
 // Each test is a scenario, read top to bottom.
 #![allow(clippy::too_many_lines)]
 
