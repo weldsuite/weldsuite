@@ -5,11 +5,13 @@
 
 use std::collections::HashMap;
 
-use serde_json::{Map, Value, json};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
+use serde_json::{Map, Value, json, to_value};
 use weldsuite_core_domain::custom_field_values as cfv;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::js_trim;
+use weldsuite_schema::tenant::{crm_activities, helpdesk_tickets, people};
 
 use crate::tables::{PARTIES, PEOPLE};
 use crate::validation::{
@@ -425,16 +427,17 @@ pub async fn export_people(
 // ── Reads ───────────────────────────────────────────────────────────────────
 
 /// The live person row, within the owner scope, as Drizzle reads it.
+///
+/// Spike S7 of the ORM plan (`rust/docs/spikes.md`): read through the
+/// `people` entity, which serializes to the Drizzle row itself.
 async fn raw_person(db: &PgPool, id: &str, scope: Option<&str>) -> DomainResult<Option<Value>> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from people t
-         where id = $1 and deleted_at is null and ($2::text is null or owner_id = $2) limit 1",
-    )
-    .bind(id)
-    .bind(scope)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(drizzle_row))
+    let mut query =
+        people::Entity::find_by_id(id.to_owned()).filter(people::Column::DeletedAt.is_null());
+    if let Some(owner) = scope {
+        query = query.filter(people::Column::OwnerId.eq(owner));
+    }
+    let row = query.one(&orm(db)).await?;
+    Ok(row.map(to_value).transpose()?)
 }
 
 /// `getPerson(db, id, ownerScope)`: the live row with its custom fields.
@@ -1193,22 +1196,22 @@ pub async fn get_person_detail(
     };
     let mut companies = list_person_companies(db, person_id, None).await?;
     companies.truncate(usize::try_from(limits.companies.min(50)).unwrap_or(0));
-    let activities: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from crm_activities t where person_id = $1 and deleted_at is null
-         order by created_at desc limit $2",
-    )
-    .bind(person_id)
-    .bind(limits.activities.min(50))
-    .fetch_all(db)
-    .await?;
-    let tickets: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from helpdesk_tickets t where person_id = $1 and deleted_at is null
-         order by created_at desc limit $2",
-    )
-    .bind(person_id)
-    .bind(limits.tickets.min(50))
-    .fetch_all(db)
-    .await?;
+    // Spike S7 of the ORM plan: the two lists through their entities.
+    let db_orm = orm(db);
+    let activities = crm_activities::Entity::find()
+        .filter(crm_activities::Column::PersonId.eq(person_id))
+        .filter(crm_activities::Column::DeletedAt.is_null())
+        .order_by_desc(crm_activities::Column::CreatedAt)
+        .limit(u64::try_from(limits.activities.min(50)).unwrap_or(0))
+        .all(&db_orm)
+        .await?;
+    let tickets = helpdesk_tickets::Entity::find()
+        .filter(helpdesk_tickets::Column::PersonId.eq(person_id))
+        .filter(helpdesk_tickets::Column::DeletedAt.is_null())
+        .order_by_desc(helpdesk_tickets::Column::CreatedAt)
+        .limit(u64::try_from(limits.tickets.min(50)).unwrap_or(0))
+        .all(&db_orm)
+        .await?;
     let counts: (i64, i64, i64, i64, i64) = sqlx::query_as(
         "select
            (select count(*) from person_companies where person_id = $1),
@@ -1220,7 +1223,14 @@ pub async fn get_person_detail(
     .bind(person_id)
     .fetch_one(db)
     .await?;
-    let activities: Vec<Value> = activities.into_iter().map(drizzle_row).collect();
+    let activities = activities
+        .into_iter()
+        .map(to_value)
+        .collect::<Result<Vec<_>, _>>()?;
+    let tickets = tickets
+        .into_iter()
+        .map(to_value)
+        .collect::<Result<Vec<_>, _>>()?;
     let last_activity = activities
         .first()
         .and_then(|row| row.get("createdAt"))
@@ -1230,7 +1240,7 @@ pub async fn get_person_detail(
         "person": person,
         "companies": companies,
         "activities": activities,
-        "tickets": tickets.into_iter().map(drizzle_row).collect::<Vec<_>>(),
+        "tickets": tickets,
         "counts": {
             "companies": counts.0,
             "activities": counts.1,

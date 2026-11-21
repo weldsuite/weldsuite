@@ -17,6 +17,7 @@ mod crypto;
 pub mod due_index;
 mod membership;
 mod middleware;
+mod orm;
 mod permissions;
 pub mod pg_errors;
 mod restrictions;
@@ -36,6 +37,7 @@ pub use membership::{
     WorkspaceSelector, workspace_from_header,
 };
 pub use middleware::workspace_db;
+pub use orm::{OrmConn, orm};
 pub use permissions::TenantPermissionQueries;
 pub use pg_errors::{
     MovedDatabaseFailure, classify_moved_database_error, database_error, has_pg_error_code,
