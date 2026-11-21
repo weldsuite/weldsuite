@@ -2951,7 +2951,7 @@ fn chat(router: Router<AppState>, state: &AppState) -> Router<AppState> {
                 realtime: state.infra.realtime.clone(),
                 notifier: weldsuite_notifications::Notifier {
                     realtime: state.infra.realtime.clone(),
-                    presence: None,
+                    presence: chat.presence.clone(),
                     mail: None,
                     http: chat.http.clone(),
                     apns: weldsuite_notifications::ApnsConfig::from_values(
@@ -2999,6 +2999,24 @@ fn chat(router: Router<AppState>, state: &AppState) -> Router<AppState> {
             weldsuite_chat::sections(chat.clone(), gate),
         )
         .nest("/chat-status", weldsuite_chat::status(chat, gate))
+}
+
+/// Live presence (`RealtimePublisher#getPresence`): the realtime gateway's
+/// state in Valkey, which every pod writes, so a socket on any pod counts;
+/// a workspace named by either id is read from its hub, as
+/// `/internal/presence` does. None without Valkey (no gateway, nobody is
+/// connected), and none in conformance builds: those read the test's
+/// `REALTIME` binding through the request, and a worker without the binding
+/// reads nobody.
+fn live_presence(state: &AppState) -> Option<weldsuite_ports::PresenceReader> {
+    if cfg!(feature = "conformance") {
+        return None;
+    }
+    let realtime = state.infra.realtime.clone()?;
+    let directory = Arc::new(weldsuite_realtime::DbDirectory::new(Arc::clone(
+        &state.workspaces,
+    )));
+    Some(weldsuite_realtime::GatewayPresence::new(realtime, directory).reader())
 }
 
 /// WeldChat's handle on the app: events, realtime, files, jobs, its env.
@@ -3052,7 +3070,7 @@ fn chat_state(state: &AppState) -> weldsuite_chat::ChatState {
             })
             .flatten()
             .map(|client| weldsuite_ports::OutboundHttp(Arc::new(client))),
-        presence: None,
+        presence: live_presence(state),
         env: Arc::clone(env),
         video: video_rooms(),
         leave_meetings: mounts("meet").then(|| meeting_sessions_leaver(state)),
