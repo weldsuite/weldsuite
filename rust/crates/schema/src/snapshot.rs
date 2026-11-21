@@ -1,18 +1,18 @@
 //! A database's schema as a drizzle-kit snapshot (version 7), built from the
-//! entities and their DDL (ADR DATA-019). The snapshot is the schema state a
-//! migration is diffed against: until the flip drizzle-kit writes it, and
-//! `tests/snapshot.rs` checks that the entities build exactly the newest one;
-//! after the flip this builds it.
+//! entities and their DDL (ADR DATA-019): what the generator diffs the newest
+//! journaled snapshot against, and writes as the new migration's snapshot.
+//! `tests/snapshot.rs` checks that the entities build exactly the newest one.
 //!
 //! Each column comes from its entity: the name, the SQL type (rendered from
 //! SeaORM's column type, as drizzle-kit spells it), nullability and the
 //! primary key. The rest comes from [`crate::ddl`].
 
+use indexmap::IndexMap;
 use sea_orm::sea_query::{ColumnType, StringLen};
 use sea_orm::{ActiveEnum, ColumnTrait, EntityTrait, IdenStatic, Iterable, PrimaryKeyToColumn};
-use serde_json::{Map, Number, Value, json};
+use serde_json::{Number, Value};
 
-use crate::ddl;
+use crate::{ddl, drizzle};
 
 /// One column as its entity defines it.
 #[derive(Debug, Clone)]
@@ -110,177 +110,184 @@ fn default_json(default: ddl::Default) -> Value {
     }
 }
 
-fn names(items: &[&str]) -> Value {
-    Value::Array(
-        items
+fn strings(items: &[&str]) -> Vec<String> {
+    items.iter().map(|item| (*item).to_owned()).collect()
+}
+
+fn column(
+    column: &EntityColumn,
+    extra: Option<&ddl::Column>,
+    composite_key: bool,
+) -> drizzle::Column {
+    drizzle::Column {
+        name: column.name.to_owned(),
+        sql_type: extra
+            .and_then(|extra| extra.sql_type)
+            .map_or_else(|| sql_type(&column.column_type), str::to_owned),
+        type_schema: matches!(column.column_type, ColumnType::Enum { .. })
+            .then(|| "public".to_owned()),
+        primary_key: column.primary_key && !composite_key,
+        not_null: !column.nullable,
+        default: extra.and_then(|extra| extra.default).map(default_json),
+        generated: extra
+            .and_then(|extra| extra.generated)
+            .map(|expression| drizzle::Generated {
+                expression: expression.to_owned(),
+                kind: "stored".to_owned(),
+            }),
+        identity: None,
+        is_unique: None,
+        unique_name: None,
+        nulls_not_distinct: None,
+    }
+}
+
+fn index(index: &ddl::Index) -> drizzle::Index {
+    drizzle::Index {
+        name: index.name.to_owned(),
+        columns: index
+            .columns
             .iter()
-            .map(|item| Value::String((*item).to_owned()))
-            .collect(),
-    )
-}
-
-/// `{ name: item }` for snapshot sections keyed by name.
-fn by_name<T>(items: &[T], name: impl Fn(&T) -> &str, json: impl Fn(&T) -> Value) -> Value {
-    Value::Object(
-        items
-            .iter()
-            .map(|item| (name(item).to_owned(), json(item)))
-            .collect(),
-    )
-}
-
-fn column_json(column: &EntityColumn, extra: Option<&ddl::Column>, composite_key: bool) -> Value {
-    let mut out = Map::new();
-    out.insert("name".into(), json!(column.name));
-    let sql = extra
-        .and_then(|extra| extra.sql_type)
-        .map_or_else(|| sql_type(&column.column_type), str::to_owned);
-    out.insert("type".into(), json!(sql));
-    if matches!(column.column_type, ColumnType::Enum { .. }) {
-        out.insert("typeSchema".into(), json!("public"));
-    }
-    out.insert(
-        "primaryKey".into(),
-        json!(column.primary_key && !composite_key),
-    );
-    out.insert("notNull".into(), json!(!column.nullable));
-    if let Some(default) = extra.and_then(|extra| extra.default) {
-        out.insert("default".into(), default_json(default));
-    }
-    if let Some(expression) = extra.and_then(|extra| extra.generated) {
-        out.insert(
-            "generated".into(),
-            json!({ "as": expression, "type": "stored" }),
-        );
-    }
-    Value::Object(out)
-}
-
-fn index_json(index: &ddl::Index) -> Value {
-    let columns: Vec<Value> = index
-        .columns
-        .iter()
-        .map(|column| {
-            json!({
-                "expression": column.expression,
-                "isExpression": column.is_expression,
-                "asc": column.asc,
-                "nulls": "last",
+            .map(|column| drizzle::IndexColumn {
+                expression: column.expression.to_owned(),
+                is_expression: column.is_expression,
+                asc: column.asc,
+                nulls: Some("last".to_owned()),
+                opclass: None,
             })
-        })
-        .collect();
-    let mut out = json!({
-        "name": index.name,
-        "columns": columns,
-        "isUnique": index.unique,
-        "concurrently": false,
-        "method": index.method,
-        "with": {},
-    });
-    if let (Some(filter), Value::Object(map)) = (index.filter, &mut out) {
-        map.insert("where".into(), json!(filter));
+            .collect(),
+        is_unique: index.unique,
+        filter: index.filter.map(str::to_owned),
+        concurrently: false,
+        method: index.method.to_owned(),
+        with: IndexMap::new(),
     }
-    out
 }
 
-fn table_json(table: &TableSchema) -> Value {
+fn table_snapshot(table: &TableSchema) -> drizzle::Table {
     let ddl = table.ddl;
     let composite_key = ddl.primary_key.is_some();
-    let columns: Map<String, Value> = table
-        .columns
-        .iter()
-        .map(|column| {
-            let extra = ddl.columns.iter().find(|extra| extra.name == column.name);
-            (
-                column.name.to_owned(),
-                column_json(column, extra, composite_key),
-            )
-        })
-        .collect();
-    let foreign_keys = by_name(
-        ddl.foreign_keys,
-        |key| key.name,
-        |key| {
-            json!({
-                "name": key.name,
-                "tableFrom": ddl.name,
-                "tableTo": key.references,
-                "columnsFrom": names(key.columns),
-                "columnsTo": names(key.referenced_columns),
-                "onDelete": key.on_delete,
-                "onUpdate": key.on_update,
+    let named = |name: &str| name.to_owned();
+    drizzle::Table {
+        name: ddl.name.to_owned(),
+        schema: String::new(),
+        columns: table
+            .columns
+            .iter()
+            .map(|entity| {
+                let extra = ddl.columns.iter().find(|extra| extra.name == entity.name);
+                (named(entity.name), column(entity, extra, composite_key))
             })
-        },
-    );
-    let primary_keys: Vec<ddl::PrimaryKey> = ddl.primary_key.into_iter().collect();
-    json!({
-        "name": ddl.name,
-        "schema": "",
-        "columns": columns,
-        "indexes": by_name(ddl.indexes, |index| index.name, index_json),
-        "foreignKeys": foreign_keys,
-        "compositePrimaryKeys": by_name(&primary_keys, |key| key.name, |key| {
-            json!({ "name": key.name, "columns": names(key.columns) })
-        }),
-        "uniqueConstraints": by_name(ddl.uniques, |unique| unique.name, |unique| {
-            json!({
-                "name": unique.name,
-                "nullsNotDistinct": unique.nulls_not_distinct,
-                "columns": names(unique.columns),
+            .collect(),
+        indexes: ddl
+            .indexes
+            .iter()
+            .map(|item| (named(item.name), index(item)))
+            .collect(),
+        foreign_keys: ddl
+            .foreign_keys
+            .iter()
+            .map(|key| {
+                let fk = drizzle::ForeignKey {
+                    name: key.name.to_owned(),
+                    table_from: ddl.name.to_owned(),
+                    table_to: key.references.to_owned(),
+                    columns_from: strings(key.columns),
+                    columns_to: strings(key.referenced_columns),
+                    on_delete: Some(key.on_delete.to_owned()),
+                    on_update: Some(key.on_update.to_owned()),
+                    schema_to: None,
+                };
+                (named(key.name), fk)
             })
-        }),
-        "policies": {},
-        "checkConstraints": by_name(ddl.checks, |check| check.name, |check| {
-            json!({ "name": check.name, "value": check.expression })
-        }),
-        "isRLSEnabled": false,
-    })
+            .collect(),
+        composite_primary_keys: ddl
+            .primary_key
+            .iter()
+            .map(|key| {
+                let pk = drizzle::CompositePrimaryKey {
+                    name: key.name.to_owned(),
+                    columns: strings(key.columns),
+                };
+                (named(key.name), pk)
+            })
+            .collect(),
+        unique_constraints: ddl
+            .uniques
+            .iter()
+            .map(|unique| {
+                let constraint = drizzle::Unique {
+                    name: unique.name.to_owned(),
+                    nulls_not_distinct: unique.nulls_not_distinct,
+                    columns: strings(unique.columns),
+                };
+                (named(unique.name), constraint)
+            })
+            .collect(),
+        policies: IndexMap::new(),
+        check_constraints: ddl
+            .checks
+            .iter()
+            .map(|check| {
+                let constraint = drizzle::Check {
+                    name: check.name.to_owned(),
+                    value: check.expression.to_owned(),
+                };
+                (named(check.name), constraint)
+            })
+            .collect(),
+        is_rls_enabled: false,
+    }
 }
 
-fn view_json(view: &ddl::View) -> Value {
-    let columns: Value = serde_json::from_str(view.columns_json).unwrap_or_else(|_| json!({}));
-    json!({
-        "columns": columns,
-        "definition": view.definition,
-        "name": view.name,
-        "schema": "public",
-        "isExisting": false,
-        "withNoData": view.with_no_data,
-        "materialized": view.materialized,
-    })
+fn view_snapshot(view: &ddl::View) -> drizzle::View {
+    drizzle::View {
+        columns: serde_json::from_str(view.columns_json).unwrap_or_default(),
+        definition: Some(view.definition.to_owned()),
+        name: view.name.to_owned(),
+        schema: "public".to_owned(),
+        is_existing: false,
+        with_no_data: Some(view.with_no_data),
+        materialized: view.materialized,
+        with: None,
+        using: None,
+        tablespace: None,
+    }
 }
 
-/// The snapshot of a database with these tables, enums and views, without
-/// drizzle-kit's `id` and `prevId` (a migration's place in the journal, not
-/// part of the schema).
-pub fn snapshot(tables: &[TableSchema], enums: &[EnumSchema], views: &[ddl::View]) -> Value {
-    let tables: Map<String, Value> = tables
+/// The snapshot of a database with these tables, enums and views, in their
+/// order and without an `id` or `prevId`: what a migration generated from the
+/// entities leaves the database as.
+pub fn build(
+    tables: &[TableSchema],
+    enums: &[EnumSchema],
+    views: &[ddl::View],
+) -> drizzle::Snapshot {
+    let mut snapshot = drizzle::Snapshot::empty();
+    snapshot.tables = tables
         .iter()
-        .map(|table| (format!("public.{}", table.ddl.name), table_json(table)))
+        .map(|table| (format!("public.{}", table.ddl.name), table_snapshot(table)))
         .collect();
-    let enums: Map<String, Value> = enums
+    snapshot.enums = enums
         .iter()
         .map(|e| {
-            (
-                format!("public.{}", e.name),
-                json!({ "name": e.name, "schema": "public", "values": e.values }),
-            )
+            let schema = drizzle::Enum {
+                name: e.name.clone(),
+                schema: "public".to_owned(),
+                values: e.values.clone(),
+            };
+            (format!("public.{}", e.name), schema)
         })
         .collect();
-    let views: Map<String, Value> = views
+    snapshot.views = views
         .iter()
-        .map(|view| (format!("public.{}", view.name), view_json(view)))
+        .map(|view| (format!("public.{}", view.name), view_snapshot(view)))
         .collect();
-    json!({
-        "version": "7",
-        "dialect": "postgresql",
-        "tables": tables,
-        "enums": enums,
-        "schemas": {},
-        "sequences": {},
-        "roles": {},
-        "policies": {},
-        "views": views,
-        "_meta": { "columns": {}, "schemas": {}, "tables": {} },
-    })
+    snapshot
+}
+
+/// [`build`] as JSON, without drizzle-kit's `id` and `prevId` (a migration's
+/// place in the journal, not part of the schema).
+pub fn snapshot(tables: &[TableSchema], enums: &[EnumSchema], views: &[ddl::View]) -> Value {
+    serde_json::to_value(build(tables, enums, views)).unwrap_or(Value::Null)
 }

@@ -115,6 +115,7 @@ const REVIEWED = [
       'scripts/lint-sonar-new.mjs',
       'scripts/sonar-changed.mjs',
       'scripts/rust-conformance.ts',
+      'scripts/rust-differ-fixtures.ts',
       'packages/sdk/cli/src/commands/dev.ts',
     ],
   },
