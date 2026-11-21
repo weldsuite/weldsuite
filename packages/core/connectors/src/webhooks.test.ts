@@ -3,6 +3,7 @@ import {
   connectorWebhookDeliveryUrl,
   hmacSha256Base64,
   hmacSha256Hex,
+  isRoutedMoneybirdTopic,
   matchWebhookTopic,
   timingSafeEqual,
   unwrapWebhookPayload,
@@ -21,9 +22,25 @@ describe('connector webhooks', () => {
     expect(matchWebhookTopic('moneybird', 'sales_invoice_state_changed_to_paid')?.syncName).toBe(
       'moneybird-sales-invoices',
     );
-    expect(matchWebhookTopic('moneybird', 'receipt_destroyed')?.kind).toBe('delete');
+    expect(matchWebhookTopic('moneybird', 'document_destroyed')?.kind).toBe('delete');
     expect(matchWebhookTopic('moneybird', 'financial_account_renamed')?.settingKey).toBe('bankAccounts');
     expect(matchWebhookTopic('moneybird', 'financial_account_destroyed')?.kind).toBe('delete');
+  });
+
+  it('subscribes Moneybird to its own event names', () => {
+    const names = new Set(webhookTopicsFor('moneybird').map((t) => t.topic));
+    expect(names.size).toBe(51);
+    for (const madeUp of ['contact_updated', 'purchase_invoice_created', 'receipt_updated']) {
+      expect(names.has(madeUp)).toBe(false);
+    }
+    expect(matchWebhookTopic('moneybird', 'contact_changed')?.syncName).toBe('moneybird-contacts');
+    expect(matchWebhookTopic('moneybird', 'sales_invoice_state_changed_to_reminded')?.settingKey).toBe('invoices');
+    // A payment is registered for whichever of invoices, bills and bank lines is imported.
+    expect(
+      webhookTopicsFor('moneybird').filter((t) => t.topic === 'payment_registered').map((t) => t.settingKey),
+    ).toEqual(['invoices', 'bills', 'bankTransactions']);
+    expect(['document_saved', 'payment_registered', 'financial_statement_created'].every(isRoutedMoneybirdTopic)).toBe(true);
+    expect(isRoutedMoneybirdTopic('sales_invoice_updated')).toBe(false);
   });
 
   it('maps Picqer topics onto WMS setting keys', () => {
@@ -72,14 +89,14 @@ describe('connector webhooks', () => {
   });
 
   it('verifies a Moneybird t=,v1= HMAC hex signature and rejects stale timestamps', async () => {
-    const body = '{"action":"contact_updated","entity":{"id":"1"}}';
+    const body = '{"action":"contact_changed","entity":{"id":"1"}}';
     const secret = 'mb_webhook_secret';
     const timestamp = '1700000000';
     const digest = await hmacSha256Hex(secret, `${timestamp}.${body}`);
     const signature = `t=${timestamp},v1=${digest}`;
     expect(await verifyMoneybirdWebhook({ secret, body, signature, nowSeconds: 1700000100 })).toBe(true);
     expect(await verifyMoneybirdWebhook({ secret, body, signature, nowSeconds: 1700000401 })).toBe(false);
-    expect(unwrapWebhookPayload('moneybird', { action: 'contact_updated', entity: { id: '1', email: 'a@b.c' } })).toEqual({
+    expect(unwrapWebhookPayload('moneybird', { action: 'contact_changed', entity: { id: '1', email: 'a@b.c' } })).toEqual({
       id: '1',
       email: 'a@b.c',
     });

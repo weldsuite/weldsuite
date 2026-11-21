@@ -850,6 +850,72 @@ impl Moneybird {
             .collect())
     }
 
+    /// `getRecord(path)`: one record, `None` when Moneybird has no such
+    /// record (404).
+    async fn get_record(
+        &self,
+        http: Option<&OutboundHttp>,
+        path: &str,
+    ) -> Result<Option<Value>, ConnectorError> {
+        match self.get(http, path, &[]).await {
+            Ok(value) => Ok(value.is_object().then_some(value)),
+            Err(error) if error.status == 404 => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// `client.getSalesInvoice(id)`.
+    pub async fn get_sales_invoice(
+        &self,
+        http: Option<&OutboundHttp>,
+        id: &str,
+    ) -> Result<Option<Value>, ConnectorError> {
+        self.get_record(http, &format!("sales_invoices/{id}")).await
+    }
+
+    /// `client.getPurchaseInvoice(id)`.
+    pub async fn get_purchase_invoice(
+        &self,
+        http: Option<&OutboundHttp>,
+        id: &str,
+    ) -> Result<Option<Value>, ConnectorError> {
+        self.get_record(http, &format!("documents/purchase_invoices/{id}"))
+            .await
+    }
+
+    /// `client.getReceipt(id)`.
+    pub async fn get_receipt(
+        &self,
+        http: Option<&OutboundHttp>,
+        id: &str,
+    ) -> Result<Option<Value>, ConnectorError> {
+        self.get_record(http, &format!("documents/receipts/{id}"))
+            .await
+    }
+
+    /// `client.getFinancialMutations(ids)`: through the synchronisation API
+    /// (the plain list can't read one).
+    pub async fn get_financial_mutations(
+        &self,
+        http: Option<&OutboundHttp>,
+        ids: &[String],
+    ) -> Result<Vec<Value>, ConnectorError> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let (data, _) = self
+            .request(
+                http,
+                "POST",
+                "financial_mutations/synchronization",
+                &[],
+                Some(&json!({ "ids": ids })),
+                false,
+            )
+            .await?;
+        Ok(array(&data))
+    }
+
     /// Contacts matching a free-text query.
     pub async fn search_contacts(
         &self,

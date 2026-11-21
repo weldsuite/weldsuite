@@ -21,6 +21,7 @@ use crate::connections::{
     update_connection_settings,
 };
 use crate::ingest::{IngestArgs, MoneybirdFiles, StripeFiles, ingest_records};
+use crate::moneybird_webhooks::delivery_targets;
 use crate::provider::ProviderClient;
 use crate::sync::{
     RunEnd, SyncEnv, finish_sync_run, mark_connection_error, skipped_financial_account_ids,
@@ -90,18 +91,106 @@ const MB_C: Option<&str> = Some("moneybird-contacts");
 const MB_SI: Option<&str> = Some("moneybird-sales-invoices");
 const MB_P: Option<&str> = Some("moneybird-products");
 const MB_PI: Option<&str> = Some("moneybird-purchase-invoices");
-const MB_R: Option<&str> = Some("moneybird-receipts");
 const MB_FA: Option<&str> = Some("moneybird-financial-accounts");
+const MB_FM: Option<&str> = Some("moneybird-financial-mutations");
 
-const MONEYBIRD: [Row; 24] = [
+/// `MONEYBIRD_WEBHOOK_TOPICS`: Moneybird's own event names
+/// (developer.moneybird.com/webhooks/events). Purchase invoices and receipts
+/// are `document_*` events, a bank line only comes with its
+/// `financial_statement_*`, and payments are `payment_*` for any kind of
+/// invoice: those three are routed by [`crate::moneybird_webhooks`]; the
+/// sync here only places them for registering.
+const MONEYBIRD: [Row; 57] = [
     t("contact_created", "contacts", "create", MB_C),
-    t("contact_updated", "contacts", "update", MB_C),
+    t(
+        "contact_created_from_checkout_order",
+        "contacts",
+        "create",
+        MB_C,
+    ),
+    t("contact_changed", "contacts", "update", MB_C),
+    t("contact_activated", "contacts", "update", MB_C),
+    t("contact_archived", "contacts", "update", MB_C),
+    t("contact_merged", "contacts", "update", MB_C),
+    t("contact_tax_number_validated", "contacts", "update", MB_C),
     t("contact_destroyed", "contacts", "delete", MB_C),
     t("sales_invoice_created", "invoices", "create", MB_SI),
+    t(
+        "sales_invoice_created_based_on_estimate",
+        "invoices",
+        "create",
+        MB_SI,
+    ),
+    t(
+        "sales_invoice_created_based_on_recurring",
+        "invoices",
+        "create",
+        MB_SI,
+    ),
+    t(
+        "sales_invoice_created_based_on_subscription",
+        "invoices",
+        "create",
+        MB_SI,
+    ),
+    t(
+        "sales_invoice_created_from_checkout_order",
+        "invoices",
+        "create",
+        MB_SI,
+    ),
+    t(
+        "sales_invoice_created_from_payment_request",
+        "invoices",
+        "create",
+        MB_SI,
+    ),
+    t(
+        "sales_invoice_created_from_original",
+        "invoices",
+        "create",
+        MB_SI,
+    ),
     t("sales_invoice_updated", "invoices", "update", MB_SI),
-    t("sales_invoice_destroyed", "invoices", "delete", MB_SI),
+    t("sales_invoice_merged", "invoices", "update", MB_SI),
+    t(
+        "sales_invoice_marked_as_uncollectible",
+        "invoices",
+        "update",
+        MB_SI,
+    ),
+    t(
+        "sales_invoice_revert_uncollectible",
+        "invoices",
+        "update",
+        MB_SI,
+    ),
+    t(
+        "sales_invoice_state_changed_to_draft",
+        "invoices",
+        "update",
+        MB_SI,
+    ),
+    t(
+        "sales_invoice_state_changed_to_scheduled",
+        "invoices",
+        "update",
+        MB_SI,
+    ),
     t(
         "sales_invoice_state_changed_to_open",
+        "invoices",
+        "update",
+        MB_SI,
+    ),
+    t(
+        "sales_invoice_state_changed_to_pending_payment",
+        "invoices",
+        "update",
+        MB_SI,
+    ),
+    t(
+        "sales_invoice_state_changed_to_reminded",
         "invoices",
         "update",
         MB_SI,
@@ -124,15 +213,19 @@ const MONEYBIRD: [Row; 24] = [
         "update",
         MB_SI,
     ),
+    t("sales_invoice_destroyed", "invoices", "delete", MB_SI),
     t("product_created", "products", "create", MB_P),
     t("product_updated", "products", "update", MB_P),
+    t("product_activated", "products", "update", MB_P),
+    t("product_deactivated", "products", "update", MB_P),
     t("product_destroyed", "products", "delete", MB_P),
-    t("purchase_invoice_created", "bills", "create", MB_PI),
-    t("purchase_invoice_updated", "bills", "update", MB_PI),
-    t("purchase_invoice_destroyed", "bills", "delete", MB_PI),
-    t("receipt_created", "bills", "create", MB_R),
-    t("receipt_updated", "bills", "update", MB_R),
-    t("receipt_destroyed", "bills", "delete", MB_R),
+    t("document_saved", "bills", "create", MB_PI),
+    t("document_saved_from_email", "bills", "create", MB_PI),
+    t("document_saved_from_si", "bills", "create", MB_PI),
+    t("document_created_from_original", "bills", "create", MB_PI),
+    t("document_recurred", "bills", "create", MB_PI),
+    t("document_updated", "bills", "update", MB_PI),
+    t("document_destroyed", "bills", "delete", MB_PI),
     t("financial_account_created", "bankAccounts", "create", MB_FA),
     t("financial_account_renamed", "bankAccounts", "update", MB_FA),
     t(
@@ -153,7 +246,58 @@ const MONEYBIRD: [Row; 24] = [
         "delete",
         MB_FA,
     ),
+    t(
+        "financial_statement_created",
+        "bankTransactions",
+        "create",
+        MB_FM,
+    ),
+    t(
+        "financial_statement_updated",
+        "bankTransactions",
+        "update",
+        MB_FM,
+    ),
+    t(
+        "financial_statement_destroyed",
+        "bankTransactions",
+        "delete",
+        MB_FM,
+    ),
+    // A payment changes what is paid on a sales invoice or a document, and links a bank line.
+    t("payment_registered", "invoices", "update", MB_SI),
+    t("payment_destroyed", "invoices", "update", MB_SI),
+    t(
+        "payment_linked_to_financial_mutation",
+        "invoices",
+        "update",
+        MB_SI,
+    ),
+    t("payment_registered", "bills", "update", MB_PI),
+    t("payment_destroyed", "bills", "update", MB_PI),
+    t(
+        "payment_linked_to_financial_mutation",
+        "bills",
+        "update",
+        MB_PI,
+    ),
+    t("payment_registered", "bankTransactions", "update", MB_FM),
+    t("payment_destroyed", "bankTransactions", "update", MB_FM),
+    t(
+        "payment_linked_to_financial_mutation",
+        "bankTransactions",
+        "update",
+        MB_FM,
+    ),
 ];
+
+/// `isRoutedMoneybirdTopic(topic)`: Moneybird events whose entity is not the
+/// record to import (see [`MONEYBIRD`]).
+pub fn is_routed_moneybird_topic(topic: &str) -> bool {
+    topic.starts_with("document_")
+        || topic.starts_with("payment_")
+        || topic.starts_with("financial_statement_")
+}
 
 const PQ_P: Option<&str> = Some("picqer-products");
 const PQ_I: Option<&str> = Some("picqer-inventory");
@@ -258,17 +402,22 @@ pub fn topics_for(provider: &str) -> Vec<Topic> {
     rows(provider).iter().map(topic_of).collect()
 }
 
-const MONEYBIRD_PREFIXES: [(&str, &str, &str); 6] = [
+const MONEYBIRD_PREFIXES: [(&str, &str, &str); 7] = [
     ("contact_", "contacts", "moneybird-contacts"),
     ("sales_invoice_", "invoices", "moneybird-sales-invoices"),
     ("product_", "products", "moneybird-products"),
-    ("purchase_invoice_", "bills", "moneybird-purchase-invoices"),
-    ("receipt_", "bills", "moneybird-receipts"),
+    ("document_", "bills", "moneybird-purchase-invoices"),
     (
         "financial_account_",
         "bankAccounts",
         "moneybird-financial-accounts",
     ),
+    (
+        "financial_statement_",
+        "bankTransactions",
+        "moneybird-financial-mutations",
+    ),
+    ("payment_", "invoices", "moneybird-sales-invoices"),
 ];
 
 /// `matchWebhookTopic(provider, topic)`.
@@ -846,24 +995,87 @@ pub async fn process_connector_webhook(
     let Some(topic) = match_topic(provider, &topic_name) else {
         return Ok(result(true, 200, format!("ignored topic {topic_name}")));
     };
+    let delivery = Delivery {
+        db,
+        env,
+        connection,
+        owner_id,
+        workspace_id,
+        provider,
+        id,
+        credentials: &credentials,
+    };
+    if provider == "moneybird" && is_routed_moneybird_topic(&topic.topic) {
+        return process_routed_moneybird(&delivery, &topic, &payload).await;
+    }
+    let sync = match inbound_sync(connection, provider, topic.sync_name, topic.setting_key) {
+        Ok(sync) => sync,
+        Err(answer) => return Ok(answer),
+    };
+    let client = ProviderClient::new(
+        provider,
+        &credentials,
+        text(connection, "external_account_id"),
+    )
+    .map_err(|error| error.message);
+    let record = unwrap_payload(provider, &payload);
+    ingest_delivery(
+        &delivery,
+        &client,
+        &sync,
+        Records::Hydrate(record),
+        topic.kind == "delete",
+    )
+    .await
+}
+
+/// One delivery being processed: what each of its sync runs needs.
+#[derive(Clone, Copy)]
+struct Delivery<'a> {
+    db: &'a PgPool,
+    env: &'a SyncEnv,
+    connection: &'a Value,
+    owner_id: &'a str,
+    workspace_id: &'a str,
+    provider: &'a str,
+    id: &'a str,
+    credentials: &'a Map<String, Value>,
+}
+
+/// The records a sync run imports: read already, or the delivered record
+/// for the client to hydrate (`client.hydrateWebhookRecords`).
+enum Records {
+    Ready(Vec<Value>),
+    Hydrate(Value),
+}
+
+/// `inboundSync(connection, pick)`: the sync a delivery feeds (by name, else
+/// by setting key) when the connection imports it, or the answer that says
+/// why not.
+fn inbound_sync(
+    connection: &Value,
+    provider: &str,
+    sync_name: Option<&str>,
+    setting_key: &str,
+) -> Result<Value, WebhookResult> {
     let connector = get_connector(provider);
     let sync = connector.and_then(|c| {
         syncs(c)
             .iter()
-            .find(|s| match topic.sync_name {
+            .find(|s| match sync_name {
                 Some(name) => s["syncName"].as_str() == Some(name),
-                None => s["settingKey"].as_str() == Some(topic.setting_key),
+                None => s["settingKey"].as_str() == Some(setting_key),
             })
             .cloned()
     });
     let (Some(connector), Some(sync)) = (connector, sync) else {
-        return Ok(result(true, 200, "topic not enabled"));
+        return Err(result(true, 200, "topic not enabled"));
     };
     if !enabled_syncs(connector, connection.get("enabled_syncs"))
         .iter()
         .any(|s| s["syncName"] == sync["syncName"])
     {
-        return Ok(result(true, 200, "sync disabled"));
+        return Err(result(true, 200, "sync disabled"));
     }
     let key = sync["settingKey"].as_str().unwrap_or_default();
     let direction = connection
@@ -874,8 +1086,92 @@ pub async fn process_connector_webhook(
         .or_else(|| text(connection, "direction"))
         .unwrap_or("inbound");
     if direction != "inbound" && direction != "bidirectional" {
-        return Ok(result(true, 200, "inbound sync disabled for object"));
+        return Err(result(true, 200, "inbound sync disabled for object"));
     }
+    Ok(sync)
+}
+
+/// `processRoutedMoneybirdDelivery(...)`: a Moneybird document, payment or
+/// statement event ([`crate::moneybird_webhooks`]), one sync run per sync it
+/// feeds, reading back only what the connection imports.
+async fn process_routed_moneybird(
+    d: &Delivery<'_>,
+    topic: &Topic,
+    payload: &Value,
+) -> Result<WebhookResult, sqlx::Error> {
+    let client = ProviderClient::new(
+        d.provider,
+        d.credentials,
+        text(d.connection, "external_account_id"),
+    )
+    .map_err(|error| error.message);
+    let mb = match &client {
+        Ok(ProviderClient::Moneybird(mb)) => mb,
+        Ok(_) => return Ok(result(true, 200, "topic not enabled")),
+        Err(message) => return Ok(result(false, 500, message.clone())),
+    };
+    let entity = unwrap_payload(d.provider, payload);
+    let wants =
+        |sync_name: &str| inbound_sync(d.connection, d.provider, Some(sync_name), "").is_ok();
+    let targets = match delivery_targets(
+        mb,
+        d.env.http.as_ref(),
+        &topic.topic,
+        topic.kind,
+        payload,
+        &entity,
+        &wants,
+    )
+    .await
+    {
+        Ok(targets) => targets,
+        Err(error) => return Ok(result(false, 500, error.message)),
+    };
+    if targets.is_empty() {
+        return Ok(result(
+            true,
+            200,
+            format!("nothing to import for {}", topic.topic),
+        ));
+    }
+    for target in targets {
+        let Ok(sync) = inbound_sync(d.connection, d.provider, Some(target.sync_name), "") else {
+            continue;
+        };
+        let answer = ingest_delivery(
+            d,
+            &client,
+            &sync,
+            Records::Ready(target.records),
+            target.force_deleted,
+        )
+        .await?;
+        if !answer.ok {
+            return Ok(answer);
+        }
+    }
+    Ok(result(true, 200, "ingested"))
+}
+
+/// `ingestDelivery(...)`: one sync run, the delivery's records imported into
+/// `sync`.
+async fn ingest_delivery(
+    d: &Delivery<'_>,
+    client: &Result<ProviderClient, String>,
+    sync: &Value,
+    records: Records,
+    force_deleted: bool,
+) -> Result<WebhookResult, sqlx::Error> {
+    let Delivery {
+        db,
+        env,
+        connection,
+        owner_id,
+        workspace_id,
+        provider,
+        id,
+        credentials,
+    } = *d;
     let model = sync["model"].as_str().unwrap_or_default().to_owned();
     let run_id = start_sync_run(
         db,
@@ -887,22 +1183,19 @@ pub async fn process_connector_webhook(
     )
     .await?;
     let outcome: Result<crate::ingest::IngestResult, String> = async {
-        let client = ProviderClient::new(
-            provider,
-            &credentials,
-            text(connection, "external_account_id"),
-        )
-        .map_err(|error| error.message)?;
-        let record = unwrap_payload(provider, &payload);
-        let records = match client
-            .hydrate_webhook_records(env.http.as_ref(), &sync, &record)
-            .await
-        {
-            Some(Ok(records)) => records,
-            Some(Err(error)) => return Err(error.message),
-            None => vec![record.clone()],
+        let client = client.as_ref().map_err(Clone::clone)?;
+        let records = match records {
+            Records::Ready(records) => records,
+            Records::Hydrate(record) => match client
+                .hydrate_webhook_records(env.http.as_ref(), sync, &record)
+                .await
+            {
+                Some(Ok(records)) => records,
+                Some(Err(error)) => return Err(error.message),
+                None => vec![record],
+            },
         };
-        let moneybird_files = match (&client, &env.storage) {
+        let moneybird_files = match (client, &env.storage) {
             (ProviderClient::Moneybird(mb), Some(storage)) => Some(MoneybirdFiles {
                 client: mb.clone(),
                 storage: Arc::clone(storage),
@@ -913,7 +1206,7 @@ pub async fn process_connector_webhook(
             }),
             _ => None,
         };
-        let stripe_files = match (&client, &env.storage) {
+        let stripe_files = match (client, &env.storage) {
             (ProviderClient::Stripe(stripe), Some(storage)) => Some(StripeFiles {
                 client: stripe.clone(),
                 storage: Arc::clone(storage),
@@ -939,12 +1232,12 @@ pub async fn process_connector_webhook(
             provider,
             display_name: text(connection, "display_name"),
             store_url: Some(&store_url),
-            sync: &sync,
+            sync,
             records,
             owner_id,
             workspace_id,
             entity_id: entity_id.as_deref(),
-            force_deleted: topic.kind == "delete",
+            force_deleted,
             moneybird_files: moneybird_files.as_ref(),
             stripe_files: stripe_files.as_ref(),
             skip_financial_account_ids: &skip,

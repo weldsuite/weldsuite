@@ -60,6 +60,7 @@ pub mod lists;
 pub mod mappers;
 pub mod moneybird;
 pub mod moneybird_push;
+pub mod moneybird_webhooks;
 pub mod odoo;
 pub mod provider;
 pub mod stripe;

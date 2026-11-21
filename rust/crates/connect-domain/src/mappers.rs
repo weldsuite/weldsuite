@@ -993,14 +993,44 @@ pub fn modified_at_of(record: &Value) -> Option<String> {
     )
 }
 
-const INVOICE_STATUS: [(&str, &str); 5] = [
+/// Moneybird sales invoice `state` → WeldBooks invoice status.
+const INVOICE_STATUS: [(&str, &str); 8] = [
     ("draft", "draft"),
+    // Sends itself on a later date: not sent yet.
+    ("scheduled", "draft"),
     ("open", "sent"),
+    // Sent, waiting for the direct debit to be collected.
+    ("pending_payment", "sent"),
+    // Moneybird sends reminders once an invoice is past due.
+    ("reminded", "overdue"),
     ("late", "overdue"),
     ("paid", "paid"),
     ("uncollectible", "uncollectible"),
 ];
 
+/// Invoice statuses WeldBooks knows (books-api `invoiceStatusSchema`).
+const KNOWN_INVOICE_STATUSES: [&str; 8] = [
+    "draft",
+    "sent",
+    "paid",
+    "overdue",
+    "partial",
+    "cancelled",
+    "uncollectible",
+    "finalized",
+];
+
+/// Bill statuses WeldBooks knows.
+const KNOWN_BILL_STATUSES: [&str; 6] = [
+    "draft",
+    "approved",
+    "partial",
+    "overdue",
+    "paid",
+    "cancelled",
+];
+
+/// Moneybird purchase invoice / receipt `state` → WeldBooks bill status.
 const BILL_STATUS: [(&str, &str); 6] = [
     ("new", "draft"),
     ("saved", "draft"),
@@ -1077,13 +1107,76 @@ fn quantity_string(value: Option<&str>) -> String {
     }
 }
 
+/// `decimalNumber(source, paths)`: `decimalString`'s parsing as a number.
+fn decimal_number(source: &Value, paths: &[&str]) -> Option<f64> {
+    let raw = ps(source, paths)?;
+    let cleaned: String = first_comma_to_dot(&raw)
+        .chars()
+        .filter(|c| c.is_ascii_digit() || *c == '.' || *c == '-')
+        .collect();
+    let parsed = weldsuite_kit::validation::js_number(&cleaned);
+    parsed.is_finite().then_some(parsed)
+}
+
+/// `taxRatesFromTotals(record)`: the VAT percentage per Moneybird tax rate
+/// id. Lines name their rate by `tax_rate_id` only; the invoice's
+/// `tax_totals` give the tax and the taxable amount per rate.
+fn tax_rates_from_totals(record: &Value) -> Vec<(String, f64)> {
+    let mut rates: Vec<(String, f64)> = Vec::new();
+    for row in records(record.get("tax_totals")) {
+        let Some(id) = ps(&row, &["tax_rate_id"]) else {
+            continue;
+        };
+        let (Some(taxable), Some(tax)) = (
+            decimal_number(&row, &["taxable_amount"]),
+            decimal_number(&row, &["tax_amount"]),
+        ) else {
+            continue;
+        };
+        if taxable == 0.0 {
+            continue;
+        }
+        let rate = weldsuite_kit::validation::js_number(&to_fixed(tax / taxable * 100.0, 2));
+        match rates.iter_mut().find(|(known, _)| *known == id) {
+            Some(entry) => entry.1 = rate,
+            None => rates.push((id, rate)),
+        }
+    }
+    rates
+}
+
+/// `pricesIncludeTax(record)`: Moneybird's `prices_are_incl_tax`.
+fn prices_include_tax(record: &Value) -> bool {
+    match record.get("prices_are_incl_tax") {
+        Some(Value::Bool(flag)) => *flag,
+        Some(Value::String(text)) => text == "true",
+        _ => false,
+    }
+}
+
 fn map_document_lines(record: &Value) -> Vec<DocumentLine> {
+    let rates = tax_rates_from_totals(record);
+    let inclusive = prices_include_tax(record);
     first_array(&[record.get("details"), record.get("line_items")])
         .iter()
         .enumerate()
         .map(|(index, item)| {
             let quantity = quantity_string(ps(item, &["amount", "quantity"]).as_deref());
-            let unit_price = decimal_string(ps(item, &["price", "unit_price"]).as_deref(), "0");
+            let derived_rate = ps(item, &["tax_rate_id"]).and_then(|id| {
+                rates
+                    .iter()
+                    .find(|(known, _)| *known == id)
+                    .map(|(_, rate)| *rate)
+            });
+            let price = decimal_string(ps(item, &["price", "unit_price"]).as_deref(), "0");
+            // WeldBooks unit prices exclude VAT; back it out of an incl-VAT price.
+            let unit_price = match derived_rate {
+                Some(rate) if inclusive => to_fixed(
+                    weldsuite_kit::validation::js_number(&price) / (1.0 + rate / 100.0),
+                    4,
+                ),
+                _ => price,
+            };
             let n = |t: &str| {
                 let v = weldsuite_kit::validation::js_number(t);
                 if v.is_nan() || v == 0.0 {
@@ -1105,13 +1198,27 @@ fn map_document_lines(record: &Value) -> Vec<DocumentLine> {
                 .as_deref(),
                 &fallback,
             );
+            let derived_tax = derived_rate.map(|rate| {
+                to_fixed(
+                    weldsuite_kit::validation::js_number(&line_excl) * rate / 100.0,
+                    2,
+                )
+            });
+            let incl_fallback = match &derived_tax {
+                Some(tax) => to_fixed(
+                    weldsuite_kit::validation::js_number(&line_excl)
+                        + weldsuite_kit::validation::js_number(tax),
+                    2,
+                ),
+                None => line_excl.clone(),
+            };
             let line_incl = decimal_string(
                 ps(
                     item,
                     &["total_price_incl_tax_with_discount", "total_price_incl_tax"],
                 )
                 .as_deref(),
-                &line_excl,
+                &incl_fallback,
             );
             DocumentLine {
                 external_product_id: nonzero(ps(item, &["product_id"])),
@@ -1119,8 +1226,9 @@ fn map_document_lines(record: &Value) -> Vec<DocumentLine> {
                     .unwrap_or_else(|| "Item".to_owned()),
                 quantity,
                 unit_price,
-                tax_rate: ps(item, &["tax_rate", "tax"]),
-                tax_amount: ps(item, &["tax_amount", "tax"]),
+                tax_rate: ps(item, &["tax_rate", "tax"])
+                    .or_else(|| derived_rate.map(|rate| to_fixed(rate, 2))),
+                tax_amount: ps(item, &["tax_amount", "tax"]).or(derived_tax),
                 line_total: Some(line_excl),
                 line_total_with_tax: Some(line_incl),
                 sort_order: index,
@@ -1128,6 +1236,72 @@ fn map_document_lines(record: &Value) -> Vec<DocumentLine> {
             }
         })
         .collect()
+}
+
+/// `documentTaxTotal(record, subtotal, total)`: the sum of Moneybird's
+/// `tax_totals`, else a total the record carries itself, else the difference
+/// between the totals incl. and excl. VAT.
+fn document_tax_total(record: &Value, subtotal: &str, total: &str) -> String {
+    let totals = records(record.get("tax_totals"));
+    if !totals.is_empty() {
+        let sum = totals.iter().fold(0.0, |sum, row| {
+            sum + decimal_number(row, &["tax_amount"]).unwrap_or(0.0)
+        });
+        return to_fixed(sum, 2);
+    }
+    if let Some(explicit) = ps(record, &["total_tax", "tax_total"]) {
+        return decimal_string(Some(&explicit), "0");
+    }
+    let has_both = ps(record, &["total_price_incl_tax", "total"]).is_some()
+        && ps(record, &["total_price_excl_tax", "subtotal"]).is_some();
+    if has_both {
+        to_fixed(
+            weldsuite_kit::validation::js_number(total)
+                - weldsuite_kit::validation::js_number(subtotal),
+            2,
+        )
+    } else {
+        "0".to_owned()
+    }
+}
+
+/// `paidAmounts(record, total, paid)`: (paid so far, still due). Sales
+/// invoices carry `total_paid` / `total_unpaid`; purchase invoices and
+/// receipts only their `payments`. A paid document is paid in full.
+fn paid_amounts(record: &Value, total: &str, paid: bool) -> (String, String) {
+    if paid {
+        return (total.to_owned(), "0".to_owned());
+    }
+    if let Some(total_paid) = decimal_number(record, &["total_paid"]) {
+        let due = decimal_number(record, &["total_unpaid"])
+            .unwrap_or_else(|| weldsuite_kit::validation::js_number(total) - total_paid);
+        return (to_fixed(total_paid, 2), to_fixed(due, 2));
+    }
+    let payments = records(record.get("payments"));
+    if !payments.is_empty() {
+        let sum = payments.iter().fold(0.0, |sum, payment| {
+            sum + decimal_number(payment, &["price"]).unwrap_or(0.0)
+        });
+        return (
+            to_fixed(sum, 2),
+            to_fixed(weldsuite_kit::validation::js_number(total) - sum, 2),
+        );
+    }
+    ("0".to_owned(), total.to_owned())
+}
+
+/// `withPartialPayment(status, amounts)`: an open document with part of it
+/// paid is `partial`.
+fn with_partial_payment(status: &'static str, paid: &str, due: &str) -> &'static str {
+    if !matches!(status, "sent" | "overdue" | "approved") {
+        return status;
+    }
+    let part = |text: &str| weldsuite_kit::validation::js_number(text) != 0.0;
+    if part(paid) && part(due) {
+        "partial"
+    } else {
+        status
+    }
 }
 
 fn nested_contact(record: &Value) -> Option<Value> {
@@ -1248,12 +1422,18 @@ fn map_document(record: &Value, external_id: &str, entity: &'static str) -> Opti
         ps(record, &["total_price_incl_tax", "total"]).as_deref(),
         "0",
     );
-    let tax_total = decimal_string(ps(record, &["total_tax", "tax_total"]).as_deref(), "0");
-    let status = if invoice {
-        lookup(&INVOICE_STATUS, &state).unwrap_or("draft")
-    } else {
-        lookup(&BILL_STATUS, &state).unwrap_or("draft")
-    };
+    let tax_total = document_tax_total(record, &subtotal, &total);
+    let (amount_paid, balance_due) =
+        paid_amounts(record, &total, paid_at.is_some() || state == "paid");
+    let status = with_partial_payment(
+        if invoice {
+            lookup(&INVOICE_STATUS, &state).unwrap_or("draft")
+        } else {
+            lookup(&BILL_STATUS, &state).unwrap_or("draft")
+        },
+        &amount_paid,
+        &balance_due,
+    );
     let mut pairs = vec![
         (
             if invoice {
@@ -1283,7 +1463,7 @@ fn map_document(record: &Value, external_id: &str, entity: &'static str) -> Opti
     if invoice {
         pairs.push((
             "sentAt",
-            if state == "draft" {
+            if status == "draft" {
                 Value::Null
             } else {
                 json!(issue)
@@ -1298,22 +1478,8 @@ fn map_document(record: &Value, external_id: &str, entity: &'static str) -> Opti
         ("subtotal", json!(subtotal)),
         ("taxTotal", json!(tax_total)),
         ("total", json!(total)),
-        (
-            "amountPaid",
-            json!(if paid_at.is_some() {
-                total.clone()
-            } else {
-                "0".to_owned()
-            }),
-        ),
-        (
-            "balanceDue",
-            json!(if paid_at.is_some() {
-                "0".to_owned()
-            } else {
-                total.clone()
-            }),
-        ),
+        ("amountPaid", json!(amount_paid)),
+        ("balanceDue", json!(balance_due)),
         ("reference", opt(psm(record, &["reference"], 255))),
         ("notes", opt(ps(record, &["notes"]))),
         ("journalEntryId", Value::Null),
@@ -2020,9 +2186,32 @@ pub fn map_with_field_mappings(
 ) -> Option<Mapped> {
     let mut mapped = map_connector_record(entity, record, provider)?;
     if !mappings.is_empty() {
+        let mapper_status = mapped.values_mut().get("status").cloned();
         apply_inbound_field_mappings(record, mapped.values_mut(), mappings);
+        keep_known_document_status(&mut mapped, mapper_status);
     }
     Some(mapped)
+}
+
+/// `keepKnownDocumentStatus(mapped, values)`: field mappings may not give an
+/// invoice or bill a status WeldBooks doesn't know. Moneybird connections are
+/// seeded with `state → status` as-is, which would write Moneybird's own
+/// states (`open`, `late`, `reminded`, …); the mapper's status stands then.
+fn keep_known_document_status(mapped: &mut Mapped, mapper_status: Option<Value>) {
+    let known: &[&str] = match mapped.entity() {
+        "invoice" => &KNOWN_INVOICE_STATUSES,
+        "bill" => &KNOWN_BILL_STATUSES,
+        _ => return,
+    };
+    let values = mapped.values_mut();
+    let status = values.get("status").and_then(Value::as_str);
+    if status.is_some_and(|status| known.contains(&status)) {
+        return;
+    }
+    match mapper_status {
+        Some(status) => values.insert("status".to_owned(), status),
+        None => values.remove("status"),
+    };
 }
 
 #[cfg(test)]
@@ -2063,6 +2252,170 @@ mod tests {
             Some(1_767_348_000_000)
         );
         assert!(js_date_loose("garbage").is_none());
+    }
+
+    /// A Moneybird sales invoice as the API sends it, with `overrides` on top.
+    fn moneybird_invoice(overrides: &Value) -> Mapped {
+        let mut record = json!({
+            "id": "inv2",
+            "invoice_id": "2024-0002",
+            "contact_id": "c1",
+            "invoice_date": "2024-03-01",
+            "due_date": "2024-03-15",
+            "currency": "EUR",
+            "prices_are_incl_tax": false,
+            "total_price_excl_tax": "150.0",
+            "total_price_incl_tax": "172.0",
+            "total_paid": "0.0",
+            "total_unpaid": "172.0",
+            "details": [
+                { "description": "Hours", "amount": "1", "price": "100.0", "tax_rate_id": "tr_21", "total_price_excl_tax_with_discount": "100.0" },
+                { "description": "Book", "amount": "1", "price": "50.0", "tax_rate_id": "tr_9", "total_price_excl_tax_with_discount": "50.0" },
+            ],
+            "tax_totals": [
+                { "tax_rate_id": "tr_21", "taxable_amount": "100.0", "tax_amount": "21.0" },
+                { "tax_rate_id": "tr_9", "taxable_amount": "50.0", "tax_amount": "4.5" },
+            ],
+        });
+        for (key, value) in overrides.as_object().expect("overrides object") {
+            record[key] = value.clone();
+        }
+        map_connector_record("invoice", &record, "moneybird").expect("an invoice")
+    }
+
+    fn document(mapped: &Mapped) -> (&Map<String, Value>, &Vec<DocumentLine>) {
+        match mapped {
+            Mapped::Document {
+                values, line_items, ..
+            } => (values, line_items),
+            _ => panic!("not a document"),
+        }
+    }
+
+    #[test]
+    fn moneybird_invoice_vat_comes_from_tax_totals() {
+        let mapped = moneybird_invoice(&json!({ "state": "open" }));
+        let (values, lines) = document(&mapped);
+        assert_eq!(values["subtotal"], json!("150.00"));
+        assert_eq!(values["taxTotal"], json!("25.50"));
+        let read: Vec<_> = lines
+            .iter()
+            .map(|l| {
+                (
+                    l.tax_rate.clone(),
+                    l.tax_amount.clone(),
+                    l.line_total.clone(),
+                    l.line_total_with_tax.clone(),
+                )
+            })
+            .collect();
+        let some = |text: &str| Some(text.to_owned());
+        assert_eq!(
+            read,
+            vec![
+                (some("21.00"), some("21.00"), some("100.00"), some("121.00")),
+                (some("9.00"), some("4.50"), some("50.00"), some("54.50")),
+            ]
+        );
+
+        let without = moneybird_invoice(&json!({ "state": "open", "tax_totals": null }));
+        assert_eq!(document(&without).0["taxTotal"], json!("22.00"));
+    }
+
+    #[test]
+    fn moneybird_incl_vat_prices_come_in_without_the_vat() {
+        let mapped = moneybird_invoice(&json!({
+            "state": "open",
+            "prices_are_incl_tax": true,
+            "details": [{ "description": "Hours", "amount": "2", "price": "121.0", "tax_rate_id": "tr_21", "total_price_excl_tax_with_discount": "200.0" }],
+            "tax_totals": [{ "tax_rate_id": "tr_21", "taxable_amount": "200.0", "tax_amount": "42.0" }],
+        }));
+        let line = &document(&mapped).1[0];
+        assert_eq!(line.unit_price, "100.0000");
+        assert_eq!(line.tax_amount.as_deref(), Some("42.00"));
+        assert_eq!(line.line_total_with_tax.as_deref(), Some("242.00"));
+    }
+
+    #[test]
+    fn moneybird_invoice_states_and_part_payments() {
+        for (state, status) in [
+            ("draft", "draft"),
+            ("scheduled", "draft"),
+            ("open", "sent"),
+            ("pending_payment", "sent"),
+            ("reminded", "overdue"),
+            ("late", "overdue"),
+            ("uncollectible", "uncollectible"),
+        ] {
+            let mapped = moneybird_invoice(&json!({ "state": state }));
+            assert_eq!(document(&mapped).0["status"], json!(status), "{state}");
+        }
+        let scheduled = moneybird_invoice(&json!({ "state": "scheduled" }));
+        assert!(!document(&scheduled).0.contains_key("sentAt"));
+
+        let part = moneybird_invoice(
+            &json!({ "state": "late", "total_paid": "72.0", "total_unpaid": "100.0" }),
+        );
+        let (values, _) = document(&part);
+        assert_eq!(values["status"], json!("partial"));
+        assert_eq!(values["amountPaid"], json!("72.00"));
+        assert_eq!(values["balanceDue"], json!("100.00"));
+
+        let paid = moneybird_invoice(&json!({ "state": "paid", "paid_at": "2024-03-10" }));
+        let (values, _) = document(&paid);
+        assert_eq!(values["status"], json!("paid"));
+        assert_eq!(values["amountPaid"], json!("172.00"));
+        assert_eq!(values["balanceDue"], json!("0"));
+    }
+
+    #[test]
+    fn moneybird_purchase_invoice_payments_make_a_partial_bill() {
+        let record = json!({
+            "id": "bil2",
+            "reference": "PIN-10",
+            "state": "open",
+            "contact_id": "c2",
+            "date": "2024-02-01",
+            "due_date": "2024-02-15",
+            "total_price_excl_tax": "100.0",
+            "total_price_incl_tax": "121.0",
+            "payments": [{ "id": "pay1", "price": "50.0", "payment_date": "2024-02-03" }],
+        });
+        let mapped = map_connector_record("bill", &record, "moneybird").expect("a bill");
+        let (values, _) = document(&mapped);
+        assert_eq!(values["status"], json!("partial"));
+        assert_eq!(values["taxTotal"], json!("21.00"));
+        assert_eq!(values["amountPaid"], json!("50.00"));
+        assert_eq!(values["balanceDue"], json!("71.00"));
+    }
+
+    #[test]
+    fn field_mappings_cannot_write_an_unknown_document_status() {
+        let record = json!({ "id": "inv3", "invoice_id": "2024-0003", "state": "reminded", "contact_id": "c1" });
+        let raw_state = FieldMapping {
+            external_field_path: "state".to_owned(),
+            internal_field_path: "status".to_owned(),
+            direction: "inbound".to_owned(),
+            transform_type: "direct".to_owned(),
+            transform_config: None,
+        };
+        let mapped = map_with_field_mappings(
+            "invoice",
+            &record,
+            "moneybird",
+            std::slice::from_ref(&raw_state),
+        )
+        .expect("an invoice");
+        assert_eq!(document(&mapped).0["status"], json!("overdue"));
+
+        let cancelled = json!({ "id": "inv4", "invoice_id": "2024-0004", "state": "open", "contact_id": "c1", "custom": "cancelled" });
+        let custom = FieldMapping {
+            external_field_path: "custom".to_owned(),
+            ..raw_state
+        };
+        let mapped = map_with_field_mappings("invoice", &cancelled, "moneybird", &[custom])
+            .expect("an invoice");
+        assert_eq!(document(&mapped).0["status"], json!("cancelled"));
     }
 
     #[test]
