@@ -21,6 +21,7 @@ import {
 import type { Database } from '@weldsuite/worker-kit/db';
 import { schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { loadAccountPicture } from '@weldsuite/worker-kit/account-pictures';
 import type { Env } from '../../types';
 import { enqueueWeldAgentJob } from '@weldsuite/agent-domain/jobs';
 import { parseAgentRoomPolicy } from '@weldsuite/chat-domain/agent-room-policy';
@@ -61,7 +62,6 @@ const SEARCH_ENTITY_TYPES_SET: ReadonlySet<string> = new Set<string>([
   'ticket',
   'article',
   'product',
-  'order',
   'invoice',
   'bill',
   'project',
@@ -542,11 +542,15 @@ export async function postChatMessage(
 
   await assertChannelAllowsSend(db, channelId, authorUserId, input);
 
-  const [author] = await db
-    .select({ name: workspaceMembers.name, picture: workspaceMembers.picture })
-    .from(workspaceMembers)
-    .where(eq(workspaceMembers.userId, authorUserId))
-    .limit(1);
+  // Name from the workspace, avatar from the author's account.
+  const [[author], authorPicture] = await Promise.all([
+    db
+      .select({ name: workspaceMembers.name })
+      .from(workspaceMembers)
+      .where(eq(workspaceMembers.userId, authorUserId))
+      .limit(1),
+    loadAccountPicture(env, authorUserId),
+  ]);
   const authorName = author?.name ?? 'Unknown';
 
   const { metadata, replyMentions } = await resolveInlineReply(db, channelId, authorUserId, input);
@@ -566,7 +570,7 @@ export async function postChatMessage(
     channelId,
     authorId: authorUserId,
     authorName,
-    authorAvatar: author?.picture ?? null,
+    authorAvatar: authorPicture,
     content: input.content,
     htmlContent: input.htmlContent,
     parentId: input.parentId,
@@ -652,7 +656,7 @@ export async function postChatMessage(
         htmlContent: input.htmlContent,
         senderId: authorUserId,
         senderName: authorName,
-        senderAvatar: author?.picture ?? undefined,
+        senderAvatar: authorPicture ?? undefined,
         authorType: 'user',
         threadId: input.parentId ?? undefined,
         attachments: toRealtimeAttachments(input.attachments),

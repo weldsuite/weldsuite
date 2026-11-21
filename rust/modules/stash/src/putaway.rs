@@ -423,6 +423,13 @@ async fn complete_task(
             "Putaway task has no destination warehouse",
         ));
     };
+    // A warehouse another system owns takes no stock from here (ADR STASH-010).
+    if crate::ledger::warehouse_is_managed(db, &warehouse).await? {
+        return Err(Refusal::Response(Box::new(crate::inventory::ledger_error(
+            crate::ledger::managed_warehouse(),
+            "Failed to complete putaway task",
+        ))));
+    }
     let now = now();
     let quantity = quantity.unwrap_or_else(|| i64::from(task_quantity));
     let existing: Option<(String, Option<i32>, Option<i32>)> = sqlx::query_as(

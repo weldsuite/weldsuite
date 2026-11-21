@@ -1,0 +1,41 @@
+# The offsite copy of the object storage (../offsite-copy, opt-in): when its
+# CronJob last succeeded, from kube-state-metrics. A run succeeds only when
+# every bucket was copied. Nothing matches on a cluster without the layer.
+# The source still holds everything, so this waits for the morning
+# (warning). What to do: ALERTS.md.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: weldsuite-offsite-copy
+  namespace: monitoring
+spec:
+  groups:
+    - name: weldsuite-offsite-copy
+      rules:
+        # A CronJob that has never succeeded has no last successful time:
+        # then its age counts.
+        - alert: OffsiteCopyStale
+          expr: |
+            (
+              time() - max by (namespace, cronjob) (kube_cronjob_status_last_successful_time{namespace="offsite-copy"})
+              > 26 * 3600
+            )
+            or
+            (
+              (
+                time() - max by (namespace, cronjob) (kube_cronjob_created{namespace="offsite-copy"})
+                > 26 * 3600
+              )
+              unless on (namespace, cronjob) kube_cronjob_status_last_successful_time{namespace="offsite-copy"}
+            )
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Offsite copy: no run has finished for {{ $value | humanizeDuration }}"
+            description: >-
+              The CronJob {{ $labels.namespace }}/{{ $labels.cronjob }} hasn't
+              copied every bucket in OFFSITE_SOURCE_BUCKETS to the second
+              provider for more than 26 hours, so the copy lags the cluster's
+              own object storage.
+            runbook_url: https://github.com/weldsuite/weldsuite/blob/main/rust/deploy/flux/infrastructure/monitoring-config/ALERTS.md#offsitecopystale

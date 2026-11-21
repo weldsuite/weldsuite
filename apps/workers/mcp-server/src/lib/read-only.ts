@@ -4,7 +4,7 @@
  * `workspaceReadOnlyBody` (`packages/core/worker-kit/src/read-only.ts`): this
  * worker does not depend on worker-kit. Keep them in step; both have tests.
  *
- * A partner-managed workspace (docs/plans/reseller-licensing.md) may use the
+ * A partner-managed workspace (weldsuite-documentation/plans/reseller-licensing.md) may use the
  * apps in its licence and is read-only while its partner is suspended or its
  * licence is not active: tool calls that write are refused with
  * 403 WORKSPACE_READ_ONLY.

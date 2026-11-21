@@ -41,7 +41,7 @@ export interface WorkerEmailEnv {
   /**
    * Account and queue id for Email Sending events (bounces, complaints): when
    * both are set, provisioning a domain also subscribes it to that queue
-   * (docs/plans/weldmail-outbound-abuse.md). The API token then needs
+   * (weldsuite-documentation/plans/weldmail-outbound-abuse.md). The API token then needs
    * Queues Edit too.
    */
   CF_ACCOUNT_ID?: string;

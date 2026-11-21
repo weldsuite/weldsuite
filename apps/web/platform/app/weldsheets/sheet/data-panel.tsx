@@ -6,17 +6,20 @@ import { usePermissions } from '@weldsuite/permissions/react';
 import { SHEET_DATA_OBJECT_KEYS, SHEET_DATA_OBJECTS, type SheetDataObjectKey } from '@weldsuite/app-api-client/schemas/sheet-data';
 import type { SheetDataRefreshResult, SheetDataSource } from '@weldsuite/app-api-client/schemas/sheets';
 import { findDataTable, formatA1 } from '@weldsuite/sheets-engine';
-import { Button } from '@weldsuite/ui/components/button';
+import { EmptyText } from '@weldsuite/ui/components/empty-state';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@weldsuite/ui/components/dropdown-menu';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useAppApi } from '@/lib/api/use-app-api';
+import { useIsAppInstalled } from '@/hooks/use-is-app-installed';
+import { weldformsKeys } from '@/hooks/queries/use-weldforms-queries';
+import { defaultFormResponseColumns, sheetFormColumns, type SheetFormColumn } from '@/app/weldforms/lib/sheet-columns';
 import { useI18n } from '@/lib/i18n/provider';
 import type { Person } from '../editor/comments/comments-panel';
 import type { SheetController } from '../editor/model/sheet-controller';
-import { RulePanel } from '../editor/rules/panel';
+import { PanelAction, PanelIntro, RulePanel } from '../editor/rules/panel';
 import { sheetsQueryKey } from '../store/use-sheet-store';
 import { definitionOf, draftOf, newDraft, type SourceDraft } from './data-source-draft';
-import { DataSourceForm, useFieldLabel } from './data-source-form';
+import { DataSourceForm, useFieldLabel, type FormPicker } from './data-source-form';
 
 export const dataSourcesQueryKey = (sheetId: string) => [...sheetsQueryKey, 'data-sources', sheetId] as const;
 
@@ -24,6 +27,11 @@ export const dataSourcesQueryKey = (sheetId: string) => [...sheetsQueryKey, 'dat
 export function useDataSources(sheetId: string) {
   const sheets = useAppApi().sheets;
   return useQuery({ queryKey: dataSourcesQueryKey(sheetId), queryFn: async () => (await sheets.dataSources(sheetId)).data });
+}
+
+/** The published forms, plus the table's own form when it is no longer published. */
+function withCurrent(forms: { id: string; title: string }[], current: { id: string; title: string } | undefined) {
+  return current && !forms.some((f) => f.id === current.id) ? [...forms, { id: current.id, title: current.title }] : forms;
 }
 
 /** The table being connected (source null) or changed. */
@@ -80,12 +88,47 @@ export function DataPanel({
   const label = useFieldLabel();
   const key = dataSourcesQueryKey(sheetId);
   const list = useDataSources(sheetId);
-  const readable = SHEET_DATA_OBJECT_KEYS.filter((k) => can(SHEET_DATA_OBJECTS[k].permission));
+  // `form_responses` is a form's responses (definition.formId), offered once WeldForms is installed.
+  const formsInstalled = useIsAppInstalled('weldforms');
+  const readable = SHEET_DATA_OBJECT_KEYS.filter((k) => (k !== 'form_responses' || formsInstalled) && can(SHEET_DATA_OBJECTS[k].permission));
+  const weldforms = useAppApi().weldforms;
   const [editing, setEditing] = useState<Editing | null>(null);
   const [removing, setRemoving] = useState<SheetDataSource | null>(null);
   /** A table just connected: shown (its new tab opened) once its first refresh reaches the workbook. */
   const [arriving, setArriving] = useState<string | null>(null);
   const refetch = () => queryClient.invalidateQueries({ queryKey: key });
+
+  // Forms to pick from (published ones) and the picked form's columns.
+  const formResponses = editing?.draft.objectType === 'form_responses';
+  const formId = editing?.draft.formId ?? '';
+  const forms = useQuery({
+    queryKey: [...weldformsKeys.lists(), 'sheet-picker'],
+    queryFn: async () => (await weldforms.list({ status: 'published', sort: 'title', limit: 100 })).data,
+    enabled: formResponses,
+  });
+  const formDetail = useQuery({
+    queryKey: weldformsKeys.form(formId),
+    queryFn: () => weldforms.get(formId),
+    select: (res) => res.data,
+    enabled: formResponses && formId !== '',
+  });
+  const formColumns: SheetFormColumn[] = formDetail.data ? sheetFormColumns(formDetail.data.definition) : [];
+  const metaLabel = (field: string) => label('form_responses', field);
+  const pickForm = async (id: string) => {
+    if (!editing) return;
+    const { data: detail } = await queryClient.fetchQuery({ queryKey: weldformsKeys.form(id), queryFn: () => weldforms.get(id) });
+    const { columns, headers } = defaultFormResponseColumns(detail.definition, metaLabel);
+    setEditing((current) => (current ? { ...current, draft: { ...current.draft, formId: id, columns: columns.map((field, i) => ({ field, header: headers[i]! })) } } : current));
+  };
+  const formPicker: FormPicker | undefined = formResponses
+    ? {
+        forms: withCurrent(forms.data ?? [], formDetail.data),
+        loading: forms.isLoading,
+        locked: !!editing?.source,
+        onPick: (id) => void pickForm(id).catch(() => toast.error(td.failed)),
+        columns: formColumns,
+      }
+    : undefined;
 
   const report = (result: SheetDataRefreshResult) => {
     if (result.refreshed) toast.success(td.refreshed.replace('{count}', String(result.source.rowCount)));
@@ -151,13 +194,9 @@ export function DataPanel({
 
   return (
     <RulePanel title={td.title} closeLabel={td.close} onClose={onClose}>
-      <p className="text-xs text-muted-foreground">{td.intro}</p>
-      {canEdit && !editing && readable.length > 0 && (
-        <Button size="sm" variant="outline" onClick={connect}>
-          {td.connect}
-        </Button>
-      )}
-      {canEdit && !editing && readable.length === 0 && <p className="text-xs text-muted-foreground">{td.noObjects}</p>}
+      <PanelIntro>{td.intro}</PanelIntro>
+      {canEdit && !editing && readable.length > 0 && <PanelAction onClick={connect}>{td.connect}</PanelAction>}
+      {canEdit && !editing && readable.length === 0 && <PanelIntro>{td.noObjects}</PanelIntro>}
       {editing && (
         <DataSourceForm
           draft={editing.draft}
@@ -166,16 +205,18 @@ export function DataPanel({
           onObjectChange={(objectType: SheetDataObjectKey) => setEditing({ ...editing, draft: newDraft(objectType, label) })}
           at={editing.source ? undefined : t.sheetData.objects[editing.draft.objectType]}
           saving={save.isPending}
+          formPicker={formPicker}
           onSave={() => save.mutate(editing)}
           onCancel={() => setEditing(null)}
         />
       )}
-      {sources?.length === 0 && !editing && <p className="px-1 py-6 text-center text-sm text-muted-foreground">{td.empty}</p>}
+      {sources?.length === 0 && !editing && <EmptyText>{td.empty}</EmptyText>}
       {sources?.map((source) => (
         <SourceCard
           key={source.id}
           source={source}
           place={placeOf(controller, source.id)}
+          placing={arriving === source.id}
           by={people.find((p) => p.id === source.createdById)?.name}
           canEdit={canEdit}
           busy={refresh.isPending && refresh.variables?.id === source.id}
@@ -204,6 +245,7 @@ export function DataPanel({
 function SourceCard({
   source,
   place,
+  placing,
   by,
   canEdit,
   busy,
@@ -214,6 +256,8 @@ function SourceCard({
 }: {
   source: SheetDataSource;
   place: string | null;
+  /** Just connected: its tab is on its way over the room. */
+  placing: boolean;
   by: string | undefined;
   canEdit: boolean;
   busy: boolean;
@@ -231,14 +275,12 @@ function SourceCard({
     <div className="flex items-start gap-2 rounded-lg border bg-card p-3 text-sm">
       <div className="min-w-0 flex-1">
         <div className="truncate font-medium">{t.sheetData.objects[source.objectType]}</div>
-        <div className="truncate text-xs text-muted-foreground">{place ?? td.notPlaced}</div>
+        <div className="truncate text-xs text-muted-foreground">{place ?? (placing ? td.placing : td.notPlaced)}</div>
         <div className="text-xs text-muted-foreground">
           {td.rows.replace('{count}', String(source.rowCount))} · {td.refreshModes[source.refresh]}
         </div>
-        <div className="text-xs text-muted-foreground">
-          {busy ? td.refreshing : when}
-          {by ? ` · ${td.by.replace('{name}', by)}` : ''}
-        </div>
+        <div className="text-xs text-muted-foreground">{busy ? td.refreshing : when}</div>
+        {by && <div className="truncate text-xs text-muted-foreground">{td.by.replace('{name}', by)}</div>}
         {source.lastError && (
           <div className="mt-1 flex items-start gap-1 text-xs text-destructive">
             <AlertCircle className="mt-0.5 size-3 shrink-0" />

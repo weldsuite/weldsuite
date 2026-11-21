@@ -173,6 +173,47 @@ struct TenantPool {
     last_used: Instant,
 }
 
+/// A pool's connections, or several pools' summed (saturating).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PoolUsage {
+    /// Open and waiting to be acquired.
+    pub idle: u32,
+    /// Open and acquired.
+    pub in_use: u32,
+    /// The most the pool opens.
+    pub max: u32,
+}
+
+impl PoolUsage {
+    /// A snapshot of `pool`: its counts move while it is taken, so `in_use`
+    /// is the open connections less the idle ones, never below zero.
+    pub fn of(pool: &PgPool) -> Self {
+        let open = pool.size();
+        let idle = u32::try_from(pool.num_idle()).unwrap_or(u32::MAX).min(open);
+        Self {
+            idle,
+            in_use: open - idle,
+            max: pool.options().get_max_connections(),
+        }
+    }
+
+    #[must_use]
+    pub fn plus(self, other: Self) -> Self {
+        Self {
+            idle: self.idle.saturating_add(other.idle),
+            in_use: self.in_use.saturating_add(other.in_use),
+            max: self.max.saturating_add(other.max),
+        }
+    }
+}
+
+/// [`Workspaces::pool_usage`]: the master pool, and the tenant pools summed.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct WorkspacePools {
+    pub master: PoolUsage,
+    pub tenants: PoolUsage,
+}
+
 /// Resolves workspaces and hands out tenant pools. One per process.
 pub struct Workspaces {
     master: PgPool,
@@ -216,6 +257,20 @@ impl Workspaces {
             .execute(&self.master)
             .await
             .map(|_| ())
+    }
+
+    /// The connections of the master pool and of every tenant pool open in
+    /// this process, summed: what the pool metrics sample. Never per
+    /// workspace.
+    pub fn pool_usage(&self) -> WorkspacePools {
+        let pools = self.pools.lock().unwrap_or_else(PoisonError::into_inner);
+        WorkspacePools {
+            master: PoolUsage::of(&self.master),
+            tenants: pools
+                .values()
+                .map(|tenant| PoolUsage::of(&tenant.pool))
+                .fold(PoolUsage::default(), PoolUsage::plus),
+        }
     }
 
     /// The workspace `reference` names (its id or Clerk org id) with its
@@ -391,5 +446,40 @@ mod tests {
         assert_eq!(config.tenant_max_connections, 1);
         assert_eq!(config.max_tenant_pools, 2_000);
         assert_eq!(config.idle_timeout, Duration::from_secs(300));
+    }
+
+    #[tokio::test]
+    async fn pool_usage_counts_connections_not_workspaces() {
+        let master = master_pool("postgres://weldsuite:x@127.0.0.1:1/master", 7).expect("lazy");
+        let workspaces = Workspaces::new(master, Keyring::default(), WorkspaceConfig::default());
+        let usage = workspaces.pool_usage();
+        assert_eq!(
+            usage.master,
+            PoolUsage {
+                idle: 0,
+                in_use: 0,
+                max: 7
+            }
+        );
+        assert_eq!(usage.tenants, PoolUsage::default());
+
+        let one = PoolUsage {
+            idle: 2,
+            in_use: 1,
+            max: 5,
+        };
+        let full = PoolUsage {
+            idle: 1,
+            in_use: u32::MAX,
+            max: 1,
+        };
+        assert_eq!(
+            one.plus(full),
+            PoolUsage {
+                idle: 3,
+                in_use: u32::MAX,
+                max: 6
+            }
+        );
     }
 }

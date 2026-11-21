@@ -279,19 +279,19 @@ async function handleOrganizationCreated(
             email: users.email,
             firstName: users.firstName,
             lastName: users.lastName,
-            imageUrl: users.imageUrl,
           })
           .from(users)
           .where(eq(users.id, org.created_by))
           .limit(1);
 
         if (creator) {
+          // No picture: the avatar is the account's (users.image_url), read by
+          // @weldsuite/worker-kit/account-pictures, never a member-row copy.
           const fullName = [creator.firstName, creator.lastName].filter(Boolean).join(' ');
           initialMember = {
             userId: creator.id,
             email: creator.email || undefined,
             name: fullName || undefined,
-            picture: creator.imageUrl || undefined,
           };
         } else {
           initialMember = { userId: org.created_by };
@@ -388,7 +388,7 @@ async function handleOrganizationDeleted(
   // failure here is NOT swallowed: it must propagate so this handler throws,
   // the webhook answers non-2xx, and Svix redelivers — the Neon database
   // teardown below must never run ahead of this (design §7,
-  // docs/plans/weldmail-mailbox-store-design.md).
+  // weldsuite-documentation/plans/weldmail-mailbox-store-design.md).
   await destroyWorkspaceMail(env, masterDb, workspace.id);
 
   if (env.NEON_API_KEY && workspace.neonProjectId) {
@@ -474,11 +474,15 @@ async function upsertMasterUserWorkspace(
 type TenantDbClient = Awaited<ReturnType<typeof getTenantDbForWorkspace>>;
 type WorkspaceMemberRow = typeof workspaceMembers.$inferSelect;
 
+/**
+ * What a Clerk membership event says about the tenant member. No picture: a
+ * person's avatar is their account picture (master `users.image_url`, kept by
+ * the user.* handlers below), never a copy on `workspace_members`.
+ */
 interface MembershipTenantIdentity {
   userId: string;
   email: string;
   name: string | null;
-  picture: string | null | undefined;
   role: ReturnType<typeof mapClerkRoleToDisplay>;
   membershipId: string;
 }
@@ -507,12 +511,12 @@ async function activateExistingMember(
   existing: WorkspaceMemberRow,
   identity: MembershipTenantIdentity,
 ): Promise<string> {
-  const { userId, email, name, picture, role, membershipId } = identity;
+  const { userId, email, name, role, membershipId } = identity;
   const preservedRole = resolvePreservedRole(existing, role);
   console.log(`[Clerk Webhook] Updating existing member ${existing.id} to ACTIVE for user ${userId} (role: ${preservedRole}, memberType: ${existing.memberType})`);
   await tenantDb
     .update(workspaceMembers)
-    .set({ email, name, picture, role: preservedRole, status: 'ACTIVE', clerkMembershipId: membershipId, updatedAt: new Date() })
+    .set({ email, name, role: preservedRole, status: 'ACTIVE', clerkMembershipId: membershipId, updatedAt: new Date() })
     .where(eq(workspaceMembers.id, existing.id));
   return existing.memberType;
 }
@@ -549,14 +553,14 @@ async function activateInvitationMember(
   pendingByEmail: WorkspaceMemberRow,
   identity: MembershipTenantIdentity,
 ): Promise<string> {
-  const { userId, email, name, picture, role, membershipId } = identity;
+  const { userId, email, name, role, membershipId } = identity;
   // OWNER preserved; EXTERNAL_GUEST role preserved (would otherwise be
   // bumped from VIEWER → MEMBER by Clerk's role mapping).
   const preservedRole = resolvePreservedRole(pendingByEmail, role);
-  // Don't wipe values supplied at invite time: a brand-new Clerk user often
-  // has null first_name/last_name and image_url at this webhook moment, but
-  // the admin already entered a name (and possibly avatar) when sending the
-  // invite. Prefer Clerk's values only when they're actually populated.
+  // Don't wipe the name supplied at invite time: a brand-new Clerk user often
+  // has null first_name/last_name at this webhook moment, but the admin
+  // already entered a name when sending the invite. Prefer Clerk's value only
+  // when it's actually populated.
   console.log(`[Clerk Webhook] Activating invitation member ${pendingByEmail.id} (email: ${email}) for user ${userId} (role: ${preservedRole}, memberType: ${pendingByEmail.memberType})`);
   // A returning member's removed row still holds their user id.
   await releaseRemovedMemberUserId(tenantDb, userId);
@@ -565,7 +569,6 @@ async function activateInvitationMember(
     .set({
       userId,
       name: name ?? pendingByEmail.name,
-      picture: picture ?? pendingByEmail.picture,
       role: preservedRole,
       status: 'ACTIVE',
       clerkMembershipId: membershipId,
@@ -580,7 +583,7 @@ async function insertFirstOrNewMember(
   tenantDb: TenantDbClient,
   identity: MembershipTenantIdentity,
 ): Promise<string> {
-  const { userId, email, name, picture, role, membershipId } = identity;
+  const { userId, email, name, role, membershipId } = identity;
   // First-member rule: if there are no other active members, this is the
   // org creator and must be OWNER — Clerk's role mapping tops out at ADMIN.
   const [{ count: memberCount }] = await tenantDb
@@ -592,7 +595,7 @@ async function insertFirstOrNewMember(
   await releaseRemovedMemberUserId(tenantDb, userId);
   await tenantDb.insert(workspaceMembers).values({
     id: generateId('mbr'),
-    userId, email, name, picture, role: insertRole,
+    userId, email, name, role: insertRole,
     status: 'ACTIVE',
     clerkMembershipId: membershipId,
     createdAt: new Date(),
@@ -648,7 +651,6 @@ async function handleMembershipCreated(
       userId,
       email: membership.public_user_data.identifier,
       name,
-      picture: membership.public_user_data.image_url,
       role: mapClerkRoleToDisplay(membership.role),
       membershipId: membership.id,
     });
@@ -716,14 +718,13 @@ async function handleMembershipUpdated(
     const role = mapClerkRoleToDisplay(membership.role);
     const name = [membership.public_user_data.first_name, membership.public_user_data.last_name]
       .filter(Boolean).join(' ') || null;
-    const picture = membership.public_user_data.image_url;
 
     if (existing) {
       // Don't downgrade OWNER on Clerk role-sync events.
       const preservedRole = isTenantOwner ? 'OWNER' : role;
       await tenantDb
         .update(workspaceMembers)
-        .set({ role: preservedRole, name, picture, clerkMembershipId: membership.id, updatedAt: new Date() })
+        .set({ role: preservedRole, name, clerkMembershipId: membership.id, updatedAt: new Date() })
         .where(eq(workspaceMembers.id, existing.id));
       if (preservedRole !== existing.role) await bumpPermissionsVersion(env, masterWorkspaceId);
       // Only the system tier syncs via this webhook, so weldchat channel
@@ -937,7 +938,7 @@ async function handleInvitationAccepted(
     }
 
     // If membership.created already raced ahead and inserted a separate ACTIVE
-    // row for this user, merge its real userId/name/picture/clerkMembershipId
+    // row for this user, merge its real userId/name/clerkMembershipId
     // back onto the invitation row and soft-delete the duplicate.
     const [duplicate] = invitation.email_address
       ? await tenantDb
@@ -967,7 +968,6 @@ async function handleInvitationAccepted(
         .set({
           userId: duplicate.userId,
           name: duplicate.name ?? pending.name,
-          picture: duplicate.picture ?? pending.picture,
           email: duplicate.email ?? pending.email,
           role: preservedRole,
           clerkMembershipId: duplicate.clerkMembershipId ?? pending.clerkMembershipId,
@@ -1067,22 +1067,39 @@ async function handleUserUpdated(
 ) {
   const userId = userData.id;
   const fullName = [userData.first_name, userData.last_name].filter(Boolean).join(' ');
-  const imageUrl = userData.image_url;
   const primaryEmail = userData.email_addresses.find(
     (e) => e.id === userData.primary_email_address_id,
   )?.email_address || userData.email_addresses[0]?.email_address;
 
   try {
+    // The master `users` row is the account, and its `image_url` is the
+    // person's avatar in every workspace. Upsert, so a user.created event that
+    // never arrived does not leave the account without a picture.
     await masterDb
-      .update(users)
-      .set({
-        email: primaryEmail || undefined,
+      .insert(users)
+      .values({
+        id: userId,
+        email: primaryEmail || '',
         firstName: userData.first_name,
         lastName: userData.last_name,
         imageUrl: userData.image_url,
-        updatedAt: new Date(),
       })
-      .where(eq(users.id, userId));
+      .onConflictDoUpdate({
+        target: users.id,
+        set: {
+          email: primaryEmail || undefined,
+          firstName: userData.first_name,
+          lastName: userData.last_name,
+          imageUrl: userData.image_url,
+          updatedAt: new Date(),
+        },
+      });
+
+    // Only the name is mirrored onto the tenant member rows, and only when
+    // Clerk has an actual value: user.updated fires several times during
+    // signup/onboarding, and early events have empty first_name/last_name that
+    // would wipe the name typed at invite time. The picture is never copied.
+    if (!fullName) return;
 
     const memberships = await masterDb
       .select({ workspaceId: userWorkspaces.workspaceId })
@@ -1100,15 +1117,9 @@ async function handleUserUpdated(
 
           if (workspace?.clerkOrgId) {
             const tenantDb = await getTenantDbForWorkspace(env, workspace.clerkOrgId);
-            // Only overwrite name/picture when Clerk has actual values. user.updated
-            // fires multiple times during signup/onboarding — early events have
-            // empty first_name/last_name and would wipe the name typed at invite time.
-            const updates: Record<string, unknown> = { updatedAt: new Date() };
-            if (fullName) updates.name = fullName;
-            if (imageUrl) updates.picture = imageUrl;
             await tenantDb
               .update(workspaceMembers)
-              .set(updates)
+              .set({ name: fullName, updatedAt: new Date() })
               .where(and(eq(workspaceMembers.userId, userId), isNull(workspaceMembers.deletedAt)));
           }
         } catch {

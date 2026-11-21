@@ -15,7 +15,7 @@ export const weldstashSyncMap: EntitySyncMap = {
   inventory: inv(['weldstash', 'stock']),
   wms_inventory: inv(['weldstash', 'stock']),
   wms_adjustment: inv(['weldstash', 'stock']),
-  // Product CRUD publishes commerce `product`; keep `wms_product` alias.
+  // Product CRUD publishes `product`; keep `wms_product` alias.
   product: inv(weldstashKeys.products(), ['weldstash', 'stock']),
   wms_product: inv(weldstashKeys.products(), ['weldstash', 'stock']),
   warehouse: inv(weldstashKeys.warehouses(), ['weldstash', 'stock']),

@@ -8,5 +8,6 @@ export const HOST_ENTITY_EVENTS = {
   dns_zone: ['created', 'updated', 'deleted'],
   email_forward: ['created', 'updated', 'deleted'],
   voip_phone_number: ['created', 'updated', 'deleted'],
+  sip_trunk: ['created', 'updated', 'deleted'],
   voip_porting_order: ['created', 'updated', 'deleted', 'approved', 'rejected'],
 } as const;

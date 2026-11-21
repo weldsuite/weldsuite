@@ -19,6 +19,22 @@ export function isFormulaText(text: string): boolean {
   return text.startsWith('=') && text.length > 0;
 }
 
+/** A formula with its unclosed "(" closed at the end, as Sheets and Excel do on commit; quoted text is left alone. */
+export function closeOpenParens(text: string): string {
+  if (!isFormulaText(text)) return text;
+  let open = 0;
+  let quote: string | null = null;
+  for (const ch of text) {
+    if (quote) {
+      if (ch === quote) quote = null;
+    } else if (ch === '"' || ch === "'") quote = ch;
+    else if (ch === '(') open++;
+    else if (ch === ')' && open > 0) open--;
+  }
+  // An unterminated string is a mistake of its own: closing parentheses behind it would hide it.
+  return quote || open === 0 ? text : text + ')'.repeat(open);
+}
+
 /** References in a formula being typed that point at `sheetName` (unprefixed ones included). */
 export function refsInEdit(text: string, sheetName: string, locale: FormulaLocale): EditRef[] {
   if (!isFormulaText(text)) return [];
@@ -88,6 +104,13 @@ export interface SuggestionMatch {
 /** Letters then digits, as a cell reference is typed (`G10`, `ab2`). */
 const CELL_REFERENCE = /^[A-Za-z]{1,3}\d+$/;
 
+/** The functions people reach for most, in the order a list offers them when several start with the typed text. */
+export const POPULAR = [
+  'SUM', 'AVERAGE', 'COUNT', 'COUNTA', 'IF', 'IFERROR', 'IFS', 'MIN', 'MAX', 'ROUND', 'VLOOKUP', 'XLOOKUP', 'INDEX', 'MATCH',
+  'SUMIF', 'SUMIFS', 'COUNTIF', 'COUNTIFS', 'AVERAGEIF', 'AVERAGEIFS', 'TODAY', 'NOW', 'TEXT', 'LEFT', 'RIGHT', 'MID', 'LEN', 'TRIM',
+  'CONCAT', 'CONCATENATE', 'TEXTJOIN', 'UNIQUE', 'FILTER', 'SORT', 'AND', 'OR', 'NOT', 'ABS', 'DATE', 'LOOKUP',
+];
+
 /**
  * Functions and defined names for the identifier at the caret, as Excel lists
  * them: the ones that start with it first, then the ones that contain it
@@ -111,7 +134,16 @@ export function formulaSuggestions(text: string, caret: number, definedNames: re
     if (key(a) === key(b)) return 0;
     return key(a) < key(b) ? -1 : 1;
   };
-  const starting = all.filter((s) => key(s).startsWith(upper)).sort(byName);
+  const rank = (s: FormulaSuggestion) => (s.kind === 'function' ? POPULAR.indexOf(key(s)) : -1);
+  const byPopularity = (a: FormulaSuggestion, b: FormulaSuggestion) => {
+    const [ra, rb] = [rank(a), rank(b)];
+    // Popular functions first, in POPULAR's order; the rest by name.
+    if (ra < 0 && rb < 0) return byName(a, b);
+    if (ra < 0) return 1;
+    if (rb < 0) return -1;
+    return ra - rb;
+  };
+  const starting = all.filter((s) => key(s).startsWith(upper)).sort(byPopularity);
   const containing = reference ? [] : all.filter((s) => !key(s).startsWith(upper) && key(s).includes(upper)).sort(byName);
   const items = [...starting, ...containing].slice(0, limit);
   const complete = items.length === 1 && key(items[0]!) === upper;

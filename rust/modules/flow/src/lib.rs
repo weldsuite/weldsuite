@@ -467,6 +467,12 @@ impl Caller {
     }
 
     /// The request's master database (conformance), else the app's.
+    /// The request's master database (account pictures): the app's behind
+    /// `workspace_db`, the test's in conformance.
+    pub(crate) fn request_master(&self) -> Option<&PgPool> {
+        self.master.as_ref()
+    }
+
     pub(crate) fn master(&self, state: &FlowState) -> Option<PgPool> {
         self.master.clone().or_else(|| state.master.clone())
     }

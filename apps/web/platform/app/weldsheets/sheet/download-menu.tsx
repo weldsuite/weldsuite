@@ -1,5 +1,5 @@
-import { toast } from 'sonner';
 import { Download } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@weldsuite/ui/components/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@weldsuite/ui/components/dropdown-menu';
 import { useI18n } from '@/lib/i18n/provider';
@@ -24,9 +24,10 @@ export function DownloadMenu({ controller, name }: { controller: SheetController
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="sm" className="h-7 gap-1.5 px-2" aria-label={tf.download}>
-          <Download className="size-4" />
-          <span className="hidden sm:inline">{tf.download}</span>
+        {/* An icon button on a phone, so the title keeps its room. */}
+        <Button variant="outline" size="sm" className="h-8 max-sm:w-8 max-sm:px-0" aria-label={tf.download} title={tf.download}>
+          <Download className="sm:hidden" />
+          <span className="max-sm:sr-only">{tf.download}</span>
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">

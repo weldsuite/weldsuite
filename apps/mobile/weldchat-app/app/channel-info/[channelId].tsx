@@ -10,7 +10,7 @@ import {
   View,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useAuth } from '@clerk/expo';
+import { useAuth } from '@weldsuite/mobile-platform/auth';
 import { Check, Hash, LogOut, Lock, Pencil, Trash2, Users, X } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';

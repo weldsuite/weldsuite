@@ -1,13 +1,13 @@
 
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useI18n } from '@/lib/i18n/provider';
-import { useEffect, useState, memo, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, memo, type ReactNode } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import { Button } from '@weldsuite/ui/components/button';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Alert, AlertDescription } from '@weldsuite/ui/components/alert';
 import { Separator } from '@weldsuite/ui/components/separator';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@weldsuite/ui/components/dialog';
+import { Dialog, DialogContent } from '@weldsuite/ui/components/dialog';
 import { AlertCircle, Loader2, FileText, ArrowLeft, Download, Check, Plus, Minus, Users, Info, X } from 'lucide-react';
 import NumberFlow from '@number-flow/react';
 import { Label } from '@weldsuite/ui/components/label';
@@ -27,7 +27,11 @@ import {
   useChangePlan,
   useUpdateSeats,
   useSeatPrice,
+  useBillingVat,
+  useRefreshBillingVat,
 } from '@/hooks/queries/use-billing-queries';
+import { countryName, formatPlanPrice, vatOfCents, vatRateText } from './plan-pricing';
+import { ManageSeatsDialog } from '@/components/billing/manage-seats';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import {
   annualSavingPercent,
@@ -38,29 +42,25 @@ import {
   resolvePlanKey,
   yearlyPriceOf,
 } from './plan-features';
-import { useAvailableApps } from '@/hooks/queries/use-settings-queries';
+import { useAvailableApps, useWorkspaceSettings } from '@/hooks/queries/use-settings-queries';
 import { AppIcon } from '@/components/app-icon';
-import type { BillingInvoiceResponse } from '@/lib/api/domains/billing';
+import type { BillingInvoiceResponse, BillingVatPreview } from '@/lib/api/domains/billing';
 import type { PartnerPublicInfo, PartnerTerritoryErrorDetails } from '@weldsuite/app-api-client/schemas/partners';
 import { PartnerContactLinks, PartnerLogo } from '@/components/partner/partner-contact';
 import { TerritoryDialog } from '@/components/partner/territory-screen';
 import { territoryErrorDetails } from '@/lib/partner/api-errors';
+import { useBillingDetailsGate } from '@/hooks/use-billing-details-gate';
+import { useInvoiceLinkClick } from '@/hooks/use-invoice-document';
+import { billingProvider } from '@/lib/edition';
+import { BillingDetailsDialog } from '@/app/settings/billing/billing-details-dialog';
+import {
+  billingDetailsFromSettings,
+  type WorkspaceBillingSettings,
+} from '@/app/settings/billing/billing-details';
 
 type InvoiceInfo = BillingInvoiceResponse;
 
 type ViewMode = 'overview' | 'plans' | 'invoices' | 'invoice-detail';
-
-// Helper to format price from cents. Whole amounts drop the decimals (`€49`),
-// others keep two (`€42.50`).
-function formatPlanPrice(cents: number, currency: string = 'USD'): string {
-  const amount = cents / 100;
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: currency,
-    minimumFractionDigits: Number.isInteger(amount) ? 0 : 2,
-    maximumFractionDigits: 2,
-  }).format(amount);
-}
 
 // Prices come in the caller's country currency (see plans-page in app-api).
 const planCurrency = (plan: Billing.BillingPlan) => plan.currency || 'USD';
@@ -145,8 +145,8 @@ const COMPARISON_SECTIONS: ComparisonSection[] = [
       { key: 'prioritySupport', indent: true, values: { free: false, business: false, scale: true, enterprise: true } },
       { key: 'dedicatedSupport', indent: true, values: { free: false, business: false, scale: false, enterprise: true } },
       { key: 'apiAccess', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
-      // Included in Enterprise; Business and Scale can buy it as a monthly add-on (Settings > Single sign-on).
-      { key: 'ssoSaml', indent: true, values: { free: false, business: 'addOn', scale: 'addOn', enterprise: true } },
+      // Included in every paid plan (`plans.features.sso`); Free upgrades to get it.
+      { key: 'ssoSaml', indent: true, values: { free: false, business: true, scale: true, enterprise: true } },
       { key: 'customIntegrations', indent: true, values: { free: false, business: false, scale: false, enterprise: true } },
       { key: 'rolesAndPermissions', indent: true, values: { free: false, business: true, scale: true, enterprise: true } },
       { key: 'activityLog', indent: true, values: { free: false, business: false, scale: true, enterprise: true } },
@@ -302,24 +302,182 @@ const COMPARISON_SECTIONS: ComparisonSection[] = [
   },
 ];
 
+/** The VAT line under the hint: why this rate, from the billing details. */
+function vatHint(
+  preview: BillingVatPreview,
+  language: string,
+  m: { vatDomestic: string; vatReverseCharge: string; vatOss: string; vatOutsideEu: string; vatNumberNotConfirmed: string },
+  fill: (text: string, values: Record<string, string>) => string,
+): string | null {
+  const vat = preview.vat;
+  if (!vat) return null;
+  const country = countryName(vat.country, language);
+  switch (vat.treatment) {
+    case 'domestic':
+      return fill(m.vatDomestic, { country });
+    case 'reverse_charge':
+      return fill(m.vatReverseCharge, { country });
+    case 'oss':
+      return preview.vatNumberStatus === 'invalid' ? m.vatNumberNotConfirmed : fill(m.vatOss, { country });
+    case 'outside_eu':
+      return m.vatOutsideEu;
+    default:
+      return null;
+  }
+}
+
+/**
+ * Mollie's checkout summary below the subtotal (ADR BILL-014, decision 6):
+ * the VAT number with a link to change it, the VAT the billing details lead
+ * to (`GET /billing/vat`, VIES asked) and the total with VAT. Before VIES
+ * answers, or if the route fails, VAT reads as calculated at checkout.
+ */
+function MollieVatSummary({
+  subtotal,
+  currency,
+  cycleLabel,
+  onEditBillingDetails,
+}: Readonly<{
+  /** Before VAT, in cents. */
+  subtotal: number;
+  currency: string;
+  cycleLabel: string;
+  onEditBillingDetails: () => void;
+}>) {
+  const t = useTranslations();
+  const { t: i18n, language, format: fill } = useI18n();
+  const m = i18n.settings.billing.mollie;
+  const { data: preview, isLoading, isError } = useBillingVat(true);
+  const vat = preview?.vat ?? null;
+  const tax = vat ? vatOfCents(subtotal, vat.rateBps) : null;
+  const hint = preview ? vatHint(preview, language, m, fill) : null;
+
+  let vatValue: ReactNode;
+  if (isLoading) {
+    vatValue = <span className="text-muted-foreground text-xs">{m.vatChecking}</span>;
+  } else if (isError || !preview) {
+    vatValue = <span className="text-muted-foreground text-xs">{t('sweep.settings.billing.checkout.calculatedAtCheckout')}</span>;
+  } else if (tax === null) {
+    vatValue = (
+      <Button type="button" variant="link" className="h-auto p-0 text-xs" onClick={onEditBillingDetails}>
+        {m.vatNeedsDetails}
+      </Button>
+    );
+  } else {
+    vatValue = <span className="font-medium">{formatPlanPrice(tax, currency)}</span>;
+  }
+
+  return (
+    <>
+      <div className="flex justify-between items-center gap-2 text-sm">
+        <span>{i18n.settings.billing.vatNumber}</span>
+        <span className="flex items-center gap-2 min-w-0">
+          <span className={cn('truncate', !preview?.vatNumber && 'text-muted-foreground text-xs')}>
+            {preview?.vatNumber ?? i18n.settings.billing.notProvided}
+          </span>
+          <Button type="button" variant="link" className="h-auto p-0 text-xs shrink-0" onClick={onEditBillingDetails}>
+            {preview?.vatNumber ? i18n.common.actions.edit : i18n.common.actions.add}
+          </Button>
+        </span>
+      </div>
+
+      <div className="space-y-1">
+        <div className="flex justify-between text-sm">
+          <span>{vat ? fill(m.vatRate, { rate: vatRateText(vat.rateBps, language) }) : m.vat}</span>
+          {vatValue}
+        </div>
+        {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+      </div>
+
+      <Separator />
+
+      <div className="flex justify-between text-sm">
+        <span>
+          {tax === null ? t('sweep.settings.billing.subtotal') : m.totalInclVat} / {cycleLabel}
+        </span>
+        <span className="font-semibold">{formatPlanPrice(subtotal + (tax ?? 0), currency)}</span>
+      </div>
+    </>
+  );
+}
+
+/**
+ * The checkout summary below the subtotal: Mollie's VAT and total including
+ * VAT; on Stripe, tax calculated at checkout and the subtotal per cycle.
+ */
+function CheckoutTotals({
+  subtotal,
+  currency,
+  cycleLabel,
+  onEditBillingDetails,
+}: Readonly<{
+  subtotal: number;
+  currency: string;
+  cycleLabel: string;
+  onEditBillingDetails: () => void;
+}>) {
+  const t = useTranslations();
+  if (billingProvider() === 'mollie') {
+    return (
+      <MollieVatSummary
+        subtotal={subtotal}
+        currency={currency}
+        cycleLabel={cycleLabel}
+        onEditBillingDetails={onEditBillingDetails}
+      />
+    );
+  }
+  return (
+    <>
+      <div className="flex justify-between text-sm">
+        <span>{t('sweep.settings.billing.tax')}</span>
+        <span className="text-muted-foreground text-xs">{t('sweep.settings.billing.checkout.calculatedAtCheckout')}</span>
+      </div>
+
+      <Separator />
+
+      <div className="flex justify-between text-sm">
+        <div className="flex items-center gap-1">
+          <span>{t('sweep.settings.billing.subtotal')} / {cycleLabel}</span>
+          <TooltipProvider delayDuration={0}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Info className="h-3.5 w-3.5 text-muted-foreground" />
+              </TooltipTrigger>
+              <TooltipContent side="top">
+                <p className="text-xs">{t('sweep.settings.billing.checkout.finalPriceNotice')}</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
+        <span className="font-semibold">{formatPlanPrice(subtotal, currency)}</span>
+      </div>
+    </>
+  );
+}
+
 // Extracted checkout dialog to prevent re-renders of the massive comparison table
 const CheckoutDialog = memo(function CheckoutDialog({
   selectedPlan,
   onClose,
   minSeats,
   onConfirmCheckout,
+  onEditBillingDetails,
   processing,
 }: Readonly<{
   selectedPlan: Billing.BillingPlan | null;
   onClose: () => void;
   minSeats: number;
   onConfirmCheckout: (plan: Billing.BillingPlan, seats: number, billingCycle: 'monthly' | 'annually') => void;
+  /** Opens the billing details dialog (Mollie: the VAT number in the summary). */
+  onEditBillingDetails: () => void;
   processing: boolean;
 }>) {
   const [seatCount, setSeatCount] = useState(1);
   const [emailCredits, setEmailCredits] = useState(0);
   const [sliderIndex, setSliderIndex] = useState(0);
-  const [checkoutBillingCycle, setCheckoutBillingCycle] = useState<'monthly' | 'annually'>('annually');
+  // Monthly first: the smaller commitment. Annual is one click away, with its saving.
+  const [checkoutBillingCycle, setCheckoutBillingCycle] = useState<'monthly' | 'annually'>('monthly');
   const t = useTranslations();
 
   // Reset state when plan changes
@@ -328,7 +486,7 @@ const CheckoutDialog = memo(function CheckoutDialog({
       setSeatCount(Math.min(Math.max(1, minSeats), selectedPlan.maxMembers ?? Infinity));
       setEmailCredits(0);
       setSliderIndex(0);
-      setCheckoutBillingCycle('annually');
+      setCheckoutBillingCycle('monthly');
     }
   }, [selectedPlan, minSeats]);
 
@@ -387,6 +545,9 @@ const CheckoutDialog = memo(function CheckoutDialog({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent position="popper" sideOffset={4}>
+                    <SelectItem value="monthly">
+                      {t('sweep.settings.billing.checkout.monthlyPrice', { price: formatPlanPrice(monthlyPricePerSeat, currency) })}
+                    </SelectItem>
                     <SelectItem value="annually">
                       <div className="flex items-center gap-2">
                         <span>{t('sweep.settings.billing.checkout.annuallyPrice', { price: formatPlanPrice(Math.round(annualPricePerSeat / 12), currency) })}</span>
@@ -394,9 +555,6 @@ const CheckoutDialog = memo(function CheckoutDialog({
                           <Badge variant="secondary" className="bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-400 text-xs rounded-sm">{t('sweep.settings.billing.savePercent', { percent: annualSaving })}</Badge>
                         )}
                       </div>
-                    </SelectItem>
-                    <SelectItem value="monthly">
-                      {t('sweep.settings.billing.checkout.monthlyPrice', { price: formatPlanPrice(monthlyPricePerSeat, currency) })}
                     </SelectItem>
                   </SelectContent>
                 </Select>
@@ -536,29 +694,12 @@ const CheckoutDialog = memo(function CheckoutDialog({
                 <span className="font-medium">{formatPlanPrice(subtotal, currency)}</span>
               </div>
 
-              <div className="flex justify-between text-sm">
-                <span>{t('sweep.settings.billing.tax')}</span>
-                <span className="text-muted-foreground text-xs">{t('sweep.settings.billing.checkout.calculatedAtCheckout')}</span>
-              </div>
-
-              <Separator />
-
-              <div className="flex justify-between text-sm">
-                <div className="flex items-center gap-1">
-                  <span>{t('sweep.settings.billing.subtotal')} {isBillingAnnual ? `/ ${t('sweep.settings.billing.year')}` : `/ ${t('sweep.settings.billing.month')}`}</span>
-                  <TooltipProvider delayDuration={0}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Info className="h-3.5 w-3.5 text-muted-foreground" />
-                      </TooltipTrigger>
-                      <TooltipContent side="top">
-                        <p className="text-xs">{t('sweep.settings.billing.checkout.finalPriceNotice')}</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                </div>
-                <span className="font-semibold">{formatPlanPrice(subtotal, currency)}</span>
-              </div>
+              <CheckoutTotals
+                subtotal={subtotal}
+                currency={currency}
+                cycleLabel={isBillingAnnual ? t('sweep.settings.billing.year') : t('sweep.settings.billing.month')}
+                onEditBillingDetails={onEditBillingDetails}
+              />
             </div>
 
             {/* Warning when current members exceed target plan's max */}
@@ -1122,6 +1263,7 @@ function PlansView({
   selectedPlan,
   onCloseCheckout,
   onConfirmCheckout,
+  onEditBillingDetails,
   processing,
   error,
   downgradeBlockers,
@@ -1135,6 +1277,7 @@ function PlansView({
   selectedPlan: Billing.BillingPlan | null;
   onCloseCheckout: () => void;
   onConfirmCheckout: (plan: Billing.BillingPlan, seats: number, billingCycle: 'monthly' | 'annually') => void;
+  onEditBillingDetails: () => void;
   processing: boolean;
   error: string | null;
   downgradeBlockers: string[];
@@ -1156,6 +1299,7 @@ function PlansView({
         onClose={onCloseCheckout}
         minSeats={minSeats}
         onConfirmCheckout={onConfirmCheckout}
+        onEditBillingDetails={onEditBillingDetails}
         processing={processing}
       />
 
@@ -1191,6 +1335,9 @@ function PlansView({
 
       {/* Pricing Header Bar */}
       <PlansHeaderBar isAnnual={isAnnual} onToggleAnnual={onToggleAnnual} annualSavingText={annualSavingText} />
+      {billingProvider() === 'mollie' && (
+        <p className="text-xs text-muted-foreground -mt-4">{i18n.settings.billing.mollie.excludingVat}</p>
+      )}
 
       {/* Pricing Cards with decorative lines */}
       <div className="relative overflow-visible">
@@ -1302,6 +1449,7 @@ function InvoiceDetailView({
   onBack: () => void;
 }>) {
   const t = useTranslations();
+  const onInvoiceLinkClick = useInvoiceLinkClick();
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-2">
@@ -1357,7 +1505,12 @@ function InvoiceDetailView({
 
           {invoice.pdfUrl && (
             <Button variant="outline" className="w-full" asChild>
-              <a href={invoice.pdfUrl} target="_blank" rel="noopener noreferrer">
+              <a
+                href={invoice.pdfUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => onInvoiceLinkClick(e, invoice.pdfUrl ?? '')}
+              >
                 <Download className="h-4 w-4 mr-2" />
                 {t('sweep.settings.billing.downloadInvoice')}
               </a>
@@ -1366,114 +1519,6 @@ function InvoiceDetailView({
         </CardContent>
       </Card>
     </div>
-  );
-}
-
-function ManageSeatsDialog({
-  open,
-  onOpenChange,
-  subscription,
-  planLimits,
-  seatCount,
-  onSeatCountChange,
-  min,
-  max,
-  perSeatPrice,
-  currency,
-  interval,
-  processing,
-  onConfirm,
-}: Readonly<{
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  subscription: Billing.Subscription | null;
-  planLimits: PlanLimitsInfo;
-  seatCount: number;
-  onSeatCountChange: (count: number) => void;
-  min: number;
-  max: number | undefined;
-  /** Per seat per `interval`, in cents. */
-  perSeatPrice: number;
-  currency: string;
-  interval: 'month' | 'year';
-  processing: boolean;
-  onConfirm: () => void;
-}>) {
-  const t = useTranslations();
-  // Shown per month; an annual price as its monthly equivalent, billed annually.
-  const isAnnual = interval === 'year';
-  const perSeatMonthly = isAnnual ? Math.round(perSeatPrice / 12) : perSeatPrice;
-  const totalMonthly = isAnnual ? Math.round((seatCount * perSeatPrice) / 12) : seatCount * perSeatPrice;
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>{t('sweep.settings.billing.manageSeatsDialog.title')}</DialogTitle>
-          <DialogDescription>
-            {t('sweep.settings.billing.manageSeatsDialog.description', { name: subscription?.planName })}
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-4 py-2">
-          {/* Seat counter */}
-          <div className="flex items-center justify-between p-4 border rounded-lg">
-            <div>
-              <p className="font-medium">{t('sweep.settings.billing.seats')}</p>
-              <p className="text-sm text-muted-foreground">
-                {t('sweep.settings.billing.manageSeatsDialog.currentlyInUse', { count: planLimits?.currentUsage.memberCount || 0 })}
-              </p>
-            </div>
-            <div className="flex items-center border rounded-md overflow-hidden">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="w-8 h-8 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed"
-                onClick={() => onSeatCountChange(Math.max(min, seatCount - 1))}
-                disabled={seatCount <= min}
-              >
-                <Minus className="h-4 w-4" />
-              </Button>
-              <span className="w-8 text-center text-sm font-medium">{seatCount}</span>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="w-8 h-8 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed"
-                onClick={() => onSeatCountChange(max ? Math.min(max, seatCount + 1) : seatCount + 1)}
-                disabled={!!max && seatCount >= max}
-              >
-                <Plus className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-
-          {/* Summary line */}
-          {perSeatPrice > 0 && (
-            <p className="text-sm text-muted-foreground">
-              {t('sweep.settings.billing.manageSeatsDialog.seatCount', { count: seatCount })} &times;{' '}
-              {formatPlanPrice(perSeatMonthly, currency)}/{t('sweep.settings.billing.seat')} ={' '}
-              <span className="font-medium text-foreground">
-                {formatPlanPrice(totalMonthly, currency)}/{isAnnual ? t('sweep.settings.billing.monthBilledAnnually') : t('sweep.settings.billing.month')}
-              </span>
-            </p>
-          )}
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={processing}>
-            {t('sweep.settings.billing.cancel')}
-          </Button>
-          <Button
-            onClick={onConfirm}
-            disabled={processing || seatCount === (subscription?.purchasedSeats || 0)}
-          >
-            {processing && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-            {t('sweep.settings.billing.updateSeats')}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }
 
@@ -1697,6 +1742,7 @@ function RecentInvoicesSection({
 }
 
 function InvoiceHistorySection({ invoices }: Readonly<{ invoices: InvoiceInfo[] }>) {
+  const onInvoiceLinkClick = useInvoiceLinkClick();
   const t = useTranslations();
   return (
     <div>
@@ -1739,6 +1785,7 @@ function InvoiceHistorySection({ invoices }: Readonly<{ invoices: InvoiceInfo[] 
                     href={invoice.pdfUrl}
                     target="_blank"
                     rel="noopener noreferrer"
+                    onClick={(e) => onInvoiceLinkClick(e, invoice.pdfUrl ?? '')}
                     className="text-muted-foreground hover:text-foreground transition-colors"
                   >
                     <Download className="h-4 w-4" />
@@ -1909,6 +1956,17 @@ export function BillingSettingsSection() {
   // A partner serves the caller's country: it sells WeldSuite there, not us.
   const [partnerManaged, setPartnerManaged] = useState<PartnerPublicInfo | null>(null);
   const [territory, setTerritory] = useState<PartnerTerritoryErrorDetails | null>(null);
+  const { t: i18n, format: fillText } = useI18n();
+  // Mollie asks for complete billing details before a checkout: the dialog opens and the checkout is retried once they are saved.
+  const detailsGate = useBillingDetailsGate(i18n.settings.billing.mollie.billingDetailsRequired);
+  // The VAT number in the checkout summary opens the same dialog; saving it changes the VAT shown.
+  const [editDetailsOpen, setEditDetailsOpen] = useState(false);
+  const refreshVat = useRefreshBillingVat();
+  const { data: settingsData } = useWorkspaceSettings();
+  const billingDetails = useMemo(
+    () => billingDetailsFromSettings(settingsData?.data as WorkspaceBillingSettings | null | undefined),
+    [settingsData],
+  );
 
   // React Query hooks
   const { data: limitsData } = usePlanLimits();
@@ -2058,30 +2116,57 @@ export function BillingSettingsSection() {
         seats: seats,
         cycle: billingCycle === 'annually' ? 'yearly' : 'monthly',
       });
-
-      if (result.url) {
-        // Redirect to Stripe Checkout
-        window.location.href = result.url;
-        return;
-      } else if (result.success) {
-        // Free plan change (no checkout needed)
-        toast.success(t('sweep.settings.billing.toasts.planChanged', { name: plan.name }));
-        await loadData();
-        setError(null);
-      } else {
-        setError(t('sweep.settings.billing.errors.changePlanFailed'));
-      }
+      if (await followCheckoutResult(plan, result)) return;
     } catch (err) {
-      // 409 PARTNER_TERRITORY: no checkout was created, a partner sells WeldSuite here.
-      const territoryDetails = territoryErrorDetails(err);
-      if (territoryDetails) {
-        setTerritory(territoryDetails);
-      } else {
-        setError(err instanceof Error ? err.message : t('sweep.settings.billing.errors.changePlanFailed'));
-      }
+      handleCheckoutError(err, plan, seats, billingCycle);
     }
     setProcessing(false);
     setSelectedPlan(null);
+  };
+
+  // A checkout's answer: redirect to pay, or confirm the change. True when the page navigates away.
+  const followCheckoutResult = async (
+    plan: Billing.BillingPlan,
+    result: Awaited<ReturnType<typeof changePlanMutation.mutateAsync>>,
+  ): Promise<boolean> => {
+    // The hosted checkout (Stripe Checkout, or Mollie's), or the difference a
+    // running Mollie subscription has to pay first.
+    const redirect = result.url ?? (result.paymentRequired ? result.paymentUrl : undefined);
+    if (redirect) {
+      window.location.href = redirect;
+      return true;
+    }
+    if (!result.success) {
+      setError(t('sweep.settings.billing.errors.changePlanFailed'));
+      return false;
+    }
+    // Mollie: a change that waits for the period end has not happened yet.
+    toast.success(
+      result.scheduled && result.effectiveAt
+        ? fillText(i18n.settings.billing.mollie.planScheduled, { date: format(new Date(result.effectiveAt), 'do MMM yyyy') })
+        : t('sweep.settings.billing.toasts.planChanged', { name: plan.name }),
+    );
+    await loadData();
+    setError(null);
+    return false;
+  };
+
+  // A refused checkout: billing details first (Mollie's 400
+  // BILLING_DETAILS_REQUIRED, retried once the dialog saves), a partner's
+  // territory (409 PARTNER_TERRITORY: no checkout was created), or the error.
+  const handleCheckoutError = (
+    err: unknown,
+    plan: Billing.BillingPlan,
+    seats: number,
+    billingCycle: 'monthly' | 'annually',
+  ): void => {
+    if (detailsGate.intercept(err, () => void handleConfirmCheckout(plan, seats, billingCycle))) return;
+    const territoryDetails = territoryErrorDetails(err);
+    if (territoryDetails) {
+      setTerritory(territoryDetails);
+    } else {
+      setError(err instanceof Error ? err.message : t('sweep.settings.billing.errors.changePlanFailed'));
+    }
   };
 
   const handleOpenManageSeats = () => {
@@ -2099,6 +2184,13 @@ export function BillingSettingsSection() {
         // Redirect to Stripe hosted invoice page for payment
         window.location.href = result.paymentUrl;
         return;
+      } else if (result.success && result.effectiveAt) {
+        // Mollie: a decrease waits for the period end, so do not claim it changed now
+        toast.success(
+          fillText(i18n.settings.billing.mollie.seatsScheduled, { date: format(new Date(result.effectiveAt), 'do MMM yyyy') }),
+        );
+        setManageSeatsOpen(false);
+        await loadData();
       } else if (result.success) {
         toast.success(t('sweep.settings.billing.toasts.seatsUpdated', { count: manageSeatCount }));
         setManageSeatsOpen(false);
@@ -2157,6 +2249,7 @@ export function BillingSettingsSection() {
           selectedPlan={selectedPlan}
           onCloseCheckout={() => setSelectedPlan(null)}
           onConfirmCheckout={handleConfirmCheckout}
+          onEditBillingDetails={() => setEditDetailsOpen(true)}
           processing={processing}
           error={error}
           downgradeBlockers={downgradeBlockers}
@@ -2168,6 +2261,20 @@ export function BillingSettingsSection() {
           open={territory !== null}
           onOpenChange={(open) => !open && setTerritory(null)}
           details={territory}
+        />
+        <BillingDetailsDialog
+          {...detailsGate.dialogProps}
+          onSaved={() => {
+            refreshVat();
+            detailsGate.dialogProps.onSaved();
+          }}
+          details={billingDetails}
+        />
+        <BillingDetailsDialog
+          open={editDetailsOpen}
+          onOpenChange={setEditDetailsOpen}
+          onSaved={refreshVat}
+          details={billingDetails}
         />
       </>
     );

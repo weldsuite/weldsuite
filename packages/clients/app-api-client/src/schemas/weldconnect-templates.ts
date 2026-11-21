@@ -155,7 +155,9 @@ export type BuiltInTemplateKey =
   | 'workflowFailureAlert'
   | 'aiLeadTriage'
   | 'welcomeEmail'
-  | 'weldmergeReleaseShipped';
+  | 'weldmergeReleaseShipped'
+  | 'alertToTicket'
+  | 'formResponseToChat';
 
 /** One template's strings in one language (`@weldsuite/i18n/locales/<locale>/weldconnect-templates`). */
 export interface BuiltInTemplateStrings {
@@ -575,6 +577,67 @@ export const BUILT_IN_WORKFLOW_TEMPLATES: readonly BuiltInTemplateDefinition[] =
         ]),
       };
     },
+  },
+  {
+    // No setup: the alert is read by the parse_alert step, so the webhook URL is all it needs. A repeat of the same alert
+    // (the external id) updates and escalates its ticket; a resolved one adds its message and closes it.
+    id: 'builtin_alert_to_ticket',
+    key: 'alertToTicket',
+    category: 'support',
+    icon: 'Siren',
+    setup: [],
+    build: ({ steps }) => ({
+      triggers: [{ id: MAIN_TRIGGER, type: 'webhook', isEnabled: true }],
+      steps: ordered([
+        {
+          id: 'step_parse',
+          type: 'parse_alert',
+          name: at(steps, 'parse'),
+          config: { payload: '{{trigger.body}}', source: 'auto', defaultPriority: 'medium' },
+        },
+        {
+          id: 'step_ticket',
+          type: 'create_conversation',
+          name: at(steps, 'ticket'),
+          config: {
+            title: '{{steps.step_parse.title}}',
+            message: '{{steps.step_parse.message}}',
+            externalId: '{{steps.step_parse.externalId}}',
+            priority: '{{steps.step_parse.priority}}',
+            tags: '{{steps.step_parse.tags}}',
+            state: '{{steps.step_parse.state}}',
+          },
+        },
+      ]),
+    }),
+  },
+  {
+    // WeldForms: every completed response is posted in a chat channel (`form_response.submitted`, catalog-driven).
+    // Answers are not in the message: the payload carries them by question ref for steps that want them
+    // (`{{trigger.record.answers.<ref>}}`), and sensitive answers are never in it (ADR FORMS-004).
+    id: 'builtin_form_response_to_chat',
+    key: 'formResponseToChat',
+    category: 'communication',
+    icon: 'ClipboardList',
+    setup: [{ stepId: 'step_post', field: 'channelId' }],
+    build: ({ steps, text }) => ({
+      triggers: [entityTrigger('form_response', 'submitted')],
+      steps: ordered([
+        {
+          id: 'step_post',
+          type: 'post_chat_message',
+          name: at(steps, 'post'),
+          config: {
+            channelId: '',
+            message: fillPlaceholders(at(text, 'message'), {
+              form: '{{trigger.record.formTitle}}',
+              number: '{{trigger.record.number}}',
+              email: '{{trigger.record.respondentEmail}}',
+            }),
+          },
+        },
+      ]),
+    }),
   },
 ];
 

@@ -31,6 +31,10 @@ tokio = { workspace = true, features = ["macros", "time"] }
 tracing = { workspace = true }
 url = { workspace = true }
 
+[features]
+# The fake Odoo server (`odoo::fake`), for other crates' tests.
+testing = []
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }
 

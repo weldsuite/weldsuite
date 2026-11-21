@@ -31,6 +31,7 @@
 import { and, asc, count, eq, inArray, isNull, notExists, sql } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { withAccountPictures, type AccountPictureEnv } from '@weldsuite/worker-kit/account-pictures';
 import type { KnowledgeSpaceRole } from '@weldsuite/core-api-client/schemas/knowledge';
 
 const spaces = schema.knowledgeSpaces;
@@ -387,27 +388,28 @@ export interface Teammate {
   picture: string | null;
 }
 
-export async function listTeammates(db: Database): Promise<Teammate[]> {
-  return db
+/** `picture` is each teammate's account picture. */
+export async function listTeammates(env: AccountPictureEnv, db: Database): Promise<Teammate[]> {
+  const rows = await db
     .select({
       userId: workspaceMembers.userId,
       name: workspaceMembers.name,
       email: workspaceMembers.email,
-      picture: workspaceMembers.picture,
     })
     .from(workspaceMembers)
     .where(shareable)
     .orderBy(asc(workspaceMembers.name), asc(workspaceMembers.email));
+  return withAccountPictures(env, rows);
 }
 
-export async function listSpaceMembers(db: Database, spaceId: string): Promise<SpaceMember[]> {
-  return db
+/** `picture` is each member's account picture. */
+export async function listSpaceMembers(env: AccountPictureEnv, db: Database, spaceId: string): Promise<SpaceMember[]> {
+  const rows = await db
     .select({
       userId: members.userId,
       role: members.role,
       name: workspaceMembers.name,
       email: workspaceMembers.email,
-      picture: workspaceMembers.picture,
       addedBy: members.addedBy,
       createdAt: members.createdAt,
     })
@@ -415,6 +417,17 @@ export async function listSpaceMembers(db: Database, spaceId: string): Promise<S
     .leftJoin(workspaceMembers, eq(workspaceMembers.userId, members.userId))
     .where(and(eq(members.spaceId, spaceId), active))
     .orderBy(asc(workspaceMembers.name), asc(members.createdAt));
+  const withPictures = await withAccountPictures(env, rows);
+  // Keep the response's field order: picture sits after email.
+  return withPictures.map(({ userId, role, name, email, picture, addedBy, createdAt }) => ({
+    userId,
+    role,
+    name,
+    email,
+    picture,
+    addedBy,
+    createdAt,
+  }));
 }
 
 /**

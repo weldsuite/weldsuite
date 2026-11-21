@@ -1,14 +1,18 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { API_MODULES } from '@weldsuite/api-modules';
+import { API_MODULES, GLOBAL_UNAVAILABLE_FEATURES } from '@weldsuite/api-modules';
 import { APP_CODE_ALIASES, PERMISSION_APPS } from '@weldsuite/permissions';
 import {
+  billingProvider,
   EDITION_FEATURES,
+  getAiConfig,
+  hasAiSettings,
   isAppOffered,
   isFeatureAvailable,
   isModuleOffered,
   moduleForApp,
   offeredModules,
 } from './edition';
+import type { RuntimeAiConfig } from '@weldsuite/app-api-client/schemas/ai-settings';
 import { setRuntimeConfig } from './runtime-config';
 
 /** What the EU cluster's `/config.json` answers today. */
@@ -16,17 +20,67 @@ const EU_CONFIG = {
   backend: 'rust',
   edition: 'eu',
   modules: ['core', 'know', 'sign', 'pass', 'calendar'],
-  unavailableFeatures: ['sso-connections', 'billing', 'credit-top-up', 'paid-apps', 'desktop-sign-in', 'analytics', 'search-reindex', 'company-logos', 'mail-domains', 'mail-free-addresses', 'mail-ai', 'chat-calls', 'helpcenter-custom-domains', 'payroll-digipoort', 'books-ocr', 'phone-number-purchase', 'vat-digipoort', 'domain-purchase', 'meet-transcription', 'meet-recordings', 'weldconnect-ai', 'agent-ai', 'desk-ai', 'collab-rooms'],
+  unavailableFeatures: ['sso-connections', 'billing', 'reach-billing', 'credit-top-up', 'paid-apps', 'desktop-sign-in', 'analytics', 'search-reindex', 'company-logos', 'mail-domains', 'mail-free-addresses', 'mail-ai', 'chat-calls', 'helpcenter-custom-domains', 'helpcenter-hosting', 'payroll-digipoort', 'books-ocr', 'phone-number-purchase', 'vat-digipoort', 'domain-purchase', 'meet-transcription', 'meet-recordings', 'weldconnect-ai', 'agent-ai', 'desk-ai', 'forms-ai', 'data-regions', 'collab-rooms', 'assistant-ai', 'agent-sandbox', 'panel-analytics', 'integration-sync'],
 };
 
 afterEach(() => setRuntimeConfig(null));
 
+describe('AI edition flags', () => {
+  const ai: RuntimeAiConfig = {
+    defaultProvider: 'mistral',
+    providers: [{ id: 'mistral', region: 'eu', keySources: ['weldsuite'] }],
+  };
+
+  it('has no AI settings on Global or on an install without a provider', () => {
+    expect(hasAiSettings()).toBe(false);
+    setRuntimeConfig(EU_CONFIG);
+    expect(getAiConfig()).toBeNull();
+    expect(hasAiSettings()).toBe(false);
+  });
+
+  it('reads the ai block of /config.json', () => {
+    setRuntimeConfig({ ...EU_CONFIG, ai });
+    expect(hasAiSettings()).toBe(true);
+    expect(getAiConfig()?.providers[0]?.region).toBe('eu');
+  });
+
+  it('keeps the assistant on assistant-ai, sandbox and browsing on agent-sandbox', () => {
+    setRuntimeConfig({ ...EU_CONFIG, ai, unavailableFeatures: ['agent-ai', 'agent-sandbox'] });
+    expect(isFeatureAvailable('assistant-ai')).toBe(true);
+    expect(isFeatureAvailable('agent-ai')).toBe(false);
+    expect(isFeatureAvailable('agent-sandbox')).toBe(false);
+  });
+});
+
+describe('billing provider', () => {
+  it('is Stripe on Global and when the config names none', () => {
+    expect(billingProvider()).toBe('stripe');
+    setRuntimeConfig(EU_CONFIG);
+    expect(billingProvider()).toBe('stripe');
+  });
+
+  it('is Mollie when /config.json says so, with WeldReach inboxes on the plan', () => {
+    setRuntimeConfig({ backend: 'rust', billingProvider: 'mollie', unavailableFeatures: [] });
+    expect(billingProvider()).toBe('mollie');
+    expect(isFeatureAvailable('billing')).toBe(true);
+    expect(isFeatureAvailable('reach-billing')).toBe(true);
+  });
+
+  it('follows the server: no plan billing, no WeldReach billing', () => {
+    setRuntimeConfig({ backend: 'rust', unavailableFeatures: ['billing', 'reach-billing'] });
+    expect(billingProvider()).toBe('stripe');
+    expect(isFeatureAvailable('reach-billing')).toBe(false);
+  });
+});
+
 describe('edition flags', () => {
-  it('offers everything on Global (no runtime config)', () => {
+  it('offers everything on Global (no runtime config) but the Rust-only features', () => {
     expect(offeredModules()).toBeNull();
     expect(isModuleOffered('crm')).toBe(true);
     expect(isAppOffered('welddesk')).toBe(true);
-    for (const feature of EDITION_FEATURES) expect(isFeatureAvailable(feature)).toBe(true);
+    for (const feature of EDITION_FEATURES) {
+      expect(isFeatureAvailable(feature), feature).toBe(!GLOBAL_UNAVAILABLE_FEATURES.includes(feature));
+    }
   });
 
   it('offers everything when the config has no module list', () => {
@@ -59,16 +113,15 @@ describe('edition flags', () => {
     for (const app of ['weldknow', 'weldsign', 'weldpass', 'weldcalendar', 'welddrive']) {
       expect(isAppOffered(app)).toBe(true);
     }
-    for (const app of ['weldcrm', 'weldmail', 'weldflow', 'weldchat', 'weldagent', 'weldmeet', 'parcel', 'social']) {
+    for (const app of ['weldcrm', 'weldmail', 'weldflow', 'weldchat', 'weldagent', 'weldmeet', 'social']) {
       expect(isAppOffered(app)).toBe(false);
     }
   });
 
   it("maps an app to the module whose own app it is, not to modules that merely serve it", () => {
-    // weldcommerce is listed by crm too, but it is commerce's own app.
-    expect(moduleForApp('weldcommerce')).toBe('commerce');
+    // welddesk is listed by crm too, but it is desk's own app.
+    expect(moduleForApp('welddesk')).toBe('desk');
     expect(moduleForApp('weldcrm')).toBe('crm');
-    expect(moduleForApp('parcel')).toBe('commerce');
     expect(moduleForApp('weldcalendar')).toBe('calendar');
   });
 
@@ -99,7 +152,6 @@ describe('edition flags', () => {
       ...Object.keys(APP_CODE_ALIASES),
       ...API_MODULES.flatMap((module) => module.apps ?? []),
       'weldagent',
-      'parcel',
     ]);
     for (const code of codes) {
       if (core.has(code)) expect(moduleForApp(code), code).toBe('core');
@@ -113,10 +165,29 @@ describe('edition flags', () => {
 
   it('hides the features the backend lists as unavailable', () => {
     setRuntimeConfig(EU_CONFIG);
-    for (const feature of EDITION_FEATURES) expect(isFeatureAvailable(feature)).toBe(false);
+    // The EU config lists every feature but the Rust-only ones, which it serves.
+    for (const feature of EDITION_FEATURES) {
+      expect(isFeatureAvailable(feature), feature).toBe(GLOBAL_UNAVAILABLE_FEATURES.includes(feature));
+    }
     setRuntimeConfig({ backend: 'rust', modules: ['core'], unavailableFeatures: ['billing', 'a-future-feature'] });
     expect(isFeatureAvailable('billing')).toBe(false);
     expect(isFeatureAvailable('credit-top-up')).toBe(true);
+  });
+
+  it('hides on Global only the features built in Rust alone (GLOBAL_UNAVAILABLE_FEATURES)', () => {
+    for (const feature of GLOBAL_UNAVAILABLE_FEATURES) expect(EDITION_FEATURES, feature).toContain(feature);
+    const list = GLOBAL_UNAVAILABLE_FEATURES as string[];
+    list.push('billing');
+    try {
+      setRuntimeConfig(null);
+      expect(isFeatureAvailable('billing')).toBe(false);
+      expect(isFeatureAvailable('credit-top-up')).toBe(true);
+      // A Kubernetes install answers from its own /config.json, not from this list.
+      setRuntimeConfig({ backend: 'rust', unavailableFeatures: [] });
+      expect(isFeatureAvailable('billing')).toBe(true);
+    } finally {
+      list.pop();
+    }
   });
 
   it('hides WeldDocs and WeldSheets without live editing, and offers them with it', () => {
@@ -132,5 +203,19 @@ describe('edition flags', () => {
     setRuntimeConfig(null);
     expect(isModuleOffered('sheets')).toBe(true);
     expect(isAppOffered('welddocs')).toBe(true);
+  });
+});
+
+describe('stash-replenishment', () => {
+  it('is hidden on Global, which has no runtime config', () => {
+    setRuntimeConfig(null);
+    expect(isFeatureAvailable('stash-replenishment')).toBe(false);
+  });
+
+  it('is offered by a Rust backend that does not list it as unavailable', () => {
+    setRuntimeConfig(EU_CONFIG);
+    expect(isFeatureAvailable('stash-replenishment')).toBe(true);
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'stash'], unavailableFeatures: ['billing'] });
+    expect(isFeatureAvailable('stash-replenishment')).toBe(true);
   });
 });

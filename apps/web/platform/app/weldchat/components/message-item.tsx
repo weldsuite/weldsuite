@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo, type ReactNode } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useAuth } from '@/lib/auth';
-import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
+import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
+import { MemberAvatar } from '@/components/member-avatar';
 import { ReactionBar } from './reaction-bar';
 import { MessageActions } from './message-actions';
 import { MessageContextMenu } from './message-context-menu';
@@ -29,9 +30,11 @@ import {
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { useChatContext } from './chat-context';
+import { useWeldChatCallOptional } from '@/contexts/weldchat-call-context';
 import { messagePreviewText, renderMessageContent, type InlineFileRenderer } from '../lib/render-message-content';
 import { renderMessageBlocks } from '../lib/render-message-blocks';
 import { MessageApprovals } from './message-approvals';
+import { MessageVisuals } from './message-visuals';
 import { MessageWeldMergeCard } from './message-weldmerge-card';
 import { fileTokenIds } from '../lib/render-tokens';
 import { isSystemNotice, matchSystemNotice } from '../lib/system-notice';
@@ -162,14 +165,14 @@ function ForwardedMessage({
         </span>
       </div>
       <div className="flex items-start gap-2">
-        <Avatar className="h-5 w-5 flex-shrink-0 mt-0.5">
-          {forwardedFrom.authorAvatar && (
-            <AvatarImage src={forwardedFrom.authorAvatar} />
-          )}
-          <AvatarFallback className="text-[9px]">
-            {(forwardedFrom.authorName || '?')[0].toUpperCase()}
-          </AvatarFallback>
-        </Avatar>
+        <MemberAvatar
+          userId={forwardedFrom.authorId}
+          name={forwardedFrom.authorName}
+          picture={forwardedFrom.authorAvatar}
+          className="h-5 w-5 flex-shrink-0 mt-0.5"
+          fallbackClassName="text-[9px]"
+          fallback={(forwardedFrom.authorName || '?')[0].toUpperCase()}
+        />
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">
             <span className="text-xs font-semibold">{forwardedFrom.authorName}</span>
@@ -216,6 +219,7 @@ function isImageUrl(avatar: string | null | undefined): avatar is string {
 }
 
 interface ReplyToMessagePreview {
+  authorId?: string | null;
   authorAvatar?: string | null;
   authorName?: string;
   content?: string;
@@ -236,6 +240,8 @@ interface MessageItemProps {
   isDm?: boolean;
   /** Whether this message is the start of the call that is live in this channel */
   hasActiveCall?: boolean;
+  /** The id of that live call, so its notice can offer Join */
+  activeCallId?: string;
   /** The call this notice stands for (its start and end folded into one row), when it is a call notice */
   call?: CallSummary;
 }
@@ -283,21 +289,14 @@ function callRowState(call: CallSummary, isLive: boolean, isMine: boolean): Call
   return isMine ? 'noAnswer' : 'missed';
 }
 
-const CALL_ROW_STYLE: Record<CallRowState, { icon: string; status: string; chip?: string }> = {
-  live: {
-    icon: 'bg-green-500/15 text-green-600 dark:text-green-400',
-    status: 'text-green-700 dark:text-green-400',
-    chip: 'text-green-700 dark:text-green-400 bg-green-500/10 dark:bg-green-500/5',
-  },
-  started: { icon: 'bg-muted-foreground/10 text-muted-foreground', status: 'text-muted-foreground' },
-  answered: { icon: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400', status: 'text-emerald-700 dark:text-emerald-400' },
-  noAnswer: { icon: 'bg-amber-500/15 text-amber-600 dark:text-amber-400', status: 'text-amber-700 dark:text-amber-400' },
-  declined: { icon: 'bg-red-500/15 text-red-600 dark:text-red-400', status: 'text-red-600 dark:text-red-400' },
-  missed: {
-    icon: 'bg-red-500/15 text-red-600 dark:text-red-400',
-    status: 'text-red-600 dark:text-red-400',
-    chip: 'text-red-700 dark:text-red-400 bg-red-500/10 dark:bg-red-500/10',
-  },
+/** The bubble's icon colour; a missed call's title takes the same red. */
+const CALL_ICON_COLOR: Record<CallRowState, string> = {
+  live: 'text-green-600 dark:text-green-400',
+  started: 'text-muted-foreground',
+  answered: 'text-emerald-600 dark:text-emerald-400',
+  noAnswer: 'text-amber-600 dark:text-amber-400',
+  declined: 'text-muted-foreground',
+  missed: 'text-red-600 dark:text-red-400',
 };
 
 function callRowIcon(state: CallRowState, isVideo: boolean, isMine: boolean): LucideIcon {
@@ -311,22 +310,31 @@ function callRowIcon(state: CallRowState, isVideo: boolean, isMine: boolean): Lu
 type CallHistoryStrings = ReturnType<typeof useI18n>['t']['weldchat']['callHistory'];
 type FormatFn = ReturnType<typeof useI18n>['format'];
 
+/** A missed call's title: "Missed voice call from Gert" with `named`, else "Missed voice call". */
+function missedCallTitle(tc: CallHistoryStrings, format: FormatFn, call: CallSummary, named: boolean): string {
+  const isVideo = call.callType === 'video';
+  if (call.endOnly) return tc.missedCall;
+  if (named) return format(isVideo ? tc.missedVideoFrom : tc.missedVoiceFrom, { name: call.initiatorName ?? '' });
+  return isVideo ? tc.missedVideoCall : tc.missedVoiceCall;
+}
+
 function callRowTitle(
   tc: CallHistoryStrings,
   format: FormatFn,
   call: CallSummary,
   state: CallRowState,
   isMine: boolean,
+  showCaller: boolean,
 ): string {
   const isVideo = call.callType === 'video';
   const name = call.initiatorName ?? '';
-  if (state === 'missed') {
-    if (call.endOnly) return tc.missedCall;
-    return format(isVideo ? tc.missedVideoFrom : tc.missedVoiceFrom, { name });
-  }
+  // In a DM there are two people and the direction icon (outgoing / incoming)
+  // says who called; in a channel the caller's name stays in the text.
+  const named = showCaller && !!name;
+  if (state === 'missed') return missedCallTitle(tc, format, call, named);
   if (call.endOnly) return tc.callEnded;
-  if (isMine) return isVideo ? tc.youStartedVideo : tc.youStartedVoice;
-  return format(isVideo ? tc.startedVideo : tc.startedVoice, { name });
+  if (!isMine && named) return format(isVideo ? tc.startedVideo : tc.startedVoice, { name });
+  return isVideo ? tc.videoCall : tc.voiceCall;
 }
 
 function callRowStatus(tc: CallHistoryStrings, call: CallSummary, state: CallRowState): string | null {
@@ -343,54 +351,64 @@ function callRowTooltip(tc: CallHistoryStrings, format: FormatFn, call: CallSumm
   return lines.join('\n');
 }
 
-/** One call in the conversation: who started it, how it went, how long it took, and when. */
+/**
+ * One call in the conversation, as a centred bubble: the kind of call, how it
+ * went, how long it took, and when. A live call offers Join.
+ */
 function CallNoticeRow({
   message,
   call,
   isLive,
-}: Readonly<{ message: MessageItemMessage; call: CallSummary; isLive: boolean }>) {
+  liveCallId,
+  showCaller,
+}: Readonly<{
+  message: MessageItemMessage;
+  call: CallSummary;
+  isLive: boolean;
+  /** The live call's id, for Join. */
+  liveCallId?: string;
+  /** Name the caller (channels); in a DM the direction icon says who called. */
+  showCaller: boolean;
+}>) {
   const { t, format } = useI18n();
   const { userId } = useAuth();
+  const callContext = useWeldChatCallOptional();
   const tc = t.weldchat.callHistory;
   const isMine = !!userId && call.initiatorId === userId;
   const state = callRowState(call, isLive, isMine);
-  const style = CALL_ROW_STYLE[state];
   const Icon = callRowIcon(state, call.callType === 'video', isMine);
-  const title = callRowTitle(tc, format, call, state, isMine);
+  const title = callRowTitle(tc, format, call, state, isMine, showCaller);
   const status = callRowStatus(tc, call, state);
   const tooltip = callRowTooltip(tc, format, call);
+  const canJoin = state === 'live' && !!liveCallId && !!callContext && callContext.callId !== liveCallId;
 
   return (
-    <div data-message-id={message.id} data-testid="chat-call-notice" data-call-state={state} className="flex justify-center py-1.5 px-2 md:px-4">
-      <span
-        title={tooltip || undefined}
-        className={cn(
-          'inline-flex items-center gap-2 text-xs rounded-md pl-1.5 pr-3 py-1',
-          style.chip ?? 'text-muted-foreground bg-muted/70 dark:bg-muted/50',
-        )}
-      >
-        <span className={cn('flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full', style.icon)}>
-          <Icon className="h-3 w-3" {...(state === 'live' ? { fill: 'currentColor' } : {})} />
-        </span>
-        <span className={cn('font-medium', !style.chip && 'text-foreground/80')}>{title}</span>
+    <div
+      data-message-id={message.id}
+      data-testid="chat-call-notice"
+      data-call-state={state}
+      className="flex justify-center py-1 px-2 md:px-4"
+    >
+      <span title={tooltip || undefined} className="inline-flex items-center gap-2 rounded-[10px] bg-muted px-2.5 py-1.5 text-[13px]">
+        <Icon className={cn('size-4 shrink-0', CALL_ICON_COLOR[state])} />
+        <span className={cn('font-medium', state === 'missed' && CALL_ICON_COLOR.missed)}>{title}</span>
         {state === 'live' && (
-          <span className={cn('inline-flex items-center gap-1', style.status)}>
-            <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse" aria-hidden />
+          <span className={cn('inline-flex items-center gap-1 text-xs tabular-nums', CALL_ICON_COLOR.live)}>
+            <span className="size-1.5 rounded-full bg-current animate-pulse" aria-hidden />
             {tc.live}
             <LiveCallTimer startedAt={call.startedAt ?? message.createdAt ?? ''} />
           </span>
         )}
-        {status && (
-          <>
-            <span aria-hidden className="text-muted-foreground/50">·</span>
-            <span className={cn('font-medium tabular-nums', style.status)}>{status}</span>
-          </>
-        )}
+        {status && <span className="text-xs tabular-nums text-muted-foreground">{status}</span>}
         {call.startedAt && (
-          <>
-            <span aria-hidden className="text-muted-foreground/50">·</span>
-            <time dateTime={call.startedAt} className="tabular-nums text-muted-foreground">{shortTime(call.startedAt)}</time>
-          </>
+          <time dateTime={call.startedAt} className="text-[11px] tabular-nums text-muted-foreground/70">
+            {shortTime(call.startedAt)}
+          </time>
+        )}
+        {canJoin && (
+          <Button size="xs" onClick={() => callContext.joinCall(liveCallId)}>
+            {tc.join}
+          </Button>
         )}
       </span>
     </div>
@@ -517,14 +535,14 @@ function MessageAvatar({
       className="h-7 w-7 p-0 flex-shrink-0 rounded-[9px] focus:outline-none focus-visible:ring-2 focus-visible:ring-ring hover:opacity-80 transition-opacity"
       title={t.weldchat.messageItem.viewProfile.replace('{name}', message.authorName ?? '')}
     >
-      <Avatar className="h-7 w-7">
-        {message.authorAvatar && (
-          <AvatarImage src={message.authorAvatar} />
-        )}
-        <AvatarFallback className="text-[9px]">
-          {(message.authorName || '?')[0].toUpperCase()}
-        </AvatarFallback>
-      </Avatar>
+      <MemberAvatar
+        userId={message.authorId}
+        name={message.authorName}
+        picture={message.authorAvatar}
+        className="h-7 w-7"
+        fallbackClassName="text-[9px]"
+        fallback={(message.authorName || '?')[0].toUpperCase()}
+      />
     </Button>
   );
 }
@@ -537,7 +555,9 @@ export function MessageItem({
   membersMap,
   replyToMessage,
   readBy,
+  isDm,
   hasActiveCall,
+  activeCallId,
   call,
 }: Readonly<MessageItemProps>) {
   const [isHovered, setIsHovered] = useState(false);
@@ -579,7 +599,17 @@ export function MessageItem({
   // The `[system…]` prefix is only honoured on real system messages (and the
   // legacy pin notice), so a member can't type a fake notice.
   if (isSystemNotice(message)) {
-    if (call) return <CallNoticeRow message={message} call={call} isLive={!!hasActiveCall} />;
+    if (call) {
+      return (
+        <CallNoticeRow
+          message={message}
+          call={call}
+          isLive={!!hasActiveCall}
+          liveCallId={activeCallId}
+          showCaller={!isDm}
+        />
+      );
+    }
     return <SystemMessage message={message} systemMatch={matchSystemNotice(message)} />;
   }
 
@@ -608,15 +638,21 @@ export function MessageItem({
         <div className="flex items-center gap-1.5 ml-[13px] mb-0.5 text-xs text-muted-foreground">
           <div className="w-[22px] h-3 border-l-2 border-t-2 border-muted-foreground/40 rounded-tl-md" />
           <div className="flex items-center gap-1.5 -translate-y-[4px]">
-            <Avatar className="h-4 w-4">
-              {isImageUrl(replyToMessage.authorAvatar) && <AvatarImage src={replyToMessage.authorAvatar} />}
-              <AvatarFallback className="text-[8px]">
-                {/* An agent's avatar is its emoji icon, not an image. */}
-                {replyToMessage.authorAvatar && !isImageUrl(replyToMessage.authorAvatar)
-                  ? replyToMessage.authorAvatar
-                  : (replyToMessage.authorName || '?')[0]}
-              </AvatarFallback>
-            </Avatar>
+            {replyToMessage.authorAvatar && !isImageUrl(replyToMessage.authorAvatar) ? (
+              // An agent's avatar is its emoji icon, not an image.
+              <Avatar className="h-4 w-4">
+                <AvatarFallback className="text-[8px]">{replyToMessage.authorAvatar}</AvatarFallback>
+              </Avatar>
+            ) : (
+              <MemberAvatar
+                userId={replyToMessage.authorId}
+                name={replyToMessage.authorName}
+                picture={replyToMessage.authorAvatar}
+                className="h-4 w-4"
+                fallbackClassName="text-[8px]"
+                fallback={(replyToMessage.authorName || '?')[0]}
+              />
+            )}
             <span className="font-semibold text-foreground/70">{replyToMessage.authorName}</span>
             <span className="truncate max-w-[300px]">{messagePreviewText(replyToMessage.content ?? '', membersMap)}</span>
           </div>
@@ -696,6 +732,9 @@ export function MessageItem({
             );
           })()
         )}
+
+        {/* Charts, figures, tables and record cards the agent showed */}
+        <MessageVisuals message={message} />
 
         {/* Actions the agent is waiting on a person to approve */}
         <MessageApprovals message={message} />

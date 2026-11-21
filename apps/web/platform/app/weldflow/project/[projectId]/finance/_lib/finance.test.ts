@@ -73,6 +73,25 @@ describe('buildCurve', () => {
     expect(curve.points[0].earned).toBe(250);
   });
 
+  it('starts every line at nothing on the start date and ends the plan at the budget', () => {
+    const START = Date.parse('2026-03-16T00:00:00Z');
+    const curve = buildCurve([snapshot('2026-W44')], finance(true), END, NOW, START);
+    expect(curve.points[0]).toEqual({ t: START, planned: 0, earned: 0, actual: 0 });
+    expect(curve.points.at(-1)).toMatchObject({ t: END, planned: 1000, forecast: 1280 });
+  });
+
+  it('puts the end of the plan before today when the project ran past its end date', () => {
+    const START = Date.parse('2026-03-16T00:00:00Z');
+    const PAST_END = Date.parse('2026-10-09T00:00:00Z');
+    const curve = buildCurve([snapshot('2026-W44')], finance(true), PAST_END, NOW, START);
+    expect(curve.points.map((p) => [new Date(p.t).toISOString().slice(0, 10), p.planned ?? null])).toEqual([
+      ['2026-03-16', 0],
+      ['2026-10-09', 1000],
+      ['2026-10-26', expect.any(Number)],
+      ['2026-11-04', 400],
+    ]);
+  });
+
   it('draws percentages for a caller without finance rights', () => {
     const curve = buildCurve([snapshot('2026-W40')], finance(false), END, NOW);
     expect(curve.percent).toBe(true);

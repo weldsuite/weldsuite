@@ -26,6 +26,7 @@
     "@weldsuite/api-client": "workspace:*",
     "@weldsuite/api-modules": "workspace:*",
     "@weldsuite/app-api-client": "workspace:*",
+    "@weldsuite/mobile-platform": "workspace:*",
     "@weldsuite/mobile-ui": "workspace:*",
     "@weldsuite/permissions": "workspace:*",
     "@weldsuite/personal-api-client": "workspace:*",

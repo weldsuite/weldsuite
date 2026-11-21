@@ -16,6 +16,11 @@ interface UseConversationConfig {
   getToken: () => Promise<string>;
   /** Presence data to send on connect (name, role, avatar) */
   presenceData?: Record<string, unknown>;
+  /**
+   * An agent's workspace, membership mode only (`RoomClientConfig.workspace`);
+   * a change reconnects. Unset for widget visitors.
+   */
+  workspace?: string | null;
 }
 
 /**
@@ -36,11 +41,13 @@ export function useConversation(conversationId: string, config: UseConversationC
   const [messages, setMessages] = useState<RoomMessage[]>([]);
   const [presence, setPresence] = useState<PresenceMember[]>([]);
   const [typingUsers, setTypingUsers] = useState<TypingUser[]>([]);
+  const workspace = config.workspace || null;
 
   useEffect(() => {
     const client = new RoomClient({
       url: `${config.baseUrl}/ws/conversation/${conversationId}`,
       getToken: config.getToken,
+      workspace,
     });
     clientRef.current = client;
 
@@ -65,7 +72,7 @@ export function useConversation(conversationId: string, config: UseConversationC
       setTypingUsers([]);
       setState('disconnected');
     };
-  }, [conversationId, config.baseUrl]);
+  }, [conversationId, config.baseUrl, workspace]);
 
   const sendMessage = useCallback(
     (content: string, attachments?: Attachment[]) => {

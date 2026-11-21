@@ -18,11 +18,14 @@
 //! conformance suite (`rust/conformance/suites.json`). `/internal/agent/*`
 //! (the `SheetsInternal` entrypoint the WeldAgent tools call) is not here.
 
+mod agent;
 mod data_sources;
 mod records;
 mod routes;
 mod sheet_data;
 mod versions;
+
+pub use agent::{AgentScope, agent_call};
 
 use std::sync::Arc;
 
@@ -159,6 +162,8 @@ pub(crate) struct Caller {
     pub(crate) clerk_org_id: Option<String>,
     files: Option<FileStores>,
     collab: Option<RequestCollab>,
+    /// The master database (account pictures), when the request has one.
+    pub(crate) master: Option<PgPool>,
 }
 
 impl Caller {
@@ -296,6 +301,10 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
                     clerk_org_id: tenant.clerk_org_id.clone(),
                     files: parts.extensions.get::<FileStores>().cloned(),
                     collab: parts.extensions.get::<RequestCollab>().cloned(),
+                    master: parts
+                        .extensions
+                        .get::<weldsuite_db::MasterDb>()
+                        .map(|master| master.0.clone()),
                 })
             } else {
                 tracing::error!("sheets: a route without the session, tenant or permission layer");
@@ -309,6 +318,9 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
 /// (400, 403, 404, 409, a validation failure), or an unexpected error (500).
 pub(crate) enum Refusal {
     Response(Box<Response>),
+    /// A refusal as an [`ApiError`], so a caller that is not a route (the
+    /// agent tools) can read its message.
+    Api(ApiError),
     Database(sqlx::Error),
 }
 
@@ -320,7 +332,7 @@ impl From<sqlx::Error> for Refusal {
 
 impl From<ApiError> for Refusal {
     fn from(error: ApiError) -> Self {
-        Self::Response(Box::new(error.into_response()))
+        Self::Api(error)
     }
 }
 
@@ -333,9 +345,19 @@ impl Refusal {
         ApiError::forbidden().with_message(message).into()
     }
 
+    /// What a caller that is not a route (the agent tools) says of the refusal.
+    pub(crate) fn message(&self) -> String {
+        match self {
+            Self::Api(error) => error.message().to_owned(),
+            Self::Response(_) => "The request was refused".to_owned(),
+            Self::Database(_) => "Internal server error".to_owned(),
+        }
+    }
+
     pub(crate) fn respond(self) -> Response {
         match self {
             Self::Response(response) => *response,
+            Self::Api(error) => error.into_response(),
             Self::Database(error) => {
                 tracing::error!(%error, "[sheets-api] a query failed");
                 ApiError::internal().into_response()

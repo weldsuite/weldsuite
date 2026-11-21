@@ -445,7 +445,7 @@ async fn suggest_articles(ctx: &Ctx<'_>) -> Map<String, Value> {
     let limit = limit as i64;
     let count: Result<Vec<String>, sqlx::Error> = sqlx::query_scalar(
         "select id from helpdesk_articles
-         where status = 'published' and deleted_at is null
+         where status = 'published' and deleted_at is null and visibility = 'public'
            and ($1 = '' or title ilike $2 or excerpt ilike $2)
          limit $3",
     )

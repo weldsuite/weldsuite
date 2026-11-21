@@ -30,8 +30,8 @@ use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use crate::entity_scope::{EMPLOYEE_RECORD, Scope, guard};
 use crate::fields::{Fields, field_json, id, iso_date, short_text, text_max};
 use crate::{
-    Caller, HrError, HrResult, HrState, assert_date_order, company_names, hr_json, js_number, now,
-    text, today_iso, zod_query,
+    Caller, HrError, HrResult, HrState, assert_birth_date, assert_date_order, company_names,
+    hr_json, js_number, now, text, today_iso, zod_query,
 };
 
 /// `custom_field_definitions.entity_type` for employees.
@@ -557,9 +557,9 @@ async fn available_members_route(caller: Caller, RawQuery(query): RawQuery) -> H
         .map(|s| crate::js_trim(&s).to_owned())
         .filter(|s| !s.is_empty())
         .map(|s| format!("%{}%", escape_like_term(&s)));
-    let rows: Vec<Value> = sqlx::query_scalar(
+    let mut rows: Vec<Value> = sqlx::query_scalar(
         "select jsonb_build_object('userId', m.user_id, 'name', m.name, 'email', m.email,
-             'picture', m.picture, 'title', m.title, 'phone', m.phone,
+             'picture', null, 'title', m.title, 'phone', m.phone,
              'memberType', case when m.member_type = 'EMPLOYEE' then 'EMPLOYEE' else 'INTERNAL' end)
          from workspace_members m
          where m.deleted_at is null and m.status = 'ACTIVE' and m.member_type = any($1)
@@ -574,6 +574,9 @@ async fn available_members_route(caller: Caller, RawQuery(query): RawQuery) -> H
     .bind(limit)
     .fetch_all(&caller.db)
     .await?;
+    // Avatars are account pictures, not the member row's copy.
+    weldsuite_db::overlay_account_pictures(caller.request_master(), &mut rows, "userId", "picture")
+        .await;
     Ok(Data(rows).into_response())
 }
 
@@ -1331,6 +1334,13 @@ async fn create_employee(
     let get = |key: &str| input.iter().find(|(k, _)| *k == key).map(|(_, v)| v);
     let get_text = |key: &str| get(key).and_then(Value::as_str);
     assert_date_order(get_text("startDate"), get_text("endDate"), "Employment")?;
+    assert_date_order(
+        get_text("startDate"),
+        get_text("probationEndDate"),
+        "Probation",
+    )?;
+    let birth = sensitive.and_then(|fields| fields.iter().find(|(k, _)| *k == "dateOfBirth"));
+    assert_birth_date(birth.and_then(|(_, v)| v.as_str()))?;
     let email = get_text("email").unwrap_or_default().to_owned();
     assert_email_free(db, &email, None).await?;
     let user_id = match get_text("userId").filter(|id| !id.is_empty()) {
@@ -1621,6 +1631,14 @@ async fn update_route(
         pick("endDate").as_deref(),
         "Employment",
     )?;
+    // Only when the save touches either date, so older rows stay editable (TASK-1471).
+    if body.get("startDate").is_some() || body.get("probationEndDate").is_some() {
+        assert_date_order(
+            pick("startDate").as_deref(),
+            pick("probationEndDate").as_deref(),
+            "Probation",
+        )?;
+    }
     if let Some(email) = body.text("email").filter(|e| !e.is_empty())
         && email.to_lowercase() != text(&existing, "email").to_lowercase()
     {
@@ -1761,6 +1779,8 @@ async fn write_sensitive_route(
     body: Bytes,
 ) -> HrResult {
     let patch = hr_json(&headers, &body, sensitive_fields)?;
+    let birth = patch.iter().find(|(key, _)| *key == "dateOfBirth");
+    assert_birth_date(birth.and_then(|(_, value)| value.as_str()))?;
     let keyring = caller.keyring();
     let current = read_sensitive(&caller.db, &id, &keyring).await?;
     let mut next = current.as_object().cloned().unwrap_or_default();

@@ -22,13 +22,14 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use http::HeaderMap;
+use http::{HeaderMap, StatusCode};
 use serde_json::{Value, json};
 use weldsuite_db::{PgPool, js_row};
 use weldsuite_kit::validation::Presence;
 use weldsuite_kit::{ApiError, Data, generate_id};
 use weldsuite_ports::{
-    DynRealtimePublisher, IdentityError, Membership, RealtimeMessage, Room, with_identity,
+    DynRealtimePublisher, IdentityError, Invitation, Membership, RealtimeMessage, Room,
+    with_identity,
 };
 
 use crate::{AccountCaller, CoreTeamState, TeamError, TeamResult, answer, now, validate};
@@ -51,18 +52,26 @@ fn tenant_role(role: &str) -> Option<&'static str> {
 
 /// A workspace's tenant database, from its master row (`getTenantDbForWorkspace`).
 /// `None` when it has no database configured or can't be opened.
+///
+/// "Configured" is a stored `database_url`, which is what
+/// [`weldsuite_db::Workspaces::tenant`] opens. TypeScript checks the Neon
+/// columns instead (`neon_project_id`, `neon_branch_id`, `neon_role_name`)
+/// because it may ask Neon for the URL; the CloudNativePG shards of the
+/// Kubernetes editions record no `neon_branch_id`, and that check skipped
+/// every workspace there: an accepted invitation left the member row
+/// PENDING, so the new member's every request was refused.
 async fn tenant_db(state: &CoreTeamState, master: &PgPool, org: &str) -> Option<PgPool> {
-    let row: Option<(Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
-        "select neon_project_id, neon_branch_id, neon_role_name from workspaces
+    let configured: Option<bool> = sqlx::query_scalar(
+        "select coalesce(database_url, '') <> '' from workspaces
          where id = $1 or clerk_org_id = $1 limit 1",
     )
     .bind(org)
     .fetch_optional(master)
     .await
     .ok()?;
-    let (Some(_), Some(_), Some(_)) = row? else {
+    if configured != Some(true) {
         return None;
-    };
+    }
     match state.workspaces.tenant(org).await {
         Ok(tenant) => Some(tenant.db),
         Err(error) => {
@@ -107,9 +116,14 @@ async fn lookup_org_invitation(
             .ok()?;
     // `workspace?.name || org.name`.
     let workspace_name = name.filter(|n| !n.is_empty()).unwrap_or(org.name);
+    Some(invitation_details(&org.id, &workspace_name, &invitation))
+}
+
+/// What `GET /:token` answers for a provider's (or WeldSuite's own) invitation.
+fn invitation_details(org_id: &str, workspace_name: &str, invitation: &Invitation) -> Value {
     let expires = invitation.expires_at.filter(|at| *at != 0);
     let mut details = json!({
-        "workspaceId": org.id,
+        "workspaceId": org_id,
         "workspaceName": workspace_name,
         "role": invitation.role,
         "inviteeEmail": invitation.email_address,
@@ -120,7 +134,7 @@ async fn lookup_org_invitation(
     if let Some(at) = expires.and_then(iso_millis) {
         details["expiresAt"] = json!(at);
     }
-    Some(details)
+    details
 }
 
 /// (role, email, name, status) of a member row.
@@ -181,6 +195,22 @@ async fn run_details(
     };
     let master = caller.master(state);
     let identity = caller.identity(state);
+    // Membership mode: WeldSuite keeps the invitation, and finds it by id
+    // whoever asks (accepting still takes the invited address).
+    if let Some(provider) = identity.as_ref() {
+        match provider.find_invitation(token).await {
+            Ok(Some((org, invitation))) => {
+                return Ok(
+                    Data(invitation_details(&org.id, &org.name, &invitation)).into_response()
+                );
+            }
+            Ok(None) => {}
+            Err(error) if error.is_not_found() => {
+                return Err(TeamError::api(ApiError::not_found("Invitation", None)));
+            }
+            Err(error) => return Err(failed(&error)),
+        }
+    }
     // A provider that can't be reached is an error; a refusal is "not there".
     match with_identity(identity.as_ref(), |i| {
         i.user_memberships(&caller.user_id, 100)
@@ -238,6 +268,29 @@ async fn run_accept(
         |error: &dyn std::fmt::Display| TeamError::internal("Failed to accept invitation", error);
     let master = caller.master(state);
     let identity = caller.identity(state);
+    // Membership mode: the invitation becomes a membership here, WeldSuite's
+    // own, and the invited member row is linked to it as below.
+    if let Some(provider) = identity.as_ref() {
+        match provider.accept_invitation(&token, &caller.user_id).await {
+            Ok(Some(membership)) => {
+                let joined =
+                    accept_in_org(state, &master, &membership, &caller.user_id, &token).await;
+                let (workspace_id, workspace_name, role) = joined.unwrap_or_else(|| {
+                    let org = membership.organization.clone().unwrap_or_default();
+                    let role = tenant_role(&membership.role).unwrap_or("MEMBER");
+                    (org.id, org.name, role.to_owned())
+                });
+                return Ok(Data(json!({
+                    "workspaceId": workspace_id,
+                    "workspaceName": workspace_name,
+                    "role": role,
+                }))
+                .into_response());
+            }
+            Ok(None) => {}
+            Err(error) => return Err(acceptance_refused(&error).unwrap_or_else(|| failed(&error))),
+        }
+    }
     let Ok(memberships) = with_identity(identity.as_ref(), |i| {
         i.user_memberships(&caller.user_id, 100)
     })
@@ -280,6 +333,31 @@ async fn run_accept(
         "role": role,
     }))
     .into_response())
+}
+
+/// Membership mode's refusals of an acceptance, as the platform reads them:
+/// gone, not found, or forbidden with the reason (`invitation_email_mismatch`,
+/// `invitation_email_unverified`) in `details`. `None`: not a refusal.
+fn acceptance_refused(error: &IdentityError) -> Option<TeamError> {
+    let IdentityError::Rejected {
+        status,
+        code,
+        message,
+        ..
+    } = error
+    else {
+        return None;
+    };
+    let message = message.clone().unwrap_or_default();
+    let error = match status {
+        404 => ApiError::not_found("Invitation", None),
+        410 => ApiError::new(StatusCode::GONE, "INVITATION_EXPIRED", message),
+        403 => ApiError::forbidden()
+            .with_message(message)
+            .with_details(json!({ "reason": code })),
+        _ => return None,
+    };
+    Some(TeamError::api(error))
 }
 
 /// `acceptPendingInOrg`: link and activate the invited row in this org.
@@ -413,9 +491,9 @@ async fn activate_pending_member(
     let stamp = now();
     let updated: Option<String> = sqlx::query_scalar(
         "update workspace_members
-         set user_id = $3, name = coalesce($4, name), picture = coalesce($5, picture),
-             role = $6, status = 'ACTIVE', clerk_membership_id = $7,
-             accepted_at = coalesce(accepted_at, $8::timestamptz), updated_at = $8::timestamptz
+         set user_id = $3, name = coalesce($4, name),
+             role = $5, status = 'ACTIVE', clerk_membership_id = $6,
+             accepted_at = coalesce(accepted_at, $7::timestamptz), updated_at = $7::timestamptz
          where id = $1 and user_id = $2
          returning id",
     )
@@ -423,7 +501,7 @@ async fn activate_pending_member(
     .bind(pending["userId"].as_str())
     .bind(user_id)
     .bind(name)
-    .bind(membership.user.image_url.as_deref())
+    // No picture: avatars are the account's (master `users.image_url`).
     .bind(role)
     .bind(&membership.id)
     .bind(stamp)
@@ -693,8 +771,13 @@ mod tests {
                 weldsuite_db::WorkspaceConfig::default(),
             )),
             identity: None,
+            plan_seat_limits: true,
         }
     }
+
+    /// The tests on the tenant database run one at a time: linking joins the
+    /// public channels, which they share.
+    static TENANT_DB: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
     #[tokio::test]
     async fn links_a_pending_member_and_joins_their_channels() {
@@ -702,6 +785,7 @@ mod tests {
             eprintln!("WELDSUITE_TEST_TENANT_URL not set; skipping");
             return;
         };
+        let _serial = TENANT_DB.lock().await;
         let db = weldsuite_db::master_pool(&url, 2).expect("tenant pool");
         seed_invited_member(&db).await;
         let realtime = Arc::new(weldsuite_ports::RecordingRealtime::new());
@@ -788,6 +872,285 @@ mod tests {
         assert_eq!(
             iso_millis(1_767_225_600_123).as_deref(),
             Some("2026-01-01T00:00:00.123Z")
+        );
+    }
+
+    // ── membership mode: invitations WeldSuite keeps (WeldID) ───────────
+
+    use weldsuite_ports::{IdentityCall, MemoryIdentity, Organization};
+
+    /// A provider that keeps invitations, and no database behind the state:
+    /// these branches answer from the provider (linking the tenant's member
+    /// row finds no database and is skipped).
+    fn kept_state(
+        identity: &Arc<MemoryIdentity>,
+    ) -> (CoreTeamState, weldsuite_events::TaskTracker) {
+        let db = weldsuite_db::master_pool("postgres://weldsuite:x@127.0.0.1:1/none", 1)
+            .expect("lazy pool");
+        let tracker = weldsuite_events::TaskTracker::new();
+        let mut state = test_state(
+            &db,
+            Arc::new(weldsuite_ports::RecordingRealtime::new()),
+            &tracker,
+        );
+        state.identity = Some(Arc::clone(identity) as Arc<dyn weldsuite_ports::Identity>);
+        (state, tracker)
+    }
+
+    fn kept() -> MemoryIdentity {
+        MemoryIdentity::new()
+            .keeping_invitations()
+            .with_organization(Organization {
+                id: "org_kept".to_owned(),
+                name: "Kept Co".to_owned(),
+                slug: Some("kept".to_owned()),
+                ..Organization::default()
+            })
+            .with_invitation(
+                "org_kept",
+                Invitation {
+                    id: "inv_kept".to_owned(),
+                    email_address: "new@kept.test".to_owned(),
+                    role: "org:admin".to_owned(),
+                    status: "pending".to_owned(),
+                    expires_at: Some(now_millis() + 86_400_000),
+                    ..Invitation::default()
+                },
+            )
+            .with_invitation(
+                "org_kept",
+                Invitation {
+                    id: "inv_late".to_owned(),
+                    email_address: "new@kept.test".to_owned(),
+                    role: "org:member".to_owned(),
+                    status: "expired".to_owned(),
+                    expires_at: Some(1),
+                    ..Invitation::default()
+                },
+            )
+            .with_user("new@kept.test", "user_new")
+            .with_user("other@kept.test", "user_other")
+    }
+
+    async fn body_of(response: Response) -> (u16, Value) {
+        let status = response.status().as_u16();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        (
+            status,
+            serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+        )
+    }
+
+    async fn accept_as(state: &CoreTeamState, user_id: &str, token: &str) -> (u16, Value) {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            http::header::CONTENT_TYPE,
+            http::HeaderValue::from_static("application/json"),
+        );
+        let body = Bytes::from(json!({ "token": token }).to_string());
+        body_of(answer(
+            run_accept(state, &AccountCaller::for_test(user_id), &headers, &body).await,
+        ))
+        .await
+    }
+
+    #[tokio::test]
+    async fn a_kept_invitation_is_found_by_id_whoever_asks() {
+        let identity = Arc::new(kept());
+        let (state, _tracker) = kept_state(&identity);
+        let caller = AccountCaller::for_test("user_other");
+        let (status, body) = body_of(answer(run_details(&state, &caller, "inv_kept").await)).await;
+        assert_eq!(status, 200, "{body}");
+        let details = &body["data"];
+        assert_eq!(details["workspaceId"], "org_kept");
+        assert_eq!(details["workspaceName"], "Kept Co");
+        assert_eq!(details["role"], "org:admin");
+        assert_eq!(details["inviteeEmail"], "new@kept.test");
+        assert_eq!(details["isExpired"], false);
+        assert_eq!(details["isUsed"], false);
+        assert!(details["expiresAt"].is_string());
+
+        let (status, _) = body_of(answer(run_details(&state, &caller, "inv_none").await)).await;
+        assert_eq!(status, 404);
+        // Never through the caller's memberships or the tenants' databases.
+        assert!(
+            !identity
+                .calls()
+                .iter()
+                .any(|call| matches!(call, IdentityCall::UserMemberships(..)))
+        );
+    }
+
+    #[tokio::test]
+    async fn accepting_a_kept_invitation_makes_the_membership_here() {
+        let identity = Arc::new(kept());
+        let (state, _tracker) = kept_state(&identity);
+        let (status, body) = accept_as(&state, "user_new", "inv_kept").await;
+        assert_eq!(status, 200, "{body}");
+        assert_eq!(
+            body["data"],
+            json!({ "workspaceId": "org_kept", "workspaceName": "Kept Co", "role": "ADMIN" })
+        );
+        assert!(identity.calls().contains(&IdentityCall::AcceptInvitation(
+            "inv_kept".to_owned(),
+            "user_new".to_owned()
+        )));
+        // Once.
+        let (status, _) = accept_as(&state, "user_new", "inv_kept").await;
+        assert_eq!(status, 404);
+    }
+
+    #[tokio::test]
+    async fn a_kept_invitation_refuses_another_address_and_an_expired_one() {
+        let identity = Arc::new(kept());
+        let (state, _tracker) = kept_state(&identity);
+        let (status, body) = accept_as(&state, "user_other", "inv_kept").await;
+        assert_eq!(status, 403, "{body}");
+        assert_eq!(
+            body["error"]["details"]["reason"],
+            "invitation_email_mismatch"
+        );
+        assert_eq!(
+            body["error"]["message"],
+            "This invitation is for another email address."
+        );
+        let (status, body) = accept_as(&state, "user_new", "inv_late").await;
+        assert_eq!(status, 410, "{body}");
+        assert_eq!(body["error"]["code"], "INVITATION_EXPIRED");
+    }
+
+    /// Membership mode on a CloudNativePG shard (the EU edition): the
+    /// workspace's placement has no `neon_branch_id`, and accepting must
+    /// still link the invited row to the user, or every request they make
+    /// in the workspace is refused. Runs when `WELDSUITE_TEST_MASTER_URL` and
+    /// `WELDSUITE_TEST_TENANT_URL` are set.
+    #[tokio::test]
+    async fn accepting_links_the_invited_row_on_a_shard_without_a_neon_branch() {
+        let (Ok(master_url), Ok(tenant_url)) = (
+            std::env::var("WELDSUITE_TEST_MASTER_URL"),
+            std::env::var("WELDSUITE_TEST_TENANT_URL"),
+        ) else {
+            eprintln!("WELDSUITE_TEST_MASTER_URL or WELDSUITE_TEST_TENANT_URL not set; skipping");
+            return;
+        };
+        let _serial = TENANT_DB.lock().await;
+        let master = weldsuite_db::master_pool(&master_url, 2).expect("master pool");
+        let tenant = weldsuite_db::master_pool(&tenant_url, 2).expect("tenant pool");
+        clean_shard_case(&master, &tenant).await;
+        // Placed as `CnpgProvisioner` places a workspace (the URL in the
+        // clear here; sealed in a deployment, which the resolver opens).
+        sqlx::query(
+            "insert into workspaces (id, clerk_org_id, name, slug, neon_project_id, neon_branch_id,
+                                     neon_database_name, neon_role_name, database_url)
+             values ('ws_inv_cnpg', 'org_inv_cnpg', 'Shard Co', 'inv-cnpg', 'cnpg:tenants-1', null,
+                     'ws_ws_inv_cnpg', 'role_ws_inv_cnpg', $1)",
+        )
+        .bind(&tenant_url)
+        .execute(&master)
+        .await
+        .expect("workspace");
+        sqlx::query(
+            "insert into workspace_members (id, user_id, email, role, status, member_type, clerk_invitation_id)
+             values ('wm_cnpg_1', 'invited_cnpg@example.com', 'cnpg@example.com', 'ADMIN', 'PENDING', 'INTERNAL', 'inv_cnpg')",
+        )
+        .execute(&tenant)
+        .await
+        .expect("invited row");
+
+        let identity = Arc::new(
+            MemoryIdentity::new()
+                .keeping_invitations()
+                .with_organization(Organization {
+                    id: "org_inv_cnpg".to_owned(),
+                    name: "Shard Co".to_owned(),
+                    slug: Some("inv-cnpg".to_owned()),
+                    ..Organization::default()
+                })
+                .with_invitation(
+                    "org_inv_cnpg",
+                    Invitation {
+                        id: "inv_cnpg".to_owned(),
+                        email_address: "cnpg@example.com".to_owned(),
+                        role: "org:admin".to_owned(),
+                        status: "pending".to_owned(),
+                        expires_at: Some(now_millis() + 86_400_000),
+                        ..Invitation::default()
+                    },
+                )
+                .with_user("cnpg@example.com", "user_cnpg"),
+        );
+        let tracker = weldsuite_events::TaskTracker::new();
+        let mut state = test_state(
+            &master,
+            Arc::new(weldsuite_ports::RecordingRealtime::new()),
+            &tracker,
+        );
+        state.identity = Some(identity as Arc<dyn weldsuite_ports::Identity>);
+
+        let (status, body) = accept_as(&state, "user_cnpg", "inv_cnpg").await;
+        tracker.close();
+        tracker.wait().await;
+        assert_eq!(status, 200, "{body}");
+        assert_eq!(body["data"]["workspaceId"], "org_inv_cnpg");
+        assert_eq!(body["data"]["role"], "ADMIN");
+        let (user, member_status, role): (String, String, String) = sqlx::query_as(
+            "select user_id, status, role from workspace_members where id = 'wm_cnpg_1'",
+        )
+        .fetch_one(&tenant)
+        .await
+        .expect("row");
+        assert_eq!(
+            (user.as_str(), member_status.as_str(), role.as_str()),
+            ("user_cnpg", "ACTIVE", "ADMIN")
+        );
+
+        // Not configured: skipped, as before.
+        sqlx::query("update workspaces set database_url = null where id = 'ws_inv_cnpg'")
+            .execute(&master)
+            .await
+            .expect("no database");
+        assert!(tenant_db(&state, &master, "org_inv_cnpg").await.is_none());
+        clean_shard_case(&master, &tenant).await;
+    }
+
+    /// The rows the shard test writes, which it removes before and after.
+    async fn clean_shard_case(master: &PgPool, tenant: &PgPool) {
+        sqlx::query("delete from workspaces where id = 'ws_inv_cnpg'")
+            .execute(master)
+            .await
+            .expect("clean master");
+        // Linking joined the public channels: leave them as they were.
+        sqlx::raw_sql(
+            r"update chat_channels set member_count = greatest(member_count - 1, 0)
+               where id in (select channel_id from chat_channel_members where user_id = 'user_cnpg');
+              delete from chat_channel_members where user_id = 'user_cnpg';
+              delete from workspace_members where id = 'wm_cnpg_1' or user_id = 'user_cnpg';",
+        )
+        .execute(tenant)
+        .await
+        .expect("clean tenant");
+    }
+
+    #[tokio::test]
+    async fn a_provider_that_keeps_no_invitations_goes_the_old_way() {
+        let identity = Arc::new(MemoryIdentity::new());
+        let (state, _tracker) = kept_state(&identity);
+        let (status, _) = accept_as(&state, "user_new", "inv_kept").await;
+        // No membership names the invitation: not found, as before.
+        assert_eq!(status, 404);
+        let calls = identity.calls();
+        assert!(
+            calls
+                .iter()
+                .any(|call| matches!(call, IdentityCall::UserMemberships(..))),
+            "{calls:?}"
+        );
+        assert!(
+            !calls
+                .iter()
+                .any(|call| matches!(call, IdentityCall::AcceptInvitation(..)))
         );
     }
 }

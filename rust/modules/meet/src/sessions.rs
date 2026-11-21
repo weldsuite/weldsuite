@@ -114,6 +114,7 @@ pub(crate) fn avatars(state: &MeetState, caller: &Caller) -> AvatarStore {
     AvatarStore {
         bucket: caller.parts.public_bucket(state),
         public_url: caller.parts.env("R2_PUBLIC_URL"),
+        master: caller.request_master().cloned(),
     }
 }
 
@@ -323,14 +324,15 @@ async fn latest(caller: Caller, RawQuery(query): RawQuery) -> Response {
 
 // ── POST /start ────────────────────────────────────────────────────────────
 
-/// `getMemberDisplayCached(c, orgId, userId)`: the member's name and picture,
-/// cached an hour.
+/// `getMemberDisplayCached(c, orgId, userId)`: the member's name and account
+/// picture, cached an hour under a versioned key (`v2`: older entries carried
+/// the member row's picture). A failed picture lookup is not cached.
 async fn member_display(
     state: &MeetState,
     caller: &Caller,
     org: &str,
 ) -> Result<(String, Option<String>), sqlx::Error> {
-    let key = format!("member-display:{org}:{}", caller.user_id);
+    let key = format!("member-display:v2:{org}:{}", caller.user_id);
     let cache = caller.parts.cache(state);
     if let Some(cache) = &cache
         && let Ok(Some(raw)) = cache.get_boxed(&key).await
@@ -341,14 +343,22 @@ async fn member_display(
         let picture = text(&parsed, "picture").map(str::to_owned);
         return Ok((name, picture));
     }
-    let author: Option<(Option<String>, Option<String>)> =
-        sqlx::query_as("select name, picture from workspace_members where user_id = $1 limit 1")
+    let name: Option<Option<String>> =
+        sqlx::query_scalar("select name from workspace_members where user_id = $1 limit 1")
             .bind(&caller.user_id)
             .fetch_optional(&caller.db)
             .await?;
-    let (name, picture) = author.unwrap_or((None, None));
+    let name = name.flatten();
+    // The avatar is the account picture, not the member row's copy.
+    let pictures =
+        weldsuite_db::AccountPictures::try_load(caller.request_master(), [caller.user_id.as_str()])
+            .await;
+    let picture = pictures
+        .as_ref()
+        .and_then(|pictures| pictures.get(&caller.user_id))
+        .map(str::to_owned);
     let name = name.unwrap_or_else(|| "Unknown".to_owned());
-    if let Some(cache) = cache {
+    if let Some(cache) = cache.filter(|_| pictures.is_some()) {
         let mut value = Map::new();
         value.insert("name".into(), json!(name));
         if let Some(picture) = &picture {
@@ -431,6 +441,7 @@ pub(crate) fn leave_other_calls_later(
 ) {
     let state = state.clone();
     let env = lifecycle_env(&state, caller);
+    let call_ports = crate::chat_calls::call_ports(&state, &caller.parts);
     let db = caller.db.clone();
     let org = org.to_owned();
     let user = caller.user_id.clone();
@@ -449,6 +460,8 @@ pub(crate) fn leave_other_calls_later(
             triggered_at,
         )
         .await;
+        // The joined call is a meeting session, so no chat call is spared.
+        crate::chat_calls::leave_chat_calls(&db, &call_ports, &org, &user, triggered_at).await;
     });
 }
 
@@ -773,13 +786,13 @@ async fn join_session(
         )
         .into_response());
     }
-    let author: Option<(Option<String>, Option<String>)> =
-        sqlx::query_as("select name, picture from workspace_members where user_id = $1 limit 1")
+    let author_name: Option<Option<String>> =
+        sqlx::query_scalar("select name from workspace_members where user_id = $1 limit 1")
             .bind(&caller.user_id)
             .fetch_optional(db)
             .await
             .map_err(|e| e.to_string())?;
-    let (author_name, author_picture) = author.unwrap_or((None, None));
+    let author_name = author_name.flatten();
     let user_name = author_name.unwrap_or_else(|| "Unknown".to_owned());
     let link = participants::resolve(
         db,
@@ -792,7 +805,8 @@ async fn join_session(
         },
     )
     .await;
-    let avatar = link.avatar_url.clone().or(author_picture);
+    // A member's link carries their account picture.
+    let avatar = link.avatar_url.clone();
     let env = lifecycle_env(state, caller);
     let joined = env
         .video

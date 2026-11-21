@@ -26,3 +26,29 @@ export function withoutLabel(labels: Labels, label: string): string[] {
 export function withLabel(labels: Labels, label: string): string[] {
   return hasLabel(labels, label) ? [...(labels ?? [])] : [...(labels ?? []), label];
 }
+
+// Labels that hold the mail's state (its folder, star, pin, …). The UI shows
+// them as folders and icons, never as label chips.
+const STATE_LABELS = new Set([
+  'inbox',
+  'sent',
+  'draft',
+  'drafts',
+  'trash',
+  'spam',
+  'starred',
+  'important',
+  'archive',
+  'snoozed',
+  'scheduled',
+  'promotions',
+  'pinned',
+  'muted',
+  'unread',
+  'all',
+]);
+
+/** The labels a person put on the mail: `labels` without the system ones. */
+export function userLabelsOf(labels: Labels): string[] {
+  return (labels ?? []).filter((l) => !STATE_LABELS.has(l.toLowerCase()));
+}

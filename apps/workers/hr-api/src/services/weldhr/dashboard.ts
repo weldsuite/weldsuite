@@ -10,7 +10,7 @@ import { employeeIdIn } from './entity-scope';
 import { onLeaveOn } from './time';
 import { addDays, todayIso } from './shared';
 
-/** `entity`: condition on the employees' legal entity (docs/plans/legal-entities.md); undefined = every employee. */
+/** `entity`: condition on the employees' legal entity (weldsuite-documentation/plans/legal-entities.md); undefined = every employee. */
 export async function hrDashboard(db: Database, entity?: SQL) {
   const today = todayIso();
   const e = schema.hrEmployees;

@@ -1,6 +1,8 @@
 //! `/api/chat-dm` (`routes/chat-dm/index.ts`): direct messages. A DM is a
 //! `type = 'dm'` channel whose members are exactly its participants; asking
-//! for one with the same people answers the existing channel.
+//! for one with the same people answers the existing channel. Someone invited
+//! to the workspace but not yet accepted can't be in one (409,
+//! `details.reason = "invitation_pending"`).
 
 use std::sync::Arc;
 
@@ -46,9 +48,22 @@ where
         .route("/{id}/pin", patch(pin).route_layer(update()))
 }
 
-/// The members of a DM with their names (`fullMembers`); `with_reads` adds
-/// role and read cursor.
+/// The members of a DM with their names and account pictures (`fullMembers`);
+/// `with_reads` adds role and read cursor.
 async fn full_members(
+    caller: &Caller,
+    channel_id: &str,
+    with_reads: bool,
+) -> Result<Vec<Value>, sqlx::Error> {
+    let mut members = member_rows(caller, channel_id, with_reads).await?;
+    weldsuite_db::overlay_account_pictures(caller.master(), &mut members, "userId", "picture")
+        .await;
+    Ok(members)
+}
+
+/// [`full_members`] with `picture` still null: avatars are account pictures,
+/// resolved by the caller (one lookup for a whole list).
+async fn member_rows(
     caller: &Caller,
     channel_id: &str,
     with_reads: bool,
@@ -60,7 +75,7 @@ async fn full_members(
                     'lastReadAt', chat_channel_members.last_read_at,
                     'lastReadMessageId', chat_channel_members.last_read_message_id,
                     'name', workspace_members.name, 'email', workspace_members.email,
-                    'picture', workspace_members.picture)
+                    'picture', null)
              from chat_channel_members
              left join workspace_members on chat_channel_members.user_id = workspace_members.user_id
              where chat_channel_members.channel_id = $1",
@@ -72,7 +87,7 @@ async fn full_members(
         sqlx::query_scalar(
             "select jsonb_build_object('userId', chat_channel_members.user_id,
                     'name', workspace_members.name, 'email', workspace_members.email,
-                    'picture', workspace_members.picture)
+                    'picture', null)
              from chat_channel_members
              left join workspace_members on chat_channel_members.user_id = workspace_members.user_id
              where chat_channel_members.channel_id = $1",
@@ -116,10 +131,23 @@ async fn list(caller: Caller) -> Response {
         .bind(&ids)
         .fetch_all(&caller.db)
         .await?;
-        let mut result = Vec::with_capacity(channels.len());
+        let mut rosters = Vec::with_capacity(channels.len());
         for channel in channels.into_iter().map(weldsuite_db::js_row) {
             let id = channel["id"].as_str().unwrap_or_default().to_owned();
-            let members = full_members(&caller, &id, true).await?;
+            let members = member_rows(&caller, &id, true).await?;
+            rosters.push((channel, id, members));
+        }
+        // One account-picture lookup for every DM's members.
+        let pictures = weldsuite_db::AccountPictures::load(
+            caller.master(),
+            rosters.iter().flat_map(|(_, _, members)| {
+                weldsuite_db::account_pictures::user_ids(members, "userId")
+            }),
+        )
+        .await;
+        let mut result = Vec::with_capacity(rosters.len());
+        for (channel, id, mut members) in rosters {
+            pictures.apply_all(members.iter_mut(), "userId", "picture");
             let current = members
                 .iter()
                 .find(|m| m["userId"].as_str() == Some(caller.user_id.as_str()));
@@ -256,6 +284,50 @@ async fn notify_new_dm(
     }
 }
 
+/// User-id prefixes of an invitation's member row. The row is written before
+/// the person has an account; accepting the invitation swaps the placeholder
+/// for their real user id. Same list as `INVITE_PLACEHOLDER_USER_ID_PREFIXES`
+/// in `@weldsuite/app-api-client/schemas/chat-dm`.
+const INVITE_PLACEHOLDER_PREFIXES: [&str; 2] = ["invited_", "pending_clerk_"];
+
+/// The ones in `user_ids` invited to the workspace but not accepted yet.
+/// Nobody is messaged before they join: the invitee can't read the DM, and
+/// accepting moves their member row to a new user id, which would leave the
+/// DM with a placeholder nobody signs in as.
+async fn pending_invitees(
+    caller: &Caller,
+    user_ids: &[String],
+) -> Result<Vec<String>, sqlx::Error> {
+    if user_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let pending: Vec<String> = sqlx::query_scalar(
+        "select user_id from workspace_members where user_id = any($1) and status = 'PENDING'",
+    )
+    .bind(user_ids)
+    .fetch_all(&caller.db)
+    .await?;
+    Ok(user_ids
+        .iter()
+        .filter(|id| {
+            pending.contains(id)
+                || INVITE_PLACEHOLDER_PREFIXES
+                    .iter()
+                    .any(|prefix| id.starts_with(prefix))
+        })
+        .cloned()
+        .collect())
+}
+
+/// 409 for a DM with someone who hasn't accepted their invitation; clients
+/// branch on `details.reason`.
+fn invitation_pending(user_ids: &[String]) -> ChatError {
+    ChatError::api(
+        ApiError::conflict("Some people have not accepted their workspace invitation yet")
+            .with_details(json!({ "reason": "invitation_pending", "userIds": user_ids })),
+    )
+}
+
 async fn member_name(caller: &Caller, user_id: &str) -> Result<Option<String>, sqlx::Error> {
     let name: Option<Option<String>> =
         sqlx::query_scalar("select name from workspace_members where user_id = $1 limit 1")
@@ -319,6 +391,12 @@ async fn create_dm(
                 ));
             }
         }
+        // Checked before the existing-DM lookup, so a DM made with an invitee
+        // before this guard existed doesn't keep taking messages either.
+        let pending = pending_invitees(&caller, &others).await?;
+        if !pending.is_empty() {
+            return Err(invitation_pending(&pending));
+        }
         let mut sorted = all.clone();
         sort_code_units(&mut sorted);
         if let Some(existing) = existing_dm(&caller, &sorted).await? {
@@ -378,6 +456,11 @@ async fn resolve_dm(
     let result = async {
         let mut all: Vec<String> = vec![caller.user_id.clone()];
         if target != caller.user_id {
+            // Before the existing-DM lookup, as in `POST /`.
+            let pending = pending_invitees(&caller, std::slice::from_ref(&target)).await?;
+            if !pending.is_empty() {
+                return Err(invitation_pending(&pending));
+            }
             all.push(target.clone());
         }
         sort_code_units(&mut all);

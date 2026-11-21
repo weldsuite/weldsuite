@@ -168,9 +168,18 @@ describe('platformSyncMap — WeldDesk', () => {
   });
 
   it('desk v2 topics keep conversation list + detail helpers', () => {
+    // Linking a problem, attaching a catalogue item and deciding an approval
+    // only publish the conversation's events: its panels follow those.
     expect(platformSyncMap.desk_conversation?.invalidate).toEqual([
       ['desk', 'conversations'],
+      ['desk', 'problems', 'conversation'],
+      ['desk', 'problems', 'incidents'],
+      ['desk', 'problems', 'list'],
+      ['desk', 'catalog', 'request'],
+      ['desk', 'catalog', 'approvals'],
     ]);
+    expect(platformSyncMap.desk_problem?.invalidate).toEqual([['desk', 'problems']]);
+    expect(platformSyncMap.desk_catalog_item?.invalidate).toEqual([['desk', 'catalog']]);
     expect(platformSyncMap.desk_conversation?.updateDetail).toBeTypeOf('function');
     expect(platformSyncMap.desk_conversation?.remove).toBeTypeOf('function');
     expect(platformSyncMap.desk_message?.invalidate).toEqual([['desk', 'conversations']]);
@@ -187,10 +196,23 @@ describe('platformSyncMap — WeldDesk', () => {
   });
 });
 
+describe('platformSyncMap — WeldStash purchasing and replenishment', () => {
+  it('invalidates the purchasing and replenishment keys of the hooks', () => {
+    expect(platformSyncMap.product_supplier?.invalidate).toEqual([
+      ['weldstash', 'purchasing', 'product-suppliers'],
+      ['weldstash', 'replenishment', 'plans'],
+    ]);
+    expect(platformSyncMap.replenishment_run?.invalidate).toContainEqual(['weldstash', 'replenishment', 'runs']);
+    expect(platformSyncMap.sales_history_import?.invalidate).toEqual([['weldstash', 'replenishment', 'imports']]);
+  });
+});
+
 describe('platformSyncMap — WeldBooks', () => {
   it('Phase 3 catalog gaps invalidate provisional accounting prefixes', () => {
     expect(platformSyncMap.purchase_order?.invalidate).toEqual([
       ['accounting', 'purchase-orders'],
+      ['weldstash', 'purchasing', 'orders'],
+      ['weldstash', 'replenishment'],
     ]);
     expect(platformSyncMap.fiscal_period?.invalidate).toEqual([
       ['accounting', 'fiscal-periods'],
@@ -250,9 +272,8 @@ describe('platformSyncMap — WeldStash', () => {
     ]);
   });
 
-  it('product publisher invalidates commerce + stash; wms_product stays stash', () => {
+  it('product and wms_product invalidate the weldstash products and stock', () => {
     expect(platformSyncMap.product?.invalidate).toEqual([
-      ['weldcommerce', 'products'],
       ['weldstash', 'products'],
       ['weldstash', 'stock'],
     ]);
@@ -304,90 +325,6 @@ describe('platformSyncMap — WeldStash', () => {
     expect(platformSyncMap.wms_category?.invalidate).toEqual([
       ['weldstash', 'categories'],
       ['weldstash', 'products'],
-    ]);
-  });
-});
-
-describe('platformSyncMap — WeldCommerce', () => {
-  const COMMERCE_CATALOG = [
-    'order',
-    'commerce_order',
-    'product',
-    'category',
-    'commerce_customer',
-    'discount',
-    'website',
-    'website_domain',
-    'website_page',
-    'website_section',
-    'cart',
-    'return',
-    'return_reason',
-    'return_rule',
-    'shipment',
-    'shipping_price',
-    'shipping_rule',
-  ] as const;
-
-  it('covers all 17 commerce catalog entity types', () => {
-    for (const topic of COMMERCE_CATALOG) {
-      expect(platformSyncMap[topic]?.invalidate?.length, topic).toBeGreaterThan(0);
-    }
-  });
-
-  it('product dual-maps commerce + stash; category/orders match commerceKeys', () => {
-    expect(platformSyncMap.product?.invalidate).toEqual([
-      ['weldcommerce', 'products'],
-      ['weldstash', 'products'],
-      ['weldstash', 'stock'],
-    ]);
-    expect(platformSyncMap.category?.invalidate).toEqual([
-      ['weldcommerce', 'categories'],
-      ['weldcommerce', 'products'],
-    ]);
-    expect(platformSyncMap.commerce_order?.invalidate).toEqual([
-      ['weldcommerce', 'orders'],
-    ]);
-    expect(platformSyncMap.order?.invalidate).toEqual([['weldcommerce', 'orders']]);
-  });
-
-  it('commerce_customer aliases CRM people/companies roots', () => {
-    expect(platformSyncMap.commerce_customer?.invalidate).toEqual([
-      ['companies'],
-      ['people'],
-    ]);
-  });
-
-  it('provisional fulfillment + website builder prefixes use weldcommerce', () => {
-    expect(platformSyncMap.discount?.invalidate).toEqual([['weldcommerce', 'discounts']]);
-    expect(platformSyncMap.website?.invalidate).toEqual([['weldcommerce', 'websites']]);
-    expect(platformSyncMap.website_domain?.invalidate).toEqual([
-      ['weldcommerce', 'websites'],
-      ['weldcommerce', 'website-domains'],
-    ]);
-    expect(platformSyncMap.website_page?.invalidate).toEqual([
-      ['weldcommerce', 'websites'],
-      ['weldcommerce', 'website-pages'],
-    ]);
-    expect(platformSyncMap.website_section?.invalidate).toEqual([
-      ['weldcommerce', 'websites'],
-      ['weldcommerce', 'website-sections'],
-      ['weldcommerce', 'website-pages'],
-    ]);
-    expect(platformSyncMap.cart?.invalidate).toEqual([['weldcommerce', 'carts']]);
-    expect(platformSyncMap.return?.invalidate).toEqual([['weldcommerce', 'returns']]);
-    expect(platformSyncMap.return_reason?.invalidate).toEqual([
-      ['weldcommerce', 'return-reasons'],
-    ]);
-    expect(platformSyncMap.return_rule?.invalidate).toEqual([
-      ['weldcommerce', 'return-rules'],
-    ]);
-    expect(platformSyncMap.shipment?.invalidate).toEqual([['weldcommerce', 'shipments']]);
-    expect(platformSyncMap.shipping_price?.invalidate).toEqual([
-      ['weldcommerce', 'shipping-prices'],
-    ]);
-    expect(platformSyncMap.shipping_rule?.invalidate).toEqual([
-      ['weldcommerce', 'shipping-rules'],
     ]);
   });
 });
@@ -524,12 +461,6 @@ describe('platformSyncMap — WeldConnect leftovers', () => {
     ]);
   });
 
-  it('notification_template uses provisional parcel-notifications prefix', () => {
-    expect(platformSyncMap.notification_template?.invalidate).toEqual([
-      ['parcel-notifications'],
-    ]);
-  });
-
   it('workflow topics keep automation prefixes', () => {
     expect(platformSyncMap.workflow?.invalidate).toEqual([
       ['automation', 'workflows'],
@@ -563,24 +494,6 @@ describe('platformSyncMap — WeldSocial', () => {
   it('all social topics invalidate socialKeys root', () => {
     for (const topic of SOCIAL_CATALOG) {
       expect(platformSyncMap[topic]?.invalidate, topic).toEqual([['social']]);
-    }
-  });
-});
-
-describe('platformSyncMap — Parcels', () => {
-  const PARCEL_CATALOG = [
-    'parcel',
-    'parcel_box',
-    'parcel_carrier',
-    'parcel_order',
-    'parcel_pickup',
-    'parcel_wallet',
-    'parcel_settings',
-  ] as const;
-
-  it('covers all 7 parcel catalog entity types with provisional root', () => {
-    for (const topic of PARCEL_CATALOG) {
-      expect(platformSyncMap[topic]?.invalidate, topic).toEqual([['parcel']]);
     }
   });
 });

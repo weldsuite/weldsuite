@@ -17,6 +17,8 @@ export interface WarehouseRow {
   contactName?: string | null;
   isDefault?: boolean | null;
   isActive?: boolean | null;
+  /** Set on a warehouse synced from an ERP connector (Odoo): its stock is managed there. */
+  managedByConnectionId?: string | null;
   createdAt: string;
   updatedAt: string;
 }

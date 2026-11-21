@@ -7,7 +7,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchAuthorizationServerMetadata, protectedResourceMetadata } from './well-known';
+import { fetchAuthorizationServerMetadata, protectedResourceMetadata, protectedResourceMetadataUrl } from './well-known';
 
 /** The public test publishable key; it decodes to `definite-eagle-3.clerk.accounts.dev`. */
 const PUBLISHABLE_KEY = 'pk_test_ZGVmaW5pdGUtZWFnbGUtMy5jbGVyay5hY2NvdW50cy5kZXYk';
@@ -33,6 +33,10 @@ describe('protectedResourceMetadata', () => {
   it('answers the /mcp lookup for the /mcp resource', () => {
     expect(protectedResourceMetadata('https://mcp.weldsuite.org/', PUBLISHABLE_KEY, '/mcp').resource).toBe(
       'https://mcp.weldsuite.org/mcp',
+    );
+    // Where the 401 sends a client that called /mcp: that resource's own document.
+    expect(protectedResourceMetadataUrl('https://mcp.weldsuite.org/', '/mcp')).toBe(
+      'https://mcp.weldsuite.org/.well-known/oauth-protected-resource/mcp',
     );
   });
 

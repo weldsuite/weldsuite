@@ -3,10 +3,12 @@
  * whether a payment method is on file, and "Update payment method", which goes
  * through Stripe Checkout in setup mode. Nothing where billing is off (the
  * settings page leaves it out without the `billing` feature, and a backend
- * that reports no subscription answers null).
+ * that reports no subscription answers null). Where inboxes ride on the
+ * plan's Mollie charge (EU) the description says so; the amounts are before VAT.
  */
 
 import { CreditCard, Loader2 } from 'lucide-react';
+import { useNavigate } from '@tanstack/react-router';
 import { Button } from '@weldsuite/ui/components/button';
 import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -15,6 +17,7 @@ import type { ReachBillingSummary } from '@weldsuite/app-api-client/schemas/reac
 import { SoftBadge, type SoftTone } from '@weldsuite/ui/components/soft-badge';
 import { useReachBilling } from '@/hooks/queries/use-reach-queries';
 import { useReachFormat } from '@/lib/reach/format';
+import { inboxPrice } from '@/lib/reach/inbox-price';
 import { ErrorState } from '@weldsuite/ui/components/error-banner';
 import { SectionCard } from '@weldsuite/ui/components/section-card';
 import { REACH_SETTINGS_PATH, usePaymentMethodSetup } from '../components/use-payment-method-setup';
@@ -33,11 +36,14 @@ export function BillingSection() {
   const canUpdate = can('reach_settings:update');
   const billing = useReachBilling(can('reach_settings:read'));
   const paymentSetup = usePaymentMethodSetup(REACH_SETTINGS_PATH);
+  const navigate = useNavigate();
 
   if (billing.data === null) return null;
+  const withPlan = inboxPrice().withPlan;
+  const description = withPlan ? 'reach.settings.billing.descriptionWithPlan' : 'reach.settings.billing.description';
 
   return (
-    <SectionCard title={t('reach.settings.billing.title')} description={t('reach.settings.billing.description')}>
+    <SectionCard title={t('reach.settings.billing.title')} description={t(description)}>
       {billing.isPending && (
         <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -47,6 +53,14 @@ export function BillingSection() {
       {billing.isError && <ErrorState onRetry={() => void billing.refetch()} />}
       {billing.data && (
         <div className="space-y-5">
+          {withPlan && billing.data.status === 'canceled' && (
+            <InfoBanner variant="warning" title={t('reach.settings.billing.pausedTitle')}>
+              <p>{t('reach.settings.billing.pausedDescription')}</p>
+              <Button size="sm" className="mt-2" onClick={() => void navigate({ to: '/settings/plans' })}>
+                {t('reach.mailboxes.create.seePlans')}
+              </Button>
+            </InfoBanner>
+          )}
           {billing.data.status === 'past_due' && (
             <InfoBanner variant="warning" title={t('reach.settings.billing.pastDueTitle')}>
               {t('reach.settings.billing.pastDueDescription')}

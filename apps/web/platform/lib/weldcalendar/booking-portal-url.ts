@@ -1,4 +1,4 @@
-import { publicEnv } from '@/lib/runtime-config';
+import { getRuntimeConfig, publicEnv } from '@/lib/runtime-config';
 /**
  * Public link of a booking page.
  *
@@ -42,14 +42,21 @@ export function resolveBookingPortalUrl(
   return DEFAULT_BOOKING_PORTAL_URL;
 }
 
-/** Booking portal origin for the current environment (no trailing slash). */
-export function getBookingPortalUrl(): string {
+/**
+ * Booking portal origin for the current environment (no trailing slash), or
+ * null on a Kubernetes edition (EU, self-hosted) whose `/config.json` names
+ * none: Global's portal doesn't know its booking pages, so there is no public
+ * link to hand out.
+ */
+export function getBookingPortalUrl(): string | null {
   const configured = publicEnv('VITE_BOOKING_PORTAL_URL');
+  if (!configured?.trim() && getRuntimeConfig()) return null;
   const hostname = typeof window === 'undefined' ? undefined : window.location.hostname;
   return resolveBookingPortalUrl(configured, hostname);
 }
 
-/** Full public link of a booking page: `<portal>/<workspace-slug>/<page-slug>`. */
-export function buildBookingPageUrl(workspaceSlug: string, pageSlug: string): string {
-  return `${getBookingPortalUrl()}/${workspaceSlug}/${pageSlug}`;
+/** Full public link of a booking page (`<portal>/<workspace-slug>/<page-slug>`), or null without a portal. */
+export function buildBookingPageUrl(workspaceSlug: string, pageSlug: string): string | null {
+  const portal = getBookingPortalUrl();
+  return portal ? `${portal}/${workspaceSlug}/${pageSlug}` : null;
 }

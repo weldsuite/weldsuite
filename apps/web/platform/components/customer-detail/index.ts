@@ -1,7 +1,7 @@
 /**
  * Customer Detail Component
  *
- * A shared component for displaying customer details across CRM, Commerce, WMS, and Mail.
+ * A shared component for displaying customer details across CRM, WMS, and Mail.
  * Supports three display modes: page, panel, and embedded.
  *
  * @example Page mode (CRM customer detail page)

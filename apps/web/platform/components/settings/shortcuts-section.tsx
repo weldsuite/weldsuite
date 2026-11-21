@@ -6,6 +6,7 @@ import { FilterPills, type ActiveFilter, type FilterConfig } from "@/components/
 import { cn } from "@/lib/utils"
 import { ExpandingSearchInput } from "@/components/settings/expanding-search-input"
 import { useI18n } from '@/lib/i18n/provider'
+import { isFeatureAvailable, isModuleOffered } from '@/lib/edition'
 import {
   HOTKEYS,
   HOTKEY_CATEGORIES,
@@ -62,9 +63,12 @@ export function ShortcutsSection() {
   const [activeFilters, setActiveFilters] = React.useState<ActiveFilter[]>([])
 
   // Labels per hotkey, resolved once for this platform.
+  // The WeldAgent shortcut exists only where the assistant does (`components/layout/drawer-host.tsx`).
   const rows = React.useMemo(
     () =>
-      Object.values(HOTKEYS).map((hotkey) => ({
+      Object.values(HOTKEYS).filter((hotkey) =>
+        hotkey.id !== 'toggleWeldAgent' || (isModuleOffered('agent') && isFeatureAvailable('assistant-ai')),
+      ).map((hotkey) => ({
         hotkey,
         labels: bindingLabels(hotkey.binding),
         alternateLabels: hotkey.alternate ? bindingLabels(hotkey.alternate) : null,

@@ -6,11 +6,15 @@
  */
 
 import {
+  areSsoScopesValid,
   isPublicEmailDomain,
   normalizeSsoDomain,
+  parseSsoScopes,
   type SsoBillingView,
   type SsoConfigView,
   type SsoConnectionInput,
+  type SsoOidcConnectionInput,
+  type SsoOidcView,
   type SsoProviderId,
 } from '@weldsuite/app-api-client/schemas/sso';
 
@@ -265,4 +269,192 @@ export function connectionInputFrom(values: IdpFormValues, idp: SsoIdp): SsoConn
     }
   }
   return input;
+}
+
+// ============================================================================
+// WeldID mode (Kubernetes editions): the OpenID Connect connection
+// ============================================================================
+
+export type SsoOidcConnection = NonNullable<SsoOidcView['connection']>;
+
+/** The WeldID part of the view, when the backend answers in WeldID mode. */
+export function oidcView(config: SsoConfigView): SsoOidcView | null {
+  return config.mode === 'weldid' && config.oidc ? config.oidc : null;
+}
+
+/**
+ * `active`: sign-ins at the verified domains go to the identity provider.
+ * `off`: a connection exists but isn't doing that (switched off, or no
+ * verified domain yet). `not_set_up`: no connection.
+ */
+export function oidcStatus(oidc: SsoOidcView): SsoStatus {
+  if (!oidc.connection) return 'not_set_up';
+  return oidc.active ? 'active' : 'off';
+}
+
+export type OidcActivationBlock = 'not_entitled' | 'no_connection' | 'domain_unverified';
+
+/** What stops WeldID SSO from being switched on, or null. Switching off is never blocked. */
+export function oidcActivationBlock(config: SsoConfigView, oidc: SsoOidcView): OidcActivationBlock | null {
+  if (!config.entitlement.entitled) return 'not_entitled';
+  if (!oidc.connection) return 'no_connection';
+  if (!oidc.domains.some((domain) => domain.verified)) return 'domain_unverified';
+  return null;
+}
+
+export interface OidcFormValues {
+  displayName: string;
+  issuer: string;
+  clientId: string;
+  /** Write-only: empty keeps a stored secret. */
+  clientSecret: string;
+  /** As typed: separated by spaces or commas. */
+  scopes: string;
+  trustEmails: boolean;
+}
+
+/** The form's starting values. The secret is never sent back, so it starts empty. */
+export function oidcFormValues(connection: SsoOidcConnection | null): OidcFormValues {
+  return {
+    displayName: connection?.displayName ?? '',
+    issuer: connection?.issuer ?? '',
+    clientId: connection?.clientId ?? '',
+    clientSecret: '',
+    scopes: connection?.scopes.join(' ') ?? '',
+    trustEmails: connection?.trustEmails ?? false,
+  };
+}
+
+export type OidcField = Exclude<keyof OidcFormValues, 'trustEmails'>;
+export type OidcIssueCode = 'required' | 'httpsUrl' | 'scopes';
+export interface OidcIssue {
+  field: OidcField;
+  code: OidcIssueCode;
+}
+
+/** What is wrong with the form; a new connection needs a secret, a saved one keeps its own. */
+export function oidcIssues(values: OidcFormValues, connection: SsoOidcConnection | null): OidcIssue[] {
+  const issues: OidcIssue[] = [];
+  if (!values.displayName.trim()) issues.push({ field: 'displayName', code: 'required' });
+  const issuer = values.issuer.trim();
+  if (!issuer) issues.push({ field: 'issuer', code: 'required' });
+  else if (!isHttpsUrl(issuer)) issues.push({ field: 'issuer', code: 'httpsUrl' });
+  if (!values.clientId.trim()) issues.push({ field: 'clientId', code: 'required' });
+  if (!values.clientSecret.trim() && !connection?.hasClientSecret) {
+    issues.push({ field: 'clientSecret', code: 'required' });
+  }
+  if (!areSsoScopesValid(parseSsoScopes(values.scopes))) issues.push({ field: 'scopes', code: 'scopes' });
+  return issues;
+}
+
+/**
+ * The `PUT /api/sso/connection` body for the form: everything for a new
+ * connection, only what changed for a saved one. A secret left empty is not
+ * sent, so the stored one stays.
+ */
+export function oidcInputFrom(values: OidcFormValues, connection: SsoOidcConnection | null): SsoOidcConnectionInput {
+  const next = {
+    displayName: values.displayName.trim(),
+    issuer: values.issuer.trim(),
+    clientId: values.clientId.trim(),
+    scopes: parseSsoScopes(values.scopes),
+    trustEmails: values.trustEmails,
+  };
+  const secret = values.clientSecret.trim();
+  if (!connection) return { ...next, clientSecret: secret };
+
+  const input: SsoOidcConnectionInput = {};
+  if (next.displayName !== connection.displayName) input.displayName = next.displayName;
+  if (next.issuer !== connection.issuer) input.issuer = next.issuer;
+  if (next.clientId !== connection.clientId) input.clientId = next.clientId;
+  if (next.scopes.join(' ') !== connection.scopes.join(' ')) input.scopes = next.scopes;
+  if (next.trustEmails !== connection.trustEmails) input.trustEmails = next.trustEmails;
+  if (secret) input.clientSecret = secret;
+  return input;
+}
+
+/** The verified domains, for the sentence that names them ("acme.com, acme.nl"). */
+export function verifiedDomainNames(oidc: SsoOidcView): string {
+  return oidc.domains
+    .filter((domain) => domain.verified)
+    .map((domain) => domain.name)
+    .join(', ');
+}
+
+// ============================================================================
+// WeldID mode: a SAML connection
+// ============================================================================
+
+/** Where the form takes the identity provider's metadata from. */
+export type SamlMetadataSource = 'url' | 'file';
+
+export interface SamlFormValues {
+  displayName: string;
+  source: SamlMetadataSource;
+  metadataUrl: string;
+  /** The uploaded file's text; empty when none was chosen. */
+  metadataXml: string;
+  trustEmails: boolean;
+}
+
+/** A SAML connection's form, from what is saved (a new one trusts its IdP's emails: SAML has no flag for it). */
+export function samlFormValues(connection: SsoOidcConnection | null): SamlFormValues {
+  const metadataUrl = connection?.saml?.idpMetadataUrl ?? '';
+  return {
+    displayName: connection?.displayName ?? '',
+    source: connection && !metadataUrl ? 'file' : 'url',
+    metadataUrl,
+    metadataXml: '',
+    trustEmails: connection ? connection.trustEmails : true,
+  };
+}
+
+export type SamlField = 'displayName' | 'metadataUrl' | 'metadataXml';
+export type SamlIssueCode = 'required' | 'httpsUrl' | 'metadataRequired';
+
+export interface SamlIssue {
+  field: SamlField;
+  code: SamlIssueCode;
+}
+
+/**
+ * What is wrong with the form: a new connection needs its metadata; a saved
+ * one keeps its own unless a URL is given or a file chosen.
+ */
+export function samlIssues(values: SamlFormValues, connection: SsoOidcConnection | null): SamlIssue[] {
+  const issues: SamlIssue[] = [];
+  if (!values.displayName.trim()) issues.push({ field: 'displayName', code: 'required' });
+  if (values.source === 'url') {
+    const url = values.metadataUrl.trim();
+    if (url && !isHttpsUrl(url)) issues.push({ field: 'metadataUrl', code: 'httpsUrl' });
+    else if (!url && !connection) issues.push({ field: 'metadataUrl', code: 'metadataRequired' });
+  } else if (!values.metadataXml.trim() && !connection) {
+    issues.push({ field: 'metadataXml', code: 'metadataRequired' });
+  }
+  return issues;
+}
+
+/**
+ * The `PUT /api/sso/connection` body for the SAML form: everything for a new
+ * connection; for a saved one what changed, and the metadata when a file was
+ * chosen or a URL given (a URL is fetched again even when it is the same: how
+ * a new signing certificate is picked up).
+ */
+export function samlInputFrom(values: SamlFormValues, connection: SsoOidcConnection | null): SsoOidcConnectionInput {
+  const displayName = values.displayName.trim();
+  const metadata: Pick<SsoOidcConnectionInput, 'metadataUrl' | 'metadataXml'> = {};
+  if (values.source === 'url' && values.metadataUrl.trim()) metadata.metadataUrl = values.metadataUrl.trim();
+  if (values.source === 'file' && values.metadataXml.trim()) metadata.metadataXml = values.metadataXml;
+  if (!connection) {
+    return { protocol: 'saml', displayName, trustEmails: values.trustEmails, ...metadata };
+  }
+  const input: SsoOidcConnectionInput = { ...metadata };
+  if (displayName !== connection.displayName) input.displayName = displayName;
+  if (values.trustEmails !== connection.trustEmails) input.trustEmails = values.trustEmails;
+  return input;
+}
+
+/** Whether a saved connection is a SAML one (answers from before SAML have no protocol). */
+export function isSamlConnection(connection: SsoOidcConnection | null): boolean {
+  return connection?.protocol === 'saml';
 }

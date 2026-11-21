@@ -2,9 +2,10 @@ import { Badge } from '@weldsuite/ui/components/badge';
 import type { WeldstashWarehouse } from '@weldsuite/core-api-client/schemas/weldstash';
 import type { ColumnDef } from '@/components/panel-entity-list';
 import { getTranslations } from '@/lib/i18n';
+import { OdooManagedBadge } from '../../components/odoo-managed-badge';
 
 export function buildWarehouseColumns(): ColumnDef<WeldstashWarehouse>[] {
-  const t = getTranslations('commerce').module;
+  const t = getTranslations('weldstash');
   return [
     {
       id: 'name',
@@ -18,6 +19,7 @@ export function buildWarehouseColumns(): ColumnDef<WeldstashWarehouse>[] {
               {t.fields.isDefault}
             </Badge>
           )}
+          {w.managedByConnectionId && <OdooManagedBadge className="ml-2 align-middle" />}
         </span>
       ),
     },

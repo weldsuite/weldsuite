@@ -32,6 +32,7 @@ import {
   at,
   getAs,
   json,
+  account,
   member,
   seedWorkspaces,
   visitorRow,
@@ -202,11 +203,14 @@ beforeAll(async () => {
   await seedWorkspaces(masterDb);
   await addWidget(masterDb, tenantDb, WIDGET);
   await tenantDb.insert(deskVisitors).values([visitorRow('vis_assign'), visitorRow('vis_assign_new')]);
+  await account(masterDb, 'user_ann', AVATAR('ann'));
+  await account(masterDb, 'user_cy', AVATAR('cy'));
 
   await tenantDb.insert(workspaceMembers).values([
-    member('user_ann', { name: 'Ann Agent', picture: AVATAR('ann') }),
+    // Avatars are account pictures: the member rows hold stale copies.
+    member('user_ann', { name: 'Ann Agent', picture: 'https://stale.widget.test/ann.png' }),
     member('user_bob', { name: 'Bob Builder', role: 'ADMIN' }),
-    member('user_cy', { name: 'Cy Support', picture: AVATAR('cy') }),
+    member('user_cy', { name: 'Cy Support', picture: 'https://stale.widget.test/cy.png' }),
     // On the roster but not eligible: a guest, one who has not accepted, one removed.
     member('user_dee', { name: 'Dee Guest', memberType: 'EXTERNAL_GUEST' }),
     member('user_eve', { name: 'Eve Pending', status: 'PENDING' }),

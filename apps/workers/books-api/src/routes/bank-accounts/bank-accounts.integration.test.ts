@@ -130,9 +130,27 @@ describe('POST /api/bank-accounts', () => {
     expect(none.data.ledgerAccountId).toBeNull();
     expect(none.data.hasAccountNumber).toBe(false);
 
-    const plain = await call('', { method: 'POST', body: { name: 'NL bank' }, entity: OTHER });
-    expect(plain.status).toBe(201);
-    expect(plain.data).toMatchObject({ currency: 'EUR', ledgerAccountId: null, entityId: OTHER });
+    const optedOut = await call('', { method: 'POST', body: { name: 'NL bank', createLedgerAccount: false }, entity: OTHER });
+    expect(optedOut.status).toBe(201);
+    expect(optedOut.data).toMatchObject({ currency: 'EUR', ledgerAccountId: null, entityId: OTHER });
+  });
+
+  it('links the template bank account when no type and no ledger account are sent (the NL form), then makes a new one', async () => {
+    const first = await call('', { method: 'POST', body: { name: 'NL bank' }, entity: OTHER });
+    expect(first.status).toBe(201);
+    expect(first.data).toMatchObject({
+      currency: 'EUR',
+      entityId: OTHER,
+      ledgerAccountId: 'acc_ba_nl_bank',
+      ledgerAccount: { id: 'acc_ba_nl_bank', code: '1100', name: 'Bank', created: false },
+    });
+
+    // 1100 is taken now: the next account gets an asset bank account of its own.
+    const second = await call('', { method: 'POST', body: { name: 'NL savings pot' }, entity: OTHER });
+    expect(second.status).toBe(201);
+    expect(second.data.ledgerAccount).toMatchObject({ code: '1101', name: 'NL savings pot', created: true });
+    const [ledger] = await db.select().from(schema.accounts).where(eq(schema.accounts.id, second.data.ledgerAccountId)).limit(1);
+    expect(ledger).toMatchObject({ type: 'asset', subtype: 'bank', entityId: OTHER, normalSide: 'debit' });
   });
 
   it('refuses a ledger account of the wrong kind or of another entity', async () => {
@@ -151,6 +169,11 @@ describe('POST /api/bank-accounts', () => {
     const number = await call('', { method: 'POST', body: { name: 'X', accountNumber: '12#456' } });
     expect(number.status).toBe(400);
     expect(number.error?.message).toBe('An account number has 4 to 34 letters or digits.');
+    const iban = await call('', { method: 'POST', body: { name: 'Spaarrekening', iban: 'NL12INVALID' } });
+    expect(iban.status).toBe(400);
+    expect(iban.error?.message).toBe('"NL12INVALID" is not a valid IBAN: it should be two letters, two digits and the account number');
+    const checksum = await call('', { method: 'POST', body: { name: 'Spaarrekening', iban: 'NL91ABNA0417164301' } });
+    expect(checksum.error?.message).toBe('"NL91ABNA0417164301" is not a valid IBAN: the check digits do not match');
   });
 
   it('validates the body', async () => {
@@ -242,6 +265,7 @@ describe('PATCH|PUT /api/bank-accounts/:id', () => {
   it('refuses bad numbers, an unknown id, and a bad body', async () => {
     const id = await idOf('Operating');
     expect((await call(`/${id}`, { method: 'PATCH', body: { routingNumber: '111111111' } })).status).toBe(400);
+    expect((await call(`/${id}`, { method: 'PATCH', body: { iban: 'NL00NOTANIBAN' } })).status).toBe(400);
     expect((await call('/ba_missing', { method: 'PATCH', body: { name: 'X' } })).status).toBe(404);
     expect((await call(`/${id}`, { method: 'PATCH', body: { name: '' } })).status).toBe(400);
     expect((await call(`/${id}`, { method: 'PUT', body: { name: 'X' }, perms: ['banking:read'] })).status).toBe(403);

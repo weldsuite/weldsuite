@@ -1,8 +1,8 @@
 /**
  * WeldFlow een project afsluiten, lessons learned en sjablonen (project-control slice F). Strings van de slice komen hier, in en en nl.
  *
- * `close` is de pagina Project afsluiten, `templates` de pagina Sjablonen (en
- * het dialoogvenster "Opslaan als sjabloon" dat beide delen). Tellingen als
+ * `close` is de pagina Project afsluiten, `templates` het dialoogvenster
+ * "Opslaan als sjabloon" (op de pagina Afsluiten en in het projectmenu). Tellingen als
  * "1 taak" / "2 taken" zijn meervoudsobjecten: kies er een met `plural(count, forms)`.
  */
 export const flowClosing = {
@@ -338,126 +338,8 @@ export const flowClosing = {
     },
   },
 
-  // ── Pagina Sjablonen ──────────────────────────────────────────────────────
+  // ── Opslaan als sjabloon ─────────────────────────────────────────────────
   templates: {
-    title: 'Nieuw project uit sjabloon',
-    description: 'Een sjabloon zet fasen, taken, borden, RAID-items, wijzigingsregels en rapportage in één keer klaar.',
-
-    gallery: {
-      title: 'Sjablonen · {count}',
-      search: 'Sjablonen zoeken',
-      loadingLabel: 'Sjablonen laden',
-      badge: { shared: 'Gedeeld', private: 'Alleen u' },
-      meta: {
-        weeks: { one: '{count} week', other: '{count} weken' },
-        tasks: { one: '{count} taak', other: '{count} taken' },
-        used: { one: '{count} keer gebruikt', other: '{count} keer gebruikt' },
-        neverUsed: 'nog niet gebruikt',
-      },
-      emptyTitle: 'Nog geen sjablonen',
-      emptyManage: 'Sla een afgerond project op als sjabloon, dan kan iedereen het volgende project ermee starten.',
-      emptyMember: 'Vraag iemand die sjablonen beheert een project als sjabloon op te slaan.',
-      noMatchTitle: 'Geen sjablonen gevonden voor uw zoekopdracht',
-      noMatchDescription: 'Probeer een ander woord, of wis de zoekopdracht.',
-      saveProject: 'Een project opslaan als sjabloon…',
-      errorTitle: 'De sjablonen konden niet worden geladen',
-      errorDescription: 'Controleer uw verbinding en probeer het opnieuw.',
-      forbiddenTitle: 'Geen toegang tot sjablonen',
-      forbiddenDescription: 'Een project starten vanuit een sjabloon vraagt toestemming om projecten aan te maken.',
-    },
-
-    preview: {
-      selectPrompt: 'Selecteer een sjabloon om te zien wat het aanmaakt.',
-      loadingLabel: 'Sjabloon laden',
-      errorTitle: 'Het sjabloon kon niet worden geladen',
-      errorDescription: 'Het is mogelijk verwijderd of niet meer geldig.',
-      sharedWith: 'Gedeeld met de werkruimte',
-      onlyYou: 'Alleen u kunt dit sjabloon zien',
-      edit: 'Bewerken',
-      delete: 'Verwijderen',
-      editAria: 'Sjabloon {name} bewerken',
-      deleteAria: 'Sjabloon {name} verwijderen',
-      tiles: {
-        length: 'Looptijd',
-        tasks: 'Taken',
-        milestones: 'Mijlpalen',
-        deliverables: 'Opleveringen',
-        weeks: { one: '{count} week', other: '{count} weken' },
-      },
-      phases: {
-        title: 'Fasen en gates',
-        empty: 'Dit sjabloon heeft geen fasen.',
-        weeks: 'Week {from}–{to}',
-        week: 'Week {week}',
-        tasks: { one: '{count} taak', other: '{count} taken' },
-        gate: { one: 'Gate: {count} criterium', other: 'Gate: {count} criteria' },
-        noGate: 'Geen gatecriteria',
-      },
-      milestones: {
-        title: 'Mijlpalen',
-        empty: 'Dit sjabloon heeft geen mijlpalen.',
-        endOfWeek: 'Einde van week {week}',
-      },
-      stages: { title: 'Bordkolommen', empty: 'Dit sjabloon heeft geen bordkolommen.' },
-      deliverables: { title: 'Opleveringen', empty: 'Dit sjabloon heeft geen opleveringen.' },
-      raid: { title: 'Start-RAID-items', empty: "Geen start-risico's of -aannames." },
-      control: {
-        title: 'Beheersing en rapportage',
-        changeApproval: 'Goedkeuring van wijzigingen',
-        changeBoard: 'Wijzigingscommissie',
-        statusReport: 'Statusrapport',
-        riskAppetite: 'Risicobereidheid',
-        notSet: 'Niet ingesteld',
-        changeApprovalValue: 'Projectmanager tot {cost} en {days}, daarboven de wijzigingscommissie',
-        changeBoardEmpty: 'Nog geen wijzigingscommissie',
-        workingDays: { one: '{count} werkdag', other: '{count} werkdagen' },
-        statusReportValue: '{cadence} op {weekday} om {time} naar {recipients}',
-        cadence: { weekly: 'Elke week', biweekly: 'Om de week', monthly: 'Elke maand' },
-        recipients: {
-          sponsor: 'de sponsor',
-          all_stakeholders: 'de sponsor en alle stakeholders',
-          portal_contacts: 'de contactpersonen in het klantportaal',
-        },
-        riskAppetiteValue: 'Score {score} van 25',
-      },
-    },
-
-    form: {
-      title: 'Project aanmaken',
-      selectFirst: 'Selecteer een sjabloon om er een project mee aan te maken.',
-      noAccess: 'Een project aanmaken vraagt toestemming om projecten aan te maken.',
-      name: 'Projectnaam',
-      namePlaceholder: 'Bijvoorbeeld: Leveranciersportaal',
-      client: 'Klant',
-      clientHint: 'Uit WeldCRM',
-      clientPlaceholder: 'Kies een klant (optioneel)',
-      clientSearch: 'Bedrijven zoeken',
-      clientLoading: 'Bedrijven laden…',
-      clientClear: 'De klant verwijderen',
-      start: 'Start',
-      end: 'Einde',
-      datesHint: 'Datums schuiven mee met de start. Taken behouden hun verschuivingen en afhankelijkheden.',
-      roles: {
-        title: 'Rollen om in te vullen',
-        none: 'Dit sjabloon heeft geen rollen om in te vullen.',
-      },
-      copy: {
-        title: 'Overnemen uit het sjabloon',
-        phases: 'Fasen en gates',
-        milestones: 'Mijlpalen',
-        deliverables: 'Opleveringen',
-        tasks: 'Taken met afhankelijkheden',
-        stages: 'Bordkolommen',
-        raid: "Start-risico's en -aannames",
-        changeControl: 'Regels voor wijzigingsbeheer',
-        statusReport: 'Schema van het statusrapport',
-      },
-      submit: 'Project aanmaken',
-      submitting: 'Aanmaken…',
-      created: 'Project “{name}” aangemaakt',
-      failed: 'Het project kon niet worden aangemaakt',
-    },
-
     saveDialog: {
       title: 'Opslaan als sjabloon',
       description:
@@ -473,27 +355,7 @@ export const flowClosing = {
       sharedHint: 'Iedereen die projecten kan aanmaken kan het gebruiken. Uit: alleen u.',
       submit: 'Sjabloon opslaan',
       saved: 'Sjabloon “{name}” opgeslagen',
-      openTemplates: 'Sjablonen openen',
       failed: 'Het sjabloon kon niet worden opgeslagen',
-    },
-
-    editDialog: {
-      title: 'Sjabloon bewerken',
-      name: 'Naam van het sjabloon',
-      descriptionLabel: 'Beschrijving',
-      shared: 'Delen met de werkruimte',
-      sharedHint: 'Iedereen die projecten kan aanmaken kan het gebruiken. Uit: alleen u.',
-      submit: 'Wijzigingen opslaan',
-      saved: 'Sjabloon bijgewerkt',
-      failed: 'Het sjabloon kon niet worden bijgewerkt',
-    },
-
-    deleteConfirm: {
-      title: '“{name}” verwijderen?',
-      description: 'Projecten die er al mee zijn gemaakt blijven ongewijzigd. Dit kan niet ongedaan worden gemaakt.',
-      confirm: 'Sjabloon verwijderen',
-      success: 'Sjabloon verwijderd',
-      failed: 'Het sjabloon kon niet worden verwijderd',
     },
   },
 };

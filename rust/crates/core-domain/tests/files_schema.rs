@@ -16,7 +16,7 @@ use weldsuite_core_domain::drive_sharing::{
 use weldsuite_core_domain::files::{
     self, Change, FileUpdate, ListFiles, MovedFile, NewFile, UpdatedFile,
 };
-use weldsuite_core_domain::folders::{self, NewFolder, ParentProblem};
+use weldsuite_core_domain::folders::{self, FolderTrashContents, NewFolder, ParentProblem};
 use weldsuite_db::master_pool;
 
 const NOW: &str = "2026-10-29T07:00:00.123Z";
@@ -176,6 +176,7 @@ async fn files_folders_and_shares_on_the_migrated_schema() {
     .expect("index");
     let sharing = describe_sharing(
         &db,
+        None,
         &index,
         SharingTarget {
             item: DriveItem::Folder(&folder_id),
@@ -214,7 +215,7 @@ async fn files_folders_and_shares_on_the_migrated_schema() {
         .await
         .expect("restore")
         .expect("file");
-    folders::soft_delete_folder(&db, &folder_id, NOW)
+    folders::soft_delete_folder(&db, &folder_id, &FolderTrashContents::default(), NOW)
         .await
         .expect("trash")
         .expect("folder");

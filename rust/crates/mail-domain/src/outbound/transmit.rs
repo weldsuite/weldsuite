@@ -149,6 +149,9 @@ pub struct SendEmailResponse {
     pub delivered_message_ids: Vec<(String, String)>,
     /// A recipient has to verify before delivery; the rest went out.
     pub pending_verification: bool,
+    /// The recipients that have to verify first (`pendingRecipients`): they
+    /// did not get the message.
+    pub pending_recipients: Vec<String>,
     /// Recipients the relay skipped because they are on its suppression list.
     pub suppressed_recipients: Vec<String>,
 }
@@ -263,6 +266,7 @@ pub async fn send_email(
         message_id,
         delivered_message_ids: delivered.0,
         pending_verification: !pending.is_empty(),
+        pending_recipients: pending,
         suppressed_recipients: suppressed,
     })
 }
@@ -412,6 +416,7 @@ mod tests {
             .await
             .expect("sent");
         assert!(sent.pending_verification);
+        assert_eq!(sent.pending_recipients, ["p@x.com"]);
         assert_eq!(sent.suppressed_recipients, ["s@x.com"]);
         let all_suppressed =
             RecordingMailTransport::new().refuse("s@x.com", Some("E_RECIPIENT_SUPPRESSED"));

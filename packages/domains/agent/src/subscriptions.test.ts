@@ -157,7 +157,7 @@ describe('resolveAgentTools', () => {
     expect(ids).not.toContain('tasks.create');
   });
 
-  it('respects enabledTools allow-list but always includes ask/setup/skill/memory/routine tools', () => {
+  it('respects enabledTools allow-list but always includes ask/setup/skill/memory/routine/display tools', () => {
     const tools = resolveAgentTools(['people:read', 'people:create', 'tickets:read'], [
       'people.list',
     ]);
@@ -170,6 +170,10 @@ describe('resolveAgentTools', () => {
       'agent.remember',
       'agent.create_routine',
       'people.list',
+      'agent.show_chart',
+      'agent.show_stats',
+      'agent.show_table',
+      'agent.show_records',
     ]);
   });
 

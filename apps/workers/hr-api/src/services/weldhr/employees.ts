@@ -24,7 +24,13 @@ import type {
 } from '@weldsuite/db/schema';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
-import { HrConflictError, HrNotFoundError, HrValidationError, assertDateOrder, companyNames, todayIso } from './shared';
+import {
+  accountPicture,
+  loadAccountPicture,
+  loadAccountPictures,
+  type AccountPictureEnv,
+} from '@weldsuite/worker-kit/account-pictures';
+import { HrConflictError, HrNotFoundError, HrValidationError, assertBirthDate, assertDateOrder, companyNames, todayIso } from './shared';
 import { assertWorkLocations } from './work-locations';
 
 const t = schema.hrEmployees;
@@ -305,6 +311,7 @@ export interface AvailableMember {
   userId: string;
   name: string | null;
   email: string | null;
+  /** The member's account picture. */
   picture: string | null;
   title: string | null;
   phone: string | null;
@@ -316,6 +323,7 @@ export interface AvailableMember {
  * not linked to a (non-deleted) employee yet. Feeds the "New employee" picker.
  */
 export async function listAvailableMembers(
+  env: AccountPictureEnv,
   db: Database,
   filters: { search?: string; limit?: number } = {},
 ): Promise<AvailableMember[]> {
@@ -338,7 +346,6 @@ export async function listAvailableMembers(
       userId: m.userId,
       name: m.name,
       email: m.email,
-      picture: m.picture,
       title: m.title,
       phone: m.phone,
       memberType: m.memberType,
@@ -347,7 +354,15 @@ export async function listAvailableMembers(
     .where(and(...conditions))
     .orderBy(asc(m.name), asc(m.email))
     .limit(limit);
-  return rows.map((r) => ({ ...r, memberType: r.memberType === 'EMPLOYEE' ? 'EMPLOYEE' : 'INTERNAL' }));
+  const pictures = await loadAccountPictures(env, rows.map((r) => r.userId));
+  return rows.map(({ userId, name, email, ...r }) => ({
+    userId,
+    name,
+    email,
+    picture: accountPicture(pictures, userId),
+    ...r,
+    memberType: r.memberType === 'EMPLOYEE' ? 'EMPLOYEE' : 'INTERNAL',
+  }));
 }
 
 /**
@@ -520,6 +535,8 @@ export async function createEmployee(
   opts: { createdBy: string; sensitive?: HrEmployeeSensitive; keyring?: EncryptionKeyring },
 ): Promise<HrEmployee> {
   assertDateOrder(input.startDate, input.endDate, 'Employment');
+  assertDateOrder(input.startDate, input.probationEndDate, 'Probation');
+  assertBirthDate(opts.sensitive?.dateOfBirth);
   await assertEmailFree(db, input.email);
   const userId = input.userId || (await memberForNewEmployee(db, input.email));
   if (userId) {
@@ -554,14 +571,16 @@ export async function createEmployee(
 
 /**
  * Prefill a directory employee from an active workspace member and link
- * `hr_employees.user_id` to their Clerk id.
+ * `hr_employees.user_id` to their Clerk id. The avatar defaults to the
+ * member's account picture.
  */
 export async function createEmployeeFromMember(
   db: Database,
   input: EmployeeWriteInput & { userId: string },
-  opts: { createdBy: string; sensitive?: HrEmployeeSensitive; keyring?: EncryptionKeyring },
+  opts: { env: AccountPictureEnv; createdBy: string; sensitive?: HrEmployeeSensitive; keyring?: EncryptionKeyring },
 ): Promise<HrEmployee> {
   const member = await requireActiveWorkspaceMember(db, input.userId);
+  const { env, ...createOpts } = opts;
   if (!member.email && !input.email) {
     throw new HrValidationError('This workspace member has no email address');
   }
@@ -576,13 +595,13 @@ export async function createEmployeeFromMember(
       email: (input.email ?? member.email)!.trim(),
       phone: input.phone !== undefined ? input.phone : member.phone,
       jobTitle: input.jobTitle !== undefined ? input.jobTitle : member.title,
-      avatarUrl: input.avatarUrl !== undefined ? input.avatarUrl : member.picture,
+      avatarUrl: input.avatarUrl !== undefined ? input.avatarUrl : await loadAccountPicture(env, member.userId),
       pronouns: input.pronouns !== undefined ? input.pronouns : member.pronouns,
       location: input.location !== undefined ? input.location : member.location,
       weeklyHours: input.weeklyHours !== undefined ? input.weeklyHours : memberHours,
       userId: member.userId,
     },
-    opts,
+    createOpts,
   );
 }
 
@@ -612,6 +631,19 @@ async function assertEntityFitsPayroll(db: Database, employeeId: string, legalEn
   }
 }
 
+/**
+ * Probation can not end before employment starts. Checked only when the save
+ * touches either date, so older rows stay editable (TASK-1471).
+ */
+function assertProbationOnUpdate(input: EmployeeWriteInput, existing: HrEmployee) {
+  if (input.startDate === undefined && input.probationEndDate === undefined) return;
+  assertDateOrder(
+    input.startDate !== undefined ? input.startDate : existing.startDate,
+    input.probationEndDate !== undefined ? input.probationEndDate : existing.probationEndDate,
+    'Probation',
+  );
+}
+
 export async function updateEmployee(db: Database, id: string, input: EmployeeWriteInput): Promise<HrEmployee> {
   const existing = await requireEmployee(db, id);
   assertDateOrder(
@@ -619,6 +651,7 @@ export async function updateEmployee(db: Database, id: string, input: EmployeeWr
     input.endDate !== undefined ? input.endDate : existing.endDate,
     'Employment',
   );
+  assertProbationOnUpdate(input, existing);
   if (input.email && input.email.toLowerCase() !== existing.email.toLowerCase()) {
     await assertEmailFree(db, input.email, id);
   }
@@ -684,6 +717,7 @@ export async function writeSensitive(
   patch: HrEmployeeSensitive,
   keyring: EncryptionKeyring,
 ): Promise<{ changedFields: string[] }> {
+  assertBirthDate(patch.dateOfBirth);
   const current = await readSensitive(db, id, keyring);
   const next: HrEmployeeSensitive = { ...current };
   const changedFields: string[] = [];

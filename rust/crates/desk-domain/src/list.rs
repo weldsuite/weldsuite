@@ -10,7 +10,7 @@ use weldsuite_kit::validation::js_trim;
 use crate::webchat::{DESK_CONVERSATIONS, DESK_MESSAGES};
 
 /// `Number.parseInt(raw, 10)`: `None` for `NaN`.
-fn js_parse_int(raw: &str) -> Option<f64> {
+pub(crate) fn js_parse_int(raw: &str) -> Option<f64> {
     let rest = raw.trim_start_matches(|c: char| (c.is_whitespace() && c != '') || c == '﻿');
     let (negative, rest) = match rest.as_bytes().first() {
         Some(b'-') => (true, &rest[1..]),
@@ -49,7 +49,7 @@ pub struct ListQuery {
 }
 
 /// `%term%` for ILIKE, with `%`, `_` and `\` taken literally.
-fn like_pattern(term: &str) -> String {
+pub(crate) fn like_pattern(term: &str) -> String {
     let mut escaped = String::with_capacity(term.len() + 2);
     escaped.push('%');
     for c in term.chars() {
@@ -62,8 +62,8 @@ fn like_pattern(term: &str) -> String {
     escaped
 }
 
-/// `/^#?(\d{1,9})$/`.
-fn conversation_number(term: &str) -> Option<i64> {
+/// `/^#?(\d{1,9})$/`: a conversation's number, or a problem's.
+pub(crate) fn conversation_number(term: &str) -> Option<i64> {
     let digits = term.strip_prefix('#').unwrap_or(term);
     if digits.is_empty() || digits.len() > 9 || !digits.bytes().all(|b| b.is_ascii_digit()) {
         return None;

@@ -2,7 +2,7 @@
  * Legal entities on the public API: `GET /v1/legal-entities` and
  * `GET /v1/legal-entities/:id`, scope `legal_entities:read`. Read-only.
  *
- * The companies of the workspace (docs/plans/legal-entities.md) with their
+ * The companies of the workspace (weldsuite-documentation/plans/legal-entities.md) with their
  * registrations and bank accounts. Bank accounts carry no account number at
  * all, and the IBAN is masked to its last four characters. Per-entity access
  * (restricted entities) is a platform member concept: API keys have no entity

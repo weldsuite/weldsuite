@@ -1,7 +1,7 @@
 /**
  * Route-level tests for /api/workspaces. The service layer is mocked —
- * these assert the route wiring, the success envelope, and the graceful
- * empty-list fallback on error.
+ * these assert the route wiring, the success envelope, and that a failed
+ * lookup is an error rather than an empty list.
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -46,12 +46,12 @@ describe('GET /api/workspaces', () => {
     expect(body.data[0].id).toBe('org_1');
   });
 
-  it('falls back to an empty list when the lookup fails', async () => {
+  it('answers 500 when the lookup fails, not an empty list (which means no workspaces)', async () => {
     mockedList.mockRejectedValueOnce(new Error('master db down'));
     const { request } = createTestApp('/api/workspaces', workspacesRoutes);
     const res = await request('/api/workspaces');
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { data: unknown[] };
-    expect(body.data).toEqual([]);
+    expect(res.status).toBe(500);
+    const body = (await res.json()) as { error: { code: string; message: string } };
+    expect(body.error).toEqual({ code: 'INTERNAL_ERROR', message: 'Failed to list workspaces' });
   });
 });

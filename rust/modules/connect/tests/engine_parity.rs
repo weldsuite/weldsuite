@@ -83,7 +83,16 @@ fn normalise(value: &Value, key: &str) -> Value {
                 .map(|(k, v)| (k.clone(), normalise(v, k)))
                 .collect(),
         ),
-        Value::Number(_) if key == "duration" || key == "ts" => json!("<n>"),
+        // Wall-clock: how long the run took, and WeldDesk's ticket times
+        // (`reporting_times`), which count seconds since the ticket opened.
+        Value::Number(_)
+            if matches!(
+                key,
+                "duration" | "ts" | "resolutionSeconds" | "firstResponseSeconds"
+            ) =>
+        {
+            json!("<n>")
+        }
         Value::String(text) => {
             if is_iso(text) && !is_seeded(text) {
                 return json!("<ts>");
@@ -332,6 +341,8 @@ async fn run_case(db: &PgPool, clear: &[Value], case: &Value) -> Value {
         tenants,
         realtime: Some(Arc::clone(&realtime) as Arc<dyn DynRealtimePublisher>),
         http: Some(OutboundHttp(Arc::clone(&http) as Arc<dyn DynOutboundHttp>)),
+        // The worker's tests bind no push.
+        push_http: None,
         runs: Some(Arc::clone(&runs) as Arc<dyn WorkflowRuns>),
         env: Arc::new(HashMap::from([(
             "TELNYX_API_KEY".to_owned(),
@@ -348,6 +359,7 @@ async fn run_case(db: &PgPool, clear: &[Value], case: &Value) -> Value {
         },
         assignment: None,
         merge: None,
+        ai: None,
     };
     let ctx = TestCtx {
         key: input["instanceId"].as_str().unwrap().to_owned(),

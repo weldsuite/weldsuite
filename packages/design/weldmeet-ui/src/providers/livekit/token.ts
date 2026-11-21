@@ -79,3 +79,13 @@ export function liveKitApiBase(url: string): string {
   if (trimmed.startsWith('ws://')) return `http://${trimmed.slice('ws://'.length)}`;
   return trimmed;
 }
+
+/**
+ * The app's id inside a participant identity (`<customParticipantId>~<nonce>`),
+ * cut at the last `~` as the server's webhook does (`custom_id` in the Rust meet
+ * module). Undefined for an identity without a nonce.
+ */
+export function customIdFromIdentity(identity: string): string | undefined {
+  const at = identity.lastIndexOf('~');
+  return at > 0 ? identity.slice(0, at) : undefined;
+}

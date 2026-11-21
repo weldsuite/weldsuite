@@ -291,15 +291,26 @@ function drawCategoryLabels(
   ctx.textAlign = horizontal ? 'right' : 'center';
   ctx.textBaseline = horizontal ? 'middle' : 'top';
   const size = band(0).size;
-  const widest = Math.max(1, ...labels.map((l) => ctx.measureText(l).width));
-  // Every label when there is room, else every k-th.
-  const every = horizontal ? Math.max(1, Math.ceil(LINE / size)) : Math.max(1, Math.ceil((widest + 8) / size));
+  // Each label is cut to its own band (with an ellipsis); bands too narrow for that show every k-th label.
+  const every = horizontal ? Math.max(1, Math.ceil(LINE / size)) : labelStride(size);
   labels.forEach((label, i) => {
     if (i % every !== 0) return;
     const { mid } = band(i);
     if (horizontal) ctx.fillText(fit(ctx, label, labelWidth), plot.x - 6, mid);
-    else ctx.fillText(fit(ctx, label, size * every - 4), mid, plot.y + plot.h + 4);
+    else {
+      // Never past the plot's edges, so the first label stays off the value axis' labels.
+      const room = Math.min(size * every - 4, 2 * (mid - plot.x), 2 * (plot.x + plot.w - mid));
+      ctx.fillText(fit(ctx, label, room), mid, plot.y + plot.h + 4);
+    }
   });
+}
+
+/** Narrowest a category label's room may be before only every k-th label shows. */
+const MIN_LABEL_WIDTH = 36;
+
+/** Every how many categories a label is shown, for bands `size` pixels wide. */
+export function labelStride(size: number): number {
+  return Math.max(1, Math.ceil(MIN_LABEL_WIDTH / Math.max(1, size)));
 }
 
 function drawAxisTitles(ctx: CanvasRenderingContext2D, box: Rect, plot: Rect, xTitle: string | undefined, yTitle: string | undefined, paint: ChartPaint): void {
@@ -412,6 +423,20 @@ function fillArea(
 // Pie and scatter
 // ---------------------------------------------------------------------------
 
+/** Text colour with the better WCAG contrast on a hex fill: dark on light slices, white on dark ones. */
+export function readableOn(hex: string): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex);
+  if (!m) return '#ffffff';
+  const n = Number.parseInt(m[1]!, 16);
+  const lin = (c: number) => {
+    const v = c / 255;
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  };
+  const lum = 0.2126 * lin((n >> 16) & 255) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255);
+  // Contrast with white is 1.05 / (lum + 0.05); with near-black (#1f2937, lum ~0.02) it is (lum + 0.05) / 0.07.
+  return 1.05 / (lum + 0.05) >= (lum + 0.05) / 0.07 ? '#ffffff' : '#1f2937';
+}
+
 function drawPie(ctx: CanvasRenderingContext2D, box: Rect, s: Series, doughnut: boolean, paint: ChartPaint): void {
   const values = s.values.map((v) => (v !== null && v > 0 ? v : 0));
   const total = values.reduce((a, b) => a + b, 0);
@@ -437,7 +462,7 @@ function drawPie(ctx: CanvasRenderingContext2D, box: Rect, s: Series, doughnut: 
     if (v / total >= 0.06) {
       const mid = angle + sweep / 2;
       const at = doughnut ? r * 0.78 : r * 0.62;
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = readableOn(CHART_PALETTE[i % CHART_PALETTE.length]!);
       ctx.fillText(`${Math.round((v / total) * 100)}%`, cx + Math.cos(mid) * at, cy + Math.sin(mid) * at);
     }
     angle += sweep;

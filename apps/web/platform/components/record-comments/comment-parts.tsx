@@ -1,5 +1,7 @@
 import { useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import type { RecordCommentMessage } from '@weldsuite/app-api-client';
 import { Button } from '@weldsuite/ui/components/button';
+import { MemberAvatar } from '@/components/member-avatar';
 import { CHAT_TOKEN, tokenLabel } from './mentions';
 
 /** Someone who can be mentioned. */
@@ -158,5 +160,22 @@ export function initials(name: string): string {
       .slice(0, 2)
       .map((w) => w[0]!.toUpperCase())
       .join('') || '?'
+  );
+}
+
+/** A comment's author: their current profile picture, else their initials. */
+export function CommentAuthorAvatar({
+  message,
+}: Readonly<{ message: Pick<RecordCommentMessage, 'authorId' | 'authorName' | 'authorAvatar'> }>) {
+  return (
+    <MemberAvatar
+      userId={message.authorId}
+      name={message.authorName}
+      picture={message.authorAvatar}
+      className="mt-0.5 size-6 shrink-0"
+      aria-hidden
+      fallbackClassName="bg-primary/10 text-[10px] font-semibold text-primary"
+      fallback={initials(message.authorName)}
+    />
   );
 }

@@ -8,7 +8,7 @@ import { getDesktop } from '@/lib/desktop';
 import { copyText } from '@/lib/clipboard';
 import { getTranslations } from '@/lib/i18n';
 
-function DevErrorDetails({ error, componentStack }: Readonly<{ error: Error; componentStack?: string }>) {
+export function DevErrorDetails({ error, componentStack }: Readonly<{ error: Error; componentStack?: string }>) {
   const [copied, setCopied] = useState(false);
 
   const fullText = [error.stack, componentStack && `\nComponent Stack:\n${componentStack}`]
@@ -70,7 +70,9 @@ export function RootErrorFallback({ error, info, reset }: Readonly<ErrorComponen
   // A stale dynamic import (chunk removed by a redeploy) surfaces here as a
   // render error. Reload once to pick up the latest build rather than showing
   // a dead-end error screen. The guard in reloadForStaleChunk prevents loops.
-  const reloading = isStaleChunkError(error) && reloadForStaleChunk();
+  // `deferred` (a call was live) still ends in a reload: this fallback replaced
+  // the whole app, call included, so the hold is released right after.
+  const reloading = isStaleChunkError(error) && reloadForStaleChunk() !== 'suppressed';
 
   useEffect(() => {
     if (reloading) return;

@@ -12,8 +12,9 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 use weldsuite_core_onboarding::{
-    IdentitySync, PROVISION_JOB, ProvisionJob, ProvisionPayload, SyncReport, TenantDatabases,
-    WATERMARK_KEY, WorkspaceService, sweep_scheduled_deletions, sweep_unfinished_teardowns,
+    FEED_WATERMARK_KEY, IdentitySync, PROVISION_JOB, ProvisionJob, ProvisionPayload, SyncReport,
+    TenantDatabases, WATERMARK_KEY, WorkspaceService, sweep_scheduled_deletions,
+    sweep_unfinished_teardowns,
 };
 use weldsuite_db::{PgPool, master_pool};
 use weldsuite_ports::{
@@ -437,6 +438,20 @@ async fn provisioning_the_sync_and_the_sweeps() {
             removed: false,
         },
     );
+    // The owner's account, with a picture uploaded in WeldSuite (ADR SEC-020).
+    // The workspace was inserted directly, so the sync would otherwise be the
+    // first to write the row.
+    let uploaded =
+        format!("https://storage.test/workspaces/{org}/avatars/{user}_1767225600000.png");
+    sqlx::query(
+        "insert into users (id, email, image_url) values ($1, 'owner@job.test', $2)
+         on conflict (id) do update set image_url = excluded.image_url",
+    )
+    .bind(&user)
+    .bind(&uploaded)
+    .execute(&master)
+    .await
+    .expect("uploaded picture");
     let report = sync.run().await.expect("sync");
     assert_eq!(
         report,
@@ -463,6 +478,13 @@ async fn provisioning_the_sync_and_the_sweeps() {
             .expect("owner");
     // The owner stays OWNER whatever role the provider has.
     assert_eq!(owner, ("OWNER".to_owned(), Some("Olga Petrova".to_owned())));
+    // The picture uploaded in WeldSuite wins over the provider's avatar.
+    let picture: Option<String> = sqlx::query_scalar("select image_url from users where id = $1")
+        .bind(&user)
+        .fetch_one(&master)
+        .await
+        .expect("picture");
+    assert_eq!(picture.as_deref(), Some(uploaded.as_str()));
     let mate_row: (String, String) =
         sqlx::query_as("select role, status from workspace_members where user_id = $1")
             .bind(&mate)
@@ -498,6 +520,113 @@ async fn provisioning_the_sync_and_the_sweeps() {
             .await
             .expect("left");
     assert!(left.is_some());
+
+    // ── the identity sync on WeldID's event feed ──
+    // The owner changed their address and name at WeldID; a ghost account
+    // (a member here) was deleted there; a session revocation needs nothing.
+    let ghost = format!("user_onbghost_{suffix}");
+    sqlx::query("delete from system_settings where key = $1")
+        .bind(FEED_WATERMARK_KEY)
+        .execute(&master)
+        .await
+        .expect("feed watermark");
+    sqlx::query("insert into users (id, email) values ($1, 'ghost@x.test')")
+        .bind(&ghost)
+        .execute(&master)
+        .await
+        .expect("ghost user");
+    sqlx::query(
+        "insert into user_workspaces (id, user_id, workspace_id, role, status)
+         values ($1, $2, $3, 'org:member', 'ACTIVE')",
+    )
+    .bind(format!("uw_ghost_{suffix}"))
+    .bind(&ghost)
+    .bind(&ws)
+    .execute(&master)
+    .await
+    .expect("ghost membership");
+    sqlx::query(
+        "insert into workspace_members (id, user_id, email, role, status)
+         values ($1, $2, 'ghost@x.test', 'MEMBER', 'ACTIVE')",
+    )
+    .bind(format!("mbr_ghost_{suffix}"))
+    .bind(&ghost)
+    .execute(&tenant)
+    .await
+    .expect("ghost member");
+    let weldid = Arc::new(MemoryIdentity::new().with_profile(UserProfile {
+        last_name: Some("Novak".to_owned()),
+        ..profile(&user, "olga@new.test", "Olga")
+    }));
+    weldid.record_event("user.email_changed", &user);
+    weldid.record_event("session.revoked", &user);
+    weldid.record_event("user.deleted", &ghost);
+    let feed_sync = IdentitySync::new(
+        master.clone(),
+        Arc::clone(&weldid) as Arc<dyn Identity>,
+        tenants(&tenant),
+        None,
+    );
+    let report = feed_sync.run_feed().await.expect("feed sync");
+    assert_eq!(
+        report,
+        SyncReport {
+            changes: 3,
+            users: 2,
+            organizations: 0,
+            memberships: 0,
+            failed: 0,
+            watermark: Some("3".to_owned()),
+        }
+    );
+    let owner_now: (String, Option<String>) =
+        sqlx::query_as("select email, last_name from users where id = $1")
+            .bind(&user)
+            .fetch_one(&master)
+            .await
+            .expect("owner");
+    assert_eq!(
+        owner_now,
+        ("olga@new.test".to_owned(), Some("Novak".to_owned()))
+    );
+    let owner_member: (Option<String>, Option<String>) =
+        sqlx::query_as("select email, name from workspace_members where user_id = $1")
+            .bind(&user)
+            .fetch_one(&tenant)
+            .await
+            .expect("owner member");
+    assert_eq!(
+        owner_member,
+        (
+            Some("olga@new.test".to_owned()),
+            Some("Olga Novak".to_owned())
+        )
+    );
+    let ghost_now: (bool, i64) = sqlx::query_as(
+        "select u.is_active, (select count(*) from user_workspaces where user_id = u.id)
+           from users u where u.id = $1",
+    )
+    .bind(&ghost)
+    .fetch_one(&master)
+    .await
+    .expect("ghost");
+    assert_eq!(ghost_now, (false, 0));
+    let ghost_member: Option<String> =
+        sqlx::query_scalar("select deleted_at::text from workspace_members where user_id = $1")
+            .bind(&ghost)
+            .fetch_one(&tenant)
+            .await
+            .expect("ghost member");
+    assert!(ghost_member.is_some());
+    // Nothing new: the feed's watermark stays where it was.
+    let quiet = feed_sync.run_feed().await.expect("again");
+    assert_eq!((quiet.changes, quiet.watermark.as_deref()), (0, Some("3")));
+    let stored: Value = sqlx::query_scalar("select value from system_settings where key = $1")
+        .bind(FEED_WATERMARK_KEY)
+        .fetch_one(&master)
+        .await
+        .expect("stored");
+    assert_eq!(stored, json!("3"));
 
     identity
         .delete_organization(&org)
@@ -585,6 +714,9 @@ fn sync_identity(org: &str, owner: &str, mate: &str, suffix: u32) -> Arc<MemoryI
     };
     let mut renamed = profile(owner, "owner@job.test", "Olga");
     renamed.last_name = Some("Petrova".to_owned());
+    // The provider has its own avatar for the owner, who uploaded another in
+    // WeldSuite: the upload has to survive the sync.
+    renamed.image_url = Some("https://provider.test/olga.png".to_owned());
     Arc::new(
         MemoryIdentity::new()
             .with_organization(Organization {

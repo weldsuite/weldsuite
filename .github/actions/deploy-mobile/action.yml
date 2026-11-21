@@ -60,14 +60,21 @@ runs:
         TARGET: ${{ inputs.environment }}
       run: |
         set -euo pipefail
+        # Server choice (weldsuite-documentation/plans/mobile-server-choice.md): test builds show the
+        # picker with the EU test cluster; production keeps it off (Global only)
+        # until the EU edition launches. Same values as each app's eas.json.
         if [ "$TARGET" = "test" ]; then
           APP_API_URL=https://app-api-test.weldsuite.org
           PERSONAL_API_URL=https://personal-api-test.weldsuite.org
           CLERK_KEY=pk_test_ZGVmaW5pdGUtZWFnbGUtMy5jbGVyay5hY2NvdW50cy5kZXYk
+          SERVER_PICKER=on
+          EU_SERVER_URL=https://app.test.weldsuite.eu
         elif [ "$TARGET" = "production" ]; then
           APP_API_URL=https://app-api.weldsuite.org
           PERSONAL_API_URL=https://personal-api.weldsuite.org
           CLERK_KEY=pk_live_Y2xlcmsud2VsZHN1aXRlLm9yZyQ
+          SERVER_PICKER=off
+          EU_SERVER_URL=
         else
           echo "::error::environment must be test or production (got '$TARGET')"
           exit 1
@@ -78,13 +85,28 @@ runs:
             echo "::error::unknown mobile app '$APP' (add it to deploy-mobile and deploy-plan.mjs)"
             exit 1 ;;
         esac
+        # Apps that have left Global (ADR MOB-007) start on the EU server
+        # their build names and ship no Clerk: they read only the EU address
+        # and the picker switch, which is on in every environment (a
+        # self-hosted server through "Change server"). Without the EU address
+        # they refuse to start, so production gets it too.
+        case "$APP" in
+          weldchat)
+            if [ "$TARGET" = "production" ]; then EU_SERVER_URL=https://app.weldsuite.eu; fi
+            {
+              echo "EXPO_PUBLIC_EU_SERVER_URL=$EU_SERVER_URL"
+              echo "EXPO_PUBLIC_SERVER_PICKER=on"
+            } >> "$GITHUB_ENV"
+            exit 0 ;;
+        esac
         {
           echo "EXPO_PUBLIC_APP_API_URL=$APP_API_URL"
           echo "EXPO_PUBLIC_API_MODULES=all"
+          echo "EXPO_PUBLIC_SERVER_PICKER=$SERVER_PICKER"
+          if [ -n "$EU_SERVER_URL" ]; then echo "EXPO_PUBLIC_EU_SERVER_URL=$EU_SERVER_URL"; fi
           case "$APP" in
             weldmail)
               echo "EXPO_PUBLIC_PERSONAL_API_URL=$PERSONAL_API_URL" ;;
-            weldchat) ;;
             weldbooks | weldflow | weldhr)
               echo "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY=$CLERK_KEY" ;;
             weldagent)
@@ -99,9 +121,13 @@ runs:
           esac
         } >> "$GITHUB_ENV"
 
+    # NODE_OPTIONS: 7 GB private runners, see deploy-pages (Metro bundles in
+    # eas update).
     - name: Release
       if: steps.eas.outputs.ready != 'false'
       uses: ./.github/actions/mobile-release
+      env:
+        NODE_OPTIONS: --max-old-space-size=5120
       with:
         app-dir: apps/mobile/${{ inputs.app }}-app
         channel: ${{ inputs.environment == 'test' && 'preview' || 'production' }}

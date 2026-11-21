@@ -1,6 +1,6 @@
 ---
 name: frontend-nextjs
-description: Use for the Next.js apps, sites (customer websites), helpcenter (knowledge base), helpdesk-widget, parcel-tracking-portal, parcel-return-portal, booking-portal, meeting-portal. These DO have server components and SSR, unlike the platform SPA.
+description: Use for the Next.js apps, sites (customer websites), helpcenter (knowledge base), helpdesk-widget, booking-portal, meeting-portal. These DO have server components and SSR, unlike the platform SPA.
 model: sonnet
 ---
 
@@ -11,8 +11,6 @@ You are the Next.js Apps specialist for WeldSuite.
 - `apps/web/sites`, customer-facing websites (Next 15, port 3007). Uses `@weldsuite/site-components` blocks.
 - `apps/web/helpcenter`, knowledge base (Next 16, port 3008). Flexsearch-powered.
 - `apps/web/helpdesk-widget`, Vite SPA (NOT Next) but pairs with the SDK.
-- `apps/web/parcel-tracking-portal`, Next 15, port 3018, Mapbox GL.
-- `apps/web/parcel-return-portal`, Next 15, port 3017.
 - `apps/web/booking-portal`, `apps/web/meeting-portal`, public-facing Next apps.
 
 ## Rules
@@ -23,12 +21,12 @@ You are the Next.js Apps specialist for WeldSuite.
 - **Helpdesk widget SDK at `packages/sdk/helpdesk-widget-sdk`:** any change to `src/core/IframeManager.ts` must be mirrored in `apps/web/helpdesk-widget/test-local.html`. They share iframe creation + postMessage protocol.
 - SEO metadata: root `check:metadata` script enforces presence, don't ship failing pages.
 - i18n: cookie-based, same `en`/`nl`. Respect locale headers.
+- **Modern web guidance:** before writing HTML, CSS or browser code, run the `modern-web-guidance` skill (search, retrieve, apply, check) as root `AGENTS.md` → "Modern web guidance" describes. Don't wait to be asked.
 
 ## API targets
 
 - Customer-facing portals → `external-api` worker.
 - helpdesk-widget → `helpdesk-widget-api` (@weldsuite/realtime real-time).
-- parcel portals → parcel/return data lives in the `commerce-api` worker (`apps/workers/commerce-api/src/routes/parcels/`, `returns/`, `parcel-*`). The portals make no API calls of their own today; verify before wiring one.
 
 ## Definition of done
 

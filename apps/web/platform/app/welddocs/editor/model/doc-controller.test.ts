@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { BODY, MetricsMeasurer, PARA, caretAt } from '@weldsuite/docs-engine';
 import { copyFragment, readClipboard, textFragment } from './clipboard';
 import { DocController } from './doc-controller';
+import { handleKey } from './keyboard';
 
 function make() {
   const onOp = vi.fn();
@@ -10,6 +11,9 @@ function make() {
 }
 
 const text = (ctl: DocController) => ctl.doc.body.text();
+
+/** A key press with no modifiers (the tests run without a DOM). */
+const plainKey = (key: string) => ({ key, code: key, shiftKey: false, ctrlKey: false, metaKey: false, altKey: false }) as unknown as KeyboardEvent;
 
 describe('DocController', () => {
   it('types, and undoes a run of typing in one step', () => {
@@ -80,6 +84,23 @@ describe('DocController', () => {
     expect(text(ctl)).toBe(`dog and dog${PARA}`);
   });
 
+  it('moves to the next match on the first step, from the one shown as current', () => {
+    const { ctl } = make();
+    ctl.type('cat and cat and cat');
+    ctl.move(-1, 'document', false);
+    ctl.setFind('cat', {});
+    expect(ctl.find?.index).toBe(0);
+    ctl.findStep(1);
+    expect(ctl.find?.index).toBe(1);
+    expect(ctl.selection).toEqual({ story: BODY, anchor: 8, head: 11 });
+    ctl.findStep(-1);
+    expect(ctl.find?.index).toBe(0);
+    // Replace takes the current match and goes on to the next one.
+    ctl.replaceCurrent('dog');
+    expect(text(ctl)).toBe(`dog and cat and cat${PARA}`);
+    expect(ctl.selection).toEqual({ story: BODY, anchor: 8, head: 11 });
+  });
+
   it('copies and pastes its own fragments without loss, and plain text into the paragraph', () => {
     const { ctl } = make();
     ctl.type('Title');
@@ -98,6 +119,27 @@ describe('DocController', () => {
     other.paste({ text: 'XY' });
     expect(other.doc.body.text().startsWith('TiXYtle')).toBe(true);
     expect(textFragment('a\r\nb').content.text).toBe(`a${PARA}b`);
+  });
+
+  it('goes back from the header to the page text with Escape', () => {
+    const { ctl } = make();
+    ctl.type('Body text');
+    ctl.editHeader('header');
+    ctl.type('Header');
+    expect(ctl.inHeaderOrFooter).toBe(true);
+    expect(handleKey(ctl, plainKey('Escape'))).toBe(true);
+    expect(ctl.inHeaderOrFooter).toBe(false);
+    expect(ctl.selection).toEqual({ story: BODY, anchor: 0, head: 0 });
+  });
+
+  it('knows the text a comment being written is about, the word at the caret too', () => {
+    const { ctl } = make();
+    ctl.type('alpha beta');
+    expect(ctl.draftRange()).toBeNull();
+    ctl.draft = caretAt(BODY, 7);
+    expect(ctl.draftRange()).toEqual({ story: BODY, from: 6, to: 10 });
+    ctl.draft = { story: BODY, anchor: 5, head: 0 };
+    expect(ctl.draftRange()).toEqual({ story: BODY, from: 0, to: 5 });
   });
 
   it('keeps edits out of a read-only document', () => {

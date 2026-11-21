@@ -1,4 +1,4 @@
-import { publicEnv } from '@/lib/runtime-config';
+import { getRuntimeConfig, publicEnv } from '@/lib/runtime-config';
 /**
  * Public share link of a WeldMeet meeting.
  *
@@ -6,14 +6,28 @@ import { publicEnv } from '@/lib/runtime-config';
  * route `/[orgId]/[joinCode]`), never through the platform, which requires a
  * login. The workspace id is part of the path because the portal uses it to
  * resolve the tenant database.
+ *
+ * A Kubernetes edition (EU, self-hosted) names its portal in `/config.json`
+ * (`env.VITE_MEETING_PORTAL_URL`, the chart's `config.publicEnv`). Without one
+ * it has no portal, and Global's knows none of its meetings, so the link is
+ * the platform's own join page (`/w/{workspace}/weldmeet/join/{code}`):
+ * members join there after signing in.
  */
 
-/** Production meeting portal. Used when `VITE_MEETING_PORTAL_URL` is not set. */
+/** Production meeting portal. Used on Global when `VITE_MEETING_PORTAL_URL` is not set. */
 export const DEFAULT_MEETING_PORTAL_URL = 'https://meet.weldsuite.org';
 
-export function getMeetingPortalUrl(): string {
+/** The meeting portal's origin, or null on a Kubernetes edition that has none. */
+export function getMeetingPortalUrl(): string | null {
   const configured = publicEnv('VITE_MEETING_PORTAL_URL')?.trim();
-  return (configured || DEFAULT_MEETING_PORTAL_URL).replace(/(?<!\/)\/+$/, '');
+  if (configured) return configured.replace(/(?<!\/)\/+$/, '');
+  return getRuntimeConfig() ? null : DEFAULT_MEETING_PORTAL_URL;
+}
+
+/** The platform's join page for the meeting, inside its workspace. */
+function platformJoinUrl(workspaceId: string, code: string): string | null {
+  if (typeof window === 'undefined') return null;
+  return `${window.location.origin}/w/${encodeURIComponent(workspaceId)}/weldmeet/join/${encodeURIComponent(code)}`;
 }
 
 /**
@@ -26,7 +40,9 @@ export function buildMeetingShareUrl(
 ): string | null {
   const code = joinCode?.trim();
   if (!workspaceId || !code) return null;
-  return `${getMeetingPortalUrl()}/${encodeURIComponent(workspaceId)}/${encodeURIComponent(code)}`;
+  const portal = getMeetingPortalUrl();
+  if (!portal) return platformJoinUrl(workspaceId, code);
+  return `${portal}/${encodeURIComponent(workspaceId)}/${encodeURIComponent(code)}`;
 }
 
 export interface ParsedMeetingJoinInput {

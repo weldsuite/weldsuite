@@ -10,7 +10,7 @@
  * return to the payment step (`?step=payment&billing=done`). Without a step
  * the wizard opens on the first one that is not done yet.
  *
- * Without billing (`isFeatureAvailable('billing')` off on the Kubernetes
+ * Without billing (`isFeatureAvailable('reach-billing')` off on the Kubernetes
  * editions, or a backend that reports no subscription) mailboxes are not
  * charged: the payment step is left out.
  */
@@ -53,7 +53,7 @@ export default function ReachSetupPage() {
   const canCreateMailboxes = can('reach_mailboxes:create');
 
   const settings = useReachSettings();
-  const billingAvailable = isFeatureAvailable('billing');
+  const billingAvailable = isFeatureAvailable('reach-billing');
   const billing = useReachBilling(billingAvailable);
   // Null: the backend reports no subscription, so billing is off there too.
   const billed = billingAvailable && billing.data !== null;

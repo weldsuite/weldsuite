@@ -38,10 +38,19 @@ export type RecordChatType = (typeof RECORD_CHAT_TYPES)[number];
 export const RECORD_CHAT_FILTERS = ['following', 'unread', 'mentions', 'all'] as const;
 export type RecordChatFilter = (typeof RECORD_CHAT_FILTERS)[number];
 
+/**
+ * `recent`: most recent activity first (the sidebar). `unread`: the chats
+ * unread to the caller (as in the `unread` filter) first, each part most
+ * recent first (the record chats page).
+ */
+export const RECORD_CHAT_SORTS = ['recent', 'unread'] as const;
+export type RecordChatSort = (typeof RECORD_CHAT_SORTS)[number];
+
 /** GET /api/chat-entity-channels */
 export const listEntityChannelsQuerySchema = z.object({
   type: z.string().min(1).max(50).optional(),
   filter: z.enum(RECORD_CHAT_FILTERS).default('following'),
+  sort: z.enum(RECORD_CHAT_SORTS).default('recent'),
   search: z.string().trim().max(200).optional(),
   /** The id of the last chat on the previous page. */
   cursor: z.string().max(30).optional(),

@@ -128,7 +128,7 @@ impl<'de> Deserialize<'de> for OrderedObject {
 
 /// JavaScript object key order: array-index keys (`"0"`, `"17"`) first in
 /// numeric order, then the rest as inserted.
-fn js_key_order(entries: Vec<(String, Value)>) -> Vec<(String, Value)> {
+pub(crate) fn js_key_order<T>(entries: Vec<(String, T)>) -> Vec<(String, T)> {
     let (mut indices, rest): (Vec<_>, Vec<_>) = entries
         .into_iter()
         .partition(|(key, _)| array_index(key).is_some());

@@ -2,7 +2,7 @@
  * Loads what the sales tax engines need from the tenant DB: the entity's
  * engine and (decrypted) credentials, its agencies as registrations, and for
  * the manual engine its jurisdictions, rates, zones and taxability rules.
- * books-api and commerce-api both call it.
+ * books-api calls it.
  */
 
 import { and, eq, inArray, isNull, max } from 'drizzle-orm';

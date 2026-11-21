@@ -34,6 +34,7 @@ import { BOARDS_ENTITY_EVENTS } from './boards';
 import { SIGN_ENTITY_EVENTS } from './sign';
 import { PANEL_ENTITY_EVENTS } from './panel';
 import { MERGE_ENTITY_EVENTS } from './merge';
+import { FORMS_ENTITY_EVENTS } from './forms';
 
 const MODULE_CATALOGS: Array<[string, Record<string, readonly string[]>]> = [
   ['crm', CRM_ENTITY_EVENTS],
@@ -61,6 +62,7 @@ const MODULE_CATALOGS: Array<[string, Record<string, readonly string[]>]> = [
   ['sign', SIGN_ENTITY_EVENTS],
   ['panel', PANEL_ENTITY_EVENTS],
   ['merge', MERGE_ENTITY_EVENTS],
+  ['forms', FORMS_ENTITY_EVENTS],
 ];
 
 describe('ENTITY_EVENTS catalog', () => {

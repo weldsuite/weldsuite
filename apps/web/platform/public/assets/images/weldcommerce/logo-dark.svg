@@ -1,26 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg id="Layer_2" data-name="Layer 2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640">
-  <defs>
-    <style>
-      .cls-tile {
-        fill: #8f76ff;
-      }
-
-      .cls-handle {
-        fill: none;
-        stroke: #f6b13f;
-        stroke-width: 36;
-        stroke-linecap: round;
-      }
-
-      .cls-bag {
-        fill: #fff;
-      }
-    </style>
-  </defs>
-  <g id="Layer_1-2" data-name="Layer 1">
-    <rect class="cls-tile" x="0" y="0" width="640" height="640" rx="146" ry="146"/>
-    <path class="cls-handle" d="M228,300 L228,251 A92,92 0 0 1 412,251 L412,300"/>
-    <rect class="cls-bag" x="148" y="251" width="344" height="248" rx="44" ry="44"/>
-  </g>
+<!-- WeldCommerce: a webshop, a shop awning and door inside a screen frame. No square fill. Padded to draw at 23px in a 24px slot, same as WeldSheets. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="1.565 1.565 20.87 20.87">
+  <rect x="3.1" y="3.1" width="17.8" height="17.8" rx="3" fill="none" stroke="#8f76ff" stroke-width="2.2"/>
+  <path fill="#8f76ff" d="M2 6a4 4 0 0 1 4-4h12a4 4 0 0 1 4 4v3a3.67 3.67 0 0 1-6.67 0a3.67 3.67 0 0 1-6.66 0A3.67 3.67 0 0 1 2 9ZM10 22v-5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v5Z"/>
 </svg>

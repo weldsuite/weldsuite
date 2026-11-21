@@ -3,7 +3,7 @@
  * reached through `env.MAIL_INDEX.jurisdiction('eu')` (`client.ts`). Holds
  * email addresses — correspondents and the address index — so it lives in its
  * own EU-jurisdiction object instead of the (non-EU) `OutboundLedger`
- * (design decision 1, docs/plans/weldmail-mailbox-store-design.md).
+ * (design decision 1, weldsuite-documentation/plans/weldmail-mailbox-store-design.md).
  *
  * This is the first SQLite-backed object in `@weldsuite/mail-domain`;
  * `OutboundLedger` (outbound/ledger.ts) only uses the KV half of

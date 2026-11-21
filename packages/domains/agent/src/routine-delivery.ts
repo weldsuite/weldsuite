@@ -7,6 +7,7 @@
  */
 
 import { sendWeldAgentReplyNotification } from '@weldsuite/notifications';
+import { replyToPlainText } from '@weldsuite/app-api-client/schemas/chat-visuals';
 import type { Database as NotificationDatabase, NotificationEnv } from '@weldsuite/notifications/types';
 import { getAgent, type AgentDb } from './agents';
 import { persistAssistantMessage, ROUTINE_RESULT_KIND } from './complete-turn';
@@ -69,7 +70,7 @@ export async function deliverRoutineResult(
         userId,
         conversationId,
         agentName: agent?.name ?? null,
-        previewText: message.content,
+        previewText: replyToPlainText(message.content),
       });
     } catch (err) {
       console.error('[weldagent/routine] notify failed:', err);

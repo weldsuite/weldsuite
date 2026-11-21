@@ -1,11 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { niceTicks } from '@weldsuite/ui/lib/nice-ticks';
 import {
   dashboardTrend,
-  isEmptyTrend,
-  niceTicks,
   percentChange,
   rangeSeries,
-  sampleTrend,
   trendMonths,
   yearToDateSeries,
   type TrendMonth,
@@ -72,42 +70,22 @@ describe('yearToDateSeries', () => {
 describe('dashboardTrend', () => {
   const zero = months.map((m) => ({ month: m.month, revenue: '0.00', expenses: '0.00', profit: '0.00' }));
 
+  it('draws books with nothing booked as they are: every month at zero, never sample figures', () => {
+    const trend = dashboardTrend({ monthlyTrend: zero, monthlyRevenue: [] });
+    expect(trend.map((m) => m.month)).toEqual(months.map((m) => m.month));
+    expect(trend.every((m) => m.revenue === 0 && m.expenses === 0 && m.profit === 0)).toBe(true);
+  });
+
   it('keeps the ledger trend once anything is booked', () => {
     const booked = zero.map((m, i) => (i === 5 ? { ...m, expenses: '12.50', profit: '-12.50' } : m));
-    expect(isEmptyTrend(trendMonths({ monthlyTrend: booked, monthlyRevenue: [] }))).toBe(false);
-    expect(dashboardTrend({ monthlyTrend: booked, monthlyRevenue: [] }).sample).toBe(false);
+    expect(dashboardTrend({ monthlyTrend: booked, monthlyRevenue: [] })[5]).toMatchObject({ expenses: 12.5, profit: -12.5 });
   });
 
-  it('shows the sample trend over the same months while nothing is booked', () => {
-    const trend = dashboardTrend({ monthlyTrend: zero, monthlyRevenue: [] });
-    expect(trend.sample).toBe(true);
-    expect(trend.months.map((m) => m.month)).toEqual(months.map((m) => m.month));
-  });
-
-  it('ends the sample trend at this month when the API returns no months', () => {
+  it('draws 24 months of zero ending this month when the API returns no months', () => {
     const trend = dashboardTrend({ monthlyTrend: [], monthlyRevenue: [] }, new Date(2026, 0, 15));
-    expect(trend.sample).toBe(true);
-    expect(trend.months[0].month).toBe('2024-02');
-    expect(trend.months[23].month).toBe('2026-01');
-  });
-});
-
-describe('sampleTrend', () => {
-  const sample = sampleTrend('2026-10');
-
-  it('is the same every time, with every metric filled in and profit adding up', () => {
-    expect(sampleTrend('2026-10')).toEqual(sample);
-    expect(sample).toHaveLength(24);
-    for (const m of sample) {
-      expect(m.revenue).toBeGreaterThan(0);
-      expect(m.expenses).toBeGreaterThan(0);
-      expect(m.profit).toBeCloseTo(m.revenue - (m.expenses ?? 0), 2);
-    }
-  });
-
-  it('grows year on year, so the comparisons have something to show', () => {
-    const lastYear = rangeSeries(sample, 'revenue', 12, 'previousYear');
-    expect(lastYear.total).toBeGreaterThan(lastYear.compareTotal ?? Infinity);
+    expect(trend).toHaveLength(24);
+    expect(trend[0]).toEqual({ month: '2024-02', revenue: 0, expenses: 0, profit: 0 });
+    expect(trend[23].month).toBe('2026-01');
   });
 });
 

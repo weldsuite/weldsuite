@@ -16,6 +16,11 @@ interface UseSupportRoomConfig {
   userName?: string;
   /** Presence data to send on connect */
   presenceData?: Record<string, unknown>;
+  /**
+   * The member's workspace, membership mode only (`RoomClientConfig.workspace`;
+   * the server otherwise takes the room's own workspace id); a change reconnects.
+   */
+  workspace?: string | null;
 }
 
 /**
@@ -36,6 +41,7 @@ export function useSupportRoom(workspaceId: string, config: UseSupportRoomConfig
   const [state, setState] = useState<ConnectionState>('disconnected');
   const [presence, setPresence] = useState<PresenceMember[]>([]);
   const [typingUsers, setTypingUsers] = useState<TypingUser[]>([]);
+  const workspace = config.workspace || null;
 
   useEffect(() => {
     if (!workspaceId) return;
@@ -45,6 +51,7 @@ export function useSupportRoom(workspaceId: string, config: UseSupportRoomConfig
     const client = new RoomClient({
       url: wsUrl.toString(),
       getToken: config.getToken,
+      workspace,
     });
     clientRef.current = client;
 
@@ -66,7 +73,7 @@ export function useSupportRoom(workspaceId: string, config: UseSupportRoomConfig
       setTypingUsers([]);
       setState('disconnected');
     };
-  }, [workspaceId, config.baseUrl]);
+  }, [workspaceId, config.baseUrl, workspace]);
 
   const sendMessage = useCallback(
     (content: string, opts?: { senderAvatar?: string }) => {

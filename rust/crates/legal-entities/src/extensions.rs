@@ -1,5 +1,5 @@
 //! Apps that extend a legal entity (`extensions.ts`, contract item 4 in
-//! `docs/plans/legal-entities.md`). Each says whether it is enabled for an
+//! `weldsuite-documentation/plans/legal-entities.md`). Each says whether it is enabled for an
 //! entity and whether it holds data there; together they power "Used by" and
 //! block deleting an entity that still has data. Reading another module's
 //! tables for these probes is allowed by the module-split rules.

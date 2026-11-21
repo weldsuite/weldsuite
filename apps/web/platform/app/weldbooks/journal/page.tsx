@@ -84,7 +84,7 @@ export default function JournalEntriesPage() {
     {
       id: 'reference',
       header: tjp.colReference,
-      width: 'min-w-[200px] flex-1 gap-2',
+      width: 'min-w-0 flex-1 gap-2 @2xl/list:min-w-[200px]',
       render: (e) => (
         <RowTitle chips={e.reference && e.entryNumber ? <RowNumberChip>{e.entryNumber}</RowNumberChip> : null}>
           {e.reference || e.entryNumber || '—'}
@@ -94,31 +94,31 @@ export default function JournalEntriesPage() {
     {
       id: 'description',
       header: tjp.colDescription,
-      width: 'w-[240px]',
+      width: 'hidden shrink-0 @6xl/list:flex w-[240px]',
       render: (e) => <RowText>{e.description}</RowText>,
     },
     {
       id: 'date',
       header: tjp.colDate,
-      width: 'w-[120px]',
+      width: 'hidden shrink-0 @4xl/list:flex w-[120px]',
       render: (e) => <RowDate>{formatDate(e.date)}</RowDate>,
     },
     {
       id: 'debit',
       header: tjp.colDebit,
-      width: 'w-[130px]',
+      width: 'hidden shrink-0 @4xl/list:flex w-[130px]',
       render: (e) => <RowAmount>{fmt(e.totalDebit)}</RowAmount>,
     },
     {
       id: 'credit',
       header: tjp.colCredit,
-      width: 'w-[130px]',
+      width: 'hidden shrink-0 @4xl/list:flex w-[130px]',
       render: (e) => <RowAmount>{fmt(e.totalCredit)}</RowAmount>,
     },
     {
       id: 'status',
       header: tjp.colStatus,
-      width: 'w-[110px]',
+      width: 'shrink-0 w-[110px]',
       render: (e) => <StatusChip status={e.status}>{statusLabels[e.status] ?? e.status}</StatusChip>,
     },
   ];

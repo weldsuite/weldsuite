@@ -86,10 +86,10 @@ use weldsuite_ports::{
 
 pub use books::{BooksInternal, BooksRequest, BooksResponse, InProcessBooks, RequestBooksInternal};
 pub(crate) use shared::{
-    add_days, assert_date_order, company_names, employed_share_of_year, is_iso_date_shape,
-    js_number, js_number_of, js_round, js_time, js_to_fixed, js_trim, locale_compare, member_names,
-    now, number_text, parse_date, query_date, query_param, query_text, text, today_iso,
-    working_days_between, year_of,
+    add_days, assert_birth_date, assert_date_order, company_names, employed_share_of_year,
+    is_iso_date_shape, js_number, js_number_of, js_round, js_time, js_to_fixed, js_trim,
+    locale_compare, member_names, now, number_text, parse_date, query_date, query_param,
+    query_text, text, today_iso, working_days_between, year_of,
 };
 pub(crate) use validation::{hr_json, query_values, zod_query};
 
@@ -253,6 +253,12 @@ impl Caller {
             Some(buckets) => buckets.public.clone(),
             None => state.files.as_ref().and_then(|files| files.public.clone()),
         }
+    }
+
+    /// The request's master database (account pictures): the app's behind
+    /// `workspace_db`, the test's in conformance.
+    pub(crate) fn request_master(&self) -> Option<&PgPool> {
+        self.master.as_ref()
     }
 
     /// The master database: the request's (conformance), else the app's.

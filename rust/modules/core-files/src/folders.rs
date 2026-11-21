@@ -63,7 +63,14 @@ async fn folder_sharing(caller: &Caller, opened: &OpenedFolder) -> Result<Value,
         general_access: DriveGeneralAccess::parse(text(row, "generalAccess").unwrap_or_default()),
         parent_id: text(row, "parentId"),
     };
-    Ok(describe_sharing(&caller.db, &opened.access, target, opened.role).await?)
+    Ok(describe_sharing(
+        &caller.db,
+        caller.request_master(),
+        &opened.access,
+        target,
+        opened.role,
+    )
+    .await?)
 }
 
 pub(crate) async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
@@ -243,8 +250,13 @@ pub(crate) async fn remove(
 ) -> Response {
     answer(
         async {
-            open_folder(&caller, &id, true).await?;
-            let Some(deleted) = folders_db::soft_delete_folder(&caller.db, &id, &now()).await?
+            let opened = open_folder(&caller, &id, true).await?;
+            // What goes to the trash with the folder: only what the caller may change.
+            let (tree_folders, tree_files) = folders_db::live_folder_tree(&caller.db, &id).await?;
+            let contents =
+                folders_db::trashable_contents(&opened.access, &id, &tree_folders, &tree_files);
+            let Some(deleted) =
+                folders_db::soft_delete_folder(&caller.db, &id, &contents, &now()).await?
             else {
                 return Err(not_found("Folder", &id));
             };

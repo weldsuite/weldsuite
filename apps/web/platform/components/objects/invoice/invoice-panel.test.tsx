@@ -15,6 +15,10 @@ const env = vi.hoisted(() => ({
   generatePdf: vi.fn(),
   listTemplates: vi.fn(),
   push: vi.fn(),
+  deleteInvoice: vi.fn(),
+  onClose: vi.fn(),
+  /** The company details an invoice needs that the entity lacks. */
+  missingDetails: [] as string[],
   toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() },
   certificates: new Map<string, { id: string; certificateNumber: string | null; reason: string; states: string[] }>(),
 }));
@@ -76,6 +80,8 @@ vi.mock('@/hooks/queries/use-accounting-queries', () => ({
   useApplyCreditNote: () => ({ mutate: env.applyCredit, isPending: false }),
   useUpdateInvoiceStatus: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useSendInvoice: () => ({ mutate: vi.fn(), isPending: false }),
+  useDeleteInvoice: () => ({ mutateAsync: env.deleteInvoice, isPending: false }),
+  useUpdateAccountingEntity: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 vi.mock('@/hooks/use-current-accounting-entity', () => ({ useCurrentAccountingEntity: () => ({ entityId: 'ent_1' }) }));
 vi.mock('@/hooks/queries/use-weldbooks-tax-preview', () => ({
@@ -87,6 +93,14 @@ vi.mock('@/lib/weldbooks/use-jurisdiction', () => ({
   useJurisdictionLabels: () => ({
     labels: { tax: 'Sales tax', taxId: 'EIN', registrationId: 'State ID', creditNote: 'Credit memo' },
     features: { salesTax: env.salesTax, form1099: env.salesTax },
+  }),
+}));
+vi.mock('@/lib/weldbooks/use-entity-invoice-details', () => ({
+  useEntityInvoiceDetails: () => ({
+    entity: { id: 'ent_1', name: 'Acme LLC', jurisdictionCode: 'US', baseCurrency: 'USD' },
+    missing: env.missingDetails,
+    labels: { vatNumber: 'EIN', registrationNumber: 'State ID', iban: 'IBAN', bic: 'BIC', address: 'Business address' },
+    isLoading: false,
   }),
 }));
 vi.mock('@/lib/weldbooks/use-weldbooks-format', () => ({
@@ -183,7 +197,7 @@ function invoice(overrides: Record<string, unknown> = {}) {
 }
 
 function renderPanel() {
-  return renderWithProviders(<InvoicePanel id="inv_1" isOpen onClose={vi.fn()} />);
+  return renderWithProviders(<InvoicePanel id="inv_1" isOpen onClose={env.onClose} />);
 }
 
 async function openTab(user: ReturnType<typeof userEvent.setup>, name: string) {
@@ -195,7 +209,10 @@ describe('InvoicePanel', () => {
     env.invoice = invoice();
     env.loading = false;
     env.salesTax = true;
+    env.missingDetails = [];
     env.certificates = new Map();
+    env.deleteInvoice.mockReset().mockResolvedValue(undefined);
+    env.onClose.mockReset();
     env.finalize.mockReset();
     env.commit.mockReset();
     env.createCreditMemo.mockReset();
@@ -256,14 +273,88 @@ describe('InvoicePanel', () => {
       expect(screen.queryByRole('button', { name: 'Finalize' })).not.toBeInTheDocument();
       await user.click(screen.getByRole('button', { name: 'More actions' }));
       expect(await screen.findByRole('menuitem', { name: 'Send' })).toBeInTheDocument();
-      expect(screen.getByRole('menuitem', { name: 'Record Payment' })).toBeInTheDocument();
+      expect(screen.getByRole('menuitem', { name: 'Record payment' })).toBeInTheDocument();
       expect(screen.queryByRole('link', { name: 'Edit' })).not.toBeInTheDocument();
+    });
+
+    it('shows Send and Record payment as buttons on a finalized invoice, next to the menu', () => {
+      env.invoice = invoice({ status: 'finalized' });
+      renderPanel();
+      expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Record payment' })).toBeInTheDocument();
+    });
+
+    it('shows no Send or Record payment button on a draft or a settled invoice', () => {
+      env.invoice = invoice({ status: 'draft', taxBreakdown: [], taxTotal: '0.00' });
+      const { unmount } = renderPanel();
+      expect(screen.queryByRole('button', { name: 'Send' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Record payment' })).not.toBeInTheDocument();
+      unmount();
+
+      env.invoice = invoice({ status: 'paid', balanceDue: '0.00', amountPaid: '108.25' });
+      renderPanel();
+      expect(screen.queryByRole('button', { name: 'Send' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Record payment' })).not.toBeInTheDocument();
+    });
+
+    it('labels the payment button of a credit memo as a refund', () => {
+      env.invoice = invoice({ type: 'credit_note', creditNoteForInvoiceId: 'inv_0', amountPaid: '8.25', balanceDue: '100.00' });
+      renderPanel();
+      expect(screen.getByRole('button', { name: 'Record refund' })).toBeInTheDocument();
     });
 
     it('a draft links to the edit page', () => {
       env.invoice = invoice({ status: 'draft', taxBreakdown: [], taxTotal: '0.00' });
       renderPanel();
       expect(screen.getByRole('link', { name: 'Edit' })).toHaveAttribute('href', '/weldbooks/invoices/inv_1/edit');
+      expect(screen.queryByTestId('entity-invoice-details-notice')).not.toBeInTheDocument();
+    });
+
+    it('a draft says which company details it still needs, a finalized invoice does not', () => {
+      env.missingDetails = ['address'];
+      env.invoice = invoice({ status: 'draft', taxBreakdown: [], taxTotal: '0.00' });
+      const { unmount } = renderPanel();
+      expect(screen.getByTestId('entity-invoice-details-notice')).toHaveTextContent('Business address');
+      expect(screen.getByRole('button', { name: 'Add business details' })).toBeInTheDocument();
+      unmount();
+
+      env.invoice = invoice({ status: 'finalized' });
+      renderPanel();
+      expect(screen.queryByTestId('entity-invoice-details-notice')).not.toBeInTheDocument();
+    });
+
+    it('cannot finalize a draft while the company details are missing', async () => {
+      env.missingDetails = ['address'];
+      env.invoice = invoice({ status: 'draft', taxBreakdown: [], taxTotal: '0.00' });
+      renderPanel();
+      const finalize = screen.getByRole('button', { name: 'Finalize' });
+      expect(finalize).toBeDisabled();
+      expect(finalize).toHaveAttribute('title', expect.stringContaining('Business address'));
+    });
+
+    it('deletes a draft after a confirmation and closes the panel', async () => {
+      const user = userEvent.setup();
+      env.invoice = invoice({ status: 'draft', taxBreakdown: [], taxTotal: '0.00' });
+      renderPanel();
+
+      await user.click(screen.getByRole('button', { name: 'More actions' }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Discard draft' }));
+      const dialog = await screen.findByRole('dialog');
+      expect(dialog).toHaveTextContent('The number stays used');
+      await user.click(within(dialog).getByRole('button', { name: 'Discard draft' }));
+
+      await waitFor(() => expect(env.deleteInvoice).toHaveBeenCalledWith('inv_1'));
+      expect(env.toast.success).toHaveBeenCalledWith('Draft discarded');
+      expect(env.onClose).toHaveBeenCalled();
+    });
+
+    it('offers no delete for a finalized invoice', async () => {
+      const user = userEvent.setup();
+      env.invoice = invoice({ status: 'sent' });
+      renderPanel();
+      await user.click(screen.getByRole('button', { name: 'More actions' }));
+      expect(await screen.findByRole('menuitem', { name: 'Send' })).toBeInTheDocument();
+      expect(screen.queryByRole('menuitem', { name: 'Discard draft' })).not.toBeInTheDocument();
     });
 
     it('a sent invoice can be sent again', async () => {
@@ -294,7 +385,7 @@ describe('InvoicePanel', () => {
       const user = userEvent.setup();
       renderPanel();
 
-      await openTab(user, 'Line Items');
+      await openTab(user, 'Line items');
       const rows = screen.getAllByTestId('tax-breakdown-row');
       expect(rows).toHaveLength(2);
       expect(within(rows[0]).getByText(/Texas/)).toBeInTheDocument();
@@ -316,7 +407,7 @@ describe('InvoicePanel', () => {
       });
       renderPanel();
 
-      await openTab(user, 'Line Items');
+      await openTab(user, 'Line items');
       expect(
         screen.getByText('Software as a service · Business use · Tax included · Tax overridden: State ruling'),
       ).toBeInTheDocument();
@@ -329,7 +420,7 @@ describe('InvoicePanel', () => {
       });
       renderPanel();
 
-      await openTab(user, 'Line Items');
+      await openTab(user, 'Line items');
       const line = screen.getByText('Hosting').closest('div.group')!;
       expect(within(line as HTMLElement).getByText('10 × $100.00 · Sales tax 21%')).toBeInTheDocument();
       expect(within(line as HTMLElement).queryByText(/10.0000|21.0000/)).not.toBeInTheDocument();
@@ -340,7 +431,7 @@ describe('InvoicePanel', () => {
       env.invoice = invoice({ items: [{ ...(invoice().items as object[])[0], discountPercent: '10.0000' }] });
       renderPanel();
 
-      await openTab(user, 'Line Items');
+      await openTab(user, 'Line items');
       expect(screen.getByText('1 × $100.00 · Discount 10% · Sales tax 8.25%')).toBeInTheDocument();
     });
 
@@ -349,7 +440,7 @@ describe('InvoicePanel', () => {
       env.invoice = invoice({ items: [], taxBreakdown: [] });
       renderPanel();
 
-      await openTab(user, 'Line Items');
+      await openTab(user, 'Line items');
       expect(screen.getByText('No line items')).toBeInTheDocument();
     });
   });
@@ -376,7 +467,8 @@ describe('InvoicePanel', () => {
 
       await openTab(user, 'Payments');
       expect(screen.getByText('No payments yet')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Record Payment' })).toBeInTheDocument();
+      // The empty state's action, next to the one in the action bar.
+      expect(screen.getAllByRole('button', { name: 'Record payment' })).toHaveLength(2);
     });
   });
 
@@ -427,7 +519,7 @@ describe('InvoicePanel', () => {
 
       await openTab(user, 'Sales tax');
       expect(screen.getByTestId('exempt-notice')).toHaveTextContent('Exempt sale: Resale. Certificate no. A-123.');
-      await openTab(user, 'Line Items');
+      await openTab(user, 'Line items');
       expect(screen.getByText('$100.00 exempt')).toBeInTheDocument();
     });
 
@@ -504,6 +596,7 @@ describe('InvoicePanel', () => {
       expect(options.labels.jurisdictionTax).toBe('{tax} – {jurisdiction} {rate}%');
       expect(options.labels.creditNote).toBe('CREDIT MEMO');
       expect(options.labels.exempt.reasonWithCertificate).toBe('Exempt sale: {reason}. Certificate no. {number}.');
+      expect(env.toast.success).toHaveBeenCalledWith('PDF downloaded');
     });
 
     it('does not fall back to the built-in layout when the invoice templates cannot be loaded', async () => {
@@ -555,7 +648,7 @@ describe('InvoicePanel', () => {
 
       await finalize(user);
 
-      expect(screen.getByRole('link', { name: 'Open sales tax settings' })).toHaveAttribute('href', '/weldbooks/sales-tax/settings');
+      expect(screen.getByRole('link', { name: 'Open sales tax settings' })).toHaveAttribute('href', '/settings/apps/weldbooks');
     });
 
     it('TAX_RATES_NOT_CONFIGURED links to the agencies', async () => {
@@ -630,7 +723,7 @@ describe('InvoicePanel', () => {
 
       await user.click(screen.getByRole('button', { name: 'More actions' }));
       expect(await screen.findByRole('menuitem', { name: 'Record refund' })).toBeInTheDocument();
-      expect(screen.queryByRole('menuitem', { name: 'Record Payment' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('menuitem', { name: 'Record payment' })).not.toBeInTheDocument();
       await user.keyboard('{Escape}');
       expect(screen.getByText('Credit remaining')).toBeInTheDocument();
       expect(screen.getByText('Applied or refunded')).toBeInTheDocument();
@@ -676,7 +769,7 @@ describe('InvoicePanel', () => {
       renderPanel();
 
       expect(screen.queryByRole('tab', { name: 'Sales tax' })).not.toBeInTheDocument();
-      await openTab(user, 'Line Items');
+      await openTab(user, 'Line items');
       expect(screen.getByText('BTW 21%')).toBeInTheDocument();
       expect(screen.queryByTestId('sales-tax-card')).not.toBeInTheDocument();
       expect(screen.queryByTestId('tax-breakdown-row')).not.toBeInTheDocument();

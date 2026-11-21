@@ -1,8 +1,8 @@
 //! US sales tax (`@weldsuite/books-domain/sales-tax` and books-api's
 //! `services/sales-tax/{document-tax,errors,runtime,route-helpers}`): the
-//! engines and what a document stores from them. Sales, purchases and
-//! commerce call it for US documents and orders; the `books-sales-tax` area
-//! crate serves its setup, reports and returns.
+//! engines and what a document stores from them. Sales and purchases call it
+//! for US documents; the `books-sales-tax` area crate serves its setup,
+//! reports and returns.
 //!
 //! - [`engine`]: `createSalesTaxEngine`: the [`manual`] engine (rates, zones
 //!   and rules the user keeps), [`stripe`] (Stripe Tax) and [`avalara`]

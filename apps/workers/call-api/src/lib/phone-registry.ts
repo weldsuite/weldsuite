@@ -1,10 +1,32 @@
 /**
  * Master DB phone_number → clerkOrgId registry for inbound Telnyx routing.
+ *
+ * A row belongs to one workspace and names that workspace's own
+ * voip_phone_numbers row. Whoever lets go of a number (`deactivate…`,
+ * `release…`) touches only its own row, so one workspace's clean-up can never
+ * cut off a number another workspace has since taken (ported in, say).
  */
 
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { getMasterDb, masterSchema, type MasterDatabase } from '@weldsuite/worker-kit/db';
 import type { TelnyxEnv } from './telnyx';
+
+/** A workspace's own registry row: the number, the workspace and the number's row in its tenant. */
+export interface OwnRegistryRow {
+  phoneNumber: string;
+  /** The Clerk org id the registry is keyed by. */
+  clerkOrgId: string;
+  voipPhoneNumberId: string;
+}
+
+function ownRow(row: OwnRegistryRow) {
+  const r = masterSchema.phoneNumberRegistry;
+  return and(
+    eq(r.phoneNumber, normalizeE164(row.phoneNumber)),
+    eq(r.clerkOrgId, row.clerkOrgId),
+    eq(r.voipPhoneNumberId, row.voipPhoneNumberId),
+  );
+}
 
 export async function upsertPhoneNumberRegistry(
   env: TelnyxEnv,
@@ -48,15 +70,58 @@ export async function upsertPhoneNumberRegistry(
   });
 }
 
-export async function deactivatePhoneNumberRegistry(
-  env: TelnyxEnv,
-  phoneNumber: string,
-): Promise<void> {
+/** Switch the caller's own entry off (a hosted number that was deleted). Another workspace's entry is left alone. */
+export async function deactivatePhoneNumberRegistry(env: TelnyxEnv, row: OwnRegistryRow): Promise<void> {
   const masterDb = getMasterDb(env);
   await masterDb
     .update(masterSchema.phoneNumberRegistry)
     .set({ isActive: false, updatedAt: new Date() })
-    .where(eq(masterSchema.phoneNumberRegistry.phoneNumber, normalizeE164(phoneNumber)));
+    .where(ownRow(row));
+}
+
+/**
+ * Let go of a number on a customer's own phone system: the caller's own entry
+ * is deleted, so the claim leaves nothing behind. Another workspace's entry is
+ * left alone.
+ */
+export async function releasePhoneNumberRegistry(env: TelnyxEnv, row: OwnRegistryRow): Promise<void> {
+  const masterDb = getMasterDb(env);
+  await masterDb.delete(masterSchema.phoneNumberRegistry).where(ownRow(row));
+}
+
+/**
+ * Claim a number for a customer's own phone system, in one conditional write.
+ * True when the number was free, or the existing entry is this workspace's own
+ * and names this row or one of `reclaimIds` (rows of this workspace the caller
+ * found soft-deleted or gone). An entry of another workspace, active or not,
+ * holds the number: false, and nothing is written.
+ */
+export async function claimPhoneNumberRegistry(
+  env: TelnyxEnv,
+  row: OwnRegistryRow & { reclaimIds?: string[] },
+): Promise<boolean> {
+  const r = masterSchema.phoneNumberRegistry;
+  const now = new Date();
+  const claimed = await getMasterDb(env)
+    .insert(r)
+    .values({
+      phoneNumber: normalizeE164(row.phoneNumber),
+      clerkOrgId: row.clerkOrgId,
+      voipPhoneNumberId: row.voipPhoneNumberId,
+      isActive: true,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: r.phoneNumber,
+      set: { voipPhoneNumberId: row.voipPhoneNumberId, isActive: true, updatedAt: now },
+      setWhere: and(
+        eq(r.clerkOrgId, row.clerkOrgId),
+        inArray(r.voipPhoneNumberId, [row.voipPhoneNumberId, ...(row.reclaimIds ?? [])]),
+      ),
+    })
+    .returning({ phoneNumber: r.phoneNumber });
+  return claimed.length > 0;
 }
 
 export async function lookupPhoneNumberRegistry(

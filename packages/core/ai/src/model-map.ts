@@ -37,6 +37,14 @@ const KNOWN_CANONICAL_IDS: readonly string[] = [
   'openai/text-embedding-3-large',
   // Structured evaluation (TypeSafe Jev)
   'typesafe/jev',
+  // Mistral: the EU edition's install provider, called directly by the Rust
+  // backend (ADR AI-012); Global never selects these.
+  'mistral/mistral-small-2603',
+  'mistral/mistral-medium-3-5',
+  'mistral/mistral-large-4-0',
+  'mistral/mistral-ocr-4-1',
+  'mistral/mistral-embed-2312',
+  'mistral/voxtral-mini-transcribe-3-0',
 ];
 
 /**

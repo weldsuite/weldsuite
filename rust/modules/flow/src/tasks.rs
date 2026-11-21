@@ -408,7 +408,15 @@ macro_rules! task_list_filters {
             " or coalesce(t.assignee_ids::jsonb @> $18::jsonb, false)))",
             " and ($19::text is null or (t.assignee_id = $19 or t.assignee_ids::jsonb @> $20::jsonb))",
             " and ($21::text is null or (t.title ilike $21 or t.description ilike $21 or t.key ilike $21",
-            " or ($22::bigint is not null and t.number = $22)))",
+            " or ($22::bigint is not null and t.number = $22)",
+            // A top-level project list also matches a parent whose subtask
+            // (at any depth) matches (`hasMatchingSubtask`).
+            " or ($11::bool is true and t.id in (with recursive hit as (select m.id, m.parent_task_id",
+            " from tasks m where m.deleted_at is null and m.parent_task_id is not null and m.project_id = $1",
+            " and (m.title ilike $21 or m.description ilike $21 or m.key ilike $21",
+            " or ($22::bigint is not null and m.number = $22))",
+            " union select p.id, p.parent_task_id from tasks p join hit on p.id = hit.parent_task_id",
+            " where p.deleted_at is null) select hit.id from hit))))",
             " and ($23::text[] is null or not coalesce(t.labels ?| $23::text[], false))",
             " and ($24::text[] is null or t.labels ?| $24::text[])",
             " and ($25::text is null or ",
@@ -750,7 +758,7 @@ async fn list_tasks(state: &FlowState, caller: &Caller, q: &ListQuery) -> Reply 
             (rows, has_more, next)
         };
         let data = if q.enrich {
-            enrich(state, db, data).await?
+            enrich(state, db, caller.request_master(), data).await?
         } else {
             data
         };
@@ -759,7 +767,9 @@ async fn list_tasks(state: &FlowState, caller: &Caller, q: &ListQuery) -> Reply 
             if q.include_subtasks
                 && let Some(project_id) = &params.project_id
             {
-                let mut descendants = load_descendants(state, db, Some(project_id), &data).await?;
+                let mut descendants =
+                    load_descendants(state, db, caller.request_master(), Some(project_id), &data)
+                        .await?;
                 attach_attachment_counts(db, &mut descendants).await?;
                 attach_attachment_counts(db, &mut data).await?;
                 attach_subtask_tree(&mut data, &descendants);
@@ -801,7 +811,7 @@ async fn detail(
         {
             return Err(Refusal::forbidden(TASK_PROJECT_DENIED));
         }
-        let enriched = enrich(&state, db, vec![row]).await?;
+        let enriched = enrich(&state, db, caller.request_master(), vec![row]).await?;
         let mut task = hydrate(db, enriched).await?.pop().unwrap_or(Value::Null);
         let counts = subtask_counts(db, std::slice::from_ref(&id)).await?;
         let (total, done) = counts.get(&id).copied().unwrap_or((0, 0));
@@ -852,7 +862,13 @@ async fn subtasks(
         .bind(&id)
         .fetch_all(db)
         .await?;
-        let rows = enrich(&state, db, rows.into_iter().map(js_row).collect()).await?;
+        let rows = enrich(
+            &state,
+            db,
+            caller.request_master(),
+            rows.into_iter().map(js_row).collect(),
+        )
+        .await?;
         let mut rows = hydrate(db, rows).await?;
         if !rows.is_empty() {
             attach_subtask_counts(db, &mut rows).await?;

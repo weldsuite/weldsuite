@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { BUILT_IN_TEMPLATES, boardDisplay, Board, applyOp, displayToSvg, placeFragment, selectionBounds, type BuiltInTemplate, type Fragment, type TemplateCategory } from '@weldsuite/board-engine';
 import { CachedMeasurer, MetricsMeasurer } from '@weldsuite/docs-engine';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
+import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { useI18n } from '@/lib/i18n/provider';
 import { cn } from '@/lib/utils';
@@ -31,7 +32,11 @@ export function templatePreview(id: string, fragment: Fragment): string {
   return url;
 }
 
-export function TemplatesGallery({ onPick, compact = false }: { onPick: (template: BuiltInTemplate) => void; compact?: boolean }) {
+/**
+ * The built-in templates: searchable and by category, or (compact) a row of
+ * the first few. `scroll`: the list scrolls under a fixed search row (in a dialog).
+ */
+export function TemplatesGallery({ onPick, compact = false, scroll = false }: { onPick: (template: BuiltInTemplate) => void; compact?: boolean; scroll?: boolean }) {
   const { t } = useI18n();
   const tt = t.weldboard.templates;
   const [category, setCategory] = useState<TemplateCategory | 'all'>('all');
@@ -46,18 +51,41 @@ export function TemplatesGallery({ onPick, compact = false }: { onPick: (templat
   const cats: (TemplateCategory | 'all')[] = ['all', 'meetings', 'ideation', 'planning', 'strategy', 'diagramming'];
   let ids = 0;
   return (
-    <div className="flex flex-col gap-3">
+    <div className={cn('flex flex-col gap-3', scroll && 'min-h-0 flex-1')}>
       {!compact && (
         <div className="flex flex-wrap items-center gap-2">
-          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={tt.search} className="h-8 w-56" />
-          {cats.map((cat) => (
-            <button key={cat} type="button" onClick={() => setCategory(cat)} className={cn('rounded-full border px-3 py-1 text-xs', category === cat ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-muted')}>
-              {tt.categories[cat]}
-            </button>
-          ))}
+          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={tt.search} aria-label={tt.search} className="h-8 w-full sm:w-56" />
+          <div className="flex flex-wrap gap-2" role="group" aria-label={tt.category}>
+            {cats.map((cat) => (
+              <button
+                key={cat}
+                type="button"
+                aria-pressed={category === cat}
+                onClick={() => setCategory(cat)}
+                className={cn('rounded-full border px-3 py-1 text-xs', category === cat ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-muted')}
+              >
+                {tt.categories[cat]}
+              </button>
+            ))}
+          </div>
         </div>
       )}
-      <ul className={cn(compact ? 'flex gap-4' : 'grid grid-cols-2 gap-3 sm:grid-cols-3')}>
+      {!compact && shown.length === 0 && (
+        <div className="flex flex-col items-center gap-3 py-16 text-center">
+          <p className="text-sm text-muted-foreground">{query ? tt.noMatches.replace('{query}', query) : tt.noneInCategory}</p>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setQuery('');
+              setCategory('all');
+            }}
+          >
+            {t.common.actions.clearSearch}
+          </Button>
+        </div>
+      )}
+      <ul className={cn(compact ? 'flex gap-4' : 'grid grid-cols-2 gap-3 sm:grid-cols-3', scroll && '-mx-1 min-h-0 flex-1 overflow-y-auto px-1 pb-1')}>
         {(compact ? shown.slice(0, 8) : shown).map((tpl) => (
           <li key={tpl.id} className={cn(compact && 'w-44 shrink-0')}>
             <button type="button" onClick={() => onPick(tpl)} className="group flex w-full flex-col gap-1.5 text-left">
@@ -79,12 +107,14 @@ export function TemplatesDialog({ open, onOpenChange, onPick }: { open: boolean;
   const tt = t.weldboard.templates;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] max-w-4xl overflow-y-auto">
+      {/* A steady size while filtering; the title and search stay while the list scrolls. */}
+      <DialogContent className="flex h-[min(85vh,760px)] flex-col overflow-hidden sm:max-w-4xl">
         <DialogHeader>
           <DialogTitle>{tt.insertTitle}</DialogTitle>
           <DialogDescription>{tt.description}</DialogDescription>
         </DialogHeader>
         <TemplatesGallery
+          scroll
           onPick={(tpl) => {
             onPick(tpl);
             onOpenChange(false);

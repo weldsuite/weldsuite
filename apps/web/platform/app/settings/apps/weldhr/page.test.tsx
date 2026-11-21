@@ -5,6 +5,8 @@ import WeldHrSettingsPage from './page';
 
 let tab: string | undefined;
 let canManage = true;
+let canPayroll = false;
+let payrollEnabled = false;
 const navigate = vi.fn();
 
 vi.mock('@tanstack/react-router', () => ({
@@ -13,7 +15,18 @@ vi.mock('@tanstack/react-router', () => ({
 }));
 
 vi.mock('@weldsuite/permissions/react', () => ({
-  usePermissions: () => ({ can: (permission: string) => canManage && permission === 'employees:manage' }),
+  usePermissions: () => ({
+    can: (permission: string) =>
+      (canManage && permission === 'employees:manage') || (canPayroll && permission === 'payroll:manage'),
+  }),
+}));
+
+vi.mock('@/hooks/queries/use-weldhr-payroll-queries', () => ({
+  useHrPayrollFlag: () => ({ enabled: payrollEnabled, isLoading: false }),
+}));
+
+vi.mock('./pay-schedules-tab', () => ({
+  PaySchedulesTab: () => <div>pay schedules panel</div>,
 }));
 
 vi.mock('@/app/weldhr/settings/components/departments-tab', () => ({
@@ -33,6 +46,8 @@ describe('WeldHR settings page', () => {
   beforeEach(() => {
     tab = undefined;
     canManage = true;
+    canPayroll = false;
+    payrollEnabled = false;
     navigate.mockClear();
   });
 
@@ -78,6 +93,35 @@ describe('WeldHR settings page', () => {
       to: '/settings/apps/weldhr',
       search: { tab: 'leave-types' },
     });
+  });
+
+  it('adds the pay schedules with the payroll flag and payroll:manage', () => {
+    canPayroll = true;
+    payrollEnabled = true;
+    tab = 'pay-schedules';
+    render(<WeldHrSettingsPage />);
+
+    expect(screen.getByRole('tab', { name: en.weldhr.settings.tabs.paySchedules })).toBeTruthy();
+    expect(screen.getByText('pay schedules panel')).toBeTruthy();
+  });
+
+  it('leaves the pay schedules out while the payroll flag is off', () => {
+    canPayroll = true;
+    tab = 'pay-schedules';
+    render(<WeldHrSettingsPage />);
+
+    expect(screen.queryByRole('tab', { name: en.weldhr.settings.tabs.paySchedules })).toBeNull();
+    expect(screen.getByText('departments panel')).toBeTruthy();
+  });
+
+  it('shows only the pay schedules to a payroll manager without employees:manage', () => {
+    canManage = false;
+    canPayroll = true;
+    payrollEnabled = true;
+    render(<WeldHrSettingsPage />);
+
+    expect(screen.getAllByRole('tab')).toHaveLength(1);
+    expect(screen.getByText('pay schedules panel')).toBeTruthy();
   });
 
   it('hides the editors without employees:manage', () => {

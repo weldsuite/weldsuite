@@ -303,12 +303,18 @@ pub(crate) async fn auto_assign(
         return conversation;
     }
     // The owner and the team can change which SLA policy applies.
-    if let (Some(master), Some(at)) = (master, sla_check_at.and_then(sla::instant)) {
-        weldsuite_db::due_index::mark_due(&master, sla::DUE_KIND, workspace_id, at).await;
+    if let (Some(master), Some(at)) = (master.as_ref(), sla_check_at.and_then(sla::instant)) {
+        weldsuite_db::due_index::mark_due(master, sla::DUE_KIND, workspace_id, at).await;
     }
     for step in &steps {
         if step.action == "assigned" {
-            match resolve_authors(db, &[step.conversation["assigneeId"].as_str()]).await {
+            match resolve_authors(
+                db,
+                master.as_ref(),
+                &[step.conversation["assigneeId"].as_str()],
+            )
+            .await
+            {
                 Ok(authors) => {
                     publish_visitor_event(
                         state,
@@ -396,7 +402,7 @@ pub(crate) async fn notify_team(
         realtime: state.realtime.clone(),
         presence: None,
         mail: state.mail.clone(),
-        http: None,
+        http: state.push_http.clone(),
         apns: None,
     };
     for batch in recipients.chunks(NOTIFY_BATCH) {

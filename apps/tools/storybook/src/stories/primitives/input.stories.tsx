@@ -54,3 +54,8 @@ export const Invalid: Story = {
     </div>
   ),
 };
+
+/** Selected text uses the system highlight colour, like every other text field. */
+export const SelectedText: Story = {
+  args: { defaultValue: "Select this text to see the highlight" },
+};

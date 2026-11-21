@@ -153,7 +153,7 @@ app.get('/sidebar-badges', async (c) => {
       // Only the mailboxes this member may open: the count of a colleague's
       // private mailbox is theirs alone. Trash and spam never count towards
       // the badge (same rule as the mail folder counters). Routed through
-      // the mailbox store (docs/plans/weldmail-mailbox-store-design.md §5):
+      // the mailbox store (weldsuite-documentation/plans/weldmail-mailbox-store-design.md §5):
       // in `postgres`/`shadow` mode `accessibleAccountIds()` and
       // `unreadBadge()` run the exact same queries this replaced; in
       // `object`/`object-only` mode the account list comes from the KV

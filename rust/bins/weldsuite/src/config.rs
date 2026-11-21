@@ -38,6 +38,20 @@ pub(crate) enum AuthConfig {
         /// `OIDC_WEB_CLIENT_ID`: the platform's public PKCE client, told to
         /// the frontends by `/config.json`.
         web_client_id: Option<String>,
+        /// `OIDC_MOBILE_CLIENT_ID`: the mobile apps' public native client
+        /// (PKCE, `<app scheme>://sso-callback` redirects), told to the
+        /// apps by `/config.json`. Without it the apps can't sign in here.
+        mobile_client_id: Option<String>,
+        /// `OIDC_DESKTOP_CLIENT_ID`: the desktop app's public native client
+        /// (PKCE, the loopback redirect `http://127.0.0.1/callback` on any
+        /// port, RFC 8252), told to the platform by `/config.json`. Without
+        /// it the desktop app signs in inside its window with the web client.
+        desktop_client_id: Option<String>,
+        /// `OIDC_SIGN_IN=platform`: the platform shows its own sign-in
+        /// screens and this server is the provider's login client behind
+        /// them (`/api/sign-in`, ADR SEC-016). Unset or `provider`: the
+        /// provider's own pages.
+        platform_sign_in: bool,
     },
 }
 
@@ -53,10 +67,16 @@ impl fmt::Debug for AuthConfig {
             Self::Oidc {
                 settings,
                 web_client_id,
+                mobile_client_id,
+                desktop_client_id,
+                platform_sign_in,
             } => f
                 .debug_struct("Oidc")
                 .field("settings", settings)
                 .field("web_client_id", web_client_id)
+                .field("mobile_client_id", mobile_client_id)
+                .field("desktop_client_id", desktop_client_id)
+                .field("platform_sign_in", platform_sign_in)
                 .finish(),
         }
     }
@@ -93,9 +113,21 @@ impl AuthConfig {
                     settings.org_claim = claim;
                 }
                 settings.jwks_url = lookup("OIDC_JWKS_URL");
+                settings.workspace_source = workspace_source(lookup, problems);
+                let platform_sign_in = match lookup("OIDC_SIGN_IN").as_deref() {
+                    None | Some("" | "provider") => false,
+                    Some("platform") => true,
+                    Some(_) => {
+                        problems.push("OIDC_SIGN_IN must be provider or platform".to_owned());
+                        false
+                    }
+                };
                 Self::Oidc {
                     settings,
                     web_client_id: lookup("OIDC_WEB_CLIENT_ID"),
+                    mobile_client_id: lookup("OIDC_MOBILE_CLIENT_ID"),
+                    desktop_client_id: lookup("OIDC_DESKTOP_CLIENT_ID"),
+                    platform_sign_in,
                 }
             }
             Some(_) => {
@@ -105,6 +137,85 @@ impl AuthConfig {
                     authorized_parties: None,
                 }
             }
+        }
+    }
+}
+
+/// `OIDC_WORKSPACE_SOURCE`: `claim` or `header` (membership mode). Unset:
+/// `header` with WeldID, whose tokens carry no workspace, else `claim`.
+fn workspace_source(
+    lookup: &impl Fn(&str) -> Option<String>,
+    problems: &mut Vec<String>,
+) -> weldsuite_auth::WorkspaceSource {
+    let weldid = lookup("IDENTITY_PROVIDER").as_deref() == Some("weldid");
+    match lookup("OIDC_WORKSPACE_SOURCE")
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+    {
+        None if weldid => weldsuite_auth::WorkspaceSource::Header,
+        None => weldsuite_auth::WorkspaceSource::Claim,
+        Some(value) => match weldsuite_auth::WorkspaceSource::parse(&value) {
+            Some(weldsuite_auth::WorkspaceSource::Claim) if weldid => {
+                problems.push(
+                    "IDENTITY_PROVIDER=weldid needs OIDC_WORKSPACE_SOURCE=header: WeldID's tokens name no workspace"
+                        .to_owned(),
+                );
+                weldsuite_auth::WorkspaceSource::Header
+            }
+            Some(source) => source,
+            None => {
+                problems.push("OIDC_WORKSPACE_SOURCE must be claim or header".to_owned());
+                weldsuite_auth::WorkspaceSource::Claim
+            }
+        },
+    }
+}
+
+impl AuthConfig {
+    /// The workspace comes from the request's header (membership mode).
+    pub(crate) fn workspace_from_header(&self) -> bool {
+        matches!(self, Self::Oidc { settings, .. }
+            if settings.workspace_source == weldsuite_auth::WorkspaceSource::Header)
+    }
+
+    /// WeldID authenticates through OIDC and shows its own screens: the
+    /// platform's (`/api/sign-in`) are Zitadel's login client.
+    fn check_weldid(&self, infra: &InfraConfig, problems: &mut Vec<String>) {
+        if infra.weldid.is_none() {
+            return;
+        }
+        match self {
+            Self::Clerk { .. } => problems.push(
+                "IDENTITY_PROVIDER=weldid needs AUTH_PROVIDER=oidc (OIDC_ISSUER is WeldID's issuer)"
+                    .to_owned(),
+            ),
+            Self::Oidc {
+                platform_sign_in: true,
+                ..
+            } => problems.push(
+                "IDENTITY_PROVIDER=weldid needs OIDC_SIGN_IN=provider: WeldID shows its own sign-in screens, and /api/sign-in is Zitadel's"
+                    .to_owned(),
+            ),
+            Self::Oidc { .. } => {}
+        }
+    }
+
+    /// The platform's own sign-in screens are served by the provider's
+    /// login API: without it there is nothing behind them.
+    fn check_sign_in_screens(&self, infra: &InfraConfig, problems: &mut Vec<String>) {
+        if matches!(
+            self,
+            Self::Oidc {
+                platform_sign_in: true,
+                ..
+            }
+        ) && infra.identity.is_none()
+            && infra.weldid.is_none()
+        {
+            problems.push(
+                "OIDC_SIGN_IN=platform needs ZITADEL_API_URL, ZITADEL_SERVICE_TOKEN and ZITADEL_PROJECT_ID"
+                    .to_owned(),
+            );
         }
     }
 }
@@ -148,6 +259,9 @@ pub(crate) enum LogFormat {
 #[derive(Clone)]
 pub(crate) struct Config {
     pub(crate) listen: SocketAddr,
+    /// `METRICS_ADDR`: where `GET /metrics` listens, apart from the API
+    /// (`monitoring.rs`); `None` is off.
+    pub(crate) metrics_addr: Option<SocketAddr>,
     /// `ENVIRONMENT`, reported by `/health`.
     pub(crate) environment: String,
     /// `EDITION` and `PUBLIC_ENV`, for `/config.json` (`edition.rs`).
@@ -167,6 +281,13 @@ pub(crate) struct Config {
     /// `SPA_DIR`: the platform's built SPA, served for every path the API
     /// doesn't answer (`spa.rs`). Unset: the API only.
     pub(crate) spa_dir: Option<PathBuf>,
+    /// `HELPDESK_WIDGET_DIR`: WeldDesk's helpdesk widget, the built iframe
+    /// app customers' sites embed (`apps/web/helpdesk-widget`).
+    pub(crate) helpdesk_widget_dir: Option<PathBuf>,
+    /// `HELPDESK_WIDGET_HOSTS`: the host names, comma-separated, that are
+    /// served the widget in place of the platform SPA (`widget.<domain>`,
+    /// `spa.rs`). Empty: the widget is served nowhere.
+    pub(crate) helpdesk_widget_hosts: Vec<String>,
     pub(crate) infra: InfraConfig,
     /// `SIGN_SESSION_SECRET`: keys WeldSign's signer sessions and the stored
     /// hash of access codes; the same value as the TypeScript workers'.
@@ -174,6 +295,12 @@ pub(crate) struct Config {
     /// `SIGN_PORTAL_URL`: the signer portal's origin; signing links are
     /// `<portal>/r/<token>` (default `https://sign.weldsuite.org`).
     pub(crate) sign_portal_url: Option<String>,
+    /// `PUBLIC_APP_URL`: the platform links in WeldSign's mail go to; unset,
+    /// Global's for the `ENVIRONMENT`.
+    pub(crate) public_app_url: Option<String>,
+    /// Settings still on a default that names Global (`global_defaults`),
+    /// one sentence each: logged at start, and for `weldsuite doctor`.
+    pub(crate) global_defaults: Vec<String>,
     /// `PROJECT_PORTAL_URL`: the WeldFlow client portal's origin, for the links in the
     /// portal invitation and in status reports emailed to client contacts.
     pub(crate) project_portal_url: Option<String>,
@@ -194,9 +321,17 @@ pub(crate) struct Config {
     /// `S3_PUBLIC_URL`: the public bucket's own URL (the workers'
     /// `R2_PUBLIC_URL`), for Drive rows that store only a key.
     pub(crate) files_public_url: Option<String>,
+    /// `S3_PUBLIC_VIA_SERVER=true`: this server serves the public bucket's
+    /// objects at `/api/storage/public/<key>` (for an object store with no
+    /// public endpoint of its own; the chart then points `S3_PUBLIC_URL` there).
+    pub(crate) files_public_via_server: bool,
     /// `STORAGE_SIGNING_KEY`: signs the files cookie and signed URLs that
     /// open private objects; the same value as app-api's.
     pub(crate) storage_signing_key: Option<String>,
+    /// `PLATFORM_URL`: the platform's origin, for the links in the emails
+    /// the sign-in screens have the identity provider send (verify an
+    /// address, reset a password). Unset: the provider's own pages.
+    pub(crate) platform_url: Option<String>,
     /// `REALTIME_*`: the WebSocket gateway (`realtime.rs`).
     pub(crate) realtime: weldsuite_realtime::GatewayConfig,
     /// `TRUSTED_PROXIES`: how many proxies in front of the server append
@@ -204,6 +339,12 @@ pub(crate) struct Config {
     /// ingress trusts). The client's address is that many entries from the
     /// right; anything to its left came from the client.
     pub(crate) trusted_proxies: usize,
+    /// `AI_*` and the providers' keys (`weldsuite_ai::config`): the install
+    /// provider, the opt-ins workspaces may enable, fallback and billing.
+    pub(crate) ai: weldsuite_ai::AiConfig,
+    /// `SANDBOX_*` and `SEARXNG_URL` (`weldsuite_sandbox::config`): WeldAgent's
+    /// sandbox pods and web search; `None` without `SANDBOX_ENABLED=true`.
+    pub(crate) sandbox: Option<weldsuite_sandbox::SandboxConfig>,
 }
 
 /// Where feature flag values come from (`FEATURE_FLAGS`).
@@ -238,6 +379,12 @@ pub(crate) struct InfraConfig {
     pub(crate) nats_panel_stream: String,
     pub(crate) nats_panel_subject: String,
     pub(crate) nats_panel_max_age_days: u64,
+    /// WeldPanel's other rows' stream (`NATS_PANEL_STATE_STREAM`, default
+    /// `PANEL_STATE`), kept as long as the events.
+    pub(crate) nats_panel_state_stream: String,
+    /// `S3_BUCKET_PANEL`: WeldPanel's store (`crate::panel_store`); unset,
+    /// WeldPanel analytics is off.
+    pub(crate) panel: Option<crate::panel_store::PanelStoreConfig>,
     /// `NATS_ENSURE_STREAMS=true`: create or update the stream at start.
     pub(crate) nats_ensure_streams: bool,
     pub(crate) flags: FlagSourceKind,
@@ -257,8 +404,12 @@ pub(crate) struct InfraConfig {
     pub(crate) jobs: JobsConfig,
     /// `ZITADEL_API_URL` and friends: the identity provider's management
     /// API (onboarding, team routes, the identity sync). Unset: no identity
-    /// provider, as the workers without a Clerk key.
+    /// provider, as the workers without a Clerk key. Always `None` with
+    /// `IDENTITY_PROVIDER=weldid`.
     pub(crate) identity: Option<IdentityConfig>,
+    /// `IDENTITY_PROVIDER=weldid` and `WELDID_*`: WeldID's admin API, with
+    /// WeldSuite's own memberships (membership mode).
+    pub(crate) weldid: Option<WeldIdConfig>,
     /// `TENANT_SHARDS`: the CloudNativePG shards new workspace databases go
     /// on. Unset: no provisioning, so no new workspaces.
     pub(crate) tenant_shards: Option<Vec<weldsuite_adapters_oss::CnpgShard>>,
@@ -275,10 +426,17 @@ pub(crate) struct IdentityConfig {
     pub(crate) api_url: String,
     /// `ZITADEL_SERVICE_TOKEN`: a service user's personal access token.
     pub(crate) token: String,
+    /// `ZITADEL_LOGIN_TOKEN`: the token of a service user with only the
+    /// `IAM_LOGIN_CLIENT` role, for the sign-in screens (`/api/sign-in`).
+    /// Unset: `token`, whose user then needs that role as well.
+    pub(crate) login_token: Option<String>,
     /// `ZITADEL_PROJECT_ID`.
     pub(crate) project_id: String,
     /// `ZITADEL_INVITE_URL_TEMPLATE`.
     pub(crate) invite_url_template: Option<String>,
+    /// `OIDC_SIGN_IN=platform`: invitees accept on the platform's `/invite`
+    /// (unless `invite_url_template` says otherwise), not on Zitadel's page.
+    pub(crate) accept_on_platform: bool,
     /// `ZITADEL_HOST`: the `Host` header when `api_url` is in-cluster.
     pub(crate) host: Option<String>,
 }
@@ -308,8 +466,11 @@ impl IdentityConfig {
             (Some(api_url), Some(token), Some(project_id)) => Some(Self {
                 api_url,
                 token,
+                login_token: set("ZITADEL_LOGIN_TOKEN"),
                 project_id,
                 invite_url_template: set("ZITADEL_INVITE_URL_TEMPLATE"),
+                // Set once the sign-in configuration is read.
+                accept_on_platform: false,
                 host: set("ZITADEL_HOST"),
             }),
             (None, None, None) => None,
@@ -320,6 +481,80 @@ impl IdentityConfig {
                 );
                 None
             }
+        }
+    }
+}
+
+/// WeldID's admin API (`crates/adapters-oss/src/weldid.rs`).
+#[derive(Clone)]
+pub(crate) struct WeldIdConfig {
+    /// `OIDC_ISSUER`: WeldID's platform issuer.
+    pub(crate) issuer: String,
+    /// `WELDID_ADMIN_URL`: the admin API's in-cluster address.
+    pub(crate) admin_url: String,
+    /// `WELDID_CLIENT_ID`: the `private_key_jwt` client for the admin API.
+    pub(crate) client_id: String,
+    /// `WELDID_CLIENT_KEY`: its ES256 private key (PEM). Secret.
+    pub(crate) client_key: String,
+}
+
+impl fmt::Debug for WeldIdConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("WeldIdConfig")
+            .field("issuer", &self.issuer)
+            .field("admin_url", &self.admin_url)
+            .field("client_id", &self.client_id)
+            .finish_non_exhaustive()
+    }
+}
+
+/// `IDENTITY_PROVIDER`: `zitadel`, `weldid`, or unset (Zitadel when
+/// `ZITADEL_*` is set, as before there was a choice). The Zitadel settings
+/// and WeldID's, of which at most one is used.
+fn identity_providers(
+    lookup: &impl Fn(&str) -> Option<String>,
+    problems: &mut Vec<String>,
+) -> (Option<IdentityConfig>, Option<WeldIdConfig>) {
+    let set = |name: &str| lookup(name).filter(|value| !value.trim().is_empty());
+    match set("IDENTITY_PROVIDER").as_deref() {
+        None => {
+            if set("WELDID_ADMIN_URL").is_some() {
+                problems
+                    .push("WELDID_ADMIN_URL is set but IDENTITY_PROVIDER is not weldid".to_owned());
+            }
+            (IdentityConfig::from_lookup(lookup, problems), None)
+        }
+        Some("zitadel") => {
+            let zitadel = IdentityConfig::from_lookup(lookup, problems);
+            if zitadel.is_none() {
+                problems.push(
+                    "IDENTITY_PROVIDER=zitadel needs ZITADEL_API_URL, ZITADEL_SERVICE_TOKEN and ZITADEL_PROJECT_ID"
+                        .to_owned(),
+                );
+            }
+            (zitadel, None)
+        }
+        Some("weldid") => {
+            let mut required = |name: &str| {
+                set(name).unwrap_or_else(|| {
+                    problems.push(format!("{name} is required with IDENTITY_PROVIDER=weldid"));
+                    String::new()
+                })
+            };
+            let weldid = WeldIdConfig {
+                issuer: required("OIDC_ISSUER"),
+                admin_url: required("WELDID_ADMIN_URL"),
+                client_id: required("WELDID_CLIENT_ID"),
+                client_key: required("WELDID_CLIENT_KEY"),
+            };
+            if set("ZITADEL_API_URL").is_some() {
+                tracing::warn!("IDENTITY_PROVIDER=weldid: the ZITADEL_* settings are ignored");
+            }
+            (None, Some(weldid))
+        }
+        Some(_) => {
+            problems.push("IDENTITY_PROVIDER must be zitadel or weldid".to_owned());
+            (None, None)
         }
     }
 }
@@ -374,6 +609,9 @@ pub(crate) struct FilesConfig {
     pub(crate) private: weldsuite_adapters_oss::S3Options,
     /// `S3_BUCKET_PUBLIC`: read for objects stored before the private bucket.
     pub(crate) public_bucket: Option<String>,
+    /// `S3_ENSURE_BUCKETS=true`: create the buckets at start when the store
+    /// doesn't have them (the object store a self-hosted chart bundles).
+    pub(crate) ensure_buckets: bool,
 }
 
 impl FilesConfig {
@@ -402,6 +640,14 @@ impl FilesConfig {
                 false
             }
         };
+        let ensure_buckets = match lookup("S3_ENSURE_BUCKETS").as_deref() {
+            None | Some("false") => false,
+            Some("true") => true,
+            Some(_) => {
+                problems.push("S3_ENSURE_BUCKETS must be true or false".to_owned());
+                false
+            }
+        };
         Some(Self {
             private: weldsuite_adapters_oss::S3Options {
                 endpoint,
@@ -412,6 +658,7 @@ impl FilesConfig {
                 path_style,
             },
             public_bucket: lookup("S3_BUCKET_PUBLIC"),
+            ensure_buckets,
         })
     }
 
@@ -434,10 +681,12 @@ impl fmt::Debug for InfraConfig {
             .field("nats_stream", &self.nats_stream)
             .field("flags", &self.flags)
             .field("files", &self.files)
+            .field("panel", &self.panel)
             .field("jobs", &self.jobs)
             .field("smtp", &self.smtp_url.as_ref().map(|_| "<set>"))
             .field("system_email_from", &self.system_email_from)
             .field("identity", &self.identity)
+            .field("weldid", &self.weldid)
             .field("tenant_shards", &self.tenant_shards)
             .field("aad_writes", &self.aad_writes)
             .finish_non_exhaustive()
@@ -466,6 +715,7 @@ impl InfraConfig {
                 None
             }
         };
+        let (identity, weldid) = identity_providers(lookup, problems);
         Self {
             valkey_url: lookup("VALKEY_URL"),
             valkey_cache_prefix: lookup("VALKEY_CACHE_PREFIX")
@@ -486,6 +736,9 @@ impl InfraConfig {
             nats_panel_max_age_days: lookup("NATS_PANEL_EVENTS_MAX_AGE_DAYS")
                 .and_then(|days| days.parse().ok())
                 .unwrap_or(0),
+            nats_panel_state_stream: lookup("NATS_PANEL_STATE_STREAM")
+                .unwrap_or_else(|| weldsuite_adapters_oss::DEFAULT_PANEL_STATE_STREAM.to_owned()),
+            panel: crate::panel_store::PanelStoreConfig::from_lookup(lookup, problems),
             nats_ensure_streams: lookup("NATS_ENSURE_STREAMS").as_deref() == Some("true"),
             flags,
             flags_refresh: Duration::from_secs(refresh_seconds),
@@ -494,7 +747,8 @@ impl InfraConfig {
             jobs: JobsConfig::from_lookup(lookup, problems),
             smtp_url: lookup("SMTP_URL").filter(|url| !url.trim().is_empty()),
             system_email_from: lookup("SYSTEM_EMAIL_FROM").filter(|from| !from.trim().is_empty()),
-            identity: IdentityConfig::from_lookup(lookup, problems),
+            identity,
+            weldid,
             tenant_shards: lookup("TENANT_SHARDS")
                 .filter(|shards| !shards.trim().is_empty())
                 .and_then(|shards| {
@@ -512,6 +766,7 @@ impl fmt::Debug for Config {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Config")
             .field("listen", &self.listen)
+            .field("metrics_addr", &self.metrics_addr)
             .field("environment", &self.environment)
             .field("edition", &self.edition)
             .field("master_max_connections", &self.master_max_connections)
@@ -524,6 +779,7 @@ impl fmt::Debug for Config {
             .field("spa_dir", &self.spa_dir)
             .field("infra", &self.infra)
             .field("realtime", &self.realtime)
+            .field("ai", &self.ai)
             .finish_non_exhaustive()
     }
 }
@@ -542,14 +798,15 @@ impl std::error::Error for ConfigError {}
 
 impl Config {
     pub(crate) fn from_env() -> Result<Self, ConfigError> {
-        Self::from_lookup(
-            |name| std::env::var(name).ok().filter(|v| !v.is_empty()),
-            |path| std::fs::read_to_string(path),
-        )
+        Self::from_lookup(env_value, |path| std::fs::read_to_string(path))
     }
 
     /// `lookup` reads a variable, `read_file` a file; both injectable for
     /// tests.
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one variable after the other, as ConsumeConfig::from_lookup"
+    )]
     pub(crate) fn from_lookup(
         lookup: impl Fn(&str) -> Option<String>,
         read_file: impl Fn(&str) -> std::io::Result<String>,
@@ -576,8 +833,12 @@ impl Config {
         if trusted_proxies == 0 {
             problems.push("TRUSTED_PROXIES must be at least 1".to_owned());
         }
-        let infra = InfraConfig::from_lookup(&lookup, &mut problems, flags_refresh);
+        let mut infra = InfraConfig::from_lookup(&lookup, &mut problems, flags_refresh);
         let realtime = weldsuite_realtime::GatewayConfig::from_lookup(&lookup, &mut problems);
+        let metrics_addr = crate::monitoring::listen_addr(
+            lookup(crate::monitoring::METRICS_ADDR).as_deref(),
+            &mut problems,
+        );
 
         let host: IpAddr = match lookup("HOST") {
             None => IpAddr::V4(Ipv4Addr::UNSPECIFIED),
@@ -602,7 +863,25 @@ impl Config {
         };
 
         let auth = AuthConfig::from_lookup(&lookup, &read_file, &mut problems);
-        let edition = crate::edition::EditionConfig::from_lookup(&lookup, &mut problems);
+        auth.check_sign_in_screens(&infra, &mut problems);
+        auth.check_weldid(&infra, &mut problems);
+        if let Some(identity) = &mut infra.identity {
+            // The platform's own sign-in screens take invitations too.
+            identity.accept_on_platform = matches!(
+                auth,
+                AuthConfig::Oidc {
+                    platform_sign_in: true,
+                    ..
+                }
+            );
+        }
+        let ai = weldsuite_ai::AiConfig::from_lookup(&lookup, &mut problems);
+        let mut edition = crate::edition::EditionConfig::from_lookup(&lookup, &mut problems);
+        edition.ai = ai.describe();
+        let sandbox = weldsuite_sandbox::SandboxConfig::from_lookup(&lookup, &mut problems);
+        edition.sandbox = sandbox.is_some();
+        // Only WeldID manages SSO connections on Kubernetes (ADR SEC-019).
+        edition.sso_connections = infra.weldid.is_some();
 
         let log_format = match lookup("LOG_FORMAT").as_deref() {
             None | Some("json") => LogFormat::Json,
@@ -613,12 +892,36 @@ impl Config {
             }
         };
 
+        let helpdesk_widget_dir = lookup("HELPDESK_WIDGET_DIR").map(PathBuf::from);
+        let helpdesk_widget_hosts: Vec<String> = lookup("HELPDESK_WIDGET_HOSTS")
+            .map(|hosts| {
+                hosts
+                    .split(',')
+                    .map(crate::spa::host_name)
+                    .filter(|host| !host.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default();
+        for host in &helpdesk_widget_hosts {
+            if host.contains(['/', ':', ' ']) {
+                problems.push(format!(
+                    "HELPDESK_WIDGET_HOSTS: {host} is not a host name (no scheme, port or path)"
+                ));
+            }
+        }
+        if !helpdesk_widget_hosts.is_empty() && helpdesk_widget_dir.is_none() {
+            problems.push(
+                "HELPDESK_WIDGET_HOSTS needs HELPDESK_WIDGET_DIR, the widget's build".to_owned(),
+            );
+        }
+
         if !problems.is_empty() {
             return Err(ConfigError(problems));
         }
 
         Ok(Self {
             listen: SocketAddr::new(host, port),
+            metrics_addr,
             environment: lookup("ENVIRONMENT").unwrap_or_else(|| "development".to_owned()),
             edition,
             master_database_url,
@@ -635,9 +938,13 @@ impl Config {
             log_format,
             shutdown_delay: Duration::from_secs(shutdown_delay),
             spa_dir: lookup("SPA_DIR").map(PathBuf::from),
+            helpdesk_widget_dir,
+            helpdesk_widget_hosts,
             infra,
             sign_session_secret: lookup("SIGN_SESSION_SECRET").filter(|s| !s.is_empty()),
             sign_portal_url: lookup("SIGN_PORTAL_URL").filter(|s| !s.is_empty()),
+            public_app_url: lookup("PUBLIC_APP_URL").filter(|s| !s.trim().is_empty()),
+            global_defaults: global_defaults(&lookup),
             project_portal_url: lookup("PROJECT_PORTAL_URL").filter(|s| !s.is_empty()),
             sign_portal_secret: lookup("SIGN_PORTAL_SECRET").filter(|s| !s.is_empty()),
             collab_rooms_urls: lookup("COLLAB_ROOMS_URLS")
@@ -652,15 +959,105 @@ impl Config {
             collab_rooms_secret: lookup("COLLAB_ROOMS_SECRET").filter(|s| !s.is_empty()),
             mail_inbound_secret: lookup("MAIL_INBOUND_SECRET").filter(|s| !s.is_empty()),
             files_public_url: lookup("S3_PUBLIC_URL").filter(|s| !s.is_empty()),
+            files_public_via_server: lookup("S3_PUBLIC_VIA_SERVER").as_deref() == Some("true"),
             storage_signing_key: lookup("STORAGE_SIGNING_KEY").filter(|s| !s.is_empty()),
+            platform_url: lookup("PLATFORM_URL").filter(|s| !s.trim().is_empty()),
             realtime,
             trusted_proxies: usize::try_from(trusted_proxies.max(1)).unwrap_or(usize::MAX),
+            ai,
+            sandbox,
         })
     }
 }
 
+/// A variable as `serve` and `consume` read it: empty counts as unset,
+/// except `METRICS_ADDR`, where empty turns the metrics listener off.
+pub(crate) fn env_value(name: &str) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .filter(|value| !value.is_empty() || name == crate::monitoring::METRICS_ADDR)
+}
+
 fn saturate(value: u64) -> u32 {
     u32::try_from(value).unwrap_or(u32::MAX)
+}
+
+/// The URL settings that name the install's own host: the platform, `/api`,
+/// `/v1`, the integration webhooks and the WeldPanel collector are all served
+/// there. The chart sets each to `config.publicUrl` (`PUBLIC_URL`) unless
+/// `extraEnv` names it (`weldsuite.publicUrlEnv` in `_helpers.tpl`); unset,
+/// the modules fall back to Global's `*.weldsuite.org` hosts.
+pub(crate) const PUBLIC_URL_SETTINGS: &[&str] = &[
+    "PUBLIC_APP_URL",
+    "APP_URL",
+    "PLATFORM_URL",
+    "APP_API_PUBLIC_URL",
+    "PUBLIC_API_URL",
+    "CONNECT_API_URL",
+    "CONNECTOR_WEBHOOK_BASE_URL",
+    "WEBHOOK_BASE_URL",
+    "PANEL_COLLECTOR_URL",
+];
+
+/// The settings still on a default that assumes the Global edition, one
+/// sentence each with the setting that fixes it. Not problems: the server
+/// starts (conformance and the kind test run on Global's defaults on
+/// purpose), but an EU or self-hosted install should have none.
+pub(crate) fn global_defaults(lookup: &impl Fn(&str) -> Option<String>) -> Vec<String> {
+    let set = |name: &str| lookup(name).is_some_and(|value| !value.trim().is_empty());
+    let mut out = Vec::new();
+    if lookup("AUTH_PROVIDER").is_none_or(|provider| provider == "clerk") {
+        out.push(
+            "AUTH_PROVIDER is clerk: sign-in takes Global's Clerk session tokens; an EU or \
+             self-hosted install signs in through its OIDC provider (AUTH_PROVIDER=oidc, chart \
+             config.auth.provider)"
+                .to_owned(),
+        );
+    }
+    let unset: Vec<&str> = PUBLIC_URL_SETTINGS
+        .iter()
+        .copied()
+        .filter(|name| !set(name))
+        .collect();
+    if !set("PUBLIC_URL") && unset.len() == PUBLIC_URL_SETTINGS.len() {
+        out.push(
+            "PUBLIC_URL is not set: links in mail, OAuth redirects and webhook registrations name \
+             Global's *.weldsuite.org hosts (chart config.publicUrl)"
+                .to_owned(),
+        );
+    } else if !unset.is_empty() {
+        out.push(format!(
+            "{} not set: those links name Global's *.weldsuite.org hosts (the chart sets them \
+             from config.publicUrl)",
+            match unset.as_slice() {
+                [one] => format!("{one} is"),
+                many => format!("{} are", many.join(", ")),
+            }
+        ));
+    }
+    if set("S3_ENDPOINT") && !set("S3_PUBLIC_URL") {
+        out.push(
+            "S3_PUBLIC_URL is not set: public object links (avatars, logos, published documents) \
+             name Global's test bucket host (chart config.files.publicUrl)"
+                .to_owned(),
+        );
+    }
+    if set("SMTP_URL") && !set("SYSTEM_EMAIL_FROM") {
+        out.push(
+            "SYSTEM_EMAIL_FROM is not set: system mail is sent from \
+             notifications@mail.weldsuite.org, which a relay may refuse and receivers may treat \
+             as spoofed (chart config.mail.from)"
+                .to_owned(),
+        );
+    }
+    if !weldsuite_video_rooms::configured(lookup) {
+        out.push(
+            "no video service is configured (LiveKit's URL and key pair): WeldMeet is hidden \
+             (chart config.video)"
+                .to_owned(),
+        );
+    }
+    out
 }
 
 #[cfg(test)]
@@ -703,9 +1100,87 @@ mod tests {
     }
 
     #[test]
+    fn metrics_listen_apart_from_the_api_unless_off() {
+        let base = [
+            ("DATABASE_URL_MASTER", "postgres://master"),
+            ("CLERK_JWT_KEY", "-----BEGIN PUBLIC KEY-----\\nabc"),
+        ];
+        let with = |value: Option<&'static str>| {
+            let mut vars = base.to_vec();
+            vars.extend(value.map(|value| ("METRICS_ADDR", value)));
+            config(&vars)
+        };
+        let metrics = with(None).expect("valid").metrics_addr;
+        assert_eq!(
+            metrics.map(|addr| addr.to_string()).as_deref(),
+            Some("0.0.0.0:9464")
+        );
+        assert_ne!(metrics, Some(with(None).expect("valid").listen));
+        for off in ["off", ""] {
+            assert_eq!(
+                with(Some(off)).expect("valid").metrics_addr,
+                None,
+                "{off:?}"
+            );
+        }
+        let error = with(Some("everywhere")).expect_err("invalid");
+        assert!(error.to_string().contains("METRICS_ADDR"), "{error}");
+    }
+
+    #[test]
     fn lists_every_problem() {
         let error = config(&[("PORT", "eighty"), ("LOG_FORMAT", "xml")]).expect_err("invalid");
         assert_eq!(error.0.len(), 4, "{error}");
+    }
+
+    #[test]
+    fn the_helpdesk_widget_is_served_on_the_hosts_named_for_it() {
+        let base = [
+            ("DATABASE_URL_MASTER", "postgres://master"),
+            ("CLERK_JWT_KEY", "-----BEGIN PUBLIC KEY-----\\nabc"),
+        ];
+        let without = config(&base).expect("valid");
+        assert_eq!(without.helpdesk_widget_hosts, Vec::<String>::new());
+        assert_eq!(without.helpdesk_widget_dir, None);
+
+        let mut vars = base.to_vec();
+        vars.extend([
+            ("HELPDESK_WIDGET_DIR", "/srv/helpdesk-widget"),
+            (
+                "HELPDESK_WIDGET_HOSTS",
+                " Widget.Example.org., ,widget.example.net",
+            ),
+        ]);
+        let with = config(&vars).expect("valid");
+        assert_eq!(
+            with.helpdesk_widget_dir.as_deref(),
+            Some(std::path::Path::new("/srv/helpdesk-widget"))
+        );
+        assert_eq!(
+            with.helpdesk_widget_hosts,
+            ["widget.example.org", "widget.example.net"]
+        );
+
+        // Hosts without a build, and URLs in place of host names.
+        let mut vars = base.to_vec();
+        vars.push((
+            "HELPDESK_WIDGET_HOSTS",
+            "https://widget.example.org,widget.example.org:443",
+        ));
+        let error = config(&vars).expect_err("invalid");
+        assert_eq!(error.0.len(), 3, "{error}");
+        assert!(
+            error
+                .0
+                .iter()
+                .any(|p| p.contains("needs HELPDESK_WIDGET_DIR"))
+        );
+        assert!(
+            error
+                .0
+                .iter()
+                .any(|p| p.contains("https://widget.example.org is not a host name"))
+        );
     }
 
     #[test]
@@ -801,15 +1276,21 @@ abc",
             ("OIDC_ISSUER", "https://auth.eu.example"),
             ("OIDC_AUDIENCE", "300000000000000100, 300000000000000200"),
             ("OIDC_WEB_CLIENT_ID", "300000000000000300"),
+            ("OIDC_MOBILE_CLIENT_ID", "300000000000000400"),
+            ("OIDC_DESKTOP_CLIENT_ID", "300000000000000500"),
         ])
         .expect("valid");
         let AuthConfig::Oidc {
             settings,
             web_client_id,
+            mobile_client_id,
+            desktop_client_id,
+            platform_sign_in,
         } = &oidc.auth
         else {
             panic!("oidc expected");
         };
+        assert!(!platform_sign_in, "the provider's own pages by default");
         assert_eq!(settings.issuer, "https://auth.eu.example");
         assert_eq!(
             settings.audiences,
@@ -818,6 +1299,8 @@ abc",
         assert_eq!(settings.org_claim, weldsuite_auth::ZITADEL_ORG_CLAIM);
         assert_eq!(settings.jwks_url, None);
         assert_eq!(web_client_id.as_deref(), Some("300000000000000300"));
+        assert_eq!(mobile_client_id.as_deref(), Some("300000000000000400"));
+        assert_eq!(desktop_client_id.as_deref(), Some("300000000000000500"));
 
         let error = config(&[
             ("DATABASE_URL_MASTER", "postgres://master"),
@@ -852,6 +1335,186 @@ abc",
     }
 
     #[test]
+    fn the_platforms_own_sign_in_screens_need_the_providers_login_api() {
+        let oidc = [
+            ("DATABASE_URL_MASTER", "postgres://master"),
+            ("AUTH_PROVIDER", "oidc"),
+            ("OIDC_ISSUER", "https://auth.eu.example"),
+            ("OIDC_AUDIENCE", "300000000000000100"),
+            ("OIDC_SIGN_IN", "platform"),
+        ];
+        let error = config(&oidc).expect_err("no login API");
+        assert!(error.0[0].contains("OIDC_SIGN_IN=platform"), "{error}");
+
+        let mut vars = oidc.to_vec();
+        vars.extend([
+            ("ZITADEL_API_URL", "http://zitadel:8080"),
+            ("ZITADEL_SERVICE_TOKEN", "service"),
+            ("ZITADEL_PROJECT_ID", "300000000000000100"),
+            ("ZITADEL_LOGIN_TOKEN", "login"),
+            ("PLATFORM_URL", "https://app.eu.example"),
+        ]);
+        let config_with = config(&vars).expect("valid");
+        assert!(matches!(
+            config_with.auth,
+            AuthConfig::Oidc {
+                platform_sign_in: true,
+                ..
+            }
+        ));
+        let identity = config_with.infra.identity.expect("identity");
+        assert_eq!(identity.login_token.as_deref(), Some("login"));
+        assert!(
+            identity.accept_on_platform,
+            "invitations accepted there too"
+        );
+        assert_eq!(
+            config_with.platform_url.as_deref(),
+            Some("https://app.eu.example")
+        );
+
+        let mut vars = oidc.to_vec();
+        vars[4] = ("OIDC_SIGN_IN", "embedded");
+        let error = config(&vars).expect_err("unknown value");
+        assert!(error.0[0].contains("OIDC_SIGN_IN must be"), "{error}");
+    }
+
+    const WELDID: [(&str, &str); 8] = [
+        ("DATABASE_URL_MASTER", "postgres://master"),
+        ("AUTH_PROVIDER", "oidc"),
+        ("OIDC_ISSUER", "https://auth.eu.example"),
+        ("OIDC_AUDIENCE", "weldsuite-api"),
+        ("IDENTITY_PROVIDER", "weldid"),
+        ("WELDID_ADMIN_URL", "http://weldid.weldid.svc:8080"),
+        ("WELDID_CLIENT_ID", "weldsuite-backend"),
+        (
+            "WELDID_CLIENT_KEY",
+            // Split, so secret scanners don't read the fake PEM as a key.
+            concat!(
+                "-----BEGIN ",
+                "PRIVATE KEY-----\\nnot-a-key\\n-----END ",
+                "PRIVATE KEY-----"
+            ),
+        ),
+    ];
+
+    #[test]
+    fn weldid_is_membership_mode_with_its_own_screens() {
+        let mut vars = WELDID.to_vec();
+        // Left over from Zitadel: ignored, never both.
+        vars.extend([
+            ("ZITADEL_API_URL", "http://zitadel:8080"),
+            ("ZITADEL_SERVICE_TOKEN", "service"),
+            ("ZITADEL_PROJECT_ID", "300000000000000100"),
+        ]);
+        let parsed = config(&vars).expect("valid");
+        let weldid = parsed.infra.weldid.as_ref().expect("weldid");
+        assert_eq!(weldid.issuer, "https://auth.eu.example");
+        assert_eq!(weldid.admin_url, "http://weldid.weldid.svc:8080");
+        assert_eq!(weldid.client_id, "weldsuite-backend");
+        assert!(parsed.infra.identity.is_none());
+        assert!(parsed.auth.workspace_from_header(), "header by default");
+        assert!(
+            parsed.edition.sso_connections,
+            "WeldID manages SSO connections"
+        );
+        assert!(!format!("{parsed:?}").contains("not-a-key"));
+
+        let with = |extra: (&'static str, &'static str)| {
+            let mut vars = WELDID.to_vec();
+            vars.push(extra);
+            config(&vars)
+        };
+        let error = with(("OIDC_SIGN_IN", "platform")).expect_err("Zitadel's screens");
+        assert!(
+            error.0.iter().any(|p| p.contains("OIDC_SIGN_IN=provider")),
+            "{error}"
+        );
+        assert_eq!(error.0.len(), 1, "{error}");
+        let error = with(("OIDC_WORKSPACE_SOURCE", "claim")).expect_err("no claim");
+        assert!(
+            error.0[0].contains("OIDC_WORKSPACE_SOURCE=header"),
+            "{error}"
+        );
+        assert!(
+            with(("OIDC_WORKSPACE_SOURCE", "header"))
+                .expect("valid")
+                .auth
+                .workspace_from_header()
+        );
+
+        let mut clerk = WELDID.to_vec();
+        clerk[1] = ("AUTH_PROVIDER", "clerk");
+        clerk.push(("CLERK_JWT_KEY", "-----BEGIN PUBLIC KEY-----\\nabc"));
+        let error = config(&clerk).expect_err("weldid signs in through OIDC");
+        assert!(error.0[0].contains("AUTH_PROVIDER=oidc"), "{error}");
+
+        let incomplete: Vec<_> = WELDID
+            .iter()
+            .copied()
+            .filter(|(name, _)| *name != "WELDID_CLIENT_KEY")
+            .collect();
+        let error = config(&incomplete).expect_err("no key");
+        assert_eq!(
+            error.0,
+            ["WELDID_CLIENT_KEY is required with IDENTITY_PROVIDER=weldid"]
+        );
+    }
+
+    #[test]
+    fn the_identity_provider_and_workspace_source_are_checked() {
+        let oidc = [
+            ("DATABASE_URL_MASTER", "postgres://master"),
+            ("AUTH_PROVIDER", "oidc"),
+            ("OIDC_ISSUER", "https://auth.example"),
+            ("OIDC_AUDIENCE", "api"),
+        ];
+        let with = |extra: &[(&'static str, &'static str)]| {
+            let mut vars = oidc.to_vec();
+            vars.extend_from_slice(extra);
+            config(&vars)
+        };
+        // Today's install: claim mode, Zitadel when its settings are there.
+        let plain = with(&[]).expect("valid");
+        assert!(!plain.auth.workspace_from_header());
+        assert!(plain.infra.identity.is_none() && plain.infra.weldid.is_none());
+        // A customer's own provider in membership mode.
+        let byo = with(&[("OIDC_WORKSPACE_SOURCE", "header")]).expect("valid");
+        assert!(byo.auth.workspace_from_header());
+        assert!(byo.infra.weldid.is_none());
+
+        for (extra, problem) in [
+            (
+                &[("OIDC_WORKSPACE_SOURCE", "token")][..],
+                "OIDC_WORKSPACE_SOURCE must be claim or header",
+            ),
+            (
+                &[("IDENTITY_PROVIDER", "keycloak")][..],
+                "IDENTITY_PROVIDER must be zitadel or weldid",
+            ),
+            (
+                &[("IDENTITY_PROVIDER", "zitadel")][..],
+                "IDENTITY_PROVIDER=zitadel needs ZITADEL_API_URL",
+            ),
+            (
+                &[("WELDID_ADMIN_URL", "http://weldid:8080")][..],
+                "WELDID_ADMIN_URL is set but IDENTITY_PROVIDER is not weldid",
+            ),
+        ] {
+            let error = with(extra).expect_err(problem);
+            assert!(error.0.iter().any(|p| p.starts_with(problem)), "{error}");
+        }
+        let zitadel = with(&[
+            ("IDENTITY_PROVIDER", "zitadel"),
+            ("ZITADEL_API_URL", "http://zitadel:8080"),
+            ("ZITADEL_SERVICE_TOKEN", "service"),
+            ("ZITADEL_PROJECT_ID", "300000000000000100"),
+        ])
+        .expect("valid");
+        assert!(zitadel.infra.identity.is_some() && zitadel.infra.weldid.is_none());
+    }
+
+    #[test]
     fn jobs_run_in_process_unless_restate_is_set() {
         let base = [
             ("DATABASE_URL_MASTER", "postgres://master"),
@@ -880,5 +1543,91 @@ abc",
         let error = config(&vars).expect_err("invalid");
         assert!(error.0.iter().any(|p| p.contains("RESTATE_DEPLOYMENT_URI")));
         assert!(error.0.iter().any(|p| p.contains("RESTATE_INGRESS_URL")));
+    }
+
+    fn defaults(vars: &[(&str, &str)]) -> Vec<String> {
+        let lookup = |name: &str| {
+            vars.iter()
+                .find(|(key, _)| *key == name)
+                .map(|(_, value)| (*value).to_owned())
+        };
+        global_defaults(&lookup)
+    }
+
+    #[test]
+    fn names_every_global_default_still_in_use() {
+        let all = defaults(&[
+            ("S3_ENDPOINT", "http://s3:9000"),
+            ("SMTP_URL", "smtp://relay:25"),
+        ]);
+        for start in [
+            "AUTH_PROVIDER is clerk",
+            "PUBLIC_URL is not set",
+            "S3_PUBLIC_URL is not set",
+            "SYSTEM_EMAIL_FROM is not set",
+            "no video service",
+        ] {
+            assert!(
+                all.iter().any(|line| line.starts_with(start)),
+                "{start}: {all:?}"
+            );
+        }
+        // Without S3 or SMTP there is nothing to say about them.
+        assert_eq!(defaults(&[]).len(), 3);
+    }
+
+    #[test]
+    fn a_configured_install_has_no_global_defaults() {
+        let mut vars = vec![
+            ("AUTH_PROVIDER", "oidc"),
+            ("PUBLIC_URL", "https://weldsuite.example.com"),
+            ("S3_ENDPOINT", "http://s3:9000"),
+            ("S3_PUBLIC_URL", "https://files.weldsuite.example.com"),
+            ("SMTP_URL", "smtp://relay:25"),
+            ("SYSTEM_EMAIL_FROM", "WeldSuite <noreply@example.com>"),
+            ("LIVEKIT_URL", "wss://lk.example.com"),
+            ("LIVEKIT_API_KEY", "key"),
+            ("LIVEKIT_API_SECRET", "secret"),
+        ];
+        vars.extend(
+            PUBLIC_URL_SETTINGS
+                .iter()
+                .map(|name| (*name, "https://weldsuite.example.com")),
+        );
+        assert_eq!(defaults(&vars), Vec::<String>::new());
+    }
+
+    #[test]
+    fn lists_the_url_settings_public_url_left_unset() {
+        // PUBLIC_URL without the chart: the settings it would have filled.
+        let lines = defaults(&[
+            ("AUTH_PROVIDER", "oidc"),
+            ("PUBLIC_URL", "https://weldsuite.example.com"),
+            ("PLATFORM_URL", "https://weldsuite.example.com"),
+        ]);
+        let urls = lines
+            .iter()
+            .find(|line| line.contains("are not set"))
+            .expect("listed");
+        assert!(
+            urls.starts_with("PUBLIC_APP_URL, APP_URL, APP_API_PUBLIC_URL"),
+            "{urls}"
+        );
+        assert!(!urls.contains("PLATFORM_URL"), "{urls}");
+    }
+
+    #[test]
+    fn reads_the_public_app_url() {
+        let config = config(&[
+            ("DATABASE_URL_MASTER", "postgres://master"),
+            ("CLERK_JWT_KEY", "-----BEGIN PUBLIC KEY-----\\nabc"),
+            ("PUBLIC_APP_URL", "https://weldsuite.example.com"),
+        ])
+        .expect("valid");
+        assert_eq!(
+            config.public_app_url.as_deref(),
+            Some("https://weldsuite.example.com")
+        );
+        assert!(!config.global_defaults.is_empty(), "clerk, no video");
     }
 }

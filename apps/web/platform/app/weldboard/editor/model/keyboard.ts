@@ -72,14 +72,35 @@ const TEXT_KEYS = new Map<string, KeyHandler>([
   ['End', always((c, k) => moveCaret(c, k.mod ? 'end' : 'lineEnd', k.shift))],
   [
     'Enter',
-    always((c, k) => {
+    always((c, k, ia) => {
       // Enter adds a line; Ctrl/Cmd+Enter (or Enter in a connector label) finishes.
+      // In a mind-map topic Enter adds the next topic (a sibling, or a child of the centre), Shift+Enter a line.
       if (k.mod) c.stopEditing();
+      else if (!k.shift && mindMapTopic(c)) nextTopic(c, ia, mindMapTopic(c)!.mindmap!.parent ? 'sibling' : 'child');
       else insertText(c, '\n');
     }),
   ],
-  ['Tab', always(() => undefined)],
+  // Tab in a mind-map topic adds a child, as it does on a selected topic.
+  ['Tab', always((c, k, ia) => {
+    if (!k.shift && mindMapTopic(c)) nextTopic(c, ia, 'child');
+  })],
 ]);
+
+/** The mind-map topic whose text is being typed, if that is what is edited. */
+function mindMapTopic(c: BoardController) {
+  const el = c.editing ? c.board.get(c.editing.id) : undefined;
+  return el?.mindmap ? el : null;
+}
+
+/** Finishes the topic being typed and starts the next one (`addMindMapNode` selects and edits it). */
+function nextTopic(c: BoardController, ia: Interactions, kind: 'child' | 'sibling'): void {
+  const id = c.editing!.id;
+  c.stopEditing();
+  // An empty topic is removed when editing stops: then there is nothing to add to.
+  if (!c.board.get(id)) return;
+  c.select([id]);
+  ia.addMindMapNode(kind);
+}
 
 /** Ctrl/Cmd keys while editing text, by lower-cased key. */
 const TEXT_MOD_KEYS = new Map<string, KeyHandler>([
@@ -198,6 +219,11 @@ function shiftKey(c: BoardController, k: KeyInfo, key: string, actions: KeyActio
   }
   if (key === '?') {
     actions.openShortcuts?.();
+    return true;
+  }
+  // Shift+P: the highlighter (P is the pen).
+  if (key === 'p' && !c.readOnly) {
+    c.setTool('highlighter');
     return true;
   }
   return false;

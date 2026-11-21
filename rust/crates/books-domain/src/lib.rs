@@ -1,5 +1,5 @@
 //! WeldBooks rules every books area crate (`weldsuite-books`,
-//! `weldsuite-books-*`) and the modules that use books (commerce, hr,
+//! `weldsuite-books-*`) and the modules that use books (stash, hr,
 //! connect) share: `@weldsuite/books-domain` and books-api's shared services.
 //!
 //! The porting plan, with which module of this crate comes from where and

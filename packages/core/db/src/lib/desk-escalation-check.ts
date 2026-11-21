@@ -26,12 +26,12 @@
  */
 
 import { and, asc, eq, inArray, isNull, lte, sql } from 'drizzle-orm';
-import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
+import type { TenantDb } from './any-db';
 import * as schema from '../schema';
 import type { DeskConversation } from '../schema/desk-conversations';
 import type { EscalationRule } from '../schema/helpdesk-departments';
 
-type AnyDb = PgDatabase<PgQueryResultHKT, typeof schema>;
+type AnyDb = TenantDb;
 
 const conversations = schema.deskConversations;
 const messages = schema.deskMessages;

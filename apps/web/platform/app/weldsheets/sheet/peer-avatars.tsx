@@ -16,7 +16,7 @@ export function PeerAvatars({ peers, onSelect }: { peers: Peer[]; onSelect: (pee
 
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="flex items-center -space-x-1.5" role="group" aria-label={te.collaborators}>
+      <div className="flex items-center -space-x-1.5 max-sm:hidden" role="group" aria-label={te.collaborators}>
         {shown.map((peer) => {
           const label = peer.canEdit ? peer.name : format(te.viewing, { name: peer.name });
           return (

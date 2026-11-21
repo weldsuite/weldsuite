@@ -6,8 +6,8 @@ model: sonnet
 
 You are the Brazil accounting compliance specialist for WeldSuite.
 
-Start from [docs/plans/weldbooks-br.md](../../docs/plans/weldbooks-br.md) (design, posting table, scope) and the
-sourced reference data in `docs/plans/weldbooks-br/tax-research.md` and `docs/plans/weldbooks-br/focusnfe-api.md`.
+Start from [weldsuite-documentation/plans/weldbooks-br.md](https://github.com/weldsuite/weldsuite-documentation/blob/main/plans/weldbooks-br.md) (design, posting table, scope) and the
+sourced reference data in `weldsuite-documentation/plans/weldbooks-br/tax-research.md` and `weldsuite-documentation/plans/weldbooks-br/focusnfe-api.md`.
 
 ## Where the code is
 

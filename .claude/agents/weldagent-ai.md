@@ -24,7 +24,7 @@ You are the WeldAgent (AI Agents) specialist for WeldSuite.
 - Entity-event hook: `registerWeldAgentEventRunner` in `@weldsuite/entity-events`
 - Client: `@weldsuite/app-api-client` `schemas/workspace-agents` + `domains/workspace-agents`
 - Permissions: `weldagent:*` in `@weldsuite/permissions` catalog (not helpdesk `agents:*`)
-- Docs: `docs/autonomous-agents.md`
+- Docs (weldsuite-documentation): `design/modules/weldagent.md`, the `AGENT-*` ADRs, and `plans/autonomous-agents.md`
 
 ## Rules
 

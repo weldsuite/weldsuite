@@ -43,7 +43,10 @@ pub use sweeps::{
     DeletionSweepResult, TEARDOWN_BATCH_LIMIT, TEARDOWN_RETRY_AFTER, TeardownSweepResult,
     sweep_scheduled_deletions, sweep_unfinished_teardowns,
 };
-pub use sync::{IdentitySync, SyncReport, WATERMARK_KEY};
+pub use sync::{
+    FEED_WATERMARK_KEY, FeedAction, IdentitySync, SSO_SIGNED_IN, SsoJoin, SyncReport,
+    WATERMARK_KEY, feed_action, feed_actions, sso_joins,
+};
 
 /// A workspace's tenant database, by `workspaces.id` or its organization id
 /// (jobs and crons run outside any request).

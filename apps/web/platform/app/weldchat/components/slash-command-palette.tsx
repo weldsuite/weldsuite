@@ -93,8 +93,9 @@ export function SlashCommandPalette({ query, onSelect, onDismiss, mergeEnabled =
           key={cmd.name}
           variant="ghost"
           className={cn(
-            'flex items-center gap-3 w-full px-3 py-2 text-sm hover:bg-muted text-left',
-            i === activeIndex && 'bg-muted',
+            // `accent`, not `muted`: in the dark theme muted is the popover's own colour.
+            'flex items-center gap-3 w-full px-3 py-2 text-sm hover:bg-accent text-left',
+            i === activeIndex && 'bg-accent text-accent-foreground',
           )}
           onMouseEnter={() => setActiveIndex(i)}
           onMouseDown={(e) => {

@@ -1440,7 +1440,6 @@ export const projects = {
         phases: 'Phases and gates',
         close: 'Close project',
         reviews: 'My reviews',
-        templates: 'Templates',
         capacity: 'Capacity',
         intake: 'Intake',
         roadmap: 'Roadmap',
@@ -1494,8 +1493,6 @@ export const projects = {
       analytics: 'Analytics',
       myReviews: 'My reviews',
       myReviewsBadge: '{count} reviews waiting for you',
-      templates: 'Templates',
-      capacity: 'Capacity',
       intake: 'Intake',
       newSubProject: 'New Sub-Project',
       duplicate: 'Duplicate',
@@ -2289,6 +2286,7 @@ export const projects = {
     workload: {
       projects: 'Projects',
       title: 'Workload',
+      timeline: 'Timeline',
       teamWorkload: 'Team Workload',
       capacity: 'Capacity',
       allocation: 'Allocation',
@@ -2300,6 +2298,7 @@ export const projects = {
       projects: 'Projects',
       title: 'Tasks',
       task: 'Task',
+      rowActions: 'Actions for {name}',
       newTask: 'New Task',
       createTask: 'Create Task',
       taskName: 'Task Name',
@@ -2480,6 +2479,7 @@ export const projects = {
       // actions
       actionOpen: 'Open',
       actionDelete: 'Delete',
+      rowActions: 'Actions for {name}',
       // toolbar
       searchPlaceholder: 'Search projects...',
       newProject: 'New Project',

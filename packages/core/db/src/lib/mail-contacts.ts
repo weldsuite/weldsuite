@@ -64,8 +64,8 @@ function buildDisplayName(firstName: string, lastName: string, email: string): s
   return combined || email;
 }
 
-import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
-type AnyDb = PgDatabase<PgQueryResultHKT, typeof schema>;
+import type { TenantDb } from './any-db';
+type AnyDb = TenantDb;
 
 /**
  * Upsert a single mail person by email. Skips empty / malformed emails.

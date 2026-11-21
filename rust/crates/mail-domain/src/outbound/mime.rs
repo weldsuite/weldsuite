@@ -12,7 +12,9 @@
 //!   empty text part; attachments around the body in `multipart/mixed`.
 
 use lettre::Message;
-use lettre::message::header::{ContentTransferEncoding, ContentType, HeaderName, HeaderValue};
+use lettre::message::header::{
+    ContentTransferEncoding, ContentType, Header, HeaderName, HeaderValue,
+};
 use lettre::message::{Attachment, Body, Mailbox, MultiPart, SinglePart};
 
 /// An address with an optional display name (`EmailAddress`).
@@ -117,6 +119,45 @@ fn content_type(value: &str) -> ContentType {
     })
 }
 
+/// The longest header line a message may carry (RFC 5322, 2.1.1).
+const MAX_HEADER_LINE: usize = 998;
+
+/// `Content-Disposition: attachment; filename="…"` with the file name in one
+/// quoted parameter, as mimetext writes it. lettre splits a name that does
+/// not fit a 78-character line into RFC 2231 continuations
+/// (`filename*0="…"; filename*1="…"`), which not every mail client puts back
+/// together (Outlook shows the attachment without its name).
+#[derive(Debug, Clone)]
+struct AttachmentDisposition(String);
+
+impl AttachmentDisposition {
+    /// The header for `filename`, when the name can stand in a quoted
+    /// parameter as it is: printable ASCII without a quote or a backslash,
+    /// short enough for one line. Any other name keeps lettre's encoding.
+    fn plain(filename: &str) -> Option<Self> {
+        let value = format!("attachment; filename=\"{filename}\"");
+        let plain = filename
+            .bytes()
+            .all(|b| (b' '..=b'~').contains(&b) && b != b'"' && b != b'\\');
+        let fits = "Content-Disposition: ".len() + value.len() <= MAX_HEADER_LINE;
+        (plain && fits && !filename.is_empty()).then_some(Self(value))
+    }
+}
+
+impl Header for AttachmentDisposition {
+    fn name() -> HeaderName {
+        HeaderName::new_from_ascii_str("Content-Disposition")
+    }
+
+    fn parse(text: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(Self(text.to_owned()))
+    }
+
+    fn display(&self) -> HeaderValue {
+        HeaderValue::dangerous_new_pre_encoded(Self::name(), self.0.clone(), self.0.clone())
+    }
+}
+
 fn attachment(file: &MimeAttachment) -> SinglePart {
     let kind = content_type(
         file.content_type
@@ -130,7 +171,13 @@ fn attachment(file: &MimeAttachment) -> SinglePart {
         Some(cid) => {
             Attachment::new_inline_with_name(cid.clone(), file.filename.clone()).body(body, kind)
         }
-        None => Attachment::new(file.filename.clone()).body(body, kind),
+        None => match AttachmentDisposition::plain(&file.filename) {
+            Some(disposition) => SinglePart::builder()
+                .header(disposition)
+                .header(kind)
+                .body(body),
+            None => Attachment::new(file.filename.clone()).body(body, kind),
+        },
     }
 }
 
@@ -254,6 +301,32 @@ mod tests {
         assert!(text.contains("filename=\"a.pdf\""));
         assert!(text.contains("Date: "));
         assert!(text.contains("<p@x>"));
+    }
+
+    #[test]
+    fn a_long_file_name_stays_in_one_parameter() {
+        let name = "welddesk-overview-last_7_days-2026-03-15.csv";
+        let mut message = base();
+        message.attachments = vec![MimeAttachment {
+            filename: name.to_owned(),
+            content_type: Some("text/csv; charset=utf-8".to_owned()),
+            content: b"a,b\r\n".to_vec(),
+            cid: None,
+        }];
+        let built = build_rfc5322(&message).expect("built");
+        let text = String::from_utf8(built.raw).expect("utf-8");
+        assert!(text.contains(&format!(
+            "Content-Disposition: attachment; filename=\"{name}\"\r\n"
+        )));
+        assert!(!text.contains("filename*0"));
+        assert!(text.contains("Content-Type: text/csv; charset=utf-8\r\n"));
+        assert!(text.contains("Content-Transfer-Encoding: base64\r\n"));
+
+        // A name that needs encoding keeps lettre's.
+        assert!(AttachmentDisposition::plain("rapport \"Q1\".csv").is_none());
+        assert!(AttachmentDisposition::plain("überblick.csv").is_none());
+        assert!(AttachmentDisposition::plain("").is_none());
+        assert!(AttachmentDisposition::plain(&"x".repeat(1000)).is_none());
     }
 
     #[test]

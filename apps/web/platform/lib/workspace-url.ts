@@ -45,15 +45,17 @@ export function findWorkspace<T extends WorkspaceRef>(ref: string, workspaces: r
 
 /**
  * Top-level segments of pages that are not inside a workspace: sign-in,
- * onboarding and invites (they pick or create one), the vendor W-9 form and
- * the mobile call room (a token in the link is the credential), the `/preview`
- * mirror, the `/welcome` redirect, and `/w` itself.
+ * onboarding and invites (they pick or create one), the vendor W-9 form, the
+ * mobile call room and WeldPanel's public share links (`/s/panel/<token>`:
+ * a token in the link is the credential), the `/preview` mirror, the
+ * `/welcome` redirect, and `/w` itself.
  */
 const NON_WORKSPACE_SEGMENTS: ReadonlySet<string> = new Set([
   'auth',
   'onboarding',
   'invite',
   'w9',
+  's',
   'w',
   'preview',
   'welcome',

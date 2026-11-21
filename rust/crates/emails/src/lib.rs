@@ -16,13 +16,19 @@
 //!   combination of flags is its own **variant**, rendered by React. Rust
 //!   re-implements no template logic, it only picks the variant: a request
 //!   with a message and an expiry date is variant `message+expires`.
+//! - A list (the rows of a report) is a loop in the exported template: React
+//!   rendered one sample row per shape a row can take, and Rust passes the
+//!   rows, each with its `shape` ([`desk`]).
 //! - Dates are formatted here (`formatDate`: `Saturday, February 3, 2001`,
 //!   `zaterdag 3 februari 2001`), in the recipient's time zone.
+//! - A list of rows (`<Details>`, `<List>`: WeldForms' answers and digest)
+//!   is a loop over `rows`, its body exported from React like a variant;
+//!   a row's optional parts make row variants, named per row (`v`).
 //! - The layout (logo, inbox preview, footer) is stored once per locale and
 //!   brand and wrapped around the variant's content; the plain text is stored
 //!   per brand.
 //!
-//! The typed functions in [`sign`] (and [`hr`]) choose flags and placeholders for each
+//! The typed functions in [`sign`] (and [`hr`], [`desk`], …) choose flags and placeholders for each
 //! template the way its React component does; [`render`] is the generic entry.
 //!
 //! # Not supported yet
@@ -30,19 +36,27 @@
 //! A workspace brand with the "Sent via WeldSuite" line turned off
 //! (`poweredBy: false`, white-label portals): no exported layout has it.
 
+pub mod ai;
+pub mod auth;
+pub mod billing;
 pub mod calendar;
 mod catalog;
 mod date;
+pub mod desk;
 mod escape;
 pub mod flow;
+pub mod forms;
 pub mod hr;
 pub mod ics;
 pub mod meet;
+pub mod panel;
+pub mod panel_monitor;
 pub mod portal;
 pub mod reach;
 mod send;
 pub mod sign;
 mod when;
+pub mod workspace;
 #[rustfmt::skip]
 mod zone_names;
 
@@ -50,6 +64,43 @@ pub use catalog::{EmailError, RenderedEmail, render};
 pub use date::format_date;
 pub use send::{SYSTEM_FROM_ADDRESS, SystemEmail, WithFromAddress, send_system_email};
 pub use when::{EndTime, format_time, format_when};
+
+/// `workspaceAppUrl(baseUrl, clerkOrgId, path)` (`links.ts`): a platform
+/// link inside the workspace (`/w/<org>/…`) when its Clerk org id is known,
+/// else at the platform's root.
+pub fn workspace_app_url(base_url: &str, clerk_org_id: Option<&str>, path: &str) -> String {
+    let base = base_url.trim().trim_end_matches('/');
+    let inner = if path.starts_with('/') {
+        path.to_owned()
+    } else {
+        format!("/{path}")
+    };
+    match clerk_org_id.filter(|org| !org.is_empty()) {
+        Some(org) => format!("{base}/w/{}{inner}", encode_uri_component(org)),
+        None => format!("{base}{inner}"),
+    }
+}
+
+/// `encodeURIComponent(text)`.
+fn encode_uri_component(text: &str) -> String {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+    let mut out = String::with_capacity(text.len());
+    for byte in text.bytes() {
+        if byte.is_ascii_alphanumeric()
+            || matches!(
+                byte,
+                b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'' | b'(' | b')'
+            )
+        {
+            out.push(char::from(byte));
+        } else {
+            out.push('%');
+            out.push(char::from(HEX[usize::from(byte >> 4)]));
+            out.push(char::from(HEX[usize::from(byte & 0x0f)]));
+        }
+    }
+    out
+}
 
 /// The recipient's language (`EmailLocale`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -210,5 +261,21 @@ mod tests {
         );
         assert_eq!(workspace(None, None).key(), "workspace");
         assert_eq!(EmailBrand::weldsuite("WeldSign").sender_name(), "WeldSign");
+    }
+
+    #[test]
+    fn workspace_links_like_typescript() {
+        assert_eq!(
+            workspace_app_url(" https://app.test// ", Some("org_a b"), "weldpanel"),
+            "https://app.test/w/org_a%20b/weldpanel"
+        );
+        assert_eq!(
+            workspace_app_url("https://app.test", None, "/weldpanel/settings?tab=usage"),
+            "https://app.test/weldpanel/settings?tab=usage"
+        );
+        assert_eq!(
+            workspace_app_url("https://app.test", Some(""), "/x"),
+            "https://app.test/x"
+        );
     }
 }

@@ -10,7 +10,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { DeskPublicAnnouncement, DeskPublicArticleHit } from '@weldsuite/app-api-client/schemas/desk-knowledge';
 import { widgetApi } from '@/lib/api/client';
-import { locale } from '@/lib/i18n';
+import { articleLocale } from '@/lib/i18n';
 import { getVisitorSession } from '@/lib/visitor-session';
 
 const SEARCH_DEBOUNCE_MS = 350;
@@ -37,7 +37,12 @@ export function useArticleSuggestions(widgetId: string, text: string, enabled: b
     const controller = new AbortController();
     const timer = setTimeout(() => {
       widgetApi
-        .searchArticles(widgetId, { q: query, locale, limit: SEARCH_LIMIT }, currentToken(widgetId), controller.signal)
+        .searchArticles(
+          widgetId,
+          { q: query, locale: articleLocale, limit: SEARCH_LIMIT },
+          currentToken(widgetId),
+          controller.signal,
+        )
         .then((found) => {
           if (!controller.signal.aborted) setHits(Array.isArray(found) ? found.slice(0, SEARCH_LIMIT) : []);
         })

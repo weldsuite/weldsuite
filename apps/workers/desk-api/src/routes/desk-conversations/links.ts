@@ -52,7 +52,7 @@ export async function publishDeskLinkChanges(c: Ctx, changes: DeskLinkChange[]):
     const key = userId ?? '';
     const cached = authorCache.get(key);
     if (cached) return cached;
-    const authors = await loadAuthor(c.get('tenantDb'), userId);
+    const authors = await loadAuthor(c.env, c.get('tenantDb'), userId);
     authorCache.set(key, authors);
     return authors;
   };

@@ -23,6 +23,9 @@ interface InvoiceEditorLayoutProps {
   submitText: string;
   /** Shown while the submit button's save runs; the default is the generic "Saving…". */
   submitPendingText?: string;
+  /** Holds the save back (e.g. the company details an invoice needs are missing); `submitTitle` says why. */
+  submitDisabled?: boolean;
+  submitTitle?: string;
   /**
    * A second, main action next to the submit button (e.g. "Create and send").
    * The submit button then turns into the quieter one: Enter in a field still
@@ -31,6 +34,8 @@ interface InvoiceEditorLayoutProps {
   primaryAction?: { label: string; pendingText: string; pending: boolean; disabled?: boolean; title?: string; onClick: () => void };
   backLink: string;
   backText: string;
+  /** Extra actions at the left of the bar's buttons (e.g. "Discard draft" on a credit note draft). */
+  headerActions?: ReactNode;
 }
 
 export function InvoiceEditorLayout({
@@ -44,23 +49,29 @@ export function InvoiceEditorLayout({
   isPending,
   submitText,
   submitPendingText,
+  submitDisabled = false,
+  submitTitle,
   primaryAction,
   backLink,
   backText,
+  headerActions,
 }: Readonly<InvoiceEditorLayoutProps>) {
   const t = useTranslations();
 
   return (
     <form onSubmit={onSubmit} className="flex h-full min-h-0 flex-col" suppressHydrationWarning>
-      <header className="flex flex-shrink-0 items-center gap-2 border-b border-border px-4 py-2.5">
+      {/* On a phone the actions wrap under the title instead of running off the screen. */}
+      <header className="flex flex-shrink-0 flex-wrap items-center gap-2 border-b border-border px-4 py-2.5">
         <Button asChild type="button" variant="ghost" size="icon-sm" className="size-7 -ml-1">
           <Link href={backLink} aria-label={backText} title={backText}>
             <ChevronLeft className="size-4 text-muted-foreground" />
           </Link>
         </Button>
         <h1 className="min-w-0 truncate text-[15px] font-medium text-foreground">{title}</h1>
-        <div className="ml-auto flex items-center gap-2">
-          <Button asChild type="button" variant="outline" size="sm" className="shadow-none">
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+          {headerActions}
+          {/* The back arrow cancels as well: on a phone the room goes to the save buttons. */}
+          <Button asChild type="button" variant="outline" size="sm" className="hidden shadow-none sm:inline-flex">
             <Link href={backLink} aria-disabled={isPending}>
               {t('sweep.entities.cancel')}
             </Link>
@@ -69,7 +80,8 @@ export function InvoiceEditorLayout({
             type="submit"
             size="sm"
             variant={primaryAction ? 'outline' : 'default'}
-            disabled={isPending}
+            disabled={isPending || submitDisabled}
+            title={submitTitle}
             className="shadow-none"
           >
             {isPending && !primaryAction?.pending ? (

@@ -400,34 +400,38 @@ export const APP_CATALOG_SEED: SeedAppEntry[] = [
   {
     code: 'weldcommerce',
     name: 'WeldCommerce',
-    description: 'Online store, website builder, and order management — with real inventory.',
-    icon: 'ShoppingCart',
+    description: 'One catalogue and one order book behind every way you sell.',
+    icon: 'ShoppingBag',
     category: 'Sales & Marketing',
     path: '/weldcommerce',
     overview:
-      "WeldCommerce is an end-to-end commerce stack. Build your storefront with the visual website builder, manage products with variants and bundles, take payment with Stripe / Mollie / PayPal, and watch orders flow into the same inventory and shipping layer used by WeldStash and WeldParcel. No webhooks, no syncing — orders, stock, and shipments all share one database. Sync to Shopify or WooCommerce if you'd rather keep your existing storefront.",
+      "WeldCommerce keeps your products and orders in one place, whether they come from your own shop, your B2B customers, your sales team or Shopify and WooCommerce. Build your shop on the storefront API, take payments through your own Mollie account, charge the right EU VAT, and let WeldStash pick and ship every order.",
     features: [
-      'Drag-and-drop website builder with sections, blocks, and reusable templates',
-      'Products with variants, bundles, digital goods, and per-warehouse stock',
-      'Multi-currency pricing with automatic conversion',
-      'Payments via Stripe, Mollie, PayPal, Adyen, and bank transfer',
-      'Discount engine: codes, BOGO, tiered, automatic cart rules',
-      'Two-way sync with Shopify and WooCommerce for migrations or mirroring',
+      'One catalogue with variants and categories',
+      'Orders from your shop, B2B customers, sales and Shopify / WooCommerce in one list',
+      'Headless storefront API with a TypeScript SDK and a starter shop',
+      'Checkout with Mollie on your own account',
+      'EU VAT by destination (OSS) and reverse charge for businesses',
+      'B2B buyers with approvals, pay on invoice and quick reorder',
     ],
     howItWorks: [
-      { title: 'Pick a template', description: 'Choose a starter template or import your existing brand.' },
-      { title: 'Add products', description: 'Bulk-import via CSV or sync from Shopify/WooCommerce.' },
-      { title: 'Configure checkout', description: 'Connect Stripe/Mollie and pick shipping methods.' },
-      { title: 'Launch', description: 'Connect a domain via WeldHost and you\'re live.' },
+      { title: 'Add your products', description: 'Create products and variants, or import them from Shopify or WooCommerce.' },
+      { title: 'Open a sales channel', description: 'Get keys for your shop, set its currency, countries and shipping rates.' },
+      { title: 'Take orders', description: 'Orders from every channel land in one list and go to WeldStash for picking.' },
+      { title: 'Get paid', description: 'Mollie payments and WeldBooks invoices, with the right VAT for each country.' },
     ],
     sortOrder: 110,
-    version: '3.0.0',
+    version: '0.1.0',
     provider: 'WeldSuite',
     verified: true,
-    releasedAt: '2023-08-22',
+    releasedAt: '2026-11-20',
     websiteUrl: 'https://weldsuite.com/weldcommerce',
     documentationUrl: `${HELP_BASE}/weldcommerce`,
     contactUrl: SUPPORT_EMAIL,
+    // Rebuilt for the EU edition (ADR COM-009). Not in the App Store until
+    // milestone 1 is usable (weldsuite-documentation/plans/weldcommerce-rebuild.md);
+    // staff publish the row then.
+    isPublished: false,
   },
   {
     code: 'weldads',
@@ -759,7 +763,7 @@ export const APP_CATALOG_SEED: SeedAppEntry[] = [
     documentationUrl: null,
     contactUrl: SUPPORT_EMAIL,
     // Not installable from the App Store until signing works (phase 2 of
-    // docs/plans/weldsign.md); staff publish the row then.
+    // weldsuite-documentation/plans/weldsign.md); staff publish the row then.
     isPublished: false,
   },
   {
@@ -796,7 +800,7 @@ export const APP_CATALOG_SEED: SeedAppEntry[] = [
     documentationUrl: null,
     contactUrl: SUPPORT_EMAIL,
     // Not installable from the App Store until projects and the snippet work
-    // (phase 1 of docs/plans/weldpanel.md); staff publish the row then.
+    // (phase 1 of weldsuite-documentation/plans/weldpanel.md); staff publish the row then.
     isPublished: false,
   },
   {
@@ -832,6 +836,42 @@ export const APP_CATALOG_SEED: SeedAppEntry[] = [
     contactUrl: SUPPORT_EMAIL,
     // Not installable from the App Store until phase 1 works end to end
     // (design/modules/weldmerge.md); staff publish the row then.
+    isPublished: false,
+  },
+  {
+    code: 'weldforms',
+    name: 'WeldForms',
+    description: 'Forms and surveys with branching logic, quizzes and themes. Share a link, embed it or email it, and send the answers on to your CRM.',
+    icon: 'ClipboardList',
+    category: 'Productivity',
+    path: '/weldforms',
+    overview:
+      'WeldForms builds forms and surveys that feel like a conversation, or a classic page when you prefer. Add questions, branch on answers, keep a score for quizzes and assessments, and pick a theme that matches your brand. Share the form by link or QR code, embed it on your website or email it to people with a personal link each. Answers arrive with summaries and drop-off numbers, and flow on into WeldCRM, WeldDesk and WeldFlow.',
+    features: [
+      'Conversational and classic layouts, chosen per form',
+      'Branching logic, variables, calculations and score-based endings',
+      'Themes with fonts, colours, background and logo',
+      'Share by link, QR code, embed or personal email invitations with reminders',
+      'Anyone, verified email or workspace members only as respondents',
+      'Summaries per question, drop-off and completion insights',
+      'Send answers to WeldCRM, WeldDesk and WeldFlow, or export to CSV and XLSX',
+    ],
+    howItWorks: [
+      { title: 'Build the form', description: 'Start blank, from a template or describe it to the AI.' },
+      { title: 'Add logic and style', description: 'Branch on answers, keep a score and pick a theme.' },
+      { title: 'Share it', description: 'Send the link, embed it or invite people by email.' },
+      { title: 'Read the results', description: 'See summaries, drop-off and every response, and route them on.' },
+    ],
+    sortOrder: 170,
+    version: '0.1.0',
+    provider: 'WeldSuite',
+    verified: true,
+    releasedAt: '2026-11-09',
+    websiteUrl: null,
+    documentationUrl: null,
+    contactUrl: SUPPORT_EMAIL,
+    // Not installable from the App Store until forms work end to end
+    // (weldsuite-documentation/plans/weldforms.md); staff publish the row then.
     isPublished: false,
   },
   {

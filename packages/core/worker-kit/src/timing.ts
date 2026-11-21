@@ -26,7 +26,7 @@
  * compute that had suspended it carries the wake-up, so a slow `db-first` marks
  * a probable cold start (`coldStart` in the log line).
  *
- * docs/plans/weldmail-mailbox-storage.md, phase 0.
+ * weldsuite-documentation/plans/weldmail-mailbox-storage.md, phase 0.
  */
 
 import { createMiddleware } from 'hono/factory';

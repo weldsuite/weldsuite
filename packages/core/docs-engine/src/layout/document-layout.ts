@@ -26,7 +26,7 @@ import {
   type ObjectData,
   type SectionProps,
 } from '../model/objects';
-import type { ParaProps } from '../model/styles';
+import type { ListLevel, ParaProps } from '../model/styles';
 import { stableKey } from '../model/styles';
 import type { Op } from '../ops/types';
 import { applyOp } from '../ops/apply';
@@ -42,6 +42,12 @@ import { paginate } from './paginate';
 export interface DocLayoutOptions {
   measurer: TextMeasurer;
 }
+
+/**
+ * How a footnote at the foot of the page starts: its number, raised, then
+ * the text; the lines after the first start at the margin.
+ */
+const FOOTNOTE_MARK: ListLevel = { format: 'decimal', text: '%1', indent: 0, hanging: 0, style: { script: 'super' } };
 
 export class DocLayout {
   pages: PageLayout[] = [];
@@ -212,7 +218,8 @@ export class DocLayout {
     this.footnoteOrder = [];
     this.tableOwners.clear();
     this.storyOwners.clear();
-    const visit = (storyId: string): string => {
+    // `footnote`: the number of the footnote this story is, shown in front of its first paragraph.
+    const visit = (storyId: string, footnote = 0): string => {
       const flow = this.flow(storyId);
       const story = this.doc.stories.get(storyId);
       if (!flow || !story) return '';
@@ -220,7 +227,9 @@ export class DocLayout {
       for (const entry of flow.entries) {
         const props = (story.attrAt(entry.end) as ParaProps | undefined) ?? {};
         const next = counter.next(props);
-        this.markers.set(entry, next ? { text: next.marker, level: next.level } : null);
+        let marker: Marker | null = next ? { text: next.marker, level: next.level } : null;
+        if (!marker && footnote && entry === flow.entries[0]) marker = { text: String(footnote), level: FOOTNOTE_MARK };
+        this.markers.set(entry, marker);
         let extra = '';
         story.forEachAttr(entry.start, entry.end, (pos, attr) => {
           if (story.charAt(pos) !== OBJECT) return;
@@ -230,7 +239,7 @@ export class DocLayout {
             this.footnoteNumbers.set(obj.id, this.footnoteOrder.length);
             this.storyOwners.set(footnoteStoryId(obj.id), { story: storyId, entry });
             extra += `f${this.footnoteOrder.length}`;
-            visit(footnoteStoryId(obj.id));
+            visit(footnoteStoryId(obj.id), this.footnoteOrder.length);
           } else if (obj.kind === 'table') {
             const table = this.doc.tables.get(obj.id);
             if (!table) return;

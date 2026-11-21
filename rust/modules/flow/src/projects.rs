@@ -409,14 +409,15 @@ struct MemberLoad {
     avatar: Option<String>,
 }
 
+/// The avatar is the account picture (`master`), not the member row's copy.
 async fn active_members(
     db: &PgPool,
+    master: Option<&PgPool>,
     project_ids: &[String],
 ) -> Result<Vec<MemberLoad>, sqlx::Error> {
     type Row = (
         String,
         String,
-        Option<String>,
         Option<String>,
         Option<String>,
         Option<String>,
@@ -428,7 +429,7 @@ async fn active_members(
     let rows: Vec<Row> = if let [project_id] = project_ids {
         sqlx::query_as(
             "select pm.user_id, pm.role, pm.allocation_percentage::text, wm.hours_per_week::text,
-                    wm.name, wm.email, wm.picture
+                    wm.name, wm.email
              from project_members pm
              left join workspace_members wm on pm.user_id = wm.user_id
              where pm.project_id = $1 and pm.is_active = true and pm.deleted_at is null",
@@ -439,7 +440,7 @@ async fn active_members(
     } else {
         sqlx::query_as(
             "select pm.user_id, pm.role, pm.allocation_percentage::text, wm.hours_per_week::text,
-                    wm.name, wm.email, wm.picture
+                    wm.name, wm.email
              from project_members pm
              left join workspace_members wm on pm.user_id = wm.user_id
              where pm.project_id = any($1) and pm.is_active = true and pm.deleted_at is null",
@@ -448,10 +449,16 @@ async fn active_members(
         .fetch_all(db)
         .await?
     };
+    let pictures = weldsuite_db::AccountPictures::load(
+        master,
+        rows.iter().map(|(user_id, ..)| user_id.as_str()),
+    )
+    .await;
     Ok(rows
         .into_iter()
-        .map(
-            |(user_id, role, allocation, hours, name, email, avatar)| MemberLoad {
+        .map(|(user_id, role, allocation, hours, name, email)| {
+            let avatar = pictures.get(&user_id).map(str::to_owned);
+            MemberLoad {
                 user_id,
                 role: Value::String(role),
                 allocation: or_default(allocation.as_deref().map(js_text_number), 100.0),
@@ -459,8 +466,8 @@ async fn active_members(
                 name,
                 email,
                 avatar,
-            },
-        )
+            }
+        })
         .collect())
 }
 
@@ -538,13 +545,26 @@ fn or_text(value: &Value, fallback: &str) -> Value {
     }
 }
 
+/// A task's estimate in hours for the workload views (`workloadEstimateHours`):
+/// `estimated_hours`, else its `duration` (minutes), which the task panel's
+/// estimate picker writes.
+macro_rules! workload_estimate {
+    () => {
+        "(coalesce(t.estimated_hours, round(t.duration / 60.0, 2)))::text"
+    };
+}
+
 /// A task as the workload overview selects it.
 macro_rules! overview_task {
     () => {
-        "jsonb_build_object('id', t.id, 'number', t.number, 'key', t.key, 'title', t.title,
+        concat!(
+            "jsonb_build_object('id', t.id, 'number', t.number, 'key', t.key, 'title', t.title,
                 'projectId', t.project_id, 'assigneeId', t.assignee_id, 'status', t.status,
                 'priority', t.priority, 'startDate', t.start_date, 'dueDate', t.due_date,
-                'estimatedHours', t.estimated_hours::text, 'actualHours', t.actual_hours::text)"
+                'estimatedHours', ",
+            workload_estimate!(),
+            ", 'actualHours', t.actual_hours::text)"
+        )
     };
 }
 
@@ -579,7 +599,7 @@ async fn overview(caller: &Caller) -> Reply {
     // One row per person across projects: the first row's profile and role,
     // the allocations summed.
     let mut unique: Vec<(MemberLoad, f64)> = Vec::new();
-    for member in active_members(db, &ids).await? {
+    for member in active_members(db, caller.request_master(), &ids).await? {
         if let Some(seen) = unique.iter_mut().find(|(m, _)| m.user_id == member.user_id) {
             seen.1 += member.allocation;
         } else {
@@ -672,16 +692,18 @@ async fn workload(caller: &Caller, project_id: &str) -> Reply {
     let Some(name) = name else {
         return Err(Refusal::not_found("Project", project_id));
     };
-    let members = active_members(db, &[project_id.to_owned()]).await?;
-    let tasks: Vec<Value> = sqlx::query_scalar(
+    let members = active_members(db, caller.request_master(), &[project_id.to_owned()]).await?;
+    let tasks: Vec<Value> = sqlx::query_scalar(concat!(
         "select jsonb_build_object('id', t.id, 'title', t.title, 'assigneeId', t.assignee_id,
                 'status', t.status, 'priority', t.priority, 'startDate', t.start_date,
-                'dueDate', t.due_date, 'estimatedHours', t.estimated_hours::text,
+                'dueDate', t.due_date, 'estimatedHours', ",
+        workload_estimate!(),
+        ",
                 'actualHours', t.actual_hours::text)
          from tasks t
          where t.project_id = $1 and t.deleted_at is null and t.assignee_id is not null
-           and t.status not in ('done', 'cancelled')",
-    )
+           and t.status not in ('done', 'cancelled')"
+    ))
     .bind(project_id)
     .fetch_all(db)
     .await?;

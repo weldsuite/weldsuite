@@ -124,6 +124,21 @@ beforeAll(async () => {
     bill('bill_draft', { billNumber: 'B-2', status: 'draft', total: '999.00', balanceDue: '999.00' }),
     bill('bill_credit', { billNumber: 'BC-1', type: 'credit_note', status: 'approved', total: '50.00', balanceDue: '50.00' }),
   ]);
+
+  // The documents inbox: an upload names no entity, so it is this entity's to process as well.
+  const doc = (id: string, fields: Partial<typeof schema.documents.$inferInsert>) => ({
+    id,
+    fileName: `${id}.pdf`,
+    fileKey: `workspaces/org_test/${id}.pdf`,
+    ...fields,
+  });
+  await db.insert(schema.documents).values([
+    doc('doc_upload', { status: 'pending' }),
+    doc('doc_mine', { entityId, status: 'processed' }),
+    doc('doc_other_entity', { entityId: 'ent_other', status: 'pending' }),
+    doc('doc_linked', { entityId, status: 'linked' }),
+    doc('doc_deleted', { status: 'pending', deletedAt: new Date() }),
+  ]);
 }, 60_000);
 
 describe('GET /api/accounting-dashboard', () => {
@@ -196,9 +211,18 @@ describe('GET /api/accounting-dashboard', () => {
     expect(total(dashboard.payables.aging)).toBe(dashboard.payables.outstanding);
   });
 
+  it('cash is the ledger balance of the money accounts, not the bank accounts\' statement balance', () => {
+    // Ledger 1100: 1,000 + 10 - 300 - 25 this month and 500 last month, none of it through a statement line.
+    expect(dashboard.cashBalance).toBe('1185.00');
+  });
+
+  it('counts the documents to process: the entity documents and the uploads that name no entity', () => {
+    expect(dashboard.pendingDocuments).toBe(2);
+  });
+
   it('keeps the response shape the platform and mobile apps read', () => {
     expect(Object.keys(dashboard)).toEqual(
-      expect.arrayContaining(['revenue', 'expenses', 'profit', 'receivables', 'payables', 'bankAccounts', 'recentPayments', 'upcomingDue', 'pendingDocuments', 'monthlyRevenue']),
+      expect.arrayContaining(['revenue', 'expenses', 'profit', 'receivables', 'payables', 'cashBalance', 'bankAccounts', 'recentPayments', 'upcomingDue', 'pendingDocuments', 'monthlyRevenue']),
     );
     expect(dashboard.revenue).toHaveProperty('invoiceCount');
     expect(dashboard.receivables).toEqual(

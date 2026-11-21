@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { useCan } from '@weldsuite/permissions/react';
 import { isApiError } from '@weldsuite/api-client';
 import { SHEET_CONNECT_PATH, type SheetSessionMode, type SheetSummary } from '@weldsuite/app-api-client/schemas/sheets';
-import { Database, History, MessageSquare, Users } from 'lucide-react';
+import { Database, History, MessageSquare, Share2 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { ShareDialog, type DriveShareTarget } from '@/app/welddrive/components/share-dialog';
 import { useWorkspaceMemberDirectory } from '@/hooks/queries/use-settings-queries';
@@ -251,11 +251,13 @@ export function LiveSheet({ sheetId, embedded = false, onBack }: { sheetId: stri
         {record.data && (
           <Button
             size="sm"
-            className="h-7 gap-1.5"
+            className="h-8 max-sm:w-8 max-sm:px-0"
+            aria-label={tw.editor.share}
+            title={tw.editor.share}
             onClick={() => setShareTarget(shareTargetOf(record.data, name || tw.home.untitled))}
           >
-            <Users className="size-4" />
-            {tw.editor.share}
+            <Share2 className="sm:hidden" />
+            <span className="max-sm:sr-only">{tw.editor.share}</span>
           </Button>
         )}
         <ShareDialog target={shareTarget} onOpenChange={(open) => !open && setShareTarget(null)} />

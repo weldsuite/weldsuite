@@ -62,9 +62,17 @@ describe('weldsuite-a11y rules', () => {
       '<div tabIndex={0} className={cn("outline-none", "focus:bg-accent")} />',
       '<Button className="focus-visible:outline-none" />',
       '<div className="focus-within:ring-2"><input className="outline-none focus-visible:ring-1" /></div>',
+      // Text-entry fields show focus with their cursor.
+      '<input className="w-full outline-none bg-transparent" />',
+      '<input type="email" className="outline-none" />',
+      '<textarea className="resize-none focus:outline-none" />',
+      '<div contentEditable role="textbox" className="min-h-36 outline-none" />',
     ],
     invalid: [
-      { code: '<input className="w-full outline-none bg-transparent" />', errors: [{ messageId: 'missing' }] },
+      { code: '<input type="checkbox" className="outline-none" />', errors: [{ messageId: 'missing' }] },
+      { code: '<input type={kind} className="outline-none" />', errors: [{ messageId: 'missing' }] },
+      { code: '<div contentEditable={false} tabIndex={0} className="outline-none" />', errors: [{ messageId: 'missing' }] },
+      { code: '<div tabIndex={0} className="w-full outline-none bg-transparent" />', errors: [{ messageId: 'missing' }] },
       { code: '<SelectTrigger className="focus:ring-0 focus:outline-none" />', errors: [{ messageId: 'missing' }] },
       { code: '<a className={`p-1 ${x} focus:outline-none`} />', errors: [{ messageId: 'missing' }] },
     ],

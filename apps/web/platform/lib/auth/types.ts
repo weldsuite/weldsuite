@@ -116,6 +116,13 @@ export interface MembershipList {
 export interface SetActiveParams {
   /** Provider organization id to make active; null leaves every workspace. */
   organization: string | null;
+  /**
+   * Where to continue when the provider switches workspace with a redirect
+   * (OIDC): an in-app path. Default: this page, or the new workspace's home
+   * when this page's URL names another workspace. Clerk switches in place
+   * and ignores it.
+   */
+  returnTo?: string;
 }
 
 export type SetActive = (params: SetActiveParams) => Promise<void>;
@@ -161,8 +168,39 @@ export interface AuthImplementation {
    * `/auth/login` itself.
    */
   redirectToSignIn?: (options?: RedirectToSignInOptions) => Promise<void>;
+  /**
+   * Inside the desktop shell on OIDC: sign in through the system browser and
+   * the shell's loopback listener (RFC 8252). Resolves once signed in, with
+   * the page on its way to `returnTo`; rejects with `BrowserSignInError`.
+   * Unset everywhere else.
+   */
+  signInWithBrowser?: (options?: RedirectToSignInOptions) => Promise<void>;
+  /** Stop a `signInWithBrowser` still waiting for the browser. */
+  cancelBrowserSignIn?: () => void;
   /** Finish a sign-in redirect on `/auth/sso-callback`; resolves to where to go next. */
   completeSignIn?: () => Promise<string>;
   /** Where the person manages their account (password, MFA) when WeldSuite doesn't. */
   accountUrl?: string;
+  /**
+   * WeldSuite shows its own sign-in screens over this provider (OIDC with
+   * `auth.signIn: "platform"`, ADR SEC-016) rather than sending people to
+   * the provider's pages. Clerk has its own screens and leaves this unset.
+   */
+  platformSignIn?: boolean;
+  /**
+   * The active workspace id, read outside React (`lib/api/workspace-header.ts`,
+   * `auth.workspaceSource: "header"` only, WeldID in membership mode): every
+   * request to WeldSuite's own API origins is tagged `X-Weld-Workspace` with
+   * it. Unset on Clerk and on `claim`-mode OIDC, which name the workspace in
+   * the token instead.
+   */
+  getActiveOrgId?: () => string | null;
+  /**
+   * Which id names a workspace in `orgId`, the membership list and
+   * `setActive`: the provider's organization id (Clerk, `claim`-mode OIDC;
+   * the default), or `workspaces.id` (`workspace`: OIDC with
+   * `auth.workspaceSource: "header"`, WeldID in membership mode, whose list
+   * comes from WeldSuite's own directory). See `workspaceRefOf()`.
+   */
+  workspaceIds?: 'organization' | 'workspace';
 }

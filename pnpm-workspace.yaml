@@ -68,10 +68,23 @@ overrides:
   "@tootallnate/once@<2.0.1": ^2.0.1 # http-proxy-agent 4 (node-gyp 8 via sqlite3)
   "decode-uri-component@<0.5.0": ^0.5.0 # query-string 7 (expo-router 57)
 
+  # Exactly one prosemirror-model for every editor (BlockNote, tiptap).
+  # prosemirror-view 1.42 needs ^1.25.12 while the rest of the tree was locked
+  # at 1.25.4, so the view got a copy of its own and every keystroke in a
+  # BlockNote editor threw "multiple versions of prosemirror-model were loaded"
+  # (TASK-1438). Raise the floor here when a prosemirror package needs a newer one.
+  prosemirror-model: ^1.25.12
+
 # pnpm patch rewrites this file when it adds an entry (sorting the overrides
 # above and dropping their grouping); add entries by hand instead.
 # Patches race pnpm 10's hoisted linker; see child-concurrency in .npmrc.
 patchedDependencies:
+  # Types only. ExtractTablesWithRelations looked for each table's relations()
+  # in every export of the schema, a tables x exports scan that left `typeof
+  # schema` (536 tables) at TypeScript's instantiation limit (TS2589 in
+  # packages/core/db/src/lib). It now filters the relations once. Same result
+  # types. Re-check on a drizzle-orm upgrade.
+  drizzle-orm@0.45.2: patches/drizzle-orm@0.45.2.patch
   # decode-uri-component 0.5 is ESM-only; take its default export.
   query-string@7.1.3: patches/query-string@7.1.3.patch
   # Security backports for alerts with no fixed release yet. Drop each once

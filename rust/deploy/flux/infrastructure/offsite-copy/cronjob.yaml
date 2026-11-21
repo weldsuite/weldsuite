@@ -1,0 +1,156 @@
+# Copies every bucket in OFFSITE_SOURCE_BUCKETS (space-separated) from the
+# cluster's S3 store (OFFSITE_SOURCE_S3_*) to OFFSITE_BUCKET/<bucket>/ at a
+# store of another provider (OFFSITE_S3_*), once a day, after the nightly
+# base backups (../configs/base/backups.yaml). copy.sh runs rclone once per
+# bucket; the keys are the Secret offsite-copy-s3 (../../secrets/offsite-copy).
+#
+# OFFSITE_MODE:
+#   copy  (default) adds and updates objects at the destination and never
+#         deletes one: a deletion at the source, by mistake or by ransomware,
+#         leaves the copy alone, and the destination key needs no delete
+#         right. An object changed at the source replaces its copy, so keep
+#         versioning on at the destination. The destination only grows:
+#         prune it with its own lifecycle rules (the README says how).
+#   sync  makes OFFSITE_BUCKET/<bucket>/ match the source and moves what it
+#         would delete or overwrite to OFFSITE_BUCKET/_replaced/<day>/<bucket>/,
+#         which a lifecycle rule then expires. The destination key must be
+#         able to delete.
+#
+# OFFSITE_RCLONE_FLAGS: --checksum by default, which decides what to copy
+# from the two listings alone (size and the MD5 in each object's ETag): no
+# request per object, except a HEAD for objects uploaded in parts, whose
+# ETag isn't an MD5. Every run compares every object, so a run that failed
+# for days catches up by itself. For buckets too large to compare daily,
+# `--max-age 72h --no-traverse` looks only at objects changed in the last
+# three days, but then a copy that fails for longer misses objects for
+# good: keep a weekly full run too (the README).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: offsite-copy
+  namespace: offsite-copy
+spec:
+  schedule: "${OFFSITE_SCHEDULE:=0 5 * * *}"
+  timeZone: Etc/UTC
+  # A run still going (the first copy of large buckets can take more than a
+  # day) is left alone; OffsiteCopyStale fires if none finishes for 26 hours.
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      # A failed run's Job and logs stay for a day (kube-prometheus-stack's
+      # KubeJobFailed with them); Loki keeps the logs longer.
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: offsite-copy
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          enableServiceLinks: false
+          securityContext:
+            runAsNonRoot: true
+            # The image's own rclone user.
+            runAsUser: 1009
+            runAsGroup: 1009
+            seccompProfile:
+              type: RuntimeDefault
+          # The workload nodes, never the Postgres pool (also kept off by its
+          # taint). NotIn matches nodes without the label too.
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: node.weldsuite.org/pool
+                        operator: NotIn
+                        values: [postgres]
+          containers:
+            - name: rclone
+              image: docker.io/rclone/rclone:1.75.2
+              command: ["/bin/sh", "/opt/offsite-copy/copy.sh"]
+              env:
+                - name: OFFSITE_SOURCE_BUCKETS
+                  value: "${OFFSITE_SOURCE_BUCKETS}"
+                - name: OFFSITE_BUCKET
+                  value: "${OFFSITE_BUCKET}"
+                - name: OFFSITE_MODE
+                  value: "${OFFSITE_MODE:=copy}"
+                - name: OFFSITE_RCLONE_FLAGS
+                  value: "${OFFSITE_RCLONE_FLAGS:=--checksum --transfers 8 --checkers 16}"
+                # rclone's two remotes, from the environment alone: no
+                # config file (/dev/null keeps it in memory).
+                - name: RCLONE_CONFIG
+                  value: /dev/null
+                - name: RCLONE_CACHE_DIR
+                  value: /tmp/rclone
+                - name: HOME
+                  value: /tmp
+                - name: RCLONE_CONFIG_SOURCE_TYPE
+                  value: s3
+                - name: RCLONE_CONFIG_SOURCE_PROVIDER
+                  value: Other
+                - name: RCLONE_CONFIG_SOURCE_ENDPOINT
+                  value: "${OFFSITE_SOURCE_S3_ENDPOINT}"
+                - name: RCLONE_CONFIG_SOURCE_REGION
+                  value: "${OFFSITE_SOURCE_S3_REGION}"
+                - name: RCLONE_CONFIG_SOURCE_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: offsite-copy-s3
+                      key: source-access-key-id
+                - name: RCLONE_CONFIG_SOURCE_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: offsite-copy-s3
+                      key: source-secret-access-key
+                - name: RCLONE_CONFIG_DESTINATION_TYPE
+                  value: s3
+                - name: RCLONE_CONFIG_DESTINATION_PROVIDER
+                  value: Other
+                - name: RCLONE_CONFIG_DESTINATION_ENDPOINT
+                  value: "${OFFSITE_S3_ENDPOINT}"
+                - name: RCLONE_CONFIG_DESTINATION_REGION
+                  value: "${OFFSITE_S3_REGION}"
+                # The bucket exists already: don't try to create it (the key
+                # may not be allowed to).
+                - name: RCLONE_CONFIG_DESTINATION_NO_CHECK_BUCKET
+                  value: "true"
+                - name: RCLONE_CONFIG_DESTINATION_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: offsite-copy-s3
+                      key: destination-access-key-id
+                - name: RCLONE_CONFIG_DESTINATION_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: offsite-copy-s3
+                      key: destination-secret-access-key
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  memory: 1Gi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: [ALL]
+              volumeMounts:
+                - name: script
+                  mountPath: /opt/offsite-copy
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: script
+              configMap:
+                name: offsite-copy-script
+            - name: tmp
+              emptyDir:
+                sizeLimit: 256Mi

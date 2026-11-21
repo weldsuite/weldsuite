@@ -116,17 +116,23 @@ export function MemberSelect({
     queryKey: ['team-members', 'list'],
     queryFn: async () => {
       const client = await getClient();
-      return client.get<{ data: Array<{ userId: string; name: string | null; email?: string | null; picture?: string | null }> }>(
+      return client.get<{ data: Array<{ userId: string; name: string | null; email?: string | null; picture?: string | null; status?: string | null }> }>(
         '/team-members',
       );
     },
   });
-  const members = data?.data ?? [];
+  const allMembers = data?.data ?? [];
+  // A pending invitation is listed by /team-members too (status PENDING, an
+  // `invited_…` id), but it is nobody yet: it showed as a second member with
+  // the same name (TASK-1463). It can't own or be assigned anything.
+  const members = allMembers.filter(
+    (m) => m.status?.toUpperCase() !== 'PENDING' && !m.userId.startsWith('invited_'),
+  );
   // Declared above the `assignee` early return below so the hook order stays
   // stable if `variant` changes on an already-mounted instance.
   const [open, setOpen] = React.useState(false);
 
-  const selected = members.find((m) => m.userId === value);
+  const selected = allMembers.find((m) => m.userId === value);
   const selectedEmail = selected && 'email' in selected ? selected.email : null;
   const selectedLabel = selected
     ? selected.name?.trim() || selectedEmail || selected.userId

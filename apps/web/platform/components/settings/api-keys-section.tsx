@@ -60,9 +60,6 @@ const PERMISSION_ENTITIES = [
   { entityKey: 'pipelineStages', group: 'crm', scopes: rw('pipeline_stages') },
   { entityKey: 'activities', group: 'crm', scopes: rw('activities') },
   { entityKey: 'quotes', group: 'crm', scopes: rw('quotes') },
-  // Commerce
-  { entityKey: 'products', group: 'commerce', scopes: rw('products') },
-  { entityKey: 'orders', group: 'commerce', scopes: rw('orders') },
   // Projects
   { entityKey: 'projects', group: 'projects', scopes: rw('projects') },
   { entityKey: 'tasks', group: 'projects', scopes: rw('tasks') },
@@ -83,6 +80,8 @@ const PERMISSION_ENTITIES = [
   { entityKey: 'tickets', group: 'helpdesk', scopes: rw('tickets') },
   { entityKey: 'articles', group: 'helpdesk', scopes: rw('articles') },
   { entityKey: 'conversations', group: 'helpdesk', scopes: rw('conversations') },
+  // The OData feed for Power BI and Excel (/v1/odata): reads helpdesk data, never writes.
+  { entityKey: 'reports', group: 'helpdesk', scopes: ro('reports') },
   // Files
   { entityKey: 'files', group: 'files', scopes: rw('files') },
   { entityKey: 'folders', group: 'files', scopes: rw('folders') },
@@ -137,11 +136,15 @@ const PERMISSION_ENTITIES = [
   { entityKey: 'accountingDocuments', group: 'weldbooks', scopes: ro('accounting_documents') },
   { entityKey: 'icpDeclarations', group: 'weldbooks', scopes: ro('icp_declarations') },
   { entityKey: 'accountingSettings', group: 'weldbooks', scopes: ro('accounting_settings') },
+  // WeldPanel — product analytics: projects, reports, dashboards, cohorts, people and groups, read only (`/v1/panel`).
+  { entityKey: 'panelAnalytics', group: 'weldpanel', scopes: ro('panel') },
   // Settings
   { entityKey: 'settings', group: 'settings', scopes: ro('settings') },
   { entityKey: 'members', group: 'settings', scopes: ro('members') },
   // Companies of the workspace; bank accounts only as a masked IBAN.
   { entityKey: 'legalEntities', group: 'settings', scopes: ro('legal_entities') },
+  // The workspace audit trail; pushing it to a SIEM is set up in Settings → Activity → Log streaming.
+  { entityKey: 'auditLogs', group: 'settings', scopes: ro('audit_logs') },
 ] as const;
 
 // Get all scope IDs the bulk buttons may select (named-only scopes excluded)
@@ -169,7 +172,6 @@ const NAMED_ONLY_HINT_KEYS: Record<(typeof NAMED_ONLY_ACTIONS)[number], string> 
 // Module logo per permission group
 const GROUP_LOGOS: Record<string, string> = {
   crm: '/assets/images/weldcrm/icon.svg',
-  commerce: '/assets/images/weldsuite/icon.svg',
   projects: '/assets/images/weldflow/icon-projects.svg',
   helpdesk: '/assets/images/welddesk/icon.svg',
   files: '/assets/images/welddrive/icon.svg',
@@ -178,8 +180,9 @@ const GROUP_LOGOS: Record<string, string> = {
   weldreach: '/assets/images/weldreach/icon.svg',
   chat: '/assets/images/weldchat/icon.svg',
   host: '/assets/images/weldhost/icon.svg',
-  automation: '/assets/images/weldconnect/icon.svg',
-  weldbooks: '/assets/images/weldbooks/icon.svg?v=2',
+  automation: '/assets/images/weldconnect/icon.svg?v=2',
+  weldbooks: '/assets/images/weldbooks/icon.svg?v=6',
+  weldpanel: '/assets/images/weldpanel/icon.svg?v=2',
   settings: '/assets/images/weldsuite/icon.svg',
 };
 
@@ -891,7 +894,7 @@ export function ApiKeysSection() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="h-6 w-6 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 transition-opacity"
+                              className="h-6 w-6 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity"
                             >
                               <span className="sr-only">{t('sweep.settings.apiKeys.openMenu')}</span>
                               <EllipsisVertical className="h-3.5 w-3.5" />

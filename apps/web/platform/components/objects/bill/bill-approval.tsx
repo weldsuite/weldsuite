@@ -9,7 +9,9 @@
 import { useEffect, useState } from 'react';
 import { Check, X } from 'lucide-react';
 import { toast } from 'sonner';
+import { useTranslations } from '@weldsuite/i18n/client';
 import { Button } from '@weldsuite/ui/components/button';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import {
   Dialog,
   DialogContent,
@@ -35,11 +37,21 @@ export function useBillApproval(id: string) {
   /** The last approval that a sales tax rule refused (the use tax engine was down, ...). */
   const [taxError, setTaxError] = useState<unknown>(null);
   const [rejectOpen, setRejectOpen] = useState(false);
+  const [approveOpen, setApproveOpen] = useState(false);
+  const st = useTranslations();
 
-  const approve = () => {
+  /** Asks first: approving books the bill in the ledger and locks it. */
+  const approve = () => setApproveOpen(true);
+
+  const confirmApprove = () => {
     setTaxError(null);
     approveBill.mutate(id, {
+      onSuccess: () => {
+        setApproveOpen(false);
+        toast.success(st('sweep.weldbooks.records.billApproved'));
+      },
       onError: (err) => {
+        setApproveOpen(false);
         // Approving recalculates the use tax and refuses while the engine can't answer.
         if (salesTaxErrorCode(err)) setTaxError(err);
         else toast.error(td.bill.approveFailed, { description: describeError(err) });
@@ -53,6 +65,9 @@ export function useBillApproval(id: string) {
 
   return {
     approve,
+    confirmApprove,
+    approveOpen,
+    setApproveOpen,
     reject,
     approving: approveBill.isPending,
     rejecting: rejectBill.isPending,
@@ -95,6 +110,22 @@ export function BillApprovalBar({
         </div>
       ) : null}
     </div>
+  );
+}
+
+/** "Approve this bill?": approving books the bill in the ledger and locks it. */
+export function ApproveBillDialog({ approval }: Readonly<{ approval: BillApproval }>) {
+  const st = useTranslations();
+  return (
+    <ConfirmDialog
+      open={approval.approveOpen}
+      onOpenChange={approval.setApproveOpen}
+      title={st('sweep.weldbooks.records.approveBillTitle')}
+      description={st('sweep.weldbooks.records.approveBillDescription')}
+      confirmLabel={st('sweep.weldbooks.records.approveBillConfirm')}
+      loading={approval.approving}
+      onConfirm={approval.confirmApprove}
+    />
   );
 }
 

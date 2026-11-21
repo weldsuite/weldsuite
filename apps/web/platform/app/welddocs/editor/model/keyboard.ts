@@ -94,9 +94,16 @@ const PLAIN_KEYS = new Map<string, Command>([
   [
     'Escape',
     (ctl) => {
-      if (!ctl.find) return false;
-      ctl.closeFind();
-      return true;
+      if (ctl.find) {
+        ctl.closeFind();
+        return true;
+      }
+      // Out of a header or footer, back to the page's text.
+      if (ctl.inHeaderOrFooter) {
+        ctl.leaveHeaderOrFooter();
+        return true;
+      }
+      return false;
     },
   ],
 ]);
@@ -155,3 +162,34 @@ export function handleKey(ctl: DocController, e: KeyEvent): boolean {
 }
 
 export const MOD_LABEL = IS_MAC ? '⌘' : 'Ctrl';
+
+/**
+ * Find and replace: Ctrl+H, but Cmd+F on a Mac, where Cmd+H hides the browser
+ * (the find bar has the replace field too). Both keys open it everywhere.
+ */
+export const FIND_SHORTCUT = `${MOD_LABEL}+${IS_MAC ? 'F' : 'H'}`;
+
+/**
+ * A label with shortcuts in it as this keyboard reads them. On a Mac, Ctrl,
+ * Alt and Shift become ⌘, ⌥ and ⇧ (the keys `handleKey` takes there), written
+ * together as macOS does ("⌘⇧V"), so a tooltip and a menu never mix "Ctrl+Z"
+ * with "⌘+Alt+M". Elsewhere the text is unchanged.
+ */
+export function shortcutLabel(text: string, mac: boolean = IS_MAC): string {
+  if (!mac) return text;
+  return text
+    .replace(/\bCtrl\b/g, '⌘')
+    .replace(/\bAlt\b/g, '⌥')
+    .replace(/(?<=\+)Shift\b|\bShift(?=\+)/g, '⇧')
+    .replace(/([⌘⌥⇧])\+/g, '$1');
+}
+
+/**
+ * A command name with its shortcut in brackets ("Left align (Ctrl+Shift+L)",
+ * as the toolbar's tooltips read) split in two, for a menu that shows the
+ * shortcut at the right. A name without one comes back whole.
+ */
+export function splitShortcut(label: string): { name: string; shortcut?: string } {
+  const match = /^(.*\S)\s*\(((?:Ctrl|Alt|Shift|⌘|⌥|⇧)[^()]*)\)$/.exec(label);
+  return match ? { name: match[1]!, shortcut: match[2]! } : { name: label };
+}

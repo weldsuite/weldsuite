@@ -27,7 +27,7 @@ Navigation groups sales, purchases, banking, and reporting in the module sidebar
 ## Typical flow
 
 1. Set up **company details** and **tax rates** in settings.
-2. Create **invoices** from [WeldCommerce](/weldcommerce) orders or manually.
+2. Create **invoices** for your customers.
 3. Record **bills** for expenses.
 4. **Reconcile** bank feeds monthly.
 5. Run **reports** for your accountant.
@@ -57,5 +57,4 @@ For an entity in the United States, WeldBooks adds sales tax, exemption certific
 ## Next steps
 
 - [WeldBooks for US businesses](/weldbooks/us)
-- [WeldCommerce overview](/weldcommerce)
 - [Settings overview](/settings)

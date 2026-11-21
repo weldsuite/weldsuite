@@ -156,6 +156,27 @@ describe('AccountingLayoutClient', () => {
     expect(setEntityIdMirror).not.toHaveBeenLastCalledWith('ent_other_workspace');
   });
 
+  it('stores the default entity when none is selected yet', async () => {
+    getMock.mockResolvedValue({
+      data: [
+        { id: 'ent_a', isDefault: false },
+        { id: 'ent_b', isDefault: true },
+      ],
+    });
+
+    renderWithClient(
+      <AccountingLayoutClient>
+        <div data-testid="page-content">Dashboard</div>
+      </AccountingLayoutClient>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('page-content')).toBeInTheDocument();
+    });
+    expect(localStorage.getItem('weldsuite.currentLegalEntityId:ws_test')).toBe(JSON.stringify('ent_b'));
+    expect(setEntityIdMirror).toHaveBeenCalledWith('ent_b');
+  });
+
   it('keeps a selected entity that belongs to this workspace', async () => {
     localStorage.setItem('weldsuite.currentLegalEntityId:ws_test', JSON.stringify('ent_a'));
     getMock.mockResolvedValue({

@@ -10,7 +10,7 @@
  * Mailbox SMTP/IMAP credentials are stored encrypted (`encryptField` from
  * `@weldsuite/db/lib/crypto`) and listed in SENSITIVE_COLUMNS.
  *
- * See docs/plans/weldreach.md.
+ * See weldsuite-documentation/plans/weldreach.md.
  */
 
 import {

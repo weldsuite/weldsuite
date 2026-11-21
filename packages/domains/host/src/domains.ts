@@ -549,6 +549,8 @@ export async function addExternalDomain(
     nameserverVerified: false,
     nameserverVerificationPending: true,
     nameserverVerificationToken: token,
+    // Renewal stays with the outside registrar: WeldSuite never renews it.
+    autoRenew: false,
   });
 
   const [domain] = await db

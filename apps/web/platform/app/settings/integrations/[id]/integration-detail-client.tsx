@@ -6,11 +6,8 @@ import type { TranslationNamespaces } from '@/lib/i18n';
 import {
   Video,
   MessageCircle,
-  Activity,
   DollarSign,
   Loader2,
-  Printer,
-  Package,
   Globe,
   FileText,
   Mail,
@@ -20,23 +17,13 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
-import { Input } from '@weldsuite/ui/components/input';
-import { Label } from '@weldsuite/ui/components/label';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@weldsuite/ui/components/dialog';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { toast } from 'sonner';
-import { useIntegrations, usePrintNodeSettings, useUpdatePrintNodeSettings } from '@/hooks/queries/use-settings-queries';
+import { useIntegrations } from '@/hooks/queries/use-settings-queries';
 
 // Integration definitions. The descriptive copy (description, overview, features,
 // how it works) lives in the settings locale under `integrations.catalog`.
-type IntegrationCategory = 'communication' | 'shipping' | 'accounting' | 'ecommerce' | 'printing';
+type IntegrationCategory = 'communication' | 'accounting' | 'ecommerce';
 type IntegrationCatalogKey = keyof TranslationNamespaces['settings']['integrations']['catalog'];
 
 const INTEGRATION_DATA: Record<string, {
@@ -67,27 +54,6 @@ const INTEGRATION_DATA: Record<string, {
     icon: <MessageCircle className="h-5 w-5" />,
     configurable: false,
   },
-  dhl: {
-    name: 'DHL',
-    catalogKey: 'dhl',
-    category: 'shipping',
-    icon: <Activity className="h-5 w-5" />,
-    configurable: true,
-  },
-  ups: {
-    name: 'UPS',
-    catalogKey: 'ups',
-    category: 'shipping',
-    icon: <Activity className="h-5 w-5" />,
-    configurable: true,
-  },
-  postnl: {
-    name: 'PostNL',
-    catalogKey: 'postnl',
-    category: 'shipping',
-    icon: <Package className="h-5 w-5" />,
-    configurable: true,
-  },
   'exact-online': {
     name: 'Exact Online',
     catalogKey: 'exactOnline',
@@ -100,13 +66,6 @@ const INTEGRATION_DATA: Record<string, {
     catalogKey: 'quickbooks',
     category: 'accounting',
     icon: <DollarSign className="h-5 w-5" />,
-    configurable: true,
-  },
-  printnode: {
-    name: 'PrintNode',
-    catalogKey: 'printnode',
-    category: 'printing',
-    icon: <Printer className="h-5 w-5" />,
     configurable: true,
   },
 };
@@ -122,10 +81,6 @@ interface IntegrationDetailClientProps {
   integrationId: string;
 }
 
-interface PrintNodeSettingsResponse {
-  data?: { apiKey?: string };
-}
-
 interface IntegrationsStatusResponse {
   data?: Record<string, { connected?: boolean }>;
 }
@@ -135,10 +90,7 @@ export function IntegrationDetailClient({ integrationId }: Readonly<IntegrationD
   const { t } = useI18n();
   const ti = t.settings.integrations;
   const [isConnected, setIsConnected] = React.useState(false);
-  const [isConnecting, setIsConnecting] = React.useState(false);
   const [showDisconnectDialog, setShowDisconnectDialog] = React.useState(false);
-  const [showConfigDialog, setShowConfigDialog] = React.useState(false);
-  const [printNodeApiKey, setPrintNodeApiKey] = React.useState('');
   const [selectedImage, setSelectedImage] = React.useState(0);
   const thumbnailsRef = React.useRef<HTMLDivElement>(null);
   const [canScrollUp, setCanScrollUp] = React.useState(false);
@@ -147,29 +99,19 @@ export function IntegrationDetailClient({ integrationId }: Readonly<IntegrationD
   const integration = INTEGRATION_DATA[integrationId];
 
   // React Query hooks
-  const { data: printNodeData, isLoading: printNodeLoading } = usePrintNodeSettings();
-  const { data: integrationsData, isLoading: integrationsLoading } = useIntegrations();
-  const updatePrintNodeMutation = useUpdatePrintNodeSettings();
-  const isSaving = updatePrintNodeMutation.isPending;
+  const { data: integrationsData, isLoading } = useIntegrations();
 
-  const isLoading = integrationId === 'printnode' ? printNodeLoading : integrationsLoading;
   const connectLabel = isConnected ? t.settings.actions.disconnect : t.settings.actions.connect;
 
   // Sync connection status from query data
   React.useEffect(() => {
-    if (integrationId === 'printnode' && printNodeData) {
-      const data = printNodeData as PrintNodeSettingsResponse;
-      setIsConnected(!!data?.data?.apiKey);
-      if (data?.data?.apiKey) {
-        setPrintNodeApiKey(data.data.apiKey);
-      }
-    } else if (integrationsData) {
+    if (integrationsData) {
       const data = integrationsData as unknown as IntegrationsStatusResponse;
       if (data?.data?.[integrationId]) {
         setIsConnected(data.data[integrationId].connected || false);
       }
     }
-  }, [integrationId, printNodeData, integrationsData]);
+  }, [integrationId, integrationsData]);
 
   const handleScroll = () => {
     if (thumbnailsRef.current) {
@@ -198,72 +140,13 @@ export function IntegrationDetailClient({ integrationId }: Readonly<IntegrationD
   const relatedIds = getRelatedIntegrations(integrationId, integration.category);
 
   const handleConnect = () => {
-    if (integrationId === 'printnode') {
-      setShowConfigDialog(true);
-      return;
-    }
-
-    // For other integrations, show coming soon
     toast.info(ti.comingSoon.replace('{integration}', integration.name));
   };
 
-  const handleDisconnect = async () => {
-    setIsConnecting(true);
+  const handleDisconnect = () => {
     setShowDisconnectDialog(false);
-    try {
-      if (integrationId === 'printnode') {
-        await updatePrintNodeMutation.mutateAsync({ apiKey: '' });
-        setPrintNodeApiKey('');
-      }
-      setIsConnected(false);
-      toast.success(ti.messages.disconnected.replace('{integration}', integration.name));
-    } catch {
-      toast.error(ti.messages.disconnectFailed.replace('{integration}', integration.name));
-    } finally {
-      setIsConnecting(false);
-    }
-  };
-
-  /**
-   * Test the PrintNode connection.
-   *
-   * TODO(printnode-test): NOT IMPLEMENTED — this reports failure unconditionally.
-   * It needs `POST /api/integrations/printnode/test` on app-api, which would call
-   * PrintNode's `/whoami` with the stored key and report the result. Saving the
-   * key (handleSavePrintNode below) works and is unaffected.
-   *
-   * It has never worked: this posted to `/settings/integrations/printnode/test`,
-   * which exists on NO worker (api-worker exposes only GET/PUT
-   * /settings/printnode), so it 404'd and hit the failure toast every time. The
-   * user-visible outcome is therefore unchanged — only the doomed round-trip to
-   * the retiring api-worker is gone.
-   *
-   * This cannot be done client-side: the API key is a secret and PrintNode's API
-   * is not CORS-accessible from the browser, so the check has to be server-side.
-   */
-  const handleTestPrintNode = () => {
-    if (!printNodeApiKey) {
-      toast.error(ti.messages.enterApiKey);
-      return;
-    }
-
-    toast.error(ti.messages.testFailed);
-  };
-
-  const handleSavePrintNode = async () => {
-    if (!printNodeApiKey) {
-      toast.error(ti.messages.enterApiKey);
-      return;
-    }
-
-    try {
-      await updatePrintNodeMutation.mutateAsync({ apiKey: printNodeApiKey });
-      setIsConnected(true);
-      setShowConfigDialog(false);
-      toast.success(ti.messages.printNodeSaved);
-    } catch {
-      toast.error(ti.messages.printNodeSaveFailed);
-    }
+    setIsConnected(false);
+    toast.success(ti.messages.disconnected.replace('{integration}', integration.name));
   };
 
   return (
@@ -304,7 +187,7 @@ export function IntegrationDetailClient({ integrationId }: Readonly<IntegrationD
                 {/* Connect Button */}
                 <Button
                   variant={isConnected ? 'outline' : 'default'}
-                  disabled={isConnecting || isLoading}
+                  disabled={isLoading}
                   className={isConnected ? 'hover:text-destructive' : ''}
                   onClick={() => {
                     if (isConnected) {
@@ -314,7 +197,7 @@ export function IntegrationDetailClient({ integrationId }: Readonly<IntegrationD
                     }
                   }}
                 >
-                  {isConnecting || isLoading ? (
+                  {isLoading ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
                     connectLabel
@@ -384,7 +267,7 @@ export function IntegrationDetailClient({ integrationId }: Readonly<IntegrationD
               {/* Connect Button */}
               <Button
                 variant={isConnected ? 'outline' : 'default'}
-                disabled={isConnecting || isLoading}
+                disabled={isLoading}
                 className={`w-full ${isConnected ? 'hover:text-destructive' : ''}`}
                 onClick={() => {
                   if (isConnected) {
@@ -394,7 +277,7 @@ export function IntegrationDetailClient({ integrationId }: Readonly<IntegrationD
                   }
                 }}
               >
-                {isConnecting || isLoading ? (
+                {isLoading ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   connectLabel
@@ -565,51 +448,6 @@ export function IntegrationDetailClient({ integrationId }: Readonly<IntegrationD
         confirmLabel={t.settings.actions.disconnect}
         onConfirm={handleDisconnect}
       />
-
-      {/* PrintNode Configuration Dialog */}
-      <Dialog open={showConfigDialog && integrationId === 'printnode'} onOpenChange={setShowConfigDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{ti.configurePrintNode}</DialogTitle>
-            <DialogDescription>
-              {ti.printNodeDescription}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="printnode-api-key">{ti.apiKey}</Label>
-              <Input
-                id="printnode-api-key"
-                type="password"
-                placeholder={ti.apiKeyPlaceholder}
-                value={printNodeApiKey}
-                onChange={(e) => setPrintNodeApiKey(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">
-                {ti.apiKeyHelp}
-              </p>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowConfigDialog(false)}>
-              {t.common.actions.cancel}
-            </Button>
-            <Button variant="outline" onClick={handleTestPrintNode} disabled={!printNodeApiKey}>
-              {t.settings.actions.testConnection}
-            </Button>
-            <Button onClick={handleSavePrintNode} disabled={isSaving || !printNodeApiKey}>
-              {isSaving ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-0.5 animate-spin" />
-                  {t.settings.actions.saving}
-                </>
-              ) : (
-                t.common.actions.save
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </>
   );
 }

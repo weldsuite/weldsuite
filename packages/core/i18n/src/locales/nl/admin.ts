@@ -30,7 +30,7 @@ export const admin = {
     failed: 'Inloggen is niet gelukt. Probeer het opnieuw; lukt het steeds niet, dan staat in het logboek van de console waarom.',
     signedOut: 'Je bent uitgelogd.',
     notOnRoster:
-      'Je account staat niet op de medewerkerslijst van deze installatie. Vraag een superadmin om je toe te voegen met weldsuite admin staff add.',
+      'Dit account staat niet op de medewerkerslijst van deze installatie. Log uit en log in met je WeldSuite Staff-account, niet met je platformaccount; heb je dat al gebruikt, vraag dan een superadmin om je toe te voegen met weldsuite admin staff add.',
   },
 
   common: {

@@ -1,6 +1,7 @@
 //! `/api/settings/profile` (`app-api/src/routes/settings-profile`,
 //! `services/settings-profile.ts`): the caller's own profile, composed from
-//! their `workspace_members` row (name, email, picture) and the field bag at
+//! their `workspace_members` row (name, email), their account picture (master
+//! `users.image_url`) and the field bag at
 //! `user_preferences.ui_preferences.profile` plus `user_preferences.timezone`.
 //! Every route needs `general:read`, which every role holds.
 //!
@@ -9,7 +10,7 @@
 //!   `ui_preferences` write merges (the column and the `profile` bag), so a
 //!   save never drops a sibling key.
 //! - `PUT /avatar`: a base64 data URL, stored in the public bucket, its URL
-//!   saved as the member's picture (the object is removed again when that
+//!   saved as the account picture (the object is removed again when that
 //!   write fails).
 
 use std::sync::Arc;
@@ -85,9 +86,17 @@ async fn prefs_row(db: &PgPool, user_id: &str) -> Result<Option<Value>, sqlx::Er
 }
 
 /// `composeProfile`: the member row and the preferences projected into the
-/// response.
-async fn compose(db: &PgPool, user_id: &str) -> Result<Value, sqlx::Error> {
+/// response. `picture` is the account picture (`master`), not the member
+/// row's copy.
+async fn compose(
+    db: &PgPool,
+    master: Option<&PgPool>,
+    user_id: &str,
+) -> Result<Value, sqlx::Error> {
     let member = member_row(db, user_id).await?.unwrap_or(Value::Null);
+    let picture = weldsuite_db::load_account_picture(master, user_id)
+        .await
+        .map_or_else(|| json!(""), Value::String);
     let prefs = prefs_row(db, user_id).await?.unwrap_or(Value::Null);
     let ui = &prefs["uiPreferences"];
     let ext = match &ui["profile"] {
@@ -102,7 +111,7 @@ async fn compose(db: &PgPool, user_id: &str) -> Result<Value, sqlx::Error> {
         "email": or(&member["email"], &empty),
         "name": or(&member["name"], &empty),
         "nickname": or(&ext["nickname"], &empty),
-        "picture": or(&member["picture"], &empty),
+        "picture": picture,
         "phone": or(&ext["phone"], &empty),
         "company": or(&ext["company"], &empty),
         "jobTitle": or(&ext["jobTitle"], &empty),
@@ -114,7 +123,7 @@ async fn compose(db: &PgPool, user_id: &str) -> Result<Value, sqlx::Error> {
 // ── GET / ───────────────────────────────────────────────────────────────────
 
 async fn profile(caller: Caller) -> Response {
-    match compose(&caller.db, &caller.user_id).await {
+    match compose(&caller.db, caller.request_master(), &caller.user_id).await {
         Ok(profile) => Data(profile).into_response(),
         Err(error) => TeamError::internal("Failed to fetch profile", error).respond(),
     }
@@ -209,7 +218,14 @@ async fn update(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
     answer(
         async {
             let changes = validate(&headers, &body, read_changes)?;
-            match update_profile(&caller.db, &caller.user_id, &changes).await {
+            match update_profile(
+                &caller.db,
+                caller.request_master(),
+                &caller.user_id,
+                &changes,
+            )
+            .await
+            {
                 Ok(profile) => Ok(Data(profile).into_response()),
                 Err(error) => Err(TeamError::internal("Failed to update profile", error)),
             }
@@ -220,6 +236,7 @@ async fn update(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
 
 async fn update_profile(
     db: &PgPool,
+    master: Option<&PgPool>,
     user_id: &str,
     changes: &ProfileChanges,
 ) -> Result<Value, sqlx::Error> {
@@ -249,7 +266,7 @@ async fn update_profile(
     if !ext.is_empty() || changes.timezone.is_some() {
         upsert_preferences(db, user_id, ext, changes.timezone.as_deref()).await?;
     }
-    compose(db, user_id).await
+    compose(db, master, user_id).await
 }
 
 /// Merge the extended fields and the timezone into the caller's preferences
@@ -463,6 +480,9 @@ async fn store_avatar(
     // R2 keys stay under the Clerk org id until phase 3 (workspace-id plan).
     let org = caller.clerk_org_id.as_deref().unwrap_or("null");
     let millis = time::OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000;
+    // The identity sync (core-onboarding `store_profile`) recognises an
+    // uploaded picture by this `/avatars/<user id>_` path and keeps it over the
+    // provider's: keep the shape when changing the key.
     let key = format!(
         "workspaces/{org}/avatars/{}_{millis}.{extension}",
         caller.user_id
@@ -473,15 +493,22 @@ async fn store_avatar(
         .map_err(|error| TeamError::internal(FAILED, error))?;
 
     let image_url = public_url(headers, caller.env("R2_PUBLIC_URL"), &key);
-    let saved = sqlx::query(
-        "update workspace_members set picture = $2, updated_at = $3::timestamptz
-         where user_id = $1 and deleted_at is null",
-    )
-    .bind(&caller.user_id)
-    .bind(&image_url)
-    .bind(now())
-    .execute(&caller.db)
-    .await;
+    // The picture belongs to the account (master `users.image_url`), so it
+    // shows in every workspace; the member row keeps no copy. The identity
+    // port has no avatar call, so the provider's own picture is not changed.
+    let saved = match caller.request_master() {
+        Some(master) => {
+            sqlx::query("update users set image_url = $2, updated_at = now() where id = $1")
+                .bind(&caller.user_id)
+                .bind(&image_url)
+                .execute(master)
+                .await
+                .map(|_| ())
+        }
+        None => Err(sqlx::Error::Configuration(
+            "no master database for the account picture".into(),
+        )),
+    };
     if let Err(error) = saved {
         // Nothing references the object: take it back, best effort.
         if let Err(cleanup) = store.delete_boxed(&key).await {

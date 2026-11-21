@@ -97,11 +97,6 @@ export const SCHEMAS: SchemaEntry[] = [
   s('UPDATE_CALENDAR', core('calendars'), 'updateCalendarSchema'),
   s('CREATE_CALENDAR_EVENT', core('calendar-events'), 'createCalendarEventSchema'),
   s('UPDATE_CALENDAR_EVENT', core('calendar-events'), 'updateCalendarEventSchema'),
-  // Commerce
-  s('CREATE_PRODUCT', core('products'), 'createProductSchema'),
-  s('UPDATE_PRODUCT', core('products'), 'updateProductSchema'),
-  s('CREATE_ORDER', core('orders'), 'createOrderSchema'),
-  s('UPDATE_ORDER', core('orders'), 'updateOrderSchema'),
   // Social
   s('CREATE_SOCIAL_ACCOUNT', core('social-accounts'), 'createSocialAccountSchema'),
   s('UPDATE_SOCIAL_ACCOUNT', core('social-accounts'), 'updateSocialAccountSchema'),
@@ -191,8 +186,6 @@ export const TABLES = [
   'timeEntries',
   // Desk
   'helpdeskArticles',
-  // Commerce
-  'categories',
   // Chat
   'chatChannels',
   'chatChannelMembers',
@@ -203,9 +196,6 @@ export const TABLES = [
   // Calendar
   'calendars',
   'calendarEvents',
-  // Commerce
-  'products',
-  'orders',
   // Social
   'socialAccounts',
   'socialCampaigns',

@@ -5,9 +5,11 @@
  * is the behavioural spec while that worker is being retired.
  *
  * STORE (deliberate — do not "consolidate"):
- * This surface composes `workspace_members` (name/email/picture) with an
- * extended field bag held at `user_preferences.ui_preferences.profile`, plus
- * `user_preferences.timezone`.
+ * This surface composes `workspace_members` (name/email) with an extended
+ * field bag held at `user_preferences.ui_preferences.profile`, plus
+ * `user_preferences.timezone`. The picture is the account picture (master
+ * `users.image_url`, @weldsuite/worker-kit/account-pictures), the same in
+ * every workspace; `workspace_members.picture` is not read or written.
  *
  * It is NOT the `workspace_members` profile COLUMNS (title/bio/phone/location/
  * pronouns/links) that the team-member panel reads through
@@ -19,8 +21,10 @@
  */
 
 import { and, eq, isNull } from 'drizzle-orm';
-import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { getMasterDb, schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { loadAccountPicture, type AccountPictureEnv } from '@weldsuite/worker-kit/account-pictures';
+import { users } from '@weldsuite/db/schema/master';
 
 /**
  * The extended field bag stored at `ui_preferences.profile`.
@@ -93,18 +97,12 @@ function prefsWhere(userId: string) {
  * response shape. Kept in one place so GET and PUT cannot drift apart (legacy
  * duplicated this projection in both handlers).
  */
-async function composeProfile(db: Database, userId: string): Promise<SelfProfile> {
-  const [member] = await db
-    .select()
-    .from(schema.workspaceMembers)
-    .where(memberWhere(userId))
-    .limit(1);
-
-  const [prefs] = await db
-    .select()
-    .from(schema.userPreferences)
-    .where(prefsWhere(userId))
-    .limit(1);
+async function composeProfile(db: Database, env: AccountPictureEnv, userId: string): Promise<SelfProfile> {
+  const [[member], [prefs], picture] = await Promise.all([
+    db.select().from(schema.workspaceMembers).where(memberWhere(userId)).limit(1),
+    db.select().from(schema.userPreferences).where(prefsWhere(userId)).limit(1),
+    loadAccountPicture(env, userId),
+  ]);
 
   const uiPrefs = (prefs?.uiPreferences ?? {}) as UiPreferencesWithProfile;
   const ext = uiPrefs.profile ?? {};
@@ -114,7 +112,7 @@ async function composeProfile(db: Database, userId: string): Promise<SelfProfile
     email: member?.email || '',
     name: member?.name || '',
     nickname: ext.nickname || '',
-    picture: member?.picture || '',
+    picture: picture || '',
     phone: ext.phone || '',
     // `company` is read but never written: it is absent from the update schema
     // in legacy too. Preserved as-is so historical values keep rendering.
@@ -125,8 +123,8 @@ async function composeProfile(db: Database, userId: string): Promise<SelfProfile
   };
 }
 
-export async function getSelfProfile(db: Database, userId: string): Promise<SelfProfile> {
-  return composeProfile(db, userId);
+export async function getSelfProfile(db: Database, env: AccountPictureEnv, userId: string): Promise<SelfProfile> {
+  return composeProfile(db, env, userId);
 }
 
 /**
@@ -144,6 +142,7 @@ export async function getSelfProfile(db: Database, userId: string): Promise<Self
  */
 export async function updateSelfProfile(
   db: Database,
+  env: AccountPictureEnv,
   userId: string,
   data: UpdateSelfProfileInput,
 ): Promise<SelfProfile> {
@@ -163,7 +162,7 @@ export async function updateSelfProfile(
     await upsertPreferences(db, userId, extFields, data.timezone);
   }
 
-  return composeProfile(db, userId);
+  return composeProfile(db, env, userId);
 }
 
 /** Extended profile fields actually present on the update payload. */
@@ -224,14 +223,18 @@ async function upsertPreferences(
   });
 }
 
-/** Point the caller's workspace member row at a new avatar URL. */
-export async function updateSelfAvatar(
-  db: Database,
+/**
+ * Record the caller's new account picture in the master `users` row, so every
+ * workspace shows it on the next read. Clerk's `user.updated` webhook writes
+ * the same value shortly after; this saves waiting for it.
+ */
+export async function saveAccountPicture(
+  env: AccountPictureEnv,
   userId: string,
-  pictureUrl: string,
+  imageUrl: string,
 ): Promise<void> {
-  await db
-    .update(schema.workspaceMembers)
-    .set({ picture: pictureUrl, updatedAt: new Date() })
-    .where(memberWhere(userId));
+  await getMasterDb(env)
+    .update(users)
+    .set({ imageUrl, updatedAt: new Date() })
+    .where(eq(users.id, userId));
 }

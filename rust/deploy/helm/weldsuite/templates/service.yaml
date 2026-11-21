@@ -11,5 +11,7 @@ spec:
       targetPort: http
       protocol: TCP
       name: http
+    {{- /* For a ServiceMonitor; the Ingress names port http only. */}}
+    {{- with include "weldsuite.metricsServicePort" . }}{{ . | nindent 4 }}{{- end }}
   selector:
     {{- include "weldsuite.selectorLabels" . | nindent 4 }}

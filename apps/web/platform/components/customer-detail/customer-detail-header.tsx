@@ -66,6 +66,7 @@ import { useComposeSafe } from '@/contexts/compose-context';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { InlineTextEditor } from '@/components/shared/inline-text-editor';
 import { useWorkspaceUrl } from '@/hooks/use-workspace-url';
+import { withoutInvitees } from '@/app/weldchat/lib/dm-availability';
 
 interface CustomerDetailHeaderProps {
   variant?: 'page' | 'panel';
@@ -1254,7 +1255,8 @@ function ShareDialog({
 
   const members = useMemo<Member[]>(
     () =>
-      (membersData?.data ?? []).map((m) => ({
+      // Sharing to a person goes through a DM, which an invitee can't have yet.
+      withoutInvitees(membersData?.data ?? []).map((m) => ({
         id: m.id ?? m.userId,
         userId: m.userId,
         name: m.name ?? null,

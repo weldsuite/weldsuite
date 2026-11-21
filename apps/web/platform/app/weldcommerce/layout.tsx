@@ -6,16 +6,13 @@ import { ModuleContent } from '@/components/layout/module-content';
 import { getTranslations } from '@/lib/i18n';
 
 /**
- * WeldCommerce module layout, same shape as WeldCRM's `CrmLayoutClient`:
- * breadcrumb root → full-width `AppHeader` (the top nav) → `ModuleContent`.
- *
- * `ModuleContent` is not optional decoration: it lays out the content row and
- * mounts `<ObjectPanelHost />`, so without it the product / category / order
- * panels have nowhere to render. Section navigation comes from the global
- * module sidebar (`MODULE_CONFIGS.weldcommerce`), not from this file.
+ * WeldCommerce module layout (the rebuilt module, ADR COM-009), same shape as
+ * WeldStash's: breadcrumb root → `AppHeader` → `ModuleContent`. Section
+ * navigation comes from the module sidebar (`MODULE_CONFIGS.weldcommerce`).
+ * Global never reaches it: the edition gate hides the module there.
  */
 export default function WeldCommerceLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  const t = getTranslations('commerce').module;
+  const t = getTranslations('commerce');
   const { isInstalled, isLoading } = useAppAccess('weldcommerce');
 
   if (isLoading) return <PageLoader />;

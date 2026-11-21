@@ -49,7 +49,10 @@ async fn overrides_resolve_per_workspace_and_refresh() {
     let pool = PgPool::connect(&url).await.expect("connects");
     sqlx::raw_sql(SCHEMA).execute(&pool).await.expect("schema");
 
-    let flags = MasterDbFlagSource::new(pool.clone(), Duration::from_millis(200));
+    // A refresh period no test run outlasts, so "still cached" cannot race a
+    // refresh on a slow runner; `quick` shows the refresh itself.
+    let flags = MasterDbFlagSource::new(pool.clone(), Duration::from_secs(3600));
+    let quick = MasterDbFlagSource::new(pool.clone(), Duration::from_millis(50));
     let ws1 = context("ws_1", Some("org_1"));
     let ws2 = context("ws_2", Some("org_2"));
 
@@ -67,8 +70,12 @@ async fn overrides_resolve_per_workspace_and_refresh() {
     assert!(!flags.is_on(HELLO_WORLD, &ws1).await);
     // A value of the wrong type falls back to the default.
     assert!(flags.is_on(WELDREACH_SENDING, &ws1).await);
+    assert_eq!(
+        quick.string_value(WELDMAIL_OUTBOUND_GUARD, &ws2).await,
+        "off"
+    );
 
-    // Changes show after the refresh period, or at once after invalidate().
+    // A change is not seen within the refresh period...
     sqlx::query("update feature_flag_overrides set value = $1 where id = 'ffo_1'")
         .bind(json!("shadow"))
         .execute(&pool)
@@ -78,7 +85,14 @@ async fn overrides_resolve_per_workspace_and_refresh() {
         flags.string_value(WELDMAIL_OUTBOUND_GUARD, &ws2).await,
         "off"
     );
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    // ...shows after it...
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    assert_eq!(
+        quick.string_value(WELDMAIL_OUTBOUND_GUARD, &ws2).await,
+        "shadow"
+    );
+    // ...or at once after invalidate().
+    flags.invalidate();
     assert_eq!(
         flags.string_value(WELDMAIL_OUTBOUND_GUARD, &ws2).await,
         "shadow"
@@ -91,14 +105,15 @@ async fn overrides_resolve_per_workspace_and_refresh() {
     flags.invalidate();
     assert!(!flags.is_on(HELLO_WORLD, &ws2).await);
 
-    // With the table gone, the last values keep being served.
+    // With the table gone, a refresh fails and the last values keep being
+    // served.
     sqlx::raw_sql("drop table feature_flag_overrides")
         .execute(&pool)
         .await
         .expect("drop");
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    tokio::time::sleep(Duration::from_millis(150)).await;
     assert_eq!(
-        flags.string_value(WELDMAIL_OUTBOUND_GUARD, &ws1).await,
+        quick.string_value(WELDMAIL_OUTBOUND_GUARD, &ws1).await,
         "enforce"
     );
 

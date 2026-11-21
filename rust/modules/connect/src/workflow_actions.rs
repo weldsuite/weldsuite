@@ -44,7 +44,7 @@ use weldsuite_kit::{RequestEnv, generate_id};
 use weldsuite_permissions::{
     AppCheckMode, ResolvedPermissions, check_app_permission, resolve_effective_permissions,
 };
-use weldsuite_ports::DynRealtimePublisher;
+use weldsuite_ports::{DynRealtimePublisher, OutboundHttp};
 
 use crate::TenantDatabases;
 
@@ -113,9 +113,24 @@ pub(crate) struct Performer<'a> {
     pub(crate) db: &'a PgPool,
     pub(crate) events: &'a EntityEventPublisher,
     pub(crate) realtime: Option<Arc<dyn DynRealtimePublisher>>,
+    /// The push (Expo) of the notifications an action sends (chat mentions,
+    /// task assignments); `None` notifies in-app only.
+    pub(crate) push_http: Option<OutboundHttp>,
     pub(crate) master: Option<&'a PgPool>,
     /// `PERMISSIONS_APP_ENFORCE === 'true'`.
     pub(crate) app_enforce: bool,
+}
+
+impl Performer<'_> {
+    /// Where an action's notifications go out: in-app over realtime, push
+    /// over `push_http`. connect-api has no mail binding, so no email.
+    fn notifier(&self) -> weldsuite_notifications::Notifier {
+        weldsuite_notifications::Notifier {
+            realtime: self.realtime.clone(),
+            http: self.push_http.clone(),
+            ..weldsuite_notifications::Notifier::default()
+        }
+    }
 }
 
 /// `zValidator('json', schema)` then the handler: the route's answer for a
@@ -1440,10 +1455,7 @@ async fn post_chat_message(
     }
 
     // `notifyMentionedUsers`.
-    let notifier = weldsuite_notifications::Notifier {
-        realtime: performer.realtime.clone(),
-        ..weldsuite_notifications::Notifier::default()
-    };
+    let notifier = performer.notifier();
     for mentioned in all_mentions.iter().filter(|m| is_notifiable_mention(m)) {
         if let Err(error) = sqlx::query(
             "update chat_channel_members set unread_mention_count = unread_mention_count + 1
@@ -1636,10 +1648,7 @@ async fn assignment_notifications(
     let owner = actor.owner_user_id.as_str();
     let task_id = text_of(row, "id").unwrap_or_default();
     let title = text_of(row, "title").unwrap_or_default();
-    let notifier = weldsuite_notifications::Notifier {
-        realtime: performer.realtime.clone(),
-        ..weldsuite_notifications::Notifier::default()
-    };
+    let notifier = performer.notifier();
     for assignee in assignees {
         if assignee == owner {
             continue;
@@ -1697,6 +1706,10 @@ async fn assignment_notifications(
 pub struct WorkflowActionsState {
     pub events: EntityEventPublisher,
     pub realtime: Option<Arc<dyn DynRealtimePublisher>>,
+    /// The push (Expo) of the actions' notifications (chat mentions, task
+    /// assignments); `None` notifies in-app only. Conformance builds have
+    /// none.
+    pub push_http: Option<OutboundHttp>,
     pub master: Option<PgPool>,
     pub tenants: Option<TenantDatabases>,
     pub env: Arc<HashMap<String, String>>,
@@ -1826,6 +1839,7 @@ async fn handle(
         db: &db,
         events: &state.events,
         realtime: state.realtime.clone(),
+        push_http: state.push_http.clone(),
         master: master.as_ref(),
         app_enforce: context.env(&state, "PERMISSIONS_APP_ENFORCE").as_deref() == Some("true"),
     };

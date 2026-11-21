@@ -4,7 +4,7 @@
  * A board is a WeldDrive file (`files`) plus a `whiteboards` row. These
  * routes create, list, rename and trash it and open a session on it; the
  * content itself only travels over the board's room socket (the
- * @weldsuite/board-engine collab protocol). See docs/plans/weldboard.md.
+ * @weldsuite/board-engine collab protocol). See weldsuite-documentation/plans/weldboard.md.
  */
 
 import { z } from 'zod';

@@ -2,6 +2,11 @@
 //! `api-key-session.ts`): a `wsk_` key or a `wsat_` app token becomes the
 //! request's [`ApiSession`] and tenant database.
 //!
+//! The key comes from `Authorization: Bearer` or `X-Api-Key`. Under
+//! `/v1/odata` only, HTTP Basic is read too (the password is the key, the
+//! username is ignored), and a missing or bad key is answered with a Basic
+//! challenge, so Power BI prompts for credentials.
+//!
 //! A `wsk_` key: its SHA-256 → the master `api_key_registry` (cached five
 //! minutes under `akr:<hash>`) → the workspace (the shared workspace
 //! resolver, which caches as long) → the key row in the workspace's own
@@ -42,16 +47,86 @@ const MISSING_KEY: &str = "Invalid or missing API key. Provide a valid key via A
 const INVALID_KEY: &str =
     "Invalid API key. The key may have been revoked, expired, or never existed.";
 
-/// `extractApiKey`: `Authorization: Bearer wsk_…|wsat_…`, else `X-Api-Key`.
-pub(crate) fn extract_api_key(headers: &http::HeaderMap) -> Option<String> {
+/// The challenge the `OData` feed answers a missing or bad key with, so Power
+/// BI prompts for credentials.
+const BASIC_CHALLENGE: &str = "Basic realm=\"WeldSuite\"";
+
+/// `isODataPath(path)`: `/v1/odata` and everything below it, the one place
+/// HTTP Basic is accepted.
+pub(crate) fn is_odata_path(path: &str) -> bool {
+    path == "/v1/odata" || path.starts_with("/v1/odata/")
+}
+
+/// JavaScript's `atob(input)` (the forgiving base64 decode): ASCII
+/// whitespace is skipped, padding is optional, bits past the last whole
+/// byte are dropped. `None` where `atob` throws.
+pub(crate) fn atob(input: &str) -> Option<Vec<u8>> {
+    let mut symbols: Vec<u8> = input
+        .bytes()
+        .filter(|b| !matches!(b, b'\t' | b'\n' | b'\x0c' | b'\r' | b' '))
+        .collect();
+    if symbols.len().is_multiple_of(4) {
+        for _ in 0..2 {
+            if symbols.last() == Some(&b'=') {
+                symbols.pop();
+            }
+        }
+    }
+    if symbols.len() % 4 == 1 {
+        return None;
+    }
+    let mut out = Vec::with_capacity(symbols.len() / 4 * 3 + 2);
+    let (mut buffer, mut bits) = (0_u32, 0_u32);
+    for symbol in symbols {
+        let value = match symbol {
+            b'A'..=b'Z' => symbol - b'A',
+            b'a'..=b'z' => symbol - b'a' + 26,
+            b'0'..=b'9' => symbol - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => return None,
+        };
+        buffer = (buffer << 6) | u32::from(value);
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push(u8::try_from((buffer >> bits) & 0xff).ok()?);
+        }
+    }
+    Some(out)
+}
+
+/// `basicPassword(encoded)`: what a Basic credential (`base64(user:rest)`)
+/// carries after its first colon, or `None` if it is not one. Basic calls
+/// that part the password; the feed's clients put their API key there, a
+/// random token and not a password someone chose, so it is named for that.
+fn basic_key(encoded: &str) -> Option<String> {
+    let bytes = atob(weldsuite_kit::validation::js_trim(encoded))?;
+    let decoded = String::from_utf8_lossy(&bytes);
+    decoded.split_once(':').map(|(_, key)| key.to_owned())
+}
+
+/// `extractApiKey`: `Authorization: Bearer wsk_…|wsat_…`, on the `OData` feed
+/// also `Authorization: Basic` with the key as the password (the username is
+/// ignored: Power BI's connector sends credentials that way), else
+/// `X-Api-Key`.
+pub(crate) fn extract_api_key(path: &str, headers: &http::HeaderMap) -> Option<String> {
     let is_key = |value: &str| value.starts_with("wsk_") || value.starts_with("wsat_");
-    if let Some(token) = headers
+    let authorization = headers
         .get(http::header::AUTHORIZATION)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("Bearer "))
+        .and_then(|value| value.to_str().ok());
+    if let Some(token) = authorization.and_then(|value| value.strip_prefix("Bearer "))
         && is_key(token)
     {
         return Some(token.to_owned());
+    }
+    if is_odata_path(path)
+        && let Some(key) = authorization
+            .and_then(|value| value.strip_prefix("Basic "))
+            .and_then(basic_key)
+        && is_key(&key)
+    {
+        return Some(key);
     }
     headers
         .get("x-api-key")
@@ -119,11 +194,12 @@ pub async fn authenticate(
     mut request: Request,
     next: Next,
 ) -> Response {
-    if crate::gates::is_before_authentication(&crate::gates::full_path(&request)) {
+    let path = crate::gates::full_path(&request);
+    if crate::gates::is_before_authentication(&path) {
         return next.run(request).await;
     }
-    let Some(key) = extract_api_key(request.headers()) else {
-        return unauthorized(MISSING_KEY).into_response();
+    let Some(key) = extract_api_key(&path, request.headers()) else {
+        return refuse_key(&path, MISSING_KEY);
     };
     let opened = if key.starts_with("wsat_") {
         validate_app_token(&state, &key).await
@@ -132,11 +208,24 @@ pub async fn authenticate(
     };
     let (session, tenant) = match opened {
         Ok(opened) => opened,
-        Err(Refusal::Invalid) => return unauthorized(INVALID_KEY).into_response(),
+        Err(Refusal::Invalid) => return refuse_key(&path, INVALID_KEY),
         Err(Refusal::Respond(response)) => return response,
     };
     insert_session(request.extensions_mut(), session, tenant);
     next.run(request).await
+}
+
+/// The 401 for a missing or bad key; on the `OData` feed with a Basic
+/// challenge.
+fn refuse_key(path: &str, message: &str) -> Response {
+    let mut response = unauthorized(message).into_response();
+    if is_odata_path(path) {
+        response.headers_mut().insert(
+            http::header::WWW_AUTHENTICATE,
+            http::HeaderValue::from_static(BASIC_CHALLENGE),
+        );
+    }
+    response
 }
 
 /// What the routes read: the session, the tenant database, and the actor as
@@ -461,28 +550,176 @@ mod tests {
 
     #[test]
     fn keys_come_from_bearer_or_x_api_key() {
-        assert_eq!(
-            extract_api_key(&headers(&[("authorization", "Bearer wsk_abc")])).as_deref(),
-            Some("wsk_abc")
-        );
-        assert_eq!(
-            extract_api_key(&headers(&[("x-api-key", "wsat_abc")])).as_deref(),
-            Some("wsat_abc")
-        );
+        for path in ["/v1/people", "/v1/odata", "/v1/odata/Conversations"] {
+            assert_eq!(
+                extract_api_key(path, &headers(&[("authorization", "Bearer wsk_abc")])).as_deref(),
+                Some("wsk_abc"),
+                "{path}"
+            );
+            assert_eq!(
+                extract_api_key(path, &headers(&[("x-api-key", "wsat_abc")])).as_deref(),
+                Some("wsat_abc"),
+                "{path}"
+            );
+        }
         // A bearer token that is not a key falls through to X-Api-Key.
         assert_eq!(
-            extract_api_key(&headers(&[
-                ("authorization", "Bearer eyJ"),
-                ("x-api-key", "wsk_x")
-            ]))
+            extract_api_key(
+                "/v1/people",
+                &headers(&[("authorization", "Bearer eyJ"), ("x-api-key", "wsk_x")])
+            )
             .as_deref(),
             Some("wsk_x")
         );
         assert_eq!(
-            extract_api_key(&headers(&[("authorization", "Basic wsk_x")])),
+            extract_api_key("/v1/people", &headers(&[("authorization", "Basic wsk_x")])),
             None
         );
-        assert_eq!(extract_api_key(&headers(&[])), None);
+        assert_eq!(
+            extract_api_key("/v1/people", &headers(&[("authorization", "Bearer nope")])),
+            None
+        );
+        assert_eq!(extract_api_key("/v1/people", &headers(&[])), None);
+    }
+
+    const KEY: &str = "wsk_0123456789abcdef";
+
+    /// `Basic base64(user:rest)`, as a client sends it: `rest` is whatever
+    /// follows the first colon (the API key, for the feed).
+    fn basic(user: &str, rest: &str) -> String {
+        use base64::Engine;
+        let encoded = base64::engine::general_purpose::STANDARD.encode(format!("{user}:{rest}"));
+        format!("Basic {encoded}")
+    }
+
+    fn from_authorization(path: &str, value: &str) -> Option<String> {
+        extract_api_key(path, &headers(&[("authorization", value)]))
+    }
+
+    #[test]
+    fn the_feed_reads_the_basic_password_as_the_key_whatever_the_username() {
+        for path in [
+            "/v1/odata",
+            "/v1/odata/",
+            "/v1/odata/$metadata",
+            "/v1/odata/Conversations",
+        ] {
+            assert_eq!(
+                from_authorization(path, &basic("anything", KEY)).as_deref(),
+                Some(KEY),
+                "{path}"
+            );
+        }
+        assert_eq!(
+            from_authorization("/v1/odata", &basic("", KEY)).as_deref(),
+            Some(KEY)
+        );
+        assert_eq!(
+            from_authorization("/v1/odata", &basic("Jan Müller", KEY)).as_deref(),
+            Some(KEY)
+        );
+        // Only the first colon splits the user from the password.
+        assert_eq!(from_authorization("/v1/odata", &basic("a:b", KEY)), None);
+        assert_eq!(
+            from_authorization("/v1/odata", &basic("a", &format!("{KEY}:x"))),
+            Some(format!("{KEY}:x"))
+        );
+        assert_eq!(
+            from_authorization("/v1/odata", &basic("u", "wsat_abc123")).as_deref(),
+            Some("wsat_abc123")
+        );
+        // A Basic credential that is not a key still leaves X-Api-Key.
+        let not_a_key = basic("u", "password");
+        assert_eq!(
+            extract_api_key(
+                "/v1/odata",
+                &headers(&[("authorization", not_a_key.as_str()), ("x-api-key", KEY)])
+            )
+            .as_deref(),
+            Some(KEY)
+        );
+    }
+
+    #[test]
+    fn basic_is_refused_anywhere_else_and_on_lookalike_paths() {
+        for path in [
+            "/v1/people",
+            "/v1/audit-logs",
+            "/v1",
+            "/v1/odatax",
+            "/v1/odata-evil",
+            "/v2/odata",
+            "/odata",
+            "/v1/people/odata",
+        ] {
+            assert_eq!(from_authorization(path, &basic("u", KEY)), None, "{path}");
+            assert!(!is_odata_path(path), "{path}");
+        }
+        assert!(is_odata_path("/v1/odata"));
+        assert!(is_odata_path("/v1/odata/Teams"));
+    }
+
+    #[test]
+    fn a_basic_credential_that_is_not_a_key_or_is_malformed_is_refused() {
+        use base64::Engine;
+        let encode = |text: &str| base64::engine::general_purpose::STANDARD.encode(text);
+        for header in [
+            basic("u", "password"),
+            basic("u", ""),
+            basic("u", &format!("x{KEY}")),
+            format!("Basic {}", encode("no-colon-here")),
+            "Basic !!!not-base64!!!".to_owned(),
+            "Basic ".to_owned(),
+            "Basic".to_owned(),
+            format!("basic {}", encode(&format!("u:{KEY}"))),
+            format!("Digest {KEY}"),
+        ] {
+            assert_eq!(from_authorization("/v1/odata", &header), None, "{header}");
+        }
+    }
+
+    #[test]
+    fn atob_decodes_as_javascript_does() {
+        assert_eq!(atob("dTp3c2tfeA==").as_deref(), Some(&b"u:wsk_x"[..]));
+        // Padding is optional and whitespace is skipped.
+        assert_eq!(atob("dTp3c2tfeA").as_deref(), Some(&b"u:wsk_x"[..]));
+        assert_eq!(atob(" dTp3\nc2tf eA= =").as_deref(), Some(&b"u:wsk_x"[..]));
+        assert_eq!(atob("").as_deref(), Some(&b""[..]));
+        assert_eq!(atob("YQ").as_deref(), Some(&b"a"[..]));
+        // Bits past the last whole byte are dropped.
+        assert_eq!(atob("YR").as_deref(), Some(&b"a"[..]));
+        for refused in ["a", "YQ=", "Y=Q=", "YQ===", "a-b_", "é", "!!!!"] {
+            assert_eq!(atob(refused), None, "{refused}");
+        }
+    }
+
+    #[test]
+    fn a_missing_or_bad_key_is_challenged_on_the_feed_only() {
+        for path in ["/v1/odata", "/v1/odata/Conversations", "/v1/odata/Teams"] {
+            for message in [MISSING_KEY, INVALID_KEY] {
+                let response = refuse_key(path, message);
+                assert_eq!(response.status(), http::StatusCode::UNAUTHORIZED);
+                assert_eq!(
+                    response
+                        .headers()
+                        .get(http::header::WWW_AUTHENTICATE)
+                        .and_then(|value| value.to_str().ok()),
+                    Some("Basic realm=\"WeldSuite\""),
+                    "{path}"
+                );
+            }
+        }
+        for path in ["/v1/audit-logs", "/v1", "/v1/odatax"] {
+            let response = refuse_key(path, MISSING_KEY);
+            assert_eq!(response.status(), http::StatusCode::UNAUTHORIZED);
+            assert!(
+                response
+                    .headers()
+                    .get(http::header::WWW_AUTHENTICATE)
+                    .is_none(),
+                "{path}"
+            );
+        }
     }
 
     #[test]

@@ -126,6 +126,24 @@ describe('WooCommerce order mapper', () => {
     expect(mapped.lineItems).toHaveLength(1);
   });
 
+  it("keeps each line's own id: WooCommerce and Shopify id, Picqer idorder_product", () => {
+    const woo = mapConnectorRecord('order', {
+      id: 88,
+      number: '88',
+      line_items: [{ id: 501, name: 'Helmet', quantity: 1, price: '50' }, { name: 'Gift wrap' }],
+    });
+    if (woo?.entity !== 'order') throw new Error('not an order');
+    expect(woo.lineItems.map((item) => item.externalLineId)).toEqual(['501', null]);
+
+    const picqer = mapConnectorRecord(
+      'order',
+      { idorder: 9, orderid: 'O-9', products: [{ idorder_product: 77, idproduct: 5, productcode: 'PQ-5', name: 'Box', amount: 2 }] },
+      'picqer',
+    );
+    if (picqer?.entity !== 'order') throw new Error('not an order');
+    expect(picqer.lineItems.map((item) => [item.externalLineId, item.externalProductId, item.quantity])).toEqual([['77', '5', 2]]);
+  });
+
   it('treats trash as a delete', () => {
     expect(isDeletedRecord({ id: 1, status: 'trash' })).toBe(true);
     expect(isDeletedRecord({ id: 1, status: 'completed' })).toBe(false);
@@ -624,5 +642,12 @@ describe('Picqer mappers', () => {
         'picqer',
       )?.values,
     ).toMatchObject({ movementNumber: '6', quantity: 2, status: 'completed' });
+  });
+});
+
+describe('Odoo-only entities', () => {
+  it('maps nothing for product suppliers and sales history, which only the Rust backend syncs', () => {
+    expect(mapConnectorRecord('product_supplier', { id: 7, product_tmpl_id: 1 }, 'odoo')).toBeNull();
+    expect(mapConnectorRecord('sales_history', { id: 8, product_uom_qty: 3 }, 'odoo')).toBeNull();
   });
 });

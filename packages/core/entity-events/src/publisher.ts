@@ -173,7 +173,7 @@ export function publishEntityEvent<
     {
       env: c.env,
       // Events keep the Clerk org id until their consumers move to `workspaces.id`
-      // (phase 2b of docs/plans/workspace-id-standardization.md): they persist it
+      // (phase 2b of weldsuite-documentation/plans/workspace-id-standardization.md): they persist it
       // in Workflow params, D1 rows and R2 keys. Every consumer resolves either id,
       // so an entry point that only knows `workspaces.id` (the portals) is fine.
       workspaceId: c.get('clerkOrgId') ?? c.get('workspaceId') ?? '',

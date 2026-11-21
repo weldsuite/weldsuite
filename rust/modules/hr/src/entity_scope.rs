@@ -1,5 +1,5 @@
 //! Per-entity access for the WeldHR routes (`routes/weldhr/entity-scope.ts`,
-//! `services/weldhr/entity-scope.ts`; docs/plans/legal-entities.md,
+//! `services/weldhr/entity-scope.ts`; weldsuite-documentation/plans/legal-entities.md,
 //! "Per-entity access").
 //!
 //! [`legal_entity_context`](weldsuite_legal_entities::legal_entity_context)

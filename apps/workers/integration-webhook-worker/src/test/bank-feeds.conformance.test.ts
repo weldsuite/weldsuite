@@ -5,7 +5,7 @@
  * Run on both backends by the `integrations: bank feeds` conformance suite.
  */
 
-import { webcrypto } from 'node:crypto';
+import { createHash, webcrypto } from 'node:crypto';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildStripeSignatureHeader, sha256Hex } from '@weldsuite/bank-feeds';
 import * as masterSchema from '@weldsuite/db/schema/master';
@@ -69,6 +69,20 @@ beforeEach(async () => {
       providerConnectionId: 'fca_1',
       clerkOrgId: 'org_bank',
       connectionId: 'bkc_fc',
+      entityId: 'ent_1',
+      isActive: true,
+      syncIntervalHours: 24,
+      nextSyncAt: now,
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      // A Ponto connection is indexed by the organization too, which its webhooks name.
+      id: 'bfi_ponto_org',
+      provider: 'ponto',
+      providerConnectionId: 'org_ponto_1',
+      clerkOrgId: 'org_bank',
+      connectionId: 'bkc_ponto',
       entityId: 'ent_1',
       isActive: true,
       syncIntervalHours: 24,
@@ -200,7 +214,7 @@ describe('providers', () => {
     expect((await post(app, 'enable-banking', '{}')).status).toBe(404);
   });
 
-  it('refuses deliveries for providers that are polled (Ponto, Enable Banking)', async () => {
+  it('refuses deliveries for providers that are polled (Ponto without an application id, Enable Banking)', async () => {
     const app = createWebhookTestApp({
       masterDb,
       env: {
@@ -349,5 +363,141 @@ describe('Plaid', () => {
     const res = await post(app, 'plaid', syncBody, { 'Plaid-Verification': `${header}.${claims}.c2ln` });
 
     expect(res.status).toBe(401);
+  });
+});
+
+describe('Ponto', () => {
+  const KEYS_URL = 'https://api.ibanity.com/webhooks/keys';
+  const kid = 'kid-ponto-1';
+  let keys: webcrypto.CryptoKeyPair;
+  let jwk: webcrypto.JsonWebKey;
+
+  beforeAll(async () => {
+    keys = (await webcrypto.subtle.generateKey(
+      { name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-512' },
+      true,
+      ['sign', 'verify'],
+    )) as webcrypto.CryptoKeyPair;
+    jwk = await webcrypto.subtle.exportKey('jwk', keys.publicKey);
+  });
+
+  const b64url = (bytes: Uint8Array) => Buffer.from(bytes).toString('base64url');
+  const sha512 = (body: string) => createHash('sha512').update(body).digest('base64');
+
+  /** Ibanity's `Signature` header: an RS512 JWT naming the application and the body's digest. */
+  async function signature(body: string, claims: Record<string, unknown> = {}, signer = keys.privateKey) {
+    const at = Math.floor(Date.now() / 1000);
+    const header = b64url(Buffer.from(JSON.stringify({ alg: 'RS512', kid })));
+    const payload = b64url(
+      Buffer.from(
+        JSON.stringify({ aud: 'app-ponto', digest: sha512(body), exp: at + 60, iat: at, iss: 'https://api.ibanity.com', jti: 'jti-1', ...claims }),
+      ),
+    );
+    const signed = await webcrypto.subtle.sign('RSASSA-PKCS1-v1_5', signer, Buffer.from(`${header}.${payload}`));
+    return `${header}.${payload}.${b64url(new Uint8Array(signed))}`;
+  }
+
+  /** Ibanity's webhooks API, answering the application's certificate. */
+  function stubIbanity() {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      if (url === KEYS_URL && (init?.method ?? 'GET') === 'GET') {
+        return new Response(
+          JSON.stringify({ keys: [{ alg: 'RS512', e: jwk.e, kid, kty: 'RSA', n: jwk.n, status: 'ACTIVE', use: 'sig' }] }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      return new Response('not found', { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    return fetchMock;
+  }
+
+  const delivery = (type: string, account?: string) =>
+    JSON.stringify({
+      data: {
+        type,
+        id: 'evt_ponto_1',
+        attributes: { createdAt: '2026-10-01T09:00:00.000Z', count: 3 },
+        relationships: {
+          organization: { data: { type: 'organization', id: 'org_ponto_1' } },
+          ...(account ? { account: { data: { type: 'account', id: account } } } : {}),
+        },
+      },
+    });
+
+  it('fetches the key with the certificate, verifies the token and forwards the organization', async () => {
+    const fetchMock = stubIbanity();
+    const books = booksStub();
+    const kv = memoryKv();
+    const app = createWebhookTestApp({ masterDb, env: { PONTO_APPLICATION_ID: 'app-ponto', WORKSPACE_CACHE: kv, BOOKS_INTERNAL: books } });
+    const body = delivery('pontoConnect.account.transactionsCreated', 'pacc_1');
+
+    const res = await post(app, 'ponto', body, { Signature: await signature(body) });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ received: true, events: 1 });
+    expect(fetchMock).toHaveBeenCalledWith(KEYS_URL, expect.objectContaining({ method: 'GET' }));
+    expect(books.fetch).toHaveBeenCalledTimes(1);
+    const [, init] = books.fetch.mock.calls[0] as unknown as [string, RequestInit];
+    expect(new Headers(init.headers).get('X-Workspace-Id')).toBe('org_bank');
+    expect(JSON.parse(String(init.body))).toEqual({
+      connectionId: 'bkc_ponto',
+      provider: 'ponto',
+      providerConnectionId: 'org_ponto_1',
+      events: [{ type: 'sync_available', providerConnectionId: 'org_ponto_1', accountIds: ['pacc_1'] }],
+    });
+
+    // Cached for the hour: the next delivery needs no fetch.
+    fetchMock.mockClear();
+    const revoked = delivery('pontoConnect.integration.revoked');
+    const again = await post(app, 'ponto', revoked, { Signature: await signature(revoked) });
+    expect(again.status).toBe(200);
+    expect(await again.json()).toEqual({ received: true, events: 1 });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(books.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('answers 200 for what it does not act on and for an organization no workspace has', async () => {
+    stubIbanity();
+    const books = booksStub();
+    const app = createWebhookTestApp({ masterDb, env: { PONTO_APPLICATION_ID: 'app-ponto', WORKSPACE_CACHE: memoryKv(), BOOKS_INTERNAL: books } });
+
+    const unchanged = delivery('pontoConnect.synchronization.succeededWithoutChange', 'pacc_1');
+    const quiet = await post(app, 'ponto', unchanged, { Signature: await signature(unchanged) });
+    expect(await quiet.json()).toEqual({ received: true, events: 0 });
+
+    const stranger = delivery('pontoConnect.account.transactionsCreated', 'pacc_1').replace('org_ponto_1', 'org_ponto_unknown');
+    const unknown = await post(app, 'ponto', stranger, { Signature: await signature(stranger) });
+    expect(unknown.status).toBe(200);
+    expect(await unknown.json()).toEqual({ received: true, events: 1 });
+    expect(books.fetch).not.toHaveBeenCalled();
+  });
+
+  it('refuses a token for another application, a stale or forged one, and a changed body', async () => {
+    stubIbanity();
+    const books = booksStub();
+    const app = createWebhookTestApp({ masterDb, env: { PONTO_APPLICATION_ID: 'app-ponto', WORKSPACE_CACHE: memoryKv(), BOOKS_INTERNAL: books } });
+    const body = delivery('pontoConnect.account.transactionsCreated', 'pacc_1');
+    const other = (await webcrypto.subtle.generateKey(
+      { name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-512' },
+      true,
+      ['sign', 'verify'],
+    )) as webcrypto.CryptoKeyPair;
+
+    const cases: Array<Record<string, string>> = [
+      {},
+      { Signature: 'not-a-token' },
+      { Signature: await signature(body, { aud: 'app-other' }) },
+      { Signature: await signature(body, { exp: Math.floor(Date.now() / 1000) - 3600 }) },
+      { Signature: await signature(body, {}, other.privateKey) },
+      { Signature: await signature('{"data":{}}') },
+    ];
+    for (const headers of cases) {
+      const res = await post(app, 'ponto', body, headers);
+      expect(res.status).toBe(401);
+      expect(await res.json()).toEqual({ error: { code: 'UNAUTHORIZED', message: 'Invalid signature' } });
+    }
+    expect(books.fetch).not.toHaveBeenCalled();
   });
 });

@@ -13,6 +13,8 @@ import { TicketFields } from './ticket-fields';
 import { ConversationAssets } from './assets/conversation-assets';
 import { TicketTasksSection } from './ticket-tasks-section';
 import { LinkedTicketsSection } from './linked-tickets-section';
+import { ServiceRequestSection } from './service-request-section';
+import { ProblemSection } from './problem-section';
 
 interface CustomerPanelProps {
   conversation: DeskConversation;
@@ -121,6 +123,8 @@ export function CustomerPanel({ conversation, members }: Readonly<CustomerPanelP
       <TicketFields conversation={conversation} />
       <ConversationAssets conversation={conversation} />
       <LinkedTicketsSection conversation={conversation} />
+      <ServiceRequestSection conversation={conversation} members={members} />
+      <ProblemSection conversation={conversation} />
       <TicketTasksSection conversationId={conversation.id} />
 
       <div className="px-4 py-3">

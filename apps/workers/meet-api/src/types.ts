@@ -14,7 +14,7 @@ import type { DeferredEmailParams } from '@weldsuite/notifications/types';
  * outbound mail guard's (`OutboundGuardEnv`): the Durable Objects are hosted
  * by mail-api and bound with `script_name`, all optional because the guard
  * fails open. Meeting invitations count against the workspace (source `meet`).
- * docs/plans/weldmail-outbound-abuse.md.
+ * weldsuite-documentation/plans/weldmail-outbound-abuse.md.
  */
 export interface Env
   extends KitEnv,
@@ -94,7 +94,7 @@ export interface Env
   SEND_EMAIL?: SendEmail;
   /** Migration switch: "resend" sends through Resend instead of Cloudflare.
    *  Flip to "cloudflare" (or unset) once mail.weldsuite.org is onboarded
-   *  (docs/plans/system-email-cloudflare.md, Phase 0). */
+   *  (weldsuite-documentation/plans/system-email-cloudflare.md, Phase 0). */
   EMAIL_TRANSPORT?: string;
   /** Migration-only sender override; see `workerTransport`. */
   SYSTEM_EMAIL_FROM?: string;

@@ -70,6 +70,7 @@ import {
   hydrateCustomFieldsOne,
 } from '@weldsuite/core-domain/custom-field-values';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { accountPicture, loadAccountPictures, type AccountPictureEnv } from '@weldsuite/worker-kit/account-pictures';
 import { createFile } from '@weldsuite/core-domain/files';
 import {
   accessibleProjectIds,
@@ -210,7 +211,6 @@ async function fetchAssigneeMap(db: any, taskResults: any[]): Promise<Map<string
         userId: workspaceMembers.userId,
         name: workspaceMembers.name,
         email: workspaceMembers.email,
-        avatar: workspaceMembers.picture,
       })
       .from(workspaceMembers)
       .where(inArray(workspaceMembers.userId, [...allIds]));
@@ -301,13 +301,15 @@ async function fetchLinkedPersonMap(
 }
 
 /**
- * Enrich task rows with assignee info from workspaceMembers, the
- * currently-scheduled calendar slot (if any) and the linked CRM company/person.
+ * Enrich task rows with assignee info (name and email from workspaceMembers,
+ * the avatar from the account), the currently-scheduled calendar slot (if any)
+ * and the linked CRM company/person.
  */
-export async function enrichTasksWithAssignees(db: any, taskResults: any[]) {
+export async function enrichTasksWithAssignees(env: AccountPictureEnv, db: any, taskResults: any[]) {
   if (taskResults.length === 0) return taskResults;
 
   const memberMap = await fetchAssigneeMap(db, taskResults);
+  const pictures = await loadAccountPictures(env, memberMap.keys());
 
   const taskIds = taskResults
     .map((t: any) => t.id)
@@ -325,7 +327,7 @@ export async function enrichTasksWithAssignees(db: any, taskResults: any[]) {
     const assigneesArr = ids
       .map((id: string) => memberMap.get(id))
       .filter(Boolean)
-      .map((a: any) => ({ id: a.userId, name: a.name, email: a.email, avatar: a.avatar }));
+      .map((a: any) => ({ id: a.userId, name: a.name, email: a.email, avatar: accountPicture(pictures, a.userId) }));
 
     const assignee = assigneesArr.length > 0 ? assigneesArr[0] : null;
     const scheduled = eventMap.get(task.id);
@@ -1194,6 +1196,21 @@ function taskScopeFilters(q: ListQuery, projectScope: SQL | undefined): SQL[] {
   return filters;
 }
 
+/** A project list without a parentTaskId lists top-level tasks only (see taskScopeFilters). */
+function listsTopLevelOnly(q: ListQuery): boolean {
+  return !(q.parentTaskId !== undefined && q.parentTaskId !== '') && !!q.projectId;
+}
+
+/**
+ * The project's tasks that have a subtask (at any depth) matching the search:
+ * walk up from every matching subtask to its ancestors. `union` (not `union
+ * all`) also stops a parent cycle from looping.
+ */
+function hasMatchingSubtask(projectId: string, term: string, number: number | null): SQL {
+  const byNumber = number === null ? sql`` : sql` or m.number = ${number}`;
+  return sql`${t.id} in (with recursive hit as (select m.id, m.parent_task_id from tasks m where m.deleted_at is null and m.parent_task_id is not null and m.project_id = ${projectId} and (m.title ilike ${term} or m.description ilike ${term} or m.key ilike ${term}${byNumber}) union select p.id, p.parent_task_id from tasks p join hit on p.id = hit.parent_task_id where p.deleted_at is null) select hit.id from hit)`;
+}
+
 function taskValueFilters(q: ListQuery, userId: string | undefined): SQL[] {
   const filters: SQL[] = [];
   // Status filters match every stored spelling, so `review` also finds rows
@@ -1234,8 +1251,15 @@ function taskSearchFilters(q: ListQuery): SQL[] {
     ];
     // Let users find a task by its number: "TASK-1042", "#1042", or "1042".
     const numberMatch = q.search.trim().replace(/^#/, '').replace(/^task-/i, '');
-    if (/^\d+$/.test(numberMatch)) {
-      searchClauses.push(eq(t.number, Number(numberMatch)));
+    const number = /^\d+$/.test(numberMatch) ? Number(numberMatch) : null;
+    if (number !== null) {
+      searchClauses.push(eq(t.number, number));
+    }
+    // A project list returns top-level tasks with their subtask tree, so a
+    // parent also matches when one of its subtasks does: the search finds
+    // subtasks in place, under their parent.
+    if (listsTopLevelOnly(q) && q.projectId) {
+      searchClauses.push(hasMatchingSubtask(q.projectId, term, number));
     }
     filters.push(or(...searchClauses)!);
   }
@@ -1313,7 +1337,12 @@ function paginateTaskRows(
  * Full descendant tree (BFS over parentTaskId, bounded by MAX_SUBTASK_DEPTH), enriched + hydrated in one batch.
  * `projectId` narrows the walk to one project; without it the roots may span projects (My Tasks).
  */
-async function loadEnrichedDescendants(db: TaskDb, projectId: string | null, roots: any[]): Promise<any[]> {
+async function loadEnrichedDescendants(
+  env: AccountPictureEnv,
+  db: TaskDb,
+  projectId: string | null,
+  roots: any[],
+): Promise<any[]> {
   let frontier: string[] = roots.map((row: any) => row.id);
   const allDescendants: any[] = [];
   const seen = new Set<string>();
@@ -1342,7 +1371,7 @@ async function loadEnrichedDescendants(db: TaskDb, projectId: string | null, roo
 
   // Phase 3: hydrate the whole descendant set in one batch too.
   if (allDescendants.length === 0) return [];
-  return hydrateCustomFields(db, 'task', await enrichTasksWithAssignees(db, allDescendants));
+  return hydrateCustomFields(db, 'task', await enrichTasksWithAssignees(env, db, allDescendants));
 }
 
 function attachSubtaskTree(roots: any[], descendants: any[]): void {
@@ -1370,9 +1399,13 @@ function attachSubtaskTree(roots: any[], descendants: any[]): void {
  * completedSubtaskCount on each node). Used by My Tasks, whose roots span
  * projects, so the walk is not narrowed to one project.
  */
-export async function attachSubtaskTreeAcrossProjects(db: TaskDb, roots: any[]): Promise<void> {
+export async function attachSubtaskTreeAcrossProjects(
+  env: AccountPictureEnv,
+  db: TaskDb,
+  roots: any[],
+): Promise<void> {
   if (roots.length === 0) return;
-  const descendants = await loadEnrichedDescendants(db, null, roots);
+  const descendants = await loadEnrichedDescendants(env, db, null, roots);
   attachSubtaskTree(roots, descendants);
 }
 
@@ -1405,10 +1438,15 @@ async function attachSubtaskCounts(db: TaskDb, tasks: any[]): Promise<void> {
  * Subtask tree / counts. Returns the descendant rows delivered in the same
  * payload (includeSubtasks tree) so they get attachment counts too.
  */
-async function attachSubtaskData(db: TaskDb, q: ListQuery, enriched: any[]): Promise<any[]> {
+async function attachSubtaskData(
+  env: AccountPictureEnv,
+  db: TaskDb,
+  q: ListQuery,
+  enriched: any[],
+): Promise<any[]> {
   if (enriched.length === 0) return [];
   if (q.includeSubtasks && q.projectId) {
-    const descendants = await loadEnrichedDescendants(db, q.projectId, enriched);
+    const descendants = await loadEnrichedDescendants(env, db, q.projectId, enriched);
     attachSubtaskTree(enriched, descendants);
     return descendants;
   }
@@ -1505,12 +1543,12 @@ app.get('/', requirePermission('tasks:read'), zValidator('query', listQuerySchem
     const { data, paginationMeta } = paginateTaskRows(rows, q, useCursor, offset, totalCount);
 
     // Enrichment
-    const assigneeEnriched = q.enrich ? await enrichTasksWithAssignees(db, data) : data;
+    const assigneeEnriched = q.enrich ? await enrichTasksWithAssignees(c.env, db, data) : data;
     // Phase 3: customFields comes from the typed values table, not the blob.
     // Batched — two extra queries for the whole page, regardless of page size.
     const enriched = await hydrateCustomFields(db, 'task', assigneeEnriched);
 
-    const descendantRows = await attachSubtaskData(db, q, enriched);
+    const descendantRows = await attachSubtaskData(c.env, db, q, enriched);
     await attachAttachmentCounts(db, [...enriched, ...descendantRows]);
 
     return list(c, enriched, paginationMeta);
@@ -1689,7 +1727,7 @@ app.post(
         taskDescription: (row as any).description ?? null,
       });
 
-      const [enriched] = await enrichTasksWithAssignees(db, [row]);
+      const [enriched] = await enrichTasksWithAssignees(c.env, db, [row]);
       return success(c, enriched, 201);
     } catch (err) {
       console.error('[app-api/tasks] project create failed:', err);
@@ -1716,7 +1754,7 @@ app.get('/:id', requirePermission('tasks:read'), async (c) => {
       return error.forbidden(c, TASK_PROJECT_DENIED);
     }
 
-    const [assigneeEnriched] = await enrichTasksWithAssignees(db, [row]);
+    const [assigneeEnriched] = await enrichTasksWithAssignees(c.env, db, [row]);
     // Phase 3: customFields comes from the typed values table, not the blob.
     const enriched = await hydrateCustomFieldsOne(db, 'task', assigneeEnriched);
 
@@ -1898,7 +1936,7 @@ app.get('/:id/subtasks', requirePermission('tasks:read'), async (c) => {
     const enriched = await hydrateCustomFields(
       db,
       'task',
-      await enrichTasksWithAssignees(db, rows),
+      await enrichTasksWithAssignees(c.env, db, rows),
     );
 
     if (enriched.length > 0) {
@@ -2012,7 +2050,7 @@ app.post('/', requirePermission('tasks:create'), zValidator('json', createFlowTa
       taskDescription: (row as any).description ?? null,
     });
 
-    const [enriched] = await enrichTasksWithAssignees(db, [row]);
+    const [enriched] = await enrichTasksWithAssignees(c.env, db, [row]);
     return success(c, enriched, 201);
   } catch (err) {
     console.error('[app-api/tasks] create failed:', err);

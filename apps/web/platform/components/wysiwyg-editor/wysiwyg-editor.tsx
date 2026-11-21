@@ -49,6 +49,7 @@ import {
   Outdent,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { getRuntimeConfig } from '@/lib/runtime-config';
 import { runEditorCommand, isEditorCommandActive } from '@weldsuite/ui/lib/editor-commands';
 
 interface SlashCommand {
@@ -417,9 +418,11 @@ export function WysiwygEditor({
     }
   }, [contentRef]);
 
-  // Load Google Fonts
+  // Load Google Fonts. Not on a Kubernetes edition (EU, self-hosted): it would
+  // send the visitor's IP to Google; the font picker then uses local fonts.
   useEffect(() => {
     const id = 'wysiwyg-editor-google-fonts';
+    if (getRuntimeConfig()) return;
     if (!document.getElementById(id)) {
       const link = document.createElement('link');
       link.id = id;

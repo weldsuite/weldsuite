@@ -14,7 +14,12 @@ config.watchFolders = [
   // Metro can only bundle files whose symlink target is inside a watched folder.
   path.resolve(monorepoRoot, 'packages/clients/api-client'),
   path.resolve(monorepoRoot, 'packages/clients/app-api-client'),
+  path.resolve(monorepoRoot, 'packages/clients/mobile-platform'),
+  path.resolve(monorepoRoot, 'packages/core/api-modules'),
   path.resolve(monorepoRoot, 'packages/core/text'),
+  // Calls on LiveKit (Kubernetes editions): the shared LiveKit client and the
+  // video-provider switch, `providers/*` only (no web UI is imported).
+  path.resolve(monorepoRoot, 'packages/design/weldmeet-ui'),
 ];
 
 config.resolver.nodeModulesPaths = [
@@ -36,7 +41,6 @@ const singletons = [
   'react',
   'react-native',
   'expo',
-  '@clerk/expo',
   'react-native-reanimated',
   'react-native-worklets',
   'react-native-gesture-handler',
@@ -81,8 +85,20 @@ const queryCoreSrc = path.resolve(
   monorepoRoot,
   'node_modules/@tanstack/query-core/src/index.ts'
 );
+// WeldChat signs in through WeldID only (lib/server.ts: no WeldSuite cloud),
+// so it ships no Clerk: the auth facade in @weldsuite/mobile-platform still
+// imports its Clerk adapter for the apps that offer WeldSuite cloud, and
+// here that import resolves to an empty module. The adapter is never chosen
+// (the runtime refuses a Clerk server for this app), and none of Clerk's
+// code or native modules end up in the bundle. Drop this once the shared
+// packages lose Clerk with the last Global app.
+const isClerk = (moduleName) => moduleName === '@clerk/expo' || moduleName.startsWith('@clerk/');
+
 const defaultResolveRequest = config.resolver.resolveRequest;
 config.resolver.resolveRequest = (context, moduleName, platform) => {
+  if (isClerk(moduleName)) {
+    return { type: 'empty' };
+  }
   if (moduleName === 'event-target-shim') {
     return {
       type: 'sourceFile',

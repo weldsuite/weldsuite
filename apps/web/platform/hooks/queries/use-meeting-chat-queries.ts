@@ -7,6 +7,7 @@
 
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery, type QueryClient, type InfiniteData } from '@tanstack/react-query';
 import { useAuth, useUser } from '@/lib/auth';
+import { useCurrentUserAvatar } from '@/hooks/use-member-avatar';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 
 // ============================================================================
@@ -169,6 +170,7 @@ export function useSendMeetingMessage() {
   const { getClient } = useAppApiClient();
   const { userId } = useAuth();
   const { user } = useUser();
+  const selfAvatar = useCurrentUserAvatar();
 
   return useMutation({
     mutationFn: async ({ meetingId, _optimisticId, ...data }: SendMeetingMessageVars) => {
@@ -189,7 +191,7 @@ export function useSendMeetingMessage() {
         htmlContent: variables.htmlContent,
         authorId: userId,
         authorName: user?.fullName || user?.firstName || 'You',
-        authorAvatar: user?.imageUrl || null,
+        authorAvatar: selfAvatar ?? null,
         type: 'message',
         attachments: variables.attachments,
         hasAttachments: !!(variables.attachments?.length),

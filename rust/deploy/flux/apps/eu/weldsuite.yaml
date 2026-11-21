@@ -1,12 +1,13 @@
 # The weldsuite server (rust/deploy/helm/weldsuite), wired to the cluster's
 # Postgres pooler, Valkey, NATS and object storage. Its secrets come from
-# the weldsuite-env Secret (secrets/examples/weldsuite-env.yaml), whose keys
+# the weldsuite-env Secret (secrets/weldsuite.yaml), whose keys
 # are the server's environment variables (rust/bins/weldsuite/src/config.rs).
 #
 # The chart is a release (infrastructure/sources/weldsuite.yaml), pinned by
 # WELDSUITE_VERSION in the cluster's settings; its appVersion is the same
-# version, so it installs that release's images. The test cluster swaps the
-# source for the newest develop build (clusters/test/layers.yaml).
+# version, so it installs that release's images. WeldSuite's test cluster
+# swaps the source for the newest develop build (a patch in its layers, in the
+# deploy repository).
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
@@ -35,3 +36,10 @@ spec:
   valuesFrom:
     - kind: ConfigMap
       name: weldsuite-values
+    # Sign-in on WeldID instead of Zitadel (ADR SEC-019): auth, identity and
+    # the admin console from ../weldid-switch/values/weldsuite.yaml, over the
+    # values above. Made only by the weldid-switch layer; absent, and
+    # ignored, everywhere else.
+    - kind: ConfigMap
+      name: weldsuite-values-weldid
+      optional: true

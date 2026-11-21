@@ -19,6 +19,7 @@ use sqlx::{PgPool, Postgres, Transaction};
 
 use crate::crypto::new_id;
 use crate::events::{self, Kind};
+use crate::warmup::{DaySent, HISTORY_DAYS, Warmup};
 
 /// A database failure.
 #[derive(Debug)]
@@ -212,6 +213,18 @@ pub enum Outcome {
     Expired {
         response: String,
     },
+}
+
+/// What [`Store::reserve_ip`] decided for one send.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reservation {
+    /// Under today's cap, or the IP has none: send.
+    Granted,
+    /// Over today's cap in a soft pool: send; `sent` is today's count with
+    /// this one.
+    OverCap { cap: u32, sent: u32 },
+    /// Today's cap is reached: hold the send until the next UTC day.
+    Held { cap: u32 },
 }
 
 const DOMAIN_ONE: &str = r#"SELECT domain, selector, algorithm, sealed_key, public_key, pools,
@@ -578,43 +591,111 @@ impl Store {
         Ok(())
     }
 
-    /// Reserves one send from `ip` under the warm-up `schedule`. `false`:
-    /// today's cap is reached.
-    pub async fn reserve_ip(&self, ip: &str, schedule: &[u32]) -> Result<bool> {
-        if schedule.is_empty() {
-            return Ok(true);
-        }
-        sqlx::query("INSERT INTO mta_ips (ip) VALUES ($1) ON CONFLICT DO NOTHING")
-            .bind(ip)
-            .execute(&self.pool)
-            .await?;
-        let day: i32 = sqlx::query_scalar(
-            "SELECT ((now() AT TIME ZONE 'utc')::date - first_day + 1)::int4 FROM mta_ips WHERE ip = $1",
+    /// Today's UTC date (`YYYY-MM-DD`) and `ip`'s daily counts of the last
+    /// [`HISTORY_DAYS`] days and today, oldest first.
+    pub async fn ip_history(&self, ip: &str) -> Result<(String, Vec<DaySent>)> {
+        // (today, days ago, day, sent); one row of NULLs past today when the
+        // IP has no counts.
+        type Row = (String, Option<i32>, Option<String>, Option<i32>);
+        let rows: Vec<Row> = sqlx::query_as(
+            "WITH t AS (SELECT (now() AT TIME ZONE 'utc')::date AS today)
+             SELECT to_char(t.today, 'YYYY-MM-DD'), (t.today - u.day)::int4,
+                    to_char(u.day, 'YYYY-MM-DD'), u.sent
+               FROM t LEFT JOIN mta_ip_usage u
+                 ON u.ip = $1 AND u.day >= t.today - $2::int4 AND u.day <= t.today
+              ORDER BY u.day",
         )
         .bind(ip)
-        .fetch_one(&self.pool)
+        .bind(HISTORY_DAYS)
+        .fetch_all(&self.pool)
         .await?;
-        let Some(cap) = crate::shaping::warmup_cap(schedule, u32::try_from(day).unwrap_or(1))
-        else {
-            sqlx::query(
-                "INSERT INTO mta_ip_usage (ip, day, sent) VALUES ($1, (now() AT TIME ZONE 'utc')::date, 1)
-                 ON CONFLICT (ip, day) DO UPDATE SET sent = mta_ip_usage.sent + 1",
-            )
-            .bind(ip)
-            .execute(&self.pool)
-            .await?;
-            return Ok(true);
+        let today = rows.first().map(|row| row.0.clone()).unwrap_or_default();
+        let history = rows
+            .into_iter()
+            .filter_map(|(_, days_ago, day, sent)| {
+                Some(DaySent {
+                    days_ago: u32::try_from(days_ago?).ok()?,
+                    day: day?,
+                    sent: u32::try_from(sent?).unwrap_or(0),
+                })
+            })
+            .collect();
+        Ok((today, history))
+    }
+
+    /// Reserves one send from `ip` under the `warmup` (the step its history
+    /// earned, [`crate::warmup`]). In a `soft` pool a send over today's cap
+    /// is reserved too ([`Reservation::OverCap`]); otherwise it is
+    /// [`Reservation::Held`]. Logs the first send of a day that starts a
+    /// new step, and the send that reaches today's advance threshold.
+    pub async fn reserve_ip(&self, ip: &str, warmup: &Warmup, soft: bool) -> Result<Reservation> {
+        if warmup.is_off() {
+            return Ok(Reservation::Granted);
+        }
+        let (today, history) = self.ip_history(ip).await?;
+        let state = warmup.state(&history);
+        let cap = warmup.cap(state.step);
+        let limit = match cap {
+            Some(cap) if !soft => i32::try_from(cap).unwrap_or(i32::MAX),
+            _ => i32::MAX,
         };
-        let reserved: Option<i32> = sqlx::query_scalar(
-            "INSERT INTO mta_ip_usage AS u (ip, day, sent) VALUES ($1, (now() AT TIME ZONE 'utc')::date, 1)
-             ON CONFLICT (ip, day) DO UPDATE SET sent = u.sent + 1 WHERE u.sent < $2
+        // Today's row as of the history read, so a send at midnight never
+        // counts a day against the other day's cap.
+        let sent: Option<i32> = sqlx::query_scalar(
+            "INSERT INTO mta_ip_usage AS u (ip, day, sent) VALUES ($1, $2::date, 1)
+             ON CONFLICT (ip, day) DO UPDATE SET sent = u.sent + 1 WHERE u.sent < $3
              RETURNING sent",
         )
         .bind(ip)
-        .bind(i32::try_from(cap).unwrap_or(i32::MAX))
+        .bind(&today)
+        .bind(limit)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(reserved.is_some())
+        let Some(sent) = sent else {
+            return Ok(Reservation::Held {
+                cap: cap.unwrap_or_default(),
+            });
+        };
+        let sent = u32::try_from(sent).unwrap_or(u32::MAX);
+        let step = state.step + 1;
+        let steps = warmup.steps();
+        if sent == 1 {
+            sqlx::query(
+                "INSERT INTO mta_ips (ip, first_day) VALUES ($1, $2::date) ON CONFLICT DO NOTHING",
+            )
+            .bind(ip)
+            .bind(&today)
+            .execute(&self.pool)
+            .await?;
+            if state.advanced_today() {
+                tracing::info!(
+                    %ip, step, steps, cap = ?cap,
+                    "warm-up step advanced: yesterday sent the advance share of the previous step's cap"
+                );
+            }
+        }
+        if warmup.threshold(state.step) == Some(sent) {
+            tracing::info!(
+                %ip, step, steps, sent, next_cap = ?warmup.cap(state.step + 1),
+                "warm-up: today reached the advance share; the next step starts tomorrow (UTC)"
+            );
+        }
+        Ok(match cap {
+            Some(cap) if sent > cap => Reservation::OverCap { cap, sent },
+            _ => Reservation::Granted,
+        })
+    }
+
+    /// Every IP that has sent, with its first day (`YYYY-MM-DD`) when known.
+    pub async fn warmup_ips(&self) -> Result<Vec<(String, Option<String>)>> {
+        Ok(sqlx::query_as(
+            "SELECT ip, to_char(min(first_day), 'YYYY-MM-DD') FROM (
+                 SELECT ip, first_day FROM mta_ips
+                 UNION ALL SELECT DISTINCT ip, NULL::date FROM mta_ip_usage) ips
+              GROUP BY ip ORDER BY ip",
+        )
+        .fetch_all(&self.pool)
+        .await?)
     }
 
     /// Seconds until the next UTC day (a capped send waits for it).
@@ -841,7 +922,8 @@ impl Store {
 
     /// Drops the bodies of finished messages, then rows older than 30 days
     /// (late bounces and complaints need the recipient rows that long), the
-    /// published outbox after a day, old counters and expired suppressions.
+    /// published outbox after a day, the per-IP counts the warm-up no longer
+    /// reads ([`HISTORY_DAYS`]) and expired suppressions.
     pub async fn housekeep(&self) -> Result<()> {
         sqlx::raw_sql(
             "UPDATE mta_messages m SET body = '\\x'::bytea
@@ -852,9 +934,14 @@ impl Store {
                 AND NOT EXISTS (SELECT 1 FROM mta_recipients r WHERE r.message_id = m.id AND r.status = 'queued');
              DELETE FROM mta_outbox WHERE published_at < now() - interval '1 day';
              DELETE FROM mta_suppressions WHERE expires_at < now();
-             DELETE FROM mta_ip_usage WHERE day < (now() AT TIME ZONE 'utc')::date - 60;
              DELETE FROM mta_tls_results WHERE day < (now() AT TIME ZONE 'utc')::date - 14;",
         )
+        .execute(&self.pool)
+        .await?;
+        sqlx::query(
+            "DELETE FROM mta_ip_usage WHERE day < (now() AT TIME ZONE 'utc')::date - $1::int4",
+        )
+        .bind(HISTORY_DAYS)
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -888,4 +975,146 @@ async fn outbox(tx: &mut Transaction<'_, Postgres>, event: Value) -> Result<()> 
         .execute(&mut **tx)
         .await?;
     Ok(())
+}
+
+/// The warm-up against a real Postgres (`WELDSUITE_TEST_DATABASE_URL`, in a
+/// throwaway database; skipped without it).
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::e2e::Scratch;
+
+    /// Caps 4 then 8; a day needs 2, then 4, to advance.
+    fn warmup() -> Warmup {
+        Warmup {
+            schedule: vec![4, 8],
+            advance_percent: 50,
+        }
+    }
+
+    async fn seed(store: &Store, ip: &str, days_ago: i32, sent: i32) {
+        sqlx::query(
+            "INSERT INTO mta_ip_usage (ip, day, sent) VALUES ($1, (now() AT TIME ZONE 'utc')::date - $2::int4, $3)",
+        )
+        .bind(ip)
+        .bind(days_ago)
+        .bind(sent)
+        .execute(store.pool())
+        .await
+        .expect("seed");
+    }
+
+    async fn reserve(store: &Store, ip: &str, times: usize, soft: bool) -> Vec<Reservation> {
+        let mut out = Vec::new();
+        for _ in 0..times {
+            out.push(
+                store
+                    .reserve_ip(ip, &warmup(), soft)
+                    .await
+                    .expect("reserve"),
+            );
+        }
+        out
+    }
+
+    #[tokio::test]
+    async fn reserve_ip_caps_by_the_step_the_history_earned() {
+        let Some(scratch) = Scratch::create().await else {
+            eprintln!("WELDSUITE_TEST_DATABASE_URL not set: skipped");
+            return;
+        };
+        let store = Store::connect(&scratch.url, 4).expect("store");
+        store.migrate().await.expect("migrate");
+        let granted = Reservation::Granted;
+
+        // A new IP: the first step, then held.
+        let fresh = reserve(&store, "192.0.2.1", 5, false).await;
+        assert_eq!(fresh[..4], [granted; 4]);
+        assert_eq!(fresh[4], Reservation::Held { cap: 4 });
+        let (today, history) = store.ip_history("192.0.2.1").await.expect("history");
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].day, today);
+        assert_eq!((history[0].days_ago, history[0].sent), (0, 4));
+
+        // A soft pool sends past the cap, counted.
+        let soft = reserve(&store, "192.0.2.1", 2, true).await;
+        assert_eq!(
+            soft,
+            [
+                Reservation::OverCap { cap: 4, sent: 5 },
+                Reservation::OverCap { cap: 4, sent: 6 }
+            ]
+        );
+        // Strict sends stay held.
+        assert_eq!(
+            reserve(&store, "192.0.2.1", 1, false).await,
+            [Reservation::Held { cap: 4 }]
+        );
+
+        // Weeks of days under the share (2): still the first step.
+        for days_ago in 1..=20 {
+            seed(&store, "192.0.2.2", days_ago, 1).await;
+        }
+        let quiet = reserve(&store, "192.0.2.2", 5, false).await;
+        assert_eq!(quiet[4], Reservation::Held { cap: 4 });
+
+        // Yesterday reached the share: the second step today.
+        seed(&store, "192.0.2.3", 1, 2).await;
+        let second = reserve(&store, "192.0.2.3", 9, false).await;
+        assert_eq!(second[..8], [granted; 8]);
+        assert_eq!(second[8], Reservation::Held { cap: 8 });
+
+        // Two days at the share around a gap: past the last step, no cap.
+        seed(&store, "192.0.2.4", 9, 3).await;
+        seed(&store, "192.0.2.4", 2, 4).await;
+        assert!(
+            reserve(&store, "192.0.2.4", 12, false)
+                .await
+                .iter()
+                .all(|r| *r == granted)
+        );
+
+        // Counts older than the history window are not read.
+        seed(&store, "192.0.2.5", HISTORY_DAYS + 5, 50).await;
+        seed(&store, "192.0.2.5", HISTORY_DAYS + 1, 50).await;
+        let (_, old) = store.ip_history("192.0.2.5").await.expect("history");
+        assert_eq!(old, Vec::new());
+        let cold = reserve(&store, "192.0.2.5", 5, false).await;
+        assert_eq!(cold[4], Reservation::Held { cap: 4 });
+
+        // Warm-up off: nothing counted.
+        assert_eq!(
+            store
+                .reserve_ip("192.0.2.6", &Warmup::off(), false)
+                .await
+                .expect("off"),
+            granted
+        );
+
+        let ips = store.warmup_ips().await.expect("ips");
+        let names: Vec<&str> = ips.iter().map(|(ip, _)| ip.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "192.0.2.1",
+                "192.0.2.2",
+                "192.0.2.3",
+                "192.0.2.4",
+                "192.0.2.5"
+            ]
+        );
+        // The first send today recorded the IP.
+        assert_eq!(ips[0].1.as_deref(), Some(today.as_str()));
+
+        store.housekeep().await.expect("housekeep");
+        let left: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM mta_ip_usage WHERE ip = '192.0.2.5'")
+                .fetch_one(store.pool())
+                .await
+                .expect("count");
+        assert_eq!(left, 1, "only today's row is left");
+
+        drop(store);
+        scratch.drop_it().await;
+    }
 }

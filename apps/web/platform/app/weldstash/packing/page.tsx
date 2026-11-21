@@ -2,6 +2,7 @@ import { Suspense, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { PackageCheck } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
+import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { EmptyStateIllustration } from '@/components/entity-list';
 import { PanelEntityList } from '@/components/panel-entity-list';
@@ -10,11 +11,11 @@ import {
   useInfiniteWeldstashPickLists,
   usePackWeldstashPickList,
   usePrintPackingSlip,
+  useShipWeldstashPickList,
   type WeldstashPickList,
 } from '@/hooks/queries/use-weldstash-queries';
 import { getTranslations } from '@/lib/i18n';
 import { buildPickListColumns } from '../pick-lists/config/pick-list-columns';
-import { SendParcelDialog } from './send-parcel-dialog';
 
 function PackingPageContent() {
   const t = getTranslations('common').weldstash;
@@ -24,6 +25,7 @@ function PackingPageContent() {
   const packed = useInfiniteWeldstashPickLists({ limit: 50, status: 'packed' });
   const pack = usePackWeldstashPickList();
   const printSlip = usePrintPackingSlip();
+  const ship = useShipWeldstashPickList();
   const [shipId, setShipId] = useState<string | null>(null);
 
   const rows = useMemo<WeldstashPickList[]>(() => {
@@ -33,6 +35,17 @@ function PackingPageContent() {
   }, [completed.data, packed.data]);
 
   const columns = useMemo(() => buildPickListColumns(), []);
+
+  const markShipped = async () => {
+    if (!shipId) return;
+    try {
+      await ship.mutateAsync(shipId);
+      toast.success(t.packing.toastShipped);
+      setShipId(null);
+    } catch (err) {
+      toast.error((err as Error).message || t.packing.shipFailed);
+    }
+  };
 
   return (
     <>
@@ -82,7 +95,7 @@ function PackingPageContent() {
                     setShipId(row.id);
                   }}
                 >
-                  {t.packing.sendParcel}
+                  {t.packing.markShipped}
                 </Button>
               ) : null}
             </div>
@@ -101,12 +114,16 @@ function PackingPageContent() {
         description: t.packing.emptyDescription,
       }}
     />
-    <SendParcelDialog
-      pickListId={shipId}
+    <ConfirmDialog
       open={Boolean(shipId)}
       onOpenChange={(next) => {
         if (!next) setShipId(null);
       }}
+      title={t.packing.markShipped}
+      description={t.packing.markShippedDescription}
+      confirmLabel={t.packing.markShipped}
+      loading={ship.isPending}
+      onConfirm={markShipped}
     />
     </>
   );

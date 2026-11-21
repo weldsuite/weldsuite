@@ -2,7 +2,7 @@
  * US entity setup (pglite): entity type and tax classification, the seeded
  * chart with its tax-line and 1099 mappings, the write-only SSN and its
  * reveal log, fiscal years, and re-mapping tax lines after a classification
- * change. See docs/plans/weldbooks-us.md §11 and phase 1.
+ * change. See weldsuite-documentation/plans/weldbooks-us.md §11 and phase 1.
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';

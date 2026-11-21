@@ -46,6 +46,14 @@ macro_rules! inventory_row {
     };
 }
 
+/// `products`.
+macro_rules! product_row {
+    () => {
+        "(to_jsonb(t) || jsonb_build_object('price', t.\"price\"::text, 'compare_at_price', t.\"compare_at_price\"::text, 'cost_price', t.\"cost_price\"::text, 'weight', t.\"weight\"::text, 'length', t.\"length\"::text, 'width', t.\"width\"::text, 'height', t.\"height\"::text, 'rating', t.\"rating\"::text))"
+    };
+}
+
 pub(crate) use {
-    box_row, inventory_row, location_row, purchase_order_item_row, purchase_order_row, supplier_row,
+    box_row, inventory_row, location_row, product_row, purchase_order_item_row, purchase_order_row,
+    supplier_row,
 };

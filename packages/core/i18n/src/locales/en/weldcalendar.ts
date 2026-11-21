@@ -532,6 +532,7 @@ export const weldcalendar = {
       bookingPageNamePlaceholder: 'e.g. 30 Minute Meeting',
       bookingLinkTitle: 'Booking link',
       bookingLinkHint: 'The public URL people use to book a meeting',
+      bookingLinkNoPortal: "This edition doesn't run the public booking portal yet, so guests can't open booking links.",
       bookingLinkPlaceholder: 'my-booking-page',
       slugSavedAs: 'Saved as',
       slugRequired: 'URL slug is required',

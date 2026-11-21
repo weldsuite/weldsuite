@@ -21,7 +21,9 @@ import { Route as AdminPlanPricingRouteImport } from './routes/_admin/plan-prici
 import { Route as AdminStaffRouteImport } from './routes/_admin/staff'
 import { Route as AdminSupportRouteImport } from './routes/_admin/support'
 import { Route as AdminWarmupRouteImport } from './routes/_admin/warmup'
+import { Route as AdminWeldformsRouteImport } from './routes/_admin/weldforms'
 import { Route as AdminWeldmeetAiPricingRouteImport } from './routes/_admin/weldmeet-ai-pricing'
+import { Route as AdminWeldpanelPricingRouteImport } from './routes/_admin/weldpanel-pricing'
 import { Route as AuthCallbackRouteImport } from './routes/auth/callback'
 import { Route as AuthSignInRouteImport } from './routes/auth/sign-in'
 import { Route as AuthSignOutRouteImport } from './routes/auth/sign-out'
@@ -104,9 +106,19 @@ const AdminWarmupRoute = AdminWarmupRouteImport.update({
   path: '/warmup',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminWeldformsRoute = AdminWeldformsRouteImport.update({
+  id: '/weldforms',
+  path: '/weldforms',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminWeldmeetAiPricingRoute = AdminWeldmeetAiPricingRouteImport.update({
   id: '/weldmeet-ai-pricing',
   path: '/weldmeet-ai-pricing',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminWeldpanelPricingRoute = AdminWeldpanelPricingRouteImport.update({
+  id: '/weldpanel-pricing',
+  path: '/weldpanel-pricing',
   getParentRoute: () => AdminRoute,
 } as any)
 const AuthCallbackRoute = AuthCallbackRouteImport.update({
@@ -234,7 +246,9 @@ export interface FileRoutesByFullPath {
   '/staff': typeof AdminStaffRoute
   '/support': typeof AdminSupportRoute
   '/warmup': typeof AdminWarmupRoute
+  '/weldforms': typeof AdminWeldformsRoute
   '/weldmeet-ai-pricing': typeof AdminWeldmeetAiPricingRoute
+  '/weldpanel-pricing': typeof AdminWeldpanelPricingRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/sign-in': typeof AuthSignInRoute
   '/auth/sign-out': typeof AuthSignOutRoute
@@ -269,7 +283,9 @@ export interface FileRoutesByTo {
   '/staff': typeof AdminStaffRoute
   '/support': typeof AdminSupportRoute
   '/warmup': typeof AdminWarmupRoute
+  '/weldforms': typeof AdminWeldformsRoute
   '/weldmeet-ai-pricing': typeof AdminWeldmeetAiPricingRoute
+  '/weldpanel-pricing': typeof AdminWeldpanelPricingRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/sign-in': typeof AuthSignInRoute
   '/auth/sign-out': typeof AuthSignOutRoute
@@ -307,7 +323,9 @@ export interface FileRoutesById {
   '/_admin/staff': typeof AdminStaffRoute
   '/_admin/support': typeof AdminSupportRoute
   '/_admin/warmup': typeof AdminWarmupRoute
+  '/_admin/weldforms': typeof AdminWeldformsRoute
   '/_admin/weldmeet-ai-pricing': typeof AdminWeldmeetAiPricingRoute
+  '/_admin/weldpanel-pricing': typeof AdminWeldpanelPricingRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/sign-in': typeof AuthSignInRoute
   '/auth/sign-out': typeof AuthSignOutRoute
@@ -346,7 +364,9 @@ export interface FileRouteTypes {
     | '/staff'
     | '/support'
     | '/warmup'
+    | '/weldforms'
     | '/weldmeet-ai-pricing'
+    | '/weldpanel-pricing'
     | '/auth/callback'
     | '/auth/sign-in'
     | '/auth/sign-out'
@@ -381,7 +401,9 @@ export interface FileRouteTypes {
     | '/staff'
     | '/support'
     | '/warmup'
+    | '/weldforms'
     | '/weldmeet-ai-pricing'
+    | '/weldpanel-pricing'
     | '/auth/callback'
     | '/auth/sign-in'
     | '/auth/sign-out'
@@ -418,7 +440,9 @@ export interface FileRouteTypes {
     | '/_admin/staff'
     | '/_admin/support'
     | '/_admin/warmup'
+    | '/_admin/weldforms'
     | '/_admin/weldmeet-ai-pricing'
+    | '/_admin/weldpanel-pricing'
     | '/auth/callback'
     | '/auth/sign-in'
     | '/auth/sign-out'
@@ -539,11 +563,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminWarmupRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/_admin/weldforms': {
+      id: '/_admin/weldforms'
+      path: '/weldforms'
+      fullPath: '/weldforms'
+      preLoaderRoute: typeof AdminWeldformsRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/_admin/weldmeet-ai-pricing': {
       id: '/_admin/weldmeet-ai-pricing'
       path: '/weldmeet-ai-pricing'
       fullPath: '/weldmeet-ai-pricing'
       preLoaderRoute: typeof AdminWeldmeetAiPricingRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/_admin/weldpanel-pricing': {
+      id: '/_admin/weldpanel-pricing'
+      path: '/weldpanel-pricing'
+      fullPath: '/weldpanel-pricing'
+      preLoaderRoute: typeof AdminWeldpanelPricingRouteImport
       parentRoute: typeof AdminRoute
     }
     '/auth/callback': {
@@ -713,7 +751,9 @@ interface AdminRouteChildren {
   AdminStaffRoute: typeof AdminStaffRoute
   AdminSupportRoute: typeof AdminSupportRoute
   AdminWarmupRoute: typeof AdminWarmupRoute
+  AdminWeldformsRoute: typeof AdminWeldformsRoute
   AdminWeldmeetAiPricingRoute: typeof AdminWeldmeetAiPricingRoute
+  AdminWeldpanelPricingRoute: typeof AdminWeldpanelPricingRoute
   AdminIndexRoute: typeof AdminIndexRoute
   AdminAccessRequestsIdRoute: typeof AdminAccessRequestsIdRoute
   AdminAppsIdRoute: typeof AdminAppsIdRoute
@@ -745,7 +785,9 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminStaffRoute: AdminStaffRoute,
   AdminSupportRoute: AdminSupportRoute,
   AdminWarmupRoute: AdminWarmupRoute,
+  AdminWeldformsRoute: AdminWeldformsRoute,
   AdminWeldmeetAiPricingRoute: AdminWeldmeetAiPricingRoute,
+  AdminWeldpanelPricingRoute: AdminWeldpanelPricingRoute,
   AdminIndexRoute: AdminIndexRoute,
   AdminAccessRequestsIdRoute: AdminAccessRequestsIdRoute,
   AdminAppsIdRoute: AdminAppsIdRoute,

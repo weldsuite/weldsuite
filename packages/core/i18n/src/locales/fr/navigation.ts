@@ -1,12 +1,10 @@
 export const navigation = {
   "home": "[TRANSLATE] Home",
-  "commerce": "[TRANSLATE] Commerce",
   "accounting": "[TRANSLATE] Accounting",
   "crm": "[TRANSLATE] CRM",
   "projects": "[TRANSLATE] Projects",
   "helpdesk": "[TRANSLATE] WeldDesk",
   "mail": "[TRANSLATE] Mail",
-  "parcel": "[TRANSLATE] Parcel",
   "task": "[TRANSLATE] Task",
   "host": "[TRANSLATE] Host",
   "woocommerce": "[TRANSLATE] WooCommerce",
@@ -73,14 +71,6 @@ export const navigation = {
       "notes": "[TRANSLATE] Notes",
       "sequences": "[TRANSLATE] Sequences"
     },
-      "weldcommerce": {
-        "overview": "Aperçu",
-        "products": "Produits",
-        "categories": "Catégories",
-        "orders": "Commandes",
-        "customers": "Clients",
-        "portal": "Portail client"
-      },
     "weldstash": {
       "overview": "Aperçu",
       "products": "Produits",

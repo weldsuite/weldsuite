@@ -29,14 +29,16 @@ use crate::store::Store;
 
 const KEY_B64: &str = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=";
 
-struct Scratch {
+/// A throwaway database, dropped by [`Scratch::drop_it`].
+pub(crate) struct Scratch {
     admin_url: String,
     name: String,
-    url: String,
+    pub(crate) url: String,
 }
 
 impl Scratch {
-    async fn create() -> Option<Self> {
+    /// `None` without `WELDSUITE_TEST_DATABASE_URL`.
+    pub(crate) async fn create() -> Option<Self> {
         let admin_url = std::env::var("WELDSUITE_TEST_DATABASE_URL").ok()?;
         let name = format!("mta_e2e_{}", crate::crypto::random_hex(6));
         let mut admin = sqlx::PgConnection::connect(&admin_url)
@@ -57,7 +59,7 @@ impl Scratch {
         })
     }
 
-    async fn drop_it(self) {
+    pub(crate) async fn drop_it(self) {
         if let Ok(mut admin) = sqlx::PgConnection::connect(&self.admin_url).await {
             let _ = sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
                 "DROP DATABASE IF EXISTS {} WITH (FORCE)",

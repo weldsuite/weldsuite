@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { toast } from 'sonner';
-import { Pause, Play, Plus, Square } from 'lucide-react';
+import { Pause, Play, Plus, Square, Timer } from 'lucide-react';
 import {
   addTimeOp,
   clearVotingOp,
@@ -18,6 +18,7 @@ import {
   voteCounts,
   votesLeft,
   type Board,
+  type BoardElement,
 } from '@weldsuite/board-engine';
 import { Button } from '@weldsuite/ui/components/button';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
@@ -27,10 +28,12 @@ import { Switch } from '@weldsuite/ui/components/switch';
 import { useI18n } from '@/lib/i18n/provider';
 import { cn } from '@/lib/utils';
 import type { BoardController } from './model/board-controller';
-import { BarButton } from './ui';
+import { BarButton, SIDE_PANEL, SIDE_PANEL_HEADER } from './ui';
 
 const TIMER_PRESETS = [1, 3, 5, 10, 15];
 export const REACTIONS = ['👍', '❤️', '😂', '🎉', '👏', '🤔'];
+/** The name each reaction is announced by (`REACTIONS`, in order). */
+const REACTION_NAMES = ['thumbsUp', 'heart', 'laugh', 'party', 'clap', 'thinking'] as const;
 
 /** mm:ss (h:mm:ss past an hour). */
 export function clock(ms: number): string {
@@ -67,6 +70,7 @@ export function votingView(board: Board, userId: string): { votes?: Map<string, 
 interface VotingLabels {
   title: string;
   left: string;
+  leftOne: string;
   noneLeft: string;
   results: string;
   votes: string;
@@ -88,7 +92,19 @@ function votingSummary(
     return `${tv.results} · ${total}`;
   }
   if (!state.canTakePart) return tv.title;
-  return state.myLeft ? format(tv.left, { count: state.myLeft }) : tv.noneLeft;
+  return votesLeftText(state.myLeft, tv, format);
+}
+
+/** "3 votes left", "1 vote left", "No votes left". */
+function votesLeftText(left: number, tv: Pick<VotingLabels, 'left' | 'leftOne' | 'noneLeft'>, format: (template: string, values: Record<string, unknown>) => string): string {
+  if (left === 1) return tv.leftOne;
+  return left ? format(tv.left, { count: left }) : tv.noneLeft;
+}
+
+/** What an element is called in the results: the start of its text, its name or title, else its kind. */
+function elementLabel(el: BoardElement, kinds: Record<string, string>): string {
+  const text = (el.text?.text ?? el.name ?? el.title ?? '').replace(/\s+/g, ' ').trim();
+  return text || kinds[el.type] || el.type;
 }
 
 /** A short tone when the timer runs out (no sound file needed). */
@@ -127,7 +143,20 @@ function useBoardTimer(c: BoardController) {
  * while the panel is closed, so it rings when the timer runs out and shows
  * what is running: the clock, and the votes this person has left.
  */
-export function FacilitateButton({ controller: c, open, onToggle }: { controller: BoardController; open: boolean; onToggle: () => void }) {
+export function FacilitateButton({
+  controller: c,
+  open,
+  onToggle,
+  className,
+  idleHidden,
+}: {
+  controller: BoardController;
+  open: boolean;
+  onToggle: () => void;
+  className?: string;
+  /** No room in the header: shown only while a timer runs or a vote is open. */
+  idleHidden?: boolean;
+}) {
   useSyncExternalStore(c.subscribe, c.getVersion);
   const { t, format } = useI18n();
   const te = t.weldboard.editor;
@@ -145,12 +174,29 @@ export function FacilitateButton({ controller: c, open, onToggle }: { controller
   }, [running, left, timer?.endsAt, te.timer.done]);
 
   const myLeft = round?.status === 'open' && canTakePart ? votesLeft(c.board, c.options.userId) : null;
+  let votes: string | null = null;
+  if (myLeft !== null) votes = votesLeftText(myLeft, te.voting, format);
+  if (idleHidden && !timer && votes === null) return null;
 
+  // A running timer or an open vote takes the label's place (the name stays for screen readers),
+  // so the header around it doesn't shift.
   return (
-    <Button size="sm" variant="outline" className={cn('h-8 gap-1.5', open && 'bg-accent')} aria-pressed={open} onClick={onToggle}>
-      {te.facilitation}
-      {timer && <span className={cn('font-mono tabular-nums text-muted-foreground', left === 0 && 'text-destructive')}>{clock(left)}</span>}
-      {myLeft !== null && <span className="text-muted-foreground">{myLeft ? format(te.voting.left, { count: myLeft }) : te.voting.noneLeft}</span>}
+    <Button
+      size="sm"
+      variant="outline"
+      className={cn('h-8 min-w-24 gap-1.5', open && 'bg-accent', className)}
+      aria-pressed={open}
+      aria-label={[te.facilitation, timer ? clock(left) : null, votes].filter(Boolean).join(', ')}
+      onClick={onToggle}
+    >
+      {timer ? (
+        <>
+          <Timer className="size-4 text-muted-foreground" aria-hidden />
+          <span className={cn('font-mono tabular-nums', left === 0 && 'text-destructive')}>{clock(left)}</span>
+        </>
+      ) : (
+        (votes ?? te.facilitation)
+      )}
     </Button>
   );
 }
@@ -185,8 +231,8 @@ export function FacilitationPanel({ controller: c, onClose }: { controller: Boar
   };
 
   return (
-    <aside className="pointer-events-auto flex max-h-[70vh] w-72 flex-col rounded-xl border bg-background shadow-md">
-      <div className="flex items-center justify-between border-b px-3 py-2">
+    <aside className={SIDE_PANEL} aria-label={te.facilitation}>
+      <div className={SIDE_PANEL_HEADER}>
         <h2 className="text-sm font-semibold">{te.facilitation}</h2>
         <BarButton label={t.common.actions.close} onClick={onClose}>
           <Plus className="rotate-45" />
@@ -261,7 +307,9 @@ export function FacilitationPanel({ controller: c, onClose }: { controller: Boar
                   </Button>
                 )}
               </div>
-            ) : (
+            ) : null}
+            {round?.status === 'closed' && <VoteResults controller={c} />}
+            {round ? null : (
               <>
                 <div className="flex items-center justify-between gap-2">
                   <Label htmlFor="wb-votes-each">{tv.votesPerPerson}</Label>
@@ -271,9 +319,17 @@ export function FacilitationPanel({ controller: c, onClose }: { controller: Boar
                   <Checkbox checked={anonymous} onCheckedChange={(v) => setAnonymous(!!v)} />
                   {tv.anonymous}
                 </label>
-                <label className={cn('flex items-center gap-2 text-sm', c.selection.size === 0 && 'opacity-50')}>
-                  <Checkbox checked={onlySelection && c.selection.size > 0} disabled={c.selection.size === 0} onCheckedChange={(v) => setOnlySelection(!!v)} />
-                  {tv.onlySelection}
+                {/* Only with something selected: says so, rather than just greying out. */}
+                <label className="flex items-start gap-2 text-sm">
+                  <Checkbox className="mt-0.5" checked={onlySelection && c.selection.size > 0} disabled={c.selection.size === 0} onCheckedChange={(v) => setOnlySelection(!!v)} aria-describedby="wb-only-selection-hint" />
+                  <span className={cn('flex flex-col', c.selection.size === 0 && 'text-muted-foreground')}>
+                    {tv.onlySelection}
+                    {c.selection.size === 0 && (
+                      <span id="wb-only-selection-hint" className="text-xs">
+                        {tv.selectFirst}
+                      </span>
+                    )}
+                  </span>
                 </label>
                 <Button
                   className="w-full"
@@ -298,11 +354,14 @@ export function FacilitationPanel({ controller: c, onClose }: { controller: Boar
           <section className="space-y-2 p-3">
             <h3 className="text-xs font-medium text-muted-foreground">{te.reactions.title}</h3>
             <div className="flex flex-wrap gap-1">
-              {REACTIONS.map((emoji) => (
-                <button key={emoji} type="button" className="rounded-md px-1.5 py-1 text-xl hover:bg-muted" onClick={() => react(emoji)} aria-label={emoji}>
-                  {emoji}
-                </button>
-              ))}
+              {REACTIONS.map((emoji, i) => {
+                const name = te.reactions.names[REACTION_NAMES[i]!];
+                return (
+                  <button key={emoji} type="button" className="rounded-md px-1.5 py-1 text-xl hover:bg-muted" onClick={() => react(emoji)} aria-label={name} title={name}>
+                    <span aria-hidden>{emoji}</span>
+                  </button>
+                );
+              })}
             </div>
           </section>
         )}
@@ -316,5 +375,40 @@ export function FacilitationPanel({ controller: c, onClose }: { controller: Boar
         )}
       </div>
     </aside>
+  );
+}
+
+/** The most voted items once a round is closed, most first: a click shows one on the board. */
+function VoteResults({ controller: c }: { controller: BoardController }) {
+  const { t } = useI18n();
+  const te = t.weldboard.editor;
+  const ranked = [...voteCounts(c.board)]
+    .filter(([, n]) => n > 0)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .flatMap(([id, n]) => {
+      const el = c.board.get(id);
+      return el ? [{ el, n }] : [];
+    });
+  if (!ranked.length) return <p className="text-sm text-muted-foreground">{te.voting.noVotes}</p>;
+  return (
+    <ol className="space-y-0.5" aria-label={te.voting.results}>
+      {ranked.map(({ el, n }, i) => (
+        <li key={el.id}>
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-sm hover:bg-muted"
+            onClick={() => {
+              c.select([el.id]);
+              c.reveal(c.boundsOf(el));
+            }}
+          >
+            <span className="w-4 shrink-0 text-xs tabular-nums text-muted-foreground">{i + 1}</span>
+            <span className="min-w-0 flex-1 truncate">{elementLabel(el, te.a11y.types as Record<string, string>)}</span>
+            <span className="shrink-0 rounded-full bg-primary/10 px-2 text-xs font-medium tabular-nums text-primary">{n}</span>
+          </button>
+        </li>
+      ))}
+    </ol>
   );
 }

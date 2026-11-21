@@ -2,12 +2,22 @@
  * Service tests for employee ↔ workspace-member linking. Every new employee
  * is an INTERNAL or EMPLOYEE member of the workspace, or about to be one: an
  * employee added while their invite is pending is linked once they accept.
+ * Pictures come from the member's account (master `users`), never from the
+ * workspace member row.
  */
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { users } from '@weldsuite/db/schema/master';
+import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+
+const holder = vi.hoisted(() => ({ master: null as unknown }));
+vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@weldsuite/worker-kit/db')>()),
+  getMasterDb: () => holder.master,
+}));
+
 import {
   createEmployee,
   createEmployeeFromMember,
@@ -18,10 +28,24 @@ import {
 } from './employees';
 import { HrConflictError, HrNotFoundError, HrValidationError } from './shared';
 
+const ENV = { DATABASE_URL_MASTER: 'postgres://test' };
+const ALICE_PICTURE = 'https://img.clerk.test/alice.png';
+const FAY_PICTURE = 'https://img.clerk.test/fay.png';
+
 let db: Database;
 
 beforeAll(async () => {
   db = (await createPgliteDb()).db;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- pglite drizzle stands in for neon-http
+  const master: any = (await createMasterPgliteDb()).db;
+  holder.master = master;
+  await master
+    .insert(users)
+    .values([
+      { id: 'user_alice', email: 'alice@example.com', imageUrl: ALICE_PICTURE },
+      { id: 'user_fay', email: 'fay@example.com', imageUrl: FAY_PICTURE },
+    ])
+    .onConflictDoNothing();
 
   await db.insert(schema.workspaceMembers).values([
     {
@@ -29,6 +53,8 @@ beforeAll(async () => {
       userId: 'user_alice',
       name: 'Alice Example',
       email: 'alice@example.com',
+      // A stale per-workspace copy: the employee takes the account picture.
+      picture: 'https://stale.test/alice.png',
       title: 'Engineer',
       phone: '+32000000001',
       status: 'ACTIVE',
@@ -74,7 +100,7 @@ describe('createEmployeeFromMember', () => {
     const row = await createEmployeeFromMember(
       db,
       { userId: 'user_alice' },
-      { createdBy: 'user_hr' },
+      { env: ENV, createdBy: 'user_hr' },
     );
     expect(row.userId).toBe('user_alice');
     expect(row.firstName).toBe('Alice');
@@ -82,11 +108,12 @@ describe('createEmployeeFromMember', () => {
     expect(row.email).toBe('alice@example.com');
     expect(row.jobTitle).toBe('Engineer');
     expect(row.phone).toBe('+32000000001');
+    expect(row.avatarUrl).toBe(ALICE_PICTURE);
   });
 
   it('rejects a second employee for the same member', async () => {
     await expect(
-      createEmployeeFromMember(db, { userId: 'user_alice' }, { createdBy: 'user_hr' }),
+      createEmployeeFromMember(db, { userId: 'user_alice' }, { env: ENV, createdBy: 'user_hr' }),
     ).rejects.toBeInstanceOf(HrConflictError);
   });
 
@@ -95,14 +122,14 @@ describe('createEmployeeFromMember', () => {
       createEmployeeFromMember(
         db,
         { userId: 'invited_pending@example.com' },
-        { createdBy: 'user_hr' },
+        { env: ENV, createdBy: 'user_hr' },
       ),
     ).rejects.toBeInstanceOf(HrValidationError);
   });
 
   it('rejects unknown members', async () => {
     await expect(
-      createEmployeeFromMember(db, { userId: 'user_missing' }, { createdBy: 'user_hr' }),
+      createEmployeeFromMember(db, { userId: 'user_missing' }, { env: ENV, createdBy: 'user_hr' }),
     ).rejects.toBeInstanceOf(HrNotFoundError);
   });
 });
@@ -120,12 +147,12 @@ describe('createEmployee · userId', () => {
 
   it('rejects external guests', async () => {
     await expect(
-      createEmployeeFromMember(db, { userId: 'user_gus' }, { createdBy: 'user_hr' }),
+      createEmployeeFromMember(db, { userId: 'user_gus' }, { env: ENV, createdBy: 'user_hr' }),
     ).rejects.toBeInstanceOf(HrValidationError);
   });
 
   it('accepts EMPLOYEE members', async () => {
-    const row = await createEmployeeFromMember(db, { userId: 'user_erin' }, { createdBy: 'user_hr' });
+    const row = await createEmployeeFromMember(db, { userId: 'user_erin' }, { env: ENV, createdBy: 'user_hr' });
     expect(row.userId).toBe('user_erin');
     expect(row.email).toBe('erin@example.com');
   });
@@ -222,7 +249,7 @@ describe('listAvailableMembers', () => {
       },
     ]);
 
-    const userIds = (await listAvailableMembers(db)).map((m) => m.userId);
+    const userIds = (await listAvailableMembers(ENV, db)).map((m) => m.userId);
     expect(userIds).toEqual(expect.arrayContaining(['user_fay', 'user_hal']));
     // Linked already (alice, bob, erin, carol), a pending invite, and a guest.
     for (const excluded of ['user_alice', 'user_bob', 'user_erin', 'user_carol', 'invited_pending@example.com', 'user_gus']) {
@@ -231,9 +258,16 @@ describe('listAvailableMembers', () => {
   });
 
   it('filters by name or email', async () => {
-    const rows = await listAvailableMembers(db, { search: 'fay@' });
+    const rows = await listAvailableMembers(ENV, db, { search: 'fay@' });
     expect(rows.map((m) => m.userId)).toEqual(['user_fay']);
     expect(rows[0]?.memberType).toBe('EMPLOYEE');
+  });
+
+  it('gives each member their account picture, null without one', async () => {
+    const rows = await listAvailableMembers(ENV, db);
+    const pictures = Object.fromEntries(rows.map((m) => [m.userId, m.picture]));
+    expect(pictures.user_fay).toBe(FAY_PICTURE);
+    expect(pictures.user_hal).toBeNull();
   });
 });
 

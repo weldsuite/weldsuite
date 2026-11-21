@@ -1,4 +1,4 @@
-# WeldSuite EU on Hetzner: runbook
+# WeldSuite on Hetzner: install guide
 
 The Kubernetes edition of WeldSuite (the Rust backend, ADRs API-014 and
 OPS-012/013) on Hetzner Cloud: **Talos** Kubernetes across Falkenstein (FSN1)
@@ -7,13 +7,21 @@ CloudNativePG on a dedicated local-NVMe pool, and everything else in the
 cluster. Design: "EU: Kubernetes on Hetzner, then own servers" in
 `design/platform/editions-and-self-hosting.md` (docs repo), phase P5.
 
+This guide installs it on a cluster of your own: the self-hosted
+distribution of [ADR OPS-014](https://github.com/weldsuite/weldsuite-documentation/blob/main/adr/OPS-014-self-hosted-distribution.md).
+Your cluster's folder starts as a copy of `flux/clusters/example`, in your
+own copy of this repository. WeldSuite runs its own clusters (EU production,
+its test cluster and a monthly restore drill) with this module, the same
+base layers and the same chart, but from a private repository that holds
+their settings, secrets and runbooks (ADR OPS-018).
+
 | Layer | What | Where |
 |---|---|---|
 | Servers, network, firewall, load balancers, Talos bootstrap | OpenTofu (`hetznercloud/hcloud` 1.70.0, `siderolabs/talos` 0.12.0) | `rust/deploy/hetzner` |
-| Everything in the cluster | Flux (v2.9.6), Helm, kustomize, SOPS (age) | `rust/deploy/flux` |
+| Everything in the cluster | Flux (v2.9.6), Helm, kustomize, External Secrets Operator | `rust/deploy/flux` |
+| Secret values | A secret store outside the cluster: OpenBao on a server of its own (Vault works too) | `rust/deploy/hetzner/secret-store`; never in git |
 | The application | the `weldsuite` chart | `rust/deploy/helm/weldsuite` |
 | Checks without a cloud account | `rust/deploy/validate.sh` (CI: `Rust · deploy config`) | |
-| Monthly build, restore, teardown | `scripts/drill.sh`, [DRILL.md](DRILL.md) | |
 
 Nothing here uses a Hetzner-only managed service: no Cloud Volumes (local
 NVMe through OpenEBS LocalPV), no managed Postgres, no cloud controller
@@ -27,6 +35,7 @@ servers later; only this OpenTofu module is replaced by Talos on bare metal.
 | Talos Linux | v1.14.3 | Image from Talos' Image Factory (`scripts/upload-talos-image.sh`) |
 | OpenEBS LocalPV hostpath | chart 4.6.0 | Default StorageClass `openebs-hostpath`, under `/var/mnt/local-storage` (a Talos user volume) |
 | cert-manager | v1.21.2 | Let's Encrypt (HTTP-01 through Traefik) |
+| External Secrets Operator | chart 2.14.0 (v2.14.0) | Writes every Secret the layers read from the cluster's secret store (`flux/secrets`) |
 | Traefik | chart 41.7.1 (Traefik v3.7.14) | NodePorts 30080/30443 behind the Hetzner LB, PROXY protocol |
 | CloudNativePG | chart 0.29.1 (operator 1.30.1) | Clusters `master`, `tenants-1`, `zitadel-db`; Postgres 17.8 "standard" image (pgvector) |
 | barman-cloud plugin | chart 0.8.1 (v0.15.1) | WAL archive + nightly base backups to a second EU provider |
@@ -35,11 +44,21 @@ servers later; only this OpenTofu module is replaced by Talos on bare metal.
 | Valkey | chart 0.12.0 (Valkey 9.1.2) | One primary, ACL auth |
 | Restate | chart 1.7.13 | One node to start |
 | Zitadel | chart 10.4.0 (v4.19.2) | `auth.<domain>`, own CNPG cluster |
-| weldsuite | this repository | `app.<domain>` (the platform SPA and its API on one origin) and `api.<domain>`, 2-6 replicas |
+| WeldID (opt-in) | chart `WELDID_VERSION` ([weldsuite/weldid](https://github.com/weldsuite/weldid)) | Replaces Zitadel at `auth.<domain>`, own CNPG cluster ("WeldID instead of Zitadel" below) |
+| weldsuite | this repository | `app.<domain>` (the platform SPA and its API on one origin), `api.<domain>`, and `widget.<domain>` (WeldDesk's helpdesk widget, which sites embed), 2-6 replicas |
 | weldsuite sign portal | this repository | `sign.<domain>`, 2 replicas (Node; ADR FE-017) |
+| weldsuite forms portal | this repository | `forms.<domain>`, 2 replicas (Node; ADR FORMS-002) |
 | LiveKit | chart 1.9.0 (livekit-server v1.13.10) | WeldMeet and WeldChat calls: one pod on each of two general workers, host network; `livekit.<domain>` and TURN at `turn.<domain>` ("Video" below) |
 | weldsuite MTA | this repository (`weldsuite mta`) | Outgoing mail from the mail nodes' own addresses, pools `system` and `customer`; bounce MX at `bounces.<domain>` ("Mail" below) |
+| kube-prometheus-stack | chart 92.3.1 | Prometheus (30 days), Alertmanager, Grafana at `grafana.<domain>` ("Monitoring, alerts and logs" below) |
+| Blackbox exporter | chart 11.20.2 | Probes the public hosts through the load balancer |
+| Loki | chart 7.5.0 | Logs, single binary, chunks in the logs bucket, 30 days |
+| Fluent Bit | chart 0.58.3 | Every node's pod and Talos logs, and the cluster's events, to Loki |
 | Haraka | this repository (`rust/deploy/haraka`) | WeldMail's MX at `mx.<domain>`, port 25 on the ingress load balancer ("Mail" below) |
+| WeldAgent sandbox | this repository (`rust/deploy/sandbox`), gVisor from the Talos extension | Pods the server starts per agent conversation in `weldsuite-sandbox` ("Agent sandbox" below) |
+| SearXNG | 2026.10.28-c360868e5 (Valkey 9.1.2 beside it) | WeldAgent's web search, asked only by the server ("Agent sandbox" below) |
+| kube-router (opt-in) | v2.11.2 | Its network policy controller alone, beside Flannel: NetworkPolicy enforced, the metadata service out of pods' reach (`network-policy` layer; "Agent sandbox" below) |
+| rclone (opt-in) | 1.75.2 | A daily copy of the buckets to a second provider (`offsite-copy` layer; "Offsite copy" below) |
 
 Every version is pinned and was released at least two weeks before it was
 pinned. `validate.sh` fails when a HelmRelease's pin and the one it checks
@@ -52,18 +71,30 @@ differ.
 - A **domain** at an EU DNS provider (Hetzner DNS works).
 - **Object storage**:
   - Hetzner Object Storage bucket(s) for files: the private bucket
-    (`FILES_BUCKET_PRIVATE`) and S3 keys for it;
+    (`FILES_BUCKET_PRIVATE`) and S3 keys for it, and the public bucket
+    (`FILES_BUCKET_PUBLIC`: avatars, product images, social media, chat
+    attachments; private at Hetzner too, the server serves it) next to it
+    with the same keys;
   - a bucket at a **second EU provider** for Postgres backups, and its keys.
-- An **age** key pair for SOPS: `age-keygen -o eu.agekey`. Keep the private
-  key outside git (a password manager); the cluster gets a copy in step 6.
+- A **secret store** outside the cluster: a KV version 2 store (mount
+  `secret`) behind the HashiCorp Vault API. WeldSuite's clusters each have
+  an OpenBao server of their own, built with `secret-store/` here (ADR
+  OPS-023; its README takes it from `tofu apply` to a running store);
+  Vault works the same way. Its address, `https://secrets.<domain>`, is the
+  cluster's `SECRET_STORE_URL` (step 4). Two tokens for it, kept out of
+  git: the operator token, which may write, for you (step 4), and the
+  read-only cluster token, for the cluster (step 6; `secret-store/README.md`,
+  "The cluster's token"). The cluster's lives ten years, since External
+  Secrets Operator doesn't renew a token; if it expires anyway, the
+  Secrets stay as they are and stop refreshing until it is replaced.
 - Tools: `tofu` (OpenTofu ≥ 1.9), `talosctl` v1.14, `kubectl`, `flux` v2.9,
-  `sops`, `age` and `hcloud-upload-image`.
-- **No GitHub credentials.** The repository is public and the organisation
-  doesn't allow deploy keys, so Flux reads it over anonymous HTTPS (step 6);
-  it never pushes.
-- **A release** to run: `WELDSUITE_VERSION` (step 4), made by the "Rust
-  release" workflow from a develop build the test cluster ran ("Releases"
-  below). Its images (`weldsuite`, `weldsuite-sign-portal`,
+  `node` (20 or later) and `hcloud-upload-image`.
+- **Your copy of this repository** (a fork or a mirror) for your cluster's
+  folder. Flux reads it (step 6) and never
+  pushes: a public copy needs no credentials, a private one a read-only
+  credential (a GitHub App, `flux create secret githubapp`, or a deploy key).
+- **A release** to run: `WELDSUITE_VERSION` (step 4), a `weldsuite-vX.Y.Z`
+  release of this repository ("Releases" below). Its images (`weldsuite`, `weldsuite-sign-portal`,
   `weldsuite-collab-rooms`, `weldsuite-haraka`) and chart are public
   packages on ghcr.io today, the EU registry later. The first three build
   from `rust/Dockerfile` at the repo root: `docker build -f rust/Dockerfile .`
@@ -79,21 +110,24 @@ differ.
 HCLOUD_TOKEN=… TALOS_VERSION=v1.14.3 rust/deploy/hetzner/scripts/upload-talos-image.sh
 ```
 
-Uploads the stock Talos image as a snapshot labelled `os=talos,
-talos_version=v1.14.3`; `servers.tf` picks the newest one with that label.
+Uploads the Talos image (stock, plus the `siderolabs/gvisor` extension for
+WeldAgent's sandbox: `scripts/schematic.yaml`) as a snapshot labelled
+`os=talos, talos_version=v1.14.3`; `servers.tf` picks the newest one with that
+label.
 
 ## 2. Settings
 
 ```bash
 cd rust/deploy/hetzner
 cp terraform.tfvars.example terraform.tfvars   # git-ignored
-# domain, admin_cidrs (your address and the drill runner's), sizes
+# domain, admin_cidrs (your address), sizes
 ```
 
 Server types (`cpx22` control plane, `cpx32` workers, `ccx23` Postgres) are
-defaults, not facts: check availability in the console first, and expect the
-drill to report substitutions. `livekit_worker_count` (2) is how many general
-workers also run LiveKit ("Video" below).
+defaults, not facts: check availability in the console first (Hetzner has
+listed "limited availability" of cloud instances since April 2026). `livekit_worker_count` (2) is how many general
+workers also run LiveKit; on a cluster without general workers,
+`livekit_control_planes` names the control-plane nodes that do ("Video" below).
 
 **State.** The state holds the Talos secrets and the kubeconfig. Use the S3
 backend in `versions.tf` (a private bucket) and OpenTofu's state encryption,
@@ -124,9 +158,9 @@ the firewall (only 6443 and 50000, from `admin_cidrs`), three control-plane
 nodes, the general workers, the two Postgres nodes (tainted
 `node.weldsuite.org/postgres`), and two load balancers: one for the
 Kubernetes and Talos APIs, one for HTTP(S) to Traefik with the PROXY
-protocol. The first `livekit_worker_count` workers also get the
-`node.weldsuite.org/livekit` label and a second firewall with LiveKit's media
-ports (UDP 7882, TCP 7881, UDP 3478). With `mail_pools`, the mail nodes
+protocol. The first `livekit_worker_count` workers (or the
+`livekit_control_planes`) also get the `node.weldsuite.org/livekit` label and
+a second firewall with LiveKit's media ports (UDP 7882, TCP 7881, UDP 3478). With `mail_pools`, the mail nodes
 come too, each with its own primary IPv4, reverse DNS and the mail firewall
 (TCP 25), and with `mx_node_port` the ingress load balancer also listens on
 25 ("Mail" below). Talos boots from the machine config in the server's user
@@ -139,30 +173,59 @@ a time.
 
 ## 4. Settings and secrets for Flux
 
-- `rust/deploy/flux/clusters/eu/cluster-settings.yaml`: domain, ACME email,
-  the backup and files endpoints and buckets, and the release
-  (`WELDSUITE_VERSION`, "Releases" below; the drill's settings pin the same
-  one). Not secret; commit it.
-- Secrets: put your age public key in `rust/deploy/flux/.sops.yaml`, then
+- Your cluster's folder: copy `rust/deploy/flux/clusters/example` to
+  `clusters/<cluster>`, and in its `layers.yaml` change the path that names
+  `example` (`configs-extra`). Then `cluster-settings.yaml`: domain, ACME
+  email, the secret store's address (`SECRET_STORE_URL`), the backup and
+  files endpoints and buckets, and the release (`WELDSUITE_VERSION`,
+  "Releases" below). Not secret; commit it. Sizing or other changes to a base
+  layer go in that layer's `patches` in `layers.yaml`.
+- The secrets layer's `components` in `layers.yaml` name the optional parts
+  your cluster runs: `mta`, `monitoring` and `logging` in the example, plus
+  `marketing`, `offsite-copy` and `registry` (`flux/secrets/kustomization.yaml`
+  lists them).
+  A store of another kind than the Vault API (Scaleway, a cloud's secret
+  manager): replace the ClusterSecretStore's `spec.provider` in that layer's
+  `patches`, and fill the store by hand from `store.example.yaml`.
+- Secrets: the store holds every value the layers read; no value is ever in
+  the repository. `flux/secrets/store.example.yaml` lists them, and
+  `seed-secrets.mjs` fills the store with them:
 
   ```bash
-  cd rust/deploy/flux
-  cp secrets/examples/secrets.example.yaml secrets/eu/secrets.sops.yaml
-  # replace every CHANGE_ME (openssl rand -base64 32 …)
-  sops --encrypt --in-place secrets/eu/secrets.sops.yaml
-  # list secrets.sops.yaml in secrets/eu/kustomization.yaml, commit
+  export SECRET_STORE_URL=https://secrets.<domain>   # as in cluster-settings.yaml
+  read -rs SECRET_STORE_TOKEN; export SECRET_STORE_TOKEN   # the operator token
+  FILES_S3_ACCESS_KEY_ID=… FILES_S3_SECRET_ACCESS_KEY=… \
+  BACKUP_S3_ACCESS_KEY_ID=… BACKUP_S3_SECRET_ACCESS_KEY=… \
+  MISTRAL_API_KEY=… \
+    node rust/deploy/flux/scripts/seed-secrets.mjs
   ```
 
-  `DATABASE_ENCRYPTION_KEY` decrypts `workspaces.database_url`;
-  `SIGN_PORTAL_SECRET` is shared by the server and the sign portal (the
-  server trusts the signer's IP the portal reports only next to it); the
-  Zitadel masterkey is exactly 32 characters. Losing either makes stored data
-  unreadable: keep them in the password manager too. The LiveKit key pair
-  appears twice (`weldsuite-env` and `livekit-env`) and must match, as must
-  `livekit-env`'s `REDIS_PASSWORD` and the Valkey password. `MTA_KEY`
-  (`weldsuite-mta`) seals every sending domain's DKIM key: keep it there too,
-  and the MTA's database password matches in `weldsuite-mta` and
-  `master-db-mta`. `scripts/fill-secrets.mjs` generates all of these.
+  It generates every value that isn't a provider's, takes a provider's from
+  the environment variable the example names (`$NAME`), and writes
+  `CHANGE_ME` for one it doesn't have yet (Zitadel's tokens, made in step 7);
+  a later run with the variable set replaces it. It never changes any other
+  value the store holds, and prints names, never values. The ExternalSecrets
+  in `flux/secrets` build every Secret from these values, so a value shared
+  by several Secrets (the Valkey password, the LiveKit key pair, a database
+  password and the URL that holds it) is stored once.
+  `MISTRAL_API_KEY` is the one AI key the cluster needs (`config.ai`, the EU
+  edition's account on Mistral's La Plateforme): the server, `consume` and
+  the cron jobs don't start without it while `config.ai.defaultProvider` is
+  `mistral`. The script generates `AI_KEYS_ENCRYPTION_KEY`, which seals the
+  keys workspaces bring for Claude and ChatGPT, and `SANDBOX_TOKEN_SECRET`,
+  WeldAgent's sandbox tokens.
+
+  `DATABASE_ENCRYPTION_KEY` decrypts `workspaces.database_url`; the Zitadel
+  masterkey seals Zitadel's data; `MTA_KEY` seals every sending domain's DKIM
+  key. Losing one makes stored data unreadable: keep a copy of each in the
+  password manager too (`seed-secrets.mjs` names them when it makes them).
+- **A value changed later** (a rotation, a provider's new key): change it in
+  the store (its web UI, `https://secrets.<domain>/ui/`, or `bao kv patch
+  secret/<entry> <PROPERTY>=…`), or run `seed-secrets.mjs` with its variable set when the
+  store still holds `CHANGE_ME`. Its Secrets follow within the hour, or at
+  once with `kubectl -n <namespace> annotate externalsecret <name>
+  force-sync=$(date +%s) --overwrite`; then restart the pods that read it as
+  environment variables.
 - The Traefik values trust PROXY headers from `10.10.0.0/16`; change them in
   `flux/infrastructure/controllers/values/traefik.yaml` if you change
   `network_cidr`.
@@ -170,35 +233,89 @@ a time.
 ## 5. DNS
 
 Create the records `tofu output dns_records` prints (A and AAAA for `app.`,
-`api.`, `auth.`, `sign.`, `admin.`, `livekit.`, `turn.`, and `mx.` with
+`api.`, `mcp.`, `auth.`, `sign.`, `forms.`, `admin.`, `widget.`, `grafana.`, `livekit.`, `turn.`, `collect.`, and `mx.` with
 `mx_node_port` → the ingress load balancer) at the DNS provider. cert-manager
-issues certificates once they resolve. (external-dns is not installed: a
+issues certificates once they resolve. `collect.` is what customers point
+WeldPanel's own collection domains at (ADR PANEL-014); turn them on with
+`config.panel.customDomains.enabled` in `flux/apps/eu/values/weldsuite.yaml`
+once it resolves. (external-dns is not installed: a
 handful of static records doesn't need it.) Media needs no record: LiveKit
 gives clients the nodes' addresses itself. The mail records are in "Mail" below.
 
 ## 6. Flux
 
-Read only: the cluster pulls from the repository, nothing is pushed. The
-configuration comes from `main`; the chart and images come from the release
-`WELDSUITE_VERSION` names. The flux CLI must be the version it installs
-(v2.9.6; a newer CLI refuses).
+Read only: the cluster pulls from your copy of the repository, nothing is
+pushed. The configuration comes from its branch; the chart and images come
+from the release `WELDSUITE_VERSION` names. The flux CLI must be the version
+it installs (v2.9.6; a newer CLI refuses).
 
 ```bash
 flux install --version=v2.9.6
-kubectl -n flux-system create secret generic sops-age --from-file=age.agekey=eu.agekey
+# The one Secret put in by hand: the secret store's read-only token. The
+# controllers layer gives the namespace its labels later.
+kubectl create namespace external-secrets
+kubectl -n external-secrets create secret generic secret-store-token --from-literal=token=<the read-only token>
 flux create source git flux-system \
-  --url=https://github.com/weldsuite/weldsuite --branch=main
+  --url=https://github.com/<you>/weldsuite --branch=main
 flux create kustomization flux-system \
-  --source=GitRepository/flux-system --path=./rust/deploy/flux/clusters/eu --prune=true
+  --source=GitRepository/flux-system --path=./rust/deploy/flux/clusters/<cluster> --prune=true
 flux get kustomizations --watch
 ```
 
+A private copy needs a credential first, e.g. a GitHub App with read access
+to it (`flux create secret githubapp <name> --app-id=… --app-installation-id=…
+--app-private-key=<pem>`, then `--provider=github --secret-ref=<name>` on the
+source; Flux 2.5 or later).
+
 The layers come up in order: `sources` → `controllers` (namespaces, OpenEBS,
-cert-manager, Traefik, CloudNativePG, the backup plugin) → `secrets` →
-`configs` (Postgres clusters, poolers, backups, the issuer) → `services`
+cert-manager, Traefik, CloudNativePG, the backup plugin, External Secrets
+Operator) → `secrets` (ready once every Secret is written from the store;
+`kubectl get clustersecretstore,externalsecrets -A` shows why one isn't) →
+`configs` (Postgres clusters, poolers, backups, the issuer; then
+`configs-extra`, the MTA's database) → `services`
 (NATS, Valkey, Restate, Zitadel) → `apps` (weldsuite), with `video`
 (LiveKit) beside `apps`: a missing `livekit.` or `turn.` record holds up
 calls only.
+
+### Moving a cluster off SOPS
+
+A cluster set up before the secret store reads its Secrets from a
+SOPS-encrypted `secrets/<cluster>/secrets.sops.yaml`. It moves once the base
+layers it runs include External Secrets Operator and `flux/secrets` (a
+release or main build with them), without restarting anything:
+
+1. **The store and its two tokens** (Prerequisites).
+2. **Take the values over**, with the age key that decrypts the file:
+
+   ```bash
+   SECRET_STORE_URL=… SECRET_STORE_TOKEN=<the writing one> SOPS_AGE_KEY_FILE=~/<cluster>.agekey \
+     node rust/deploy/flux/scripts/seed-secrets.mjs --import secrets/<cluster>/secrets.sops.yaml --dry-run
+   ```
+
+   It decrypts the file in memory and works out each value's place in the
+   store. It then makes every Secret of the file again, the way the
+   ExternalSecrets will from what the store would then hold. It stops,
+   writing nothing, if one would come out different or if the store already
+   holds a different value. Without `--dry-run` it writes. Then run it once
+   more without `--import`, to add the values the file lacked.
+3. **The cluster's token**: `kubectl -n external-secrets create secret
+   generic secret-store-token --from-literal=token=<the read-only one>`.
+4. **Switch the secrets layer**, in one commit: `SECRET_STORE_URL` in
+   `cluster-settings.yaml`, and the layer as in
+   `flux/clusters/example/layers.yaml` (path `./rust/deploy/flux/secrets`,
+   your components, the health checks, no `decryption`) but with
+   `prune: false`. Flux then leaves the Secrets it applied from the file in
+   place, and External Secrets Operator takes each one over as it is (it
+   adopts a Secret nothing owns) and writes it from the store from then on.
+   Wait until `kubectl get externalsecrets -A` shows every one
+   `SecretSynced`.
+5. **Clean up**: `prune: true` again; then delete `secrets/<cluster>/`, its
+   `.sops.yaml` rule and the cluster's `flux-system/sops-age` Secret.
+6. **Rotate what can be.** The old file stays in git history, readable by
+   anyone with a copy of the age key. Rotate in the store what can be
+   replaced (tokens, internal secrets, provider keys), and destroy spare
+   copies of the age key. `DATABASE_ENCRYPTION_KEY`, the Zitadel masterkey
+   and `MTA_KEY` seal stored data and can't simply be replaced.
 
 ## 7. Zitadel: first admin, the WeldSuite project, sign-in
 
@@ -214,13 +331,42 @@ default) organisation:
    refuses their first sign-in. Workspace access is the server's check (a
    token names only organisations that granted the person a role). Its **resource id** is
    the tokens' audience: `ZITADEL_PROJECT_ID` in
-   `flux/clusters/eu/cluster-settings.yaml` (quoted; it is 18 digits).
+   `flux/clusters/<cluster>/cluster-settings.yaml` (quoted; it is 18 digits).
 2. **Web application** `platform` in the project: type *User Agent*,
    authentication *PKCE*, redirect URIs on `https://app.<domain>` (the auth
    facade's callback, P4 4.F5), and **Auth token type: JWT**: the server
    verifies access tokens as JWTs against Zitadel's JWKS and never
    introspects. Its client id is `ZITADEL_WEB_CLIENT_ID`, which the server
    hands the frontends in `/config.json`. Commit the settings.
+   - **2b. Native application** `mobile` in the same project, for the mobile
+     apps: type *Native*, authentication *PKCE*, refresh tokens on, **Auth
+     token type: JWT**, and one redirect URI per app:
+     `weldagent://sso-callback`, `weldbooks://sso-callback`,
+     `weldcalendar://sso-callback`, `weldchat://sso-callback`,
+     `weldcrm://sso-callback`, `welddesk://sso-callback`,
+     `weldflow://sso-callback`, `weldhr://sso-callback`,
+     `weldmail://sso-callback`, `weldmeet://sso-callback`,
+     `weldsocial://sso-callback` and `weldstash://sso-callback` (the
+     route the apps already use for Clerk's SSO). Under *Token settings*
+     turn on **User roles inside ID Token** and **User Info inside ID
+     Token**: the apps read the workspaces and the person's name from the
+     ID token and don't call userinfo. Its
+     client id is `ZITADEL_MOBILE_CLIENT_ID`; until it is set the apps can't
+     sign in to the cluster
+     (`weldsuite-documentation/plans/mobile-server-choice.md` in the code repo).
+   - **2c. Native application** `desktop` in the same project, for the
+     desktop app, which signs in through the system browser (Google and
+     Microsoft refuse sign-in inside its window) and takes the answer on a
+     loopback listener (RFC 8252, `apps/desktop/docs/auth-handoff.md`): type
+     *Native*, authentication *PKCE*, refresh tokens on, **Auth token type:
+     JWT**, the same token settings as `platform`, and the one redirect URI
+     `http://127.0.0.1/callback`. Zitadel ignores the port of a native
+     application's loopback redirect, so it covers the random port the app
+     picks. No post-logout URI: signing out opens Zitadel's own page in the
+     browser. With `OIDC_SIGN_IN=platform`, point its sign-in at
+     `https://app.<domain>/auth` too, like `platform`'s. Its client id is
+     `ZITADEL_DESKTOP_CLIENT_ID` (optional); until it is set the desktop app
+     signs in inside its own window with the web application.
 3. **Scopes** the platform asks for: `openid profile email offline_access`,
    `urn:zitadel:iam:org:project:id:<project id>:aud` (puts the project in
    `aud`), `urn:zitadel:iam:org:projects:roles`, and
@@ -245,9 +391,67 @@ default) organisation:
    server at `http://zitadel.zitadel.svc:8080` with `auth.<domain>` as the
    host (`config.identity`).
 6. **Self-registration**: in the default organisation's login settings,
-   allow users to register. People sign up there (the platform's "Sign up"
-   opens Zitadel's registration, `prompt=create`), and each workspace they
-   create becomes an organisation of its own (next section).
+   allow users to register. People sign up there (the platform's "Sign up",
+   `prompt=create`), and each workspace they create becomes an organisation
+   of its own (next section).
+7. **WeldSuite's own sign-in screens** (ADR SEC-016; `config.auth.oidc.signIn:
+   platform` in the app's values). Zitadel stays the identity provider, but
+   people see the screens Global shows, on `app.<domain>`, and the server
+   signs them in as Zitadel's *login client* (`/api/sign-in`). Until the
+   steps below are done Zitadel's own pages keep working, so do them on the
+   test cluster first, in this order:
+   1. Give the service user of step 5 the instance role `IAM_LOGIN_CLIENT`
+      as well: Default settings → Administrators, click its row, tick the
+      role (or `PUT /admin/v1/members/<user id>` with
+      `{"roles": ["IAM_OWNER", "IAM_LOGIN_CLIENT"]}`).
+      `IAM_OWNER` alone may open sessions but not finish a sign-in
+      (`session.link`); the server then logs "the provider refused the
+      service user" and sign-in answers 503. To keep sign-in on a user of its
+      own, make a second machine user with only `IAM_LOGIN_CLIENT` and put
+      its token in `weldsuite-env` as `ZITADEL_LOGIN_TOKEN`.
+   2. Give every other application a login setting: open each one (the
+      admin console's `admin` in the `WeldSuite Staff` organisation, and
+      Zitadel's own "Management Console" in the default organisation's
+      ZITADEL project), tick "Use new Login UI", leave "Custom base URL for
+      the new Login UI" empty, and save. They keep Zitadel's pages under
+      `/ui/v2/login`. An application left without the setting falls back to
+      the old Login V1 at step 4.
+   3. Application `platform`: tick "Use new Login UI" and set "Custom base
+      URL for the new Login UI" to `https://app.<domain>/auth`. Nothing
+      changes yet: the instance feature "Login V2" is *Enabled* (required)
+      on a new v4 instance, which sends every application to Zitadel's own
+      pages whatever it asks for.
+   4. The switch: Default settings → Features → "Login V2" → *Disabled*
+      (or `PUT /v2/features/instance` with `{"loginV2": {"required":
+      false}}`). Applications now use their own setting, and Zitadel sends
+      the platform's sign-in to
+      `https://app.<domain>/auth/login?authRequest=…`.
+   5. Check: open `https://app.<domain>` signed out. The WeldSuite sign-in
+      shows; signing in lands in the workspace; switching workspace asks for
+      no password; signing out and opening the platform again shows the
+      sign-in. `https://auth.<domain>/ui/console` still signs in under
+      `/ui/v2/login`. To go back, set "Login V2" to *Enabled* again.
+
+   What these screens do themselves: email and password, a second factor by
+   authenticator app or emailed code, sign-up with a verified address, and a
+   forgotten password. For anything else (a passkey, a security key, a code
+   by SMS, a forced password change, setting up a second factor the policy
+   demands) they hand that one sign-in to Zitadel's page, which is why the
+   `login` ingress stays. Invitations open the platform too: the link goes
+   to `https://app.<domain>/invite`, where the invitee chooses a password on
+   WeldSuite's "Complete your account" screen and is signed straight in
+   (`config.identity.zitadel.inviteUrlTemplate`, when set, overrides that
+   link). The emails for verifying an address and resetting a password link
+   to the platform as well (`PLATFORM_URL`). The server counts attempts in Valkey; Zitadel's lockout
+   policy (Default settings → Lockout) applies on top when it is set.
+
+The server sends those emails itself (sign-up codes, password resets,
+invitations, emailed second factors) in WeldSuite's templates, through the
+MTA's `system` pool (`SMTP_URL`): Zitadel hands it each code instead of
+mailing it (ADR SEC-017). Without `SMTP_URL` or `PLATFORM_URL` Zitadel sends
+its own, through an SMTP provider you give it once the MTA runs, which it also
+uses for its own pages: "Mail", "Zitadel's own mail". With neither, sign-up
+stops at the code.
 
 A workspace is a Zitadel organisation: its id is what `workspaces.clerk_org_id`
 holds, where Global keeps the Clerk org id, and the server looks a session's
@@ -258,9 +462,68 @@ The server fetches Zitadel's discovery document and keys from
 that way, set `config.auth.oidc.jwksUrl` to a URL they can; Zitadel picks its
 instance by host name, so an in-cluster URL needs that host.
 
+## WeldID instead of Zitadel
+
+WeldID, WeldSuite's own OpenID Connect provider (ADR SEC-019), takes
+Zitadel's place at `auth.<domain>`: step 7 and Zitadel's parts of "Staff
+work" and "Monitoring" then fall away. Opt-in, in two layers a cluster
+lists: `flux/clusters/example/weldid.yaml` (WeldID next to Zitadel, in the
+cluster only) and `weldid-switch.yaml` (sign-in moves to it). Details, and
+what each piece is: `flux/infrastructure/weldid/README.md`.
+
+1. **Settings** in `cluster-settings.yaml`: `WELDID_VERSION` (the chart,
+   `oci://ghcr.io/weldsuite/charts/weldid`), `WELDID_RP_ID`, and
+   `WELDID_BACKEND_KEY_X` / `_Y` from step 2.
+2. **Secrets.** In `rust/deploy/flux`, `node scripts/fill-secrets.mjs --weldid
+   --main secrets/<cluster>/secrets.sops.yaml secrets/<cluster>/weldid/weldid.sops.yaml`
+   (with `SOPS_AGE_KEY_FILE`) generates the database password,
+   `WELDID_MASTER_KEY` and the server's admin API key, copies what WeldID
+   shares with the platform (the MTA's system pool, Valkey, the admin
+   console's and Grafana's client secrets, the backup keys, the registry
+   login), and prints the key's public half for step 1. Encrypt the file,
+   list it in `secrets/<cluster>/weldid/kustomization.yaml`, and put
+   `WELDID_MASTER_KEY` in the password manager: without it a restored
+   `weldid-db` has no usable signing key.
+3. **Image pull.** `ghcr.io/weldsuite/weldid` and its chart stay private
+   until WeldID 1.0, so the cluster pulls both with the Secret
+   `weldid/registry`: a classic GitHub token with `read:packages` of an
+   account that may read the two packages (on GitHub, each package's
+   "Manage access"), as `printf '%s:%s' <user> <token> | base64` in its
+   `auth`. Step 2 copies `weldsuite/registry`'s login, or takes
+   `GHCR_USER` and `GHCR_TOKEN`. The alternative is making both packages
+   public, then deleting that Secret and the `secretRef` in
+   `flux/infrastructure/weldid/source.yaml`.
+4. **The passkey RP ID.** `WELDID_RP_ID` binds every passkey ever made
+   on the cluster: set it once, before WeldID's first start, to the
+   cluster's domain (a parent of `auth.<domain>`), and never change it.
+   Changing it breaks every passkey of every user, with no way back.
+
+The cut-over on EU test, in this order (production keeps Zitadel until
+WeldID 1.0):
+
+1. **WeldID next to Zitadel.** Steps 1-4, then list `weldid.yaml` in the
+   cluster's `kustomization.yaml`. WeldID, `weldid-db` and its certificate
+   for `auth.<domain>` come up; Zitadel keeps the host. Check `/readyz` and
+   the discovery document through a port-forward, and add the staff
+   (`weldid admin staff add`, the layer's README, step 5).
+2. **Switch the app.** `ADMIN_OIDC_CLIENT_ID: weldsuite-admin` in
+   `weldsuite-env`, the staff roster unbound from its Zitadel accounts
+   (`admin_users.console_subject`, the layer's README, "Switching"),
+   `AUTH_PROBE_PATH: /.well-known/openid-configuration` in
+   the settings, and `weldid-switch.yaml` listed: WeldID's Ingress goes on
+   and Zitadel's off, and the platform, the mobile apps, the admin console
+   and Grafana sign in through WeldID. Unlisting it goes back.
+3. **Wipe the test accounts.** Zitadel's accounts are test accounts and are
+   not migrated (SEC-019): its users, and the workspaces and memberships
+   made under them, have no WeldID account to sign in with. Delete them
+   (the test cluster's runbook), and let testers sign up afresh.
+4. **Remove Zitadel** from EU test: its release, values, `zitadel-db` and
+   backups, Secrets, namespace and settings (the layer's README,
+   "Switching", step 6).
+
 ## Sign-up and the first workspace
 
-With `TENANT_SHARDS` and `ZITADEL_*` in `weldsuite-env` (secrets example),
+With `TENANT_SHARDS` and `ZITADEL_*` in `weldsuite-env` (`flux/secrets`),
 the server serves `/api/onboarding` and runs the provisioning job; the
 `identity-sync` CronJob (every minute), `workspace-deletion` (daily) and
 `workspace-teardown` (hourly) run with the same environment. What happens,
@@ -306,8 +569,8 @@ empty):
 
 ```bash
 A="kubectl -n weldsuite exec deploy/weldsuite -- weldsuite admin"
-$A staff add you@weldsuite.org --role superadmin --name "Your Name" --reason "first superadmin"
-$A staff add colleague@weldsuite.org --role admin --as you@weldsuite.org --reason "support"
+$A staff add you@example.com --role superadmin --name "Your Name" --reason "first superadmin"
+$A staff add colleague@example.com --role admin --as you@example.com --reason "support"
 ```
 
 Then, for example, WeldReach's access requests (REACH-003; the module answers
@@ -316,16 +579,16 @@ Then, for example, WeldReach's access requests (REACH-003; the module answers
 ```bash
 $A access list --status requested
 $A access show <workspace>               # id, slug or organization id
-$A access approve <workspace> --as you@weldsuite.org --reason "B2B, own customer list"
-$A access limits <workspace> --max-mailboxes 20 --as you@weldsuite.org --reason "launch"
-$A access suspend <workspace> --as you@weldsuite.org --reason "complaints"
+$A access approve <workspace> --as you@example.com --reason "B2B, own customer list"
+$A access limits <workspace> --max-mailboxes 20 --as you@example.com --reason "launch"
+$A access suspend <workspace> --as you@example.com --reason "complaints"
 ```
 
 Every change is a row in `admin_audit_events`. Approval installs WeldReach in
 the workspace and emails the requester through `SMTP_URL`, with links to
 `PLATFORM_URL` (set in `flux/apps/eu/values/weldsuite.yaml`); without SMTP the
 command warns and you tell them yourself. Feature flags (`feature_flag_overrides`)
-and plan rows (TEST-CLUSTER.md, "Prices") are the console's **Feature flags**
+and plan rows (`plans`) are the console's **Feature flags**
 and **Plans** pages; the staff list is its **Staff** page too, for
 superadmins.
 
@@ -340,27 +603,44 @@ lets nobody in until these are done, once per cluster:
    code flow, authentication method Basic (a client secret), redirect URI
    `https://admin.<domain>/auth/callback`, post-logout URI
    `https://admin.<domain>/sign-in?signed_out=1`. Keep its client id and
-   secret.
+   secret, and the organization's id (its **Organization** page), which is
+   `ZITADEL_STAFF_ORG_ID` (step 4).
 2. **Secrets.** `ADMIN_OIDC_CLIENT_ID` and `ADMIN_OIDC_CLIENT_SECRET` from that
-   app, plus a generated `ADMIN_SESSION_SECRET` and `OUTBOUND_ADMIN_SECRET`, in
-   `weldsuite-env`:
+   app in the store's `weldsuite/server`, next to the generated
+   `ADMIN_SESSION_SECRET` and `OUTBOUND_ADMIN_SECRET`; `weldsuite-env` takes
+   them from there (step 4, "A value changed later"):
 
    ```bash
-   ADMIN_OIDC_CLIENT_ID=… ADMIN_OIDC_CLIENT_SECRET=… SOPS_AGE_KEY_FILE=~/<cluster>.agekey \
-     node rust/deploy/flux/scripts/fill-secrets.mjs --update rust/deploy/flux/secrets/<cluster>/secrets.sops.yaml
+   ADMIN_OIDC_CLIENT_ID=… ADMIN_OIDC_CLIENT_SECRET=… SECRET_STORE_URL=… SECRET_STORE_TOKEN=… \
+     node rust/deploy/flux/scripts/seed-secrets.mjs
    ```
 
 3. **Who may reach it.** `ADMIN_CIDRS` in `flux/clusters/<cluster>/cluster-settings.yaml`:
    the staff's addresses as an unquoted YAML list (`[203.0.113.7/32]`). The
    default, `[127.0.0.1/32]`, refuses everyone; Traefik checks it with the
    client's own address, which the load balancer passes on (PROXY protocol).
-4. **DNS.** `admin.` is in `tofu output dns_records`.
+4. **Whose accounts.** `ZITADEL_STAFF_ORG_ID` in the same file (Grafana's
+   too): the `WeldSuite Staff` organization's id from step 1, quoted. The
+   console asks Zitadel to sign in only that organization's accounts, and
+   lets in only accounts its `urn:zitadel:iam:user:resourceowner:id` claim
+   says are in it; empty, its sign-in answers 503.
+5. **DNS.** `admin.` is in `tofu output dns_records`.
 
-A person on the staff list then signs in with their Zitadel account. Their row
-matches the account (`user_id`, which `staff add` fills when they also use the
-platform) or, the first time, their verified email, and is then bound to that
-account. `staff remove`, or `staff add` again with another `--role`, takes
-effect on their next click.
+A person on the staff list then signs in with their `WeldSuite Staff` account,
+not their platform account, even where both have the same email (ADR SEC-018).
+The console matches the account against the row's `console_subject`, or, the
+first time, on its verified email, and then binds the row to that account, so
+from then on only that account gets in. `staff add` never fills
+`console_subject`: it fills `user_id` with the person's platform account (one
+with that email that is in a workspace), which the WeldApps review gate
+matches, and running it again picks up an account they made since. `staff
+list` shows both. `staff remove`, or `staff add` again with another `--role`,
+takes effect on their next click.
+
+A row the console bound before SEC-018 has the staff account in `user_id`.
+After the upgrade the first console sign-in binds `console_subject`; then run
+`staff add` for the person once more (same `--role`) to put their platform
+account in `user_id`.
 
 ## 8. The master database schema
 
@@ -385,47 +665,29 @@ environment (the image has no shell):
 
 ## Releases
 
-Production runs a release, never a develop build. A release is a develop
-build the test cluster ([TEST-CLUSTER.md](TEST-CLUSTER.md)) already ran,
-promoted unchanged: the same image digests under a version tag, and the chart
-of the same commit.
+A cluster runs a release, never a development build. (WeldSuite's own EU
+production is the exception: it follows the main builds its test cluster ran,
+ADR OPS-020.) WeldSuite cuts a release with the "Rust release" workflow (`.github/workflows/rust-release.yml`)
+from a build its own test cluster already ran, promoted unchanged: the four
+images under the version tag (`ghcr.io/weldsuite/weldsuite:X.Y.Z`, `-sign-portal`,
+`-collab-rooms`, `-haraka`; the same digests as the build), the chart of the
+same commit as `oci://ghcr.io/weldsuite/releases/weldsuite` X.Y.Z (its
+appVersion names those images), and the tag `weldsuite-vX.Y.Z` on that
+commit. A release is never replaced: a fix is the next version.
 
-1. **Pick the build.** The test cluster runs the newest develop build; its
-   tag (`sha-<12 characters>`) is in the "Rust images" run's summary, or
-   `kubectl -n weldsuite get deploy weldsuite -o jsonpath='{..image}'` on the
-   test cluster. Try what the customers use there first.
-2. **Release it** with the "Rust release" workflow
-   (`.github/workflows/rust-release.yml`), the build and the next version:
-
-   ```bash
-   gh workflow run rust-release.yml -f build=sha-0123456789ab -f version=0.2.0
-   ```
-
-   It checks that the commit is on `develop`, that its `Rust` check didn't
-   fail, and that the version is newer than the last release; copies the
-   four images to `:0.2.0` (same digests, nothing rebuilt); publishes the
-   chart as `oci://ghcr.io/weldsuite/releases/weldsuite` 0.2.0, whose
-   appVersion names those images; and tags the commit `weldsuite-v0.2.0`,
-   last. A release is never replaced: a fix is the next version. The first
-   release creates the chart package `releases/weldsuite` as private: make
-   it public in its package settings on GitHub, as the test cluster's
-   packages were.
-3. **Deploy it.** Set `WELDSUITE_VERSION: "0.2.0"` in
-   `rust/deploy/flux/clusters/eu/cluster-settings.yaml` and in
-   `clusters/drill/cluster-settings.yaml` (`validate.sh` fails when they
-   differ), in a pull request to `develop`. Production takes it when it
-   reaches `main`, with the next merge of `develop` into `main`, which also
-   deploys Global. Flux runs the release's migration Job first, then rolls
-   the pods (step 8): `flux get helmreleases -A`.
-4. **Roll back** by putting the previous version back the same way. Its
+1. **Take the release's base layers.** Merge the tag `weldsuite-vX.Y.Z` into
+   your copy's branch, so the layers and `apps/eu/values/weldsuite.yaml`
+   are the ones the release was tested with.
+2. **Deploy it.** Set `WELDSUITE_VERSION: "X.Y.Z"` in your cluster's
+   `cluster-settings.yaml` and push. Flux runs the release's migration Job
+   first, then rolls the pods (step 8): `flux get helmreleases -A`.
+3. **Roll back** by putting the previous version back the same way. Its
    migrations stay applied, so the older release runs on the newer schema:
    check that the release's migrations only add before rolling back.
 
-The rest of the configuration (`apps/eu/values/weldsuite.yaml`, the layers,
-the secrets) comes from `main`, not from the release. The chart ignores
-values it doesn't know, so a value for a newer release can land before it;
-but don't remove or rename a value until production runs a release that no
-longer reads it.
+The chart ignores values it doesn't know, so a value for a newer release can
+land before it; but don't remove or rename a value until the cluster runs a
+release that no longer reads it.
 
 ## Tenant databases
 
@@ -469,7 +731,11 @@ Cloudflare RealtimeKit (rust/README.md, "WeldMeet on LiveKit").
   (two, one per location), on the host network, sharing those nodes with
   the weldsuite server. Rooms are routed between the two through Valkey
   (database 1). Each pod requests half a CPU and has no CPU limit, because
-  throttling breaks up audio.
+  throttling breaks up audio. A cluster without general workers
+  (`worker_count = 0`, where the control planes take the workloads) runs it
+  on two control-plane nodes instead: `livekit_control_planes = ["cp-1",
+  "cp-2"]`. They then share the node with etcd and the Kubernetes API too;
+  move LiveKit to workers of its own before calls get busy.
 - **What comes in where:**
 
   | Traffic | Path |
@@ -485,10 +751,21 @@ Cloudflare RealtimeKit (rust/README.md, "WeldMeet on LiveKit").
   never asks Google's or Twilio's STUN servers). After the first start,
   check that `kubectl -n livekit logs deploy/livekit | grep -i nodeIP` shows
   the node's public IPv4 (`tofu output nodes`), not a `10.10.x.x` address.
-- **A cluster built before this** gets the firewall from `tofu apply`, but
-  not the label: it lives in the machine config, which OpenTofu doesn't push
-  (step 3). Label the two workers once with
-  `kubectl label node weldsuite-eu-worker-1 weldsuite-eu-worker-2 node.weldsuite.org/livekit=true`.
+- **A cluster built before this**, or nodes added to `livekit_control_planes`
+  later, get the firewall from `tofu apply`, but not the label: it lives in
+  the machine config, which OpenTofu doesn't push (step 3). Patch it into
+  each running node's config, which needs no reboot:
+
+  ```bash
+  cat > livekit-label.yaml <<'EOF'
+  apiVersion: v1alpha1
+  kind: KubeNodeConfig
+  labels:
+    node.weldsuite.org/livekit: "true"
+  EOF
+  talosctl -n <private address> patch machineconfig --mode=no-reboot --patch @livekit-label.yaml
+  ```
+
   New servers get the label from their machine config.
 - **Check it** with a call between two people on different networks, then
   one from a network that only allows 443 out (TURN over TLS). Before relying
@@ -508,10 +785,173 @@ Cloudflare RealtimeKit (rust/README.md, "WeldMeet on LiveKit").
   LiveKit Egress, at about 4 CPUs per concurrent recording, so it doesn't
   belong on these shared nodes.
 
+## AI (Mistral)
+
+Every AI feature of the EU edition runs on Mistral, in the EU (ADR AI-012,
+`weldsuite-documentation/plans/eu-ai-mistral.md`; rust/README.md, "AI"). The app's values set
+`config.ai` (Mistral as the install provider, Claude and ChatGPT offered to
+workspaces with their own key, the credit gate on); the search index embeds
+through it with `mistral-embed`, metered as `search-index` (so
+`consume.embeddings`, for installs without AI, stays unset).
+
+- **Keys** (`weldsuite-env`): `MISTRAL_API_KEY`, from the EU edition's
+  account on Mistral's La Plateforme (zero data retention, the rate-limit
+  tier it was granted); `AI_KEYS_ENCRYPTION_KEY`, 64 hex characters. The
+  server, `consume` and the cron jobs don't start without them. A running
+  cluster adds them with
+
+  ```bash
+  MISTRAL_API_KEY=… SOPS_AGE_KEY_FILE=~/<cluster>.agekey \
+    node rust/deploy/flux/scripts/fill-secrets.mjs --update rust/deploy/flux/secrets/<cluster>/secrets.sops.yaml
+  ```
+
+  (it generates `AI_KEYS_ENCRYPTION_KEY`), before Flux applies a release
+  with `config.ai` set.
+- **WeldSuite's own Claude and ChatGPT accounts**, once opened for the EU
+  edition: add `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` to `weldsuite-env`,
+  then set `weldsuiteKey: true` for that provider under `config.ai.optIn`.
+  The other order stops the server: an opt-in with WeldSuite's key needs the
+  key.
+- **Check it**: `kubectl -n weldsuite exec deploy/weldsuite -- weldsuite doctor`
+  lists each key the install holds (a model list, free) and asks the default
+  chat models for one token each; `--no-model-calls` skips that.
+  `/config.json` names the providers under `ai`.
+- **Credits**: every call on WeldSuite's key is charged to the workspace's
+  credit wallet and written to the ops ledger (`ai_provider_usage`); with
+  `creditGate: true` a workspace with an empty wallet gets 402 until it tops
+  up.
+
+## Agent sandbox
+
+WeldAgent's code execution, web search and fetch, browser and computer use
+run on this cluster (ADR AI-012 phase 5, `weldsuite-documentation/plans/eu-ai-mistral.md`, "The
+EU sandbox"; rust/README.md, "WeldAgent's sandbox"). The EU values turn on the
+chart's `sandbox` and `searxng`: the server starts one gVisor pod per agent
+conversation in `weldsuite-sandbox`, behind a default-deny NetworkPolicy
+(public internet on 80/443 only), and asks SearXNG for web searches.
+
+**The server hands out no sandbox until the cluster isolates it.** Before the
+first one (and hourly), a new sandbox tries to reach the metadata service and
+the Kubernetes API; if either answers, it is deleted, the agents get "the
+sandbox is switched off", and the server logs `isolation check failed`. Do
+these first:
+
+1. **gVisor on the nodes.** The image from step 1 carries the
+   `siderolabs/gvisor` extension. Nodes installed from an older image need
+   the new one, one node at a time:
+
+   ```bash
+   HCLOUD_TOKEN=… rust/deploy/hetzner/scripts/upload-talos-image.sh   # prints the schematic id
+   talosctl -n <node> upgrade --image factory.talos.dev/installer/<schematic>:v1.14.3 --preserve
+   talosctl -n <node> get extensions          # lists gvisor
+   kubectl get runtimeclass gvisor            # the chart creates it (handler runsc)
+   ```
+
+   A node without it can't start sandbox pods (they stay Pending: "no
+   runtime for gvisor"). To keep sandboxes off the database and mail nodes,
+   give them a pool of their own and set `sandbox.nodeSelector` and
+   `sandbox.tolerations`.
+2. **A CNI that enforces NetworkPolicy.** Talos' default, Flannel, routes pod
+   traffic but ignores NetworkPolicy, so without more every pod can reach
+   every other pod, the Kubernetes API and the **Hetzner metadata service,
+   which serves each server's user data: the Talos machine configuration,
+   secrets included**. The opt-in `network-policy` layer
+   (`flux/infrastructure/network-policy`, `flux/clusters/example/network-policy.yaml`)
+   fixes that and leaves Flannel alone: kube-router's network policy
+   controller and nothing else of kube-router on every node
+   (`--run-firewall=true --run-router=false --run-service-proxy=false
+   --enable-cni=false`, the pairing k3s ships), and in every namespace the
+   base layers run pods in a policy that lets pods reach anything but
+   `169.254.169.254` (`metadata-service.yaml` says which and why). Each
+   policy goes with the layer that makes its namespace: WeldID's is in the
+   `weldid` layer and Zitadel's in Zitadel's own release, so a cluster
+   without either has nothing to apply in a namespace it lacks. The other
+   way, Cilium instead of Flannel (`cluster.network.cni.name: none` in the
+   Talos config), takes a maintenance window in which every pod restarts.
+
+   From then on **every** NetworkPolicy in the cluster is enforced:
+
+   - the new ones, egress only (nothing that reaches a pod changes);
+   - Flux's own three in `flux-system`, which `flux install` makes: Flux's
+     controllers then take connections only from `flux-system`, plus
+     metrics on 8080 and webhooks on 9292 from any pod. Prometheus scrapes
+     8080; nothing else calls them;
+   - the weldsuite chart's, where they are on: the sandbox's default-deny
+     (the point: it's what makes `sandbox isolation` pass), SearXNG's, and
+     `networkPolicy.enabled` (off in the EU values; check its `*From` lists
+     on the test cluster before turning it on). WeldID's chart keeps its
+     `networkPolicy` off. No other chart in the base layers renders one.
+
+   Still open after it: hostNetwork pods (LiveKit, the MTA, Fluent Bit, the
+   node exporter, Flannel, kube-proxy, kube-router itself) use the node's
+   network, which no NetworkPolicy restricts, so they can still reach the
+   metadata service; so can `flux-system`, whose `allow-egress` allows all
+   egress, and any namespace you add until it gets a copy of the policy.
+
+   **Rollout**: the test cluster first, a day of normal use, then production.
+
+   1. List `network-policy.yaml` in the cluster's `kustomization.yaml`.
+      `flux get kustomizations network-policy` turns ready once kube-router
+      runs on every node: `kubectl -n kube-system get ds kube-router`, and
+      `kubectl -n kube-system logs -l app.kubernetes.io/name=kube-router`
+      without errors.
+   2. A throwaway pod can't reach the metadata service, and still reaches
+      DNS, other namespaces and the outside:
+
+      ```bash
+      kubectl -n default run np-check --rm -it --restart=Never --image=busybox:1.37.0 -- sh -c '
+        wget -q -T 5 -O- http://169.254.169.254/hetzner/v1/metadata/hostname; echo "metadata: $?";
+        wget -q -T 5 -O- http://kube-prometheus-stack-prometheus.monitoring.svc:9090/-/ready; echo " prometheus: $?";
+        wget -q -T 5 -O /dev/null http://example.com; echo "outside: $?"'
+      ```
+
+      `metadata` must fail at once ("Connection refused": kube-router
+      rejects), the other two print 0. Before the layer, the first prints
+      the node's name.
+   3. `kubectl -n weldsuite exec deploy/weldsuite -- weldsuite doctor
+      --no-model-calls` (step 5 below): with the sandbox on, `sandbox
+      isolation` passes.
+   4. Nothing else changed: Flux reconciles (`flux get all -A`), and
+      Alertmanager stays quiet (no `EndpointDown`, `CoreWorkloadDown`,
+      `KubePodCrashLooping` for kube-router).
+
+   **Taking it out**: remove the layer. Flux deletes kube-router and the
+   policies, but the rules kube-router wrote stay in each node's netfilter
+   tables, enforcing what was there, until the node reboots (`talosctl -n
+   <node> reboot`, one node at a time).
+3. **The token secret.** `SANDBOX_TOKEN_SECRET` in `weldsuite-env`, the same
+   on every replica: `fill-secrets.mjs --update` generates it.
+4. **The nodes' public addresses** in `sandbox.deniedCidrs` (`tofu output`):
+   a pod reaches its own node's host ports on them (node-exporter, the
+   kubelet), which the private ranges don't cover.
+5. **Check it:**
+
+   ```bash
+   kubectl -n weldsuite exec deploy/weldsuite -- weldsuite doctor --no-model-calls
+   ```
+
+   `sandbox` (the API and the Role answer), `web search` (SearXNG answers) and
+   `sandbox isolation` (a throwaway sandbox reaches neither the metadata
+   service nor the API) must pass. `kubectl -n weldsuite-sandbox get pods`
+   lists the sandboxes; `weldsuite cron sandbox-cleanup` (every 5 minutes)
+   deletes the finished ones.
+
+**Web search.** SearXNG keeps no query log (debug and metrics off; the server
+posts the query, so it shows in no access line) and is reachable from the
+server's pods only. The query itself goes to the engines in
+`searxng.engines` (Qwant, Startpage, Mojeek, Wikipedia by default), each a
+company outside WeldSuite; Startpage passes it on to Google without the user,
+Wikipedia is in the US. Add or remove engines there. Update the image pins
+(`searxng.image.tag`, two weeks old at least) as SearXNG's engines change.
+
+**Computer use** (the desktop) is offered only to a Claude or GPT-5 model the
+workspace enabled outside the EU; on Mistral it's hidden. Screenshots of the
+sandbox's desktop then go to that provider with the conversation.
+
 ## Mail
 
 The EU edition sends and receives its own mail (plan:
-`docs/plans/eu-mail-service.md`; ADRs MAIL-010 and MAIL-011). No relay, no
+`weldsuite-documentation/plans/eu-mail-service.md`; ADRs MAIL-010 and MAIL-011). No relay, no
 mail provider:
 
 | Path | What | Where |
@@ -526,7 +966,11 @@ migrates at start. It runs in its own namespace, `weldsuite-mail` (Pod
 Security `privileged`: the host network), with its keys in the
 `weldsuite-mta` Secret there; the server reads the API secret and the
 submission passwords from `weldsuite/weldsuite-mta-client`. Its delivery
-events reach `weldsuite consume` over NATS (`mail.sending-events`).
+events reach `weldsuite consume` over NATS (`mail.sending-events`), with
+`NATS_URL` and `NATS_TOKEN` in `weldsuite-mta` too (the MTA can't read
+`weldsuite-env`); without them they stay in its outbox (`pendingEvents` in
+`$M queue`). On a running cluster: `fill-secrets.mjs --update --only
+weldsuite-mail/weldsuite-mta` copies them from `weldsuite-env`.
 
 Nothing below is optional: a new address that sends without its DNS in
 place, or too much on its first days, lands in spam folders for weeks.
@@ -572,6 +1016,33 @@ The MTA's EHLO is that PTR name. More nodes for a pool (`count`) is another
 `tofu apply`; the chart's DaemonSet starts on them, and their addresses join
 `_spf.<domain>` (`tofu output mail_dns_records` again) **before** they send.
 
+**Or on nodes the cluster already has.** `mail_pool_nodes` puts a pool on an
+existing node instead of a server of its own (`{ system = "worker-1",
+customer = "worker-2" }`): the node sends from its own IPv4, which gets the
+PTR `mail1-<pool>.<domain>`, and gets the mail firewall and the
+`weldsuite.org/mail-pool` label, but not the taint, so its other workloads
+stay. Only nodes without a taint qualify, as the MTA's DaemonSet tolerates
+the mail taint alone: general workers, or control-plane nodes on a cluster
+without general workers (`worker_count = 0`, where they take the workloads
+and have no taint), never the Postgres nodes. A plan with a tainted node
+stops with an error. No extra server or address; the costs are that the pool's address is
+the node's (a replaced node comes back with a new address and warms up
+again) and that everything else on the node leaves through it too. The
+node's machine config gains the label and the port 25 setting; on a running
+node apply them with `talosctl patch machineconfig` (OpenTofu ignores
+`user_data` after creation):
+
+```yaml
+machine:
+  sysctls:
+    net.ipv4.ip_unprivileged_port_start: "25"
+---
+apiVersion: v1alpha1
+kind: KubeNodeConfig
+labels:
+  weldsuite.org/mail-pool: system
+```
+
 ### 3. DNS
 
 With `<domain>` the EU domain, `bounces.<domain>` the bounce domain
@@ -606,6 +1077,27 @@ routes, `MTA_API_URL`) for the `customer` pool; their DNS needs that DKIM
 record and `include:_spf.<domain>` in their SPF. Until a domain has a key
 the pool can use, submission refuses its mail (`550 5.7.1`).
 
+**Free addresses** (`config.mail.freeAddressDomain`, `weldmail.eu` on the EU
+edition; ADR MAIL-012) are `<name>@<workspace slug>.<free domain>`. Register
+the free domain once for the `customer` pool; the MTA signs every workspace
+subdomain with its key (`d=<free domain>`, which DMARC's relaxed alignment
+accepts), so a new workspace needs no DNS of its own:
+
+```bash
+M="kubectl -n weldsuite-mail exec ds/weldsuite-mta-customer -- weldsuite mta"
+$M domains add <free domain> --pool customer   # prints the TXT record to publish
+```
+
+| Name | Type | Value |
+|---|---|---|
+| `*.<free domain>` | MX | `10 mx.<domain>` |
+| `*.<free domain>` | TXT | `v=spf1 include:_spf.<domain> -all` |
+| `<selector>._domainkey.<free domain>` | TXT | what `weldsuite mta domains add` printed |
+| `_dmarc.<free domain>` | TXT | `v=DMARC1; p=none; sp=none; rua=mailto:<an address you read>`, tightened as for the system domain |
+
+Never `weldmail.com` or `weldmail.org`: they are Global's, and the server
+refuses to start with them.
+
 Check with a message to a Gmail and an Outlook address ("Show original":
 SPF, DKIM and DMARC `pass`, the PTR name in the first `Received`) and with
 mail-tester.com.
@@ -613,11 +1105,34 @@ mail-tester.com.
 ### 4. Warm-up
 
 Receivers trust an address by its history, and a new one has none. The MTA
-caps each address's deliveries per day (`MTA_WARMUP_SCHEDULE`, default 50,
-100, 200, 400, 800, 1,500, 3,000, 6,000, 12,000, 25,000, 50,000 on days 1 to
-11, unlimited after); what is over the cap waits in the queue, it is not
-lost, but it still bounces after `mta.maxQueueAge` (5 days). So:
+caps each address's deliveries per UTC day and raises the cap one step at a
+time (`mta.warmupSchedule`, `MTA_WARMUP_SCHEDULE`: by default 50, 100, 200,
+400, 800, 1,500, 3,000, 6,000, 12,000, 25,000, 50,000, then no cap).
 
+**An address moves up a step only after a day on which it sent at least
+half of that step's cap** (`mta.warmupAdvancePercent`, 50). A quiet day, or
+a day without mail, keeps it where it is, and no day moves it more than one
+step. So an address that sends a few messages a day stays at 50 a day
+however long it has existed, and one with a backlog moves up a step a day
+(no cap after eleven full days). The step is worked out from the address's
+daily counts of the last 60 days: one that goes quiet for two months comes
+back down to what its recent days earn. What is over the cap waits in the
+queue for the next UTC day; it is not lost, and holding it is not a
+delivery attempt. So:
+
+- `$M warmup` shows each address's step, today's cap, what it sent today and
+  what it takes to advance. The MTA logs `warm-up step advanced` on the
+  first send of a day that starts a new step, and `today reached the advance
+  share` when a day has earned the next one.
+- **Time-critical mail.** Sign-in codes, password resets and invitations
+  (the server's, WeldID's and Zitadel's) all go through the `system` pool,
+  and a code the cap holds until tomorrow is no use. While the `system`
+  address's daily volume can pass its cap, set `mta.warmupSoftPools:
+  [system]`: that pool's mail then goes out over the cap, logged once a day
+  (`warm-up cap passed`) and counted in
+  `weldsuite_mta_warmup_capped_total{decision="sent"}` (held mail is
+  `decision="held"`). Those sends count as the address's volume, so it still
+  moves up a step a day. Keep `customer` strict.
 - Send the platform's own mail (the `system` pool) first; move customer
   mail over as the `customer` addresses warm up. Expect some deferrals
   (421/451 from Microsoft and Yahoo) the first week: the MTA retries.
@@ -625,9 +1140,11 @@ lost, but it still bounces after `mta.maxQueueAge` (5 days). So:
   mail above 0.3%) and hard bounces low: the MTA suppresses a hard-bounced
   recipient per pool for `mta.suppressDays` (30).
 - Watch the queue: `$M queue` (counts by pool and status). A growing
-  `deferred` count on day one is the cap, not a fault.
-- A new address (a node added, a primary IP replaced) starts again at day
-  one. An address with history can skip it: `mta.warmupSchedule: "off"`.
+  `queued` count with `$M warmup` showing the cap reached is the cap, not a
+  fault.
+- A new address (a node added, a primary IP replaced) starts again at the
+  first step. An address with history can skip it: `mta.warmupSchedule:
+  "off"`.
 
 ### 5. Postmaster tools and feedback loops
 
@@ -662,6 +1179,50 @@ update its A record and `_spf.<domain>`. Spamhaus refuses lookups through
 public resolvers (the nodes use Quad9), so check from its website, not with
 `dig` on a node.
 
+### Zitadel's own mail
+
+The server sends the platform's sign-up codes, password resets, invitations
+and emailed second factors in WeldSuite's templates through `SMTP_URL`, once
+`PLATFORM_URL` is set too: Zitadel hands it the codes (ADR SEC-017). Zitadel
+still mails what its own pages send (its console, the `WeldSuite Staff`
+login, a passkey or SMS step the platform hands to its page), and everything
+when the server has no `SMTP_URL`. Without an active SMTP provider it logs
+`Errors.SMTPConfig.NotFound` and sends nothing. Give it the MTA's `system`
+pool once the system domain has its key (step 3): in the console, Default
+settings → SMTP provider → Generic SMTP.
+
+| Field | Value |
+|---|---|
+| Host and port | `weldsuite-mta.weldsuite-mail.svc.cluster.local:587`, the submission Service |
+| TLS | off: submission has no STARTTLS unless `mta.submission.tls` is on, and the connection stays in the cluster |
+| User | `system` |
+| Password | `MTA_SUBMISSION_PASSWORD_SYSTEM` from the Secret `weldsuite-mail/weldsuite-mta` |
+| Sender | the platform's sender (`config.mail.from`, e.g. `notifications@mail.<domain>`): the MTA refuses a sender whose domain has no key for the pool (`550 5.7.1`) |
+
+Then **Test** with an address of your own and **Activate**. The admin API
+does the same with an `IAM_OWNER` token: the chart's machine user
+`iam-admin`, whose PAT Zitadel's first start writes to the Secret
+`zitadel/iam-admin-pat` (the chart's default
+`FirstInstance.Org.Machine`), or the service user's from step 7.5
+(`ZITADEL_SERVICE_TOKEN` in `weldsuite-env`). `POST /admin/v1/email/smtp` with
+`senderAddress`, `senderName`, `tls`, `host`, `user` and `password`, then
+`POST /admin/v1/email/smtp/_test` with the same settings, `id` and
+`receiverAddress`, and `POST /admin/v1/email/<id>/_activate`. (Zitadel v4.19
+answers `/admin/v1/email/smtp/<id>/_test` with "not implemented".)
+
+Zitadel keeps the provider and its copy of the password in its own database,
+not in the chart's values: set it again after rotating
+`MTA_SUBMISSION_PASSWORD_SYSTEM`, with `PUT /admin/v1/email/smtp/<id>/password`
+(or the console's password field alone). Don't send the password in the same
+update as the other settings: v4.19's projection then sets the column twice
+("multiple assignments to same column password") and holds back every later
+change, the activation included, until it gives up on that event after five
+failures. Both senders' mail counts against the system
+address's warm-up cap (step 4), and a code that waits a day in the queue is
+no use: make `system` a soft pool while its volume can pass the cap (step
+4, "Time-critical mail"), and don't send a large batch of invitations in the
+first week.
+
 ### Inbound: Haraka
 
 `mx_node_port = 30025` in `terraform.tfvars` makes the ingress load balancer
@@ -672,19 +1233,367 @@ certificate through Traefik. It needs the mail bucket
 `MAIL_INBOUND_SECRET` in `weldsuite-env`. A WeldMail domain's MX is
 `mx.<domain>`.
 
+## WeldHost DNS
+
+WeldHost keeps its customers' zones in Hetzner's Cloud DNS (ADR HOST-008)
+when `config.host.dnsProvider` is `hetzner`. Customers point their domains at
+branded nameservers, `ns1.weldhost.com` to `ns3.weldhost.com`, which are glue
+for Hetzner's three nameservers. Without these settings WeldHost uses
+Cloudflare, as Global does, and needs `CLOUDFLARE_API_TOKEN` and
+`CLOUDFLARE_ACCOUNT_ID`.
+
+1. **A Hetzner project for the zones only.** A Cloud API token reaches every
+   resource in its project, so keep customer zones out of the cluster's
+   project. Create a project (e.g. `weldhost-dns`), then a **Read & Write** API
+   token in it (Security → API tokens).
+2. **The token** goes into `weldsuite-env` as `HETZNER_DNS_API_TOKEN`. On EU
+   that is the deploy repo's SOPS file.
+3. **The chart:**
+
+   ```yaml
+   config:
+     host:
+       dnsProvider: hetzner
+       nameservers: [ns1.weldhost.com, ns2.weldhost.com, ns3.weldhost.com]
+   ```
+
+4. **Glue at weldhost.com's registrar.** Register each name as a host
+   (child nameserver) with the addresses of the Hetzner nameserver it stands
+   for. Check the addresses first (`dig +short A hydrogen.ns.hetzner.com`,
+   `… AAAA …`), because the glue has to follow them if Hetzner ever renumbers:
+
+   | Name | Stands for | IPv4 | IPv6 |
+   |---|---|---|---|
+   | `ns1.weldhost.com` | `hydrogen.ns.hetzner.com` | `213.133.100.98` | `2a01:4f8:0:1::add:1098` |
+   | `ns2.weldhost.com` | `oxygen.ns.hetzner.com` | `88.198.229.192` | `2a01:4f8:0:1::add:2992` |
+   | `ns3.weldhost.com` | `helium.ns.hetzner.de` | `193.47.99.5` | `2001:67c:192c::add:5` |
+
+5. **The same A and AAAA records in the weldhost.com zone**, DNS only, never
+   proxied. Resolvers that re-check the glue against the zone must get the
+   same addresses. weldhost.com's zone answers every name today (a wildcard
+   to Cloudflare's proxy), so without explicit records `ns1.weldhost.com`
+   resolves to the proxy and those resolvers get no answer.
+6. **Check:**
+
+   ```sh
+   dig +norec @a.gtld-servers.net ns1.weldhost.com A   # the glue, from .com
+   dig +short ns1.weldhost.com A                       # the zone agrees
+   dig @ns1.weldhost.com SOA <a customer domain>       # Hetzner answers through the brand
+   ```
+
+What happens:
+
+- Verifying an external domain's ownership makes the zone at Hetzner,
+  named after the domain (`dns_zones.external_zone_id` holds the name),
+  with the branded names as extra apex NS records. The wizard then shows
+  the branded names as the nameservers to set at the registrar.
+- Each zone carries the label `weldhost/workspace` with the workspace
+  (`workspaces.id`) that proved the domain. WeldHost only reads or writes a
+  zone whose label matches the caller's workspace, so a zone row pointed at
+  someone else's zone gets nowhere. Don't remove or edit the label by hand; a
+  zone made outside WeldHost needs it before WeldHost will touch it.
+- The zone turns `active` once the registry delegates to the branded names,
+  or to Hetzner's own. WeldHost reads Hetzner's delegation check, and when
+  that hasn't caught up yet, the domain's NS records over DNS over HTTPS.
+- Hetzner keeps its own three names in every zone's NS set and they can't be
+  removed. `dig NS <domain>` lists them next to the branded ones. The
+  registry, WHOIS and what customers type show only the branded names.
+- Hetzner's Cloud API allows 3600 requests an hour per project, shared by
+  every DNS change, sync and status poll. A record change costs three to
+  five requests.
+
+## Monitoring, alerts and logs
+
+Three layers (`flux/infrastructure/monitoring`, `monitoring-config`,
+`logging`; ADR OPS-021): Prometheus, Alertmanager and Grafana, what they
+scrape, probe and alert on, and Loki with Fluent Bit. What each alert means
+and what to check first: `flux/infrastructure/monitoring-config/ALERTS.md`.
+
+1. **Settings** (`cluster-settings.yaml`): `ZITADEL_STAFF_ORG_ID`, the
+   id of the Zitadel organisation whose users may open Grafana; `LOGS_S3_ENDPOINT`
+   (a host name, no `https://`), `LOGS_S3_REGION` and `LOGS_BUCKET` for
+   Loki. Give the bucket a lifecycle rule that deletes after 31 days (Loki
+   deletes after 30) and a key limited to it.
+2. **Grafana's sign-in.** In Zitadel's console, in the project of the
+   organisation whose users sign in (WeldSuite's clusters: `WeldSuite Staff`,
+   next to the admin console's app): a web application "Grafana" (code flow, PKCE, redirect
+   `https://grafana.<domain>/login/generic_oauth`), with "User roles inside
+   ID Token" and "User Info inside ID Token" on, the project's "Assert Roles on Authentication" on, and a
+   role `grafana-admin` granted to whoever administers Grafana. Everyone
+   else in the organisation gets Viewer; nobody outside it gets in. Tick
+   "Use new Login UI" and leave its base URL empty, like the admin console's
+   app ("Give every other application a login setting", section 7): without it Grafana's sign-in goes to the old
+   Login V1, which refuses a security key or passkey registered on the new
+   pages (`Errors.User.WebAuthN.BeginLoginFailed`, "Found no credentials for
+   user" in Zitadel's log).
+3. **Where alerts go.** The Secret `monitoring/alerting-receivers` holds three
+   URLs by role and a token: `critical-url` (pages at any hour),
+   `warning-url` (muted at night), `heartbeat-url` (pinged every minute by
+   the always-firing Watchdog; a dead-man's switch such as a healthchecks.io
+   check behind it alarms when the pings stop, which covers the cluster or
+   its monitoring going away) and `token` (sent as a bearer token to the
+   first two). For ntfy topics, `flux/scripts/ntfy-receiver-url.mjs`
+   prints a URL with ntfy's message template. Any webhook works.
+4. **Secrets**: `alerting-receivers`, `grafana-oidc` (the app's client id
+   and secret), `grafana-admin` (the break-glass login) and `logging/loki-s3`,
+   from the secrets layer's `monitoring` and `logging` components.
+   `seed-secrets.mjs` puts their values in the store (`ALERT_*`,
+   `GRAFANA_OIDC_*` and `LOGS_S3_*` in the environment; step 4).
+5. **DNS**: `grafana.<domain>` (step 5).
+6. **Layers**: `monitoring`, `monitoring-config` and `logging`, as in
+   `flux/clusters/example/layers.yaml`.
+7. **etcd and Talos's logs.** The Talos config (`hetzner/talos`) opens
+   etcd's metrics on each control-plane node's private address and sends
+   Talos's own logs to the node's Fluent Bit. Applying it to a running
+   cluster restarts etcd on each control-plane node: `tofu apply
+   -parallelism=1`, so they restart one at a time. Then patch the
+   `monitoring` layer with the control-plane addresses:
+
+   ```yaml
+   - target:
+       kind: HelmRelease
+       name: kube-prometheus-stack
+     patch: |
+       apiVersion: helm.toolkit.fluxcd.io/v2
+       kind: HelmRelease
+       metadata:
+         name: kube-prometheus-stack
+       spec:
+         values:
+           kubeEtcd:
+             enabled: true
+             endpoints: [10.10.1.10, 10.10.1.11, 10.10.1.12]
+           defaultRules:
+             rules:
+               etcd: true
+   ```
+
+Then, before relying on it, fire each critical alert once on purpose and
+see it arrive (ALERTS.md, "Testing the alerts").
+
+## Rate limits
+
+Nothing sits in front of the load balancer: no CDN and no scrubbing proxy.
+Hetzner filters volumetric network attacks (L3/L4) on its own network for
+every server and load balancer; nothing in the cluster sets that up or can
+see it. HTTP floods are the cluster's to handle, and Traefik does it with
+rate limits per client address, as Middlewares in
+`flux/infrastructure/controllers/values/traefik.yaml`:
+
+| Middleware | Applies to | Per address |
+|---|---|---|
+| `client-ratelimit` | every request on 443 (the entry point) | 100 a second, bursts of 400 |
+| `client-inflight` | every request on 443 | 400 open at once (WebSockets included) |
+| `auth-ratelimit` | `auth.<domain>`: Zitadel's two Ingresses, or WeldID's | 20 a second, bursts of 200 |
+| `signin-ratelimit` | `/api/sign-in` on `app.` and `api.` (`flux/apps/eu/sign-in-ingress.yaml`) | 30 a minute, bursts of 30 |
+
+A request over a limit gets a 429; a lasting stream of them fires
+`TraefikRateLimiting`. They depend on Traefik seeing the client's own
+address, which the load balancer's PROXY protocol and the Service's
+`externalTrafficPolicy: Local` give it: behind any other proxy, every client
+would share one address's limits. IPv6 clients count by their /64. Each
+Traefik pod counts on its own, so with two pods a client gets up to twice
+these. The platform's API keeps its own per-workspace limit on `/v1`, and
+WeldID its own on sign-in.
+
+The limits are generous on purpose, since a whole office behind one NAT
+address shares them, and so are callers that reach the cluster from a few
+addresses: MCP clients run by a hosted assistant, and providers' webhooks.
+If customers get 429s, raise that Middleware's numbers. What they don't stop
+is a flood from thousands of addresses: that takes a scrubbing proxy in
+front of the load balancer (an EU provider, to keep the edition's data in
+the EU), with Traefik's `trustedIPs` and the chart's `trustedProxies` moved
+to that proxy's addresses.
+
 ## Backups and restores
 
 Every Postgres cluster archives WAL continuously and takes a nightly base
 backup to the second provider (`postgres/*-backups` ObjectStores, 30 days).
-Restore a cluster the way the drill does (`flux/infrastructure/configs/drill`):
-a new `Cluster` with `bootstrap.recovery` from the ObjectStore. Run the drill
-monthly ([DRILL.md](DRILL.md)).
+Restore a cluster into a new `Cluster` with `bootstrap.recovery` from the
+ObjectStore: a patch on the `configs` layer in your cluster's `layers.yaml`,
+per Postgres cluster, that turns `initdb` off, recovers from the backups'
+ObjectStore and `serverName`, and archives its own WAL under a new
+`serverName` (or another ObjectStore), since barman refuses to archive into
+a path that holds another server's WAL. For `master`:
+
+```yaml
+    - target:
+        kind: Cluster
+        name: master
+      patch: |-
+        apiVersion: postgresql.cnpg.io/v1
+        kind: Cluster
+        metadata:
+          name: master
+        spec:
+          bootstrap:
+            initdb: null
+            recovery:
+              source: previous
+          externalClusters:
+            - name: previous
+              plugin:
+                name: barman-cloud.cloudnative-pg.io
+                parameters:
+                  barmanObjectName: master-backups
+                  serverName: master
+          plugins:
+            - name: barman-cloud.cloudnative-pg.io
+              isWALArchiver: true
+              parameters:
+                barmanObjectName: master-backups
+                serverName: master-2
+```
+
+The bootstrap only matters when the `Cluster` is created. Practise it: build
+a throwaway cluster from the backups now and then, check the data, and tear
+it down (WeldSuite does this monthly).
+
+### Offsite copy
+
+The files (the private and public buckets, WeldMail's spool, WeldPanel's
+tables) live at one provider with no copy anywhere, and so do the Postgres
+backups, at whichever provider `BACKUP_S3_ENDPOINT` names; if that is the
+files' provider too, one provider's outage or one leaked key reaches both.
+The opt-in `offsite-copy` layer (`flux/infrastructure/offsite-copy`) copies
+the buckets you list to a bucket at another provider once a day: rclone in a
+CronJob, each bucket in `OFFSITE_SOURCE_BUCKETS` to `OFFSITE_BUCKET/<bucket>/`,
+after the nightly base backups. List the backup bucket when it is at the
+files' provider, and the logs bucket if you want it. The copy is a day
+behind at most: WAL archived since the last run isn't in it yet. The secret
+store has backups of its own (`secret-store/README.md`).
+
+1. **A bucket at another provider** (`OFFSITE_BUCKET`), with versioning on,
+   and two keys: at the source, one that can list and read every listed
+   bucket (and nothing more, where the store can limit a key); at the
+   destination, one that can list, read and write `OFFSITE_BUCKET` and, in
+   copy mode, not delete.
+2. **Settings** (`cluster-settings.yaml`): `OFFSITE_SOURCE_S3_ENDPOINT` and
+   `OFFSITE_SOURCE_S3_REGION` (the store the buckets are in, `https://…`),
+   `OFFSITE_SOURCE_BUCKETS` (space-separated), `OFFSITE_S3_ENDPOINT`,
+   `OFFSITE_S3_REGION` and `OFFSITE_BUCKET`. Optional: `OFFSITE_SCHEDULE`
+   (cron, UTC; `0 5 * * *`), `OFFSITE_MODE` (`copy` or `sync`; `copy`) and
+   `OFFSITE_RCLONE_FLAGS` (`--checksum --transfers 8 --checkers 16`).
+3. **Keys** in the store's `weldsuite/offsite-copy`, which the secrets
+   layer's `offsite-copy` component writes to the Secret
+   `offsite-copy/offsite-copy-s3` (`source-access-key-id`,
+   `source-secret-access-key`, `destination-access-key-id`,
+   `destination-secret-access-key`):
+
+   ```bash
+   OFFSITE_SOURCE_S3_ACCESS_KEY_ID=… OFFSITE_SOURCE_S3_SECRET_ACCESS_KEY=… \
+   OFFSITE_S3_ACCESS_KEY_ID=… OFFSITE_S3_SECRET_ACCESS_KEY=… \
+     node rust/deploy/flux/scripts/seed-secrets.mjs   # SECRET_STORE_* as in step 4
+   ```
+
+4. **Layers**: `offsite-copy` in the secrets layer's `components`, and
+   `offsite-copy.yaml` in the cluster's `kustomization.yaml`
+   (`flux/clusters/example/offsite-copy.yaml`).
+5. **The first copy by hand**, and watch it: it moves everything and can
+   take more than a day; later runs move only what changed.
+
+   ```bash
+   kubectl -n offsite-copy create job --from=cronjob/offsite-copy offsite-copy-first
+   kubectl -n offsite-copy logs -f job/offsite-copy-first
+   ```
+
+   `OffsiteCopyStale` warns when no run has copied every bucket for 26
+   hours (`flux/infrastructure/monitoring-config/ALERTS.md`).
+
+**Copy, never delete.** In copy mode (the default) nothing at the
+destination is ever deleted: an object deleted at the source, by mistake, a
+bug or someone holding the cluster's keys, stays in the copy, and the
+destination key needs no right to delete. An object changed at the source
+replaces its copy, which is what the destination's versioning is for. The
+destination only grows, so prune it there, with lifecycle rules, which count
+from the day an object reached the destination:
+
+- the backup bucket's folder (`<backup bucket>/`): expire objects some days
+  after the source's retention (30 days at the source, 45 here). WAL and
+  base backups are written once, and barman deletes them at the source
+  after 30 days. A lifecycle rule doesn't know whether the source still
+  makes backups: if it stops, the copy's run out after 45 days too
+  (`PostgresBackupStale` fires long before);
+- versions an overwrite left behind (noncurrent versions): expire after 30
+  days;
+- no age rule on the file buckets' folders: their objects live for years,
+  and the next run would copy an expired one straight back. What the source
+  deleted stays in the copy until you switch to sync.
+
+**Sync with a backup folder** (`OFFSITE_MODE: sync`): each bucket's folder
+then matches the source, and what a run would delete or overwrite moves to
+`OFFSITE_BUCKET/_replaced/<day>/<bucket>/` instead. A lifecycle rule that
+expires `_replaced/` after N days gives N days to notice a mass deletion
+before the copy loses it too. The destination key must be able to delete,
+so the copy is only as safe as that key; add `--max-delete <n>` to
+`OFFSITE_RCLONE_FLAGS` so that a run that would delete more than n objects
+stops instead.
+
+**What a run compares** (`OFFSITE_RCLONE_FLAGS`). `--checksum` (the
+default) decides from the two listings alone, by size and the MD5 in each
+object's ETag, with a HEAD only for objects uploaded in parts, whose ETag
+isn't an MD5. Every run compares every object, so a copy that failed for
+days catches up by itself. For buckets with millions of objects, `--max-age
+72h --no-traverse` looks only at objects changed in the last three days,
+without listing the destination; but a copy that fails for longer than
+that misses objects for good, so keep a weekly full run too (a second
+CronJob without those flags, in the layer's patches). `--fast-list` makes
+fewer list requests for more memory; `--bwlimit 50M` spares the uplink.
+
+**Restoring from the copy.** Postgres: an ObjectStore on the copy, with the
+destination's endpoint and a key that can read it, then `bootstrap.recovery`
+from it as above. For `master`, a Secret with the key (`kubectl -n postgres
+create secret generic offsite-s3 --from-literal=ACCESS_KEY_ID=…
+--from-literal=ACCESS_SECRET_KEY=…`), and in your cluster's configs-extra:
+
+```yaml
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: master-offsite
+  namespace: postgres
+spec:
+  configuration:
+    # The backups' own destinationPath, under the copy's bucket.
+    destinationPath: s3://<OFFSITE_BUCKET>/<BACKUP_S3_BUCKET>/master
+    endpointURL: <OFFSITE_S3_ENDPOINT>
+    s3Credentials:
+      accessKeyId: { name: offsite-s3, key: ACCESS_KEY_ID }
+      secretAccessKey: { name: offsite-s3, key: ACCESS_SECRET_KEY }
+    wal:
+      compression: gzip
+    data:
+      compression: gzip
+```
+
+with `barmanObjectName: master-offsite` and `serverName: master` in the
+patch's `externalClusters` above; it keeps archiving to `master-backups`
+under a new `serverName`. Files: rclone back, from any machine, with the
+destination key and one that can write where the files go (the original
+buckets, or new ones at any provider that `FILES_S3_ENDPOINT` and the
+`FILES_BUCKET_*` settings then name):
+
+```bash
+export RCLONE_CONFIG_OFFSITE_TYPE=s3 RCLONE_CONFIG_OFFSITE_PROVIDER=Other \
+  RCLONE_CONFIG_OFFSITE_ENDPOINT=<OFFSITE_S3_ENDPOINT> RCLONE_CONFIG_OFFSITE_REGION=<OFFSITE_S3_REGION> \
+  RCLONE_CONFIG_OFFSITE_ACCESS_KEY_ID=… RCLONE_CONFIG_OFFSITE_SECRET_ACCESS_KEY=…
+export RCLONE_CONFIG_FILES_TYPE=s3 RCLONE_CONFIG_FILES_PROVIDER=Other \
+  RCLONE_CONFIG_FILES_ENDPOINT=<FILES_S3_ENDPOINT> RCLONE_CONFIG_FILES_REGION=<FILES_S3_REGION> \
+  RCLONE_CONFIG_FILES_ACCESS_KEY_ID=… RCLONE_CONFIG_FILES_SECRET_ACCESS_KEY=…
+rclone copy offsite:<OFFSITE_BUCKET>/<bucket> files:<bucket> --checksum --transfers 16
+```
+
+To take the buckets back as they were before a bad night (objects
+overwritten at the source, and so in the copy), also set
+`RCLONE_CONFIG_OFFSITE_VERSION_AT="2026-11-20 03:00:00"`: rclone then reads
+the copy's versions as of that time (on that remote only; it makes the remote
+read-only, so never as a global `--s3-version-at`). In sync mode, older
+objects are also in `_replaced/<day>/`.
 
 ## Cost
 
-Estimates from the design doc, at Hetzner list prices: dormant ≈ €70/month
-(registry, backups, the drill), launch ≈ €310/month, ten times the launch load
-≈ €1,300/month.
+Estimates at Hetzner list prices: the default topology ≈ €310/month, ten
+times its load ≈ €1,300/month.
 
 LiveKit adds no servers at launch: it runs on two of the general workers. If
 those two need more CPU, making them `cpx42` instead of `cpx32` costs about
@@ -705,9 +1614,10 @@ Be clear about this before anyone signs a contract:
   (team and settings, files and drive, search, custom objects, WeldApps,
   notifications, audit logs, API keys, credits, onboarding), WeldKnow,
   WeldSign, WeldPass, the calendar, CRM, Flow, Mail, Chat, Desk, Stash, Ads,
-  Social, Data, Commerce, HR, Call (on Telnyx), Host, Meet, Reach, Books,
+  Social, Data, HR, Call (on Telnyx), Host, Meet, Reach, Books,
   Docs, Panel, Sheets and Connect. Also external-api's `/v1` (not yet its
-  mail, custom-object and WeldReach groups), the MCP server at `/mcp`,
+  mail, custom-object and WeldReach groups), the MCP server at
+  `https://mcp.<domain>/mcp`,
   personal-api at `/personal-api` (with `DATABASE_URL_PERSONAL`) and the
   integration workers' webhooks and jobs. Not WeldAgent: there is no AI on
   this edition until there is an EU AI provider (ADR AI-011), and the other
@@ -716,7 +1626,8 @@ Be clear about this before anyone signs a contract:
   the offered modules, and the platform hides the rest (work package 4.F3).
 - **Sign-in.** The server verifies Zitadel's tokens (`AUTH_PROVIDER=oidc`,
   step 7) and the platform signs in through Zitadel with its auth facade
-  (OIDC with PKCE, from `/config.json`). Invitations and member changes go
+  (OIDC with PKCE, from `/config.json`), on WeldSuite's own sign-in screens
+  once step 7.7 is done. Invitations and member changes go
   through the Zitadel identity adapter; the identity sync (above) catches up
   on changes made in Zitadel within about a minute. No SAML connections
   (`sso-connections` is listed as unavailable).
@@ -734,10 +1645,22 @@ Be clear about this before anyone signs a contract:
   `SIGN_SESSION_SECRET` for signer sessions. `/config.json` carries the
   public settings in `config.publicEnv` (Mapbox, the portal URLs) and lists
   the `unavailableFeatures` the platform hides (billing, credit top-up,
-  paid apps, desktop sign-in, analytics, the search reindex). Not here yet:
+  paid apps, the desktop app's Clerk sign-in ticket, analytics, the search
+  reindex; the desktop app signs in through the browser instead, step 7
+  item 2c). Not here yet:
   the help center and a CDN (Bunny.net) in front of `app.<domain>`.
-- **Billing.** Mollie for the EU edition (P5, needs a BILL ADR). No billing
-  runs here.
+- **Billing.** Plans and seats through Mollie (ADR BILL-014,
+  `rust/README.md`, "Plan billing"), off until configured. To turn it on:
+  a Mollie profile with recurring payments, cards and iDEAL (SEPA Direct
+  Debit needs Mollie's approval); WeldSuite B.V.'s own workspace on this
+  cluster with WeldBooks set up (the legal entity, its address, VAT number
+  and invoice numbering); then `MOLLIE_API_KEY` in `weldsuite-env`,
+  `config.billing` in the cluster values (`provider: mollie`,
+  `issuerWorkspaceId` its `workspaces.id`), `cron.jobs.billing-renewals`
+  enabled, and the paid `plans` rows priced in EUR (the admin console's Plans page)
+  with `included_users = 0`. Mollie must reach
+  `https://app.<domain>/api/webhooks/mollie`. Staff work:
+  `weldsuite admin billing …`.
 - **Other EU services** in the design: mail goes out through the cluster's
   own MTA (`mta`, ADR MAIL-011), system mail (`SMTP_URL`) and customer mail
   (`MAIL_SMTP_URL`) from separate IP pools, and comes in through the Haraka
@@ -747,10 +1670,11 @@ Be clear about this before anyone signs a contract:
   before the port 25 unblock, the DNS records and the warm-up. Not yet: IPv6
   sending, DANE, a queue admin UI. WeldMeet
   and WeldChat calls run on the in-cluster LiveKit (`config.video`, ADR
-  MEET-007; "Video" above), without recording and transcripts. Not here yet:
-  Mistral or an in-cluster model for embeddings (without
-  `consume.embeddings` the semantic search index is off).
+  MEET-007; "Video" above), without recording and transcripts. The
+  semantic search index embeds on Mistral through `config.ai` ("AI (Mistral)"
+  above).
 - **Operations** (P5): the EU registry and signed images (5.4), observability
   and alerting (5.5), the drill runner (5.6), DNS failover between locations,
-  object storage replication, HA for Valkey (Sentinel or replicas) and a
-  three-node Restate cluster.
+  object storage replication (the opt-in offsite copy, "Backups and
+  restores", is a daily copy, not a replica to fail over to), HA for Valkey
+  (Sentinel or replicas) and a three-node Restate cluster.

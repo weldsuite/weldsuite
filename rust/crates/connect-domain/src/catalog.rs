@@ -25,6 +25,16 @@ pub fn list_connectors() -> &'static [Value] {
         .map_or(&[], Vec::as_slice)
 }
 
+/// Whether an edition offers a connector: one without `editions` is offered
+/// everywhere (`offeredOn` in `catalog.ts`). The export is the `kubernetes`
+/// list, so only conformance builds, which answer like Global, filter with
+/// it (`ConnectState::connector_edition`).
+pub fn offered_on(connector: &Value, edition: &str) -> bool {
+    connector["editions"]
+        .as_array()
+        .is_none_or(|editions| editions.iter().any(|e| e.as_str() == Some(edition)))
+}
+
 /// `getConnector(provider)`.
 pub fn get_connector(provider: &str) -> Option<&'static Value> {
     list_connectors()

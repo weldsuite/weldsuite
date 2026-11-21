@@ -10,10 +10,11 @@
 //!
 //! - registration, transfers and registrar state: Realtime Register's REST
 //!   API and its ADAC availability checker ([`registrar`]);
-//! - DNS hosting: Cloudflare's zones and DNS records API, behind
-//!   [`dns_host::DnsHost`] so another provider can be plugged in; the
-//!   legacy Cloudflare Registrar only for `registrar = 'cloudflare'` rows
-//!   ([`cloudflare`]);
+//! - DNS hosting, behind [`dns_host::DnsHost`]: Cloudflare's zones and DNS
+//!   records API as on Global ([`cloudflare`]), or Hetzner's Cloud DNS with
+//!   `WELDHOST_DNS_PROVIDER=hetzner` ([`hetzner`], ADR HOST-008), where
+//!   `WELDHOST_NAMESERVERS` names the branded nameservers customers use; the
+//!   legacy Cloudflare Registrar only for `registrar = 'cloudflare'` rows;
 //! - DNS lookups (ownership TXT records, the record scan): DNS over HTTPS
 //!   ([`doh`]).
 //!
@@ -35,6 +36,7 @@ mod dns_zones;
 mod doh;
 mod domains;
 mod email_forwards;
+mod hetzner;
 mod js;
 mod listing;
 mod registrar;
@@ -139,6 +141,8 @@ pub(crate) struct Caller {
     pub(crate) db: PgPool,
     /// `c.get('clerkOrgId')`: the key of the process mapping the webhook reads.
     pub(crate) clerk_org_id: Option<String>,
+    /// `workspaces.id`: the owner Hetzner zones are labelled with.
+    workspace_id: String,
     pub(crate) events: EventContext,
     env: Option<RequestEnv>,
     cache: Option<Arc<dyn DynCache>>,
@@ -160,10 +164,12 @@ impl Caller {
 
     /// The request's providers and settings.
     pub(crate) fn providers(&self, state: &HostState) -> Providers {
-        Providers::new(
+        let mut providers = Providers::new(
             self.env.as_ref(),
             self.http.clone().or_else(|| state.http.clone()),
-        )
+        );
+        providers.workspace = Some(self.workspace_id.clone());
+        providers
     }
 
     /// The master database (`getMasterDb(c.env)`): the test's in
@@ -194,6 +200,51 @@ pub(crate) fn env_value(env: Option<&RequestEnv>, name: &str) -> Option<String> 
     .filter(|value| !value.is_empty())
 }
 
+/// A DNS host WeldHost keeps customer zones at (`dns_zones.provider`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DnsProvider {
+    /// Global's, and the default.
+    Cloudflare,
+    /// Hetzner's Cloud DNS (`WELDHOST_DNS_PROVIDER=hetzner`).
+    Hetzner,
+}
+
+impl DnsProvider {
+    /// The `dns_zones.provider` value.
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Cloudflare => "cloudflare",
+            Self::Hetzner => "hetzner",
+        }
+    }
+
+    /// The provider's name in messages.
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::Cloudflare => "Cloudflare",
+            Self::Hetzner => "Hetzner",
+        }
+    }
+
+    /// The error code of a refusal the provider answered.
+    pub(crate) fn error_code(self) -> &'static str {
+        match self {
+            Self::Cloudflare => "CLOUDFLARE_ERROR",
+            Self::Hetzner => "HETZNER_DNS_ERROR",
+        }
+    }
+}
+
+/// The DNS host of one zone row.
+pub(crate) enum ZoneDns {
+    /// A zone WeldHost doesn't manage: no external id, or a provider this
+    /// install doesn't keep zones at.
+    Unmanaged,
+    /// Its provider's credentials aren't configured.
+    Unconfigured(DnsProvider),
+    Ready(DnsProvider, dns_host::Dns),
+}
+
 /// The third parties a request reaches, configured from its env.
 #[derive(Clone)]
 pub(crate) struct Providers {
@@ -206,12 +257,30 @@ pub(crate) struct Providers {
     pub(crate) cf_account: Option<String>,
     /// The platform contact handles (`REALTIME_REGISTER_CONTACT_*`).
     pub(crate) contacts: registrar::ContactEnv,
+    /// `WELDHOST_DNS_PROVIDER`: where new zones are made. Cloudflare unless
+    /// it is `hetzner`.
+    pub(crate) dns_provider: DnsProvider,
+    /// `HETZNER_DNS_API_TOKEN`: a read and write token of the Hetzner project
+    /// that holds the customer zones (and nothing else).
+    pub(crate) hetzner_token: Option<String>,
+    /// `WELDHOST_NAMESERVERS`: the branded nameservers customers point their
+    /// domains at (comma separated, e.g. `ns1.weldhost.com,ns2.weldhost.com`),
+    /// glue for the provider's own. Empty: the provider's names.
+    pub(crate) nameservers: Vec<String>,
+    /// The caller's workspace (`workspaces.id`, set by
+    /// [`Caller::providers`]): Hetzner zones are labelled with it and only
+    /// its own are touched. `None` (the webhook, the sweep) touches none.
+    pub(crate) workspace: Option<String>,
 }
 
 impl Providers {
     pub(crate) fn new(env: Option<&RequestEnv>, http: Option<OutboundHttp>) -> Self {
         let http = http.unwrap_or_else(|| OutboundHttp(Arc::new(Unreachable)));
         let value = |name: &str| env_value(env, name);
+        let dns_provider = match value("WELDHOST_DNS_PROVIDER").as_deref().map(str::trim) {
+            Some(provider) if provider.eq_ignore_ascii_case("hetzner") => DnsProvider::Hetzner,
+            _ => DnsProvider::Cloudflare,
+        };
         Self {
             rtr: registrar::RealtimeRegistrar::from_env(&value, http.clone()),
             cf_token: value("CLOUDFLARE_API_TOKEN"),
@@ -221,6 +290,12 @@ impl Providers {
                 tech: value("REALTIME_REGISTER_CONTACT_TECH"),
                 billing: value("REALTIME_REGISTER_CONTACT_BILLING"),
             },
+            dns_provider,
+            hetzner_token: value("HETZNER_DNS_API_TOKEN"),
+            nameservers: value("WELDHOST_NAMESERVERS")
+                .map(|list| nameserver_list(&list))
+                .unwrap_or_default(),
+            workspace: None,
             http,
         }
     }
@@ -228,6 +303,66 @@ impl Providers {
     /// The DNS host (Cloudflare) with the configured token.
     pub(crate) fn dns(&self, token: &str) -> dns_host::Dns {
         Arc::new(cloudflare::CloudflareDns::new(self.http.clone(), token))
+    }
+
+    /// Whether the install's DNS host has its credentials.
+    pub(crate) fn configured(&self) -> bool {
+        match self.dns_provider {
+            DnsProvider::Cloudflare => self.cf_token.is_some(),
+            DnsProvider::Hetzner => self.hetzner_token.is_some(),
+        }
+    }
+
+    /// A provider's DNS host, `None` without its credentials.
+    fn host(&self, provider: DnsProvider) -> Option<dns_host::Dns> {
+        match provider {
+            DnsProvider::Cloudflare => self.cf_token.as_deref().map(|token| self.dns(token)),
+            DnsProvider::Hetzner => self.hetzner_token.as_deref().map(|token| {
+                Arc::new(hetzner::HetznerDns::new(
+                    self.http.clone(),
+                    token,
+                    &self.nameservers,
+                    self.workspace.as_deref(),
+                )) as dns_host::Dns
+            }),
+        }
+    }
+
+    /// The DNS host of a zone row (`provider`, `externalZoneId`). Cloudflare
+    /// zones are WeldHost's on every install, as on Global; Hetzner zones
+    /// only where new zones go to Hetzner, so anywhere else a `hetzner` row
+    /// (the column's default) stays a record kept by hand.
+    pub(crate) fn zone_dns(&self, zone: Option<&Value>) -> ZoneDns {
+        let Some(zone) = zone else {
+            return ZoneDns::Unmanaged;
+        };
+        let external = zone
+            .get("externalZoneId")
+            .and_then(Value::as_str)
+            .is_some_and(|e| !e.is_empty());
+        let provider = match zone.get("provider").and_then(Value::as_str) {
+            Some("cloudflare") => DnsProvider::Cloudflare,
+            Some("hetzner") if self.dns_provider == DnsProvider::Hetzner => DnsProvider::Hetzner,
+            _ => return ZoneDns::Unmanaged,
+        };
+        if !external {
+            return ZoneDns::Unmanaged;
+        }
+        match self.host(provider) {
+            Some(dns) => ZoneDns::Ready(provider, dns),
+            None => ZoneDns::Unconfigured(provider),
+        }
+    }
+
+    /// Where a new zone is made: the provider, its host and the account to
+    /// make it in, `None` without the credentials.
+    pub(crate) fn new_zone_host(&self) -> Option<(DnsProvider, dns_host::Dns, String)> {
+        let account = match self.dns_provider {
+            DnsProvider::Cloudflare => self.cf_account.clone()?,
+            DnsProvider::Hetzner => String::new(),
+        };
+        let dns = self.host(self.dns_provider)?;
+        Some((self.dns_provider, dns, account))
     }
 
     /// `getCloudflareRegistrar(c.env)`: the legacy registrar, for
@@ -241,6 +376,15 @@ impl Providers {
             &account,
         ))
     }
+}
+
+/// `WELDHOST_NAMESERVERS` as names: lower case, without the final dot,
+/// blanks left out.
+fn nameserver_list(list: &str) -> Vec<String> {
+    list.split([',', ' ', '\n'])
+        .map(|ns| ns.trim().trim_end_matches('.').to_lowercase())
+        .filter(|ns| !ns.is_empty())
+        .collect()
 }
 
 /// A deployment without an HTTP client: every call fails like a `fetch`
@@ -271,6 +415,7 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
             Ok(Self {
                 db: tenant.db.clone(),
                 clerk_org_id: tenant.clerk_org_id.clone(),
+                workspace_id: tenant.workspace_id.clone(),
                 events: EventContext::for_request(auth, tenant),
                 env: extensions.get::<RequestEnv>().cloned(),
                 cache: extensions

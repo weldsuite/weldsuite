@@ -3,10 +3,13 @@ import { AppState, View, Text, TouchableOpacity, StyleSheet, ScrollView, Switch 
 import { useRouter } from 'expo-router';
 import * as Application from 'expo-application';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
 import { useWorkspace } from '@weldsuite/mobile-ui/contexts/WorkspaceContext';
 import { Card } from '@weldsuite/mobile-ui/components/Card';
 import { Spinner } from '@weldsuite/mobile-ui/components/Spinner';
+import { ProviderAccountRow, ServerRow } from '@weldsuite/mobile-ui/components/ServerRow';
+import { peekMobileRuntime } from '@weldsuite/mobile-platform/runtime';
+import { useHostedSignIn } from '@weldsuite/mobile-platform/auth';
 import { LogOut, Moon, Sun, Building2, Check, Bell } from 'lucide-react-native';
 import { Screen, ScreenHeader, SectionLabel } from '@/components/screen';
 import { BRAND, BRAND_TINT, tint, ACCENTS } from '@/lib/brand';
@@ -30,9 +33,13 @@ function WorkspaceIndicator({
 }
 
 export default function SettingsScreen() {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
+  const hostedSignIn = useHostedSignIn();
+  const runtime = peekMobileRuntime();
+  const showServerSection = Boolean(runtime?.serverPickerEnabled || hostedSignIn?.accountUrl);
+  const pushAvailable = Boolean(runtime?.pushEnabled);
   const { theme, colors, toggleTheme } = useTheme();
-  const { user, signOut } = useClerkAuth();
+  const { user, signOut } = useAuthSession();
   const { currentWorkspace, workspaces, switchWorkspace } = useWorkspace();
   const {
     isPermissionGranted,
@@ -114,6 +121,14 @@ export default function SettingsScreen() {
           ) : null}
         </Card>
 
+        {/* Which server the app talks to; both rows render nothing when the picker is off / on Clerk. */}
+        {showServerSection ? (
+          <Card style={styles.card}>
+            <ServerRow variant="settings" language={language} accentColor={BRAND} />
+            <ProviderAccountRow language={language} />
+          </Card>
+        ) : null}
+
         {workspaces.length > 1 ? (
           <>
             <SectionLabel>Workspace</SectionLabel>
@@ -154,7 +169,8 @@ export default function SettingsScreen() {
           </>
         ) : null}
 
-        <SectionLabel>Notifications</SectionLabel>
+        {pushAvailable ? <SectionLabel>Notifications</SectionLabel> : null}
+        {pushAvailable ? (
         <Card style={styles.card}>
           <TouchableOpacity
             style={[styles.row, { borderBottomWidth: 0 }]}
@@ -176,6 +192,7 @@ export default function SettingsScreen() {
             {notifBusy ? <Spinner size="small" color={BRAND} /> : null}
           </TouchableOpacity>
         </Card>
+        ) : null}
 
         <SectionLabel>Appearance</SectionLabel>
         <Card style={styles.card}>

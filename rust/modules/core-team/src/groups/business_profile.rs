@@ -1,6 +1,6 @@
 //! The workspace business profile is the default legal entity
 //! (`app-api/src/services/business-profile.ts`; "Workspace business profile"
-//! in `docs/plans/legal-entities.md`).
+//! in `weldsuite-documentation/plans/legal-entities.md`).
 //!
 //! During the transition `PUT /api/workspace-settings` writes the legal fields
 //! through to the default entity and `GET` reads them back from it, so old
@@ -532,6 +532,33 @@ pub(crate) async fn overlay_default_entity(
     let Some(entity) = le::get_default_legal_entity_row(db).await? else {
         return Ok(row);
     };
+    overlay_entity(db, &entity, row).await
+}
+
+/// `defaultEntityProfile`: the business profile of a workspace that never
+/// saved its settings, the default entity's legal fields (null where it has
+/// none); `None` without a default entity. GET answers this instead of null,
+/// so the settings form shows (and a save sends back) what the entity holds
+/// rather than empty fields that would clear it (TASK-1464).
+pub(crate) async fn default_entity_profile(db: &PgPool) -> Result<Option<Value>, LegalEntityError> {
+    let Some(entity) = le::get_default_legal_entity_row(db).await? else {
+        return Ok(None);
+    };
+    let empty: Map<String, Value> = LEGAL_FIELDS
+        .iter()
+        .map(|field| ((*field).to_owned(), Value::Null))
+        .collect();
+    overlay_entity(db, &entity, Value::Object(empty))
+        .await
+        .map(Some)
+}
+
+/// The legal fields of `row` read from `entity` (see `overlay_default_entity`).
+async fn overlay_entity(
+    db: &PgPool,
+    entity: &EntityRow,
+    row: Value,
+) -> Result<Value, LegalEntityError> {
     let Value::Object(mut out) = row else {
         return Ok(row);
     };

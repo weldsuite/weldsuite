@@ -19,12 +19,12 @@ import { errors } from './errors';
 import { bills } from './bills';
 import { assets } from './assets';
 import { accounting } from './accounting';
+import { weldstash } from './weldstash';
 import { commerce } from './commerce';
 import { crm } from './crm';
 import { projects } from './projects';
 import { task } from './task';
 import { helpdesk } from './helpdesk';
-import { parcel } from './parcel';
 import { host } from './host';
 import { mail } from './mail';
 import { woocommerce } from './woocommerce';
@@ -44,12 +44,20 @@ import { sheetData } from './sheet-data';
 import { weldsign } from './weldsign';
 import { weldpanel } from './weldpanel';
 import { weldmerge } from './weldmerge';
+import { weldforms } from './weldforms';
+import { weldformsResults } from './weldforms-results';
 import { welddocs } from './welddocs';
 import { weldboard } from './weldboard';
 import { weldhr } from './weldhr';
 import { weldknow } from './weldknow';
 import { weldads } from './weldads';
+import { assetSources } from './asset-sources';
 import { deskInbox2 } from './desk-inbox2';
+import { deskCatalog } from './desk-catalog';
+import { deskProblems } from './desk-problems';
+import { deskSipTrunks } from './desk-sip-trunks';
+import { deskCallTranslation } from './desk-call-translation';
+import { deskBi } from './desk-bi';
 import { blockEditor } from './block-editor';
 import { weldapps } from './weldapps';
 import { weldobjects } from './weldobjects';
@@ -72,6 +80,9 @@ import { flowFinance } from './flow-finance';
 import { flowClosing } from './flow-closing';
 import { flowPortfolio } from './flow-portfolio';
 import { projectPortal } from './project-portal';
+import { formsPortal } from './forms-portal';
+import { weldstashPurchasing } from './weldstash-purchasing';
+import { weldstashReplenishment } from './weldstash-replenishment';
 
 export const en = {
   common,
@@ -94,12 +105,12 @@ export const en = {
   bills,
   assets,
   accounting,
+  weldstash,
   commerce,
   crm,
   projects,
   task,
   helpdesk,
-  parcel,
   host,
   mail,
   woocommerce,
@@ -119,12 +130,20 @@ export const en = {
   weldsign,
   weldpanel,
   weldmerge,
+  weldforms,
+  weldformsResults,
   welddocs,
   weldboard,
   weldhr,
   weldknow,
   weldads,
+  assetSources,
   deskInbox2,
+  deskCatalog,
+  deskProblems,
+  deskSipTrunks,
+  deskCallTranslation,
+  deskBi,
   blockEditor,
   weldapps,
   weldobjects,
@@ -146,4 +165,7 @@ export const en = {
   flowClosing,
   flowPortfolio,
   projectPortal,
+  formsPortal,
+  weldstashPurchasing,
+  weldstashReplenishment,
 };

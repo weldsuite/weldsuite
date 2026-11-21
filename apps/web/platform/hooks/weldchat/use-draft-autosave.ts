@@ -71,8 +71,13 @@ export function useDraftAutosave({
   content,
   attachments = [],
   onRestore,
-  enabled = true,
+  enabled: enabledOption = true,
 }: DraftAutosaveOptions): DraftAutosaveResult {
+  // No channel yet (a record chat before its first message, or one whose
+  // channel lookup failed): there is nowhere to keep a draft. Every such
+  // composer shares the empty id, so a draft saved there would turn up in all
+  // of them (TASK-1461).
+  const enabled = enabledOption && channelId.length > 0;
   const { data: draftsData } = useChatDrafts();
   const { mutateAsync: upsertAsync } = useUpsertDraft();
   const { mutateAsync: deleteAsync } = useDeleteDraft();

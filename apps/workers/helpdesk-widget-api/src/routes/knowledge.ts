@@ -18,7 +18,7 @@
 import { Hono } from 'hono';
 import {
   deskReaderOf,
-  deskTypedSearch,
+  deskSuggestSearch,
   listDeskAnnouncementsFor,
   normalizeDeskLocale,
   searchDeskArticlesFor,
@@ -38,7 +38,7 @@ function limitOf(raw: string | undefined): number {
 }
 
 knowledgeRoutes.get('/articles/search', async (c) => {
-  const search = deskTypedSearch(c.req.query('q') ?? '');
+  const search = deskSuggestSearch(c.req.query('q') ?? '');
   if (!search) return success(c, []);
   try {
     const db = c.get('tenantDb');

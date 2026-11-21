@@ -74,7 +74,7 @@ function fixtureWaitUntil(c: Context<{ Bindings: Env; Variables: Variables }>): 
   }
 }
 
-/** This request's `{ mode, store, access }` (docs/plans/weldmail-mailbox-store-design.md, task D6). */
+/** This request's `{ mode, store, access }` (weldsuite-documentation/plans/weldmail-mailbox-store-design.md, task D6). */
 async function getFixtureMail(c: Context<{ Bindings: Env; Variables: Variables }>): Promise<WorkspaceMail> {
   return getWorkspaceMail(c.env as unknown as MailStoreEnv, {
     workspaceId: c.get('workspaceId'),
@@ -279,7 +279,7 @@ testFixturesRoutes.post('/reset', async (c) => {
   // created by the real send service are stamped after creation; seeded inbox
   // rows are stamped on insert).
   //
-  // Object-mode mailboxes (docs/plans/weldmail-mailbox-store-design.md, task
+  // Object-mode mailboxes (weldsuite-documentation/plans/weldmail-mailbox-store-design.md, task
   // D6) keep their own copy of the seeded rows, so clear those first.
   // `postgres` mode never resolves `mail` beyond its own mode check, so it
   // costs this path nothing beyond the one extra Flagship lookup every
@@ -1248,7 +1248,7 @@ testFixturesRoutes.post(
       return success(c, row, 201);
     }
 
-    // Object modes (docs/plans/weldmail-mailbox-store-design.md, task D6):
+    // Object modes (weldsuite-documentation/plans/weldmail-mailbox-store-design.md, task D6):
     // the row only exists wherever `mode` actually reads from, so seed it
     // through the store instead of inserting into Postgres directly.
     const nowMs = now.getTime();
@@ -2469,7 +2469,7 @@ testFixturesRoutes.delete('/entity/:type/:id', async (c) => {
 // ─── Onboarding teardown: full workspace destroy ─────────────────────
 //
 // Tears down a workspace created by the onboarding E2E spec (Part A of
-// PLAN-onboarding-e2e.md). Destructive + outward-facing — it deletes a real
+// weldsuite-documentation/plans/onboarding-e2e.md). Destructive + outward-facing — it deletes a real
 // Clerk organization and drops the Neon tenant DB — so it stays strictly
 // behind the `testFixturesGuard()` applied to this whole router, PLUS an
 // in-handler refusal that protects the shared E2E workspace.

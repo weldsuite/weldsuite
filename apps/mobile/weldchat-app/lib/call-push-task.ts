@@ -10,6 +10,8 @@
 import * as Notifications from 'expo-notifications';
 import * as TaskManager from 'expo-task-manager';
 import { Platform } from 'react-native';
+import { isNotificationForThisServer } from '@weldsuite/mobile-platform/edition';
+import { peekMobileRuntime } from '@weldsuite/mobile-platform/runtime';
 import {
   endNativeCall,
   isAppInForeground,
@@ -17,7 +19,13 @@ import {
   showIncomingCallNotification,
   type NativeRingLabels,
 } from '@/modules/weldchat-calls';
-import { callPushData, incomingFromNativePayload, parseCallPush, type CallPush } from './call-push';
+import {
+  callPushData,
+  incomingFromNativePayload,
+  isCallPushFromThisServer,
+  parseCallPush,
+  type CallPush,
+} from './call-push';
 import { dismissIncomingCallFromPush, presentIncomingCallFromPush } from './incoming-call-bridge';
 
 export const CALL_PUSH_TASK = 'weldchat-call-push';
@@ -51,7 +59,12 @@ export function handleCallPush(push: CallPush): void {
 
 if (Platform.OS === 'android' && isNativeCallsAvailable) {
   TaskManager.defineTask(CALL_PUSH_TASK, async ({ data }) => {
-    const push = parseCallPush(callPushData(data));
+    const pushData = callPushData(data);
+    // The address check needs the booted runtime; headless, only a push
+    // naming no server (WeldSuite cloud's) is dropped.
+    const isThisServer = peekMobileRuntime() ? isNotificationForThisServer : null;
+    if (!isCallPushFromThisServer(pushData, isThisServer)) return;
+    const push = parseCallPush(pushData);
     if (push) handleCallPush(push);
   });
   Notifications.registerTaskAsync(CALL_PUSH_TASK).catch((err: unknown) => {

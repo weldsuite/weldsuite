@@ -175,7 +175,7 @@ export const weldbooksUsSalesTaxDocuments = {
   },
 
   form: {
-    creditMemoTitle: 'Creditfactuur bewerken',
+    creditMemoTitle: '{name} bewerken',
     creditMemoNote:
       'De belasting van een creditfactuur volgt de factuur die je crediteert. Pas aantallen of prijzen aan om een deel van een regel te crediteren, of verwijder regels die je niet crediteert.',
     creditMemoUpdated: 'Creditfactuur bijgewerkt',
@@ -241,6 +241,7 @@ export const weldbooksUsSalesTaxDocuments = {
     atLeastOneLine: 'Voeg minstens één regel toe',
     customerRequired: 'Kies een klant',
     dateRequired: 'Kies een datum',
+    endBeforeNextIssue: 'De einddatum mag niet voor de volgende factuurdatum liggen',
     descriptionRequired: 'Vul een omschrijving in',
     finalizeFailedTitle: 'De factuur is gemaakt maar niet afgerond',
     finalizeFailed: '{message} De factuur blijft een concept. Open hem om het probleem op te lossen en hem af te ronden.',

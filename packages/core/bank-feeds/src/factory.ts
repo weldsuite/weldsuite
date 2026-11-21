@@ -19,7 +19,7 @@ import { FeedProviderError } from './errors';
 import type { FetchLike } from './http';
 import { createEnableBankingProvider, type EnableBankingConfig } from './enable-banking/provider';
 import { createPlaidProvider, type PlaidConfig } from './plaid/provider';
-import { createPontoProvider, type PontoConfig } from './ponto/provider';
+import { createPontoProvider, PONTO_SANDBOX_AUTHORIZE_URL, type PontoConfig } from './ponto/provider';
 import type { PontoSignatureConfig } from './ponto/signature';
 import { createStripeFcProvider, type StripeFcConfig } from './stripe-fc/provider';
 import type { BankFeedProvider, KeyCache } from './types';
@@ -28,6 +28,12 @@ export interface BankFeedConfig {
   plaid?: PlaidConfig;
   stripeFc?: StripeFcConfig;
   ponto?: PontoConfig;
+  /**
+   * Ponto for the webhook receiver: `ponto` when this env has the OAuth client
+   * too, else just the application id and certificate that verify deliveries.
+   * Unset without `PONTO_APPLICATION_ID` (Ponto's webhooks off).
+   */
+  pontoWebhook?: PontoConfig;
   enableBanking?: EnableBankingConfig;
   /** `BANK_FEED_PROVIDERS` spec. */
   routing?: string | null;
@@ -92,6 +98,8 @@ export function createBankFeedProvider(id: string, config: BankFeedConfig): Bank
  */
 export function createWebhookProvider(id: string, config: BankFeedConfig): BankFeedProvider {
   if (normalizeProviderId(id) === 'stripe_fc' && !config.stripeFc) return createStripeFcProvider({ secretKey: '' });
+  // Ponto's receiver needs the application id and its certificate, not the OAuth client.
+  if (normalizeProviderId(id) === 'ponto' && config.pontoWebhook) return createPontoProvider(config.pontoWebhook);
   return createBankFeedProvider(id, config);
 }
 
@@ -128,6 +136,14 @@ export interface BankFeedEnv {
   STRIPE_FC_API_VERSION?: string;
   PONTO_CLIENT_ID?: string;
   PONTO_CLIENT_SECRET?: string;
+  /** `sandbox` for a sandbox application (its own authorization page); anything else is live. */
+  PONTO_ENV?: string;
+  /**
+   * The application's id in Isabel's developer portal, which Ponto's webhook
+   * signatures name as their audience. Set: webhooks are verified and
+   * connections polled once a day; unset: Ponto is polled every six hours.
+   */
+  PONTO_APPLICATION_ID?: string;
   /** Id of the Ponto application's signature certificate (Isabel's developer portal); a live application signs every request. */
   PONTO_SIGNATURE_CERT_ID?: string;
   /** That certificate's private key, unencrypted PEM. Both unset: requests go unsigned (sandbox only). */
@@ -141,7 +157,7 @@ export interface BankFeedEnv {
 
 export interface BankFeedConfigOptions {
   fetch?: FetchLike;
-  /** Plaid verification-key cache (KV). */
+  /** Plaid's and Ibanity's (Ponto) webhook verification keys (KV). */
   keyCache?: KeyCache;
   /** `env.PONTO_CERT.fetch` (Workers mTLS binding). */
   pontoFetch?: FetchLike;
@@ -151,6 +167,38 @@ export interface BankFeedConfigOptions {
 function pontoSignatureFromEnv(env: BankFeedEnv): PontoSignatureConfig | undefined {
   if (!env.PONTO_SIGNATURE_CERT_ID || !env.PONTO_SIGNATURE_KEY) return undefined;
   return { certificateId: env.PONTO_SIGNATURE_CERT_ID, privateKey: env.PONTO_SIGNATURE_KEY };
+}
+
+/**
+ * Ponto with its OAuth client, and the webhook receiver's Ponto: that one, or
+ * with only `PONTO_APPLICATION_ID` the application id and certificate that
+ * verify deliveries.
+ */
+function pontoConfigFromEnv(env: BankFeedEnv, options: BankFeedConfigOptions): Pick<BankFeedConfig, 'ponto' | 'pontoWebhook'> {
+  const out: Pick<BankFeedConfig, 'ponto' | 'pontoWebhook'> = {};
+  const fetch = options.pontoFetch ?? options.fetch;
+  if (env.PONTO_CLIENT_ID && env.PONTO_CLIENT_SECRET) {
+    out.ponto = {
+      clientId: env.PONTO_CLIENT_ID,
+      clientSecret: env.PONTO_CLIENT_SECRET,
+      // A sandbox application authorizes on its own host; the API host is the same.
+      authorizeUrl: env.PONTO_ENV === 'sandbox' ? PONTO_SANDBOX_AUTHORIZE_URL : undefined,
+      fetch,
+      signature: pontoSignatureFromEnv(env),
+      applicationId: env.PONTO_APPLICATION_ID || undefined,
+      keyCache: options.keyCache,
+    };
+  }
+  if (env.PONTO_APPLICATION_ID) {
+    out.pontoWebhook = out.ponto ?? {
+      clientId: '',
+      clientSecret: '',
+      applicationId: env.PONTO_APPLICATION_ID,
+      keyCache: options.keyCache,
+      fetch,
+    };
+  }
+  return out;
 }
 
 export function bankFeedConfigFromEnv(env: BankFeedEnv, options: BankFeedConfigOptions = {}): BankFeedConfig {
@@ -172,14 +220,7 @@ export function bankFeedConfigFromEnv(env: BankFeedEnv, options: BankFeedConfigO
   if (env.STRIPE_FC_SECRET_KEY) {
     config.stripeFc = { secretKey: env.STRIPE_FC_SECRET_KEY, apiVersion: env.STRIPE_FC_API_VERSION || undefined, fetch: options.fetch };
   }
-  if (env.PONTO_CLIENT_ID && env.PONTO_CLIENT_SECRET) {
-    config.ponto = {
-      clientId: env.PONTO_CLIENT_ID,
-      clientSecret: env.PONTO_CLIENT_SECRET,
-      fetch: options.pontoFetch ?? options.fetch,
-      signature: pontoSignatureFromEnv(env),
-    };
-  }
+  Object.assign(config, pontoConfigFromEnv(env, options));
   if (env.ENABLE_BANKING_APP_ID && env.ENABLE_BANKING_PRIVATE_KEY) {
     config.enableBanking = {
       appId: env.ENABLE_BANKING_APP_ID,

@@ -2,7 +2,7 @@
 
 Read-only audit that answers one question per environment: **is anyone sending
 cold email through WeldSuite right now?** It is Phase 1 of
-[docs/plans/weldmail-outbound-abuse.md](../../../docs/plans/weldmail-outbound-abuse.md):
+[weldsuite-documentation/plans/weldmail-outbound-abuse.md](https://github.com/weldsuite/weldsuite-documentation/blob/main/plans/weldmail-outbound-abuse.md):
 real numbers to set the outbound guard's thresholds with, before any limit is
 enforced.
 
@@ -91,7 +91,7 @@ the others and names the failure), 2 for bad options.
 ### Running it against object-mode workspaces
 
 WeldMail is moving mailboxes behind a Durable Object store, one workspace at a
-time (`docs/plans/weldmail-mailbox-store-design.md`, flag
+time (`weldsuite-documentation/plans/weldmail-mailbox-store-design.md`, flag
 `weldmail-mailbox-store`). In `object`/`object-only` mode a workspace's tenant
 `mail_messages` table can be a lagging secondary or, in `object-only` mode,
 never written at all — reading it straight out of Postgres would silently

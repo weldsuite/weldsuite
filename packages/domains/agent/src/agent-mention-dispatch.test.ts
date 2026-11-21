@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { encodeVisualMarker } from '@weldsuite/app-api-client/schemas/chat-visuals';
 
 const notified: string[] = [];
 vi.mock('@weldsuite/notifications', () => ({
@@ -38,7 +39,7 @@ vi.mock('./actor-permissions', () => ({ resolveActorPermissions: vi.fn(async () 
 const runAgentOnce = vi.fn();
 vi.mock('./executor', () => ({ runAgentOnce: (...args: unknown[]) => runAgentOnce(...args) }));
 
-const { dispatchAgentMentions, roomFailureReply, describeRoom } = await import('./agent-mention-dispatch');
+const { dispatchAgentMentions, roomFailureReply, describeRoom, roomReplyMessage } = await import('./agent-mention-dispatch');
 
 const env = { REALTIME: { fetch: async () => new Response('ok') } };
 let db: Database;
@@ -263,5 +264,31 @@ describe('describeRoom', () => {
     const brief = await describeRoom(db, 'chan_record');
     expect(brief).toContain('company record: "Acme BV" (id cmp_acme)');
     expect(await describeRoom(db, 'chan_room')).toBe('You are in the WeldChat channel "ops".');
+  });
+});
+
+describe('roomReplyMessage', () => {
+  const chart = {
+    type: 'chart' as const,
+    kind: 'bar' as const,
+    title: 'Open tickets per status',
+    labels: ['Open', 'Solved'],
+    series: [{ name: 'Tickets', values: [3, 9] }],
+  };
+
+  it('keeps visuals out of the text and on the metadata', () => {
+    const reply = `Here it is.\n\n${encodeVisualMarker(chart)}\n\nMost are solved.`;
+    expect(roomReplyMessage(reply, [])).toEqual({
+      text: 'Here it is.\n\nMost are solved.',
+      metadata: { visuals: [chart] },
+    });
+  });
+
+  it('names the visuals when the reply has no text of its own', () => {
+    expect(roomReplyMessage(encodeVisualMarker(chart), []).text).toBe('[Chart: Open tickets per status]');
+  });
+
+  it('posts nothing for an empty reply', () => {
+    expect(roomReplyMessage('', [])).toEqual({ text: '', metadata: {} });
   });
 });

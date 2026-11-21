@@ -5,9 +5,9 @@ import type { DeskPortalRequestSummary } from '@weldsuite/app-api-client/schemas
 import { getMyRequests, type RequestsPage } from '@/lib/portal'
 import { fill, useDateFormat, usePortalStrings } from '@/lib/portal-i18n'
 import { useSignInRedirect } from '@/lib/portal-nav'
-import { pageTitle } from '@/lib/site'
+import { pageTitle, useSite } from '@/lib/site'
 import { PortalError, PortalPage } from '@/components/portal/PortalShell'
-import { StatusBadge } from '@/components/portal/StatusBadge'
+import { ApprovalBadge, StatusBadge } from '@/components/portal/StatusBadge'
 import { primaryButtonClass, secondaryButtonClass } from '@/components/portal/styles'
 
 type Tab = 'open' | 'closed'
@@ -41,6 +41,7 @@ function MyRequestsPage() {
 
 function MyRequests({ first, status }: Readonly<{ first: RequestsPage; status: Tab }>) {
   const t = usePortalStrings()
+  const { portal } = useSite()
   const toSignIn = useSignInRedirect()
   const [requests, setRequests] = useState(first.requests)
   const [cursor, setCursor] = useState(first.hasMore ? first.cursor : null)
@@ -78,9 +79,16 @@ function MyRequests({ first, status }: Readonly<{ first: RequestsPage; status: T
           <h1 className="text-3xl font-semibold tracking-tight text-zinc-900 dark:text-white">{t.requests.title}</h1>
           <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">{t.requests.intro}</p>
         </div>
-        <Link to="/requests/new" className={primaryButtonClass}>
-          {t.submitRequest}
-        </Link>
+        <div className="flex flex-wrap gap-3">
+          {portal.catalog && (
+            <Link to="/catalog" className={secondaryButtonClass}>
+              {t.catalog.browse}
+            </Link>
+          )}
+          <Link to="/requests/new" className={primaryButtonClass}>
+            {t.submitRequest}
+          </Link>
+        </div>
       </div>
 
       <nav className="mt-8 flex gap-1 border-b border-zinc-200 dark:border-zinc-800" aria-label={t.requests.title}>
@@ -139,6 +147,7 @@ function RequestRow({ request }: Readonly<{ request: DeskPortalRequestSummary }>
             {request.title || t.requests.untitled}
           </span>
           <StatusBadge status={request.status} label={request.statusLabel} t={t} />
+          {request.approval && <ApprovalBadge approval={request.approval} t={t} />}
         </span>
         {request.lastMessagePreview && (
           <span className="mt-1 line-clamp-1 block text-sm text-zinc-500 dark:text-zinc-400">
@@ -147,7 +156,7 @@ function RequestRow({ request }: Readonly<{ request: DeskPortalRequestSummary }>
         )}
         <span className="mt-1 block text-xs text-zinc-400 dark:text-zinc-500">
           {fill(t.requests.number, { number: request.number })}
-          {request.typeName ? ` · ${request.typeName}` : ''}
+          {request.catalogItemName || request.typeName ? ` · ${request.catalogItemName || request.typeName}` : ''}
           {' · '}
           <time dateTime={request.updatedAt} suppressHydrationWarning>
             {fill(t.requests.updated, { date: date(request.updatedAt) })}

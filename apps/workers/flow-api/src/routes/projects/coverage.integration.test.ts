@@ -109,6 +109,8 @@ beforeAll(async () => {
       title: 'Ship the rollout',
       status: 'todo',
       assigneeId: MANAGER,
+      // The estimate picker's minutes: the workload views count it as 1.5 h.
+      duration: 90,
       startDate: new Date('2026-03-06T09:00:00.000Z'),
     },
     { id: 'task_cov_done', projectId: PROJECT, title: 'Kick-off', status: 'done', assigneeId: MEMBER },
@@ -157,10 +159,16 @@ describe('GET /api/projects/:id/workload', () => {
     const res = await as(MANAGER, READ)('GET', `/projects/${PROJECT}/workload`);
     expect(res.status).toBe(200);
     const { data } = (await res.json()) as {
-      data: { totalTasks: number; teamMembers: Array<{ userId: string; capacity: number; tasks: unknown[] }> };
+      data: {
+        totalTasks: number;
+        teamMembers: Array<{ userId: string; capacity: number; tasks: Array<{ estimatedHours: string | number }> }>;
+      };
     };
     expect(data.totalTasks).toBe(2);
     expect(data.teamMembers.find((m) => m.userId === MANAGER)?.capacity).toBe(16);
+    // estimatedHours wins; without it, the duration (minutes) is the estimate.
+    expect(data.teamMembers.find((m) => m.userId === MEMBER)?.tasks.map((t) => t.estimatedHours)).toEqual(['6.50']);
+    expect(data.teamMembers.find((m) => m.userId === MANAGER)?.tasks.map((t) => t.estimatedHours)).toEqual(['1.50']);
   });
 
   it('404s on a missing project a scope:all holder may ask for', async () => {

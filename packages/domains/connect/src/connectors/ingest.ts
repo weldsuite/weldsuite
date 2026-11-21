@@ -13,7 +13,7 @@
  * workspace id from the client.
  */
 
-import { and, asc, eq, isNull } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, notExists, sql } from 'drizzle-orm';
 import type { PgTable } from 'drizzle-orm/pg-core';
 import { publishEntityEventRaw } from '@weldsuite/entity-events';
 import { expandPicqerProductStock, getConnector, type ConnectorSyncDef } from '@weldsuite/connectors';
@@ -331,34 +331,207 @@ async function softDeleteMapped(db: Database, table: PgTable, internalId: string
   ]);
 }
 
-async function replaceOrderItems(
-  db: Database,
-  connectionId: string,
-  provider: string,
-  orderId: string,
-  mapped: MappedOrder,
-): Promise<void> {
-  await db.delete(schema.orderItems).where(eq(schema.orderItems.orderId, orderId));
-  if (mapped.lineItems.length === 0) return;
+type StoredOrderItem = {
+  id: string;
+  productId: string | null;
+  variantId: string | null;
+  sku: string | null;
+  properties: Record<string, unknown> | null;
+};
 
-  for (const item of mapped.lineItems) {
+/** `order_items.properties.externalLineId`: the provider line an item was imported from. */
+function storedLineId(item: StoredOrderItem): string | null {
+  const value = item.properties?.externalLineId;
+  return typeof value === 'string' && value !== '' ? value : null;
+}
+
+/**
+ * Match one incoming line to a stored item: by the provider's line id, else
+ * (an item imported before line ids were kept, which has none) by
+ * `(variant_id, product_id, sku)`, the first such item in creation order.
+ * Each stored item is matched at most once.
+ */
+function matchOrderItem(
+  line: MappedOrder['lineItems'][number],
+  productId: string | null,
+  existing: StoredOrderItem[],
+  claimed: Set<string>,
+): StoredOrderItem | undefined {
+  const free = existing.filter((item) => !claimed.has(item.id));
+  const byLine = line.externalLineId
+    ? free.find((item) => storedLineId(item) === line.externalLineId)
+    : undefined;
+  // The mapper reads no variant, so an incoming line's variant is null.
+  return byLine
+    ?? free.find(
+      (item) => storedLineId(item) === null
+        && item.variantId === null
+        && item.productId === productId
+        && item.sku === line.sku,
+    );
+}
+
+/**
+ * Bring an imported order's items in line with the provider's lines without
+ * replacing them, so their ids stay put: WeldStash pick lists point at them
+ * (`pick_list_items.order_item_id`) and WeldStash owns `fulfilled_quantity`,
+ * which this never writes. Matched items are updated in place (and stamped
+ * with the provider's line id), new lines inserted, and a line the provider
+ * no longer has is deleted only while nothing was fulfilled from it and no
+ * pick list holds it; otherwise it stays. The order's `itemCount` and
+ * `totalQuantity` then follow what is stored.
+ */
+async function syncOrderItems(args: {
+  db: Database;
+  connectionId: string;
+  provider: string;
+  orderId: string;
+  mapped: MappedOrder;
+  written: Record<string, unknown>;
+}): Promise<void> {
+  const { db, orderId } = args;
+  const existing: StoredOrderItem[] = await db
+    .select({
+      id: schema.orderItems.id,
+      productId: schema.orderItems.productId,
+      variantId: schema.orderItems.variantId,
+      sku: schema.orderItems.sku,
+      properties: schema.orderItems.properties,
+    })
+    .from(schema.orderItems)
+    .where(eq(schema.orderItems.orderId, orderId))
+    .orderBy(asc(schema.orderItems.createdAt), asc(schema.orderItems.id));
+
+  const claimed = new Set<string>();
+  for (const line of args.mapped.lineItems) {
     let productId: string | null = null;
-    if (item.externalProductId) {
-      const mapping = await findMapping(db, connectionId, `${provider}_product`, item.externalProductId);
+    if (line.externalProductId) {
+      const mapping = await findMapping(db, args.connectionId, `${args.provider}_product`, line.externalProductId);
       productId = mapping?.internalEntityId ?? null;
+    }
+    const fields = {
+      sku: line.sku,
+      name: line.name,
+      imageUrl: line.imageUrl,
+      quantity: line.quantity,
+      unitPrice: line.unitPrice,
+      total: line.total,
+    };
+    const match = matchOrderItem(line, productId, existing, claimed);
+    if (match) {
+      claimed.add(match.id);
+      await db
+        .update(schema.orderItems)
+        .set({
+          ...fields,
+          productId: productId ?? match.productId,
+          properties: line.externalLineId
+            ? { ...match.properties, externalLineId: line.externalLineId }
+            : match.properties,
+        })
+        .where(eq(schema.orderItems.id, match.id));
+      continue;
     }
     await db.insert(schema.orderItems).values({
       id: generateId('oitm'),
       orderId,
       productId,
-      sku: item.sku,
-      name: item.name,
-      imageUrl: item.imageUrl,
-      quantity: item.quantity,
-      unitPrice: item.unitPrice,
-      total: item.total,
+      ...fields,
+      properties: line.externalLineId ? { externalLineId: line.externalLineId } : null,
     });
   }
+
+  const vanished = existing.filter((item) => !claimed.has(item.id)).map((item) => item.id);
+  if (vanished.length > 0) {
+    const removed = await db
+      .delete(schema.orderItems)
+      .where(
+        and(
+          inArray(schema.orderItems.id, vanished),
+          sql`coalesce(${schema.orderItems.fulfilledQuantity}, 0) = 0`,
+          notExists(
+            db
+              .select({ id: schema.pickListItems.id })
+              .from(schema.pickListItems)
+              .where(eq(schema.pickListItems.orderItemId, schema.orderItems.id)),
+          ),
+        ),
+      )
+      .returning({ id: schema.orderItems.id });
+    const kept = vanished.length - removed.length;
+    if (kept > 0) {
+      console.warn(
+        `[connectors/ingest] order ${orderId}: kept ${kept} item(s) the store no longer lists (fulfilled or on a pick list)`,
+      );
+    }
+  }
+
+  const [stored] = await db
+    .select({
+      itemCount: sql<number>`count(*)::int`,
+      totalQuantity: sql<number>`coalesce(sum(${schema.orderItems.quantity}), 0)::int`,
+    })
+    .from(schema.orderItems)
+    .where(eq(schema.orderItems.orderId, orderId));
+  if (stored && (stored.itemCount !== args.written.itemCount || stored.totalQuantity !== args.written.totalQuantity)) {
+    await db
+      .update(schema.orders)
+      .set({ itemCount: stored.itemCount, totalQuantity: stored.totalQuantity })
+      .where(eq(schema.orders.id, orderId));
+  }
+}
+
+/**
+ * The buying person's party (`parties.kind = 'person'`), created the way
+ * WeldCRM creates a person's wrapping party when there is none yet.
+ */
+async function personPartyId(db: Database, personId: string, ownerId: string): Promise<string | null> {
+  const existing = await wrappingPartyId(db, 'person', personId);
+  if (existing) return existing;
+  const [person] = await db
+    .select({
+      displayName: schema.people.displayName,
+      primaryAddress: schema.people.primaryAddress,
+      archivedAt: schema.people.archivedAt,
+    })
+    .from(schema.people)
+    .where(and(eq(schema.people.id, personId), isNull(schema.people.deletedAt)))
+    .limit(1);
+  if (!person) return null;
+  const partyId = generateId('party');
+  await db.insert(schema.parties).values({
+    id: partyId,
+    kind: 'person',
+    personId,
+    role: 'customer',
+    displayName: person.displayName,
+    billingAddress: person.primaryAddress,
+    archivedAt: person.archivedAt,
+    ownerId,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  return partyId;
+}
+
+/**
+ * An imported order whose buyer is known (`personId`) gets that person's
+ * party as its counterparty, which WeldBooks invoices. Only while the order
+ * has none: a counterparty someone chose stays.
+ */
+async function linkOrderCounterparty(db: Database, orderId: string, personId: string, ownerId: string): Promise<void> {
+  const [order] = await db
+    .select({ counterpartyId: schema.orders.counterpartyId })
+    .from(schema.orders)
+    .where(eq(schema.orders.id, orderId))
+    .limit(1);
+  if (!order || order.counterpartyId) return;
+  const partyId = await personPartyId(db, personId, ownerId);
+  if (!partyId) return;
+  await db
+    .update(schema.orders)
+    .set({ counterpartyId: partyId })
+    .where(and(eq(schema.orders.id, orderId), isNull(schema.orders.counterpartyId)));
 }
 
 type VariantIndex = { id: string; sku: string | null; attributes: unknown };
@@ -1880,7 +2053,17 @@ async function ingestCatalogRecords(args: IngestArgs): Promise<IngestResult> {
     });
 
     if (mapped.entity === 'order' && outcome.action !== 'skipped') {
-      await replaceOrderItems(args.db, args.connectionId, args.provider, outcome.internalId, mapped);
+      await syncOrderItems({
+        db: args.db,
+        connectionId: args.connectionId,
+        provider: args.provider,
+        orderId: outcome.internalId,
+        mapped,
+        written: values,
+      });
+      if (typeof values.personId === 'string') {
+        await linkOrderCounterparty(args.db, outcome.internalId, values.personId, args.ownerId);
+      }
     }
     if (mapped.entity === 'product') {
       await syncProductListing(args, mapped, externalId, outcome);

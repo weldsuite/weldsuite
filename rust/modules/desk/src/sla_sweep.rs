@@ -60,6 +60,8 @@ pub struct SweepServices {
     pub realtime: Option<Arc<dyn DynRealtimePublisher>>,
     /// Notification email.
     pub mail: Option<Arc<dyn DynSystemMail>>,
+    /// Push notifications (Expo); without it they are skipped.
+    pub push_http: Option<weldsuite_ports::OutboundHttp>,
     /// Customer mail (a notice on an email ticket): the relay and the
     /// outbound guard's ledgers, as the desk API sends replies with.
     pub outbound: weldsuite_mail_domain::outbound::OutboundBindings,
@@ -183,7 +185,7 @@ async fn announce(
                 realtime: services.realtime.clone(),
                 presence: None,
                 mail: services.mail.clone(),
-                http: None,
+                http: services.push_http.clone(),
                 apns: None,
             };
             for notification in &notifications {

@@ -124,6 +124,9 @@ export const RUST_V1_SEGMENTS: ReadonlySet<string> = new Set([
   'user-apps',
   'settings',
   'legal-entities',
+  'audit-logs',
+  // WeldDesk's BI feed (OData)
+  'odata',
   // CRM
   'people',
   'companies',
@@ -150,10 +153,6 @@ export const RUST_V1_SEGMENTS: ReadonlySet<string> = new Set([
   'whiteboards',
   // Desk
   'articles',
-  // Commerce
-  'categories',
-  'products',
-  'orders',
   // Chat
   'channels',
   'channel-members',
@@ -220,6 +219,17 @@ function v1Segment(input: string): string | null {
 export function servedByRust(input: string): boolean {
   const segment = v1Segment(input);
   return segment !== null && RUST_V1_SEGMENTS.has(segment);
+}
+
+/**
+ * Response headers that are part of an OData answer (`/v1/odata`): the two
+ * backends must agree on them, as they must on the status and the body.
+ */
+const ODATA_HEADERS = ['Content-Type', 'OData-Version', 'Allow', 'WWW-Authenticate'] as const;
+
+/** The headers conformance compares for `input`, besides status and body. */
+function comparedHeaders(input: string): readonly string[] | undefined {
+  return v1Segment(input) === 'odata' ? ODATA_HEADERS : undefined;
 }
 
 export function createExternalTestApp(options: CreateExternalTestAppOptions = {}) {
@@ -330,6 +340,9 @@ export function createExternalTestApp(options: CreateExternalTestAppOptions = {}
           sideEffects: sideEffects!,
           // The key's session, as the Rust server's `/v1` conformance layer reads it.
           context: { apiSession: session },
+          compareHeaders: comparedHeaders(input),
+          // An OData payload is read as it is written: its key order counts too.
+          exactBody: v1Segment(input) === 'odata',
         });
       }
       if (recorder) {

@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from 'react';
 import { toast } from 'sonner';
-import { Frame, Keyboard, Maximize, MoreHorizontal, Scan } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, Frame, Keyboard, Maximize, MoreHorizontal, Presentation, Scan, Users } from 'lucide-react';
 import { canVoteOn, castVoteOp, keyAllowed, keyBetween, newId, type BoardElement, type BuiltInTemplate, type Point, type RecordRef, type RecordView } from '@weldsuite/board-engine';
 import { Button } from '@weldsuite/ui/components/button';
 import {
@@ -12,9 +12,13 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
+import { PromptDialog } from '@weldsuite/ui/components/prompt-dialog';
 import { TooltipProvider } from '@weldsuite/ui/components/tooltip';
+import { formatShortcut } from '@weldsuite/ui/lib/shortcut';
+import { useTheme } from '@/hooks/use-theme';
 import { useI18n } from '@/lib/i18n/provider';
-import { ContextToolbar, type ContextActions } from './context-toolbar';
+import { cn } from '@/lib/utils';
+import { CanvasContextMenu, ContextToolbar, SelectionContextMenu, type ContextActions } from './context-toolbar';
 import { CropDialog } from './crop-dialog';
 import { copyAsImage, exportBoard, type ExportFormat } from './export';
 import type { BoardController } from './model/board-controller';
@@ -28,7 +32,7 @@ import { PresentControls, usePresentation } from './present';
 import { SavedColorsContext, type SavedColors } from './swatches';
 import { buildTemplate, TemplatesDialog } from './templates-dialog';
 import { Toolbar, UndoRedo } from './toolbar';
-import { Divider } from './ui';
+import { Divider, ScrollFade } from './ui';
 import { BoardCanvas } from './view/board-canvas';
 
 export type BoardStatus = 'saved' | 'saving' | 'reconnecting' | 'offline-pending' | 'view-only' | 'comment-only' | 'local';
@@ -76,7 +80,8 @@ export interface BoardEditorProps {
   record?: (ref: RecordRef) => RecordView | null;
   recordVersion?: number;
   onRecords?: () => void;
-  onAi?: () => void;
+  /** Bottom centre of the board: the AI island. */
+  island?: ReactNode;
   context?: Partial<ContextActions>;
   votes?: Map<string, number>;
   commentCounts?: Map<string, number>;
@@ -95,6 +100,147 @@ export interface BoardEditorProps {
 const MAX_IMAGE = 640;
 
 /**
+ * The canvas behind a board without a background of its own. In dark mode a
+ * dimmer neutral, so the board doesn't glare next to the dark app around it;
+ * still light, because what is on boards (black text and lines, white shapes,
+ * pale stickies) is made for a light board.
+ */
+const CANVAS_LIGHT = '#f7f8fa';
+const CANVAS_DIM = '#dcdfe4';
+
+/** Where the person's view settings (grid, board map, authors) are kept between visits. */
+const VIEW_KEY = 'weldboard:view';
+
+interface ViewSettings {
+  grid: boolean;
+  minimap: boolean;
+  authors: boolean;
+}
+
+function readView(): Partial<ViewSettings> {
+  try {
+    const raw = window.localStorage.getItem(VIEW_KEY);
+    return raw ? (JSON.parse(raw) as Partial<ViewSettings>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveView(view: ViewSettings): void {
+  try {
+    window.localStorage.setItem(VIEW_KEY, JSON.stringify(view));
+  } catch {
+    // Storage blocked or full: the settings last this visit only.
+  }
+}
+
+/** The person's view settings (grid, board map, authors), kept from one visit to the next. */
+function useViewSettings(c: BoardController) {
+  const [minimap, setMinimap] = useState(() => readView().minimap ?? false);
+  useEffect(() => {
+    const view = readView();
+    c.showGrid = view.grid ?? c.showGrid;
+    c.showAuthors = view.authors ?? c.showAuthors;
+    c.changed();
+  }, [c]);
+  const setView = (patch: Partial<ViewSettings>) => {
+    const next = { grid: patch.grid ?? c.showGrid, authors: patch.authors ?? c.showAuthors, minimap: patch.minimap ?? minimap };
+    c.showGrid = next.grid;
+    c.showAuthors = next.authors;
+    setMinimap(next.minimap);
+    saveView(next);
+    c.changed();
+  };
+  return { minimap, setView };
+}
+
+/** An element's width, kept current as it changes; `initial` until it is measured. */
+function useWidth(ref: RefObject<HTMLElement | null>, initial: number): number {
+  const [width, setWidth] = useState(initial);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => setWidth(el.clientWidth));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [ref]);
+  return width;
+}
+
+/** Names the browser tab after the board while it is open. */
+function useDocumentTitle(name: string | undefined): void {
+  useEffect(() => {
+    if (!name) return;
+    const previous = document.title;
+    document.title = name;
+    return () => {
+      document.title = previous;
+    };
+  }, [name]);
+}
+
+/** The editor's box: in the page, or over everything while presenting. */
+function editorRootClass(presenting: boolean): string {
+  return cn('flex min-h-0 w-full flex-col overflow-hidden', presenting ? 'fixed inset-0 z-50 h-dvh bg-background' : 'h-full');
+}
+
+/** Where the board map sits: above the AI button where the canvas is too narrow for both side by side. */
+function minimapPlace(canvasWidth: number): string {
+  return canvasWidth < 760 ? 'bottom-14' : 'bottom-3';
+}
+
+/** 'hidden' unless `show`: for what the header shows in one place or the other. */
+function shownIf(show: boolean): string | undefined {
+  return show ? undefined : 'hidden';
+}
+
+/**
+ * The canvas colour behind a board without a background of its own, which
+ * follows the app's theme and is handed to the controller for exports.
+ */
+function useCanvasBackground(c: BoardController): string {
+  const { resolvedTheme } = useTheme();
+  const themed = resolvedTheme === 'dark' ? CANVAS_DIM : CANVAS_LIGHT;
+  useEffect(() => {
+    c.canvasBackground = themed;
+    c.changed(false);
+  }, [c, themed]);
+  return c.board.props.background ?? themed;
+}
+
+/** Opens a link from the board in a new tab: web and mail links only. */
+function openSafeLink(url: string | undefined): void {
+  if (url && /^(https?:|mailto:)/i.test(url)) window.open(url, '_blank', 'noopener,noreferrer');
+}
+
+/**
+ * Presenting goes full screen (above the app and the browser's own bars) where
+ * the browser allows it, and leaving full screen (Esc) stops presenting too.
+ * Without full screen (not allowed in a frame) the slides still cover the app:
+ * the page's main area is its own layer under the app's rail, so it is lifted
+ * above it while presenting.
+ */
+function usePresentingLayer(root: RefObject<HTMLElement | null>, presenting: boolean, stop: () => void): void {
+  useEffect(() => {
+    if (!presenting) return;
+    const el = root.current;
+    if (el && document.fullscreenEnabled && !document.fullscreenElement) el.requestFullscreen?.().catch(() => undefined);
+    const layer = el?.closest('main');
+    const zIndex = layer?.style.zIndex ?? '';
+    if (layer) layer.style.zIndex = '60';
+    const onChange = () => {
+      if (!document.fullscreenElement) stop();
+    };
+    document.addEventListener('fullscreenchange', onChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', onChange);
+      if (layer) layer.style.zIndex = zIndex;
+      if (document.fullscreenElement) void document.exitFullscreen?.().catch(() => undefined);
+    };
+  }, [root, presenting, stop]);
+}
+
+/**
  * The board editor: the canvas, the tools on the left, the context toolbar
  * over the selection, zoom and map in the corner, and the header with the
  * name, status, collaborators, share and export.
@@ -105,7 +251,20 @@ export function BoardEditor(props: BoardEditorProps) {
   const { t, format } = useI18n();
   const te = t.weldboard.editor;
   const ia = useMemo(() => new Interactions(c), [c]);
-  const [minimap, setMinimap] = useState(false);
+  const { minimap, setView } = useViewSettings(c);
+  // Where the right-click menu is open (canvas pixels), or null.
+  const [menuAt, setMenuAt] = useState<Point | null>(null);
+  const closeMenu = useCallback(() => setMenuAt(null), []);
+  // The board's own menu, on a right-click where nothing is.
+  const [canvasMenuAt, setCanvasMenuAt] = useState<Point | null>(null);
+  // The header's own width decides what fits in it (the window's says nothing about a side panel or the app's sidebar).
+  const header = useRef<HTMLDivElement>(null);
+  const headerWidth = useWidth(header, 1024);
+  // The board's own width (less the side panel when one is open) decides where the map fits.
+  const canvasBox = useRef<HTMLDivElement>(null);
+  const canvasWidth = useWidth(canvasBox, 1024);
+  /** Room for Facilitate, Present and Export beside Share: below this they move into the ⋯ menu. */
+  const roomy = headerWidth >= 600;
   /** The editor's own panel on the right; one at a time. */
   const [sidePanel, setSidePanel] = useState<'frames' | 'facilitate' | null>(null);
   const togglePanel = (next: 'frames' | 'facilitate') => setSidePanel((open) => (open === next ? null : next));
@@ -119,8 +278,27 @@ export function BoardEditor(props: BoardEditorProps) {
   const filePicker = useRef<HTMLInputElement>(null);
   const [finding, setFinding] = useState(false);
   const [cropping, setCropping] = useState<string | null>(null);
+  const [linkDraft, setLinkDraft] = useState<string | null>(null);
+  const [altFor, setAltFor] = useState<string | null>(null);
+  // The ⋯ menu on a phone: its main list, or the export choices swapped in.
+  const [moreView, setMoreView] = useState<'main' | 'export'>('main');
+  const moreMenu = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    // The item that swapped the list is gone: keep the keyboard in the menu.
+    moreMenu.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+  }, [moreView]);
   const imageAt = useRef<Point | null>(null);
   const presentation = usePresentation(c);
+  const canvasBackground = useCanvasBackground(c);
+  useDocumentTitle(props.name);
+  // Renaming starts with the whole name selected, so typing replaces it.
+  const nameInput = useRef<HTMLInputElement>(null);
+  const renamingBoard = nameDraft !== null;
+  useEffect(() => {
+    if (!renamingBoard) return;
+    nameInput.current?.focus();
+    nameInput.current?.select();
+  }, [renamingBoard]);
   // Votes and fading come from the board's voting round, unless the page says otherwise.
   const voting = votingView(c.board, c.options.userId);
   const propsRef = useRef(props);
@@ -139,9 +317,10 @@ export function BoardEditor(props: BoardEditorProps) {
       else if (!take) toast.info(strings.current.voting.noneLeft);
       return true;
     };
+    ia.onOpenLink = openSafeLink;
     ia.onOpen = (el) => {
-      if (el.type === 'link' && el.link && /^(https?:|mailto:)/i.test(el.link)) {
-        window.open(el.link, '_blank', 'noopener,noreferrer');
+      if (el.type === 'link') {
+        openSafeLink(el.link);
         return;
       }
       if (el.src) void propsRef.current.loadImage(el.src).then((url) => url && window.open(url, '_blank', 'noopener,noreferrer'));
@@ -153,6 +332,9 @@ export function BoardEditor(props: BoardEditorProps) {
     props.onPresentingChange?.(presentation.presenting);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [presentation.presenting]);
+
+  const root = useRef<HTMLDivElement>(null);
+  usePresentingLayer(root, presentation.presenting, presentation.stop);
 
   // Fit the board in view on first open.
   const fitted = useRef(false);
@@ -261,9 +443,11 @@ export function BoardEditor(props: BoardEditorProps) {
     }
   };
 
-  const openLink = () => {
-    const url = window.prompt(te.style.linkPrompt, c.selected[0]?.link ?? 'https://')?.trim();
-    if (url === undefined) return;
+  const openLink = () => setLinkDraft(c.selected[0]?.link ?? '');
+
+  const saveLink = (typed: string) => {
+    // "example.com" is meant as a web address; only web and mail links are kept.
+    const url = typed && !/^[a-z][a-z\d+.-]*:/i.test(typed) ? `https://${typed}` : typed;
     const safe = url && /^(https?:|mailto:)/i.test(url) ? url.slice(0, 2048) : null;
     if (c.editing) {
       setMark(c, 'a', safe);
@@ -301,30 +485,52 @@ export function BoardEditor(props: BoardEditorProps) {
     'comment-only': te.status.commentOnly,
   };
 
+  const togglePresenting = () => (presentation.presenting ? presentation.stop() : present());
+  const canFacilitate = !presentation.presenting && (!c.readOnly || c.canComment);
+
+  const exportItems = (
+    <>
+      <DropdownMenuItem onSelect={() => void doExport('png')}>{te.export.png}</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => void doExport('svg')}>{te.export.svg}</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => void doExport('pdf')}>{te.export.pdf}</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => void doExport('pdf-frames')}>{te.export.pdfFrames}</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => void doExport('json')}>{te.export.json}</DropdownMenuItem>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem
+        onSelect={() =>
+          void copyAsImage({ controller: c, name: props.name, loadImage: props.loadImage, only: c.selection.size ? new Set(c.selection) : undefined }).then((ok) => ok && toast.success(te.export.copied))
+        }
+      >
+        {te.export.copyImage}
+      </DropdownMenuItem>
+    </>
+  );
+
   const context: ContextActions = {
     onLink: openLink,
+    onOpenLink: (url) => {
+      if (/^(https?:|mailto:)/i.test(url)) window.open(url, '_blank', 'noopener,noreferrer');
+    },
     onRenameFrame: (id) => setRenaming(id),
     onPresentFrom: (id) => present(id),
     onExportSelection: () => void doExport('png', new Set(c.selection)),
     onCrop: (id) => setCropping(id),
-    onAltText: (id) => {
-      const alt = window.prompt(te.actions.altTextPrompt, c.board.get(id)?.alt ?? '');
-      if (alt !== null) c.apply({ type: 'set', id, patch: { alt: alt.slice(0, 1000) || null } });
-    },
+    onAltText: (id) => setAltFor(id),
     ...props.context,
   };
 
   return (
     <TooltipProvider delayDuration={400}>
       <SavedColorsContext.Provider value={savedColors}>
-        <div className="flex h-full min-h-0 w-full flex-col overflow-hidden">
+        {/* Presenting takes the whole window: the slides, without the app around them. */}
+        <div ref={root} className={editorRootClass(presentation.presenting)}>
           {/* Header */}
-          <div className="flex h-[53px] shrink-0 items-center justify-between gap-3 border-b border-border bg-background px-3 md:px-4">
+          <div ref={header} className={cn('flex h-[53px] shrink-0 items-center justify-between gap-3 border-b border-border bg-background px-3 md:px-4', shownIf(!presentation.presenting))}>
             <div className="flex min-w-0 items-center gap-1">
               {props.back}
               {nameDraft !== null ? (
                 <input
-                  autoFocus
+                  ref={nameInput}
                   value={nameDraft}
                   maxLength={255}
                   aria-label={te.rename}
@@ -334,13 +540,22 @@ export function BoardEditor(props: BoardEditorProps) {
                     setNameDraft(null);
                   }}
                   onKeyDown={(e) => {
+                    // Enter that confirms an IME composition is not a save.
+                    if (e.nativeEvent.isComposing) return;
                     if (e.key === 'Enter') e.currentTarget.blur();
                     if (e.key === 'Escape') setNameDraft(null);
                   }}
                   className="h-7 w-56 rounded border border-primary px-1 text-[15px] font-medium leading-6 outline-none"
                 />
               ) : (
-                <button type="button" disabled={!props.canRename} onClick={() => setNameDraft(props.name)} className="max-w-[28ch] truncate rounded px-1 text-[15px] font-medium leading-6 text-foreground hover:bg-muted disabled:hover:bg-transparent" title={props.canRename ? te.rename : props.name}>
+                <button
+                  type="button"
+                  disabled={!props.canRename}
+                  onClick={() => setNameDraft(props.name)}
+                  // Never squeezed away by the buttons on the right.
+                  className="min-w-16 max-w-[28ch] truncate rounded px-1 text-left text-[15px] font-medium leading-6 text-foreground hover:bg-muted disabled:hover:bg-transparent"
+                  title={props.canRename ? te.rename : props.name}
+                >
                   {props.name}
                 </button>
               )}
@@ -349,187 +564,230 @@ export function BoardEditor(props: BoardEditorProps) {
             <div className="flex shrink-0 items-center gap-2">
               {props.facilitation}
               {props.headerExtra}
-              {!presentation.presenting && (!c.readOnly || c.canComment) && (
-                <FacilitateButton controller={c} open={sidePanel === 'facilitate'} onToggle={() => togglePanel('facilitate')} />
+              {canFacilitate && (
+                // Without room it still shows while a timer runs or a vote is open, as just the clock or the votes left.
+                <FacilitateButton idleHidden={!roomy} controller={c} open={sidePanel === 'facilitate'} onToggle={() => togglePanel('facilitate')} />
               )}
-              <Button size="sm" variant="outline" className="h-8" onClick={() => (presentation.presenting ? presentation.stop() : present())}>
+              <Button size="sm" variant="outline" className={cn('h-8', shownIf(roomy))} onClick={togglePresenting}>
                 {presentation.presenting ? te.present.stop : te.present.start}
               </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button size="sm" variant="outline" className="h-8">
+                  <Button size="sm" variant="outline" className={cn('h-8', shownIf(roomy))}>
                     {te.export.title}
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onSelect={() => void doExport('png')}>{te.export.png}</DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => void doExport('svg')}>{te.export.svg}</DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => void doExport('pdf')}>{te.export.pdf}</DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => void doExport('pdf-frames')}>{te.export.pdfFrames}</DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => void doExport('json')}>{te.export.json}</DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onSelect={() =>
-                      void copyAsImage({ controller: c, name: props.name, loadImage: props.loadImage, only: c.selection.size ? new Set(c.selection) : undefined }).then((ok) => ok && toast.success(te.export.copied))
-                    }
-                  >
-                    {te.export.copyImage}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
+                <DropdownMenuContent align="end">{exportItems}</DropdownMenuContent>
               </DropdownMenu>
               {props.onShare && (
                 <Button size="sm" className="h-8" onClick={props.onShare}>
                   {te.share}
                 </Button>
               )}
-              <DropdownMenu>
+              <DropdownMenu onOpenChange={(open) => !open && setMoreView('main')}>
                 <DropdownMenuTrigger asChild>
                   <Button size="icon" variant="outline" className="size-8" aria-label={te.actions.more}>
                     <MoreHorizontal className="size-4" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onSelect={() => togglePanel('frames')}>
-                    <Frame className="mr-2 size-4" />
-                    {te.frames.title}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => c.zoomToFit()}>
-                    <Maximize className="mr-2 size-4" />
-                    {te.zoom.fit}
-                    <DropdownMenuShortcut>Shift+1</DropdownMenuShortcut>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem disabled={c.selection.size === 0} onSelect={() => c.zoomToSelection()}>
-                    <Scan className="mr-2 size-4" />
-                    {te.zoom.selection}
-                    <DropdownMenuShortcut>Shift+2</DropdownMenuShortcut>
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuCheckboxItem
-                    checked={c.showGrid}
-                    onCheckedChange={(v) => {
-                      c.showGrid = !!v;
-                      c.changed();
-                    }}
-                  >
-                    {te.zoom.grid}
-                  </DropdownMenuCheckboxItem>
-                  <DropdownMenuCheckboxItem checked={minimap} onCheckedChange={(v) => setMinimap(!!v)}>
-                    {te.zoom.minimap}
-                  </DropdownMenuCheckboxItem>
-                  <DropdownMenuCheckboxItem
-                    checked={c.showAuthors}
-                    onCheckedChange={(v) => {
-                      c.showAuthors = !!v;
-                      c.changed();
-                    }}
-                  >
-                    {te.showAuthors}
-                  </DropdownMenuCheckboxItem>
-                  {props.menuExtra}
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onSelect={() => setShortcuts(true)}>
-                    <Keyboard className="mr-2 size-4" />
-                    {te.shortcuts.open}
-                  </DropdownMenuItem>
+                <DropdownMenuContent ref={moreMenu} align="end">
+                  {moreView === 'export' ? (
+                    <>
+                      <DropdownMenuItem
+                        onSelect={(e) => {
+                          e.preventDefault();
+                          setMoreView('main');
+                        }}
+                      >
+                        <ChevronLeft className="size-4" />
+                        {te.export.title}
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      {exportItems}
+                    </>
+                  ) : (
+                    <>
+                      {/* Below a laptop width the header has room for Share only: the rest is here. */}
+                      {canFacilitate && (
+                        <DropdownMenuItem className={shownIf(!roomy)} onSelect={() => togglePanel('facilitate')}>
+                          <Users className="size-4" />
+                          {te.facilitation}
+                        </DropdownMenuItem>
+                      )}
+                      <DropdownMenuItem className={shownIf(!roomy)} onSelect={togglePresenting}>
+                        <Presentation className="size-4" />
+                        {presentation.presenting ? te.present.stop : te.present.start}
+                        <DropdownMenuShortcut>F5</DropdownMenuShortcut>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className={shownIf(!roomy)}
+                        onSelect={(e) => {
+                          e.preventDefault();
+                          setMoreView('export');
+                        }}
+                      >
+                        <Download className="size-4" />
+                        {te.export.title}
+                        <ChevronRight className="ml-auto size-4" />
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator className={shownIf(!roomy)} />
+                      <DropdownMenuItem onSelect={() => togglePanel('frames')}>
+                        <Frame className="size-4" />
+                        {te.frames.title}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => c.zoomToFit()}>
+                        <Maximize className="size-4" />
+                        {te.zoom.fit}
+                        <DropdownMenuShortcut>{formatShortcut(['shift', '1'])}</DropdownMenuShortcut>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem disabled={c.selection.size === 0} onSelect={() => c.zoomToSelection()}>
+                        <Scan className="size-4" />
+                        {te.zoom.selection}
+                        <DropdownMenuShortcut>{formatShortcut(['shift', '2'])}</DropdownMenuShortcut>
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuCheckboxItem checked={c.showGrid} onCheckedChange={(v) => setView({ grid: !!v })}>
+                        {te.zoom.grid}
+                      </DropdownMenuCheckboxItem>
+                      <DropdownMenuCheckboxItem checked={minimap} onCheckedChange={(v) => setView({ minimap: !!v })}>
+                        {te.zoom.minimap}
+                      </DropdownMenuCheckboxItem>
+                      <DropdownMenuCheckboxItem checked={c.showAuthors} onCheckedChange={(v) => setView({ authors: !!v })}>
+                        {te.showAuthors}
+                      </DropdownMenuCheckboxItem>
+                      {props.menuExtra}
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onSelect={() => setShortcuts(true)}>
+                        <Keyboard className="size-4" />
+                        {te.shortcuts.open}
+                        <DropdownMenuShortcut>?</DropdownMenuShortcut>
+                      </DropdownMenuItem>
+                    </>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
           </div>
 
-          {/* Tools */}
-          {!presentation.presenting && (
-            <div className="flex h-12 shrink-0 items-center gap-0.5 overflow-x-auto border-b bg-muted/30 px-2">
-              <UndoRedo controller={c} />
-              <Divider />
-              <Toolbar controller={c} onImage={() => {
-                imageAt.current = c.center();
-                imagePicker.current?.click();
-              }} onFile={props.uploadFile ? () => {
-                imageAt.current = c.center();
-                filePicker.current?.click();
-              } : undefined} onTemplates={() => setTemplates(true)} onRecords={props.onRecords} onAi={props.onAi} />
-              <ZoomControls controller={c} />
-            </div>
-          )}
-          <div className="relative min-h-0 flex-1 overflow-hidden bg-[#f7f8fa]">
-            <BoardCanvas
-              controller={c}
-              interactions={ia}
-              loadImage={props.loadImage}
-              record={props.record}
-              recordVersion={props.recordVersion}
-              onFiles={(files, at) => void insertImages(files, at)}
-              onPasteUrl={(url, at) => void pasteUrl(url, at)}
-              keyActions={{ openShortcuts: () => setShortcuts(true), openLink, openFind: () => setFinding(true), togglePresent: () => (presentation.presenting ? presentation.stop() : present()) }}
-              votes={props.votes ?? voting.votes}
-              commentCounts={props.commentCounts}
-              activeComment={props.activeComment}
-              faded={props.faded ?? voting.faded}
-              renaming={renaming}
-              onRenamed={(id, name) => {
-                setRenaming(null);
-                if (name !== null && name !== c.board.get(id)?.name) c.apply({ type: 'set', id, patch: { name: name.slice(0, 200) } });
-              }}
-              labels={{ renameFrame: te.renameFrame, board: te.canvas }}
-            />
+          <div className="@container relative flex min-h-0 flex-1">
+            {/* The board: its tool row over the canvas, both as wide as the board (the side panel sits beside them). */}
+            <div className="flex min-w-0 flex-1 flex-col">
+              {/* Tools */}
+              {!presentation.presenting && (
+                <div className="flex h-12 shrink-0 items-center border-b bg-muted/30 px-2">
+                  {/* The tools scroll on a narrow window; zoom stays put on the right. */}
+                  <ScrollFade outerClassName="flex-1 items-center" className="gap-0.5" wheelScrolls>
+                    <UndoRedo controller={c} />
+                    <Divider />
+                    <Toolbar controller={c} onImage={() => {
+                      imageAt.current = c.center();
+                      imagePicker.current?.click();
+                    }} onFile={props.uploadFile ? () => {
+                      imageAt.current = c.center();
+                      filePicker.current?.click();
+                    } : undefined} onTemplates={() => setTemplates(true)} onRecords={props.onRecords} />
+                  </ScrollFade>
+                  <ZoomControls controller={c} />
+                </div>
+              )}
+              <div ref={canvasBox} className="relative min-h-0 min-w-0 flex-1 overflow-hidden" style={{ backgroundColor: canvasBackground }}>
+                <BoardCanvas
+                  controller={c}
+                  interactions={ia}
+                  loadImage={props.loadImage}
+                  record={props.record}
+                  recordVersion={props.recordVersion}
+                  onFiles={(files, at) => void insertImages(files, at)}
+                  onPasteUrl={(url, at) => void pasteUrl(url, at)}
+                  keyActions={{ openShortcuts: () => setShortcuts(true), openLink, openFind: () => setFinding(true), togglePresent: togglePresenting }}
+                  votes={props.votes ?? voting.votes}
+                  commentCounts={props.commentCounts}
+                  activeComment={props.activeComment}
+                  faded={props.faded ?? voting.faded}
+                  renaming={renaming}
+                  onRenamed={(id, name) => {
+                    setRenaming(null);
+                    if (name !== null && name !== c.board.get(id)?.name) c.apply({ type: 'set', id, patch: { name: name.slice(0, 200) } });
+                  }}
+                  labels={{ renameFrame: te.renameFrame, board: te.canvas }}
+                  onContextMenu={(screen) => {
+                    const kind = presentation.presenting ? null : ia.contextMenu(screen);
+                    setMenuAt(kind === 'selection' ? screen : null);
+                    setCanvasMenuAt(kind === 'canvas' ? screen : null);
+                  }}
+                />
 
-            {props.banner && <div className="pointer-events-none absolute inset-x-0 top-3 z-30 flex justify-center">{props.banner}</div>}
-            {finding && (
-              <div className="pointer-events-none absolute inset-x-0 top-16 z-30 flex justify-center">
-                <FindBar controller={c} onClose={() => setFinding(false)} />
+                {props.banner && <div className="pointer-events-none absolute inset-x-0 top-3 z-30 flex justify-center">{props.banner}</div>}
+                {finding && (
+                  <div className="pointer-events-none absolute inset-x-0 top-16 z-30 flex justify-center">
+                    <FindBar controller={c} onClose={() => setFinding(false)} />
+                  </div>
+                )}
+
+                <input
+                  ref={imagePicker}
+                  type="file"
+                  accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    const files = [...(e.target.files ?? [])];
+                    e.target.value = '';
+                    if (files.length) void insertImages(files, imageAt.current ?? c.center());
+                  }}
+                />
+
+                <input
+                  ref={filePicker}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    const files = [...(e.target.files ?? [])];
+                    e.target.value = '';
+                    if (files.length) void insertImages(files, imageAt.current ?? c.center());
+                  }}
+                />
+
+                {/* Context toolbar over the selection */}
+                {!presentation.presenting && <ContextToolbar controller={c} actions={context} />}
+                <SelectionContextMenu controller={c} actions={context} at={menuAt} onClose={closeMenu} />
+                <CanvasContextMenu controller={c} at={canvasMenuAt} onClose={() => setCanvasMenuAt(null)} />
+
+                {/* Bottom centre: the AI island, or the presenting controls */}
+                {props.island && !presentation.presenting && (
+                  <div className="pointer-events-none absolute inset-x-0 bottom-4 z-20 flex justify-center px-4">{props.island}</div>
+                )}
+                <div className="pointer-events-none absolute inset-x-0 bottom-3 z-20 flex justify-center gap-2">
+                  <PresentControls presentation={presentation} />
+                </div>
+
+                {/* Bottom right: map */}
+                {minimap && !presentation.presenting && (
+                  // On a narrow board it sits above the AI button rather than over it.
+                  <div className={cn('pointer-events-none absolute right-3 z-20', minimapPlace(canvasWidth))}>
+                    <Minimap controller={c} />
+                  </div>
+                )}
+
+                {c.readOnly && !c.canComment && (
+                  <div className="pointer-events-none absolute inset-x-0 top-3 flex justify-center">
+                    <p className="rounded-full bg-background/90 px-3 py-1 text-xs text-muted-foreground shadow-sm">{te.readOnly}</p>
+                  </div>
+                )}
               </div>
-            )}
-
-            <input
-              ref={imagePicker}
-              type="file"
-              accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml"
-              multiple
-              className="hidden"
-              onChange={(e) => {
-                const files = [...(e.target.files ?? [])];
-                e.target.value = '';
-                if (files.length) void insertImages(files, imageAt.current ?? c.center());
-              }}
-            />
-
-            <input
-              ref={filePicker}
-              type="file"
-              multiple
-              className="hidden"
-              onChange={(e) => {
-                const files = [...(e.target.files ?? [])];
-                e.target.value = '';
-                if (files.length) void insertImages(files, imageAt.current ?? c.center());
-              }}
-            />
-
-            {/* Context toolbar over the selection */}
-            {!presentation.presenting && <ContextToolbar controller={c} actions={context} />}
-
-            {/* Bottom centre: presenting controls */}
-            <div className="pointer-events-none absolute inset-x-0 bottom-3 z-20 flex justify-center gap-2">
-              <PresentControls presentation={presentation} />
             </div>
 
-            {/* Bottom right: map */}
-            {minimap && (
-              <div className="pointer-events-none absolute bottom-3 right-3 z-20">
-                <Minimap controller={c} />
-              </div>
-            )}
-
-            {/* Right panels */}
-            <div className="pointer-events-none absolute bottom-16 right-3 top-3 z-20 flex flex-col items-end gap-2">
-              {sidePanel === 'frames' && <FramesPanel controller={c} onPresent={present} onClose={() => setSidePanel(null)} />}
-              {sidePanel === 'facilitate' && !presentation.presenting && <FacilitationPanel controller={c} onClose={() => setSidePanel(null)} />}
-              {props.panel}
-            </div>
-
-            {c.readOnly && !c.canComment && (
-              <div className="pointer-events-none absolute inset-x-0 top-3 flex justify-center">
-                <p className="rounded-full bg-background/90 px-3 py-1 text-xs text-muted-foreground shadow-sm">{te.readOnly}</p>
+            {/*
+              The side panel: docked beside the board, full height, and gone while nothing is open in it.
+              Where the board area is narrow (a phone, or the app's sidebar taking room) it covers the board
+              instead, as the board would be a sliver beside it: a container query, not the window's width.
+            */}
+            {!presentation.presenting && (
+              <div className="flex w-80 max-w-full shrink-0 flex-col divide-y border-s bg-background empty:hidden @max-2xl:absolute @max-2xl:inset-y-0 @max-2xl:end-0 @max-2xl:z-30 @max-2xl:shadow-lg">
+                {sidePanel === 'frames' && <FramesPanel controller={c} onPresent={present} onClose={() => setSidePanel(null)} />}
+                {sidePanel === 'facilitate' && <FacilitationPanel controller={c} onClose={() => setSidePanel(null)} />}
+                {props.panel}
               </div>
             )}
           </div>
@@ -537,6 +795,28 @@ export function BoardEditor(props: BoardEditorProps) {
         <ShortcutsDialog open={shortcuts} onOpenChange={setShortcuts} />
         <TemplatesDialog open={templates} onOpenChange={setTemplates} onPick={pickTemplate} />
         <CropDialog controller={c} element={cropping ? (c.board.get(cropping) ?? null) : null} loadImage={props.loadImage} onClose={() => setCropping(null)} />
+        <PromptDialog
+          open={linkDraft !== null}
+          onOpenChange={(open) => !open && setLinkDraft(null)}
+          title={te.style.linkTitle}
+          label={te.style.linkPrompt}
+          type="url"
+          placeholder="https://"
+          defaultValue={linkDraft ?? ''}
+          allowEmpty
+          onConfirm={saveLink}
+        />
+        <PromptDialog
+          open={altFor !== null}
+          onOpenChange={(open) => !open && setAltFor(null)}
+          title={te.actions.altText}
+          label={te.actions.altTextPrompt}
+          defaultValue={(altFor && c.board.get(altFor)?.alt) || ''}
+          allowEmpty
+          onConfirm={(alt) => {
+            if (altFor && c.board.get(altFor)) c.apply({ type: 'set', id: altFor, patch: { alt: alt.slice(0, 1000) || null } });
+          }}
+        />
       </SavedColorsContext.Provider>
     </TooltipProvider>
   );

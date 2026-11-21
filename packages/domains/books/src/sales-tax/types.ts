@@ -1,11 +1,10 @@
 /**
- * The sales tax engine contract (docs/plans/weldbooks-us.md §3).
+ * The sales tax engine contract (weldsuite-documentation/plans/weldbooks-us.md §3).
  *
  * One interface for every engine: the manual engine (rates the user keeps)
  * and provider engines (Stripe Tax, Avalara AvaTax) that call a rate API.
- * books-api calls it for invoices, credit memos and bills; commerce-api uses
- * the same engine at checkout. Amounts are in the document currency, rates
- * are percentages (6.25 = 6.25%).
+ * books-api calls it for invoices, credit memos and bills. Amounts are in the
+ * document currency, rates are percentages (6.25 = 6.25%).
  */
 
 import type { PostalAddress } from '@weldsuite/db/schema';

@@ -1,5 +1,6 @@
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import { useCreateIntent } from '@/hooks/use-create-intent';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { Link, useRouter } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
@@ -393,6 +394,8 @@ export function WorkflowsClient({
 }: Readonly<WorkflowsClientProps>) {
   const { t } = useI18n();
   const st = useTranslations();
+  // "1 workflow", "2 workflows" in the bulk delete texts.
+  const bulkLabel = (count: number) => (count === 1 ? entityLabel : entityLabelPlural).toLowerCase();
   const resolvedParentLabel = parentLabel ?? t.weldconnect.breadcrumbs.connect;
   useBreadcrumbs([
     { label: resolvedParentLabel, href: parentHref },
@@ -402,6 +405,7 @@ export function WorkflowsClient({
   const router = useRouter();
   const [workflows, setWorkflows] = useState<Workflow[]>(initialWorkflows);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
+  useCreateIntent(() => setShowCreateDialog(true));
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // Sync local state when parent data changes (e.g. after refetch). Also prune
@@ -511,7 +515,7 @@ export function WorkflowsClient({
       toast.success(
         t.weldconnect.workflows.bulk.deleted
           .replace('{count}', String(succeeded.size))
-          .replace('{entityLabel}', labelPlural),
+          .replace('{entityLabel}', bulkLabel(succeeded.size)),
       );
     } else if (succeeded.size > 0) {
       toast.warning(
@@ -811,10 +815,13 @@ export function WorkflowsClient({
         onOpenChange={(open) => { if (!open) setShowBulkDeleteConfirm(false); }}
         title={t.weldconnect.workflows.bulk.confirmTitle
           .replace('{count}', String(selectedIds.size))
-          .replace('{entityLabel}', entityLabelPlural.toLowerCase())}
-        description={t.weldconnect.workflows.bulk.confirmDescription
-          .replace('{count}', String(selectedIds.size))
-          .replace('{entityLabel}', entityLabelPlural.toLowerCase())}
+          .replace('{entityLabel}', bulkLabel(selectedIds.size))}
+        description={selectedIds.size === 1
+          // One selected: "this workflow", not "these 1 workflows".
+          ? t.weldconnect.workflows.deleteConfirm.description.replace('{entityLabel}', bulkLabel(1))
+          : t.weldconnect.workflows.bulk.confirmDescription
+              .replace('{count}', String(selectedIds.size))
+              .replace('{entityLabel}', bulkLabel(selectedIds.size))}
         confirmLabel={t.weldconnect.workflows.bulk.confirmLabel}
         variant="destructive"
         loading={isBulkDeleting}

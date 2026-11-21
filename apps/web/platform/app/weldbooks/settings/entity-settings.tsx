@@ -263,7 +263,7 @@ export function WeldbooksEntitySettings({
         title={tu.dimensions.settingsCardTitle}
         description={tu.dimensions.settingsCardDescription}
         link={
-          <Link to="/weldbooks/settings/dimensions">
+          <Link to="/settings/apps/weldbooks">
             <Ungroup className="h-4 w-4 mr-1" aria-hidden />
             {tu.dimensions.settingsCardAction}
           </Link>

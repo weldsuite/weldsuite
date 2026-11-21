@@ -15,7 +15,7 @@
  * unlinks a payment or deposit.
  */
 
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, asc, eq, isNull, ne, or } from 'drizzle-orm';
 import { atomically } from '@weldsuite/worker-kit/atomically';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { PostingError, reverseJournalEntry, roundMoney } from './accounting-posting';
@@ -26,6 +26,79 @@ type BankTransactionRow = typeof schema.bankTransactions.$inferSelect;
 /** `reconciliation_type` of a line linked to a payment recorded earlier / to a bank deposit. */
 export const PAYMENT_LINK = 'payment_link';
 export const DEPOSIT_LINK = 'deposit';
+
+/**
+ * A payment recorded by hand for the document that this bank line is the proof of: not linked to
+ * a line or a deposit yet, not a voided check, the same net amount, and the money went through
+ * this line's bank. That means the payment names this bank account and its journal entry booked
+ * the bank's ledger account. A check or cash receipt waiting in Undeposited Funds, a payment
+ * posted to a cash account or to another bank is never reused: linking it would leave the bank's
+ * ledger account without the money.
+ */
+async function findUnlinkedBankPayment(
+  db: Database,
+  args: { txn: BankTransactionRow; type: 'invoice' | 'bill'; documentId: string; paid: number; ledgerAccountId: string | null },
+): Promise<typeof schema.payments.$inferSelect | undefined> {
+  if (!args.ledgerAccountId) return undefined;
+  const candidates = await db
+    .select()
+    .from(schema.payments)
+    .where(
+      and(
+        eq(schema.payments.entityId, args.txn.entityId),
+        eq(schema.payments.bankAccountId, args.txn.bankAccountId),
+        isNull(schema.payments.deletedAt),
+        isNull(schema.payments.bankTransactionId),
+        isNull(schema.payments.depositId),
+        eq(schema.payments.type, args.type === 'invoice' ? 'received' : 'sent'),
+        args.type === 'invoice' ? eq(schema.payments.invoiceId, args.documentId) : eq(schema.payments.billId, args.documentId),
+        or(isNull(schema.payments.checkStatus), ne(schema.payments.checkStatus, 'voided')),
+      ),
+    )
+    .orderBy(asc(schema.payments.date), asc(schema.payments.createdAt));
+  for (const payment of candidates) {
+    if (Math.abs(paymentNetAmount(payment) - args.paid) >= 0.005 || !payment.journalEntryId) continue;
+    const [bankLine] = await db
+      .select({ id: schema.journalLines.id })
+      .from(schema.journalLines)
+      .where(
+        and(
+          eq(schema.journalLines.journalEntryId, payment.journalEntryId),
+          eq(schema.journalLines.accountId, args.ledgerAccountId),
+          isNull(schema.journalLines.deletedAt),
+        ),
+      )
+      .limit(1);
+    if (bankLine) return payment;
+  }
+  return undefined;
+}
+
+/** An open line, money in for an invoice and money out for a bill; returns the line's amount. */
+function assertLineMatchesDocumentType(txn: BankTransactionRow, args: { type: 'invoice' | 'bill' }): number {
+  if (txn.status !== 'unreconciled') throw new PostingError('Transaction is already reconciled or excluded');
+  const amount = Number.parseFloat(txn.amount ?? '0');
+  if (args.type === 'invoice' && !(amount > 0)) {
+    throw new PostingError('Only money coming in can be matched to an invoice');
+  }
+  if (args.type === 'bill' && !(amount < 0)) {
+    throw new PostingError('Only money going out can be matched to a bill');
+  }
+  return amount;
+}
+
+/** The invoice or bill a line is matched to, which must belong to the line's entity. */
+async function loadMatchedDocument(db: Database, txn: BankTransactionRow, type: 'invoice' | 'bill', documentId: string) {
+  const table = type === 'invoice' ? schema.invoices : schema.bills;
+  const [doc] = await db
+    .select({ id: table.id, entityId: table.entityId, contactId: table.contactId, balanceDue: table.balanceDue })
+    .from(table)
+    .where(and(eq(table.id, documentId), isNull(table.deletedAt)))
+    .limit(1);
+  if (!doc) throw new PostingError(`${type === 'invoice' ? 'Invoice' : 'Bill'} not found`);
+  if (doc.entityId !== txn.entityId) throw new PostingError(`Linked ${type} belongs to a different accounting entity`);
+  return doc;
+}
 
 export async function reconcileBankTransactionToDocument(
   db: Database,
@@ -38,32 +111,36 @@ export async function reconcileBankTransactionToDocument(
   },
 ): Promise<{ paymentId: string; journalEntryId: string | null }> {
   const { txn } = args;
-  if (txn.status !== 'unreconciled') throw new PostingError('Transaction is already reconciled or excluded');
-
-  const amount = Number.parseFloat(txn.amount ?? '0');
-  if (args.type === 'invoice' && !(amount > 0)) {
-    throw new PostingError('Only money coming in can be matched to an invoice');
-  }
-  if (args.type === 'bill' && !(amount < 0)) {
-    throw new PostingError('Only money going out can be matched to a bill');
-  }
-
-  const table = args.type === 'invoice' ? schema.invoices : schema.bills;
-  const [doc] = await db
-    .select({ id: table.id, entityId: table.entityId, contactId: table.contactId, balanceDue: table.balanceDue })
-    .from(table)
-    .where(and(eq(table.id, args.documentId), isNull(table.deletedAt)))
-    .limit(1);
-  if (!doc) throw new PostingError(`${args.type === 'invoice' ? 'Invoice' : 'Bill'} not found`);
-  if (doc.entityId !== txn.entityId) throw new PostingError(`Linked ${args.type} belongs to a different accounting entity`);
+  const amount = assertLineMatchesDocumentType(txn, args);
+  const doc = await loadMatchedDocument(db, txn, args.type, args.documentId);
 
   const [bankAccount] = await db
-    .select({ currency: schema.bankAccounts.currency })
+    .select({ currency: schema.bankAccounts.currency, ledgerAccountId: schema.bankAccounts.ledgerAccountId })
     .from(schema.bankAccounts)
     .where(eq(schema.bankAccounts.id, txn.bankAccountId))
     .limit(1);
 
   const paid = roundMoney(Math.abs(amount));
+
+  // The document may already be paid by a payment recorded by hand before the line arrived. Posting
+  // the line as a new payment would book the bank twice, so link that payment to the line instead
+  // (the same as matching the line to the payment).
+  const unlinked = await findUnlinkedBankPayment(db, {
+    txn,
+    type: args.type,
+    documentId: doc.id,
+    paid,
+    ledgerAccountId: bankAccount?.ledgerAccountId ?? null,
+  });
+  if (unlinked) {
+    return reconcileBankTransactionToPayment(db, {
+      txn,
+      paymentId: unlinked.id,
+      reconciliationType: args.reconciliationType,
+      userId: args.userId,
+    });
+  }
+
   // Anything above the open balance stays on the contact as an unapplied credit.
   const allocated = roundMoney(Math.min(paid, Number.parseFloat(doc.balanceDue ?? '0')));
 

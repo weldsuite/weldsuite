@@ -1,13 +1,16 @@
 /**
  * WeldChat in-call surface (mobile).
  *
- * Uses RealtimeKit's participant grid for media, but wraps it in WeldChat chrome
- * (brand colors, IncomingCallModal-style control bar) instead of the stock
- * `RtkMeeting` shell.
+ * WeldChat chrome (brand colors, IncomingCallModal-style control bar) around
+ * the call's media instead of the stock `RtkMeeting` shell: RealtimeKit's
+ * participant grid on WeldSuite cloud, the LiveKit stage on the Kubernetes
+ * editions (ADR CHAT-008). Both clients answer to RealtimeKit's surface, so
+ * everything but the stage is shared.
  */
 
 import React, { useContext, useEffect, useCallback, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChevronDown, Hash, MessageCircle } from 'lucide-react-native';
 import {
@@ -17,14 +20,14 @@ import {
   provideRtkDesignSystem,
   generateBrandColors,
 } from '@cloudflare/realtimekit-react-native-ui';
-import type { useRealtimeKitClient } from '@cloudflare/realtimekit-react-native';
+import type { VideoProvider } from '@weldsuite/weldmeet-ui/providers/video-provider';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { BRAND } from '@/lib/brand';
+import type { MeetingClient } from '@/lib/calls/types';
 import { useI18n } from '@/lib/i18n';
 import { addCallActionListener } from '@/modules/weldchat-calls';
 import { CallControls } from './CallControls';
-
-type MeetingClient = NonNullable<ReturnType<typeof useRealtimeKitClient>[0]>;
+import { LiveKitStage } from './LiveKitStage';
 
 provideRtkDesignSystem({
   theme: 'darkest',
@@ -36,6 +39,7 @@ provideRtkDesignSystem({
 
 function JoinedCallBody({
   meeting,
+  provider,
   peerName,
   peerAvatar,
   isDirect,
@@ -46,6 +50,7 @@ function JoinedCallBody({
   onLeave,
 }: Readonly<{
   meeting: MeetingClient;
+  provider: VideoProvider;
   peerName?: string;
   peerAvatar?: string;
   /** 1:1 call: the avatar is the person; otherwise the channel's #. */
@@ -174,9 +179,17 @@ function JoinedCallBody({
         </Text>
       </View>
 
-      <CallStage meeting={meeting} isVideo={isVideo} background={colors.background}>
-        {!isVideo && <View style={styles.voiceStage}>{avatar}</View>}
-      </CallStage>
+      {provider === 'livekit' ? (
+        <View style={styles.stage}>
+          <LiveKitStage meeting={meeting} isVideo={isVideo} background={colors.background}>
+            {!isVideo && <View style={styles.voiceStage}>{avatar}</View>}
+          </LiveKitStage>
+        </View>
+      ) : (
+        <CallStage meeting={meeting} isVideo={isVideo} background={colors.background}>
+          {!isVideo && <View style={styles.voiceStage}>{avatar}</View>}
+        </CallStage>
+      )}
 
       {/* WeldMeet's control bar: mic, camera, More and leave. */}
       <CallControls
@@ -195,6 +208,7 @@ function JoinedCallBody({
 
 export function InCallRoom({
   meeting,
+  provider = 'realtimekit',
   peerName,
   peerAvatar,
   isDirect,
@@ -205,6 +219,8 @@ export function InCallRoom({
   onLeave,
 }: Readonly<{
   meeting: MeetingClient;
+  /** Which client `meeting` is; picks the stage that draws its media. */
+  provider?: VideoProvider;
   peerName?: string;
   peerAvatar?: string;
   isDirect?: boolean;
@@ -218,6 +234,7 @@ export function InCallRoom({
   return (
     <JoinedCallBody
       meeting={meeting}
+      provider={provider}
       peerName={peerName}
       peerAvatar={peerAvatar}
       isDirect={isDirect}

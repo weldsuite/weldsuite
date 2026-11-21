@@ -1,0 +1,44 @@
+# The platform's own sign-in API (/api/sign-in, rust/modules/core-signin)
+# under a stricter rate limit than the rest of the API
+# (controllers/values/traefik.yaml, signin-ratelimit): password checks go on
+# to the identity provider, and password reset, sign-up and the codes send
+# mail. Its own Ingress because a Traefik middleware belongs to a router, and
+# the chart's Ingress is one router per host for all of /. Traefik prefers the
+# longer path, so these requests take this one. mcp. has no /api/sign-in.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: weldsuite-sign-in
+  namespace: weldsuite
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: traefik-signin-ratelimit@kubernetescrd
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: app.${DOMAIN}
+      http:
+        paths:
+          - path: /api/sign-in
+            pathType: Prefix
+            backend:
+              service:
+                name: weldsuite
+                port:
+                  name: http
+    - host: api.${DOMAIN}
+      http:
+        paths:
+          - path: /api/sign-in
+            pathType: Prefix
+            backend:
+              service:
+                name: weldsuite
+                port:
+                  name: http
+  # The certificate the chart's Ingress has cert-manager issue (values/
+  # weldsuite.yaml, ingress.tls).
+  tls:
+    - secretName: weldsuite-api-tls
+      hosts:
+        - app.${DOMAIN}
+        - api.${DOMAIN}

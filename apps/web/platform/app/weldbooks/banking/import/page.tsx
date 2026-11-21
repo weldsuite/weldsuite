@@ -489,8 +489,14 @@ function ImportResult({
         {undone ? (
           <p className="text-sm text-muted-foreground" role="status" data-testid="import-undone">
             {(undone.kept > 0 ? ti.undoImportKept : ti.undoImportDone)
-              .replace('{deleted}', String(undone.deleted))
-              .replace('{kept}', String(undone.kept))}
+              .replace(
+                '{removed}',
+                (undone.deleted === 1 ? ti.undoImportRemovedOne : ti.undoImportRemovedMany).replace('{count}', String(undone.deleted)),
+              )
+              .replace(
+                '{kept}',
+                (undone.kept === 1 ? ti.undoImportKeptOne : ti.undoImportKeptMany).replace('{count}', String(undone.kept)),
+              )}
           </p>
         ) : null}
         <div className="flex flex-wrap gap-3 pt-2">

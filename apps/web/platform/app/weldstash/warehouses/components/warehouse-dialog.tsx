@@ -30,7 +30,7 @@ export function WarehouseDialog({
   onOpenChange: (open: boolean) => void;
   warehouse?: WeldstashWarehouse;
 }>) {
-  const t = getTranslations('commerce').module;
+  const t = getTranslations('weldstash');
   const ts = getTranslations('common');
   const isEdit = !!warehouse;
   const create = useCreateWeldstashWarehouse();

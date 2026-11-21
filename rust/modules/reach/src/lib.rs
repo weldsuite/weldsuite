@@ -8,7 +8,8 @@
 //! which external-api and mcp-server share on Global. Mailpool (mailbox
 //! provisioning) is a third-party API reached through the outbound HTTP
 //! port. Billing is Global's billing-worker (Stripe); these editions have
-//! none, so billing is off: mailboxes are provisioned unbilled (see
+//! none, so billing is off and mailboxes are provisioned unbilled, unless
+//! plans are billed through Mollie, which bills inboxes with the plan (see
 //! `billing.rs`).
 //!
 //! Paths, bodies, status codes, messages and entity events are the
@@ -74,6 +75,8 @@ use weldsuite_ports::{BoxFuture, FileStores, OutboundHttp, StorageBuckets};
 use weldsuite_reach_domain::smtp::SmtpTransport;
 use weldsuite_reach_domain::{DuePort, EventSink, ReachError, ReachEvent};
 
+pub use billing::InboxBilling;
+pub use mailboxes::live_inbox_count;
 pub use smtp::LettreSmtp;
 pub use weldsuite_reach_domain;
 
@@ -113,6 +116,9 @@ pub struct ReachState {
     pub access_gate: Option<Arc<AppAccessGate>>,
     /// The webhook's tenant lookup. A request's `Tenant` (conformance) wins.
     pub tenants: Option<TenantDatabases>,
+    /// Inboxes on the plan's Mollie charge (ADR BILL-014); none where billing
+    /// is off or Global's.
+    pub inbox_billing: Option<Arc<dyn InboxBilling>>,
 }
 
 impl std::fmt::Debug for ReachState {
@@ -121,6 +127,7 @@ impl std::fmt::Debug for ReachState {
             .field("master", &self.master.is_some())
             .field("http", &self.http.is_some())
             .field("smtp", &self.smtp.is_some())
+            .field("inbox_billing", &self.inbox_billing.is_some())
             .finish_non_exhaustive()
     }
 }

@@ -113,6 +113,7 @@ function emailModuleForCategory(category: string): EmailModule {
   if (c.includes('chat')) return 'WeldChat';
   if (c.includes('task') || c.includes('project') || c.includes('flow')) return 'WeldFlow';
   if (c.includes('agent')) return 'WeldAgent';
+  if (c.includes('form')) return 'WeldForms';
   if (c.includes('helpdesk') || c.includes('desk')) return 'WeldDesk';
   if (c.includes('meet') || c.includes('call')) return 'WeldMeet';
   return 'WeldSuite';

@@ -415,21 +415,6 @@ export const manifest: Record<string, SecretEntry[]> = {
     "CLERK_JWT_KEY",
   ],
 
-  // commerce-api: the commerce module's API worker (split from app-api). Base
-  // secrets every API worker needs for Clerk auth and tenant DB resolution;
-  // add the module's own secrets here as its code moves over.
-  "commerce-api": [
-    "DATABASE_URL_MASTER",
-    "NEON_API_KEY",
-    "DATABASE_ENCRYPTION_KEY",
-    "CLERK_SECRET_KEY",
-    "CLERK_JWT_KEY",
-    // WooCommerce /wc-auth/v1 callback (/webhooks/woocommerce): verifies the
-    // HMAC `user_id` that app-api's POST /api/connectors/authorize signs with
-    // this secret, so it must be the SAME value as app-api's in the same env.
-    "INTERNAL_API_SECRET",
-  ],
-
   // crm-api: the crm module's API worker (split from app-api). Base
   // secrets every API worker needs for Clerk auth and tenant DB resolution;
   // add the module's own secrets here as its code moves over.
@@ -589,11 +574,18 @@ export const manifest: Record<string, SecretEntry[]> = {
     "TELNYX_SIP_CONNECTION_ID",
     "TELNYX_PUBLIC_KEY",
     "TELNYX_WEBHOOK_SECRET",
+    // Optional (/api/desk/phone/sip-trunks, a customer's own phone system): the
+    // outbound voice profile attached to its Telnyx connection, and the SIP host shown to it.
+    "TELNYX_OUTBOUND_VOICE_PROFILE_ID",
+    "TELNYX_SIP_HOST",
     // Same value as billing-worker in the same env. fulfill-number re-reads the
     // Stripe Checkout Session to verify payment before buying a Telnyx number.
     "STRIPE_SECRET_KEY",
     // Sent as x-internal-secret on realtime-worker /publish/* (same value on realtime-worker).
     "REALTIME_INTERNAL_SECRET",
+    // Live call translation (/api/desk/phone/calls/:callId/translation) through
+    // @weldsuite/ai: the dedicated AI token, preferred over CLOUDFLARE_API_TOKEN.
+    "AI_GATEWAY_API_TOKEN",
   ],
 
   // desk-api: the desk module's API worker (split from app-api). Base
@@ -648,8 +640,8 @@ export const manifest: Record<string, SecretEntry[]> = {
     "CLERK_SECRET_KEY",
     "CLERK_JWT_KEY",
     // Authorises the admin console's outbound-guard API (/internal/outbound/*;
-    // docs/plans/weldmail-outbound-abuse.md) and the mailbox-store admin API
-    // (/internal/mail-store/*; docs/plans/weldmail-mailbox-store-design.md §9
+    // weldsuite-documentation/plans/weldmail-outbound-abuse.md) and the mailbox-store admin API
+    // (/internal/mail-store/*; weldsuite-documentation/plans/weldmail-mailbox-store-design.md §9
     // task C4) — same shared secret, both via lib/admin-auth.ts. The console
     // (apps/web/admin) holds the same value in its own environment.
     "OUTBOUND_ADMIN_SECRET",
@@ -759,8 +751,9 @@ export const manifest: Record<string, SecretEntry[]> = {
     // Verifier side of the X-Internal-Secret handshake (routes/integrations/
     // internal.ts fails closed (401) when this is unset) and of the
     // /api/internal/workflow-actions bearer; also the WooCommerce connect HMAC
-    // key. integration-sync-worker, integration-webhook-worker, workflow-worker,
-    // app-api and commerce-api need the SAME value in the same env.
+    // key (it also verifies the WooCommerce app-auth callback). integration-
+    // sync-worker, integration-webhook-worker, workflow-worker and app-api
+    // need the SAME value in the same env.
     "INTERNAL_API_SECRET",
     // Moneybird first-party connector (moved here from app-api). Test app
     // redirect: `{PUBLIC_APP_URL}/weldconnect/connectors/callback`.
@@ -799,7 +792,7 @@ export const manifest: Record<string, SecretEntry[]> = {
   // reach-api: the reach module's API worker (split from app-api). Base
   // secrets every API worker needs for Clerk auth and tenant DB resolution;
   // add the module's own secrets here as its code moves over.
-  // reach-api: WeldReach (cold email on Mailpool, docs/plans/weldreach.md).
+  // reach-api: WeldReach (cold email on Mailpool, weldsuite-documentation/plans/weldreach.md).
   // DATABASE_ENCRYPTION_KEY also seals the Mailpool mailbox SMTP/IMAP logins.
   "reach-api": [
     "DATABASE_URL_MASTER",
@@ -816,7 +809,7 @@ export const manifest: Record<string, SecretEntry[]> = {
     // Seals mailbox logins for the warmup network (same value on reach-warmup-worker).
     "WELDREACH_WARMUP_KEY",
   ],
-  // reach-warmup-worker: the WeldReach warmup network (docs/plans/weldreach-warmup.md).
+  // reach-warmup-worker: the WeldReach warmup network (weldsuite-documentation/plans/weldreach-warmup.md).
   // Master DB only; WELDREACH_WARMUP_KEY opens the pool logins reach-api sealed.
   "reach-warmup-worker": [
     "DATABASE_URL_MASTER",
@@ -921,6 +914,11 @@ export const manifest: Record<string, SecretEntry[]> = {
     "SIGN_SESSION_SECRET",
   ],
 
+  // forms-portal (apps/web/forms-portal): WeldForms' respondent page, a TanStack
+  // Start app deployed as a Worker. No database, no tenant secrets: it calls
+  // forms-api's /public/forms/* over a service binding with a shared key.
+  "forms-portal": ["FORMS_PORTAL_SECRET"],
+
   // panel-api: the panel module's API worker (split from app-api). Base
   // secrets every API worker needs for Clerk auth and tenant DB resolution;
   // add the module's own secrets here as its code moves over.
@@ -930,6 +928,22 @@ export const manifest: Record<string, SecretEntry[]> = {
     "DATABASE_ENCRYPTION_KEY",
     "CLERK_SECRET_KEY",
     "CLERK_JWT_KEY",
+    // Basin SQL (read-only token) for the query layer; PANEL_BASIN_BUCKET is a var in wrangler.toml.
+    "R2_SQL_API_TOKEN",
+    "CF_ACCOUNT_ID",
+    // Session and set summaries through @weldsuite/ai (same tokens as crm-api).
+    "AI_GATEWAY_API_TOKEN",
+    "CLOUDFLARE_API_TOKEN",
+  ],
+
+  // panel-maintenance: WeldPanel's erasure and retention job (queue, weekly cron and a
+  // PyIceberg container). Reads the project registry and plans from the master DB.
+  // PANEL_CATALOG_TOKEN is the R2 token with Data Catalog access that the container
+  // job opens the Iceberg tables with (the same Doppler key setup-resources.mjs uses).
+  "panel-maintenance": [
+    "DATABASE_URL_MASTER",
+    "CF_ACCOUNT_ID",
+    "PANEL_CATALOG_TOKEN",
   ],
 
   // merge-api: the merge module's API worker (split from app-api). Base
@@ -965,6 +979,29 @@ export const manifest: Record<string, SecretEntry[]> = {
     "CLOUDFLARE_API_TOKEN",
     // Sent as x-internal-secret on realtime-worker /publish/* (same value on realtime-worker).
     "REALTIME_INTERNAL_SECRET",
+  ],
+
+  // forms-api: WeldForms' API worker. Base secrets every API worker needs for
+  // Clerk auth and tenant DB resolution, plus the module's own.
+  "forms-api": [
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+    // The portal's key on /public/forms/* (X-Forms-Portal-Key); the same value on forms-portal.
+    "FORMS_PORTAL_SECRET",
+    // Signs respondent sessions and verification tokens, keys the hash of emailed codes and of IPs.
+    "FORMS_SESSION_SECRET",
+    // Cloudflare Turnstile siteverify (BOT_CHECK_PROVIDER=turnstile).
+    "TURNSTILE_SECRET_KEY",
+    // realtime-worker /publish/* key: live list refresh and in-app response notifications.
+    "REALTIME_INTERNAL_SECRET",
+    // ALTCHA proof-of-work challenges (BOT_CHECK_PROVIDER=altcha).
+    "ALTCHA_HMAC_KEY",
+    // @weldsuite/ai through the Cloudflare AI Gateway: generating forms and summarising answers.
+    "AI_GATEWAY_API_TOKEN",
+    "CLOUDFLARE_API_TOKEN",
   ],
 };
 

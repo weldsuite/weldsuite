@@ -48,12 +48,29 @@
     "updated",
     "deleted"
   ],
+  "ai_provider_key": [
+    "set",
+    "removed"
+  ],
+  "ai_settings": [
+    "updated"
+  ],
   "analytics_chart": [
     "created",
     "updated",
     "deleted"
   ],
   "analytics_report": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "asset_source": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "audit_log_stream": [
     "created",
     "updated",
     "deleted"
@@ -249,6 +266,11 @@
   "desk_attachment": [
     "created"
   ],
+  "desk_catalog_item": [
+    "created",
+    "updated",
+    "deleted"
+  ],
   "desk_conversation": [
     "created",
     "updated",
@@ -259,6 +281,11 @@
   ],
   "desk_message": [
     "created"
+  ],
+  "desk_problem": [
+    "created",
+    "updated",
+    "deleted"
   ],
   "desk_widget": [
     "created",
@@ -394,12 +421,44 @@
     "shared",
     "unshared"
   ],
+  "form": [
+    "created",
+    "updated",
+    "deleted",
+    "published",
+    "closed"
+  ],
   "form_1099_filing": [
     "created",
     "updated",
     "deleted",
     "generated",
     "filed"
+  ],
+  "form_folder": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "form_integration": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "form_invitation": [
+    "sent",
+    "completed",
+    "revoked"
+  ],
+  "form_response": [
+    "submitted",
+    "updated",
+    "deleted"
+  ],
+  "form_theme": [
+    "created",
+    "updated",
+    "deleted"
   ],
   "fx_rate": [
     "created",
@@ -474,6 +533,11 @@
     "deleted"
   ],
   "helpdesk_news": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "helpdesk_report_schedule": [
     "created",
     "updated",
     "deleted"
@@ -848,7 +912,96 @@
     "cancelled",
     "completed"
   ],
+  "panel_alert": [
+    "created",
+    "updated",
+    "deleted",
+    "fired",
+    "resolved"
+  ],
+  "panel_annotation": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "panel_cohort": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "panel_comment": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "panel_computed_property": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "panel_custom_domain": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "panel_custom_event": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "panel_dashboard": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "panel_event_definition": [
+    "created",
+    "updated"
+  ],
+  "panel_export": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "panel_group_type": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "panel_heatmap_page": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "panel_key": [
+    "created",
+    "deleted"
+  ],
+  "panel_metric_tree": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "panel_path_rule": [
+    "created",
+    "updated",
+    "deleted"
+  ],
   "panel_project": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "panel_report": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "panel_share_link": [
+    "created",
+    "deleted"
+  ],
+  "panel_subscription": [
     "created",
     "updated",
     "deleted"
@@ -948,6 +1101,11 @@
     "updated",
     "deleted",
     "archived"
+  ],
+  "product_supplier": [
+    "created",
+    "updated",
+    "deleted"
   ],
   "project": [
     "created",
@@ -1118,7 +1276,11 @@
     "created",
     "updated",
     "deleted",
-    "approved"
+    "approved",
+    "ordered",
+    "received",
+    "cancelled",
+    "closed"
   ],
   "putaway": [
     "created",
@@ -1168,6 +1330,19 @@
     "updated",
     "deleted"
   ],
+  "reorder_rule": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "replenishment_run": [
+    "created",
+    "completed",
+    "failed"
+  ],
+  "replenishment_settings": [
+    "updated"
+  ],
   "resource_booking": [
     "created",
     "updated",
@@ -1194,6 +1369,11 @@
   "return_rule": [
     "created",
     "updated",
+    "deleted"
+  ],
+  "sales_history_import": [
+    "created",
+    "completed",
     "deleted"
   ],
   "sales_tax_agency": [
@@ -1269,6 +1449,11 @@
     "expired"
   ],
   "sign_template": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "sip_trunk": [
     "created",
     "updated",
     "deleted"

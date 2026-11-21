@@ -19,7 +19,14 @@ import { MergeAlsoPostToggle, MergeSharePicker, useWeldMergeComposer } from './w
 import type { MergeShareResult } from '@/hooks/queries/use-weldmerge-across-queries';
 import { parseMergeSearch, shareMessage } from '../lib/weldmerge-card';
 import { useAppApiClient } from '@/lib/api/use-app-api';
-import { FOCUS_INPUT_EVENT, useChatContext, type FocusInputDetail, type ReplyTo } from './chat-context';
+import {
+  COMPOSE_INPUT_EVENT,
+  FOCUS_INPUT_EVENT,
+  useChatContext,
+  type ComposeInputDetail,
+  type FocusInputDetail,
+  type ReplyTo,
+} from './chat-context';
 import { THREAD_SUGGESTION_DEPTH, stashThreadDraft, takeThreadDraft } from './reply-chain';
 import { ClipRecorder } from './clip-recorder';
 import { TypingIndicator } from './typing-indicator';
@@ -84,6 +91,13 @@ interface MessageInputProps {
    * conversation, so it never turns up in another composer.
    */
   saveDraft?: boolean;
+  /**
+   * Take focus when the composer mounts or moves to another channel/thread
+   * (default). Off for a record's side chat, which mounts next to the record's
+   * fields: taking focus there moved the next keystrokes of an inline edit
+   * into the chat and sent them as a message (TASK-1461).
+   */
+  autoFocus?: boolean;
 }
 
 /**
@@ -150,6 +164,7 @@ export function MessageInput({
   onSubmitOverride,
   agentsJoinOnSend,
   saveDraft = true,
+  autoFocus = true,
 }: Readonly<MessageInputProps>) {
   const { t } = useI18n();
   const st = useTranslations();
@@ -256,7 +271,9 @@ export function MessageInput({
 
   // Auto-focus the input when the user opens or switches channels/threads
   useEffect(() => {
-    editorRef.current?.focus();
+    if (autoFocus) editorRef.current?.focus();
+  // Only on open / switch: turning the prop on later doesn't move focus.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channelId, parentId]);
 
   // A reply chain just moved into this thread: pick up what was being typed.
@@ -288,6 +305,24 @@ export function MessageInput({
     };
     window.addEventListener(FOCUS_INPUT_EVENT, handler);
     return () => window.removeEventListener(FOCUS_INPUT_EVENT, handler);
+  }, [parentId]);
+
+  // Text handed to this composer (a follow-up about an agent's visual): added
+  // after what is typed, not sent.
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<ComposeInputDetail>).detail;
+      const editor = editorRef.current;
+      if (!detail || !editor || detail.parentId !== (parentId ?? null)) return;
+      const typed = editorToContent(editor).trimEnd();
+      const next = typed ? `${typed} ${detail.content}` : detail.content;
+      loadContentIntoEditor(editor, next, membersMap.current, knownFilesRef.current);
+      setContent(next);
+      editor.focus();
+      placeCaretAtEnd(editor);
+    };
+    window.addEventListener(COMPOSE_INPUT_EVENT, handler);
+    return () => window.removeEventListener(COMPOSE_INPUT_EVENT, handler);
   }, [parentId]);
 
   const clearInput = useCallback(() => {
@@ -456,6 +491,9 @@ export function MessageInput({
       mentions: mentions.length > 0 ? mentions : undefined,
       attachments: outgoing.length > 0 ? outgoing : undefined,
       _optimisticId: `opt_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`,
+    }, {
+      // The optimistic message is taken back on failure: say so, or it just vanishes.
+      onError: () => toast.error(t.weldchat.messageInput.sendFailed),
     });
     // The provider gets plain text: mentions as @Name, no internal tokens.
     mergeComposer.commentOnPullRequest(messagePlainText(trimmed, membersMap.current));
@@ -1310,6 +1348,8 @@ export function MessageInput({
                 )}
                 style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(200,200,200,0.3) transparent' }}
                 role="textbox"
+                aria-multiline="true"
+                aria-label={placeholder || t.weldchat.messageInput.placeholder}
                 tabIndex={isVoiceRecording ? -1 : 0}
               />
             </div>

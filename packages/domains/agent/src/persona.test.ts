@@ -13,6 +13,7 @@ import {
   createPersonaTextTransform,
   holdsPermissions,
   personaPermissionKeys,
+  personaReplyFromSteps,
   personaReplyText,
   personaRowScope,
   personaSheetIds,
@@ -21,10 +22,22 @@ import {
   sumStepUsage,
   type PersonaSheets,
 } from './persona';
+import { encodeVisualMarker, type ChatVisual } from '@weldsuite/app-api-client/schemas/chat-visuals';
 import { sheetToolsLimitedTo } from './sheets-tools';
+import { VISUAL_TOOLS } from './visual-tools';
 import { PLATFORM_TOOLS, type PlatformToolDefinition, type ToolContext } from './tools';
 
 const ids = (permissions: string[]) => selectPersonaTools(holdsPermissions(permissions)).map((t) => t.id);
+
+/** Every caller gets these (visual-tools.ts). */
+const DISPLAY_TOOLS = ['show_chart', 'show_stats', 'show_table', 'show_records'];
+
+const CHART_ARGS = {
+  kind: 'bar',
+  title: 'Open tickets per status',
+  labels: ['Open', 'Solved'],
+  series: [{ name: 'Tickets', values: [3, 9] }],
+};
 
 describe('which tools the default WeldAgent gets', () => {
   const READ_ALL = ['people:read', 'tickets:read', 'tasks:read', 'projects:read'];
@@ -151,16 +164,19 @@ describe('buildPersonaCall', () => {
 
   it('offers tools, instructions and a step limit for a user who may read', async () => {
     const call = await buildPersonaCall({ ...base, holds: holdsPermissions(['tasks:read', 'projects:read']) });
-    expect(call.toolNames.sort()).toEqual(['get_project', 'list_projects', 'list_tasks']);
-    expect(Object.keys(call.tools ?? {}).sort()).toEqual(['get_project', 'list_projects', 'list_tasks']);
+    const expected = ['get_project', 'list_projects', 'list_tasks', ...DISPLAY_TOOLS].sort();
+    expect(call.toolNames.sort()).toEqual(expected);
+    expect(Object.keys(call.tools ?? {}).sort()).toEqual(expected);
     expect(call.system).toContain('Today is 2026-10-27');
-    expect(PERSONA_MAX_STEPS).toBe(6);
+    expect(call.system).toContain('SHOWING DATA');
+    expect(PERSONA_MAX_STEPS).toBe(8);
   });
 
-  it('offers no tools at all to a user who may read nothing', async () => {
+  it('offers only the display tools to a user who may read nothing', async () => {
     const call = await buildPersonaCall({ ...base, holds: holdsPermissions(['tasks:create']) });
-    expect(call.tools).toBeUndefined();
-    expect(call.toolNames).toEqual([]);
+    expect(Object.keys(call.tools ?? {}).sort()).toEqual([...DISPLAY_TOOLS].sort());
+    expect(call.toolNames.sort()).toEqual([...DISPLAY_TOOLS].sort());
+    expect(call.system).toContain('WHAT YOU CAN LOOK UP\nNothing');
   });
 
   it('uses the user\'s own day for "today", not the server\'s', async () => {
@@ -280,6 +296,39 @@ describe('a reply with lookups', () => {
     warn.mockRestore();
   });
 
+  it('keeps a shown visual in the finished reply, where it was shown', async () => {
+    const tools = buildPersonaToolSet(VISUAL_TOOLS, ctx);
+    const model = scriptedModel([{ tool: { name: 'show_chart', input: CHART_ARGS } }, { text: 'Most are solved.' }]);
+
+    const result = await generateText({
+      model,
+      messages: [{ role: 'user', content: 'Chart my tickets' }],
+      tools,
+      stopWhen: stepCountIs(PERSONA_MAX_STEPS),
+    });
+
+    const marker = encodeVisualMarker({ type: 'chart', ...CHART_ARGS } as ChatVisual);
+    expect(personaReplyFromSteps(result.steps)).toBe(`${marker}\n\nMost are solved.`);
+    // The model was told it is on screen.
+    expect(JSON.stringify(model.doGenerateCalls[1].prompt)).toContain('shownToUser');
+  });
+
+  it('tells the model what is wrong with a spec it cannot show', async () => {
+    const tools = buildPersonaToolSet(VISUAL_TOOLS, ctx);
+    const bad = { ...CHART_ARGS, series: [{ name: 'Tickets', values: [1] }] };
+    const model = scriptedModel([{ tool: { name: 'show_chart', input: bad } }, { text: 'Sorry.' }]);
+
+    const result = await generateText({
+      model,
+      messages: [{ role: 'user', content: 'Chart my tickets' }],
+      tools,
+      stopWhen: stepCountIs(PERSONA_MAX_STEPS),
+    });
+
+    expect(personaReplyFromSteps(result.steps)).toBe('Sorry.');
+    expect(JSON.stringify(model.doGenerateCalls[1].prompt)).toContain('one per label');
+  });
+
   it('stops at the step limit instead of looping on lookups', async () => {
     const execute = vi.fn(async () => ({ more: true }));
     const tools = buildPersonaToolSet([fakeTool({ name: 'list_tasks', execute })], ctx);
@@ -350,6 +399,29 @@ describe('createPersonaTextTransform', () => {
   it('answers with an apology when the model wrote nothing (a failed or empty reply)', async () => {
     expect(await run([{ type: 'error' }, { type: 'finish-step' }])).toBe(PERSONA_FALLBACK_TEXT);
     expect(await run([])).toBe(PERSONA_FALLBACK_TEXT);
+  });
+
+  it('puts a shown visual into the text as its marker, where it was shown', async () => {
+    const marker = encodeVisualMarker({ type: 'chart', ...CHART_ARGS } as ChatVisual);
+    expect(
+      await run([
+        { type: 'text-delta', text: 'Here you go.' },
+        { type: 'tool-result', toolName: 'show_chart', input: CHART_ARGS, output: { ok: true } } as never,
+        { type: 'finish-step' },
+        { type: 'text-delta', text: 'Most are solved.' },
+        { type: 'finish-step' },
+      ]),
+    ).toBe(`Here you go.\n\n${marker}\n\nMost are solved.`);
+  });
+
+  it('leaves out a visual the tool refused, and other tool results', async () => {
+    expect(
+      await run([
+        { type: 'tool-result', toolName: 'show_chart', input: CHART_ARGS, output: { ok: false, error: 'x' } } as never,
+        { type: 'tool-result', toolName: 'list_tasks', input: {}, output: { ok: true } } as never,
+        { type: 'text-delta', text: 'Done.' },
+      ]),
+    ).toBe('Done.');
   });
 
   it('works on a real streamed reply with lookups', async () => {
@@ -501,7 +573,12 @@ describe('spreadsheets the user points at', () => {
       holds: holdsPermissions(['sheets:read', 'sheets:update']),
       sheets: { open },
     });
-    expect(call.toolNames).toEqual(['list_spreadsheet_tabs', 'read_spreadsheet_range', 'write_spreadsheet_range']);
+    expect(call.toolNames).toEqual([
+      'list_spreadsheet_tabs',
+      'read_spreadsheet_range',
+      'write_spreadsheet_range',
+      ...DISPLAY_TOOLS,
+    ]);
     expect(PERSONA_SHEET_MAX_STEPS).toBeGreaterThan(PERSONA_MAX_STEPS);
   });
 });

@@ -294,7 +294,7 @@ app.delete('/spaces/:id', requirePermission('knowledge:delete'), async (c) => {
 /** People a teamspace can be shared with. */
 app.get('/teammates', requirePermission('knowledge:read'), async (c) => {
   try {
-    const rows = await listTeammates(c.get('tenantDb'));
+    const rows = await listTeammates(c.env, c.get('tenantDb'));
     return list(c, rows, { totalCount: rows.length, hasMore: false, cursor: null });
   } catch (err) {
     return accessError(c, err, 'Failed to list teammates');
@@ -307,7 +307,7 @@ app.get('/spaces/:id/members', requirePermission('knowledge:read'), async (c) =>
   try {
     const access = await spaceFor(c, id);
     if (access.space.kind === 'personal') return list(c, [], { totalCount: 0, hasMore: false, cursor: null });
-    const rows = await listSpaceMembers(c.get('tenantDb'), id);
+    const rows = await listSpaceMembers(c.env, c.get('tenantDb'), id);
     return list(c, rows, { totalCount: rows.length, hasMore: false, cursor: null });
   } catch (err) {
     return accessError(c, err, 'Failed to list members');

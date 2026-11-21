@@ -1,7 +1,7 @@
 /**
  * The employer as the payroll engines see it, built from a legal entity and
  * the registration and bank account payroll runs under
- * (docs/plans/legal-entities.md, WeldHR).
+ * (weldsuite-documentation/plans/legal-entities.md, WeldHR).
  *
  * `loadEmployerForPayroll` merges the entity (name, legal name, country,
  * currency, address), the registration (loonheffingennummer / EIN) and the

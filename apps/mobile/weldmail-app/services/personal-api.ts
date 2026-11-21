@@ -2,41 +2,21 @@
  * personal-api client for consumer WeldMail (no workspace required).
  *
  * Mirrors `services/app-api.ts`: a module-level token getter is wired from
- * `app/_layout.tsx` via Clerk credentials.
+ * `app/_layout.tsx` via the session credentials. The base URL comes from the
+ * booted server runtime (`personalApiOrigin()`), so the client is built on first
+ * use after boot rather than at import time, and rebuilt if the origin changes.
  */
 
 import { PersonalApiClient } from '@weldsuite/personal-api-client';
-
-const PERSONAL_API_BY_APP_API: Record<string, string> = {
-  'https://app-api-test.weldsuite.org': 'https://personal-api-test.weldsuite.org',
-  'https://app-api.weldsuite.org': 'https://personal-api.weldsuite.org',
-};
-
-/**
- * Pick the personal-api host that matches app-api (and therefore the Clerk
- * instance). A test Clerk JWT against production personal-api fails
- * `verifyToken` and leaves Create address disabled.
- */
-export function resolvePersonalApiUrl(
-  personalUrl = process.env.EXPO_PUBLIC_PERSONAL_API_URL,
-  appApiUrl = process.env.EXPO_PUBLIC_APP_API_URL,
-): string {
-  const appApi = (appApiUrl || '').replace(/\/$/, '');
-  const paired = PERSONAL_API_BY_APP_API[appApi];
-  if (paired) return paired;
-  return personalUrl || 'http://localhost:8787';
-}
-
-/** personal-api base URL. Paired with app-api when that host is known. */
-export const PERSONAL_API_URL = resolvePersonalApiUrl();
+import { lazyClient, personalApiOrigin } from '@weldsuite/mobile-platform/api';
 
 let tokenGetter: () => Promise<string | null> = () => Promise.resolve(null);
 
-/** Wire the Clerk token getter. Called from `app/_layout.tsx`. */
+/** Wire the session token getter. Called from `app/_layout.tsx`. */
 export function setPersonalApiTokenGetter(fn: (() => Promise<string | null>) | null) {
   tokenGetter = fn ?? (() => Promise.resolve(null));
 }
 
-export const personalApi = new PersonalApiClient(PERSONAL_API_URL, () => tokenGetter());
+export const personalApi: PersonalApiClient = lazyClient(personalApiOrigin, (origin) => new PersonalApiClient(origin, () => tokenGetter()));
 
 export default personalApi;

@@ -42,13 +42,22 @@ interface FilterPillsProps {
 }
 
 function getOperatorsForType(
-  filterType?: FilterConfig['filterType'],
+  config: FilterConfig | undefined,
   operatorLabels?: FilterPillsProps['operatorLabels'],
 ) {
-  return getBaseOperatorsForType(filterType).map((op) => ({
-    value: op.value,
-    label: operatorLabels?.[op.value] ?? op.label,
-  }));
+  const allowed = config?.operators;
+  return getBaseOperatorsForType(config?.filterType)
+    .filter((op) => !allowed || allowed.includes(op.value))
+    .map((op) => ({
+      value: op.value,
+      label: operatorLabels?.[op.value] ?? op.label,
+    }));
+}
+
+/** The one operator a field allows, when it allows only one (booleans, or `operators` of length 1). */
+function soleOperator(config: FilterConfig | undefined): string | null {
+  const operators = getOperatorsForType(config);
+  return operators.length === 1 ? operators[0]!.value : null;
 }
 
 function getBaseOperatorsForType(filterType?: FilterConfig['filterType']) {
@@ -161,7 +170,7 @@ export function FilterPills({
 
   const getOperatorLabel = (filter: ActiveFilter) => {
     const config = getFilterConfig(filter.field);
-    const operators = getOperatorsForType(config?.filterType, operatorLabels);
+    const operators = getOperatorsForType(config, operatorLabels);
     return (
       operators.find((o) => o.value === filter.operator)?.label || filter.operator
     );
@@ -182,17 +191,18 @@ export function FilterPills({
     if (filters.length >= maxFilters) return;
     const config = getFilterConfig(field);
     const newId = `filter-${++filterIdCounterRef.current}`;
-    const isBool = config?.filterType === 'boolean';
+    // A field with a single operator (booleans, or `operators` of one) skips the condition step.
+    const preset = soleOperator(config);
     const newIndex = filters.length;
 
     onFiltersChange([
       ...filters,
-      { id: newId, field, operator: isBool ? 'is' : '', value: '' },
+      { id: newId, field, operator: preset ?? '', value: '' },
     ]);
     setFilterMenuOpen(false);
 
     setTimeout(() => {
-      if (isBool) setEditingFilterIndex(newIndex);
+      if (preset) setEditingFilterIndex(newIndex);
       else setEditingOperatorIndex(newIndex);
     }, 0);
   };
@@ -377,10 +387,12 @@ export function FilterPills({
     }
   };
 
+  // Nothing to filter by: no Filter button, whose field menu would open empty.
+  const canAddFilter = filterConfigs.length > 0;
   let filterTrigger: ReactNode = null;
-  if (filters.length > 0 && filters.length < maxFilters) {
+  if (canAddFilter && filters.length > 0 && filters.length < maxFilters) {
     filterTrigger = <FilterAddButton aria-label={labels?.filter ?? 'Filter'} />;
-  } else if (filters.length === 0) {
+  } else if (canAddFilter && filters.length === 0) {
     filterTrigger = <FilterButton>{labels?.filter ?? 'Filter'}</FilterButton>;
   }
 
@@ -389,7 +401,7 @@ export function FilterPills({
       {/* Active filter pills */}
       {filters.map((filter, index) => {
         const config = getFilterConfig(filter.field);
-        const operators = getOperatorsForType(config?.filterType, operatorLabels);
+        const operators = getOperatorsForType(config, operatorLabels);
 
         return (
           <FilterPill key={filter.id}>

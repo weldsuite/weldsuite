@@ -1,0 +1,28 @@
+# Written by cloud-init (rust/deploy/hetzner/secret-store). Caddy holds the
+# store's certificate (Let's Encrypt) and lets the cluster reach only what
+# External Secrets Operator uses: reading a value, looking up its own token,
+# and the health check (sealed or not). Everything else, writes and the web
+# UI (/ui/) included, only from the operators' addresses (admin_cidrs).
+# OpenBao's policies apply on top: the cluster's token may only read.
+{
+	email ${acme_email}
+}
+
+${hostname} {
+	@admin remote_ip ${join(" ", admin_cidrs)}
+	handle @admin {
+		reverse_proxy 127.0.0.1:8200
+	}
+
+	@cluster {
+		method GET
+		path /v1/secret/data/* /v1/auth/token/lookup-self /v1/sys/health
+	}
+	handle @cluster {
+		reverse_proxy 127.0.0.1:8200
+	}
+
+	handle {
+		respond 403
+	}
+}

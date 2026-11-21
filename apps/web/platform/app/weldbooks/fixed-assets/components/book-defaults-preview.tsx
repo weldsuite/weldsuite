@@ -6,7 +6,10 @@ import type { PreviewBook } from '../asset-math';
 import { fill } from '../text';
 
 /** What the server will create when the books are left alone, so the user sees the defaults before saving. */
-export function BookDefaultsPreview({ books }: Readonly<{ books: readonly PreviewBook[] }>) {
+export function BookDefaultsPreview({
+  books,
+  isUs = true,
+}: Readonly<{ books: readonly PreviewBook[]; /** Outside the US there is the ledger book only, without GAAP / tax naming. */ isUs?: boolean }>) {
   const { t } = useI18n();
   const tb = t.weldbooksUs.assets.fixedAssets.books;
   const fa = t.weldbooksUs.assets.fixedAssets;
@@ -24,7 +27,7 @@ export function BookDefaultsPreview({ books }: Readonly<{ books: readonly Previe
         {books.map((book) => (
           <li key={book.book} className="space-y-1" data-testid={`default-book-${book.book}`}>
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm font-medium">{fa.bookKinds[book.book]}</span>
+              <span className="text-sm font-medium">{!isUs && book.book === 'book' ? tb.ledgerBook : fa.bookKinds[book.book]}</span>
               <Badge variant={book.postsToLedger ? 'secondary' : 'outline'}>
                 {book.postsToLedger ? tb.postsToLedger : tb.taxOnly}
               </Badge>

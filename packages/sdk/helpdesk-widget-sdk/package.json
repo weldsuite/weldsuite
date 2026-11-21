@@ -1,6 +1,6 @@
 {
   "name": "@weldsuite/helpdesk-widget-sdk",
-  "version": "1.0.18",
+  "version": "1.0.19",
   "description": "Easy-to-use helpdesk widget SDK that loads via iframe",
   "main": "dist/index.js",
   "module": "dist/index.esm.js",

@@ -8,6 +8,7 @@
 
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Boxes } from 'lucide-react';
+import { OdooManagedBadge } from '@/app/weldstash/components/odoo-managed-badge';
 import { getTranslations } from '@/lib/i18n';
 import { useWeldstashWarehouse, useWeldstashStock } from '@/hooks/queries/use-weldstash-queries';
 import {
@@ -21,7 +22,7 @@ import {
 import { detailsTab, extraTab } from '@/components/objects/_shared/focused-tabs';
 
 export function WarehousePanel(props: Readonly<ObjectPanelComponentProps>) {
-  const t = getTranslations('commerce').module;
+  const t = getTranslations('weldstash');
   const { id } = props;
   const { data, isLoading, error } = useWeldstashWarehouse(id);
   const warehouse = data?.data;
@@ -65,6 +66,7 @@ export function WarehousePanel(props: Readonly<ObjectPanelComponentProps>) {
               {warehouse.isActive === false ? t.status.inactive : t.status.active}
             </Badge>
             {warehouse.isDefault && <Badge variant="outline">{t.fields.isDefault}</Badge>}
+            {warehouse.managedByConnectionId && <OdooManagedBadge />}
           </>
         )
       }

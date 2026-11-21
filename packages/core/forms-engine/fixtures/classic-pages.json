@@ -1,0 +1,131 @@
+{
+  "name": "Classic layout: page breaks and show/hide",
+  "definition": {
+    "presentation": { "layout": "classic" },
+    "blocks": [
+      { "id": "b_email", "ref": "email", "type": "email", "title": "Your email", "required": true },
+      { "id": "b_newsletter", "ref": "newsletter", "type": "yes_no", "title": "Do you want the newsletter?" },
+      {
+        "id": "b_topics",
+        "ref": "topics",
+        "type": "multiple_choice",
+        "title": "Which topics?",
+        "required": true,
+        "properties": {
+          "multiple": true,
+          "minSelections": 1,
+          "maxSelections": 2,
+          "choices": [
+            { "id": "c_news", "label": "News" },
+            { "id": "c_tips", "label": "Tips" },
+            { "id": "c_events", "label": "Events" }
+          ]
+        }
+      },
+      { "id": "p_2", "ref": "page_2", "type": "page_break", "title": "" },
+      { "id": "b_rating", "ref": "rating", "type": "rating", "title": "Rate us", "properties": { "steps": 5 } },
+      { "id": "p_3", "ref": "page_3", "type": "page_break" },
+      { "id": "b_comment", "ref": "comment", "type": "long_text", "title": "Comment", "properties": { "maxLength": 20 } }
+    ],
+    "endings": [{ "id": "e_end", "ref": "end", "title": "Done" }],
+    "logic": [
+      {
+        "blockId": "b_newsletter",
+        "jumps": [
+          {
+            "id": "j_skip_topics",
+            "when": {
+              "op": "or",
+              "conditions": [
+                { "left": { "type": "field", "id": "b_newsletter" }, "operator": "is", "right": { "type": "constant", "value": false } },
+                { "left": { "type": "field", "id": "b_newsletter" }, "operator": "is_empty" }
+              ]
+            },
+            "to": { "type": "block", "id": "b_rating" }
+          }
+        ]
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "newsletter yes shows the topics; page breaks are not on the path",
+      "answers": {
+        "b_email": "Ann@Example.com ",
+        "b_newsletter": true,
+        "b_topics": { "choiceIds": ["c_news", "c_tips", "c_news"] },
+        "b_rating": 4,
+        "b_comment": "Great"
+      },
+      "expect": {
+        "ok": true,
+        "path": ["b_email", "b_newsletter", "b_topics", "b_rating", "b_comment"],
+        "endingId": "e_end",
+        "variables": { "score": 0 },
+        "errors": {},
+        "answers": {
+          "b_email": "Ann@Example.com",
+          "b_newsletter": true,
+          "b_topics": { "choiceIds": ["c_news", "c_tips"] },
+          "b_rating": 4,
+          "b_comment": "Great"
+        },
+        "score": 0,
+        "quiz": []
+      }
+    },
+    {
+      "name": "newsletter no hides the topics",
+      "answers": { "b_email": "a@b.co", "b_newsletter": false, "b_topics": { "choiceIds": ["c_events"] } },
+      "expect": {
+        "ok": true,
+        "path": ["b_email", "b_newsletter", "b_rating", "b_comment"],
+        "endingId": "e_end",
+        "variables": { "score": 0 },
+        "errors": {},
+        "answers": { "b_email": "a@b.co", "b_newsletter": false },
+        "score": 0,
+        "quiz": []
+      }
+    },
+    {
+      "name": "an unanswered newsletter question also hides the topics",
+      "answers": { "b_email": "a@b.co" },
+      "expect": {
+        "ok": true,
+        "path": ["b_email", "b_newsletter", "b_rating", "b_comment"],
+        "endingId": "e_end",
+        "variables": { "score": 0 },
+        "errors": {},
+        "answers": { "b_email": "a@b.co" },
+        "score": 0,
+        "quiz": []
+      }
+    },
+    {
+      "name": "too many topics, a bad rating and an over-long comment",
+      "answers": {
+        "b_email": "not-an-email",
+        "b_newsletter": true,
+        "b_topics": { "choiceIds": ["c_news", "c_tips", "c_events"] },
+        "b_rating": 6,
+        "b_comment": "This comment is far too long"
+      },
+      "expect": {
+        "ok": false,
+        "path": ["b_email", "b_newsletter", "b_topics", "b_rating", "b_comment"],
+        "endingId": "e_end",
+        "variables": { "score": 0 },
+        "errors": {
+          "b_email": { "code": "invalid_email" },
+          "b_topics": { "code": "too_many_choices" },
+          "b_rating": { "code": "invalid" },
+          "b_comment": { "code": "too_long" }
+        },
+        "answers": { "b_newsletter": true },
+        "score": 0,
+        "quiz": []
+      }
+    }
+  ]
+}

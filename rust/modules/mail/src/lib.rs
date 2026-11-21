@@ -6,17 +6,26 @@
 //! `/internal/outbound` (the outbound guard's staff API, a shared secret,
 //! not a session) by [`internal_outbound_router`]. The README lists which
 //! groups are ported; the shared mail logic is `weldsuite-mail-domain`.
+//! Mail AI (`/api/mail-ai`, `services/mail/ai.ts`) and the outbound abuse
+//! review ([`review`]) run on `weldsuite-ai` (ADR AI-012).
 
 #![allow(clippy::result_large_err)] // the handlers return the response a check ends with
 
+mod ai;
 mod caller;
 pub mod consumers;
 pub mod cron;
 mod read_push;
+pub mod review;
 mod routes;
 pub mod scheduled;
 pub mod send;
 mod util;
+
+/// Whether a `WELDMAIL_DOMAIN` may carry free addresses on Kubernetes: a
+/// domain name that is not one of Global's (`/config.json`'s
+/// `mail-free-addresses` follows it).
+pub use routes::mail_weldmail::is_free_apex;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -56,11 +65,16 @@ pub struct MailState {
     pub doh: Option<Arc<dyn DnsOverHttps>>,
     /// Custom domains (`MailDomains`, MAIL-010): the MTA's domain API on the
     /// EU edition, the manual records otherwise; `None` when the edition
-    /// offers none. For the `/api/mail-domains` routes, not ported yet.
+    /// offers none (`MAIL_MX_HOST` unset). The `/api/mail-domains` routes and
+    /// a new mailbox on a WeldHost domain register domains through it.
     pub domains: Option<Arc<dyn MailDomains>>,
     /// Another workspace's tenant database and whether it is suspended,
     /// by reference (`/api/mailboxes`).
     pub workspace_tenants: Option<WorkspaceTenants>,
+    /// The install's AI (`/api/mail-ai`, feature `mail`, ADR AI-012); `None`
+    /// with AI off, and the AI routes answer 503 `ai_unavailable` as mail-api
+    /// does without its gateway. A conformance request carries its own.
+    pub ai: Option<weldsuite_ai::Ai>,
     /// The worker's env values the routes read (`OUTBOUND_ADMIN_SECRET`,
     /// `ABUSE_NOTIFY_EMAIL`, …), from the process.
     pub env: Arc<HashMap<String, String>>,
@@ -72,6 +86,7 @@ impl std::fmt::Debug for MailState {
             .field("master", &self.master.is_some())
             .field("outbound", &self.outbound)
             .field("domains", &self.domains.as_ref().map(|d| d.provider()))
+            .field("ai", &self.ai.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -129,9 +144,12 @@ where
         .merge(routes::mail_templates::routes(state.clone(), gate))
         .merge(routes::mail_rules::routes(state.clone(), gate))
         .merge(routes::mail_campaigns::routes(state.clone(), gate))
+        .merge(routes::mail_domains::routes(state.clone(), gate))
+        .merge(routes::mail_weldmail::routes(state.clone(), gate))
         .merge(routes::mail_sync::routes(state.clone(), gate))
         .merge(routes::mail_scheduled::routes(state.clone(), gate))
         .merge(routes::mail_subscriptions::routes(state.clone(), gate))
+        .merge(routes::mail_ai::routes(state.clone(), gate))
         .merge(routes::mail_messages::routes(state, gate))
 }
 

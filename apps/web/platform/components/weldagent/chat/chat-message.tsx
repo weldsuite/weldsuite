@@ -1,7 +1,8 @@
-import { useState, type ReactNode } from 'react';
+import { lazy, Suspense, useMemo, useState, type ReactNode } from 'react';
 import Markdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { CheckCircle2, ChevronRight, XCircle } from 'lucide-react';
+import { hasReplyMarkers, splitReplyParts, type ReplyPart } from '@weldsuite/app-api-client/schemas/chat-visuals';
 import { cn } from '@/lib/utils';
 import { getTranslations } from '@/lib/i18n';
 import { renderChatTokens } from '@/app/weldchat/lib/render-tokens';
@@ -40,9 +41,38 @@ const MARKDOWN_COMPONENTS: Components = {
   ),
 };
 
-/** Agent replies read as a document: no bubble, markdown rendered. */
+// Charts pull in recharts: loaded only when a reply shows a visual.
+const ChatVisual = lazy(() => import('../visuals/chat-visual').then((m) => ({ default: m.ChatVisual })));
+const ChatVisualPlaceholder = lazy(() =>
+  import('../visuals/chat-visual').then((m) => ({ default: m.ChatVisualPlaceholder })),
+);
+
+function ReplyPartView({ part }: Readonly<{ part: ReplyPart }>) {
+  if (part.kind === 'text') {
+    return (
+      <Markdown remarkPlugins={REMARK_PLUGINS} components={MARKDOWN_COMPONENTS}>
+        {part.text}
+      </Markdown>
+    );
+  }
+  return (
+    <Suspense fallback={<div className="not-prose my-3 h-48 rounded-xl border" aria-hidden />}>
+      {part.kind === 'visual' ? <ChatVisual visual={part.visual} /> : <ChatVisualPlaceholder />}
+    </Suspense>
+  );
+}
+
+/**
+ * Agent replies read as a document: no bubble, markdown rendered. Visuals the
+ * agent showed (charts, stat tiles, tables, record cards) appear where it
+ * showed them; one still streaming in is a placeholder.
+ */
 export function AssistantMessage({ content, className }: Readonly<{ content: string; className?: string }>) {
-  if (!content.trim()) return null;
+  const parts = useMemo<ReplyPart[] | null>(
+    () => (hasReplyMarkers(content) ? splitReplyParts(content).parts : null),
+    [content],
+  );
+  if (!content.trim() || parts?.length === 0) return null;
   return (
     <div
       className={cn(
@@ -54,9 +84,13 @@ export function AssistantMessage({ content, className }: Readonly<{ content: str
         className,
       )}
     >
-      <Markdown remarkPlugins={REMARK_PLUGINS} components={MARKDOWN_COMPONENTS}>
-        {content}
-      </Markdown>
+      {parts ? (
+        parts.map((part, i) => <ReplyPartView key={`${part.kind}-${i}`} part={part} />)
+      ) : (
+        <Markdown remarkPlugins={REMARK_PLUGINS} components={MARKDOWN_COMPONENTS}>
+          {content}
+        </Markdown>
+      )}
     </div>
   );
 }

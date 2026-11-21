@@ -11,6 +11,8 @@
  * `WORKSPACE_CACHE` namespace; every WeldPanel key starts with `panel:`.
  */
 
+import { isDeviceClass, type DeviceClass } from './device-class';
+import type { ReplayTier } from './replays';
 import type { PanelProjectSettings } from './settings';
 
 export const PANEL_KV_PREFIX = 'panel:';
@@ -29,6 +31,112 @@ export function seenKvKey(projectId: string): string {
   return `${PANEL_KV_PREFIX}seen:${projectId}`;
 }
 
+/**
+ * `panel:key:<sha256 hex of the secret key>` → {@link PanelKeyRecord} (JSON).
+ * Written by panel-api when a secret key (`wps_…`) is created, deleted when it
+ * is revoked; the master `panel_key_registry` row is the source of truth.
+ * panel-ingest's `/v1/track` and `/v1/import` read only this.
+ */
+export function keyKvKey(keyHash: string): string {
+  return `${PANEL_KV_PREFIX}key:${keyHash}`;
+}
+
+export interface PanelKeyRecord {
+  v: 1;
+  keyId: string;
+  workspaceId: string;
+  projectId: string;
+  /**
+   * The project's status when the record was last written. panel-api rewrites
+   * every key's record when the project is paused or resumed, and the
+   * collector drops a paused project's `/v1/*` traffic. Missing means active
+   * (records written before this field existed).
+   */
+  status?: 'active' | 'paused';
+}
+
+/** Parses a KV value; null for a missing, malformed or unknown-version record. */
+export function parseKeyRecord(raw: string | null): PanelKeyRecord | null {
+  if (!raw) return null;
+  try {
+    const value = JSON.parse(raw) as Partial<PanelKeyRecord>;
+    if (
+      value.v !== 1 ||
+      typeof value.keyId !== 'string' ||
+      typeof value.workspaceId !== 'string' ||
+      typeof value.projectId !== 'string'
+    ) {
+      return null;
+    }
+    return {
+      v: 1,
+      keyId: value.keyId,
+      workspaceId: value.workspaceId,
+      projectId: value.projectId,
+      ...(value.status === 'paused' || value.status === 'active' ? { status: value.status } : {}),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * `panel:snapshot-request:<projectId>` → {@link PanelSnapshotRequest} (JSON).
+ * Written by panel-api when a heatmap has no recording to take its background
+ * from; read by `GET /c/:token` (the SDK then sends one masked snapshot to
+ * `POST /snap`) and by `POST /snap`, which accepts only the snapshot asked
+ * for and deletes the key once it is stored.
+ */
+export function snapshotRequestKvKey(projectId: string): string {
+  return `${PANEL_KV_PREFIX}snapshot-request:${projectId}`;
+}
+
+export interface PanelSnapshotRequest {
+  pageGroupId: string;
+  urlPattern: string;
+  deviceClass: DeviceClass;
+}
+
+/** Page group ids end up in an R2 key and a query string: word characters and dashes only. */
+export const PAGE_GROUP_ID = /^[\w-]{1,64}$/;
+
+/** Parses the KV value; null for a missing or malformed request. */
+export function parseSnapshotRequest(raw: string | null): PanelSnapshotRequest | null {
+  if (!raw) return null;
+  try {
+    const value = JSON.parse(raw) as Partial<PanelSnapshotRequest>;
+    if (
+      typeof value.pageGroupId !== 'string' ||
+      !PAGE_GROUP_ID.test(value.pageGroupId) ||
+      typeof value.urlPattern !== 'string' ||
+      value.urlPattern.length === 0 ||
+      !isDeviceClass(value.deviceClass)
+    ) {
+      return null;
+    }
+    return { pageGroupId: value.pageGroupId, urlPattern: value.urlPattern, deviceClass: value.deviceClass };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * `panel:quota:<workspaceId>` → {@link PanelQuotaState} (plain string).
+ * Written by panel-api's usage settlement; read by the collector on every
+ * batch (cached per isolate for a minute). Missing = `ok`.
+ */
+export function quotaKvKey(workspaceId: string): string {
+  return `${PANEL_KV_PREFIX}quota:${workspaceId}`;
+}
+
+/** `replay_blocked`: no new recordings. `events_blocked`: events dropped too (recordings stay blocked). */
+export const PANEL_QUOTA_STATES = ['ok', 'replay_blocked', 'events_blocked'] as const;
+export type PanelQuotaState = (typeof PANEL_QUOTA_STATES)[number];
+
+export function parseQuotaState(raw: string | null): PanelQuotaState {
+  return raw === 'replay_blocked' || raw === 'events_blocked' ? raw : 'ok';
+}
+
 /** What the collector needs to accept, enrich and route an event. Versioned: bump `v` on a breaking change. */
 export interface PanelProjectRecord {
   v: 1;
@@ -39,6 +147,11 @@ export interface PanelProjectRecord {
   /** Hosts events are accepted from (subdomains included). Empty = any. */
   allowedDomains: string[];
   settings: PanelProjectSettings;
+  /**
+   * The retention tier new recording chunks go to (`90d` on Scale and
+   * Enterprise). Written by panel-api's billing; missing means `30d`.
+   */
+  replayTier?: Extract<ReplayTier, '30d' | '90d'>;
 }
 
 export function toProjectRecord(project: {

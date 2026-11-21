@@ -1,5 +1,5 @@
 /**
- * Entity scoping for WeldHR queries (docs/plans/legal-entities.md): every HR
+ * Entity scoping for WeldHR queries (weldsuite-documentation/plans/legal-entities.md): every HR
  * record belongs to the legal entity of its employee, and payroll setup to the
  * entity of its employer.
  *

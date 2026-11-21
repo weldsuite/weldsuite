@@ -1,6 +1,6 @@
 # WeldSuite docs-api worker — WeldDocs' API and document rooms.
 #
-# A module worker (docs/plans/app-api-module-split.md); app-api forwards
+# A module worker (weldsuite-documentation/plans/app-api-module-split.md); app-api forwards
 # /api/docs here for clients that still call it. Hosts:
 #   docs-api.weldsuite.org        production
 #   docs-api-test.weldsuite.org   test
@@ -53,7 +53,7 @@ remote = true
 # write customer files.
 #
 # One DocRoom Durable Object per document orders its edits, keeps the op log
-# since the last checkpoint and holds the sockets (docs/plans/welddocs.md).
+# since the last checkpoint and holds the sockets (weldsuite-documentation/plans/welddocs.md).
 # R2, Durable Object bindings and migrations are NOT inherited by [env.*].
 [[r2_buckets]]
 binding = "PRIVATE_STORAGE"

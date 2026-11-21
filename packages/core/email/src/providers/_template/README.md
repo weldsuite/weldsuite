@@ -21,7 +21,7 @@ Scaffold for adding a new email provider to `@weldsuite/email`.
 5. **(Optional) Extend `mailProviderEnum` in
    `packages/db/src/schema/mail-accounts.ts`** if you want users to be able to
    pick this provider on a per-account basis. **Do NOT generate the migration
-   yourself**, flag the schema diff with the user (per repo CLAUDE.md).
+   yourself**, flag the schema diff with the user (per the repo's AGENTS.md).
 
 ## File layout
 

@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /**
  * Before a module API worker deploys, release the queues it consumes from
- * app-api (docs/plans/app-api-module-split.md).
+ * app-api (weldsuite-documentation/plans/app-api-module-split.md).
  *
  *   node .github/scripts/release-queue-consumers.mjs <worker> <test|production> [--dry]
  *
  * A Cloudflare queue has exactly one consumer, and module workers deploy
- * BEFORE app-api (deploy.yml `module-workers` job). When a queue consumer moves
+ * BEFORE app-api (the deploy's `module-workers` job). When a queue consumer moves
  * out of app-api (e.g. entity-agents → agent-api), the still-deployed app-api
  * holds the queue and the module worker's deploy fails with
  * "Queue … already has a consumer [code: 11004]". The new app-api build no

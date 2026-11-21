@@ -1,6 +1,6 @@
 /**
  * What a commenter may change: someone who can view a document and holds
- * `docs:comment`, but cannot edit it (docs/plans/welddocs.md, Access).
+ * `docs:comment`, but cannot edit it (weldsuite-documentation/plans/welddocs.md, Access).
  *
  * What is said in a discussion lives in the document's WeldChat chat (ADR
  * CHAT-007); the document holds each discussion's entry (who started it,

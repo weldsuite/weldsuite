@@ -1,7 +1,7 @@
 // Client-safe types and pure helpers for the partner (reseller) screens. No
 // `server-only`, no I/O: forms are kept as the strings the admin typed and
 // mapped to the shared request schemas here, so the mapping is unit-testable.
-// Plan: docs/plans/reseller-licensing.md. Contract: @weldsuite/app-api-client
+// Plan: weldsuite-documentation/plans/reseller-licensing.md. Contract: @weldsuite/app-api-client
 // /schemas/partners.
 
 import {

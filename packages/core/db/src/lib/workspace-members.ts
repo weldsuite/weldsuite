@@ -16,10 +16,10 @@
  */
 
 import { and, eq, isNotNull, sql } from 'drizzle-orm';
-import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
+import type { TenantDb } from './any-db';
 import * as schema from '../schema';
 
-type AnyDb = PgDatabase<PgQueryResultHKT, typeof schema>;
+type AnyDb = TenantDb;
 
 const { workspaceMembers } = schema;
 

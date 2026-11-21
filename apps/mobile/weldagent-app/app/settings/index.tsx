@@ -5,21 +5,23 @@ import { Moon, Sun, LogOut, Bell } from 'lucide-react-native';
 
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useWorkspace } from '@weldsuite/mobile-ui/contexts/WorkspaceContext';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { Button } from '@weldsuite/mobile-ui/components/Button';
 import { Switch } from '@weldsuite/mobile-ui/components/Switch';
 import { ConfirmModal } from '@weldsuite/mobile-ui/components/ConfirmModal';
+import { ProviderAccountRow, ServerRow } from '@weldsuite/mobile-ui/components/ServerRow';
 
 import { Screen, ScreenHeader } from '@/components/screen';
 import { SectionCard, DetailRow } from '@/components/detail';
 import { useI18n, persistLanguage, type AppLanguage } from '@/lib/i18n';
 import { useNotifications } from '@/contexts/NotificationContext';
+import { BRAND } from '@/lib/brand';
 
 export default function SettingsScreen() {
   const { colors, theme, toggleTheme } = useTheme();
   const { currentWorkspace } = useWorkspace();
-  const { signOut } = useClerkAuth();
+  const { signOut } = useAuthSession();
   const toast = useToast();
   const { t, format, language, setLanguage } = useI18n();
   const {
@@ -89,6 +91,9 @@ export default function SettingsScreen() {
           <Text style={[styles.hint, { color: colors.mutedForeground }]}>
             {format(t.settings.version, { version: appVersion })}
           </Text>
+          {/* Which server the app talks to; both rows render nothing when the picker is off / on Clerk. */}
+          <ServerRow variant="settings" language={language} accentColor={BRAND} />
+          <ProviderAccountRow language={language} />
         </SectionCard>
 
         <Button

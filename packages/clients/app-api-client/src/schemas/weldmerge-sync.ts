@@ -3,7 +3,7 @@
  * in merge-api, two-way issue sync, and per-member inbox state. Zod v3.
  *
  * Shared by merge-api, rust/modules/merge and the platform. Design:
- * docs/plans/weldmerge-phases-2-5.md.
+ * weldsuite-documentation/plans/weldmerge-phases-2-5.md.
  */
 
 import { z } from 'zod';
@@ -32,7 +32,7 @@ export const mergeGithubInstallStateSchema = z.object({
 export type MergeGithubInstallState = z.infer<typeof mergeGithubInstallStateSchema>;
 
 /** Where the public setup route sends the member when `returnTo` is absent. */
-export const MERGE_GITHUB_INSTALL_DEFAULT_RETURN = '/weldmerge/settings?tab=providers&installed=1';
+export const MERGE_GITHUB_INSTALL_DEFAULT_RETURN = '/settings/apps/weldmerge?tab=providers&installed=1';
 
 /**
  * Public `GET /public/merge/github/setup?installation_id&setup_action&state&code` (answers with a redirect).

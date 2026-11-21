@@ -1,0 +1,22 @@
+[package]
+name = "weldsuite-zod"
+description = "Zod 3 schemas as data, and the parser that reads a body with them the way zValidator does: Zod's issues, codes, paths and messages, in the order the async parse reports them"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+weldsuite-kit = { workspace = true }
+axum = { workspace = true, features = ["json"] }
+http = { workspace = true }
+regex = { workspace = true, features = ["unicode-perl"] }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[lints]
+workspace = true

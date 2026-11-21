@@ -1,6 +1,6 @@
 /**
  * `MailboxObject`'s SQLite DDL (design §3.1, with the Decisions block at the
- * top of docs/plans/weldmail-mailbox-store-design.md overriding the body
+ * top of weldsuite-documentation/plans/weldmail-mailbox-store-design.md overriding the body
  * where they differ). One Durable Object instance per mailbox
  * (`mbx:<workspaceId>:<accountId>`); every table here is scoped to that one
  * mailbox, so none of them carry a `workspace_id`/`account_id` column — those

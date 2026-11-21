@@ -47,7 +47,6 @@ const ENTITY_CONFIG: Record<
   ticket: { path: (id) => `/tickets/${id}`, titleFields: ['subject', 'title'] },
   article: { path: (id) => `/articles/${id}`, titleFields: ['title'] },
   product: { path: (id) => `/products/${id}`, titleFields: ['name', 'title'] },
-  order: { path: (id) => `/orders/${id}`, titleFields: ['orderNumber', 'name'] },
   invoice: { path: (id) => `/invoices/${id}`, titleFields: ['invoiceNumber', 'number', 'name'] },
   bill: { path: (id) => `/bills/${id}`, titleFields: ['billNumber', 'number', 'name'] },
   project: { path: (id) => `/projects/${id}`, titleFields: ['name', 'title', 'code'] },
@@ -61,6 +60,14 @@ const ENTITY_CONFIG: Record<
   merge_issue: { path: (id) => `/merge/issues/${id}`, titleFields: ['title', 'key'] },
   merge_pull_request: { path: (id) => `/merge/pull-requests/${id}`, titleFields: ['title'] },
 };
+
+/**
+ * Whether a record of this type can be looked up for its live title; for the
+ * others `useEntityTitle` answers `notfound` without asking the API.
+ */
+export function hasEntityTitleLookup(type: string): boolean {
+  return Object.hasOwn(ENTITY_CONFIG, type);
+}
 
 export type EntityTitleStatus = 'loading' | 'ok' | 'forbidden' | 'notfound' | 'error';
 

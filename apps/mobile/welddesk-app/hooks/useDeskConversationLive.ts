@@ -13,14 +13,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
+import { useWorkspaceForRequests } from '@weldsuite/mobile-platform/auth';
+import { realtimeUrl } from '@weldsuite/mobile-platform/api';
 import { RoomClient } from '@weldsuite/realtime/client';
 import { useTopic } from '@weldsuite/realtime/react';
 import type { PresenceMember, TypingUser } from '@weldsuite/realtime/types';
 
 import type { DeskConversation, DeskMessage } from '@/types/desk';
-
-const REALTIME_URL = process.env.EXPO_PUBLIC_REALTIME_URL || 'ws://localhost:8790';
 
 const TYPING_REPEAT_MS = 3_000;
 const TYPING_IDLE_MS = 4_000;
@@ -83,7 +83,9 @@ export function useDeskConversationLive({
   onConversation,
   onResume,
 }: UseDeskConversationLiveOptions): DeskConversationLive {
-  const { getToken } = useClerkAuth();
+  const { getToken } = useAuthSession();
+  // WeldID (membership mode): the socket names the workspace, the token doesn't.
+  const workspace = useWorkspaceForRequests();
   const getTokenRef = useRef(getToken);
   getTokenRef.current = getToken;
   const handlersRef = useRef({ onMessage, onConversation, onResume });
@@ -108,8 +110,9 @@ export function useDeskConversationLive({
   useEffect(() => {
     if (!conversationId) return;
     const client = new RoomClient({
-      url: `${REALTIME_URL}/ws/conversation/${conversationId}`,
+      url: `${realtimeUrl()}/ws/conversation/${conversationId}`,
       getToken: async () => (await getTokenRef.current()) || '',
+      workspace,
     });
     clientRef.current = client;
     const offTyping = client.onTyping(setTypingUsers);
@@ -131,7 +134,7 @@ export function useDeskConversationLive({
       setTypingUsers([]);
       setPresence([]);
     };
-  }, [conversationId]);
+  }, [conversationId, workspace]);
 
   // Sockets die in the background; catch up when the agent comes back.
   useEffect(() => {

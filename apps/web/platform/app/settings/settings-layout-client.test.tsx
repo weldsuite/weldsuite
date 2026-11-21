@@ -8,7 +8,12 @@ vi.mock('@/lib/i18n/provider', () => ({
   useI18n: () => ({
     t: {
       settings: { title: 'Settings', menu: {}, welddesk: {} },
-      helpdesk: { teamsSettings: { title: 'Teams' }, routing: { title: 'Routing' } },
+      helpdesk: {
+        teamsSettings: { title: 'Teams' },
+        routing: { title: 'Routing' },
+        assets: { settingsTitle: 'Asset register' },
+      },
+      weldbooksUs: { settingsPage: { tabs: { paymentRuns: 'Payment runs' } } },
     },
   }),
 }));

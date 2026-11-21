@@ -59,6 +59,22 @@ function useValidationTexts(): AssetFormTexts {
   return t.weldbooksUs.assets.fixedAssets.form.validation;
 }
 
+type FixedAssetTexts = ReturnType<typeof useI18n>['t']['weldbooksUs']['assets']['fixedAssets'];
+
+/** The help texts that read differently for US tax books than for a ledger-only (VAT) setup. */
+function assetHelpTexts(fa: FixedAssetTexts, isUs: boolean) {
+  const fields = fa.form.fields;
+  if (isUs) {
+    return { cost: fields.costHelp, usefulLife: fields.usefulLifeHelp, booksIntro: fa.books.intro, customize: fa.books.customizeHelp };
+  }
+  return {
+    cost: fields.costHelpVat,
+    usefulLife: fields.usefulLifeHelpLedger,
+    booksIntro: fa.books.introLedger,
+    customize: fa.books.customizeHelpLedger,
+  };
+}
+
 function FieldError({ message }: Readonly<{ message?: string }>) {
   return message ? (
     <p className="text-sm text-destructive" role="alert">
@@ -85,6 +101,7 @@ export function AssetForm({
   const { t } = useI18n();
   const fa = t.weldbooksUs.assets.fixedAssets;
   const tf = fa.form;
+  const help = assetHelpTexts(fa, isUs);
   const common = t.weldbooksUs.assets.common;
   const { today } = useWeldbooksFormat();
   const validation = useValidationTexts();
@@ -195,7 +212,7 @@ export function AssetForm({
             <div className="space-y-1.5">
               <Label htmlFor="asset-cost">{tf.fields.cost}</Label>
               <Input id="asset-cost" inputMode="decimal" autoComplete="off" placeholder={costPlaceholder} {...form.register('cost')} />
-              <p className="text-xs text-muted-foreground">{tf.fields.costHelp}</p>
+              <p className="text-xs text-muted-foreground">{help.cost}</p>
               <FieldError message={errors.cost?.message} />
             </div>
             <div className="space-y-1.5">
@@ -208,7 +225,7 @@ export function AssetForm({
               <div className="space-y-1.5">
                 <Label htmlFor="asset-life">{tf.fields.usefulLife}</Label>
                 <Input id="asset-life" inputMode="decimal" autoComplete="off" disabled={values.customizeBooks} {...form.register('usefulLifeYears')} />
-                <p className="text-xs text-muted-foreground">{tf.fields.usefulLifeHelp}</p>
+                <p className="text-xs text-muted-foreground">{help.usefulLife}</p>
                 <FieldError message={errors.usefulLifeYears?.message} />
               </div>
             ) : null}
@@ -351,17 +368,17 @@ export function AssetForm({
       <Card>
         <CardHeader>
           <CardTitle className="text-base">{tf.sections.books}</CardTitle>
-          <CardDescription>{fa.books.intro}</CardDescription>
+          <CardDescription>{help.booksIntro}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {!isEdit && !values.customizeBooks ? (
             <>
-              <BookDefaultsPreview books={preview} />
+              <BookDefaultsPreview books={preview} isUs={isUs} />
               <div>
                 <Button type="button" variant="outline" size="sm" onClick={() => setCustomize(true)}>
                   {fa.books.customize}
                 </Button>
-                <p className="mt-1 text-xs text-muted-foreground">{fa.books.customizeHelp}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{help.customize}</p>
               </div>
             </>
           ) : (

@@ -6,6 +6,9 @@
  *   POST /                 — create-or-get a DM with a set of users
  *   GET  /:targetUserId    — get-or-create the 1:1 DM with a specific user
  *
+ * Both only take workspace members who have joined: someone invited but not
+ * yet accepted gets a 409 with `details.reason = 'invitation_pending'`.
+ *
  * New DMs notify the other participants over the realtime WorkspaceHub
  * (REALTIME binding) and via the `@weldsuite/notifications` helper.
  *
@@ -15,18 +18,24 @@
  * Permissions: messages:read | messages:create.
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { RealtimePublisher } from '@weldsuite/realtime/server';
 import { sendChatDmNotification } from '@weldsuite/notifications';
-import { createDmSchema, pinDmSchema } from '@weldsuite/app-api-client/schemas/chat-dm';
+import {
+  createDmSchema,
+  DM_INVITATION_PENDING,
+  isInvitePlaceholderUserId,
+  pinDmSchema,
+} from '@weldsuite/app-api-client/schemas/chat-dm';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { error, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { accountPicture, loadAccountPictures, withAccountPictures } from '@weldsuite/worker-kit/account-pictures';
 import { leaveDm, setDmArchived, setDmPinned } from '../../services/chat/dm-membership';
 
 /** UTF-16 code-unit order (the default `sort()` order), so participant sets compare identically. */
@@ -83,6 +92,33 @@ async function findUnknownWorkspaceUserIds(db: Database, userIds: string[]): Pro
   return userIds.filter((id) => !known.has(id));
 }
 
+/**
+ * The subset of `userIds` that was invited to the workspace but has not
+ * accepted yet: a PENDING member row, or a user id that is still an
+ * invitation's placeholder. Nobody is messaged before they join: the invitee
+ * can't read the DM, and accepting moves their member row to a new user id,
+ * which would leave the DM with a placeholder nobody signs in as.
+ */
+async function findPendingInviteeUserIds(db: Database, userIds: string[]): Promise<string[]> {
+  if (userIds.length === 0) return [];
+  const rows = await db
+    .select({ userId: schema.workspaceMembers.userId })
+    .from(schema.workspaceMembers)
+    .where(
+      and(inArray(schema.workspaceMembers.userId, userIds), eq(schema.workspaceMembers.status, 'PENDING')),
+    );
+  const pending = new Set(rows.map((r) => r.userId));
+  return userIds.filter((id) => pending.has(id) || isInvitePlaceholderUserId(id));
+}
+
+/** 409 for a DM with someone who hasn't accepted their invitation; clients branch on `details.reason`. */
+function invitationPending(c: Context, userIds: string[]) {
+  return error.conflict(c, 'Some people have not accepted their workspace invitation yet', {
+    reason: DM_INVITATION_PENDING,
+    userIds,
+  });
+}
+
 app.get('/', requirePermission('messages:read'), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.get('userId');
@@ -107,9 +143,10 @@ app.get('/', requirePermission('messages:read'), async (c) => {
       )
       .orderBy(desc(chatChannels.lastMessageAt));
 
-    const result = await Promise.all(
-      channels.map(async (channel) => {
-        const members = await db
+    const perChannel = await Promise.all(
+      channels.map(async (channel) => ({
+        channel,
+        rows: await db
           .select({
             userId: chatChannelMembers.userId,
             role: chatChannelMembers.role,
@@ -117,25 +154,33 @@ app.get('/', requirePermission('messages:read'), async (c) => {
             lastReadMessageId: chatChannelMembers.lastReadMessageId,
             name: workspaceMembers.name,
             email: workspaceMembers.email,
-            picture: workspaceMembers.picture,
           })
           .from(chatChannelMembers)
           .leftJoin(workspaceMembers, eq(chatChannelMembers.userId, workspaceMembers.userId))
-          .where(eq(chatChannelMembers.channelId, channel.id));
-
-        const currentMember = members.find((m) => m.userId === userId);
-        const otherMembers = members.filter((m) => m.userId !== userId);
-
-        return {
-          ...channel,
-          members,
-          otherMembers,
-          isMuted: mutedByChannel.get(channel.id) ?? false,
-          lastReadAt: currentMember?.lastReadAt ?? null,
-          lastReadMessageId: currentMember?.lastReadMessageId ?? null,
-        };
-      }),
+          .where(eq(chatChannelMembers.channelId, channel.id)),
+      })),
     );
+
+    // Everyone's account picture, looked up once for the whole list.
+    const pictures = await loadAccountPictures(
+      c.env,
+      perChannel.flatMap(({ rows }) => rows.map((m) => m.userId)),
+    );
+
+    const result = perChannel.map(({ channel, rows }) => {
+      const members = rows.map((m) => ({ ...m, picture: accountPicture(pictures, m.userId) }));
+      const currentMember = members.find((m) => m.userId === userId);
+      const otherMembers = members.filter((m) => m.userId !== userId);
+
+      return {
+        ...channel,
+        members,
+        otherMembers,
+        isMuted: mutedByChannel.get(channel.id) ?? false,
+        lastReadAt: currentMember?.lastReadAt ?? null,
+        lastReadMessageId: currentMember?.lastReadMessageId ?? null,
+      };
+    });
 
     return success(c, result);
   } catch (err) {
@@ -156,16 +201,18 @@ app.post('/', requirePermission('messages:create'), zValidator('json', createDmS
 
     const allUserIds = Array.from(new Set([userId, ...userIds]));
     const participantCount = allUserIds.length;
+    const otherUserIds = allUserIds.filter((id) => id !== userId);
 
-    const unknownUserIds = await findUnknownWorkspaceUserIds(
-      db,
-      allUserIds.filter((id) => id !== userId),
-    );
+    const unknownUserIds = await findUnknownWorkspaceUserIds(db, otherUserIds);
     if (unknownUserIds.length > 0) {
       return error.badRequest(c, 'Some users are not members of this workspace', {
         userIds: unknownUserIds,
       });
     }
+    // Checked before the existing-DM lookup, so a DM made with an invitee
+    // before this guard existed doesn't keep taking messages either.
+    const pendingUserIds = await findPendingInviteeUserIds(db, otherUserIds);
+    if (pendingUserIds.length > 0) return invitationPending(c, pendingUserIds);
 
     // Try to find an existing DM channel with exactly these participants.
     const userDmChannels = await db
@@ -200,16 +247,18 @@ app.post('/', requirePermission('messages:create'), zValidator('json', createDmS
           memberUserIds.length === targetUserIds.length &&
           memberUserIds.every((id, i) => id === targetUserIds[i])
         ) {
-          const fullMembers = await db
-            .select({
-              userId: chatChannelMembers.userId,
-              name: workspaceMembers.name,
-              email: workspaceMembers.email,
-              picture: workspaceMembers.picture,
-            })
-            .from(chatChannelMembers)
-            .leftJoin(workspaceMembers, eq(chatChannelMembers.userId, workspaceMembers.userId))
-            .where(eq(chatChannelMembers.channelId, candidate.id));
+          const fullMembers = await withAccountPictures(
+            c.env,
+            await db
+              .select({
+                userId: chatChannelMembers.userId,
+                name: workspaceMembers.name,
+                email: workspaceMembers.email,
+              })
+              .from(chatChannelMembers)
+              .leftJoin(workspaceMembers, eq(chatChannelMembers.userId, workspaceMembers.userId))
+              .where(eq(chatChannelMembers.channelId, candidate.id)),
+          );
 
           const [channel] = await db
             .select()
@@ -223,7 +272,6 @@ app.post('/', requirePermission('messages:create'), zValidator('json', createDmS
     }
 
     // No existing DM — create one.
-    const otherUserIds = allUserIds.filter((id) => id !== userId);
     const otherMembers =
       otherUserIds.length > 0
         ? await db
@@ -260,16 +308,18 @@ app.post('/', requirePermission('messages:create'), zValidator('json', createDmS
     );
 
     const [channel] = await db.select().from(chatChannels).where(eq(chatChannels.id, id)).limit(1);
-    const fullMembers = await db
-      .select({
-        userId: chatChannelMembers.userId,
-        name: workspaceMembers.name,
-        email: workspaceMembers.email,
-        picture: workspaceMembers.picture,
-      })
-      .from(chatChannelMembers)
-      .leftJoin(workspaceMembers, eq(chatChannelMembers.userId, workspaceMembers.userId))
-      .where(eq(chatChannelMembers.channelId, id));
+    const fullMembers = await withAccountPictures(
+      c.env,
+      await db
+        .select({
+          userId: chatChannelMembers.userId,
+          name: workspaceMembers.name,
+          email: workspaceMembers.email,
+        })
+        .from(chatChannelMembers)
+        .leftJoin(workspaceMembers, eq(chatChannelMembers.userId, workspaceMembers.userId))
+        .where(eq(chatChannelMembers.channelId, id)),
+    );
 
     const [sender] = await db
       .select({ name: workspaceMembers.name })
@@ -301,6 +351,12 @@ app.get('/:targetUserId', requirePermission('messages:read'), async (c) => {
 
     const allUserIds = Array.from(new Set([userId, targetUserId])).sort(byCodeUnit);
     const participantCount = allUserIds.length;
+
+    // Before the existing-DM lookup, as in POST /.
+    if (targetUserId !== userId) {
+      const pendingUserIds = await findPendingInviteeUserIds(db, [targetUserId]);
+      if (pendingUserIds.length > 0) return invitationPending(c, pendingUserIds);
+    }
 
     const userDmChannels = await db
       .select({ channelId: chatChannelMembers.channelId })
@@ -335,19 +391,21 @@ app.get('/:targetUserId', requirePermission('messages:read'), async (c) => {
             .where(eq(chatChannels.id, candidate.id))
             .limit(1);
 
-          const fullMembers = await db
-            .select({
-              userId: chatChannelMembers.userId,
-              role: chatChannelMembers.role,
-              lastReadAt: chatChannelMembers.lastReadAt,
-              lastReadMessageId: chatChannelMembers.lastReadMessageId,
-              name: workspaceMembers.name,
-              email: workspaceMembers.email,
-              picture: workspaceMembers.picture,
-            })
-            .from(chatChannelMembers)
-            .leftJoin(workspaceMembers, eq(chatChannelMembers.userId, workspaceMembers.userId))
-            .where(eq(chatChannelMembers.channelId, candidate.id));
+          const fullMembers = await withAccountPictures(
+            c.env,
+            await db
+              .select({
+                userId: chatChannelMembers.userId,
+                role: chatChannelMembers.role,
+                lastReadAt: chatChannelMembers.lastReadAt,
+                lastReadMessageId: chatChannelMembers.lastReadMessageId,
+                name: workspaceMembers.name,
+                email: workspaceMembers.email,
+              })
+              .from(chatChannelMembers)
+              .leftJoin(workspaceMembers, eq(chatChannelMembers.userId, workspaceMembers.userId))
+              .where(eq(chatChannelMembers.channelId, candidate.id)),
+          );
 
           const currentMember = fullMembers.find((m) => m.userId === userId);
           const otherMembers = fullMembers.filter((m) => m.userId !== userId);
@@ -402,19 +460,21 @@ app.get('/:targetUserId', requirePermission('messages:read'), async (c) => {
     );
 
     const [channel] = await db.select().from(chatChannels).where(eq(chatChannels.id, id)).limit(1);
-    const fullMembers = await db
-      .select({
-        userId: chatChannelMembers.userId,
-        role: chatChannelMembers.role,
-        lastReadAt: chatChannelMembers.lastReadAt,
-        lastReadMessageId: chatChannelMembers.lastReadMessageId,
-        name: workspaceMembers.name,
-        email: workspaceMembers.email,
-        picture: workspaceMembers.picture,
-      })
-      .from(chatChannelMembers)
-      .leftJoin(workspaceMembers, eq(chatChannelMembers.userId, workspaceMembers.userId))
-      .where(eq(chatChannelMembers.channelId, id));
+    const fullMembers = await withAccountPictures(
+      c.env,
+      await db
+        .select({
+          userId: chatChannelMembers.userId,
+          role: chatChannelMembers.role,
+          lastReadAt: chatChannelMembers.lastReadAt,
+          lastReadMessageId: chatChannelMembers.lastReadMessageId,
+          name: workspaceMembers.name,
+          email: workspaceMembers.email,
+        })
+        .from(chatChannelMembers)
+        .leftJoin(workspaceMembers, eq(chatChannelMembers.userId, workspaceMembers.userId))
+        .where(eq(chatChannelMembers.channelId, id)),
+    );
 
     const otherMembers = fullMembers.filter((m) => m.userId !== userId);
 

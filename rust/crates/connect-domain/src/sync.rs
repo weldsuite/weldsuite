@@ -636,6 +636,14 @@ async fn run_syncs(args: &SyncArgs<'_>) -> Result<Vec<String>, SyncError> {
         return Ok(Vec::new());
     }
     let (credentials, client) = client_for(args.connection, args.env)?;
+    // Odoo pages, ingests and keeps its watermarks its own way (`crate::odoo`).
+    if let ProviderClient::Odoo(odoo) = &client {
+        crate::odoo::sync::run(args, &to_run, odoo).await?;
+        return Ok(to_run
+            .iter()
+            .filter_map(|s| s["syncName"].as_str().map(str::to_owned))
+            .collect());
+    }
     let entity_id = credentials
         .get("entityId")
         .and_then(Value::as_str)

@@ -1,9 +1,9 @@
 
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useRouter, useSearchParams } from '@/lib/router';
 import { Button } from '@weldsuite/ui/components/button';
 import { Star } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, stripTags } from '@/lib/utils';
 import { NoteActionsMenu } from './note-actions-menu';
 import { format, isToday, isYesterday } from 'date-fns';
 import { getNoteBucket, type NoteBucketId } from './note-buckets';
@@ -19,6 +19,7 @@ import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useObjectPanel } from '@/components/object-panel';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { useUser } from '@/lib/auth';
+import { useCurrentUserAvatar } from '@/hooks/use-member-avatar';
 import { usePinnedNote } from '@/contexts/pinned-note-context';
 import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter, type RowHandlers } from '@/components/entity-list';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -44,6 +45,14 @@ interface Note {
 
 interface NotesViewProps {
   initialNotes?: Note[];
+}
+
+/** A new note that exists only in the editor until a save has text (TASK-1463). */
+const isDraftNote = (note: Note) => note.id.startsWith('draft-');
+
+/** True when the editor holds no text (an empty title and body still carry markup). */
+function isBlankNote(html: string): boolean {
+  return stripTags(html.replace(/&nbsp;/gi, ' ')).trim() === '';
 }
 
 // Helper to format date for display
@@ -73,6 +82,7 @@ export function NotesView({ initialNotes = [] }: Readonly<NotesViewProps>) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user } = useUser();
+  const selfAvatar = useCurrentUserAvatar();
   const { setOnUnpin } = usePinnedNote();
   const { open: openPanel } = useObjectPanel();
   const createNoteMutation = useCreateNote();
@@ -93,6 +103,9 @@ export function NotesView({ initialNotes = [] }: Readonly<NotesViewProps>) {
   const [showRecordSelection, setShowRecordSelection] = useState(false);
   const [noteToDelete, setNoteToDelete] = useState<string | null>(null);
   const [isDeletingNote, setIsDeletingNote] = useState(false);
+  // New notes by draft id: the create in flight, and the real id once it exists.
+  const draftCreatesRef = useRef(new Map<string, Promise<string | null>>());
+  const draftIdsRef = useRef(new Map<string, string>());
 
   // Auto-open new-note flow when ?new=1 is present (e.g. from onboarding checklist)
   useEffect(() => {
@@ -198,39 +211,68 @@ export function NotesView({ initialNotes = [] }: Readonly<NotesViewProps>) {
     }
   };
 
-  const handleCreate = async (record: SelectableRecord) => {
-    try {
-      const result = await createNoteMutation.mutateAsync({
-        subject: 'Note',
-        description: '',
-        recordKind: record.kind,
-        recordId: record.id,
-        recordName: record.displayName,
-      });
-      if (result?.id) {
-        const newNote: Note = {
-          id: result.id,
-          content: '',
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          isPinned: false,
-          recordKind: record.kind,
-          recordId: record.id,
-          recordName: record.displayName,
-          recordAvatar: record.avatarUrl,
-          authorName: user?.fullName || user?.firstName || user?.primaryEmailAddress?.emailAddress || t('sweep.weldcrm.notesView.you'),
-          authorAvatar: user?.imageUrl || undefined,
-        };
-        setNotes([newNote, ...notes]);
-        setSelectedNote(newNote);
-        setShowEditor(true);
-      } else {
-        toast.error(t('sweep.weldcrm.notesView.failedToCreateNote'));
-      }
-    } catch (error) {
-      console.error('Failed to create note:', error);
-      toast.error(t('sweep.weldcrm.notesView.failedToCreateNote'));
+  // The note is only created by the first save that has text, so closing an
+  // untouched editor leaves no empty "Untitled" note behind (TASK-1463).
+  const handleCreate = (record: SelectableRecord) => {
+    const newNote: Note = {
+      id: `draft-${Date.now()}`,
+      content: '',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      isPinned: false,
+      recordKind: record.kind,
+      recordId: record.id,
+      recordName: record.displayName,
+      recordAvatar: record.avatarUrl,
+      authorName: user?.fullName || user?.firstName || user?.primaryEmailAddress?.emailAddress || t('sweep.weldcrm.notesView.you'),
+      authorAvatar: selfAvatar,
+    };
+    setSelectedNote(newNote);
+    setShowEditor(true);
+  };
+
+  /**
+   * The stored id to save `note` under. A new note is created here, with
+   * `content`, on its first save that has text (`created`: nothing left to
+   * update); before that there is nothing to save.
+   */
+  const storedNoteFor = async (note: Note, content: string): Promise<{ id: string; created: boolean } | null> => {
+    if (!isDraftNote(note)) return { id: note.id, created: false };
+    const known = draftIdsRef.current.get(note.id);
+    if (known) return { id: known, created: false };
+    const pending = draftCreatesRef.current.get(note.id);
+    if (pending) {
+      const id = await pending;
+      return id ? { id, created: false } : null;
     }
+    if (isBlankNote(content)) return null;
+    const create = createNoteMutation
+      .mutateAsync({
+        subject: 'Note',
+        description: content,
+        recordKind: note.recordKind,
+        recordId: note.recordId,
+        recordName: note.recordName,
+      })
+      .then((result) => {
+        const id = result?.id ?? null;
+        if (!id) {
+          toast.error(t('sweep.weldcrm.notesView.failedToCreateNote'));
+          return null;
+        }
+        draftIdsRef.current.set(note.id, id);
+        setNotes((prev) => [{ ...note, id, content, updatedAt: new Date() }, ...prev]);
+        return id;
+      })
+      .catch((error: unknown) => {
+        console.error('Failed to create note:', error);
+        toast.error(t('sweep.weldcrm.notesView.failedToCreateNote'));
+        return null;
+      })
+      .finally(() => draftCreatesRef.current.delete(note.id));
+    draftCreatesRef.current.set(note.id, create);
+    const id = await create;
+    return id ? { id, created: true } : null;
   };
 
   const handleDelete = useCallback(async (noteId: string) => {
@@ -281,9 +323,9 @@ export function NotesView({ initialNotes = [] }: Readonly<NotesViewProps>) {
     }
   }, [notes, toggleFavoriteMutation, t]);
 
-  const handleRecordSelect = async (record: SelectableRecord) => {
+  const handleRecordSelect = (record: SelectableRecord) => {
     setShowRecordSelection(false);
-    await handleCreate(record);
+    handleCreate(record);
   };
 
   // Row renderer
@@ -490,18 +532,19 @@ export function NotesView({ initialNotes = [] }: Readonly<NotesViewProps>) {
               open={showEditor}
               onOpenChange={handleDialogClose}
               onSave={async (content) => {
-                if (selectedNote) {
-                  await handleSave(selectedNote.id, content);
-                  setNotes((prev) =>
-                    prev.map((n) =>
-                      n.id === selectedNote.id ? { ...n, content, updatedAt: new Date() } : n
-                    )
-                  );
-                }
+                if (!selectedNote) return;
+                const stored = await storedNoteFor(selectedNote, content);
+                if (!stored || stored.created) return;
+                await handleSave(stored.id, content);
               }}
               onDelete={() => {
-                if (selectedNote) {
-                  requestDelete(selectedNote.id);
+                if (!selectedNote) return;
+                const id = isDraftNote(selectedNote) ? draftIdsRef.current.get(selectedNote.id) : selectedNote.id;
+                if (id) {
+                  requestDelete(id);
+                } else {
+                  // A new note that was never saved: there is nothing to delete.
+                  handleDialogClose(false);
                 }
               }}
             />

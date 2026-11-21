@@ -3,9 +3,11 @@ import { isCollapsed } from '@weldsuite/docs-engine';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuShortcut, DropdownMenuTrigger } from '@weldsuite/ui/components/dropdown-menu';
 import { useI18n } from '@/lib/i18n/provider';
 import type { DocController } from './model/doc-controller';
-import { MOD_LABEL } from './model/keyboard';
+import { MOD_LABEL, shortcutLabel } from './model/keyboard';
 import { tableContext } from './model/table-actions';
 import { TableMenuItems } from './table-menu';
+import { CloseMenuContext } from './table-picker';
+import { MENU_EDGE_GAP } from './ui';
 
 /**
  * The right-click menu on a page: clipboard, link, and the table commands
@@ -46,25 +48,33 @@ export function DocContextMenu({ controller, at, onClose }: { controller: DocCon
       <DropdownMenuTrigger asChild>
         <span className="fixed size-0" style={{ left: at.x, top: at.y }} aria-hidden />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="min-w-56" onCloseAutoFocus={(e) => e.preventDefault()}>
+      {/* Out to the right of the pointer, moved up as far as it takes to fit
+          (the table commands make it tall), as a system menu opens. */}
+      <DropdownMenuContent
+        side="right"
+        align="start"
+        collisionPadding={MENU_EDGE_GAP}
+        className="min-w-56"
+        onCloseAutoFocus={(e) => e.preventDefault()}
+      >
         <DropdownMenuItem disabled={ro || !hasSelection} onSelect={() => void clipboard('cut')}>
           {tm.cut}
-          <DropdownMenuShortcut>{MOD_LABEL}+X</DropdownMenuShortcut>
+          <DropdownMenuShortcut>{shortcutLabel(`${MOD_LABEL}+X`)}</DropdownMenuShortcut>
         </DropdownMenuItem>
         <DropdownMenuItem disabled={!hasSelection} onSelect={() => void clipboard('copy')}>
           {tm.copy}
-          <DropdownMenuShortcut>{MOD_LABEL}+C</DropdownMenuShortcut>
+          <DropdownMenuShortcut>{shortcutLabel(`${MOD_LABEL}+C`)}</DropdownMenuShortcut>
         </DropdownMenuItem>
         <DropdownMenuItem disabled={ro} onSelect={() => void clipboard('paste')}>
           {tm.paste}
-          <DropdownMenuShortcut>{MOD_LABEL}+V</DropdownMenuShortcut>
+          <DropdownMenuShortcut>{shortcutLabel(`${MOD_LABEL}+V`)}</DropdownMenuShortcut>
         </DropdownMenuItem>
         {!ro && (
           <>
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={() => controller.openDialog('link')}>
               {controller.link() ? te.editLink : tm.link}
-              <DropdownMenuShortcut>{MOD_LABEL}+K</DropdownMenuShortcut>
+              <DropdownMenuShortcut>{shortcutLabel(`${MOD_LABEL}+K`)}</DropdownMenuShortcut>
             </DropdownMenuItem>
             {controller.link() && <DropdownMenuItem onSelect={() => controller.removeLink()}>{te.removeLink}</DropdownMenuItem>}
           </>
@@ -72,7 +82,9 @@ export function DocContextMenu({ controller, at, onClose }: { controller: DocCon
         {tableContext(controller) && !ro && (
           <>
             <DropdownMenuSeparator />
-            <TableMenuItems controller={controller} />
+            <CloseMenuContext.Provider value={onClose}>
+              <TableMenuItems controller={controller} />
+            </CloseMenuContext.Provider>
           </>
         )}
       </DropdownMenuContent>

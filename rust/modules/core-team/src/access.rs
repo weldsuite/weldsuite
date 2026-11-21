@@ -83,6 +83,13 @@ impl Caller {
             .unwrap_or_else(|| state.master.clone())
     }
 
+    /// The request's master database, for account pictures: the app's
+    /// behind `workspace_db`, the test's in conformance (none when the test
+    /// shares none, as a worker whose master lookup fails).
+    pub fn request_master(&self) -> Option<&PgPool> {
+        self.overrides.master.as_ref()
+    }
+
     /// The identity provider, if any.
     pub fn identity(&self, state: &CoreTeamState) -> Option<Arc<dyn Identity>> {
         self.overrides
@@ -167,6 +174,16 @@ pub struct AccountCaller {
 }
 
 impl AccountCaller {
+    /// A signed-in user without a workspace, for the routes' own tests.
+    #[cfg(test)]
+    pub(crate) fn for_test(user_id: &str) -> Self {
+        Self {
+            user_id: user_id.to_owned(),
+            org_id: None,
+            overrides: Overrides::default(),
+        }
+    }
+
     /// The master database (the test's in conformance mode).
     pub fn master(&self, state: &CoreTeamState) -> PgPool {
         self.overrides

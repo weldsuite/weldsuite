@@ -39,6 +39,9 @@ vi.mock('@/lib/weldbooks/use-jurisdiction', () => {
     useJurisdictionLabels: () => ({ labels, features: { salesTax: false, form1099: false }, isResolved: true }),
   };
 });
+vi.mock('@/lib/weldbooks/use-entity-invoice-details', () => ({
+  useEntityInvoiceDetails: () => ({ entity: undefined, missing: [], labels: {}, isLoading: false }),
+}));
 vi.mock('@/lib/weldbooks/use-weldbooks-format', () => ({
   useWeldbooksFormat: () => ({
     currency: 'EUR',
@@ -98,7 +101,7 @@ function invoice(overrides: Record<string, unknown> = {}): InvoiceDetail {
   } as unknown as InvoiceDetail;
 }
 
-const submit = (user: ReturnType<typeof userEvent.setup>) => user.click(screen.getByRole('button', { name: 'Update Invoice' }));
+const submit = (user: ReturnType<typeof userEvent.setup>) => user.click(screen.getByRole('button', { name: 'Update invoice' }));
 
 describe('InvoiceForm template picker', { timeout: 30_000 }, () => {
   beforeAll(polyfillRadixSelect);

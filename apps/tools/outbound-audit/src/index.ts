@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * WeldMail outbound audit: "is anyone sending cold email through WeldSuite
- * right now?" (docs/plans/weldmail-outbound-abuse.md, Phase 1).
+ * right now?" (weldsuite-documentation/plans/weldmail-outbound-abuse.md, Phase 1).
  *
  * READ-ONLY. Every tenant query runs in a READ ONLY transaction; the master DB
  * is only SELECTed; Cloudflare is only queried for analytics. Run per
@@ -83,7 +83,7 @@ function errorMessage(err: unknown): string {
 }
 
 // ---------------------------------------------------------------------------
-// Mail source (design doc docs/plans/weldmail-mailbox-store-design.md §9 task
+// Mail source (design doc weldsuite-documentation/plans/weldmail-mailbox-store-design.md §9 task
 // E2): which mailboxes this run reads from Postgres `mail_messages` versus
 // the mail-store admin export client. `--mail-source postgres` (the default)
 // never builds a plan at all — zero behaviour change, zero new network calls.

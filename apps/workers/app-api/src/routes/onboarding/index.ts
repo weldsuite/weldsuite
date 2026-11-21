@@ -26,7 +26,7 @@
  *     POST /finalize        — mark onboarding complete in the master DB and
  *                             install the selected apps in the tenant DB
  *
- *   Reseller territory (docs/plans/reseller-licensing.md):
+ *   Reseller territory (weldsuite-documentation/plans/reseller-licensing.md):
  *     create-workspace, /workspace and the /complete fallback answer 409
  *     PARTNER_TERRITORY, creating nothing, when a reseller serves the request's
  *     network country (`requestCountry`: cf.country / CF-IPCountry). The
@@ -81,15 +81,6 @@ const DEFAULT_WORKSPACE_APPS = ['crm', 'projects', 'weldconnect', 'mail', 'helpd
  * original so the wizard's app-selection step never renders empty.
  */
 const FALLBACK_CATALOG = [
-  {
-    code: 'commerce',
-    name: 'Commerce',
-    description:
-      'Comprehensive e-commerce platform for online selling, product management, and order processing',
-    icon: 'ShoppingCart',
-    category: 'Sales & Marketing',
-    path: '/commerce',
-  },
   {
     code: 'crm',
     name: 'CRM',

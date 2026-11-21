@@ -352,6 +352,9 @@ export function BoardCanvas(props: BoardCanvasProps) {
           }
         }}
         onDoubleClick={(e) => ia.doubleClick(pointerInfo(e, rect()))}
+        onClick={(e) => {
+          if (e.detail === 3) ia.tripleClick(pointerInfo(e, rect()));
+        }}
         onContextMenu={(e) => {
           e.preventDefault();
           const r = rect();

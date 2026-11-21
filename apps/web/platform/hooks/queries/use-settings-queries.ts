@@ -13,7 +13,6 @@
  *   - /settings/members/:id/apps       → GET /api/team-members/:id/apps
  *   - /settings/members/:id/apps/toggle → POST /api/team-members/:id/apps/toggle
  *   - /settings/available-apps         → GET /api/app-catalog?codes=canonical
- *   - /settings/printnode              → GET|PUT /api/printnode
  *
  * Deleted rather than ported (dead code — grep-proven zero importers, and the
  * unexported ones are unreachable through hooks/queries/index.ts's `export *`):
@@ -55,7 +54,6 @@ const settingsKeys = {
   memberApps: (memberId: string) => [...settingsKeys.all, 'member-apps', memberId] as const,
   memberPermissions: (memberId: string) => [...settingsKeys.all, 'member-permissions', memberId] as const,
   integrations: () => [...settingsKeys.all, 'integrations'] as const,
-  printNode: () => [...settingsKeys.all, 'printnode'] as const,
   customFields: (entityType?: string) =>
     (entityType
       ? [...settingsKeys.all, 'custom-fields', entityType]
@@ -163,11 +161,12 @@ export function useWorkspaceMembers(page?: number, pageSize?: number, enabled = 
  * one page (the server caps that at 100). Assignee pickers that claim the
  * whole directory use this instead.
  */
-export function useWorkspaceMemberDirectory(enabled = true) {
+export function useWorkspaceMemberDirectory(enabled = true, options?: { staleTime?: number }) {
   const { getClient } = useAppApiClient();
   return useQuery({
     queryKey: settingsKeys.members({ directory: 'all', memberType: 'all' }),
     enabled,
+    staleTime: options?.staleTime,
     queryFn: async () => {
       const client = await getClient();
       const data = await collectWorkspaceMemberPages<WorkspaceMember>(async (cursor) => {
@@ -327,34 +326,6 @@ export function useIntegrations() {
         data: unknown[];
         pagination: { totalCount: number; hasMore: boolean; cursor: string | null };
       }>('/integrations?limit=100');
-    },
-  });
-}
-
-/**
- * PrintNode integration config — app-api `GET /api/printnode` (ported from
- * api-worker `GET /settings/printnode`). `general:read` gated, so every member
- * tier can read it. `data` is null when PrintNode was never configured.
- *
- * The blob lives in `workspace_settings.customSettings.printnode`; it has no
- * table of its own.
- *
- * BUGFIX: the legacy unified client called `/api/settings/integrations/printnode`,
- * which api-worker never served (only `/api/settings/printnode` exists, and
- * `GET /integrations` does not match the sub-path) — so this screen has been
- * 404ing on both read and save. It now points at a route that exists.
- *
- * The consumer (settings/integrations/[id]/integration-detail-client.tsx) reads
- * `printNodeData.data.apiKey`, so the `{ data }` envelope is passed through
- * as-is rather than unwrapped.
- */
-export function usePrintNodeSettings() {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: settingsKeys.printNode(),
-    queryFn: async () => {
-      const client = await getClient();
-      return client.get<{ data: unknown }>('/printnode');
     },
   });
 }
@@ -547,29 +518,6 @@ export function useToggleMemberApp() {
       qc.invalidateQueries({ queryKey: settingsKeys.members() });
       qc.invalidateQueries({ queryKey: settingsKeys.memberApps(variables.id) });
       qc.invalidateQueries({ queryKey: installedAppsKeys.all });
-    },
-  });
-}
-
-/**
- * Save the PrintNode integration config — app-api `PUT /api/printnode` (was
- * api-worker `PUT /settings/printnode`). `general:update` gated: it is a
- * workspace-wide integration credential, not a self-scoped setting.
- *
- * Sends `{ apiKey: '' }` to disconnect. See usePrintNodeSettings for the 404
- * this repoint fixes.
- */
-export function useUpdatePrintNodeSettings() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (data: { apiKey: string }) => {
-      const client = await getClient();
-      return client.put<{ data: unknown }>('/printnode', data);
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: settingsKeys.printNode() });
-      qc.invalidateQueries({ queryKey: settingsKeys.integrations() });
     },
   });
 }

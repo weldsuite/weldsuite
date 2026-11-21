@@ -34,6 +34,8 @@ import {
 } from 'lucide-react';
 import { useCustomFields } from '@/hooks/use-custom-fields';
 import { toast } from 'sonner';
+import { numberRangeError } from '@/components/entity-grid/utils/number-range';
+import { numberRangeOf } from './to-grid-columns';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { cn } from '@/lib/utils';
 import type { CustomFieldDefinition } from '@/lib/api/domains/settings';
@@ -210,6 +212,7 @@ function EditableCustomField({
   layout?: 'stacked' | 'row';
   readOnly?: boolean;
 }>) {
+  const t = useTranslations();
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState<string>('');
   const [isSaving, setIsSaving] = useState(false);
@@ -233,6 +236,12 @@ function EditableCustomField({
       let parsedValue: unknown = editValue.trim();
       if (def.fieldType === 'number' || def.fieldType === 'currency') {
         parsedValue = parsedValue === '' ? null : Number(parsedValue);
+        const rangeError = typeof parsedValue === 'number' ? numberRangeError(parsedValue, numberRangeOf(def), t) : null;
+        if (rangeError) {
+          // Stay in the editor so the value can be corrected.
+          toast.error(rangeError);
+          return;
+        }
       }
       if (parsedValue === '' && value == null) {
         setIsEditing(false);
@@ -344,6 +353,8 @@ function InlineEditor({ ctx, className }: Readonly<{ ctx: FieldContext; classNam
         onBlur={onCancel}
         disabled={isSaving}
         step={def.fieldType === 'currency' ? '0.01' : undefined}
+        min={numberRangeOf(def).min}
+        max={numberRangeOf(def).max}
         className={INLINE_INPUT_CLASS}
       />
     );

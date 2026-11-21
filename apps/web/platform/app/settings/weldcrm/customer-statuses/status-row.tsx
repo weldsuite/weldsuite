@@ -74,7 +74,7 @@ export function StatusRow({ status, isLast, onEdit, onDelete }: Readonly<StatusR
             <Button
               variant="ghost"
               size="icon"
-              className="h-7 w-7 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 transition-opacity"
+              className="h-7 w-7 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity"
             >
               <EllipsisVertical className="h-4 w-4" />
               <span className="sr-only">{ts.weldcrm.customerStatuses.openMenu}</span>

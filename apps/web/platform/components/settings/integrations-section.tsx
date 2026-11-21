@@ -12,7 +12,8 @@ import { useIntegrationConnections } from '@/hooks/queries/use-integration-queri
 import { useChannelIntegrations } from '@/hooks/queries/use-helpdesk-integration-queries'
 import { useGithubConnection } from '@/hooks/queries/use-github-queries'
 import { useConnectorCatalog } from '@/hooks/queries/use-connector-queries'
-import { useSendcloudSettings } from '@/hooks/queries/use-sendcloud-queries'
+import { isRouteOffered } from '@/lib/edition-routes'
+import { EmptyState } from "@weldsuite/ui/components/empty-state"
 
 type IntegrationListStrings = TranslationNamespaces['settings']['integrations']['list']
 
@@ -202,32 +203,15 @@ const integrationDefinitions: (Omit<Integration, 'connected' | 'description'> & 
     configurable: true,
     href: '/settings/integrations/picqer',
   },
-  {
-    id: 'sendcloud',
-    name: 'Sendcloud',
-    descriptionKey: 'sendcloud',
-    category: 'Shipping',
-    icon: (
-      <img
-        src="https://icons.duckduckgo.com/ip3/sendcloud.com.ico"
-        alt="Sendcloud"
-        className="h-6 w-6 rounded-[4px]"
-        loading="lazy"
-      />
-    ),
-    configurable: true,
-    href: '/settings/integrations/sendcloud',
-  },
 ]
 
-const CATEGORY_ORDER = ['CRM', 'E-Commerce', 'Warehouse', 'Accounting', 'Shipping', 'Support', 'Calendar', 'AI', 'Developer Tools']
+const CATEGORY_ORDER = ['CRM', 'E-Commerce', 'Warehouse', 'Accounting', 'Support', 'Calendar', 'AI', 'Developer Tools']
 
 const CATEGORY_LABEL_KEYS: Record<string, keyof IntegrationListStrings['categories']> = {
   CRM: 'crm',
   'E-Commerce': 'ecommerce',
   Warehouse: 'warehouse',
   Accounting: 'accounting',
-  Shipping: 'shipping',
   Support: 'support',
   Calendar: 'calendar',
   AI: 'ai',
@@ -248,7 +232,6 @@ export function IntegrationsSection() {
   const { data: channelIntegrationsResult, isLoading: channelLoading } = useChannelIntegrations()
   const { data: githubConnectionResult } = useGithubConnection()
   const { data: connectorCatalogResult } = useConnectorCatalog()
-  const { data: sendcloudResult } = useSendcloudSettings()
 
   const integrations = React.useMemo(() => {
     const crmConnections = integrationConnectionsResult?.data ?? []
@@ -271,19 +254,21 @@ export function IntegrationsSection() {
     const connectorConnected = (provider: string) =>
       (connectorCatalogResult?.data ?? []).some((entry) => entry.provider === provider && entry.connectionCount > 0)
 
-    return integrationDefinitions.map(def => {
+    // Edition flags: only integrations whose page this deployment serves
+    // (`lib/edition-routes.ts`: syncs and webhooks the backend runs, MCP servers with WeldAgent).
+    const offered = integrationDefinitions.filter(def => isRouteOffered(def.href || `/settings/integrations/${def.id}`))
+    return offered.map(def => {
       let connected = false
       if (def.id === 'discord') connected = discordConnected
       else if (def.id === 'slack') connected = slackConnected
       else if (def.id === 'mcp_servers') connected = mcpCount > 0
       else if (def.id === 'github') connected = githubConnected
       else if (def.id === 'woocommerce' || def.id === 'shopify' || def.id === 'moneybird' || def.id === 'picqer') connected = connectorConnected(def.id)
-      else if (def.id === 'sendcloud') connected = Boolean(sendcloudResult?.data?.connected)
       else if (['attio', 'salesforce', 'hubspot', 'google_calendar'].includes(def.id)) connected = isProviderConnected(def.id)
       const { descriptionKey, ...rest } = def
       return { ...rest, description: list.descriptions[descriptionKey], connected }
     })
-  }, [integrationConnectionsResult, channelIntegrationsResult, githubConnectionResult, connectorCatalogResult, sendcloudResult, list])
+  }, [integrationConnectionsResult, channelIntegrationsResult, githubConnectionResult, connectorCatalogResult, list])
 
   const { integrationsByCategory, sortedCategories } = React.useMemo(() => {
     const grouped: Record<string, Integration[]> = {}
@@ -307,6 +292,14 @@ export function IntegrationsSection() {
 
   if (connectionsLoading || channelLoading) {
     return <PageLoader fullScreen={false} />
+  }
+
+  if (integrations.length === 0) {
+    return (
+      <div className="mx-auto w-full max-w-[1150px] p-6">
+        <EmptyState title={list.noneOfferedTitle} description={list.noneOfferedDescription} />
+      </div>
+    )
   }
 
   return (

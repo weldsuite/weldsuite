@@ -1,0 +1,63 @@
+{
+  "description": "Zero lead time on alternating demand (5, 7).",
+  "notes": [
+    "Alternating 5 and 7 (yesterday 7) for 100 days: level = (7 + 5r) / (1 + r) with r = 0.5^(1/30) = 0.97716 -> 6.01155; sigma = sqrt(((7 - l)^2 + r (5 - l)^2) / (1 + r)) = 0.99993.",
+    "L = 0: no lead-time demand and no safety stock (sqrt 0) despite sigma ~ 1 -> reorder point 0. D_R = 7 x 6.01155 = 42.08 -> order-up-to 43.",
+    "Position 0 <= 0 -> raw 43 -> 43; value 129. Nothing available: cover 0, stockout today."
+  ],
+  "input": {
+    "today": "2026-11-18",
+    "history_start": "2026-08-10",
+    "daily_demand": [5,7,5,7,5,7,5,7,5,7,5,7,5,7,5,7,5,7,5,7,5,7,5,7,5,7,5,7,5,7,5,7,5,7,5,7,5,7,5,7,5,7,5,7,5,7,5,7,5,7,5,7,5,7,5,7,5,7,5,7,5,7,5,7,5,7,5,7,5,7,5,7,5,7,5,7,5,7,5,7,5,7,5,7,5,7,5,7,5,7,5,7,5,7,5,7,5,7,5,7],
+    "first_activity": "2026-08-10",
+    "lead_time_days": 0,
+    "review_period_days": 7,
+    "service_level": 0.95,
+    "rule": {
+      "method": "auto"
+    },
+    "supplier": {
+      "min_order_qty": null,
+      "order_multiple": 1,
+      "unit_cost": 3
+    },
+    "position": {
+      "on_hand": 0,
+      "allocated": 0,
+      "incoming": 0,
+      "open_demand": 0
+    },
+    "receipts": []
+  },
+  "tolerance": 0.000001,
+  "expected": {
+    "method": "level",
+    "confidence": "ok",
+    "history_days": 100,
+    "nonzero_days": 100,
+    "avg_daily_demand": 6.011551939,
+    "demand_std_dev": 0.999933274,
+    "seasonality": null,
+    "forecast_30d": 180.346558173,
+    "forecast_90d": 541.03967452,
+    "safety_stock": 0,
+    "reorder_point": 0,
+    "order_up_to": 43,
+    "inventory_position": 0,
+    "days_of_cover": 0,
+    "stockout_date": "2026-11-18",
+    "suggested_qty": 43,
+    "suggested_value": 129,
+    "daily_forecast": {
+      "len": 91,
+      "at": {
+        "0": 6.011551939,
+        "13": 6.011551939,
+        "14": 6.011551939,
+        "30": 6.011551939,
+        "45": 6.011551939,
+        "90": 6.011551939
+      }
+    }
+  }
+}

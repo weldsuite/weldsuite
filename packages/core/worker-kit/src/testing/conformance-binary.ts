@@ -15,9 +15,13 @@
  *   the moment the file was written masked (the entries' DOS times and the
  *   core properties' `dcterms:created`/`modified`), as WeldSheets'
  *   exports are written at the second each run asks.
+ * - Gzip bodies (WeldPanel's heatmap snapshot, cut out of a recording and
+ *   compressed again): inflated, as the Workers' `CompressionStream` and
+ *   Rust's flate2 write different headers and deflate streams for the same
+ *   bytes.
  */
 
-import { inflateRawSync, inflateSync } from 'node:zlib';
+import { gunzipSync, inflateRawSync, inflateSync } from 'node:zlib';
 
 const SKIPPED_STREAM_TYPES = /\/Type\s*\/(XRef|ObjStm|Metadata)\b/;
 
@@ -105,9 +109,21 @@ function generatesFiles(route: string | null): boolean {
   return !!route && (route.startsWith('/api/weldhr/payroll/') || route.startsWith('/api/weldhr/me/'));
 }
 
+/** A gzip body's content; null when it is not gzip. */
+function gzipContent(bytes: Uint8Array): string | null {
+  if (bytes.byteLength < 2 || bytes[0] !== 0x1f || bytes[1] !== 0x8b) return null;
+  try {
+    return gunzipSync(bytes).toString('latin1');
+  } catch {
+    return null;
+  }
+}
+
 /** The form two non-JSON answers are compared in. */
 export function canonicalBody(route: string | null, bytes: Uint8Array): string | Uint8Array {
   if (Buffer.from(bytes.subarray(0, 5)).toString('latin1') === '%PDF-') return `pdf:${pdfDrawing(bytes)}`;
+  const gzip = gzipContent(bytes);
+  if (gzip !== null) return `gzip:${gzip}`;
   if (bytes.byteLength >= 4 && new DataView(bytes.buffer, bytes.byteOffset).getUint32(0, true) === ZIP_LOCAL_HEADER) {
     const entries = zipEntries(bytes);
     if (entries !== null) return `zip:${entries}`;

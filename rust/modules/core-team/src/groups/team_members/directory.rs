@@ -111,7 +111,7 @@ async fn me_inner(caller: &Caller) -> TeamResult<Response> {
     let row: Option<Value> = sqlx::query_scalar(
         "select jsonb_build_object(
              'id', id, 'userId', user_id, 'email', email, 'name', name,
-             'picture', picture, 'role', role, 'roleId', role_id,
+             'picture', null, 'role', role, 'roleId', role_id,
              'permissions', permissions, 'status', status, 'memberType', member_type)
          from workspace_members where user_id = $1 and deleted_at is null limit 1",
     )
@@ -120,7 +120,14 @@ async fn me_inner(caller: &Caller) -> TeamResult<Response> {
     .await
     .map_err(failed("Failed to fetch current member"))?;
     match row {
-        Some(row) => Ok(Data(row).into_response()),
+        Some(mut row) => {
+            // The avatar is the account picture, not the member row's copy.
+            row["picture"] =
+                weldsuite_db::load_account_picture(caller.request_master(), &caller.user_id)
+                    .await
+                    .map_or(Value::Null, Value::String);
+            Ok(Data(row).into_response())
+        }
         None => Err(ApiError::not_found("Member", Some(&caller.user_id)).into()),
     }
 }
@@ -233,8 +240,11 @@ async fn list_inner(caller: &Caller, query: Option<&str>) -> TeamResult<Response
     )
     .await
     .map_err(failed("Failed to fetch members"))?;
-    let data = result
-        .rows
+    let mut rows = result.rows;
+    // Avatars are account pictures, not the member row's copy.
+    weldsuite_db::overlay_account_pictures(caller.request_master(), &mut rows, "userId", "picture")
+        .await;
+    let data = rows
         .iter()
         .map(|member| project(member, admin, &caller.user_id))
         .collect();
@@ -352,7 +362,16 @@ async fn detail_inner(caller: &Caller, id: &str) -> TeamResult<Response> {
         .await
         .map_err(failed("Failed to fetch member"))?
         .ok_or_else(|| ApiError::not_found("Member", Some(id)))?;
-    Ok(Data(project(&member, admin, &caller.user_id)).into_response())
+    // The avatar is the account picture, not the member row's copy.
+    let mut members = [member];
+    weldsuite_db::overlay_account_pictures(
+        caller.request_master(),
+        &mut members,
+        "userId",
+        "picture",
+    )
+    .await;
+    Ok(Data(project(&members[0], admin, &caller.user_id)).into_response())
 }
 
 // ── GET /:id/permissions ────────────────────────────────────────────────────
@@ -475,7 +494,6 @@ pub(crate) fn app_name(code: &str) -> String {
         "weldcalendar" => Some("WeldCalendar"),
         "welddrive" => Some("WeldDrive"),
         "welddata" => Some("WeldData"),
-        "weldcommerce" => Some("WeldCommerce"),
         "weldads" => Some("WeldAds"),
         _ => None,
     };

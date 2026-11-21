@@ -1,7 +1,8 @@
 //! The plain CRUD route files of stash-api (boxes, warehouses, warehouse
 //! zones and locations, suppliers, cycle counts, purchase orders, inventory
-//! movements): `GET /` (cursor-paged, a few filters), `GET /:id`, `POST /`,
-//! `PATCH /:id`, `DELETE /:id` (soft, except movements).
+//! movements, and products in [`crate::products`]): `GET /` (cursor-paged, a
+//! few filters), `GET /:id`, `POST /`, `PATCH /:id`, `DELETE /:id` (soft,
+//! except movements).
 //!
 //! Each file is the same code with a different table, schema, filters,
 //! ordering, messages and event payloads; [`Crud`] is that difference. The
@@ -381,7 +382,7 @@ pub(crate) async fn soft_delete(
 // ── shared pieces of the route files ────────────────────────────────────────
 
 /// `{ id, ...data, createdAt: now, updatedAt: now }`.
-fn spread_create(data: &Body, id: &str, now: &str) -> Body {
+pub(crate) fn spread_create(data: &Body, id: &str, now: &str) -> Body {
     let mut props = Map::new();
     props.insert("id".to_owned(), json!(id));
     props.extend(data.clone());
@@ -391,7 +392,7 @@ fn spread_create(data: &Body, id: &str, now: &str) -> Body {
 }
 
 /// `for (const [k, v] of Object.entries(data)) if (v !== undefined) update[k] = v`.
-fn spread_update(data: &Body) -> Body {
+pub(crate) fn spread_update(data: &Body) -> Body {
     data.clone()
 }
 
@@ -401,14 +402,14 @@ fn only_id(id: &str, _: &Value) -> Value {
 }
 
 /// `data.<key>` into an event object, left out when undefined.
-fn put_from(event: &mut Body, data: &Body, key: &str) {
+pub(crate) fn put_from(event: &mut Body, data: &Body, key: &str) {
     if let Some(value) = data.get(key) {
         event.insert(key.to_owned(), value.clone());
     }
 }
 
 /// `(update.<key>) ?? existing.<key>`.
-fn update_or_existing(data: &Body, existing: &Value, key: &str) -> Value {
+pub(crate) fn update_or_existing(data: &Body, existing: &Value, key: &str) -> Value {
     data.get(key)
         .filter(|value| !value.is_null())
         .cloned()
@@ -431,13 +432,13 @@ fn event_from(id: &str, data: &Body, keys: &[&str]) -> Value {
 }
 
 /// A filter slot: `eq(column, value)` when `value` is set and not empty.
-fn eq_slot(query: Option<&str>, name: &str) -> (bool, Vec<Arg>) {
+pub(crate) fn eq_slot(query: Option<&str>, name: &str) -> (bool, Vec<Arg>) {
     let value = query_set(query, name);
     (value.is_some(), vec![Arg::Text(value)])
 }
 
 /// `or(like(a, term), like(b, term)…)` on `%search%`, when `search` is set.
-fn search_slot(query: Option<&str>) -> (bool, Vec<Arg>) {
+pub(crate) fn search_slot(query: Option<&str>) -> (bool, Vec<Arg>) {
     let term = query_set(query, "search").map(|search| format!("%{search}%"));
     (term.is_some(), vec![Arg::Text(term)])
 }

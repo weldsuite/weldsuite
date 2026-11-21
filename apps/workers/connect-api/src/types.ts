@@ -42,7 +42,7 @@ export interface Env extends KitEnv {
    *  internal /api/integrations router (X-Internal-Secret). Callers reach those
    *  routes through the `ConnectInternal` entrypoint without it; the public
    *  mounts stay until they all do. Must be SET with the same value those
-   *  callers (and app-api / commerce-api) use while they remain. */
+   *  callers (and app-api) use while they remain. */
   INTERNAL_API_SECRET?: string;
   /**
    * Public HTTPS origin of integration-webhook-worker, used as the delivery

@@ -34,10 +34,8 @@ import {
   FileText,
   LayoutGrid,
   Globe,
-  ShoppingCart,
   Users,
   Server,
-  Package,
   Megaphone,
   Headphones,
   Warehouse,
@@ -1752,7 +1750,7 @@ function MinimizedCompose({ agentRight, attachedFiles, availableTags, bccRecipie
             <input aria-label={st('sweep.weldmail.compose.subject')}
               type="text"
               placeholder={st('sweep.weldmail.compose.subject')}
-              className="w-full text-sm font-medium outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground"
+              className="w-full text-sm font-medium outline-none bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground"
               value={composeData.subject}
               onChange={(e) => setComposeData(prev => ({ ...prev, subject: e.target.value }))}
             />
@@ -1764,7 +1762,7 @@ function MinimizedCompose({ agentRight, attachedFiles, availableTags, bccRecipie
               <input aria-label={st('sweep.weldmail.compose.to')}
                 type="text"
                 placeholder={st('sweep.weldmail.compose.to')}
-                className="w-full text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground"
+                className="w-full text-sm outline-none bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground"
                 value={composeData.to}
                 onChange={(e) => setComposeData(prev => ({ ...prev, to: e.target.value }))}
               />
@@ -1773,14 +1771,14 @@ function MinimizedCompose({ agentRight, attachedFiles, availableTags, bccRecipie
                   <input aria-label={st('sweep.weldmail.compose.cc')}
                     type="text"
                     placeholder={st('sweep.weldmail.compose.cc')}
-                    className="w-full text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground"
+                    className="w-full text-sm outline-none bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground"
                     value={ccRecipients}
                     onChange={(e) => setCcRecipients(e.target.value)}
                   />
                   <input aria-label={st('sweep.weldmail.compose.bcc')}
                     type="text"
                     placeholder={st('sweep.weldmail.compose.bcc')}
-                    className="w-full text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground"
+                    className="w-full text-sm outline-none bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground"
                     value={bccRecipients}
                     onChange={(e) => setBccRecipients(e.target.value)}
                   />
@@ -1864,7 +1862,7 @@ function MinimizedCompose({ agentRight, attachedFiles, availableTags, bccRecipie
 
             <textarea aria-label={st('sweep.weldmail.compose.enterText')}
               placeholder={st('sweep.weldmail.compose.enterText')}
-              className="w-full h-full text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent resize-none placeholder-gray-400 dark:placeholder-muted-foreground"
+              className="w-full h-full text-sm outline-none bg-transparent resize-none placeholder-gray-400 dark:placeholder-muted-foreground"
               value={composeData.body}
               onChange={(e) => setComposeData(prev => ({ ...prev, body: e.target.value }))}
             />
@@ -2988,7 +2986,7 @@ export function InboxClient({
                     <input aria-label={st('sweep.weldmail.compose.subject')}
                       type="text"
                       placeholder={st('sweep.weldmail.compose.subject')}
-                      className="w-full text-sm font-medium outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground"
+                      className="w-full text-sm font-medium outline-none bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground"
                       value={composeData.subject}
                       onChange={(e) => setComposeData(prev => ({ ...prev, subject: e.target.value }))}
                     />
@@ -3000,7 +2998,7 @@ export function InboxClient({
                       <input aria-label={st('sweep.weldmail.compose.to')}
                         type="text"
                         placeholder={st('sweep.weldmail.compose.to')}
-                        className="flex-1 text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground text-blue-600"
+                        className="flex-1 text-sm outline-none bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground text-blue-600"
                         value={composeData.to}
                         onChange={(e) => setComposeData(prev => ({ ...prev, to: e.target.value }))}
                       />
@@ -3019,7 +3017,7 @@ export function InboxClient({
                           <input aria-label={st('sweep.weldmail.compose.cc')}
                             type="text"
                             placeholder={st('sweep.weldmail.compose.cc')}
-                            className="flex-1 text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground text-blue-600"
+                            className="flex-1 text-sm outline-none bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground text-blue-600"
                             value={ccRecipients}
                             onChange={(e) => setCcRecipients(e.target.value)}
                           />
@@ -3028,7 +3026,7 @@ export function InboxClient({
                           <input aria-label={st('sweep.weldmail.compose.bcc')}
                             type="text"
                             placeholder={st('sweep.weldmail.compose.bcc')}
-                            className="flex-1 text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground text-blue-600"
+                            className="flex-1 text-sm outline-none bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground text-blue-600"
                             value={bccRecipients}
                             onChange={(e) => setBccRecipients(e.target.value)}
                           />
@@ -3104,7 +3102,7 @@ export function InboxClient({
                     
                     <textarea aria-label={st('sweep.weldmail.compose.enterText')}
                       placeholder={st('sweep.weldmail.compose.enterText')}
-                      className="w-full h-full text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent resize-none placeholder-gray-400 dark:placeholder-muted-foreground"
+                      className="w-full h-full text-sm outline-none bg-transparent resize-none placeholder-gray-400 dark:placeholder-muted-foreground"
                       value={composeData.body}
                       onChange={(e) => setComposeData(prev => ({ ...prev, body: e.target.value }))}
                     />
@@ -3326,7 +3324,7 @@ export function InboxClient({
                   <input aria-label={st('sweep.weldmail.compose.to')}
                     type="text"
                     placeholder={st('sweep.weldmail.compose.to')}
-                    className="flex-1 text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground"
+                    className="flex-1 text-sm outline-none bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground"
                     value={composeData.to}
                     onChange={(e) => setComposeData(prev => ({ ...prev, to: e.target.value }))}
                   />
@@ -3351,7 +3349,7 @@ export function InboxClient({
                 <div className="pl-[18px] pr-[18px] py-4">
                   <textarea aria-label={st('sweep.weldmail.compose.typeYourReply')}
                     placeholder={st('sweep.weldmail.compose.typeYourReply')}
-                    className="w-full h-32 text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent resize-none placeholder-gray-400 dark:placeholder-muted-foreground"
+                    className="w-full h-32 text-sm outline-none bg-transparent resize-none placeholder-gray-400 dark:placeholder-muted-foreground"
                     value={composeData.body}
                     onChange={(e) => setComposeData(prev => ({ ...prev, body: e.target.value }))}
                     ref={focusOnMount}
@@ -3564,18 +3562,6 @@ export function InboxClient({
             
             {/* Apps Grid */}
             <div className="grid grid-cols-3 gap-3 mb-3">
-              {/* Commerce */}
-              <Button variant="ghost" 
-                onClick={() => {
-                  setSelectedApp({ name: 'Commerce', icon: ShoppingCart });
-                  setShowAppDetailModal(true);
-                }}
-                className="flex flex-col items-start justify-center p-2.5 h-[74px] rounded-lg border border-gray-200 dark:border-border hover:bg-gray-50 dark:hover:bg-accent/50 transition-colors"
-              >
-                <ShoppingCart className="h-5 w-5 text-gray-700 dark:text-muted-foreground mb-1.5" />
-                <span className="text-sm font-medium text-gray-900 dark:text-foreground">Commerce</span>
-              </Button>
-              
               {/* CRM */}
               <Button variant="ghost" 
                 onClick={() => {
@@ -3610,18 +3596,6 @@ export function InboxClient({
               >
                 <Server className="h-5 w-5 text-gray-700 dark:text-muted-foreground mb-1.5" />
                 <span className="text-sm font-medium text-gray-900 dark:text-foreground">Host</span>
-              </Button>
-              
-              {/* Parcel */}
-              <Button variant="ghost" 
-                onClick={() => {
-                  setSelectedApp({ name: 'Parcel', icon: Package });
-                  setShowAppDetailModal(true);
-                }}
-                className="flex flex-col items-start justify-center p-2.5 h-[74px] rounded-lg border border-gray-200 dark:border-border hover:bg-gray-50 dark:hover:bg-accent/50 transition-colors"
-              >
-                <Package className="h-5 w-5 text-gray-700 dark:text-muted-foreground mb-1.5" />
-                <span className="text-sm font-medium text-gray-900 dark:text-foreground">Parcel</span>
               </Button>
               
               {/* Campaign */}
@@ -3764,7 +3738,7 @@ export function InboxClient({
 
                   <span className="text-gray-500 dark:text-muted-foreground">{t.mail.inboxPage.senderWebsite}</span>
                   <button type="button" className="text-gray-900 dark:text-foreground flex items-center gap-1 hover:underline">
-                    commerce.weldsuite.com
+                    weldsuite.com
                     <ExternalLink className="h-3 w-3" />
                   </button>
 
@@ -3895,7 +3869,7 @@ export function InboxClient({
                   <div className="flex-1 space-y-2">
                     <input aria-label={t.sweep.weldmail.compose.to}
                       type="text"
-                      className="w-full text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent text-blue-600"
+                      className="w-full text-sm outline-none bg-transparent text-blue-600"
                       value={popupComposeData.to}
                       onChange={(e) => setPopupComposeData(prev => ({ ...prev, to: e.target.value }))}
                     />
@@ -3903,7 +3877,7 @@ export function InboxClient({
                       <input aria-label={st('sweep.weldmail.compose.cc')}
                         type="text"
                         placeholder={st('sweep.weldmail.compose.cc')}
-                        className="w-full text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground text-blue-600"
+                        className="w-full text-sm outline-none bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground text-blue-600"
                         value={popupCcRecipients}
                         onChange={(e) => setPopupCcRecipients(e.target.value)}
                       />
@@ -3912,7 +3886,7 @@ export function InboxClient({
                       <input aria-label={st('sweep.weldmail.compose.bcc')}
                         type="text"
                         placeholder={st('sweep.weldmail.compose.bcc')}
-                        className="w-full text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground text-blue-600"
+                        className="w-full text-sm outline-none bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground text-blue-600"
                         value={popupBccRecipients}
                         onChange={(e) => setPopupBccRecipients(e.target.value)}
                       />
@@ -3946,7 +3920,7 @@ export function InboxClient({
                   <input aria-label={st('sweep.weldmail.compose.subject')}
                     type="text"
                     placeholder={st('sweep.weldmail.compose.subject')}
-                    className="flex-1 text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground"
+                    className="flex-1 text-sm outline-none bg-transparent placeholder-gray-400 dark:placeholder-muted-foreground"
                     value={popupComposeData.subject.replace(/^Re:\s*/i, '')}
                     onChange={(e) => setPopupComposeData(prev => ({ ...prev, subject: `Re: ${e.target.value}` }))}
                   />
@@ -3972,7 +3946,7 @@ export function InboxClient({
                 `}</style>
                 <textarea aria-label={st('sweep.weldmail.compose.enterText')}
                   placeholder={st('sweep.weldmail.compose.enterText')}
-                  className="w-full h-full text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 bg-transparent resize-none placeholder-gray-400 dark:placeholder-muted-foreground overflow-y-auto pl-0 pr-2 custom-scrollbar"
+                  className="w-full h-full text-sm outline-none bg-transparent resize-none placeholder-gray-400 dark:placeholder-muted-foreground overflow-y-auto pl-0 pr-2 custom-scrollbar"
                   style={{
                     scrollbarWidth: 'thin',
                     scrollbarColor: '#e5e7eb transparent'

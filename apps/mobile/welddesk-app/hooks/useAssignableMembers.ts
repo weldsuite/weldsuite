@@ -9,7 +9,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
 
 import api from '@/services/api';
 import type { DeskMember } from '@/types/desk';
@@ -41,7 +41,7 @@ function fetchMembers(key: string): Promise<DeskMember[] | null> {
 }
 
 export function useAssignableMembers() {
-  const { user, organizationId } = useClerkAuth();
+  const { user, organizationId } = useAuthSession();
   const key = `${user?.id ?? ''}:${organizationId ?? ''}`;
   const [members, setMembers] = useState<DeskMember[] | null>(() => cachedFor(key));
   const [loading, setLoading] = useState(false);

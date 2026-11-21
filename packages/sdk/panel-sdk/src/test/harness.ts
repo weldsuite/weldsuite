@@ -1,11 +1,14 @@
 /** Test helpers: a client on a fake network, and a clean page between tests. */
 
 import { vi } from 'vitest';
+import { resetSeqMemory } from '../storage';
 import { createClient, type Client, type ClientOptions } from '../client';
 import type { ClientConfig, EventBatch, WireEvent } from '../wire';
 
 export const TOKEN = 'wpk_0123456789abcdef0123456789abcdef';
 export const HOST = 'https://pnl.example.org';
+/** The first-touch properties every event carries on a test page (no referrer, `/`, no UTM tags). */
+export const FIRST_TOUCH = { $initial_referrer: '$direct', $initial_referring_domain: '$direct', $initial_landing_path: '/' };
 
 export interface Sent {
   via: 'fetch' | 'beacon';
@@ -106,7 +109,16 @@ export function setup(
   options: NetworkOptions & Partial<ClientOptions> = {},
 ): { client: Client; net: Network } {
   const net = installNetwork(options);
-  const client = createClient({ token: TOKEN, host: HOST, debug: options.debug });
+  const client = createClient({
+    token: TOKEN,
+    host: HOST,
+    apiHost: options.apiHost,
+    debug: options.debug,
+    recorder: options.recorder,
+    // Off unless a test asks: jsdom has no performance entries worth watching.
+    webVitals: options.webVitals ?? false,
+    vitals: options.vitals,
+  });
   cleanups.push(() => client.destroy());
   client.start({ autocapture: true, consentMode: 'required', maskingLevel: 'balanced', excludedUrls: [], ...config });
   return { client, net };
@@ -123,6 +135,7 @@ export function resetPage(): void {
   vi.restoreAllMocks();
   vi.useRealTimers();
   localStorage.clear();
+  resetSeqMemory();
   sessionStorage.clear();
   document.body.innerHTML = '';
   document.title = '';

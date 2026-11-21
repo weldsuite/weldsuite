@@ -20,13 +20,15 @@ import {
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
-import { useOrganization, useAuth, useUser } from '@clerk/expo';
+import { useOrganization, useAuth, useUser } from '@weldsuite/mobile-platform/auth';
+import { useEditionFeature } from '@weldsuite/mobile-platform/edition';
 import { useObserve } from 'expo-observe';
 import { KeyboardStickyView, useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
 import Animated, { FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withSpring, withTiming, interpolate, Extrapolation } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 import { Gesture, GestureDetector, FlatList } from 'react-native-gesture-handler';
 import { useRouter } from 'expo-router';
+import { readVisualsMetadata, uniqueKeys, visualTitle } from '@weldsuite/app-api-client/schemas/chat-visuals';
 
 import { Archive, Bell, BellOff, Bot, ChevronDown, ChevronLeft, Clock, FileText, Hash, Infinity as InfinityIcon, Lock, MessageSquare, Pencil, Phone, PhoneMissed, Reply, Video, X, type LucideIcon } from 'lucide-react-native';
 import { MenuView, type MenuAction } from '@expo/ui/community/menu';
@@ -643,6 +645,20 @@ function CallerAvatar({ name, avatar, styles }: Readonly<{ name: string; avatar?
   );
 }
 
+/** An agent reply's visuals, named in a muted line each (the app does not draw them). */
+function VisualLines({ metadata, t, styles }: Readonly<{ metadata: Message['metadata']; t: Translations; styles: Styles }>) {
+  const visuals = readVisualsMetadata(metadata);
+  const lines = visuals.map((visual) =>
+    t.channel.visualShown.replace('{kind}', t.channel.visualKinds[visual.type]).replace('{title}', visualTitle(visual)),
+  );
+  const keys = uniqueKeys(lines);
+  return lines.map((line, i) => (
+    <Text key={keys[i]} style={styles.editedLabel}>
+      {line}
+    </Text>
+  ));
+}
+
 function DateSeparator({ label, styles }: Readonly<{ label: string; styles: Styles }>) {
   return (
     <View style={styles.dateSeparator}>
@@ -814,6 +830,7 @@ function MessageExtras({
           })
         : null}
       {item.editedAt ? <Text style={styles.editedLabel}>{t.channel.edited}</Text> : null}
+      {item.authorType === 'agent' ? <VisualLines metadata={item.metadata} t={t} styles={styles} /> : null}
       {gallery.length > 0 && (
         <MessageAttachments
           attachments={gallery}
@@ -1093,50 +1110,80 @@ function ChannelHeader({
 
         {record && <FollowButton record={record} styles={styles} />}
 
-        {joinableCall ? (
-          <TouchableOpacity
-            style={styles.headerJoin}
-            activeOpacity={0.7}
-            onPress={() => onStartCall(joinableCall)}
-            accessibilityRole="button"
-            accessibilityLabel={`${t.channel.joinCall}: ${
-              joinableCall === 'video' ? t.inCall.videoCall : t.inCall.voiceCall
-            }`}
-          >
-            {joinableCall === 'video' ? (
-              <VideoCameraIcon size={18} color="#fff" fill="#fff" strokeWidth={2} />
-            ) : (
-              <Phone size={16} color="#fff" fill="#fff" strokeWidth={2} />
-            )}
-            <Text style={styles.headerJoinText}>{t.channel.joinCall}</Text>
-          </TouchableOpacity>
-        ) : (
-          <View style={styles.headerActions}>
-            {/* While a call is already active (e.g. minimized to the top bar),
-                disable the call buttons so tapping them can't start a second call. */}
-            <TouchableOpacity
-              style={[styles.headerAction, inCall && styles.headerActionDisabled]}
-              activeOpacity={0.5}
-              disabled={inCall}
-              onPress={() => onStartCall('video')}
-              accessibilityRole="button"
-              accessibilityLabel={t.channel.startVideoCall}
-            >
-              <Video size={24} color={colors.text} strokeWidth={1.8} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.headerAction, inCall && styles.headerActionDisabled]}
-              activeOpacity={0.5}
-              disabled={inCall}
-              onPress={() => onStartCall('voice')}
-              accessibilityRole="button"
-              accessibilityLabel={t.channel.startVoiceCall}
-            >
-              <Phone size={21} color={colors.text} strokeWidth={1.8} />
-            </TouchableOpacity>
-          </View>
-        )}
+        <HeaderCallActions
+          joinableCall={joinableCall}
+          inCall={inCall}
+          colors={colors}
+          styles={styles}
+          onStartCall={onStartCall}
+        />
       </View>
+    </View>
+  );
+}
+
+/** Join (a call runs here) or start a call. Hidden where the server has no chat calls. */
+function HeaderCallActions({
+  joinableCall,
+  inCall,
+  colors,
+  styles,
+  onStartCall,
+}: Readonly<{
+  joinableCall: ActiveCall['callType'] | null;
+  inCall: boolean;
+  colors: ThemeColors;
+  styles: Styles;
+  onStartCall: (callType: 'voice' | 'video') => void;
+}>) {
+  const { t } = useI18n();
+  // Calls run on RealtimeKit, which the Kubernetes servers don't have.
+  const callsAvailable = useEditionFeature('chat-calls');
+  if (!callsAvailable) return null;
+  if (joinableCall) {
+    return (
+      <TouchableOpacity
+        style={styles.headerJoin}
+        activeOpacity={0.7}
+        onPress={() => onStartCall(joinableCall)}
+        accessibilityRole="button"
+        accessibilityLabel={`${t.channel.joinCall}: ${
+          joinableCall === 'video' ? t.inCall.videoCall : t.inCall.voiceCall
+        }`}
+      >
+        {joinableCall === 'video' ? (
+          <VideoCameraIcon size={18} color="#fff" fill="#fff" strokeWidth={2} />
+        ) : (
+          <Phone size={16} color="#fff" fill="#fff" strokeWidth={2} />
+        )}
+        <Text style={styles.headerJoinText}>{t.channel.joinCall}</Text>
+      </TouchableOpacity>
+    );
+  }
+  return (
+    <View style={styles.headerActions}>
+      {/* While a call is already active (e.g. minimized to the top bar),
+          disable the call buttons so tapping them can't start a second call. */}
+      <TouchableOpacity
+        style={[styles.headerAction, inCall && styles.headerActionDisabled]}
+        activeOpacity={0.5}
+        disabled={inCall}
+        onPress={() => onStartCall('video')}
+        accessibilityRole="button"
+        accessibilityLabel={t.channel.startVideoCall}
+      >
+        <Video size={24} color={colors.text} strokeWidth={1.8} />
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={[styles.headerAction, inCall && styles.headerActionDisabled]}
+        activeOpacity={0.5}
+        disabled={inCall}
+        onPress={() => onStartCall('voice')}
+        accessibilityRole="button"
+        accessibilityLabel={t.channel.startVoiceCall}
+      >
+        <Phone size={21} color={colors.text} strokeWidth={1.8} />
+      </TouchableOpacity>
     </View>
   );
 }

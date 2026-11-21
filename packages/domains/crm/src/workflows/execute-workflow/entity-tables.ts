@@ -301,7 +301,7 @@ export const MAIL_MESSAGE_OBJECT_STORE_ERROR =
  * Resolved once per action run (one call per `create_record` / `update_record`
  * / `delete_record` / `query_data` invocation, before any DB access for a
  * `mail_message`). `ctx.tenant.workspaceId` is the Clerk org id, not
- * `workspaces.id` (docs/plans/workspace-id-standardization.md); it's resolved
+ * `workspaces.id` (weldsuite-documentation/plans/workspace-id-standardization.md); it's resolved
  * to the canonical id via `getWorkspaceForOrg` (`@weldsuite/worker-kit/db`),
  * which reuses the same KV-cached lookup `execute-sequence.ts` already pays
  * for when it opens the tenant DB through `getTenantDbForWorkspace` — the same

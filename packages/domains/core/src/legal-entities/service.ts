@@ -1,5 +1,5 @@
 /**
- * Core legal entities (docs/plans/legal-entities.md): the companies of a
+ * Core legal entities (weldsuite-documentation/plans/legal-entities.md): the companies of a
  * workspace, their registrations and bank accounts. Pure functions over the
  * tenant DB; app-api's `/api/legal-entities` routes, books-api and hr-api
  * call them.
@@ -18,6 +18,7 @@ import type { HrPayrollEmployerBank } from '@weldsuite/db/schema';
 import { SYSTEM_ROLES } from '@weldsuite/permissions/catalog';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { accountPicture, loadAccountPictures, type AccountPictureEnv } from '@weldsuite/worker-kit/account-pictures';
 import {
   normalizeRegistrationNumber,
   registrationNumberError,
@@ -817,7 +818,12 @@ function systemRoleName(role: string): string | null {
   return SYSTEM_ROLES[role.toUpperCase()]?.name ?? null;
 }
 
-export async function getEntityAccessList(db: Database, entityId: string): Promise<LegalEntityAccess> {
+/** Who may open an entity. Each person's picture is their account picture, not the member row's. */
+export async function getEntityAccessList(
+  db: Database,
+  env: AccountPictureEnv,
+  entityId: string,
+): Promise<LegalEntityAccess> {
   const entity = await requireEntityRow(db, entityId);
   const m = schema.legalEntityMembers;
   const w = schema.workspaceMembers;
@@ -830,7 +836,6 @@ export async function getEntityAccessList(db: Database, entityId: string): Promi
       updatedAt: m.updatedAt,
       name: w.name,
       email: w.email,
-      picture: w.picture,
       workspaceRole: w.role,
       workspaceRoleId: w.roleId,
     })
@@ -838,8 +843,11 @@ export async function getEntityAccessList(db: Database, entityId: string): Promi
     .leftJoin(w, and(eq(w.userId, m.userId), isNull(w.deletedAt)))
     .where(eq(m.entityId, entityId))
     .orderBy(asc(w.name), asc(m.createdAt));
-  const names = await roleNames(db, [
-    ...new Set(rows.flatMap((r) => [r.roleId, r.workspaceRoleId]).filter((id): id is string => Boolean(id))),
+  const [names, pictures] = await Promise.all([
+    roleNames(db, [
+      ...new Set(rows.flatMap((r) => [r.roleId, r.workspaceRoleId]).filter((id): id is string => Boolean(id))),
+    ]),
+    loadAccountPictures(env, rows.map((r) => r.userId)),
   ]);
   return {
     entityId,
@@ -848,7 +856,7 @@ export async function getEntityAccessList(db: Database, entityId: string): Promi
       userId: r.userId,
       name: r.name ?? null,
       email: r.email ?? null,
-      picture: r.picture ?? null,
+      picture: accountPicture(pictures, r.userId),
       workspaceRole: r.workspaceRole ?? '',
       workspaceRoleName: (r.workspaceRoleId && names.get(r.workspaceRoleId)) || systemRoleName(r.workspaceRole ?? ''),
       roleId: r.roleId ?? null,

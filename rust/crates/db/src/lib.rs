@@ -11,23 +11,33 @@
 //! `packages/core/db/src/schema/`, which stays the one definition of the
 //! tables; migrations stay with Drizzle too.
 
+pub mod account_pictures;
 mod atomically;
 mod crypto;
 pub mod due_index;
+mod membership;
 mod middleware;
+mod orm;
 mod permissions;
 pub mod pg_errors;
 mod restrictions;
 mod rows;
+pub mod sso_settings;
 mod workspaces;
 
+pub use account_pictures::{AccountPictures, load_account_picture, overlay_account_pictures};
 pub use atomically::{TransactionFuture, atomically, atomically_with};
 pub use crypto::{
     DecryptError, EncryptError, Keyring, aad_writes_enabled, decrypt_field,
     decrypt_workspace_database_url, encrypt_field, encrypt_workspace_database_url,
     resolve_database_url, workspace_database_url_aad,
 };
+pub use membership::{
+    DEFAULT_MEMBERSHIP_TTL, MembershipFuture, MembershipLookup, MembershipsFuture, SoleWorkspace,
+    WorkspaceSelector, workspace_from_header,
+};
 pub use middleware::workspace_db;
+pub use orm::{OrmConn, orm};
 pub use permissions::TenantPermissionQueries;
 pub use pg_errors::{
     MovedDatabaseFailure, classify_moved_database_error, database_error, has_pg_error_code,
@@ -36,12 +46,13 @@ pub use pg_errors::{
 };
 pub use restrictions::{
     ReadOnlyReason, RestrictionInput, WorkspaceRestrictions, compute_workspace_restrictions,
+    read_only_message,
 };
 pub use rows::{camel_case, js_row, js_timestamp};
 pub use sqlx::PgPool;
 pub use workspaces::{
-    Tenant, WRITE_BLOCKING_DATABASE_MOVE_STATUSES, WorkspaceConfig, WorkspaceError, Workspaces,
-    master_pool,
+    PoolUsage, Tenant, WRITE_BLOCKING_DATABASE_MOVE_STATUSES, WorkspaceConfig, WorkspaceError,
+    WorkspacePools, Workspaces, master_pool,
 };
 
 /// The master database a request should use, as a request extension.

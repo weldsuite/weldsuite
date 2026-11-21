@@ -5,9 +5,19 @@
   "type": "module",
   "private": true,
   "exports": {
+    "./device-class": "./src/device-class.ts",
+    "./erasure": "./src/erasure.ts",
     "./event-row": "./src/event-row.ts",
+    "./expression": "./src/expression.ts",
+    "./plans": "./src/plans.ts",
+    "./pricing": "./src/pricing.ts",
+    "./project-object": "./src/project-object.ts",
+    "./query": "./src/query/index.ts",
+    "./query/export": "./src/query/export.ts",
     "./registry": "./src/registry.ts",
+    "./replays": "./src/replays.ts",
     "./settings": "./src/settings.ts",
+    "./tables": "./src/tables.ts",
     "./tokens": "./src/tokens.ts",
     "./wire": "./src/wire.ts"
   },
@@ -18,12 +28,14 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@weldsuite/app-api-client": "workspace:*",
     "@weldsuite/db": "workspace:*",
     "zod": "^3.25.76"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250110.0",
     "@types/node": "^20",
+    "@vitest/coverage-v8": "^4.1.12",
     "@weldsuite/typescript-config": "workspace:*",
     "typescript": "^5.7",
     "vitest": "^4.1.12"

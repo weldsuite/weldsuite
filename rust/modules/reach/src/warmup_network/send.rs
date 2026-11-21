@@ -21,7 +21,7 @@ use weldsuite_reach_domain::smtp::{
 
 use super::WarmupNetwork;
 use super::clock::{MINUTE_MS, Rng, js_date, random_between};
-use super::corpus::{find_thread, render_corpus_message};
+use super::corpus::{load_corpus_for_lookup, render_corpus_message};
 use super::db::{
     PoolMailbox, WarmupMessage, clip_error, is_eligible, load_mailboxes, load_message, open_login,
     take_claim, ts,
@@ -169,7 +169,8 @@ pub async fn process_send(
         return Ok(SendOutcome::Paused("credentials_unavailable".to_owned()));
     };
 
-    let Some(thread) = find_thread(&row.corpus_thread_id) else {
+    let threads = load_corpus_for_lookup(&net.master).await;
+    let Some(thread) = threads.iter().find(|t| t.id == row.corpus_thread_id) else {
         return fail(net, &row.id, "corpus_thread_missing").await;
     };
     let text = match render_corpus_message(

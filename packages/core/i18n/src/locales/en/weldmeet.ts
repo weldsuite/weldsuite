@@ -133,6 +133,8 @@ export const weldmeet = {
         qa: 'Q&A',
         qaDescription: 'Ask and answer questions',
         qaOpen: 'Open questions: {count}',
+        record: 'Record',
+        recordDescription: 'Capture the meeting',
       },
       timer: {
         hostHint: 'Everyone in the meeting sees the countdown.',
@@ -380,6 +382,7 @@ export const weldmeet = {
       audio: 'Audio',
     },
     groups: {
+      later: 'Later',
       today: 'Today',
       yesterday: 'Yesterday',
       thisWeek: 'This week',
@@ -807,6 +810,7 @@ export const weldmeet = {
       timerHint: 'Only you see this countdown.',
       noNumberTitle: 'Connect a phone number first',
       noNumberDescription: 'Your workspace has no phone number yet. Buy or port one to start making and receiving calls.',
+      noNumberPurchaseUnavailable: "Your workspace has no phone number yet. Numbers can't be bought or ported on this edition yet.",
       configureNumber: 'Configure number',
     },
     callDetail: {
@@ -822,6 +826,8 @@ export const weldmeet = {
     people: {
       entityName: 'Person',
       entityNamePlural: 'People',
+      emptyTitle: 'No people with a phone number',
+      emptyHint: 'People you add to WeldCRM with a phone number show up here.',
       columns: {
         name: 'Name',
         directPhone: 'Direct phone',

@@ -169,6 +169,19 @@ export const nl: Translations = {
     rename: 'Hernoemen',
   },
 
+  // Grafieken, kerncijfers, tabellen en recordkaarten in het antwoord van een agent.
+  visuals: {
+    kinds: { chart: 'Grafiek', stats: 'Kerncijfers', table: 'Tabel', records: 'Records' },
+    expand: 'Vergroten',
+    close: 'Sluiten',
+    share: 'Gegevens delen',
+    other: 'Overig',
+    showAllRows: 'Alle {count} rijen tonen',
+    askPrompt: 'Vertel me meer over “{label}” in “{title}”.',
+    askPromptValue: 'Vertel me meer over “{label}” ({value}) in “{title}”.',
+    csv: { label: 'Label', value: 'Waarde', change: 'Verandering (%)', type: 'Type', status: 'Status', details: 'Details', id: 'Id' },
+  },
+
   activity: {
     title: 'Activiteit',
     emptyTitle: 'Nog niets',

@@ -68,7 +68,9 @@ export namespace Credits {
     | 'meeting_summary'
     | 'workflow_run'
     | 'sign_request'
-    | 'email';
+    | 'email'
+    | 'panel_events'
+    | 'panel_recordings';
 
   /**
    * Transaction metadata

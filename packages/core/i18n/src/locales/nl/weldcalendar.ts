@@ -532,6 +532,7 @@ export const weldcalendar = {
       bookingPageNamePlaceholder: 'bijv. Vergadering van 30 minuten',
       bookingLinkTitle: 'Boekingslink',
       bookingLinkHint: 'De publieke URL die mensen gebruiken om een vergadering te boeken',
+      bookingLinkNoPortal: 'Deze editie heeft het publieke boekingsportaal nog niet, dus gasten kunnen boekingslinks niet openen.',
       bookingLinkPlaceholder: 'mijn-boekingspagina',
       slugSavedAs: 'Opgeslagen als',
       slugRequired: 'URL-slug is verplicht',

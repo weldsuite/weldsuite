@@ -5,14 +5,17 @@
  */
 
 import { useState } from 'react';
+import { useCreateIntent } from '@/hooks/use-create-intent';
 import { Globe } from 'lucide-react';
 import { useCan } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
 import type { PanelProjectDto } from '@weldsuite/app-api-client/schemas/weldpanel';
+import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { PanelEntityList, type ColumnDef } from '@/components/panel-entity-list';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useWeldPanelProjects } from '@/hooks/queries/use-weldpanel-queries';
+import { isFeatureAvailable } from '@/lib/edition';
 import { useI18n } from '@/lib/i18n/provider';
 import { useRouter } from '@/lib/router';
 import { CreateProjectDialog } from '../components/create-project-dialog';
@@ -28,6 +31,7 @@ export default function WeldPanelProjectsPage() {
   const canCreate = useCan('panel_projects:create');
   const { data: projects, isLoading, isError, refetch } = useWeldPanelProjects();
   const [creating, setCreating] = useState(false);
+  useCreateIntent(() => setCreating(true), { ready: canCreate });
 
   useBreadcrumbs([{ label: t.weldpanel.breadcrumb.home, href: '/weldpanel' }, { label: t.weldpanel.breadcrumb.projects }]);
 
@@ -96,10 +100,18 @@ export default function WeldPanelProjectsPage() {
 
   return (
     <>
+      {/* Where projects are all there is (no analytics store), say so rather than leave it to be found out. */}
+      {!isFeatureAvailable('panel-analytics') && (
+        <InfoBanner variant="info" title={tp.editionNoticeTitle} className="m-4 mb-0">
+          {tp.editionNotice}
+        </InfoBanner>
+      )}
       <PanelEntityList<PanelProjectDto>
         items={projects}
         isLoading={false}
         columns={columns}
+        // Nothing to filter projects on: the popover would be empty.
+        hideFilter
         onRowClick={(project) => router.push(`/weldpanel/projects/${project.id}`)}
         createButton={canCreate ? { label: tp.newProject, onClick: openCreate } : undefined}
         emptyState={{

@@ -7,7 +7,7 @@ import type { RoadmapItem } from '@weldsuite/app-api-client/domains/flow-portfol
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
 import { useRoadmap } from '@/hooks/queries/use-flow-portfolio-queries';
-import { BAND_CLASS, bandOf, formatDay, intlLocaleOf } from '../../capacity/_lib/capacity';
+import { BAND_CLASS, bandOf, formatDay, intlLocaleOf } from '../../workload/capacity/_lib/capacity';
 import { lanePosition } from '../_lib/intake';
 
 /** Running (solid), approved and not started (dashed blue), and if approved (dashed orange). */

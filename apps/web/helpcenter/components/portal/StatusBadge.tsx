@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import type { DeskPortalStatus } from '@weldsuite/app-api-client/schemas/desk-portal'
+import type { DeskPortalApprovalState, DeskPortalStatus } from '@weldsuite/app-api-client/schemas/desk-portal'
 import type { PortalStrings } from '@/lib/portal-i18n'
 
 const tone: Record<DeskPortalStatus, string> = {
@@ -27,6 +27,29 @@ export function StatusBadge({ status, label, t }: Readonly<StatusBadgeProps>) {
       )}
     >
       {label || t.status[status] || status}
+    </span>
+  )
+}
+
+const approvalTone: Record<DeskPortalApprovalState, string> = {
+  awaiting_approval:
+    'bg-amber-50 text-amber-800 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/30',
+  approved:
+    'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/30',
+  rejected: 'bg-red-50 text-red-700 ring-red-200 dark:bg-red-500/10 dark:text-red-300 dark:ring-red-500/30',
+}
+
+/** Where a service request stands with its approvers; the same pill as the status, next to it. */
+export function ApprovalBadge({ approval, t }: Readonly<{ approval: DeskPortalApprovalState; t: PortalStrings }>) {
+  return (
+    <span
+      className={clsx(
+        'inline-flex shrink-0 items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset',
+        approvalTone[approval] ?? approvalTone.awaiting_approval,
+      )}
+      data-testid="hc-approval-badge"
+    >
+      {t.approval[approval] ?? approval}
     </span>
   )
 }

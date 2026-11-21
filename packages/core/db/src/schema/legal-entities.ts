@@ -1,7 +1,7 @@
 /**
  * Legal entities: the companies of a workspace, owned by the core platform
  * and shared by WeldBooks, WeldHR and later apps (ADR BOOKS-008,
- * docs/plans/legal-entities.md).
+ * weldsuite-documentation/plans/legal-entities.md).
  *
  * The physical tables keep their old names (`entities`, `bank_accounts`) so
  * every `entity_id` in WeldBooks stays valid. Facts true for every app live
@@ -214,7 +214,7 @@ export type LegalEntityRegistration = typeof legalEntityRegistrations.$inferSele
 export type NewLegalEntityRegistration = typeof legalEntityRegistrations.$inferInsert;
 
 /**
- * Per-entity access (docs/plans/legal-entities.md, "Per-entity access"). A row
+ * Per-entity access (weldsuite-documentation/plans/legal-entities.md, "Per-entity access"). A row
  * makes the entity visible to the member when it is restricted, and lets the
  * member act with `role_id` instead of their workspace role inside it.
  */

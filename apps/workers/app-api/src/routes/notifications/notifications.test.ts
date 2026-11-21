@@ -3,18 +3,29 @@
  * out: the cursor list with actor names, the unread count, marking read,
  * creating, updating and soft-deleting, body validation (the schemas pass
  * unknown keys through, so any key naming a column reaches the insert) and
- * the permission gates. Real pglite tenant DB; runs in the Rust conformance
- * suite too (`rust/conformance/suites.json`).
+ * the permission gates. Real pglite tenant DB, and a master DB for the
+ * actors' account pictures; runs in the Rust conformance suite too
+ * (`rust/conformance/suites.json`).
  */
 
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
-import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { conformanceMasterDb, createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { users } from '@weldsuite/db/schema/master';
+
+const holder = vi.hoisted(() => ({ master: null as unknown }));
+vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@weldsuite/worker-kit/db')>();
+  return { ...actual, getMasterDb: () => conformanceMasterDb(holder.master) };
+});
+
 import { notificationsRoutes } from './index';
 
 let db: Database;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- pglite drizzle stands in for neon-http
+let master: any;
 
 const ANN = 'user_nt_ann';
 const CAL = 'user_nt_cal';
@@ -28,6 +39,15 @@ type Seed = typeof schema.notifications.$inferInsert;
 
 beforeAll(async () => {
   db = (await createPgliteDb()).db;
+  master = (await createMasterPgliteDb()).db;
+  holder.master = master;
+  await master.delete(users);
+  // The actor's avatar is their account picture, not the member row's copy.
+  await master.insert(users).values({
+    id: 'user_nt_actor',
+    email: 'actor@example.com',
+    imageUrl: 'https://img.clerk.test/actor.png',
+  });
   const rows: Seed[] = [
     { id: 'ntf_nt_1', userId: ANN, title: 'One', actorType: 'user', actorId: 'user_nt_actor', createdAt: at(1) },
     { id: 'ntf_nt_2', userId: ANN, title: 'Two', actorType: 'system', isRead: true, readAt: at(2), createdAt: at(2) },
@@ -48,13 +68,14 @@ beforeAll(async () => {
     userId: 'user_nt_actor',
     email: 'actor@example.com',
     name: 'Actor Name',
-    picture: 'https://cdn.example.com/actor.png',
+    // A stale per-workspace copy: never shown.
+    picture: 'https://stale.example.com/actor.png',
   });
 }, 60_000);
 
 function app(userId: string, ...keys: string[]) {
   return createTestApp('/api/notifications', notificationsRoutes, {
-    context: { tenantDb: db, userId, permissions: permissions(...keys) },
+    context: { tenantDb: db, masterDb: master, userId, permissions: permissions(...keys) },
   });
 }
 
@@ -92,7 +113,7 @@ describe('GET /api/notifications', () => {
       await app(ANN, 'general:read').request('/api/notifications?limit=2&cursor=ntf_nt_2')
     ).json()) as Page;
     expect(last.data.map((r) => r.id)).toEqual(['ntf_nt_1']);
-    expect(last.data[0]).toMatchObject({ actorName: 'Actor Name', actorAvatar: 'https://cdn.example.com/actor.png' });
+    expect(last.data[0]).toMatchObject({ actorName: 'Actor Name', actorAvatar: 'https://img.clerk.test/actor.png' });
     expect(last.pagination).toEqual({ totalCount: 5, hasMore: false, cursor: null });
   });
 

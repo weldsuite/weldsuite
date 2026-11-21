@@ -53,6 +53,7 @@ const BUILTIN_ACTION_TYPES = [
   { id: 'ai_auto_reply', name: 'AI Auto-Reply', description: 'Generate and send an AI-powered reply to a conversation', category: 'helpdesk', icon: 'bot' },
   // WeldDesk inbox
   { id: 'create_conversation', name: 'Open Inbox Conversation', description: 'Open a conversation in the WeldDesk inbox, or add to the one with the same external id', category: 'helpdesk', icon: 'inbox' },
+  { id: 'parse_alert', name: 'Read Alert', description: 'Turn a Splunk, Datadog or Grafana alert into ticket fields: priority, state and an external id', category: 'helpdesk', icon: 'siren' },
   // Chat widget interactive steps
   { id: 'send_message', name: 'Send Bot Message', description: 'Send a message to the customer in chat', category: 'helpdesk', icon: 'message-square-text' },
   { id: 'send_choices', name: 'Send Choices', description: 'Send multiple choice options to the customer', category: 'helpdesk', icon: 'list-checks' },
@@ -113,6 +114,7 @@ const ACTION_PHRASES: Record<string, string> = {
   paid: 'is paid',
   overdue: 'becomes overdue',
   sent: 'is sent',
+  submitted: 'is submitted',
   won: 'is won',
   lost: 'is lost',
   converted: 'is converted',
@@ -162,6 +164,7 @@ const BASIC_TRIGGER_OBJECTS: Array<{ entityType: EntityType; category: string; l
   { entityType: 'merge_issue', category: 'WeldMerge', label: 'Merge Issue' },
   { entityType: 'merge_pull_request', category: 'WeldMerge', label: 'Merge Pull Request' },
   { entityType: 'merge_release', category: 'WeldMerge', label: 'Merge Release' },
+  { entityType: 'form_response', category: 'Forms', label: 'Form Response' },
 ];
 
 function buildEntityEvents(): EntityEventCatalogEntry[] {

@@ -140,6 +140,25 @@ mod tests {
         assert!(!allowed(Method::POST, "/api/weldagent/templates/export"));
     }
 
+    /// WeldAgent's module tools refuse a write with `read_only_message`; it
+    /// must stay the words of the HTTP gate.
+    #[test]
+    fn the_agents_refusal_words_are_the_gates() {
+        for reason in [
+            ReadOnlyReason::PartnerSuspended,
+            ReadOnlyReason::LicenceInactive,
+        ] {
+            assert_eq!(
+                workspace_read_only(Some(reason)).message(),
+                weldsuite_db::read_only_message(Some(reason))
+            );
+        }
+        assert_eq!(
+            ApiError::workspace_moving().message(),
+            weldsuite_db::read_only_message(Some(ReadOnlyReason::DatabaseMove))
+        );
+    }
+
     fn tenant(restrictions: weldsuite_db::WorkspaceRestrictions) -> Tenant {
         Tenant {
             workspace_id: "ws_1".to_owned(),

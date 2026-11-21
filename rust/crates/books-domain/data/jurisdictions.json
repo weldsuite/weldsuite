@@ -174,7 +174,16 @@
       "name": "Materiële vaste activa",
       "type": "asset",
       "subtype": "fixed_assets",
-      "normalSide": "debit"
+      "normalSide": "debit",
+      "systemRole": "fixed_assets"
+     },
+     {
+      "code": "0290",
+      "name": "Cumulatieve afschrijvingen",
+      "type": "asset",
+      "subtype": "fixed_assets",
+      "normalSide": "credit",
+      "systemRole": "accumulated_depreciation"
      },
      {
       "code": "0300",
@@ -640,7 +649,8 @@
       "name": "Afschrijvingen",
       "type": "expense",
       "subtype": "operating_expense",
-      "normalSide": "debit"
+      "normalSide": "debit",
+      "systemRole": "depreciation_expense"
      },
      {
       "code": "4800",

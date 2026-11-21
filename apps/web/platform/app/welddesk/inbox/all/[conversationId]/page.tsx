@@ -2,6 +2,7 @@
 import React from 'react';
 import { useParams, useRouter } from '@/lib/router';
 import { useAuth, useUser } from '@/lib/auth';
+import { useCurrentUserAvatar } from '@/hooks/use-member-avatar';
 import ConversationDetailClient from './conversation-detail-client';
 import { useConversation, useConversationMessages, useConversationReview } from '@/hooks/queries/use-helpdesk-queries';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
@@ -15,6 +16,7 @@ export default function ConversationPage() {
   const conversationId = params.conversationId as string;
   const { userId } = useAuth();
   const { user } = useUser();
+  const userAvatar = useCurrentUserAvatar();
 
   const { data: conversationResult, isLoading: convLoading } = useConversation(conversationId, !!conversationId);
 
@@ -40,7 +42,7 @@ export default function ConversationPage() {
       review={reviewResult?.data || undefined}
       userId={userId || undefined}
       userName={user?.fullName || user?.primaryEmailAddress?.emailAddress || ti.agentFallback}
-      userAvatar={user?.imageUrl}
+      userAvatar={userAvatar}
     />
   );
 }

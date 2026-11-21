@@ -9,7 +9,7 @@ You are the first-party API specialist for WeldSuite. You own the Hono workers t
 ## What you own
 
 - `apps/workers/app-api`, the core platform API plus the forwarder that hands moved module paths to their worker (`API_FORWARD_MODULES` + a `<MODULE>_API` service binding).
-- `apps/workers/<module>-api`, one worker per `weld*` module: `crm-api`, `desk-api`, `mail-api`, `flow-api`, `books-api`, `commerce-api`, `stash-api`, `host-api`, `calendar-api`, `meet-api`, `call-api`, `chat-api`, `connect-api`, `agent-api`, `data-api`, `know-api`, `hr-api`, `social-api`, `ads-api`, `pass-api`.
+- `apps/workers/<module>-api`, one worker per `weld*` module: `crm-api`, `desk-api`, `mail-api`, `flow-api`, `books-api`, `stash-api`, `host-api`, `calendar-api`, `meet-api`, `call-api`, `chat-api`, `connect-api`, `agent-api`, `data-api`, `know-api`, `hr-api`, `social-api`, `ads-api`, `pass-api`.
 - `packages/domains/<module>` (`@weldsuite/<module>-domain`), module logic more than one worker needs; `packages/domains/core` (`@weldsuite/core-domain`) for core helpers such as `ai-billing`.
 - Not yours: `external-api`, `helpdesk-widget-api`, `personal-api` and the non-API workers (`backend-workers`); schema and migrations (`database`).
 

@@ -2,8 +2,9 @@
 //! senders, so each gets its own connection and per-minute limits, picked
 //! from the MX host name (Gmail and Google Workspace share Google's MXs,
 //! Outlook.com and Microsoft 365 share EOP's). Everything else is limited per
-//! destination domain. The per-IP daily warm-up cap is in the store
-//! (`ip_usage`), shared by every process that sends from the IP.
+//! destination domain. The per-IP daily warm-up cap is [`crate::warmup`],
+//! counted in the store (`mta_ip_usage`) and so shared by every process that
+//! sends from the IP.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -159,16 +160,6 @@ impl Shaper {
     }
 }
 
-/// The warm-up cap for an IP on its `day`th day of sending (1-based); `None`
-/// means no cap.
-pub fn warmup_cap(schedule: &[u32], day: u32) -> Option<u32> {
-    if schedule.is_empty() {
-        return None;
-    }
-    let index = usize::try_from(day.saturating_sub(1)).unwrap_or(usize::MAX);
-    schedule.get(index).copied()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -205,14 +196,5 @@ mod tests {
         let _d = shaper.try_connect(Provider::Other, "a.test").expect("a2");
         assert!(shaper.try_connect(Provider::Other, "a.test").is_none());
         assert!(shaper.try_connect(Provider::Other, "b.test").is_some());
-    }
-
-    #[test]
-    fn reads_the_warmup_schedule() {
-        let schedule = [50, 100];
-        assert_eq!(warmup_cap(&schedule, 1), Some(50));
-        assert_eq!(warmup_cap(&schedule, 2), Some(100));
-        assert_eq!(warmup_cap(&schedule, 3), None);
-        assert_eq!(warmup_cap(&[], 1), None);
     }
 }

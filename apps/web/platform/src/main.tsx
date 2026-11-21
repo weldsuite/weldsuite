@@ -1,5 +1,5 @@
 import { log, flush, sendToLogtail } from '@/lib/logger';
-import { isStaleChunkError, reloadForStaleChunk } from '@/lib/chunk-reload';
+import { isStaleChunkError, keepRouterFromReloading, reloadForStaleChunk } from '@/lib/chunk-reload';
 import { startApp } from '@boot';
 
 // Intercept all console.error calls and forward to BetterStack.
@@ -21,18 +21,31 @@ console.error = (...args: unknown[]) => {
 // load — almost always a stale tab requesting a hash that a redeploy removed.
 // Reload once to boot the latest build instead of surfacing a broken page.
 window.addEventListener('vite:preloadError', (event) => {
+  const outcome = reloadForStaleChunk();
+  if (outcome === 'deferred') {
+    // A call is live, so the reload waits for it to end. Let the import reject
+    // with its real error (preventDefault would resolve it to `undefined`), so
+    // whatever needed the chunk fails visibly and recognisably, and keep the
+    // router from reloading on that error by itself.
+    keepRouterFromReloading(event.payload);
+    return;
+  }
   event.preventDefault();
-  if (!reloadForStaleChunk()) {
+  if (outcome === 'suppressed') {
     log.error('Stale chunk preload failed after reload — new build may be broken');
   }
 });
+
+// A stale failure is handled when the tab reloads now or after the live call.
+const handledStaleChunk = (error: unknown): boolean =>
+  isStaleChunkError(error) && reloadForStaleChunk() !== 'suppressed';
 
 // Global error handlers. A stale dynamic-import failure can surface here when it
 // escapes both the `vite:preloadError` event and the router error boundary —
 // e.g. a lazy `import()` rejected inside an event handler or a prefetch. Recover
 // by reloading once (loop-guarded) instead of logging a dead end.
 window.addEventListener('error', (event) => {
-  if (isStaleChunkError(event.error) && reloadForStaleChunk()) return;
+  if (handledStaleChunk(event.error)) return;
   log.error('Uncaught exception', {
     message: event.message,
     filename: event.filename,
@@ -43,7 +56,7 @@ window.addEventListener('error', (event) => {
 });
 
 window.addEventListener('unhandledrejection', (event) => {
-  if (isStaleChunkError(event.reason) && reloadForStaleChunk()) return;
+  if (handledStaleChunk(event.reason)) return;
   log.error('Unhandled promise rejection', {
     reason: event.reason instanceof Error ? event.reason.stack : String(event.reason),
   });

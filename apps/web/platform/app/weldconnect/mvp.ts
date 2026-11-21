@@ -36,6 +36,7 @@ export const WELDCONNECT_ACTION_TYPES = [
   'merge.comment_on_issue',
   // WeldDesk inbox: open (or add to) a conversation, deduplicated by external id.
   'create_conversation',
+  'parse_alert',
   'send_notification',
   'post_chat_message',
   'http_request',
@@ -46,7 +47,7 @@ export const WELDCONNECT_ACTION_TYPES = [
   'loop',
   'delay',
   // Third-party provider actions — see "Provider pattern" in
-  // docs/plans/weldconnect.md.
+  // weldsuite-documentation/plans/weldconnect.md.
   'slack.post_message',
   // GitHub (app_installation auth — reuses WeldFlow's existing GitHub App
   // installation instead of a second OAuth app or a PAT).

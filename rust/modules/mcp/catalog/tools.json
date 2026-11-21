@@ -4247,6 +4247,24 @@
        "type": "string",
        "maxLength": 30,
        "description": "The team"
+      },
+      "impact": {
+       "type": "string",
+       "enum": [
+        "low",
+        "medium",
+        "high"
+       ],
+       "description": "How much is affected: low, medium or high. With the priority matrix on, impact and urgency set the priority"
+      },
+      "urgency": {
+       "type": "string",
+       "enum": [
+        "low",
+        "medium",
+        "high"
+       ],
+       "description": "How soon it needs fixing: low, medium or high"
       }
      },
      "required": [
@@ -4282,7 +4300,7 @@
    "definition": {
     "name": "update_conversation",
     "title": "Update conversation",
-    "description": "Close or reopen a WeldDesk inbox conversation, or assign it to a teammate (null unassigns).",
+    "description": "Close or reopen a WeldDesk inbox conversation, assign it to a teammate (null unassigns), or set its ticket fields: type, priority, tags, team, impact and urgency.",
     "inputSchema": {
      "type": "object",
      "properties": {
@@ -4368,6 +4386,38 @@
         "maxLength": 100
        },
        "description": "The type's custom fields, by slug"
+      },
+      "impact": {
+       "anyOf": [
+        {
+         "type": "string",
+         "enum": [
+          "low",
+          "medium",
+          "high"
+         ]
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "low, medium or high; null clears"
+      },
+      "urgency": {
+       "anyOf": [
+        {
+         "type": "string",
+         "enum": [
+          "low",
+          "medium",
+          "high"
+         ]
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "low, medium or high; null clears"
       }
      },
      "required": [
@@ -13208,594 +13258,6 @@
    }
   },
   {
-   "name": "search_orders",
-   "scope": "orders:read",
-   "method": "GET",
-   "path": "/v1/orders",
-   "pathParams": [],
-   "exactId": false,
-   "definition": {
-    "name": "search_orders",
-    "title": "Search orders",
-    "description": "List/search commerce orders. Cursor-paginated; filter by status or customer.",
-    "inputSchema": {
-     "type": "object",
-     "properties": {
-      "search": {
-       "type": "string",
-       "description": "Match against order number"
-      },
-      "status": {
-       "type": "string",
-       "description": "Filter by order status"
-      },
-      "customerId": {
-       "type": "string",
-       "description": "Filter by customer ID"
-      },
-      "cursor": {
-       "type": "string",
-       "description": "Pagination cursor from a previous response"
-      },
-      "limit": {
-       "type": "number",
-       "minimum": 1,
-       "maximum": 200,
-       "description": "Page size (1-200, default 25)"
-      }
-     },
-     "additionalProperties": false,
-     "$schema": "http://json-schema.org/draft-07/schema#"
-    },
-    "annotations": {
-     "title": "Search orders",
-     "readOnlyHint": true,
-     "openWorldHint": false
-    },
-    "execution": {
-     "taskSupport": "forbidden"
-    }
-   }
-  },
-  {
-   "name": "get_order",
-   "scope": "orders:read",
-   "method": "GET",
-   "path": "/v1/orders/:id",
-   "pathParams": [
-    [
-     "id",
-     "id"
-    ]
-   ],
-   "exactId": false,
-   "definition": {
-    "name": "get_order",
-    "title": "Get order",
-    "description": "Get full details of a commerce order.",
-    "inputSchema": {
-     "type": "object",
-     "properties": {
-      "id": {
-       "type": "string",
-       "description": "The order — its name, or the id from an earlier search"
-      }
-     },
-     "required": [
-      "id"
-     ],
-     "additionalProperties": false,
-     "$schema": "http://json-schema.org/draft-07/schema#"
-    },
-    "annotations": {
-     "title": "Get order",
-     "readOnlyHint": true,
-     "openWorldHint": false
-    },
-    "execution": {
-     "taskSupport": "forbidden"
-    }
-   }
-  },
-  {
-   "name": "create_order",
-   "scope": "orders:write",
-   "method": "POST",
-   "path": "/v1/orders",
-   "pathParams": [],
-   "exactId": false,
-   "definition": {
-    "name": "create_order",
-    "title": "Create order",
-    "description": "Create a new commerce order.",
-    "inputSchema": {
-     "type": "object",
-     "properties": {
-      "orderNumber": {
-       "type": "string",
-       "maxLength": 100
-      },
-      "customerId": {
-       "type": [
-        "string",
-        "null"
-       ]
-      },
-      "websiteId": {
-       "type": [
-        "string",
-        "null"
-       ]
-      },
-      "status": {
-       "type": "string",
-       "maxLength": 30
-      },
-      "currency": {
-       "type": "string",
-       "maxLength": 10
-      },
-      "subtotal": {
-       "type": [
-        "string",
-        "number"
-       ]
-      },
-      "taxTotal": {
-       "type": [
-        "string",
-        "number"
-       ]
-      },
-      "total": {
-       "type": [
-        "string",
-        "number"
-       ]
-      },
-      "shippingAddress": {},
-      "billingAddress": {},
-      "metadata": {}
-     },
-     "additionalProperties": false,
-     "$schema": "http://json-schema.org/draft-07/schema#"
-    },
-    "annotations": {
-     "title": "Create order",
-     "readOnlyHint": false,
-     "destructiveHint": false,
-     "idempotentHint": false,
-     "openWorldHint": false
-    },
-    "execution": {
-     "taskSupport": "forbidden"
-    }
-   }
-  },
-  {
-   "name": "update_order",
-   "scope": "orders:write",
-   "method": "PATCH",
-   "path": "/v1/orders/:id",
-   "pathParams": [
-    [
-     "id",
-     "id"
-    ]
-   ],
-   "exactId": false,
-   "definition": {
-    "name": "update_order",
-    "title": "Update order",
-    "description": "Update an existing commerce order.",
-    "inputSchema": {
-     "type": "object",
-     "properties": {
-      "id": {
-       "type": "string",
-       "description": "The order — its name, or the id from an earlier search"
-      },
-      "orderNumber": {
-       "type": "string",
-       "maxLength": 100
-      },
-      "customerId": {
-       "type": [
-        "string",
-        "null"
-       ]
-      },
-      "websiteId": {
-       "type": [
-        "string",
-        "null"
-       ]
-      },
-      "status": {
-       "type": "string",
-       "maxLength": 30
-      },
-      "currency": {
-       "type": "string",
-       "maxLength": 10
-      },
-      "subtotal": {
-       "type": [
-        "string",
-        "number"
-       ]
-      },
-      "taxTotal": {
-       "type": [
-        "string",
-        "number"
-       ]
-      },
-      "total": {
-       "type": [
-        "string",
-        "number"
-       ]
-      },
-      "shippingAddress": {},
-      "billingAddress": {},
-      "metadata": {}
-     },
-     "required": [
-      "id"
-     ],
-     "additionalProperties": false,
-     "$schema": "http://json-schema.org/draft-07/schema#"
-    },
-    "annotations": {
-     "title": "Update order",
-     "readOnlyHint": false,
-     "destructiveHint": false,
-     "idempotentHint": true,
-     "openWorldHint": false
-    },
-    "execution": {
-     "taskSupport": "forbidden"
-    }
-   }
-  },
-  {
-   "name": "delete_order",
-   "scope": "orders:write",
-   "method": "DELETE",
-   "path": "/v1/orders/:id",
-   "pathParams": [
-    [
-     "id",
-     "id"
-    ]
-   ],
-   "exactId": false,
-   "definition": {
-    "name": "delete_order",
-    "title": "Delete order",
-    "description": "Delete a commerce order.",
-    "inputSchema": {
-     "type": "object",
-     "properties": {
-      "id": {
-       "type": "string",
-       "description": "The order — its name, or the id from an earlier search"
-      }
-     },
-     "required": [
-      "id"
-     ],
-     "additionalProperties": false,
-     "$schema": "http://json-schema.org/draft-07/schema#"
-    },
-    "annotations": {
-     "title": "Delete order",
-     "readOnlyHint": false,
-     "destructiveHint": true,
-     "idempotentHint": true,
-     "openWorldHint": false
-    },
-    "execution": {
-     "taskSupport": "forbidden"
-    }
-   }
-  },
-  {
-   "name": "search_products",
-   "scope": "products:read",
-   "method": "GET",
-   "path": "/v1/products",
-   "pathParams": [],
-   "exactId": false,
-   "definition": {
-    "name": "search_products",
-    "title": "Search products",
-    "description": "List/search commerce products. Cursor-paginated; filter by status or search name/slug/SKU.",
-    "inputSchema": {
-     "type": "object",
-     "properties": {
-      "search": {
-       "type": "string",
-       "description": "Match against product name, slug, or SKU"
-      },
-      "status": {
-       "type": "string",
-       "description": "Filter by product status"
-      },
-      "cursor": {
-       "type": "string",
-       "description": "Pagination cursor from a previous response"
-      },
-      "limit": {
-       "type": "number",
-       "minimum": 1,
-       "maximum": 200,
-       "description": "Page size (1-200, default 25)"
-      }
-     },
-     "additionalProperties": false,
-     "$schema": "http://json-schema.org/draft-07/schema#"
-    },
-    "annotations": {
-     "title": "Search products",
-     "readOnlyHint": true,
-     "openWorldHint": false
-    },
-    "execution": {
-     "taskSupport": "forbidden"
-    }
-   }
-  },
-  {
-   "name": "get_product",
-   "scope": "products:read",
-   "method": "GET",
-   "path": "/v1/products/:id",
-   "pathParams": [
-    [
-     "id",
-     "id"
-    ]
-   ],
-   "exactId": false,
-   "definition": {
-    "name": "get_product",
-    "title": "Get product",
-    "description": "Get full details of a commerce product.",
-    "inputSchema": {
-     "type": "object",
-     "properties": {
-      "id": {
-       "type": "string",
-       "description": "The product — its name, or the id from an earlier search"
-      }
-     },
-     "required": [
-      "id"
-     ],
-     "additionalProperties": false,
-     "$schema": "http://json-schema.org/draft-07/schema#"
-    },
-    "annotations": {
-     "title": "Get product",
-     "readOnlyHint": true,
-     "openWorldHint": false
-    },
-    "execution": {
-     "taskSupport": "forbidden"
-    }
-   }
-  },
-  {
-   "name": "create_product",
-   "scope": "products:write",
-   "method": "POST",
-   "path": "/v1/products",
-   "pathParams": [],
-   "exactId": false,
-   "definition": {
-    "name": "create_product",
-    "title": "Create product",
-    "description": "Create a new commerce product.",
-    "inputSchema": {
-     "type": "object",
-     "properties": {
-      "name": {
-       "type": "string",
-       "minLength": 1,
-       "maxLength": 255
-      },
-      "slug": {
-       "type": "string",
-       "minLength": 1,
-       "maxLength": 255
-      },
-      "description": {
-       "type": "string"
-      },
-      "sku": {
-       "type": "string",
-       "maxLength": 100
-      },
-      "type": {
-       "type": "string",
-       "maxLength": 30
-      },
-      "status": {
-       "type": "string",
-       "maxLength": 30
-      },
-      "price": {
-       "type": [
-        "string",
-        "number"
-       ]
-      },
-      "currency": {
-       "type": "string",
-       "maxLength": 10
-      },
-      "categoryId": {
-       "type": [
-        "string",
-        "null"
-       ]
-      },
-      "imageUrl": {
-       "type": "string"
-      },
-      "metadata": {}
-     },
-     "required": [
-      "name",
-      "slug"
-     ],
-     "additionalProperties": false,
-     "$schema": "http://json-schema.org/draft-07/schema#"
-    },
-    "annotations": {
-     "title": "Create product",
-     "readOnlyHint": false,
-     "destructiveHint": false,
-     "idempotentHint": false,
-     "openWorldHint": false
-    },
-    "execution": {
-     "taskSupport": "forbidden"
-    }
-   }
-  },
-  {
-   "name": "update_product",
-   "scope": "products:write",
-   "method": "PATCH",
-   "path": "/v1/products/:id",
-   "pathParams": [
-    [
-     "id",
-     "id"
-    ]
-   ],
-   "exactId": false,
-   "definition": {
-    "name": "update_product",
-    "title": "Update product",
-    "description": "Update an existing commerce product.",
-    "inputSchema": {
-     "type": "object",
-     "properties": {
-      "id": {
-       "type": "string",
-       "description": "The product — its name, or the id from an earlier search"
-      },
-      "name": {
-       "type": "string",
-       "minLength": 1,
-       "maxLength": 255
-      },
-      "slug": {
-       "type": "string",
-       "minLength": 1,
-       "maxLength": 255
-      },
-      "description": {
-       "type": "string"
-      },
-      "sku": {
-       "type": "string",
-       "maxLength": 100
-      },
-      "type": {
-       "type": "string",
-       "maxLength": 30
-      },
-      "status": {
-       "type": "string",
-       "maxLength": 30
-      },
-      "price": {
-       "type": [
-        "string",
-        "number"
-       ]
-      },
-      "currency": {
-       "type": "string",
-       "maxLength": 10
-      },
-      "categoryId": {
-       "type": [
-        "string",
-        "null"
-       ]
-      },
-      "imageUrl": {
-       "type": "string"
-      },
-      "metadata": {}
-     },
-     "required": [
-      "id"
-     ],
-     "additionalProperties": false,
-     "$schema": "http://json-schema.org/draft-07/schema#"
-    },
-    "annotations": {
-     "title": "Update product",
-     "readOnlyHint": false,
-     "destructiveHint": false,
-     "idempotentHint": true,
-     "openWorldHint": false
-    },
-    "execution": {
-     "taskSupport": "forbidden"
-    }
-   }
-  },
-  {
-   "name": "delete_product",
-   "scope": "products:write",
-   "method": "DELETE",
-   "path": "/v1/products/:id",
-   "pathParams": [
-    [
-     "id",
-     "id"
-    ]
-   ],
-   "exactId": false,
-   "definition": {
-    "name": "delete_product",
-    "title": "Delete product",
-    "description": "Delete a commerce product.",
-    "inputSchema": {
-     "type": "object",
-     "properties": {
-      "id": {
-       "type": "string",
-       "description": "The product — its name, or the id from an earlier search"
-      }
-     },
-     "required": [
-      "id"
-     ],
-     "additionalProperties": false,
-     "$schema": "http://json-schema.org/draft-07/schema#"
-    },
-    "annotations": {
-     "title": "Delete product",
-     "readOnlyHint": false,
-     "destructiveHint": true,
-     "idempotentHint": true,
-     "openWorldHint": false
-    },
-    "execution": {
-     "taskSupport": "forbidden"
-    }
-   }
-  },
-  {
    "name": "search_domains",
    "scope": "domains:read",
    "method": "GET",
@@ -19586,58 +19048,6 @@
   ],
   [
    "GET",
-   "/v1/orders"
-  ],
-  [
-   "GET",
-   "/v1/orders"
-  ],
-  [
-   "GET",
-   "/v1/orders"
-  ],
-  [
-   "GET",
-   "/v1/orders/:id"
-  ],
-  [
-   "GET",
-   "/v1/orders/:id"
-  ],
-  [
-   "POST",
-   "/v1/orders"
-  ],
-  [
-   "POST",
-   "/v1/orders"
-  ],
-  [
-   "POST",
-   "/v1/orders"
-  ],
-  [
-   "PATCH",
-   "/v1/orders/:id"
-  ],
-  [
-   "PATCH",
-   "/v1/orders/:id"
-  ],
-  [
-   "PATCH",
-   "/v1/orders/:id"
-  ],
-  [
-   "DELETE",
-   "/v1/orders/:id"
-  ],
-  [
-   "DELETE",
-   "/v1/orders/:id"
-  ],
-  [
-   "GET",
    "/v1/people"
   ],
   [
@@ -19791,58 +19201,6 @@
   [
    "DELETE",
    "/v1/pipelines/:id"
-  ],
-  [
-   "GET",
-   "/v1/products"
-  ],
-  [
-   "GET",
-   "/v1/products"
-  ],
-  [
-   "GET",
-   "/v1/products"
-  ],
-  [
-   "GET",
-   "/v1/products/:id"
-  ],
-  [
-   "GET",
-   "/v1/products/:id"
-  ],
-  [
-   "POST",
-   "/v1/products"
-  ],
-  [
-   "POST",
-   "/v1/products"
-  ],
-  [
-   "POST",
-   "/v1/products"
-  ],
-  [
-   "PATCH",
-   "/v1/products/:id"
-  ],
-  [
-   "PATCH",
-   "/v1/products/:id"
-  ],
-  [
-   "PATCH",
-   "/v1/products/:id"
-  ],
-  [
-   "DELETE",
-   "/v1/products/:id"
-  ],
-  [
-   "DELETE",
-   "/v1/products/:id"
   ],
   [
    "GET",

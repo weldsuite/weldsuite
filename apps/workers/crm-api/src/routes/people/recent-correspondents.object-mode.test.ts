@@ -1,6 +1,6 @@
 /**
  * `GET /api/people/recent-correspondents` under the mailbox store's
- * `object-only` mode (docs/plans/weldmail-mailbox-store-design.md, task D7):
+ * `object-only` mode (weldsuite-documentation/plans/weldmail-mailbox-store-design.md, task D7):
  * the address list behind `accountId` must come from the mailbox store's
  * `recentAddresses` instead of a direct `mail_messages` query — Postgres has
  * no rows for that account at all in this mode — while the MAIL-003 access

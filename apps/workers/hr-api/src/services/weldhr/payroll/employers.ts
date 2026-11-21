@@ -193,7 +193,7 @@ export async function getEmployer(db: Database, id: string, keyring: EncryptionK
 }
 
 // ---------------------------------------------------------------------------
-// Legal entity, registration and bank account (docs/plans/legal-entities.md)
+// Legal entity, registration and bank account (weldsuite-documentation/plans/legal-entities.md)
 // ---------------------------------------------------------------------------
 
 type KeyEnv = { DATABASE_ENCRYPTION_KEY?: string; DATABASE_ENCRYPTION_KEY_V2?: string };

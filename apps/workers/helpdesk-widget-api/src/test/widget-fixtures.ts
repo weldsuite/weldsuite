@@ -222,3 +222,15 @@ export function member(
     ...values,
   };
 }
+
+/**
+ * A teammate's account (master `users`): its picture is their avatar in the
+ * widget, never the `workspace_members.picture` copy. Inserting an account
+ * that exists already does nothing.
+ */
+export async function account(master: Database, userId: string, imageUrl: string | null): Promise<void> {
+  await master
+    .insert(masterSchema.users)
+    .values({ id: userId, email: `${userId}@acme.test`, imageUrl })
+    .onConflictDoNothing();
+}

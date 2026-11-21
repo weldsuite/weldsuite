@@ -31,7 +31,7 @@ fn system_role_name(role: &str) -> Option<String> {
 }
 
 /// A member row of the access list: the `legal_entity_members` columns, then
-/// the workspace member's name, email, picture, role and role id.
+/// the workspace member's name, email, role and role id.
 type AccessRow = (
     String,
     Option<String>,
@@ -42,19 +42,20 @@ type AccessRow = (
     Option<String>,
     Option<String>,
     Option<String>,
-    Option<String>,
 );
 
 /// `getEntityAccessList`: the Restricted switch and the members with a row,
-/// by name, with their workspace role for context.
+/// by name, with their workspace role for context. `picture` is the account
+/// picture, read from `master`.
 pub async fn get_entity_access_list(
     db: &PgPool,
+    master: Option<&PgPool>,
     entity_id: &str,
 ) -> Result<LegalEntityAccess, LegalEntityError> {
     let entity = require_entity_row(db, entity_id).await?;
     let rows: Vec<AccessRow> = sqlx::query_as(
         "select m.user_id, m.role_id, m.granted_by, to_jsonb(m.created_at), to_jsonb(m.updated_at),
-                w.name, w.email, w.picture, w.role, w.role_id
+                w.name, w.email, w.role, w.role_id
          from legal_entity_members m
          left join workspace_members w on w.user_id = m.user_id and w.deleted_at is null
          where m.entity_id = $1
@@ -63,10 +64,12 @@ pub async fn get_entity_access_list(
     .bind(entity_id)
     .fetch_all(db)
     .await?;
+    let pictures =
+        weldsuite_db::AccountPictures::load(master, rows.iter().map(|row| row.0.as_str())).await;
     let mut role_ids: Vec<String> = Vec::new();
     for id in rows
         .iter()
-        .flat_map(|row| [row.1.clone(), row.9.clone()])
+        .flat_map(|row| [row.1.clone(), row.8.clone()])
         .flatten()
         .filter(|id| !id.is_empty())
     {
@@ -92,10 +95,10 @@ pub async fn get_entity_access_list(
                 updated_at,
                 name,
                 email,
-                picture,
                 workspace_role,
                 workspace_role_id,
             )| {
+                let picture = pictures.get(&user_id).map(str::to_owned);
                 let workspace_role = workspace_role.unwrap_or_default();
                 // `(id && names.get(id)) || systemRoleName(role)`: an empty
                 // name falls through too.

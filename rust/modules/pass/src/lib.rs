@@ -96,11 +96,22 @@ impl PassState {
     /// providers.
     pub fn from_env() -> Self {
         let read = |name: &str| std::env::var(name).ok();
+        let root_keys = RootKeyring {
+            v1: read("WELDPASS_ROOT_KEY"),
+            v2: read("WELDPASS_ROOT_KEY_V2"),
+        };
+        // Every vault and project route answers 500 CRYPTO_ERROR without a
+        // usable key; say why once, at start. Wrapping a throwaway vault key
+        // is the check those routes run. The error names no key value.
+        if let Err(error) = envelope::create_vault_key(&root_keys, "startup-check") {
+            tracing::error!(
+                %error,
+                "WeldPass has no usable root key: vaults and secrets projects answer CRYPTO_ERROR \
+                 (set WELDPASS_ROOT_KEY, 64 hex characters, in the server's Secret)"
+            );
+        }
         Self {
-            root_keys: RootKeyring {
-                v1: read("WELDPASS_ROOT_KEY"),
-                v2: read("WELDPASS_ROOT_KEY_V2"),
-            },
+            root_keys,
             http: Arc::new(ReqwestTransport::new()),
         }
     }
@@ -355,6 +366,8 @@ pub(crate) struct Caller {
     pub(crate) client: Option<String>,
     env: Option<RequestEnv>,
     http: Option<PassHttp>,
+    /// The master database (account pictures), when the request has one.
+    pub(crate) master: Option<PgPool>,
 }
 
 impl Caller {
@@ -414,6 +427,10 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
                     .map(str::to_owned),
                 env: parts.extensions.get::<RequestEnv>().cloned(),
                 http: parts.extensions.get::<PassHttp>().cloned(),
+                master: parts
+                    .extensions
+                    .get::<weldsuite_db::MasterDb>()
+                    .map(|master| master.0.clone()),
             })
         } else {
             tracing::error!("pass: a route without the session or tenant layer");

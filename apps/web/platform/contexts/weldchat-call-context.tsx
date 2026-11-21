@@ -4,6 +4,12 @@
  * Global provider for voice/video call state management.
  * Uses Cloudflare RealtimeKit SDK — the SDK handles all WebRTC internally.
  * The backend only creates meetings and returns auth tokens.
+ *
+ * The Kubernetes editions (`/config.json` says `videoProvider: "livekit"`) run
+ * calls on LiveKit instead: the `authToken` is then a LiveKit join token, and
+ * the LiveKit client of `@weldsuite/weldmeet-ui/providers/livekit` answers to
+ * the same client surface, as in the WeldMeet call context. Global serves no
+ * config and takes the RealtimeKit path.
  */
 
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect, useMemo } from 'react';
@@ -31,10 +37,12 @@ import { RoomClient } from '@weldsuite/realtime/client';
 import { useTopic } from '@weldsuite/realtime/react';
 import type { WorkspaceEvent } from '@weldsuite/realtime';
 import { usePresenceMaybe } from '@/contexts/presence-context';
-import { apiUrl, getRealtimeWsOrigin } from '@/lib/api/public-env';
+import { apiUrl } from '@/lib/api/public-env';
+import { realtimeSocketUrl } from '@/lib/api/realtime-url';
 import { publicEnv } from '@/lib/runtime-config';
+import { isLiveKit, videoJoin } from '@/lib/video-provider';
+import { usersInCall, type CallParticipantEntry } from '@/app/weldchat/lib/call-peers';
 
-const REALTIME_BASE_URL = getRealtimeWsOrigin();
 
 // RNNoise noise suppression flag. Default ON; set VITE_NOISE_SUPPRESSION=false
 // (legacy alias VITE_DF3_NOISE_SUPPRESSION=false) to disable.
@@ -55,6 +63,21 @@ function loadRealtimeKit(): Promise<typeof import('@cloudflare/realtimekit')> {
   return realtimeKit;
 }
 
+let liveKitClient: Promise<typeof import('@weldsuite/weldmeet-ui/providers/livekit')> | null = null;
+
+/**
+ * The LiveKit client chunk, loaded once and shared by the prefetch and every
+ * call. Only the Kubernetes editions ever load it; Global never fetches
+ * livekit-client.
+ */
+function loadLiveKit(): Promise<typeof import('@weldsuite/weldmeet-ui/providers/livekit')> {
+  liveKitClient ??= import('@weldsuite/weldmeet-ui/providers/livekit').catch((err: unknown) => {
+    liveKitClient = null;
+    throw err;
+  });
+  return liveKitClient;
+}
+
 let callAssetsRequested = false;
 
 /**
@@ -65,7 +88,8 @@ let callAssetsRequested = false;
  * and again as soon as a call rings or starts in case idle never came).
  */
 function prefetchCallAssets(): void {
-  loadRealtimeKit().catch(() => undefined);
+  // The SDK this deployment joins with: LiveKit on the Kubernetes editions.
+  (isLiveKit() ? loadLiveKit() : loadRealtimeKit()).catch(() => undefined);
   if (callAssetsRequested || !NOISE_SUPPRESSION_ENABLED) return;
   callAssetsRequested = true;
   for (const url of [rnnoiseWorkerUrl, NOISE_WORKLET_URL]) {
@@ -75,6 +99,9 @@ function prefetchCallAssets(): void {
       .catch(() => undefined);
   }
 }
+
+/** One "microphone unavailable" toast, however often it is retried. */
+const MIC_UNAVAILABLE_TOAST_ID = 'weldchat-call-mic-unavailable';
 
 /** One toast for the whole reconnect: "reconnecting" is replaced by "back in the call". */
 const RECONNECT_TOAST_ID = 'weldchat-reconnecting';
@@ -184,7 +211,7 @@ function describeChannelCall(
  */
 /**
  * RealtimeKit's public `Self` type doesn't expose these fields/methods, but
- * the SDK's runtime object does. Used for hardware track cleanup and
+ * the SDK's runtime object does (the LiveKit client's `self` has them too). Used for hardware track cleanup and
  * screen-share quality tuning that has no first-class typed API.
  */
 interface RealtimeKitSelfInternal {
@@ -284,6 +311,8 @@ interface JoinChatCallResponse {
     /** Sent by /join (and by start-and-join for callType); absent from older servers. */
     channelId?: string;
     callType?: string;
+    /** The call's `participants` entries, the joiner's own included. */
+    participants?: CallParticipantEntry[];
   };
 }
 
@@ -317,6 +346,12 @@ interface WeldChatCallState {
   endReason: CallEndReason | null;
   /** True when the local user started this call (vs. joined/answered an existing one). */
   isCallInitiator: boolean;
+  /**
+   * Who the server counted in the call when the local user joined or answered
+   * it (empty for the caller): the room shows them as connecting until their
+   * own connection is up.
+   */
+  callMemberIds: string[];
   isMuted: boolean;
   isVideoOff: boolean;
   isScreenSharing: boolean;
@@ -396,6 +431,7 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
   const [status, setStatus] = useState<CallStatus>('idle');
   const [endReason, setEndReason] = useState<CallEndReason | null>(null);
   const [isCallInitiator, setIsCallInitiator] = useState(false);
+  const [callMemberIds, setCallMemberIds] = useState<string[]>([]);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
@@ -544,6 +580,7 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
     setStatus('idle');
     setEndReason(null);
     setIsCallInitiator(false);
+    setCallMemberIds([]);
     setDuration(0);
     setIsMuted(false);
     setIsVideoOff(false);
@@ -570,6 +607,8 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
     setDuration(0);
     setIsFullscreen(false);
     setIsPiP(false);
+    // Known again once a join answers (the caller's own call needs none).
+    setCallMemberIds([]);
     setStatus('connecting');
   }, [clearFarewell]);
 
@@ -682,8 +721,12 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
       return;
     }
 
+    const url = realtimeSocketUrl(`/ws/chat/${channelId}`);
+    // An empty URL means realtime is off for this deployment.
+    if (!url) return;
+
     const rc = new RoomClient({
-      url: `${REALTIME_BASE_URL}/ws/chat/${channelId}`,
+      url,
       getToken: async () => (await getTokenRef.current()) || '',
     });
     handRaiseRoomRef.current = rc;
@@ -899,17 +942,33 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
 
     let m: RealtimeKitClient;
     try {
-      const { default: RTK } = await loadRealtimeKit();
-      m = await RTK.init({
-        authToken,
-        defaults: {
-          audio: audioOn,
-          video: videoOn ?? (type === 'video'),
-          mediaConfiguration: {
-            audio: { noiseSupression: !useNoiseSuppression },
+      // The Kubernetes editions run calls on LiveKit (`lib/video-provider`):
+      // the token is a LiveKit one, and the LiveKit client answers to the same
+      // client surface. Global (no runtime config) takes the RealtimeKit path.
+      const join = videoJoin();
+      if (join.provider === 'livekit') {
+        const { initLiveKitMeeting } = await loadLiveKit();
+        m = initLiveKitMeeting<RealtimeKitClient>({
+          url: join.url,
+          token: authToken,
+          defaults: { audio: audioOn, video: videoOn ?? (type === 'video') },
+          // LiveKit's capture goes through getUserMedia, so the RNNoise patch
+          // covers it; the browser's own suppression is off then.
+          noiseSuppression: !useNoiseSuppression,
+        });
+      } else {
+        const { default: RTK } = await loadRealtimeKit();
+        m = await RTK.init({
+          authToken,
+          defaults: {
+            audio: audioOn,
+            video: videoOn ?? (type === 'video'),
+            mediaConfiguration: {
+              audio: { noiseSupression: !useNoiseSuppression },
+            },
           },
-        },
-      });
+        });
+      }
     } catch (err) {
       if (!rejoin) releaseSuppressor();
       throw err;
@@ -936,6 +995,14 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
           duration: 4000,
         });
         return;
+      }
+      // Asked for the microphone, but it did not start (none found, in use,
+      // blocked): show it off and say so, rather than offering to turn off a
+      // microphone that sends nothing. The LiveKit client has its tracks up by
+      // the time it reports the join (RealtimeKit's may still be starting).
+      if (isLiveKit() && audioOn && !m.self.audioEnabled) {
+        setIsMuted(true);
+        toast.error(getTranslations('weldchat').calling.microphoneUnavailable, { id: MIC_UNAVAILABLE_TOAST_ID });
       }
       playCallJoinSound();
     });
@@ -1108,7 +1175,8 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
     // Awaited below; marked handled so a failure while the join is pending isn't reported as unhandled.
     connecting.catch(() => undefined);
     try {
-      await join;
+      const joined = await join;
+      setCallMemberIds(usersInCall(joined.data.participants));
     } catch (err) {
       // The answer never counted, so no /leave either.
       callIdRef.current = null;
@@ -1136,6 +1204,7 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
       callIdRef.current = null;
       throw err;
     }
+    setCallMemberIds(usersInCall(joinRes.data.participants));
     // An older server leaves the call's channel and type out of the answer.
     const call = joinRes.data.channelId && joinRes.data.callType
       ? { channelId: joinRes.data.channelId, callType: joinRes.data.callType }
@@ -1272,6 +1341,7 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
       setCallId(previewJoinCallId);
       enterConnecting();
       const joinRes = await client.post<JoinChatCallResponse>(`/chat-calls/${previewJoinCallId}/join`, {});
+      setCallMemberIds(usersInCall(joinRes.data.participants));
       await initMeeting(joinRes.data.authToken, type, audioOn, videoOn);
     } else if (chId) {
       // Starting new call — single round-trip: creates meeting + joins in one request
@@ -1451,7 +1521,11 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
       setIsMuted(true);
       playMuteSound();
     } else {
-      void meeting.self.enableAudio();
+      meeting.self.enableAudio().catch(() => {
+        // No microphone, or it is in use or blocked: the button goes back to off.
+        setIsMuted(true);
+        toast.error(getTranslations('weldchat').calling.microphoneUnavailable, { id: MIC_UNAVAILABLE_TOAST_ID });
+      });
       setIsMuted(false);
       playUnmuteSound();
     }
@@ -1555,6 +1629,7 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
       status,
       endReason,
       isCallInitiator,
+      callMemberIds,
       isMuted,
       isVideoOff,
       isScreenSharing,
@@ -1603,6 +1678,7 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
       status,
       endReason,
       isCallInitiator,
+      callMemberIds,
       isMuted,
       isVideoOff,
       isScreenSharing,

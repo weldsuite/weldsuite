@@ -212,6 +212,7 @@ function buildPhoneNumberColumns(
   tp: PhoneNumberTranslations,
   { onSetDefault, onEdit, onDelete }: PhoneNumberColumnHandlers,
 ): ColumnDef<VoipPhoneNumber>[] {
+  const trunkLabels = getTranslations('deskSipTrunks').listBadges;
   return [
   {
     accessorKey: 'phoneNumber',
@@ -239,6 +240,11 @@ function buildPhoneNumberColumns(
           {phone.status === 'pending' && (
             <Badge variant="outline" className="text-xs">
               {tp.pendingDocuments}
+            </Badge>
+          )}
+          {phone.provider === 'sip_trunk' && (
+            <Badge variant="secondary" className="text-xs" title={trunkLabels.releaseHint}>
+              {trunkLabels.ownSystem}
             </Badge>
           )}
         </div>
@@ -299,14 +305,19 @@ function buildPhoneNumberColumns(
                 <Settings className="h-4 w-4 mr-0.5" />
                 {tp.menu.settings}
               </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={() => onDelete(phone)}
-                className="text-destructive focus:text-destructive focus:bg-destructive/10"
-              >
-                <Trash2 className="h-4 w-4 mr-0.5 text-destructive" />
-                {tp.menu.delete}
-              </DropdownMenuItem>
+              {/* A number on the customer's own phone system is removed from that system, not released here. */}
+              {phone.provider !== 'sip_trunk' && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => onDelete(phone)}
+                    className="text-destructive focus:text-destructive focus:bg-destructive/10"
+                  >
+                    <Trash2 className="h-4 w-4 mr-0.5 text-destructive" />
+                    {tp.menu.delete}
+                  </DropdownMenuItem>
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -323,6 +334,9 @@ export function PhoneNumberSettingsClient({
   const router = useRouter();
   const ts = getTranslations('settings');
   const tp = ts.phoneNumbers;
+  // Where numbers can't be bought or ported, say so rather than "activate first".
+  let noNumbersHint = isConfigured ? tp.noNumbersConfigured : tp.noNumbersUnconfigured;
+  if (!isFeatureAvailable('phone-number-purchase')) noNumbersHint = tp.noNumbersPurchaseUnavailable;
   const [phoneNumbers, setPhoneNumbers] = useState(initialPhoneNumbers);
   const [selectedNumber, setSelectedNumber] = useState<VoipPhoneNumber | null>(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
@@ -550,11 +564,7 @@ export function PhoneNumberSettingsClient({
                 <TableRow>
                   <TableCell colSpan={columns.length} className="h-24 text-center">
                     <p className="text-sm font-medium">{tp.noNumbers}</p>
-                    <p className="text-xs mt-1 text-muted-foreground">
-                      {isConfigured
-                        ? tp.noNumbersConfigured
-                        : tp.noNumbersUnconfigured}
-                    </p>
+                    <p className="text-xs mt-1 text-muted-foreground">{noNumbersHint}</p>
                   </TableCell>
                 </TableRow>
               )}

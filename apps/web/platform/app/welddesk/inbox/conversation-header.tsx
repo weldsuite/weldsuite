@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { Check, ChevronDown, ChevronLeft, Loader2, UserMinus, UserPlus, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronLeft, Loader2, UserCheck, UserMinus, UserPlus, X } from 'lucide-react';
 import { useUser } from '@/lib/auth';
 import { useRouter } from '@/lib/router';
 import { getTranslations } from '@/lib/i18n';
@@ -14,21 +14,24 @@ import {
   CommandItem,
   CommandList,
 } from '@weldsuite/ui/components/command';
-import { useManageDeskConversation, type DeskConversation } from '@/hooks/queries/use-desk-queries';
+import { useManageDeskConversation, type DeskConversation, type DeskMessage } from '@/hooks/queries/use-desk-queries';
 import { useDeskWorkspaceMembers } from '@/hooks/queries/use-desk-workspace-members';
 import { DeskSlaBadge } from './sla-badge';
 import { TranslateToggle } from './translation/translate-toggle';
 import { CreateArticleAction } from './create-article-action';
 import { ConversationLinkMenu } from './conversation-link-menu';
+import { DeskCallButton } from '@/components/welddesk/phone/desk-call-button';
 
 interface ConversationHeaderProps {
   conversation: DeskConversation;
+  /** The loaded timeline; the call button reads the caller's number from it. */
+  messages?: readonly DeskMessage[];
   liveCall?: boolean;
   /** The visitor currently has the widget open on this conversation. */
   visitorOnline?: boolean;
 }
 
-export function ConversationHeader({ conversation, liveCall = false, visitorOnline = false }: Readonly<ConversationHeaderProps>) {
+export function ConversationHeader({ conversation, messages, liveCall = false, visitorOnline = false }: Readonly<ConversationHeaderProps>) {
   const t = getTranslations('deskInbox2');
   const router = useRouter();
   const { user } = useUser();
@@ -66,8 +69,12 @@ export function ConversationHeader({ conversation, liveCall = false, visitorOnli
   const filteredMembers = members.filter((m) => m.name.toLowerCase().includes(query.toLowerCase()));
   const displayTitle = conversation.title ?? conversation.name ?? conversation.email ?? t.pane.untitled;
 
+  // The header is a container: the thread column's width, not the window's,
+  // decides whether the actions show their labels. Between the list and the
+  // details panel the column is narrow on a laptop, and labelled actions ran
+  // under the panel there (`@3xl/desk-header:` in the actions below).
   return (
-    <div className="flex items-center justify-between px-3 md:px-4 h-[53px] border-b border-gray-200 dark:border-border flex-shrink-0">
+    <div className="@container/desk-header flex items-center justify-between gap-2 px-3 md:px-4 h-[53px] border-b border-gray-200 dark:border-border flex-shrink-0">
       <div className="flex items-center gap-2 min-w-0 flex-1">
         <Button
           variant="ghost"
@@ -96,6 +103,7 @@ export function ConversationHeader({ conversation, liveCall = false, visitorOnli
             onClick={() => void toggleClose()}
             disabled={manage.isPending}
             title={isClosed ? t.header.reopen : t.header.close}
+            aria-label={isClosed ? t.header.reopen : t.header.close}
           >
             <Check className="h-3.5 w-3.5 text-gray-500 dark:text-muted-foreground" />
           </Button>
@@ -129,18 +137,21 @@ export function ConversationHeader({ conversation, liveCall = false, visitorOnli
         )}
       </div>
       <div className="flex items-center gap-0.5 md:gap-1 flex-shrink-0">
+        <DeskCallButton conversation={conversation} messages={messages} />
         <TranslateToggle conversation={conversation} />
         <CreateArticleAction conversationId={conversation.id} />
         {user?.id && conversation.assigneeId !== user.id && (
           <Button
             variant="ghost"
             size="sm"
-            className="hidden md:flex h-8 px-2 text-gray-600 dark:text-muted-foreground hover:bg-gray-100 dark:hover:bg-secondary"
+            className="hidden md:flex h-8 px-2 gap-1.5 text-gray-600 dark:text-muted-foreground hover:bg-gray-100 dark:hover:bg-secondary"
             onClick={() => void assign(user.id)}
             disabled={manage.isPending}
+            title={t.header.assignToMe}
+            aria-label={t.header.assignToMe}
           >
-            <UserPlus className="h-4 w-4 mr-1.5" />
-            {t.header.assign}
+            <UserCheck className="h-4 w-4" />
+            <span className="hidden @3xl/desk-header:inline">{t.header.assignToMe}</span>
           </Button>
         )}
         <Popover open={assignOpen} onOpenChange={setAssignOpen}>
@@ -149,6 +160,8 @@ export function ConversationHeader({ conversation, liveCall = false, visitorOnli
               variant="ghost"
               size="sm"
               className="h-8 px-2 gap-1.5 text-gray-600 dark:text-muted-foreground hover:bg-gray-100 dark:hover:bg-secondary"
+              title={assignedMember?.name ?? t.header.assign}
+              aria-label={assignedMember?.name ?? t.header.assign}
             >
               {assignedMember ? (
                 <>
@@ -156,12 +169,12 @@ export function ConversationHeader({ conversation, liveCall = false, visitorOnli
                     {assignedMember.picture && <AvatarImage src={assignedMember.picture} />}
                     <AvatarFallback className="text-[9px]">{assignedMember.name.slice(0, 1).toUpperCase()}</AvatarFallback>
                   </Avatar>
-                  <span className="hidden sm:inline max-w-[100px] truncate">{assignedMember.name}</span>
+                  <span className="hidden @2xl/desk-header:inline max-w-[100px] truncate">{assignedMember.name}</span>
                 </>
               ) : (
                 <>
                   <UserPlus className="h-4 w-4" />
-                  <span className="hidden sm:inline">{t.header.assign}</span>
+                  <span className="hidden @3xl/desk-header:inline">{t.header.assign}</span>
                 </>
               )}
               <ChevronDown className="h-3 w-3 opacity-50" />

@@ -17,7 +17,7 @@
  *
  * The live counters live in the `OutboundLedger` Durable Object, not here.
  * `workspace_id` is the master `workspaces.id` (no FK, as in app-access.ts).
- * See docs/plans/weldmail-outbound-abuse.md.
+ * See weldsuite-documentation/plans/weldmail-outbound-abuse.md.
  */
 
 import { pgTable, varchar, text, timestamp, jsonb, integer, boolean, index, uniqueIndex } from 'drizzle-orm/pg-core';

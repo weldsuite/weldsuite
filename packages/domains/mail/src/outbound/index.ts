@@ -4,7 +4,7 @@
  * (`./outbound/consumers`) are imported by mail-api only, so other workers
  * don't bundle the AI SDK or the email templates.
  *
- * See docs/plans/weldmail-outbound-abuse.md.
+ * See weldsuite-documentation/plans/weldmail-outbound-abuse.md.
  */
 
 export {

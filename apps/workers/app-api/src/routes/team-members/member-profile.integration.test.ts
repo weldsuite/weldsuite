@@ -9,15 +9,28 @@
 
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { and, eq } from 'drizzle-orm';
-import { teamMembersRoutes } from './index';
-import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
-import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { conformanceMasterDb, createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { users } from '@weldsuite/db/schema/master';
+
+const holder = vi.hoisted(() => ({ master: null as unknown }));
+vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@weldsuite/worker-kit/db')>();
+  return { ...actual, getMasterDb: () => conformanceMasterDb(holder.master) };
+});
+
+import { teamMembersRoutes } from './index';
 
 // Conformance mode runs each write twice, on a copy of the database for one.
 vi.setConfig({ testTimeout: 60_000 });
 
 let db: Database;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- pglite drizzle stands in for neon-http
+let master: any;
+
+/** Ann's account picture: what her profile shows, whatever her member row holds. */
+const ANN_PICTURE = 'https://img.clerk.test/ann.png';
 
 const at = (minute: number) => new Date(Date.UTC(2026, 1, 3, 14, minute, 0, 456));
 
@@ -25,12 +38,18 @@ const WORKING_HOURS = { monday: { isOpen: true, openTime: '09:00', closeTime: '1
 
 beforeAll(async () => {
   db = (await createPgliteDb()).db;
+  master = (await createMasterPgliteDb()).db;
+  holder.master = master;
+  await master.delete(users);
+  await master.insert(users).values({ id: 'user_ann', email: 'ann@acme.test', imageUrl: ANN_PICTURE });
   await db.insert(schema.workspaceMembers).values([
     {
       id: 'wm_ann',
       userId: 'user_ann',
       email: 'ann@acme.test',
       name: 'Ann',
+      // A stale per-workspace copy: never shown.
+      picture: 'https://stale.test/ann-old.png',
       role: 'ADMIN',
       status: 'ACTIVE',
       title: 'Head of Ops',
@@ -114,13 +133,13 @@ beforeAll(async () => {
 
 function app(userId: string, ...keys: string[]) {
   return createTestApp('/api/team-members', teamMembersRoutes, {
-    context: { tenantDb: db, userId, permissions: permissions(...keys) },
+    context: { tenantDb: db, masterDb: master, userId, permissions: permissions(...keys) },
   });
 }
 
 /** No pre-resolved permissions: the routes resolve them from the member rows. */
 function unresolved(userId: string) {
-  return createTestApp('/api/team-members', teamMembersRoutes, { context: { tenantDb: db, userId } });
+  return createTestApp('/api/team-members', teamMembersRoutes, { context: { tenantDb: db, masterDb: master, userId } });
 }
 
 function send(t: ReturnType<typeof app>, method: string, path: string, body: unknown) {
@@ -142,7 +161,7 @@ describe('GET /api/team-members/user/:userId/profile', () => {
       userId: 'user_ann',
       name: 'Ann',
       email: 'ann@acme.test',
-      picture: null,
+      picture: ANN_PICTURE,
       role: 'ADMIN',
       status: 'ACTIVE',
       title: 'Head of Ops',

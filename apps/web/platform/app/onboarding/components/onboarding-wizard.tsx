@@ -1,11 +1,12 @@
 import { useRef, useState } from "react";
-import { useOrganizationList } from "@/lib/auth";
+import { useOrganizationList, workspaceRefOf } from "@/lib/auth";
 import { getTranslations } from "@/lib/i18n";
 import { track } from "@/lib/analytics";
 import { useCompleteOnboarding } from "@/hooks/use-onboarding";
 import type { PartnerTerritoryErrorDetails } from "@weldsuite/app-api-client/schemas/partners";
 import { TerritoryScreen } from "@/components/partner/territory-screen";
 import { territoryErrorDetails } from "@/lib/partner/api-errors";
+import { setPendingOrganization } from "@/lib/pending-organization";
 import { ProvisioningScreen } from "./provisioning-screen";
 import {
   OnboardingSetup,
@@ -62,8 +63,18 @@ export function OnboardingWizard(props: Readonly<OnboardingWizardProps>) {
         selected_apps: data.selectedApps,
       });
 
-      if (result.clerkOrgId && setActive) {
-        await setActive({ organization: result.clerkOrgId });
+      // The id the auth provider lists the workspace by (`workspaces.id` in
+      // membership mode), so its URL ends up on the slug.
+      const createdRef = workspaceRefOf({
+        organizationId: result.clerkOrgId,
+        workspaceId: result.workspaceId,
+      });
+      if (createdRef) {
+        // Provisioning has started: an OIDC provider activates the org with a
+        // redirect back to /onboarding, whose ProvisioningScreen then mustn't
+        // start it again.
+        setPendingOrganization(createdRef);
+        if (setActive) await setActive({ organization: createdRef });
       }
       // Keep the existing readiness polling, retry, and finalization flow.
       setShowProvisioning(true);

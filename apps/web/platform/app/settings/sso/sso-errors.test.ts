@@ -66,6 +66,18 @@ describe('ssoErrorMessage', () => {
   });
 });
 
+describe('ssoErrorMessage in WeldID mode', () => {
+  it('names what a SAML connection is missing, and why the protocol cannot change', () => {
+    expect(ssoErrorMessage(failure(400, SSO_ERRORS.IDP_INCOMPLETE), copy, true, 'saml')).toBe(copy.samlIncomplete);
+    expect(ssoErrorMessage(failure(400, SSO_ERRORS.IDP_INCOMPLETE), copy, true)).toBe(copy.oidcIncomplete);
+    expect(ssoErrorMessage(failure(409, SSO_ERRORS.PROTOCOL_MISMATCH), copy, true, 'saml')).toBe(copy.protocolMismatch);
+    expect(ssoErrorMessage(failure(402, SSO_ERRORS.NOT_ENTITLED), copy, true)).toBe(copy.oidcNotEntitled);
+    // Outside WeldID mode the codes read as before.
+    expect(ssoErrorMessage(failure(409, SSO_ERRORS.IDP_INCOMPLETE), copy)).toBe(copy.idpIncomplete);
+    expect(nl.settings.sso.errors.protocolMismatch).not.toBe(copy.protocolMismatch);
+  });
+});
+
 describe('isPaymentMethodRequired', () => {
   it('spots the failure that needs a card', () => {
     expect(isPaymentMethodRequired(failure(402, SSO_ERRORS.PAYMENT_METHOD_REQUIRED))).toBe(true);

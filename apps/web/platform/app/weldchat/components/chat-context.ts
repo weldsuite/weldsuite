@@ -77,6 +77,26 @@ export function requestComposerFocus(parentId: string | null) {
   );
 }
 
+/** Window event that puts text into a composer for the user to send (see MessageInput). */
+export const COMPOSE_INPUT_EVENT = 'weldchat-compose-input';
+
+export interface ComposeInputDetail {
+  /** Only the composer of this thread takes it (`null`: the channel composer). */
+  parentId: string | null;
+  /** Composer content, tokens included (`<@agt_…>` becomes a mention chip). */
+  content: string;
+}
+
+/**
+ * Put `content` in a composer, after what is already typed, and focus it:
+ * "Ask about this" on an agent's chart writes `@Agent Tell me more about …`.
+ */
+export function requestCompose(parentId: string | null, content: string) {
+  requestAnimationFrame(() =>
+    window.dispatchEvent(new CustomEvent<ComposeInputDetail>(COMPOSE_INPUT_EVENT, { detail: { parentId, content } })),
+  );
+}
+
 export const ChatContext = createContext<ChatContextValue | null>(null);
 
 export const useChatContext = () => {

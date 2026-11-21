@@ -1,7 +1,8 @@
 //! `/api/calls` (`routes/calls`): the `voip_calls` records, newest first,
 //! scoped to the caller's own calls without `activities:scope:all`; the
 //! dialer creates a call before dialling (gated by the prepaid wallet) and
-//! the call's end settles its minutes.
+//! the call's end settles its minutes. A call placed from a WeldDesk
+//! conversation (click-to-call) is linked to it and noted on its timeline.
 
 use axum::Json;
 use axum::body::Bytes;
@@ -14,6 +15,7 @@ use weldsuite_kit::validation::{Number, Presence, Text, js_date_iso, query_value
 use weldsuite_kit::{ApiError, Created, CreditShortfall, Data, List, NoContent, Pagination};
 
 use crate::credits::{self, VOIP_CALL_PER_MINUTE};
+use crate::desk_phone_messages::post_phone_message;
 use crate::{CallState, Caller, internal, js, now, validate};
 
 /// A `voip_calls` row as Drizzle reads it (`numeric` as text).
@@ -308,6 +310,58 @@ struct NewCall {
     is_recorded: Option<bool>,
     notes: Option<String>,
     provider: Option<String>,
+    /// Click-to-call from a WeldDesk conversation.
+    desk_conversation_id: Option<String>,
+}
+
+/// `createCallSchema`.
+fn read_new_call(
+    issues: &mut weldsuite_kit::validation::Issues,
+    fields: &Map<String, Value>,
+) -> NewCall {
+    let optional = |issues: &mut weldsuite_kit::validation::Issues, key: &str| {
+        issues
+            .text_with(fields, key, Presence::Optional, Text::default())
+            .into_option()
+    };
+    NewCall {
+        direction: issues
+            .choice(
+                fields,
+                "direction",
+                Presence::Required,
+                &["inbound", "outbound"],
+            )
+            .into_option()
+            .unwrap_or_default(),
+        from_number: issues
+            .text(fields, "fromNumber", Presence::Required, Some(1), None)
+            .into_option()
+            .unwrap_or_default(),
+        to_number: issues
+            .text(fields, "toNumber", Presence::Required, Some(1), None)
+            .into_option()
+            .unwrap_or_default(),
+        from_formatted: optional(issues, "fromNumberFormatted"),
+        to_formatted: optional(issues, "toNumberFormatted"),
+        customer_id: optional(issues, "customerId"),
+        contact_id: optional(issues, "contactId"),
+        opportunity_id: optional(issues, "opportunityId"),
+        is_recorded: issues
+            .boolean(fields, "isRecorded", Presence::Optional)
+            .into_option(),
+        notes: optional(issues, "notes"),
+        provider: optional(issues, "provider"),
+        desk_conversation_id: issues
+            .text(
+                fields,
+                "deskConversationId",
+                Presence::Optional,
+                Some(1),
+                None,
+            )
+            .into_option(),
+    }
 }
 
 /// `resolveMetering(env, workspaceId)`: the master database and the
@@ -327,6 +381,22 @@ async fn metering(caller: &Caller, state: &CallState) -> Option<(weldsuite_db::P
     }
 }
 
+/// Whether `number` is a live number of the customer's own phone system that
+/// Telnyx has not verified as caller id: such a number is a caller id only once
+/// it is.
+async fn unverified_trunk_number(caller: &Caller, number: &str) -> Result<bool, sqlx::Error> {
+    let found: Option<String> = sqlx::query_scalar(
+        "select id from voip_phone_numbers
+         where phone_number = $1 and provider = 'sip_trunk' and caller_id_verified_at is null
+             and deleted_at is null
+         limit 1",
+    )
+    .bind(crate::registry::normalize_e164(number))
+    .fetch_optional(&caller.db)
+    .await?;
+    Ok(found.is_some())
+}
+
 /// `POST /api/calls`: a call record, before the dialer dials. An outbound
 /// call needs a minute's credits in the wallet (402 otherwise).
 pub(crate) async fn create(
@@ -335,42 +405,7 @@ pub(crate) async fn create(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let data = match validate(&headers, &body, |issues, fields| {
-        let optional = |issues: &mut weldsuite_kit::validation::Issues, key: &str| {
-            issues
-                .text_with(fields, key, Presence::Optional, Text::default())
-                .into_option()
-        };
-        NewCall {
-            direction: issues
-                .choice(
-                    fields,
-                    "direction",
-                    Presence::Required,
-                    &["inbound", "outbound"],
-                )
-                .into_option()
-                .unwrap_or_default(),
-            from_number: issues
-                .text(fields, "fromNumber", Presence::Required, Some(1), None)
-                .into_option()
-                .unwrap_or_default(),
-            to_number: issues
-                .text(fields, "toNumber", Presence::Required, Some(1), None)
-                .into_option()
-                .unwrap_or_default(),
-            from_formatted: optional(issues, "fromNumberFormatted"),
-            to_formatted: optional(issues, "toNumberFormatted"),
-            customer_id: optional(issues, "customerId"),
-            contact_id: optional(issues, "contactId"),
-            opportunity_id: optional(issues, "opportunityId"),
-            is_recorded: issues
-                .boolean(fields, "isRecorded", Presence::Optional)
-                .into_option(),
-            notes: optional(issues, "notes"),
-            provider: optional(issues, "provider"),
-        }
-    }) {
+    let data = match validate(&headers, &body, read_new_call) {
         Ok(data) => data,
         Err(response) => return *response,
     };
@@ -391,14 +426,36 @@ pub(crate) async fn create(
             Err(error) => return internal(&error, "Internal server error"),
         }
     }
+    // Click-to-call: the conversation the call is placed from must exist.
+    if let Some(conversation) = data.desk_conversation_id.as_deref() {
+        let found: Result<Option<String>, sqlx::Error> =
+            sqlx::query_scalar("select id from desk_conversations where id = $1 limit 1")
+                .bind(conversation)
+                .fetch_optional(&caller.db)
+                .await;
+        match found {
+            Ok(Some(_)) => {}
+            Ok(None) => {
+                return ApiError::not_found("Conversation", Some(conversation)).into_response();
+            }
+            Err(error) => return internal(&error, "Internal server error"),
+        }
+    }
+    if data.direction == "outbound" && !data.from_number.is_empty() {
+        match unverified_trunk_number(&caller, &data.from_number).await {
+            Ok(false) => {}
+            Ok(true) => return crate::sip_trunks::caller_id_unverified(),
+            Err(error) => return internal(&error, "Internal server error"),
+        }
+    }
     let id = weldsuite_kit::generate_id("vcall");
     let now = now();
     let inserted = sqlx::query(
         "insert into voip_calls (id, user_id, provider, direction, status, from_number, to_number,
              from_number_formatted, to_number_formatted, customer_id, contact_id, opportunity_id,
-             is_recorded, notes, initiated_at, created_at, updated_at)
+             is_recorded, notes, initiated_at, created_at, updated_at, desk_conversation_id)
          values ($1, $2, $3, $4, 'initiated', $5, $6, $7, $8, $9, $10, $11, $12, $13,
-             $14::timestamp, $14::timestamp, $14::timestamp)",
+             $14::timestamp, $14::timestamp, $14::timestamp, $15)",
     )
     .bind(&id)
     .bind(&caller.user_id)
@@ -419,6 +476,7 @@ pub(crate) async fn create(
     .bind(data.is_recorded.unwrap_or(true))
     .bind(&data.notes)
     .bind(&now)
+    .bind(&data.desk_conversation_id)
     .execute(&caller.db)
     .await;
     match inserted {
@@ -429,6 +487,19 @@ pub(crate) async fn create(
                 &id,
                 &json!({ "id": id, "direction": data.direction, "toNumber": data.to_number, "status": "initiated" }),
             );
+            if let Some(conversation) = data.desk_conversation_id.as_deref()
+                && data.direction == "outbound"
+            {
+                let telnyx = caller.telnyx(&state);
+                let org = caller.org();
+                post_phone_message(
+                    &caller.phone(&state, &telnyx, &org),
+                    Some(conversation),
+                    format!("Outbound call to {}", data.to_number),
+                    json!({ "event": "call_outbound", "callId": id, "userId": caller.user_id }),
+                )
+                .await;
+            }
             Created(json!({ "id": id })).into_response()
         }
         Err(error) => internal(&error, "Failed to create call"),

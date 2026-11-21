@@ -348,13 +348,22 @@ export async function matchVendorToContact(
   schema: any,
   ocrResult: OcrResult,
 ): Promise<string | null> {
-  const { parties } = schema;
-  const { eq, or, and, isNull, ilike } = await import('drizzle-orm');
+  const { parties, companies } = schema;
+  const { eq, or, and, isNull, ilike, inArray } = await import('drizzle-orm');
 
   const conditions: any[] = [];
 
+  // A party has no tax number of its own: the VAT number is its company's.
   if (ocrResult.vendor.taxNumber) {
-    conditions.push(eq(parties.taxNumber, ocrResult.vendor.taxNumber));
+    conditions.push(
+      inArray(
+        parties.companyId,
+        db
+          .select({ id: companies.id })
+          .from(companies)
+          .where(and(eq(companies.vatNumber, ocrResult.vendor.taxNumber), isNull(companies.deletedAt))),
+      ),
+    );
   }
 
   if (ocrResult.vendor.iban || ocrResult.iban) {
@@ -362,8 +371,9 @@ export async function matchVendorToContact(
     conditions.push(eq(parties.iban, iban));
   }
 
+  // The party's name is its denormalised display name.
   if (ocrResult.vendor.name) {
-    conditions.push(ilike(parties.name, `%${ocrResult.vendor.name}%`));
+    conditions.push(ilike(parties.displayName, `%${escapeLike(ocrResult.vendor.name)}%`));
   }
 
   if (conditions.length === 0) return null;
@@ -375,6 +385,11 @@ export async function matchVendorToContact(
     .limit(1);
 
   return matches[0]?.id ?? null;
+}
+
+/** `value` as a literal inside an ILIKE pattern: `%`, `_` and `\` escaped. */
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 
 function asNumber(value: unknown): number | null {

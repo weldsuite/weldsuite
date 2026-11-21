@@ -38,7 +38,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import EmailHtmlView from '@/components/EmailHtmlView';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
 import { getMessage, markMessageRead, getThread } from '@/services/mail-tenant';
 import { isApiError } from '@weldsuite/api-client/client';
 import { useMailCache } from '@/hooks/useMailCache';
@@ -62,6 +62,7 @@ import { hideAppSplash } from '@/utils/splash';
 import { firstParam, stubEmailFromTarget } from '@/utils/notification-target';
 import { getNextVisibleMessageId } from '@/utils/next-email';
 import CloseArchiveButtons from '@/components/CloseArchiveButtons';
+import UnsubscribeSenderChip from '@/components/UnsubscribeSenderChip';
 
 // Icon component per attachment kind (see utils/attachment-visual).
 const ATTACHMENT_ICONS: Record<AttachmentKind, React.ComponentType<{ size?: number; color?: string; strokeWidth?: number }>> = {
@@ -953,6 +954,12 @@ function EmailDetailContent({ email, setEmail, threadMessages, bodyLoading, curr
           onToggleDetails={() => setShowEmailDetails(!showEmailDetails)}
         />
 
+        <UnsubscribeSenderChip
+          accountId={email?.emailAccountId || email?.accountId}
+          senderEmail={senderEmail}
+          style={styles.unsubscribeRow}
+        />
+
         {showEmailDetails && (
           <EmailDetailsPanel email={email} senderName={senderName} senderEmail={senderEmail} colors={colors} />
         )}
@@ -1031,7 +1038,7 @@ export default function EmailDetailScreen() {
   const preview = firstParam(params.preview);
   const router = useRouter();
   const { markInteractive } = useObserve();
-  const { organizationId } = useClerkAuth();
+  const { organizationId } = useAuthSession();
   const { refreshMail } = useMail();
   const cache = useMailCache();
 

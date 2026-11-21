@@ -2,7 +2,7 @@
 
 /**
  * Where WeldMail sends are read from (design doc
- * docs/plans/weldmail-mailbox-store-design.md §9 task E2):
+ * weldsuite-documentation/plans/weldmail-mailbox-store-design.md §9 task E2):
  *  - `postgres` (default): today's behaviour, unchanged — `mail_messages` for
  *    every mailbox, no mail-store admin calls at all.
  *  - `export`: every mailbox is read through the mail-store admin export

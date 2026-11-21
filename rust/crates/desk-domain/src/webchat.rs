@@ -268,8 +268,31 @@ async fn reporting_times(
 /// `appendDeskMessage(db, input)`: append to the timeline and move the
 /// conversation's state with it. Also re-derives the SLA clocks
 /// ([`crate::sla::refresh`]) when the append can move one.
-#[allow(clippy::too_many_lines)] // the TypeScript function, step by step
 pub async fn append(db: &PgPool, input: Append<'_>) -> Result<Appended, AppendError> {
+    // Without a fixed id the insert always writes.
+    append_as(db, input, None)
+        .await?
+        .ok_or(AppendError::NotFound)
+}
+
+/// `appendDeskMessage(db, { ...input, messageId })`: an entry the timeline
+/// may hold once. A second append with the same id writes nothing: `None`
+/// (TypeScript throws `DeskMessageExistsError`). The primary key decides, so
+/// two appends at the same time cannot both win.
+pub async fn append_once(
+    db: &PgPool,
+    input: Append<'_>,
+    message_id: &str,
+) -> Result<Option<Appended>, AppendError> {
+    append_as(db, input, Some(message_id)).await
+}
+
+#[allow(clippy::too_many_lines)] // the TypeScript function, step by step
+async fn append_as(
+    db: &PgPool,
+    input: Append<'_>,
+    fixed_id: Option<&str>,
+) -> Result<Option<Appended>, AppendError> {
     let current: Option<Value> =
         sqlx::query_scalar("select to_jsonb(t) from desk_conversations t where t.id = $1 limit 1")
             .bind(input.conversation_id)
@@ -366,7 +389,10 @@ pub async fn append(db: &PgPool, input: Append<'_>) -> Result<Appended, AppendEr
     };
 
     let mut message = Map::new();
-    message.insert("id".to_owned(), json!(generate_id("dmsg")));
+    message.insert(
+        "id".to_owned(),
+        json!(fixed_id.map_or_else(|| generate_id("dmsg"), str::to_owned)),
+    );
     message.insert("created_at".to_owned(), json!(now));
     message.insert("conversation_id".to_owned(), json!(conversation_id));
     message.insert("kind".to_owned(), json!(input.kind));
@@ -384,7 +410,16 @@ pub async fn append(db: &PgPool, input: Append<'_>) -> Result<Appended, AppendEr
         input.attachments.map_or(Value::Null, Value::Array),
     );
     message.insert("metadata".to_owned(), metadata);
-    let message = DESK_MESSAGES.insert(db, message, &["createdAt"]).await?;
+    let message = match DESK_MESSAGES.insert(db, message, &["createdAt"]).await {
+        Ok(message) => message,
+        // `on conflict (id) do nothing`: the entry is on the timeline already.
+        Err(WriteError::Database(sqlx::Error::Database(error)))
+            if fixed_id.is_some() && error.is_unique_violation() =>
+        {
+            return Ok(None);
+        }
+        Err(error) => return Err(error.into()),
+    };
 
     let times = reporting_times(
         db,
@@ -422,7 +457,7 @@ pub async fn append(db: &PgPool, input: Append<'_>) -> Result<Appended, AppendEr
     } else {
         None
     };
-    Ok(match sla {
+    Ok(Some(match sla {
         Some(refreshed) => Appended {
             conversation: refreshed.conversation.unwrap_or(conversation),
             message,
@@ -433,7 +468,7 @@ pub async fn append(db: &PgPool, input: Append<'_>) -> Result<Appended, AppendEr
             message,
             sla_check_at: None,
         },
-    })
+    }))
 }
 
 /// `getDeskConversation(db, id, { includeMessages })`.
@@ -533,7 +568,7 @@ pub struct NewConversation<'a> {
 }
 
 /// A Postgres unique violation (`23505`).
-fn unique_violation(error: &WriteError) -> bool {
+pub(crate) fn unique_violation(error: &WriteError) -> bool {
     matches!(
         error,
         WriteError::Database(sqlx::Error::Database(db)) if db.code().as_deref() == Some("23505")
@@ -1035,9 +1070,11 @@ pub fn author_from_member(name: Option<&str>, picture: Option<&str>) -> Author {
 }
 
 /// `resolveAuthors(db, userIds)`: the display name and avatar of each
-/// teammate among `user_ids`, by user id.
+/// teammate among `user_ids`, by user id. The avatar is the account picture
+/// (`master`), not the member row's copy.
 pub async fn resolve_authors(
     db: &PgPool,
+    master: Option<&PgPool>,
     user_ids: &[Option<&str>],
 ) -> Result<HashMap<String, Author>, sqlx::Error> {
     let mut ids: Vec<String> = Vec::new();
@@ -1050,23 +1087,23 @@ pub async fn resolve_authors(
     if ids.is_empty() {
         return Ok(authors);
     }
-    let rows: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
-        "select user_id, name, picture from workspace_members where user_id = any($1)",
-    )
-    .bind(&ids)
-    .fetch_all(db)
-    .await?;
-    for (user_id, name, picture) in rows {
-        authors.insert(
-            user_id,
-            author_from_member(name.as_deref(), picture.as_deref()),
-        );
+    let rows: Vec<(String, Option<String>)> =
+        sqlx::query_as("select user_id, name from workspace_members where user_id = any($1)")
+            .bind(&ids)
+            .fetch_all(db)
+            .await?;
+    let pictures =
+        weldsuite_db::AccountPictures::load(master, rows.iter().map(|(user_id, _)| user_id)).await;
+    for (user_id, name) in rows {
+        let author = author_from_member(name.as_deref(), pictures.get(&user_id));
+        authors.insert(user_id, author);
     }
     Ok(authors)
 }
 
-/// `isPublicDeskMessage`: notes, ticket-field changes, SLA events and
-/// linked-ticket changes (links, merges, major incidents) stay with the team.
+/// `isPublicDeskMessage`: notes, ticket-field changes, SLA events,
+/// linked-ticket changes (links, merges, major incidents), problem links and
+/// a service request's approval and fulfilment events stay with the team.
 pub fn is_public(message: &Value) -> bool {
     if message["kind"] == "note" {
         return false;
@@ -1084,6 +1121,12 @@ pub fn is_public(message: &Value) -> bool {
                 | "merged_from"
                 | "incident_marked"
                 | "incident_unmarked"
+                | "problem_linked"
+                | "problem_unlinked"
+                | "approval_requested"
+                | "approval_approved"
+                | "approval_rejected"
+                | "fulfilment_started"
         )
     );
     !(message["kind"] == "event" && internal)

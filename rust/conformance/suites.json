@@ -370,6 +370,41 @@
       ]
     },
     {
+      "name": "agent",
+      "module": "agent",
+      "workspace": "apps/workers/agent-api",
+      "tests": [
+        "src/routes/weldagent/agents.integration.test.ts",
+        "src/routes/weldagent/access.integration.test.ts",
+        "src/routes/weldagent/conversations.integration.test.ts",
+        "src/routes/weldagent/parity.integration.test.ts",
+        "src/routes/weldagent/coverage.integration.test.ts",
+        "src/routes/ai/chat.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/agent-api/src/routes/weldagent/",
+        "apps/workers/agent-api/src/routes/ai/index.ts",
+        "apps/workers/agent-api/src/services/weldagent/",
+        "packages/domains/agent/src/",
+        "packages/domains/core/src/agent-access.ts",
+        "packages/clients/app-api-client/src/schemas/workspace-agents.ts",
+        "packages/clients/app-api-client/src/schemas/weldagent.ts",
+        "packages/clients/app-api-client/src/schemas/weldagent-parity.ts",
+        "rust/modules/agent/",
+        "rust/crates/chat-domain/src/agents.rs"
+      ],
+      "excludedRoutes": [
+        {
+          "route": "POST /api/weldagent/agents/:id/run",
+          "reason": "Runs the model. Global runs it on Claude Managed Agents (the Anthropic SDK), which the OpenAI-compatible mock model cannot stand in for; Rust runs its own loop over weldsuite-ai, tested in Rust on FakeProvider."
+        },
+        {
+          "route": "POST /api/weldagent/conversations/:conversationId/complete-turn",
+          "reason": "Generates the reply with the model: Managed Agents on Global (not mockable over HTTP), the Rust loop here (tested on FakeProvider)."
+        }
+      ]
+    },
+    {
       "name": "docs",
       "module": "docs",
       "workspace": "apps/workers/docs-api",
@@ -399,6 +434,7 @@
         "packages/clients/app-api-client/src/schemas/sheets.ts",
         "packages/clients/app-api-client/src/schemas/sheet-data.ts",
         "packages/core/sheets-engine/src/",
+        "packages/domains/forms/src/",
         "packages/core/worker-kit/src/testing/ledger-bridge.ts",
         "packages/core/worker-kit/src/testing/write-isolation.ts",
         "rust/catalogs/sheet-data.json",
@@ -412,7 +448,8 @@
       "module": "board",
       "workspace": "apps/workers/board-api",
       "tests": [
-        "src/routes/boards/index.test.ts"
+        "src/routes/boards/index.test.ts",
+        "src/routes/boards/ai-model.test.ts"
       ],
       "paths": [
         "apps/workers/board-api/src/",
@@ -426,12 +463,7 @@
         "rust/crates/adapters-oss/src/collab.rs",
         "rust/bins/weldsuite/src/collab.rs"
       ],
-      "excludedRoutes": [
-        {
-          "route": "POST /api/boards/:id/ai",
-          "reason": "The AI actions run on @weldsuite/ai (Workers AI and the Cloudflare AI Gateway), which the Kubernetes editions do not have. Rust answers the refusals before the model as TypeScript does (validation, 403, 404, a missing prompt) and then 503 AI_NOT_CONFIGURED, as the worker does without a gateway; /config.json lists agent-ai as unavailable and the board editor hides its AI menu there (useBoardExtensions). Tested on TypeScript in src/routes/boards/ai.test.ts."
-        }
-      ]
+      "excludedRoutes": []
     },
     {
       "name": "core: files, folders and drive",
@@ -493,17 +525,17 @@
         "apps/workers/app-api/src/routes/search/",
         "apps/workers/app-api/src/services/search.ts",
         "apps/workers/app-api/src/services/search/query-understanding.ts",
+        "apps/workers/app-api/src/services/search/indexer.ts",
+        "apps/workers/app-api/src/services/search/documents.ts",
+        "apps/workers/app-api/src/services/search/custom-object-documents.ts",
         "apps/workers/app-api/src/services/member-apps.ts",
         "packages/clients/app-api-client/src/schemas/search.ts",
         "packages/domains/core/src/drive-access.ts",
+        "packages/core/ai/src/testing/",
         "rust/modules/core-files/",
-        "rust/crates/core-domain/"
-      ],
-      "excludedRoutes": [
-        {
-          "route": "POST /api/search/reindex",
-          "reason": "Needs an AI port for embeddings; not served on the Kubernetes editions, and /config.json lists search-reindex as unavailable."
-        }
+        "rust/crates/core-domain/",
+        "rust/crates/subscribers/src/search/",
+        "rust/crates/ai/"
       ]
     },
     {
@@ -780,38 +812,6 @@
           "reason": "WeldMail custom domains are Cloudflare Email Routing and DNS on Global and differ by edition (ADR MAIL-010); not served on the Kubernetes editions, and /config.json lists mail-domains as unavailable."
         },
         {
-          "route": "POST /api/mail-ai/auto-draft",
-          "reason": "Needs an AI port the Rust backend does not have yet; not served on the Kubernetes editions, and /config.json lists mail-ai as unavailable."
-        },
-        {
-          "route": "POST /api/mail-ai/draft",
-          "reason": "Needs an AI port the Rust backend does not have yet; not served on the Kubernetes editions, and /config.json lists mail-ai as unavailable."
-        },
-        {
-          "route": "POST /api/mail-ai/improve-text",
-          "reason": "Needs an AI port the Rust backend does not have yet; not served on the Kubernetes editions, and /config.json lists mail-ai as unavailable."
-        },
-        {
-          "route": "POST /api/mail-ai/inbox-summary",
-          "reason": "Needs an AI port the Rust backend does not have yet; not served on the Kubernetes editions, and /config.json lists mail-ai as unavailable."
-        },
-        {
-          "route": "POST /api/mail-ai/label",
-          "reason": "Needs an AI port the Rust backend does not have yet; not served on the Kubernetes editions, and /config.json lists mail-ai as unavailable."
-        },
-        {
-          "route": "POST /api/mail-ai/label/batch",
-          "reason": "Needs an AI port the Rust backend does not have yet; not served on the Kubernetes editions, and /config.json lists mail-ai as unavailable."
-        },
-        {
-          "route": "POST /api/mail-ai/reply",
-          "reason": "Needs an AI port the Rust backend does not have yet; not served on the Kubernetes editions, and /config.json lists mail-ai as unavailable."
-        },
-        {
-          "route": "POST /api/mail-ai/smart-replies",
-          "reason": "Needs an AI port the Rust backend does not have yet; not served on the Kubernetes editions, and /config.json lists mail-ai as unavailable."
-        },
-        {
           "route": "POST /api/mail-domains",
           "reason": "WeldMail custom domains are Cloudflare Email Routing and DNS on Global and differ by edition (ADR MAIL-010); not served on the Kubernetes editions, and /config.json lists mail-domains as unavailable."
         },
@@ -913,6 +913,23 @@
       ]
     },
     {
+      "name": "mail: ai",
+      "module": "mail",
+      "workspace": "apps/workers/mail-api",
+      "tests": [
+        "src/routes/mail-ai/access.test.ts",
+        "src/routes/mail-ai/routes.test.ts"
+      ],
+      "paths": [
+        "apps/workers/mail-api/src/",
+        "packages/domains/mail/src/",
+        "packages/core/ai/src/",
+        "rust/modules/mail/",
+        "rust/crates/mail-domain/",
+        "rust/crates/ai/"
+      ]
+    },
+    {
       "name": "crm: sequences",
       "module": "crm",
       "workspace": "apps/workers/crm-api",
@@ -1010,55 +1027,29 @@
         "rust/modules/chat/",
         "rust/crates/chat-domain/",
         "rust/crates/notifications/"
+      ]
+    },
+    {
+      "name": "chat: calls",
+      "module": "chat",
+      "workspace": "apps/workers/chat-api",
+      "tests": [
+        "src/routes/chat-calls/routes.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/chat-api/src/",
+        "packages/domains/chat/src/",
+        "packages/core/notifications/src/",
+        "packages/core/cloudflare-realtime/src/",
+        "rust/modules/chat/",
+        "rust/crates/chat-domain/",
+        "rust/crates/notifications/",
+        "rust/crates/video-rooms/"
       ],
       "excludedRoutes": [
         {
-          "route": "GET /api/chat-calls/:callId",
-          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (isFeatureAvailable('chat-calls') in apps/web/platform/lib/edition.ts). Comes with LiveKit in the call UI (P6)."
-        },
-        {
-          "route": "GET /api/chat-calls/active",
-          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (isFeatureAvailable('chat-calls') in apps/web/platform/lib/edition.ts). Comes with LiveKit in the call UI (P6)."
-        },
-        {
-          "route": "GET /api/chat-calls/active/:channelId",
-          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (isFeatureAvailable('chat-calls') in apps/web/platform/lib/edition.ts). Comes with LiveKit in the call UI (P6)."
-        },
-        {
-          "route": "GET /api/chat-calls/history",
-          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (isFeatureAvailable('chat-calls') in apps/web/platform/lib/edition.ts). Comes with LiveKit in the call UI (P6)."
-        },
-        {
-          "route": "POST /api/chat-calls",
-          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (isFeatureAvailable('chat-calls') in apps/web/platform/lib/edition.ts). Comes with LiveKit in the call UI (P6)."
-        },
-        {
-          "route": "POST /api/chat-calls/:callId/decline",
-          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (isFeatureAvailable('chat-calls') in apps/web/platform/lib/edition.ts). Comes with LiveKit in the call UI (P6)."
-        },
-        {
-          "route": "POST /api/chat-calls/:callId/end",
-          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (isFeatureAvailable('chat-calls') in apps/web/platform/lib/edition.ts). Comes with LiveKit in the call UI (P6)."
-        },
-        {
-          "route": "POST /api/chat-calls/:callId/join",
-          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (isFeatureAvailable('chat-calls') in apps/web/platform/lib/edition.ts). Comes with LiveKit in the call UI (P6)."
-        },
-        {
-          "route": "POST /api/chat-calls/:callId/leave",
-          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (isFeatureAvailable('chat-calls') in apps/web/platform/lib/edition.ts). Comes with LiveKit in the call UI (P6)."
-        },
-        {
-          "route": "POST /api/chat-calls/:callId/prepare",
-          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (isFeatureAvailable('chat-calls') in apps/web/platform/lib/edition.ts). Comes with LiveKit in the call UI (P6)."
-        },
-        {
-          "route": "POST /api/chat-calls/start-and-join",
-          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (isFeatureAvailable('chat-calls') in apps/web/platform/lib/edition.ts). Comes with LiveKit in the call UI (P6)."
-        },
-        {
           "route": "POST /public/chat-calls/decline",
-          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (isFeatureAvailable('chat-calls') in apps/web/platform/lib/edition.ts). Comes with LiveKit in the call UI (P6)."
+          "reason": "The phone lock screen's Decline, credentialed by a ring token signed with CALL_RING_SECRET that expires two minutes after the ring, so its push payload differs per run; served by both backends, and Rust tests the token (rust/modules/chat/src/calls/ring.rs) and the decline the signed-in route shares (POST /api/chat-calls/:callId/decline, compared here). public-decline.integration.test.ts covers it on the worker."
         }
       ]
     },
@@ -1270,6 +1261,9 @@
         "src/routes/helpdesk-email/routes.test.ts",
         "src/routes/helpdesk-analytics/routes.test.ts",
         "src/routes/helpdesk-analytics/reports.integration.test.ts",
+        "src/routes/helpdesk-analytics/live.integration.test.ts",
+        "src/routes/helpdesk-analytics/export.integration.test.ts",
+        "src/routes/helpdesk-analytics/schedules.integration.test.ts",
         "src/routes/helpdesk-settings/priority-matrix.integration.test.ts"
       ],
       "paths": [
@@ -1281,12 +1275,22 @@
         "apps/workers/desk-api/src/routes/helpdesk-email/",
         "apps/workers/desk-api/src/routes/helpdesk-analytics/",
         "apps/workers/desk-api/src/services/desk-reports.ts",
+        "apps/workers/desk-api/src/services/desk-wallboard.ts",
+        "apps/workers/desk-api/src/services/desk-phone-report.ts",
+        "apps/workers/desk-api/src/services/desk-report-export.ts",
+        "apps/workers/desk-api/src/services/desk-report-schedules.ts",
+        "apps/workers/desk-api/src/lib/report-due.ts",
+        "apps/workers/desk-api/src/test/",
+        "packages/core/worker-kit/src/csv.ts",
+        "packages/core/emails/src/templates/desk/",
         "packages/core/db/src/lib/desk-assignment.ts",
         "packages/core/db/src/lib/desk-priority-matrix.ts",
         "packages/core/db/src/lib/desk-routing.ts",
         "packages/clients/core-api-client/src/schemas/",
         "rust/modules/desk/",
-        "rust/crates/desk-domain/"
+        "rust/crates/desk-domain/",
+        "rust/crates/emails/",
+        "rust/catalogs/emails/"
       ],
       "excludedRoutes": [
         {
@@ -1313,6 +1317,7 @@
         "src/routes/desk-conversations/sla.integration.test.ts",
         "src/routes/desk-conversations/reporting-times.integration.test.ts",
         "src/routes/desk-conversations/reply-translation.integration.test.ts",
+        "src/routes/desk-conversations/translation.integration.test.ts",
         "src/routes/desk-conversations/priority-matrix.integration.test.ts",
         "src/routes/desk-conversations/links.integration.test.ts",
         "src/routes/desk-conversations/routing.integration.test.ts",
@@ -1346,15 +1351,53 @@
         "rust/crates/desk-domain/",
         "rust/crates/core-domain/src/custom_field_values.rs"
       ],
-      "excludedRoutes": [
-        {
-          "route": "POST /api/desk/conversations/:id/translate",
-          "reason": "Inbox AI translation runs on @weldsuite/ai (Workers AI through the Cloudflare AI Gateway) and charges AI credits; the Kubernetes editions have no AI provider (ADR AI-011), so Rust answers 503 ai_unavailable and /config.json lists desk-ai as unavailable (the platform hides translation). Tested on TypeScript in desk-conversations/translation.test.ts."
-        },
-        {
-          "route": "POST /api/desk/conversations/:id/translate-reply",
-          "reason": "Inbox AI translation runs on @weldsuite/ai (Workers AI through the Cloudflare AI Gateway) and charges AI credits; the Kubernetes editions have no AI provider (ADR AI-011), so Rust answers 503 ai_unavailable and /config.json lists desk-ai as unavailable (the platform hides translation). Tested on TypeScript in desk-conversations/translation.test.ts."
-        }
+      "excludedRoutes": []
+    },
+    {
+      "name": "desk: problems",
+      "module": "desk",
+      "workspace": "apps/workers/desk-api",
+      "tests": [
+        "src/routes/desk-problems/problems.integration.test.ts",
+        "src/routes/desk-conversations/problem.integration.test.ts"
+      ],
+      "coverage": [
+        "/api/desk/problems",
+        "/api/desk/conversations/:id/problem"
+      ],
+      "paths": [
+        "apps/workers/desk-api/src/routes/desk-problems/",
+        "apps/workers/desk-api/src/routes/desk-conversations/problem.ts",
+        "packages/core/db/src/lib/desk-problems.ts",
+        "packages/clients/core-api-client/src/schemas/",
+        "rust/modules/desk/",
+        "rust/crates/desk-domain/"
+      ]
+    },
+    {
+      "name": "desk: service catalogue",
+      "module": "desk",
+      "workspace": "apps/workers/desk-api",
+      "tests": [
+        "src/routes/desk-catalog/catalog.integration.test.ts",
+        "src/routes/desk-conversations/request.integration.test.ts"
+      ],
+      "coverage": [
+        "/api/desk/catalog",
+        "/api/desk/conversations/:id/request",
+        "/api/desk/conversations/:id/catalog-item",
+        "/api/desk/conversations/:id/approval",
+        "/api/desk/conversations/:id/fulfilment"
+      ],
+      "paths": [
+        "apps/workers/desk-api/src/routes/desk-catalog/",
+        "apps/workers/desk-api/src/routes/desk-conversations/request.ts",
+        "packages/core/db/src/lib/desk-catalog.ts",
+        "packages/domains/desk/src/catalog.ts",
+        "packages/clients/core-api-client/src/schemas/",
+        "rust/modules/desk/",
+        "rust/crates/desk-domain/",
+        "rust/crates/flow-domain/"
       ]
     },
     {
@@ -1363,7 +1406,8 @@
       "workspace": "apps/workers/desk-api",
       "tests": [
         "src/cron/sla-sweep.due-index.test.ts",
-        "src/cron/escalation-sweep.due-index.test.ts"
+        "src/cron/escalation-sweep.due-index.test.ts",
+        "src/cron/report-schedule-sweep.due-index.test.ts"
       ],
       "paths": [
         "apps/workers/desk-api/src/cron/",
@@ -1377,8 +1421,15 @@
         "packages/core/db/src/lib/desk-assignment.ts",
         "packages/core/notifications/src/helpers/helpdesk.ts",
         "packages/core/worker-kit/src/testing/conformance-cron.ts",
+        "apps/workers/desk-api/src/services/desk-reports.ts",
+        "apps/workers/desk-api/src/services/desk-report-export.ts",
+        "apps/workers/desk-api/src/services/desk-report-schedules.ts",
+        "apps/workers/desk-api/src/test/",
+        "packages/core/emails/src/templates/desk/",
         "rust/modules/desk/",
         "rust/crates/desk-domain/",
+        "rust/crates/emails/",
+        "rust/catalogs/emails/",
         "rust/bins/weldsuite/src/conformance.rs"
       ]
     },
@@ -1481,6 +1532,18 @@
         },
         {
           "route": "POST /api/portal/requests/:id/messages",
+          "reason": "The signed-in help center (ADR DESK-010): only the help center's server (apps/web/helpcenter) calls it, over its WIDGET_API service binding, and the routes refuse a request that reached the public host. The help center has no Kubernetes deployment (only the sign portal has an image in rust/deploy/helm), so nothing on the Kubernetes editions calls these routes; they are ported with the help center. Tested on TypeScript in routes/portal.test.ts."
+        },
+        {
+          "route": "GET /api/portal/catalog",
+          "reason": "The signed-in help center (ADR DESK-010): only the help center's server (apps/web/helpcenter) calls it, over its WIDGET_API service binding, and the routes refuse a request that reached the public host. The help center has no Kubernetes deployment (only the sign portal has an image in rust/deploy/helm), so nothing on the Kubernetes editions calls these routes; they are ported with the help center. Tested on TypeScript in routes/portal.test.ts."
+        },
+        {
+          "route": "GET /api/portal/catalog/:id",
+          "reason": "The signed-in help center (ADR DESK-010): only the help center's server (apps/web/helpcenter) calls it, over its WIDGET_API service binding, and the routes refuse a request that reached the public host. The help center has no Kubernetes deployment (only the sign portal has an image in rust/deploy/helm), so nothing on the Kubernetes editions calls these routes; they are ported with the help center. Tested on TypeScript in routes/portal.test.ts."
+        },
+        {
+          "route": "POST /api/portal/catalog/:id/requests",
           "reason": "The signed-in help center (ADR DESK-010): only the help center's server (apps/web/helpcenter) calls it, over its WIDGET_API service binding, and the routes refuse a request that reached the public host. The help center has no Kubernetes deployment (only the sign portal has an image in rust/deploy/helm), so nothing on the Kubernetes editions calls these routes; they are ported with the help center. Tested on TypeScript in routes/portal.test.ts."
         }
       ]
@@ -1854,6 +1917,56 @@
       ]
     },
     {
+      "name": "core: audit-log-streams",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/audit-log-streams/audit-log-streams.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/audit-log-streams/",
+        "packages/clients/core-api-client/src/schemas/audit-log-streams.ts",
+        "packages/domains/core/src/audit-streams.ts",
+        "packages/core/worker-kit/src/safe-url.ts",
+        "rust/modules/core-platform/src/groups/audit_log_streams.rs",
+        "rust/crates/subscribers/src/audit_streams.rs",
+        "rust/crates/subscribers/src/safe_url.rs"
+      ]
+    },
+    {
+      "name": "core: asset-sources",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/asset-sources/asset-sources.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/asset-sources/",
+        "packages/clients/core-api-client/src/schemas/asset-sources.ts",
+        "packages/domains/core/src/asset-sources.ts",
+        "rust/modules/core-objects/src/asset_sources/"
+      ]
+    },
+    {
+      "name": "core: asset import sweep",
+      "module": "core",
+      "workspace": "apps/workers/desk-api",
+      "tests": [
+        "src/cron/asset-import-sweep.due-index.test.ts"
+      ],
+      "paths": [
+        "apps/workers/desk-api/src/cron/asset-import-sweep.ts",
+        "apps/workers/desk-api/src/cron/asset-import-sweep.due-index.test.ts",
+        "packages/domains/core/src/asset-sources.ts",
+        "packages/core/db/src/lib/custom-objects.ts",
+        "packages/core/db/src/lib/custom-field-values.ts",
+        "packages/core/worker-kit/src/due-index.ts",
+        "packages/core/worker-kit/src/testing/conformance-cron.ts",
+        "rust/modules/core-objects/",
+        "rust/crates/db/src/due_index.rs"
+      ]
+    },
+    {
       "name": "core: appstore",
       "module": "core",
       "workspace": "apps/workers/app-api",
@@ -1926,7 +2039,8 @@
         "packages/core/credits/src/index.ts",
         "packages/core/worker-kit/src/billing-worker.ts",
         "packages/clients/app-api-client/src/schemas/credits.ts",
-        "rust/modules/core-platform/src/groups/credits.rs"
+        "rust/modules/core-platform/src/groups/credits.rs",
+        "rust/modules/core-platform/src/topup/"
       ]
     },
     {
@@ -2052,9 +2166,6 @@
         "apps/workers/stash-api/src/routes/pick-lists/",
         "apps/workers/stash-api/src/services/",
         "packages/clients/core-api-client/src/schemas/pick-lists.ts",
-        "packages/clients/app-api-client/src/schemas/sendcloud.ts",
-        "packages/core/sendcloud/src/",
-        "packages/core/db/src/lib/crypto.ts",
         "apps/workers/stash-api/src/test/",
         "apps/workers/stash-api/src/types.ts",
         "packages/clients/app-api-client/src/schemas/stash-responses.ts",
@@ -2062,189 +2173,19 @@
       ]
     },
     {
-      "name": "commerce: catalog",
-      "module": "commerce",
-      "workspace": "apps/workers/commerce-api",
+      "name": "stash: products",
+      "module": "stash",
+      "workspace": "apps/workers/stash-api",
       "tests": [
-        "src/routes/products/integration.test.ts",
-        "src/routes/products/sales-channels.test.ts",
-        "src/routes/categories/integration.test.ts",
-        "src/routes/categories/routes.test.ts"
+        "src/routes/products/integration.test.ts"
       ],
       "paths": [
-        "apps/workers/commerce-api/src/routes/products/",
-        "apps/workers/commerce-api/src/routes/categories/",
-        "apps/workers/commerce-api/src/services/product-categories.ts",
-        "apps/workers/commerce-api/src/services/connectors/",
-        "packages/core/connectors/src/",
-        "packages/domains/connect/src/connectors/",
-        "packages/clients/app-api-client/src/schemas/product-categories.ts",
-        "packages/domains/commerce/src/",
-        "packages/clients/core-api-client/src/schemas/",
-        "rust/modules/commerce/",
-        "rust/crates/commerce-domain/",
-        "packages/core/worker-kit/src/testing/conformance-schemas-commerce.ts",
-        "packages/core/worker-kit/src/testing/conformance-schemas-commerce-shipping.ts",
-        "packages/clients/app-api-client/src/schemas/commerce-responses.ts",
-        "packages/clients/app-api-client/src/schemas/commerce-shipping-responses.ts"
-      ]
-    },
-    {
-      "name": "commerce: orders",
-      "module": "commerce",
-      "workspace": "apps/workers/commerce-api",
-      "tests": [
-        "src/routes/orders/integration.test.ts",
-        "src/routes/orders/calculate-tax.integration.test.ts",
-        "src/routes/orders/routes.test.ts"
-      ],
-      "paths": [
-        "apps/workers/commerce-api/src/routes/orders/",
-        "apps/workers/commerce-api/src/services/order-sales-tax.ts",
-        "apps/workers/commerce-api/src/services/order-sales-tax-fixtures.ts",
-        "packages/domains/books/src/sales-tax/",
-        "packages/domains/books/src/jurisdictions/",
-        "packages/domains/books/src/accounting-address.ts",
-        "packages/domains/commerce/src/",
-        "packages/clients/core-api-client/src/schemas/",
-        "rust/modules/commerce/",
-        "rust/crates/commerce-domain/",
-        "packages/core/worker-kit/src/testing/conformance-schemas-commerce.ts",
-        "packages/core/worker-kit/src/testing/conformance-schemas-commerce-shipping.ts",
-        "packages/clients/app-api-client/src/schemas/commerce-responses.ts",
-        "packages/clients/app-api-client/src/schemas/commerce-shipping-responses.ts",
-        "packages/domains/core/src/legal-entities/",
-        "rust/crates/legal-entities/"
-      ]
-    },
-    {
-      "name": "commerce: shipping",
-      "module": "commerce",
-      "workspace": "apps/workers/commerce-api",
-      "tests": [
-        "src/routes/_sweeps.test.ts",
-        "src/routes/carriers/routes.test.ts",
-        "src/routes/return-reasons/routes.test.ts",
-        "src/routes/return-rules/routes.test.ts",
-        "src/routes/pickups/routes.test.ts",
-        "src/routes/returns/routes.test.ts",
-        "src/routes/shipments/routes.test.ts",
-        "src/routes/shipping-rules/routes.test.ts",
-        "src/routes/shipping-prices/routes.test.ts",
-        "src/routes/parcels/routes.test.ts",
-        "src/routes/parcel-analytics/routes.test.ts",
-        "src/routes/parcel-notifications/routes.test.ts",
-        "src/routes/parcel-rates/routes.test.ts",
-        "src/routes/parcel-settings/routes.test.ts",
-        "src/routes/parcel-wallet/routes.test.ts"
-      ],
-      "coverage": [
-        "/api/carriers",
-        "/api/return-reasons",
-        "/api/return-rules",
-        "/api/pickups",
-        "/api/returns",
-        "/api/shipments",
-        "/api/shipping-rules",
-        "/api/shipping-prices",
-        "/api/parcels",
-        "/api/parcel-analytics",
-        "/api/parcel-notifications",
-        "/api/parcel-rates",
-        "/api/parcel-settings",
-        "/api/parcel-wallet"
-      ],
-      "paths": [
-        "apps/workers/commerce-api/src/routes/carriers/",
-        "apps/workers/commerce-api/src/routes/return-reasons/",
-        "apps/workers/commerce-api/src/routes/return-rules/",
-        "apps/workers/commerce-api/src/routes/pickups/",
-        "apps/workers/commerce-api/src/routes/returns/",
-        "apps/workers/commerce-api/src/routes/shipments/",
-        "apps/workers/commerce-api/src/routes/shipping-rules/",
-        "apps/workers/commerce-api/src/routes/shipping-prices/",
-        "apps/workers/commerce-api/src/routes/parcels/",
-        "apps/workers/commerce-api/src/routes/parcel-analytics/",
-        "apps/workers/commerce-api/src/routes/parcel-notifications/",
-        "apps/workers/commerce-api/src/routes/parcel-rates/",
-        "apps/workers/commerce-api/src/routes/parcel-settings/",
-        "apps/workers/commerce-api/src/routes/parcel-wallet/",
-        "apps/workers/commerce-api/src/routes/_sweeps.test.ts",
-        "packages/clients/app-api-client/src/schemas/parcel-notifications.ts",
-        "packages/clients/app-api-client/src/schemas/parcel-rates.ts",
-        "packages/clients/app-api-client/src/schemas/parcel-settings.ts",
-        "packages/clients/app-api-client/src/schemas/parcel-wallet.ts",
-        "apps/workers/commerce-api/src/testing/shipping-crud-suite.ts",
-        "packages/domains/commerce/src/",
-        "packages/clients/core-api-client/src/schemas/",
-        "rust/modules/commerce/",
-        "rust/crates/commerce-domain/",
-        "packages/core/worker-kit/src/testing/conformance-schemas-commerce.ts",
-        "packages/core/worker-kit/src/testing/conformance-schemas-commerce-shipping.ts",
-        "packages/clients/app-api-client/src/schemas/commerce-responses.ts",
-        "packages/clients/app-api-client/src/schemas/commerce-shipping-responses.ts"
-      ]
-    },
-    {
-      "name": "commerce: integrations",
-      "module": "commerce",
-      "workspace": "apps/workers/commerce-api",
-      "tests": [
-        "src/routes/sendcloud/integration.test.ts",
-        "src/routes/sendcloud/routes.test.ts",
-        "src/routes/printnode/routes.test.ts",
-        "src/routes/webhooks-woocommerce-auth.test.ts"
-      ],
-      "paths": [
-        "apps/workers/commerce-api/src/routes/sendcloud/",
-        "apps/workers/commerce-api/src/routes/printnode/",
-        "apps/workers/commerce-api/src/services/printnode.ts",
-        "apps/workers/commerce-api/src/routes/webhooks-woocommerce-auth.ts",
-        "packages/core/sendcloud/src/",
-        "packages/clients/app-api-client/src/schemas/sendcloud.ts",
-        "packages/domains/commerce/src/",
-        "packages/clients/core-api-client/src/schemas/",
-        "rust/modules/commerce/",
-        "rust/crates/commerce-domain/",
-        "packages/core/worker-kit/src/testing/conformance-schemas-commerce.ts",
-        "packages/core/worker-kit/src/testing/conformance-schemas-commerce-shipping.ts",
-        "packages/clients/app-api-client/src/schemas/commerce-responses.ts",
-        "packages/clients/app-api-client/src/schemas/commerce-shipping-responses.ts"
-      ]
-    },
-    {
-      "name": "commerce: portal",
-      "module": "commerce",
-      "workspace": "apps/workers/commerce-api",
-      "tests": [
-        "src/routes/public-commerce-portal/integration.test.ts",
-        "src/routes/public-commerce-portal/routes.test.ts",
-        "src/routes/commerce-portal/routes.test.ts"
-      ],
-      "paths": [
-        "apps/workers/commerce-api/src/routes/public-commerce-portal/",
-        "apps/workers/commerce-api/src/routes/commerce-portal/",
-        "apps/workers/commerce-api/src/middleware/",
-        "apps/workers/commerce-api/src/services/commerce-portal.ts",
-        "apps/workers/commerce-api/src/services/commerce-portal-mail.ts",
-        "apps/workers/commerce-api/src/services/commerce-portal-orders.ts",
-        "apps/workers/commerce-api/src/services/commerce-portal-invoices.ts",
-        "apps/workers/commerce-api/src/testing/",
-        "packages/domains/books/src/accounting-invoice-html.ts",
-        "packages/domains/books/src/accounting-compliance.ts",
-        "packages/domains/books/src/invoice-template/",
-        "packages/core/emails/src/",
-        "packages/clients/app-api-client/src/schemas/commerce-portal.ts",
-        "packages/domains/commerce/src/",
-        "packages/clients/core-api-client/src/schemas/",
-        "rust/modules/commerce/",
-        "rust/crates/commerce-domain/",
-        "packages/core/worker-kit/src/testing/conformance-schemas-commerce.ts",
-        "packages/core/worker-kit/src/testing/conformance-schemas-commerce-shipping.ts",
-        "packages/clients/app-api-client/src/schemas/commerce-responses.ts",
-        "packages/clients/app-api-client/src/schemas/commerce-shipping-responses.ts",
-        "packages/domains/core/src/legal-entities/",
-        "rust/crates/legal-entities/"
+        "apps/workers/stash-api/src/routes/products/",
+        "packages/clients/core-api-client/src/schemas/products.ts",
+        "packages/domains/books/src/jurisdictions/us/tax-codes.ts",
+        "apps/workers/stash-api/src/types.ts",
+        "rust/modules/stash/",
+        "rust/crates/books-domain/src/sales_tax/tax_codes.rs"
       ]
     },
     {
@@ -2394,7 +2335,8 @@
         "src/routes/workflow-schedules/routes.test.ts",
         "src/routes/workflow-triggers/routes.test.ts",
         "src/routes/workflow-builder/routes.test.ts",
-        "src/routes/public-workflow-webhook/routes.test.ts"
+        "src/routes/public-workflow-webhook/routes.test.ts",
+        "src/routes/workflows/generate.test.ts"
       ],
       "paths": [
         "apps/workers/connect-api/src/routes/workflows/",
@@ -2416,13 +2358,9 @@
         "packages/clients/core-api-client/src/schemas/weldconnect-builder.ts",
         "packages/core/workflow-integrations/src/cron.ts",
         "packages/core/db/src/lib/workflow-concurrency.ts",
-        "rust/modules/connect/"
-      ],
-      "excludedRoutes": [
-        {
-          "route": "POST /api/workflows/generate",
-          "reason": "AI workflow generation runs on Workers AI through the Cloudflare AI Gateway (@weldsuite/ai), which the Kubernetes editions do not have; the Rust backend does not mount it and the platform hides the generator (unavailable feature weldconnect-ai)."
-        }
+        "packages/core/ai/src/testing/",
+        "rust/modules/connect/",
+        "rust/crates/ai/"
       ]
     },
     {
@@ -2516,7 +2454,8 @@
         "src/routes/connectors/moneybird.test.ts",
         "src/routes/connectors/sync.test.ts",
         "src/routes/connectors/connect.test.ts",
-        "src/routes/connectors/moneybird-push.test.ts"
+        "src/routes/connectors/moneybird-push.test.ts",
+        "src/routes/webhooks-woocommerce-auth.test.ts"
       ],
       "paths": [
         "apps/workers/connect-api/src/routes/external-webhooks/",
@@ -2526,6 +2465,7 @@
         "apps/workers/connect-api/src/services/integrations/",
         "apps/workers/connect-api/src/lib/crm-sync-index.ts",
         "apps/workers/connect-api/src/routes/connectors/",
+        "apps/workers/connect-api/src/routes/webhooks-woocommerce-auth.ts",
         "apps/workers/connect-api/src/services/connectors/",
         "packages/domains/connect/src/",
         "packages/core/connectors/src/",
@@ -2677,6 +2617,8 @@
         "src/routes/accounting-documents/file-key-scope.integration.test.ts",
         "src/routes/accounting-documents/tax-form-ocr.integration.test.ts",
         "src/routes/accounting-documents/inbox.integration.test.ts",
+        "src/routes/accounting-documents/ocr-process.integration.test.ts",
+        "src/routes/accounting-documents/ocr-vendor-match.integration.test.ts",
         "src/routes/bills/integration.test.ts",
         "src/routes/bills/lifecycle.integration.test.ts",
         "src/routes/payment-runs/payment-runs.integration.test.ts"
@@ -2706,13 +2648,9 @@
         "rust/crates/books-domain/",
         "rust/crates/crm-domain/",
         "packages/domains/core/src/legal-entities/",
-        "rust/crates/legal-entities/"
-      ],
-      "excludedRoutes": [
-        {
-          "route": "POST /api/accounting-documents/:id/process",
-          "reason": "Reads the document with a model on Workers AI (@weldsuite/ai); the Kubernetes editions have no AI port. Rust answers the refusals (401, 404, a tax form) as TypeScript does and 503 where it would call the model; /config.json lists books-ocr as unavailable and the platform leaves uploads pending for manual booking."
-        }
+        "rust/crates/legal-entities/",
+        "rust/crates/ai/",
+        "packages/core/ai/src/"
       ]
     },
     {
@@ -2766,11 +2704,14 @@
       "tests": [
         "src/routes/calls/integration.test.ts",
         "src/routes/calls/writes.integration.test.ts",
+        "src/routes/calls/click-to-call.integration.test.ts",
         "src/routes/call-intelligence/integration.test.ts"
       ],
       "paths": [
         "apps/workers/call-api/src/routes/calls/",
         "apps/workers/call-api/src/routes/call-intelligence/",
+        "packages/core/db/src/lib/desk.ts",
+        "rust/crates/desk-domain/",
         "apps/workers/call-api/src/lib/",
         "apps/workers/call-api/src/services/",
         "apps/workers/call-api/src/test/",
@@ -2813,12 +2754,30 @@
       "workspace": "apps/workers/call-api",
       "tests": [
         "src/routes/desk-phone/integration.test.ts",
-        "src/routes/webhooks-telnyx/integration.test.ts"
+        "src/routes/desk-phone/route-options.integration.test.ts",
+        "src/routes/desk-phone/softphone.integration.test.ts",
+        "src/routes/desk-phone/queue.integration.test.ts",
+        "src/routes/webhooks-telnyx/integration.test.ts",
+        "src/routes/webhooks-telnyx/agents.integration.test.ts",
+        "src/routes/webhooks-telnyx/voicemail.integration.test.ts",
+        "src/routes/webhooks-telnyx/menu.integration.test.ts",
+        "src/routes/webhooks-telnyx/outbound.integration.test.ts"
+      ],
+      "coverage": [
+        "/api/desk/phone/agents",
+        "/api/desk/phone/routes",
+        "/api/desk/phone/forward-live",
+        "/api/desk/phone/softphone",
+        "/api/desk/phone/queue",
+        "/api/desk/phone/calls",
+        "/public/webhooks/telnyx"
       ],
       "paths": [
         "apps/workers/call-api/src/routes/desk-phone/",
         "apps/workers/call-api/src/routes/webhooks-telnyx/",
+        "packages/core/worker-kit/src/testing/conformance-volatile.ts",
         "packages/core/db/src/lib/desk.ts",
+        "packages/core/db/src/lib/desk-assignment.ts",
         "packages/core/db/src/lib/desk-merge-target.ts",
         "packages/domains/desk/src/",
         "rust/crates/desk-domain/",
@@ -2829,6 +2788,55 @@
         "packages/clients/app-api-client/src/schemas/call-intelligence.ts",
         "packages/clients/app-api-client/src/schemas/call-responses.ts",
         "packages/clients/core-api-client/src/schemas/desk-phone.ts",
+        "packages/core/worker-kit/src/testing/conformance-schemas-call.ts",
+        "rust/modules/call/"
+      ],
+      "excludedRoutes": [
+        {
+          "route": "POST /api/desk/phone/calls/:callId/translation",
+          "reason": "Live call translation runs on @weldsuite/ai (each line is translated by a model and charged in AI credits); the Kubernetes editions have no AI provider (ADR AI-011), so Rust answers 503 ai_unavailable behind the same conversations:update and /config.json lists desk-ai as unavailable (the platform hides the control). Tested on TypeScript in desk-phone/translation.integration.test.ts, the 503 in rust/modules/call/src/desk_phone_translation.rs."
+        },
+        {
+          "route": "PATCH /api/desk/phone/calls/:callId/translation",
+          "reason": "Changes a running translation, which cannot be started on the Kubernetes editions (no AI provider, ADR AI-011): Rust answers 503 ai_unavailable behind the same conversations:update. Tested on TypeScript in desk-phone/translation.integration.test.ts."
+        },
+        {
+          "route": "DELETE /api/desk/phone/calls/:callId/translation",
+          "reason": "Stops a running translation, which cannot be started on the Kubernetes editions (no AI provider, ADR AI-011): Rust answers 503 ai_unavailable behind the same conversations:update. Tested on TypeScript in desk-phone/translation.integration.test.ts."
+        },
+        {
+          "route": "GET /api/desk/phone/calls/:callId/translation",
+          "reason": "Reads the state the three routes above write. Rust answers it as the worker does (404, null, or a stored state), but the only tests that reach it start a translation first (desk-phone/translation.integration.test.ts, TypeScript only); the stored state's shape is tested in rust/modules/call/src/desk_phone_translation.rs."
+        }
+      ]
+    },
+    {
+      "name": "call: SIP trunks",
+      "module": "call",
+      "workspace": "apps/workers/call-api",
+      "tests": [
+        "src/routes/desk-phone/sip-trunks.integration.test.ts",
+        "src/routes/webhooks-telnyx/sip-trunk.integration.test.ts",
+        "src/routes/telephony/sip-trunk-sync.integration.test.ts"
+      ],
+      "coverage": [
+        "/api/desk/phone/sip-trunks"
+      ],
+      "paths": [
+        "apps/workers/call-api/src/routes/desk-phone/",
+        "apps/workers/call-api/src/routes/webhooks-telnyx/",
+        "apps/workers/call-api/src/routes/telephony/",
+        "packages/core/worker-kit/src/testing/conformance-volatile.ts",
+        "packages/core/db/src/lib/desk.ts",
+        "packages/core/db/src/schema/voip-sip-trunks.ts",
+        "packages/domains/desk/src/",
+        "rust/crates/desk-domain/",
+        "apps/workers/call-api/src/lib/",
+        "apps/workers/call-api/src/services/",
+        "apps/workers/call-api/src/test/",
+        "apps/workers/call-api/src/types.ts",
+        "packages/clients/app-api-client/src/schemas/call-responses.ts",
+        "packages/clients/core-api-client/src/schemas/desk-sip-trunks.ts",
         "packages/core/worker-kit/src/testing/conformance-schemas-call.ts",
         "rust/modules/call/"
       ]
@@ -2938,7 +2946,7 @@
       ]
     },
     {
-      "name": "external-api: articles and categories",
+      "name": "external-api: articles",
       "module": "external-api",
       "workspace": "apps/workers/external-api",
       "paths": [
@@ -2946,7 +2954,7 @@
         "rust/modules/external-api/"
       ],
       "tests": [
-        "src/test/articles-categories.test.ts"
+        "src/test/articles.test.ts"
       ]
     },
     {
@@ -2962,7 +2970,7 @@
       ]
     },
     {
-      "name": "external-api: commerce and social",
+      "name": "external-api: social accounts",
       "module": "external-api",
       "workspace": "apps/workers/external-api",
       "paths": [
@@ -2970,7 +2978,7 @@
         "rust/modules/external-api/"
       ],
       "tests": [
-        "src/test/commerce-social.test.ts"
+        "src/test/social-accounts.test.ts"
       ]
     },
     {
@@ -2987,6 +2995,30 @@
         "src/test/accounting-read-only.test.ts",
         "src/test/accounting-routes.test.ts",
         "src/test/legal-entities.test.ts"
+      ]
+    },
+    {
+      "name": "external-api: audit logs",
+      "module": "external-api",
+      "workspace": "apps/workers/external-api",
+      "paths": [
+        "apps/workers/external-api/src/",
+        "rust/modules/external-api/"
+      ],
+      "tests": [
+        "src/test/audit-logs.test.ts"
+      ]
+    },
+    {
+      "name": "external-api: odata feed",
+      "module": "external-api",
+      "workspace": "apps/workers/external-api",
+      "paths": [
+        "apps/workers/external-api/src/",
+        "rust/modules/external-api/"
+      ],
+      "tests": [
+        "src/test/odata.test.ts"
       ]
     },
     {
@@ -3415,7 +3447,8 @@
       "module": "panel",
       "workspace": "apps/workers/panel-api",
       "tests": [
-        "src/routes/projects/projects.test.ts"
+        "src/routes/projects/projects.test.ts",
+        "src/routes/keys.test.ts"
       ],
       "paths": [
         "apps/workers/panel-api/src/",
@@ -3424,6 +3457,52 @@
         "packages/sdk/panel-sdk/src/install.ts",
         "packages/sdk/panel-sdk/src/host.ts",
         "rust/modules/panel/"
+      ]
+    },
+    {
+      "name": "panel: query",
+      "module": "panel",
+      "workspace": "apps/workers/panel-api",
+      "tests": [
+        "src/routes/query.test.ts"
+      ],
+      "paths": [
+        "apps/workers/panel-api/src/",
+        "packages/domains/panel/src/",
+        "packages/clients/app-api-client/src/schemas/weldpanel-query.ts",
+        "packages/clients/app-api-client/src/schemas/weldpanel-collab.ts",
+        "packages/clients/app-api-client/src/schemas/weldpanel-objects.ts",
+        "packages/core/worker-kit/src/basin.ts",
+        "rust/modules/panel/",
+        "rust/crates/panel-domain/",
+        "rust/crates/zod/"
+      ]
+    },
+    {
+      "name": "panel: saved objects",
+      "module": "panel",
+      "workspace": "apps/workers/panel-api",
+      "tests": [
+        "src/routes/saved-objects.test.ts",
+        "src/routes/definitions.test.ts",
+        "src/routes/collab.test.ts",
+        "src/routes/dashboard-extras.test.ts",
+        "src/routes/share-links.test.ts"
+      ],
+      "paths": [
+        "apps/workers/panel-api/src/",
+        "packages/domains/panel/src/",
+        "packages/clients/app-api-client/src/schemas/weldpanel-query.ts",
+        "packages/clients/app-api-client/src/schemas/weldpanel-collab.ts",
+        "packages/clients/app-api-client/src/schemas/weldpanel-objects.ts",
+        "packages/clients/app-api-client/src/schemas/weldpanel-groups.ts",
+        "packages/core/notifications/src/",
+        "packages/core/worker-kit/src/testing/ledger-bridge.ts",
+        "packages/core/worker-kit/src/testing/workspace-bridge.ts",
+        "rust/modules/panel/",
+        "rust/crates/panel-domain/",
+        "rust/crates/notifications/",
+        "rust/crates/zod/"
       ]
     },
     {
@@ -3474,8 +3553,45 @@
         "packages/core/worker-kit/src/testing/conformance-schemas-merge.ts",
         "rust/modules/merge/",
         "rust/crates/connect-domain/src/github_app.rs",
-        "rust/crates/chat-domain/src/system_message.rs"
+        "rust/crates/chat-domain/src/system_message.rs",
+        "packages/core/ai/src/testing/",
+        "rust/crates/ai/"
       ]
+    },
+    {
+      "name": "forms",
+      "module": "forms",
+      "workspace": "apps/workers/forms-api",
+      "tests": [
+        "src/flow.test.ts",
+        "src/public.test.ts",
+        "src/results.test.ts",
+        "src/invitations.test.ts",
+        "src/integrations.test.ts",
+        "src/routes/_sweeps.test.ts",
+        "src/workflows/process-response.test.ts",
+        "src/ai-model.test.ts"
+      ],
+      "paths": [
+        "apps/workers/forms-api/src/",
+        "packages/core/forms-engine/src/",
+        "packages/clients/app-api-client/src/schemas/weldforms.ts",
+        "packages/domains/core/src/plan-limits.ts",
+        "packages/core/emails/src/templates/forms/",
+        "rust/modules/forms/",
+        "rust/crates/core-domain/src/plan_limits.rs",
+        "rust/crates/emails/",
+        "packages/domains/forms/src/",
+        "packages/core/db/src/lib/desk.ts",
+        "packages/core/worker-kit/src/testing/conformance-cron.ts",
+        "rust/crates/forms-engine/",
+        "rust/crates/crm-domain/",
+        "rust/crates/desk-domain/",
+        "rust/crates/flow-domain/",
+        "rust/crates/notifications/",
+        "rust/bins/weldsuite/src/conformance_forms.rs"
+      ],
+      "excludedRoutes": []
     },
     {
       "name": "panel: collector",
@@ -3489,7 +3605,144 @@
         "packages/domains/panel/src/",
         "packages/sdk/panel-sdk/src/",
         "rust/modules/panel/"
+      ],
+      "excludedRoutes": []
+    },
+    {
+      "name": "panel: people",
+      "module": "panel",
+      "workspace": "apps/workers/panel-api",
+      "tests": [
+        "src/routes/people.test.ts",
+        "src/routes/groups.test.ts",
+        "src/routes/sessions.test.ts",
+        "src/routes/heatmaps.test.ts",
+        "src/routes/summaries.test.ts"
+      ],
+      "coverage": [
+        "/api/panel/people",
+        "/api/panel/groups",
+        "/api/panel/group-types",
+        "/api/panel/sessions",
+        "/api/panel/heatmaps",
+        "/api/panel/live",
+        "/api/panel/insights/summarise"
+      ],
+      "paths": [
+        "apps/workers/panel-api/src/",
+        "packages/domains/panel/src/",
+        "packages/clients/app-api-client/src/schemas/weldpanel-query.ts",
+        "packages/clients/app-api-client/src/schemas/weldpanel-objects.ts",
+        "packages/clients/app-api-client/src/schemas/weldpanel-groups.ts",
+        "packages/core/ai/src/testing/",
+        "packages/core/worker-kit/src/basin.ts",
+        "packages/core/worker-kit/src/testing/conformance-schemas-panel-visitors.ts",
+        "packages/core/worker-kit/src/testing/conformance-schemas-panel-analysis.ts",
+        "packages/core/worker-kit/src/testing/pipeline-bridge.ts",
+        "packages/core/worker-kit/src/testing/bucket-bridge.ts",
+        "packages/core/worker-kit/src/testing/conformance-binary.ts",
+        "rust/modules/panel/",
+        "rust/crates/ai/",
+        "rust/crates/panel-domain/",
+        "rust/crates/zod/"
       ]
+    },
+    {
+      "name": "panel: analysis",
+      "module": "panel",
+      "workspace": "apps/workers/panel-api",
+      "tests": [
+        "src/routes/analysis.test.ts"
+      ],
+      "coverage": [
+        "/api/panel/insights/explain",
+        "/api/panel/metric-tree-values"
+      ],
+      "paths": [
+        "apps/workers/panel-api/src/",
+        "packages/domains/panel/src/",
+        "packages/clients/app-api-client/src/schemas/weldpanel-query.ts",
+        "packages/clients/app-api-client/src/schemas/weldpanel-collab.ts",
+        "packages/clients/app-api-client/src/schemas/weldpanel-analysis.ts",
+        "packages/core/ai/src/testing/",
+        "packages/core/worker-kit/src/basin.ts",
+        "packages/core/worker-kit/src/testing/conformance-schemas-panel-analysis.ts",
+        "rust/modules/panel/",
+        "rust/crates/ai/",
+        "rust/crates/panel-domain/",
+        "rust/crates/zod/"
+      ]
+    },
+    {
+      "name": "panel: usage",
+      "module": "panel",
+      "workspace": "apps/workers/panel-api",
+      "tests": [
+        "src/routes/usage/usage.test.ts"
+      ],
+      "paths": [
+        "apps/workers/panel-api/src/routes/usage/",
+        "apps/workers/panel-api/src/services/",
+        "packages/domains/panel/src/",
+        "packages/clients/app-api-client/src/schemas/weldpanel-objects.ts",
+        "packages/core/credits/src/",
+        "packages/core/worker-kit/src/basin.ts",
+        "packages/core/worker-kit/src/testing/conformance-schemas-panel-analysis.ts",
+        "rust/modules/panel/",
+        "rust/crates/core-domain/src/credits.rs",
+        "rust/crates/panel-domain/"
+      ]
+    },
+    {
+      "name": "panel: internal",
+      "module": "panel",
+      "workspace": "apps/workers/panel-api",
+      "tests": [
+        "src/routes/internal-v1.test.ts",
+        "src/index.test.ts",
+        "src/internal.test.ts"
+      ],
+      "coverage": [
+        "/internal/panel/v1/:workspaceId/reports/:id/results",
+        "/internal/panel/usage/settle"
+      ],
+      "paths": [
+        "apps/workers/panel-api/src/",
+        "packages/domains/panel/src/",
+        "packages/core/credits/src/",
+        "packages/core/worker-kit/src/testing/workspace-bridge.ts",
+        "packages/core/worker-kit/src/testing/conformance-schemas-panel-analysis.ts",
+        "rust/modules/panel/",
+        "rust/bins/weldsuite/src/conformance.rs",
+        "rust/bins/weldsuite/src/conformance_panel.rs",
+        "rust/crates/core-domain/src/credits.rs",
+        "rust/crates/panel-domain/"
+      ]
+    },
+    {
+      "name": "panel: monitor",
+      "module": "panel",
+      "workspace": "apps/workers/panel-api",
+      "tests": [
+        "src/routes/monitor.test.ts"
+      ],
+      "paths": [
+        "apps/workers/panel-api/src/",
+        "packages/domains/panel/src/",
+        "packages/clients/app-api-client/src/schemas/weldpanel-monitor.ts",
+        "packages/clients/app-api-client/src/schemas/weldpanel-query.ts",
+        "packages/core/emails/src/templates/panel/",
+        "packages/core/cloudflare-zones/src/custom-hostnames.ts",
+        "packages/core/worker-kit/src/testing/conformance-schemas-panel-monitor.ts",
+        "rust/modules/panel/",
+        "rust/crates/panel-domain/",
+        "rust/crates/emails/",
+        "rust/crates/notifications/",
+        "rust/crates/chat-domain/",
+        "rust/crates/zod/",
+        "rust/bins/weldsuite/src/panel_monitor.rs"
+      ],
+      "excludedRoutes": []
     },
     {
       "name": "mcp-server",
@@ -3636,7 +3889,9 @@
         "packages/domains/flow/src/",
         "packages/clients/app-api-client/src/schemas/project-portal.ts",
         "rust/modules/flow/",
-        "rust/crates/flow-domain/"
+        "rust/crates/flow-domain/",
+        "packages/core/worker-kit/src/portal/",
+        "rust/crates/kit/src/portal/"
       ],
       "excludedRoutes": [
         {

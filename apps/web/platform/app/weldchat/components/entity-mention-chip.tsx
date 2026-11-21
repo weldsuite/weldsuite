@@ -13,7 +13,7 @@
  * - forbidden/notfound → muted, non-clickable, fallback label + tooltip
  * - missing renderer   → a record without a sheet renderer but with a page is
  *                        still a chip (a link to the page); one with neither
- *                        (people, companies, products and orders have no
+ *                        (people, companies and products have no
  *                        standalone route here) is plain text
  */
 
@@ -55,8 +55,6 @@ const TYPE_STYLES: Record<EntitySheetType, string> = {
     'bg-cyan-50 text-cyan-700 hover:bg-cyan-100 dark:bg-cyan-950 dark:text-cyan-400 dark:hover:bg-cyan-900',
   product:
     'bg-violet-50 text-violet-700 hover:bg-violet-100 dark:bg-violet-950 dark:text-violet-400 dark:hover:bg-violet-900',
-  order:
-    'bg-pink-50 text-pink-600 hover:bg-pink-100 dark:bg-pink-950 dark:text-pink-400 dark:hover:bg-pink-900',
   invoice:
     'bg-indigo-50 text-indigo-600 hover:bg-indigo-100 dark:bg-indigo-950 dark:text-indigo-400 dark:hover:bg-indigo-900',
   bill:
