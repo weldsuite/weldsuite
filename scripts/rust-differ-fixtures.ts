@@ -223,7 +223,7 @@ async function walk(
   if (i >= numbers.length) return progress;
   const n = numbers[i];
   const next = snapshotAt(files.get(n) as string);
-  if (prev && prev.n === n - 1 && next.prevId === prev.snapshot.id) {
+  if (prev?.n === n - 1 && next.prevId === prev.snapshot.id) {
     await writePair(drizzle, database, n, prev.snapshot, next);
     progress.written++;
   } else if (prev) {
