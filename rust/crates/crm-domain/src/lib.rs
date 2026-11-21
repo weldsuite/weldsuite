@@ -13,6 +13,7 @@
 )]
 
 pub mod activities;
+pub mod auto_add;
 pub mod companies;
 pub mod company_attributes;
 pub mod events;

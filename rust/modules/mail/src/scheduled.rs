@@ -343,7 +343,14 @@ impl SendScheduledEmailJob {
         {
             return Ok("skipped".to_owned());
         }
-        let context = SendContext::for_state(&self.state);
+        let context = SendContext::for_state(&self.state).with_crm(
+            &self.state,
+            weldsuite_events::EventContext::new(
+                &params.workspace_id,
+                &params.user_id,
+                weldsuite_events::EventSource::System,
+            ),
+        );
         let deps = context.deps_for(&db);
         match deliver(&deps, &params.workspace_id, &params.user_id, &message).await {
             Ok(_) => Ok("sent".to_owned()),

@@ -115,6 +115,21 @@ pub struct SendDeps<'a> {
     pub mx: &'a MxLookup,
     /// `R2_PUBLIC_URL`, for contact avatars.
     pub public_url: Option<&'a str>,
+    /// Runs once the message is sent and stored: WeldCRM's auto-add, which
+    /// the caller supplies (the CRM crate depends on this one). `None` for
+    /// sends that are no conversation (unsubscribe mail, release notes).
+    pub after_send: Option<&'a dyn AfterSend>,
+}
+
+/// What a send tells [`SendDeps::after_send`]: the member who sent it and the
+/// addresses it reached (To, Cc and Bcc; on a partial send, those it reached).
+pub trait AfterSend: Send + Sync {
+    fn sent<'a>(
+        &'a self,
+        db: &'a PgPool,
+        user_id: &'a str,
+        recipients: Vec<String>,
+    ) -> weldsuite_ports::BoxFuture<'a, ()>;
 }
 
 /// `SendOptions.outbound` (and the source/kind a reply or forward sets).
@@ -882,6 +897,14 @@ pub async fn send_and_persist(
     contacts.extend(bcc.iter().map(|e| ContactAddress::new(e)));
     let public = deps.files.and_then(|f| f.public.clone());
     upsert_mail_contacts(deps.db, org, &contacts, public.as_ref(), deps.public_url).await;
+    if let Some(after_send) = deps.after_send {
+        let reached: Vec<String> = contacts
+            .into_iter()
+            .map(|c| c.email)
+            .filter(|email| partial.as_ref().is_none_or(|p| !p.failed.contains(email)))
+            .collect();
+        after_send.sent(deps.db, user_id, reached).await;
+    }
 
     if let Some(partial) = partial {
         let total = partial.sent.len() + partial.failed.len();

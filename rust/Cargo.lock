@@ -8523,6 +8523,7 @@ dependencies = [
  "weldsuite-auth",
  "weldsuite-catalogs",
  "weldsuite-core-domain",
+ "weldsuite-crm-domain",
  "weldsuite-db",
  "weldsuite-desk-domain",
  "weldsuite-emails",
@@ -8966,6 +8967,7 @@ dependencies = [
  "weldsuite-auth",
  "weldsuite-catalogs",
  "weldsuite-core-domain",
+ "weldsuite-crm-domain",
  "weldsuite-db",
  "weldsuite-emails",
  "weldsuite-events",
@@ -9004,6 +9006,7 @@ dependencies = [
  "base64 0.22.1",
  "encoding_rs",
  "regex",
+ "sea-orm",
  "serde",
  "serde_json",
  "sha2 0.11.1",
@@ -9015,6 +9018,7 @@ dependencies = [
  "url",
  "weldsuite-ai",
  "weldsuite-catalogs",
+ "weldsuite-crm-domain",
  "weldsuite-db",
  "weldsuite-desk-domain",
  "weldsuite-events",
@@ -9022,6 +9026,7 @@ dependencies = [
  "weldsuite-mail-domain",
  "weldsuite-notifications",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -9070,6 +9075,7 @@ dependencies = [
  "weldsuite-catalogs",
  "weldsuite-chat-domain",
  "weldsuite-core-domain",
+ "weldsuite-crm-domain",
  "weldsuite-db",
  "weldsuite-emails",
  "weldsuite-events",

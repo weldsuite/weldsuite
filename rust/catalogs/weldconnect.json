@@ -3490,6 +3490,7 @@
     "customer_status.created",
     "customer_status.updated",
     "customer_status.deleted",
+    "crm_settings.updated",
     "analytics_report.created",
     "analytics_report.updated",
     "analytics_report.deleted",

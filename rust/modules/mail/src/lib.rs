@@ -18,6 +18,7 @@
 mod ai;
 mod caller;
 pub mod consumers;
+mod crm;
 pub mod cron;
 mod read_push;
 pub mod review;

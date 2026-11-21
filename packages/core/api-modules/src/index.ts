@@ -127,6 +127,8 @@ export const GLOBAL_UNAVAILABLE_FEATURES: readonly string[] = [
   'commerce',
   // WeldStash purchasing and replenishment (ADR STASH-008).
   'stash-replenishment',
+  // Adding people and companies to WeldCRM automatically (`/api/crm-settings`).
+  'crm-auto-add',
 ];
 
 const mod = (
@@ -206,6 +208,8 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/companies',
     '/api/company-logos',
     '/api/crm-analytics',
+    // Rust-only (EU and self-hosted editions): auto-add to WeldCRM. Global's crm-api does not mount it.
+    '/api/crm-settings',
     '/api/customer-sequences',
     '/api/customer-statuses',
     '/api/leads',

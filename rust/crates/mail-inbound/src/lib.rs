@@ -39,6 +39,7 @@ pub mod auto_label;
 pub mod catch_all;
 pub mod consumer;
 pub mod context;
+pub mod crm;
 pub mod deliver;
 pub mod fanout;
 pub mod mime;

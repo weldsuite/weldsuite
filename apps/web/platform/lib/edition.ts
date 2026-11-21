@@ -184,6 +184,13 @@ export const EDITION_FEATURES = [
    * `GLOBAL_UNAVAILABLE_FEATURES` and Global hides the whole module.
    */
   'commerce',
+  /**
+   * Adding people and companies to WeldCRM automatically, from email,
+   * WeldMeet and WeldDesk (`/api/crm-settings`, the Auto-add tab of
+   * Settings → Apps → WeldCRM). Built only in Rust, so it is in
+   * `GLOBAL_UNAVAILABLE_FEATURES` and Global hides the tab.
+   */
+  'crm-auto-add',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];

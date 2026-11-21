@@ -1032,6 +1032,7 @@ async fn invite_people(
             json!({ "meetingId": id, "title": existing["title"] }),
         )
         .await;
+        crate::crm::auto_add_invitees(state, caller, db, &added).await;
     }
     let people: Vec<(String, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
         "select wm.user_id, wm.name, wm.email, up.timezone from workspace_members wm
@@ -1630,7 +1631,7 @@ async fn create(
         .iter()
         .find(|(k, _)| *k == "title")
         .map_or(Value::Null, |(_, v)| v.clone());
-    let result: Result<(), String> = async {
+    let result: Result<Vec<attendees::Attendee>, String> = async {
         let workspace_key = caller
             .org_id
             .clone()
@@ -1676,19 +1677,21 @@ async fn create(
         table
             .insert(db, values, TRUSTED)
             .await
-            .map(|_| ())
+            .map(|_| resolved.unwrap_or_default())
             .map_err(|e| e.to_string())
     }
     .await;
-    if let Err(error) = result {
-        return internal(&error, "Failed to create meeting");
-    }
+    let invited = match result {
+        Ok(invited) => invited,
+        Err(error) => return internal(&error, "Failed to create meeting"),
+    };
     caller.publish(
         &state,
         MEETING_CREATED,
         &id,
         &json!({ "id": id, "title": title, "status": "scheduled", "hostId": organizer_id }),
     );
+    crate::crm::auto_add_invitees(&state, &caller, db, &invited).await;
     Created(json!({ "id": id, "joinCode": join_code })).into_response()
 }
 
@@ -1755,6 +1758,9 @@ async fn update(
             &id,
             &json!({ "id": id, "title": title, "status": existing["status"], "hostId": existing["organizerId"] }),
         );
+        if let Some(invited) = &resolved {
+            crate::crm::auto_add_invitees(&state, &caller, db, invited).await;
+        }
         Ok(Data(json!({ "id": id })).into_response())
     }
     .await;

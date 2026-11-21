@@ -82,6 +82,7 @@
       "/api/companies",
       "/api/company-logos",
       "/api/crm-analytics",
+      "/api/crm-settings",
       "/api/customer-sequences",
       "/api/customer-statuses",
       "/api/leads",

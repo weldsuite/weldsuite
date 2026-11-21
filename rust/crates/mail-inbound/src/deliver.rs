@@ -390,6 +390,7 @@ pub async fn finish_workspace_delivery(
         email,
     )
     .await;
+    crate::crm::auto_add_sender(ctx, account, email, &stored).await;
 
     let preview = preview(email);
     let payload = inbound_payload(account, email, &stored, &preview);
