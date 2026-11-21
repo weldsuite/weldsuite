@@ -20,6 +20,7 @@ import { bills } from './bills';
 import { assets } from './assets';
 import { accounting } from './accounting';
 import { weldstash } from './weldstash';
+import { commerce } from './commerce';
 import { crm } from './crm';
 import { projects } from './projects';
 import { task } from './task';
@@ -105,6 +106,7 @@ export const nl = {
   assets,
   accounting,
   weldstash,
+  commerce,
   crm,
   projects,
   task,

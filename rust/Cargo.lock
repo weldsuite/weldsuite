@@ -6951,6 +6951,7 @@ dependencies = [
  "weldsuite-call",
  "weldsuite-catalogs",
  "weldsuite-chat",
+ "weldsuite-commerce",
  "weldsuite-connect",
  "weldsuite-core-apps",
  "weldsuite-core-billing",
@@ -7528,6 +7529,26 @@ dependencies = [
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-notifications",
+ "weldsuite-permissions",
+ "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-commerce"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "http",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tower",
+ "tracing",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
  "weldsuite-permissions",
  "weldsuite-ports",
 ]

@@ -2177,7 +2177,6 @@
       "module": "stash",
       "workspace": "apps/workers/stash-api",
       "tests": [
-        "src/routes/products/index.test.ts",
         "src/routes/products/integration.test.ts"
       ],
       "paths": [

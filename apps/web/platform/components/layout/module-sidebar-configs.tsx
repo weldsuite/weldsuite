@@ -45,6 +45,7 @@ import {
   RefreshCw,
   ArrowLeftRight,
   LayoutDashboard,
+  ShoppingBag,
   Wand2,
   Truck,
   Sparkles,
@@ -159,6 +160,21 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.navigation.moduleSidebar.weldads.overview, href: '/weldads', icon: LayoutDashboard },
           { title: t.navigation.moduleSidebar.weldads.campaigns, href: '/weldads/campaigns', icon: Megaphone, permission: 'ad_campaigns:read' },
           { title: t.navigation.moduleSidebar.weldads.accounts, href: '/weldads/accounts', icon: Link2, permission: 'ad_accounts:read' },
+        ],
+      },
+    ],
+  },
+  // The rebuilt WeldCommerce (ADR COM-009): an overview in phase 0; products,
+  // categories and orders join as their phases land.
+  weldcommerce: {
+    appName: 'WeldCommerce',
+    appIcon: ShoppingBag,
+    appLogo: getAppLogoConfig('weldcommerce'),
+    getMenuItems: (t) => [
+      {
+        group: t.navigation.moduleSidebar.groups.general,
+        items: [
+          { title: t.navigation.moduleSidebar.weldcommerce.overview, href: '/weldcommerce', icon: LayoutDashboard },
         ],
       },
     ],
