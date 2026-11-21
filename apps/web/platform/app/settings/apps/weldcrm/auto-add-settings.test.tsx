@@ -72,10 +72,20 @@ describe('AutoAddSettings', () => {
   });
 
   it('tells the person whether the change was saved', async () => {
+    m.mutate.mockImplementationOnce((_input, options: { onSuccess: () => void }) => options.onSuccess());
     m.mutate.mockImplementationOnce((_input, options: { onError: () => void }) => options.onError());
     render(<AutoAddSettings />);
-    await userEvent.click(screen.getByRole('switch', { name: ta.enabledLabel }));
+    const main = screen.getByRole('switch', { name: ta.enabledLabel });
+    await userEvent.click(main);
+    expect(m.toastSuccess).toHaveBeenCalledWith(ta.saved);
+    await userEvent.click(main);
     expect(m.toastError).toHaveBeenCalledWith(ta.saveFailed);
+  });
+
+  it('shows nothing to change while the settings load', () => {
+    m.settings = { data: undefined, isLoading: true, isError: false, refetch: vi.fn() };
+    render(<AutoAddSettings />);
+    expect(screen.queryByRole('switch')).toBeNull();
   });
 
   it('is read-only without settings:manage', () => {
