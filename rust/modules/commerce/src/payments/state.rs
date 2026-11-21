@@ -51,9 +51,10 @@ pub(crate) fn verify(secret: &str, token: &str) -> Option<Map<String, Value>> {
 mod tests {
     use super::*;
 
-    /// A key made at run time: the tests depend on no fixed secret.
+    /// A key made at run time from random bytes: the tests depend on no
+    /// fixed secret.
     fn key() -> String {
-        weldsuite_kit::generate_id("key")
+        weldsuite_kit::portal::tokens::random_token(32)
     }
 
     fn claims() -> Map<String, Value> {
