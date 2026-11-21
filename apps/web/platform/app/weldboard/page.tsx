@@ -6,7 +6,7 @@ import { useCan } from '@weldsuite/permissions/react';
 import { useCreateIntent } from '@/hooks/use-create-intent';
 import { Upload } from 'lucide-react';
 import { Board, applyOp, newId, placeFragment, type BuiltInTemplate } from '@weldsuite/board-engine';
-import type { ImportBoardInput } from '@weldsuite/app-api-client/schemas/boards';
+import type { BoardTemplateCategory, ImportBoardInput } from '@weldsuite/app-api-client/schemas/boards';
 import { ErrorState } from '@weldsuite/ui/components/error-banner';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import type { GroupConfig } from '@/components/entity-list';
@@ -16,6 +16,7 @@ import { useAppApi } from '@/lib/api/use-app-api';
 import { useI18n } from '@/lib/i18n/provider';
 import { BoardList } from './board-list';
 import { buildTemplate, TemplatesGallery } from './editor/templates-dialog';
+import { ScrollFade } from './editor/ui';
 import { boardName, importFormat, IMPORT_ACCEPT, IMPORT_MAX_BYTES, snapshotFromFile } from './import';
 import { boardsQueryKey, useBoardList, useBoardMutations, type BoardMeta } from './store/use-board-store';
 
@@ -128,10 +129,10 @@ function useToggleTemplate() {
   const th = t.weldboard.home;
   const appApi = useAppApi();
   const queryClient = useQueryClient();
-  return async (board: BoardMeta) => {
+  return async (board: BoardMeta, category: BoardTemplateCategory = 'other') => {
     const removing = !!board.templateCategory;
     try {
-      await appApi.boards.update(board.id, { template: removing ? null : { category: 'other' } });
+      await appApi.boards.update(board.id, { template: removing ? null : { category } });
       toast.success(removing ? th.templateRemoved : th.templateSaved);
       void queryClient.invalidateQueries({ queryKey: boardsQueryKey });
     } catch {
@@ -149,13 +150,15 @@ function NewBoardStrip({ onTemplate, onImport }: { onTemplate: (template: BuiltI
   return (
     <section className="border-b bg-muted/40">
       <div className="flex w-full flex-col gap-3 px-4 py-6">
+        <h1 className="sr-only">{t.weldboard.breadcrumb.boards}</h1>
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-medium text-muted-foreground">{th.startNew}</h2>
           <Link to={preview ? '/preview/weldboard/templates' : '/weldboard/templates'} className="text-sm text-primary hover:underline">
             {th.allTemplates}
           </Link>
         </div>
-        <div className="flex gap-4 overflow-x-auto pb-1">
+        {/* Fades at the edge where more templates are, and scrolls with the wheel. */}
+        <ScrollFade outerClassName="items-start" className="items-start gap-4 pb-1">
           <button type="button" onClick={() => fileInput.current?.click()} className="group flex w-44 shrink-0 flex-col items-stretch gap-1.5 text-left">
             <span className="flex aspect-[4/3] flex-col items-center justify-center gap-1 rounded-lg border border-dashed bg-background transition group-hover:border-primary">
               <Upload className="size-8 text-muted-foreground group-hover:text-primary" />
@@ -164,7 +167,7 @@ function NewBoardStrip({ onTemplate, onImport }: { onTemplate: (template: BuiltI
             <span className="text-sm font-medium">{th.importFile}</span>
           </button>
           <TemplatesGallery compact onPick={onTemplate} />
-        </div>
+        </ScrollFade>
         <input
           ref={fileInput}
           type="file"
@@ -194,7 +197,7 @@ function useBoardActions(onOpen: (board: BoardMeta) => void) {
     onRename: canUpdate ? (board: BoardMeta, name: string) => rename.mutate({ id: board.id, name }) : undefined,
     onDuplicate: canCreate ? (board: BoardMeta) => void create.mutateAsync({ name: format(th.copyOf, { name: board.name }), fromBoardId: board.id }).then(onOpen, () => undefined) : undefined,
     onDelete: canDelete ? (board: BoardMeta) => remove.mutate(board.id) : undefined,
-    onToggleTemplate: !preview && canUpdate ? (board: BoardMeta) => void toggleTemplate(board) : undefined,
+    onToggleTemplate: !preview && canUpdate ? (board: BoardMeta, category?: BoardTemplateCategory) => void toggleTemplate(board, category) : undefined,
   };
 }
 

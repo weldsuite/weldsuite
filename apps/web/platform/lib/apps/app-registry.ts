@@ -333,15 +333,18 @@ export const APP_REGISTRY: Record<string, AppAssets> = {
     sidebarIconClass: 'h-6 w-6 object-contain',
   },
   // WeldCommerce (rebuilt, EU edition only; ADR COM-009). Icon-only logo like
-  // welddata/weldknow: wordmark variants need the brand typeface.
+  // WeldSheets: a shop awning and door inside a screen frame.
+  // `?v=2`: same immutable /assets/* caching as WeldBooks above, the old bag
+  // mark lived at these paths and browsers would keep it.
   weldcommerce: {
     lucideIcon: ShoppingBag,
     shortName: 'Commerce',
-    icon: '/assets/images/weldcommerce/icon.svg',
+    icon: '/assets/images/weldcommerce/icon.svg?v=2',
     logo: {
-      iconLight: '/assets/images/weldcommerce/logo-light.svg',
-      iconDark: '/assets/images/weldcommerce/logo-dark.svg',
+      iconLight: '/assets/images/weldcommerce/logo-light.svg?v=2',
+      iconDark: '/assets/images/weldcommerce/logo-dark.svg?v=2',
     },
+    sidebarIconClass: 'h-6 w-6 object-contain',
   },
   weldads: {
     lucideIcon: Megaphone,

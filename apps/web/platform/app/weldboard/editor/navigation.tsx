@@ -3,24 +3,25 @@ import { ArrowDown, ArrowUp, Minus, Plus, Presentation } from 'lucide-react';
 import { selectionBounds, type BoardElement, type Rect } from '@weldsuite/board-engine';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
 import { Kbd } from '@weldsuite/ui/components/kbd';
+import { isMacPlatform, shortcutKeyLabels } from '@weldsuite/ui/lib/shortcut';
 import { useI18n } from '@/lib/i18n/provider';
 import { cn } from '@/lib/utils';
 import type { BoardController } from './model/board-controller';
 import { nextZoom } from './model/camera';
-import { BarButton } from './ui';
+import { BarButton, SIDE_PANEL, SIDE_PANEL_HEADER } from './ui';
 
 export function ZoomControls({ controller: c }: { controller: BoardController }) {
   const { t } = useI18n();
   const tz = t.weldboard.editor.zoom;
   return (
-    <div className="ml-auto flex shrink-0 items-center gap-0.5 pl-2" role="toolbar" aria-orientation="horizontal">
-      <BarButton label={tz.out} side="bottom" onClick={() => c.zoomTo(nextZoom(c.camera.zoom, -1))}>
+    <div className="ml-auto flex shrink-0 items-center gap-0.5 pl-2" role="toolbar" aria-orientation="horizontal" aria-label={tz.label}>
+      <BarButton label={tz.out} keys={['mod', '-']} side="bottom" onClick={() => c.zoomTo(nextZoom(c.camera.zoom, -1))}>
         <Minus />
       </BarButton>
-      <BarButton label={tz.reset} side="bottom" onClick={() => c.zoomTo(1)} className="h-8 min-w-12 rounded-md px-1 text-xs tabular-nums hover:bg-accent">
+      <BarButton label={tz.reset} keys={['mod', '0']} side="bottom" onClick={() => c.zoomTo(1)} className="h-8 min-w-12 rounded-md px-1 text-xs tabular-nums hover:bg-accent">
         {Math.round(c.camera.zoom * 100)}%
       </BarButton>
-      <BarButton label={tz.in} side="bottom" onClick={() => c.zoomTo(nextZoom(c.camera.zoom, 1))}>
+      <BarButton label={tz.in} keys={['mod', '+']} side="bottom" onClick={() => c.zoomTo(nextZoom(c.camera.zoom, 1))}>
         <Plus />
       </BarButton>
     </div>
@@ -167,8 +168,8 @@ export function FramesPanel({ controller: c, onPresent, onClose }: { controller:
     </li>
   );
   return (
-    <aside className="pointer-events-auto flex max-h-[70vh] w-64 flex-col rounded-xl border bg-background shadow-md">
-      <div className="flex items-center justify-between border-b px-3 py-2">
+    <aside className={SIDE_PANEL} aria-label={tf.title}>
+      <div className={SIDE_PANEL_HEADER}>
         <h2 className="text-sm font-semibold">{tf.title}</h2>
         <div className="flex gap-1">
           <BarButton label={t.weldboard.editor.present.start} onClick={() => onPresent()} disabled={slides.length + others.length === 0}>
@@ -198,35 +199,88 @@ export function FramesPanel({ controller: c, onPresent, onClose }: { controller:
   );
 }
 
+/**
+ * One shortcut: keys pressed together, written with `mod`, `shift`, `alt` and
+ * `delete` for the platform's names; `|` between two alternatives ("] or [").
+ */
+type ShortcutKeys = string[];
+
+/** One key as the platform names it. */
+function keyLabel(key: string, mac: boolean): string {
+  if (key === 'delete') return mac ? '⌫' : 'Del';
+  if (key === '|') return key;
+  return shortcutKeyLabels([key], mac)[0]!;
+}
+
+/** The keys of a shortcut as the platform names them: ⌘ ⌥ ⇧ ⌫ on a Mac, Ctrl Alt Shift Del elsewhere. */
+function keyLabels(keys: ShortcutKeys, mac: boolean): string[] {
+  return keys.map((k) => keyLabel(k, mac));
+}
+
 export function ShortcutsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const { t } = useI18n();
   const ts = t.weldboard.editor.shortcuts;
   const i = ts.items;
-  const mod = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl';
-  const groups: [string, [string, string[]][]][] = [
-    [ts.tools, [[i.select, ['V']], [i.hand, ['H']], [i.sticky, ['N']], [i.shape, ['S']], [i.text, ['T']], [i.connector, ['L']], [i.pen, ['P']], [i.eraser, ['E']], [i.frame, ['F']], [i.comment, ['C']], [i.mindmap, ['M']]]],
-    [ts.editing, [[i.undo, [mod, 'Z']], [i.redo, [mod, 'Shift', 'Z']], [i.duplicate, [mod, 'D']], [i.group, [mod, 'G']], [i.ungroup, [mod, 'Shift', 'G']], [i.lock, [mod, 'L']], [i.delete, ['Del']], [i.nudge, ['←↑→↓']], [i.front, [mod, '] / [']], [i.forward, ['] / [']], [i.multi, ['Shift', 'click']], [i.dragCopy, ['Alt', 'drag']], [i.noSnap, ['Alt']], [i.square, ['Shift']], [i.child, ['Tab / Enter']], [i.copyStyle, [mod, 'Alt', 'C']], [i.pasteStyle, [mod, 'Alt', 'P']]]],
-    [ts.view, [[i.pan, ['Space', 'drag']], [i.zoom, [mod, 'scroll']], [i.fit, ['Shift', '1']], [i.zoomSelection, ['Shift', '2']], [i.present, ['F5']], [i.find, [mod, 'F']]]],
-    [ts.text, [[i.edit, ['Enter']], [i.finish, ['Esc']], [i.bold, [mod, 'B']], [i.italic, [mod, 'I']], [i.underline, [mod, 'U']]]],
+  const mac = isMacPlatform();
+  // Tools, view and text in the first column; editing, the longest, in the second.
+  const groups: [string, [string, ShortcutKeys][]][] = [
+    [ts.tools, [[i.select, ['V']], [i.hand, ['H']], [i.sticky, ['N']], [i.shape, ['S']], [i.text, ['T']], [i.connector, ['L']], [i.pen, ['P']], [i.highlighter, ['shift', 'P']], [i.eraser, ['E']], [i.frame, ['F']], [i.comment, ['C']], [i.mindmap, ['M']]]],
+    [ts.view, [[i.pan, ['Space', i.drag]], [i.zoom, ['mod', i.scroll]], [i.fit, ['shift', '1']], [i.zoomSelection, ['shift', '2']], [i.present, ['F5']], [i.find, ['mod', 'F']], [i.shortcuts, ['?']]]],
+    [ts.text, [[i.edit, ['Enter']], [i.finish, ['Esc']], [i.bold, ['mod', 'B']], [i.italic, ['mod', 'I']], [i.underline, ['mod', 'U']], [i.strike, ['mod', 'shift', 'S']]]],
+    [
+      ts.editing,
+      [
+        [i.undo, ['mod', 'Z']],
+        [i.redo, ['mod', 'shift', 'Z']],
+        [i.selectAll, ['mod', 'A']],
+        [i.copy, ['mod', 'C']],
+        [i.paste, ['mod', 'V']],
+        [i.duplicate, ['mod', 'D']],
+        [i.group, ['mod', 'G']],
+        [i.ungroup, ['mod', 'shift', 'G']],
+        [i.lock, ['mod', 'L']],
+        [i.link, ['mod', 'K']],
+        [i.delete, ['delete']],
+        [i.nudge, ['←↑→↓']],
+        [i.front, ['mod', ']']],
+        [i.back, ['mod', '[']],
+        [i.forward, [']', '|', '[']],
+        [i.multi, ['shift', i.click]],
+        [i.dragCopy, ['alt', i.drag]],
+        [i.noSnap, ['alt']],
+        [i.square, ['shift']],
+        [i.child, ['Tab', '|', 'Enter']],
+        [i.copyStyle, ['mod', 'alt', 'C']],
+        [i.pasteStyle, ['mod', 'alt', 'P']],
+      ],
+    ],
   ];
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] max-w-3xl overflow-y-auto">
+      {/* The title stays in place while the list scrolls under it. */}
+      <DialogContent className="flex max-h-[85vh] flex-col overflow-hidden sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>{ts.title}</DialogTitle>
         </DialogHeader>
-        <div className="grid gap-6 sm:grid-cols-2">
+        {/* Columns, not a grid: a short group doesn't leave a gap beside a long one. */}
+        <div className="-mx-6 min-h-0 flex-1 overflow-y-auto px-6 sm:columns-2 sm:gap-8">
           {groups.map(([title, items]) => (
-            <section key={title}>
+            <section key={title} className="mb-6 break-inside-avoid">
               <h3 className="mb-2 text-sm font-semibold">{title}</h3>
               <ul className="space-y-1.5">
                 {items.map(([label, keys]) => (
                   <li key={label} className="flex items-center justify-between gap-3 text-sm">
-                    <span>{label}</span>
-                    <span className="flex gap-1">
-                      {keys.map((k) => (
-                        <Kbd key={k}>{k}</Kbd>
-                      ))}
+                    <span className="min-w-0">{label}</span>
+                    <span className="flex shrink-0 items-center gap-1 whitespace-nowrap">
+                      {keyLabels(keys, mac).map((k, n) =>
+                        k === '|' ? (
+                          <span key={n} className="text-xs text-muted-foreground">
+                            /
+                          </span>
+                        ) : (
+                          <Kbd key={n}>{k}</Kbd>
+                        ),
+                      )}
                     </span>
                   </li>
                 ))}

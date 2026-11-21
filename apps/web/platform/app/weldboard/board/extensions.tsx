@@ -37,8 +37,7 @@ export function useBoardExtensions(): LiveBoardProps['extend'] {
         menuExtra: <PanelMenuItems panels={store} />,
         onComment: (id: string) => store.focusComment(id),
         onRecords: ctx.mode === 'edit' ? () => store.openRecords() : undefined,
-        onAi: ctx.mode === 'edit' && aiAvailable ? () => store.openAi() : undefined,
-        island: ctx.mode === 'edit' && aiAvailable ? <BoardAiIsland controller={c} boardId={ctx.boardId} panels={store} /> : undefined,
+        island: ctx.mode === 'edit' && aiAvailable ? <BoardAiIsland controller={c} boardId={ctx.boardId} /> : undefined,
         context: {
           ...(ctx.mode === 'edit' && canCreateTasks ? { onToTasks: (ids: string[]) => store.openTasks(ids) } : {}),
           onOpenRecord: (el) => {

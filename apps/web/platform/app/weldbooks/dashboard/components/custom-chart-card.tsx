@@ -38,7 +38,7 @@ import { OverviewCard } from './overview-card';
 /** The overview's own date range (months) and comparison, which a chart set to "dashboard" follows. */
 export type OverviewFilter = { size: number; compare: Compare | null };
 
-type BodyProps = { dashboard: Dashboard; months: TrendMonth[]; sample: boolean; filter: OverviewFilter };
+type BodyProps = { dashboard: Dashboard; months: TrendMonth[]; filter: OverviewFilter };
 
 export function useSourceLabels(): Record<ChartSource, string> {
   const { t } = useI18n();
@@ -69,7 +69,6 @@ export const CustomChartBody = memo(function CustomChartBody({
   chart,
   dashboard,
   months,
-  sample,
   filter,
 }: Readonly<BodyProps & { chart: DashboardChart }>) {
   if (!isTrendSource(chart.source)) return <BreakdownBody source={chart.source} dashboard={dashboard} />;
@@ -81,7 +80,6 @@ export const CustomChartBody = memo(function CustomChartBody({
     <MetricChartBody
       metric={chart.source}
       months={months}
-      sample={sample}
       size={size}
       compare={compare}
       shape={chart.type === 'breakdown' ? 'line' : chart.type}

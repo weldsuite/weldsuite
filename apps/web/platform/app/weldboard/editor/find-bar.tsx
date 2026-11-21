@@ -7,8 +7,9 @@ import type { BoardController } from './model/board-controller';
 
 /**
  * Find on the board (Ctrl/Cmd+F): every element whose text holds what was
- * typed, in reading order. Enter goes to the next one, Shift+Enter back; the
- * match is selected and brought into view.
+ * typed, in reading order, ringed on the board. Typing goes to the first one;
+ * Enter goes to the next, Shift+Enter back. The current match is selected and
+ * brought into view at the zoom the person is at.
  */
 export function FindBar({ controller: c, onClose }: { controller: BoardController; onClose: () => void }) {
   const version = useSyncExternalStore(c.subscribe, c.getVersion);
@@ -28,17 +29,30 @@ export function FindBar({ controller: c, onClose }: { controller: BoardControlle
     input.current?.select();
   }, []);
 
+  // Every match is ringed while the bar is open.
+  useEffect(() => {
+    c.findHits = new Set(query.trim() ? matches : []);
+    c.changed(false);
+  }, [c, matches, query]);
+  useEffect(
+    () => () => {
+      c.findHits = new Set();
+      c.changed(false);
+    },
+    [c],
+  );
+
   let count = '';
   if (query.trim()) count = matches.length ? format(tf.count, { current: current + 1, total: matches.length }) : tf.none;
 
-  const go = (to: number) => {
-    if (!matches.length) return;
-    const next = (to + matches.length) % matches.length;
+  const go = (to: number, list = matches) => {
+    if (!list.length) return;
+    const next = (to + list.length) % list.length;
     setIndex(next);
-    const el = c.board.get(matches[next]!);
+    const el = c.board.get(list[next]!);
     if (!el) return;
     c.select([el.id]);
-    c.showRect(c.boundsOf(el), { maxZoom: 1.5, margin: 120 });
+    c.reveal(c.boundsOf(el), 120);
   };
 
   return (
@@ -50,19 +64,18 @@ export function FindBar({ controller: c, onClose }: { controller: BoardControlle
         aria-label={tf.label}
         placeholder={tf.placeholder}
         onChange={(e) => {
-          setQuery(e.target.value);
+          const next = e.target.value;
+          setQuery(next);
           setIndex(0);
+          // Straight to the first match, as a browser's find does.
+          if (next.trim()) go(0, findOnBoard(c.board, next));
         }}
         onKeyDown={(e) => {
           e.stopPropagation();
           if (e.key === 'Enter') {
             e.preventDefault();
-            // The first Enter shows the current match; the next ones move on.
-            const shown = current >= 0 && c.selection.has(matches[current]!);
-            let to = Math.max(current, 0);
-            if (e.shiftKey) to = current - 1;
-            else if (shown) to = current + 1;
-            go(to);
+            // The current match is already shown: Enter moves on.
+            go(e.shiftKey ? current - 1 : current + 1);
           }
           if (e.key === 'Escape') onClose();
         }}

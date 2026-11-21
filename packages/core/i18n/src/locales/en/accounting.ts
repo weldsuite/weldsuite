@@ -77,7 +77,6 @@ export const accounting = {
         previousPeriodValue: '{amount} previous period',
         previousYearValue: '{amount} previous year',
         lastYear: 'Last year',
-        noComparison: 'No data for this period',
         revenue: 'Revenue',
         expenses: 'Expenses',
         netProfit: 'Net profit',

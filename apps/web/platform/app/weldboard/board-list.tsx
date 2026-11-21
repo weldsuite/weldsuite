@@ -3,7 +3,11 @@ import { BookmarkMinus, BookmarkPlus, Copy, EllipsisVertical, Pencil, Trash2 } f
 import { Button } from '@weldsuite/ui/components/button';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { PromptDialog } from '@weldsuite/ui/components/prompt-dialog';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@weldsuite/ui/components/dropdown-menu';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
+import { Label } from '@weldsuite/ui/components/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
+import { TEMPLATE_CATEGORIES, type BoardTemplateCategory } from '@weldsuite/app-api-client/schemas/boards';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@weldsuite/ui/components/dropdown-menu';
 import { EntityList, EmptyStateIllustration, type GroupConfig, type HeaderColumn } from '@/components/entity-list';
 import { RowOverlayButton } from '@/components/shared/row-overlay-button';
 import { formatMediumDateNow } from '@/lib/i18n/date-locale';
@@ -16,7 +20,8 @@ export interface BoardListProps {
   onRename?: (board: BoardMeta, name: string) => void;
   onDuplicate?: (board: BoardMeta) => void;
   onDelete?: (board: BoardMeta) => void;
-  onToggleTemplate?: (board: BoardMeta) => void;
+  /** Makes a board a workspace template in `category`, or (no category) takes it out of the templates. */
+  onToggleTemplate?: (board: BoardMeta, category?: BoardTemplateCategory) => void;
   /** The project a board lives in; adds a Project column. */
   projectName?: (board: BoardMeta) => string | null;
   groups?: GroupConfig<BoardMeta>[];
@@ -49,6 +54,8 @@ export function BoardList({
   const th = t.weldboard.home;
   const [deleting, setDeleting] = useState<BoardMeta | null>(null);
   const [renaming, setRenaming] = useState<BoardMeta | null>(null);
+  /** A board about to become a workspace template: asked first, with its category. */
+  const [templating, setTemplating] = useState<BoardMeta | null>(null);
 
   const headerColumns: HeaderColumn[] = useMemo(
     () => [
@@ -115,11 +122,12 @@ export function BoardList({
                     </DropdownMenuItem>
                   )}
                   {canTemplate && (
-                    <DropdownMenuItem onSelect={() => onToggleTemplate(board)}>
+                    <DropdownMenuItem onSelect={() => (board.templateCategory ? onToggleTemplate(board) : setTemplating(board))}>
                       {board.templateCategory ? <BookmarkMinus className="mr-0.5 h-4 w-4" /> : <BookmarkPlus className="mr-0.5 h-4 w-4" />}
                       {board.templateCategory ? th.removeTemplate : th.saveAsTemplate}
                     </DropdownMenuItem>
                   )}
+                  {canDelete && (canRename || canDuplicate || canTemplate) && <DropdownMenuSeparator />}
                   {canDelete && (
                     <DropdownMenuItem onSelect={() => setDeleting(board)} className="text-destructive focus:bg-destructive/10 focus:text-destructive">
                       <Trash2 className="mr-0.5 h-4 w-4 text-destructive" />
@@ -159,7 +167,7 @@ export function BoardList({
           description: th.emptyDescription,
           action: onCreate ? { label: th.newBoard, onClick: onCreate } : undefined,
         }}
-        noResultsState={{ title: th.noResultsTitle, description: th.noResultsDescription }}
+        noResultsState={{ title: th.noResultsTitle, description: th.noResultsDescription, clearLabel: t.common.actions.clearSearch }}
       />
       <PromptDialog
         open={!!renaming}
@@ -169,6 +177,14 @@ export function BoardList({
         defaultValue={renaming?.name ?? ''}
         onConfirm={(name) => {
           if (renaming && name !== renaming.name) onRename?.(renaming, name);
+        }}
+      />
+      <SaveTemplateDialog
+        board={templating}
+        onClose={() => setTemplating(null)}
+        onSave={(board, category) => {
+          onToggleTemplate?.(board, category);
+          setTemplating(null);
         }}
       />
       <ConfirmDialog
@@ -199,5 +215,43 @@ function BoardsIllustration() {
         <path d="M72 70 L86 86" className="stroke-gray-300 dark:stroke-white/20" strokeWidth="1.5" opacity="0.35" />
       </svg>
     </EmptyStateIllustration>
+  );
+}
+
+/** Making a board a workspace template, which everyone can then start from: asked first, with its category. */
+function SaveTemplateDialog({ board, onClose, onSave }: { board: BoardMeta | null; onClose: () => void; onSave: (board: BoardMeta, category: BoardTemplateCategory) => void }) {
+  const { t } = useI18n();
+  const tt = t.weldboard.templates;
+  const [category, setCategory] = useState<BoardTemplateCategory>('other');
+  return (
+    <Dialog open={!!board} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{tt.saveTitle}</DialogTitle>
+          <DialogDescription>{tt.saveDescription}</DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="wb-template-category">{tt.category}</Label>
+          <Select value={category} onValueChange={(v) => setCategory(v as BoardTemplateCategory)}>
+            <SelectTrigger id="wb-template-category" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {TEMPLATE_CATEGORIES.map((c) => (
+                <SelectItem key={c} value={c}>
+                  {tt.categories[c]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            {t.common.actions.cancel}
+          </Button>
+          <Button onClick={() => board && onSave(board, category)}>{tt.save}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

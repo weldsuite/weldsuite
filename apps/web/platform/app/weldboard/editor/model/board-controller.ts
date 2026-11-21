@@ -18,6 +18,7 @@ import {
   deleteOps,
   elementBounds,
   elementTextLayout,
+  fittedTextHeight,
   isNoop,
   keyAllowed,
   normalize,
@@ -73,6 +74,9 @@ export interface TextEditing {
   goalX?: number;
 }
 
+/** What a text box's lines depend on: a change to any of them can move its bottom. */
+const TEXT_LAYOUT_KEYS = ['text', 'fontSize', 'fontFamily', 'w', 'h'];
+
 let measurerSingleton: CachedMeasurer | null = null;
 /** One shared canvas measurer with a width cache in front (cleared when web fonts finish loading). */
 function browserMeasurer(): TextMeasurer {
@@ -116,6 +120,10 @@ export class BoardController {
   showGrid = true;
   /** Names by user id, for authors, assignees and peers. */
   names = new Map<string, string>();
+  /** Elements the find bar matched, ringed on the board while it is open. */
+  findHits: ReadonlySet<string> = new Set();
+  /** The canvas behind a board without a background of its own (dimmer in dark mode). */
+  canvasBackground = '#f7f8fa';
 
   private readonly listeners = new Set<() => void>();
   private readonly renderListeners = new Set<() => void>();
@@ -172,17 +180,59 @@ export class BoardController {
    */
   apply(op: Op, options: { gesture?: string; select?: Iterable<string>; comment?: boolean; undoable?: boolean } = {}): boolean {
     if (this.readOnly && !(options.comment && this.canComment)) return false;
-    const n = normalize(op);
+    const n = this.fitNewText(normalize(op));
     if (isNoop(n)) return false;
     const before = [...this.selection];
-    const inverse = this.run(n);
+    const { op: done, inverse } = this.runFitted(n);
     if (options.select) this.selection = new Set(options.select);
     this.pruneSelection();
-    if (options.undoable === false) this.history.remote(n);
-    else this.history.record(n, inverse, { gesture: options.gesture, before, after: [...this.selection] });
-    this.options.onOp?.(n);
+    if (options.undoable === false) this.history.remote(done);
+    else this.history.record(done, inverse, { gesture: options.gesture, before, after: [...this.selection] });
+    this.options.onOp?.(done);
     this.changed();
     return true;
+  }
+
+  /**
+   * Runs a local op, and with it whatever keeps text boxes as tall as their
+   * text: a line typed, deleted, made bold or bigger, or a box made narrower
+   * moves the box's bottom in the same step (one undo, one op for the others).
+   */
+  private runFitted(op: Op): { op: Op; inverse: Op } {
+    const inverse = this.run(op);
+    const fit = this.textHeightOps(op);
+    if (!fit.length) return { op, inverse };
+    const fitOp = batch(fit);
+    const fitInverse = this.run(fitOp);
+    return { op: batch([op, fitOp]), inverse: batch([fitInverse, inverse]) };
+  }
+
+  /** New text boxes, as tall as their text from the start (in the create itself). */
+  private fitNewText(op: Op): Op {
+    const ops = unbatch(op);
+    if (!ops.some((o) => o.type === 'create' && o.elements.some((e) => e.type === 'text'))) return op;
+    const options = { measurer: this.measurer, showAuthors: this.showAuthors };
+    const fit = (el: BoardElement): BoardElement => {
+      const h = fittedTextHeight(el, options);
+      return h === null || Math.abs(h - el.h) < 0.5 ? el : { ...el, h };
+    };
+    return batch(ops.map((o) => (o.type === 'create' ? { ...o, elements: o.elements.map(fit) } : o)));
+  }
+
+  /** The ops that fit each text box `op` changed to its text, where its height no longer does. */
+  private textHeightOps(op: Op): Op[] {
+    const ids = new Set<string>();
+    for (const o of unbatch(op)) {
+      const textOp = o.type === 'insertText' || o.type === 'deleteText' || o.type === 'formatText';
+      if (textOp || (o.type === 'set' && TEXT_LAYOUT_KEYS.some((k) => k in o.patch))) ids.add(o.id);
+    }
+    const out: Op[] = [];
+    for (const id of ids) {
+      const el = this.board.get(id);
+      const h = el ? fittedTextHeight(el, { measurer: this.measurer, showAuthors: this.showAuthors }) : null;
+      if (el && h !== null && Math.abs(h - el.h) >= 0.5) out.push({ type: 'set', id, patch: { h } });
+    }
+    return out;
   }
 
   private run(op: Op): Op {
@@ -306,7 +356,10 @@ export class BoardController {
 
   setViewport(width: number, height: number): void {
     this.viewport = { width: Math.max(1, width), height: Math.max(1, height) };
-    this.changed(false);
+    // Presenting fills the window: a slide is fitted again to the new size.
+    const slide = this.presenting && this.slide ? this.board.get(this.slide) : undefined;
+    if (slide) this.camera = fitRect({ x: slide.x, y: slide.y, w: slide.w, h: slide.h }, this.viewport.width, this.viewport.height, { margin: 24, maxZoom: 8 });
+    this.changed(!!slide);
   }
 
   setCamera(camera: Camera, react = false): void {
@@ -340,6 +393,28 @@ export class BoardController {
 
   visible(): Rect {
     return visibleRect(this.camera, this.viewport.width, this.viewport.height);
+  }
+
+  /**
+   * Brings a board rectangle into view, moving as little as possible and
+   * keeping the zoom (zooming out only when it can't fit). Nothing moves when
+   * it is already in view.
+   */
+  reveal(r: Rect, margin = 48): void {
+    const v = this.visible();
+    const m = margin / this.camera.zoom;
+    if (r.w + m * 2 > v.w || r.h + m * 2 > v.h) {
+      this.showRect(r, { maxZoom: this.camera.zoom, margin });
+      return;
+    }
+    const shift = (start: number, size: number, from: number, span: number): number => {
+      if (start - m < from) return start - m - from;
+      if (start + size + m > from + span) return start + size + m - (from + span);
+      return 0;
+    };
+    const dx = shift(r.x, r.w, v.x, v.w);
+    const dy = shift(r.y, r.h, v.y, v.h);
+    if (dx || dy) this.setCamera({ ...this.camera, x: this.camera.x + dx, y: this.camera.y + dy }, true);
   }
 
   /** The board point at the centre of the screen. */
@@ -451,7 +526,7 @@ export class BoardController {
   editingLayout(): ReturnType<typeof elementTextLayout> {
     const el = this.editing ? this.board.get(this.editing.id) : undefined;
     if (!el) return null;
-    return elementTextLayout(el, { measurer: this.measurer });
+    return elementTextLayout(el, { measurer: this.measurer, showAuthors: this.showAuthors });
   }
 
   /** Deletes the selection (with contents), keeping connectors where they were drawn. */

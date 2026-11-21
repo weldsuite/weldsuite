@@ -374,7 +374,6 @@ export const sweep = {
       "ledgerAccount": "Grootboekrekening",
       "notLinked": "Niet gekoppeld",
       "groupPartiallyPaid": "Gedeeltelijk betaald",
-      "sampleData": "Voorbeeldgegevens",
       "pdfDownloaded": "PDF gedownload"
     },
     "contactForm": {

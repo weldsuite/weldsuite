@@ -135,16 +135,18 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
     }
   }, [page?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // A rename made elsewhere (the sidebar's Rename, another tab) changes the
-  // stored title: show it, unless this field holds an edit of its own that is
-  // being typed or still saving. Our own saves echo back equal and change nothing.
+  // A rename made elsewhere (the sidebar's Rename, another tab or person)
+  // changes the stored title: show it, unless this field holds an edit of its
+  // own that is being typed or still saving. Our own saves echo back equal and
+  // change nothing. Focus alone is not an edit: a new page opens with the caret
+  // in its empty title, and a teammate naming it meanwhile must still show.
   const storedTitle = page?.title;
   useEffect(() => {
     if (storedTitle === undefined) return;
     const loaded = editableTitle(storedTitle);
     if (loaded.trim() === savedTitleRef.current.trim()) return;
     if (titleSaveTimeout.current || updateMeta.isPending) return;
-    if (document.activeElement === titleRef.current) return;
+    if (document.activeElement === titleRef.current && title.trim() !== savedTitleRef.current.trim()) return;
     savedTitleRef.current = loaded;
     setTitle(loaded);
   }, [storedTitle]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -316,6 +318,12 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
     blockEditorRef.current?.replaceContent(
       (page.contentJson ?? []) as unknown as Parameters<BlockEditorHandle['replaceContent']>[0],
     );
+    // The editor now shows someone else's content, so what this editor saved
+    // before is no longer on screen. If one of those saves lands on the server
+    // after theirs, its echo is the page's real state and has to load too;
+    // remembering it as "ours" would leave this editor showing a version the
+    // server no longer has, and its next save would overwrite the page with it.
+    sentContentRef.current = [];
   }, [page?.id, page?.contentJson]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Flush any pending saves when navigating away from this page.
