@@ -128,7 +128,7 @@ function setOrder(overrides: Partial<PurchaseOrder> = {}) {
   env.order = { data: order(overrides), isLoading: false, isError: false, refetch: env.refetch };
 }
 
-const EDITOR = ['orders:update', 'orders:delete'];
+const EDITOR = ['purchase_orders:update', 'purchase_orders:delete'];
 
 function enableRust() {
   setRuntimeConfig({ backend: 'rust', modules: ['core', 'stash'], unavailableFeatures: [] });

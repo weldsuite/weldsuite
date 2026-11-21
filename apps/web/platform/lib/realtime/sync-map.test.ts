@@ -276,6 +276,7 @@ describe('platformSyncMap — WeldStash', () => {
     expect(platformSyncMap.product?.invalidate).toEqual([
       ['weldstash', 'products'],
       ['weldstash', 'stock'],
+      ['weldcommerce', 'products'],
     ]);
     expect(platformSyncMap.wms_product?.invalidate).toEqual([
       ['weldstash', 'products'],
@@ -325,6 +326,52 @@ describe('platformSyncMap — WeldStash', () => {
     expect(platformSyncMap.wms_category?.invalidate).toEqual([
       ['weldstash', 'categories'],
       ['weldstash', 'products'],
+    ]);
+  });
+
+  it('order refreshes the WeldCommerce orders, the overview, the discount use counts and WeldStash orders', () => {
+    expect(platformSyncMap.order?.invalidate).toEqual([
+      ['weldcommerce', 'orders'],
+      ['weldcommerce', 'overview'],
+      ['weldcommerce', 'discounts'],
+      ['weldcommerce', 'payments'],
+      ['weldstash', 'orders'],
+    ]);
+  });
+
+  it('commerce_settings refreshes the WeldCommerce settings', () => {
+    expect(platformSyncMap.commerce_settings?.invalidate).toEqual([['weldcommerce', 'settings']]);
+  });
+
+  it('commerce_channel refreshes the channels and the orders that show their name', () => {
+    expect(platformSyncMap.commerce_channel?.invalidate).toEqual([
+      ['weldcommerce', 'channels'],
+      ['weldcommerce', 'orders'],
+    ]);
+  });
+
+  it('commerce_channel_key and commerce_shipping_rate refresh the channels', () => {
+    expect(platformSyncMap.commerce_channel_key?.invalidate).toEqual([['weldcommerce', 'channels']]);
+    expect(platformSyncMap.commerce_shipping_rate?.invalidate).toEqual([['weldcommerce', 'channels']]);
+  });
+
+  it('commerce_payment_connection refreshes the payment queries', () => {
+    expect(platformSyncMap.commerce_payment_connection?.invalidate).toEqual([['weldcommerce', 'payments']]);
+  });
+
+  it('commerce_buyer and commerce_company_settings refresh the buyers and the company settings', () => {
+    expect(platformSyncMap.commerce_buyer?.invalidate).toEqual([['weldcommerce', 'buyers']]);
+    expect(platformSyncMap.commerce_company_settings?.invalidate).toEqual([['weldcommerce', 'company-settings']]);
+  });
+
+  it('discount refreshes the WeldCommerce discounts', () => {
+    expect(platformSyncMap.discount?.invalidate).toEqual([['weldcommerce', 'discounts']]);
+  });
+
+  it('category refreshes the WeldCommerce categories and the products that show them', () => {
+    expect(platformSyncMap.category?.invalidate).toEqual([
+      ['weldcommerce', 'categories'],
+      ['weldcommerce', 'products'],
     ]);
   });
 });

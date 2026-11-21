@@ -78,6 +78,32 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
+describe('ProductDialog · VAT category', () => {
+  it('does not ask for it in WeldStash', () => {
+    open();
+    expect(screen.queryByText('VAT category')).toBeNull();
+  });
+
+  it('asks for it in WeldCommerce, standard to begin with, and sends the one chosen', async () => {
+    const user = userEvent.setup();
+    render(<ProductDialog open onOpenChange={vi.fn()} showVatCategory />);
+    const select = screen.getByRole('combobox', { name: 'VAT category' });
+    expect(select).toHaveTextContent('Standard rate');
+    await user.type(screen.getByLabelText('Name'), 'Book');
+    await fillRequired(user);
+    await user.click(select);
+    await user.click(await screen.findByRole('option', { name: 'Reduced rate' }));
+    await user.click(screen.getByRole('button', { name: 'Create' }));
+    await waitFor(() => expect(mutations.create).toHaveBeenCalledTimes(1));
+    expect(mutations.create.mock.calls[0]?.[0]).toMatchObject({ name: 'Book', vatCategory: 'reduced' });
+  });
+
+  it('shows the stored category when editing', () => {
+    render(<ProductDialog open onOpenChange={vi.fn()} product={product({ vatCategory: 'zero' })} showVatCategory />);
+    expect(screen.getByRole('combobox', { name: 'VAT category' })).toHaveTextContent('Zero rate (0%)');
+  });
+});
+
 describe('ProductDialog · sales tax', () => {
   it('shows a new product as taxable with the default tax code', () => {
     open();

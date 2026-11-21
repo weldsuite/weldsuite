@@ -14,6 +14,10 @@ import authSignInCode from './auth/sign-in-code';
 import authVerifyEmail from './auth/verify-email';
 import booking from './booking/booking';
 import calendarEvent from './calendar/event';
+import commerceApprovalDecided from './commerce/approval-decided';
+import commerceApprovalRequested from './commerce/approval-requested';
+import commerceBuyerInvitation from './commerce/buyer-invitation';
+import commerceOrderConfirmation from './commerce/order-confirmation';
 import deskReport from './desk/report';
 import flowDigest from './flow/digest';
 import flowPortalInvitation from './flow/portal-invitation';
@@ -59,6 +63,10 @@ export const templates = {
   'auth.password-reset': authPasswordReset,
   notification,
   'task.assigned': taskAssigned,
+  'commerce.buyer-invitation': commerceBuyerInvitation,
+  'commerce.order-confirmation': commerceOrderConfirmation,
+  'commerce.approval-requested': commerceApprovalRequested,
+  'commerce.approval-decided': commerceApprovalDecided,
   'desk.report': deskReport,
   'flow.digest': flowDigest,
   'flow.status-report': flowStatusReport,
@@ -107,6 +115,10 @@ export type { BillingDunningEmailProps, BillingDunningKind } from './billing/dun
 export type { BillingInvoiceEmailProps, BillingInvoiceVat } from './billing/invoice';
 export type { BookingEmailKind, BookingEmailProps, BookingLocation } from './booking/booking';
 export type { CalendarEventEmailProps, CalendarEventKind } from './calendar/event';
+export type { CommerceApprovalDecidedEmailProps } from './commerce/approval-decided';
+export type { CommerceApprovalReason, CommerceApprovalRequestedEmailProps } from './commerce/approval-requested';
+export type { CommerceBuyerInvitationEmailProps, CommerceBuyerRole } from './commerce/buyer-invitation';
+export type { CommerceOrderConfirmationEmailProps } from './commerce/order-confirmation';
 export type {
   DeskReportAgent,
   DeskReportChart,

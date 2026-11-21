@@ -12,6 +12,7 @@ licences (MIT) so they can be embedded without AGPL obligations. Read the root
 | `forms-embed` | Embeds WeldForms forms (inline, popup, slider, …) | The forms-portal embed view and `apps/web/platform/app/weldforms/share/embed-snippet.ts` (same attribute names) |
 | `panel-sdk` | WeldPanel analytics for websites and web apps | `apps/workers/panel-ingest` |
 | `cursor-plugin` | Connects Cursor to WeldFlow tasks | |
+| `commerce-sdk` (`@weldsuite/commerce-sdk`) | Client for the WeldCommerce storefront API (`/storefront/v1`): catalogue, carts, checkout, Mollie payments, shoppers, B2B | The Rust storefront routes (`rust/modules/commerce/src/storefront/`, `rust/crates/commerce-domain`) and the starter shop `apps/web/commerce-starter`; not on npm yet |
 
 A protocol change lands on both sides in one PR. Keep these packages free of
 internal imports a consumer can't install, and keep their READMEs current:

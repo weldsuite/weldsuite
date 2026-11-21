@@ -12,7 +12,7 @@ describeCrud('/api/purchase-orders', {
   base: '/api/purchase-orders',
   routes: purchaseOrdersRoutes,
   table: schema.purchaseOrders,
-  gates: { read: 'orders:read', create: 'orders:create', update: 'orders:update', delete: 'orders:delete' },
+  gates: { read: 'purchase_orders:read', create: 'purchase_orders:create', update: 'purchase_orders:update', delete: 'purchase_orders:delete' },
   seed: (n) => ({ poNumber: `PO-${n}`, supplierId: 'sup_seed' }),
   valid: {
     poNumber: 'PO-NEW',

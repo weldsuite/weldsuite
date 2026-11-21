@@ -7,7 +7,7 @@
  * purchase order's own totals are not recomputed. Each line change publishes
  * `purchase_order` `updated`, as the header's own update does.
  *
- * Permissions: orders:read | orders:create | orders:update | orders:delete.
+ * Permissions: purchase_orders:read | purchase_orders:create | purchase_orders:update | purchase_orders:delete.
  */
 
 import { Hono, type Context } from 'hono';
@@ -55,7 +55,7 @@ async function buildCursorCondition(
   return sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`;
 }
 
-app.get('/', requirePermission('orders:read'), async (c) => {
+app.get('/', requirePermission('purchase_orders:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
   const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
@@ -85,7 +85,7 @@ app.get('/', requirePermission('orders:read'), async (c) => {
   }
 });
 
-app.get('/:id', requirePermission('orders:read'), async (c) => {
+app.get('/:id', requirePermission('purchase_orders:read'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   try {
@@ -98,7 +98,7 @@ app.get('/:id', requirePermission('orders:read'), async (c) => {
   }
 });
 
-app.post('/', requirePermission('orders:create'), zValidator('json', createPurchaseOrderSchema), async (c) => {
+app.post('/', requirePermission('purchase_orders:create'), zValidator('json', createPurchaseOrderSchema), async (c) => {
   const db = c.get('tenantDb');
   const data = c.req.valid('json') as Record<string, any>;
   const id = generateId('po');
@@ -113,7 +113,7 @@ app.post('/', requirePermission('orders:create'), zValidator('json', createPurch
   }
 });
 
-app.patch('/:id', requirePermission('orders:update'), zValidator('json', updatePurchaseOrderSchema), async (c) => {
+app.patch('/:id', requirePermission('purchase_orders:update'), zValidator('json', updatePurchaseOrderSchema), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   const data = c.req.valid('json') as Record<string, any>;
@@ -131,7 +131,7 @@ app.patch('/:id', requirePermission('orders:update'), zValidator('json', updateP
   }
 });
 
-app.delete('/:id', requirePermission('orders:delete'), async (c) => {
+app.delete('/:id', requirePermission('purchase_orders:delete'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   try {
@@ -174,7 +174,7 @@ function figuresOf(row: PurchaseOrderItemRow) {
   };
 }
 
-app.get('/:id/items', requirePermission('orders:read'), async (c) => {
+app.get('/:id/items', requirePermission('purchase_orders:read'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   try {
@@ -188,7 +188,7 @@ app.get('/:id/items', requirePermission('orders:read'), async (c) => {
   }
 });
 
-app.post('/:id/items', requirePermission('orders:update'), zValidator('json', createPurchaseOrderItemSchema), async (c) => {
+app.post('/:id/items', requirePermission('purchase_orders:update'), zValidator('json', createPurchaseOrderItemSchema), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   const data = c.req.valid('json');
@@ -242,7 +242,7 @@ app.post('/:id/items', requirePermission('orders:update'), zValidator('json', cr
   }
 });
 
-app.patch('/:id/items/:itemId', requirePermission('orders:update'), zValidator('json', updatePurchaseOrderItemSchema), async (c) => {
+app.patch('/:id/items/:itemId', requirePermission('purchase_orders:update'), zValidator('json', updatePurchaseOrderItemSchema), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   const itemId = c.req.param('itemId');
@@ -295,7 +295,7 @@ app.patch('/:id/items/:itemId', requirePermission('orders:update'), zValidator('
   }
 });
 
-app.delete('/:id/items/:itemId', requirePermission('orders:update'), async (c) => {
+app.delete('/:id/items/:itemId', requirePermission('purchase_orders:update'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   const itemId = c.req.param('itemId');

@@ -516,6 +516,11 @@ config:
 #   MOLLIE_API_KEY               Mollie's live_… (or test_…) API key: buying credits
 #                                (config.credits.mollie; optional, unset: no top-up) and
 #                                plan billing (config.billing, required with it)
+#   MOLLIE_CONNECT_CLIENT_ID     WeldCommerce's Mollie Connect app (ADR COM-013), with
+#   MOLLIE_CONNECT_CLIENT_SECRET its secret (both or neither; optional): lets a workspace
+#                                connect its own Mollie account by OAuth. Its redirect URI is
+#                                https://app.<domain>/api/commerce-payments/connection/mollie/callback.
+#                                Unset: a workspace connects with its own API key instead
 #   APNS_KEY_ID / APNS_TEAM_ID / APNS_PRIVATE_KEY  WeldChat's call ring on iPhones: an APNs auth
 #                                key of the Apple team that owns the WeldChat app (its key id, the
 #                                team id and the .p8 PEM), for Apple's VoIP push that makes CallKit

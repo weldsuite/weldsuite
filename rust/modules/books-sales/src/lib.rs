@@ -13,6 +13,7 @@
 )]
 
 mod body;
+mod commerce;
 mod credit_notes;
 mod errors;
 mod finalize;
@@ -27,6 +28,7 @@ mod templates;
 use std::sync::Arc;
 
 use axum::Router;
+pub use commerce::CommerceInvoicing;
 pub use invoices::pdf::render_invoice_html_as_system;
 pub use recurring::{SystemGenerateError, SystemGenerated, generate_recurring_invoice_as_system};
 pub use weldsuite_books_domain::http::BooksState;

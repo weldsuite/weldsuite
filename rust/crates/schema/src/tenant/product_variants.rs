@@ -68,6 +68,9 @@ pub struct Model {
     pub low_stock_threshold: Option<i32>,
     #[serde(rename = "allowBackorder")]
     pub allow_backorder: Option<bool>,
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "vatCategory")]
+    pub vat_category: Option<String>,
     #[sea_orm(column_type = "Decimal(Some((10, 3)))")]
     #[serde(
         rename = "weight",
@@ -270,6 +273,32 @@ pub const DDL: Table = Table {
             unique: false,
             method: "btree",
             filter: None,
+        },
+        Index {
+            name: "product_variants_sku_uidx",
+            columns: &[IndexColumn {
+                expression: "sku",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: true,
+            method: "btree",
+            filter: Some(
+                "\"product_variants\".\"sku\" IS NOT NULL AND \"product_variants\".\"sku\" <> '' AND \"product_variants\".\"deleted_at\" IS NULL",
+            ),
+        },
+        Index {
+            name: "product_variants_barcode_uidx",
+            columns: &[IndexColumn {
+                expression: "barcode",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: true,
+            method: "btree",
+            filter: Some(
+                "\"product_variants\".\"barcode\" IS NOT NULL AND \"product_variants\".\"barcode\" <> '' AND \"product_variants\".\"deleted_at\" IS NULL",
+            ),
         },
     ],
     foreign_keys: &[],

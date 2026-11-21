@@ -41,6 +41,7 @@ pub mod auth;
 pub mod billing;
 pub mod calendar;
 mod catalog;
+pub mod commerce;
 mod date;
 pub mod desk;
 mod escape;

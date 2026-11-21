@@ -159,6 +159,53 @@ pub struct Caller {
 }
 
 impl Caller {
+    /// A caller for in-process work outside a request: another module (the
+    /// WeldCommerce payments, say) acting in a workspace's books as
+    /// `user_id`, on the accounting entity `entity_id`. It holds no
+    /// permissions and no session: it is for code that decided the action
+    /// itself. `event_workspace_id` is the id events carry (the org id where
+    /// there is one, else `workspaces.id`).
+    pub fn in_process(
+        db: PgPool,
+        workspace_id: &str,
+        event_workspace_id: &str,
+        user_id: &str,
+        entity_id: &str,
+        http: Option<OutboundHttp>,
+    ) -> Self {
+        let mut headers = HeaderMap::new();
+        if let Ok(value) = http::HeaderValue::from_str(entity_id) {
+            headers.insert("x-accounting-entity-id", value);
+        }
+        Self {
+            db,
+            user_id: user_id.to_owned(),
+            permissions: Permissions::new(
+                weldsuite_permissions::ResolvedPermissions::default(),
+                None,
+                false,
+                user_id.to_owned(),
+            ),
+            events: EventContext::from_ids(workspace_id, Some(event_workspace_id), user_id),
+            clerk_org_id: Some(event_workspace_id.to_owned()),
+            org_id: None,
+            workspace_id: workspace_id.to_owned(),
+            headers,
+            raw_query: None,
+            env: None,
+            buckets: None,
+            master: None,
+            flags: None,
+            http,
+            cache: None,
+            ai: None,
+            entity: OnceCell::new(),
+            legal_entity: None,
+            entity_access: OnceCell::new(),
+            outbox: std::sync::Mutex::default(),
+        }
+    }
+
     /// `hasContextPermission(c, key)`.
     pub fn can(&self, key: &str) -> bool {
         self.permissions.has_any(&[key])

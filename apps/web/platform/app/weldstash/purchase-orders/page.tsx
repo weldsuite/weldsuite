@@ -59,9 +59,9 @@ function PurchaseOrdersContent() {
   const warehouseRows = warehouses.data?.data;
   const warehouseById = useMemo(() => new Map((warehouseRows ?? []).map((w) => [w.id, w])), [warehouseRows]);
 
-  const canCreate = can('orders:create');
-  const canUpdate = can('orders:update');
-  const canDelete = can('orders:delete');
+  const canCreate = can('purchase_orders:create');
+  const canUpdate = can('purchase_orders:update');
+  const canDelete = can('purchase_orders:delete');
 
   const columns: ListTableColumn<PurchaseOrder>[] = [
     {

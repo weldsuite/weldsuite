@@ -63,6 +63,8 @@ export const SENSITIVE_COLUMNS = {
   panel_exports: ['secretCiphertext'],
   /** The client secret of the customer's own app registration (Intune); only the device import decrypts it. */
   asset_sources: ['secretEncrypted'],
+  /** The workspace's Mollie OAuth tokens (or the manual API key fallback); only the commerce payment adapter decrypts them. */
+  commerce_payment_connections: ['accessTokenEncrypted', 'refreshTokenEncrypted', 'apiKeyEncrypted'],
 } as const satisfies Record<string, readonly string[]>;
 
 export type SensitiveTableName = keyof typeof SENSITIVE_COLUMNS;

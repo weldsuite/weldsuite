@@ -746,6 +746,7 @@ export function settingsCommands(
     { code: 'weldforms', title: 'WeldForms', keywords: 'weldforms forms themes branding invitations reminders settings', href: '/settings/apps/weldforms' },
     { code: 'welddesk', title: search.helpdeskSettings, keywords: `${search.helpdeskSettings} ${search.configureHelpdesk}`, href: '/settings/apps/welddesk' },
     { code: 'weldmail', title: search.mailAccounts, keywords: `${search.mailAccounts} ${search.manageMailAccounts} weldmail labels signatures`, href: '/settings/apps/weldmail' },
+    { code: 'weldcommerce', title: 'WeldCommerce', keywords: 'weldcommerce commerce orders order numbers prefix currency settings', href: '/settings/apps/weldcommerce' },
     { code: 'weldstash', title: 'WeldStash', keywords: 'weldstash warehouse replenishment reorder forecast sales history import settings', href: '/settings/apps/weldstash' },
     { code: 'weldmerge', title: 'WeldMerge', keywords: 'weldmerge git providers repositories teams labels settings', href: '/settings/apps/weldmerge' },
     { code: 'weldpanel', title: 'WeldPanel', keywords: 'weldpanel analytics usage exports api mcp settings', href: '/settings/apps/weldpanel' },

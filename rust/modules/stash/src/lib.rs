@@ -3,12 +3,14 @@
 //! buckets and the inventory ledger behind every quantity change, movements,
 //! stock adjustments, putaway tasks, pick lists (generate from an order,
 //! scan-confirm, pack, ship), pickers, suppliers, purchase orders, cycle
-//! counts, boxes, the activity log and the product catalogue (moved here from
-//! commerce-api while WeldCommerce is rebuilt).
+//! counts, boxes and the activity log.
 //!
 //! Paths, bodies, status codes, messages and entity events are the
 //! TypeScript worker's; its tests run against this crate in the `stash`
-//! conformance suites (`rust/conformance/suites.json`).
+//! conformance suites (`rust/conformance/suites.json`). stash-api also
+//! serves the product catalogue (`/api/products`); on the Rust backend that
+//! route moved to `weldsuite-commerce` (WeldCommerce phase 1), where the
+//! "stash: products" suite still checks it.
 
 #![allow(
     clippy::disallowed_methods,
@@ -32,7 +34,6 @@ mod po_number;
 mod po_receive;
 mod po_totals;
 mod product_suppliers;
-mod products;
 mod purchase_order_items;
 #[cfg(test)]
 mod purchasing_tests;
@@ -85,7 +86,7 @@ impl std::fmt::Debug for StashState {
 }
 
 /// stash-api's routes, relative to `/api` (`/warehouses`, `/inventory`,
-/// `/pick-lists`, `/products`, …), to merge under `/api` behind the session, tenant
+/// `/pick-lists`, …), to merge under `/api` behind the session, tenant
 /// database, licence and flag layers. Each route carries its
 /// `requirePermission` from `gate`.
 pub fn router<S, Q>(state: StashState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
@@ -103,7 +104,6 @@ where
         )
         .nest("/pick-lists", pick_lists::routes(gate))
         .nest("/pickers", pickers::routes(gate))
-        .nest("/products", crud::routes(&products::PRODUCTS, gate))
         .nest(
             "/purchase-orders",
             crud::routes(&crud::PURCHASE_ORDERS, gate)

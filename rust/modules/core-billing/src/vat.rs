@@ -14,58 +14,34 @@
 //! one it can't check right now (VIES down), are charged VAT like a customer
 //! without one.
 //!
-//! The rates are the EU standard rates in force on 2026-11-01; a change is
-//! a change here, with its date.
+//! The rates come from the versioned EU rate table in `books-domain`
+//! (`tax::eu_vat`, `data/eu_vat_rates.json`); a change is a new version there
+//! with its effective date.
 
 use serde::{Deserialize, Serialize};
+use weldsuite_books_domain::tax::eu_vat::{self, VatCategory};
 
-/// EU member states and their standard VAT rate, in basis points.
-pub const EU_STANDARD_RATES: &[(&str, u32)] = &[
-    ("AT", 2000),
-    ("BE", 2100),
-    ("BG", 2000),
-    ("CY", 1900),
-    ("CZ", 2100),
-    ("DE", 1900),
-    ("DK", 2500),
-    // Estonia: 24% since 2025-07-01.
-    ("EE", 2400),
-    ("ES", 2100),
-    // Finland: 25.5% since 2024-09-01.
-    ("FI", 2550),
-    ("FR", 2000),
-    // Greece: ISO GR, VAT prefix EL.
-    ("GR", 2400),
-    ("HR", 2500),
-    ("HU", 2700),
-    ("IE", 2300),
-    ("IT", 2200),
-    ("LT", 2100),
-    ("LU", 1700),
-    ("LV", 2100),
-    ("MT", 1800),
-    ("NL", 2100),
-    ("PL", 2300),
-    ("PT", 2300),
-    // Romania: 21% since 2025-08-01.
-    ("RO", 2100),
-    ("SE", 2500),
-    ("SI", 2200),
-    // Slovakia: 23% since 2025-01-01.
-    ("SK", 2300),
-];
-
-/// The standard rate of an EU member state, `None` outside the EU.
+/// The standard rate of an EU member state today, in basis points; `None`
+/// outside the EU. From the versioned EU rate table
+/// (`weldsuite_books_domain::tax::eu_vat`).
 pub fn standard_rate(country: &str) -> Option<u32> {
-    EU_STANDARD_RATES
-        .iter()
-        .find(|(code, _)| *code == country)
-        .map(|(_, rate)| *rate)
+    standard_rate_on(country, &eu_vat::today())
+}
+
+/// The standard rate of `country` on `date` (`YYYY-MM-DD`). A date before
+/// the table starts reads the newest rate rather than no tax.
+pub fn standard_rate_on(country: &str, date: &str) -> Option<u32> {
+    if !eu_vat::is_eu_member(country) {
+        return None;
+    }
+    eu_vat::standard_rate_bps(country, date)
+        .or_else(|_| eu_vat::latest_rate_bps(country, VatCategory::Standard))
+        .ok()
 }
 
 /// Whether `country` (ISO 3166-1 alpha-2) is an EU member state.
 pub fn is_eu(country: &str) -> bool {
-    standard_rate(country).is_some()
+    eu_vat::is_eu_member(country)
 }
 
 /// The VAT number prefix of a country (Greece writes `EL`).
@@ -125,8 +101,19 @@ pub struct VatDecision {
 }
 
 /// Decides the treatment for a customer in `buyer_country` (ISO alpha-2,
-/// upper case) of a seller in `seller_country`.
+/// upper case) of a seller in `seller_country`, at today's rates.
 pub fn decide(seller_country: &str, buyer_country: &str, vat: VatCheck) -> VatDecision {
+    decide_on(seller_country, buyer_country, vat, &eu_vat::today())
+}
+
+/// [`decide`] at the rates in force on `date` (`YYYY-MM-DD`).
+pub fn decide_on(
+    seller_country: &str,
+    buyer_country: &str,
+    vat: VatCheck,
+    date: &str,
+) -> VatDecision {
+    let standard_rate = |country: &str| standard_rate_on(country, date);
     let decision = |treatment, rate_bps| VatDecision {
         treatment,
         rate_bps,
@@ -207,6 +194,61 @@ mod tests {
     }
 
     #[test]
+    fn standard_rates_pin_the_billing_table() {
+        let pinned = [
+            ("AT", 2000),
+            ("BE", 2100),
+            ("BG", 2000),
+            ("CY", 1900),
+            ("CZ", 2100),
+            ("DE", 1900),
+            ("DK", 2500),
+            ("EE", 2400),
+            ("ES", 2100),
+            ("FI", 2550),
+            ("FR", 2000),
+            ("GR", 2400),
+            ("HR", 2500),
+            ("HU", 2700),
+            ("IE", 2300),
+            ("IT", 2200),
+            ("LT", 2100),
+            ("LU", 1700),
+            ("LV", 2100),
+            ("MT", 1800),
+            ("NL", 2100),
+            ("PL", 2300),
+            ("PT", 2300),
+            ("RO", 2100),
+            ("SE", 2500),
+            ("SI", 2200),
+            ("SK", 2300),
+        ];
+        for (country, bps) in pinned {
+            assert_eq!(standard_rate(country), Some(bps), "{country}");
+            assert_eq!(
+                decide("NL", country, VatCheck::None).rate_bps,
+                if country == "NL" { 2100 } else { bps }
+            );
+        }
+        assert_eq!(standard_rate("US"), None);
+    }
+
+    #[test]
+    fn rates_follow_the_date() {
+        assert_eq!(
+            decide_on("NL", "EE", VatCheck::None, "2025-06-30").rate_bps,
+            2200
+        );
+        assert_eq!(
+            decide_on("NL", "EE", VatCheck::None, "2025-07-01").rate_bps,
+            2400
+        );
+        assert_eq!(standard_rate_on("SK", "2024-12-31"), Some(2000));
+        assert_eq!(standard_rate_on("SK", "2025-01-01"), Some(2300));
+    }
+
+    #[test]
     fn vat_rounds_half_up_to_the_cent() {
         // €65.33 at 21% is €13.7193.
         assert_eq!(vat_of(6533, 2100), 1372);
@@ -227,7 +269,7 @@ mod tests {
 
     #[test]
     fn the_table_is_the_27_member_states() {
-        assert_eq!(EU_STANDARD_RATES.len(), 27);
+        assert_eq!(eu_vat::member_states().len(), 27);
         assert!(is_eu("FI"));
         assert!(!is_eu("GB"));
         assert_eq!(vat_prefix("GR"), "EL");

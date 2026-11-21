@@ -641,6 +641,7 @@ pub(crate) async fn credit_note(
     reply(
         create_credit_note(&caller, &state, &id)
             .await
+            .map(created)
             .map_err(Refusal::from),
         "Failed to create credit note",
     )
@@ -650,11 +651,12 @@ pub(crate) async fn credit_note(
     clippy::too_many_lines,
     reason = "the credit note row, its lines and the US re-tax, in the route's order"
 )]
-async fn create_credit_note(
+/// The draft credit note of an invoice: `{ id, invoiceNumber }`.
+pub(crate) async fn create_credit_note(
     caller: &Caller,
     state: &BooksState,
     id: &str,
-) -> Result<Response, SalesError> {
+) -> Result<Value, SalesError> {
     let db = &caller.db;
     let Some(invoice) = load_invoice(db, id).await? else {
         return Err(Refusal::not_found("Invoice", id).into());
@@ -763,7 +765,7 @@ async fn create_credit_note(
             "contactId": invoice["contactId"],
         }),
     );
-    Ok(created(json!({ "id": new_id, "invoiceNumber": number })))
+    Ok(json!({ "id": new_id, "invoiceNumber": number }))
 }
 
 // ── POST /:id/record-payment ────────────────────────────────────────────────

@@ -151,6 +151,19 @@ pub async fn check_vat_number(
     })
 }
 
+/// [`check_vat_number`] on the caller's connection (inside a transaction).
+pub async fn check_vat_number_on(
+    conn: &mut sqlx::PgConnection,
+    http: Option<&OutboundHttp>,
+    vat_number: &str,
+) -> Result<ViesCheck, sqlx::Error> {
+    let result = crate::vies::check_vat_number_on(conn, http, vat_number).await?;
+    Ok(ViesCheck {
+        available: result.available,
+        valid: result.valid,
+    })
+}
+
 /// `ComplianceCheckResult`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ComplianceCheck {

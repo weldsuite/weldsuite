@@ -30,7 +30,7 @@ use serde_json::{Map, Value, json};
 use sqlx::PgConnection;
 use time::{Duration, OffsetDateTime};
 use weldsuite_catalogs::entity_events::{EventName, PURCHASE_ORDER_CREATED};
-use weldsuite_catalogs::permission_keys::ORDERS_CREATE;
+use weldsuite_catalogs::permission_keys::PURCHASE_ORDERS_CREATE;
 use weldsuite_kit::validation::{Issues, Presence};
 use weldsuite_kit::{ApiError, Created, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
@@ -50,7 +50,7 @@ where
 {
     Router::new().route(
         "/purchase-orders",
-        post(create).route_layer(gate.require([ORDERS_CREATE])),
+        post(create).route_layer(gate.require([PURCHASE_ORDERS_CREATE])),
     )
 }
 
