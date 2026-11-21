@@ -516,6 +516,11 @@ config:
 #   MOLLIE_API_KEY               Mollie's live_… (or test_…) API key: buying credits
 #                                (config.credits.mollie; optional, unset: no top-up) and
 #                                plan billing (config.billing, required with it)
+#   MOLLIE_CONNECT_CLIENT_ID     WeldCommerce's Mollie Connect app (ADR COM-013), with
+#   MOLLIE_CONNECT_CLIENT_SECRET its secret (both or neither; optional): lets a workspace
+#                                connect its own Mollie account by OAuth. Its redirect URI is
+#                                https://app.<domain>/api/commerce-payments/connection/mollie/callback.
+#                                Unset: a workspace connects with its own API key instead
 # Or leave existingSecret empty and set `values` to let the chart create the
 # Secret (fine for a test cluster, not for production: the values end up in
 # the Helm release).

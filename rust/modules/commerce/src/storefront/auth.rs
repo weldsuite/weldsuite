@@ -295,6 +295,9 @@ pub(crate) async fn authenticate(
     touch(&state, &entry, &tenant.db).await;
     request.extensions_mut().insert(Principal {
         db: tenant.db.clone(),
+        workspace_id: tenant.workspace_id.clone(),
+        key_kind: entry.kind.clone(),
+        key_origins: entry.origins.clone(),
         channel,
         events: EventContext::from_ids(
             &tenant.workspace_id,

@@ -14,6 +14,15 @@
 //!
 //! Mollie's webhook posts only a payment's id, never its state: the state is
 //! always read back with [`Mollie::payment`].
+//!
+//! WeldCommerce (ADR COM-013) takes payments into each merchant's own Mollie
+//! account, by Mollie Connect (OAuth, [`connect::ConnectApp`]) or the
+//! merchant's own API key. Both authenticate as a bearer token
+//! ([`Mollie::new`]); an OAuth access token also needs the website profile
+//! and the test mode on the requests that create or read money
+//! ([`Mollie::with_profile`], [`Mollie::with_testmode`]).
+
+pub mod connect;
 
 use serde_json::{Map, Value, json};
 use weldsuite_ports::{HttpRequest, HttpResponse, OutboundHttp, PortError};
@@ -267,6 +276,10 @@ pub struct Payment {
     /// Why it failed, when Mollie says (`details.failureReason`,
     /// `details.bankReason`).
     pub failure_reason: Option<String>,
+    /// `expiresAt`, ISO 8601: when an open payment stops being payable.
+    pub expires_at: Option<String>,
+    /// The payment as Mollie wrote it, for support.
+    pub raw: Value,
 }
 
 impl Payment {
@@ -303,6 +316,8 @@ impl Payment {
             details: MethodDetails::from_json(body.get("method").and_then(Value::as_str), details),
             paid_at: text("paidAt"),
             failure_reason,
+            expires_at: text("expiresAt"),
+            raw: body.clone(),
             id,
         })
     }
@@ -467,8 +482,58 @@ impl Mandate {
 pub struct Refund {
     /// `re_…`.
     pub id: String,
+    /// `queued`, `pending`, `processing`, `refunded`, `failed` or `canceled`.
     pub status: String,
     pub amount: Option<Money>,
+    /// The description it was created with.
+    pub description: Option<String>,
+}
+
+impl Refund {
+    fn from_json(body: &Value) -> Option<Self> {
+        Some(Self {
+            id: body.get("id")?.as_str()?.to_owned(),
+            status: body
+                .get("status")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned(),
+            amount: Money::from_json(body.get("amount")),
+            description: body
+                .get("description")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+        })
+    }
+}
+
+/// A website profile of a Mollie organisation (`pfl_…`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Profile {
+    pub id: String,
+    pub name: String,
+    pub website: Option<String>,
+    /// `live` or `test`.
+    pub mode: Option<String>,
+}
+
+impl Profile {
+    fn from_json(body: &Value) -> Option<Self> {
+        let text = |key: &str| body.get(key).and_then(Value::as_str).map(str::to_owned);
+        Some(Self {
+            id: text("id")?,
+            name: text("name").unwrap_or_default(),
+            website: text("website"),
+            mode: text("mode"),
+        })
+    }
+}
+
+/// A Mollie organisation (`org_…`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Organization {
+    pub id: String,
+    pub name: Option<String>,
 }
 
 // ── errors ──────────────────────────────────────────────────────────────────
@@ -488,6 +553,12 @@ impl MollieError {
     /// Mollie has no such resource (404), e.g. one of another account.
     pub fn is_not_found(&self) -> bool {
         matches!(self, Self::Refused { status: 404, .. })
+    }
+
+    /// Mollie does not accept the credentials (401): an expired or revoked
+    /// token.
+    pub fn is_unauthorized(&self) -> bool {
+        matches!(self, Self::Refused { status: 401, .. })
     }
 
     /// Mollie refused the request itself (4xx): retrying it won't help.
@@ -532,7 +603,7 @@ pub fn is_mandate_id(id: &str) -> bool {
     is_id(id, "mdt_")
 }
 
-fn not_an_id(what: &str) -> MollieError {
+pub(crate) fn not_an_id(what: &str) -> MollieError {
     MollieError::Refused {
         status: 404,
         detail: format!("not a {what} id"),
@@ -546,6 +617,11 @@ fn not_an_id(what: &str) -> MollieError {
 pub struct Mollie {
     api_url: String,
     api_key: String,
+    /// The website profile payments are created on (an OAuth token has no
+    /// profile of its own).
+    profile_id: Option<String>,
+    /// Test mode of an OAuth token (an API key's mode is its prefix).
+    testmode: bool,
 }
 
 impl std::fmt::Debug for Mollie {
@@ -563,7 +639,25 @@ impl Mollie {
         Self {
             api_url: api_url.trim().trim_end_matches('/').to_owned(),
             api_key: api_key.trim().to_owned(),
+            profile_id: None,
+            testmode: false,
         }
+    }
+
+    /// Payments are created on the website profile `profile_id` (`pfl_…`).
+    #[must_use]
+    pub fn with_profile(mut self, profile_id: &str) -> Self {
+        let id = profile_id.trim();
+        self.profile_id = (!id.is_empty()).then(|| id.to_owned());
+        self
+    }
+
+    /// Requests run in test mode (`testmode=true`): what an OAuth token
+    /// needs to reach test payments.
+    #[must_use]
+    pub fn with_testmode(mut self, on: bool) -> Self {
+        self.testmode = on;
+        self
     }
 
     /// Whether the key is a test key: its payments are never real.
@@ -588,13 +682,40 @@ impl Mollie {
     }
 
     fn get(&self, path: &str) -> HttpRequest {
-        self.authorized(HttpRequest::empty("GET", format!("{}{path}", self.api_url)))
+        self.authorized(HttpRequest::empty("GET", self.url(path)))
+    }
+
+    /// The URL of `path`, with `testmode=true` when the client runs in test
+    /// mode.
+    fn url(&self, path: &str) -> String {
+        let mut url = format!("{}{path}", self.api_url);
+        if self.testmode {
+            url.push(if path.contains('?') { '&' } else { '?' });
+            url.push_str("testmode=true");
+        }
+        url
+    }
+
+    /// `body` with the profile (a payment's) and the test mode of this
+    /// client.
+    fn with_mode(&self, mut body: Value, profile: bool) -> Value {
+        if profile && let Some(profile_id) = &self.profile_id {
+            body["profileId"] = json!(profile_id);
+        }
+        if self.testmode {
+            body["testmode"] = json!(true);
+        }
+        body
     }
 
     /// `POST /payments`. `idempotency_key` makes a retried request create the
     /// payment once (Mollie's `Idempotency-Key` header, kept for an hour).
     pub fn create_request(&self, payment: &NewPayment<'_>, idempotency_key: &str) -> HttpRequest {
-        self.post("/payments", &payment.body(), Some(idempotency_key))
+        self.post(
+            "/payments",
+            &self.with_mode(payment.body(), true),
+            Some(idempotency_key),
+        )
     }
 
     /// `GET /payments/{id}`; `id` must pass [`is_payment_id`].
@@ -757,7 +878,10 @@ impl Mollie {
             return Err(not_an_id("payment"));
         }
         let description: String = description.chars().take(140).collect();
-        let body = json!({ "amount": amount.to_json(), "description": description });
+        let body = self.with_mode(
+            json!({ "amount": amount.to_json(), "description": description }),
+            false,
+        );
         let answer = Self::json_of(
             http.send(self.post(
                 &format!("/payments/{payment_id}/refunds"),
@@ -766,22 +890,63 @@ impl Mollie {
             ))
             .await,
         )?;
-        Ok(Refund {
+        Refund::from_json(&answer).ok_or(MollieError::Malformed)
+    }
+
+    /// `GET /payments/{id}/refunds`: every refund of the payment.
+    pub async fn refunds(
+        &self,
+        http: &OutboundHttp,
+        payment_id: &str,
+    ) -> Result<Vec<Refund>, MollieError> {
+        if !is_payment_id(payment_id) {
+            return Err(not_an_id("payment"));
+        }
+        let answer = Self::json_of(
+            http.send(self.get(&format!("/payments/{payment_id}/refunds?limit=250")))
+                .await,
+        )?;
+        Ok(answer
+            .pointer("/_embedded/refunds")
+            .and_then(Value::as_array)
+            .map(|list| list.iter().filter_map(Refund::from_json).collect())
+            .unwrap_or_default())
+    }
+
+    /// `GET /profiles/me`: the website profile an API key belongs to.
+    pub async fn current_profile(&self, http: &OutboundHttp) -> Result<Profile, MollieError> {
+        let answer = Self::json_of(http.send(self.get("/profiles/me")).await)?;
+        Profile::from_json(&answer).ok_or(MollieError::Malformed)
+    }
+
+    /// `GET /profiles`: the website profiles of the organisation an OAuth
+    /// token acts for.
+    pub async fn profiles(&self, http: &OutboundHttp) -> Result<Vec<Profile>, MollieError> {
+        let answer = Self::json_of(http.send(self.get("/profiles?limit=250")).await)?;
+        Ok(answer
+            .pointer("/_embedded/profiles")
+            .and_then(Value::as_array)
+            .map(|list| list.iter().filter_map(Profile::from_json).collect())
+            .unwrap_or_default())
+    }
+
+    /// `GET /organizations/me`: the organisation an OAuth token acts for.
+    pub async fn organization(&self, http: &OutboundHttp) -> Result<Organization, MollieError> {
+        let answer = Self::json_of(http.send(self.get("/organizations/me")).await)?;
+        Ok(Organization {
             id: answer
                 .get("id")
                 .and_then(Value::as_str)
                 .ok_or(MollieError::Malformed)?
                 .to_owned(),
-            status: answer
-                .get("status")
+            name: answer
+                .get("name")
                 .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_owned(),
-            amount: Money::from_json(answer.get("amount")),
+                .map(str::to_owned),
         })
     }
 
-    fn json_of(response: Result<HttpResponse, PortError>) -> Result<Value, MollieError> {
+    pub(crate) fn json_of(response: Result<HttpResponse, PortError>) -> Result<Value, MollieError> {
         let response = response.map_err(MollieError::Unreachable)?;
         if response.status == 204 {
             return Ok(Value::Null);

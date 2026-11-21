@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -9,6 +10,7 @@ const env = vi.hoisted(() => ({
   create: vi.fn(),
   update: vi.fn(),
   archive: vi.fn(),
+  connection: { isSuccess: false } as { isSuccess: boolean; data?: { data: { status: string } | null } },
 }));
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 
@@ -24,6 +26,10 @@ vi.mock('@/hooks/queries/use-commerce-channels-queries', () => ({
   useCreateCommerceChannel: () => ({ mutateAsync: env.create }),
   useUpdateCommerceChannel: () => ({ mutateAsync: env.update }),
   useDeleteCommerceChannel: () => ({ mutateAsync: env.archive }),
+}));
+vi.mock('@/hooks/queries/use-commerce-payments-queries', () => ({ usePaymentConnection: () => env.connection }));
+vi.mock('@tanstack/react-router', () => ({
+  Link: ({ children, search }: { children: ReactNode; search?: { tab?: string } }) => <a href={`/settings/apps/weldcommerce?tab=${search?.tab}`}>{children}</a>,
 }));
 vi.mock('./channel-detail', () => ({ ChannelDetail: ({ channelId }: { channelId: string }) => <p>detail of {channelId}</p> }));
 
@@ -58,6 +64,7 @@ beforeAll(() => {
 beforeEach(() => {
   env.allowed = new Set(['commerce_channels:read', 'commerce_channels:create', 'commerce_channels:update', 'commerce_channels:delete']);
   env.channels = { data: { data: [channel()] }, isPending: false, isError: false, refetch: vi.fn() };
+  env.connection = { isSuccess: false };
   for (const fn of [env.create, env.update, env.archive]) fn.mockReset();
   toast.success.mockReset();
   toast.error.mockReset();
@@ -195,6 +202,47 @@ describe('ChannelsTab', () => {
     await user.type(screen.getByLabelText('Name'), 'Shop');
     await user.click(screen.getByRole('button', { name: 'Create' }));
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Server on fire'));
+  });
+
+  describe('the Mollie connection note', () => {
+    it('says Mollie is not connected, with a link to the Payments tab', async () => {
+      env.connection = { isSuccess: true, data: { data: null } };
+      const user = userEvent.setup();
+      render(<ChannelsTab onOpenChannel={vi.fn()} />);
+      await user.click(screen.getByRole('button', { name: 'Edit Webshop' }));
+      expect(screen.getByText(/Mollie is not connected yet/)).toBeTruthy();
+      expect(screen.getByRole('link', { name: 'Open the Payments tab' }).getAttribute('href')).toBe('/settings/apps/weldcommerce?tab=payments');
+    });
+
+    it('says the connection needs renewing', async () => {
+      env.connection = { isSuccess: true, data: { data: { status: 'needs_reauth' } } };
+      const user = userEvent.setup();
+      render(<ChannelsTab onOpenChannel={vi.fn()} />);
+      await user.click(screen.getByRole('button', { name: 'Edit Webshop' }));
+      expect(screen.getByText(/needs to be renewed/)).toBeTruthy();
+    });
+
+    it('says nothing when Mollie is connected, or while it is not known yet', async () => {
+      const user = userEvent.setup();
+      env.connection = { isSuccess: true, data: { data: { status: 'connected' } } };
+      const { unmount } = render(<ChannelsTab onOpenChannel={vi.fn()} />);
+      await user.click(screen.getByRole('button', { name: 'Edit Webshop' }));
+      expect(screen.queryByText(/Mollie is not connected yet/)).toBeNull();
+      unmount();
+      env.connection = { isSuccess: false };
+      render(<ChannelsTab onOpenChannel={vi.fn()} />);
+      await user.click(screen.getByRole('button', { name: 'Edit Webshop' }));
+      expect(screen.queryByRole('link', { name: 'Open the Payments tab' })).toBeNull();
+    });
+
+    it('says nothing for a channel that does not use Mollie', async () => {
+      env.channels = { ...env.channels, data: { data: [channel({ paymentMethods: [] })] } };
+      env.connection = { isSuccess: true, data: { data: null } };
+      const user = userEvent.setup();
+      render(<ChannelsTab onOpenChannel={vi.fn()} />);
+      await user.click(screen.getByRole('button', { name: 'Edit Webshop' }));
+      expect(screen.queryByText(/Mollie is not connected yet/)).toBeNull();
+    });
   });
 
   it('lets a connector channel change only its name and status', async () => {

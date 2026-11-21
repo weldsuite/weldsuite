@@ -25,6 +25,11 @@
 //! `/api/products/:id/prices` ([`prices`]) and the master key registry they
 //! write ([`StorefrontRegistry`]).
 //!
+//! Phase 5 is payments (Mollie, ADR COM-013): the workspace's connection
+//! `/api/commerce-payments`, the payments, refunds and invoice of an order
+//! (`/api/orders/:id/payments` …), Mollie's webhook and the OAuth callback
+//! ([`payments_public_router`]) and Mollie at storefront checkout.
+//!
 //! Everything but the products route is Rust only, with no TypeScript worker
 //! to compare it with and so no conformance suite: those routes have their
 //! own tests in `tests/`.
@@ -35,10 +40,12 @@ mod tables;
 mod args;
 mod categories;
 mod channels;
+mod config;
 mod discounts;
 mod js;
 mod orders;
 mod overview;
+mod payments;
 mod prices;
 mod products;
 mod rules;
@@ -68,6 +75,9 @@ use weldsuite_kit::validation::{Issues, json_body, query_values};
 use weldsuite_permissions::{PermissionGate, PermissionQueries, Permissions};
 use weldsuite_ports::OutboundHttp;
 
+pub use config::PaymentsConfig;
+pub use payments::{PaymentsPublicState, public_router as payments_public_router};
+
 use crate::table::WriteError;
 
 /// The master database, where the storefront key registry lives
@@ -85,6 +95,8 @@ pub struct CommerceState {
     /// reads as unavailable: the buyer is charged as a consumer and the
     /// order is flagged.
     pub http: Option<OutboundHttp>,
+    /// Payments (phase 5): credentials, public URLs, Mollie Connect, WeldBooks.
+    pub payments: PaymentsConfig,
 }
 
 /// WeldCommerce's routes, relative to `/api` (`/commerce/overview`,
@@ -104,6 +116,7 @@ where
         .nest("/discounts", discounts::routes(gate))
         .nest("/commerce-settings", settings::routes(gate))
         .nest("/commerce-channels", channels::routes(gate))
+        .nest("/commerce-payments", payments::routes(gate))
         .with_state(state)
 }
 

@@ -334,6 +334,7 @@ describe('platformSyncMap — WeldStash', () => {
       ['weldcommerce', 'orders'],
       ['weldcommerce', 'overview'],
       ['weldcommerce', 'discounts'],
+      ['weldcommerce', 'payments'],
       ['weldstash', 'orders'],
     ]);
   });
@@ -352,6 +353,10 @@ describe('platformSyncMap — WeldStash', () => {
   it('commerce_channel_key and commerce_shipping_rate refresh the channels', () => {
     expect(platformSyncMap.commerce_channel_key?.invalidate).toEqual([['weldcommerce', 'channels']]);
     expect(platformSyncMap.commerce_shipping_rate?.invalidate).toEqual([['weldcommerce', 'channels']]);
+  });
+
+  it('commerce_payment_connection refreshes the payment queries', () => {
+    expect(platformSyncMap.commerce_payment_connection?.invalidate).toEqual([['weldcommerce', 'payments']]);
   });
 
   it('discount refreshes the WeldCommerce discounts', () => {

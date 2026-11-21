@@ -8,8 +8,8 @@
 //! corrections go through credit notes, postings are refused in closed
 //! periods and on/before lock dates, every mutation is audited.
 
-mod actions;
-mod from_order;
+pub(crate) mod actions;
+pub(crate) mod from_order;
 pub(crate) mod pdf;
 pub(crate) mod write;
 

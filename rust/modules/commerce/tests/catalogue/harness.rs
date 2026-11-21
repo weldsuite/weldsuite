@@ -76,6 +76,7 @@ pub(crate) fn app(db: PgPool, permissions: &[&str]) -> TestApp {
             tracker.clone(),
         ),
         http: None,
+        payments: weldsuite_commerce::PaymentsConfig::default(),
     };
     let gate = Arc::new(PermissionGate::new(|_| Ok(NoQueries)));
     let resolved = ResolvedPermissions {

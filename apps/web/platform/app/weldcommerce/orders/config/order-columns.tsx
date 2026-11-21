@@ -8,6 +8,8 @@ import type { OrderSummary } from '@/hooks/queries/use-commerce-orders-queries';
 import { getLocale, getTranslations } from '@/lib/i18n';
 import { plural } from '@/lib/i18n/plural';
 import {
+  approvalStatusLabel,
+  approvalStatusTone,
   fulfillmentStatusLabel,
   fulfillmentStatusTone,
   money,
@@ -28,6 +30,22 @@ export function PaymentStatusBadge({ status }: Readonly<{ status: OrderSummary['
 
 export function FulfillmentStatusBadge({ status }: Readonly<{ status: OrderSummary['fulfillmentStatus'] }>) {
   return <SoftBadge tone={fulfillmentStatusTone(status)}>{fulfillmentStatusLabel(status)}</SoftBadge>;
+}
+
+/** Pending and rejected approvals show next to the status; "no approval needed" and "approved" are not worth a badge. */
+export function ApprovalFlag({ status }: Readonly<{ status: OrderSummary['approvalStatus'] }>) {
+  if (status !== 'pending' && status !== 'rejected') return null;
+  return <SoftBadge tone={approvalStatusTone(status)}>{approvalStatusLabel(status)}</SoftBadge>;
+}
+
+/** The order's status, with its approval badge under it while that matters. */
+function StatusCell({ order }: Readonly<{ order: OrderSummary }>) {
+  return (
+    <span className="flex min-w-0 flex-col items-start gap-1">
+      <OrderStatusBadge status={order.status} />
+      <ApprovalFlag status={order.approvalStatus} />
+    </span>
+  );
 }
 
 /** The buyer: the company when the order has one, with the person under it. */
@@ -61,8 +79,8 @@ export function buildOrderColumns(channelNames: ReadonlyMap<string, string> = ne
     {
       id: 'status',
       header: t.columns.status,
-      width: 'w-[130px]',
-      render: (o) => <OrderStatusBadge status={o.status} />,
+      width: 'w-[150px]',
+      render: (o) => <StatusCell order={o} />,
     },
     {
       id: 'payment',

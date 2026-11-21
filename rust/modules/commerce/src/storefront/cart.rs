@@ -14,7 +14,9 @@ use weldsuite_commerce_domain::checkout;
 use weldsuite_commerce_domain::money;
 use weldsuite_events::publish_entity_event;
 
-use super::{Principal, body_object, cart_token, created, data, internal, refuse, validation};
+use super::{
+    Principal, body_object, cart_token, created, data, fail, internal, payments, refuse, validation,
+};
 
 type Problems = Vec<(String, String)>;
 
@@ -464,9 +466,44 @@ pub(crate) async fn checkout(
     if key.as_ref().is_some_and(|k| k.chars().count() > 100) {
         problem(&mut problems, "Idempotency-Key", "At most 100 characters");
     }
+    let redirect = body
+        .get("redirectUrl")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
     if !problems.is_empty() {
         return validation(&problems);
     }
+    if method == "mollie" {
+        // The shop's own state first (nothing connected), then the request.
+        if let Err(response) = payments::connected(&principal).await {
+            return response;
+        }
+        match redirect.as_deref() {
+            None => problem(&mut problems, "redirectUrl", "Required to pay with mollie"),
+            Some(url) if !url.starts_with("https://") => {
+                problem(&mut problems, "redirectUrl", "Must be an https URL");
+            }
+            Some(_) => {}
+        }
+        if !problems.is_empty() {
+            return validation(&problems);
+        }
+        if let Some(url) = redirect.as_deref()
+            && !payments::redirect_allowed(&principal, url)
+        {
+            return fail(
+                http::StatusCode::BAD_REQUEST,
+                "REDIRECT_NOT_ALLOWED",
+                "The redirect URL is not on one of the key's allowed origins",
+                None,
+            );
+        }
+        if let Err(response) = payments::reachable(&principal) {
+            return response;
+        }
+    }
+    let mollie = method == "mollie";
+    let on_invoice = method == "invoice";
     let input = checkout::Input {
         payment_method: method,
         expected_total: expected,
@@ -514,5 +551,17 @@ pub(crate) async fn checkout(
     if view.is_null() {
         return internal(&"order not found after checkout", "Checkout failed");
     }
-    created(json!({ "order": view, "payment": Value::Null, "orderToken": Value::Null }))
+    if on_invoice && !placed.replayed {
+        payments::invoice_on_placement(&principal, &placed.order_id).await;
+    }
+    let payment = if mollie {
+        let redirect = redirect.as_deref().unwrap_or_default();
+        match payments::create(&principal, &placed.order_id, redirect).await {
+            Ok(payment) => payment,
+            Err(response) => return response,
+        }
+    } else {
+        Value::Null
+    };
+    created(json!({ "order": view, "payment": payment, "orderToken": Value::Null }))
 }

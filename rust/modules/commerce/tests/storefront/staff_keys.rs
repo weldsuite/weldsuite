@@ -52,6 +52,7 @@ fn staff(tenant: PgPool, master: PgPool) -> Router {
     let state = CommerceState {
         events: EntityEventPublisher::new(None, TaskTracker::new()),
         http: None,
+        payments: weldsuite_commerce::PaymentsConfig::default(),
     };
     let gate = Arc::new(PermissionGate::new(|_| Ok(NoQueries)));
     let resolved = ResolvedPermissions {

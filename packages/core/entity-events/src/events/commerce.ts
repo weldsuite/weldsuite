@@ -16,6 +16,8 @@ export const COMMERCE_ENTITY_EVENTS = {
   commerce_channel: ['created', 'updated', 'deleted'],
   commerce_channel_key: ['created', 'revoked', 'rotated'],
   commerce_shipping_rate: ['created', 'updated', 'deleted'],
+  // The workspace's Mollie connection (phase 5). Never carries a token or key.
+  commerce_payment_connection: ['connected', 'updated', 'disconnected'],
   website: ['created', 'updated', 'deleted', 'archived'],
   website_domain: ['created', 'updated', 'deleted'],
   website_page: ['created', 'updated', 'deleted', 'archived'],

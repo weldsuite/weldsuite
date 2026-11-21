@@ -1,9 +1,10 @@
 /**
  * Order object panel.
  *
- *   details → status badges, the actions (next status, mark paid, edit,
- *             cancel), the customer and company, payment, totals, addresses,
- *             notes and the WeldBooks invoice
+ *   details → status badges, the actions (next status, mark paid, payment
+ *             link, refund, edit, cancel), the customer and company, totals,
+ *             the payments and refunds, addresses, notes and the WeldBooks
+ *             invoice
  *   items   → the lines with what has been fulfilled (WeldStash fulfils)
  *
  * Fulfilment is written by WeldStash only, so the panel reports it and never
@@ -30,6 +31,7 @@ import { rateText, vatCategoryLabel, vatTreatmentText } from '@/app/weldcommerce
 import {
   addressLines,
   approvalStatusLabel,
+  approvalStatusTone,
   fulfillmentStatusLabel,
   fulfillmentStatusTone,
   money,
@@ -50,6 +52,8 @@ import {
 } from '@/components/objects/_shared/simple-object-panel';
 import { detailsTab, extraTab } from '@/components/objects/_shared/focused-tabs';
 import { OrderActions } from './order-actions';
+import { ApprovalSection } from './order-approval';
+import { PaymentsSection } from './order-payments';
 
 function Totals({ order }: Readonly<{ order: Order }>) {
   const t = getTranslations('commerce').orders.panel;
@@ -239,7 +243,9 @@ export function OrderPanel(props: Readonly<ObjectPanelComponentProps>) {
   const renderDetails = (o: Order) => (
     <div className="space-y-3">
       <OrderActions order={o} />
+      <ApprovalSection order={o} />
       <Totals order={o} />
+      <PaymentsSection order={o} />
       <VatSection order={o} />
       <div className="space-y-1">
         <SectionHeader>{tp.sections.fulfilment}</SectionHeader>
@@ -321,7 +327,7 @@ export function OrderPanel(props: Readonly<ObjectPanelComponentProps>) {
             <SoftBadge tone={fulfillmentStatusTone(order.fulfillmentStatus)}>
               {fulfillmentStatusLabel(order.fulfillmentStatus)}
             </SoftBadge>
-            {order.approvalStatus !== 'not_required' && <SoftBadge tone="warning">{approvalStatusLabel(order.approvalStatus)}</SoftBadge>}
+            {order.approvalStatus !== 'not_required' && <SoftBadge tone={approvalStatusTone(order.approvalStatus)}>{approvalStatusLabel(order.approvalStatus)}</SoftBadge>}
           </>
         )
       }

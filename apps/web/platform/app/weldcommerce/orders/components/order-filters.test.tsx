@@ -22,7 +22,7 @@ describe('OrderFilters', () => {
   it('has a named group with each filter labelled', () => {
     renderFilters();
     expect(screen.getByLabelText('Filter orders').tagName).toBe('SEARCH');
-    for (const name of ['Status', 'Payment', 'Fulfilment', 'Source']) {
+    for (const name of ['Status', 'Payment', 'Fulfilment', 'Approval', 'Source']) {
       expect(screen.getByRole('combobox', { name })).toBeTruthy();
     }
     expect(screen.getByLabelText('From')).toBeTruthy();
@@ -54,6 +54,16 @@ describe('OrderFilters', () => {
     await user.click(screen.getByRole('combobox', { name: 'Status' }));
     await user.click(await screen.findByRole('option', { name: 'Cancelled' }));
     expect(onChange).toHaveBeenCalledWith('status', 'cancelled');
+  });
+
+  it('reports a chosen approval state, offering all four', async () => {
+    const { user, onChange } = renderFilters();
+    await user.click(screen.getByRole('combobox', { name: 'Approval' }));
+    for (const name of ['Awaiting approval', 'Approved', 'Rejected', 'No approval needed']) {
+      expect(await screen.findByRole('option', { name })).toBeTruthy();
+    }
+    await user.click(screen.getByRole('option', { name: 'Awaiting approval' }));
+    expect(onChange).toHaveBeenCalledWith('approvalStatus', 'pending');
   });
 
   it('reports a channel and clearing a filter back to all', async () => {

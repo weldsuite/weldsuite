@@ -418,7 +418,8 @@ export const platformSyncMap: EntitySyncMap = {
   // Orders (phase 2): the list, the panel and the quote cache; the overview
   // counts them, and WeldStash's order list reads the same orders. A code's
   // use count moves with an order, so the discounts refresh too.
-  order: inv(['weldcommerce', 'orders'], ['weldcommerce', 'overview'], ['weldcommerce', 'discounts'], ['weldstash', 'orders']),
+  // Payments and refunds of an order change with it (`['weldcommerce', 'payments', 'order', id]`).
+  order: inv(['weldcommerce', 'orders'], ['weldcommerce', 'overview'], ['weldcommerce', 'discounts'], ['weldcommerce', 'payments'], ['weldstash', 'orders']),
   discount: inv(['weldcommerce', 'discounts']),
   // The order number prefix, the next number and the default currency (Settings → Apps → WeldCommerce).
   commerce_settings: inv(['weldcommerce', 'settings']),
@@ -426,6 +427,8 @@ export const platformSyncMap: EntitySyncMap = {
   commerce_channel: inv(['weldcommerce', 'channels'], ['weldcommerce', 'orders']),
   commerce_channel_key: inv(['weldcommerce', 'channels']),
   commerce_shipping_rate: inv(['weldcommerce', 'channels']),
+  // The Mollie connection and the payment queries share the `payments` prefix (phase 5).
+  commerce_payment_connection: inv(['weldcommerce', 'payments']),
 
   // =========================================================================
   // WeldDesk — Helpdesk

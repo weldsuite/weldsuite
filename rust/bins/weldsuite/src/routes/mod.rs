@@ -268,6 +268,7 @@ fn commerce(router: Router<AppState>, state: &AppState) -> Router<AppState> {
     let commerce = weldsuite_commerce::CommerceState {
         events: state.infra.events.clone(),
         http: shared_outbound(),
+        payments: commerce_payments(state),
     };
     // The master database holds the storefront key registry (conformance
     // builds have none: the key routes answer 503 there).
@@ -1944,8 +1945,57 @@ pub(crate) fn commerce_storefront(state: &AppState) -> Router {
             workspaces: Arc::clone(&state.workspaces),
             cache: state.infra.cache.clone(),
             trusted_proxies: state.trusted_proxies,
+            payments: commerce_payments(state),
         },
     )
+}
+
+/// WeldCommerce's payments settings (ADR COM-013), from the install's
+/// config: the keys that open stored Mollie credentials, the public URL
+/// Mollie's webhook and the OAuth callback are on, the Mollie Connect app
+/// (`MOLLIE_CONNECT_CLIENT_ID` and `MOLLIE_CONNECT_CLIENT_SECRET`; without
+/// them OAuth is unavailable and a merchant connects with an API key), and
+/// WeldBooks for invoices and credit notes.
+fn commerce_payments(state: &AppState) -> weldsuite_commerce::PaymentsConfig {
+    let env = |name: &str| std::env::var(name).ok().filter(|v| !v.trim().is_empty());
+    let public_url = env("CONNECTOR_WEBHOOK_BASE_URL")
+        .or_else(|| env("WEBHOOK_BASE_URL"))
+        .or_else(|| env("PUBLIC_URL"));
+    let connect = env("MOLLIE_CONNECT_CLIENT_ID")
+        .zip(env("MOLLIE_CONNECT_CLIENT_SECRET"))
+        .map(|(id, secret)| weldsuite_mollie::connect::ConnectApp::new(&id, &secret));
+    weldsuite_commerce::PaymentsConfig {
+        keyring: weldsuite_db::Keyring {
+            v1: env("DATABASE_ENCRYPTION_KEY"),
+            v2: env("DATABASE_ENCRYPTION_KEY_V2"),
+        },
+        app_url: env("PUBLIC_APP_URL").or_else(|| public_url.clone()),
+        public_url,
+        connect,
+        state_secret: env("CLERK_SECRET_KEY").or_else(|| env("INTERNAL_API_SECRET")),
+        invoicing: Some(Arc::new(weldsuite_books_sales::CommerceInvoicing::new(
+            books::books_state(state),
+        ))),
+        ..weldsuite_commerce::PaymentsConfig::default()
+    }
+}
+
+/// Mollie's webhook and the OAuth callback of WeldCommerce's payments, ahead
+/// of the session (ADR COM-013): the webhook has no credential and reads the
+/// payment back from Mollie, the callback carries a signed state.
+fn commerce_public(state: &AppState) -> Router<AppState> {
+    if !mounts("commerce") {
+        return Router::new();
+    }
+    Router::new().merge(weldsuite_commerce::payments_public_router(
+        weldsuite_commerce::PaymentsPublicState {
+            events: state.infra.events.clone(),
+            http: shared_outbound(),
+            master: state.workspaces.master().clone(),
+            workspaces: Arc::clone(&state.workspaces),
+            payments: commerce_payments(state),
+        },
+    ))
 }
 
 /// WeldDesk's handle on the app, with the helpdesk workflow engine in this
@@ -2249,6 +2299,7 @@ pub(crate) fn public(state: &AppState) -> Router<AppState> {
         .merge(chat_public(state))
         .merge(reach_public(state))
         .merge(books::public(state))
+        .merge(commerce_public(state))
         .merge(host::public(state))
         .merge(flow_public(state))
         .merge(connect_public(state))

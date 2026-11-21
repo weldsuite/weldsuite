@@ -17,6 +17,7 @@ mod auth;
 mod cart;
 mod catalogue;
 mod limit;
+mod payments;
 
 use std::sync::Arc;
 
@@ -53,6 +54,8 @@ pub struct StorefrontState {
     /// `TRUSTED_PROXIES`: where the client's address sits in
     /// `X-Forwarded-For`, counted from the right.
     pub trusted_proxies: usize,
+    /// Payments (phase 5): Mollie at checkout, and WeldBooks.
+    pub payments: crate::PaymentsConfig,
 }
 
 impl std::fmt::Debug for StorefrontState {
@@ -68,6 +71,11 @@ impl std::fmt::Debug for StorefrontState {
 #[derive(Clone)]
 pub(crate) struct Principal {
     pub(crate) db: PgPool,
+    /// `workspaces.id`.
+    pub(crate) workspace_id: String,
+    /// `publishable` or `private`, and the origins a publishable key allows.
+    pub(crate) key_kind: String,
+    pub(crate) key_origins: Vec<String>,
     pub(crate) channel: Channel,
     pub(crate) events: EventContext,
     pub(crate) state: StorefrontState,
@@ -97,6 +105,8 @@ pub fn storefront_router(state: StorefrontState) -> Router {
             post(cart::apply_discount).delete(cart::remove_discount),
         )
         .route("/cart/checkout", post(cart::checkout))
+        .route("/payments/{payment_id}", get(payments::read))
+        .route("/payments/{payment_id}/retry", post(payments::retry))
         .fallback(not_found)
         .method_not_allowed_fallback(not_found)
         .layer(DefaultBodyLimit::max(64 * 1024))

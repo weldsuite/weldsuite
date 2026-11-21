@@ -37,6 +37,26 @@ export type OrderStatus = 'pending' | 'confirmed' | 'processing' | 'completed' |
 export type PaymentStatus = 'pending' | 'paid' | 'partially_refunded' | 'refunded' | 'failed' | 'on_invoice';
 export type FulfillmentStatus = 'unfulfilled' | 'partial' | 'fulfilled';
 export type ApprovalStatus = 'not_required' | 'pending' | 'approved' | 'rejected';
+/** Why an order waits for approval: the buyer's spend limit or the company's approval threshold. */
+export type ApprovalReason = 'buyer_limit' | 'company_threshold' | (string & {});
+
+/** Who asked for or decided an approval: a shopper (`personId`) or a staff member (`userId`). */
+export interface ApprovalActor {
+  personId?: string | null;
+  userId?: string | null;
+  name: string | null;
+  email?: string | null;
+}
+
+/** The approval of a B2B order (phase 6); `null` on an order that never needed one. */
+export interface OrderApproval {
+  status: Exclude<ApprovalStatus, 'not_required'>;
+  reason: ApprovalReason;
+  requestedBy: ApprovalActor | null;
+  decidedBy: ApprovalActor | null;
+  decidedAt: string | null;
+  comment: string | null;
+}
 
 export interface OrderAddress {
   name?: string | null;
@@ -146,12 +166,19 @@ export interface Order extends OrderSummary {
   paymentMethod: string | null;
   paymentReference: string | null;
   paidAt: string | null;
+  /** What has been paid (providers and manual payments); `amountPaid − amountRefunded` is still refundable. */
+  amountPaid: string;
+  amountRefunded: string;
   cancelledAt: string | null;
   cancelReason: string | null;
   completedAt: string | null;
   externalOrderId: string | null;
   tags: string[];
   invoice: OrderInvoiceRef | null;
+  /** Free-form order data; `invoiceError` is set when the WeldBooks invoice of a paid order failed (phase 5). */
+  metadata?: Record<string, unknown> | null;
+  /** The approval a B2B order waits for or went through (phase 6). */
+  approval: OrderApproval | null;
   /** Items and customer may still change. */
   editable: boolean;
   cancellable: boolean;
@@ -162,6 +189,8 @@ export interface OrderListParams {
   status?: string;
   paymentStatus?: string;
   fulfillmentStatus?: string;
+  /** `pending`, `approved`, `rejected` or `not_required`. */
+  approvalStatus?: string;
   source?: string;
   channelId?: string;
   companyId?: string;

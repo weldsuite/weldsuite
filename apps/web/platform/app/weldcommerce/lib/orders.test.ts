@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  APPROVAL_STATUSES,
   addressLines,
+  approvalReasonText,
+  approvalStatusLabel,
+  approvalStatusTone,
   apiErrorInfo,
   fulfillmentStatusTone,
   hasErrorCode,
@@ -78,5 +82,31 @@ describe('API errors', () => {
     expect(orderErrorMessage(code('SOMETHING_ELSE'), 'x')).toBe('raw');
     expect(orderErrorMessage(new Error('network down'), 'x')).toBe('network down');
     expect(orderErrorMessage({}, 'fallback')).toBe('fallback');
+  });
+});
+
+describe('approval helpers', () => {
+  it('offers every approval state to filter on, in the order of urgency', () => {
+    expect(APPROVAL_STATUSES).toEqual(['pending', 'approved', 'rejected', 'not_required']);
+  });
+
+  it('gives each approval state a tone and a label in words', () => {
+    expect(approvalStatusTone('pending')).toBe('warning');
+    expect(approvalStatusTone('approved')).toBe('success');
+    expect(approvalStatusTone('rejected')).toBe('danger');
+    expect(approvalStatusTone('not_required')).toBe('neutral');
+    expect(approvalStatusLabel('pending')).toBe('Awaiting approval');
+  });
+
+  it('says why an order waits, in words, and falls back for a reason it does not know', () => {
+    expect(approvalReasonText('buyer_limit')).toContain('spend limit');
+    expect(approvalReasonText('company_threshold')).toContain('approval threshold');
+    expect(approvalReasonText('something_new')).toBe('This order needs approval.');
+    expect(approvalReasonText(null)).toBe('This order needs approval.');
+  });
+
+  it('says NOT_PENDING in words', () => {
+    const err = { status: 409, body: { error: { code: 'NOT_PENDING', message: 'raw' } } };
+    expect(orderErrorMessage(err, 'x')).toContain('no longer waiting for approval');
   });
 });

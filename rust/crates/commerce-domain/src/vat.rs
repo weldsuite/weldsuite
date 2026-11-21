@@ -236,6 +236,14 @@ async fn seller(conn: &mut PgConnection) -> Result<Option<(String, Option<String
     .await
 }
 
+/// The id of the seller entity (see `seller`): who invoices the orders.
+///
+/// # Errors
+/// A failed statement.
+pub async fn seller_entity_id(conn: &mut PgConnection) -> Result<Option<String>, sqlx::Error> {
+    Ok(seller(conn).await?.map(|(id, _)| id))
+}
+
 /// The most a line may come to, in cents: far above any real order, and
 /// small enough that nothing overflows the engine's `i64` arithmetic.
 const LIMIT: Cents = 1_000_000_000_000_000;

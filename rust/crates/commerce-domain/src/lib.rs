@@ -19,6 +19,7 @@ pub mod error;
 pub mod money;
 pub mod numbering;
 pub mod orders;
+pub mod payments;
 pub mod prices;
 pub mod status;
 #[rustfmt::skip]

@@ -12,6 +12,10 @@
 //! Stock is checked, not reserved (STASH-003): a line is out of stock when it
 //! is tracked, backorders are off and fewer than the quantity are on hand.
 //!
+//! A `mollie` order is placed `pending`; the caller creates its Mollie payment
+//! after this transaction commits (`payments::service::create_for_order`),
+//! never inside it: no HTTP call runs while a transaction is open.
+//!
 //! Safe to retry: the order carries `storefront:<cart id>` as its idempotency
 //! key, and a retry with the cart's own `Idempotency-Key` header returns the
 //! order the first call placed.
@@ -80,11 +84,6 @@ pub async fn checkout(ctx: &Ctx<'_>, token: &str, input: &Input) -> Result<Place
     if !allowed {
         return Err(Refusal::PaymentMethodNotEnabled);
     }
-    if input.payment_method == "mollie" {
-        // Phase 5 creates the Mollie payment here.
-        return Err(Refusal::PaymentProviderNotConnected);
-    }
-
     let mut tx = ctx.db.begin().await?;
     let cart = carts::find(&mut tx, &channel.id, token, true)
         .await?

@@ -68,6 +68,7 @@ where
             "/{id}/recalculate-tax",
             post(recalculate_tax).route_layer(update()),
         )
+        .merge(crate::payments::order_routes(gate))
 }
 
 // ── presenting ──────────────────────────────────────────────────────────────
@@ -82,6 +83,10 @@ const FIELDS_OF_SUMMARY: &str = "jsonb_build_object(\
     'companyId', pa.company_id, 'companyName', co.display_name, \
     'currency', coalesce(o.currency, 'EUR'), 'total', o.total::text, \
     'itemCount', coalesce(o.item_count, 0), 'totalQuantity', coalesce(o.total_quantity, 0), \
+    'amountPaid', (select coalesce(sum(p.amount), 0)::text from commerce_payments p \
+        where p.order_id = o.id and p.status = 'paid'), \
+    'amountRefunded', (select coalesce(sum(r.amount), 0)::text from commerce_refunds r \
+        where r.order_id = o.id and r.status = 'refunded'), \
     'createdAt', to_jsonb(o.created_at), 'updatedAt', to_jsonb(o.updated_at))";
 
 const FROM_SUMMARY: &str = " from orders o \
@@ -198,6 +203,7 @@ fn present(
     items: &[Value],
     company: Option<(String, Option<String>)>,
     invoice: Option<Value>,
+    (paid, refunded): (Cents, Cents),
 ) -> Value {
     let (company_id, company_name) = company.map_or((Value::Null, Value::Null), |(id, name)| {
         (json!(id), json!(name))
@@ -352,6 +358,9 @@ fn present(
                         .unwrap_or(json!([]))
                 ),
             ),
+            ("amountPaid", json!(money::format(paid))),
+            ("amountRefunded", json!(money::format(refunded))),
+            ("metadata", public_metadata(order)),
             ("invoice", json!(invoice.unwrap_or(Value::Null))),
             ("editable", json!(domain_orders::editable(order, items))),
             (
@@ -365,8 +374,30 @@ fn present(
     )
 }
 
+/// The metadata keys the API shows: what the screens read, nothing else an
+/// import or integration may have written there.
+fn public_metadata(order: &Value) -> Value {
+    let mut shown = Map::new();
+    if let Some(Value::Object(metadata)) = order.get("metadata") {
+        for key in [
+            "invoiceError",
+            "viesUnavailable",
+            "vatRelief",
+            "shippingVat",
+        ] {
+            if let Some(value) = metadata.get(key) {
+                shown.insert(key.to_owned(), value.clone());
+            }
+        }
+    }
+    Value::Object(shown)
+}
+
 /// The order `id` as the API presents it, on any connection.
-async fn fetch(db: &weldsuite_db::PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
+pub(crate) async fn fetch(
+    db: &weldsuite_db::PgPool,
+    id: &str,
+) -> Result<Option<Value>, sqlx::Error> {
     let mut conn = db.acquire().await?;
     let Some(stored) = domain_orders::load(&mut conn, id, false).await? else {
         return Ok(None);
@@ -389,16 +420,18 @@ async fn fetch(db: &weldsuite_db::PgPool, id: &str) -> Result<Option<Value>, sql
     .await?;
     let invoice =
         invoice.map(|(id, number, status)| json!({ "id": id, "number": number, "status": status }));
+    let amounts = weldsuite_commerce_domain::payments::service::amounts(&mut conn, id).await?;
     Ok(Some(present(
         &stored.order,
         &stored.items,
         company,
         invoice,
+        amounts,
     )))
 }
 
 /// The event data of an order.
-fn event(order: &Value) -> Value {
+pub(crate) fn event(order: &Value) -> Value {
     json!({
         "id": order["id"],
         "orderNumber": order["orderNumber"],

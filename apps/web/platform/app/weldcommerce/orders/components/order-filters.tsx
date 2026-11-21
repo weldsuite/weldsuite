@@ -4,9 +4,11 @@ import { FilterSelect, type FilterSelectOption } from '@weldsuite/ui/components/
 import { Input } from '@weldsuite/ui/components/input';
 import { getTranslations } from '@/lib/i18n';
 import {
+  APPROVAL_STATUSES,
   FULFILLMENT_STATUSES,
   ORDER_STATUSES,
   PAYMENT_STATUSES,
+  approvalStatusLabel,
   fulfillmentStatusLabel,
   orderStatusLabel,
   paymentStatusLabel,
@@ -16,7 +18,7 @@ import {
 /** The channels an order can come from, in the order the filter offers them. */
 export const ORDER_SOURCES = ['manual', 'storefront', 'shopify', 'woocommerce', 'picqer'] as const;
 
-export type OrderFilterKey = 'status' | 'paymentStatus' | 'fulfillmentStatus' | 'source' | 'channelId' | 'from' | 'to';
+export type OrderFilterKey = 'status' | 'paymentStatus' | 'fulfillmentStatus' | 'approvalStatus' | 'source' | 'channelId' | 'from' | 'to';
 export type OrderFilterValues = Partial<Record<OrderFilterKey, string>>;
 
 interface OrderFiltersProps {
@@ -28,7 +30,7 @@ interface OrderFiltersProps {
 }
 
 /**
- * The order list's filters: four "all or one" selects and a date range. They
+ * The order list's filters: five "all or one" selects and a date range. They
  * live in the URL (the page owns them), so a filtered list can be shared. The
  * date inputs are native: the browser brings the date picker, the keyboard
  * entry and the locale's format.
@@ -63,6 +65,13 @@ export function OrderFilters({ values, onChange, onClear, channels = [] }: Reado
         options={options(FULFILLMENT_STATUSES, fulfillmentStatusLabel)}
         allLabel={t.allFulfilments}
         ariaLabel={t.fulfilment}
+      />
+      <FilterSelect
+        value={values.approvalStatus}
+        onChange={(value) => onChange('approvalStatus', value)}
+        options={options(APPROVAL_STATUSES, approvalStatusLabel)}
+        allLabel={t.allApprovals}
+        ariaLabel={t.approval}
       />
       <FilterSelect
         value={values.source}

@@ -34,7 +34,9 @@ vi.mock('@/hooks/queries/use-commerce-orders-queries', () => ({
 }));
 vi.mock('@weldsuite/permissions/react', () => ({ usePermissionsMaybe: () => ({ can: () => env.canUpdate }) }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+vi.mock('./order-payments', () => ({ PaymentsSection: ({ order }: { order: Order }) => <div data-testid="payments">{order.orderNumber}</div> }));
 vi.mock('./order-actions', () => ({ OrderActions: ({ order }: { order: Order }) => <div data-testid="actions">{order.orderNumber}</div> }));
+vi.mock('./order-approval', () => ({ ApprovalSection: ({ order }: { order: Order }) => <div data-testid="approval">{order.approval?.status ?? 'none'}</div> }));
 vi.mock('@/components/objects/_shared/simple-object-panel', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/components/objects/_shared/simple-object-panel')>()),
   SimpleObjectPanel: ({
@@ -94,6 +96,7 @@ function order(overrides: Partial<Order> = {}): Order {
     paymentStatus: 'pending',
     fulfillmentStatus: 'partial',
     approvalStatus: 'not_required',
+    approval: null,
     source: 'manual',
     channelId: null,
     customerName: 'Ada Lovelace',
@@ -166,6 +169,8 @@ function order(overrides: Partial<Order> = {}): Order {
     paymentMethod: null,
     paymentReference: null,
     paidAt: null,
+    amountPaid: '0.00',
+    amountRefunded: '0.00',
     cancelledAt: null,
     cancelReason: null,
     completedAt: null,
@@ -211,6 +216,16 @@ describe('OrderPanel', () => {
     env.order = order({ approvalStatus: 'pending' });
     render(<OrderPanel {...props} />);
     expect(within(screen.getByTestId('badges')).getByText('Awaiting approval')).toBeTruthy();
+  });
+
+  it('colours a rejected approval as a failure and puts the approval section among the details', () => {
+    env.order = order({
+      approvalStatus: 'rejected',
+      approval: { status: 'rejected', reason: 'buyer_limit', requestedBy: null, decidedBy: null, decidedAt: null, comment: null },
+    });
+    render(<OrderPanel {...props} />);
+    expect(within(screen.getByTestId('badges')).getByText('Rejected')).toBeTruthy();
+    expect(within(screen.getByTestId('extras')).getByTestId('approval').textContent).toBe('rejected');
   });
 
   it('lists the customer, reference, source, external id and only the fields that have a value', () => {
@@ -314,6 +329,11 @@ describe('OrderPanel', () => {
     expect(items.getByText('Linen shirt')).toBeTruthy();
     expect(items.getByText(/SH-1 · 3 × .*30\.00 · 2 of 3 fulfilled/)).toBeTruthy();
     expect(items.getByText(/0 of 2 fulfilled/)).toBeTruthy();
+  });
+
+  it('shows the payments section of the order', () => {
+    render(<OrderPanel {...props} />);
+    expect(screen.getByTestId('payments').textContent).toBe('WC-1001');
   });
 
   it('renders the actions of the order', () => {

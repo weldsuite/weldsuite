@@ -24,6 +24,7 @@ export const PAYMENT_STATUSES: readonly PaymentStatus[] = [
   'failed',
 ];
 export const FULFILLMENT_STATUSES: readonly FulfillmentStatus[] = ['unfulfilled', 'partial', 'fulfilled'];
+export const APPROVAL_STATUSES: readonly ApprovalStatus[] = ['pending', 'approved', 'rejected', 'not_required'];
 
 const ORDER_TONES: Record<OrderStatus, SoftTone> = {
   pending: 'warning',
@@ -47,6 +48,17 @@ const FULFILLMENT_TONES: Record<FulfillmentStatus, SoftTone> = {
   partial: 'neutral',
   fulfilled: 'success',
 };
+
+const APPROVAL_TONES: Record<ApprovalStatus, SoftTone> = {
+  not_required: 'neutral',
+  pending: 'warning',
+  approved: 'success',
+  rejected: 'danger',
+};
+
+export function approvalStatusTone(status: ApprovalStatus): SoftTone {
+  return APPROVAL_TONES[status] ?? 'neutral';
+}
 
 export function orderStatusTone(status: OrderStatus): SoftTone {
   return ORDER_TONES[status] ?? 'neutral';
@@ -79,6 +91,13 @@ export function fulfillmentStatusLabel(status: FulfillmentStatus): string {
 
 export function approvalStatusLabel(status: ApprovalStatus): string {
   return label(getTranslations('commerce').orders.approvalStatus, status);
+}
+
+/** Why an order waits for approval, in words (the buyer's limit or the company's threshold). */
+export function approvalReasonText(reason: string | null | undefined): string {
+  const t = getTranslations('commerce').orders.approval;
+  const reasons: Record<string, string> = t.reason;
+  return (reason && reasons[reason]) || t.reasonUnknown;
 }
 
 /** Where an order came from: `manual`, `shopify`, … in words; an unknown channel as stored. */
@@ -177,6 +196,8 @@ export function orderErrorMessage(err: unknown, fallback: string): string {
       return t.destinationNotSupported;
     case 'TAX_ENGINE_UNAVAILABLE':
       return t.taxEngineUnavailable;
+    case 'NOT_PENDING':
+      return t.approvalNotPending;
     default:
       return message ?? (err instanceof Error && err.message ? err.message : fallback);
   }

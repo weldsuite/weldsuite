@@ -152,6 +152,28 @@ describe('OrdersList channels', () => {
   });
 });
 
+describe('OrdersList approvals', () => {
+  it('flags a pending and a rejected approval next to the status, and nothing for the others', () => {
+    renderList({
+      orders: [
+        row({ id: 'ord_1', approvalStatus: 'pending' }),
+        row({ id: 'ord_2', orderNumber: 'WC-1002', approvalStatus: 'rejected' }),
+        row({ id: 'ord_3', orderNumber: 'WC-1003', approvalStatus: 'approved' }),
+        row({ id: 'ord_4', orderNumber: 'WC-1004', approvalStatus: 'not_required' }),
+      ],
+    });
+    expect(screen.getByTestId('ord_1-status').textContent).toBe('ConfirmedAwaiting approval');
+    expect(screen.getByTestId('ord_2-status').textContent).toBe('ConfirmedRejected');
+    expect(screen.getByTestId('ord_3-status').textContent).toBe('Confirmed');
+    expect(screen.getByTestId('ord_4-status').textContent).toBe('Confirmed');
+  });
+
+  it('offers the Approval filter', () => {
+    renderList();
+    expect(screen.getByRole('combobox', { name: 'Approval' })).toBeTruthy();
+  });
+});
+
 describe('OrdersList', () => {
   it('shows the order, the buyer, the statuses, the total and the source', () => {
     renderList();

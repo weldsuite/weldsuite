@@ -211,6 +211,11 @@
     "cancelled",
     "completed"
   ],
+  "commerce_payment_connection": [
+    "connected",
+    "updated",
+    "disconnected"
+  ],
   "commerce_settings": [
     "updated"
   ],

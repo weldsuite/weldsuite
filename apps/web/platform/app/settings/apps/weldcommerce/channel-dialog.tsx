@@ -1,12 +1,14 @@
 /**
  * Create and edit form for a sales channel: name, type, audience, status,
  * currency and VAT mode, and for a storefront its selling countries (EU
- * member states), guest checkout and payment methods. The API's refusals
+ * member states), guest checkout and payment methods (with a note and a link
+ * to Settings → Payments when Mollie is chosen but not connected). The API's refusals
  * land where they belong: `CHANNEL_INCOMPLETE` lists what an active
  * storefront still needs, `CURRENCY_LOCKED` sits on the currency field.
  */
 
 import { useMemo, useState } from 'react';
+import { Link } from '@tanstack/react-router';
 import { useForm, useFormContext } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { toast } from 'sonner';
@@ -20,6 +22,7 @@ import { Input } from '@weldsuite/ui/components/input';
 import { MultiSelect } from '@weldsuite/ui/components/multi-select';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { Switch } from '@weldsuite/ui/components/switch';
+import { usePermissionsMaybe } from '@weldsuite/permissions/react';
 import {
   useCreateCommerceChannel,
   useUpdateCommerceChannel,
@@ -27,6 +30,7 @@ import {
   type CommerceChannel,
 } from '@/hooks/queries/use-commerce-channels-queries';
 import { useCommerceSettings } from '@/hooks/queries/use-commerce-orders-queries';
+import { usePaymentConnection } from '@/hooks/queries/use-commerce-payments-queries';
 import { formSchemaOptions } from '@/app/weldstash/lib/form';
 import { getTranslations } from '@/lib/i18n';
 import {
@@ -128,6 +132,24 @@ function SelectField({
   );
 }
 
+/** Mollie is chosen but there is no working connection: say so, and where to fix it. */
+function MollieConnectionNote() {
+  const t = getTranslations('commerce').channels.form;
+  const permissions = usePermissionsMaybe();
+  const connection = usePaymentConnection(permissions?.can('commerce_settings:read') ?? false);
+  if (!connection.isSuccess) return null;
+  const status = connection.data.data?.status;
+  if (status === 'connected') return null;
+  return (
+    <InfoBanner variant="warning">
+      <span className="block">{status === 'needs_reauth' ? t.mollieNeedsReauth : t.mollieNotConnected}</span>
+      <Link to="/settings/apps/weldcommerce" search={{ tab: 'payments' }} className="mt-1 inline-block underline underline-offset-4">
+        {t.mollieConnectLink}
+      </Link>
+    </InfoBanner>
+  );
+}
+
 function PaymentMethodFields() {
   const t = getTranslations('commerce').channels.form;
   const form = useFormContext<ChannelFormValues>();
@@ -161,6 +183,7 @@ function PaymentMethodFields() {
           </div>
         );
       })}
+      {selected.includes('mollie') && <MollieConnectionNote />}
     </fieldset>
   );
 }

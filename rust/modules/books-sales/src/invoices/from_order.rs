@@ -462,6 +462,7 @@ pub(crate) async fn create(
     reply(
         from_order(&caller, &state, &order_id)
             .await
+            .map(created)
             .map_err(Refusal::from),
         "Failed to create invoice from order",
     )
@@ -471,11 +472,12 @@ pub(crate) async fn create(
     clippy::too_many_lines,
     reason = "both of the route's branches, US and rate-table, in its order"
 )]
-async fn from_order(
+/// The draft invoice of a commerce order: `{ invoiceId, invoiceNumber, … }`.
+pub(crate) async fn from_order(
     caller: &Caller,
     state: &BooksState,
     order_id: &str,
-) -> Result<Response, SalesError> {
+) -> Result<Value, SalesError> {
     let db = &caller.db;
     let order: Option<Value> = sqlx::query_scalar(concat!(
         "select ",
@@ -732,7 +734,7 @@ async fn finish(
     failure: Option<&str>,
     place_of_supply: Value,
     us: bool,
-) -> Result<Response, SalesError> {
+) -> Result<Value, SalesError> {
     let db = &caller.db;
     let at = now();
     let at_ms = js::millis_of(&at).unwrap_or(0);
@@ -890,17 +892,15 @@ async fn finish(
             .get("taxWarnings")
             .cloned()
             .unwrap_or_else(|| json!([]));
-        return Ok(created(json!({
+        return Ok(json!({
             "invoiceId": invoice_id,
             "invoiceNumber": invoice_number,
             "taxTotal": calc.tax_total,
             "total": calc.total,
             "taxWarnings": warnings,
-        })));
+        }));
     }
-    Ok(created(
-        json!({ "invoiceId": invoice_id, "invoiceNumber": invoice_number }),
-    ))
+    Ok(json!({ "invoiceId": invoice_id, "invoiceNumber": invoice_number }))
 }
 
 #[cfg(test)]

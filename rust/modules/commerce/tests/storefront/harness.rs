@@ -145,6 +145,7 @@ impl Env {
             workspaces: Arc::clone(&self.workspaces),
             cache: Some(Arc::new(MemoryCache::default()) as Arc<dyn DynCache>),
             trusted_proxies: 1,
+            payments: weldsuite_commerce::PaymentsConfig::default(),
         };
         App {
             router: storefront_router(state),

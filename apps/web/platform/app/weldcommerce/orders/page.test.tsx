@@ -106,13 +106,14 @@ describe('CommerceOrdersPage', () => {
   });
 
   it('asks the API for the search and every filter in the URL', () => {
-    env.search = 'search=acme&status=pending&paymentStatus=paid&source=manual&from=2026-11-01&to=2026-11-30&unrelated=1';
+    env.search = 'search=acme&status=pending&paymentStatus=paid&approvalStatus=pending&source=manual&from=2026-11-01&to=2026-11-30&unrelated=1';
     render(<CommerceOrdersPage />);
     expect(env.params.at(-1)).toEqual({
       limit: 50,
       search: 'acme',
       status: 'pending',
       paymentStatus: 'paid',
+      approvalStatus: 'pending',
       source: 'manual',
       from: '2026-11-01',
       to: '2026-11-30',

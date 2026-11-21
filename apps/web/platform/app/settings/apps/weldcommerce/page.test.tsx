@@ -14,7 +14,7 @@ const env = vi.hoisted(() => ({
     refetch: () => void;
   },
   update: vi.fn(),
-  search: {} as { tab?: string; channel?: string },
+  search: {} as { tab?: string; channel?: string; mollie?: string; reason?: string },
   navigate: vi.fn(),
 }));
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
@@ -26,6 +26,16 @@ vi.mock('@tanstack/react-router', () => ({
 }));
 vi.mock('./channels-tab', () => ({
   ChannelsTab: ({ channelId }: { channelId?: string }) => <p>channels tab {channelId ?? 'list'}</p>,
+}));
+vi.mock('./payments-tab', () => ({
+  PaymentsTab: ({ callback, onCallbackHandled }: { callback?: { mollie?: string; reason?: string }; onCallbackHandled: () => void }) => (
+    <div>
+      <p>payments tab {callback?.mollie ?? 'none'} {callback?.reason ?? ''}</p>
+      <button type="button" onClick={onCallbackHandled}>
+        handled
+      </button>
+    </div>
+  ),
 }));
 vi.mock('@weldsuite/permissions/react', () => ({
   usePermissionsMaybe: () => ({ can: (permission: string) => env.allowed.has(permission) }),
@@ -116,7 +126,7 @@ describe('WeldCommerceSettingsPage', () => {
     expect(env.settings.refetch).toHaveBeenCalled();
   });
 
-  it('has no tabs for a member without channel access, and General shows', () => {
+  it('has no Channels tab for a member without channel access, and General shows', () => {
     render(<WeldCommerceSettingsPage />);
     expect(screen.queryByRole('tab', { name: 'Channels' })).toBeNull();
     expect(screen.getByLabelText('Order number prefix')).toBeTruthy();
@@ -128,6 +138,38 @@ describe('WeldCommerceSettingsPage', () => {
     render(<WeldCommerceSettingsPage />);
     expect(screen.getByText('channels tab ch_1')).toBeTruthy();
     expect(screen.queryByLabelText('Order number prefix')).toBeNull();
+  });
+
+  it('shows the Payments tab from ?tab=payments for a member who may read the settings', () => {
+    env.search = { tab: 'payments' };
+    render(<WeldCommerceSettingsPage />);
+    expect(screen.getByRole('tab', { name: 'Payments' })).toBeTruthy();
+    expect(screen.getByText(/payments tab none/)).toBeTruthy();
+    expect(screen.queryByLabelText('Order number prefix')).toBeNull();
+  });
+
+  it('goes to the Payments tab when it is clicked', async () => {
+    const user = userEvent.setup();
+    render(<WeldCommerceSettingsPage />);
+    await user.click(screen.getByRole('tab', { name: 'Payments' }));
+    expect(env.navigate).toHaveBeenCalledWith({ to: '/settings/apps/weldcommerce', search: { tab: 'payments' } });
+  });
+
+  it('falls back to General for ?tab=payments without settings access, with no Payments tab', () => {
+    env.allowed = new Set();
+    env.search = { tab: 'payments' };
+    render(<WeldCommerceSettingsPage />);
+    expect(screen.queryByRole('tab', { name: 'Payments' })).toBeNull();
+    expect(screen.queryByText(/payments tab/)).toBeNull();
+  });
+
+  it('hands the Mollie callback to the Payments tab and cleans the URL without a history entry', async () => {
+    const user = userEvent.setup();
+    env.search = { tab: 'payments', mollie: 'error', reason: 'access_denied' };
+    render(<WeldCommerceSettingsPage />);
+    expect(screen.getByText('payments tab error access_denied')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'handled' }));
+    expect(env.navigate).toHaveBeenCalledWith({ to: '/settings/apps/weldcommerce', search: { tab: 'payments' }, replace: true });
   });
 
   it('falls back to General for ?tab=channels without channel access', () => {
