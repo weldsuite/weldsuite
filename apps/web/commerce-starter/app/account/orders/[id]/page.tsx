@@ -16,7 +16,7 @@ type Props = { params: Promise<{ id: string }> };
 export default async function AccountOrderPage({ params }: Props) {
   const id = segment((await params).id);
   const session = await getSessionToken();
-  if (!session) redirect(`/account/sign-in?next=${encodeURIComponent(`/account/orders/${id}`)}`);
+  if (!session) redirect(`/account/sign-in?next=${encodeURIComponent('/account/orders/' + id)}`);
 
   let order;
   try {

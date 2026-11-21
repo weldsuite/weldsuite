@@ -122,6 +122,30 @@ export async function removeDiscountAction(): Promise<void> {
   revalidatePath('/', 'layout');
 }
 
+const isSpace = (char: string | undefined) => char !== undefined && /\s/.test(char);
+
+/**
+ * Accept "SKU quantity", "SKU;quantity" and tab-separated lines (pasted from
+ * a spreadsheet) too: the API reads "SKU,quantity". The first `;` or tab
+ * becomes a comma, or else the last run of spaces, whichever comes first.
+ */
+function toCsvLine(line: string): string {
+  const trimmed = line.trim();
+  if (trimmed.includes(',')) return trimmed;
+  const separators = [trimmed.indexOf(';'), trimmed.indexOf('\t')].filter((at) => at >= 0);
+  const separator = separators.length > 0 ? Math.min(...separators) : -1;
+  // The last run of whitespace: [runStart, runEnd].
+  let runEnd = trimmed.length - 1;
+  while (runEnd >= 0 && !isSpace(trimmed[runEnd])) runEnd -= 1;
+  let runStart = runEnd;
+  while (runStart > 0 && isSpace(trimmed[runStart - 1])) runStart -= 1;
+  if (separator >= 0 && (runEnd < 0 || separator <= runStart)) {
+    return `${trimmed.slice(0, separator)},${trimmed.slice(separator + 1)}`;
+  }
+  if (runEnd >= 0) return `${trimmed.slice(0, runStart)},${trimmed.slice(runEnd + 1)}`;
+  return trimmed;
+}
+
 /** Quick order: SKUs and quantities pasted or uploaded as CSV. */
 export interface QuickOrderState extends FormState {
   added?: number;
@@ -138,14 +162,7 @@ export async function quickOrderAction(_prev: QuickOrderState, form: FormData): 
   if (!csv) return { status: 'error', message: 'Paste or upload at least one line: SKU,quantity.', fieldErrors: { csv: 'Required' } };
   const lines = csv.split(/\r?\n/).filter((line) => line.trim() !== '');
   if (lines.length > 500) return { status: 'error', message: 'At most 500 lines at a time.' };
-  // Accept "SKU quantity", "SKU;quantity" and tab-separated lines (pasted from a
-  // spreadsheet) too: the API reads "SKU,quantity".
-  const normalised = lines
-    .map((line) => {
-      const trimmed = line.trim();
-      return trimmed.includes(',') ? trimmed : trimmed.replace(/[;\t]|\s+(?=\S+$)/, ',');
-    })
-    .join('\n');
+  const normalised = lines.map(toCsvLine).join('\n');
   try {
     const options = await cartOptions();
     const token = await getCartToken();

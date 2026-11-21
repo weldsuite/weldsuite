@@ -16,7 +16,20 @@ export interface SignInState extends FormState {
   next?: string;
 }
 
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/** Something like name@example.com: one @, no spaces, a dot inside the domain. */
+function looksLikeEmail(value: string): boolean {
+  if (/\s/.test(value)) return false;
+  const at = value.indexOf('@');
+  if (at < 1 || at !== value.lastIndexOf('@')) return false;
+  // A dot with something before and after it.
+  return value.slice(at + 2, -1).includes('.');
+}
+
+function wrongCodeMessage(attemptsLeft: unknown, error: unknown): string {
+  if (typeof attemptsLeft !== 'number') return describeError(error);
+  const tries = attemptsLeft === 1 ? 'try' : 'tries';
+  return `That code is not right. ${attemptsLeft} ${tries} left.`;
+}
 
 /**
  * Passwordless sign-in, one action for both steps: without a `code` it
@@ -30,7 +43,7 @@ export async function signInAction(prev: SignInState, form: FormData): Promise<S
 async function requestCode(_prev: SignInState, form: FormData): Promise<SignInState> {
   const email = text(form, 'email');
   const next = safePath(text(form, 'next'), '/account');
-  if (!EMAIL.test(email)) {
+  if (!looksLikeEmail(email)) {
     return { status: 'error', step: 'email', next, message: 'Enter your email address.', fieldErrors: { email: 'Enter an email address like name@example.com' } };
   }
   try {
@@ -61,13 +74,12 @@ async function verifyCode(_prev: SignInState, form: FormData): Promise<SignInSta
     }
   } catch (error) {
     if (isStorefrontError(error, 'INVALID_CODE')) {
-      const left = error.details?.attemptsLeft;
       return {
         status: 'error',
         step: 'code',
         email,
         next,
-        message: typeof left === 'number' ? `That code is not right. ${left} ${left === 1 ? 'try' : 'tries'} left.` : describeError(error),
+        message: wrongCodeMessage(error.details?.attemptsLeft, error),
         fieldErrors: { code: 'Not right' },
       };
     }

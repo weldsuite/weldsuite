@@ -31,14 +31,16 @@ export function fromMinorUnits(minor: bigint, decimals = 2): string {
   const digits = (negative ? -minor : minor).toString().padStart(decimals + 1, '0');
   const whole = digits.slice(0, digits.length - decimals);
   const fraction = digits.slice(digits.length - decimals);
-  return `${negative ? '-' : ''}${whole}${decimals > 0 ? `.${fraction}` : ''}`;
+  const sign = negative ? '-' : '';
+  return decimals > 0 ? `${sign}${whole}.${fraction}` : `${sign}${whole}`;
 }
 
 /** -1, 0 or 1, like a sort comparator: `compareMoney("9.50", "10.00")` is -1. */
 export function compareMoney(a: string, b: string): -1 | 0 | 1 {
   const x = toMinorUnits(a, 6);
   const y = toMinorUnits(b, 6);
-  return x < y ? -1 : x > y ? 1 : 0;
+  if (x < y) return -1;
+  return x > y ? 1 : 0;
 }
 
 /** Whether the amount is zero ("0.00"). */

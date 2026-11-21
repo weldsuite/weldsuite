@@ -1,4 +1,4 @@
-import { isStorefrontError } from '@weldsuite/commerce-sdk';
+import { isStorefrontError, type ProductImage, type StorefrontProduct } from '@weldsuite/commerce-sdk';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
@@ -30,14 +30,15 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
+/** The product's images; the featured image alone when it has no gallery. */
+function galleryOf(product: StorefrontProduct): ProductImage[] {
+  if (product.images.length > 0) return product.images;
+  return product.featuredImageUrl ? [{ url: product.featuredImageUrl, altText: null }] : [];
+}
+
 export default async function ProductPage({ params }: Props) {
   const [product, channel] = await Promise.all([getProduct(segment((await params).slug)), getChannel()]);
-  const images = product.images.length > 0
-    ? product.images
-    : product.featuredImageUrl
-      ? [{ url: product.featuredImageUrl, altText: null }]
-      : [];
-  const [main, ...more] = images;
+  const [main, ...more] = galleryOf(product);
   const category = product.categories[0];
 
   return (

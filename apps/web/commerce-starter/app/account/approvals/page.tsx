@@ -1,3 +1,4 @@
+import type { Approval } from '@weldsuite/commerce-sdk';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
@@ -16,6 +17,59 @@ const REASONS: Record<string, string> = {
 };
 
 type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
+
+function itemSummary(items: Approval['order']['items']): string {
+  const shown = items
+    .slice(0, 5)
+    .map((item) => `${item.quantity} × ${item.name}`)
+    .join(', ');
+  return items.length > 5 ? `${shown}, and ${items.length - 5} more` : shown;
+}
+
+function ApprovalCard({ approval }: { approval: Approval }) {
+  const { order, reason, requestedBy } = approval;
+  return (
+    <article aria-labelledby={`approval-${order.id}`} className="flex flex-col gap-4 rounded-2xl border border-line p-5">
+      <header className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 id={`approval-${order.id}`} className="text-lg font-semibold">
+          <Link href={`/account/orders/${encodeURIComponent(order.id)}`} className="underline underline-offset-4">
+            Order {order.orderNumber}
+          </Link>
+        </h2>
+        <p className="text-lg font-semibold tabular-nums">{money(order.total, order.currency, shopLocale)}</p>
+      </header>
+      <dl className="grid gap-x-6 gap-y-1 sm:grid-cols-[auto_1fr]">
+        <dt className="text-ink-muted">Requested by</dt>
+        <dd>{requestedBy.name ?? 'A buyer'}</dd>
+        <dt className="text-ink-muted">Placed</dt>
+        <dd>{date(order.placedAt, shopLocale, shopTimeZone)}</dd>
+        <dt className="text-ink-muted">Why</dt>
+        <dd>{REASONS[reason] ?? reason}</dd>
+        <dt className="text-ink-muted">Items</dt>
+        <dd>{itemSummary(order.items)}</dd>
+      </dl>
+      <ApprovalForm orderId={order.id} orderNumber={order.orderNumber} />
+    </article>
+  );
+}
+
+function Approvals({ canApprove, approvals }: { canApprove: boolean; approvals: Approval[] }) {
+  if (!canApprove) {
+    return <p className="rounded-lg bg-surface-muted p-6">Only your company&apos;s approvers and admins approve orders.</p>;
+  }
+  if (approvals.length === 0) {
+    return <p className="rounded-lg bg-surface-muted p-6">Nothing waits for your approval.</p>;
+  }
+  return (
+    <ul role="list" className="flex flex-col gap-4">
+      {approvals.map((approval) => (
+        <li key={approval.order.id}>
+          <ApprovalCard approval={approval} />
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 export default async function ApprovalsPage({ searchParams }: Props) {
   const params = await searchParams;
@@ -49,45 +103,7 @@ export default async function ApprovalsPage({ searchParams }: Props) {
         ) : null}
       </div>
 
-      {!canApprove ? (
-        <p className="rounded-lg bg-surface-muted p-6">Only your company&apos;s approvers and admins approve orders.</p>
-      ) : approvals.length === 0 ? (
-        <p className="rounded-lg bg-surface-muted p-6">Nothing waits for your approval.</p>
-      ) : (
-        <ul role="list" className="flex flex-col gap-4">
-          {approvals.map(({ order, reason, requestedBy }) => (
-            <li key={order.id}>
-              <article aria-labelledby={`approval-${order.id}`} className="flex flex-col gap-4 rounded-2xl border border-line p-5">
-                <header className="flex flex-wrap items-baseline justify-between gap-2">
-                  <h2 id={`approval-${order.id}`} className="text-lg font-semibold">
-                    <Link href={`/account/orders/${encodeURIComponent(order.id)}`} className="underline underline-offset-4">
-                      Order {order.orderNumber}
-                    </Link>
-                  </h2>
-                  <p className="text-lg font-semibold tabular-nums">{money(order.total, order.currency, shopLocale)}</p>
-                </header>
-                <dl className="grid gap-x-6 gap-y-1 sm:grid-cols-[auto_1fr]">
-                  <dt className="text-ink-muted">Requested by</dt>
-                  <dd>{requestedBy.name ?? 'A buyer'}</dd>
-                  <dt className="text-ink-muted">Placed</dt>
-                  <dd>{date(order.placedAt, shopLocale, shopTimeZone)}</dd>
-                  <dt className="text-ink-muted">Why</dt>
-                  <dd>{REASONS[reason] ?? reason}</dd>
-                  <dt className="text-ink-muted">Items</dt>
-                  <dd>
-                    {order.items
-                      .slice(0, 5)
-                      .map((item) => `${item.quantity} × ${item.name}`)
-                      .join(', ')}
-                    {order.items.length > 5 ? `, and ${order.items.length - 5} more` : ''}
-                  </dd>
-                </dl>
-                <ApprovalForm orderId={order.id} orderNumber={order.orderNumber} />
-              </article>
-            </li>
-          ))}
-        </ul>
-      )}
+      <Approvals canApprove={canApprove} approvals={approvals} />
     </div>
   );
 }

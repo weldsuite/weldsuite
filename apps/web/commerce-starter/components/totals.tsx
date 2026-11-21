@@ -33,6 +33,8 @@ export function Totals({
   const m = (amount: string) => money(amount, totals.currency, locale);
   const vatNote = totals.pricesIncludeTax ? 'incl.' : 'excl.';
   const lines = totals.taxLines?.filter((line) => !isZeroMoney(line.amount)) ?? [];
+  let shipping = 'Chosen at checkout';
+  if (shippingKnown) shipping = isZeroMoney(totals.shippingTotal) ? 'Free' : m(totals.shippingTotal);
   return (
     <div className="flex flex-col gap-2">
       <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-2">
@@ -45,9 +47,7 @@ export function Totals({
           </>
         ) : null}
         <dt>Shipping</dt>
-        <dd className="text-right tabular-nums">
-          {shippingKnown ? (isZeroMoney(totals.shippingTotal) ? 'Free' : m(totals.shippingTotal)) : 'Chosen at checkout'}
-        </dd>
+        <dd className="text-right tabular-nums">{shipping}</dd>
         {lines.length > 0 ? (
           lines.map((line) => (
             <div key={line.rate} className="contents">

@@ -58,7 +58,8 @@ export async function requestOptions(): Promise<RequestOptions> {
  * emails: SHOP_URL, or the address this request came in on.
  */
 export async function shopUrl(): Promise<string> {
-  const configured = process.env.SHOP_URL?.replace(/\/+$/, '');
+  let configured = process.env.SHOP_URL ?? '';
+  while (configured.endsWith('/')) configured = configured.slice(0, -1);
   if (configured) return configured;
   const list = await headers();
   const host = list.get('x-forwarded-host') ?? list.get('host') ?? 'localhost:3030';

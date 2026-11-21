@@ -119,8 +119,14 @@ interface Envelope<T> {
 
 const API_PATH = '/storefront/v1';
 
+function withoutTrailingSlashes(text: string): string {
+  let end = text.length;
+  while (end > 0 && text[end - 1] === '/') end -= 1;
+  return text.slice(0, end);
+}
+
 function apiRoot(baseUrl: string): string {
-  let root = baseUrl.trim().replace(/\/+$/, '');
+  let root = withoutTrailingSlashes(baseUrl.trim());
   if (root.endsWith(API_PATH)) root = root.slice(0, -API_PATH.length);
   if (!/^https?:\/\//i.test(root)) {
     throw new TypeError('baseUrl must be an absolute http(s) URL, e.g. https://api.weldsuite.eu');
@@ -308,7 +314,7 @@ export function createStorefrontClient(options: StorefrontClientOptions): Storef
       params.set(name, String(value));
     }
     const search = params.toString();
-    return `${root}${path}${search ? `?${search}` : ''}`;
+    return search ? `${root}${path}?${search}` : root + path;
   }
 
   function headersOf(call: Call): Record<string, string> {

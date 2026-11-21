@@ -21,15 +21,16 @@ const LINE_PROBLEMS: Record<string, string> = {
 
 type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
 
+/** The message for `?error=CODE` (set by the cart's form actions). */
+function errorMessage(code: string | undefined): string | null {
+  if (!code) return null;
+  if (code === 'QUANTITY') return 'Enter a quantity from 0 to 999.';
+  return messageForCode(code);
+}
+
 export default async function CartPage({ searchParams }: Props) {
   const [cart, params] = await Promise.all([getCart(), searchParams]);
-  const errorCode = single(params.error);
-  const error =
-    errorCode === 'QUANTITY'
-      ? 'Enter a quantity from 0 to 999.'
-      : errorCode
-        ? messageForCode(errorCode)
-        : null;
+  const error = errorMessage(single(params.error));
 
   if (!cart || cart.items.length === 0) {
     return (

@@ -1,3 +1,4 @@
+import type { Shopper, ShopperCompany } from '@weldsuite/commerce-sdk';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
@@ -8,6 +9,33 @@ import { signOutAction } from '@/lib/actions/account';
 import { activeCompany, getChannel, getShopper } from '@/lib/data';
 
 export const metadata: Metadata = { title: 'Your account', robots: { index: false } };
+
+/** B2B: the company the shopper buys for, a choice when there are several, or a note when there is none. */
+function CompanySection({ shopper, company, b2b }: { shopper: Shopper; company: ShopperCompany | null; b2b: boolean }) {
+  if (shopper.companies.length === 0) {
+    if (!b2b) return null;
+    return (
+      <p className="max-w-2xl rounded-lg bg-warning-soft p-4">
+        Your account isn&apos;t linked to a company yet, so you can&apos;t order here. Ask your company&apos;s admin to invite
+        you, or contact the shop.
+      </p>
+    );
+  }
+  return (
+    <section aria-labelledby="company" className="flex max-w-2xl flex-col gap-4">
+      <h2 id="company" className="text-xl font-semibold">
+        Company
+      </h2>
+      {shopper.companies.length === 1 && company ? (
+        <p>
+          You buy for <strong>{company.name}</strong>.
+        </p>
+      ) : (
+        <CompanyForm shopper={shopper} />
+      )}
+    </section>
+  );
+}
 
 export default async function AccountPage() {
   const [shopper, channel] = await Promise.all([getShopper(), getChannel()]);
@@ -57,25 +85,7 @@ export default async function AccountPage() {
         </ul>
       </nav>
 
-      {shopper.companies.length > 0 ? (
-        <section aria-labelledby="company" className="flex max-w-2xl flex-col gap-4">
-          <h2 id="company" className="text-xl font-semibold">
-            Company
-          </h2>
-          {shopper.companies.length === 1 && company ? (
-            <p>
-              You buy for <strong>{company.name}</strong>.
-            </p>
-          ) : (
-            <CompanyForm shopper={shopper} />
-          )}
-        </section>
-      ) : channel.audience === 'b2b' ? (
-        <p className="max-w-2xl rounded-lg bg-warning-soft p-4">
-          Your account isn&apos;t linked to a company yet, so you can&apos;t order here. Ask your company&apos;s admin to invite
-          you, or contact the shop.
-        </p>
-      ) : null}
+      <CompanySection shopper={shopper} company={company} b2b={channel.audience === 'b2b'} />
 
       <section aria-labelledby="details" className="flex max-w-2xl flex-col gap-4">
         <h2 id="details" className="text-xl font-semibold">

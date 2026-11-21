@@ -15,6 +15,31 @@ export const metadata: Metadata = { title: 'Your order', robots: { index: false 
 
 type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
 
+/**
+ * How the checkout ended: placed on invoice, paid, still waiting for Mollie,
+ * failed (cancelled, expired), or unknown (the payment couldn't be read).
+ */
+type Outcome = 'placed' | 'paid' | 'waiting' | 'failed' | 'unknown';
+
+function outcomeOf(paymentId: string | null, payment: PaymentInfo | null): Outcome {
+  if (!paymentId) return 'placed';
+  if (!payment) return 'unknown';
+  if (payment.status === 'paid' || payment.status === 'authorized') return 'paid';
+  if (payment.status === 'open' || payment.status === 'pending') return 'waiting';
+  return 'failed';
+}
+
+/** The Mollie payment, read back through the API; null when it can't be read. */
+async function loadPayment(paymentId: string | null): Promise<PaymentInfo | null> {
+  if (!paymentId) return null;
+  try {
+    return await storefront().payments.get(paymentId, await requestOptions());
+  } catch (cause) {
+    if (!isStorefrontError(cause)) throw cause;
+    return null;
+  }
+}
+
 /** The placed order, through the shopper's account or the guest's order token. */
 async function loadOrder(orderId: string, orderToken: string | null): Promise<StorefrontOrder | null> {
   const options = await requestOptions();
@@ -34,6 +59,102 @@ function orderLink(orderId: string, orderToken: string | null, signedIn: boolean
   return null;
 }
 
+function failureText(status: string | undefined): string {
+  if (status === 'canceled') return 'You cancelled the payment.';
+  if (status === 'expired') return 'The payment expired.';
+  return 'The payment failed.';
+}
+
+function CheckAgain({ orderId }: { orderId: string }) {
+  return (
+    <p>
+      <Link href={`/checkout/return?order=${encodeURIComponent(orderId)}`} className="btn btn-secondary">
+        Check again
+      </Link>
+    </p>
+  );
+}
+
+function NotFound() {
+  return (
+    <div className="flex max-w-xl flex-col items-start gap-4">
+      <h1 className="text-3xl font-semibold">We can&apos;t find this checkout</h1>
+      <p>If you placed an order, the confirmation email has a link to it. Signed in? Your orders are in your account.</p>
+      <Link href="/account/orders" className="btn btn-secondary">
+        Your orders
+      </Link>
+    </div>
+  );
+}
+
+function OutcomeMessage({
+  outcome,
+  number,
+  orderId,
+  payment,
+  awaitingApproval,
+}: {
+  outcome: Outcome;
+  number: string;
+  orderId: string;
+  payment: PaymentInfo | null;
+  awaitingApproval: boolean;
+}) {
+  switch (outcome) {
+    case 'placed':
+      return (
+        <>
+          <h1 className="text-3xl font-semibold">Thank you, your order is placed</h1>
+          <p>
+            Order <strong>{number}</strong>{' '}
+            {awaitingApproval
+              ? 'is waiting for approval by your company. We let you know once it is decided.'
+              : 'will be invoiced. You will get a confirmation email.'}
+          </p>
+        </>
+      );
+    case 'paid':
+      return (
+        <>
+          <h1 className="text-3xl font-semibold">Thank you, we received your payment</h1>
+          <p>
+            Order <strong>{number}</strong> is paid. You will get a confirmation email.
+          </p>
+        </>
+      );
+    case 'unknown':
+      return (
+        <>
+          <h1 className="text-3xl font-semibold">We couldn&apos;t check your payment</h1>
+          <p>
+            Your order <strong>{number}</strong> is saved. We couldn&apos;t reach the payment service just now: check again in a
+            moment.
+          </p>
+          <CheckAgain orderId={orderId} />
+        </>
+      );
+    case 'waiting':
+      return (
+        <>
+          <h1 className="text-3xl font-semibold">We&apos;re checking your payment</h1>
+          <p>
+            Mollie hasn&apos;t confirmed the payment for order <strong>{number}</strong> yet. This usually takes a few seconds.
+          </p>
+          <CheckAgain orderId={orderId} />
+        </>
+      );
+    case 'failed':
+      return (
+        <>
+          <h1 className="text-3xl font-semibold">The payment didn&apos;t go through</h1>
+          <p>
+            {failureText(payment?.status)} Your order <strong>{number}</strong> is saved: you can try again.
+          </p>
+        </>
+      );
+  }
+}
+
 /**
  * Where Mollie sends the shopper back (`?order=<orderId>`), and the
  * confirmation of an order on invoice. Coming back never marks anything
@@ -44,95 +165,24 @@ export default async function CheckoutReturnPage({ searchParams }: Props) {
   const orderId = single(params.order);
   const error = single(params.error);
   const state = await getCheckoutState();
+  if (!orderId || !state || state.orderId !== orderId) return <NotFound />;
 
-  if (!orderId || !state || state.orderId !== orderId) {
-    return (
-      <div className="flex max-w-xl flex-col items-start gap-4">
-        <h1 className="text-3xl font-semibold">We can&apos;t find this checkout</h1>
-        <p>If you placed an order, the confirmation email has a link to it. Signed in? Your orders are in your account.</p>
-        <Link href="/account/orders" className="btn btn-secondary">
-          Your orders
-        </Link>
-      </div>
-    );
-  }
-
-  let payment: PaymentInfo | null = null;
-  if (state.paymentId) {
-    try {
-      payment = await storefront().payments.get(state.paymentId, await requestOptions());
-    } catch (cause) {
-      if (!isStorefrontError(cause)) throw cause;
-    }
-  }
+  const payment = await loadPayment(state.paymentId);
   const signedIn = Boolean(await getSessionToken());
   const order = await loadOrder(state.orderId, state.orderToken);
   const link = orderLink(state.orderId, state.orderToken, signedIn);
-  const number = payment?.orderNumber ?? order?.orderNumber ?? state.orderNumber;
-
-  const paid = payment && (payment.status === 'paid' || payment.status === 'authorized');
-  const waiting = payment && (payment.status === 'open' || payment.status === 'pending');
-  const failed = payment && !paid && !waiting;
-  const awaitingApproval = order?.approvalStatus === 'pending';
+  const outcome = outcomeOf(state.paymentId, payment);
 
   return (
     <div className="flex flex-col gap-8">
       <div className="flex max-w-2xl flex-col gap-3">
-        {!state.paymentId ? (
-          <>
-            <h1 className="text-3xl font-semibold">Thank you, your order is placed</h1>
-            <p>
-              Order <strong>{number}</strong>{' '}
-              {awaitingApproval
-                ? 'is waiting for approval by your company. We let you know once it is decided.'
-                : 'will be invoiced. You will get a confirmation email.'}
-            </p>
-          </>
-        ) : paid ? (
-          <>
-            <h1 className="text-3xl font-semibold">Thank you, we received your payment</h1>
-            <p>
-              Order <strong>{number}</strong> is paid. You will get a confirmation email.
-            </p>
-          </>
-        ) : !payment ? (
-          <>
-            <h1 className="text-3xl font-semibold">We couldn&apos;t check your payment</h1>
-            <p>
-              Your order <strong>{number}</strong> is saved. We couldn&apos;t reach the payment service just now: check again in a
-              moment.
-            </p>
-            <p>
-              <Link href={`/checkout/return?order=${encodeURIComponent(state.orderId)}`} className="btn btn-secondary">
-                Check again
-              </Link>
-            </p>
-          </>
-        ) : waiting ? (
-          <>
-            <h1 className="text-3xl font-semibold">We&apos;re checking your payment</h1>
-            <p>
-              Mollie hasn&apos;t confirmed the payment for order <strong>{number}</strong> yet. This usually takes a few seconds.
-            </p>
-            <p>
-              <Link href={`/checkout/return?order=${encodeURIComponent(state.orderId)}`} className="btn btn-secondary">
-                Check again
-              </Link>
-            </p>
-          </>
-        ) : (
-          <>
-            <h1 className="text-3xl font-semibold">The payment didn&apos;t go through</h1>
-            <p>
-              {payment?.status === 'canceled'
-                ? 'You cancelled the payment.'
-                : payment?.status === 'expired'
-                  ? 'The payment expired.'
-                  : 'The payment failed.'}{' '}
-              Your order <strong>{number}</strong> is saved: you can try again.
-            </p>
-          </>
-        )}
+        <OutcomeMessage
+          outcome={outcome}
+          number={payment?.orderNumber ?? order?.orderNumber ?? state.orderNumber}
+          orderId={state.orderId}
+          payment={payment}
+          awaitingApproval={order?.approvalStatus === 'pending'}
+        />
 
         {error ? (
           <p role="alert" className="rounded-lg border border-danger bg-danger-soft px-4 py-3 text-danger">
@@ -140,7 +190,7 @@ export default async function CheckoutReturnPage({ searchParams }: Props) {
           </p>
         ) : null}
 
-        {failed ? (
+        {outcome === 'failed' ? (
           <form action={retryPaymentAction}>
             <SubmitButton pendingText="Starting the payment…">Try paying again</SubmitButton>
           </form>

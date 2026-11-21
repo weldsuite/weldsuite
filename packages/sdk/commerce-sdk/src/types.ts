@@ -1,17 +1,15 @@
 /**
  * The shapes the WeldCommerce storefront API (`/storefront/v1`) answers with.
  *
- * Money is a decimal string with two decimals ("19.99"): never turn it into a
- * float to do sums. Format it with `formatMoney`, compare it with
+ * Money is a decimal string with two decimals ("19.99"): every amount field
+ * (`price`, `unitPrice`, `subtotal`, `total`, `spendLimit`, …) is typed
+ * `string` and holds one. Never turn it into a float to do sums. Format it with `formatMoney`, compare it with
  * `compareMoney`. Timestamps are ISO 8601 strings, country codes ISO 3166-1
  * alpha-2 ("NL"), currencies ISO 4217 ("EUR").
  *
  * String unions end in `(string & {})` where the server may add values later,
  * so a newer server never breaks your build.
  */
-
-/** A decimal amount as a string, e.g. "19.99". */
-export type Money = string;
 
 /** An open string union: the known values, plus any string a newer server sends. */
 export type Open<T extends string> = T | (string & Record<never, never>);
@@ -63,8 +61,8 @@ export interface StorefrontVariant {
   sku: string | null;
   /** Option name → value, e.g. `{ Size: "M", Colour: "Blue" }`. */
   optionValues: Record<string, string>;
-  price: Money;
-  compareAtPrice: Money | null;
+  price: string;
+  compareAtPrice: string | null;
   /** Active, and in stock (or backorders allowed, or stock not tracked). */
   available: boolean;
 }
@@ -78,8 +76,8 @@ export interface StorefrontProduct {
   images: ProductImage[];
   currency: string;
   /** The lowest variant price when the product has variants. */
-  price: Money;
-  compareAtPrice: Money | null;
+  price: string;
+  compareAtPrice: string | null;
   options: ProductOption[];
   /** Empty for a product without variants. */
   variants: StorefrontVariant[];
@@ -182,9 +180,9 @@ export interface CartLine {
   imageUrl: string | null;
   quantity: number;
   /** In the channel's price mode (with or without VAT, see `Cart.pricesIncludeTax`). */
-  unitPrice: Money;
+  unitPrice: string;
   /** `unitPrice × quantity`, before the cart's discount. */
-  total: Money;
+  total: string;
   /** E.g. "21.00", once the destination is known; `null` before. */
   taxRate: string | null;
   available: boolean;
@@ -194,8 +192,8 @@ export interface CartLine {
 export interface TaxLine {
   /** E.g. "21.00". */
   rate: string;
-  base: Money;
-  amount: Money;
+  base: string;
+  amount: string;
 }
 
 export interface Cart {
@@ -206,13 +204,13 @@ export interface Cart {
   email: string | null;
   items: CartLine[];
   itemCount: number;
-  subtotal: Money;
-  discountTotal: Money;
+  subtotal: string;
+  discountTotal: string;
   /** The chosen rate's price ("0.00" when free shipping applies). */
-  shippingTotal: Money;
+  shippingTotal: string;
   /** "0.00" until the shipping address is known. */
-  taxTotal: Money;
-  total: Money;
+  taxTotal: string;
+  total: string;
   taxLines: TaxLine[];
   vatTreatment: VatTreatment | null;
   /** The EU VIES service could not check the buyer's VAT number just now. */
@@ -223,7 +221,7 @@ export interface Cart {
   shippingAddress: Address | null;
   /** Defaults to the shipping address. */
   billingAddress: Address | null;
-  shippingRate: { id: string; name: string; price: Money } | null;
+  shippingRate: { id: string; name: string; price: string } | null;
   buyerVatNumber: string | null;
   customerReference: string | null;
   note: string | null;
@@ -279,7 +277,7 @@ export interface ShippingRateOffer {
   id: string;
   name: string;
   /** "0.00" when `free`. */
-  price: Money;
+  price: string;
   /** The cart's subtotal reaches the rate's free-shipping threshold. */
   free: boolean;
 }
@@ -292,7 +290,7 @@ export interface CheckoutInput {
    * The total the shopper saw (`cart.total`). When the server works out a
    * different total, checkout fails with `PRICE_CHANGED` instead of charging it.
    */
-  expectedTotal?: Money;
+  expectedTotal?: string;
   /**
    * Mollie only: where Mollie sends the shopper back (`https://…`, with
    * `order=<orderId>` added). With a publishable key its origin must be one
@@ -320,8 +318,8 @@ export interface StorefrontOrderItem {
   variantName: string | null;
   sku: string | null;
   quantity: number;
-  unitPrice: Money;
-  total: Money;
+  unitPrice: string;
+  total: string;
   taxRate: string | null;
 }
 
@@ -334,11 +332,11 @@ export interface StorefrontOrder {
   currency: string;
   pricesIncludeTax: boolean;
   items: StorefrontOrderItem[];
-  subtotal: Money;
-  discountTotal: Money;
-  shippingTotal: Money;
-  taxTotal: Money;
-  total: Money;
+  subtotal: string;
+  discountTotal: string;
+  shippingTotal: string;
+  taxTotal: string;
+  total: string;
   vatTreatment: VatTreatment | null;
   shippingAddress: Address | null;
   billingAddress: Address | null;
@@ -387,7 +385,7 @@ export interface ShopperCompany {
   name: string;
   role: BuyerRole;
   /** The most one order may total before it needs approval. */
-  spendLimit: Money | null;
+  spendLimit: string | null;
   currency: string | null;
 }
 
@@ -465,7 +463,7 @@ export interface Buyer {
   name: string | null;
   email: string;
   role: BuyerRole;
-  spendLimit: Money | null;
+  spendLimit: string | null;
   spendLimitCurrency: string | null;
   status: BuyerStatus;
   invitedAt: string | null;
@@ -479,11 +477,11 @@ export interface InviteBuyerInput {
   firstName?: string;
   lastName?: string;
   role: BuyerRole;
-  spendLimit?: Money | null;
+  spendLimit?: string | null;
 }
 
 export interface UpdateBuyerInput {
   role?: BuyerRole;
-  spendLimit?: Money | null;
+  spendLimit?: string | null;
   status?: BuyerStatus;
 }
