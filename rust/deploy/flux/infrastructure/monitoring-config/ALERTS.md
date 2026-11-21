@@ -313,6 +313,41 @@ snapshot isn't watched from here: a failed one is the healthchecks.io check
 pinged by the store itself (`SNAPSHOT_PING_URL`, README, "Backups"), which
 notifies on its own.
 
+## Offsite copy
+
+Only on a cluster that runs the offsite copy (`../offsite-copy`, opt-in;
+the rule is `rules/offsite-copy.yaml`).
+
+### OffsiteCopyStale
+
+No run of the CronJob `offsite-copy/offsite-copy` has succeeded for 26
+hours (or, for a new one, it has never succeeded and is older than that).
+A run succeeds only when every bucket in `OFFSITE_SOURCE_BUCKETS` was
+copied, so the copy at the second provider is at least a day behind the
+cluster's own object storage. Nothing is lost yet: the source holds
+everything. A warning.
+
+- `kubectl -n offsite-copy get cronjob,jobs,pods`, then the last run's log
+  (`kubectl -n offsite-copy logs job/<name>`, or `{namespace="offsite-copy"}`
+  in Explore once its Job is gone). It names the bucket that failed (`not
+  copied: …`) and rclone's error above it.
+- An access error (403, `InvalidAccessKeyId`, `SignatureDoesNotMatch`): a
+  key in `offsite-copy-s3` (the store's `weldsuite/offsite-copy`) expired,
+  was rotated or lost a right, or a region setting is wrong
+  (`OFFSITE_SOURCE_S3_REGION`, `OFFSITE_S3_REGION`). `NoSuchBucket`: a
+  bucket in the settings doesn't exist (renamed, or `OFFSITE_BUCKET` never
+  made at the destination).
+- A quota or storage-full error at the destination: the copy only grows in
+  copy mode; check its lifecycle rules (`rust/deploy/hetzner/README.md`,
+  "Offsite copy").
+- No run at all: the CronJob is suspended, or a run is still going
+  (`concurrencyPolicy: Forbid`). A first copy of large buckets can take
+  more than a day; one that hangs (no rclone stats line for an hour) can be
+  deleted, and the next run carries on where it stopped.
+- Once fixed, run it now instead of waiting for the schedule:
+  `kubectl -n offsite-copy create job --from=cronjob/offsite-copy
+  offsite-copy-manual`.
+
 ## WeldID
 
 Only on a cluster that runs WeldID (`../weldid`, opt-in; the rules are in

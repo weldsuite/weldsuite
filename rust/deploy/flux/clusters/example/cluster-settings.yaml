@@ -102,3 +102,22 @@ data:
   # probes.yaml). Zitadel's /debug/healthz by default; once sign-in is on
   # WeldID, /.well-known/openid-configuration.
   # AUTH_PROBE_PATH: /.well-known/openid-configuration
+  # The offsite copy, opt-in (offsite-copy.yaml here; README, "Offsite
+  # copy"). Read only by its layer, so a cluster without it may leave these
+  # out. Each bucket in OFFSITE_SOURCE_BUCKETS (space-separated), at the
+  # source store, is copied to OFFSITE_BUCKET/<bucket>/ at a store of another
+  # provider; endpoints with https://. List the backup bucket too when it is
+  # at the same provider as the files. The keys: the store's
+  # weldsuite/offsite-copy.
+  OFFSITE_SOURCE_S3_ENDPOINT: https://fsn1.your-objectstorage.com
+  OFFSITE_SOURCE_S3_REGION: fsn1
+  OFFSITE_SOURCE_BUCKETS: example-files example-public example-mail example-panel
+  OFFSITE_S3_ENDPOINT: https://s3.offsite.example.com
+  OFFSITE_S3_REGION: example-1
+  OFFSITE_BUCKET: example-offsite
+  # Optional: when it runs (cron, UTC; after the nightly base backups by
+  # default), copy or sync (copy by default: never deletes at the
+  # destination), and rclone's flags (infrastructure/offsite-copy/cronjob.yaml).
+  # OFFSITE_SCHEDULE: "0 5 * * *"
+  # OFFSITE_MODE: copy
+  # OFFSITE_RCLONE_FLAGS: --checksum --transfers 8 --checkers 16
