@@ -1842,6 +1842,13 @@
       "when": 1795270276168,
       "tag": "0262_weldcommerce_buyers_approvals",
       "breakpoints": true
+    },
+    {
+      "idx": 263,
+      "version": "7",
+      "when": 1795272116018,
+      "tag": "0263_weldcommerce_native_order_numbers",
+      "breakpoints": true
     }
   ]
 }

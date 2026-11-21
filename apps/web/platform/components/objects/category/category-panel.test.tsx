@@ -161,7 +161,7 @@ beforeEach(() => {
 describe('CategoryPanel', () => {
   it('shows the category, its products and its subcategories', () => {
     render(<CategoryPanel {...props} />);
-    expect(screen.getByTestId('open-href')).toHaveAttribute('href', '/weldcommerce/categories?open=cat_1');
+    expect(screen.getByTestId('open-href')).toHaveAttribute('href', '/weldcommerce/categories?stack=category:cat_1');
     expect(screen.getByTestId('badges')).toHaveTextContent('Manual');
     expect(screen.getByTestId('badges')).toHaveTextContent('Active');
     expect(screen.getByTestId('field-Products')).toHaveTextContent('2');

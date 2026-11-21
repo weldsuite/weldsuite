@@ -152,10 +152,13 @@ export const orders = pgTable('orders', {
   uniqueIndex('orders_idempotency_key_uidx')
     .on(table.idempotencyKey)
     .where(sql`${table.idempotencyKey} IS NOT NULL`),
-  // An order number is unique within its source, among live orders.
-  uniqueIndex('orders_source_order_number_uidx')
+  // WeldCommerce's own order numbers (manual and storefront orders, numbered
+  // from commerce_settings) are unique within their source among live
+  // orders. Imported orders keep their store's number: two stores of the
+  // same provider may both have a #1001.
+  uniqueIndex('orders_native_order_number_uidx')
     .on(table.source, table.orderNumber)
-    .where(sql`${table.deletedAt} IS NULL`),
+    .where(sql`${table.deletedAt} IS NULL AND ${table.source} IN ('manual', 'storefront')`),
 ]);
 
 export type Order = typeof orders.$inferSelect;

@@ -84,7 +84,10 @@ const REGISTRY: [(SearchType, &str, &str); 31] = [
         "knowledge:read",
     ),
     (SearchType::Product, "product", "products:read"),
-    (SearchType::Order, "order", "orders:read"),
+    // WeldCommerce's orders: app-qualified, so a WeldStash `orders` grant
+    // doesn't surface sales orders in an app the member can't open. Also
+    // needs WeldCommerce installed (`commerce_installed`).
+    (SearchType::Order, "order", "weldcommerce:orders:read"),
     (SearchType::Warehouse, "warehouse", "warehouses:read"),
     (SearchType::Invoice, "invoice", "invoices:read"),
     (SearchType::Bill, "bill", "bills:read"),
@@ -202,7 +205,8 @@ pub(crate) fn build_result_url(kind: SearchType, id: &str) -> String {
 }
 
 /// [`build_result_url`] for a member who has the WeldCommerce app (`commerce`):
-/// products open on its products page, orders on its orders page.
+/// products open as object panels on its products page; orders always open
+/// on WeldCommerce's orders page.
 pub(crate) fn build_result_url_for(kind: SearchType, id: &str, commerce: bool) -> String {
     let encoded = encode_uri_component(id);
     match kind {
@@ -213,9 +217,11 @@ pub(crate) fn build_result_url_for(kind: SearchType, id: &str, commerce: bool) -
         SearchType::Ticket => format!("/welddesk/inbox?entity=ticket:{encoded}"),
         SearchType::Article => format!("/welddesk/help-center/articles/{id}"),
         SearchType::KnowledgePage => format!("/weldknow/page/{id}"),
-        SearchType::Product if commerce => format!("/weldcommerce/products?open={encoded}"),
+        SearchType::Product if commerce => {
+            format!("/weldcommerce/products?stack=product:{encoded}")
+        }
         SearchType::Product => format!("/weldstash/products?stack=product:{encoded}"),
-        SearchType::Order => format!("/weldcommerce/orders?open={encoded}"),
+        SearchType::Order => format!("/weldcommerce/orders?stack=order:{encoded}"),
         SearchType::Invoice => format!("/weldbooks/invoices/{id}"),
         SearchType::Bill => format!("/weldbooks/bills/{id}"),
         SearchType::Project => format!("/weldflow/project/{id}"),
@@ -1026,6 +1032,17 @@ fn escaped_term(q: &str, limit: usize) -> Term {
 }
 
 /// The rows of one type, each `{ row, score }`.
+/// Whether the workspace has WeldCommerce installed (an active
+/// `workspace_installed_apps` row), as `listMemberAppCodes` reads it.
+async fn commerce_installed(db: &PgPool) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar(
+        "select exists(select 1 from workspace_installed_apps
+          where app_code = 'weldcommerce' and is_active and deleted_at is null)",
+    )
+    .fetch_one(db)
+    .await
+}
+
 async fn search_rows(
     db: &PgPool,
     kind: SearchType,
@@ -1497,7 +1514,13 @@ pub(crate) async fn search(
                     has_any_app_permission(permissions.resolved(), &[kind.permission()], None)
                 })
             };
-            let permitted: Vec<SearchType> = SearchType::all().filter(|t| allowed(*t)).collect();
+            // WeldCommerce (EU edition) joins search once the workspace has
+            // installed it: its orders, and its products page as the link.
+            // Global never has it, so the TypeScript search answers alike there.
+            let commerce = commerce_installed(&caller.db).await?;
+            let permitted: Vec<SearchType> = SearchType::all()
+                .filter(|t| allowed(*t) && (commerce || *t != SearchType::Order))
+                .collect();
             // Structure the query first ("Invoice from Acme Corp" becomes
             // invoices matching "Acme Corp"). Never fails: no AI, an empty
             // wallet or a refusal all leave the raw query.
@@ -1546,7 +1569,12 @@ pub(crate) async fn search(
                 let rows = search_rows(&caller.db, *kind, term, input.limit, &mut who).await?;
                 groups.push((
                     *kind,
-                    group(*kind, &rows, input.limit, can("weldcommerce:products:read")),
+                    group(
+                        *kind,
+                        &rows,
+                        input.limit,
+                        commerce && can("weldcommerce:products:read"),
+                    ),
                 ));
             }
             let entity_types: Vec<&str> = parsed.entity_types.iter().map(|t| t.as_str()).collect();
@@ -1690,11 +1718,11 @@ mod tests {
         );
         assert_eq!(
             build_result_url_for(SearchType::Product, "p1", true),
-            "/weldcommerce/products?open=p1"
+            "/weldcommerce/products?stack=product:p1"
         );
         assert_eq!(
             build_result_url(SearchType::Order, "ord_1"),
-            "/weldcommerce/orders?open=ord_1"
+            "/weldcommerce/orders?stack=order:ord_1"
         );
         let (title, subtitle) = describe(
             SearchType::Order,

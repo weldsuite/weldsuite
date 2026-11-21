@@ -49,14 +49,6 @@ describe('buildResultUrl · platform routes', () => {
   });
 });
 
-describe('buildResultUrl · products of a member with WeldCommerce', () => {
-  it('links to the WeldCommerce products page', () => {
-    expect(buildResultUrl('product', 'prd_1', { commerce: true })).toBe(
-      '/weldcommerce/products?open=prd_1',
-    );
-  });
-});
-
 describe('buildResultUrl · records outside the CRM', () => {
   it.each<[SearchEntityType, string, string]>([
     // No ticket route: the entity sheet opens over the WeldDesk inbox.
@@ -65,8 +57,6 @@ describe('buildResultUrl · records outside the CRM', () => {
     ['knowledge_page', 'kp_1', '/weldknow/page/kp_1'],
     // An object panel on the WeldStash products list.
     ['product', 'prd_1', STASH_PRODUCT],
-    // WeldCommerce's own pages: orders open from the orders list.
-    ['order', 'ord_1', '/weldcommerce/orders?open=ord_1'],
     ['invoice', 'inv_1', '/weldbooks/invoices/inv_1'],
     ['bill', 'bill_1', '/weldbooks/bills/bill_1'],
     ['project', 'prj_1', '/weldflow/project/prj_1'],
@@ -102,27 +92,15 @@ describe('runSearch · product links', () => {
     await db.insert(schema.products).values({ id: 'prd_1', name: 'Hex bolt', slug: 'hex-bolt' });
   }, 60_000);
 
-  it('links a product into WeldStash without the WeldCommerce app', async () => {
-    const { groups } = await runSearch(db, 'ws_test', {
-      q: 'bolt',
-      types: ['product'],
-      limit: 5,
-      perms: { hasAny: (required) => !required.some((p) => p.startsWith('weldcommerce:')) },
-    });
-    expect(groups[0]!.items).toEqual([expect.objectContaining({ id: 'prd_1', url: STASH_PRODUCT })]);
-    expect(isPlatformRoute(STASH_PRODUCT)).toBe(true);
-  });
-
-  it('links a product into WeldCommerce for a member who has the app', async () => {
+  it('links a product into WeldStash', async () => {
     const { groups } = await runSearch(db, 'ws_test', {
       q: 'bolt',
       types: ['product'],
       limit: 5,
       perms: { hasAny: () => true },
     });
-    expect(groups[0]!.items).toEqual([
-      expect.objectContaining({ id: 'prd_1', url: '/weldcommerce/products?open=prd_1' }),
-    ]);
+    expect(groups[0]!.items).toEqual([expect.objectContaining({ id: 'prd_1', url: STASH_PRODUCT })]);
+    expect(isPlatformRoute(STASH_PRODUCT)).toBe(true);
   });
 });
 

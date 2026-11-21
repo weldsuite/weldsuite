@@ -394,3 +394,54 @@ async fn matches_items_imported_before_line_ids_and_stamps_them() {
     assert_eq!(parties.len(), 1);
     assert_eq!(updated["counterparty_id"], parties[0]["id"]);
 }
+
+#[tokio::test]
+async fn two_stores_of_one_provider_may_share_an_order_number() {
+    let Some(db) = tenant().await else { return };
+    // Two WooCommerce stores that both number their orders from the same
+    // start: each order imports, and keeps the store's own number.
+    let (first_store, _) = seed(&db, &suffix()).await;
+    let (second_store, _) = seed(&db, &suffix()).await;
+    let number = format!("1001{}", suffix());
+    let lines = [line(7101, "Kettle", "KET-2", 1, 30)];
+
+    let first = ingest(
+        &db,
+        &first_store,
+        vec![order(&number, "2026-04-01T10:00:00", &lines)],
+    )
+    .await;
+    let second = ingest(
+        &db,
+        &second_store,
+        vec![order(&number, "2026-04-01T10:00:00", &lines)],
+    )
+    .await;
+    assert_eq!((first.created, first.failed), (1, 0));
+    assert_eq!((second.created, second.failed), (1, 0));
+
+    let a = order_row(&db, &first_store, &number).await;
+    let b = order_row(&db, &second_store, &number).await;
+    assert_ne!(a["id"], b["id"]);
+    assert_eq!(
+        (&a["order_number"], &b["order_number"]),
+        (&json!(number), &json!(number))
+    );
+
+    // A later change to the second store's order still syncs.
+    let changed = ingest(
+        &db,
+        &second_store,
+        vec![order(
+            &number,
+            "2026-04-02T10:00:00",
+            &[line(7101, "Kettle", "KET-2", 3, 30)],
+        )],
+    )
+    .await;
+    assert_eq!(changed.failed, 0);
+    assert_eq!(
+        order_row(&db, &second_store, &number).await["total_quantity"],
+        json!(3)
+    );
+}

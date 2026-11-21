@@ -102,7 +102,7 @@ export function DiscountPanel(props: Readonly<ObjectPanelComponentProps>) {
         hasData={!!discount}
         title={discount?.name}
         subtitle={discount?.code}
-        openHref={discount ? `/weldcommerce/discounts?open=${discount.id}` : undefined}
+        openHref={discount ? `/weldcommerce/discounts?stack=discount:${encodeURIComponent(discount.id)}` : undefined}
         tabs={[detailsTab(tp.tabDetails), extraTab('redemptions', tp.tabRedemptions, Receipt)]}
         renderTab={(tabId) => (tabId === 'redemptions' && discount ? <Redemptions discountId={discount.id} /> : null)}
         statusBadges={discount && <DiscountStatusBadge status={discount.effectiveStatus} />}

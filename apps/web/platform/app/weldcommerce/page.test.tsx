@@ -90,8 +90,8 @@ describe('WeldCommerce overview', () => {
     expect(screen.getByText('Recent orders')).toBeTruthy();
     expect(screen.getByText('1001')).toBeTruthy();
     // Each order opens its panel on the orders list.
-    expect(screen.getByRole('link', { name: '1001' }).getAttribute('href')).toBe('/weldcommerce/orders?open=ord_1');
-    expect(screen.getByRole('link', { name: 'ord_2' }).getAttribute('href')).toBe('/weldcommerce/orders?open=ord_2');
+    expect(screen.getByRole('link', { name: '1001' }).getAttribute('href')).toBe('/weldcommerce/orders?stack=order:ord_1');
+    expect(screen.getByRole('link', { name: 'ord_2' }).getAttribute('href')).toBe('/weldcommerce/orders?stack=order:ord_2');
     expect(screen.getByText('Grace Hopper')).toBeTruthy();
     // An order without a number shows its id; statuses read as words.
     expect(screen.getByText('ord_2')).toBeTruthy();

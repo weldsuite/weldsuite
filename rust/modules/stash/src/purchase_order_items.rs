@@ -44,7 +44,10 @@ where
 {
     let need = |key: &str| gate.require([key.to_owned()]);
     Router::new()
-        .route("/{id}/items", get(list).route_layer(need("purchase_orders:read")))
+        .route(
+            "/{id}/items",
+            get(list).route_layer(need("purchase_orders:read")),
+        )
         .route(
             "/{id}/items",
             post(create).route_layer(need("purchase_orders:update")),

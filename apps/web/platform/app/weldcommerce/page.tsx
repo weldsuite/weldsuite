@@ -63,7 +63,7 @@ export default function WeldCommerceOverview() {
       header: t.columns.order,
       // Opens the order's panel on the orders list.
       cell: (row) => (
-        <Link href={`/weldcommerce/orders?open=${row.id}`} className="font-medium text-primary hover:underline">
+        <Link href={`/weldcommerce/orders?stack=order:${encodeURIComponent(row.id)}`} className="font-medium text-primary hover:underline">
           {row.orderNumber ?? row.id}
         </Link>
       ),

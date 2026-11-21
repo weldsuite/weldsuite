@@ -602,15 +602,25 @@ async fn ingest_order(
     }
     check_dates(values)?;
     // The order this store order is: its mapping, else an order already
-    // there with the same external id, else a new one.
+    // there with the same external id that no other connection imported
+    // (two stores of one provider may both have an order 1001), else a new one.
     let mut found = mapping.as_ref().map(|m| m.internal_id.clone());
     if found.is_none()
         && let Some(external) = dedup_value(values, "externalOrderId")
     {
         found = sqlx::query_scalar(
-            "select id from orders where external_order_id = $1::text and deleted_at is null              order by created_at asc, id asc limit 1",
+            "select o.id from orders o
+              where o.external_order_id = $1::text and o.deleted_at is null
+                and not exists (select 1 from integration_entity_mappings m
+                                 where m.internal_entity_id = o.id and m.connection_id <> $2)
+              order by o.created_at asc, o.id asc limit 1",
         )
-        .bind(external.as_str().map_or_else(|| external.to_string(), str::to_owned))
+        .bind(
+            external
+                .as_str()
+                .map_or_else(|| external.to_string(), str::to_owned),
+        )
+        .bind(args.connection_id)
         .fetch_optional(args.db)
         .await?;
     }

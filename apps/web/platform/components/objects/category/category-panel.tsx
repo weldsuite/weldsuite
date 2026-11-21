@@ -224,7 +224,7 @@ export function CategoryPanel(props: Readonly<ObjectPanelComponentProps>) {
         hasData={!!category}
         title={category?.name}
         subtitle={category?.slug ?? undefined}
-        openHref={category ? `/weldcommerce/categories?open=${category.id}` : undefined}
+        openHref={category ? `/weldcommerce/categories?stack=category:${encodeURIComponent(category.id)}` : undefined}
         tabs={[
           detailsTab(tc.panel.tabDetails),
           { ...extraTab('products', tc.panel.tabProducts, Package), count: memberCount || undefined },
