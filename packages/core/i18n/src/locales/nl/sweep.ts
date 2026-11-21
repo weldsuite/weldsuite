@@ -608,8 +608,6 @@ export const sweep = {
         "nameHeader": "Naam",
         "noMatches": "Geen recordchats gevonden",
         "noMatchesHint": "Geen recordchat komt overeen met je zoekopdracht.",
-        "noMessages": "Nog geen berichten",
-        "removeFilter": "Filter {name} verwijderen",
         "rowActions": "Acties voor {name}",
         "searchPlaceholder": "Recordchats zoeken...",
         "showAllICanSee": "Alles tonen wat ik kan zien",

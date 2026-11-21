@@ -209,7 +209,8 @@ export default function HomePage() {
           {agentOffered && (
             <div className="flex-shrink-0 px-6 pb-6">
               <div className="w-full max-w-3xl mx-auto weldagent-composer-vt">
-                <AgentChatInput value={input} onChange={setInput} onSubmit={startNewChat} autoFocus />
+                {/* Stacked, like every other WeldAgent composer (panel, agent chat). */}
+                <AgentChatInput value={input} onChange={setInput} onSubmit={startNewChat} autoFocus variant="stacked" />
               </div>
             </div>
           )}

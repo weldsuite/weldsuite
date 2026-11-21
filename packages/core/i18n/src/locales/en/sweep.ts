@@ -608,8 +608,6 @@ export const sweep = {
         "nameHeader": "Name",
         "noMatches": "No record chats found",
         "noMatchesHint": "No record chat matches your search.",
-        "noMessages": "No messages yet",
-        "removeFilter": "Remove the {name} filter",
         "rowActions": "Actions for {name}",
         "searchPlaceholder": "Search record chats...",
         "showAllICanSee": "Show all I can see",

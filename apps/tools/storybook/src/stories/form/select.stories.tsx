@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react";
+import { Globe, Lock, Users } from "lucide-react";
 
 import {
   Select,
@@ -71,5 +72,36 @@ export const Small: Story = {
         <SelectItem value="lg">Large</SelectItem>
       </SelectContent>
     </Select>
+  ),
+};
+
+/**
+ * Options with an icon and a one-line description. The open list shows the
+ * description under each label; the closed trigger shows only icon and label.
+ */
+export const WithDescriptions: Story = {
+  render: () => (
+    <div className="grid w-[320px] gap-1.5">
+      <Label htmlFor="story-visibility">Who can find it</Label>
+      <Select defaultValue="open">
+        <SelectTrigger id="story-visibility" className="w-full">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent className="w-[var(--radix-select-trigger-width)]">
+          <SelectItem value="open" description="Everyone in the workspace can find it and read its pages.">
+            <Globe />
+            Open
+          </SelectItem>
+          <SelectItem value="closed" description="Everyone can see it exists. Only members can open it.">
+            <Users />
+            Closed
+          </SelectItem>
+          <SelectItem value="private" description="Only members know it exists.">
+            <Lock />
+            Private
+          </SelectItem>
+        </SelectContent>
+      </Select>
+    </div>
   ),
 };

@@ -1112,6 +1112,8 @@ export const common = {
         retry: 'Retry',
         insufficientCredits: "You're out of AI credits. Top up your workspace to keep chatting.",
         generalAgent: 'WeldAgent',
+        untitledChat: 'Untitled chat',
+        chatTitleLabel: 'Chat name',
         chooseAgent: 'Choose an agent',
         messageAgent: 'Message {name}…',
         close: 'Close',

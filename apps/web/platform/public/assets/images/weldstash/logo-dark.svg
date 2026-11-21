@@ -1,17 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg id="Layer_2" data-name="Layer 2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 600">
+<!-- WeldStash: Lucide "warehouse", filled, with the doorway cut out and a lighter three-slat shutter inside (rounded slats, even 1.2 gaps). Padded to draw at 23px in a 24px slot, same as WeldSheets. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="1.565 1.065 20.87 20.87">
   <defs>
-    <style>
-      .cls-1 {
-        fill: #fb923c;
-        fill-rule: evenodd;
-      }
-    </style>
+    <mask id="weldstash-dark-door" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">
+      <rect width="24" height="24" fill="#fff"/>
+      <path fill="#000" d="M7 7.8h10a2.2 2.2 0 0 1 2.2 2.2V24H4.8V10A2.2 2.2 0 0 1 7 7.8Z"/>
+    </mask>
   </defs>
-  <g id="Layer_1-2" data-name="Layer 1">
-    <path class="cls-1" d="M48,220 L320,28 L592,220 L592,524 A52,52 0 0 1 540,576 H100 A52,52 0 0 1 48,524 Z
-      M122,352 H198 A22,22 0 0 1 220,374 V530 A22,22 0 0 1 198,552 H122 A22,22 0 0 1 100,530 V374 A22,22 0 0 1 122,352 Z
-      M282,352 H358 A22,22 0 0 1 380,374 V530 A22,22 0 0 1 358,552 H282 A22,22 0 0 1 260,530 V374 A22,22 0 0 1 282,352 Z
-      M442,352 H518 A22,22 0 0 1 540,374 V530 A22,22 0 0 1 518,552 H442 A22,22 0 0 1 420,530 V374 A22,22 0 0 1 442,352 Z"/>
+  <path fill="#fb923c" mask="url(#weldstash-dark-door)" d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 1.132-1.803l7.95-3.974a2 2 0 0 1 1.837 0l7.948 3.974A2 2 0 0 1 22 8z"/>
+  <g fill="#fed7aa">
+    <rect x="6" y="9" width="12" height="3.2" rx="1"/>
+    <rect x="6" y="13.4" width="12" height="3.2" rx="1"/>
+    <rect x="6" y="17.8" width="12" height="3.2" rx="1"/>
   </g>
 </svg>

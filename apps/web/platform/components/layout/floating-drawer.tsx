@@ -1,6 +1,9 @@
 import * as React from 'react';
 import { cn } from '@/lib/utils';
 
+/** Desktop width of the drawers (WeldAgent, notifications, …) in px; side panels that sit beside them match it. */
+export const FLOATING_DRAWER_WIDTH = 400;
+
 interface FloatingDrawerProps extends React.ComponentPropsWithoutRef<'div'> {
   isOpen: boolean;
   /** Desktop width in px. Mobile is always a full-screen sheet. */
@@ -23,7 +26,7 @@ interface FloatingDrawerProps extends React.ComponentPropsWithoutRef<'div'> {
  */
 export function FloatingDrawer({
   isOpen,
-  width = 400,
+  width = FLOATING_DRAWER_WIDTH,
   skipAnimation,
   className,
   style,

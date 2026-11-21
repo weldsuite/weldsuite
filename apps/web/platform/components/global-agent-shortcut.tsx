@@ -78,8 +78,9 @@ export function GlobalAgentShortcut() {
         e.preventDefault();
         toggleWeldAgent();
       }
-      // Escape to close
-      if (showWeldAgent && matchesHotkey(e, HOTKEYS.closeDialogPanel)) {
+      // Escape to close, unless something in the panel used it (cancelling a
+      // title edit).
+      if (showWeldAgent && !e.defaultPrevented && matchesHotkey(e, HOTKEYS.closeDialogPanel)) {
         setShowWeldAgent(false);
       }
     };
