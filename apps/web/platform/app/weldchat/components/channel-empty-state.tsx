@@ -33,8 +33,8 @@ function formatCreationDate(iso: string | null | undefined, locale: string): str
  * and the name on one row, and under it one line on who started it and when.
  */
 const INTRO_CLASS = 'px-[10px] pt-8 pb-4 md:px-[18px]';
-const INTRO_ROW_CLASS = 'flex items-center gap-2.5';
-const INTRO_TILE_CLASS = 'flex size-7 shrink-0 items-center justify-center rounded-[9px] bg-muted';
+const INTRO_ROW_CLASS = 'flex items-center gap-2';
+const INTRO_TILE_CLASS = 'flex size-6 shrink-0 items-center justify-center rounded-[8px] bg-muted';
 const INTRO_TITLE_CLASS = 'min-w-0 truncate text-xl font-semibold';
 const INTRO_TEXT_CLASS = 'mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground';
 
@@ -106,8 +106,8 @@ export function ChannelEmptyState({ channel }: Readonly<ChannelEmptyStateProps>)
               userId={other?.userId ?? channel?.createdBy}
               name={displayName}
               picture={other?.picture}
-              className="size-7"
-              fallbackClassName="text-xs font-medium"
+              className="size-6"
+              fallbackClassName="text-[11px] font-medium"
               fallback={(displayName || '?')[0].toUpperCase()}
             />
           )}
