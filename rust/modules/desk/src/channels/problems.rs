@@ -198,7 +198,7 @@ async fn list(ctx: Ctx, RawQuery(query): RawQuery) -> Response {
             Pagination::new(u64::try_from(total).unwrap_or(0), has_more, cursor),
         )
         .into_response(),
-        Err(error) => Refusal::Database(error).respond("Failed to list problems"),
+        Err(error) => Refusal::from(error).respond("Failed to list problems"),
     }
 }
 
@@ -299,7 +299,7 @@ async fn detail(ctx: Ctx, Path(id): Path<String>) -> Response {
     match problems::get(&ctx.caller.db, &id).await {
         Ok(Some(problem)) => Data(problem).into_response(),
         Ok(None) => ApiError::not_found("Problem", Some(&id)).into_response(),
-        Err(error) => Refusal::Database(error).respond("Failed to load the problem"),
+        Err(error) => Refusal::from(error).respond("Failed to load the problem"),
     }
 }
 
@@ -420,11 +420,11 @@ async fn incidents(ctx: Ctx, Path(id): Path<String>, RawQuery(query): RawQuery) 
     match problems::get(db, &id).await {
         Ok(Some(_)) => {}
         Ok(None) => return ApiError::not_found("Problem", Some(&id)).into_response(),
-        Err(error) => return Refusal::Database(error).respond(failure),
+        Err(error) => return Refusal::from(error).respond(failure),
     }
     match problems::conversations(db, &id, limit).await {
         Ok(incidents) => Data(incidents).into_response(),
-        Err(error) => Refusal::Database(error).respond(failure),
+        Err(error) => Refusal::from(error).respond(failure),
     }
 }
 
@@ -510,7 +510,7 @@ async fn article(State(state): State<DeskState>, ctx: Ctx, Path(id): Path<String
     let problem = match problems::get(db, &id).await {
         Ok(Some(problem)) => problem,
         Ok(None) => return ApiError::not_found("Problem", Some(&id)).into_response(),
-        Err(error) => return Refusal::Database(error).respond(failure),
+        Err(error) => return Refusal::from(error).respond(failure),
     };
     if let Some(article_id) = problem["articleId"].as_str().filter(|id| !id.is_empty()) {
         let existing: Result<Option<String>, sqlx::Error> =
@@ -525,14 +525,14 @@ async fn article(State(state): State<DeskState>, ctx: Ctx, Path(id): Path<String
                     .into_response();
             }
             Ok(None) => {}
-            Err(error) => return Refusal::Database(error).respond(failure),
+            Err(error) => return Refusal::from(error).respond(failure),
         }
     }
 
     let draft = problems::article_draft(&problem);
     let related = match problems::conversations(db, &id, Some(RELATED_TICKETS)).await {
         Ok(incidents) => incidents,
-        Err(error) => return Refusal::Database(error).respond(failure),
+        Err(error) => return Refusal::from(error).respond(failure),
     };
     let draft_article = DraftArticle {
         title: &draft.title,
@@ -596,11 +596,11 @@ async fn read_problem(ctx: Ctx, Path(id): Path<String>) -> Response {
     match conversation {
         Ok(Some(_)) => {}
         Ok(None) => return ApiError::not_found("Conversation", Some(&id)).into_response(),
-        Err(error) => return Refusal::Database(error).respond(failure),
+        Err(error) => return Refusal::from(error).respond(failure),
     }
     match problems::conversation_problem(db, &id).await {
         Ok(problem) => Data(problem.unwrap_or(Value::Null)).into_response(),
-        Err(error) => Refusal::Database(error).respond(failure),
+        Err(error) => Refusal::from(error).respond(failure),
     }
 }
 

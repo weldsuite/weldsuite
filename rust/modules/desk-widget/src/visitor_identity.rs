@@ -110,10 +110,10 @@ pub(crate) fn read_visitor_token(secret: &str, token: &str, now: i64) -> Option<
     })
 }
 
-/// The widget's identity secret (`desk_widget_settings.identity_secret`),
-/// when it has one.
+/// The widget's identity secret (`desk_widget_settings.identity_secret`, in
+/// the row as the entity serializes it), when it has one.
 pub(crate) fn identity_secret(config: &Value) -> Option<&str> {
-    config["identity_secret"]
+    config["identitySecret"]
         .as_str()
         .filter(|secret| !secret.is_empty())
 }
@@ -121,7 +121,7 @@ pub(crate) fn identity_secret(config: &Value) -> Option<&str> {
 /// `requiresIdentity(config)`: identity verification is on and anonymous
 /// visitors are refused (needs a secret to mean anything).
 pub(crate) fn requires_identity(config: &Value) -> bool {
-    identity_secret(config).is_some() && config["identity_required"] == Value::Bool(true)
+    identity_secret(config).is_some() && config["identityRequired"] == Value::Bool(true)
 }
 
 /// `VerifiedIdentity`.

@@ -13,11 +13,17 @@
 
 use std::cmp::Ordering;
 
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm, utc_now};
+use weldsuite_schema::tenant::{
+    desk_conversations, helpdesk_departments, helpdesk_settings, workspace_members,
+};
 
 use crate::assignment_router::{AssignmentRouter, PickCandidate, PickMode, PickRequest};
-use crate::webchat::{Append, AppendError, Appended, append, now};
+use crate::upper_is;
+use crate::webchat::{Append, AppendError, Appended, append};
 
 /// `DeskAssignmentSettings`, normalised.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,12 +70,14 @@ pub fn normalize(raw: &Value) -> Settings {
 
 /// `getDeskAssignmentSettings(db)`: the settings on the workspace's
 /// `helpdesk_settings` row.
-pub async fn settings(db: &PgPool) -> Result<Settings, sqlx::Error> {
-    let automation: Option<Option<Value>> = sqlx::query_scalar(
-        "select automation from helpdesk_settings where deleted_at is null limit 1",
-    )
-    .fetch_optional(db)
-    .await?;
+pub async fn settings(db: &PgPool) -> Result<Settings, DbErr> {
+    let automation: Option<Option<Value>> = helpdesk_settings::Entity::find()
+        .select_only()
+        .column(helpdesk_settings::Column::Automation)
+        .filter(helpdesk_settings::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let automation = automation.flatten().unwrap_or(Value::Null);
     Ok(normalize(&automation["deskAssignment"]))
 }
@@ -89,17 +97,18 @@ pub struct Candidate {
 pub async fn team_member_ids(
     db: &PgPool,
     team_id: Option<&str>,
-) -> Result<Option<Vec<String>>, sqlx::Error> {
+) -> Result<Option<Vec<String>>, DbErr> {
     let Some(team_id) = team_id.filter(|id| !id.is_empty()) else {
         return Ok(None);
     };
-    let team: Option<(Option<Value>, bool)> = sqlx::query_as(
-        "select agent_ids, is_active from helpdesk_departments
-         where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(team_id)
-    .fetch_optional(db)
-    .await?;
+    let team: Option<(Option<Value>, bool)> = helpdesk_departments::Entity::find_by_id(team_id)
+        .select_only()
+        .column(helpdesk_departments::Column::AgentIds)
+        .column(helpdesk_departments::Column::IsActive)
+        .filter(helpdesk_departments::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let Some((agent_ids, true)) = team else {
         return Ok(None);
     };
@@ -114,7 +123,7 @@ pub async fn candidates(
     db: &PgPool,
     settings: &Settings,
     team_member_ids: Option<&[String]>,
-) -> Result<Vec<Candidate>, sqlx::Error> {
+) -> Result<Vec<Candidate>, DbErr> {
     let ids: Vec<String> = team_member_ids
         .unwrap_or(&settings.member_ids)
         .iter()
@@ -124,14 +133,17 @@ pub async fn candidates(
     if ids.is_empty() {
         return Ok(Vec::new());
     }
-    let active: Vec<String> = sqlx::query_scalar(
-        "select user_id from workspace_members
-         where user_id = any($1) and deleted_at is null
-           and upper(status) = 'ACTIVE' and upper(member_type) = 'INTERNAL'",
-    )
-    .bind(&ids)
-    .fetch_all(db)
-    .await?;
+    let orm_db = orm(db);
+    let active: Vec<String> = workspace_members::Entity::find()
+        .select_only()
+        .column(workspace_members::Column::UserId)
+        .filter(workspace_members::Column::UserId.is_in(ids))
+        .filter(workspace_members::Column::DeletedAt.is_null())
+        .filter(upper_is(workspace_members::Column::Status, "ACTIVE"))
+        .filter(upper_is(workspace_members::Column::MemberType, "INTERNAL"))
+        .into_tuple()
+        .all(&orm_db)
+        .await?;
     let mut user_ids: Vec<String> = Vec::new();
     for id in active {
         if !user_ids.contains(&id) {
@@ -141,13 +153,19 @@ pub async fn candidates(
     if user_ids.is_empty() {
         return Ok(Vec::new());
     }
-    let counts: Vec<(Option<String>, i64)> = sqlx::query_as(
-        "select assignee_id, count(*)::bigint from desk_conversations
-         where state = 'open' and assignee_id = any($1) group by assignee_id",
-    )
-    .bind(&user_ids)
-    .fetch_all(db)
-    .await?;
+    let counts: Vec<(Option<String>, i64)> = desk_conversations::Entity::find()
+        .select_only()
+        .column(desk_conversations::Column::AssigneeId)
+        .column_as(
+            Expr::from(Func::count(Expr::col(desk_conversations::Column::Id))),
+            "open",
+        )
+        .filter(desk_conversations::Column::State.eq("open"))
+        .filter(desk_conversations::Column::AssigneeId.is_in(user_ids.iter().map(String::as_str)))
+        .group_by(desk_conversations::Column::AssigneeId)
+        .into_tuple()
+        .all(&orm_db)
+        .await?;
     Ok(user_ids
         .into_iter()
         .map(|user_id| {
@@ -287,12 +305,16 @@ pub async fn auto_assign_with(
     conversation_id: &str,
     picker: &Picker<'_>,
 ) -> Result<Option<Appended>, AppendError> {
-    let current: Option<(String, Option<String>, Option<String>)> = sqlx::query_as(
-        "select state, assignee_id, department_id from desk_conversations where id = $1 limit 1",
-    )
-    .bind(conversation_id)
-    .fetch_optional(db)
-    .await?;
+    use desk_conversations::Column;
+    let current: Option<(String, Option<String>, Option<String>)> =
+        desk_conversations::Entity::find_by_id(conversation_id)
+            .select_only()
+            .column(Column::State)
+            .column(Column::AssigneeId)
+            .column(Column::DepartmentId)
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
     let Some((state, None, department_id)) = current else {
         return Ok(None);
     };
@@ -316,16 +338,14 @@ pub async fn auto_assign_with(
     else {
         return Ok(None);
     };
-    let claimed: Option<String> = sqlx::query_scalar(
-        "update desk_conversations set assignee_id = $2, updated_at = $3::timestamp
-         where id = $1 and assignee_id is null returning id",
-    )
-    .bind(conversation_id)
-    .bind(&user_id)
-    .bind(now())
-    .fetch_optional(db)
-    .await?;
-    if claimed.is_none() {
+    let claimed = desk_conversations::Entity::update_many()
+        .col_expr(Column::AssigneeId, Expr::value(user_id.clone()))
+        .col_expr(Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(Column::Id.eq(conversation_id))
+        .filter(Column::AssigneeId.is_null())
+        .exec(&orm(db))
+        .await?;
+    if claimed.rows_affected == 0 {
         return Ok(None);
     }
     let mut metadata = Map::new();

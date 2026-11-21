@@ -15,11 +15,16 @@
 
 use std::collections::{HashMap, HashSet};
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_core_domain::custom_field_values::{self as values, Definition, ValuesError};
 use weldsuite_core_domain::js::{Js, as_text, js_date, slice_utf16};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm, orm_error, utc_now};
 use weldsuite_kit::validation::{Field, js_trim};
+use weldsuite_schema::tenant::{
+    custom_field_definitions, desk_conversations, helpdesk_departments, helpdesk_ticket_types,
+};
 
 use crate::webchat::{self, Append, AppendError};
 
@@ -29,18 +34,31 @@ use crate::webchat::{self, Append, AppendError};
 pub async fn ticket_field_definitions(
     db: &PgPool,
     ticket_type_id: Option<&str>,
-) -> Result<Vec<(Definition, String)>, sqlx::Error> {
+) -> Result<Vec<(Definition, String)>, DbErr> {
+    use custom_field_definitions::Column;
     type Row = (String, String, String, Option<Value>, Option<bool>, String);
-    let rows: Vec<Row> = sqlx::query_as(
-        "select id, slug, field_type, options, required, name from custom_field_definitions
-         where entity_type = 'ticket'
-           and (case when $1::text is not null and $1 <> '' then (ticket_type_id = $1 or ticket_type_id is null)
-                     else ticket_type_id is null end)
-           and deleted_at is null",
-    )
-    .bind(ticket_type_id)
-    .fetch_all(db)
-    .await?;
+    let of_type = match ticket_type_id.filter(|id| !id.is_empty()) {
+        Some(id) => Condition::any()
+            .add(Column::TicketTypeId.eq(id))
+            .add(Column::TicketTypeId.is_null()),
+        None => Condition::all().add(Column::TicketTypeId.is_null()),
+    };
+    let rows: Vec<Row> = custom_field_definitions::Entity::find()
+        .select_only()
+        .columns([
+            Column::Id,
+            Column::Slug,
+            Column::FieldType,
+            Column::Options,
+            Column::Required,
+            Column::Name,
+        ])
+        .filter(Column::EntityType.eq("ticket"))
+        .filter(of_type)
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(rows
         .into_iter()
         .map(|(id, slug, field_type, options, required, name)| {
@@ -85,13 +103,10 @@ async fn read_values(
 
 /// `getDeskConversationCustomFields(db, conversation)`: the values for the
 /// conversation's current type.
-pub async fn custom_fields(
-    db: &PgPool,
-    conversation: &Value,
-) -> Result<Map<String, Value>, sqlx::Error> {
+pub async fn custom_fields(db: &PgPool, conversation: &Value) -> Result<Map<String, Value>, DbErr> {
     let definitions = ticket_field_definitions(db, conversation["ticketTypeId"].as_str()).await?;
     let id = conversation["id"].as_str().unwrap_or_default();
-    read_values(db, id, &definitions).await
+    read_values(db, id, &definitions).await.map_err(orm_error)
 }
 
 // ── the update ────────────────────────────────────────────────────────────────
@@ -127,6 +142,12 @@ pub enum UpdateError {
 
 impl From<sqlx::Error> for UpdateError {
     fn from(error: sqlx::Error) -> Self {
+        Self::Failed(error.to_string())
+    }
+}
+
+impl From<DbErr> for UpdateError {
+    fn from(error: DbErr) -> Self {
         Self::Failed(error.to_string())
     }
 }
@@ -193,30 +214,69 @@ fn same_value(definition: &Definition, a: &Value, b: &Value) -> bool {
     a == b
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum ReferenceTable {
+    TicketTypes,
+    Departments,
+}
+
 /// A type or team: where its rows live and how a change is named.
 struct Reference {
-    /// The rows of `ids` (`$1`): id, name, `is_active`, deleted.
-    sql: &'static str,
+    /// Where the rows live ([`reference_rows`]).
+    table: ReferenceTable,
     input: &'static str,
     field: &'static str,
     noun: &'static str,
 }
 
 const TICKET_TYPE: Reference = Reference {
-    sql: "select id, name, is_active, deleted_at is not null from helpdesk_ticket_types where id = any($1)",
+    table: ReferenceTable::TicketTypes,
     input: "ticketTypeId",
     field: "ticketType",
     noun: "Ticket type",
 };
 
 const TEAM: Reference = Reference {
-    sql: "select id, name, is_active, deleted_at is not null from helpdesk_departments where id = any($1)",
+    table: ReferenceTable::Departments,
     input: "departmentId",
     field: "team",
     noun: "Team",
 };
 
-type ReferenceRow = (String, String, Option<bool>, bool);
+pub(crate) type ReferenceRow = (String, String, Option<bool>, bool);
+
+/// The rows of `ids`: id, name, `is_active` and whether it is deleted.
+pub(crate) async fn reference_rows(
+    db: &PgPool,
+    table: ReferenceTable,
+    ids: Vec<String>,
+) -> Result<Vec<ReferenceRow>, DbErr> {
+    let orm_db = orm(db);
+    match table {
+        ReferenceTable::TicketTypes => {
+            use helpdesk_ticket_types::Column;
+            helpdesk_ticket_types::Entity::find()
+                .select_only()
+                .columns([Column::Id, Column::Name, Column::IsActive])
+                .column_as(Column::DeletedAt.is_not_null(), "deleted")
+                .filter(Column::Id.is_in(ids))
+                .into_tuple()
+                .all(&orm_db)
+                .await
+        }
+        ReferenceTable::Departments => {
+            use helpdesk_departments::Column;
+            helpdesk_departments::Entity::find()
+                .select_only()
+                .columns([Column::Id, Column::Name, Column::IsActive])
+                .column_as(Column::DeletedAt.is_not_null(), "deleted")
+                .filter(Column::Id.is_in(ids))
+                .into_tuple()
+                .all(&orm_db)
+                .await
+        }
+    }
+}
 
 /// `referenceChange(db, ref, from, to)`: the new id must name a usable row;
 /// the change carries both names. `None` when the id doesn't change.
@@ -243,10 +303,7 @@ async fn reference_change(
     let rows: Vec<ReferenceRow> = if wanted.is_empty() {
         Vec::new()
     } else {
-        sqlx::query_as(reference.sql)
-            .bind(&wanted)
-            .fetch_all(db)
-            .await?
+        reference_rows(db, reference.table, wanted).await?
     };
     let names: HashMap<String, (String, bool)> = rows
         .into_iter()
@@ -434,37 +491,34 @@ async fn write_values(
 }
 
 /// The column patch, with `updatedAt`.
-async fn write_columns(db: &PgPool, id: &str, patch: &Patch) -> Result<(), sqlx::Error> {
+async fn write_columns(db: &PgPool, id: &str, patch: &Patch) -> Result<(), DbErr> {
+    use desk_conversations::Column;
     if patch.is_empty() {
         return Ok(());
     }
-    sqlx::query(
-        "update desk_conversations set
-             ticket_type_id = case when $2 then $3 else ticket_type_id end,
-             department_id = case when $4 then $5 else department_id end,
-             priority = case when $6 then $7 else priority end,
-             tags = case when $8 then $9::jsonb else tags end,
-             updated_at = $10::timestamp,
-             impact = case when $11 then $12 else impact end,
-             urgency = case when $13 then $14 else urgency end
-         where id = $1",
-    )
-    .bind(id)
-    .bind(patch.ticket_type_id.is_some())
-    .bind(patch.ticket_type_id.clone().flatten())
-    .bind(patch.department_id.is_some())
-    .bind(patch.department_id.clone().flatten())
-    .bind(patch.priority.is_some())
-    .bind(patch.priority.clone().flatten())
-    .bind(patch.tags.is_some())
-    .bind(patch.tags.as_ref().map(|tags| json!(tags)))
-    .bind(webchat::now())
-    .bind(patch.impact.is_some())
-    .bind(patch.impact.clone().flatten())
-    .bind(patch.urgency.is_some())
-    .bind(patch.urgency.clone().flatten())
-    .execute(db)
-    .await?;
+    let mut update = desk_conversations::Entity::update_many();
+    for (column, value) in [
+        (Column::TicketTypeId, &patch.ticket_type_id),
+        (Column::DepartmentId, &patch.department_id),
+        (Column::Priority, &patch.priority),
+    ] {
+        if let Some(value) = value {
+            update = update.col_expr(column, Expr::value(value.clone()));
+        }
+    }
+    if let Some(tags) = &patch.tags {
+        update = update.col_expr(Column::Tags, Expr::value(json!(tags)));
+    }
+    update = update.col_expr(Column::UpdatedAt, Expr::value(utc_now()));
+    for (column, value) in [
+        (Column::Impact, &patch.impact),
+        (Column::Urgency, &patch.urgency),
+    ] {
+        if let Some(value) = value {
+            update = update.col_expr(column, Expr::value(value.clone()));
+        }
+    }
+    update.filter(Column::Id.eq(id)).exec(&orm(db)).await?;
     Ok(())
 }
 

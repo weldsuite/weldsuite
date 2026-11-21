@@ -13,10 +13,18 @@
 
 use std::collections::HashSet;
 
+use sea_orm::ActiveValue::Set;
+// The module, not the trait: `PgExpr` in scope would shadow `contains` on slices.
+use sea_orm::sea_query::extension::postgres as pg;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Map, Value, json};
-use sqlx::PgPool;
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::Field;
+use weldsuite_schema::tenant::{
+    desk_conversations, desk_messages, helpdesk_departments, helpdesk_settings, workspace_members,
+};
 
 use crate::assignment::{Picker, auto_assign_with};
 use crate::attributes::{self, Update, UpdateError, normalize_tags};
@@ -158,12 +166,17 @@ pub fn rules_json(rules: &[Rule]) -> Value {
 }
 
 /// `getDeskRoutingSettings(db)`: the settings row's id and the rules.
-pub async fn settings(db: &PgPool) -> Result<(Option<String>, Vec<Rule>), sqlx::Error> {
-    let row: Option<(String, Option<Value>)> = sqlx::query_as(
-        "select id, automation from helpdesk_settings where deleted_at is null limit 1",
-    )
-    .fetch_optional(db)
-    .await?;
+pub async fn settings(db: &PgPool) -> Result<(Option<String>, Vec<Rule>), DbErr> {
+    let row: Option<(String, Option<Value>)> = helpdesk_settings::Entity::find()
+        .select_only()
+        .columns([
+            helpdesk_settings::Column::Id,
+            helpdesk_settings::Column::Automation,
+        ])
+        .filter(helpdesk_settings::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(match row {
         Some((id, automation)) => {
             let raw = automation.as_ref().and_then(|a| a.get("deskRouting"));
@@ -175,31 +188,36 @@ pub async fn settings(db: &PgPool) -> Result<(Option<String>, Vec<Rule>), sqlx::
 
 /// `saveDeskRoutingSettings(db, generateId, settings)`: replace the rules,
 /// leaving the rest of `automation` as it is.
-pub async fn save(db: &PgPool, raw: &Value) -> Result<Vec<Rule>, sqlx::Error> {
+pub async fn save(db: &PgPool, raw: &Value) -> Result<Vec<Rule>, DbErr> {
+    use helpdesk_settings::Column;
     let normalized = rules_json(&normalize(Some(raw)));
     let (settings_id, _) = settings(db).await?;
-    let now = webchat::now();
+    let now = utc_now();
+    let orm_db = orm(db);
     if let Some(id) = settings_id {
-        sqlx::query(
-            "update helpdesk_settings set
-               automation = coalesce(automation, '{}'::jsonb) || jsonb_build_object('deskRouting', $2::jsonb),
-               updated_at = $3::timestamp
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(&normalized)
-        .bind(&now)
-        .execute(db)
-        .await?;
+        // `coalesce(automation, '{}') || { deskRouting }`: the rest of
+        // `automation` stays as it is, in the same statement.
+        let automation = Expr::from(Func::coalesce([
+            Expr::col(Column::Automation),
+            Expr::val(json!({})),
+        ]));
+        let automation =
+            pg::PgExpr::concat(automation, Expr::val(json!({ "deskRouting": normalized })));
+        helpdesk_settings::Entity::update_many()
+            .col_expr(Column::Automation, automation)
+            .col_expr(Column::UpdatedAt, Expr::value(now))
+            .filter(Column::Id.eq(id))
+            .exec(&orm_db)
+            .await?;
     } else {
-        sqlx::query(
-            "insert into helpdesk_settings (id, automation, created_at, updated_at)
-             values ($1, $2::jsonb, $3::timestamp, $3::timestamp)",
-        )
-        .bind(generate_id("hds"))
-        .bind(json!({ "enabled": false, "deskRouting": normalized }))
-        .bind(&now)
-        .execute(db)
+        helpdesk_settings::Entity::insert(helpdesk_settings::ActiveModel {
+            id: Set(generate_id("hds")),
+            automation: Set(Some(json!({ "enabled": false, "deskRouting": normalized }))),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        })
+        .exec_without_returning(&orm_db)
         .await?;
     }
     Ok(settings(db).await?.1)
@@ -284,8 +302,8 @@ impl std::fmt::Display for RoutingError {
     }
 }
 
-impl From<sqlx::Error> for RoutingError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for RoutingError {
+    fn from(error: DbErr) -> Self {
         Self(error.to_string())
     }
 }
@@ -323,18 +341,26 @@ pub struct Change {
 
 /// `lastRoutingRuleId(db, conversationId)`: the rule that last applied on
 /// the conversation (its latest `routingRuleId` on the timeline).
-async fn last_routing_rule_id(
-    db: &PgPool,
-    conversation_id: &str,
-) -> Result<Option<String>, sqlx::Error> {
-    let row: Option<Option<String>> = sqlx::query_scalar(
-        "select metadata->>'routingRuleId' from desk_messages
-         where conversation_id = $1 and metadata ? 'routingRuleId'
-         order by created_at desc, id desc limit 1",
-    )
-    .bind(conversation_id)
-    .fetch_optional(db)
-    .await?;
+async fn last_routing_rule_id(db: &PgPool, conversation_id: &str) -> Result<Option<String>, DbErr> {
+    use desk_messages::Column;
+    let metadata = || Expr::col(Column::Metadata);
+    let row: Option<Option<String>> = desk_messages::Entity::find()
+        .select_only()
+        .column_as(
+            pg::PgExpr::cast_json_field(metadata(), "routingRuleId"),
+            "rule_id",
+        )
+        .filter(Column::ConversationId.eq(conversation_id))
+        // `metadata ? 'routingRuleId'`.
+        .filter(sea_orm::ExprTrait::is_not_null(pg::PgExpr::get_json_field(
+            metadata(),
+            "routingRuleId",
+        )))
+        .order_by_desc(Column::CreatedAt)
+        .order_by_desc(Column::Id)
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(row.flatten())
 }
 
@@ -342,26 +368,31 @@ fn earliest(a: Option<i64>, b: Option<i64>) -> Option<i64> {
     [a, b].into_iter().flatten().min()
 }
 
-async fn usable_team(db: &PgPool, id: &str) -> Result<bool, sqlx::Error> {
-    let row: Option<String> = sqlx::query_scalar(
-        "select id from helpdesk_departments
-         where id = $1 and deleted_at is null and is_active = true limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
+async fn usable_team(db: &PgPool, id: &str) -> Result<bool, DbErr> {
+    use helpdesk_departments::Column;
+    let row: Option<String> = helpdesk_departments::Entity::find_by_id(id)
+        .select_only()
+        .column(Column::Id)
+        .filter(Column::DeletedAt.is_null())
+        .filter(Column::IsActive.eq(true))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(row.is_some())
 }
 
-async fn usable_assignee(db: &PgPool, user_id: &str) -> Result<bool, sqlx::Error> {
-    let row: Option<String> = sqlx::query_scalar(
-        "select user_id from workspace_members
-         where user_id = $1 and deleted_at is null
-           and upper(status) = 'ACTIVE' and upper(member_type) = 'INTERNAL' limit 1",
-    )
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
+async fn usable_assignee(db: &PgPool, user_id: &str) -> Result<bool, DbErr> {
+    use workspace_members::Column;
+    let row: Option<String> = workspace_members::Entity::find()
+        .select_only()
+        .column(Column::UserId)
+        .filter(Column::UserId.eq(user_id))
+        .filter(Column::DeletedAt.is_null())
+        .filter(crate::upper_is(Column::Status, "ACTIVE"))
+        .filter(crate::upper_is(Column::MemberType, "INTERNAL"))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(row.is_some())
 }
 
@@ -481,16 +512,20 @@ pub async fn route_with(
         && !owned
         && usable_assignee(db, assignee).await?
     {
-        let claimed: Option<String> = sqlx::query_scalar(
-            "update desk_conversations set assignee_id = $2, updated_at = $3::timestamp
-             where id = $1 and assignee_id is null returning id",
-        )
-        .bind(conversation_id)
-        .bind(assignee)
-        .bind(webchat::now())
-        .fetch_optional(db)
-        .await?;
-        if claimed.is_some() {
+        let claimed = desk_conversations::Entity::update_many()
+            .col_expr(
+                desk_conversations::Column::AssigneeId,
+                Expr::value(assignee.clone()),
+            )
+            .col_expr(
+                desk_conversations::Column::UpdatedAt,
+                Expr::value(utc_now()),
+            )
+            .filter(desk_conversations::Column::Id.eq(conversation_id))
+            .filter(desk_conversations::Column::AssigneeId.is_null())
+            .exec(&orm(db))
+            .await?;
+        if claimed.rows_affected > 0 {
             let mut metadata = Map::new();
             metadata.insert("eventType".to_owned(), json!("assigned"));
             metadata.insert("assigneeId".to_owned(), json!(assignee));

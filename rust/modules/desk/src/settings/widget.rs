@@ -417,7 +417,7 @@ async fn list(caller: Caller) -> Response {
                 .collect(),
         ))
         .into_response(),
-        Err(error) => Refusal::Database(error).respond("Failed to list widgets"),
+        Err(error) => Refusal::from(error).respond("Failed to list widgets"),
     }
 }
 
@@ -517,7 +517,7 @@ async fn detail(caller: Caller, Path(widget_id): Path<String>) -> Response {
     match by_widget_id(&caller.db, &widget_id).await {
         Ok(Some(row)) => Data(public(row)).into_response(),
         Ok(None) => Refusal::not_found("Widget", &widget_id).respond(message),
-        Err(error) => Refusal::Database(error).respond(message),
+        Err(error) => Refusal::from(error).respond(message),
     }
 }
 
@@ -567,7 +567,7 @@ async fn update(
     let message = "Failed to update widget";
     let known_zone = match zone_known(&caller.db, &body).await {
         Ok(known) => known,
-        Err(error) => return Refusal::Database(error).respond(message),
+        Err(error) => return Refusal::from(error).respond(message),
     };
     let data = match read_update(&headers, &body, known_zone) {
         Ok(data) => data,
@@ -576,7 +576,7 @@ async fn update(
     let existing = match by_widget_id(&caller.db, &widget_id).await {
         Ok(Some(row)) => row,
         Ok(None) => return Refusal::not_found("Widget", &widget_id).respond(message),
-        Err(error) => return Refusal::Database(error).respond(message),
+        Err(error) => return Refusal::from(error).respond(message),
     };
     if data.get("identityRequired") == Some(&Value::Bool(true))
         && existing["identitySecret"].is_null()
@@ -643,7 +643,7 @@ async fn identity(caller: Caller, Path(widget_id): Path<String>) -> Response {
     match by_widget_id(&caller.db, &widget_id).await {
         Ok(Some(row)) => Data(identity_of(&row)).into_response(),
         Ok(None) => Refusal::not_found("Widget", &widget_id).respond(message),
-        Err(error) => Refusal::Database(error).respond(message),
+        Err(error) => Refusal::from(error).respond(message),
     }
 }
 
@@ -661,7 +661,7 @@ async fn write_identity(
     let existing = match by_widget_id(&caller.db, widget_id).await {
         Ok(Some(row)) => row,
         Ok(None) => return Refusal::not_found("Widget", widget_id).respond(message),
-        Err(error) => return Refusal::Database(error).respond(message),
+        Err(error) => return Refusal::from(error).respond(message),
     };
     let id = existing["id"].as_str().unwrap_or_default().to_owned();
     let mut values = Map::new();
@@ -718,7 +718,7 @@ async fn remove(
     let existing = match by_widget_id(&caller.db, &widget_id).await {
         Ok(Some(row)) => row,
         Ok(None) => return Refusal::not_found("Widget", &widget_id).respond(message),
-        Err(error) => return Refusal::Database(error).respond(message),
+        Err(error) => return Refusal::from(error).respond(message),
     };
     let id = existing["id"].as_str().unwrap_or_default().to_owned();
     let deleted = sqlx::query("delete from desk_widget_settings where id = $1")
@@ -726,7 +726,7 @@ async fn remove(
         .execute(&caller.db)
         .await;
     if let Err(error) = deleted {
-        return Refusal::Database(error).respond(message);
+        return Refusal::from(error).respond(message);
     }
     if let Some(master) = master(&caller, &state) {
         let removed = sqlx::query("delete from widget_registry where widget_id = $1")

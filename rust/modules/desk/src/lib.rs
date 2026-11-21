@@ -411,11 +411,17 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
 #[allow(dead_code)] // filled in route group by route group
 pub(crate) enum Refusal {
     Response(Box<Response>),
-    Database(sqlx::Error),
+    Database(sea_orm::DbErr),
 }
 
 impl From<sqlx::Error> for Refusal {
     fn from(error: sqlx::Error) -> Self {
+        Self::Database(weldsuite_db::orm_error(error))
+    }
+}
+
+impl From<sea_orm::DbErr> for Refusal {
+    fn from(error: sea_orm::DbErr) -> Self {
         Self::Database(error)
     }
 }

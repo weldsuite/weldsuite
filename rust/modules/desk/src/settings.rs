@@ -137,3 +137,19 @@ fn js_stamp(text: Option<String>) -> Value {
         Value::String(crate::table::js_date(&text))
     })
 }
+
+#[cfg(test)]
+mod tests {
+    /// The generated tables keep Drizzle's properties; their columns are the
+    /// entities', so a schema change shows up here.
+    #[test]
+    fn the_tables_match_their_entities() {
+        for table in crate::tables::ALL
+            .iter()
+            .copied()
+            .chain([&super::tables::HELPDESK_WIDGET_SETTINGS])
+        {
+            assert_eq!(table.entity_drift(), (vec![], vec![]), "{}", table.name);
+        }
+    }
+}

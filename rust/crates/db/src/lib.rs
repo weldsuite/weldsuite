@@ -26,6 +26,7 @@ mod middleware;
 mod orm;
 mod permissions;
 pub mod pg_errors;
+pub mod record;
 mod restrictions;
 mod rows;
 pub mod sso_settings;
@@ -43,12 +44,12 @@ pub use membership::{
     WorkspaceSelector, workspace_from_header,
 };
 pub use middleware::workspace_db;
-pub use orm::{OrmConn, orm, utc_minutes_ago, utc_now, utc_timestamp};
+pub use orm::{OrmConn, orm, orm_error, utc_minutes_ago, utc_now, utc_timestamp};
 pub use permissions::TenantPermissionQueries;
 pub use pg_errors::{
     MovedDatabaseFailure, classify_moved_database_error, database_error, has_pg_error_code,
     is_foreign_key_violation, is_missing_table, is_password_auth_failure, is_read_only_transaction,
-    is_unique_violation, pg_error_code,
+    is_unique_violation, pg_constraint, pg_error_code,
 };
 pub use restrictions::{
     ReadOnlyReason, RestrictionInput, WorkspaceRestrictions, compute_workspace_restrictions,

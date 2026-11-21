@@ -7658,6 +7658,7 @@ dependencies = [
  "http",
  "jiff",
  "regex",
+ "sea-orm",
  "serde",
  "serde_json",
  "sqlx",
@@ -8491,6 +8492,7 @@ dependencies = [
  "http-body-util",
  "sea-orm",
  "sea-query-sqlx",
+ "serde",
  "serde_json",
  "sqlx",
  "time",
@@ -8513,6 +8515,8 @@ dependencies = [
  "getrandom 0.4.3",
  "hex",
  "http",
+ "sea-orm",
+ "serde",
  "serde_json",
  "sha2 0.11.1",
  "sqlx",
@@ -8532,6 +8536,7 @@ dependencies = [
  "weldsuite-notifications",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -8541,6 +8546,7 @@ dependencies = [
  "hex",
  "jiff",
  "regex",
+ "sea-orm",
  "serde",
  "serde_json",
  "sha2 0.11.1",
@@ -8555,6 +8561,7 @@ dependencies = [
  "weldsuite-kit",
  "weldsuite-notifications",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -8567,9 +8574,9 @@ dependencies = [
  "hmac",
  "http",
  "jiff",
+ "sea-orm",
  "serde_json",
  "sha2 0.11.1",
- "sqlx",
  "time",
  "tokio",
  "tracing",
@@ -8579,6 +8586,7 @@ dependencies = [
  "weldsuite-kit",
  "weldsuite-notifications",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -8646,6 +8654,7 @@ dependencies = [
  "hex",
  "http",
  "regex",
+ "sea-orm",
  "serde",
  "serde_json",
  "sha2 0.11.1",

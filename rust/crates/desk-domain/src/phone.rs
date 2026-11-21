@@ -7,9 +7,13 @@
 //! (`refreshDeskSla`) and returns when they next come due; this crate has no
 //! SLA engine yet, so neither is done here.
 
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder};
 use serde_json::{Map, Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::validation::js_trim;
+use weldsuite_schema::tenant::{desk_conversations, desk_visitors};
+
+use crate::row;
 
 use crate::email::Ingested;
 use crate::webchat::{
@@ -18,28 +22,30 @@ use crate::webchat::{
 };
 
 /// `findDeskVisitorByPhone(db, phone)`.
-pub async fn find_visitor_by_phone(db: &PgPool, phone: &str) -> Result<Option<Value>, sqlx::Error> {
-    sqlx::query_scalar("select to_jsonb(t) from desk_visitors t where t.phone = $1 limit 1")
-        .bind(phone)
-        .fetch_optional(db)
-        .await
+pub async fn find_visitor_by_phone(db: &PgPool, phone: &str) -> Result<Option<Value>, DbErr> {
+    let visitor = desk_visitors::Entity::find()
+        .filter(desk_visitors::Column::Phone.eq(phone))
+        .one(&orm(db))
+        .await?;
+    Ok(visitor.map(row))
 }
 
 /// `findOpenPhoneConversationByPhone(db, phone)`: the visitor's open phone
 /// conversation that moved last.
-pub async fn find_open_by_phone(db: &PgPool, phone: &str) -> Result<Option<Value>, sqlx::Error> {
+pub async fn find_open_by_phone(db: &PgPool, phone: &str) -> Result<Option<Value>, DbErr> {
+    use desk_conversations::Column;
     let Some(visitor) = find_visitor_by_phone(db, phone).await? else {
         return Ok(None);
     };
     let visitor_id = visitor["id"].as_str().unwrap_or_default().to_owned();
-    sqlx::query_scalar(
-        "select to_jsonb(t) from desk_conversations t
-         where t.visitor_id = $1 and t.channel = 'phone' and t.state = 'open'
-         order by t.last_message_at desc limit 1",
-    )
-    .bind(visitor_id)
-    .fetch_optional(db)
-    .await
+    let conversation = desk_conversations::Entity::find()
+        .filter(Column::VisitorId.eq(visitor_id))
+        .filter(Column::Channel.eq("phone"))
+        .filter(Column::State.eq("open"))
+        .order_by_desc(Column::LastMessageAt)
+        .one(&orm(db))
+        .await?;
+    Ok(conversation.map(row))
 }
 
 /// `IngestDeskPhoneInput` (without `body` and `title`, which the call

@@ -181,7 +181,7 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
         .await;
     let (rows, total) = match (rows, total) {
         (Ok(rows), Ok(total)) => (rows, total),
-        (Err(error), _) | (_, Err(error)) => return Refusal::Database(error).respond(MESSAGE),
+        (Err(error), _) | (_, Err(error)) => return Refusal::from(error).respond(MESSAGE),
     };
     let rows = rows
         .into_iter()
@@ -215,7 +215,7 @@ async fn search(caller: Caller, RawQuery(query): RawQuery) -> Response {
                 .collect(),
         ))
         .into_response(),
-        Err(error) => Refusal::Database(error).respond("Failed to search helpdesk contacts"),
+        Err(error) => Refusal::from(error).respond("Failed to search helpdesk contacts"),
     }
 }
 
@@ -224,7 +224,7 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     match PEOPLE.find_live(&caller.db, &id).await {
         Ok(Some(row)) => Data(row).into_response(),
         Ok(None) => Refusal::not_found("Helpdesk contact", &id).respond(MESSAGE),
-        Err(error) => Refusal::Database(error).respond(MESSAGE),
+        Err(error) => Refusal::from(error).respond(MESSAGE),
     }
 }
 
@@ -386,7 +386,7 @@ async fn update(
     let existing = match PEOPLE.find_live(&caller.db, &id).await {
         Ok(Some(row)) => row,
         Ok(None) => return Refusal::not_found("Helpdesk contact", &id).respond(MESSAGE),
-        Err(error) => return Refusal::Database(error).respond(MESSAGE),
+        Err(error) => return Refusal::from(error).respond(MESSAGE),
     };
     let given = |key: &str| data.get(key).and_then(Value::as_str);
     let table = &PEOPLE;

@@ -831,10 +831,23 @@ was the first):
 | `not exists (select …)` on a not-null column | `Column::X.not_in_subquery(Query::select()…)` |
 | a join | `Entity::belongs_to(Other).from(…).to(…).into()` with `.join(JoinType::…, relation)` |
 | `$1::timestamp` bound as text | a `PrimitiveDateTime` from `weldsuite_db::utc_now()` (UTC, milliseconds, as Drizzle wrote it) |
+| a request body written whole (`insert … select … from jsonb_populate_record(…)`, generated per table) | `weldsuite_db::record::JsonTable::of::<Entity>()`: the statements come from the entity's columns, Postgres still converts the values (desk's `Table`) |
+| `select … filter (where …)`, `extract(epoch …)` | the columns themselves, worked out in Rust (`CASE` inside `Func::min` for a filtered aggregate) |
+| `metadata->>'key'`, `jsonb || jsonb`, `ILIKE`, `@>` | `PgExpr::cast_json_field`, `PgExpr::concat`, `PgExpr::ilike`, `PgExpr::contains`, called by path |
+| a statement that has to stay one (a claim with its children, a read-and-clear, a bulk upsert that merges) | SQL, with `#[allow(clippy::disallowed_methods, reason = "…")]` on its function and its error through `weldsuite_db::orm_error` |
 
 A domain error that held `sqlx::Error` holds `sea_orm::DbErr`; callers that
-turned it into their own 500 keep the same response. The module's conformance
-suites are the check that nothing changed.
+turned it into their own 500 keep the same response. SQL that stays in a
+converted crate, or a call into a crate not converted yet, reports through
+`weldsuite_db::orm_error`, so the crate has the one error type, and
+`weldsuite_db::is_unique_violation` and `pg_constraint` see through it. The
+module's conformance suites are the check that nothing changed.
+
+Don't import `sea_orm::ExprTrait` or `PgExpr` at the top of a module: they are
+implemented for everything that converts into a value, so
+`serde_json::Value::is_null`, `str::eq` and `Vec::contains` resolve to them
+instead. Call them by path (`sea_orm::ExprTrait::eq(expr, value)`) or import
+them inside the one function that needs them.
 
 ## Migrations
 

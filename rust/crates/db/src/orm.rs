@@ -93,6 +93,13 @@ fn query_err(error: sqlx::Error) -> DbErr {
     DbErr::Query(RuntimeErr::SqlxError(Arc::new(error)))
 }
 
+/// An `sqlx::Error` as SeaORM's error: SQL that stays SQL in a converted crate
+/// (or a call into a crate not converted yet) reports through the same type as
+/// its ORM queries. `crate::pg_errors` sees through it.
+pub fn orm_error(error: sqlx::Error) -> DbErr {
+    query_err(error)
+}
+
 #[async_trait::async_trait]
 impl ConnectionTrait for OrmConn<'_> {
     fn get_database_backend(&self) -> DbBackend {

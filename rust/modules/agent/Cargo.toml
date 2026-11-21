@@ -30,6 +30,7 @@ futures-util = { workspace = true, features = ["std"] }
 jiff = { workspace = true }
 tokio = { workspace = true, features = ["rt", "sync"] }
 http = { workspace = true }
+sea-orm = { workspace = true }
 serde = { workspace = true }
 regex = { workspace = true, features = ["unicode"] }
 serde_json = { workspace = true }

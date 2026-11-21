@@ -3,8 +3,10 @@
 //! Slack thread (the widget gets it through the realtime refetch hint
 //! instead). Over the [`DeskHttp`](crate::http::DeskHttp) port.
 
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::{helpdesk_channel_integrations, helpdesk_conversations};
 
 use super::shared::{js_string, truthy};
 use crate::http::{DynDeskHttp, HttpRequest};
@@ -92,9 +94,11 @@ async fn conversation_metadata(
     conversation_id: &str,
 ) -> Result<Option<Map<String, Value>>, String> {
     let metadata: Option<Option<Value>> =
-        sqlx::query_scalar("select metadata from helpdesk_conversations where id = $1 limit 1")
-            .bind(conversation_id)
-            .fetch_optional(db)
+        helpdesk_conversations::Entity::find_by_id(conversation_id)
+            .select_only()
+            .column(helpdesk_conversations::Column::Metadata)
+            .into_tuple()
+            .one(&orm(db))
             .await
             .map_err(|error| error.to_string())?;
     Ok(match metadata.flatten() {
@@ -312,13 +316,19 @@ async fn dispatch_to_slack(ctx: &Dispatch<'_>) -> Result<(), String> {
     let Some(channel_id) = metadata.get("slackChannelId").filter(|v| truthy(Some(*v))) else {
         return Ok(());
     };
-    let integration: Option<(String, Option<Value>)> = sqlx::query_as(
-        "select status, config from helpdesk_channel_integrations
-         where provider = 'slack' and deleted_at is null limit 1",
-    )
-    .fetch_optional(ctx.db)
-    .await
-    .map_err(|error| error.to_string())?;
+    let integration: Option<(String, Option<Value>)> =
+        helpdesk_channel_integrations::Entity::find()
+            .select_only()
+            .columns([
+                helpdesk_channel_integrations::Column::Status,
+                helpdesk_channel_integrations::Column::Config,
+            ])
+            .filter(helpdesk_channel_integrations::Column::Provider.eq("slack"))
+            .filter(helpdesk_channel_integrations::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(ctx.db))
+            .await
+            .map_err(|error| error.to_string())?;
     let Some((status, config)) = integration else {
         return Ok(());
     };

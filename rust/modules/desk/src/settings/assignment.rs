@@ -138,7 +138,7 @@ fn default_assignment() -> Map<String, Value> {
 async fn read(caller: Caller) -> Response {
     match current(&caller.db).await {
         Ok((_, settings)) => Data(settings.with_me(&caller.user_id)).into_response(),
-        Err(error) => Refusal::Database(error).respond("Failed to load assignment settings"),
+        Err(error) => Refusal::from(error).respond("Failed to load assignment settings"),
     }
 }
 
@@ -235,7 +235,7 @@ async fn save(
     patch.insert("maxOpenPerMember".to_owned(), max);
     let settings = match save_rules(&caller.db, &patch).await {
         Ok(settings) => settings,
-        Err(error) => return Refusal::Database(error).respond(message),
+        Err(error) => return Refusal::from(error).respond(message),
     };
     match current(&caller.db).await {
         Ok((Some(id), _)) => caller.publish(
@@ -245,7 +245,7 @@ async fn save(
             &json!({ "deskAssignment": settings.json() }),
         ),
         Ok((None, _)) => {}
-        Err(error) => return Refusal::Database(error).respond(message),
+        Err(error) => return Refusal::from(error).respond(message),
     }
     Data(settings.with_me(&caller.user_id)).into_response()
 }
@@ -315,7 +315,7 @@ async fn away(
     };
     let settings = match set_away(&caller.db, &caller.user_id, away).await {
         Ok(settings) => settings,
-        Err(error) => return Refusal::Database(error).respond(message),
+        Err(error) => return Refusal::from(error).respond(message),
     };
     match current(&caller.db).await {
         Ok((Some(id), _)) => caller.publish(
@@ -325,7 +325,7 @@ async fn away(
             &json!({ "deskAssignment": { "awayMemberIds": settings.away_member_ids } }),
         ),
         Ok((None, _)) => {}
-        Err(error) => return Refusal::Database(error).respond(message),
+        Err(error) => return Refusal::from(error).respond(message),
     }
     Data(settings.with_me(&caller.user_id)).into_response()
 }
