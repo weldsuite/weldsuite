@@ -135,7 +135,7 @@ vi.mock('@/lib/i18n/provider', () => ({
 }));
 
 import { MessageInput } from './message-input';
-import { FOCUS_INPUT_EVENT } from './chat-context';
+import { COMPOSE_INPUT_EVENT, FOCUS_INPUT_EVENT } from './chat-context';
 
 const CHIP =
   '<span class="mention-badge" contenteditable="false" data-userid="user_2">@Zed</span>';
@@ -641,5 +641,33 @@ describe('MessageInput: focus requests', () => {
       window.dispatchEvent(new CustomEvent(FOCUS_INPUT_EVENT, { detail: { parentId: null } }));
     });
     expect(document.activeElement).toBe(channelEditor);
+  });
+});
+
+describe('MessageInput: compose requests (asking an agent about its visual)', () => {
+  it('puts the text in its own thread composer, after what is typed, and focuses it', () => {
+    const channel = render(<MessageInput channelId="ch_1" />);
+    const thread = render(<MessageInput channelId="ch_1" parentId="msg_1" />);
+    const channelEditor = editorOf(channel.container);
+    const threadEditor = editorOf(thread.container);
+    type(threadEditor, 'Also:');
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(COMPOSE_INPUT_EVENT, { detail: { parentId: 'msg_1', content: 'Tell me more about March' } }),
+      );
+    });
+
+    expect(threadEditor.textContent).toBe('Also: Tell me more about March');
+    expect(channelEditor.textContent).toBe('');
+    expect(document.activeElement).toBe(threadEditor);
+  });
+
+  it('fills an empty channel composer', () => {
+    const { container } = render(<MessageInput channelId="ch_1" />);
+    act(() => {
+      window.dispatchEvent(new CustomEvent(COMPOSE_INPUT_EVENT, { detail: { parentId: null, content: 'Hello' } }));
+    });
+    expect(editorOf(container).textContent).toBe('Hello');
   });
 });

@@ -85,6 +85,7 @@ import { Route as WeldchatDirectoriesRouteImport } from './routes/weldchat/direc
 import { Route as WeldchatActivityRouteImport } from './routes/weldchat/activity'
 import { Route as W9TokenRouteImport } from './routes/w9/$token'
 import { Route as DocumentsFileIdRouteImport } from './routes/documents/$fileId'
+import { Route as AgentsVisualsRouteImport } from './routes/agents/visuals'
 import { Route as WeldmailSetupRouteRouteImport } from './routes/weldmail/setup/route'
 import { Route as WeldmailAccountIdRouteRouteImport } from './routes/weldmail/$accountId/route'
 import { Route as WeldhrMeRouteRouteImport } from './routes/weldhr/me/route'
@@ -1012,6 +1013,11 @@ const DocumentsFileIdRoute = DocumentsFileIdRouteImport.update({
   id: '/documents/$fileId',
   path: '/documents/$fileId',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AgentsVisualsRoute = AgentsVisualsRouteImport.update({
+  id: '/visuals',
+  path: '/visuals',
+  getParentRoute: () => AgentsRouteRoute,
 } as any)
 const WeldmailSetupRouteRoute = WeldmailSetupRouteRouteImport.update({
   id: '/setup',
@@ -4115,6 +4121,7 @@ export interface FileRoutesByFullPath {
   '/weldhr/me': typeof WeldhrMeRouteRouteWithChildren
   '/weldmail/$accountId': typeof WeldmailAccountIdRouteRouteWithChildren
   '/weldmail/setup': typeof WeldmailSetupRouteRouteWithChildren
+  '/agents/visuals': typeof AgentsVisualsRoute
   '/documents/$fileId': typeof DocumentsFileIdRoute
   '/w9/$token': typeof W9TokenRoute
   '/weldchat/activity': typeof WeldchatActivityRoute
@@ -4694,6 +4701,7 @@ export interface FileRoutesByTo {
   '/preview/welddesk': typeof PreviewWelddeskRouteRouteWithChildren
   '/preview/weldmail': typeof PreviewWeldmailRouteRouteWithChildren
   '/weldmail/$accountId': typeof WeldmailAccountIdRouteRouteWithChildren
+  '/agents/visuals': typeof AgentsVisualsRoute
   '/documents/$fileId': typeof DocumentsFileIdRoute
   '/w9/$token': typeof W9TokenRoute
   '/weldchat/activity': typeof WeldchatActivityRoute
@@ -5307,6 +5315,7 @@ export interface FileRoutesById {
   '/weldhr/me': typeof WeldhrMeRouteRouteWithChildren
   '/weldmail/$accountId': typeof WeldmailAccountIdRouteRouteWithChildren
   '/weldmail/setup': typeof WeldmailSetupRouteRouteWithChildren
+  '/agents/visuals': typeof AgentsVisualsRoute
   '/documents/$fileId': typeof DocumentsFileIdRoute
   '/w9/$token': typeof W9TokenRoute
   '/weldchat/activity': typeof WeldchatActivityRoute
@@ -5934,6 +5943,7 @@ export interface FileRouteTypes {
     | '/weldhr/me'
     | '/weldmail/$accountId'
     | '/weldmail/setup'
+    | '/agents/visuals'
     | '/documents/$fileId'
     | '/w9/$token'
     | '/weldchat/activity'
@@ -6513,6 +6523,7 @@ export interface FileRouteTypes {
     | '/preview/welddesk'
     | '/preview/weldmail'
     | '/weldmail/$accountId'
+    | '/agents/visuals'
     | '/documents/$fileId'
     | '/w9/$token'
     | '/weldchat/activity'
@@ -7125,6 +7136,7 @@ export interface FileRouteTypes {
     | '/weldhr/me'
     | '/weldmail/$accountId'
     | '/weldmail/setup'
+    | '/agents/visuals'
     | '/documents/$fileId'
     | '/w9/$token'
     | '/weldchat/activity'
@@ -8292,6 +8304,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/documents/$fileId'
       preLoaderRoute: typeof DocumentsFileIdRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/agents/visuals': {
+      id: '/agents/visuals'
+      path: '/visuals'
+      fullPath: '/agents/visuals'
+      preLoaderRoute: typeof AgentsVisualsRouteImport
+      parentRoute: typeof AgentsRouteRoute
     }
     '/weldmail/setup': {
       id: '/weldmail/setup'
@@ -12126,11 +12145,13 @@ declare module '@tanstack/react-router' {
 }
 
 interface AgentsRouteRouteChildren {
+  AgentsVisualsRoute: typeof AgentsVisualsRoute
   AgentsIndexRoute: typeof AgentsIndexRoute
   AgentsIdIndexRoute: typeof AgentsIdIndexRoute
 }
 
 const AgentsRouteRouteChildren: AgentsRouteRouteChildren = {
+  AgentsVisualsRoute: AgentsVisualsRoute,
   AgentsIndexRoute: AgentsIndexRoute,
   AgentsIdIndexRoute: AgentsIdIndexRoute,
 }

@@ -1,4 +1,8 @@
 {
+  "chat-visuals-gallery": {
+    "default": false,
+    "type": "boolean"
+  },
   "hello-world": {
     "default": false,
     "type": "boolean"

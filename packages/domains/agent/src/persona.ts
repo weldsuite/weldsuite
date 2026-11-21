@@ -22,7 +22,9 @@ import type { AiOpenSheet } from '@weldsuite/app-api-client/schemas/ai';
 import { getWorkspaceTimezone } from '@weldsuite/flow-domain/day-boundaries';
 import type { WeldAgentEnv } from './env';
 import { todayIn } from './read-helpers';
+import { encodeVisualMarker } from '@weldsuite/app-api-client/schemas/chat-visuals';
 import { describeOpenSheet, sheetToolsLimitedTo } from './sheets-tools';
+import { VISUAL_TOOLS, shownVisual } from './visual-tools';
 import {
   PLATFORM_TOOLS,
   agentHasGrants,
@@ -35,11 +37,11 @@ import {
 /** Stands in for the agent id the tools attribute work to (the read tools attribute nothing). */
 export const PERSONA_AGENT_ID = 'agt_weldagent_default';
 
-/** Model requests one reply may take: a few lookups, then the answer. */
-export const PERSONA_MAX_STEPS = 6;
+/** Model requests one reply may take: a few lookups, a visual, then the answer. */
+export const PERSONA_MAX_STEPS = 8;
 
 /** With a spreadsheet to work on: look at its tabs and cells, write, check, answer. */
-export const PERSONA_SHEET_MAX_STEPS = 10;
+export const PERSONA_SHEET_MAX_STEPS = 11;
 
 /** A spreadsheet tagged in the chat (`<@sheet:id|Label>`). */
 export interface PersonaTaggedSheet {
@@ -162,6 +164,14 @@ const BASE_INSTRUCTIONS =
   'Refer to records by their name, title or number.\n' +
   '- If the request lacks something you need (for example which contact to find), ask one short question.';
 
+/** When and how the persona shows a visual (visual-tools.ts). */
+const SHOWING_DATA =
+  'SHOWING DATA\n' +
+  '- When the answer is numbers to compare, a trend, a few key figures or a short list of records, show it with ' +
+  'show_chart, show_stats, show_table or show_records instead of writing it out. ' +
+  'Call it where the visual belongs in your answer, then add at most a sentence or two on what stands out.\n' +
+  '- Only show data your lookups returned or the user gave you. For a single number or a yes/no, just answer in text.';
+
 export interface PersonaSystemInput {
   tools: readonly PlatformToolDefinition[];
   /** Extra context from the client (the record the user is looking at). */
@@ -227,6 +237,8 @@ export function buildPersonaSystem(input: PersonaSystemInput): string {
 
   if (hasSheets && input.sheets) sections.push(sheetsSection(input.sheets, has('sheets.write_range')));
 
+  if (has('agent.show_chart')) sections.push(SHOWING_DATA);
+
   if (has('tasks.list')) {
     const zone = input.timezone ? ` (${input.timezone})` : '';
     sections.push(
@@ -273,7 +285,8 @@ export interface PersonaCall {
 export async function buildPersonaCall(input: PersonaCallInput): Promise<PersonaCall> {
   const readTools = selectPersonaTools(input.holds);
   const sheetTools = selectPersonaSheetTools(input.holds, input.sheets);
-  const definitions = [...readTools, ...sheetTools];
+  // The display tools read nothing, so everyone gets them.
+  const definitions = [...readTools, ...sheetTools, ...VISUAL_TOOLS];
   let timezone = input.timezone ?? null;
   if (readTools.length > 0 && !timezone) {
     timezone = await getWorkspaceTimezone(input.db).catch(() => null);
@@ -328,28 +341,50 @@ export function personaReplyText(text: string): string {
 interface StreamPart {
   type: string;
   text?: string;
+  toolName?: string;
+  input?: unknown;
+  output?: unknown;
+  preliminary?: boolean;
+}
+
+/** The marker for a visual a finished `show_*` call showed, or null for any other part. */
+function visualMarkerOf(part: StreamPart): string | null {
+  if (part.type !== 'tool-result' || part.preliminary || !part.toolName) return null;
+  const visual = shownVisual(part.toolName, part.input, part.output);
+  return visual ? encodeVisualMarker(visual) : null;
 }
 
 /**
  * The model's text as the plain text stream the chat client reads. A reply
  * with lookups spans several model requests; the text of one request is set
  * apart from the next by a blank line, and an empty reply becomes
- * {@link PERSONA_FALLBACK_TEXT} instead of nothing.
+ * {@link PERSONA_FALLBACK_TEXT} instead of nothing. A visual the model showed
+ * (`show_*`) goes into the text as its marker, where it was shown.
  */
 export function createPersonaTextTransform(): TransformStream<StreamPart, string> {
   let emitted = false;
   let stepHadText = false;
   let separate = false;
+  const write = (controller: TransformStreamDefaultController<string>, text: string) => {
+    if (separate) {
+      controller.enqueue('\n\n');
+      separate = false;
+    }
+    controller.enqueue(text);
+    emitted = true;
+    stepHadText = true;
+  };
   return new TransformStream<StreamPart, string>({
     transform(part, controller) {
       if (part.type === 'text-delta' && part.text) {
-        if (separate) {
-          controller.enqueue('\n\n');
-          separate = false;
-        }
-        controller.enqueue(part.text);
-        emitted = true;
-        stepHadText = true;
+        write(controller, part.text);
+        return;
+      }
+      const marker = visualMarkerOf(part);
+      if (marker) {
+        if (stepHadText) separate = true;
+        write(controller, marker);
+        separate = true;
       } else if (part.type === 'finish-step') {
         if (stepHadText) separate = true;
         stepHadText = false;
@@ -359,4 +394,29 @@ export function createPersonaTextTransform(): TransformStream<StreamPart, string
       if (!emitted) controller.enqueue(PERSONA_FALLBACK_TEXT);
     },
   });
+}
+
+/**
+ * The reply of a finished (not streamed) call, written the way the stream
+ * writes it: the text of each model request, a blank line apart, with the
+ * visuals it showed in place. Never empty.
+ */
+export function personaReplyFromSteps(steps: ReadonlyArray<{ content: ReadonlyArray<StreamPart> }>): string {
+  const blocks: string[] = [];
+  for (const step of steps) {
+    let text = '';
+    for (const part of step.content) {
+      if (part.type === 'text' && part.text) {
+        text += part.text;
+        continue;
+      }
+      const marker = visualMarkerOf(part);
+      if (!marker) continue;
+      if (text.trim()) blocks.push(text);
+      text = '';
+      blocks.push(marker);
+    }
+    if (text.trim()) blocks.push(text);
+  }
+  return personaReplyText(blocks.join('\n\n'));
 }

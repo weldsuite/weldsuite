@@ -129,6 +129,9 @@ export const en = {
     scrollToLatest: 'Scroll to latest messages',
     // In the conversation.
     edited: '(edited)',
+    // An agent's chart, figures, table or record cards: drawn on the web and in the WeldAgent app.
+    visualShown: '{kind} “{title}”: open it on the web to see it',
+    visualKinds: { chart: 'Chart', stats: 'Figures', table: 'Table', records: 'Records' },
     replyCount: { one: '{count} reply', other: '{count} replies' },
     joinCall: 'Join',
     missedCall: 'Missed call',

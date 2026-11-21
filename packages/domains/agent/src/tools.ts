@@ -23,6 +23,7 @@ import { SHEET_TOOLS } from './sheets-tools';
 import { BOARD_TOOLS } from './board-tools';
 import { MERGE_TOOLS } from './merge-tools';
 import { PROJECT_TOOLS } from './projects-tools';
+import { VISUAL_TOOLS, VISUAL_TOOL_IDS } from './visual-tools';
 import {
   CLOSED_TASK_STATUSES,
   accessibleProjectIds,
@@ -900,6 +901,7 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
   ...SHEET_TOOLS,
   ...BOARD_TOOLS,
   ...MERGE_TOOLS,
+  ...VISUAL_TOOLS,
   {
     id: 'chat.message_agent',
     name: 'message_agent',
@@ -1183,7 +1185,8 @@ export function effectiveAgentPermissions(
  * Filter the registry to tools the agent may use given its grants and optional
  * explicit enabledTools allow-list.
  * `agent.save_setup` is always available so unfinished agents can finish onboarding,
- * and `agent.ask_user` so any agent can put a question to the user.
+ * `agent.ask_user` so any agent can put a question to the user, and the
+ * display tools (`show_chart` …, visual-tools.ts) so any agent can show data.
  */
 export function resolveAgentTools(
   agentPermissions: string[],
@@ -1199,6 +1202,7 @@ export function resolveAgentTools(
     'agent.create_routine',
     'agent.list_routines',
     'agent.update_routine',
+    ...VISUAL_TOOL_IDS,
   ]);
   const allowList = explicitToolAllowList(enabledTools);
   return PLATFORM_TOOLS.filter((tool) => {

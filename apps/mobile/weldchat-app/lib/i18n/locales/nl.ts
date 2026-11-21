@@ -124,6 +124,9 @@ export const nl: Translations = {
     unarchive: 'Dearchiveren',
     scrollToLatest: 'Naar de nieuwste berichten',
     edited: '(bewerkt)',
+    // Een grafiek, kerncijfers, tabel of recordkaarten van een agent: getekend op het web en in de WeldAgent-app.
+    visualShown: '{kind} “{title}”: open het op het web om het te zien',
+    visualKinds: { chart: 'Grafiek', stats: 'Kerncijfers', table: 'Tabel', records: 'Records' },
     replyCount: { one: '{count} antwoord', other: '{count} antwoorden' },
     joinCall: 'Deelnemen',
     missedCall: 'Gemiste oproep',

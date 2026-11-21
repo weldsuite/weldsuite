@@ -34,6 +34,7 @@ import { useWeldChatCallOptional } from '@/contexts/weldchat-call-context';
 import { messagePreviewText, renderMessageContent, type InlineFileRenderer } from '../lib/render-message-content';
 import { renderMessageBlocks } from '../lib/render-message-blocks';
 import { MessageApprovals } from './message-approvals';
+import { MessageVisuals } from './message-visuals';
 import { MessageWeldMergeCard } from './message-weldmerge-card';
 import { fileTokenIds } from '../lib/render-tokens';
 import { isSystemNotice, matchSystemNotice } from '../lib/system-notice';
@@ -731,6 +732,9 @@ export function MessageItem({
             );
           })()
         )}
+
+        {/* Charts, figures, tables and record cards the agent showed */}
+        <MessageVisuals message={message} />
 
         {/* Actions the agent is waiting on a person to approve */}
         <MessageApprovals message={message} />
