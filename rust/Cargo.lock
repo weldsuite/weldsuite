@@ -9504,6 +9504,8 @@ dependencies = [
 name = "weldsuite-schema"
 version = "0.0.0"
 dependencies = [
+ "flate2",
+ "indexmap 2.14.2",
  "sea-orm",
  "sea-query-sqlx",
  "serde",
@@ -9511,6 +9513,7 @@ dependencies = [
  "sqlx",
  "time",
  "tokio",
+ "uuid",
  "weldsuite-db",
 ]
 

@@ -17,7 +17,7 @@
 import { createPortal } from 'react-dom';
 import { ConnectingView } from '@weldsuite/weldmeet-ui';
 import { useWeldChatCall, useWeldChatCallOptional } from '@/contexts/weldchat-call-context';
-import { CallEndedView } from './call-ended-view';
+import { CallFadeOut } from './call-fade-out';
 import { ChatMeetingRoomView } from './chat-meeting-room';
 
 // ============================================================================
@@ -30,13 +30,9 @@ export function InlineCallView() {
   // Fullscreen is owned by <CallOverlay/>; PiP by <PiPCallWidget/>.
   if (status === 'idle' || isFullscreen || isPiP) return null;
 
-  if (status === 'ended') {
-    return (
-      <div className="flex-1 flex min-h-0">
-        <CallEndedView />
-      </div>
-    );
-  }
+  // An ended call hands straight back to the chat, which fades in (see
+  // lib/inline-call); the conversation pages stop rendering this view.
+  if (status === 'ended') return null;
 
   // No pre-join preview: a spinner until RealtimeKit is set up, then the room,
   // which shows the user's own tile while the join completes.
@@ -70,13 +66,15 @@ function CallOverlayInner() {
   if (status === 'idle') return null;
   if (!isFullscreen) return null;
 
-  if (status === 'ended' || status === 'ringing-outgoing' || !meeting) {
-    // Portaled to <body> like the room's own FullscreenFrame: this overlay is
-    // mounted inside the content card's z-10 stacking context, below the
-    // z-50 app sidebar rail.
+  // Portaled to <body> like the room's own FullscreenFrame: this overlay is
+  // mounted inside the content card's z-10 stacking context, below the z-50
+  // app sidebar rail.
+  if (status === 'ended') return createPortal(<CallFadeOut />, document.body);
+
+  if (status === 'ringing-outgoing' || !meeting) {
     return createPortal(
       <div className="fixed inset-0 z-50 flex bg-background">
-        {status === 'ended' ? <CallEndedView /> : <ConnectingView />}
+        <ConnectingView />
       </div>,
       document.body,
     );

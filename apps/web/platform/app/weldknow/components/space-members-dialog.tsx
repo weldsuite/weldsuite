@@ -11,7 +11,7 @@ import { useAuth } from '@/lib/auth';
 import { Loader2, LogOut, UserPlus, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { isApiError } from '@weldsuite/api-client';
-import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
+import { MemberAvatar } from '@/components/member-avatar';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import {
@@ -210,10 +210,15 @@ export function SpaceMembersDialog({ space, onOpenChange }: Readonly<SpaceMember
                 const isSelf = member.userId === currentUserId;
                 return (
                   <li key={member.userId} className="flex items-center gap-3 px-3 py-2">
-                    <Avatar className="h-8 w-8">
-                      {member.picture && <AvatarImage src={member.picture} alt="" />}
-                      <AvatarFallback className="text-xs">{name.slice(0, 2).toUpperCase()}</AvatarFallback>
-                    </Avatar>
+                    {/* The shared avatar: their current profile picture, and
+                        real initials ("Ada Lovelace" → "AL", not "AD"). */}
+                    <MemberAvatar
+                      userId={member.userId}
+                      name={member.name || member.email}
+                      picture={member.picture}
+                      className="h-8 w-8"
+                      fallbackClassName="text-xs"
+                    />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">
                         {name}

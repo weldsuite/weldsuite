@@ -116,14 +116,13 @@ const API_PACKAGES = [
 
 /**
  * What the Rust jobs read besides rust/: personal-api's migrations, the
- * migration generator, the realtime parity test, and the collab-rooms image,
- * which bundles the docs, sheets and board rooms by relative path (so those
- * folders are listed here, not found in the graph).
+ * realtime parity test, and the collab-rooms image, which bundles the docs,
+ * sheets and board rooms by relative path (so those folders are listed here,
+ * not found in the graph).
  */
 const RUST_PATHS = [
   'rust/',
   'scripts/rust-',
-  'scripts/db-generate',
   'packages/core/db/drizzle/',
   // The WeldForms engine's fixtures are also run by rust/modules/forms (ADR FORMS-003).
   'packages/core/forms-engine/',

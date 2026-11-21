@@ -123,15 +123,13 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     // install keeps every workspace in its own one cluster, so there is no
     // choice to offer (onboarding's `region` only lands in the metadata).
     "data-regions",
-    // Third-party integrations under Settings › Integrations (the CRM,
-    // accounting and warehouse connectors, Slack, Discord, GitHub, Google
-    // Calendar): on Global their syncs and webhooks run in
-    // integration-sync-worker and integration-webhook-worker, and the
-    // platform hides them here until each is offered on its own. Shopify and
-    // WooCommerce are: their store syncs (connect's connectors,
-    // `/webhooks/connectors/:id`, `weldsuite cron connector-catchup`) run in
-    // this binary and feed WeldCommerce's order hub, under the platform's
-    // `store-sync` feature, which is never listed.
+    // Third-party integrations not offered here yet: the CRM sync (Attio,
+    // HubSpot, Salesforce), Slack, Discord, GitHub and Google Calendar. The
+    // platform hides their pages under Settings › Integrations. WeldConnect's
+    // store and accounting connectors (WooCommerce, Shopify, Moneybird,
+    // Picqer) don't depend on this: `/api/connectors`, their webhooks
+    // (`weldsuite_integrations::connectors`) and the `connector-catchup` and
+    // `moneybird-push` cron jobs run here, so their pages stay.
     "integration-sync",
 ];
 
@@ -591,20 +589,6 @@ mod tests {
         };
         assert!(!on.unavailable_features().contains(&SSO_CONNECTIONS_FEATURE));
         assert!(!UNAVAILABLE_FEATURES.contains(&SSO_CONNECTIONS_FEATURE));
-    }
-
-    /// Shopify and WooCommerce run here (`store-sync`, never listed); the rest
-    /// of Settings › Integrations stays hidden (`integration-sync`), whatever
-    /// the edition.
-    #[test]
-    fn offers_the_store_syncs_but_not_the_other_integrations() {
-        for edition in ["eu", "self-hosted"] {
-            let (config, problems) = read(&[("EDITION", edition)]);
-            assert!(problems.is_empty(), "{problems:?}");
-            let lacks = config.unavailable_features();
-            assert!(lacks.contains(&"integration-sync"), "{edition}");
-            assert!(!lacks.contains(&"store-sync"), "{edition}");
-        }
     }
 
     #[test]

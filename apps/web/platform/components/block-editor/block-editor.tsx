@@ -4,6 +4,7 @@ import { BlockNoteView } from '@blocknote/shadcn';
 import {
   useCreateBlockNote,
   SuggestionMenuController,
+  GridSuggestionMenuController,
   FloatingComposerController,
   FloatingThreadController,
 } from '@blocknote/react';
@@ -18,6 +19,7 @@ import { useI18n } from '@/lib/i18n/provider';
 import { schema } from './schema';
 import { getBlockEditorStrings, type BlockEditorStrings } from './strings';
 import { SuggestionMenu } from './suggestion-menu';
+import { EMOJI_COLUMNS, EmojiMenu, getEmojiItems } from './emoji-menu';
 import {
   filterSlashMenuItems,
   getPageLinkItems,
@@ -363,6 +365,8 @@ export const BlockEditor = forwardRef<BlockEditorHandle, BlockEditorProps>(funct
         // would register on the same trigger character and clicks on
         // our menu's items got intercepted by the default's handler.
         slashMenu={false}
+        // Same for the ":" emoji picker: ours below adds category names.
+        emojiPicker={false}
         data-theming-css-variables-demo
       >
         {/* / trigger — see ./slash-menu for the command list */}
@@ -374,6 +378,15 @@ export const BlockEditor = forwardRef<BlockEditorHandle, BlockEditorProps>(funct
               filterSlashMenuItems(getSlashMenuItems(editor, { strings, locale: language, pageLinks }), query),
             )
           }
+        />
+        {/* : trigger (and the slash menu's Emoji) — emoji grouped by category, see ./emoji-menu.
+            Same 10 columns and 2-character minimum as BlockNote's own picker. */}
+        <GridSuggestionMenuController
+          triggerCharacter=":"
+          columns={EMOJI_COLUMNS}
+          minQueryLength={2}
+          gridSuggestionMenuComponent={EmojiMenu}
+          getItems={(query) => getEmojiItems(editor, query, strings.emojiCategories)}
         />
         {/* @ trigger — link to another page, where the host has pages */}
         {pageLinks ? (

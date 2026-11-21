@@ -165,12 +165,9 @@ describe('edition flags', () => {
 
   it('hides the features the backend lists as unavailable', () => {
     setRuntimeConfig(EU_CONFIG);
-    // The EU config lists every feature but the Rust-only ones and the ones
-    // both backends serve, such as the store syncs.
-    const servedEverywhere: readonly string[] = ['store-sync'];
+    // The EU config lists every feature but the Rust-only ones, which it serves.
     for (const feature of EDITION_FEATURES) {
-      const served = GLOBAL_UNAVAILABLE_FEATURES.includes(feature) || servedEverywhere.includes(feature);
-      expect(isFeatureAvailable(feature), feature).toBe(served);
+      expect(isFeatureAvailable(feature), feature).toBe(GLOBAL_UNAVAILABLE_FEATURES.includes(feature));
     }
     setRuntimeConfig({ backend: 'rust', modules: ['core'], unavailableFeatures: ['billing', 'a-future-feature'] });
     expect(isFeatureAvailable('billing')).toBe(false);
@@ -206,17 +203,6 @@ describe('edition flags', () => {
     setRuntimeConfig(null);
     expect(isModuleOffered('sheets')).toBe(true);
     expect(isAppOffered('welddocs')).toBe(true);
-  });
-});
-
-describe('store-sync', () => {
-  it('is offered on Global and on the EU edition, which still hides the other integrations', () => {
-    setRuntimeConfig(null);
-    expect(isFeatureAvailable('store-sync')).toBe(true);
-    expect(GLOBAL_UNAVAILABLE_FEATURES).not.toContain('store-sync');
-    setRuntimeConfig(EU_CONFIG);
-    expect(isFeatureAvailable('store-sync')).toBe(true);
-    expect(isFeatureAvailable('integration-sync')).toBe(false);
   });
 });
 

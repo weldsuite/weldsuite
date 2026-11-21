@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { chatActivityRoutes } from './index';
 import { chatDmRoutes } from '../chat-dm';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
@@ -73,10 +73,13 @@ describe('/api/chat-activity', () => {
     expect(first.status).toBe(200);
     const page = (await first.json()) as { data: Array<{ type: string }>; pagination: { cursor: string; totalCount: number; hasMore: boolean } };
     expect(page.data.map((n) => n.type)).toEqual(['chat_missed_call', 'chat_thread_reply']);
-    expect(page.pagination.totalCount).toBe(4);
+    expect(page.pagination.totalCount).toBe(3);
     const second = await activity(ANN).request(`/api/chat-activity?limit=2&cursor=${encodeURIComponent(page.pagination.cursor)}`);
     const next = (await second.json()) as { data: Array<{ type: string }> };
-    expect(next.data.map((n) => n.type)).toEqual(['chat_dm', 'chat_mention']);
+    // A DM's message is not activity: it shows in the DM.
+    expect(next.data.map((n) => n.type)).toEqual(['chat_mention']);
+    const dms = await activity(ANN).request('/api/chat-activity?filter=dms');
+    expect(((await dms.json()) as { data: Array<{ type: string }> }).data.map((n) => n.type)).toEqual(['chat_dm']);
     const mentions = await activity(ANN).request('/api/chat-activity?filter=mentions');
     expect(((await mentions.json()) as { data: unknown[] }).data).toHaveLength(1);
     const ignored = await activity(ANN).request('/api/chat-activity?cursor=not-a-cursor');
@@ -88,15 +91,22 @@ describe('/api/chat-activity', () => {
     expect((await activity(ANN).request('/api/chat-activity?limit=500')).status).toBe(400);
   });
 
-  it('counts unread, marks one read, then all', async () => {
+  it('counts unread, marks one read, then all, leaving DM messages alone', async () => {
     const count = async () =>
       ((await (await activity(ANN).request('/api/chat-activity/unread-count')).json()) as { data: { count: number } }).data.count;
-    expect(await count()).toBe(4);
-    const [one] = await db.select({ id: schema.notifications.id }).from(schema.notifications).where(eq(schema.notifications.userId, ANN)).limit(1);
-    expect((await activity(ANN).request('/api/chat-activity/read', json({ notificationId: one!.id }))).status).toBe(204);
+    const unreadOf = async (type: string) =>
+      (await db.select({ readAt: schema.notifications.readAt }).from(schema.notifications).where(
+        and(eq(schema.notifications.userId, ANN), eq(schema.notifications.notificationType, type)),
+      ))[0]?.readAt === null;
     expect(await count()).toBe(3);
+    const [one] = await db.select({ id: schema.notifications.id }).from(schema.notifications).where(
+      and(eq(schema.notifications.userId, ANN), eq(schema.notifications.notificationType, 'chat_mention')),
+    );
+    expect((await activity(ANN).request('/api/chat-activity/read', json({ notificationId: one!.id }))).status).toBe(204);
+    expect(await count()).toBe(2);
     expect((await activity(ANN).request('/api/chat-activity/read', json({}))).status).toBe(204);
     expect(await count()).toBe(0);
+    expect(await unreadOf('chat_dm')).toBe(true);
     expect((await activity(ANN).request('/api/chat-activity/read', json({ notificationId: 5 }))).status).toBe(400);
   });
 });

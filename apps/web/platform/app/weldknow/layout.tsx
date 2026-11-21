@@ -32,7 +32,7 @@ export default function WeldKnowLayout({ children }: Readonly<{ children: React.
   if (!canRead) {
     return (
       <div className="flex items-center justify-center h-screen text-muted-foreground">
-        {tKnow.emptyState.noAccessDescription}
+        {tKnow.emptyState.noPermission}
       </div>
     );
   }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, type ReactNode } from 'react';
+import { useState, useMemo, type ReactNode } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useAuth } from '@/lib/auth';
 import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
@@ -9,17 +9,15 @@ import { MessageContextMenu } from './message-context-menu';
 import { FilePreview } from './file-preview';
 import { cn } from '@/lib/utils';
 import { Link } from '@tanstack/react-router';
+import { Link as HrefLink } from '@/lib/router';
 import {
   MessageSquare,
-  MessageSquareText,
   Pin,
   Phone,
-  PhoneIncoming,
   PhoneMissed,
   PhoneOff,
   PhoneOutgoing,
   Video,
-  VideoOff,
   CornerUpRight,
   Hash,
   Lock,
@@ -38,7 +36,8 @@ import { MessageVisuals } from './message-visuals';
 import { MessageWeldMergeCard } from './message-weldmerge-card';
 import { fileTokenIds } from '../lib/render-tokens';
 import { isSystemNotice, matchSystemNotice } from '../lib/system-notice';
-import { formatCallDuration, type CallSummary } from '../lib/call-history';
+import type { CallSummary } from '../lib/call-history';
+import { getRecordChatTypeInfo } from '../lib/record-chat-types';
 import type { ChatMessage } from '@/hooks/queries/use-weldchat-queries';
 import type { ChatAttachment, ChatClipAttachment } from '@weldsuite/db/schema';
 
@@ -83,27 +82,6 @@ function useMessageBody(
       gallery: attachments.filter((att) => !placed.has(att.id)),
     };
   }, [content, attachments, membersMap, channelId, messageId, markdown]);
-}
-
-/** Live timer that counts up from a start time */
-function LiveCallTimer({ startedAt }: Readonly<{ startedAt: string }>) {
-  const [elapsed, setElapsed] = useState(() => Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000));
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setElapsed(Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000));
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [startedAt]);
-
-  const h = Math.floor(elapsed / 3600);
-  const m = Math.floor((elapsed % 3600) / 60);
-  const s = elapsed % 60;
-  const time = h > 0
-    ? `${h}h ${m.toString().padStart(2, '0')}m ${s.toString().padStart(2, '0')}s`
-    : `${m}m ${s.toString().padStart(2, '0')}s`;
-
-  return <span className="font-mono tabular-nums">&mdash; {time}</span>;
 }
 
 interface ReadByUser {
@@ -212,12 +190,90 @@ export interface MessageItemMessage extends ChatMessage {
   forwardedFrom?: ForwardedFromInfo;
 }
 
-/** Minimal shape needed to render the "replying to" reference line. */
 /** A real avatar image, as opposed to an agent's emoji icon. */
 function isImageUrl(avatar: string | null | undefined): avatar is string {
   return !!avatar && /^(https?:|data:|blob:|\/)/.test(avatar);
 }
 
+/**
+ * The line above a message that ties it to what it answers: a curved
+ * connector, an optional 16px lead (the replied-to author's avatar) and a
+ * short description. Replies and comments on a sheet, document or board share
+ * it, so they read the same way.
+ */
+function ReferenceLine({
+  lead,
+  children,
+  testId,
+}: Readonly<{ lead?: ReactNode; children: ReactNode; testId?: string }>) {
+  return (
+    <div data-testid={testId} className="flex items-center gap-1.5 ml-[13px] mb-0.5 text-xs text-muted-foreground">
+      <div className="w-[22px] h-3 shrink-0 border-l-2 border-t-2 border-muted-foreground/40 rounded-tl-md" />
+      <div className="flex min-w-0 items-center gap-1.5 -translate-y-[4px]">
+        {lead}
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * "Comment on {place}" with the place in bold, like the author's name on a
+ * reply. With `href` it is a link to the record (the board, sheet or document)
+ * in its own app.
+ */
+/**
+ * "N replies" under a message: opens its thread in the side panel beside the
+ * channel (`onOpen`), or without `onOpen` goes to the thread's own page.
+ */
+function ThreadIndicator({
+  channelId,
+  messageId,
+  onOpen,
+  children,
+}: Readonly<{ channelId: string; messageId: string; onOpen?: () => void; children: ReactNode }>) {
+  const className = 'flex items-center gap-1 mt-1 text-xs text-primary hover:underline';
+  if (onOpen) {
+    return (
+      <button type="button" data-testid="chat-thread-indicator" onClick={onOpen} className={className}>
+        {children}
+      </button>
+    );
+  }
+  return (
+    <Link
+      data-testid="chat-thread-indicator"
+      to="/weldchat/$channelId/thread/$messageId"
+      params={{ channelId, messageId }}
+      className={className}
+    >
+      {children}
+    </Link>
+  );
+}
+
+function CommentPlaceText({ template, place, href }: Readonly<{ template: string; place: string; href?: string }>) {
+  const [before = '', after = ''] = template.split('{place}');
+  const text = (
+    <>
+      {before}
+      <span className="font-semibold text-foreground/70 group-hover/comment:text-foreground">{place}</span>
+      {after}
+    </>
+  );
+  if (!href) return <span className="truncate max-w-[420px]">{text}</span>;
+  return (
+    <HrefLink
+      href={href}
+      data-testid="chat-message-comment-link"
+      className="group/comment truncate max-w-[420px] rounded-sm hover:text-foreground hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground"
+    >
+      {text}
+    </HrefLink>
+  );
+}
+
+/** Minimal shape needed to render the "replying to" reference line. */
 interface ReplyToMessagePreview {
   authorId?: string | null;
   authorAvatar?: string | null;
@@ -244,18 +300,42 @@ interface MessageItemProps {
   activeCallId?: string;
   /** The call this notice stands for (its start and end folded into one row), when it is a call notice */
   call?: CallSummary;
+  /** The record this chat belongs to (a board, sheet or document), for its comment threads */
+  record?: CommentRecord;
+}
+
+/** The record a record chat belongs to: its type ('board', 'sheet', …) and current title. */
+export interface CommentRecord {
+  type: string;
+  /** The record's id, to link to it; absent when unknown. */
+  id?: string;
+  title: string;
+}
+
+/** Where a record opens in its own app (`/weldboard/<id>`), if it has a page. */
+function recordHref(record: CommentRecord | undefined): string | undefined {
+  if (!record?.id) return undefined;
+  return getRecordChatTypeInfo(record.type)?.href?.(record.id);
 }
 
 /**
- * Where a comment thread's first message is in its spreadsheet or document
- * ("Sheet1!B7", or the text it is about), from `metadata.anchor` (ADR
- * CHAT-007). Null for any other message.
+ * Where a comment thread's first message is in its record, from
+ * `metadata.anchor` (ADR CHAT-007): the cell ("Sheet1!B7"), the text it is
+ * about, or the board element. A comment on the board itself has no label and
+ * shows the board's title. Null for any other message.
+ *
+ * `legacyBoardLabel`: the board's own "On the board" placeholder, which board
+ * comments were saved with before; it is shown as the title too. Read only
+ * for a board's chat.
  */
-function commentPlace(message: MessageItemMessage): string | null {
+function commentPlace(message: MessageItemMessage, record: CommentRecord | undefined, legacyBoardLabel: () => string): string | null {
   const anchor = (message.metadata as { anchor?: { label?: unknown; quote?: unknown } } | null | undefined)?.anchor;
   if (!anchor || message.parentId) return null;
-  if (typeof anchor.label === 'string' && anchor.label) return anchor.label;
-  return typeof anchor.quote === 'string' && anchor.quote ? `“${anchor.quote}”` : null;
+  const label = typeof anchor.label === 'string' ? anchor.label : '';
+  const isBoardPlaceholder = record?.type === 'board' && label === legacyBoardLabel();
+  if (label && !isBoardPlaceholder) return label;
+  if (typeof anchor.quote === 'string' && anchor.quote) return `“${anchor.quote}”`;
+  return record?.title || label || null;
 }
 
 function shortTime(iso?: string): string {
@@ -278,139 +358,164 @@ function systemIcon(lowerText: string): LucideIcon | null {
   return null;
 }
 
-type CallRowState = 'live' | 'started' | 'answered' | 'noAnswer' | 'missed' | 'declined';
+/** A message's author name. Hovering the avatar underlines it too: both open the same profile. */
+const AUTHOR_NAME_CLASS =
+  'h-auto px-0 py-0 font-semibold text-sm hover:underline group-has-[[data-author-avatar]:hover]/message:underline focus:outline-none focus-visible:underline hover:bg-transparent';
 
+type CallRowState = 'live' | 'started' | 'answered' | 'noAnswer' | 'declined' | 'missed';
+
+/**
+ * A WeldChat call rings until someone picks up and ends when nobody does or
+ * it is declined (as on WhatsApp, not Discord, where the caller waits in the
+ * call): an unanswered call never ran. The caller sees there was no answer;
+ * the people it rang, that they missed it.
+ */
 function callRowState(call: CallSummary, isLive: boolean, isMine: boolean): CallRowState {
   if (isLive) return 'live';
   if (!call.outcome) return 'started';
   if (call.outcome === 'answered') return 'answered';
   if (call.outcome === 'declined') return 'declined';
-  // An unanswered call is only "missed" for the people it rang.
   return isMine ? 'noAnswer' : 'missed';
 }
 
-/** The bubble's icon colour; a missed call's title takes the same red. */
+/** Green phone for a call that ran, grey for one that didn't connect, red for a missed one. */
 const CALL_ICON_COLOR: Record<CallRowState, string> = {
   live: 'text-green-600 dark:text-green-400',
-  started: 'text-muted-foreground',
-  answered: 'text-emerald-600 dark:text-emerald-400',
-  noAnswer: 'text-amber-600 dark:text-amber-400',
+  started: 'text-green-600 dark:text-green-400',
+  answered: 'text-green-600 dark:text-green-400',
+  noAnswer: 'text-muted-foreground',
   declined: 'text-muted-foreground',
   missed: 'text-red-600 dark:text-red-400',
 };
 
-function callRowIcon(state: CallRowState, isVideo: boolean, isMine: boolean): LucideIcon {
-  if (state === 'missed') return isVideo ? VideoOff : PhoneMissed;
-  if (state === 'declined') return isVideo ? VideoOff : PhoneOff;
-  if (isVideo) return Video;
-  if (state === 'answered' || state === 'noAnswer') return isMine ? PhoneOutgoing : PhoneIncoming;
+function callRowIcon(state: CallRowState): LucideIcon {
+  if (state === 'missed') return PhoneMissed;
+  if (state === 'declined') return PhoneOff;
+  if (state === 'noAnswer') return PhoneOutgoing;
   return Phone;
 }
 
 type CallHistoryStrings = ReturnType<typeof useI18n>['t']['weldchat']['callHistory'];
 type FormatFn = ReturnType<typeof useI18n>['format'];
 
-/** A missed call's title: "Missed voice call from Gert" with `named`, else "Missed voice call". */
-function missedCallTitle(tc: CallHistoryStrings, format: FormatFn, call: CallSummary, named: boolean): string {
-  const isVideo = call.callType === 'video';
-  if (call.endOnly) return tc.missedCall;
-  if (named) return format(isVideo ? tc.missedVideoFrom : tc.missedVoiceFrom, { name: call.initiatorName ?? '' });
-  return isVideo ? tc.missedVideoCall : tc.missedVoiceCall;
+/** How long a call took in seconds: talk time, else from its start to its end. */
+function callSeconds(call: CallSummary): number | undefined {
+  if (call.duration) return call.duration;
+  if (call.endOnly || !call.startedAt || !call.endedAt) return call.duration;
+  const ms = Date.parse(call.endedAt) - Date.parse(call.startedAt);
+  return Number.isFinite(ms) && ms >= 0 ? Math.round(ms / 1000) : call.duration;
 }
 
-function callRowTitle(
-  tc: CallHistoryStrings,
-  format: FormatFn,
-  call: CallSummary,
-  state: CallRowState,
-  isMine: boolean,
-  showCaller: boolean,
-): string {
-  const isVideo = call.callType === 'video';
-  const name = call.initiatorName ?? '';
-  // In a DM there are two people and the direction icon (outgoing / incoming)
-  // says who called; in a channel the caller's name stays in the text.
-  const named = showCaller && !!name;
-  if (state === 'missed') return missedCallTitle(tc, format, call, named);
-  if (call.endOnly) return tc.callEnded;
-  if (!isMine && named) return format(isVideo ? tc.startedVideo : tc.startedVoice, { name });
-  return isVideo ? tc.videoCall : tc.voiceCall;
+/** "a few seconds", "a minute", "12 minutes", "an hour", "3 hours". */
+function lastedText(tc: CallHistoryStrings, format: FormatFn, seconds: number): string {
+  if (seconds < 45) return tc.lastedSeconds;
+  if (seconds < 90) return tc.lastedMinute;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 45) return format(tc.lastedMinutes, { count: minutes });
+  if (minutes < 90) return tc.lastedHour;
+  return format(tc.lastedHours, { count: Math.round(minutes / 60) });
 }
 
-function callRowStatus(tc: CallHistoryStrings, call: CallSummary, state: CallRowState): string | null {
-  if (state === 'answered') return call.duration ? formatCallDuration(call.duration) : tc.ended;
-  if (state === 'noAnswer') return tc.noAnswer;
-  if (state === 'declined') return tc.declined;
-  return null;
-}
-
-function callRowTooltip(tc: CallHistoryStrings, format: FormatFn, call: CallSummary): string {
-  const lines: string[] = [];
-  if (call.startedAt && !call.endOnly) lines.push(format(tc.startedAt, { time: formatFullTime(call.startedAt) }));
-  if (call.endedAt) lines.push(format(tc.endedAt, { time: formatFullTime(call.endedAt) }));
-  return lines.join('\n');
+/** The line under the caller's name, with `{duration}` in it. */
+function callRowTemplate(tc: CallHistoryStrings, state: CallRowState, isMine: boolean, lasted: boolean): string {
+  switch (state) {
+    case 'answered':
+      return lasted ? tc.startedCallLasted : tc.startedCall;
+    case 'noAnswer':
+      return tc.calledNoAnswer;
+    case 'declined':
+      return isMine ? tc.calledDeclined : tc.declinedCall;
+    case 'missed':
+      return tc.missedCall;
+    default:
+      return tc.startedCall;
+  }
 }
 
 /**
- * One call in the conversation, as a centred bubble: the kind of call, how it
- * went, how long it took, and when. A live call offers Join.
+ * One call in the conversation, drawn like a message from the caller: their
+ * avatar, name and the time, and under it how the call went ("You missed the
+ * call."). Calls and messages from the same person close together share one
+ * header (`compact`). Only a call that ran says how long it lasted; a live
+ * call you are not in offers Join call.
  */
 function CallNoticeRow({
   message,
   call,
+  compact,
   isLive,
   liveCallId,
-  showCaller,
 }: Readonly<{
   message: MessageItemMessage;
   call: CallSummary;
+  compact?: boolean;
   isLive: boolean;
-  /** The live call's id, for Join. */
+  /** The live call's id, for Join call. */
   liveCallId?: string;
-  /** Name the caller (channels); in a DM the direction icon says who called. */
-  showCaller: boolean;
 }>) {
   const { t, format } = useI18n();
   const { userId } = useAuth();
+  const { openUserProfile } = useChatContext();
   const callContext = useWeldChatCallOptional();
   const tc = t.weldchat.callHistory;
   const isMine = !!userId && call.initiatorId === userId;
   const state = callRowState(call, isLive, isMine);
-  const Icon = callRowIcon(state, call.callType === 'video', isMine);
-  const title = callRowTitle(tc, format, call, state, isMine, showCaller);
-  const status = callRowStatus(tc, call, state);
-  const tooltip = callRowTooltip(tc, format, call);
+  const Icon = callRowIcon(state);
+  const seconds = state === 'answered' ? callSeconds(call) : undefined;
+  const text = format(callRowTemplate(tc, state, isMine, seconds !== undefined), {
+    duration: seconds === undefined ? '' : lastedText(tc, format, seconds),
+  });
   const canJoin = state === 'live' && !!liveCallId && !!callContext && callContext.callId !== liveCallId;
+  // The notice is posted under the caller; drawn as them, never as a workflow.
+  const caller: MessageItemMessage = {
+    ...message,
+    authorType: 'user',
+    authorId: call.initiatorId ?? message.authorId,
+    authorName: call.initiatorName || message.authorName || t.weldchat.callRoom.participant,
+  };
+  const openCaller = () => {
+    if (caller.authorId) openUserProfile(caller.authorId);
+  };
 
   return (
     <div
       data-message-id={message.id}
       data-testid="chat-call-notice"
       data-call-state={state}
-      className="flex justify-center py-1 px-2 md:px-4"
+      className={cn(
+        'group group/message relative border-l-2 border-l-transparent px-2 pb-0.5 transition-colors hover:bg-muted/50 md:px-4',
+        compact ? 'pt-0.5' : 'pt-2',
+      )}
     >
-      <span title={tooltip || undefined} className="inline-flex items-center gap-2 rounded-[10px] bg-muted px-2.5 py-1.5 text-[13px]">
-        <Icon className={cn('size-4 shrink-0', CALL_ICON_COLOR[state])} />
-        <span className={cn('font-medium', state === 'missed' && CALL_ICON_COLOR.missed)}>{title}</span>
-        {state === 'live' && (
-          <span className={cn('inline-flex items-center gap-1 text-xs tabular-nums', CALL_ICON_COLOR.live)}>
-            <span className="size-1.5 rounded-full bg-current animate-pulse" aria-hidden />
-            {tc.live}
-            <LiveCallTimer startedAt={call.startedAt ?? message.createdAt ?? ''} />
-          </span>
-        )}
-        {status && <span className="text-xs tabular-nums text-muted-foreground">{status}</span>}
-        {call.startedAt && (
-          <time dateTime={call.startedAt} className="text-[11px] tabular-nums text-muted-foreground/70">
-            {shortTime(call.startedAt)}
-          </time>
-        )}
-        {canJoin && (
-          <Button size="xs" onClick={() => callContext.joinCall(liveCallId)}>
-            {tc.join}
-          </Button>
-        )}
-      </span>
+      <div className="flex items-start gap-2 md:gap-3">
+        <MessageAvatar message={caller} compact={compact} onAuthorClick={openCaller} />
+        <div className="min-w-0 flex-1">
+          {!compact && (
+            <div className="flex items-center gap-2">
+              <Button type="button" variant="ghost" onClick={openCaller} className={AUTHOR_NAME_CLASS}>
+                {caller.authorName}
+              </Button>
+              <span className="text-xs text-muted-foreground" title={formatFullTime(message.createdAt ?? undefined)}>
+                {shortTime(message.createdAt ?? undefined)}
+              </span>
+            </div>
+          )}
+          <p className="flex min-h-5 flex-wrap items-center gap-x-1.5 text-sm text-foreground">
+            <Icon aria-hidden className={cn('size-[15px] shrink-0', CALL_ICON_COLOR[state])} />
+            <span>{text}</span>
+            {canJoin && (
+              <Button
+                type="button"
+                variant="link"
+                onClick={() => callContext.joinCall(liveCallId)}
+                className="h-auto p-0 text-sm"
+              >
+                {tc.joinCall}
+              </Button>
+            )}
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
@@ -559,12 +664,14 @@ export function MessageItem({
   hasActiveCall,
   activeCallId,
   call,
+  record,
 }: Readonly<MessageItemProps>) {
   const [isHovered, setIsHovered] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const { userId } = useAuth();
   const { t, format } = useI18n();
-  const { openUserProfile, openAgentProfile } = useChatContext();
+  const { openUserProfile, openAgentProfile, openThread } = useChatContext();
+  const place = commentPlace(message, record, () => t.weldboard.editor.comments.onBoard);
   const resolvedChannelId = channelId || message.channelId || '';
   // The cache-side `ChatAttachment` models only the fields cache-merge helpers
   // touch (all optional); real rows always carry the full upload shape.
@@ -604,9 +711,9 @@ export function MessageItem({
         <CallNoticeRow
           message={message}
           call={call}
+          compact={compact}
           isLive={!!hasActiveCall}
           liveCallId={activeCallId}
-          showCaller={!isDm}
         />
       );
     }
@@ -625,8 +732,10 @@ export function MessageItem({
         // Always reserve the 2px left border so the mention highlight only
         // changes color, not layout — otherwise mentioned messages would
         // shift relative to surrounding messages and the text "jumps".
-        'group group/message relative px-2 md:px-4 py-1 hover:bg-muted/50 transition-colors border-l-2 border-l-transparent',
-        compact && 'py-0.5',
+        // Rows touch, so their hover areas join up: a message that starts a
+        // group carries the space above it, one under it in a group sits close.
+        'group group/message relative px-2 md:px-4 pb-0.5 hover:bg-muted/50 transition-colors border-l-2 border-l-transparent',
+        compact ? 'pt-0.5' : 'pt-2',
         isMentioned && 'bg-yellow-50/60 dark:bg-yellow-900/10 border-l-yellow-400 dark:border-l-yellow-500',
         message._optimistic && 'opacity-60',
       )}
@@ -635,10 +744,9 @@ export function MessageItem({
     >
       {/* Reply reference */}
       {replyToMessage && (
-        <div className="flex items-center gap-1.5 ml-[13px] mb-0.5 text-xs text-muted-foreground">
-          <div className="w-[22px] h-3 border-l-2 border-t-2 border-muted-foreground/40 rounded-tl-md" />
-          <div className="flex items-center gap-1.5 -translate-y-[4px]">
-            {replyToMessage.authorAvatar && !isImageUrl(replyToMessage.authorAvatar) ? (
+        <ReferenceLine
+          lead={
+            replyToMessage.authorAvatar && !isImageUrl(replyToMessage.authorAvatar) ? (
               // An agent's avatar is its emoji icon, not an image.
               <Avatar className="h-4 w-4">
                 <AvatarFallback className="text-[8px]">{replyToMessage.authorAvatar}</AvatarFallback>
@@ -652,18 +760,19 @@ export function MessageItem({
                 fallbackClassName="text-[8px]"
                 fallback={(replyToMessage.authorName || '?')[0]}
               />
-            )}
-            <span className="font-semibold text-foreground/70">{replyToMessage.authorName}</span>
-            <span className="truncate max-w-[300px]">{messagePreviewText(replyToMessage.content ?? '', membersMap)}</span>
-          </div>
-        </div>
+            )
+          }
+        >
+          <span className="font-semibold text-foreground/70">{replyToMessage.authorName}</span>
+          <span className="truncate max-w-[300px]">{messagePreviewText(replyToMessage.content ?? '', membersMap)}</span>
+        </ReferenceLine>
       )}
-      {/* The comment thread this message starts, on a sheet or a document */}
-      {commentPlace(message) && (
-        <div data-testid="chat-message-comment-place" className="flex items-center gap-1.5 ml-[13px] mb-0.5 text-xs text-muted-foreground">
-          <MessageSquareText className="h-3 w-3 shrink-0" />
-          <span className="truncate max-w-[420px]">{format(t.weldchat.messageItem.commentOn, { place: commentPlace(message)! })}</span>
-        </div>
+      {/* The comment thread this message starts, on a sheet, a document or a
+          board: drawn like a reply. */}
+      {place && (
+        <ReferenceLine testId="chat-message-comment-place">
+          <CommentPlaceText template={t.weldchat.messageItem.commentOn} place={place} href={recordHref(record)} />
+        </ReferenceLine>
       )}
       <div className="flex items-start gap-2 md:gap-3">
       {/* Avatar or spacer */}
@@ -680,8 +789,7 @@ export function MessageItem({
                 type="button"
                 variant="ghost"
                 onClick={handleAuthorClick}
-                // Hovering the avatar underlines the name too: both open the same profile.
-                className="h-auto px-0 py-0 font-semibold text-sm hover:underline group-has-[[data-author-avatar]:hover]/message:underline focus:outline-none focus-visible:underline hover:bg-transparent"
+                className={AUTHOR_NAME_CLASS}
               >
                 {message.authorName}
               </Button>
@@ -771,21 +879,18 @@ export function MessageItem({
             />
           )}
 
-        {/* Thread indicator */}
         {(message.threadReplyCount ?? 0) > 0 && (
-          <Link
-            data-testid="chat-thread-indicator"
-            to="/weldchat/$channelId/thread/$messageId"
-            params={{
-              channelId: resolvedChannelId,
-              messageId: message.id,
-            }}
-            className="flex items-center gap-1 mt-1 text-xs text-primary hover:underline"
+          <ThreadIndicator
+            channelId={resolvedChannelId}
+            messageId={message.id}
+            // A DM shows no side panel, and a list across channels has no
+            // channel open to show it beside: those go to the thread's page.
+            onOpen={isDm || showChannel ? undefined : () => openThread(message.id)}
           >
             <MessageSquare className="h-3 w-3" />
             {message.threadReplyCount}{' '}
             {message.threadReplyCount === 1 ? t.weldchat.messageItem.reply : t.weldchat.messageItem.replies}
-          </Link>
+          </ThreadIndicator>
         )}
 
       </div>

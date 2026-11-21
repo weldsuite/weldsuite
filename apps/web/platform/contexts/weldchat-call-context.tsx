@@ -31,7 +31,7 @@ import { weldchatKeys } from '@/hooks/queries/use-weldchat-queries';
 import { useCallSwitchOptional, useRegisterActiveCall } from '@/contexts/active-call-context';
 import { rtkParticipantIds, useCallSupersededNotice } from '@/hooks/use-call-superseded-notice';
 import { chatCallLabel, type CallLabelRole } from '@/lib/call-switch-labels';
-import { playCallJoinSound, playCallLeaveSound, playIncomingRingSound, playMuteSound, playUnmuteSound, playCameraToggleSound, playScreenShareSound, playHandRaiseSound, playHandLowerSound } from '@/lib/utils/notification-sound';
+import { playCallJoinSound, playCallLeaveSound, playPhoneRingSound, playMuteSound, playUnmuteSound, playCameraToggleSound, playScreenShareSound, playHandRaiseSound, playHandLowerSound } from '@/lib/utils/notification-sound';
 import { useVirtualBackground, type VirtualBackgroundType } from '@/hooks/use-virtual-background';
 import { RoomClient } from '@weldsuite/realtime/client';
 import { useTopic } from '@weldsuite/realtime/react';
@@ -128,8 +128,11 @@ const RTK_LEAVE_TIMEOUT_MS = 2_000;
 /** How long a switch waits for a still-connecting call to settle before dropping it. */
 const CONNECT_SETTLE_TIMEOUT_MS = 15_000;
 
-/** How long the "call ended" card stays up after a call, before the call view closes. */
-export const CALL_ENDED_VISIBLE_MS = 1_600;
+/** How often an incoming call's ring repeats. */
+export const RING_REPEAT_MS = 2_000;
+
+/** How long a call stays `ended` before `idle`: the fade back to the conversation (950ms) and a little margin. */
+export const CALL_ENDED_VISIBLE_MS = 1_150;
 
 /**
  * The user hung up (or moved to another call) while this one was still
@@ -287,8 +290,9 @@ async function applyScreenShareConstraints(
 // ============================================================================
 
 /**
- * `ended` is the short goodbye after a call: the room is gone and the call
- * view shows a "call ended" card for CALL_ENDED_VISIBLE_MS, then goes `idle`.
+ * `ended` is the moment after a call: the room is gone and the conversation
+ * fades back in where it was (a full-screen call fades away over it) for
+ * CALL_ENDED_VISIBLE_MS, then the call goes `idle`.
  */
 export type CallStatus = 'idle' | 'preview' | 'ringing-outgoing' | 'ringing-incoming' | 'connecting' | 'connected' | 'ended';
 
@@ -693,12 +697,12 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
 
   useTopic(user?.id ? `chat.user.${user.id}` : '', handleIncomingCallEvent);
 
-  // The callee hears a ringtone while the incoming call popup is up. It goes
-  // quiet after 30s, the same window the caller's "calling" tiles ring for.
+  // The callee hears a phone ringing while the incoming call popup is up. It
+  // goes quiet after 30s, the same window the caller's "calling" tiles ring for.
   useEffect(() => {
     if (status !== 'ringing-incoming') return;
-    playIncomingRingSound();
-    const iv = setInterval(() => playIncomingRingSound(), 2600);
+    playPhoneRingSound();
+    const iv = setInterval(() => playPhoneRingSound(), RING_REPEAT_MS);
     const quiet = setTimeout(() => clearInterval(iv), 30_000);
     return () => {
       clearInterval(iv);
@@ -854,12 +858,20 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
   }, [meeting, releaseSuppressor, clearFarewell, resetCallState, settleReconnectNotice]);
 
   /**
-   * The call is over for this user: the room view gives way at once to a
-   * "call ended" card (with the leave chime), which closes by itself after
-   * CALL_ENDED_VISIBLE_MS. Callers stop the local tracks and leave the room;
+   * The call is over for this user: the room view gives way at once to the
+   * conversation, which fades back in (with the leave chime); the call goes
+   * idle after CALL_ENDED_VISIBLE_MS. Callers stop the local tracks and leave the room;
    * this only ends the UI side. A ring or a new call in between takes over.
    */
   const showCallEnded = useCallback((reason: CallEndReason) => {
+    // The conversation comes back at once, so its saved "call in progress"
+    // answer must not show the call that just ended as a green Join row until
+    // the next fetch. Callers refetch it once the backend has the leave or the
+    // end; a call others are still in then comes back with its Join row.
+    const endedChannelId = channelIdRef.current;
+    if (endedChannelId) {
+      queryClient.setQueryData(weldchatKeys.activeCall(endedChannelId), { data: null });
+    }
     settleReconnectNotice();
     toast.dismiss(RECONNECT_TOAST_ID);
     playCallLeaveSound();
@@ -877,7 +889,7 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
       farewellTimerRef.current = null;
       if (statusRef.current === 'ended') resetCallState();
     }, CALL_ENDED_VISIBLE_MS);
-  }, [releaseSuppressor, clearFarewell, resetCallState, settleReconnectNotice]);
+  }, [queryClient, releaseSuppressor, clearFarewell, resetCallState, settleReconnectNotice]);
 
   /**
    * A start or join that did not get through: back to no call, and say why.

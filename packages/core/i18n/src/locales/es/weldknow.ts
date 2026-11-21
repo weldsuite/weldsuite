@@ -37,7 +37,6 @@ export const weldknow = {
     visibilityPrivate: 'Privado',
     visibilityPrivateHint: 'Solo los miembros saben que existe.',
     defaultLabel: 'Espacio de equipo predeterminado',
-    defaultHint: 'Añade automáticamente a todos los miembros del espacio de trabajo, también a quienes se unan después.',
     privateSpaceName: 'Privado',
     create: 'Crear espacio de equipo',
     save: 'Guardar cambios',
@@ -83,8 +82,6 @@ export const weldknow = {
   page: {
     untitled: 'Sin título',
     titlePlaceholder: 'Sin título',
-    saving: 'Guardando…',
-    saved: 'Guardado',
     locked: 'Bloqueada',
     lockedBanner: 'Esta página está bloqueada y no se puede editar.',
     lock: 'Bloquear página',

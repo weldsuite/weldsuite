@@ -1109,6 +1109,8 @@ export const common = {
         retry: 'Opnieuw',
         insufficientCredits: 'Je AI-credits zijn op. Vul je werkruimte aan om verder te chatten.',
         generalAgent: 'WeldAgent',
+        untitledChat: 'Naamloze chat',
+        chatTitleLabel: 'Chatnaam',
         chooseAgent: 'Kies een agent',
         messageAgent: 'Bericht aan {name}…',
         close: 'Sluiten',

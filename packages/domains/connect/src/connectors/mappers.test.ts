@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isDeletedRecord, mapConnectorRecord } from './mappers';
+import { isDeletedRecord, keepKnownDocumentStatus, mapConnectorRecord } from './mappers';
 
 describe('WooCommerce product mapper', () => {
   it('maps a published product onto WeldCommerce fields', () => {
@@ -302,6 +302,117 @@ describe('Moneybird mappers', () => {
     expect(mapped.contactExternalId).toBe('c1');
     expect(mapped.lineItems).toHaveLength(1);
     expect(mapped.lineItems[0]?.quantity).toBe('2');
+  });
+
+  describe('Moneybird sales invoice as the API sends it', () => {
+    const base = {
+      id: 'inv2',
+      invoice_id: '2024-0002',
+      contact_id: 'c1',
+      invoice_date: '2024-03-01',
+      due_date: '2024-03-15',
+      currency: 'EUR',
+      prices_are_incl_tax: false,
+      total_price_excl_tax: '150.0',
+      total_price_incl_tax: '172.0',
+      total_paid: '0.0',
+      total_unpaid: '172.0',
+      details: [
+        { description: 'Hours', amount: '1', price: '100.0', tax_rate_id: 'tr_21', total_price_excl_tax_with_discount: '100.0' },
+        { description: 'Book', amount: '1', price: '50.0', tax_rate_id: 'tr_9', total_price_excl_tax_with_discount: '50.0' },
+      ],
+      tax_totals: [
+        { tax_rate_id: 'tr_21', taxable_amount: '100.0', taxable_amount_base: '100.0', tax_amount: '21.0', tax_amount_base: '21.0' },
+        { tax_rate_id: 'tr_9', taxable_amount: '50.0', taxable_amount_base: '50.0', tax_amount: '4.5', tax_amount_base: '4.5' },
+      ],
+    };
+
+    function invoiceOf(overrides: Record<string, unknown>) {
+      const mapped = mapConnectorRecord('invoice', { ...base, ...overrides });
+      if (mapped?.entity !== 'invoice') throw new Error('not an invoice');
+      return mapped;
+    }
+
+    it('adds up the VAT from tax_totals', () => {
+      expect(invoiceOf({ state: 'open' }).values).toMatchObject({ subtotal: '150.00', taxTotal: '25.50', total: '172.00' });
+    });
+
+    it('reads each line\'s VAT percentage back from tax_totals', () => {
+      const lines = invoiceOf({ state: 'open' }).lineItems;
+      expect(lines.map((l) => [l.taxRate, l.taxAmount, l.lineTotal, l.lineTotalWithTax])).toEqual([
+        ['21.00', '21.00', '100.00', '121.00'],
+        ['9.00', '4.50', '50.00', '54.50'],
+      ]);
+    });
+
+    it('backs the VAT out of incl-VAT line prices', () => {
+      const lines = invoiceOf({
+        state: 'open',
+        prices_are_incl_tax: true,
+        details: [{ description: 'Hours', amount: '2', price: '121.0', tax_rate_id: 'tr_21', total_price_excl_tax_with_discount: '200.0' }],
+        tax_totals: [{ tax_rate_id: 'tr_21', taxable_amount: '200.0', tax_amount: '42.0' }],
+      }).lineItems;
+      expect(lines[0]).toMatchObject({ unitPrice: '100.0000', lineTotal: '200.00', taxAmount: '42.00', lineTotalWithTax: '242.00' });
+    });
+
+    it('falls back to the difference between the totals without tax_totals', () => {
+      expect(invoiceOf({ state: 'open', tax_totals: undefined }).values.taxTotal).toBe('22.00');
+    });
+
+    it.each([
+      ['draft', 'draft'],
+      ['scheduled', 'draft'],
+      ['open', 'sent'],
+      ['pending_payment', 'sent'],
+      ['reminded', 'overdue'],
+      ['late', 'overdue'],
+      ['uncollectible', 'uncollectible'],
+    ])('maps state %s onto %s', (state, status) => {
+      expect(invoiceOf({ state }).values.status).toBe(status);
+    });
+
+    it('leaves a scheduled invoice unsent', () => {
+      expect(invoiceOf({ state: 'scheduled' }).values.sentAt).toBeUndefined();
+      expect(invoiceOf({ state: 'open' }).values.sentAt).toBeInstanceOf(Date);
+    });
+
+    it('keeps a part payment and marks the invoice partial', () => {
+      expect(invoiceOf({ state: 'late', total_paid: '72.0', total_unpaid: '100.0' }).values).toMatchObject({
+        status: 'partial',
+        amountPaid: '72.00',
+        balanceDue: '100.00',
+      });
+    });
+
+    it('treats a paid invoice as paid in full', () => {
+      expect(invoiceOf({ state: 'paid', paid_at: '2024-03-10', total_paid: '172.0', total_unpaid: '0.0' }).values).toMatchObject({
+        status: 'paid',
+        amountPaid: '172.00',
+        balanceDue: '0',
+      });
+    });
+  });
+
+  it('adds up a purchase invoice\'s payments into a partial bill', () => {
+    const mapped = mapConnectorRecord('bill', {
+      id: 'bil2',
+      reference: 'PIN-10',
+      state: 'open',
+      contact_id: 'c2',
+      date: '2024-02-01',
+      due_date: '2024-02-15',
+      total_price_excl_tax: '100.0',
+      total_price_incl_tax: '121.0',
+      payments: [{ id: 'pay1', price: '50.0', payment_date: '2024-02-03' }],
+    });
+    if (mapped?.entity !== 'bill') throw new Error('not a bill');
+    expect(mapped.values).toMatchObject({ status: 'partial', taxTotal: '21.00', amountPaid: '50.00', balanceDue: '71.00' });
+  });
+
+  it('keeps the mapper\'s status when a field mapping writes one WeldBooks does not know', () => {
+    const mapped = mapConnectorRecord('invoice', { id: 'inv3', invoice_id: '2024-0003', state: 'reminded', contact_id: 'c1' })!;
+    expect(keepKnownDocumentStatus(mapped, { ...mapped.values, status: 'reminded' }).status).toBe('overdue');
+    expect(keepKnownDocumentStatus(mapped, { ...mapped.values, status: 'cancelled' }).status).toBe('cancelled');
   });
 
   it('maps a late purchase invoice onto an overdue bill', () => {

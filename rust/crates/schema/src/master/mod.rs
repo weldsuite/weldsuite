@@ -200,6 +200,12 @@ pub fn snapshot() -> serde_json::Value {
     crate::snapshot::snapshot(&tables(), &enums::all(), views::VIEWS)
 }
 
+/// The database's schema as a typed drizzle-kit snapshot, in the entities' order:
+/// what `pnpm db:generate` diffs against the newest migration's.
+pub fn schema() -> crate::drizzle::Snapshot {
+    crate::snapshot::build(&tables(), &enums::all(), views::VIEWS)
+}
+
 /// Every row of `table` through its entity (`Entity::find().all`), as JSON;
 /// `None` for a table this database doesn't have. Behind the `all-tables`
 /// feature: spike S7 compares it with Drizzle's rows, and S6 measures what a

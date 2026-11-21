@@ -163,22 +163,14 @@ export const EDITION_FEATURES = [
    */
   'panel-analytics',
   /**
-   * Third-party integrations whose syncs and webhooks run in
-   * integration-sync-worker and integration-webhook-worker (CRM, accounting
-   * and warehouse connectors, Slack, Discord, GitHub, Google Calendar): the
-   * Kubernetes editions don't offer them yet. Their entries under Settings ›
-   * Integrations are hidden, all but Shopify and WooCommerce (`store-sync`).
+   * The third-party integrations the Kubernetes editions don't offer yet: the
+   * CRM sync (Attio, HubSpot, Salesforce), Slack, Discord, GitHub and Google
+   * Calendar. Their entries under Settings › Integrations are hidden. Not
+   * WeldConnect's store and accounting connectors (WooCommerce, Shopify,
+   * Moneybird, Picqer): the Rust backend runs their syncs, webhooks,
+   * catch-up and Moneybird push, so their pages stay (`lib/edition-routes.ts`).
    */
   'integration-sync',
-  /**
-   * Shopify and WooCommerce store syncs, which feed WeldCommerce's order hub:
-   * their pages under Settings › Integrations (`/settings/integrations/shopify`,
-   * `/woocommerce`). Both backends run them (integration-sync-worker on
-   * Global; on Kubernetes WeldConnect's connectors, `/webhooks/connectors/:id`
-   * and `weldsuite cron connector-catchup`), so no edition lists it today. Split
-   * from `integration-sync`, which keeps the other integrations hidden there.
-   */
-  'store-sync',
   /**
    * WeldStash purchasing and replenishment: purchase-order actions and
    * receipts, product suppliers, the reorder planner, its settings and the

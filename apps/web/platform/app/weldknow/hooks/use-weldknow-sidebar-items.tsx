@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { FileText } from 'lucide-react';
+import { FileText, Folder } from 'lucide-react';
 import { toast } from 'sonner';
 import { isApiError } from '@weldsuite/api-client';
 import { useCan } from '@weldsuite/permissions/react';
@@ -44,6 +44,11 @@ function pageIcon(emoji: string | null | undefined): MenuItemProps['icon'] {
     <span className={`${className ?? ''} flex items-center justify-center text-sm leading-none`}>{emoji}</span>
   );
   return EmojiIcon;
+}
+
+/** A space's pages in reading order (each page followed by its sub-pages). */
+function flattenTree(nodes: KnowledgeTreeNode[]): KnowledgeTreeNode[] {
+  return nodes.flatMap((node) => [node, ...flattenTree(node.children)]);
 }
 
 /**
@@ -260,20 +265,41 @@ export function useWeldknowSidebarItems(isActive: boolean): {
       onDeletePage: setDeletingPageId,
     };
 
+    // The desktop sidebar renders `customContent` (the nested tree). The mobile
+    // menu can't render it, so `items` carries the same pages as a plain list:
+    // without it the phone menu showed no pages or teamspaces at all.
+    const pageItem = (node: KnowledgeTreeNode): MenuItemProps => ({
+      title: node.title || t.sidebar.untitled,
+      href: `/weldknow/page/${node.id}`,
+      icon: pageIcon(node.icon),
+    });
+
+    // An empty section shows a dashed add button in its content (desktop) or
+    // from `onAdd` (mobile), so its header hides the hover "+" meanwhile.
     const personal = personalSpaces[0];
     if (personal) {
+      const privateItems = flattenTree(treesBySpace.get(personal.id) ?? []).map(pageItem);
       groups.push({
         group: t.sidebar.private,
-        items: [],
-        onAdd: canCreate ? () => void handleCreatePage(personal.id, null) : undefined,
+        items: privateItems,
+        onAdd: canCreate && personal.canWrite ? () => void handleCreatePage(personal.id, null) : undefined,
+        hideHeaderAdd: privateItems.length === 0,
+        addLabel: t.sidebar.newPage,
         customContent: <KnowledgeSpaceTree {...treeProps} spaces={[personal]} flat />,
       });
     }
 
     groups.push({
       group: t.sidebar.teamspaces,
-      items: [],
-      onAdd: canCreate && spaces.length > 0 ? openCreateSpace : undefined,
+      items: spaces.map((space) => ({
+        title: space.name,
+        href: `/weldknow?space=${space.id}`,
+        icon: space.icon ? pageIcon(space.icon) : Folder,
+        subItems: flattenTree(treesBySpace.get(space.id) ?? []).map(pageItem),
+      })),
+      onAdd: canCreate ? openCreateSpace : undefined,
+      hideHeaderAdd: spaces.length === 0,
+      addLabel: t.sidebar.createSpace,
       customContent: <KnowledgeSpaceTree {...treeProps} spaces={spaces} />,
     });
 

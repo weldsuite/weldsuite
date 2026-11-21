@@ -555,9 +555,11 @@ rust/
                         at build time, and the runner behind `weldsuite migrate` (see "Migrations" below)
   crates/schema/        the schema: the master and tenant tables as SeaORM entities, each serializing to
                         the row Drizzle returned, with what the entity can't say (defaults, indexes,
-                        constraints) as DDL data; `<kind>::snapshot()` builds drizzle-kit's snapshot from
-                        them, which must equal the newest migration's (tests/snapshot.rs), and
-                        `schema-snapshot` hands it to `pnpm db:generate` (ADR DATA-019)
+                        constraints) as DDL data; `<kind>::schema()` builds drizzle-kit's snapshot from
+                        them, which must equal the newest migration's (tests/snapshot.rs); the differ
+                        (diff.rs, drizzle-kit's SQL for every migration in history, tests/differ.rs)
+                        and the generator behind `pnpm db:generate` (generate.rs, `weldsuite-schema`)
+                        (ADR DATA-019)
   migrations/           the master and tenant migrations, generated from crates/schema in drizzle-kit's
                         layout: NNNN_<name>.sql, meta/_journal.json, the newest five snapshots
   crates/pipeline/      the gates after auth: licence, read-only, app access, feature flags
@@ -834,18 +836,21 @@ pnpm db:generate:master --name add_workspace_region  # master
 pnpm db:generate --name backfill_x --custom          # empty file for hand-written SQL
 ```
 
-`scripts/db-generate.ts` builds the entities' snapshot (`cargo run -p
-weldsuite-schema --bin schema-snapshot`), diffs the newest snapshot in
-`migrations/<database>/meta` against it with drizzle-kit's
-`generateMigration` (the interim differ, until a Rust one replaces it), and
-writes `NNNN_<name>.sql`, its snapshot and the journal entry, keeping the
-newest five snapshots. It refuses a drop, a type change (a varchar getting
-longer aside) or `SET NOT NULL` without `--allow-drop`, anything
-`CONCURRENTLY`, and a table, column, enum or view that disappears while
-another appears: it never guesses a rename. `tests/snapshot.rs` in
-`crates/schema` fails while the entities and the newest snapshot disagree,
-or a `.sql` file isn't journaled. The personal database's schema and
-migrations are still Drizzle's (`pnpm --filter @weldsuite/db
+The generator (`weldsuite-schema generate`, `crates/schema/src/generate.rs`)
+diffs the newest snapshot in `migrations/<database>/meta` against the one the
+entities build, and writes `NNNN_<name>.sql`, its snapshot and the journal
+entry, keeping the newest five snapshots. Its differ (`diff.rs`) writes what
+drizzle-kit 0.30 wrote, statement for statement: `tests/differ.rs` replays
+drizzle-kit's output for all 252 migrations whose snapshots git still has
+(`scripts/rust-differ-fixtures.ts` recorded them). It refuses a drop, a type
+change (a varchar getting longer aside), a dropped enum value or `SET NOT
+NULL` without `--allow-drop`, anything `CONCURRENTLY`, a table, column, enum
+or view that disappears while another appears (it never guesses a rename),
+and what the schema doesn't use (schemas, sequences, row-level security,
+identity columns, changing a generated column): write those as `--custom`.
+`tests/snapshot.rs` fails while the entities and the newest snapshot
+disagree, or a `.sql` file isn't journaled. The personal database's schema
+and migrations are still Drizzle's (`pnpm --filter @weldsuite/db
 db:generate:personal`).
 
 `weldsuite migrate` applies the journaled SQL (`migrations/{master,tenant}`

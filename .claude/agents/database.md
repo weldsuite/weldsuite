@@ -13,7 +13,8 @@ You are the Database specialist for WeldSuite.
   check constraints). This is the source since ADR DATA-019.
 - `rust/migrations/{tenant,master}/`: the generated SQL, `meta/_journal.json`
   and the newest five snapshots, in drizzle-kit's file format.
-- `scripts/db-generate.ts` (`pnpm db:generate`), which writes a migration from
+- The generator in `rust/crates/schema` (`generate.rs` and `diff.rs`, behind
+  `pnpm db:generate`), which writes a migration from
   the difference between the entities and the newest snapshot.
 - `rust/crates/migrations` and `weldsuite migrate`, which apply them.
 - Cross-cutting data concerns: encryption, tenant scoping, indexing, performance.

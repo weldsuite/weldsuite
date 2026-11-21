@@ -44,6 +44,16 @@ describe('tableResizeHeadroom', () => {
 
     expect(tableResizeHeadroom(table, wrapper)).toBe(0);
   });
+
+  it('adds the room the last column has above the minimum cell width', () => {
+    // A full-width table: its last column fills what the others leave, so a
+    // column can grow into it until it is down to the 120px minimum.
+    const { table, wrapper, cell } = buildEditor({ tableWidth: 693, resizing: true });
+    table.style.setProperty('--default-cell-min-width', '120px');
+    setWidth(cell, 'offsetWidth', 300);
+
+    expect(tableResizeHeadroom(table, wrapper)).toBe(180);
+  });
 });
 
 describe('useTableResizeClamp', () => {

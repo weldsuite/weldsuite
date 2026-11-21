@@ -76,7 +76,6 @@ vi.mock('./chat-context', async (importOriginal) => ({
     openThread: vi.fn(),
   }),
 }));
-vi.mock('./clip-recorder', () => ({ ClipRecorder: () => null }));
 vi.mock('./weldmerge-composer', () => ({
   useWeldMergeComposer: () => ({
     enabled: false,
@@ -104,7 +103,6 @@ vi.mock('@/lib/i18n/provider', () => ({
           emoji: 'Emoji',
           mentionSomeone: 'Mention someone',
           formatting: 'Formatting',
-          recordClip: 'Record a clip',
           recordVoiceClip: 'Record voice clip',
           sendMessage: 'Send message',
           uploading: 'Uploading',
@@ -419,18 +417,17 @@ describe('MessageInput: draft restore', () => {
 });
 
 describe('MessageInput: channel attachment lock', () => {
-  it('shows the attachment, clip and voice buttons by default', () => {
+  it('shows the attachment and voice buttons by default, and no video clip button', () => {
     render(<MessageInput channelId="ch_1" />);
     expect(screen.getByTitle('Add attachment')).toBeTruthy();
-    expect(screen.getByTitle('Record a clip')).toBeTruthy();
     expect(screen.getByTitle('Record voice clip')).toBeTruthy();
+    expect(screen.queryByTitle('Record a clip')).toBeNull();
   });
 
   it('hides them when the channel has attachments off', () => {
     mocks.channel = { type: 'public', attachmentsEnabled: false };
     render(<MessageInput channelId="ch_1" />);
     expect(screen.queryByTitle('Add attachment')).toBeNull();
-    expect(screen.queryByTitle('Record a clip')).toBeNull();
     expect(screen.queryByTitle('Record voice clip')).toBeNull();
     // Text composing is untouched.
     expect(screen.getByTitle('Mention someone')).toBeTruthy();

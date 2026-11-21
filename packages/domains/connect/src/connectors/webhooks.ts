@@ -12,6 +12,7 @@ import {
   connectorWebhookKvKey,
   enabledConnectorSyncs,
   getConnector,
+  isRoutedMoneybirdTopic,
   matchWebhookTopic,
   MoneybirdClient,
   readWebhookSignatureFromHeaders,
@@ -52,6 +53,7 @@ import { ingestRecords } from './ingest';
 import { modifiedAtOf } from './mappers';
 import { touchConnectorIndexWebhook, type ConnectorSyncIndexEnv } from '../connector-sync-index';
 import { MONEYBIRD_ATTACHMENT_DOWNLOAD_BUDGET, type MoneybirdAttachmentSyncContext } from './moneybird-attachments';
+import { moneybirdDeliveryTargets, type MoneybirdDeliveryTarget } from './moneybird-webhooks';
 import { STRIPE_PDF_DOWNLOAD_BUDGET, type StripeInvoicePdfContext } from './stripe-invoice-pdf';
 import { pushAfterStripeIngest } from './moneybird-push';
 
@@ -269,16 +271,12 @@ type WebhookResult = { ok: boolean; status: number; message: string };
 type WebhookTopic = NonNullable<ReturnType<typeof matchWebhookTopic>>;
 type WebhookSync = NonNullable<ReturnType<typeof getConnector>>['syncs'][number];
 
-/**
- * Maps an incoming webhook to the sync it feeds. Returns the topic + sync to
- * ingest, or the (successful or failed) response to answer with when the
- * delivery should not be ingested.
- */
-function resolveWebhookTarget(
+/** The topic of a delivery, or the response to answer with when it has none we handle. */
+function resolveWebhookTopic(
   connection: ConnectorConnectionRow,
   headers: Headers,
   payload: Record<string, unknown>,
-): { topic: WebhookTopic; sync: WebhookSync } | { result: WebhookResult } {
+): { topic: WebhookTopic } | { result: WebhookResult } {
   const topicName =
     readWebhookTopicFromHeaders(connection.provider, headers)
     ?? readWebhookTopicFromPayload(connection.provider, payload);
@@ -289,10 +287,20 @@ function resolveWebhookTarget(
   if (!topic) {
     return { result: { ok: true, status: 200, message: `ignored topic ${topicName}` } };
   }
+  return { topic };
+}
 
+/**
+ * The sync a delivery feeds (by name, else by setting key) when the
+ * connection imports it, or the response that says why not.
+ */
+function inboundSync(
+  connection: ConnectorConnectionRow,
+  pick: { syncName?: string; settingKey?: string },
+): { sync: WebhookSync } | { result: WebhookResult } {
   const connector = getConnector(connection.provider);
   const sync = connector?.syncs.find((s) =>
-    topic.syncName ? s.syncName === topic.syncName : s.settingKey === topic.settingKey,
+    pick.syncName ? s.syncName === pick.syncName : s.settingKey === pick.settingKey,
   );
   if (!connector || !sync) {
     return { result: { ok: true, status: 200, message: 'topic not enabled' } };
@@ -309,7 +317,7 @@ function resolveWebhookTarget(
   if (!allowsInboundSync(direction)) {
     return { result: { ok: true, status: 200, message: 'inbound sync disabled for object' } };
   }
-  return { topic, sync };
+  return { sync };
 }
 
 /**
@@ -353,14 +361,16 @@ async function afterWebhookIngest(args: {
   env: ConnectorWebhooksEnv;
   connection: ConnectorConnectionRow;
   model: string;
-  record: Record<string, unknown>;
+  /** The delivered record, null when the records were read back (see below). */
+  record: Record<string, unknown> | null;
   changed: boolean;
   waitUntil?: (promise: Promise<unknown>) => void;
 }): Promise<void> {
   const stripe = args.connection.provider === 'stripe';
-  // Stripe records carry the re-read time, not the event's: advancing the
-  // catch-up watermark with it could skip a missed earlier event.
-  const watermark = stripe ? null : modifiedAtOf(args.record);
+  // Records read back (Stripe's, Moneybird's routed ones) carry the re-read
+  // time, not the event's: advancing the catch-up watermark with it could skip
+  // a missed earlier event.
+  const watermark = stripe || !args.record ? null : modifiedAtOf(args.record);
   await touchConnectorIndexWebhook(args.env, {
     connectionId: args.connection.id,
     watermarks: watermark
@@ -373,7 +383,7 @@ async function afterWebhookIngest(args: {
   else await push;
 }
 
-export async function processConnectorWebhook(args: {
+export interface ConnectorWebhookDelivery {
   db: Database;
   env: ConnectorWebhooksEnv;
   connection: ConnectorConnectionRow;
@@ -383,7 +393,126 @@ export async function processConnectorWebhook(args: {
   headers: Headers;
   /** Runs follow-up work (the Moneybird push) after the response; awaited when absent. */
   waitUntil?: (promise: Promise<unknown>) => void;
-}): Promise<WebhookResult> {
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof ConnectorApiError || err instanceof Error ? err.message : 'ingest failed';
+}
+
+/** One sync run: the delivery's records imported into `sync`. */
+async function ingestDelivery(
+  args: ConnectorWebhookDelivery,
+  credentials: Record<string, string>,
+  client: ReturnType<typeof createConnectorClient>,
+  delivery: {
+    sync: WebhookSync;
+    loadRecords: () => Promise<Array<Record<string, unknown>>>;
+    forceDeleted: boolean;
+    /** The delivered record, for the catch-up watermark; null when the records were read back. */
+    watermarkRecord: Record<string, unknown> | null;
+  },
+): Promise<WebhookResult> {
+  const { sync } = delivery;
+  const runId = await startSyncRun({
+    db: args.db,
+    connectionId: args.connection.id,
+    syncName: sync.syncName,
+    model: sync.model,
+    trigger: 'webhook',
+    syncType: 'WEBHOOK',
+  });
+
+  try {
+    const records = await delivery.loadRecords();
+    const ingested = await ingestRecords({
+      db: args.db,
+      connectionId: args.connection.id,
+      provider: args.connection.provider,
+      displayName: args.connection.displayName,
+      storeUrl: client.storeUrl,
+      sync,
+      records,
+      ownerId: args.ownerId,
+      workspaceId: args.workspaceId,
+      entityId: credentials.entityId?.trim() || null,
+      env: args.env as unknown as Record<string, unknown>,
+      forceDeleted: delivery.forceDeleted,
+      moneybirdAttachments: moneybirdAttachmentContext(args.env, client, args.workspaceId),
+      stripeInvoicePdfs: stripeInvoicePdfContext(args.env, client, args.workspaceId),
+      skipFinancialAccountIds: skippedFinancialAccountIds(args.connection),
+    });
+    await finishSyncRun({
+      db: args.db,
+      runId,
+      connectionId: args.connection.id,
+      status: ingested.failed ? 'partial' : 'success',
+      applied: ingested,
+      error: ingested.failed ? ingested.errorSamples[0]?.message ?? 'ingest failed' : null,
+      errorSamples: ingested.errorSamples,
+    });
+    await afterWebhookIngest({
+      ...args,
+      model: sync.model,
+      record: delivery.watermarkRecord,
+      changed: ingested.created + ingested.modified > 0,
+    });
+    return { ok: true, status: 200, message: 'ingested' };
+  } catch (err) {
+    const message = errorMessage(err);
+    await finishSyncRun({
+      db: args.db,
+      runId,
+      connectionId: args.connection.id,
+      status: 'error',
+      error: message,
+    });
+    return { ok: false, status: 500, message };
+  }
+}
+
+/**
+ * A Moneybird document, payment or statement event (`moneybird-webhooks.ts`):
+ * one sync run per sync it feeds, reading back only what the connection imports.
+ */
+async function processRoutedMoneybirdDelivery(
+  args: ConnectorWebhookDelivery,
+  credentials: Record<string, string>,
+  topic: WebhookTopic,
+  payload: Record<string, unknown>,
+): Promise<WebhookResult> {
+  const client = createConnectorClient(args.connection.provider, credentials, args.connection.externalAccountId);
+  if (!(client instanceof MoneybirdClient)) return { ok: true, status: 200, message: 'topic not enabled' };
+  let targets: MoneybirdDeliveryTarget[];
+  try {
+    targets = await moneybirdDeliveryTargets({
+      client,
+      topic: topic.topic,
+      kind: topic.kind,
+      payload,
+      entity: unwrapWebhookPayload(args.connection.provider, payload),
+      wants: (syncName) => 'sync' in inboundSync(args.connection, { syncName }),
+    });
+  } catch (err) {
+    return { ok: false, status: 500, message: errorMessage(err) };
+  }
+  if (targets.length === 0) {
+    return { ok: true, status: 200, message: `nothing to import for ${topic.topic}` };
+  }
+  for (const target of targets) {
+    const picked = inboundSync(args.connection, { syncName: target.syncName });
+    if ('result' in picked) continue;
+    const result = await ingestDelivery(args, credentials, client, {
+      sync: picked.sync,
+      loadRecords: () => Promise.resolve(target.records),
+      forceDeleted: target.forceDeleted,
+      watermarkRecord: null,
+    });
+    if (!result.ok) return result;
+  }
+  return { ok: true, status: 200, message: 'ingested' };
+}
+
+export async function processConnectorWebhook(args: ConnectorWebhookDelivery): Promise<WebhookResult> {
   if (args.connection.status === 'paused' || args.connection.deletedAt) {
     return { ok: true, status: 200, message: 'ignored paused connection' };
   }
@@ -417,73 +546,27 @@ export async function processConnectorWebhook(args: {
     return { ok: true, status: 200, message: 'deauthorized' };
   }
 
-  const target = resolveWebhookTarget(args.connection, args.headers, payload);
-  if ('result' in target) return target.result;
-  const { topic, sync } = target;
+  const resolved = resolveWebhookTopic(args.connection, args.headers, payload);
+  if ('result' in resolved) return resolved.result;
+  const { topic } = resolved;
+  if (args.connection.provider === 'moneybird' && isRoutedMoneybirdTopic(topic.topic)) {
+    return processRoutedMoneybirdDelivery(args, credentials, topic, payload);
+  }
 
-  const runId = await startSyncRun({
-    db: args.db,
-    connectionId: args.connection.id,
-    syncName: sync.syncName,
-    model: sync.model,
-    trigger: 'webhook',
-    syncType: 'WEBHOOK',
-  });
-
+  const picked = inboundSync(args.connection, topic);
+  if ('result' in picked) return picked.result;
+  const { sync } = picked;
   const client = createConnectorClient(
     args.connection.provider,
     credentials,
     args.connection.externalAccountId,
   );
-
-  try {
-    const record = unwrapWebhookPayload(args.connection.provider, payload);
-    const records = client.hydrateWebhookRecords
-      ? await client.hydrateWebhookRecords(sync, record)
-      : [record];
-    const ingested = await ingestRecords({
-      db: args.db,
-      connectionId: args.connection.id,
-      provider: args.connection.provider,
-      displayName: args.connection.displayName,
-      storeUrl: client.storeUrl,
-      sync,
-      records,
-      ownerId: args.ownerId,
-      workspaceId: args.workspaceId,
-      entityId: credentials.entityId?.trim() || null,
-      env: args.env as unknown as Record<string, unknown>,
-      forceDeleted: topic.kind === 'delete',
-      moneybirdAttachments: moneybirdAttachmentContext(args.env, client, args.workspaceId),
-      stripeInvoicePdfs: stripeInvoicePdfContext(args.env, client, args.workspaceId),
-      skipFinancialAccountIds: skippedFinancialAccountIds(args.connection),
-    });
-    await finishSyncRun({
-      db: args.db,
-      runId,
-      connectionId: args.connection.id,
-      status: ingested.failed ? 'partial' : 'success',
-      applied: ingested,
-      error: ingested.failed ? ingested.errorSamples[0]?.message ?? 'ingest failed' : null,
-      errorSamples: ingested.errorSamples,
-    });
-    await afterWebhookIngest({
-      ...args,
-      model: sync.model,
-      record,
-      changed: ingested.created + ingested.modified > 0,
-    });
-    return { ok: true, status: 200, message: 'ingested' };
-  } catch (err) {
-    const message = err instanceof ConnectorApiError || err instanceof Error ? err.message : 'ingest failed';
-    await finishSyncRun({
-      db: args.db,
-      runId,
-      connectionId: args.connection.id,
-      status: 'error',
-      error: message,
-    });
-    return { ok: false, status: 500, message };
-  }
+  const record = unwrapWebhookPayload(args.connection.provider, payload);
+  return ingestDelivery(args, credentials, client, {
+    sync,
+    loadRecords: () => (client.hydrateWebhookRecords ? client.hydrateWebhookRecords(sync, record) : Promise.resolve([record])),
+    forceDeleted: topic.kind === 'delete',
+    watermarkRecord: record,
+  });
 }
 

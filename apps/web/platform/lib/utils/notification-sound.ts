@@ -215,6 +215,41 @@ export function playIncomingRingSound(): void {
   } catch (e) { console.warn('Incoming ring sound failed:', e); }
 }
 
+/**
+ * Incoming WeldChat call — a phone's double ring: two 0.4s bursts that trill
+ * between 440 and 480Hz every 50ms, 0.2s apart. Clear and loud enough to be
+ * noticed from across the room; the call loops it every RING_REPEAT_MS while
+ * the popup is up. Like playIncomingRingSound, it skips a round while the
+ * context is still autoplay-suspended.
+ */
+export function playPhoneRingSound(): void {
+  try {
+    const ctx = getAudioContext();
+    if (ctx.state !== 'running') {
+      resumeIfSuspended(ctx);
+      return;
+    }
+    const tick = 0.05;
+    for (const burst of [0, 0.6]) {
+      for (let i = 0; i < 8; i++) {
+        const start = ctx.currentTime + burst + i * tick;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.type = 'sine';
+        osc.frequency.value = i % 2 ? 480 : 440;
+        gain.gain.setValueAtTime(0, start);
+        gain.gain.linearRampToValueAtTime(0.18, start + 0.008);
+        gain.gain.setValueAtTime(0.18, start + tick - 0.008);
+        gain.gain.linearRampToValueAtTime(0, start + tick);
+        osc.start(start);
+        osc.stop(start + tick + 0.01);
+      }
+    }
+  } catch (e) { console.warn('Phone ring sound failed:', e); }
+}
+
 /** Mute — single quiet low note */
 export function playMuteSound(): void {
   try {

@@ -1,7 +1,7 @@
 /**
  * Record chats on the client: the chats attached to companies, people, tasks,
  * projects, domains, sheets and documents (`chat_channels.type = 'entity'`).
- * One place for each type's labels, icon and where the record opens, used by
+ * One place for each type's labels, app logo and where the record opens, used by
  * the WeldChat sidebar groups, the record chat header and the record panels'
  * chat. A sheet's or a document's chat holds its comment threads (ADR
  * CHAT-007).
@@ -11,12 +11,12 @@
  * says how to show one. Add a type here when chat-api gets a provider for it.
  */
 
-import { Briefcase, Building2, CheckSquare, FileText, Globe, Sheet, SquareDashedMousePointer, User, type LucideIcon } from 'lucide-react';
 import {
   RECORD_CHAT_TYPES,
   type RecordChatType,
 } from '@weldsuite/app-api-client/schemas/chat-entity-channels';
 import { RECORD_GROUP_PREFIX } from './group-filter';
+import { appLogoIcon, type AppLogoIconComponent } from './app-logo-icon';
 
 export { RECORD_CHAT_TYPES, type RecordChatType };
 
@@ -28,7 +28,8 @@ export interface RecordChatTypeInfo {
   labelKey: string;
   /** The button that opens the record ("Open company"). */
   openLabelKey: string;
-  icon: LucideIcon;
+  /** The logo of the app the record lives in (WeldCRM's, WeldBoard's, …). */
+  icon: AppLogoIconComponent;
   /** Object panel that shows the record (`components/objects/<panelType>`)... */
   panelType?: string;
   /** ...or the page that does (a spreadsheet, a document). */
@@ -43,7 +44,7 @@ const RECORD_CHAT_TYPE_INFO: Record<RecordChatType, RecordChatTypeInfo> = {
     groupLabelKey: `${K}.groups.company`,
     labelKey: `${K}.types.company`,
     openLabelKey: `${K}.open.company`,
-    icon: Building2,
+    icon: appLogoIcon('weldcrm'),
     panelType: 'company',
   },
   person: {
@@ -51,7 +52,7 @@ const RECORD_CHAT_TYPE_INFO: Record<RecordChatType, RecordChatTypeInfo> = {
     groupLabelKey: `${K}.groups.person`,
     labelKey: `${K}.types.person`,
     openLabelKey: `${K}.open.person`,
-    icon: User,
+    icon: appLogoIcon('weldcrm'),
     panelType: 'person',
   },
   task: {
@@ -59,7 +60,7 @@ const RECORD_CHAT_TYPE_INFO: Record<RecordChatType, RecordChatTypeInfo> = {
     groupLabelKey: `${K}.groups.task`,
     labelKey: `${K}.types.task`,
     openLabelKey: `${K}.open.task`,
-    icon: CheckSquare,
+    icon: appLogoIcon('weldflow'),
     panelType: 'task',
   },
   project: {
@@ -67,7 +68,7 @@ const RECORD_CHAT_TYPE_INFO: Record<RecordChatType, RecordChatTypeInfo> = {
     groupLabelKey: `${K}.groups.project`,
     labelKey: `${K}.types.project`,
     openLabelKey: `${K}.open.project`,
-    icon: Briefcase,
+    icon: appLogoIcon('weldflow'),
     panelType: 'project',
   },
   domain: {
@@ -75,7 +76,7 @@ const RECORD_CHAT_TYPE_INFO: Record<RecordChatType, RecordChatTypeInfo> = {
     groupLabelKey: `${K}.groups.domain`,
     labelKey: `${K}.types.domain`,
     openLabelKey: `${K}.open.domain`,
-    icon: Globe,
+    icon: appLogoIcon('weldhost'),
     panelType: 'domain',
   },
   sheet: {
@@ -83,7 +84,7 @@ const RECORD_CHAT_TYPE_INFO: Record<RecordChatType, RecordChatTypeInfo> = {
     groupLabelKey: `${K}.groups.sheet`,
     labelKey: `${K}.types.sheet`,
     openLabelKey: `${K}.open.sheet`,
-    icon: Sheet,
+    icon: appLogoIcon('weldsheets'),
     href: (id) => `/weldsheets/${encodeURIComponent(id)}`,
   },
   doc: {
@@ -91,7 +92,7 @@ const RECORD_CHAT_TYPE_INFO: Record<RecordChatType, RecordChatTypeInfo> = {
     groupLabelKey: `${K}.groups.doc`,
     labelKey: `${K}.types.doc`,
     openLabelKey: `${K}.open.doc`,
-    icon: FileText,
+    icon: appLogoIcon('welddocs'),
     href: (id) => `/welddocs/${encodeURIComponent(id)}`,
   },
   board: {
@@ -99,7 +100,7 @@ const RECORD_CHAT_TYPE_INFO: Record<RecordChatType, RecordChatTypeInfo> = {
     groupLabelKey: `${K}.groups.board`,
     labelKey: `${K}.types.board`,
     openLabelKey: `${K}.open.board`,
-    icon: SquareDashedMousePointer,
+    icon: appLogoIcon('weldboard'),
     href: (id) => `/weldboard/${encodeURIComponent(id)}`,
   },
 };
