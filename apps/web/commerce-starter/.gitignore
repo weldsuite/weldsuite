@@ -1,0 +1,12 @@
+# dependencies
+node_modules
+
+# next.js (next-env.d.ts is written by `next dev`, `next build` and `next typegen`)
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+
+# env files: real values never go in git; the example does
+.env*
+!.env.example

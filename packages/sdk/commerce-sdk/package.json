@@ -1,0 +1,55 @@
+{
+  "name": "@weldsuite/commerce-sdk",
+  "version": "0.1.0",
+  "description": "Typed client for the WeldCommerce storefront API: catalogue, carts, checkout with Mollie, shopper accounts and B2B ordering",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      },
+      "./package.json": "./package.json"
+    },
+    "types": "./dist/index.d.ts",
+    "module": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json",
+    "type-check": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "weldsuite",
+    "weldcommerce",
+    "storefront",
+    "ecommerce",
+    "headless",
+    "sdk"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/weldsuite/weldsuite.git",
+    "directory": "packages/sdk/commerce-sdk"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2",
+    "vitest": "^4.1.12"
+  }
+}

@@ -111,7 +111,10 @@ TypeScript worker.
   Node build for Kubernetes), `helpcenter` (3008), `sign-portal` (3023),
   `project-portal` (3024), `forms-portal` (3025).
 - Next.js: `sites` (3007, customer websites), `api-docs` (3009), `docs` (3010,
-  help.weldsuite.org), `booking-portal` (3019), `meeting-portal` (3020).
+  help.weldsuite.org), `booking-portal` (3019), `meeting-portal` (3020),
+  `commerce-starter` (3030, the MIT-licensed WeldCommerce starter shop on
+  `@weldsuite/commerce-sdk`: a template to fork, never deployed, no internal
+  imports).
 - Vite SPAs: `developer` (WeldApps developer portal), `partner` (3203,
   reseller portal), `weldmail` and `weldcalendar` (consumer apps on a personal
   Weld account, served by `personal-api`), `helpdesk-widget` (3100).
@@ -160,7 +163,8 @@ never by path:
 - `design/`: `ui` (the shared component library), `mobile-ui`,
   `site-components`, `weldmeet-ui`, `forms-renderer`.
 - `sdk/`: published, permissively licensed SDKs: `app-sdk`, `cli`,
-  `helpdesk-widget-sdk`, `forms-embed`, `panel-sdk`, `cursor-plugin`.
+  `helpdesk-widget-sdk`, `forms-embed`, `panel-sdk`, `cursor-plugin`,
+  `commerce-sdk`.
 
 ## Commands
 
