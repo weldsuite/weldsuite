@@ -159,7 +159,7 @@ export default function DmConversationPage() {
         <>
           <PinnedMessagesBar channelId={channelId} />
           {/* Distinct keys per sibling: see channel/page.tsx. */}
-          <MessageList key={`list:${channelId}`} channelId={channelId} client={client} isDm targetMessageId={targetMessageId} onTargetHandled={clearTarget} unreadMarker={unreadMarker} />
+          <MessageList key={`list:${channelId}`} channelId={channelId} client={client} targetMessageId={targetMessageId} onTargetHandled={clearTarget} unreadMarker={unreadMarker} />
           <MessageInput key={`input:${channelId}`} channelId={channelId} client={client} />
         </>
       )}

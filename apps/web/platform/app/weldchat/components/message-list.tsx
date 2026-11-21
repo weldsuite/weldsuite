@@ -74,7 +74,6 @@ interface MessageListProps {
   parentId?: string;
   showChannel?: boolean;
   client?: RoomClient | null;
-  isDm?: boolean;
   /** Deep-link target (`?msg=`): scrolled to and highlighted once found; channel view only. */
   targetMessageId?: string;
   /** Called once the deep link has been handled (jumped to, or reported as not found): clear it from the URL. */
@@ -87,7 +86,6 @@ export function MessageList({
   channelId,
   parentId,
   showChannel,
-  isDm,
   targetMessageId,
   onTargetHandled,
   unreadMarker,
@@ -457,7 +455,6 @@ export function MessageList({
               message={threadParent}
               channelId={channelId}
               membersMap={membersMap}
-              isDm={isDm}
               record={record}
             />
           </div>
@@ -529,7 +526,6 @@ export function MessageList({
                 membersMap={membersMap}
                 replyToMessage={replyToMessage}
                 readBy={readByMap.get(message.id)}
-                isDm={isDm}
                 hasActiveCall={hasActiveCall && message.id === lastCallStartedId}
                 activeCallId={hasActiveCall && message.id === lastCallStartedId ? activeCallData?.data?.id : undefined}
                 call={callHistory.calls.get(message.id)}

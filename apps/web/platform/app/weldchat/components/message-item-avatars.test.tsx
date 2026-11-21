@@ -164,19 +164,13 @@ describe('comment line', () => {
 describe('thread replies', () => {
   const withReplies = message({ threadReplyCount: 2 });
 
-  it('opens the thread in the side panel beside the channel', () => {
+  it('opens the thread in the side panel beside the conversation (a channel or a DM)', () => {
     render(<MessageItem message={withReplies} />);
     const indicator = screen.getByTestId('chat-thread-indicator');
     expect(indicator.tagName).toBe('BUTTON');
     expect(indicator.textContent).toBe('2 replies');
     fireEvent.click(indicator);
     expect(chat.openThread).toHaveBeenCalledWith('msg_1');
-  });
-
-  it("goes to the thread's page in a DM, which shows no side panel", () => {
-    render(<MessageItem message={withReplies} isDm />);
-    expect(screen.getByTestId('chat-thread-indicator').getAttribute('href')).toBe('/weldchat/ch_1/thread/msg_1');
-    expect(chat.openThread).not.toHaveBeenCalled();
   });
 
   it("goes to the thread's page from a list across channels", () => {

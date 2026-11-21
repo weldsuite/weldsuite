@@ -292,8 +292,6 @@ interface MessageItemProps {
   replyToMessage?: ReplyToMessagePreview;
   /** Users who have read this message */
   readBy?: ReadByUser[];
-  /** Whether this is a DM conversation */
-  isDm?: boolean;
   /** Whether this message is the start of the call that is live in this channel */
   hasActiveCall?: boolean;
   /** The id of that live call, so its notice can offer Join */
@@ -732,7 +730,6 @@ export function MessageItem({
   membersMap,
   replyToMessage,
   readBy,
-  isDm,
   hasActiveCall,
   activeCallId,
   call,
@@ -961,9 +958,9 @@ export function MessageItem({
           <ThreadIndicator
             channelId={resolvedChannelId}
             messageId={message.id}
-            // A DM shows no side panel, and a list across channels has no
-            // channel open to show it beside: those go to the thread's page.
-            onOpen={isDm || showChannel ? undefined : () => openThread(message.id)}
+            // A list across channels has no channel open to show it beside:
+            // there it goes to the thread's page.
+            onOpen={showChannel ? undefined : () => openThread(message.id)}
           >
             <MessageSquare className="h-3 w-3" />
             {message.threadReplyCount}{' '}

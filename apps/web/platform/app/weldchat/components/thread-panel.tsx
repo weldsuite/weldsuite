@@ -3,7 +3,7 @@ import { MessageInput } from './message-input';
 import { X, ChevronRight, Hash, Lock } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { useChatContext } from './chat-context';
-import { useChannel } from '@/hooks/queries/use-weldchat-queries';
+import { useChannel, useDmChannels } from '@/hooks/queries/use-weldchat-queries';
 import type { ChatChannel } from '@/hooks/queries/use-weldchat-queries';
 import { useEffect, useRef, useState } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
@@ -26,6 +26,13 @@ export function ThreadPanel({ channelId, messageId }: Readonly<ThreadPanelProps>
   // A record's chat (a sheet's, a board's, …) shows its app's logo, as in the chat header.
   const recordInfo = getRecordChatTypeInfo(channel?.entityType);
   const PrivacyIcon = isPrivate ? Lock : Hash;
+  // A DM is named after who it is with (its stored name isn't), from the DM
+  // list the sidebar has loaded; a DM with yourself keeps its own name.
+  const isDirect = channel?.type === 'dm' || channel?.type === 'group';
+  const { data: dmsData } = useDmChannels(isDirect);
+  const dm = isDirect ? dmsData?.data?.find((d) => d.id === channelId) : undefined;
+  const directName = dm?.otherMembers?.map((m) => m.name).filter(Boolean).join(', ');
+  const conversationName = (isDirect && directName) || channel?.name;
 
   const [threadName, setThreadName] = useState(t.weldchat.threadPanel.defaultName);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -83,14 +90,11 @@ export function ThreadPanel({ channelId, messageId }: Readonly<ThreadPanelProps>
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between px-4 py-2.5 border-b flex-shrink-0 min-h-[53px]">
         <div className="flex items-center gap-1.5 min-w-0">
-          {channel?.name && (
+          {conversationName && (
             <div className="flex items-center gap-1 min-w-0">
-              {recordInfo ? (
-                <recordInfo.icon className={`h-4 w-4 flex-shrink-0 ${APP_LOGO_IN_COLOUR}`} />
-              ) : (
-                <PrivacyIcon className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-              )}
-              <span className="text-[15px] font-semibold truncate">{channel.name}</span>
+              {recordInfo && <recordInfo.icon className={`h-4 w-4 flex-shrink-0 ${APP_LOGO_IN_COLOUR}`} />}
+              {!recordInfo && !isDirect && <PrivacyIcon className="h-4 w-4 text-muted-foreground flex-shrink-0" />}
+              <span className="text-[15px] font-semibold truncate">{conversationName}</span>
             </div>
           )}
           <ChevronRight className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
