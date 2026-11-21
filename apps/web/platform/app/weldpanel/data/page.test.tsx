@@ -99,7 +99,22 @@ describe('computed property helpers', () => {
 });
 
 describe('Data', () => {
+  it('lists the four kinds of data with how many there are', () => {
+    state.customEvents = [makeCustomEvent()];
+    render(<DataPage />);
+    for (const label of Object.values(td.tabs)) expect(screen.getByText(label)).toBeTruthy();
+    expect(screen.getByText(td.customEvents.description)).toBeTruthy();
+  });
+
+  it('opens a kind under a title row with a way back', () => {
+    state.search = 'tab=groupTypes';
+    render(<DataPage />);
+    expect(screen.getByRole('heading', { name: td.tabs.groupTypes })).toBeTruthy();
+    expect(screen.getByRole('button', { name: td.back })).toBeTruthy();
+  });
+
   it('lists custom events and creates one from two events', async () => {
+    state.search = 'tab=customEvents';
     state.customEvents = [makeCustomEvent()];
     state.createEvent.mockResolvedValue(makeCustomEvent({ id: 'pnce_2' }));
     render(<DataPage />);
@@ -124,6 +139,7 @@ describe('Data', () => {
   });
 
   it('says when a custom event name is taken', async () => {
+    state.search = 'tab=customEvents';
     state.createEvent.mockRejectedValue(new ApiError('taken', 409));
     render(<DataPage />);
     await userEvent.click(screen.getAllByRole('button', { name: td.customEvents.new })[0]!);

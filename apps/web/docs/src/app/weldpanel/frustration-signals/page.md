@@ -33,7 +33,7 @@ Error messages have email addresses and long numbers masked. With each error Wel
 
 ## The Frustration page
 
-Open **Frustration** under **Behaviour** and pick the date range.
+Open **Frustration** under **Behaviour** and pick the date range at the top right. Use **Filter** to look at one device, or at pages whose path contains a text; every number on the page follows. Search narrows the pages and elements lists.
 
 - A tile per signal shows how many there were in the period. Click a tile to look at that signal.
 - **Trend** charts every signal over time.
