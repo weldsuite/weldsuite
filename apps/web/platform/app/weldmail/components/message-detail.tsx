@@ -17,7 +17,6 @@ import {
   Tag,
   Loader2,
   AlertTriangle,
-  ShieldAlert,
   Ban,
   MailX,
   Paperclip,
@@ -57,7 +56,6 @@ import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { cn } from '@/lib/utils';
 import { formatLocalized } from '@/lib/i18n/date-locale';
 import { format, isThisYear, isToday } from 'date-fns';
-import { attachmentIcon } from '@/app/weldmail/lib/attachment-icon';
 import { useUser } from '@/lib/auth';
 import { useCurrentUserAvatar } from '@/hooks/use-member-avatar';
 import { ComposeSurface } from '@/app/weldmail/components/compose-surface';
@@ -114,8 +112,8 @@ import {
 import { useNotifySendError } from '../lib/use-notify-send-error';
 import { replaceBodyKeepingSignature, userWrittenText, type SignatureMode } from '../lib/signature';
 import { useComposeSignature } from './compose-signature';
-import { attachmentScanState, isAttachmentForwardable, type AttachmentScanState } from '../lib/attachment-scan';
-import type { MailAttachmentScanStatus } from '@weldsuite/app-api-client/schemas/mail-attachments';
+import { isAttachmentForwardable } from '../lib/attachment-scan';
+import { AttachmentChip, type AttachmentChipData } from './attachment-chip';
 import { MailThreatBanner } from './mail-threat-banner';
 import { useSaveMailAttachment } from './use-save-mail-attachment';
 import type { Mail as MailTypes } from '@/lib/api/types/apps/mail.types';
@@ -446,12 +444,6 @@ function getSenderAvatarUrl(m: { from?: unknown }): string | undefined {
     return url ?? undefined;
   }
   return undefined;
-}
-
-function formatAttachmentSize(size: number): string {
-  if (size < 1024) return `${size} B`;
-  if (size < 1048576) return `${Math.round(size / 1024)} KB`;
-  return `${(size / 1048576).toFixed(1)} MB`;
 }
 
 // `name` is the label as stored on the message (system labels are upper-case).
@@ -832,84 +824,6 @@ function QuotedContent({ messageId, quotedContent, isHtml, showQuoted, onToggle 
         </div>
       )}
     </>
-  );
-}
-
-interface AttachmentChipData {
-  id: string;
-  fileName: string;
-  size: number;
-  contentType?: string | null;
-  scanStatus?: MailAttachmentScanStatus | null;
-  scanSignature?: string | null;
-}
-
-/**
- * One attachment chip. A file the virus scan blocked (infected) or still holds
- * (pending) is not a button: it can't be clicked, and the server refuses it
- * anyway. A file the scanner could not read still downloads, with a warning.
- */
-function AttachmentChip({ att, onDownload }: Readonly<{
-  att: AttachmentChipData;
-  onDownload: (att: AttachmentChipData) => void;
-}>) {
-  const { t } = useI18n();
-  const copy = t.mail.messageDetail;
-  const state: AttachmentScanState = attachmentScanState(att);
-  const TypeIcon = attachmentIcon(att.fileName, att.contentType);
-
-  if (state === 'infected') {
-    const hint = copy.attachmentInfectedHint.replace('{signature}', att.scanSignature ?? '');
-    return (
-      <div
-        title={`${att.fileName}: ${hint}`}
-        className="inline-flex cursor-not-allowed items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-1.5 text-sm text-destructive"
-      >
-        <ShieldAlert className="h-4 w-4 shrink-0" aria-hidden />
-        <span className="flex min-w-0 flex-col leading-tight">
-          <span className="max-w-[200px] truncate line-through">{att.fileName}</span>
-          <span className="text-xs font-medium">
-            {copy.attachmentInfected}
-            {att.scanSignature ? ` · ${att.scanSignature}` : ''}
-          </span>
-        </span>
-      </div>
-    );
-  }
-
-  if (state === 'pending') {
-    return (
-      <div
-        title={copy.attachmentScanningHint}
-        className="inline-flex cursor-not-allowed items-center gap-2 rounded-md border border-border bg-muted/50 px-3 py-1.5 text-sm text-muted-foreground"
-      >
-        <TypeIcon className="h-4 w-4 shrink-0" aria-hidden />
-        <span className="flex min-w-0 flex-col leading-tight">
-          <span className="max-w-[200px] truncate">{att.fileName}</span>
-          <span className="text-xs">{copy.attachmentScanning}</span>
-        </span>
-      </div>
-    );
-  }
-
-  return (
-    <Button
-      type="button"
-      variant="outline"
-      size="sm"
-      onClick={() => onDownload(att)}
-      title={state === 'scan-failed' ? `${att.fileName}: ${copy.attachmentScanFailedHint}` : att.fileName}
-    >
-      <TypeIcon />
-      <span className="max-w-[200px] truncate">{att.fileName}</span>
-      <span className="text-xs text-muted-foreground">{formatAttachmentSize(att.size)}</span>
-      {state === 'scan-failed' && (
-        <span className="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400">
-          <AlertTriangle className="h-3 w-3" aria-hidden />
-          {copy.attachmentScanFailed}
-        </span>
-      )}
-    </Button>
   );
 }
 
