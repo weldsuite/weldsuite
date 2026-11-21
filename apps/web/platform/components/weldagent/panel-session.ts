@@ -11,9 +11,14 @@ export interface PanelSession {
   /** The workspace agent chosen in the header; '' is the general WeldAgent. */
   agentId: string;
   messages: ChatMessage[];
+  /**
+   * A name the user gave the chat in the header; '' shows the automatic one
+   * (its first message, or "Untitled chat"). Cleared with a new chat.
+   */
+  title: string;
 }
 
-export const EMPTY_PANEL_SESSION: PanelSession = { agentId: '', messages: [] };
+export const EMPTY_PANEL_SESSION: PanelSession = { agentId: '', messages: [], title: '' };
 
 export const panelSessionAtom = atom<PanelSession>(EMPTY_PANEL_SESSION);
 

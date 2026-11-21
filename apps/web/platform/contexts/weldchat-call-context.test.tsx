@@ -50,7 +50,7 @@ const realtime = vi.hoisted(() => ({
 const sounds = vi.hoisted(() => ({
   playCallJoinSound: vi.fn(),
   playCallLeaveSound: vi.fn(),
-  playIncomingRingSound: vi.fn(),
+  playPhoneRingSound: vi.fn(),
   playMuteSound: vi.fn(),
   playUnmuteSound: vi.fn(),
   playCameraToggleSound: vi.fn(),
@@ -205,7 +205,7 @@ vi.mock('@/lib/api/public-env', () => ({
 }));
 
 import { ApiError } from '@weldsuite/api-client';
-import { RECONNECT_TOAST_DELAY_MS, REJOIN_DELAYS_MS, WeldChatCallProvider, useWeldChatCall } from './weldchat-call-context';
+import { RECONNECT_TOAST_DELAY_MS, REJOIN_DELAYS_MS, RING_REPEAT_MS, WeldChatCallProvider, useWeldChatCall } from './weldchat-call-context';
 import { ActiveCallProvider, useCallSwitchDialog, useRegisterActiveCall } from './active-call-context';
 
 const RECONNECT_TOAST = 'weldchat-reconnecting';
@@ -263,12 +263,14 @@ interface MountOptions {
   coordinator?: boolean;
   /** A WeldMeet meeting that is live, with the leave the meet provider would register. */
   meetingLeave?: () => Promise<void>;
+  /** The query cache to mount with (a fresh one when left out). */
+  queryClient?: QueryClient;
 }
 
 /** Mount the provider alone, or under the coordinator like the app shell does. */
-function mountChat({ coordinator = false, meetingLeave }: MountOptions = {}) {
+function mountChat({ coordinator = false, meetingLeave, queryClient = new QueryClient() }: MountOptions = {}) {
   const wrapper = ({ children }: { children: ReactNode }) => (
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={queryClient}>
       {coordinator ? (
         <ActiveCallProvider>
           <DialogProbe />
@@ -725,6 +727,21 @@ describe('WeldChatCallProvider · leaving on purpose', () => {
     expect(call.endReason).toBeNull();
   });
 
+  it('drops the conversation\'s "call in progress" at once, so no Join row flashes as the chat comes back', async () => {
+    const queryClient = new QueryClient();
+    await startConnectedCall({ queryClient });
+    queryClient.setQueryData(['weldchat', 'active-call', 'ch_1'], { data: { id: 'call_1', channelId: 'ch_1' } });
+    // The backend has not answered the leave yet.
+    api.post.mockImplementation(() => new Promise(() => undefined));
+
+    await act(async () => {
+      void call.leaveCall();
+    });
+
+    expect(call.status).toBe('ended');
+    expect(queryClient.getQueryData(['weldchat', 'active-call', 'ch_1'])).toEqual({ data: null });
+  });
+
   it('ends the call for everyone through /end', async () => {
     await startConnectedCall();
 
@@ -810,7 +827,7 @@ describe('WeldChatCallProvider · an incoming call', () => {
     expect(call.callId).toBe('call_1');
     expect(call.meeting).not.toBeNull();
     // The ringtone only plays for an idle user, never over the live call.
-    expect(sounds.playIncomingRingSound).not.toHaveBeenCalled();
+    expect(sounds.playPhoneRingSound).not.toHaveBeenCalled();
   });
 
   it('does not ring for the call the user is already in', async () => {
@@ -1208,15 +1225,15 @@ describe('WeldChatCallProvider · the incoming call ringtone', () => {
     vi.useFakeTimers();
     ringIncoming();
     expect(call.status).toBe('ringing-incoming');
-    expect(sounds.playIncomingRingSound).toHaveBeenCalledTimes(1);
+    expect(sounds.playPhoneRingSound).toHaveBeenCalledTimes(1);
 
-    act(() => vi.advanceTimersByTime(2600 * 2));
-    expect(sounds.playIncomingRingSound).toHaveBeenCalledTimes(3);
+    act(() => vi.advanceTimersByTime(RING_REPEAT_MS * 2));
+    expect(sounds.playPhoneRingSound).toHaveBeenCalledTimes(3);
 
     act(() => vi.advanceTimersByTime(60_000));
-    const ringsAt30s = sounds.playIncomingRingSound.mock.calls.length;
+    const ringsAt30s = sounds.playPhoneRingSound.mock.calls.length;
     act(() => vi.advanceTimersByTime(60_000));
-    expect(sounds.playIncomingRingSound).toHaveBeenCalledTimes(ringsAt30s);
+    expect(sounds.playPhoneRingSound).toHaveBeenCalledTimes(ringsAt30s);
     expect(call.status).toBe('ringing-incoming');
   });
 
@@ -1229,7 +1246,7 @@ describe('WeldChatCallProvider · the incoming call ringtone', () => {
     expect(call.incomingCall).toBeNull();
     expect(call.status).toBe('idle');
     act(() => vi.advanceTimersByTime(10_000));
-    expect(sounds.playIncomingRingSound).toHaveBeenCalledTimes(1);
+    expect(sounds.playPhoneRingSound).toHaveBeenCalledTimes(1);
   });
 
   it('stops ringing when the caller hangs up first', () => {
@@ -1271,7 +1288,7 @@ describe('WeldChatCallProvider · the incoming call ringtone', () => {
     expect(call.status).toBe('idle');
 
     act(() => vi.advanceTimersByTime(10_000));
-    expect(sounds.playIncomingRingSound).toHaveBeenCalledTimes(1);
+    expect(sounds.playPhoneRingSound).toHaveBeenCalledTimes(1);
   });
 });
 

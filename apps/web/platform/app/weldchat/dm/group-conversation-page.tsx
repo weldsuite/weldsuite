@@ -24,6 +24,8 @@ const InlineCallView = lazy(() =>
   import('../components/call-overlay').then((m) => ({ default: m.InlineCallView })),
 );
 import { useChatContext } from '../components/chat-context';
+import { isInlineCall, isReturningFromCall, RETURN_FROM_CALL_CLASS } from '../lib/inline-call';
+import { cn } from '@/lib/utils';
 
 export default function GroupConversationPage() {
   const { t } = useI18n();
@@ -37,7 +39,10 @@ export default function GroupConversationPage() {
   const { status: callStatus, channelId: callChannelId, isFullscreen, isPiP } = useWeldChatCall();
   const { setActiveChannelId } = useChatContext();
   const channel = data?.data;
-  const isInCall = callStatus !== 'idle' && callChannelId === channelId && !isFullscreen && !isPiP;
+  const call = { status: callStatus, channelId: callChannelId, isFullscreen, isPiP };
+  const isInCall = isInlineCall(call, channelId);
+  // When the call ends the chat comes straight back, fading in where the call was.
+  const returningFromCall = isReturningFromCall(call, channelId);
 
   useEffect(() => {
     setActiveChannelId(channelId ?? null);
@@ -94,7 +99,7 @@ export default function GroupConversationPage() {
     );
 
   return (
-    <div className="flex flex-col h-full">
+    <div className={cn('flex flex-col h-full', returningFromCall && RETURN_FROM_CALL_CLASS)}>
       {!isInCall && (
         <ChannelHeader channel={channel} />
       )}

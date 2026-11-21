@@ -41,6 +41,8 @@ import {
   isDesktopChannelEnabled,
   showOsNotification,
 } from '@/lib/desktop-notifications';
+import { isInlineCall, isReturningFromCall, RETURN_FROM_CALL_CLASS } from '../lib/inline-call';
+import { cn } from '@/lib/utils';
 
 /** Breadcrumbs after "Chat": "Companies › Acme" for a record chat, "#general" for a channel. */
 function channelCrumbs(
@@ -165,10 +167,13 @@ export default function ChannelPage() {
       </div>
     );
 
-  const isInCall = callStatus !== 'idle' && callChannelId === channelId && !isFullscreen && !isPiP;
+  const call = { status: callStatus, channelId: callChannelId, isFullscreen, isPiP };
+  const isInCall = isInlineCall(call, channelId);
+  // When the call ends the chat comes straight back, fading in where the call was.
+  const returningFromCall = isReturningFromCall(call, channelId);
 
   return (
-    <div className="flex flex-col h-full">
+    <div className={cn('flex flex-col h-full', returningFromCall && RETURN_FROM_CALL_CLASS)}>
       {!isInCall && <ChannelHeader channel={channel} />}
       {isInCall ? (
         <Suspense fallback={null}>

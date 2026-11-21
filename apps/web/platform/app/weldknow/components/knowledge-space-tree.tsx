@@ -59,6 +59,31 @@ const ROW_ACTION_CLASS =
 /** Indent per tree level, on top of the sidebar button's own 8px padding. */
 const INDENT_PX = 12;
 
+/**
+ * Row actions (add, more) show on hover, and also while the keyboard focus
+ * is in the row (`:focus-visible`, so a mouse click doesn't leave them up)
+ * and always on touch screens that have no hover. The label makes room for
+ * them in the same states.
+ */
+const ROW_ACTIONS_CLASS =
+  'absolute right-1 top-1/2 flex -translate-y-1/2 items-center opacity-0 transition-opacity group-hover/item:opacity-100 group-has-[:focus-visible]/item:opacity-100 group-has-[[data-state=open]]/item:opacity-100 [@media(hover:none)]:opacity-100';
+const ROW_BUTTON_ROOM_CLASS =
+  'flex-1 hover:bg-transparent group-hover/item:pr-14 group-has-[:focus-visible]/item:pr-14 group-has-[[data-state=open]]/item:pr-14 [@media(hover:none)]:pr-14';
+
+/** The dashed "+ …" button an empty section shows (first page, first teamspace). */
+function DashedAddButton({ label, onClick }: Readonly<{ label: string; onClick: () => void }>) {
+  return (
+    <Button
+      variant="ghost"
+      onClick={onClick}
+      className="flex items-center justify-center gap-2 w-full px-3 py-2 text-xs text-muted-foreground hover:text-foreground border border-dashed border-gray-300 dark:border-border hover:border-gray-400 dark:hover:border-gray-500 rounded-md transition-colors h-auto"
+    >
+      <Plus className="h-4 w-4" />
+      <span>{label}</span>
+    </Button>
+  );
+}
+
 export interface KnowledgeSpaceTreeProps {
   spaces: KnowledgeSpace[];
   treesBySpace: Map<string, KnowledgeTreeNode[]>;
@@ -137,14 +162,7 @@ export function KnowledgeSpaceTree(props: Readonly<KnowledgeSpaceTreeProps>) {
       <SidebarMenu>
         <SidebarMenuItem>
           {canCreate ? (
-            <Button
-              variant="ghost"
-              onClick={onCreateSpace}
-              className="flex items-center justify-center gap-2 w-full px-3 py-2 text-xs text-muted-foreground hover:text-foreground border border-dashed border-gray-300 dark:border-border hover:border-gray-400 dark:hover:border-gray-500 rounded-md transition-colors h-auto"
-            >
-              <Plus className="h-4 w-4" />
-              <span>{t.sidebar.createSpace}</span>
-            </Button>
+            <DashedAddButton label={t.sidebar.createSpace} onClick={onCreateSpace} />
           ) : (
             <p className="px-2 py-1.5 text-xs text-muted-foreground">{t.sidebar.noSpacesTitle}</p>
           )}
@@ -166,12 +184,16 @@ export function KnowledgeSpaceTree(props: Readonly<KnowledgeSpaceTreeProps>) {
           <SidebarMenuButton
             asChild
             isActive={isActive}
-            className="flex-1 hover:bg-transparent group-hover/item:pr-14 group-has-[[data-state=open]]/item:pr-14"
+            className={ROW_BUTTON_ROOM_CLASS}
             style={{ paddingLeft: 8 + depth * INDENT_PX }}
           >
             <Link href={`/weldknow/page/${node.id}`}>
               <NodeIcon emoji={node.icon} fallback={FileText} />
-              <span className="truncate min-w-0 text-muted-foreground">{node.title || t.sidebar.untitled}</span>
+              {/* Grey like every other sidebar item, but the active page reads
+                  dark on its highlight instead of staying grey. */}
+              <span className={cn('truncate min-w-0', !isActive && 'text-muted-foreground')}>
+                {node.title || t.sidebar.untitled}
+              </span>
               {/* Expand / collapse sits at the right end of the row */}
               {hasChildren && (
                 <span
@@ -191,7 +213,7 @@ export function KnowledgeSpaceTree(props: Readonly<KnowledgeSpaceTreeProps>) {
             </Link>
           </SidebarMenuButton>
 
-          <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center opacity-0 transition-opacity group-hover/item:opacity-100 group-has-[[data-state=open]]/item:opacity-100">
+          <div className={ROW_ACTIONS_CLASS}>
             {canCreate && canWrite && (
               <Button
                 variant="ghost"
@@ -249,8 +271,18 @@ export function KnowledgeSpaceTree(props: Readonly<KnowledgeSpaceTreeProps>) {
   if (flat) {
     const space = spaces[0]!;
     const tree = treesBySpace.get(space.id) ?? [];
-    // An empty flat section shows just its heading (and "add" button).
-    if (tree.length === 0) return null;
+    // An empty Private section offers its first page with the same dashed
+    // button an empty Teamspaces section uses for its first teamspace.
+    if (tree.length === 0) {
+      if (!canCreate || !space.canWrite) return null;
+      return (
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <DashedAddButton label={t.sidebar.newPage} onClick={() => onCreatePage(space.id, null)} />
+          </SidebarMenuItem>
+        </SidebarMenu>
+      );
+    }
     return <SidebarMenu>{tree.map((node) => renderPage(node, space, 0))}</SidebarMenu>;
   }
 
@@ -264,7 +296,7 @@ export function KnowledgeSpaceTree(props: Readonly<KnowledgeSpaceTreeProps>) {
           <SidebarMenuItem key={space.id}>
             <div className="group/item relative flex items-center rounded-md transition-colors hover:bg-accent">
               <SidebarMenuButton
-                className="flex-1 hover:bg-transparent group-hover/item:pr-14 group-has-[[data-state=open]]/item:pr-14"
+                className={ROW_BUTTON_ROOM_CLASS}
                 onClick={() => onToggleSpace(space.id)}
                 aria-expanded={isExpanded}
               >
@@ -276,7 +308,7 @@ export function KnowledgeSpaceTree(props: Readonly<KnowledgeSpaceTreeProps>) {
                 </span>
               </SidebarMenuButton>
 
-              <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center opacity-0 transition-opacity group-hover/item:opacity-100 group-has-[[data-state=open]]/item:opacity-100">
+              <div className={ROW_ACTIONS_CLASS}>
                 {canAddPage && (
                   <Button
                     variant="ghost"

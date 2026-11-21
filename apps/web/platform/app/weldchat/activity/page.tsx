@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState, type ReactNode } from 'react';
-import { AtSign, Check, MessageCircle, Reply, User, type LucideIcon } from 'lucide-react';
+import { AtSign, Check, PhoneMissed, Reply, User, type LucideIcon } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { MemberAvatar } from '@/components/member-avatar';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
@@ -67,18 +67,26 @@ function formatRelative(
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-function activityCategory(type: string): 'mentions' | 'replies' | 'dms' | 'other' {
+/**
+ * Activity is what asks for your attention: mentions, replies in your threads
+ * and missed calls. A DM's messages are not activity (they show in the DM), so
+ * the server leaves them out of the feed.
+ */
+function activityCategory(type: string): 'mentions' | 'replies' | 'calls' | 'other' {
   const t = type.toLowerCase();
   if (t.includes('mention')) return 'mentions';
   if (t.includes('reply') || t.includes('thread')) return 'replies';
-  if (t.includes('dm') || t.includes('direct')) return 'dms';
+  if (t.includes('call')) return 'calls';
   return 'other';
 }
+
+/** A DM's message: not activity. */
+const DM_MESSAGE_TYPE = 'chat_dm';
 
 const CATEGORY_ICONS: Record<ReturnType<typeof activityCategory>, LucideIcon> = {
   mentions: AtSign,
   replies: Reply,
-  dms: MessageCircle,
+  calls: PhoneMissed,
   other: User,
 };
 
@@ -122,8 +130,10 @@ export default function ActivityPage() {
     return map;
   }, [membersData]);
 
+  // The server leaves a DM's messages out of the feed; one a version behind
+  // still sends them, so they are dropped here too.
   const allItems: ActivityItem[] = useMemo(
-    () => (data?.pages ?? []).flatMap((page) => page?.data ?? []),
+    () => (data?.pages ?? []).flatMap((page) => page?.data ?? []).filter((item) => item.type !== DM_MESSAGE_TYPE),
     [data],
   );
 
@@ -146,7 +156,6 @@ export default function ActivityPage() {
         { value: 'all', label: t.activityFilters?.all ?? 'All' },
         { value: 'mentions', label: t.activityFilters?.mentions ?? 'Mentions' },
         { value: 'replies', label: t.activityFilters?.replies ?? 'Replies' },
-        { value: 'dms', label: t.activityFilters?.dms ?? 'DMs' },
       ],
     },
   ], [t]);
@@ -167,9 +176,9 @@ export default function ActivityPage() {
         sortOrder: 1,
       },
       {
-        id: 'dms',
-        label: t.activityFilters?.dms ?? 'DMs',
-        filter: (item) => activityCategory(item.type) === 'dms',
+        id: 'calls',
+        label: t.activityFilters.missedCalls,
+        filter: (item) => activityCategory(item.type) === 'calls',
         sortOrder: 2,
       },
       {
@@ -353,7 +362,7 @@ export default function ActivityPage() {
             </EmptyStateIllustration>
           ),
           title: t.activityEmpty ?? 'No activity yet',
-          description: t.activityEmptyHint ?? 'Mentions, thread replies, and DMs will show up here.',
+          description: t.activityEmptyHint,
         }}
         noResultsState={{
           title: t.activityPage?.noActivityFound ?? 'No activity found',

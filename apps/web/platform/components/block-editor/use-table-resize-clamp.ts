@@ -1,15 +1,25 @@
 import { useEffect, type RefObject } from 'react';
 
+/** BlockNote's minimum cell width, when the table doesn't state its own. */
+const DEFAULT_CELL_MIN_WIDTH = 120;
+
 /**
- * Room (px) a table has left to grow before it overflows its wrapper. The
- * wrapper's horizontal padding is reserved for the row handle and the
- * "add column" button, so the table may only fill the wrapper's content box.
+ * Room (px) a column has to grow before the table overflows its wrapper.
+ *
+ * Tables span the text's full width (app/globals.css) and their last column
+ * fills whatever the other columns leave. So a column may grow by the room
+ * left in the wrapper's content box plus what the last column has above the
+ * minimum cell width; past that the table would scroll sideways.
  */
 export function tableResizeHeadroom(table: HTMLElement, wrapper: HTMLElement): number {
   const style = getComputedStyle(wrapper);
   const available =
     wrapper.clientWidth - (parseFloat(style.paddingLeft) || 0) - (parseFloat(style.paddingRight) || 0);
-  return Math.max(0, Math.floor(available - table.offsetWidth));
+  const minCell =
+    parseFloat(table.style.getPropertyValue('--default-cell-min-width')) || DEFAULT_CELL_MIN_WIDTH;
+  const lastCell = table.querySelector('tr')?.lastElementChild as HTMLElement | null | undefined;
+  const lastColumnRoom = lastCell ? Math.max(0, lastCell.offsetWidth - minCell) : 0;
+  return Math.max(0, Math.floor(available - table.offsetWidth + lastColumnRoom));
 }
 
 /**

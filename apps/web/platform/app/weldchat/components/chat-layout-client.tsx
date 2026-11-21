@@ -5,6 +5,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  type CSSProperties,
 } from 'react';
 import { Button } from '@weldsuite/ui/components/button';
 import { getTranslations } from '@/lib/i18n';
@@ -20,10 +21,12 @@ import { BookmarksPanel } from './bookmarks-panel';
 import { ChatFiltersPanel } from './chat-filters-panel';
 import { parseWeldChatPath } from '../lib/route-segments';
 import { threadAfterChannelChange, threadMessageIdFor, type OpenThread } from '../lib/thread-state';
+import { isInlineCall as isInlineCallFor } from '../lib/inline-call';
 import { ChatContext, requestComposerFocus, type RightPanel, type ReplyTo, type EditingMessage, type ChatFilters } from './chat-context';
 import { useEntitySheet } from '@/components/entity-sheet/use-entity-sheet';
 import { useObjectPanel } from '@/components/object-panel';
 import { ModuleContent } from '@/components/layout/module-content';
+import { FLOATING_DRAWER_WIDTH } from '@/components/layout/floating-drawer';
 export { useChatContext, type ReplyTo, type EditingMessage } from './chat-context';
 
 export function ChatLayoutClient({ children }: Readonly<{ children: ReactNode }>) {
@@ -103,7 +106,10 @@ export function ChatLayoutClient({ children }: Readonly<{ children: ReactNode }>
   const { isOpen: isEntitySheetOpen } = useEntitySheet();
 
   const { status: callStatus, channelId: callChannelId, isFullscreen: callFullscreen, isPiP: callPiP } = useWeldChatCall();
-  const isInlineCall = callStatus !== 'idle' && callChannelId === currentChannelId && !callFullscreen && !callPiP;
+  const isInlineCall = isInlineCallFor(
+    { status: callStatus, channelId: callChannelId, isFullscreen: callFullscreen, isPiP: callPiP },
+    currentChannelId,
+  );
 
   // The member detail panel always starts closed.
   const [memberDetailWidth, setMemberDetailWidth] = useState(0);
@@ -171,9 +177,9 @@ export function ChatLayoutClient({ children }: Readonly<{ children: ReactNode }>
     }
   }, [isEntitySheetOpen]);
 
-  // The thread pane is a fixed 480px column. Opened next to the channel details
-  // panel it squeezes the timeline to ~110px on a 1440px screen, so opening a
-  // thread collapses the details panel (the user can reopen it afterwards).
+  // The thread pane is a fixed column as wide as the WeldAgent panel. Opened
+  // next to the channel details panel it squeezes the timeline to a sliver, so
+  // opening a thread collapses the details panel (the user can reopen it).
   const openThread = useCallback((messageId: string) => {
     closeAllObjectPanels();
     setThread({ channelId: currentChannelId, messageId });
@@ -274,12 +280,15 @@ export function ChatLayoutClient({ children }: Readonly<{ children: ReactNode }>
             <div className="@container relative flex flex-1 min-w-0 h-full overflow-hidden">
               <div className="flex-1 min-w-0 flex flex-col">{children}</div>
 
-              {/* Beside the channel the panel is 480px wide. When the chat area
-                  is narrower than 48rem that would squeeze the timeline to a
-                  few words per line, so there the panel slides over it. */}
+              {/* Beside the channel the panel is as wide as the WeldAgent panel
+                  (FLOATING_DRAWER_WIDTH). When the chat area is narrower than
+                  48rem that would squeeze the timeline to a few words per
+                  line, so there the panel slides over it. */}
               {effectiveRightPanel && currentChannelId && !isInlineCall &&
                 (!isDmPage || effectiveRightPanel === 'bookmarks' || effectiveRightPanel === 'filters') && (
-                <div className="max-md:fixed max-md:inset-0 max-md:z-40 max-md:bg-background max-md:flex max-md:flex-col md:w-[480px] md:flex-shrink-0 md:border-l md:@max-3xl:absolute md:@max-3xl:inset-y-0 md:@max-3xl:right-0 md:@max-3xl:z-30 md:@max-3xl:max-w-full md:@max-3xl:bg-background md:@max-3xl:shadow-xl h-full overflow-hidden">
+                <div
+                  style={{ '--chat-side-panel-width': `${FLOATING_DRAWER_WIDTH}px` } as CSSProperties}
+                  className="max-md:fixed max-md:inset-0 max-md:z-40 max-md:bg-background max-md:flex max-md:flex-col md:w-(--chat-side-panel-width) md:flex-shrink-0 md:border-l md:@max-3xl:absolute md:@max-3xl:inset-y-0 md:@max-3xl:right-0 md:@max-3xl:z-30 md:@max-3xl:max-w-full md:@max-3xl:bg-background md:@max-3xl:shadow-xl h-full overflow-hidden">
                   {/* Mobile-only close bar. On md+ this is hidden because each
                       panel has its own internal header / close affordance. */}
                   <div className="md:hidden flex items-center justify-end px-2 py-2 border-b flex-shrink-0">
@@ -300,7 +309,7 @@ export function ChatLayoutClient({ children }: Readonly<{ children: ReactNode }>
                     </Button>
                   </div>
                   {/* `md:contents` removes this wrapper on desktop so the
-                      original layout (children direct inside the 480px box)
+                      original layout (children direct inside the panel's box)
                       is preserved. On mobile, flex-1/min-h-0/overflow-hidden
                       makes the panel fill the remaining height below the
                       close bar. */}

@@ -1,5 +1,7 @@
 //! `/api/chat-activity` (`routes/chat-activity/index.ts`): the caller's
-//! WeldChat notifications (mentions, replies, DMs, missed calls) as a feed.
+//! WeldChat notifications that ask for their attention (mentions, replies in
+//! their threads, missed calls) as a feed. A DM's messages are not activity:
+//! they show in the DM itself.
 
 use std::sync::Arc;
 
@@ -33,19 +35,22 @@ where
 
 const FILTERS: [&str; 4] = ["all", "mentions", "replies", "dms"];
 
+/// What the feed lists, counts and marks read.
+const FEED_TYPES: [&str; 3] = ["chat_mention", "chat_thread_reply", "chat_missed_call"];
+
 fn filter_types(filter: &str) -> Vec<String> {
     let types: &[&str] = match filter {
         "mentions" => &["chat_mention"],
         "replies" => &["chat_thread_reply"],
+        // Kept for clients one version behind, which still offer a DMs filter.
         "dms" => &["chat_dm"],
-        _ => &[
-            "chat_mention",
-            "chat_dm",
-            "chat_thread_reply",
-            "chat_missed_call",
-        ],
+        _ => &FEED_TYPES,
     };
     types.iter().map(|t| (*t).to_owned()).collect()
+}
+
+fn feed_types() -> Vec<String> {
+    FEED_TYPES.iter().map(|t| (*t).to_owned()).collect()
 }
 
 /// The cursor: base64 JSON `{ createdAt, id }`; a malformed one is ignored.
@@ -206,11 +211,13 @@ async fn mark_read(caller: Caller, headers: HeaderMap, body: Bytes) -> Response 
         sqlx::query(
             "update notifications set read_at = $3::timestamptz, is_read = true
              where user_id = $1 and category = 'weldchat' and read_at is null and deleted_at is null
-               and ($2::text is null or id = $2)",
+               and (case when $2::text is null then notification_type = any($4) else id = $2 end)",
         )
         .bind(&caller.user_id)
         .bind(&id)
         .bind(now())
+        // "Mark all read" clears the feed, not the notifications it leaves out.
+        .bind(feed_types())
         .execute(&caller.db)
         .await?;
         Ok(NoContent.into_response())
@@ -223,9 +230,11 @@ async fn unread_count(caller: Caller) -> Response {
     let result = async {
         let count: i64 = sqlx::query_scalar(
             "select count(*) from notifications
-             where user_id = $1 and category = 'weldchat' and read_at is null and deleted_at is null",
+             where user_id = $1 and category = 'weldchat' and read_at is null and deleted_at is null
+               and notification_type = any($2)",
         )
         .bind(&caller.user_id)
+        .bind(feed_types())
         .fetch_one(&caller.db)
         .await?;
         Ok(Data(json!({ "count": count })).into_response())

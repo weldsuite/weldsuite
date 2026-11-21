@@ -15,7 +15,7 @@ import {
 import { ChannelEmptyState } from './channel-empty-state';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { useQuery } from '@tanstack/react-query';
-import { MessageItem, type MessageItemMessage } from './message-item';
+import { MessageItem, type CommentRecord, type MessageItemMessage } from './message-item';
 import { MessageSkeleton } from './message-skeleton';
 import { Button } from '@weldsuite/ui/components/button';
 import { Loader2 } from 'lucide-react';
@@ -115,10 +115,23 @@ export function MessageList({
   const { data, isLoading, isError, refetch, fetchNextPage, hasNextPage, isFetchingNextPage } =
     (parentId ? threadResult : messagesResult) as MessagesQueryResult;
 
-  // Channel info — used by the empty state. Hits the same cache the page
-  // already populated, so no extra fetch in normal navigation.
-  const { data: channelData } = useChannel(parentId ? '' : channelId);
+  // Channel info — used by the empty state, and by comment threads for the
+  // title of the board, sheet or document the chat belongs to (in a thread
+  // too). Hits the same cache the page already populated, so no extra fetch in
+  // normal navigation.
+  const { data: channelData } = useChannel(channelId);
   const channel = channelData?.data;
+  const record = useMemo<CommentRecord | undefined>(
+    () =>
+      channel?.entityType
+        ? {
+            type: channel.entityType,
+            id: channel.entityId ?? undefined,
+            title: channel.entityDisplayName || channel.name || '',
+          }
+        : undefined,
+    [channel?.entityType, channel?.entityId, channel?.entityDisplayName, channel?.name],
+  );
 
   // Workspace members + agent members for resolving @mention badges
   const { data: membersData } = useWorkspaceMembers();
@@ -417,7 +430,7 @@ export function MessageList({
       }
     `}</style>
     <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-transparent hover:scrollbar-thumb-muted-foreground/20" style={{ scrollbarWidth: 'thin', scrollbarColor: 'transparent transparent' }} onMouseEnter={(e) => { e.currentTarget.style.scrollbarColor = 'rgba(150,150,150,0.2) transparent'; }} onMouseLeave={(e) => { e.currentTarget.style.scrollbarColor = 'transparent transparent'; }}>
-      <div data-testid="chat-message-list" className="flex flex-col min-h-full pt-4 pb-8 space-y-1">
+      <div data-testid="chat-message-list" className="flex flex-col min-h-full pt-4 pb-8">
         {/* Spacer pushes messages to bottom when content is shorter than viewport */}
         <div className="flex-1" />
         {hasNextPage && (
@@ -445,6 +458,7 @@ export function MessageList({
               channelId={channelId}
               membersMap={membersMap}
               isDm={isDm}
+              record={record}
             />
           </div>
         )}
@@ -471,7 +485,8 @@ export function MessageList({
             !replyToMessage &&
             !startsUnread &&
             prevMessage.authorId === message.authorId &&
-            !isSystemNotice(prevMessage) &&
+            // A call reads as a message from its caller, so it groups like one.
+            (!isSystemNotice(prevMessage) || callHistory.calls.has(prevMessage.id)) &&
             !showDate &&
             !Number.isNaN(timeDiff) &&
             timeDiff >= 0 &&
@@ -517,6 +532,7 @@ export function MessageList({
                 hasActiveCall={hasActiveCall && message.id === lastCallStartedId}
                 activeCallId={hasActiveCall && message.id === lastCallStartedId ? activeCallData?.data?.id : undefined}
                 call={callHistory.calls.get(message.id)}
+                record={record}
               />
             </div>
           );
