@@ -59,3 +59,13 @@ describe('spreadsheets tagged in a conversation', () => {
     ]);
   });
 });
+
+describe('text full of unclosed tags', () => {
+  it('stays fast and still finds the tag after them', () => {
+    const noise = '<@' + '<@='.repeat(100_000);
+    const started = Date.now();
+    const found = taggedRecords(`${noise} <@ticket:tkt_1|Refund>`);
+    expect(Date.now() - started).toBeLessThan(500);
+    expect(found).toEqual([{ type: 'ticket', id: 'tkt_1', label: 'Refund' }]);
+  });
+});

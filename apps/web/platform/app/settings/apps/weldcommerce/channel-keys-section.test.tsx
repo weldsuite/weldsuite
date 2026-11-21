@@ -104,7 +104,7 @@ describe('ChannelKeysSection', () => {
         data: { kind: 'publishable', name: 'Shop', allowedOrigins: ['https://shop.example.com'] },
       }),
     );
-    expect((await screen.findByTestId('key-secret')).textContent).toBe('wcp_SECRET123');
+    expect(await screen.findByTestId('key-secret')).toHaveValue('wcp_SECRET123');
     await user.click(screen.getByRole('button', { name: 'I have copied it' }));
     await waitFor(() => expect(screen.queryByTestId('key-secret')).toBeNull());
   });
@@ -128,7 +128,7 @@ describe('ChannelKeysSection', () => {
     const dialog = screen.getByRole('dialog');
     await user.click(within(dialog).getByRole('button', { name: 'Rotate' }));
     await waitFor(() => expect(env.rotate).toHaveBeenCalledWith({ channelId: 'ch_1', keyId: 'k1' }));
-    expect((await screen.findByTestId('key-secret')).textContent).toBe('wcp_ROTATED');
+    expect(await screen.findByTestId('key-secret')).toHaveValue('wcp_ROTATED');
   });
 
   it('revokes after a confirmation', async () => {

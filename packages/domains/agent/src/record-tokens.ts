@@ -53,7 +53,9 @@ export interface TaggedRecord {
   label: string | null;
 }
 
-const TOKEN = /<@([^>]+)>/g;
+// A token body never holds `<`: stopping there (and at 512 characters) keeps a
+// long run of unclosed `<@` linear instead of rescanning to the end each time.
+const TOKEN = /<@([^<>]{1,512})>/g;
 
 /** The record a token body (`type:id|Label`) names, or null for a person, an agent or a file. */
 function recordOf(body: string): TaggedRecord | null {

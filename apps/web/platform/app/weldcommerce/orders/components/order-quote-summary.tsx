@@ -7,14 +7,17 @@
 import { Check } from 'lucide-react';
 import { InlineSpinner } from '@weldsuite/ui/components/page-loader';
 import { InfoBanner } from '@weldsuite/ui/components/info-banner';
-import type { DiscountProblem, OrderQuote } from '@/hooks/queries/use-commerce-orders-queries';
+import type { OrderQuote } from '@/hooks/queries/use-commerce-orders-queries';
 import { getTranslations } from '@/lib/i18n';
 import { fill } from '../../lib/text';
 import { money } from '../../lib/orders';
 import { rateText, vatTreatmentText } from '../../lib/vat';
 
-/** A discount problem in words; null when there is none. */
-export function discountProblemText(problem: DiscountProblem | string | null | undefined): string | null {
+/**
+ * A discount problem (a `DiscountProblem` code from the quote, or one this build doesn't
+ * know yet) in words; null when there is none.
+ */
+export function discountProblemText(problem: string | null | undefined): string | null {
   if (!problem) return null;
   const t = getTranslations('commerce').orders.quote;
   const known: Record<string, string> = t.discountProblems;

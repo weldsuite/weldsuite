@@ -24,7 +24,7 @@ describe('SecretDialog', () => {
   it('shows the secret and says it will not be shown again', () => {
     render(<SecretDialog secret={secret} onClose={vi.fn()} />);
     expect(screen.getByRole('dialog', { name: 'Your new key' })).toBeTruthy();
-    expect(screen.getByTestId('key-secret').textContent).toBe('wcs_ABCDEF123456');
+    expect(screen.getByTestId('key-secret')).toHaveValue('wcs_ABCDEF123456');
     expect(screen.getByText('You will not see this key again.')).toBeTruthy();
   });
 

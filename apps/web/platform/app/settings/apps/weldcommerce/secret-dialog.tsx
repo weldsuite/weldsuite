@@ -67,17 +67,19 @@ function SecretBox({ secret, label }: Readonly<{ secret: string; label: string }
 
   return (
     <div className="flex items-stretch gap-2">
-      {/* Focusable and selectable, and it wraps instead of being cut off. */}
-      <div
-        role="textbox"
-        aria-readonly="true"
+      {/* A read-only field: focusable and selectable, and it wraps instead of being cut off. */}
+      <textarea
+        readOnly
+        rows={2}
+        value={secret}
         aria-label={label}
-        tabIndex={0}
+        spellCheck={false}
+        autoCapitalize="none"
+        autoCorrect="off"
+        onFocus={(event) => event.currentTarget.select()}
         data-testid="key-secret"
-        className="min-w-0 flex-1 select-all break-all rounded-md border bg-muted/40 px-3 py-2 font-mono text-[13px] leading-snug outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
-      >
-        {secret}
-      </div>
+        className="min-w-0 flex-1 resize-none break-all rounded-md border bg-muted/40 px-3 py-2 font-mono text-[13px] leading-snug outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+      />
       <span className="relative flex">
         <Button
           type="button"
