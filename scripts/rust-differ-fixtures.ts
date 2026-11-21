@@ -119,10 +119,14 @@ function resolvers(next: Snapshot) {
     return { created: left, deleted: gone, renamed };
   }
 
-  const named = async (input: { created: Named[]; deleted: Named[] }) => ({ ...pair(input.created, input.deleted, tableRenames), moved: [] });
-  const plain = async (input: { created: Named[]; deleted: Named[] }) => ({ created: input.created, deleted: input.deleted, renamed: [] });
-  const unrenamed = async (input: { created: Named[]; deleted: Named[] }) => ({ created: input.created, deleted: input.deleted, moved: [], renamed: [] });
-  const columns = async (input: { tableName: string; schema: string; created: Named[]; deleted: Named[] }) => {
+  // drizzle-kit awaits its resolvers; these answer at once.
+  const named = (input: { created: Named[]; deleted: Named[] }) =>
+    Promise.resolve({ ...pair(input.created, input.deleted, tableRenames), moved: [] });
+  const plain = (input: { created: Named[]; deleted: Named[] }) =>
+    Promise.resolve({ created: input.created, deleted: input.deleted, renamed: [] });
+  const unrenamed = (input: { created: Named[]; deleted: Named[] }) =>
+    Promise.resolve({ created: input.created, deleted: input.deleted, moved: [], renamed: [] });
+  const columns = (input: { tableName: string; schema: string; created: Named[]; deleted: Named[] }) => {
     const prefix = `${input.schema || 'public'}.${input.tableName}.`;
     const renames = new Map([...columnRenames].filter(([from]) => from.startsWith(prefix)).map(([from, to]) => [from.slice(prefix.length), to.slice(prefix.length)]));
     const renamed: Array<{ from: Named; to: Named }> = [];
@@ -137,26 +141,27 @@ function resolvers(next: Snapshot) {
         gone.push(item);
       }
     }
-    return { tableName: input.tableName, schema: input.schema, created: left, deleted: gone, renamed };
+    return Promise.resolve({ tableName: input.tableName, schema: input.schema, created: left, deleted: gone, renamed });
   };
-  const policies = async (input: { tableName: string; schema: string; created: Named[]; deleted: Named[] }) => ({
-    tableName: input.tableName,
-    schema: input.schema,
-    created: input.created,
-    deleted: input.deleted,
-    renamed: [],
-  });
+  const policies = (input: { tableName: string; schema: string; created: Named[]; deleted: Named[] }) =>
+    Promise.resolve({
+      tableName: input.tableName,
+      schema: input.schema,
+      created: input.created,
+      deleted: input.deleted,
+      renamed: [],
+    });
   // schemas, enums, sequences, policy, indPolicy, roles, tables, columns, views
   return [plain, unrenamed, unrenamed, policies, plain, plain, named, columns, unrenamed];
 }
 
 /** The pair cut down to the tables, enums and views that differ (renamed ones under both names). */
 function changedOnly(prev: Snapshot, next: Snapshot): [Snapshot, Snapshot] {
-  const renamedTables = Object.entries(next._meta?.tables ?? {}).flatMap(([from, to]) => [metaKey(from), metaKey(to)]);
+  const renamedTables = new Set(Object.entries(next._meta?.tables ?? {}).flatMap(([from, to]) => [metaKey(from), metaKey(to)]));
   const cut = (section: 'tables' | 'enums' | 'views') => {
     const keys = new Set([...Object.keys(prev[section]), ...Object.keys(next[section])]);
     const keep = [...keys].filter(
-      (key) => JSON.stringify(prev[section][key]) !== JSON.stringify(next[section][key]) || renamedTables.includes(key),
+      (key) => JSON.stringify(prev[section][key]) !== JSON.stringify(next[section][key]) || renamedTables.has(key),
     );
     const pick = (snapshot: Snapshot) => Object.fromEntries(keep.filter((key) => key in snapshot[section]).map((key) => [key, snapshot[section][key]]));
     return [pick(prev), pick(next)];
@@ -197,40 +202,52 @@ async function writePair(drizzle: DrizzleInternals, database: string, n: number,
   writeFileSync(file, gzipSync(JSON.stringify(fixture), { level: 9 }));
 }
 
+interface Progress {
+  written: number;
+  skipped: string[];
+}
+
+/**
+ * Pairs `numbers[i]` with the snapshot before it, then goes on to the next
+ * number: one pair at a time, so only two snapshots (2 MB each) are loaded.
+ */
+async function walk(
+  drizzle: DrizzleInternals,
+  database: string,
+  files: Map<number, string>,
+  numbers: number[],
+  i: number,
+  prev: { n: number; snapshot: Snapshot } | null,
+  progress: Progress,
+): Promise<Progress> {
+  if (i >= numbers.length) return progress;
+  const n = numbers[i];
+  const next = snapshotAt(files.get(n) as string);
+  if (prev && prev.n === n - 1 && next.prevId === prev.snapshot.id) {
+    await writePair(drizzle, database, n, prev.snapshot, next);
+    progress.written++;
+  } else if (prev) {
+    const why = prev.n === n - 1 ? 'prevId does not chain' : `no snapshot ${n - 1}`;
+    progress.skipped.push(`${database} ${n} (${why})`);
+  }
+  return walk(drizzle, database, files, numbers, i + 1, { n, snapshot: next }, progress);
+}
+
 /** The goldens of one database; the snapshot numbers that couldn't be paired. */
-async function writeDatabase(drizzle: DrizzleInternals, database: string): Promise<{ written: number; skipped: string[] }> {
+function writeDatabase(drizzle: DrizzleInternals, database: string): Promise<Progress> {
   mkdirSync(path.join(OUT, database), { recursive: true });
   const files = snapshotFiles(database);
   const numbers = [...files.keys()].sort((a, b) => a - b);
-  let written = 0;
-  const skipped: string[] = [];
-  let prev: Snapshot | null = null;
-  let prevN = -1;
-  for (const n of numbers) {
-    const next = snapshotAt(files.get(n) as string);
-    if (prev && prevN === n - 1 && next.prevId === prev.id) {
-      await writePair(drizzle, database, n, prev, next);
-      written++;
-    } else if (prev) {
-      const why = prevN === n - 1 ? 'prevId does not chain' : `no snapshot ${n - 1}`;
-      skipped.push(`${database} ${n} (${why})`);
-    }
-    prev = next;
-    prevN = n;
-  }
-  return { written, skipped };
+  return walk(drizzle, database, files, numbers, 0, null, { written: 0, skipped: [] });
 }
 
 async function main(): Promise<void> {
   const drizzle = drizzleInternals();
   rmSync(OUT, { recursive: true, force: true });
-  let written = 0;
-  const skipped: string[] = [];
-  for (const database of ['tenant', 'master']) {
-    const result = await writeDatabase(drizzle, database);
-    written += result.written;
-    skipped.push(...result.skipped);
-  }
+  const tenant = await writeDatabase(drizzle, 'tenant');
+  const master = await writeDatabase(drizzle, 'master');
+  const written = tenant.written + master.written;
+  const skipped = [...tenant.skipped, ...master.skipped];
   console.log(`${written} pairs written to ${path.relative(repo, OUT)}`);
   if (skipped.length) console.log(`skipped: ${skipped.join(', ')}`);
 }
