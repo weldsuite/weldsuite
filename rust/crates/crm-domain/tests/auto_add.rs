@@ -59,9 +59,17 @@ async fn clean_up(db: &PgPool, tag: &str) {
     }
 }
 
-/// A member on the workspace's own domain, and a hidden person (as mail
-/// leaves them) at Acme.
+/// A member on the workspace's own domain, a hidden person (as mail leaves
+/// them) at Acme, and a CRM contact at a domain no company's website matches.
 async fn seed(db: &PgPool, tag: &str, acme: &str, ours: &str, owner: &str) {
+    sqlx::query(
+        "insert into people (id, display_name, email, in_crm) values ($1, 'eva', $2, true)",
+    )
+    .bind(format!("contact_{tag}"))
+    .bind(format!("eva@known-{tag}.test"))
+    .execute(db)
+    .await
+    .expect("CRM contact");
     sqlx::query("insert into workspace_members (id, user_id, email) values ($1, $2, $3)")
         .bind(format!("wm_{tag}"))
         .bind(owner)
@@ -105,6 +113,18 @@ async fn assert_added(db: &PgPool, tag: &str, acme: &str, ours: &str, owner: &st
     let (in_crm, _, free) = person(db, &format!("{tag}@gmail.com")).await.expect("free");
     assert!(in_crm);
     assert_eq!(companies_of(db, &free).await, Vec::<String>::new());
+    // Someone already in the CRM is left alone: no company for their domain.
+    let (_, _, eva) = person(db, &format!("eva@known-{tag}.test"))
+        .await
+        .expect("eva");
+    assert_eq!(companies_of(db, &eva).await, Vec::<String>::new());
+    let known_companies: i64 =
+        sqlx::query_scalar("select count(*) from companies where website like $1")
+            .bind(format!("%known-{tag}%"))
+            .fetch_one(db)
+            .await
+            .expect("known companies");
+    assert_eq!(known_companies, 0);
     // Colleagues, the workspace's own domains and automated senders: nobody.
     for skipped in [
         format!("ann@{ours}"),
@@ -142,6 +162,7 @@ async fn adds_the_people_the_workspace_engaged_with() {
         Candidate::new(&format!("bob@eu.{ours}"), None),
         Candidate::new(&format!("noreply@{acme}"), None),
         Candidate::new(&format!("{tag}@gmail.com"), None),
+        Candidate::new(&format!("eva@known-{tag}.test"), None),
     ];
 
     // Off by default: nobody is added.

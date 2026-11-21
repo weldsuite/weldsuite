@@ -661,83 +661,146 @@ async fn add_one(
     candidate: &Candidate,
     owner: Option<&str>,
 ) -> DomainResult<Option<Added>> {
-    let company = if settings.create_companies {
-        ensure_company(db, events, source, email, owner).await?
-    } else {
-        None
-    };
-    let (person_id, created) = match find_person(db, email).await? {
+    // The person first: someone already in the CRM is left alone, and so is
+    // their company, which must not be created for nobody.
+    let person_id = match find_person(db, email).await? {
         Some((_, true)) => return Ok(None),
         Some((id, false)) => {
-            let Some(row) = crate::people::add_person_to_crm(db, &id, owner, None).await? else {
+            if !promote(db, events, &id, owner).await? {
                 return Ok(None);
-            };
-            events.publish(PERSON_UPDATED, &id, pick(&row, &["id", "displayName"]));
-            (id, false)
+            }
+            id
         }
         None => {
-            let (first, last) = split_name(email, candidate.name.as_deref());
-            let mut input = Map::new();
-            input.insert("email".to_owned(), json!(email));
-            if let Some(first) = first {
-                input.insert("firstName".to_owned(), json!(first));
-            }
-            if let Some(last) = last {
-                input.insert("lastName".to_owned(), json!(last));
-            }
-            input.insert("inCrm".to_owned(), json!(true));
-            input.insert("source".to_owned(), json!(source.record_source()));
-            if let Some(owner) = owner {
-                input.insert("ownerId".to_owned(), json!(owner));
-            }
-            if let Some((company_id, _)) = &company {
-                input.insert("companyIds".to_owned(), json!([company_id]));
-                input.insert("primaryCompanyId".to_owned(), json!(company_id));
-            }
-            match crate::people::create_person_detailed(db, &input).await {
-                Ok((row, _)) => {
-                    let id = crate::str_field(&row, "id").unwrap_or_default().to_owned();
-                    events.publish(PERSON_CREATED, &id, pick(&row, &PERSON_EVENT_KEYS));
+            // A new person is created linked to their company.
+            let company = company_for(db, events, source, settings, email, owner).await?;
+            return match create_person(
+                db,
+                events,
+                source,
+                email,
+                candidate,
+                owner,
+                company.as_ref(),
+            )
+            .await?
+            {
+                Created::New(id) => Ok(Some(Added {
+                    person_id: id,
+                    created: true,
+                    company_id: company.as_ref().map(|(id, _)| id.clone()),
+                    company_created: company.is_some_and(|(_, created)| created),
+                })),
+                // Someone else's write won: add theirs, with the company
+                // this run may just have created.
+                Created::Raced(id) => {
+                    promote(db, events, &id, owner).await?;
                     if let Some((company_id, _)) = &company {
-                        // `createPerson` linked it.
-                        events.publish(COMPANY_UPDATED, company_id, json!({ "id": company_id }));
+                        link_to_company(db, events, &id, company_id).await?;
                     }
-                    return Ok(Some(Added {
+                    Ok(Some(Added {
                         person_id: id,
-                        created: true,
+                        created: false,
                         company_id: company.as_ref().map(|(id, _)| id.clone()),
                         company_created: company.is_some_and(|(_, created)| created),
-                    }));
+                    }))
                 }
-                // Someone else's write won: add theirs.
-                Err(DomainError::DuplicateEmail {
-                    existing_person_id, ..
-                }) => {
-                    if let Some(row) =
-                        crate::people::add_person_to_crm(db, &existing_person_id, owner, None)
-                            .await?
-                    {
-                        events.publish(
-                            PERSON_UPDATED,
-                            &existing_person_id,
-                            pick(&row, &["id", "displayName"]),
-                        );
-                    }
-                    (existing_person_id, false)
-                }
-                Err(error) => return Err(error),
-            }
+            };
         }
     };
+    let company = company_for(db, events, source, settings, email, owner).await?;
     if let Some((company_id, _)) = &company {
         link_to_company(db, events, &person_id, company_id).await?;
     }
     Ok(Some(Added {
         person_id,
-        created,
+        created: false,
         company_id: company.as_ref().map(|(id, _)| id.clone()),
         company_created: company.is_some_and(|(_, created)| created),
     }))
+}
+
+/// The company of the address's domain when the settings add companies.
+async fn company_for(
+    db: &PgPool,
+    events: &OrderedEvents,
+    source: Source,
+    settings: &Settings,
+    email: &str,
+    owner: Option<&str>,
+) -> DomainResult<Option<(String, bool)>> {
+    if settings.create_companies {
+        ensure_company(db, events, source, email, owner).await
+    } else {
+        Ok(None)
+    }
+}
+
+/// Puts a hidden person in the CRM as **Add to CRM** does; `false` when
+/// they are gone.
+async fn promote(
+    db: &PgPool,
+    events: &OrderedEvents,
+    id: &str,
+    owner: Option<&str>,
+) -> DomainResult<bool> {
+    let Some(row) = crate::people::add_person_to_crm(db, id, owner, None).await? else {
+        return Ok(false);
+    };
+    events.publish(PERSON_UPDATED, id, pick(&row, &["id", "displayName"]));
+    Ok(true)
+}
+
+/// What [`create_person`] did.
+enum Created {
+    New(String),
+    /// A person with the address appeared meanwhile: their id.
+    Raced(String),
+}
+
+/// A new person in the CRM, linked to `company` when there is one.
+async fn create_person(
+    db: &PgPool,
+    events: &OrderedEvents,
+    source: Source,
+    email: &str,
+    candidate: &Candidate,
+    owner: Option<&str>,
+    company: Option<&(String, bool)>,
+) -> DomainResult<Created> {
+    let (first, last) = split_name(email, candidate.name.as_deref());
+    let mut input = Map::new();
+    input.insert("email".to_owned(), json!(email));
+    if let Some(first) = first {
+        input.insert("firstName".to_owned(), json!(first));
+    }
+    if let Some(last) = last {
+        input.insert("lastName".to_owned(), json!(last));
+    }
+    input.insert("inCrm".to_owned(), json!(true));
+    input.insert("source".to_owned(), json!(source.record_source()));
+    if let Some(owner) = owner {
+        input.insert("ownerId".to_owned(), json!(owner));
+    }
+    if let Some((company_id, _)) = company {
+        input.insert("companyIds".to_owned(), json!([company_id]));
+        input.insert("primaryCompanyId".to_owned(), json!(company_id));
+    }
+    match crate::people::create_person_detailed(db, &input).await {
+        Ok((row, _)) => {
+            let id = crate::str_field(&row, "id").unwrap_or_default().to_owned();
+            events.publish(PERSON_CREATED, &id, pick(&row, &PERSON_EVENT_KEYS));
+            if let Some((company_id, _)) = company {
+                // `createPerson` linked it.
+                events.publish(COMPANY_UPDATED, company_id, json!({ "id": company_id }));
+            }
+            Ok(Created::New(id))
+        }
+        Err(DomainError::DuplicateEmail {
+            existing_person_id, ..
+        }) => Ok(Created::Raced(existing_person_id)),
+        Err(error) => Err(error),
+    }
 }
 
 /// The company of the address's domain: `(id, created)`. `None` for free
