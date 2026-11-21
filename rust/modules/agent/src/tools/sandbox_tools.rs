@@ -212,6 +212,7 @@ mod tests {
             max_agent_hops: 2,
             master: None,
             realtime: None,
+            push_http: None,
             ai: None,
         }
     }

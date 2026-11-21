@@ -399,6 +399,7 @@ pub(super) async fn build(
         max_agent_hops: 2,
         master: None,
         realtime: None,
+        push_http: None,
         ai: None,
     };
     let with_sheets = !sheet_tools.is_empty();

@@ -341,6 +341,8 @@ async fn run_case(db: &PgPool, clear: &[Value], case: &Value) -> Value {
         tenants,
         realtime: Some(Arc::clone(&realtime) as Arc<dyn DynRealtimePublisher>),
         http: Some(OutboundHttp(Arc::clone(&http) as Arc<dyn DynOutboundHttp>)),
+        // The worker's tests bind no push.
+        push_http: None,
         runs: Some(Arc::clone(&runs) as Arc<dyn WorkflowRuns>),
         env: Arc::new(HashMap::from([(
             "TELNYX_API_KEY".to_owned(),

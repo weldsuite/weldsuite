@@ -400,8 +400,23 @@ pub struct ToolContext {
     /// The master database and the realtime publisher, for tools that post.
     pub master: Option<PgPool>,
     pub realtime: Option<std::sync::Arc<dyn weldsuite_ports::DynRealtimePublisher>>,
+    /// Outbound HTTP for the push notifications tools send (Expo); `None`
+    /// sends them in-app only ([`crate::run::RunEnv::push_http`]).
+    pub push_http: Option<weldsuite_ports::OutboundHttp>,
     /// The AI, for tools that start other agents (`create_agent_group_chat`).
     pub ai: Option<weldsuite_ai::Ai>,
+}
+
+impl ToolContext {
+    /// Where the notifications a tool sends go out: in-app over realtime,
+    /// push over [`ToolContext::push_http`].
+    pub fn notifier(&self) -> weldsuite_notifications::Notifier {
+        weldsuite_notifications::Notifier {
+            realtime: self.realtime.clone(),
+            http: self.push_http.clone(),
+            ..weldsuite_notifications::Notifier::default()
+        }
+    }
 }
 
 impl std::fmt::Debug for ToolContext {
@@ -632,6 +647,7 @@ mod tests {
             max_agent_hops: 2,
             master: None,
             realtime: None,
+            push_http: None,
             ai: None,
         };
         let refused = execute_tool(&ctx, "list_people", &json!({})).await;

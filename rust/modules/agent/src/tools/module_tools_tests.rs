@@ -83,6 +83,7 @@ fn ctx(grants: &[&str], user: &str) -> ToolContext {
         max_agent_hops: 2,
         master: None,
         realtime: None,
+        push_http: None,
         ai: None,
     }
 }

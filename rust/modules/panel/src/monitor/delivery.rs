@@ -143,6 +143,9 @@ pub(crate) struct Delivery {
     pub(crate) mail: Option<Arc<dyn DynSystemMail>>,
     /// Slack's webhook (public addresses only).
     pub(crate) http: Option<OutboundHttp>,
+    /// The push (Expo) of the WeldChat posts' mention notifications; `None`
+    /// notifies in-app only. Conformance builds have none.
+    pub(crate) push_http: Option<OutboundHttp>,
     pub(crate) realtime: Option<Arc<dyn DynRealtimePublisher>>,
     pub(crate) events: EntityEventPublisher,
     /// Tests: senders that record.
@@ -664,6 +667,7 @@ async fn send_weldchat(
             author_id: WELDPANEL_CHAT_AUTHOR,
             author_name: WELDPANEL_CHAT_AUTHOR_NAME,
             invoker_user_id: &ctx.actor_user_id,
+            push_http: ctx.push_http.clone(),
         },
         &weldsuite_chat_domain::system_message::SystemMessageInput {
             content: &content,
@@ -905,6 +909,7 @@ mod tests {
             keyring: Keyring::default(),
             mail: None,
             http: None,
+            push_http: None,
             realtime: None,
             events: EntityEventPublisher::new(None, weldsuite_events::TaskTracker::new()),
             senders: None,

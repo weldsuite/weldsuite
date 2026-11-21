@@ -534,6 +534,31 @@ pub mod chat {
         )
     }
 
+    /// `sendChatAgentReplyNotification`: a workspace agent answered someone
+    /// in a room, "<agent> replied to you", not a mention. Typed as a reply,
+    /// so it lists under the chat activity's "replies" filter.
+    pub fn agent_reply(
+        workspace_id: &str,
+        recipient_user_id: &str,
+        agent_id: &str,
+        agent_name: &str,
+        channel_id: &str,
+        message_id: &str,
+        preview: &str,
+    ) -> NewNotification {
+        weldchat(
+            workspace_id,
+            recipient_user_id,
+            format!("{agent_name} replied to you"),
+            preview.to_owned(),
+            "chat_thread_reply",
+            ("chat_message", message_id),
+            format!("/weldchat/{channel_id}?messageId={message_id}"),
+            agent_id,
+            channel_data(channel_id),
+        )
+    }
+
     /// `sendChatThreadReplyNotification`.
     #[allow(clippy::too_many_arguments)]
     pub fn thread_reply(
@@ -686,6 +711,43 @@ mod tests {
         assert_eq!(data["notificationType"], "chat_dm");
         assert!(!data.contains_key("server"), "Global names no server");
         assert_eq!(params.body, "Sent you a direct message");
+    }
+
+    #[test]
+    fn an_agent_reply_is_a_reply_from_the_agent_and_never_mails() {
+        let params = chat::agent_reply(
+            "org_1",
+            "user_ann",
+            "agt_1",
+            "Scout",
+            "ch_1",
+            "msg_1",
+            "Done: 3 tasks moved",
+        );
+        assert_eq!(params.workspace_id, "org_1");
+        assert_eq!(params.user_id, "user_ann");
+        assert_eq!(params.title, "Scout replied to you");
+        assert_eq!(params.body, "Done: 3 tasks moved");
+        assert_eq!(params.category, "weldchat");
+        assert_eq!(params.notification_type, "chat_thread_reply");
+        assert_eq!(params.entity_type, "chat_message");
+        assert_eq!(params.entity_id, "msg_1");
+        assert_eq!(params.action_url, "/weldchat/ch_1?messageId=msg_1");
+        assert_eq!(params.severity, "info");
+        assert_eq!(params.actor_type.as_deref(), Some("user"));
+        assert_eq!(params.actor_id.as_deref(), Some("agt_1"));
+        assert!(params.exclude_email);
+        assert!(!params.exclude_push && !params.exclude_in_app);
+        assert_eq!(
+            params.data,
+            [("chatChannelId".to_owned(), "ch_1".to_owned())]
+        );
+        assert!(params.clerk_org_id.is_none() && params.email.is_none());
+        // The Android channel is not the chat's id (see `helpers/chat.ts`).
+        let data = push_data(&params, None);
+        assert_eq!(data["chatChannelId"], "ch_1");
+        assert!(!data.contains_key("channelId"));
+        assert_eq!(data["notificationType"], "chat_thread_reply");
     }
 
     #[test]
