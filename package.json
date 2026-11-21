@@ -28,6 +28,7 @@
     "rust:conformance": "tsx scripts/rust-conformance.ts",
     "rust:emails": "tsx --tsconfig packages/core/emails/tsconfig.json scripts/rust-emails.ts",
     "rust:fmt": "cd rust && cargo fmt --all",
+    "rust:schema": "tsx scripts/rust-schema.ts",
     "rust:subscriber-fixtures": "tsx scripts/rust-subscriber-fixtures.ts",
     "rust:payroll-fixtures": "tsx scripts/rust-payroll-fixtures.ts",
     "rust:mail-inbound-fixtures": "tsx scripts/rust-mail-inbound-fixtures.ts",
