@@ -1,8 +1,10 @@
-//! `GET /api/panel/live?projectId` (`routes/live/index.ts`): visitors with
-//! activity in the last five minutes and the pages they are on, from the
-//! project state (the `PanelProject` Durable Object on Global, a Valkey
-//! sorted set per project here). `panel_reports:read`: it sits on the
-//! Overview next to the traffic numbers.
+//! `GET /api/panel/live?projectId` (`routes/live/index.ts`): the realtime
+//! view, from the project state (the `PanelProject` Durable Object on
+//! Global, a Valkey sorted set per project here). It answers the visitors
+//! with activity in the last five and the last 30 minutes, the visitors in
+//! each of the last 30 minutes, and the sessions of the last 30 minutes with
+//! the pages they are on (the 500 latest; the counts cover them all).
+//! `panel_reports:read`: it sits on the Overview next to the traffic numbers.
 //!
 //! A live session names its visitor by the id the site gave it, which can be
 //! a user id or an email, so without `panel_people:read` that id is replaced
@@ -73,6 +75,8 @@ pub(crate) async fn live(
     Data(json!({
         "projectId": project_id,
         "visitors": live.visitors,
+        "visitors30m": live.visitors_30m,
+        "perMinute": live.per_minute,
         "sessions": sessions,
     }))
     .into_response()

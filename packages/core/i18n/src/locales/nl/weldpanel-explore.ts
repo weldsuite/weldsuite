@@ -574,6 +574,15 @@ export const weldpanelExplore = {
     },
     readOnly: 'Je kunt deze definities zien maar niet wijzigen.',
     actions: 'Acties voor {name}',
+    columns: {
+      name: 'Naam',
+      description: 'Wat het is',
+      count: 'Aantal',
+    },
+    search: 'Data zoeken',
+    noMatchTitle: 'Niets gevonden',
+    noMatchDescription: 'Probeer een andere zoekopdracht.',
+    back: 'Terug naar data',
     customEvents: {
       description: 'Meerdere gebeurtenissen onder één naam, zoals "Aangemeld of uitgenodigd". Gebruik ze in elk rapport als een gewone gebeurtenis.',
       new: 'Nieuwe eigen gebeurtenis',

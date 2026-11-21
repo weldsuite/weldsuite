@@ -1,11 +1,15 @@
 /**
- * GET /api/panel/live?projectId: visitors with activity in the last five
- * minutes and the pages they are on, straight from the project's Durable
- * Object (`panel_reports:read`: it sits on the Overview next to the traffic
- * numbers). A live session names its visitor by the id the site gave it, which
- * can be a user id or an email, so without `panel_people:read` that id is
- * replaced by a stable pseudonym: the view still counts and groups, it just
- * cannot name anyone.
+ * GET /api/panel/live?projectId: the realtime view, straight from the
+ * project's Durable Object (`panel_reports:read`: it sits on the Overview next
+ * to the traffic numbers). It answers the visitors with activity in the last
+ * five and the last 30 minutes, the visitors in each of the last 30 minutes,
+ * and the sessions of the last 30 minutes with the pages they are on (the 500
+ * latest; the counts cover them all).
+ *
+ * A live session names its visitor by the id the site gave it, which can be a
+ * user id or an email, so without `panel_people:read` that id is replaced by a
+ * stable pseudonym: the view still counts and groups, it just cannot name
+ * anyone.
  */
 
 import { Hono } from 'hono';
@@ -33,7 +37,7 @@ app.get('/', requirePermission('panel_reports:read'), zValidator('query', query)
   const sessions = mayName
     ? live.sessions
     : await Promise.all(live.sessions.map(async (s) => ({ ...s, distinctId: (await sha256Hex(`${projectId}:${s.distinctId}`)).slice(0, 12) })));
-  const body: PanelLiveDto = { projectId, visitors: live.visitors, sessions };
+  const body: PanelLiveDto = { projectId, visitors: live.visitors, visitors30m: live.visitors30m, perMinute: live.perMinute, sessions };
   return success(c, body);
 });
 

@@ -1,24 +1,32 @@
 //! The `PanelProject` Durable Object's rules
 //! (`apps/workers/panel-ingest/src/durable-objects/panel-project.ts`) as
 //! pure functions: what an operation does to a profile's properties, the
-//! limits, the people and group cursors, the search pattern and the group
-//! type slots. The tenant tables, the applier and the collector's caches all
-//! go through these, so the three agree with the object and with each other.
+//! limits, the people and group cursors, the search pattern, the group type
+//! slots and the live view's counts. The tenant tables, the applier and the
+//! collector's caches all go through these, so the three agree with the
+//! object and with each other.
 //!
 //! Lengths are JavaScript's (UTF-16 code units), as the object measures
 //! them. Properties are a `serde_json::Map` (keys sorted), so the stored
 //! text and the `people_v1` / `groups_v1` rows list keys in sorted order
 //! where the object keeps insertion order; the keys and values are the same.
 
+use std::collections::HashSet;
 use std::fmt::Write as _;
 
 use base64::Engine as _;
 use base64::engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig};
 use serde_json::{Map, Value};
-use weldsuite_panel::project_state::{GroupOp, PeopleOp, Properties};
+use weldsuite_panel::project_state::{GroupOp, LiveSession, PeopleOp, Properties};
 
-/// The live view keeps sessions seen in the last five minutes.
-pub(crate) const LIVE_WINDOW_MS: i64 = 5 * 60 * 1000;
+const MINUTE_MS: i64 = 60 * 1000;
+/// `perMinute` has one bucket per minute of the live window.
+pub(crate) const LIVE_MINUTES: usize = 30;
+/// The live view keeps and answers the sessions seen in the last 30 minutes
+/// ([`LIVE_MINUTES`] minutes).
+pub(crate) const LIVE_WINDOW_MS: i64 = 30 * MINUTE_MS;
+/// `visitors` counts the visitors seen in the last five minutes.
+pub(crate) const LIVE_RECENT_MS: i64 = 5 * MINUTE_MS;
 /// At most this many sessions are kept per project (the newest).
 pub(crate) const MAX_LIVE_SESSIONS: usize = 2000;
 /// `live()` answers at most this many sessions.
@@ -410,6 +418,64 @@ pub(crate) fn now_ms() -> i64 {
         .unwrap_or_default()
 }
 
+/// The live view's counts (`PanelLiveCounts`), over every session kept in
+/// the window.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LiveCounts {
+    /// Distinct visitors seen in the last five minutes.
+    pub(crate) visitors: u64,
+    /// Distinct visitors seen in the last 30 minutes.
+    pub(crate) visitors_30m: u64,
+    /// Distinct visitors in each of the last 30 minutes, oldest first.
+    pub(crate) per_minute: Vec<u64>,
+}
+
+/// `liveCounts(rows, nowMs)` (`@weldsuite/panel-domain/project-object`):
+/// the counts at `now_ms`. Bucket `i` of `per_minute` covers
+/// `[now - (30 - i) min, now - (29 - i) min)`, and a session counts in it when
+/// it started before the bucket's end and was last seen at or after its
+/// start. A session whose `ts` is before the window (or not a time) counts
+/// nowhere; one whose `startedAt` is not a time counts in `visitors` and
+/// `visitors_30m` but in no minute.
+pub(crate) fn live_counts(sessions: &[LiveSession], now_ms: i64) -> LiveCounts {
+    let window_start = now_ms - LIVE_WINDOW_MS;
+    let recent_start = now_ms - LIVE_RECENT_MS;
+    let mut recent: HashSet<&str> = HashSet::new();
+    let mut in_window: HashSet<&str> = HashSet::new();
+    let mut minutes: Vec<HashSet<&str>> = vec![HashSet::new(); LIVE_MINUTES];
+    for session in sessions {
+        let Some(ts) = iso_millis(&session.touch.ts) else {
+            continue;
+        };
+        if ts < window_start {
+            continue;
+        }
+        let id = session.touch.distinct_id.as_str();
+        in_window.insert(id);
+        if ts >= recent_start {
+            recent.insert(id);
+        }
+        let Some(started_at) = iso_millis(&session.started_at) else {
+            continue;
+        };
+        // Bucket 0 starts where the window does.
+        let mut bucket_start = window_start;
+        for visitors in &mut minutes {
+            let bucket_end = bucket_start + MINUTE_MS;
+            if started_at < bucket_end && ts >= bucket_start {
+                visitors.insert(id);
+            }
+            bucket_start = bucket_end;
+        }
+    }
+    let count = |set: &HashSet<&str>| u64::try_from(set.len()).unwrap_or(u64::MAX);
+    LiveCounts {
+        visitors: count(&recent),
+        visitors_30m: count(&in_window),
+        per_minute: minutes.iter().map(count).collect(),
+    }
+}
+
 /// `GROUP_TYPE`: `^[a-z][a-z0-9_]{0,31}$`.
 pub(crate) fn valid_group_type(group_type: &str) -> bool {
     let mut bytes = group_type.bytes();
@@ -460,6 +526,7 @@ pub(crate) fn group_op_fits(op: &GroupOp, types: &[String]) -> bool {
 #[cfg(test)]
 mod tests {
     use serde_json::json;
+    use weldsuite_panel::project_state::LiveTouch;
 
     use super::*;
 
@@ -467,6 +534,47 @@ mod tests {
         match value {
             Value::Object(map) => map,
             _ => panic!("an object"),
+        }
+    }
+
+    /// The live view's "now" in the tests.
+    fn live_now() -> i64 {
+        iso_millis("2026-11-20T12:00:00.000Z").expect("a time")
+    }
+
+    /// A session of `distinct_id` that started `started_ago` ms before
+    /// [`live_now`] and was last seen `last_ago` ms before it.
+    fn seen(distinct_id: &str, started_ago: i64, last_ago: i64) -> LiveSession {
+        let now = live_now();
+        LiveSession {
+            touch: LiveTouch {
+                session_id: format!("s-{distinct_id}-{started_ago}"),
+                distinct_id: distinct_id.to_owned(),
+                path: "/".to_owned(),
+                title: None,
+                country: None,
+                device_type: None,
+                ts: iso(now - last_ago),
+            },
+            started_at: iso(now - started_ago),
+            pageviews: 1,
+        }
+    }
+
+    /// 30 zeros, plus one in each bucket listed (a bucket listed twice holds 2).
+    fn minutes(buckets: &[usize]) -> Vec<u64> {
+        let mut out = vec![0; LIVE_MINUTES];
+        for &bucket in buckets {
+            out[bucket] += 1;
+        }
+        out
+    }
+
+    fn counts(visitors: u64, visitors_30m: u64, per_minute: Vec<u64>) -> LiveCounts {
+        LiveCounts {
+            visitors,
+            visitors_30m,
+            per_minute,
         }
     }
 
@@ -630,5 +738,69 @@ mod tests {
         assert_eq!(op_group_types(&ops), ["team", "c"]);
         let fits: Vec<bool> = ops.iter().map(|op| group_op_fits(op, &current)).collect();
         assert_eq!(fits, [true, false, false]);
+    }
+
+    #[test]
+    fn live_counts_count_a_visitor_once_per_minute_from_start_to_last_activity() {
+        assert_eq!(live_counts(&[], live_now()), counts(0, 0, minutes(&[])));
+        let sessions = [
+            seen("a-1", 10 * MINUTE_MS, 15 * MINUTE_MS / 2),
+            // The same visitor in another session, in a minute it already counts in.
+            seen("a-1", 9 * MINUTE_MS, 9 * MINUTE_MS),
+            seen("a-2", 30_000, 30_000),
+            seen("a-3", 4 * MINUTE_MS, 2 * MINUTE_MS),
+        ];
+        assert_eq!(
+            live_counts(&sessions, live_now()),
+            counts(2, 3, minutes(&[20, 21, 22, 26, 27, 28, 29]))
+        );
+    }
+
+    #[test]
+    fn live_counts_include_a_bucket_start_and_exclude_its_end() {
+        let now = live_now();
+        // Started exactly when bucket 29 starts: in 29, not in 28.
+        let one = live_counts(&[seen("a-1", MINUTE_MS, MINUTE_MS)], now);
+        assert_eq!(one.per_minute, minutes(&[29]));
+        // Last seen exactly when bucket 28 ends (= bucket 29 starts): in 29 too.
+        let two = live_counts(&[seen("a-1", 2 * MINUTE_MS, MINUTE_MS)], now);
+        assert_eq!(two.per_minute, minutes(&[28, 29]));
+        // Starting right now is past the last bucket.
+        assert_eq!(
+            live_counts(&[seen("a-1", 0, 0)], now),
+            counts(1, 1, minutes(&[]))
+        );
+    }
+
+    #[test]
+    fn live_counts_take_five_minutes_for_visitors_and_thirty_for_the_rest() {
+        let now = live_now();
+        let edge = live_counts(&[seen("a-1", 5 * MINUTE_MS, 5 * MINUTE_MS)], now);
+        assert_eq!((edge.visitors, edge.visitors_30m), (1, 1));
+        let past = live_counts(&[seen("a-1", 6 * MINUTE_MS, 5 * MINUTE_MS + 1)], now);
+        assert_eq!((past.visitors, past.visitors_30m), (0, 1));
+        assert_eq!(
+            live_counts(&[seen("a-1", LIVE_WINDOW_MS, LIVE_WINDOW_MS)], now),
+            counts(0, 1, minutes(&[0]))
+        );
+        // A session that started before the window counts from the first minute.
+        let long = live_counts(&[seen("a-1", 45 * MINUTE_MS, 59 * MINUTE_MS / 2)], now);
+        assert_eq!(long.per_minute, minutes(&[0]));
+        let before = LIVE_WINDOW_MS + 1;
+        assert_eq!(
+            live_counts(&[seen("a-1", before, before)], now),
+            counts(0, 0, minutes(&[]))
+        );
+    }
+
+    #[test]
+    fn live_counts_leave_out_what_is_not_a_time() {
+        let now = live_now();
+        let mut no_ts = seen("a-1", MINUTE_MS, MINUTE_MS);
+        no_ts.touch.ts = "later".to_owned();
+        assert_eq!(live_counts(&[no_ts], now), counts(0, 0, minutes(&[])));
+        let mut no_start = seen("a-1", MINUTE_MS, MINUTE_MS);
+        no_start.started_at = "earlier".to_owned();
+        assert_eq!(live_counts(&[no_start], now), counts(1, 1, minutes(&[])));
     }
 }

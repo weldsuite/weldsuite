@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react';
 import { ApiError } from '@weldsuite/api-client';
 import { en } from '@weldsuite/i18n/locales/en';
 import { makeLive } from '../observe-fixtures';
-import { LivePanel, tally } from './live-panel';
+import { LivePanel, sessionAverages, tally } from './live-panel';
 
 const state = vi.hoisted(() => ({
   perms: new Set<string>(),
@@ -26,14 +26,16 @@ describe('LivePanel', () => {
     state.live = { data: makeLive(), error: null, isLoading: false, refetch: vi.fn(), dataUpdatedAt: Date.parse('2026-11-14T10:00:00Z') };
   });
 
-  it('counts visitors and tallies pages, countries and devices', () => {
+  it('shows the visitors of the last 30 and 5 minutes and tallies countries, pages and devices', () => {
     render(<LivePanel projectId="wpp_1" />);
-    expect(screen.getByText(tl.visitors).closest('[data-slot=card]')?.textContent).toContain('2');
-    // Two sessions are on /pricing.
+    expect(screen.getByText(tl.last30Note).parentElement?.textContent).toContain('2');
+    expect(screen.getByText(tl.last5Note).parentElement?.textContent).toContain('2');
+    // Two visitors are on /pricing.
     expect(screen.getAllByText('/pricing').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Netherlands')).toHaveLength(2);
-    expect(screen.getAllByText('Germany')).toHaveLength(2);
-    expect(screen.getByText('Mobile')).toBeTruthy();
+    expect(screen.getAllByText('Netherlands').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Germany').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Mobile').length).toBeGreaterThan(0);
+    expect(screen.getByRole('heading', { name: tl.byCountry })).toBeTruthy();
   });
 
   it('shows pseudonymised ids as anonymous visitors unless profiles may be seen', () => {
@@ -46,21 +48,39 @@ describe('LivePanel', () => {
     expect(screen.getByText('anon_aaaaaa111111')).toBeTruthy();
   });
 
-  it('says it is quiet when nobody is on the site', () => {
-    state.live.data = makeLive({ visitors: 0, sessions: [] });
+  it('shows zeros and says it is quiet when nobody was on the site', () => {
+    state.live.data = makeLive({ visitors: 0, visitors30m: 0, perMinute: Array.from({ length: 30 }, () => 0), sessions: [] });
     render(<LivePanel projectId="wpp_1" />);
+    expect(screen.getAllByText(tl.noData)).toHaveLength(3);
     expect(screen.getByText(tl.quiet)).toBeTruthy();
-  });
-
-  it('can be compact, without the session table', () => {
-    render(<LivePanel projectId="wpp_1" compact />);
-    expect(screen.queryByText(tl.sessions)).toBeNull();
   });
 
   it('shows an error with a retry', () => {
     state.live = { ...state.live, data: undefined, error: new ApiError('boom', 500) };
     render(<LivePanel projectId="wpp_1" />);
     expect(screen.getByText(en.weldpanel.analytics.errors.loadFailed)).toBeTruthy();
+  });
+
+  it('averages the time on site and the pages per visit', () => {
+    expect(sessionAverages([])).toEqual({ seconds: 0, pages: 0 });
+    const averages = sessionAverages([
+      { startedAt: '2026-11-14T09:58:00.000Z', ts: '2026-11-14T10:00:00.000Z', pageviews: 3 },
+      { startedAt: '2026-11-14T09:59:00.000Z', ts: '2026-11-14T10:00:00.000Z', pageviews: 1 },
+    ]);
+    expect(averages).toEqual({ seconds: 90, pages: 2 });
+  });
+
+  it('tallies visitors, not sessions, when given who each one is', () => {
+    const sessions = [
+      { page: '/a', who: 'v1' },
+      { page: '/a', who: 'v1' },
+      { page: '/a', who: 'v2' },
+      { page: '/b', who: 'v1' },
+    ];
+    expect(tally(sessions, (s) => s.page, (s) => s.who)).toEqual([
+      { value: '/a', count: 2 },
+      { value: '/b', count: 1 },
+    ]);
   });
 
   it('tallies biggest first and skips empty keys', () => {

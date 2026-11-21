@@ -44,6 +44,14 @@ export function findElement(doc: Document, selector: string): Element | null {
   }
 }
 
+/** The controls a click counts on: the collector may name the text inside one, but the box is the whole control. */
+const CONTROL = 'a, button, [role="button"], [role="link"], [role="tab"], [role="menuitem"], input, select, textarea, label, summary';
+
+/** The button, link or field an element is part of, or the element itself when it is in none. */
+export function clickTarget(el: Element): Element {
+  return el.closest(CONTROL) ?? el;
+}
+
 /** Offsets of an element from the top-left of the page, whatever the scroll position. */
 export function pageRect(el: Element, doc: Document): { x: number; y: number; width: number; height: number } {
   const rect = el.getBoundingClientRect();
@@ -72,13 +80,13 @@ export function resolvePoints(doc: Document, points: readonly PanelHeatmapPoint[
   return { points: resolved, unresolved };
 }
 
-/** Elements resolved to boxes for the area view. */
+/** Elements resolved to boxes, each the whole control it is part of (a button, not the label inside it). */
 export function resolveBoxes(doc: Document, elements: readonly PanelHeatmapElement[]): { boxes: HeatBox[]; unresolved: number } {
   const boxes: HeatBox[] = [];
   let unresolved = 0;
   for (const element of elements) {
     const el = findElement(doc, element.selector);
-    const rect = el ? pageRect(el, doc) : null;
+    const rect = el ? pageRect(clickTarget(el), doc) : null;
     if (!rect || (rect.width === 0 && rect.height === 0)) {
       unresolved += element.clicks;
       continue;

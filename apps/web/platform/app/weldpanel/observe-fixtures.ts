@@ -135,6 +135,8 @@ export function makeLive(overrides: Partial<PanelLiveDto> = {}): PanelLiveDto {
   return {
     projectId: 'wpp_1',
     visitors: 2,
+    visitors30m: 2,
+    perMinute: [...Array.from({ length: 28 }, () => 0), 1, 2],
     sessions: [
       { sessionId: 's1', distinctId: 'anon_aaaaaa111111', path: '/pricing', title: 'Pricing', country: 'NL', deviceType: 'desktop', ts: '2026-11-14T10:00:00.000Z', startedAt: '2026-11-14T09:58:00.000Z', pageviews: 3 },
       { sessionId: 's2', distinctId: 'anon_bbbbbb222222', path: '/pricing', title: 'Pricing', country: 'DE', deviceType: 'mobile', ts: '2026-11-14T10:00:00.000Z', startedAt: '2026-11-14T09:59:00.000Z', pageviews: 1 },

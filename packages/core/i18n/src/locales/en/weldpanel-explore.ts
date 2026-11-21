@@ -574,6 +574,15 @@ export const weldpanelExplore = {
     },
     readOnly: 'You can see these definitions but not change them.',
     actions: 'Actions for {name}',
+    columns: {
+      name: 'Name',
+      description: 'What it is',
+      count: 'Defined',
+    },
+    search: 'Search data',
+    noMatchTitle: 'Nothing matches',
+    noMatchDescription: 'Try another search.',
+    back: 'Back to data',
     customEvents: {
       description: 'Several events under one name, such as "Signed up or invited". Use them in any report like a tracked event.',
       new: 'New custom event',

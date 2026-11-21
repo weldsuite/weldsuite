@@ -364,6 +364,7 @@ import { Route as WeldpanelUsersDistinctIdIndexRouteImport } from './routes/weld
 import { Route as WeldpanelRecordingsSessionIdIndexRouteImport } from './routes/weldpanel/recordings/$sessionId/index'
 import { Route as WeldpanelProjectsProjectIdIndexRouteImport } from './routes/weldpanel/projects/$projectId/index'
 import { Route as WeldpanelMetricTreesTreeIdIndexRouteImport } from './routes/weldpanel/metric-trees/$treeId/index'
+import { Route as WeldpanelHeatmapsPageIdIndexRouteImport } from './routes/weldpanel/heatmaps/$pageId/index'
 import { Route as WeldpanelDashboardsDashboardIdIndexRouteImport } from './routes/weldpanel/dashboards/$dashboardId/index'
 import { Route as WeldmailUnifiedLabelSlugIndexRouteImport } from './routes/weldmail/unified/$labelSlug/index'
 import { Route as WeldmailInboxComposeIndexRouteImport } from './routes/weldmail/inbox/compose/index'
@@ -2475,6 +2476,12 @@ const WeldpanelMetricTreesTreeIdIndexRoute =
     path: '/metric-trees/$treeId/',
     getParentRoute: () => WeldpanelRouteRoute,
   } as any)
+const WeldpanelHeatmapsPageIdIndexRoute =
+  WeldpanelHeatmapsPageIdIndexRouteImport.update({
+    id: '/heatmaps/$pageId/',
+    path: '/heatmaps/$pageId/',
+    getParentRoute: () => WeldpanelRouteRoute,
+  } as any)
 const WeldpanelDashboardsDashboardIdIndexRoute =
   WeldpanelDashboardsDashboardIdIndexRouteImport.update({
     id: '/dashboards/$dashboardId/',
@@ -4554,6 +4561,7 @@ export interface FileRoutesByFullPath {
   '/weldmail/inbox/compose/': typeof WeldmailInboxComposeIndexRoute
   '/weldmail/unified/$labelSlug/': typeof WeldmailUnifiedLabelSlugIndexRoute
   '/weldpanel/dashboards/$dashboardId/': typeof WeldpanelDashboardsDashboardIdIndexRoute
+  '/weldpanel/heatmaps/$pageId/': typeof WeldpanelHeatmapsPageIdIndexRoute
   '/weldpanel/metric-trees/$treeId/': typeof WeldpanelMetricTreesTreeIdIndexRoute
   '/weldpanel/projects/$projectId/': typeof WeldpanelProjectsProjectIdIndexRoute
   '/weldpanel/recordings/$sessionId/': typeof WeldpanelRecordingsSessionIdIndexRoute
@@ -5120,6 +5128,7 @@ export interface FileRoutesByTo {
   '/weldmail/inbox/compose': typeof WeldmailInboxComposeIndexRoute
   '/weldmail/unified/$labelSlug': typeof WeldmailUnifiedLabelSlugIndexRoute
   '/weldpanel/dashboards/$dashboardId': typeof WeldpanelDashboardsDashboardIdIndexRoute
+  '/weldpanel/heatmaps/$pageId': typeof WeldpanelHeatmapsPageIdIndexRoute
   '/weldpanel/metric-trees/$treeId': typeof WeldpanelMetricTreesTreeIdIndexRoute
   '/weldpanel/projects/$projectId': typeof WeldpanelProjectsProjectIdIndexRoute
   '/weldpanel/recordings/$sessionId': typeof WeldpanelRecordingsSessionIdIndexRoute
@@ -5746,6 +5755,7 @@ export interface FileRoutesById {
   '/weldmail/inbox/compose/': typeof WeldmailInboxComposeIndexRoute
   '/weldmail/unified/$labelSlug/': typeof WeldmailUnifiedLabelSlugIndexRoute
   '/weldpanel/dashboards/$dashboardId/': typeof WeldpanelDashboardsDashboardIdIndexRoute
+  '/weldpanel/heatmaps/$pageId/': typeof WeldpanelHeatmapsPageIdIndexRoute
   '/weldpanel/metric-trees/$treeId/': typeof WeldpanelMetricTreesTreeIdIndexRoute
   '/weldpanel/projects/$projectId/': typeof WeldpanelProjectsProjectIdIndexRoute
   '/weldpanel/recordings/$sessionId/': typeof WeldpanelRecordingsSessionIdIndexRoute
@@ -6373,6 +6383,7 @@ export interface FileRouteTypes {
     | '/weldmail/inbox/compose/'
     | '/weldmail/unified/$labelSlug/'
     | '/weldpanel/dashboards/$dashboardId/'
+    | '/weldpanel/heatmaps/$pageId/'
     | '/weldpanel/metric-trees/$treeId/'
     | '/weldpanel/projects/$projectId/'
     | '/weldpanel/recordings/$sessionId/'
@@ -6939,6 +6950,7 @@ export interface FileRouteTypes {
     | '/weldmail/inbox/compose'
     | '/weldmail/unified/$labelSlug'
     | '/weldpanel/dashboards/$dashboardId'
+    | '/weldpanel/heatmaps/$pageId'
     | '/weldpanel/metric-trees/$treeId'
     | '/weldpanel/projects/$projectId'
     | '/weldpanel/recordings/$sessionId'
@@ -7564,6 +7576,7 @@ export interface FileRouteTypes {
     | '/weldmail/inbox/compose/'
     | '/weldmail/unified/$labelSlug/'
     | '/weldpanel/dashboards/$dashboardId/'
+    | '/weldpanel/heatmaps/$pageId/'
     | '/weldpanel/metric-trees/$treeId/'
     | '/weldpanel/projects/$projectId/'
     | '/weldpanel/recordings/$sessionId/'
@@ -10244,6 +10257,13 @@ declare module '@tanstack/react-router' {
       path: '/metric-trees/$treeId'
       fullPath: '/weldpanel/metric-trees/$treeId/'
       preLoaderRoute: typeof WeldpanelMetricTreesTreeIdIndexRouteImport
+      parentRoute: typeof WeldpanelRouteRoute
+    }
+    '/weldpanel/heatmaps/$pageId/': {
+      id: '/weldpanel/heatmaps/$pageId/'
+      path: '/heatmaps/$pageId'
+      fullPath: '/weldpanel/heatmaps/$pageId/'
+      preLoaderRoute: typeof WeldpanelHeatmapsPageIdIndexRouteImport
       parentRoute: typeof WeldpanelRouteRoute
     }
     '/weldpanel/dashboards/$dashboardId/': {
@@ -13587,6 +13607,7 @@ interface WeldpanelRouteRouteChildren {
   WeldpanelSubscriptionsIndexRoute: typeof WeldpanelSubscriptionsIndexRoute
   WeldpanelUsersIndexRoute: typeof WeldpanelUsersIndexRoute
   WeldpanelDashboardsDashboardIdIndexRoute: typeof WeldpanelDashboardsDashboardIdIndexRoute
+  WeldpanelHeatmapsPageIdIndexRoute: typeof WeldpanelHeatmapsPageIdIndexRoute
   WeldpanelMetricTreesTreeIdIndexRoute: typeof WeldpanelMetricTreesTreeIdIndexRoute
   WeldpanelProjectsProjectIdIndexRoute: typeof WeldpanelProjectsProjectIdIndexRoute
   WeldpanelRecordingsSessionIdIndexRoute: typeof WeldpanelRecordingsSessionIdIndexRoute
@@ -13622,6 +13643,7 @@ const WeldpanelRouteRouteChildren: WeldpanelRouteRouteChildren = {
   WeldpanelUsersIndexRoute: WeldpanelUsersIndexRoute,
   WeldpanelDashboardsDashboardIdIndexRoute:
     WeldpanelDashboardsDashboardIdIndexRoute,
+  WeldpanelHeatmapsPageIdIndexRoute: WeldpanelHeatmapsPageIdIndexRoute,
   WeldpanelMetricTreesTreeIdIndexRoute: WeldpanelMetricTreesTreeIdIndexRoute,
   WeldpanelProjectsProjectIdIndexRoute: WeldpanelProjectsProjectIdIndexRoute,
   WeldpanelRecordingsSessionIdIndexRoute:
