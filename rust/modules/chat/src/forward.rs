@@ -106,12 +106,17 @@ pub(crate) async fn forward_message(
         );
         snapshot.insert("authorId".to_owned(), text("author_id"));
         snapshot.insert("authorName".to_owned(), text("author_name"));
-        if snapshots_person {
-            if let Some(picture) = source_author.and_then(|author| pictures.get(author)) {
+        // A person's account picture; the message's stored avatar when the
+        // lookup finds none (failed, or an account that is gone) and for an
+        // agent's icon.
+        match source_author.and_then(|author| pictures.get(author)) {
+            Some(picture) => {
                 snapshot.insert("authorAvatar".to_owned(), Value::from(picture));
             }
-        } else if !source["author_avatar"].is_null() {
-            snapshot.insert("authorAvatar".to_owned(), text("author_avatar"));
+            None if !source["author_avatar"].is_null() => {
+                snapshot.insert("authorAvatar".to_owned(), text("author_avatar"));
+            }
+            None => {}
         }
         snapshot.insert("content".to_owned(), text("content"));
         if !source["html_content"].is_null() {

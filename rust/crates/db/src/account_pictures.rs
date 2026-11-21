@@ -30,6 +30,17 @@ impl AccountPictures {
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
     {
+        Self::try_load(master, user_ids).await.unwrap_or_default()
+    }
+
+    /// Like [`load`](Self::load), but `None` when there is no master database
+    /// or the query failed, so a caller can tell a failure from "no picture"
+    /// (e.g. before caching the answer).
+    pub async fn try_load<I, S>(master: Option<&PgPool>, user_ids: I) -> Option<Self>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
         let mut ids: Vec<String> = user_ids
             .into_iter()
             .map(|id| id.as_ref().to_owned())
@@ -37,12 +48,10 @@ impl AccountPictures {
             .collect();
         ids.sort_unstable();
         ids.dedup();
-        let Some(master) = master else {
-            return Self::default();
-        };
         if ids.is_empty() {
-            return Self::default();
+            return Some(Self::default());
         }
+        let master = master?;
         match sqlx::query_as::<_, (String, Option<String>)>(
             "select id, image_url from users where id = any($1)",
         )
@@ -50,14 +59,14 @@ impl AccountPictures {
         .fetch_all(master)
         .await
         {
-            Ok(rows) => Self(
+            Ok(rows) => Some(Self(
                 rows.into_iter()
                     .filter_map(|(id, url)| url.filter(|url| !url.is_empty()).map(|url| (id, url)))
                     .collect(),
-            ),
+            )),
             Err(error) => {
                 tracing::warn!(%error, "account pictures: lookup failed");
-                Self::default()
+                None
             }
         }
     }

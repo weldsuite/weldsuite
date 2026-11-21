@@ -324,14 +324,15 @@ async fn latest(caller: Caller, RawQuery(query): RawQuery) -> Response {
 
 // ── POST /start ────────────────────────────────────────────────────────────
 
-/// `getMemberDisplayCached(c, orgId, userId)`: the member's name and picture,
-/// cached an hour.
+/// `getMemberDisplayCached(c, orgId, userId)`: the member's name and account
+/// picture, cached an hour under a versioned key (`v2`: older entries carried
+/// the member row's picture). A failed picture lookup is not cached.
 async fn member_display(
     state: &MeetState,
     caller: &Caller,
     org: &str,
 ) -> Result<(String, Option<String>), sqlx::Error> {
-    let key = format!("member-display:{org}:{}", caller.user_id);
+    let key = format!("member-display:v2:{org}:{}", caller.user_id);
     let cache = caller.parts.cache(state);
     if let Some(cache) = &cache
         && let Ok(Some(raw)) = cache.get_boxed(&key).await
@@ -349,10 +350,15 @@ async fn member_display(
             .await?;
     let name = name.flatten();
     // The avatar is the account picture, not the member row's copy.
-    let picture =
-        weldsuite_db::load_account_picture(caller.request_master(), &caller.user_id).await;
+    let pictures =
+        weldsuite_db::AccountPictures::try_load(caller.request_master(), [caller.user_id.as_str()])
+            .await;
+    let picture = pictures
+        .as_ref()
+        .and_then(|pictures| pictures.get(&caller.user_id))
+        .map(str::to_owned);
     let name = name.unwrap_or_else(|| "Unknown".to_owned());
-    if let Some(cache) = cache {
+    if let Some(cache) = cache.filter(|_| pictures.is_some()) {
         let mut value = Map::new();
         value.insert("name".into(), json!(name));
         if let Some(picture) = &picture {

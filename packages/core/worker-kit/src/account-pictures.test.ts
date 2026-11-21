@@ -19,7 +19,13 @@ vi.mock('./db', async (importOriginal) => {
   };
 });
 
-import { accountPicture, loadAccountPicture, loadAccountPictures, withAccountPictures } from './account-pictures';
+import {
+  accountPicture,
+  loadAccountPicture,
+  loadAccountPictures,
+  tryLoadAccountPictures,
+  withAccountPictures,
+} from './account-pictures';
 
 const env = { DATABASE_URL_MASTER: 'postgres://test' };
 
@@ -52,6 +58,15 @@ describe('loadAccountPictures', () => {
     holder.fail = true; // would throw if a lookup ran
     expect((await loadAccountPictures(env, [])).size).toBe(0);
     expect((await loadAccountPictures(env, [null, undefined, ''])).size).toBe(0);
+  });
+
+  it('tryLoadAccountPictures tells a failed lookup (null) from no picture', async () => {
+    const found = await tryLoadAccountPictures(env, ['user_bob']);
+    expect(found?.get('user_bob')).toBeNull();
+    holder.fail = true;
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(await tryLoadAccountPictures(env, ['user_alice'])).toBeNull();
+    warn.mockRestore();
   });
 
   it('answers no pictures when the master database cannot be reached', async () => {

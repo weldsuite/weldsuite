@@ -480,6 +480,9 @@ async fn store_avatar(
     // R2 keys stay under the Clerk org id until phase 3 (workspace-id plan).
     let org = caller.clerk_org_id.as_deref().unwrap_or("null");
     let millis = time::OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000;
+    // The identity sync (core-onboarding `store_profile`) recognises an
+    // uploaded picture by this `/avatars/<user id>_` path and keeps it over the
+    // provider's: keep the shape when changing the key.
     let key = format!(
         "workspaces/{org}/avatars/{}_{millis}.{extension}",
         caller.user_id

@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { channelsRoutes } from './index';
 import { channelMembersRoutes } from '../channel-members';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
@@ -265,6 +265,36 @@ describe('/api/channels/:channelId read state', () => {
 });
 
 describe('/api/channels/:channelId/messages/:messageId/forward', () => {
+  it('keeps the message\'s stored avatar in the snapshot when no account picture is found', async () => {
+    // This file gives the routes no master database, so the account lookup
+    // finds nothing: the snapshot falls back to what the message stored.
+    const sourceId = generateId('msg');
+    const at = new Date('2026-03-01T10:00:00.000Z');
+    await db.insert(schema.chatMessages).values({
+      id: sourceId,
+      channelId: publicId,
+      authorId: ANN,
+      authorName: 'Ann',
+      authorAvatar: 'https://img.test/ann-at-post.png',
+      content: 'with an avatar',
+      createdAt: at,
+      updatedAt: at,
+    });
+    const res = await app(BOB).request(
+      `/api/channels/${publicId}/messages/${sourceId}/forward`,
+      json({ targetChannelIds: [otherPublicId] }),
+    );
+    expect(res.status).toBe(201);
+    const [forwarded] = await db
+      .select({ forwardedFrom: schema.chatMessages.forwardedFrom })
+      .from(schema.chatMessages)
+      .where(and(eq(schema.chatMessages.channelId, otherPublicId), eq(schema.chatMessages.authorId, BOB)))
+      .orderBy(desc(schema.chatMessages.createdAt))
+      .limit(1);
+    expect(forwarded?.forwardedFrom?.messageId).toBe(sourceId);
+    expect(forwarded?.forwardedFrom?.authorAvatar).toBe('https://img.test/ann-at-post.png');
+  });
+
   it('forwards into a public channel, joining it, and refuses what the caller cannot reach', async () => {
     const [source] = await db
       .select({ id: schema.chatMessages.id })

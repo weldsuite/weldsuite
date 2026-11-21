@@ -27,11 +27,15 @@ export type AccountPictures = ReadonlyMap<string, string | null>;
 
 const EMPTY: AccountPictures = new Map();
 
-/** Account pictures of the given users. Ids without an account are absent from the map. */
-export async function loadAccountPictures(
+/**
+ * Account pictures of the given users, or null when the lookup failed. Use it
+ * where a failure must not be mistaken for "no picture", e.g. before caching
+ * the answer; everywhere else {@link loadAccountPictures} is simpler.
+ */
+export async function tryLoadAccountPictures(
   env: AccountPictureEnv,
   userIds: Iterable<string | null | undefined>,
-): Promise<AccountPictures> {
+): Promise<AccountPictures | null> {
   const ids = [...new Set([...userIds].filter((id): id is string => typeof id === 'string' && id.length > 0))];
   if (ids.length === 0) return EMPTY;
   try {
@@ -42,8 +46,16 @@ export async function loadAccountPictures(
     return new Map(rows.map((row) => [row.id, row.imageUrl || null]));
   } catch (err) {
     console.warn('[worker-kit/account-pictures] lookup failed:', err instanceof Error ? err.message : err);
-    return EMPTY;
+    return null;
   }
+}
+
+/** Account pictures of the given users. Ids without an account are absent from the map. */
+export async function loadAccountPictures(
+  env: AccountPictureEnv,
+  userIds: Iterable<string | null | undefined>,
+): Promise<AccountPictures> {
+  return (await tryLoadAccountPictures(env, userIds)) ?? EMPTY;
 }
 
 /** The account picture of one user, or null. */

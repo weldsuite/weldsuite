@@ -32,7 +32,7 @@ import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
-import { loadAccountPicture } from '@weldsuite/worker-kit/account-pictures';
+import { accountPicture, tryLoadAccountPictures } from '@weldsuite/worker-kit/account-pictures';
 import {
   createMeeting as createRtkMeeting,
   addParticipant,
@@ -81,14 +81,16 @@ function stripServerOwned(data: Record<string, unknown>): Record<string, unknown
 /**
  * Read a workspace member's display info (name from the member row, picture
  * from their account), preferring KV cache to avoid the database roundtrips on
- * every join. 1h TTL, write-through.
+ * every join. 1h TTL, write-through. The key is versioned (`v2`): entries from
+ * before avatars came from the account carried the member row's picture. A
+ * failed picture lookup is not cached, so the next join tries again.
  */
 async function getMemberDisplayCached(
   c: Context<{ Bindings: Env; Variables: Variables }>,
   orgId: string,
   userId: string,
 ): Promise<{ name: string; picture?: string }> {
-  const cacheKey = `member-display:${orgId}:${userId}`;
+  const cacheKey = `member-display:v2:${orgId}:${userId}`;
   try {
     const cached = await c.env.WORKSPACE_CACHE?.get(cacheKey);
     if (cached) {
@@ -99,20 +101,23 @@ async function getMemberDisplayCached(
 
   const db = c.get('tenantDb');
   const { workspaceMembers } = schema;
-  const [[author], picture] = await Promise.all([
+  const [[author], pictures] = await Promise.all([
     db
       .select({ name: workspaceMembers.name })
       .from(workspaceMembers)
       .where(eq(workspaceMembers.userId, userId))
       .limit(1),
-    loadAccountPicture(c.env, userId),
+    tryLoadAccountPictures(c.env, [userId]),
   ]);
 
+  const picture = pictures ? accountPicture(pictures, userId) : null;
   const result = { name: author?.name ?? 'Unknown', picture: picture ?? undefined };
-  c.executionCtx.waitUntil(
-    c.env.WORKSPACE_CACHE?.put(cacheKey, JSON.stringify(result), { expirationTtl: 3600 }) ??
-      Promise.resolve(),
-  );
+  if (pictures) {
+    c.executionCtx.waitUntil(
+      c.env.WORKSPACE_CACHE?.put(cacheKey, JSON.stringify(result), { expirationTtl: 3600 }) ??
+        Promise.resolve(),
+    );
+  }
   return result;
 }
 

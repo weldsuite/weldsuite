@@ -595,10 +595,15 @@ impl IdentitySync {
              on conflict (id) do update
                 set email = case when excluded.email <> '' then excluded.email else users.email end,
                     first_name = excluded.first_name, last_name = excluded.last_name,
-                    -- The provider's picture when it has one; a picture
-                    -- uploaded in WeldSuite (`PUT /settings/profile/avatar`)
-                    -- is not on the provider and must not be wiped.
-                    image_url = coalesce(nullif(excluded.image_url, ''), users.image_url),
+                    image_url = case
+                        -- A picture uploaded in WeldSuite (`PUT /settings/profile/avatar`,
+                        -- stored as `…/avatars/<user id>_<ms>.<ext>`) is never on the
+                        -- provider: it wins until the user uploads another.
+                        when strpos(coalesce(users.image_url, ''), '/avatars/' || users.id || '_') > 0
+                            then users.image_url
+                        -- Otherwise the provider's picture, when it has one.
+                        else coalesce(nullif(excluded.image_url, ''), users.image_url)
+                    end,
                     updated_at = now()",
         )
         .bind(user_id)

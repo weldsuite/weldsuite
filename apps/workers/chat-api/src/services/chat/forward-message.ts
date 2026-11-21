@@ -147,9 +147,9 @@ export async function forwardMessage(
     channelType: (sourceChannel?.type as 'public' | 'private' | 'dm' | undefined) ?? 'public',
     authorId: source.authorId,
     authorName: source.authorName,
-    authorAvatar: snapshotsPerson
-      ? accountPicture(pictures, source.authorId) ?? undefined
-      : source.authorAvatar ?? undefined,
+    // A person's account picture; the message's stored avatar when the lookup
+    // finds none (failed, or an account that is gone) and for an agent's icon.
+    authorAvatar: (snapshotsPerson ? accountPicture(pictures, source.authorId) : null) ?? source.authorAvatar ?? undefined,
     content: source.content,
     htmlContent: source.htmlContent ?? undefined,
     createdAt: source.createdAt.toISOString(),
