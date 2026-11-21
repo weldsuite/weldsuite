@@ -17,10 +17,14 @@ weldsuite-kit = { workspace = true }
 weldsuite-mollie = { workspace = true }
 # The outbound HTTP port VIES is asked through.
 weldsuite-ports = { workspace = true }
+# The tables, as SeaORM entities (ADR DATA-019).
+weldsuite-schema = { workspace = true }
 hex = { workspace = true }
+sea-orm = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 sqlx = { workspace = true }
+time = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]

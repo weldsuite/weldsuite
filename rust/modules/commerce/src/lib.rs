@@ -205,12 +205,18 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
 /// the route maps to its 500 with its own message.
 pub(crate) enum Refusal {
     Response(Box<Response>),
-    Database(sqlx::Error),
+    Database(weldsuite_commerce_domain::DbErr),
     Write(WriteError),
 }
 
 impl From<sqlx::Error> for Refusal {
     fn from(error: sqlx::Error) -> Self {
+        Self::Database(weldsuite_commerce_domain::db::from_sqlx(error))
+    }
+}
+
+impl From<weldsuite_commerce_domain::DbErr> for Refusal {
+    fn from(error: weldsuite_commerce_domain::DbErr) -> Self {
         Self::Database(error)
     }
 }

@@ -49,7 +49,8 @@ pub struct Env<'a> {
 /// Why a payment operation was refused.
 #[derive(Debug)]
 pub enum Error {
-    Database(sqlx::Error),
+    /// A failed statement (ORM or SQL).
+    Database(sea_orm::DbErr),
     /// No usable connection (409 `PAYMENT_PROVIDER_NOT_CONNECTED`).
     NotConnected,
     /// The order is paid (409 `ALREADY_PAID`).
@@ -78,9 +79,15 @@ pub enum Error {
     Credentials(String),
 }
 
+impl From<sea_orm::DbErr> for Error {
+    fn from(error: sea_orm::DbErr) -> Self {
+        Self::Database(error)
+    }
+}
+
 impl From<sqlx::Error> for Error {
     fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
+        Self::Database(crate::db::from_sqlx(error))
     }
 }
 

@@ -853,7 +853,7 @@ async fn quote(
 
 /// A failed connection checkout as the domain's database error.
 fn refuse_db(error: sqlx::Error) -> weldsuite_commerce_domain::Error {
-    weldsuite_commerce_domain::Error::Database(error)
+    weldsuite_commerce_domain::Error::from(error)
 }
 
 async fn create(

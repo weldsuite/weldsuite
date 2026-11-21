@@ -16,6 +16,7 @@ pub mod approvals;
 pub mod carts;
 pub mod channels;
 pub mod checkout;
+pub mod db;
 pub mod discount;
 pub mod error;
 pub mod money;
@@ -30,6 +31,7 @@ pub mod totals;
 pub mod vat;
 
 pub use error::{Error, LineProblem};
+pub use sea_orm::DbErr;
 
 /// `new Date().toISOString()`: UTC, milliseconds. Bound as text and cast
 /// with `::timestamp`, or written through [`weldsuite_books_domain::table`].

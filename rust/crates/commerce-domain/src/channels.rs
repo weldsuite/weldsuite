@@ -3,8 +3,14 @@
 //! channels; this is the one the connector ingest creates on its own, so
 //! every imported order carries a `channel_id`.
 
+use sea_orm::ActiveValue::Set;
+use sea_orm::{ActiveModelTrait, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder};
+use serde_json::json;
 use sqlx::PgConnection;
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::commerce_channels;
+
+use crate::db;
 
 /// The store connection a channel stands for.
 #[derive(Debug, Clone, Copy)]
@@ -37,20 +43,24 @@ pub struct Ensured {
 pub async fn ensure_connector(
     conn: &mut PgConnection,
     connector: &Connector<'_>,
-) -> Result<Ensured, sqlx::Error> {
-    sqlx::query("select pg_advisory_xact_lock(hashtext($1))")
-        .bind(format!("weldcommerce:channel:{}", connector.connection_id))
-        .execute(&mut *conn)
-        .await?;
-    let found: Option<String> = sqlx::query_scalar(
-        "select id from commerce_channels where connection_id = $1 and deleted_at is null \
-         order by created_at asc, id asc limit 1",
+) -> Result<Ensured, DbErr> {
+    db::advisory_lock(
+        conn,
+        &format!("weldcommerce:channel:{}", connector.connection_id),
     )
-    .bind(connector.connection_id)
-    .fetch_optional(&mut *conn)
     .await?;
-    if let Some(id) = found {
-        return Ok(Ensured { id, created: false });
+    let found = commerce_channels::Entity::find()
+        .filter(commerce_channels::Column::ConnectionId.eq(connector.connection_id))
+        .filter(commerce_channels::Column::DeletedAt.is_null())
+        .order_by_asc(commerce_channels::Column::CreatedAt)
+        .order_by_asc(commerce_channels::Column::Id)
+        .one(&db::on(conn))
+        .await?;
+    if let Some(found) = found {
+        return Ok(Ensured {
+            id: found.id,
+            created: false,
+        });
     }
     let id = generate_id("chan");
     let currency = connector.currency.trim().to_ascii_uppercase();
@@ -65,20 +75,24 @@ pub async fn ensure_connector(
     } else {
         name
     };
-    sqlx::query(
-        "insert into commerce_channels (id, name, type, audience, status, currency, \
-           prices_include_tax, selling_countries, guest_checkout, payment_methods, connection_id, \
-           created_at, updated_at) \
-         values ($1, $2, $3, 'b2c', 'active', $4, true, '[]'::jsonb, true, '[]'::jsonb, $5, \
-           $6::timestamp, $6::timestamp)",
-    )
-    .bind(&id)
-    .bind(&name)
-    .bind(connector.provider)
-    .bind(&currency)
-    .bind(connector.connection_id)
-    .bind(crate::now())
-    .execute(&mut *conn)
+    let now = db::now();
+    commerce_channels::ActiveModel {
+        id: Set(id.clone()),
+        name: Set(name),
+        type_: Set(connector.provider.to_owned()),
+        audience: Set("b2c".to_owned()),
+        status: Set("active".to_owned()),
+        currency: Set(currency),
+        prices_include_tax: Set(true),
+        selling_countries: Set(json!([])),
+        guest_checkout: Set(true),
+        payment_methods: Set(json!([])),
+        connection_id: Set(Some(connector.connection_id.to_owned())),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    }
+    .insert(&db::on(conn))
     .await?;
     Ok(Ensured { id, created: true })
 }

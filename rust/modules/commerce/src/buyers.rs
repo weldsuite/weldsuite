@@ -86,7 +86,7 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     .await;
     match found {
         Ok(list) => Data(Value::Array(list)).into_response(),
-        Err(error) => Refusal::Database(error).respond(FAILED),
+        Err(error) => Refusal::from(error).respond(FAILED),
     }
 }
 
@@ -358,7 +358,7 @@ async fn invite(
             StatusCode::NO_CONTENT.into_response()
         }
         Ok(None) => Refusal::not_found("Buyer", &id).respond(FAILED),
-        Err(error) => Refusal::Database(error).respond(FAILED),
+        Err(error) => Refusal::from(error).respond(FAILED),
     }
 }
 

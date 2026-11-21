@@ -103,7 +103,7 @@ async fn read_connection(State(state): State<CommerceState>, caller: Caller) -> 
         Ok(None) => {
             axum::Json(json!({ "data": null, "meta": { "oauthAvailable": oauth } })).into_response()
         }
-        Err(error) => Refusal::Database(error).respond(FAILED),
+        Err(error) => Refusal::from(error).respond(FAILED),
     }
 }
 
@@ -390,7 +390,7 @@ pub(crate) async fn save(
             if let Err(undo) = registry.restore(&id, before).await {
                 tracing::error!(%undo, "[commerce] could not undo the connection registry");
             }
-            Err(Refusal::Database(error))
+            Err(Refusal::from(error))
         }
     }
 }
@@ -578,7 +578,7 @@ async fn disconnect(State(state): State<CommerceState>, caller: Caller) -> Respo
             if let Err(undo) = registry.restore(&id, before).await {
                 tracing::error!(%undo, "[commerce] could not undo the connection registry");
             }
-            return Err(Refusal::Database(error));
+            return Err(Refusal::from(error));
         }
         Ok::<_, Refusal>(row)
     }

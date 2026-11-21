@@ -50,7 +50,7 @@ pub(crate) fn refuse(error: PaymentError) -> Refusal {
         }
     };
     match error {
-        PaymentError::Database(error) => Refusal::Database(error),
+        PaymentError::Database(error) => Refusal::from(error),
         PaymentError::NotConnected => conflict(
             "PAYMENT_PROVIDER_NOT_CONNECTED",
             "No payment provider is connected",

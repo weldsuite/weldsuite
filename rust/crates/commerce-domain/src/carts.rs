@@ -18,6 +18,7 @@
 
 use std::collections::HashMap;
 
+use sea_orm::DbErr;
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, PgPool};
@@ -43,7 +44,8 @@ pub const MAX_QUANTITY: i64 = 100_000;
 /// to its `{ error: { code, message, details? } }` response.
 #[derive(Debug)]
 pub enum Refusal {
-    Database(sqlx::Error),
+    /// A failed statement (ORM or SQL).
+    Database(DbErr),
     /// 404 `CART_NOT_FOUND`.
     CartNotFound,
     /// 409 `CART_NOT_OPEN`: completed, expired or abandoned.
@@ -82,9 +84,15 @@ pub enum Refusal {
     IdempotencyKeyReused,
 }
 
+impl From<DbErr> for Refusal {
+    fn from(error: DbErr) -> Self {
+        Self::Database(error)
+    }
+}
+
 impl From<sqlx::Error> for Refusal {
     fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
+        Self::Database(crate::db::from_sqlx(error))
     }
 }
 

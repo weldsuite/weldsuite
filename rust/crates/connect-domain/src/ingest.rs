@@ -136,6 +136,12 @@ impl From<sqlx::Error> for Failure {
     }
 }
 
+impl From<weldsuite_commerce_domain::DbErr> for Failure {
+    fn from(error: weldsuite_commerce_domain::DbErr) -> Self {
+        Self(weldsuite_commerce_domain::db::message_of(&error))
+    }
+}
+
 type Outcome<T> = Result<T, Failure>;
 
 // ── checksums ───────────────────────────────────────────────────────────────

@@ -166,7 +166,7 @@ async fn decide_order(
                 tx.commit().await?;
                 Ok(Ok(decided))
             }
-            Err(weldsuite_commerce_domain::Error::Database(error)) => Err(error),
+            Err(error @ weldsuite_commerce_domain::Error::Database(_)) => Err(error),
             Err(error) => Ok(Err(Some(error))),
         }
     }
@@ -364,7 +364,7 @@ pub(crate) async fn add_buyer(
                 tx.commit().await?;
                 Ok(Ok(buyer))
             }
-            Err(weldsuite_commerce_domain::Error::Database(error)) => Err(error),
+            Err(error @ weldsuite_commerce_domain::Error::Database(_)) => Err(error),
             Err(error) => Ok(Err(error)),
         }
     }
@@ -467,7 +467,7 @@ pub(crate) async fn patch_buyer(
                 tx.commit().await?;
                 Ok(Ok(buyer))
             }
-            Err(weldsuite_commerce_domain::Error::Database(error)) => Err(error),
+            Err(error @ weldsuite_commerce_domain::Error::Database(_)) => Err(error),
             Err(error) => Ok(Err(error)),
         }
     }
@@ -514,7 +514,7 @@ pub(crate) async fn remove_buyer(
                 tx.commit().await?;
                 Ok(Ok(buyer))
             }
-            Err(weldsuite_commerce_domain::Error::Database(error)) => Err(error),
+            Err(error @ weldsuite_commerce_domain::Error::Database(_)) => Err(error),
             Err(error) => Ok(Err(error)),
         }
     }

@@ -4,6 +4,8 @@
 
 use std::fmt;
 
+use sea_orm::DbErr;
+
 use crate::discount::Problem;
 
 /// An order line the catalogue could not give a price or a product for.
@@ -17,17 +19,12 @@ pub struct LineProblem {
 
 #[derive(Debug)]
 pub enum Error {
-    Database(sqlx::Error),
+    /// A failed statement (ORM or SQL).
+    Database(DbErr),
     /// `resource` with `id` is not there (404).
-    NotFound {
-        resource: &'static str,
-        id: String,
-    },
+    NotFound { resource: &'static str, id: String },
     /// An input the rules refuse (400): the field and what is wrong.
-    Invalid {
-        field: String,
-        message: String,
-    },
+    Invalid { field: String, message: String },
     /// Order lines with a problem (400).
     LineProblems(Vec<LineProblem>),
     /// The discount code does not apply (409 `DISCOUNT_NOT_APPLICABLE`).
@@ -40,28 +37,19 @@ pub enum Error {
     /// 409 `ALREADY_PAID`.
     AlreadyPaid,
     /// A status the order cannot move to (409 `INVALID_STATUS_TRANSITION`).
-    InvalidTransition {
-        from: String,
-        to: String,
-    },
+    InvalidTransition { from: String, to: String },
     /// `nextOrderNumber` below the sequence (409 `SEQUENCE_BACKWARDS`).
-    SequenceBackwards {
-        current: i64,
-    },
+    SequenceBackwards { current: i64 },
     /// No seller entity: neither `commerce_settings.default_entity_id` nor
     /// the workspace's default legal entity names a live one (409
     /// `SELLER_ENTITY_REQUIRED`).
     SellerEntityRequired,
     /// The seller entity is outside the EU: milestone 1 has EU VAT rules only
     /// (409 `SELLER_ENTITY_NOT_EU`).
-    SellerNotEu {
-        country: String,
-    },
+    SellerNotEu { country: String },
     /// The destination's VAT is not modelled (Northern Ireland, `XI`): the
     /// sale is refused, not zero-rated (409 `DESTINATION_NOT_SUPPORTED`).
-    DestinationNotSupported {
-        country: String,
-    },
+    DestinationNotSupported { country: String },
     /// The VAT engine could not answer (503 `TAX_ENGINE_UNAVAILABLE`). The
     /// write stops: a failure never becomes zero tax.
     TaxEngineUnavailable(String),
@@ -90,9 +78,7 @@ pub enum Error {
     NoPaymentTerms,
     /// The order would take the party past its credit limit (409
     /// `CREDIT_LIMIT_EXCEEDED`); what is left, in cents.
-    CreditLimitExceeded {
-        available: crate::money::Cents,
-    },
+    CreditLimitExceeded { available: crate::money::Cents },
 }
 
 impl Error {
@@ -112,9 +98,15 @@ impl Error {
     }
 }
 
+impl From<DbErr> for Error {
+    fn from(error: DbErr) -> Self {
+        Self::Database(error)
+    }
+}
+
 impl From<sqlx::Error> for Error {
     fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
+        Self::Database(crate::db::from_sqlx(error))
     }
 }
 

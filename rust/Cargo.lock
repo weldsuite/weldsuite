@@ -8138,9 +8138,11 @@ name = "weldsuite-commerce-domain"
 version = "0.0.0"
 dependencies = [
  "hex",
+ "sea-orm",
  "serde_json",
  "sha2 0.11.1",
  "sqlx",
+ "time",
  "tokio",
  "tracing",
  "weldsuite-books-domain",
@@ -8148,6 +8150,7 @@ dependencies = [
  "weldsuite-kit",
  "weldsuite-mollie",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]

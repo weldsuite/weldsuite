@@ -179,7 +179,7 @@ fn conflict(code: &'static str, message: String, details: Option<Value>) -> Refu
 /// The domain's refusal as a response.
 pub(crate) fn refuse(error: Error) -> Refusal {
     match error {
-        Error::Database(error) => Refusal::Database(error),
+        Error::Database(error) => Refusal::from(error),
         Error::NotFound { resource, id } => Refusal::not_found(resource, &id),
         Error::Invalid { field, message } => invalid(&field, &message),
         Error::LineProblems(problems) => {

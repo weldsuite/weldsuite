@@ -555,7 +555,7 @@ async fn create(
         let row = match row {
             Ok(row) => row,
             Err(crate::table::WriteError::Database(error)) => {
-                return Err(refusal_of(&error).unwrap_or(Refusal::Database(error)));
+                return Err(refusal_of(&error).unwrap_or(Refusal::from(error)));
             }
             Err(other) => return Err(other.into()),
         };
@@ -637,7 +637,7 @@ async fn update(
             Ok(Some(row)) => row,
             Ok(None) => return Err(Refusal::not_found("Discount", &id)),
             Err(crate::table::WriteError::Database(error)) => {
-                return Err(refusal_of(&error).unwrap_or(Refusal::Database(error)));
+                return Err(refusal_of(&error).unwrap_or(Refusal::from(error)));
             }
             Err(other) => return Err(other.into()),
         };

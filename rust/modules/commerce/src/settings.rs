@@ -52,12 +52,12 @@ async fn read(caller: Caller) -> Response {
         let mut tx = caller.db.begin().await?;
         let settings = numbering::load_or_create(&mut tx).await?;
         tx.commit().await?;
-        Ok::<_, sqlx::Error>(settings)
+        Ok::<_, Refusal>(settings)
     }
     .await;
     match result {
         Ok(settings) => Data(present(&settings)).into_response(),
-        Err(error) => Refusal::Database(error).respond(FAILED),
+        Err(error) => error.respond(FAILED),
     }
 }
 

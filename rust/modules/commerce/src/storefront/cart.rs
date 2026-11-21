@@ -575,12 +575,12 @@ pub(crate) async fn checkout(
         let view = checkout::order_view(&mut conn, &placed.order_id).await?;
         let raw =
             weldsuite_commerce_domain::orders::load(&mut conn, &placed.order_id, false).await?;
-        Ok::<_, sqlx::Error>((view, raw))
+        Ok::<_, Refusal>((view, raw))
     }
     .await;
     let (view, raw) = match view {
         Ok(found) => found,
-        Err(error) => return refuse(Refusal::Database(error)),
+        Err(error) => return refuse(error),
     };
     let customer_email = raw
         .as_ref()
