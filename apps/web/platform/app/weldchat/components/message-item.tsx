@@ -11,7 +11,6 @@ import { cn } from '@/lib/utils';
 import { Link } from '@tanstack/react-router';
 import { Link as HrefLink } from '@/lib/router';
 import {
-  MessageSquare,
   Pin,
   Phone,
   PhoneMissed,
@@ -222,21 +221,56 @@ function ReferenceLine({
  * reply. With `href` it is a link to the record (the board, sheet or document)
  * in its own app.
  */
+/** When a thread's last reply came in: the time today, else the day ("21:45", "20 Nov"). */
+function lastReplyLabel(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toDateString() === new Date().toDateString()
+    ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : date.toLocaleDateString([], { day: 'numeric', month: 'short' });
+}
+
 /**
- * "N replies" under a message: opens its thread in the side panel beside the
- * channel (`onOpen`), or without `onOpen` goes to the thread's own page.
+ * "N replies · 21:45" under a message, hooked to it by a curved line: opens
+ * its thread in the side panel beside the conversation (`onOpen`), or
+ * without `onOpen` goes to the thread's own page.
  */
 function ThreadIndicator({
   channelId,
   messageId,
   onOpen,
+  lastReplyAt,
   children,
-}: Readonly<{ channelId: string; messageId: string; onOpen?: () => void; children: ReactNode }>) {
-  const className = 'flex items-center gap-1 mt-1 text-xs text-primary hover:underline';
+}: Readonly<{
+  channelId: string;
+  messageId: string;
+  onOpen?: () => void;
+  /** When the last reply came in, shown after the count. */
+  lastReplyAt?: string | null;
+  children: ReactNode;
+}>) {
+  const last = lastReplyLabel(lastReplyAt);
+  const className = 'group/thread mt-1 flex w-fit items-center gap-1.5 text-xs';
+  const content = (
+    <>
+      {/* The line from the message down to its replies. */}
+      <span
+        aria-hidden
+        className="-mt-1.5 h-2.5 w-3 shrink-0 rounded-bl-[6px] border-b-[1.5px] border-l-[1.5px] border-muted-foreground/40 transition-colors group-hover/thread:border-muted-foreground/70"
+      />
+      <span className="font-medium text-primary group-hover/thread:underline">{children}</span>
+      {last && (
+        <span className="text-muted-foreground" title={formatFullTime(lastReplyAt ?? undefined)}>
+          · {last}
+        </span>
+      )}
+    </>
+  );
   if (onOpen) {
     return (
       <button type="button" data-testid="chat-thread-indicator" onClick={onOpen} className={className}>
-        {children}
+        {content}
       </button>
     );
   }
@@ -247,7 +281,7 @@ function ThreadIndicator({
       params={{ channelId, messageId }}
       className={className}
     >
-      {children}
+      {content}
     </Link>
   );
 }
@@ -961,8 +995,8 @@ export function MessageItem({
             // A list across channels has no channel open to show it beside:
             // there it goes to the thread's page.
             onOpen={showChannel ? undefined : () => openThread(message.id)}
+            lastReplyAt={message.threadLastReplyAt ?? message.lastReplyAt}
           >
-            <MessageSquare className="h-3 w-3" />
             {message.threadReplyCount}{' '}
             {message.threadReplyCount === 1 ? t.weldchat.messageItem.reply : t.weldchat.messageItem.replies}
           </ThreadIndicator>
