@@ -13,8 +13,6 @@
     "test:watch": "jest --watch"
   },
   "dependencies": {
-    "@clerk/expo": "^4.7.1",
-    "@clerk/shared": "^4.36.0",
     "@cloudflare/react-native-webrtc": "~137.0.1",
     "@cloudflare/realtimekit-react-native": "^2.0.0",
     "@cloudflare/realtimekit-react-native-ui": "^2.0.0",
@@ -36,7 +34,6 @@
     "date-fns": "^4.1.0",
     "event-target-shim": "6.0.2",
     "expo": "~57.0.20",
-    "expo-apple-authentication": "~57.0.1",
     "expo-audio": "~57.0.4",
     "expo-blur": "~57.0.2",
     "expo-build-properties": "~57.0.17",

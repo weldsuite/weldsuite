@@ -4,19 +4,23 @@
  * Connects to the ChatRoom Durable Object via RoomClient for live
  * message delivery and typing indicators.
  *
- * Uses a ref for getToken to avoid infinite re-render loops
- * (Clerk's getToken changes reference on every render).
+ * Uses a ref for getToken to avoid infinite re-render loops (the session's
+ * getToken may change reference between renders).
+ *
+ * On WeldID (membership mode) the token names no workspace, so the socket
+ * names the active one (`?workspace=`); a workspace switch reconnects.
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { AppState } from 'react-native';
-import { useAuth } from '@weldsuite/mobile-platform/auth';
+import { useAuth, useWorkspaceForRequests } from '@weldsuite/mobile-platform/auth';
 import { RoomClient } from '@weldsuite/realtime/client';
 import type { TypingUser } from '@weldsuite/realtime/types';
 import { getRealtimeBaseUrl } from '@/services/realtime-client';
 
 export function useChatRealtime(channelId: string | null, onUpdate: () => void) {
   const { getToken, userId } = useAuth();
+  const workspace = useWorkspaceForRequests();
 
   const onUpdateRef = useRef(onUpdate);
   onUpdateRef.current = onUpdate;
@@ -38,6 +42,7 @@ export function useChatRealtime(channelId: string | null, onUpdate: () => void) 
     const rc = new RoomClient({
       url: `${baseUrl}/ws/chat/${channelId}`,
       getToken: async () => (await getTokenRef.current()) || '',
+      workspace,
     });
     clientRef.current = rc;
 
@@ -97,7 +102,7 @@ export function useChatRealtime(channelId: string | null, onUpdate: () => void) 
       setClient(null);
       setTypingUsers([]);
     };
-  }, [channelId]);
+  }, [channelId, workspace]);
 
   const onKeystroke = useCallback(() => {
     clientRef.current?.startTyping();

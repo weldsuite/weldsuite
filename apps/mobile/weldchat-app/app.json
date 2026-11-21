@@ -2,7 +2,7 @@
   "expo": {
     "name": "WeldChat",
     "slug": "weldchat-app",
-    "version": "1.2.0",
+    "version": "2.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "weldchat",
@@ -58,7 +58,6 @@
           "enableBackgroundRecording": false
         }
       ],
-      "expo-apple-authentication",
       "expo-font",
       "expo-secure-store",
       [
@@ -125,6 +124,6 @@
       "checkAutomatically": "ON_LOAD",
       "fallbackToCacheTimeout": 0
     },
-    "runtimeVersion": "1.2.0"
+    "runtimeVersion": "2.0.0"
   }
 }

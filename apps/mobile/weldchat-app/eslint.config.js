@@ -18,8 +18,9 @@ module.exports = defineConfig([
       globals: { ...globals.node, ...globals.jest },
     },
   },
-  // Sign-in state only through the auth facade (ADR MOB-006).
-  authFacadeImports(),
+  // Sign-in state only through the auth facade (ADR MOB-006); WeldChat runs
+  // on WeldID only and ships no Clerk (ADRs OPS-025, MOB-007).
+  authFacadeImports([], { noClerk: true }),
   {
     // Same '_' opt-out the rest of the monorepo uses (packages/config/eslint-config):
     // an underscore marks a binding as deliberately unused — required positional
