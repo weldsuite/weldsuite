@@ -207,7 +207,7 @@ async fn price_products(
     conn: &mut PgConnection,
     rows: &[Value],
     currency: &str,
-) -> Result<HashMap<String, Cents>, sqlx::Error> {
+) -> Result<HashMap<String, Cents>, weldsuite_commerce_domain::Error> {
     let with_variants: Vec<String> = rows
         .iter()
         .filter(|r| r["hasVariants"].as_bool().unwrap_or(false))
@@ -438,7 +438,10 @@ pub(crate) async fn products(
 
 type Page = (Vec<Value>, bool, Option<String>);
 
-async fn list(principal: &Principal, query: &ListQuery) -> Result<Option<Page>, sqlx::Error> {
+async fn list(
+    principal: &Principal,
+    query: &ListQuery,
+) -> Result<Option<Page>, weldsuite_commerce_domain::Error> {
     let mut conn = principal.db.acquire().await?;
     let currency = &principal.channel.currency;
     // The category filter: manual members, or the rules of an automated one.
@@ -516,7 +519,7 @@ pub(crate) async fn product(
         .fetch_optional(&mut *conn)
         .await?;
         let Some(id) = id else {
-            return Ok::<_, sqlx::Error>(None);
+            return Ok::<_, weldsuite_commerce_domain::Error>(None);
         };
         Ok(build(&mut conn, &principal.channel.currency, &[id])
             .await?
@@ -635,7 +638,7 @@ async fn build(
     conn: &mut PgConnection,
     currency: &str,
     ids: &[String],
-) -> Result<Vec<Value>, sqlx::Error> {
+) -> Result<Vec<Value>, weldsuite_commerce_domain::Error> {
     if ids.is_empty() {
         return Ok(Vec::new());
     }

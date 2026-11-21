@@ -5,8 +5,11 @@
 //! [`plan`] is the amounts before VAT; [`price`] adds the VAT of
 //! [`crate::vat`] and settles `tax_total` and `total`.
 
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, PaginatorTrait, QueryFilter};
 use sqlx::PgConnection;
+use weldsuite_schema::tenant::discount_redemptions;
 
+use crate::db;
 use crate::discount::{self, Applied, Context, EvalLine, Kind, Problem};
 use crate::error::Error;
 use crate::money::{self, Cents};
@@ -90,7 +93,7 @@ fn totals_line(line: &Line, discount: Cents) -> totals::Line {
 /// # Errors
 /// A failed statement. A code that does not apply is not an error: it is in
 /// [`Plan::discount_problem`], and the order is priced without it.
-pub async fn plan(conn: &mut PgConnection, input: &Input<'_>) -> Result<Plan, sqlx::Error> {
+pub async fn plan(conn: &mut PgConnection, input: &Input<'_>) -> Result<Plan, DbErr> {
     let mut applied: Option<Applied> = None;
     let mut redeemed: Option<Redeemed> = None;
     let mut problem = None;
@@ -122,14 +125,12 @@ pub async fn plan(conn: &mut PgConnection, input: &Input<'_>) -> Result<Plan, sq
                 // The order's own redemption is already in `usage_count`.
                 let own: i64 = match input.order_id {
                     Some(order) => {
-                        sqlx::query_scalar(
-                            "select count(*) from discount_redemptions \
-                             where discount_id = $1 and order_id = $2",
-                        )
-                        .bind(&rule.id)
-                        .bind(order)
-                        .fetch_one(&mut *conn)
-                        .await?
+                        let found = discount_redemptions::Entity::find()
+                            .filter(discount_redemptions::Column::DiscountId.eq(rule.id.as_str()))
+                            .filter(discount_redemptions::Column::OrderId.eq(order))
+                            .count(&db::on(conn))
+                            .await?;
+                        i64::try_from(found).unwrap_or(i64::MAX)
                     }
                     None => 0,
                 };
@@ -271,22 +272,12 @@ pub async fn quote(conn: &mut PgConnection, input: &QuoteInput<'_>) -> Result<Qu
     // The buyer's party, when there is one already (a quote creates nothing).
     let mut counterparty: Option<String> = None;
     if let Some(company) = input.company_id {
-        counterparty = sqlx::query_scalar(
-            "select id from parties where company_id = $1 and deleted_at is null limit 1",
-        )
-        .bind(company)
-        .fetch_optional(&mut *conn)
-        .await?;
+        counterparty = crate::orders::write::find_party(conn, true, company).await?;
     }
     if counterparty.is_none()
         && let Some(person) = input.person_id
     {
-        counterparty = sqlx::query_scalar(
-            "select id from parties where person_id = $1 and deleted_at is null limit 1",
-        )
-        .bind(person)
-        .fetch_optional(&mut *conn)
-        .await?;
+        counterparty = crate::orders::write::find_party(conn, false, person).await?;
     }
     let plan = price(
         conn,

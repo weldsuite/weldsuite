@@ -20,12 +20,16 @@
 //! key, and a retry with the cart's own `Idempotency-Key` header returns the
 //! order the first call placed.
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Value, json};
 use sqlx::PgConnection;
+use weldsuite_schema::tenant::{cart_items, orders};
 
 use crate::accounts;
 use crate::approvals;
 use crate::carts::{self, Ctx, Refusal};
+use crate::db;
 use crate::error::Error;
 use crate::money::{self, Cents};
 use crate::orders::lines::LineInput;
@@ -131,11 +135,12 @@ pub async fn checkout(ctx: &Ctx<'_>, token: &str, input: &Input) -> Result<Place
         let same_key = input.idempotency_key.is_some()
             && cart["idempotencyKey"].as_str() == input.idempotency_key.as_deref();
         if same_key && let Some(order_id) = cart["orderId"].as_str() {
-            let number: Option<String> =
-                sqlx::query_scalar("select order_number from orders where id = $1")
-                    .bind(order_id)
-                    .fetch_optional(&mut *tx)
-                    .await?;
+            let number: Option<String> = orders::Entity::find_by_id(order_id.to_owned())
+                .select_only()
+                .column(orders::Column::OrderNumber)
+                .into_tuple()
+                .one(&db::on(&mut tx))
+                .await?;
             return Ok(Placed {
                 cart_id,
                 order_id: order_id.to_owned(),
@@ -155,14 +160,24 @@ pub async fn checkout(ctx: &Ctx<'_>, token: &str, input: &Input) -> Result<Place
         ));
     }
 
-    let items: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('id', i.id, 'productId', i.product_id, 'variantId', i.variant_id, \
-           'sku', i.sku, 'name', i.name, 'quantity', i.quantity) \
-         from cart_items i where i.cart_id = $1 order by i.created_at asc, i.id asc",
-    )
-    .bind(&cart_id)
-    .fetch_all(&mut *tx)
-    .await?;
+    let items: Vec<Value> = cart_items::Entity::find()
+        .filter(cart_items::Column::CartId.eq(cart_id.as_str()))
+        .order_by_asc(cart_items::Column::CreatedAt)
+        .order_by_asc(cart_items::Column::Id)
+        .all(&db::on(&mut tx))
+        .await?
+        .into_iter()
+        .map(|item| {
+            json!({
+                "id": item.id,
+                "productId": item.product_id,
+                "variantId": item.variant_id,
+                "sku": item.sku,
+                "name": item.name,
+                "quantity": item.quantity,
+            })
+        })
+        .collect();
     let quote = carts::quote(&mut tx, ctx, &cart, &items).await?;
 
     let broken: Vec<(String, &'static str)> = quote
@@ -272,28 +287,37 @@ pub async fn checkout(ctx: &Ctx<'_>, token: &str, input: &Input) -> Result<Place
     if !created.replayed {
         if person_id.is_none() {
             let token = new_order_token();
-            sqlx::query("update orders set guest_access_token_hash = $2 where id = $1")
-                .bind(&created.id)
-                .bind(order_token_hash(&token))
-                .execute(&mut *tx)
+            orders::Entity::update_many()
+                .col_expr(
+                    orders::Column::GuestAccessTokenHash,
+                    Expr::value(order_token_hash(&token)),
+                )
+                .filter(orders::Column::Id.eq(created.id.as_str()))
+                .exec(&db::on(&mut tx))
                 .await?;
             order_token = Some(token);
         }
         if let Some(url) = &input.redirect_url {
-            sqlx::query(
-                "update orders set metadata = jsonb_set(coalesce(metadata, '{}'::jsonb),                    '{redirectUrl}', to_jsonb($2::text)) where id = $1",
-            )
-            .bind(&created.id)
-            .bind(url)
-            .execute(&mut *tx)
-            .await?;
+            orders::Entity::update_many()
+                .col_expr(
+                    orders::Column::Metadata,
+                    Expr::cust_with_values(
+                        r#"jsonb_set(coalesce("metadata", '{}'::jsonb), '{redirectUrl}', to_jsonb($1::text))"#,
+                        [url.clone()],
+                    ),
+                )
+                .filter(orders::Column::Id.eq(created.id.as_str()))
+                .exec(&db::on(&mut tx))
+                .await?;
         }
         if input.payment_method == "invoice" {
-            let party: Option<String> =
-                sqlx::query_scalar("select counterparty_id from orders where id = $1")
-                    .bind(&created.id)
-                    .fetch_one(&mut *tx)
-                    .await?;
+            let party: Option<String> = orders::Entity::find_by_id(created.id.clone())
+                .select_only()
+                .column(orders::Column::CounterpartyId)
+                .into_tuple::<Option<String>>()
+                .one(&db::on(&mut tx))
+                .await?
+                .ok_or_else(|| DbErr::RecordNotFound(format!("order {}", created.id)))?;
             let party = party.ok_or(Refusal::Domain(Error::NoPaymentTerms))?;
             approvals::check_invoice_terms(
                 &mut tx,
@@ -365,21 +389,12 @@ fn address(value: Option<&Value>) -> Value {
 ///
 /// # Errors
 /// A failed statement.
-pub async fn order_view(conn: &mut PgConnection, order_id: &str) -> Result<Value, sqlx::Error> {
+pub async fn order_view(conn: &mut PgConnection, order_id: &str) -> Result<Value, DbErr> {
     let Some(stored) = crate::orders::load(conn, order_id, false).await? else {
         return Ok(Value::Null);
     };
     let order = &stored.order;
-    let placed_by: Option<(String, Option<String>, Option<String>)> = match stored.text("personId")
-    {
-        Some(person) => {
-            sqlx::query_as("select id, display_name, email from people where id = $1")
-                .bind(person)
-                .fetch_optional(&mut *conn)
-                .await?
-        }
-        None => None,
-    };
+    let placed_by = approvals::person_actor(conn, stored.text("personId")).await?;
     let state = |key: &str, default: &str| {
         order
             .get(key)

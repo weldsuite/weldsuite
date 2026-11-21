@@ -460,7 +460,7 @@ async fn settle(
     conn: &mut PgConnection,
     channel: &Channel,
     items: &[Value],
-) -> Result<Vec<QLine>, sqlx::Error> {
+) -> Result<Vec<QLine>, Refusal> {
     let product_ids: Vec<String> = items.iter().filter_map(|i| text(i, "productId")).collect();
     let variant_ids: Vec<String> = items.iter().filter_map(|i| text(i, "variantId")).collect();
     let products: Vec<Value> = sqlx::query_scalar(PRODUCTS_SQL)

@@ -104,8 +104,8 @@ pub trait Invoicing: Send + Sync {
 ///
 /// # Errors
 /// A failed statement.
-pub async fn seller_entity(db: &PgPool) -> Result<Option<String>, sqlx::Error> {
-    let mut conn = db.acquire().await?;
+pub async fn seller_entity(db: &PgPool) -> Result<Option<String>, crate::DbErr> {
+    let mut conn = db.acquire().await.map_err(crate::db::from_sqlx)?;
     crate::vat::seller_entity_id(&mut conn).await
 }
 

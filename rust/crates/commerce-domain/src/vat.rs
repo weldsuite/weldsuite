@@ -26,6 +26,9 @@
 //! [`assemble`] is the pure part (unit tested); [`compute`] reads the seller
 //! and runs the engine.
 
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, JoinType, QueryFilter, QuerySelect, RelationDef,
+};
 use serde_json::{Value, json};
 use sqlx::PgConnection;
 use weldsuite_books_domain::tax::eu_vat::{
@@ -33,7 +36,9 @@ use weldsuite_books_domain::tax::eu_vat::{
     VatCategory, ZeroRatedGross, calculate_eu_destination_tax_on, is_eu_member,
 };
 use weldsuite_ports::OutboundHttp;
+use weldsuite_schema::tenant::{commerce_settings, entities, settings};
 
+use crate::db;
 use crate::error::Error;
 use crate::money::{self, Cents};
 use crate::orders::lines::Line;
@@ -217,30 +222,47 @@ impl Vat {
 /// The seller's id and country: `commerce_settings.default_entity_id`, else
 /// the workspace's default legal entity, else WeldBooks' default entity; the
 /// first that is a live, active entity.
-async fn seller(conn: &mut PgConnection) -> Result<Option<(String, Option<String>)>, sqlx::Error> {
-    sqlx::query_as(
-        "select id, jurisdiction_code from ( \
-           select e.id, e.jurisdiction_code, 1 as rank from commerce_settings s \
-             join entities e on e.id = s.default_entity_id \
-             where e.deleted_at is null and coalesce(e.is_active, true) \
-           union all \
-           select e.id, e.jurisdiction_code, 2 from entities e \
-             where e.is_default = true and e.deleted_at is null and coalesce(e.is_active, true) \
-           union all \
-           select e.id, e.jurisdiction_code, 3 from settings s \
-             join entities e on e.id = s.default_entity_id \
-             where e.deleted_at is null and coalesce(e.is_active, true) \
-         ) c order by rank asc limit 1",
-    )
-    .fetch_optional(&mut *conn)
-    .await
+async fn seller(conn: &mut PgConnection) -> Result<Option<(String, Option<String>)>, DbErr> {
+    // Live and active (`coalesce(is_active, true)`): id and country.
+    let usable = || {
+        entities::Entity::find()
+            .select_only()
+            .column(entities::Column::Id)
+            .column(entities::Column::JurisdictionCode)
+            .filter(entities::Column::DeletedAt.is_null())
+            .filter(
+                Condition::any()
+                    .add(entities::Column::IsActive.is_null())
+                    .add(entities::Column::IsActive.eq(true)),
+            )
+    };
+    let commerce_default: RelationDef = entities::Entity::belongs_to(commerce_settings::Entity)
+        .from(entities::Column::Id)
+        .to(commerce_settings::Column::DefaultEntityId)
+        .into();
+    let books_default: RelationDef = entities::Entity::belongs_to(settings::Entity)
+        .from(entities::Column::Id)
+        .to(settings::Column::DefaultEntityId)
+        .into();
+    let in_order = [
+        usable().join(JoinType::InnerJoin, commerce_default),
+        usable().filter(entities::Column::IsDefault.eq(true)),
+        usable().join(JoinType::InnerJoin, books_default),
+    ];
+    for candidates in in_order {
+        let found: Option<(String, String)> = candidates.into_tuple().one(&db::on(conn)).await?;
+        if let Some((id, country)) = found {
+            return Ok(Some((id, Some(country))));
+        }
+    }
+    Ok(None)
 }
 
 /// The id of the seller entity (see `seller`): who invoices the orders.
 ///
 /// # Errors
 /// A failed statement.
-pub async fn seller_entity_id(conn: &mut PgConnection) -> Result<Option<String>, sqlx::Error> {
+pub async fn seller_entity_id(conn: &mut PgConnection) -> Result<Option<String>, DbErr> {
     Ok(seller(conn).await?.map(|(id, _)| id))
 }
 

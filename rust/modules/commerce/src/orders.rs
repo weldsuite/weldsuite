@@ -402,7 +402,7 @@ fn public_metadata(order: &Value) -> Value {
 pub(crate) async fn fetch(
     db: &weldsuite_db::PgPool,
     id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
+) -> Result<Option<Value>, weldsuite_commerce_domain::Error> {
     let mut conn = db.acquire().await?;
     let Some(stored) = domain_orders::load(&mut conn, id, false).await? else {
         return Ok(None);

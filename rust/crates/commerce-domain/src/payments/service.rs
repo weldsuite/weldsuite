@@ -820,6 +820,6 @@ pub async fn order_of(
 ///
 /// # Errors
 /// A failed statement.
-pub async fn order_exists(conn: &mut PgConnection, order_id: &str) -> Result<bool, sqlx::Error> {
+pub async fn order_exists(conn: &mut PgConnection, order_id: &str) -> Result<bool, crate::DbErr> {
     Ok(orders::load(conn, order_id, false).await?.is_some())
 }

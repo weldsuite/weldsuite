@@ -95,7 +95,7 @@ pub(crate) async fn approvals(
                 "requestedBy": by.map(|p| json!({ "personId": p.id, "name": p.display() })),
             }));
         }
-        Ok::<_, sqlx::Error>(out)
+        Ok::<_, weldsuite_commerce_domain::Error>(out)
     }
     .await;
     match found {
@@ -193,7 +193,11 @@ async fn decide_order(
     };
     let payment = decide::after_decision(&follow, &decided, comment.as_deref(), Some(&name)).await;
     let view = async {
-        let mut conn = principal.db.acquire().await?;
+        let mut conn = principal
+            .db
+            .acquire()
+            .await
+            .map_err(weldsuite_commerce_domain::db::from_sqlx)?;
         checkout::order_view(&mut conn, &order_id).await
     }
     .await;

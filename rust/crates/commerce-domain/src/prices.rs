@@ -8,9 +8,9 @@
 //! pub struct Price { pub price: Cents, pub compare_at: Option<Cents> }
 //! pub struct Target { pub product_id: String, pub variant_id: Option<String> }
 //! pub async fn resolve(conn: &mut PgConnection, product_id: &str,
-//!     variant_id: Option<&str>, currency: &str) -> Result<Option<Price>, sqlx::Error>;
+//!     variant_id: Option<&str>, currency: &str) -> Result<Option<Price>, DbErr>;
 //! pub async fn resolve_many(conn: &mut PgConnection, targets: &[Target],
-//!     currency: &str) -> Result<HashMap<Target, Price>, sqlx::Error>;
+//!     currency: &str) -> Result<HashMap<Target, Price>, DbErr>;
 //! ```
 //!
 //! For currency `C`, a variant's price is, in this order:
@@ -29,10 +29,20 @@
 
 use std::collections::HashMap;
 
-use serde_json::Value;
+use sea_orm::prelude::BigDecimal;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, JoinType, QueryFilter, QuerySelect, RelationDef};
 use sqlx::PgConnection;
+use weldsuite_schema::tenant::{product_prices, product_variants, products};
 
+use crate::db;
 use crate::money::{self, Cents};
+
+/// A `numeric` amount as [`money::parse`] reads Postgres's text of it
+/// (`price::text`): none below zero or past the largest amount.
+pub(crate) fn parse_numeric(value: &BigDecimal) -> Option<Cents> {
+    money::parse(&value.to_plain_string())
+}
 
 /// A resolved price, with the "was" price when one is set.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -104,15 +114,25 @@ fn rule(facts: &Facts, target: &Target, currency: &str) -> Option<Price> {
         .or_else(|| product.in_currency(currency))
 }
 
-fn cents(value: &Value, key: &str) -> Option<Cents> {
-    value
-        .get(key)
-        .and_then(Value::as_str)
-        .and_then(money::parse)
+/// `product_variants.product_id` → `products.id` (the entities declare no
+/// relations).
+fn variant_product() -> RelationDef {
+    product_variants::Entity::belongs_to(products::Entity)
+        .from(product_variants::Column::ProductId)
+        .to(products::Column::Id)
+        .into()
 }
 
-fn text(value: &Value, key: &str) -> Option<String> {
-    value.get(key).and_then(Value::as_str).map(str::to_owned)
+fn base(
+    price: Option<&BigDecimal>,
+    compare_at: Option<&BigDecimal>,
+    currency: Option<String>,
+) -> Base {
+    Base {
+        price: price.and_then(parse_numeric),
+        compare_at: compare_at.and_then(parse_numeric),
+        currency,
+    }
 }
 
 /// The price of `product_id` (or its variant `variant_id`) in `currency`.
@@ -124,7 +144,7 @@ pub async fn resolve(
     product_id: &str,
     variant_id: Option<&str>,
     currency: &str,
-) -> Result<Option<Price>, sqlx::Error> {
+) -> Result<Option<Price>, DbErr> {
     let target = Target {
         product_id: product_id.to_owned(),
         variant_id: variant_id.map(str::to_owned),
@@ -142,7 +162,7 @@ pub async fn resolve_many(
     conn: &mut PgConnection,
     targets: &[Target],
     currency: &str,
-) -> Result<HashMap<Target, Price>, sqlx::Error> {
+) -> Result<HashMap<Target, Price>, DbErr> {
     if targets.is_empty() {
         return Ok(HashMap::new());
     }
@@ -156,75 +176,74 @@ pub async fn resolve_many(
         .collect();
 
     let mut facts = Facts::default();
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('productId', p.product_id, 'variantId', p.variant_id, \
-           'price', p.price::text, 'compareAt', p.compare_at_price::text) \
-         from product_prices p \
-         where p.product_id = any($1) and p.currency = $2 and p.deleted_at is null",
-    )
-    .bind(&product_ids)
-    .bind(&currency)
-    .fetch_all(&mut *conn)
-    .await?;
-    for row in &rows {
-        if let (Some(product_id), Some(price)) = (text(row, "productId"), cents(row, "price")) {
+    let rows = product_prices::Entity::find()
+        .filter(product_prices::Column::ProductId.is_in(product_ids.iter().map(String::as_str)))
+        .filter(product_prices::Column::Currency.eq(currency.as_str()))
+        .filter(product_prices::Column::DeletedAt.is_null())
+        .all(&db::on(conn))
+        .await?;
+    for row in rows {
+        if let Some(price) = parse_numeric(&row.price) {
             facts.rows.insert(
                 Target {
-                    product_id,
-                    variant_id: text(row, "variantId"),
+                    product_id: row.product_id,
+                    variant_id: row.variant_id,
                 },
                 Price {
                     price,
-                    compare_at: cents(row, "compareAt"),
+                    compare_at: row.compare_at_price.as_ref().and_then(parse_numeric),
                 },
             );
         }
     }
-    let products: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('id', p.id, 'price', p.price::text, \
-           'compareAt', p.compare_at_price::text, 'currency', p.currency) \
-         from products p where p.id = any($1) and p.deleted_at is null",
-    )
-    .bind(&product_ids)
-    .fetch_all(&mut *conn)
-    .await?;
-    for row in &products {
-        if let Some(id) = text(row, "id") {
-            facts.products.insert(
-                id,
-                Base {
-                    price: cents(row, "price"),
-                    compare_at: cents(row, "compareAt"),
-                    currency: text(row, "currency"),
-                },
-            );
-        }
+    let products = products::Entity::find()
+        .filter(products::Column::Id.is_in(product_ids.iter().map(String::as_str)))
+        .filter(products::Column::DeletedAt.is_null())
+        .all(&db::on(conn))
+        .await?;
+    for row in products {
+        facts.products.insert(
+            row.id,
+            base(
+                Some(&row.price),
+                row.compare_at_price.as_ref(),
+                row.currency,
+            ),
+        );
     }
     if !variant_ids.is_empty() {
-        let variants: Vec<Value> = sqlx::query_scalar(
-            "select jsonb_build_object('id', v.id, 'productId', v.product_id, \
-               'price', v.price::text, 'compareAt', v.compare_at_price::text, \
-               'currency', coalesce(v.currency, p.currency)) \
-             from product_variants v join products p on p.id = v.product_id \
-             where v.id = any($1) and v.deleted_at is null",
-        )
-        .bind(&variant_ids)
-        .fetch_all(&mut *conn)
-        .await?;
-        for row in &variants {
-            if let (Some(id), Some(owner)) = (text(row, "id"), text(row, "productId")) {
-                facts.variants.insert(
-                    id,
-                    (
-                        owner,
-                        Base {
-                            price: cents(row, "price"),
-                            compare_at: cents(row, "compareAt"),
-                            currency: text(row, "currency"),
-                        },
-                    ),
-                );
-            }
+        type Row = (
+            String,
+            String,
+            Option<BigDecimal>,
+            Option<BigDecimal>,
+            Option<String>,
+        );
+        // A variant's base currency is its own, else its product's.
+        let variants: Vec<Row> = product_variants::Entity::find()
+            .select_only()
+            .column(product_variants::Column::Id)
+            .column(product_variants::Column::ProductId)
+            .column(product_variants::Column::Price)
+            .column(product_variants::Column::CompareAtPrice)
+            .column_as(
+                Expr::expr(Func::coalesce([
+                    Expr::col((product_variants::Entity, product_variants::Column::Currency)),
+                    Expr::col((products::Entity, products::Column::Currency)),
+                ])),
+                "currency",
+            )
+            .join(JoinType::InnerJoin, variant_product())
+            .filter(product_variants::Column::Id.is_in(variant_ids.iter().map(String::as_str)))
+            .filter(product_variants::Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(&db::on(conn))
+            .await?;
+        for (id, owner, price, compare_at, currency) in variants {
+            facts.variants.insert(
+                id,
+                (owner, base(price.as_ref(), compare_at.as_ref(), currency)),
+            );
         }
     }
 

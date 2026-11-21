@@ -22,14 +22,26 @@
 //!   and totals stay, the items are brought in line with the store's lines
 //!   without replacing them.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::{Expr, ExprTrait, Func, Query};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use sqlx::PgConnection;
+use time::PrimitiveDateTime;
 use weldsuite_books_domain::table::Table;
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::Field;
+use weldsuite_schema::tenant::orders as order_rows;
+use weldsuite_schema::tenant::{
+    commerce_payments, companies, discount_redemptions, discounts, order_items, parties, people,
+    pick_list_items,
+};
 
+use crate::db;
 use crate::error::{Error, LineProblem};
 use crate::money::{self, Cents};
 use crate::numbering;
@@ -76,64 +88,123 @@ struct Customer {
     phone: Option<String>,
 }
 
+/// The live party of the company `id` (`company`) or of the person `id`.
+pub(crate) async fn find_party(
+    conn: &mut PgConnection,
+    company: bool,
+    id: &str,
+) -> Result<Option<String>, DbErr> {
+    let of = if company {
+        parties::Column::CompanyId
+    } else {
+        parties::Column::PersonId
+    };
+    parties::Entity::find()
+        .select_only()
+        .column(parties::Column::Id)
+        .filter(of.eq(id))
+        .filter(parties::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&db::on(conn))
+        .await
+}
+
+/// What a new party copies from its live company or person: the name, the
+/// address and the archive date.
+type PartySource = (String, Option<Value>, Option<PrimitiveDateTime>);
+
 pub(crate) async fn party_of(
     conn: &mut PgConnection,
     company: bool,
     id: &str,
     owner: &str,
-) -> Result<Option<String>, sqlx::Error> {
-    let found: Option<String> = sqlx::query_scalar(if company {
-        "select id from parties where company_id = $1 and deleted_at is null limit 1"
-    } else {
-        "select id from parties where person_id = $1 and deleted_at is null limit 1"
-    })
-    .bind(id)
-    .fetch_optional(&mut *conn)
-    .await?;
+) -> Result<Option<String>, DbErr> {
+    let found = find_party(conn, company, id).await?;
     if found.is_some() {
         return Ok(found);
     }
     // The wrapping party WeldCRM creates with a company or a person, made
     // here when it is not there yet (the same insert the connector ingest
     // does for a buyer).
-    let sql = if company {
-        "insert into parties (id, kind, company_id, role, display_name, billing_address, \
-           archived_at, owner_id, created_at, updated_at) \
-         select $1, 'company', c.id, 'customer', c.display_name, c.primary_address, \
-           c.archived_at, $3, $4::timestamp, $4::timestamp \
-         from companies c where c.id = $2 and c.deleted_at is null returning id"
+    let source: Option<PartySource> = if company {
+        companies::Entity::find_by_id(id.to_owned())
+            .filter(companies::Column::DeletedAt.is_null())
+            .select_only()
+            .column(companies::Column::DisplayName)
+            .column(companies::Column::PrimaryAddress)
+            .column(companies::Column::ArchivedAt)
+            .into_tuple()
+            .one(&db::on(conn))
+            .await?
     } else {
-        "insert into parties (id, kind, person_id, role, display_name, billing_address, \
-           archived_at, owner_id, created_at, updated_at) \
-         select $1, 'person', p.id, 'customer', p.display_name, p.primary_address, \
-           p.archived_at, $3, $4::timestamp, $4::timestamp \
-         from people p where p.id = $2 and p.deleted_at is null returning id"
+        people::Entity::find_by_id(id.to_owned())
+            .filter(people::Column::DeletedAt.is_null())
+            .select_only()
+            .column(people::Column::DisplayName)
+            .column(people::Column::PrimaryAddress)
+            .column(people::Column::ArchivedAt)
+            .into_tuple()
+            .one(&db::on(conn))
+            .await?
     };
-    sqlx::query_scalar(sql)
-        .bind(generate_id("party"))
-        .bind(id)
-        .bind(owner)
-        .bind(crate::now())
-        .fetch_optional(&mut *conn)
-        .await
+    let Some((display_name, address, archived_at)) = source else {
+        return Ok(None);
+    };
+    let now = db::now();
+    let mut party = parties::ActiveModel {
+        id: Set(generate_id("party")),
+        kind: Set(Some(if company { "company" } else { "person" }.to_owned())),
+        role: Set("customer".to_owned()),
+        display_name: Set(Some(display_name)),
+        billing_address: Set(address),
+        archived_at: Set(archived_at),
+        owner_id: Set(Some(owner.to_owned())),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    };
+    if company {
+        party.company_id = Set(Some(id.to_owned()));
+    } else {
+        party.person_id = Set(Some(id.to_owned()));
+    }
+    Ok(Some(party.insert(&db::on(conn)).await?.id))
 }
 
 type Identity = (Option<String>, Option<String>, Option<String>);
+
+/// A person's name, e-mail, mobile and direct phone.
+type PersonIdentity = (String, Option<String>, Option<String>, Option<String>);
 
 async fn identity(
     conn: &mut PgConnection,
     company: bool,
     id: &str,
-) -> Result<Option<Identity>, sqlx::Error> {
-    sqlx::query_as(if company {
-        "select display_name, email, phone from companies where id = $1 and deleted_at is null"
-    } else {
-        "select display_name, email, coalesce(mobile_phone, direct_phone) \
-         from people where id = $1 and deleted_at is null"
-    })
-    .bind(id)
-    .fetch_optional(&mut *conn)
-    .await
+) -> Result<Option<Identity>, DbErr> {
+    if company {
+        let found: Option<(String, Option<String>, Option<String>)> =
+            companies::Entity::find_by_id(id.to_owned())
+                .filter(companies::Column::DeletedAt.is_null())
+                .select_only()
+                .column(companies::Column::DisplayName)
+                .column(companies::Column::Email)
+                .column(companies::Column::Phone)
+                .into_tuple()
+                .one(&db::on(conn))
+                .await?;
+        return Ok(found.map(|(name, email, phone)| (Some(name), email, phone)));
+    }
+    let found: Option<PersonIdentity> = people::Entity::find_by_id(id.to_owned())
+        .filter(people::Column::DeletedAt.is_null())
+        .select_only()
+        .column(people::Column::DisplayName)
+        .column(people::Column::Email)
+        .column(people::Column::MobilePhone)
+        .column(people::Column::DirectPhone)
+        .into_tuple()
+        .one(&db::on(conn))
+        .await?;
+    Ok(found.map(|(name, email, mobile, direct)| (Some(name), email, mobile.or(direct))))
 }
 
 /// The buyer: a company (its party is the counterparty) and/or a person.
@@ -184,39 +255,59 @@ async fn redeem(
     person_id: Option<&str>,
     email: Option<&str>,
     currency: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "insert into discount_redemptions \
-           (id, discount_id, order_id, person_id, customer_email, amount, currency) \
-         values ($1, $2, $3, $4, $5, $6::numeric, $7)",
-    )
-    .bind(generate_id("dred"))
-    .bind(&redeemed.id)
-    .bind(order_id)
-    .bind(person_id)
-    .bind(email)
-    .bind(money::format(redeemed.amount))
-    .bind(currency)
-    .execute(&mut *conn)
+) -> Result<(), DbErr> {
+    discount_redemptions::ActiveModel {
+        id: Set(generate_id("dred")),
+        discount_id: Set(redeemed.id.clone()),
+        order_id: Set(order_id.to_owned()),
+        person_id: Set(person_id.map(str::to_owned)),
+        customer_email: Set(email.map(str::to_owned)),
+        amount: Set(db::decimal(redeemed.amount)),
+        currency: Set(Some(currency.to_owned())),
+        ..Default::default()
+    }
+    .insert(&db::on(conn))
     .await?;
-    sqlx::query("update discounts set usage_count = coalesce(usage_count, 0) + 1 where id = $1")
-        .bind(&redeemed.id)
-        .execute(&mut *conn)
+    discounts::Entity::update_many()
+        .col_expr(
+            discounts::Column::UsageCount,
+            usage_count().add(Expr::val(1)),
+        )
+        .filter(discounts::Column::Id.eq(redeemed.id.as_str()))
+        .exec(&db::on(conn))
         .await?;
     Ok(())
 }
 
+/// `coalesce(usage_count, 0)` of a discount.
+fn usage_count() -> Expr {
+    Func::coalesce([
+        Expr::col((discounts::Entity, discounts::Column::UsageCount)),
+        Expr::val(0),
+    ])
+    .into()
+}
+
 /// Give back the order's redemptions: the rows go and the counters drop.
-async fn release(conn: &mut PgConnection, order_id: &str) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "with gone as (delete from discount_redemptions where order_id = $1 returning discount_id) \
-         update discounts d set usage_count = greatest(coalesce(d.usage_count, 0) - g.n, 0) \
-         from (select discount_id, count(*)::int as n from gone group by discount_id) g \
-         where d.id = g.discount_id",
-    )
-    .bind(order_id)
-    .execute(&mut *conn)
-    .await?;
+async fn release(conn: &mut PgConnection, order_id: &str) -> Result<(), DbErr> {
+    let gone = discount_redemptions::Entity::delete_many()
+        .filter(discount_redemptions::Column::OrderId.eq(order_id))
+        .exec_with_returning(&db::on(conn))
+        .await?;
+    let mut uses: BTreeMap<String, i32> = BTreeMap::new();
+    for redemption in gone {
+        *uses.entry(redemption.discount_id).or_default() += 1;
+    }
+    for (discount_id, n) in uses {
+        discounts::Entity::update_many()
+            .col_expr(
+                discounts::Column::UsageCount,
+                Func::greatest([usage_count().sub(Expr::val(n)), Expr::val(0)]).into(),
+            )
+            .filter(discounts::Column::Id.eq(discount_id))
+            .exec(&db::on(conn))
+            .await?;
+    }
     Ok(())
 }
 
@@ -228,28 +319,37 @@ async fn sync_redemption(
     person_id: Option<&str>,
     email: Option<&str>,
     currency: &str,
-) -> Result<(), sqlx::Error> {
-    let current: Option<String> = sqlx::query_scalar(
-        "select discount_id from discount_redemptions where order_id = $1 limit 1",
-    )
-    .bind(order_id)
-    .fetch_optional(&mut *conn)
-    .await?;
+) -> Result<(), DbErr> {
+    let current: Option<String> = discount_redemptions::Entity::find()
+        .select_only()
+        .column(discount_redemptions::Column::DiscountId)
+        .filter(discount_redemptions::Column::OrderId.eq(order_id))
+        .into_tuple()
+        .one(&db::on(conn))
+        .await?;
     match (current.as_deref(), redeemed) {
         (Some(have), Some(want)) if have == want.id => {
-            sqlx::query(
-                "update discount_redemptions set amount = $3::numeric, person_id = $4, \
-                   customer_email = $5, currency = $6 \
-                 where order_id = $1 and discount_id = $2",
-            )
-            .bind(order_id)
-            .bind(&want.id)
-            .bind(money::format(want.amount))
-            .bind(person_id)
-            .bind(email)
-            .bind(currency)
-            .execute(&mut *conn)
-            .await?;
+            discount_redemptions::Entity::update_many()
+                .col_expr(
+                    discount_redemptions::Column::Amount,
+                    Expr::value(db::decimal(want.amount)),
+                )
+                .col_expr(
+                    discount_redemptions::Column::PersonId,
+                    Expr::value(person_id.map(str::to_owned)),
+                )
+                .col_expr(
+                    discount_redemptions::Column::CustomerEmail,
+                    Expr::value(email.map(str::to_owned)),
+                )
+                .col_expr(
+                    discount_redemptions::Column::Currency,
+                    Expr::value(currency.to_owned()),
+                )
+                .filter(discount_redemptions::Column::OrderId.eq(order_id))
+                .filter(discount_redemptions::Column::DiscountId.eq(want.id.as_str()))
+                .exec(&db::on(conn))
+                .await?;
         }
         (have, want) => {
             if have.is_some() {
@@ -304,13 +404,45 @@ async fn insert_item(
     line: &Line,
     amounts: (Cents, Cents, &VatLine),
     now: &str,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let properties = lines::properties(None, line.variant_name.as_deref());
     let mut values = item_values(order_id, line, amounts, properties, now);
     put(&mut values, &ORDER_ITEMS, "id", json!(generate_id("oitm")));
     put(&mut values, &ORDER_ITEMS, "createdAt", json!(now));
-    ORDER_ITEMS.insert_raw(&mut *conn, values).await?;
+    ORDER_ITEMS
+        .insert_raw(&mut *conn, values)
+        .await
+        .map_err(db::from_sqlx)?;
     Ok(())
+}
+
+/// Delete the items among `ids` that nothing was fulfilled from and no pick
+/// list holds; the ids that went.
+async fn delete_free_items(conn: &mut PgConnection, ids: &[String]) -> Result<Vec<String>, DbErr> {
+    let picked = Query::select()
+        .expr(Expr::val(1))
+        .from(pick_list_items::Entity)
+        .and_where(
+            Expr::col((
+                pick_list_items::Entity,
+                pick_list_items::Column::OrderItemId,
+            ))
+            .equals((order_items::Entity, order_items::Column::Id)),
+        )
+        .to_owned();
+    let gone = order_items::Entity::delete_many()
+        .filter(order_items::Column::Id.is_in(ids.iter().map(String::as_str)))
+        .filter(
+            Func::coalesce([
+                Expr::col((order_items::Entity, order_items::Column::FulfilledQuantity)),
+                Expr::val(0),
+            ])
+            .eq(Expr::val(0)),
+        )
+        .filter(Expr::not_exists(picked))
+        .exec_with_returning(&db::on(conn))
+        .await?;
+    Ok(gone.into_iter().map(|item| item.id).collect())
 }
 
 fn line_problems(resolved: &[Line]) -> Result<(), Error> {
@@ -510,16 +642,15 @@ pub async fn create(
     new: &NewOrder,
 ) -> Result<Created, Error> {
     if let Some(key) = &new.idempotency_key {
-        sqlx::query("select pg_advisory_xact_lock(hashtext($1))")
-            .bind(format!("weldcommerce:order-key:{key}"))
-            .execute(&mut *conn)
+        db::advisory_lock(conn, &format!("weldcommerce:order-key:{key}")).await?;
+        let found: Option<(String, String)> = order_rows::Entity::find()
+            .select_only()
+            .column(order_rows::Column::Id)
+            .column(order_rows::Column::OrderNumber)
+            .filter(order_rows::Column::IdempotencyKey.eq(key.as_str()))
+            .into_tuple()
+            .one(&db::on(conn))
             .await?;
-        let found: Option<(String, String)> = sqlx::query_as(
-            "select id, order_number from orders where idempotency_key = $1 limit 1",
-        )
-        .bind(key)
-        .fetch_optional(&mut *conn)
-        .await?;
         if let Some((id, order_number)) = found {
             return Ok(Created {
                 id,
@@ -698,15 +829,16 @@ fn requested_shipping(order: &Value) -> Cents {
 async fn company_of(
     conn: &mut PgConnection,
     counterparty: Option<&str>,
-) -> Result<Option<String>, sqlx::Error> {
+) -> Result<Option<String>, DbErr> {
     let Some(party) = counterparty else {
         return Ok(None);
     };
-    let found: Option<Option<String>> =
-        sqlx::query_scalar("select company_id from parties where id = $1 limit 1")
-            .bind(party)
-            .fetch_optional(&mut *conn)
-            .await?;
+    let found: Option<Option<String>> = parties::Entity::find_by_id(party.to_owned())
+        .select_only()
+        .column(parties::Column::CompanyId)
+        .into_tuple()
+        .one(&db::on(conn))
+        .await?;
     Ok(found.flatten())
 }
 
@@ -879,15 +1011,7 @@ async fn write_items(
         .map(str::to_owned)
         .collect();
     if !removed.is_empty() {
-        let gone: Vec<String> = sqlx::query_scalar(
-            "delete from order_items t where t.id = any($1) \
-               and coalesce(t.fulfilled_quantity, 0) = 0 \
-               and not exists (select 1 from pick_list_items p where p.order_item_id = t.id) \
-             returning t.id",
-        )
-        .bind(&removed)
-        .fetch_all(&mut *conn)
-        .await?;
+        let gone = delete_free_items(conn, &removed).await?;
         if gone.len() != removed.len() {
             return Err(Error::NotEditable(
                 "An item that is on a pick list cannot be removed".to_owned(),
@@ -1241,13 +1365,15 @@ pub async fn recalculate(
 /// total cannot change (a payment of the old total would otherwise settle
 /// the new one). Refused with [`Error::PaymentInProgress`].
 async fn ensure_no_open_payment(conn: &mut PgConnection, id: &str) -> Result<(), Error> {
-    let open: bool = sqlx::query_scalar(
-        "select exists (select 1 from commerce_payments            where order_id = $1 and status in ('open', 'pending', 'authorized'))",
-    )
-    .bind(id)
-    .fetch_one(&mut *conn)
-    .await?;
-    if open {
+    let open: Option<String> = commerce_payments::Entity::find()
+        .select_only()
+        .column(commerce_payments::Column::Id)
+        .filter(commerce_payments::Column::OrderId.eq(id))
+        .filter(commerce_payments::Column::Status.is_in(["open", "pending", "authorized"]))
+        .into_tuple()
+        .one(&db::on(conn))
+        .await?;
+    if open.is_some() {
         return Err(Error::PaymentInProgress);
     }
     Ok(())
@@ -1479,7 +1605,7 @@ fn number_json(number: f64) -> Value {
 ///
 /// # Errors
 /// A failed statement (a duplicate order number within the source included).
-pub async fn import(conn: &mut PgConnection, import: &Import<'_>) -> Result<(), sqlx::Error> {
+pub async fn import(conn: &mut PgConnection, import: &Import<'_>) -> Result<(), DbErr> {
     let now = crate::now();
     let mut header = import.header.clone();
     header.insert("updatedAt".to_owned(), json!(now));
@@ -1488,11 +1614,15 @@ pub async fn import(conn: &mut PgConnection, import: &Import<'_>) -> Result<(), 
         let columns = ORDERS.values(&header);
         ORDERS
             .patch_raw(&mut *conn, import.id, columns, false)
-            .await?;
+            .await
+            .map_err(db::from_sqlx)?;
     } else {
         header.insert("id".to_owned(), json!(import.id));
         let columns = ORDERS.values(&header);
-        ORDERS.insert_raw(&mut *conn, columns).await?;
+        ORDERS
+            .insert_raw(&mut *conn, columns)
+            .await
+            .map_err(db::from_sqlx)?;
     }
     import_items(conn, import, &now).await?;
     if let Some(person_id) = import.person_id {
@@ -1509,7 +1639,7 @@ async fn import_items(
     conn: &mut PgConnection,
     import: &Import<'_>,
     now: &str,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     type Row = (
         String,
         Option<String>,
@@ -1518,13 +1648,20 @@ async fn import_items(
         Option<String>,
         Option<Value>,
     );
-    let rows: Vec<Row> = sqlx::query_as(
-        "select id, product_id, variant_id, sku, external_line_id, properties from order_items \
-         where order_id = $1 order by created_at asc, id asc",
-    )
-    .bind(import.id)
-    .fetch_all(&mut *conn)
-    .await?;
+    let rows: Vec<Row> = order_items::Entity::find()
+        .select_only()
+        .column(order_items::Column::Id)
+        .column(order_items::Column::ProductId)
+        .column(order_items::Column::VariantId)
+        .column(order_items::Column::Sku)
+        .column(order_items::Column::ExternalLineId)
+        .column(order_items::Column::Properties)
+        .filter(order_items::Column::OrderId.eq(import.id))
+        .order_by_asc(order_items::Column::CreatedAt)
+        .order_by_asc(order_items::Column::Id)
+        .into_tuple()
+        .all(&db::on(conn))
+        .await?;
     let existing: Vec<Stock> = rows
         .into_iter()
         .map(
@@ -1573,7 +1710,8 @@ async fn import_items(
             }
             ORDER_ITEMS
                 .patch_raw(&mut *conn, &found.id, values, false)
-                .await?;
+                .await
+                .map_err(db::from_sqlx)?;
             continue;
         }
         put(&mut values, t, "id", json!(generate_id("oitm")));
@@ -1594,7 +1732,10 @@ async fn import_items(
             );
         }
         put(&mut values, t, "createdAt", json!(now));
-        ORDER_ITEMS.insert_raw(&mut *conn, values).await?;
+        ORDER_ITEMS
+            .insert_raw(&mut *conn, values)
+            .await
+            .map_err(db::from_sqlx)?;
     }
 
     let vanished: Vec<String> = existing
@@ -1603,15 +1744,7 @@ async fn import_items(
         .map(|item| item.id.clone())
         .collect();
     if !vanished.is_empty() {
-        let removed: Vec<String> = sqlx::query_scalar(
-            "delete from order_items t \
-             where t.id = any($1) and coalesce(t.fulfilled_quantity, 0) = 0 \
-               and not exists (select 1 from pick_list_items p where p.order_item_id = t.id) \
-             returning t.id",
-        )
-        .bind(&vanished)
-        .fetch_all(&mut *conn)
-        .await?;
+        let removed = delete_free_items(conn, &vanished).await?;
         let kept = vanished.len() - removed.len();
         if kept > 0 {
             tracing::warn!(
@@ -1622,12 +1755,22 @@ async fn import_items(
         }
     }
 
-    let (item_count, total_quantity): (i64, i64) = sqlx::query_as(
-        "select count(*), coalesce(sum(quantity), 0)::bigint from order_items where order_id = $1",
-    )
-    .bind(import.id)
-    .fetch_one(&mut *conn)
-    .await?;
+    let counted: Option<(i64, Option<i64>)> = order_items::Entity::find()
+        .select_only()
+        .column_as(
+            Expr::col((order_items::Entity, order_items::Column::Id)).count(),
+            "item_count",
+        )
+        .column_as(
+            Expr::col((order_items::Entity, order_items::Column::Quantity)).sum(),
+            "total_quantity",
+        )
+        .filter(order_items::Column::OrderId.eq(import.id))
+        .into_tuple()
+        .one(&db::on(conn))
+        .await?;
+    // `coalesce(sum(quantity), 0)`: an order with no items has none.
+    let (item_count, total_quantity) = counted.map_or((0, 0), |(n, sum)| (n, sum.unwrap_or(0)));
     let differs = |key: &str, stored: i64| {
         #[allow(clippy::cast_precision_loss)]
         let stored = stored as f64;
@@ -1639,7 +1782,8 @@ async fn import_items(
         put(&mut counts, &ORDERS, "totalQuantity", json!(total_quantity));
         ORDERS
             .patch_raw(&mut *conn, import.id, counts, false)
-            .await?;
+            .await
+            .map_err(db::from_sqlx)?;
     }
     Ok(())
 }
@@ -1652,12 +1796,13 @@ async fn link_counterparty(
     order_id: &str,
     person_id: &str,
     owner: &str,
-) -> Result<(), sqlx::Error> {
-    let current: Option<Option<String>> =
-        sqlx::query_scalar("select counterparty_id from orders where id = $1 limit 1")
-            .bind(order_id)
-            .fetch_optional(&mut *conn)
-            .await?;
+) -> Result<(), DbErr> {
+    let current: Option<Option<String>> = order_rows::Entity::find_by_id(order_id.to_owned())
+        .select_only()
+        .column(order_rows::Column::CounterpartyId)
+        .into_tuple()
+        .one(&db::on(conn))
+        .await?;
     // No order, or one that already has a counterparty.
     if !matches!(current, Some(None)) {
         return Ok(());
@@ -1665,10 +1810,11 @@ async fn link_counterparty(
     let Some(party) = party_of(conn, false, person_id, owner).await? else {
         return Ok(());
     };
-    sqlx::query("update orders set counterparty_id = $1 where id = $2 and counterparty_id is null")
-        .bind(party)
-        .bind(order_id)
-        .execute(&mut *conn)
+    order_rows::Entity::update_many()
+        .col_expr(order_rows::Column::CounterpartyId, Expr::value(party))
+        .filter(order_rows::Column::Id.eq(order_id))
+        .filter(order_rows::Column::CounterpartyId.is_null())
+        .exec(&db::on(conn))
         .await?;
     Ok(())
 }

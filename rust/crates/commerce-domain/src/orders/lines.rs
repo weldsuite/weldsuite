@@ -7,10 +7,13 @@
 //! catalogue may have moved on); everything else is priced from the
 //! catalogue: the variant's price, else the product's.
 
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter};
 use serde_json::{Value, json};
 use sqlx::PgConnection;
 use weldsuite_books_domain::tax::eu_vat::{VatCategory, effective_category};
+use weldsuite_schema::tenant::{product_variants, products};
 
+use crate::db;
 use crate::money::{self, Cents};
 use crate::prices;
 
@@ -70,21 +73,37 @@ fn text(row: &Value, key: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// A text column, an empty string read as none.
+fn filled(value: Option<String>) -> Option<String> {
+    value.filter(|s| !s.is_empty())
+}
+
 impl Catalogue {
-    fn of(row: &Value) -> Option<Self> {
+    fn of_variant(row: product_variants::Model) -> Option<Self> {
         Some(Self {
-            id: text(row, "id")?,
-            product_id: text(row, "productId"),
-            name: text(row, "name").unwrap_or_default(),
-            sku: text(row, "sku"),
-            price: row
-                .get("price")
-                .and_then(Value::as_str)
-                .and_then(money::parse),
-            currency: text(row, "currency"),
-            status: text(row, "status").unwrap_or_default(),
-            image_url: text(row, "imageUrl"),
-            vat_category: text(row, "vatCategory"),
+            id: filled(Some(row.id))?,
+            product_id: filled(Some(row.product_id)),
+            name: row.name,
+            sku: filled(row.sku),
+            price: row.price.as_ref().and_then(prices::parse_numeric),
+            currency: filled(row.currency),
+            status: row.status,
+            image_url: filled(row.image_url),
+            vat_category: filled(row.vat_category),
+        })
+    }
+
+    fn of_product(row: products::Model) -> Option<Self> {
+        Some(Self {
+            id: filled(Some(row.id))?,
+            product_id: None,
+            name: row.name,
+            sku: filled(row.sku),
+            price: prices::parse_numeric(&row.price),
+            currency: filled(row.currency),
+            status: row.status,
+            image_url: filled(row.featured_image_url),
+            vat_category: filled(Some(row.vat_category)),
         })
     }
 }
@@ -226,30 +245,31 @@ pub fn build(
     line
 }
 
-async fn catalogue(
-    conn: &mut PgConnection,
-    sql: &'static str,
-    ids: &[String],
-) -> Result<Vec<Catalogue>, sqlx::Error> {
+/// The live variants among `ids`.
+async fn variants(conn: &mut PgConnection, ids: &[String]) -> Result<Vec<Catalogue>, DbErr> {
     if ids.is_empty() {
         return Ok(Vec::new());
     }
-    let rows: Vec<Value> = sqlx::query_scalar(sql)
-        .bind(ids)
-        .fetch_all(&mut *conn)
+    let rows = product_variants::Entity::find()
+        .filter(product_variants::Column::Id.is_in(ids.iter().map(String::as_str)))
+        .filter(product_variants::Column::DeletedAt.is_null())
+        .all(&db::on(conn))
         .await?;
-    Ok(rows.iter().filter_map(Catalogue::of).collect())
+    Ok(rows.into_iter().filter_map(Catalogue::of_variant).collect())
 }
 
-const VARIANTS_SQL: &str = "select jsonb_build_object('id', v.id, 'productId', v.product_id, \
-       'name', v.name, 'sku', v.sku, 'price', v.price::text, 'currency', v.currency, \
-       'status', v.status, 'imageUrl', v.image_url, 'vatCategory', v.vat_category) \
-     from product_variants v where v.id = any($1) and v.deleted_at is null";
-
-const PRODUCTS_SQL: &str = "select jsonb_build_object('id', p.id, 'name', p.name, 'sku', p.sku, \
-       'price', p.price::text, 'currency', p.currency, 'status', p.status, \
-       'imageUrl', p.featured_image_url, 'vatCategory', p.vat_category) \
-     from products p where p.id = any($1) and p.deleted_at is null";
+/// The live products among `ids`.
+async fn products(conn: &mut PgConnection, ids: &[String]) -> Result<Vec<Catalogue>, DbErr> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let rows = products::Entity::find()
+        .filter(products::Column::Id.is_in(ids.iter().map(String::as_str)))
+        .filter(products::Column::DeletedAt.is_null())
+        .all(&db::on(conn))
+        .await?;
+    Ok(rows.into_iter().filter_map(Catalogue::of_product).collect())
+}
 
 /// Settle every input of a request. `stored` are the order's current items
 /// (rows as [`crate::tables::ORDER_ITEMS`] reads them; none for a new order).
@@ -261,7 +281,7 @@ pub async fn resolve(
     currency: &str,
     inputs: &[LineInput],
     stored: &[Value],
-) -> Result<Vec<Line>, sqlx::Error> {
+) -> Result<Vec<Line>, DbErr> {
     let keep_of = |input: &LineInput| {
         input.id.as_ref().and_then(|id| {
             stored
@@ -272,10 +292,10 @@ pub async fn resolve(
     };
     let fresh: Vec<&LineInput> = inputs.iter().filter(|i| keep_of(i).is_none()).collect();
     let variant_ids: Vec<String> = fresh.iter().filter_map(|i| i.variant_id.clone()).collect();
-    let variants = catalogue(conn, VARIANTS_SQL, &variant_ids).await?;
+    let variants = variants(conn, &variant_ids).await?;
     let mut product_ids: Vec<String> = fresh.iter().filter_map(|i| i.product_id.clone()).collect();
     product_ids.extend(variants.iter().filter_map(|v| v.product_id.clone()));
-    let products = catalogue(conn, PRODUCTS_SQL, &product_ids).await?;
+    let products = products(conn, &product_ids).await?;
     // What the catalogue sells for in the order's currency (`product_prices`
     // first, the base price when the currency is the base one).
     let targets: Vec<prices::Target> = fresh
