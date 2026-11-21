@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use axum::Router;
 use axum::body::Bytes;
-use axum::extract::{FromRequest, Multipart, Path, RawQuery, Request, State};
+use axum::extract::{DefaultBodyLimit, FromRequest, Multipart, Path, RawQuery, Request, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
 use http::HeaderMap;
@@ -48,7 +48,9 @@ where
         )
         .route(
             "/upload",
-            post(upload).route_layer(gate.require(["messages:create"])),
+            post(upload)
+                .layer(upload_body_limit())
+                .route_layer(gate.require(["messages:create"])),
         )
         .route("/{id}", get(detail).route_layer(read()))
         .route("/{id}", patch(update_one).route_layer(update()))
@@ -704,6 +706,14 @@ async fn unpin(State(state): State<ChatState>, caller: Caller, Path(id): Path<St
 }
 
 const MAX_UPLOAD_BYTES: usize = 50 * 1024 * 1024;
+
+/// The upload's request body: the largest file plus room for the multipart
+/// framing and the `channelId` field. Without it axum's 2 MB default applies,
+/// and a photo over 2 MB fails while the body is read ("Failed to upload
+/// file") before the 50 MB check is reached.
+fn upload_body_limit() -> DefaultBodyLimit {
+    DefaultBodyLimit::max(MAX_UPLOAD_BYTES + 1024 * 1024)
+}
 const DANGEROUS_TYPES: [&str; 9] = [
     "text/html",
     "application/xhtml+xml",
@@ -904,4 +914,74 @@ async fn upload(State(state): State<ChatState>, caller: Caller, request: Request
     }
     .await;
     answer(result, "Failed to upload file")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::{StatusCode, header};
+    use tower::ServiceExt;
+
+    /// A multipart body with one `file` field of `size` bytes.
+    fn multipart(size: usize) -> Request {
+        let boundary = "chat-upload-test";
+        let mut body = format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; \
+             filename=\"photo.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n"
+        )
+        .into_bytes();
+        body.extend(std::iter::repeat_n(b'x', size));
+        body.extend(
+            format!(
+                "\r\n--{boundary}\r\nContent-Disposition: form-data; \
+                 name=\"channelId\"\r\n\r\nch_1\r\n--{boundary}--\r\n"
+            )
+            .into_bytes(),
+        );
+        Request::post("/upload")
+            .header(
+                header::CONTENT_TYPE,
+                format!("multipart/form-data; boundary={boundary}"),
+            )
+            .body(Body::from(body))
+            .expect("request")
+    }
+
+    /// The upload route's body handling alone: the fields as `upload` reads
+    /// them, answered with the file's size.
+    fn upload_route() -> Router {
+        async fn sizes(request: Request) -> Response {
+            match upload_fields(request).await {
+                Some((Some((_, _, bytes)), Some(channel))) if channel == "ch_1" => {
+                    bytes.len().to_string().into_response()
+                }
+                _ => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+            }
+        }
+        Router::new().route("/upload", post(sizes).layer(upload_body_limit()))
+    }
+
+    #[tokio::test]
+    async fn uploads_take_files_over_axums_two_megabyte_default() {
+        let size = 8 * 1024 * 1024;
+        let response = upload_route()
+            .oneshot(multipart(size))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), 64)
+            .await
+            .expect("body");
+        assert_eq!(body, size.to_string());
+    }
+
+    #[tokio::test]
+    async fn uploads_take_a_file_at_the_fifty_megabyte_limit() {
+        let response = upload_route()
+            .oneshot(multipart(MAX_UPLOAD_BYTES))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+    }
 }
