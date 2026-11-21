@@ -7,8 +7,8 @@ use sea_orm::entity::prelude::*;
 
 #[allow(unused_imports)]
 use crate::ddl::{
-    Check, Column as DdlColumn, ForeignKey, Index, IndexColumn, PrimaryKey as DdlPrimaryKey, Table,
-    Unique,
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
 };
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
@@ -50,81 +50,33 @@ pub enum Relation {}
 
 impl ActiveModelBehavior for ActiveModel {}
 
-/// The table as the migrations define it.
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
 pub const DDL: Table = Table {
     name: "desk_phone_routes",
     columns: &[
         DdlColumn {
-            name: "id",
-            sql_type: "varchar(30)",
-            not_null: true,
-            primary_key: true,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
             name: "created_at",
-            sql_type: "timestamp",
-            not_null: true,
-            primary_key: false,
-            default: Some("now()"),
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
             generated: None,
+            default_fn: false,
+            on_update: false,
         },
         DdlColumn {
             name: "updated_at",
-            sql_type: "timestamp",
-            not_null: true,
-            primary_key: false,
-            default: Some("now()"),
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
             generated: None,
-        },
-        DdlColumn {
-            name: "voip_phone_number_id",
-            sql_type: "varchar(30)",
-            not_null: true,
-            primary_key: false,
-            default: None,
-            generated: None,
+            default_fn: false,
+            on_update: false,
         },
         DdlColumn {
             name: "action",
-            sql_type: "varchar(20)",
-            not_null: true,
-            primary_key: false,
-            default: Some("'hangup'"),
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'hangup'")),
             generated: None,
-        },
-        DdlColumn {
-            name: "voice_agent_id",
-            sql_type: "varchar(30)",
-            not_null: false,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "forward_to_e164",
-            sql_type: "varchar(50)",
-            not_null: false,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "schedule",
-            sql_type: "jsonb",
-            not_null: false,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "options",
-            sql_type: "jsonb",
-            not_null: false,
-            primary_key: false,
-            default: None,
-            generated: None,
+            default_fn: false,
+            on_update: false,
         },
     ],
     primary_key: None,

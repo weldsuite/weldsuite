@@ -7,8 +7,8 @@ use sea_orm::entity::prelude::*;
 
 #[allow(unused_imports)]
 use crate::ddl::{
-    Check, Column as DdlColumn, ForeignKey, Index, IndexColumn, PrimaryKey as DdlPrimaryKey, Table,
-    Unique,
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
 };
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
@@ -64,113 +64,25 @@ pub enum Relation {}
 
 impl ActiveModelBehavior for ActiveModel {}
 
-/// The table as the migrations define it.
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
 pub const DDL: Table = Table {
     name: "github_issue_sync_map",
     columns: &[
         DdlColumn {
-            name: "id",
-            sql_type: "varchar(30)",
-            not_null: true,
-            primary_key: true,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
             name: "created_at",
-            sql_type: "timestamp",
-            not_null: true,
-            primary_key: false,
-            default: Some("now()"),
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
             generated: None,
+            default_fn: false,
+            on_update: false,
         },
         DdlColumn {
             name: "updated_at",
-            sql_type: "timestamp",
-            not_null: true,
-            primary_key: false,
-            default: Some("now()"),
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
             generated: None,
-        },
-        DdlColumn {
-            name: "workspace_id",
-            sql_type: "varchar(255)",
-            not_null: true,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "project_link_id",
-            sql_type: "varchar(30)",
-            not_null: true,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "task_id",
-            sql_type: "varchar(255)",
-            not_null: true,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "project_item_node_id",
-            sql_type: "text",
-            not_null: true,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "issue_node_id",
-            sql_type: "text",
-            not_null: false,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "issue_number",
-            sql_type: "integer",
-            not_null: true,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "repo_id",
-            sql_type: "bigint",
-            not_null: false,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "last_synced_task_updated_at",
-            sql_type: "timestamp",
-            not_null: false,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "last_synced_issue_updated_at",
-            sql_type: "timestamp",
-            not_null: false,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "last_writer_side",
-            sql_type: "text",
-            not_null: false,
-            primary_key: false,
-            default: None,
-            generated: None,
+            default_fn: false,
+            on_update: false,
         },
     ],
     primary_key: None,

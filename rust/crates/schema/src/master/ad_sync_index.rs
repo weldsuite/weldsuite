@@ -7,8 +7,8 @@ use sea_orm::entity::prelude::*;
 
 #[allow(unused_imports)]
 use crate::ddl::{
-    Check, Column as DdlColumn, ForeignKey, Index, IndexColumn, PrimaryKey as DdlPrimaryKey, Table,
-    Unique,
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
 };
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
@@ -50,81 +50,33 @@ pub enum Relation {}
 
 impl ActiveModelBehavior for ActiveModel {}
 
-/// The table as the migrations define it.
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
 pub const DDL: Table = Table {
     name: "ad_sync_index",
     columns: &[
         DdlColumn {
-            name: "id",
-            sql_type: "varchar(30)",
-            not_null: true,
-            primary_key: true,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "workspace_id",
-            sql_type: "varchar(255)",
-            not_null: true,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "connection_id",
-            sql_type: "varchar(30)",
-            not_null: true,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "clerk_org_id",
-            sql_type: "varchar(255)",
-            not_null: true,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
             name: "is_enabled",
-            sql_type: "boolean",
-            not_null: true,
-            primary_key: false,
-            default: Some("true"),
+            sql_type: None,
+            default: Some(DdlDefault::Bool(true)),
             generated: None,
-        },
-        DdlColumn {
-            name: "next_metrics_sync_at",
-            sql_type: "timestamp with time zone",
-            not_null: false,
-            primary_key: false,
-            default: None,
-            generated: None,
+            default_fn: false,
+            on_update: false,
         },
         DdlColumn {
             name: "metrics_interval_hours",
-            sql_type: "integer",
-            not_null: true,
-            primary_key: false,
-            default: Some("6"),
+            sql_type: None,
+            default: Some(DdlDefault::Number("6")),
             generated: None,
-        },
-        DdlColumn {
-            name: "webhook_subscribed_at",
-            sql_type: "timestamp with time zone",
-            not_null: false,
-            primary_key: false,
-            default: None,
-            generated: None,
+            default_fn: false,
+            on_update: false,
         },
         DdlColumn {
             name: "updated_at",
-            sql_type: "timestamp with time zone",
-            not_null: true,
-            primary_key: false,
-            default: Some("now()"),
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
             generated: None,
+            default_fn: false,
+            on_update: false,
         },
     ],
     primary_key: None,

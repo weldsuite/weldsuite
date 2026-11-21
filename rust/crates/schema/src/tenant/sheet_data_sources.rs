@@ -7,8 +7,8 @@ use sea_orm::entity::prelude::*;
 
 #[allow(unused_imports)]
 use crate::ddl::{
-    Check, Column as DdlColumn, ForeignKey, Index, IndexColumn, PrimaryKey as DdlPrimaryKey, Table,
-    Unique,
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
 };
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
@@ -56,105 +56,41 @@ pub enum Relation {}
 
 impl ActiveModelBehavior for ActiveModel {}
 
-/// The table as the migrations define it.
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
 pub const DDL: Table = Table {
     name: "sheet_data_sources",
     columns: &[
         DdlColumn {
-            name: "id",
-            sql_type: "varchar(255)",
-            not_null: true,
-            primary_key: true,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
             name: "created_at",
-            sql_type: "timestamp",
-            not_null: true,
-            primary_key: false,
-            default: Some("now()"),
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
             generated: None,
+            default_fn: false,
+            on_update: false,
         },
         DdlColumn {
             name: "updated_at",
-            sql_type: "timestamp",
-            not_null: true,
-            primary_key: false,
-            default: Some("now()"),
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
             generated: None,
-        },
-        DdlColumn {
-            name: "sheet_id",
-            sql_type: "varchar(255)",
-            not_null: true,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "object_type",
-            sql_type: "varchar(50)",
-            not_null: true,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "definition",
-            sql_type: "jsonb",
-            not_null: true,
-            primary_key: false,
-            default: None,
-            generated: None,
+            default_fn: false,
+            on_update: false,
         },
         DdlColumn {
             name: "refresh",
-            sql_type: "varchar(20)",
-            not_null: true,
-            primary_key: false,
-            default: Some("'manual'"),
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'manual'")),
             generated: None,
-        },
-        DdlColumn {
-            name: "last_refreshed_at",
-            sql_type: "timestamp",
-            not_null: false,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "next_refresh_at",
-            sql_type: "timestamp",
-            not_null: false,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "last_error",
-            sql_type: "text",
-            not_null: false,
-            primary_key: false,
-            default: None,
-            generated: None,
+            default_fn: false,
+            on_update: false,
         },
         DdlColumn {
             name: "row_count",
-            sql_type: "integer",
-            not_null: true,
-            primary_key: false,
-            default: Some("0"),
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
             generated: None,
-        },
-        DdlColumn {
-            name: "created_by_id",
-            sql_type: "varchar(255)",
-            not_null: true,
-            primary_key: false,
-            default: None,
-            generated: None,
+            default_fn: false,
+            on_update: false,
         },
     ],
     primary_key: None,

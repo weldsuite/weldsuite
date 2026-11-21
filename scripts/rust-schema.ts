@@ -2,14 +2,20 @@
  * Write the SeaORM entities of rust/crates/schema from the Drizzle schema
  * (weldsuite-documentation plans/rust-schema-orm-and-migrations.md, phase 1).
  *
- * One module per table under rust/crates/schema/src/{tenant,master}/, plus an
- * `enums` module per database with the Postgres enums as SeaORM active enums.
- * Each entity carries:
+ * One module per table under rust/crates/schema/src/{tenant,master}/, plus
+ * per database an `enums` module (the Postgres enums as SeaORM active enums)
+ * and a `views` module (the materialized views, which have no entity: their
+ * columns are SQL expressions). Each entity carries:
  *   - the Rust types and serde attributes that give the row Drizzle's JSON
  *     shape (property names, `toISOString()` timestamps, `numeric` as a
  *     string), decided per column from the Drizzle column's type and mode;
- *   - `DDL`: the table's definition as the newest drizzle-kit snapshot has it
- *     (SQL types, defaults, indexes, foreign keys, checks), as static data.
+ *   - `DDL`: what the entity can't say about the table, from the newest
+ *     drizzle-kit snapshot: defaults, generated columns, indexes, foreign
+ *     keys, checks, and a column's SQL type only where the snapshot spells it
+ *     differently from what the entity's column type renders to.
+ *
+ * Entity and DDL together rebuild that snapshot exactly
+ * (`<kind>::snapshot()`, checked by rust/crates/schema/tests/snapshot.rs).
  *
  * Until the flip the Drizzle schema is the source and this file is rerun after
  * every schema change; after the flip the entities are edited by hand and this
@@ -17,9 +23,6 @@
  *
  *   pnpm rust:schema           write the files
  *   pnpm rust:schema --check   exit 1 when a file is missing or stale (CI)
- *
- * Materialized views are left out: their columns are SQL expressions whose
- * types Drizzle doesn't know.
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -113,6 +116,7 @@ function uniqueName(base: string, used: Set<string>, suffixed: (i: number) => st
 interface Snapshot {
   tables: Record<string, any>;
   enums: Record<string, { name: string; values: string[] }>;
+  views?: Record<string, any>;
 }
 
 function latestSnapshot(dir: string): { file: string; snapshot: Snapshot } {
@@ -134,6 +138,11 @@ interface RustColumn {
   rustType: string;
   attrs: string[];
   serde: string[];
+  /** The SQL type `snapshot::sql_type` renders from the entity's column type. */
+  renderedSqlType: string;
+  /** Drizzle's `$defaultFn` and `$onUpdate`: filled by the application. */
+  defaultFn: boolean;
+  onUpdate: boolean;
 }
 
 /** A column's Rust type, its `#[sea_orm]` attributes, extra serde attributes and `js` serializer. */
@@ -181,7 +190,7 @@ const MAPPERS: Record<string, (col: any, nullable: boolean) => Mapping> = {
   PgReal: () => plain('f32', [], 'js::real'),
   PgDoublePrecision: () => plain('f64'),
   PgNumeric: numeric,
-  PgNumericNumber: () => plain('BigDecimal', [], 'js::numeric_number'),
+  PgNumericNumber: (col) => ({ ...numeric(col, false), serde: [], js: 'js::numeric_number' }),
   PgBoolean: () => plain('bool'),
   PgJson: () => plain('Json', ['column_type = "Json"']),
   PgJsonb: () => plain('Json', ['column_type = "JsonBinary"']),
@@ -191,6 +200,44 @@ const MAPPERS: Record<string, (col: any, nullable: boolean) => Mapping> = {
   PgDate: () => plain('TimeDate', [], 'js::date_as_timestamp'),
   PgDateString: () => plain('TimeDate', [], 'js::date'),
   PgVector: (col) => plain('PgVector', [`column_type = "Vector(Some(${col.dimensions}))"`]),
+};
+
+const numericSqlType = (col: any) =>
+  col.precision === undefined ? 'numeric' : `numeric(${col.precision}, ${col.scale ?? 0})`;
+const timestampSqlType = (col: any) => (col.withTimezone ? 'timestamp with time zone' : 'timestamp');
+const varcharSqlType = (col: any) => (col.length ? `varchar(${col.length})` : 'varchar');
+
+/**
+ * What `snapshot::sql_type` (rust/crates/schema/src/snapshot.rs) renders for
+ * the column type each mapping gives the entity, explicit or inferred by
+ * SeaORM from the Rust type. Where drizzle-kit's snapshot spells a column's
+ * type differently, the entity's DDL carries the snapshot's spelling.
+ */
+const RENDERED_SQL_TYPES: Record<string, (col: any) => string> = {
+  PgVarchar: varcharSqlType,
+  PgChar: varcharSqlType,
+  PgText: () => 'text',
+  PgInteger: () => 'integer',
+  PgSerial: () => 'integer',
+  PgSmallInt: () => 'smallint',
+  PgSmallSerial: () => 'smallint',
+  PgBigInt53: () => 'bigint',
+  PgBigSerial53: () => 'bigint',
+  PgBigInt64: () => 'bigint',
+  PgBigSerial64: () => 'bigint',
+  PgReal: () => 'real',
+  PgDoublePrecision: () => 'double precision',
+  PgNumeric: numericSqlType,
+  PgNumericNumber: numericSqlType,
+  PgBoolean: () => 'boolean',
+  PgJson: () => 'json',
+  PgJsonb: () => 'jsonb',
+  PgTimestamp: timestampSqlType,
+  PgTimestampString: timestampSqlType,
+  PgDate: () => 'date',
+  PgDateString: () => 'date',
+  PgEnumColumn: (col) => col.enum.enumName,
+  PgVector: (col) => `vector(${col.dimensions})`,
 };
 
 /** `crate::js::<module>`, or its `option` twin for a nullable column. */
@@ -249,16 +296,83 @@ function renderEnum(e: EnumDef): string[] {
 }
 
 function renderEnums(enums: EnumDef[], header: string): string {
-  return [header, '', 'use sea_orm::entity::prelude::*;', '', ...enums.flatMap(renderEnum)].join('\n');
+  return [
+    header,
+    '',
+    'use sea_orm::entity::prelude::*;',
+    '',
+    ...enums.flatMap(renderEnum),
+    "/// Every enum of the database, for the snapshot.",
+    'pub fn all() -> Vec<crate::snapshot::EnumSchema> {',
+    '    vec![',
+    ...enums.map((e) => `        crate::snapshot::enum_schema::<${e.rust}>(),`),
+    '    ]',
+    '}',
+    '',
+  ].join('\n');
+}
+
+function renderView(name: string, view: any): string[] {
+  return [
+    '    View {',
+    `        name: ${str(name)},`,
+    `        definition: ${str(view.definition)},`,
+    `        materialized: ${Boolean(view.materialized)},`,
+    `        with_no_data: ${Boolean(view.withNoData)},`,
+    `        columns_json: ${str(JSON.stringify(view.columns ?? {}))},`,
+    '    },',
+  ];
+}
+
+/** The snapshot's (materialized) views as `crate::ddl::View` data. */
+function renderViews(header: string, kind: Kind, views: Record<string, any>): string {
+  const entries = Object.values<any>(views).sort((a, b) => a.name.localeCompare(b.name));
+  for (const view of entries) {
+    if (view.isExisting || view.with || view.using || view.tablespace) {
+      throw new Error(`${kind.name}: view ${view.name} uses options the generator doesn't carry yet`);
+    }
+  }
+  return [
+    header,
+    '//!',
+    `//! The ${kind.name} database's views. They have no entity: their columns are`,
+    '//! query expressions, typed by the database.',
+    '',
+    '#[allow(unused_imports)]',
+    'use crate::ddl::View;',
+    '',
+    '/// Every view, in name order.',
+    'pub const VIEWS: &[View] = &[',
+    ...entries.flatMap((view) => renderView(view.name, view)),
+    '];',
+    '',
+  ].join('\n');
 }
 
 const strList = (items: string[]) => items.map(str).join(', ');
 const some = (value: string) => `Some(${str(value)})`;
 
-function ddlColumn(c: any): string {
-  const fallback = c.default === undefined ? 'None' : some(String(c.default));
+/** A snapshot default as `DdlDefault`: SQL text, or a number or boolean literal. */
+function ddlDefault(value: unknown): string {
+  if (typeof value === 'boolean') return `Some(DdlDefault::Bool(${value}))`;
+  if (typeof value === 'number') return `Some(DdlDefault::Number(${str(String(value))}))`;
+  return `Some(DdlDefault::Sql(${str(String(value))}))`;
+}
+
+/**
+ * The snapshot column's DDL beyond the entity field, or `null` when there is
+ * none: a default, a generated expression, application-filled values, or the
+ * snapshot's own spelling of the type where the entity renders it otherwise.
+ */
+function ddlColumn(c: any, column: RustColumn | undefined): string | null {
+  const sqlType = column && c.type !== column.renderedSqlType ? some(c.type) : 'None';
+  const fallback = c.default === undefined ? 'None' : ddlDefault(c.default);
   const generated = c.generated ? some(c.generated.as) : 'None';
-  return `DdlColumn { name: ${str(c.name)}, sql_type: ${str(c.type)}, not_null: ${c.notNull}, primary_key: ${c.primaryKey}, default: ${fallback}, generated: ${generated} }`;
+  const defaultFn = column?.defaultFn ?? false;
+  const onUpdate = column?.onUpdate ?? false;
+  const nothing = sqlType === 'None' && fallback === 'None' && generated === 'None' && !defaultFn && !onUpdate;
+  if (nothing) return null;
+  return `DdlColumn { name: ${str(c.name)}, sql_type: ${sqlType}, default: ${fallback}, generated: ${generated}, default_fn: ${defaultFn}, on_update: ${onUpdate} }`;
 }
 
 function ddlIndexColumn(c: any): string {
@@ -295,15 +409,19 @@ function ddlList(items: string[]): string {
   return `&[\n        ${body},\n    ]`;
 }
 
-/** The snapshot's table definition as `crate::ddl::Table` data. */
-function renderDdl(t: any): string {
+/** The snapshot's table definition, less what the entity says, as `crate::ddl::Table` data. */
+function renderDdl(t: any, columns: RustColumn[]): string {
   const pks = Object.values<any>(t.compositePrimaryKeys ?? {}).map(ddlPrimaryKey);
   const primaryKey = pks.length ? `Some(${pks[0]})` : 'None';
+  const byName = new Map(columns.map((c) => [c.column, c]));
+  const extras = Object.values<any>(t.columns)
+    .map((c) => ddlColumn(c, byName.get(c.name)))
+    .filter((line): line is string => line !== null);
   return [
-    '/// The table as the migrations define it.',
+    "/// What the entity doesn't say about the table: defaults, indexes, constraints.",
     'pub const DDL: Table = Table {',
     `    name: ${str(t.name)},`,
-    `    columns: ${ddlList(Object.values<any>(t.columns).map(ddlColumn))},`,
+    `    columns: ${ddlList(extras)},`,
     `    primary_key: ${primaryKey},`,
     `    indexes: ${ddlList(Object.values<any>(t.indexes ?? {}).map(ddlIndex))},`,
     `    foreign_keys: ${ddlList(Object.values<any>(t.foreignKeys ?? {}).map(ddlForeignKey))},`,
@@ -328,7 +446,7 @@ function renderEntity(header: string, name: string, columns: RustColumn[], snap:
     'use sea_orm::entity::prelude::*;',
     '',
     '#[allow(unused_imports)]',
-    'use crate::ddl::{Check, Column as DdlColumn, ForeignKey, Index, IndexColumn, PrimaryKey as DdlPrimaryKey, Table, Unique};',
+    'use crate::ddl::{Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn, PrimaryKey as DdlPrimaryKey, Table, Unique};',
     '',
     '#[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]',
     `#[sea_orm(table_name = ${str(name)})]`,
@@ -341,7 +459,7 @@ function renderEntity(header: string, name: string, columns: RustColumn[], snap:
     '',
     'impl ActiveModelBehavior for ActiveModel {}',
     '',
-    renderDdl(snap),
+    renderDdl(snap, columns),
     '',
   ].join('\n');
 }
@@ -353,12 +471,20 @@ function renderMod(header: string, kind: Kind, modules: Array<{ module: string; 
     `//! The ${kind.name} database: one SeaORM entity per table.`,
     '',
     'pub mod enums;',
+    'pub mod views;',
     ...modules.map(({ module }) => `pub mod ${module};`),
     '',
-    `/// Every table's definition, in name order.`,
-    'pub const TABLES: &[crate::ddl::Table] = &[',
-    ...modules.map(({ module }) => `    ${module}::DDL,`),
-    '];',
+    '/// Every table, from its entity and its DDL, in name order.',
+    'pub fn tables() -> Vec<crate::snapshot::TableSchema> {',
+    '    vec![',
+    ...modules.map(({ module }) => `        crate::snapshot::table::<${module}::Entity>(&${module}::DDL),`),
+    '    ]',
+    '}',
+    '',
+    "/// The database's schema as a drizzle-kit snapshot, without `id` and `prevId`.",
+    'pub fn snapshot() -> serde_json::Value {',
+    '    crate::snapshot::snapshot(&tables(), &enums::all(), views::VIEWS)',
+    '}',
     '',
     '/// Every row of `table` through its entity (`Entity::find().all`), as JSON;',
     "/// `None` for a table this database doesn't have. Behind the `all-tables`",
@@ -440,7 +566,10 @@ function tableColumns(
     const attrs = [...mapped.attrs];
     if (field !== col.name) attrs.unshift(`column_name = ${str(col.name)}`);
     if (col.primary || compositePk.has(col.name)) attrs.unshift('primary_key', 'auto_increment = false');
-    return { field, column: col.name, prop, ...mapped, attrs };
+    const renderedSqlType = RENDERED_SQL_TYPES[col.columnType]?.(col) ?? '';
+    const defaultFn = col.defaultFn !== undefined;
+    const onUpdate = col.onUpdateFn !== undefined;
+    return { field, column: col.name, prop, ...mapped, attrs, renderedSqlType, defaultFn, onUpdate };
   });
   const hasPk = props.some(([, c]) => c.primary) || compositePk.size > 0;
   return hasPk ? columns : null;
@@ -455,7 +584,7 @@ function generate(drizzle: Drizzle, kind: Kind, schema: Record<string, unknown>)
   const files: Written[] = [{ rel: `${kind.name}/enums.rs`, text: renderEnums(enums, enumsHeader) }];
 
   const modules: Array<{ module: string; table: string }> = [];
-  const usedModules = new Set<string>(['enums']);
+  const usedModules = new Set<string>(['enums', 'views']);
   for (const [name, table] of collectTables(drizzle, schema)) {
     const snap = snapshot.tables[`public.${name}`];
     if (!snap) {
@@ -475,7 +604,10 @@ function generate(drizzle: Drizzle, kind: Kind, schema: Record<string, unknown>)
     files.push({ rel: `${kind.name}/${module}.rs`, text: renderEntity(header, name, columns, snap) });
     modules.push({ module, table: name });
   }
-  files.push({ rel: `${kind.name}/mod.rs`, text: renderMod(header, kind, modules) });
+  files.push(
+    { rel: `${kind.name}/views.rs`, text: renderViews(header, kind, snapshot.views ?? {}) },
+    { rel: `${kind.name}/mod.rs`, text: renderMod(header, kind, modules) },
+  );
   return { files, warnings };
 }
 
@@ -535,7 +667,7 @@ function writeKind(kind: Kind, files: Written[]) {
   mkdirSync(dir, { recursive: true });
   for (const f of files) writeFileSync(path.join(outRoot, f.rel), f.text);
   rustfmt(files.map((f) => path.join(outRoot, f.rel)));
-  console.log(`${kind.name}: ${files.length - 2} tables, enums and mod.rs written`);
+  console.log(`${kind.name}: ${files.length - 3} tables, enums, views and mod.rs written`);
 }
 
 async function main() {

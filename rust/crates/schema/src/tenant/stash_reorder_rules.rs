@@ -7,8 +7,8 @@ use sea_orm::entity::prelude::*;
 
 #[allow(unused_imports)]
 use crate::ddl::{
-    Check, Column as DdlColumn, ForeignKey, Index, IndexColumn, PrimaryKey as DdlPrimaryKey, Table,
-    Unique,
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
 };
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
@@ -64,121 +64,33 @@ pub enum Relation {}
 
 impl ActiveModelBehavior for ActiveModel {}
 
-/// The table as the migrations define it.
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
 pub const DDL: Table = Table {
     name: "stash_reorder_rules",
     columns: &[
         DdlColumn {
-            name: "id",
-            sql_type: "varchar(30)",
-            not_null: true,
-            primary_key: true,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
             name: "created_at",
-            sql_type: "timestamp",
-            not_null: true,
-            primary_key: false,
-            default: Some("now()"),
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
             generated: None,
+            default_fn: false,
+            on_update: false,
         },
         DdlColumn {
             name: "updated_at",
-            sql_type: "timestamp",
-            not_null: true,
-            primary_key: false,
-            default: Some("now()"),
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
             generated: None,
-        },
-        DdlColumn {
-            name: "item_key",
-            sql_type: "varchar(100)",
-            not_null: true,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "product_id",
-            sql_type: "varchar(30)",
-            not_null: true,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "variant_id",
-            sql_type: "varchar(30)",
-            not_null: false,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "warehouse_id",
-            sql_type: "varchar(30)",
-            not_null: true,
-            primary_key: false,
-            default: None,
-            generated: None,
+            default_fn: false,
+            on_update: false,
         },
         DdlColumn {
             name: "method",
-            sql_type: "varchar(20)",
-            not_null: true,
-            primary_key: false,
-            default: Some("'auto'"),
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'auto'")),
             generated: None,
-        },
-        DdlColumn {
-            name: "min_qty",
-            sql_type: "integer",
-            not_null: false,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "max_qty",
-            sql_type: "integer",
-            not_null: false,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "service_level",
-            sql_type: "numeric(4, 3)",
-            not_null: false,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "review_period_days",
-            sql_type: "integer",
-            not_null: false,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "lead_time_days_override",
-            sql_type: "integer",
-            not_null: false,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "product_supplier_id",
-            sql_type: "varchar(30)",
-            not_null: false,
-            primary_key: false,
-            default: None,
-            generated: None,
+            default_fn: false,
+            on_update: false,
         },
     ],
     primary_key: None,

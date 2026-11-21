@@ -7,8 +7,8 @@ use sea_orm::entity::prelude::*;
 
 #[allow(unused_imports)]
 use crate::ddl::{
-    Check, Column as DdlColumn, ForeignKey, Index, IndexColumn, PrimaryKey as DdlPrimaryKey, Table,
-    Unique,
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
 };
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
@@ -45,43 +45,10 @@ pub enum Relation {}
 
 impl ActiveModelBehavior for ActiveModel {}
 
-/// The table as the migrations define it.
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
 pub const DDL: Table = Table {
     name: "iceberg_namespace_properties",
-    columns: &[
-        DdlColumn {
-            name: "catalog_name",
-            sql_type: "varchar(255)",
-            not_null: true,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "namespace",
-            sql_type: "varchar(255)",
-            not_null: true,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "property_key",
-            sql_type: "varchar(255)",
-            not_null: true,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "property_value",
-            sql_type: "varchar(1000)",
-            not_null: false,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-    ],
+    columns: &[],
     primary_key: Some(DdlPrimaryKey {
         name: "iceberg_namespace_properties_pkey",
         columns: &["catalog_name", "namespace", "property_key"],

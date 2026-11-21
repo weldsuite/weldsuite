@@ -7,8 +7,8 @@ use sea_orm::entity::prelude::*;
 
 #[allow(unused_imports)]
 use crate::ddl::{
-    Check, Column as DdlColumn, ForeignKey, Index, IndexColumn, PrimaryKey as DdlPrimaryKey, Table,
-    Unique,
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
 };
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
@@ -60,113 +60,33 @@ pub enum Relation {}
 
 impl ActiveModelBehavior for ActiveModel {}
 
-/// The table as the migrations define it.
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
 pub const DDL: Table = Table {
     name: "workspace_invitations",
     columns: &[
         DdlColumn {
-            name: "id",
-            sql_type: "varchar(30)",
-            not_null: true,
-            primary_key: true,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "workspace_id",
-            sql_type: "varchar(255)",
-            not_null: true,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "email",
-            sql_type: "varchar(320)",
-            not_null: true,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "email_normalized",
-            sql_type: "varchar(320)",
-            not_null: true,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "role",
-            sql_type: "varchar(50)",
-            not_null: true,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
             name: "public_metadata",
-            sql_type: "jsonb",
-            not_null: true,
-            primary_key: false,
-            default: Some("'{}'::jsonb"),
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'{}'::jsonb")),
             generated: None,
+            default_fn: false,
+            on_update: false,
         },
         DdlColumn {
             name: "status",
-            sql_type: "varchar(20)",
-            not_null: true,
-            primary_key: false,
-            default: Some("'pending'"),
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'pending'")),
             generated: None,
-        },
-        DdlColumn {
-            name: "invited_by",
-            sql_type: "varchar(255)",
-            not_null: false,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "accepted_by",
-            sql_type: "varchar(255)",
-            not_null: false,
-            primary_key: false,
-            default: None,
-            generated: None,
+            default_fn: false,
+            on_update: false,
         },
         DdlColumn {
             name: "created_at",
-            sql_type: "timestamp with time zone",
-            not_null: true,
-            primary_key: false,
-            default: Some("now()"),
+            sql_type: None,
+            default: Some(DdlDefault::Sql("now()")),
             generated: None,
-        },
-        DdlColumn {
-            name: "expires_at",
-            sql_type: "timestamp with time zone",
-            not_null: true,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "accepted_at",
-            sql_type: "timestamp with time zone",
-            not_null: false,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "revoked_at",
-            sql_type: "timestamp with time zone",
-            not_null: false,
-            primary_key: false,
-            default: None,
-            generated: None,
+            default_fn: false,
+            on_update: false,
         },
     ],
     primary_key: None,

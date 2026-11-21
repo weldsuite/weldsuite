@@ -147,3 +147,17 @@ pub enum TenantTier {
     #[serde(rename = "enterprise")]
     Enterprise,
 }
+
+/// Every enum of the database, for the snapshot.
+pub fn all() -> Vec<crate::snapshot::EnumSchema> {
+    vec![
+        crate::snapshot::enum_schema::<AdminRole>(),
+        crate::snapshot::enum_schema::<DatabasePoolStatus>(),
+        crate::snapshot::enum_schema::<FeatureStatus>(),
+        crate::snapshot::enum_schema::<FeatureType>(),
+        crate::snapshot::enum_schema::<InquiryStatus>(),
+        crate::snapshot::enum_schema::<MembershipStatus>(),
+        crate::snapshot::enum_schema::<NeonSharedProjectStatus>(),
+        crate::snapshot::enum_schema::<TenantTier>(),
+    ]
+}
