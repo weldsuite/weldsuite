@@ -212,8 +212,9 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
 }
 
 /// WeldStash (`weldsuite-stash`): stash-api's routes at their own prefixes
-/// (`/warehouses`, `/inventory`, `/pick-lists`, `/products`, …), once the
-/// module is marked ported (always in conformance builds).
+/// (`/warehouses`, `/inventory`, `/pick-lists`, …), once the module is
+/// marked ported (always in conformance builds). `/products`, which
+/// stash-api serves on Global, is [`commerce`]'s on this backend.
 fn stash(router: Router<AppState>, state: &AppState) -> Router<AppState> {
     if !mounts("stash") {
         return router;
@@ -255,8 +256,11 @@ fn stash(router: Router<AppState>, state: &AppState) -> Router<AppState> {
 }
 
 /// WeldCommerce (`weldsuite-commerce`), rebuilt in Rust only (ADR COM-009):
-/// its routes at their own prefixes (`/commerce`, …), once the module is
-/// marked ported. There is no TypeScript worker, so no conformance suite.
+/// its routes at their own prefixes (`/commerce`, `/products`,
+/// `/categories`), once the module is marked ported (always in conformance
+/// builds). There is no TypeScript worker, so no conformance suite, except
+/// for `/products`: stash-api serves it on Global, and its "stash: products"
+/// suite runs against this crate.
 fn commerce(router: Router<AppState>, state: &AppState) -> Router<AppState> {
     if !mounts("commerce") {
         return router;

@@ -1,6 +1,6 @@
 [package]
 name = "weldsuite-commerce"
-description = "WeldCommerce, rebuilt for the EU edition (ADR COM-009): catalogue, orders, storefront. Rust only, no TypeScript worker."
+description = "WeldCommerce, rebuilt for the EU edition (ADR COM-009): the overview, the catalogue (products, variants, categories), and later orders and the storefront. Rust only, no TypeScript worker; /api/products keeps stash-api's behaviour."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,6 +10,8 @@ publish.workspace = true
 
 [dependencies]
 weldsuite-auth = { workspace = true }
+# The tax codes a product's `taxClass` may name (sales_tax::tax_codes).
+weldsuite-books-domain = { workspace = true }
 weldsuite-catalogs = { workspace = true }
 weldsuite-db = { workspace = true }
 weldsuite-events = { workspace = true }
@@ -19,7 +21,10 @@ axum = { workspace = true, features = ["json"] }
 http = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
+time = { workspace = true }
 tracing = { workspace = true }
+# Folding accents out of category slugs.
+unicode-normalization = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }

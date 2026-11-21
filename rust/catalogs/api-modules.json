@@ -302,6 +302,7 @@
     "devPort": 8806,
     "id": "commerce",
     "prefixes": [
+      "/api/categories",
       "/api/commerce"
     ],
     "rust": true,
@@ -310,7 +311,8 @@
   },
   {
     "apps": [
-      "weldstash"
+      "weldstash",
+      "weldcommerce"
     ],
     "binding": "STASH_API",
     "devPort": 8807,

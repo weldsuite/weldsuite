@@ -55,6 +55,7 @@ import {
   Link2,
   CircleCheck,
   Package,
+  FolderTree,
   Warehouse,
   Boxes,
   ClipboardList,
@@ -175,6 +176,8 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
         group: t.navigation.moduleSidebar.groups.general,
         items: [
           { title: t.navigation.moduleSidebar.weldcommerce.overview, href: '/weldcommerce', icon: LayoutDashboard },
+          { title: t.navigation.moduleSidebar.weldcommerce.products, href: '/weldcommerce/products', icon: Package, permission: 'products:read' },
+          { title: t.navigation.moduleSidebar.weldcommerce.categories, href: '/weldcommerce/categories', icon: FolderTree, permission: 'categories:read' },
         ],
       },
     ],

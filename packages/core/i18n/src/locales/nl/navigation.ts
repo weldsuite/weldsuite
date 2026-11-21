@@ -145,6 +145,8 @@ export const navigation = {
       },
       weldcommerce: {
         overview: 'Overzicht',
+        products: 'Producten',
+        categories: 'Categorieën',
       },
       weldstash: {
         overview: 'Overzicht',

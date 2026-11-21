@@ -1,8 +1,7 @@
 //! The plain CRUD route files of stash-api (boxes, warehouses, warehouse
 //! zones and locations, suppliers, cycle counts, purchase orders, inventory
-//! movements, and products in [`crate::products`]): `GET /` (cursor-paged, a
-//! few filters), `GET /:id`, `POST /`, `PATCH /:id`, `DELETE /:id` (soft,
-//! except movements).
+//! movements): `GET /` (cursor-paged, a few filters), `GET /:id`, `POST /`,
+//! `PATCH /:id`, `DELETE /:id` (soft, except movements).
 //!
 //! Each file is the same code with a different table, schema, filters,
 //! ordering, messages and event payloads; [`Crud`] is that difference. The

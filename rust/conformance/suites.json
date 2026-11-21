@@ -2185,6 +2185,7 @@
         "packages/domains/books/src/jurisdictions/us/tax-codes.ts",
         "apps/workers/stash-api/src/types.ts",
         "rust/modules/stash/",
+        "rust/modules/commerce/",
         "rust/crates/books-domain/src/sales_tax/tax_codes.rs"
       ]
     },

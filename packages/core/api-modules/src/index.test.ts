@@ -232,6 +232,21 @@ describe('licence gate lookups', () => {
     expect(missingLicensedApp(findModuleForPath('/api/ai/chat'), deskOnly)).toBeNull();
   });
 
+  it('lets WeldCommerce reach the product catalogue WeldStash owns', () => {
+    // The Rust commerce crate serves both; the prefix stays stash's while
+    // Global's stash-api serves `/api/products`.
+    expect(findModuleForPath('/api/products/prod_1/variants').id).toBe('stash');
+    expect(findModuleForPath('/api/categories/cat_1/products').id).toBe('commerce');
+    expect(findModuleForPath('/api/categories-x').id).toBe('core');
+    const commerceOnly = licensed('weldcommerce');
+    expect(missingLicensedAppForPath('/api/products/prod_1/variants', commerceOnly)).toBeNull();
+    expect(missingLicensedAppForPath('/api/categories/tree', commerceOnly)).toBeNull();
+    const stashOnly = licensed('weldstash');
+    expect(missingLicensedAppForPath('/api/products', stashOnly)).toBeNull();
+    expect(missingLicensedAppForPath('/api/categories', stashOnly)).toBe('weldcommerce');
+    expect(missingLicensedAppForPath('/api/warehouses', commerceOnly)).toBeNull();
+  });
+
   it("names the module's own app when nothing that reads it is licensed", () => {
     const deskOnly = licensed('welddesk');
     expect(missingLicensedApp(findModuleForPath('/api/invoices'), deskOnly)).toBe('weldbooks');

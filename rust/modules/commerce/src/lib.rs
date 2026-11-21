@@ -3,37 +3,67 @@
 //! `weldsuite-documentation/design/modules/weldcommerce.md`, plan in
 //! `weldsuite-documentation/plans/weldcommerce-rebuild.md`).
 //!
-//! There is no TypeScript worker to compare it with, so no conformance
-//! suite: every route has its own tests in `tests/`.
+//! Phase 0 serves the module overview (`/api/commerce/overview`). Phase 1 is
+//! the catalogue:
 //!
-//! Phase 0 serves the module overview (`/api/commerce/overview`). The
-//! catalogue, orders, storefront and payments follow in later phases.
+//! - `/api/products` ([`products`]): moved here from `weldsuite-stash` with
+//!   its behaviour unchanged. The prefix stays the `stash` module's in
+//!   `@weldsuite/api-modules` while Global's stash-api serves it, and the
+//!   "stash: products" conformance suite still runs against this crate.
+//! - `/api/products/:id/variants` ([`variants`]): the option matrix, SKUs and
+//!   barcodes unique among live products and variants.
+//! - `/api/categories` ([`categories`]): the tree, manual members and
+//!   automated categories evaluated on read ([`rules`]; ADR COM-010
+//!   re-adopting COM-001 and COM-002).
+//!
+//! Everything but the products route is Rust only, with no TypeScript worker
+//! to compare it with and so no conformance suite: those routes have their
+//! own tests in `tests/`.
 
+#[macro_use]
+#[rustfmt::skip]
+mod tables;
+mod args;
+mod categories;
+mod js;
 mod overview;
+mod products;
+mod rules;
+mod table;
+mod variants;
 
 use std::sync::Arc;
 
 use axum::Router;
+use axum::body::Bytes;
 use axum::extract::FromRequestParts;
 use axum::response::{IntoResponse, Response};
+use http::HeaderMap;
+use http::header::CONTENT_TYPE;
 use http::request::Parts;
+use serde_json::{Map, Value};
+use time::OffsetDateTime;
 use weldsuite_auth::AuthContext;
+use weldsuite_catalogs::entity_events::EventName;
 use weldsuite_db::{PgPool, Tenant};
-use weldsuite_events::EntityEventPublisher;
+use weldsuite_events::{EntityEventPublisher, EventContext, iso_timestamp, publish_entity_event};
 use weldsuite_kit::ApiError;
+use weldsuite_kit::validation::{Issues, json_body, query_values};
 use weldsuite_permissions::{PermissionGate, PermissionQueries, Permissions};
+
+use crate::table::WriteError;
 
 /// What the commerce handlers share.
 #[derive(Clone, Debug)]
 pub struct CommerceState {
-    /// Entity events (`publishEntityEvent`); the overview publishes none,
-    /// the writes of the next phases do.
+    /// Entity events (`publishEntityEvent`).
     pub events: EntityEventPublisher,
 }
 
-/// WeldCommerce's routes, relative to `/api` (`/commerce/overview`, …), to
-/// merge under `/api` behind the session, tenant database, licence and flag
-/// layers. Each route carries its `requirePermission` from `gate`.
+/// WeldCommerce's routes, relative to `/api` (`/commerce/overview`,
+/// `/products`, `/categories`, …), to merge under `/api` behind the session,
+/// tenant database, licence and flag layers. Each route carries its
+/// `requirePermission` from `gate`.
 pub fn router<S, Q>(state: CommerceState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
     S: Clone + Send + Sync + 'static,
@@ -41,13 +71,30 @@ where
 {
     Router::new()
         .nest("/commerce", overview::routes(gate))
+        .nest("/products", products::routes(gate))
+        .nest("/categories", categories::routes(gate))
         .with_state(state)
 }
 
 /// Who is asking, in which workspace, with what permissions.
 pub(crate) struct Caller {
     pub(crate) db: PgPool,
+    pub(crate) user_id: String,
     pub(crate) permissions: Permissions,
+    pub(crate) events: EventContext,
+}
+
+impl Caller {
+    /// `publishEntityEvent({ c, entityType, action, entityId, data })`.
+    pub(crate) fn publish(
+        &self,
+        state: &CommerceState,
+        event: EventName,
+        entity_id: &str,
+        data: &Value,
+    ) {
+        publish_entity_event(&state.events, &self.events, event, entity_id, data);
+    }
 }
 
 /// Behind the session, tenant database and permission layers; without them
@@ -62,11 +109,14 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
         let auth = parts.extensions.get::<AuthContext>();
         let tenant = parts.extensions.get::<Tenant>();
         let permissions = parts.extensions.get::<Permissions>();
-        let caller = if let (Some(_), Some(tenant), Some(permissions)) = (auth, tenant, permissions)
+        let caller = if let (Some(auth), Some(tenant), Some(permissions)) =
+            (auth, tenant, permissions)
         {
             Ok(Self {
                 db: tenant.db.clone(),
+                user_id: auth.user_id.clone(),
                 permissions: permissions.clone(),
+                events: EventContext::for_request(auth, tenant),
             })
         } else {
             tracing::error!("commerce: a route without the session, tenant or permission layer");
@@ -76,8 +126,92 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
     }
 }
 
+/// A route's answer off the happy path: a response the route writes itself
+/// (400, 404, 409, a validation failure), or a statement that failed, which
+/// the route maps to its 500 with its own message.
+pub(crate) enum Refusal {
+    Response(Box<Response>),
+    Database(sqlx::Error),
+    Write(WriteError),
+}
+
+impl From<sqlx::Error> for Refusal {
+    fn from(error: sqlx::Error) -> Self {
+        Self::Database(error)
+    }
+}
+
+impl From<WriteError> for Refusal {
+    fn from(error: WriteError) -> Self {
+        Self::Write(error)
+    }
+}
+
+impl From<ApiError> for Refusal {
+    fn from(error: ApiError) -> Self {
+        Self::Response(Box::new(error.into_response()))
+    }
+}
+
+impl Refusal {
+    pub(crate) fn not_found(resource: &str, id: &str) -> Self {
+        ApiError::not_found(resource, Some(id)).into()
+    }
+
+    /// The response; a failed statement is logged and answered with a 500
+    /// carrying `fallback` (`error.internal(c, fallback)`).
+    pub(crate) fn respond(self, fallback: &str) -> Response {
+        match self {
+            Self::Response(response) => *response,
+            Self::Database(error) => internal(&error, fallback),
+            Self::Write(error) => internal(&error, fallback),
+        }
+    }
+}
+
 /// A 500 with `message`, after logging what failed.
 pub(crate) fn internal(error: &dyn std::fmt::Display, message: &str) -> Response {
     tracing::error!(%error, "[commerce] {message}");
     ApiError::internal().with_message(message).into_response()
+}
+
+/// `new Date()` as Drizzle writes it: UTC with milliseconds. Bound as text
+/// and cast with `::timestamp`.
+pub(crate) fn now() -> String {
+    iso_timestamp(OffsetDateTime::now_utc())
+}
+
+/// `zValidator('json', schema)`: the body read by `read`, or the 400 (bad
+/// JSON, or the schema's issues).
+pub(crate) fn validate<T>(
+    headers: &HeaderMap,
+    body: &Bytes,
+    read: impl FnOnce(&mut Issues, &Map<String, Value>) -> T,
+) -> Result<T, Refusal> {
+    let rejected = |response: Response| Refusal::Response(Box::new(response));
+    let content_type = headers
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok());
+    let body = json_body(content_type, body).map_err(|bad| rejected(bad.into_response()))?;
+    let mut issues = Issues::default();
+    let value = issues.object(&body).map(|fields| read(&mut issues, fields));
+    issues
+        .finish()
+        .map_err(|invalid| rejected(invalid.into_response()))?;
+    value.ok_or_else(|| ApiError::internal().into())
+}
+
+/// `zValidator('query', schema)`: the query string read by `read`, or the
+/// 400 with the schema's issues.
+pub(crate) fn validate_query<T>(
+    query: Option<&str>,
+    read: impl FnOnce(&mut Issues, &Map<String, Value>) -> T,
+) -> Result<T, Refusal> {
+    let fields = query_values(query);
+    let mut issues = Issues::default();
+    let value = read(&mut issues, &fields);
+    issues
+        .finish()
+        .map_err(|invalid| Refusal::Response(Box::new(invalid.into_response())))?;
+    Ok(value)
 }

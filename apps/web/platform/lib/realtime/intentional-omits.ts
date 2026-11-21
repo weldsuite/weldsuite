@@ -26,7 +26,6 @@ export const PLATFORM_SYNC_MAP_INTENTIONAL_OMITS = {
   // a query cache for these catalog types any more.
   order: 'WeldCommerce removed: no platform orders list or detail cache',
   commerce_order: 'WeldCommerce removed: no platform orders list or detail cache',
-  category: 'WeldCommerce removed: no platform product categories cache',
   commerce_customer: 'WeldCommerce removed: customers are CRM companies, synced as company/person',
   discount: 'WeldCommerce removed: no platform discounts cache',
   website: 'WeldCommerce removed: no platform websites cache',

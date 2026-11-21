@@ -61,10 +61,17 @@ modules, each with conformance suites that reach every route:
   service catalogue, `/api/desk/catalog` with requests, approval steps and
   the WeldFlow tasks of an approved request through `flow-domain`,
   `catalog.rs` and `fulfilment.rs`; the help center's catalogue pages are
-  part of `/api/portal`, which is not served here) and **stash** (the WMS, and
-  the product catalogue at `/api/products`, which moved here from commerce-api
-  when WeldCommerce was removed to be rebuilt; the pick-list ship action records
-  the shipment and calls no carrier)
+  part of `/api/portal`, which is not served here) and **stash** (the WMS; the
+  pick-list ship action records the shipment and calls no carrier)
+- **commerce** (WeldCommerce, rebuilt in Rust only, ADR COM-009: no
+  TypeScript worker and no conformance suite, its own tests in
+  `modules/commerce/tests`): the overview, and the catalogue. `/api/products`
+  moved here from the stash crate with stash-api's behaviour, so the
+  "stash: products" suite still runs against it (the prefix stays stash's in
+  `@weldsuite/api-modules` while Global's stash-api serves it); its variants
+  (`/api/products/:id/variants`, SKUs and barcodes unique among live products
+  and variants) and `/api/categories` (the tree, manual members, automated
+  members evaluated on read) are Rust only
 - **ads** (WeldAds: Meta connections, ad accounts and campaigns, synced
   with Meta's Marketing API through the outbound HTTP port; the shared sync
   code is `crates/ads-domain`, for connect-api's integration endpoints
@@ -606,6 +613,8 @@ rust/
                         modules/sign, modules/pass, modules/calendar, modules/crm, modules/flow,
                         modules/mail, modules/chat, modules/desk, modules/desk-widget (the
                         helpdesk widget API, at /public/helpdesk-widget), modules/stash (the WMS),
+                        modules/commerce (WeldCommerce, Rust only: the catalogue, `/api/products`
+                        included; tools/tables.mts writes its table descriptors),
                         modules/ads (with
                         crates/ads-domain: Meta's API, the campaign sync, the ad sync index),
                         modules/social (with crates/social-domain: PostPeer publishing, credits),

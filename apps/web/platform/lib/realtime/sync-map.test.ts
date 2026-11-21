@@ -276,6 +276,7 @@ describe('platformSyncMap — WeldStash', () => {
     expect(platformSyncMap.product?.invalidate).toEqual([
       ['weldstash', 'products'],
       ['weldstash', 'stock'],
+      ['weldcommerce', 'products'],
     ]);
     expect(platformSyncMap.wms_product?.invalidate).toEqual([
       ['weldstash', 'products'],
@@ -325,6 +326,13 @@ describe('platformSyncMap — WeldStash', () => {
     expect(platformSyncMap.wms_category?.invalidate).toEqual([
       ['weldstash', 'categories'],
       ['weldstash', 'products'],
+    ]);
+  });
+
+  it('category refreshes the WeldCommerce categories and the products that show them', () => {
+    expect(platformSyncMap.category?.invalidate).toEqual([
+      ['weldcommerce', 'categories'],
+      ['weldcommerce', 'products'],
     ]);
   });
 });

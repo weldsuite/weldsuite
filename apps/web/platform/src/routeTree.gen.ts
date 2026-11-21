@@ -217,6 +217,8 @@ import { Route as WeldconnectExecutionsIndexRouteImport } from './routes/weldcon
 import { Route as WeldconnectConnectorsIndexRouteImport } from './routes/weldconnect/connectors/index'
 import { Route as WeldconnectAnalyticsIndexRouteImport } from './routes/weldconnect/analytics/index'
 import { Route as WeldconnectActionsIndexRouteImport } from './routes/weldconnect/actions/index'
+import { Route as WeldcommerceProductsIndexRouteImport } from './routes/weldcommerce/products/index'
+import { Route as WeldcommerceCategoriesIndexRouteImport } from './routes/weldcommerce/categories/index'
 import { Route as WeldchatRecordsIndexRouteImport } from './routes/weldchat/records/index'
 import { Route as WeldchatDmIndexRouteImport } from './routes/weldchat/dm/index'
 import { Route as WeldchatBookmarksIndexRouteImport } from './routes/weldchat/bookmarks/index'
@@ -1699,6 +1701,18 @@ const WeldconnectActionsIndexRoute = WeldconnectActionsIndexRouteImport.update({
   path: '/actions/',
   getParentRoute: () => WeldconnectRouteRoute,
 } as any)
+const WeldcommerceProductsIndexRoute =
+  WeldcommerceProductsIndexRouteImport.update({
+    id: '/products/',
+    path: '/products/',
+    getParentRoute: () => WeldcommerceRouteRoute,
+  } as any)
+const WeldcommerceCategoriesIndexRoute =
+  WeldcommerceCategoriesIndexRouteImport.update({
+    id: '/categories/',
+    path: '/categories/',
+    getParentRoute: () => WeldcommerceRouteRoute,
+  } as any)
 const WeldchatRecordsIndexRoute = WeldchatRecordsIndexRouteImport.update({
   id: '/records/',
   path: '/records/',
@@ -4308,6 +4322,8 @@ export interface FileRoutesByFullPath {
   '/weldchat/bookmarks/': typeof WeldchatBookmarksIndexRoute
   '/weldchat/dm/': typeof WeldchatDmIndexRoute
   '/weldchat/records/': typeof WeldchatRecordsIndexRoute
+  '/weldcommerce/categories/': typeof WeldcommerceCategoriesIndexRoute
+  '/weldcommerce/products/': typeof WeldcommerceProductsIndexRoute
   '/weldconnect/actions/': typeof WeldconnectActionsIndexRoute
   '/weldconnect/analytics/': typeof WeldconnectAnalyticsIndexRoute
   '/weldconnect/connectors/': typeof WeldconnectConnectorsIndexRoute
@@ -4882,6 +4898,8 @@ export interface FileRoutesByTo {
   '/weldchat/bookmarks': typeof WeldchatBookmarksIndexRoute
   '/weldchat/dm': typeof WeldchatDmIndexRoute
   '/weldchat/records': typeof WeldchatRecordsIndexRoute
+  '/weldcommerce/categories': typeof WeldcommerceCategoriesIndexRoute
+  '/weldcommerce/products': typeof WeldcommerceProductsIndexRoute
   '/weldconnect/actions': typeof WeldconnectActionsIndexRoute
   '/weldconnect/analytics': typeof WeldconnectAnalyticsIndexRoute
   '/weldconnect/connectors': typeof WeldconnectConnectorsIndexRoute
@@ -5503,6 +5521,8 @@ export interface FileRoutesById {
   '/weldchat/bookmarks/': typeof WeldchatBookmarksIndexRoute
   '/weldchat/dm/': typeof WeldchatDmIndexRoute
   '/weldchat/records/': typeof WeldchatRecordsIndexRoute
+  '/weldcommerce/categories/': typeof WeldcommerceCategoriesIndexRoute
+  '/weldcommerce/products/': typeof WeldcommerceProductsIndexRoute
   '/weldconnect/actions/': typeof WeldconnectActionsIndexRoute
   '/weldconnect/analytics/': typeof WeldconnectAnalyticsIndexRoute
   '/weldconnect/connectors/': typeof WeldconnectConnectorsIndexRoute
@@ -6132,6 +6152,8 @@ export interface FileRouteTypes {
     | '/weldchat/bookmarks/'
     | '/weldchat/dm/'
     | '/weldchat/records/'
+    | '/weldcommerce/categories/'
+    | '/weldcommerce/products/'
     | '/weldconnect/actions/'
     | '/weldconnect/analytics/'
     | '/weldconnect/connectors/'
@@ -6706,6 +6728,8 @@ export interface FileRouteTypes {
     | '/weldchat/bookmarks'
     | '/weldchat/dm'
     | '/weldchat/records'
+    | '/weldcommerce/categories'
+    | '/weldcommerce/products'
     | '/weldconnect/actions'
     | '/weldconnect/analytics'
     | '/weldconnect/connectors'
@@ -7326,6 +7350,8 @@ export interface FileRouteTypes {
     | '/weldchat/bookmarks/'
     | '/weldchat/dm/'
     | '/weldchat/records/'
+    | '/weldcommerce/categories/'
+    | '/weldcommerce/products/'
     | '/weldconnect/actions/'
     | '/weldconnect/analytics/'
     | '/weldconnect/connectors/'
@@ -9239,6 +9265,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/weldconnect/actions/'
       preLoaderRoute: typeof WeldconnectActionsIndexRouteImport
       parentRoute: typeof WeldconnectRouteRoute
+    }
+    '/weldcommerce/products/': {
+      id: '/weldcommerce/products/'
+      path: '/products'
+      fullPath: '/weldcommerce/products/'
+      preLoaderRoute: typeof WeldcommerceProductsIndexRouteImport
+      parentRoute: typeof WeldcommerceRouteRoute
+    }
+    '/weldcommerce/categories/': {
+      id: '/weldcommerce/categories/'
+      path: '/categories'
+      fullPath: '/weldcommerce/categories/'
+      preLoaderRoute: typeof WeldcommerceCategoriesIndexRouteImport
+      parentRoute: typeof WeldcommerceRouteRoute
     }
     '/weldchat/records/': {
       id: '/weldchat/records/'
@@ -12788,10 +12828,14 @@ const WeldchatRouteRouteWithChildren = WeldchatRouteRoute._addFileChildren(
 
 interface WeldcommerceRouteRouteChildren {
   WeldcommerceIndexRoute: typeof WeldcommerceIndexRoute
+  WeldcommerceCategoriesIndexRoute: typeof WeldcommerceCategoriesIndexRoute
+  WeldcommerceProductsIndexRoute: typeof WeldcommerceProductsIndexRoute
 }
 
 const WeldcommerceRouteRouteChildren: WeldcommerceRouteRouteChildren = {
   WeldcommerceIndexRoute: WeldcommerceIndexRoute,
+  WeldcommerceCategoriesIndexRoute: WeldcommerceCategoriesIndexRoute,
+  WeldcommerceProductsIndexRoute: WeldcommerceProductsIndexRoute,
 }
 
 const WeldcommerceRouteRouteWithChildren =

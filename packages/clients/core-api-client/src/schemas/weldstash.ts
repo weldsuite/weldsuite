@@ -170,6 +170,8 @@ export interface WeldstashProduct {
   vendor?: string | null;
   featuredImageUrl?: string | null;
   images?: Array<{ url: string; altText?: string; id?: string }> | null;
+  /** The options its variants combine (`Size`, `Colour`), in the seller's order. */
+  options?: Array<{ id?: string; name: string; values: string[] }> | null;
   /** `false` = never taxed. Null on older rows reads as taxable. */
   taxable?: boolean | null;
   /** A WeldBooks tax code or a Stripe / Avalara code; older rows may hold a legacy word. */

@@ -368,11 +368,15 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/received-fiscal-documents',
     '/public/fiscal-webhooks',
   ]),
-  // WeldCommerce, rebuilt in Rust only (ADR COM-009); phase 0 serves the overview.
+  // WeldCommerce, rebuilt in Rust only (ADR COM-009): the overview and the
+  // categories. The Rust crate also serves `/api/products`, which stays
+  // stash's below while Global's stash-api serves it.
   mod('commerce', 8806, ['weldcommerce'], [
+    '/api/categories',
     '/api/commerce',
   ]),
-  mod('stash', 8807, ['weldstash'], [
+  // WeldCommerce reads and writes the product catalogue too (STASH-006).
+  mod('stash', 8807, ['weldstash', 'weldcommerce'], [
     '/api/boxes',
     '/api/cycle-counts',
     '/api/inventory',
@@ -381,7 +385,8 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/pickers',
     // Served by the Rust backend only (weldsuite-documentation/plans/weldstash-replenishment.md).
     '/api/product-suppliers',
-    // The product catalogue: WeldStash owns it while WeldCommerce is rebuilt.
+    // The product catalogue: stash-api serves it on Global; on the Rust
+    // backend the commerce crate does (WeldCommerce phase 1).
     '/api/products',
     '/api/purchase-orders',
     '/api/putaway',

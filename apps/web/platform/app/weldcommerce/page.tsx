@@ -9,11 +9,7 @@ import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 import { formatPanelDate, formatPanelMoney } from '@/components/objects/_shared/simple-object-panel';
 import { useCommerceOverview, type CommerceRecentOrder } from '@/hooks/queries/use-commerce-queries';
 import { getTranslations } from '@/lib/i18n';
-
-/** `{name}` placeholders in a translated string. */
-function fill(template: string, values: Record<string, string | number>): string {
-  return template.replace(/\{(\w+)\}/g, (match, key: string) => (key in values ? String(values[key]) : match));
-}
+import { fill } from './lib/text';
 
 function statusTone(status: string | null): SoftTone {
   switch (status) {

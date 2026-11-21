@@ -4,6 +4,10 @@
  * Tabs are product-specific (see `product-tabs.ts`) rather than the CRM
  * default set — a product has no emails or meetings; it has images, a stock
  * position and a movement history.
+ *
+ * Opened inside WeldCommerce (the member's current app), the panel also
+ * shows the product's variants and its categories, and links to the
+ * WeldCommerce product list. Elsewhere it is WeldStash's panel, unchanged.
  */
 
 import { Badge } from '@weldsuite/ui/components/badge';
@@ -11,6 +15,8 @@ import { usePermissionsMaybe } from '@weldsuite/permissions/react';
 import { getTranslations } from '@/lib/i18n';
 import { isFeatureAvailable } from '@/lib/edition';
 import { ProductSuppliersSection } from '@/app/weldstash/product-suppliers/components/product-suppliers-section';
+import { ProductVariantsSection } from '@/app/weldcommerce/products/components/product-variants-section';
+import { ProductCategoriesSection } from '@/app/weldcommerce/products/components/product-categories-section';
 import {
   useWeldstashProduct,
   useWeldstashStock,
@@ -47,14 +53,39 @@ export function ProductPanel(props: Readonly<ObjectPanelComponentProps>) {
   const permissions = usePermissionsMaybe();
   const showSuppliers = isFeatureAvailable('stash-replenishment') && (permissions?.can('weldstash:suppliers:read') ?? false);
 
+  // Variants and categories belong to WeldCommerce (Rust only), so they show
+  // where the member is in WeldCommerce; checks then run against that app.
+  const inCommerce = isFeatureAvailable('commerce') && permissions?.app === 'weldcommerce';
+  const canEditVariants = inCommerce && (permissions?.can('products:update') ?? false);
+  const showCategories = inCommerce && (permissions?.can('categories:read') ?? false);
+  const tc = getTranslations('commerce');
+
   const tabs = getProductTabs({
     suppliers: showSuppliers ? tw.titleForProduct : undefined,
+    variants: inCommerce ? tc.variants.tab : undefined,
+    categories: showCategories ? tc.productCategories.tab : undefined,
     details: t.panel.tabDetails,
     stock: t.panel.tabStock,
     movements: t.panel.tabMovements,
   });
 
   const renderTab = (tabId: string) => {
+    if (tabId === 'variants' && inCommerce) {
+      return (
+        <ProductVariantsSection
+          productId={id}
+          productPrice={product?.price}
+          currency={product?.currency}
+          productOptions={product?.options}
+          canEdit={canEditVariants}
+        />
+      );
+    }
+
+    if (tabId === 'categories' && showCategories) {
+      return <ProductCategoriesSection productId={id} />;
+    }
+
     if (tabId === 'stock') {
       if (stockRows.length === 0) return <ProseBlock>{t.panel.noStock}</ProseBlock>;
       return (
@@ -121,7 +152,7 @@ export function ProductPanel(props: Readonly<ObjectPanelComponentProps>) {
           />
         ) : undefined
       }
-      openHref={product ? `/weldstash/products?open=${product.id}` : undefined}
+      openHref={product ? `/${inCommerce ? 'weldcommerce' : 'weldstash'}/products?open=${product.id}` : undefined}
       tabs={tabs}
       renderTab={renderTab}
       statusBadges={

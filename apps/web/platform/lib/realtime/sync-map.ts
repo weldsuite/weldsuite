@@ -381,9 +381,10 @@ export const platformSyncMap: EntitySyncMap = {
   // both keys so either emitter refreshes stock/movements.
   inventory: inv(['weldstash', 'stock'], ['weldstash', 'movements']),
   wms_inventory: inv(['weldstash', 'stock'], ['weldstash', 'movements']),
-  // stash-api's product routes publish `product`. Catalog twin `wms_product`
-  // covers connectors/future emitters.
-  product: inv(['weldstash', 'products'], ['weldstash', 'stock']),
+  // stash-api's product routes (and WeldCommerce's, on Rust) publish `product`,
+  // also for a variant change. Catalog twin `wms_product` covers
+  // connectors/future emitters.
+  product: inv(['weldstash', 'products'], ['weldstash', 'stock'], ['weldcommerce', 'products']),
   wms_product: inv(['weldstash', 'products'], ['weldstash', 'stock']),
   wms_adjustment: inv(['weldstash', 'stock'], ['weldstash', 'movements']),
   picklist: inv(['weldstash', 'pickLists'], ['weldstash', 'stock']),
@@ -407,6 +408,13 @@ export const platformSyncMap: EntitySyncMap = {
   replenishment_settings: inv(['weldstash', 'replenishment', 'settings'], ['weldstash', 'replenishment', 'plans']),
   replenishment_run: inv(['weldstash', 'replenishment', 'runs'], ['weldstash', 'replenishment', 'plans']),
   sales_history_import: inv(['weldstash', 'replenishment', 'imports']),
+
+  // =========================================================================
+  // WeldCommerce (commerceKeys in use-commerce-queries.ts)
+  // =========================================================================
+  // Products and variants refresh through `product` above. A category change
+  // also moves which categories a product shows.
+  category: inv(['weldcommerce', 'categories'], ['weldcommerce', 'products']),
 
   // =========================================================================
   // WeldDesk — Helpdesk
