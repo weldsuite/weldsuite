@@ -402,9 +402,13 @@ fn public_metadata(order: &Value) -> Value {
 pub(crate) async fn fetch(
     db: &weldsuite_db::PgPool,
     id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    let mut conn = db.acquire().await?;
-    let Some(stored) = domain_orders::load(&mut conn, id, false).await? else {
+) -> Result<Option<Value>, weldsuite_commerce_domain::DbErr> {
+    use weldsuite_commerce_domain::db::from_sqlx;
+    let mut conn = db.acquire().await.map_err(from_sqlx)?;
+    let Some(stored) = domain_orders::load(&mut conn, id, false)
+        .await
+        .map_err(from_sqlx)?
+    else {
         return Ok(None);
     };
     let company: Option<(String, Option<String>)> = sqlx::query_as(
@@ -414,7 +418,8 @@ pub(crate) async fn fetch(
     )
     .bind(stored.text("counterpartyId"))
     .fetch_optional(&mut *conn)
-    .await?;
+    .await
+    .map_err(from_sqlx)?;
     let invoice: Option<(String, Option<String>, String)> = sqlx::query_as(
         "select id, invoice_number, status from invoices \
          where commerce_order_id = $1 and deleted_at is null \
@@ -422,7 +427,8 @@ pub(crate) async fn fetch(
     )
     .bind(id)
     .fetch_optional(&mut *conn)
-    .await?;
+    .await
+    .map_err(from_sqlx)?;
     let invoice =
         invoice.map(|(id, number, status)| json!({ "id": id, "number": number, "status": status }));
     let amounts = weldsuite_commerce_domain::payments::service::amounts(&mut conn, id).await?;
@@ -431,7 +437,8 @@ pub(crate) async fn fetch(
         id,
         stored.order.get("metadata"),
     )
-    .await?;
+    .await
+    .map_err(from_sqlx)?;
     Ok(Some(present(
         &stored.order,
         &stored.items,

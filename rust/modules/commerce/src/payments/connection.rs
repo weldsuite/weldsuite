@@ -377,7 +377,7 @@ pub(crate) async fn save(
             .execute(db)
             .await?;
         }
-        connection::row(db).await
+        Ok::<_, Refusal>(connection::row(db).await?)
     }
     .await;
     match written {
@@ -390,7 +390,7 @@ pub(crate) async fn save(
             if let Err(undo) = registry.restore(&id, before).await {
                 tracing::error!(%undo, "[commerce] could not undo the connection registry");
             }
-            Err(Refusal::from(error))
+            Err(error)
         }
     }
 }

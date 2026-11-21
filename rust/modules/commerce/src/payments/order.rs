@@ -67,7 +67,10 @@ fn settle<'a>(state: &'a CommerceState, caller: &'a Caller) -> Settle<'a> {
     }
 }
 
-async fn payments_and_refunds(db: &PgPool, id: &str) -> Result<Value, sqlx::Error> {
+async fn payments_and_refunds(
+    db: &PgPool,
+    id: &str,
+) -> Result<Value, weldsuite_commerce_domain::DbErr> {
     let (payments, refunds) = service::list(db, id).await?;
     Ok(json!({
         "payments": payments.iter().map(present_payment).collect::<Vec<_>>(),
