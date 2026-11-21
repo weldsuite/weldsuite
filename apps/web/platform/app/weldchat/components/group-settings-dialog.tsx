@@ -965,12 +965,15 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<Gro
                 <div className="space-y-6">
                   <div className="space-y-2">
                     <div>
-                      <Label className="text-sm font-medium">{t.weldchat.groupSettings.display.primarySort}</Label>
+                      <Label htmlFor="group-settings-primary-sort" className="text-sm font-medium">
+                        {t.weldchat.groupSettings.display.primarySort}
+                      </Label>
                       <p className="text-xs text-muted-foreground mt-0.5 pb-[3px]">
                         {t.weldchat.groupSettings.display.primarySortHint}
                       </p>
                     </div>
-                    <SortOptionGrid
+                    <SortSelect
+                      id="group-settings-primary-sort"
                       value={draft.sortBy ?? 'recent'}
                       onChange={(v) => update('sortBy', v)}
                     />
@@ -1712,7 +1715,12 @@ const PEEK_OPTIONS: { key: PeekKey; label: string; icon: React.ComponentType<{ c
   { key: 'peekRecentlyActive', label: 'Recently active', icon: Clock },
 ];
 
-function SortOptionGrid({ value, onChange }: Readonly<{ value: SortBy; onChange: (v: SortBy) => void }>) {
+/** The primary sort, as one select: the current order with its icon, every order in the list. */
+function SortSelect({
+  id,
+  value,
+  onChange,
+}: Readonly<{ id: string; value: SortBy; onChange: (v: SortBy) => void }>) {
   const { t } = useI18n();
   const sortLabels: Record<string, string> = {
     'name-asc': t.weldchat.groupSettings.display.sortOptions.nameAsc,
@@ -1727,28 +1735,19 @@ function SortOptionGrid({ value, onChange }: Readonly<{ value: SortBy; onChange:
     'mentions-count': t.weldchat.groupSettings.display.sortOptions.mentionsCount,
   };
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-      {SORT_OPTIONS.map((opt) => {
-        const Icon = opt.icon;
-        const active = value === opt.value;
-        return (
-          <Button
-            key={opt.value}
-            type="button"
-            variant="ghost"
-            onClick={() => onChange(opt.value)}
-            className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors h-auto font-normal ${
-              active
-                ? 'border-primary bg-primary/5 text-foreground font-medium'
-                : 'border-border hover:bg-accent text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <Icon className="h-3.5 w-3.5 shrink-0" />
-            <span className="truncate">{sortLabels[opt.value] ?? opt.label}</span>
-          </Button>
-        );
-      })}
-    </div>
+    <Select value={value} onValueChange={(v) => onChange(v as SortBy)}>
+      <SelectTrigger id={id} className="w-full sm:w-64">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {SORT_OPTIONS.map((opt) => (
+          <SelectItem key={opt.value} value={opt.value}>
+            <opt.icon />
+            {sortLabels[opt.value] ?? opt.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }
 
