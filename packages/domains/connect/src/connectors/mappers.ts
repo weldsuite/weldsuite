@@ -818,49 +818,64 @@ function mapParty(record: Record<string, unknown>, externalId: string, provider:
   };
 }
 
-function mapInvoice(record: Record<string, unknown>, externalId: string): MappedInvoice | null {
-  const invoiceNumber = pickString(record, ['invoice_id', 'invoice_number', 'reference', 'id'], 50);
-  if (!invoiceNumber) return null;
-  const state = (pickString(record, ['state', 'status']) ?? 'draft').toLowerCase();
-  const issueDate = parseDate(pickString(record, ['invoice_date', 'date', 'created_at'])) ?? new Date();
-  const dueDate = parseDate(pickString(record, ['due_date'])) ?? issueDate;
+/**
+ * What a sales invoice and a purchase invoice or receipt share: the contact,
+ * the lines, what they come to and what is paid, and the shared values.
+ */
+function documentParts(record: Record<string, unknown>, state: string) {
   const paidAt = parseDate(pickString(record, ['paid_at']));
   const nested = nestedContactRecord(record);
   const contactName = pickString(nested ?? {}, ['company_name', 'firstname'])
     ?? pickString(record, ['contact.company_name', 'contact_name']);
+  const contactId = pickString(record, ['contact_id']);
   const subtotal = decimalString(pickString(record, ['total_price_excl_tax', 'subtotal']));
   const total = decimalString(pickString(record, ['total_price_incl_tax', 'total']));
-  const taxTotal = documentTaxTotal(record, subtotal, total);
   const amounts = paidAmounts(record, total, paidAt !== null || state === 'paid');
-  const status = withPartialPayment(INVOICE_STATUS[state] ?? 'draft', amounts);
-
   return {
-    entity: 'invoice',
-    externalId,
-    contactExternalId: pickString(record, ['contact_id']) && pickString(record, ['contact_id']) !== '0'
-      ? pickString(record, ['contact_id'])
-      : pickString(nested ?? {}, ['id']),
-    nestedContact: nested,
+    nested,
+    amounts,
+    contactExternalId: contactId && contactId !== '0' ? contactId : pickString(nested ?? {}, ['id']),
     lineItems: mapDocumentLines(record),
-    values: compact({
-      invoiceNumber,
-      type: 'standard',
-      status,
-      contactName: contactName ? contactName.slice(0, 255) : null,
-      contactEmail: pickString(nested ?? record, ['email', 'send_invoices_to_email'], 255),
-      issueDate,
-      dueDate,
+    contactName: contactName ? contactName.slice(0, 255) : null,
+    values: {
       paidAt,
-      sentAt: status !== 'draft' ? issueDate : null,
       currency: pickString(record, ['currency'], 3) ?? 'EUR',
       subtotal,
-      taxTotal,
+      taxTotal: documentTaxTotal(record, subtotal, total),
       total,
       amountPaid: amounts.amountPaid,
       balanceDue: amounts.balanceDue,
       reference: pickString(record, ['reference'], 255),
       notes: pickString(record, ['notes']),
       journalEntryId: null,
+    },
+  };
+}
+
+function mapInvoice(record: Record<string, unknown>, externalId: string): MappedInvoice | null {
+  const invoiceNumber = pickString(record, ['invoice_id', 'invoice_number', 'reference', 'id'], 50);
+  if (!invoiceNumber) return null;
+  const state = (pickString(record, ['state', 'status']) ?? 'draft').toLowerCase();
+  const issueDate = parseDate(pickString(record, ['invoice_date', 'date', 'created_at'])) ?? new Date();
+  const parts = documentParts(record, state);
+  const status = withPartialPayment(INVOICE_STATUS[state] ?? 'draft', parts.amounts);
+
+  return {
+    entity: 'invoice',
+    externalId,
+    contactExternalId: parts.contactExternalId,
+    nestedContact: parts.nested,
+    lineItems: parts.lineItems,
+    values: compact({
+      invoiceNumber,
+      type: 'standard',
+      status,
+      contactName: parts.contactName,
+      contactEmail: pickString(parts.nested ?? record, ['email', 'send_invoices_to_email'], 255),
+      issueDate,
+      dueDate: parseDate(pickString(record, ['due_date'])) ?? issueDate,
+      sentAt: status !== 'draft' ? issueDate : null,
+      ...parts.values,
     }),
   };
 }
@@ -870,41 +885,22 @@ function mapBill(record: Record<string, unknown>, externalId: string): MappedBil
   if (!billNumber) return null;
   const state = (pickString(record, ['state', 'status']) ?? 'new').toLowerCase();
   const issueDate = parseDate(pickString(record, ['date', 'invoice_date', 'created_at'])) ?? new Date();
-  const dueDate = parseDate(pickString(record, ['due_date'])) ?? issueDate;
-  const paidAt = parseDate(pickString(record, ['paid_at']));
-  const nested = nestedContactRecord(record);
-  const contactName = pickString(nested ?? {}, ['company_name', 'firstname'])
-    ?? pickString(record, ['contact.company_name', 'contact_name']);
-  const subtotal = decimalString(pickString(record, ['total_price_excl_tax', 'subtotal']));
-  const total = decimalString(pickString(record, ['total_price_incl_tax', 'total']));
-  const taxTotal = documentTaxTotal(record, subtotal, total);
-  const amounts = paidAmounts(record, total, paidAt !== null || state === 'paid');
+  const parts = documentParts(record, state);
 
   return {
     entity: 'bill',
     externalId,
-    contactExternalId: pickString(record, ['contact_id']) && pickString(record, ['contact_id']) !== '0'
-      ? pickString(record, ['contact_id'])
-      : pickString(nested ?? {}, ['id']),
-    nestedContact: nested,
-    lineItems: mapDocumentLines(record),
+    contactExternalId: parts.contactExternalId,
+    nestedContact: parts.nested,
+    lineItems: parts.lineItems,
     values: compact({
       billNumber,
       type: 'standard',
-      status: withPartialPayment(BILL_STATUS[state] ?? 'draft', amounts),
-      contactName: contactName ? contactName.slice(0, 255) : null,
+      status: withPartialPayment(BILL_STATUS[state] ?? 'draft', parts.amounts),
+      contactName: parts.contactName,
       issueDate,
-      dueDate,
-      paidAt,
-      currency: pickString(record, ['currency'], 3) ?? 'EUR',
-      subtotal,
-      taxTotal,
-      total,
-      amountPaid: amounts.amountPaid,
-      balanceDue: amounts.balanceDue,
-      reference: pickString(record, ['reference'], 255),
-      notes: pickString(record, ['notes']),
-      journalEntryId: null,
+      dueDate: parseDate(pickString(record, ['due_date'])) ?? issueDate,
+      ...parts.values,
     }),
   };
 }

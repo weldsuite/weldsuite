@@ -40,104 +40,78 @@ export const SHOPIFY_WEBHOOK_TOPICS: ConnectorWebhookTopic[] = [
   { provider: 'shopify', topic: 'customers/delete', settingKey: 'customers', kind: 'delete' },
 ];
 
-/** The sync a payment event is registered under, per setting key that wants it. */
-const MONEYBIRD_PAYMENT_SYNC = {
-  invoices: 'moneybird-sales-invoices',
-  bills: 'moneybird-purchase-invoices',
-  bankTransactions: 'moneybird-financial-mutations',
-} as const;
-
 /** Moneybird events whose entity is not the record to import (see `MONEYBIRD_WEBHOOK_TOPICS`). */
 export function isRoutedMoneybirdTopic(topic: string): boolean {
   return topic.startsWith('document_') || topic.startsWith('payment_') || topic.startsWith('financial_statement_');
 }
 
-function moneybirdTopics(
-  settingKey: ConnectorSyncSettingKey,
-  syncName: string,
-  topics: Array<[topic: string, kind: ConnectorWebhookKind]>,
-): ConnectorWebhookTopic[] {
-  return topics.map(([topic, kind]) => ({ provider: 'moneybird', topic, settingKey, kind, syncName }));
-}
+// A payment changes what is paid on a sales invoice or a document, and links a bank line.
+const MONEYBIRD_PAYMENT_EVENTS = 'update: payment_registered payment_destroyed payment_linked_to_financial_mutation';
 
 /**
- * Moneybird's own event names (developer.moneybird.com/webhooks/events).
+ * Moneybird's own event names (developer.moneybird.com/webhooks/events), per
+ * setting key and sync, as `kind: event event …` (see `moneybirdTopics`).
  * Purchase invoices and receipts are `document_*` events, a bank line only
  * comes with its `financial_statement_*`, and payments are `payment_*` for
  * any kind of invoice: those three are routed by `moneybird-webhooks.ts`
  * (connect-domain), which reads the actual document, invoice or statement
- * lines; the `syncName` here only places them for registering.
+ * lines; the sync here only places them for registering.
  */
-export const MONEYBIRD_WEBHOOK_TOPICS: ConnectorWebhookTopic[] = [
-  ...moneybirdTopics('contacts', 'moneybird-contacts', [
-    ['contact_created', 'create'],
-    ['contact_created_from_checkout_order', 'create'],
-    ['contact_changed', 'update'],
-    ['contact_activated', 'update'],
-    ['contact_archived', 'update'],
-    ['contact_merged', 'update'],
-    ['contact_tax_number_validated', 'update'],
-    ['contact_destroyed', 'delete'],
-  ]),
-  ...moneybirdTopics('invoices', 'moneybird-sales-invoices', [
-    ['sales_invoice_created', 'create'],
-    ['sales_invoice_created_based_on_estimate', 'create'],
-    ['sales_invoice_created_based_on_recurring', 'create'],
-    ['sales_invoice_created_based_on_subscription', 'create'],
-    ['sales_invoice_created_from_checkout_order', 'create'],
-    ['sales_invoice_created_from_payment_request', 'create'],
-    ['sales_invoice_created_from_original', 'create'],
-    ['sales_invoice_updated', 'update'],
-    ['sales_invoice_merged', 'update'],
-    ['sales_invoice_marked_as_uncollectible', 'update'],
-    ['sales_invoice_revert_uncollectible', 'update'],
-    ['sales_invoice_state_changed_to_draft', 'update'],
-    ['sales_invoice_state_changed_to_scheduled', 'update'],
-    ['sales_invoice_state_changed_to_open', 'update'],
-    ['sales_invoice_state_changed_to_pending_payment', 'update'],
-    ['sales_invoice_state_changed_to_reminded', 'update'],
-    ['sales_invoice_state_changed_to_late', 'update'],
-    ['sales_invoice_state_changed_to_paid', 'update'],
-    ['sales_invoice_state_changed_to_uncollectible', 'update'],
-    ['sales_invoice_destroyed', 'delete'],
-  ]),
-  ...moneybirdTopics('products', 'moneybird-products', [
-    ['product_created', 'create'],
-    ['product_updated', 'update'],
-    ['product_activated', 'update'],
-    ['product_deactivated', 'update'],
-    ['product_destroyed', 'delete'],
-  ]),
-  ...moneybirdTopics('bills', 'moneybird-purchase-invoices', [
-    ['document_saved', 'create'],
-    ['document_saved_from_email', 'create'],
-    ['document_saved_from_si', 'create'],
-    ['document_created_from_original', 'create'],
-    ['document_recurred', 'create'],
-    ['document_updated', 'update'],
-    ['document_destroyed', 'delete'],
-  ]),
-  ...moneybirdTopics('bankAccounts', 'moneybird-financial-accounts', [
-    ['financial_account_created', 'create'],
-    ['financial_account_renamed', 'update'],
-    ['financial_account_activated', 'update'],
-    ['financial_account_deactivated', 'update'],
-    ['financial_account_destroyed', 'delete'],
-  ]),
-  ...moneybirdTopics('bankTransactions', 'moneybird-financial-mutations', [
-    ['financial_statement_created', 'create'],
-    ['financial_statement_updated', 'update'],
-    ['financial_statement_destroyed', 'delete'],
-  ]),
-  // A payment changes what is paid on a sales invoice or a document, and links a bank line.
-  ...(['invoices', 'bills', 'bankTransactions'] as const).flatMap((settingKey) =>
-    moneybirdTopics(settingKey, MONEYBIRD_PAYMENT_SYNC[settingKey], [
-      ['payment_registered', 'update'],
-      ['payment_destroyed', 'update'],
-      ['payment_linked_to_financial_mutation', 'update'],
-    ]),
-  ),
+const MONEYBIRD_EVENTS: Array<[ConnectorSyncSettingKey, string, string]> = [
+  ['contacts', 'moneybird-contacts', `
+    create: contact_created contact_created_from_checkout_order
+    update: contact_changed contact_activated contact_archived contact_merged contact_tax_number_validated
+    delete: contact_destroyed`],
+  ['invoices', 'moneybird-sales-invoices', `
+    create: sales_invoice_created sales_invoice_created_based_on_estimate sales_invoice_created_based_on_recurring
+      sales_invoice_created_based_on_subscription sales_invoice_created_from_checkout_order
+      sales_invoice_created_from_payment_request sales_invoice_created_from_original
+    update: sales_invoice_updated sales_invoice_merged sales_invoice_marked_as_uncollectible
+      sales_invoice_revert_uncollectible sales_invoice_state_changed_to_draft sales_invoice_state_changed_to_scheduled
+      sales_invoice_state_changed_to_open sales_invoice_state_changed_to_pending_payment
+      sales_invoice_state_changed_to_reminded sales_invoice_state_changed_to_late sales_invoice_state_changed_to_paid
+      sales_invoice_state_changed_to_uncollectible
+    delete: sales_invoice_destroyed`],
+  ['products', 'moneybird-products', `
+    create: product_created
+    update: product_updated product_activated product_deactivated
+    delete: product_destroyed`],
+  ['bills', 'moneybird-purchase-invoices', `
+    create: document_saved document_saved_from_email document_saved_from_si document_created_from_original
+      document_recurred
+    update: document_updated
+    delete: document_destroyed`],
+  ['bankAccounts', 'moneybird-financial-accounts', `
+    create: financial_account_created
+    update: financial_account_renamed financial_account_activated financial_account_deactivated
+    delete: financial_account_destroyed`],
+  ['bankTransactions', 'moneybird-financial-mutations', `
+    create: financial_statement_created
+    update: financial_statement_updated
+    delete: financial_statement_destroyed`],
+  ['invoices', 'moneybird-sales-invoices', MONEYBIRD_PAYMENT_EVENTS],
+  ['bills', 'moneybird-purchase-invoices', MONEYBIRD_PAYMENT_EVENTS],
+  ['bankTransactions', 'moneybird-financial-mutations', MONEYBIRD_PAYMENT_EVENTS],
 ];
+
+/** `kind: event event …` as topics; a word ending in `:` sets the kind of the events after it. */
+function moneybirdTopics(settingKey: ConnectorSyncSettingKey, syncName: string, spec: string): ConnectorWebhookTopic[] {
+  let kind: ConnectorWebhookKind = 'update';
+  return spec
+    .split(/\s+/)
+    .filter(Boolean)
+    .flatMap((word) => {
+      if (word.endsWith(':')) {
+        kind = word.slice(0, -1) as ConnectorWebhookKind;
+        return [];
+      }
+      return [{ provider: 'moneybird', topic: word, settingKey, kind, syncName }];
+    });
+}
+
+export const MONEYBIRD_WEBHOOK_TOPICS: ConnectorWebhookTopic[] = MONEYBIRD_EVENTS.flatMap(([settingKey, syncName, spec]) =>
+  moneybirdTopics(settingKey, syncName, spec),
+);
 
 export const PICQER_WEBHOOK_TOPICS: ConnectorWebhookTopic[] = [
   { provider: 'picqer', topic: 'products.created', settingKey: 'products', kind: 'create', syncName: 'picqer-products' },

@@ -230,4 +230,42 @@ describe('MoneybirdClient', () => {
       kind: 'permanent',
     });
   });
+
+  it('reads one record back, null when Moneybird has none', async () => {
+    const calls: string[] = [];
+    const fetchImpl: typeof fetch = async (input) => {
+      const url = String(input);
+      calls.push(url);
+      if (url.includes('/sales_invoices/si1.json')) return jsonResponse({ id: 'si1', state: 'open' });
+      if (url.includes('/purchase_invoices/')) return jsonResponse({ error: 'record not found' }, { status: 404 });
+      if (url.includes('/receipts/doc1.json')) return jsonResponse([]);
+      return jsonResponse({ error: 'Moneybird rejected the access token' }, { status: 401 });
+    };
+    const client = new MoneybirdClient({ accessToken: 'tok', administrationId: '123' }, { fetchImpl });
+    expect(await client.getSalesInvoice('si1')).toEqual({ id: 'si1', state: 'open' });
+    expect(await client.getPurchaseInvoice('doc1')).toBeNull();
+    // Anything but an object is no record either.
+    expect(await client.getReceipt('doc1')).toBeNull();
+    expect(calls).toEqual([
+      'https://moneybird.com/api/v2/123/sales_invoices/si1.json',
+      'https://moneybird.com/api/v2/123/documents/purchase_invoices/doc1.json',
+      'https://moneybird.com/api/v2/123/documents/receipts/doc1.json',
+    ]);
+    // Other failures are not a missing record.
+    await expect(client.getSalesInvoice('si2')).rejects.toBeInstanceOf(ConnectorApiError);
+  });
+
+  it('reads financial mutations by id through the synchronisation API', async () => {
+    const bodies: unknown[] = [];
+    const fetchImpl: typeof fetch = async (input, init) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      expect(String(input)).toBe('https://moneybird.com/api/v2/123/financial_mutations/synchronization.json');
+      expect(init?.method).toBe('POST');
+      return jsonResponse([{ id: 'm1', amount: '10.0' }]);
+    };
+    const client = new MoneybirdClient({ accessToken: 'tok', administrationId: '123' }, { fetchImpl });
+    expect(await client.getFinancialMutations([])).toEqual([]);
+    expect(await client.getFinancialMutations(['m1'])).toEqual([{ id: 'm1', amount: '10.0' }]);
+    expect(bodies).toEqual([{ ids: ['m1'] }]);
+  });
 });
