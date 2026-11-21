@@ -23,6 +23,7 @@ import { toast } from 'sonner';
 import type { RoomClient } from '@weldsuite/realtime/client';
 import { useChatContext } from './chat-context';
 import { isPinNotice, isSystemNotice } from '../lib/system-notice';
+import { cn } from '@/lib/utils';
 import { buildCallHistory } from '../lib/call-history';
 import { isFeatureAvailable } from '@/lib/edition';
 import { flashMessageWhenMounted } from '../lib/jump-to-message';
@@ -428,7 +429,8 @@ export function MessageList({
       }
     `}</style>
     <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-transparent hover:scrollbar-thumb-muted-foreground/20" style={{ scrollbarWidth: 'thin', scrollbarColor: 'transparent transparent' }} onMouseEnter={(e) => { e.currentTarget.style.scrollbarColor = 'rgba(150,150,150,0.2) transparent'; }} onMouseLeave={(e) => { e.currentTarget.style.scrollbarColor = 'transparent transparent'; }}>
-      <div data-testid="chat-message-list" className="flex flex-col min-h-full pt-4 pb-8">
+      {/* A thread starts with its first message right under the panel's header. */}
+      <div data-testid="chat-message-list" className={cn('flex flex-col min-h-full pb-8', parentId ? 'pt-0' : 'pt-4')}>
         {/* Spacer pushes messages to bottom when content is shorter than viewport */}
         <div className="flex-1" />
         {hasNextPage && (
@@ -450,7 +452,9 @@ export function MessageList({
           <ChannelEmptyState channel={channel} />
         )}
         {threadParent && (
-          <div data-testid="chat-thread-parent" className="border-b pb-3 mb-2">
+          // No room outside the row: its hover area runs from the header's line
+          // to this one, the space inside it (`*:pb-3.5`, like its top).
+          <div data-testid="chat-thread-parent" className="mb-2 border-b *:pb-3.5">
             <MessageItem
               message={threadParent}
               channelId={channelId}
