@@ -7,6 +7,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::time::Duration;
 
 use crate::crypto::Keys;
+use crate::warmup::{DEFAULT_ADVANCE_PERCENT, Warmup};
 
 /// Settings every `weldsuite mta` command needs.
 #[derive(Debug, Clone)]
@@ -36,8 +37,11 @@ pub struct Config {
     pub max_message_bytes: usize,
     pub max_queue_age: Duration,
     pub concurrency: usize,
-    /// Per-IP daily caps by warm-up day; empty = no warm-up.
-    pub warmup_schedule: Vec<u32>,
+    /// The per-IP warm-up ([`crate::warmup`]).
+    pub warmup: Warmup,
+    /// Pools whose mail the warm-up cap never holds: a send over it goes
+    /// out, counted and logged (`MTA_WARMUP_SOFT_POOLS`).
+    pub warmup_soft_pools: Vec<String>,
     pub suppress_days: u32,
     pub tlsrpt_from: Option<String>,
     pub nats: Option<NatsSettings>,
@@ -139,6 +143,49 @@ pub fn parse_warmup(value: &str) -> Result<Vec<u32>, ConfigError> {
         .collect()
 }
 
+/// `MTA_WARMUP_SCHEDULE` and `MTA_WARMUP_ADVANCE_PERCENT`: what `weldsuite
+/// mta run` caps with and `weldsuite mta warmup` reports.
+pub fn warmup(lookup: &dyn Fn(&str) -> Option<String>) -> Result<Warmup, ConfigError> {
+    let schedule = parse_warmup(
+        &non_empty(lookup, "MTA_WARMUP_SCHEDULE").unwrap_or_else(|| DEFAULT_WARMUP.to_owned()),
+    )?;
+    let advance_percent: u32 = parse(
+        lookup,
+        "MTA_WARMUP_ADVANCE_PERCENT",
+        DEFAULT_ADVANCE_PERCENT,
+    )?;
+    if !(1..=100).contains(&advance_percent) {
+        return Err(ConfigError(format!(
+            "MTA_WARMUP_ADVANCE_PERCENT must be 1 to 100: {advance_percent}"
+        )));
+    }
+    Ok(Warmup {
+        schedule,
+        advance_percent,
+    })
+}
+
+/// `MTA_WARMUP_SOFT_POOLS`: the pools (each with a submission password) whose
+/// mail passes the warm-up cap.
+fn soft_pools(
+    lookup: &dyn Fn(&str) -> Option<String>,
+    pool_passwords: &BTreeMap<String, String>,
+) -> Result<Vec<String>, ConfigError> {
+    let pools: Vec<String> = non_empty(lookup, "MTA_WARMUP_SOFT_POOLS")
+        .unwrap_or_default()
+        .split(',')
+        .map(|p| p.trim().to_ascii_lowercase())
+        .filter(|p| !p.is_empty())
+        .collect();
+    if let Some(unknown) = pools.iter().find(|p| !pool_passwords.contains_key(*p)) {
+        return Err(ConfigError(format!(
+            "MTA_WARMUP_SOFT_POOLS names {unknown}, which has no MTA_SUBMISSION_PASSWORD_{}",
+            unknown.to_ascii_uppercase()
+        )));
+    }
+    Ok(pools)
+}
+
 /// Every `MTA_SUBMISSION_PASSWORD_<POOL>` that is set, keyed by the
 /// lowercased pool name; at least one is required.
 fn pool_passwords<'a>(
@@ -223,6 +270,7 @@ impl Config {
         let api_secret = required(lookup, "MTA_API_SECRET")?;
         let pool_passwords = pool_passwords(lookup, names)?;
         let pools = pools(lookup, &pool_passwords)?;
+        let warmup_soft_pools = soft_pools(lookup, &pool_passwords)?;
         let bounce_domain = non_empty(lookup, "MTA_BOUNCE_DOMAIN").map(|d| d.to_ascii_lowercase());
         let tlsrpt_from = match lookup("MTA_TLSRPT_FROM") {
             Some(value) => Some(value.trim().to_owned()).filter(|v| !v.is_empty()),
@@ -284,10 +332,8 @@ impl Config {
             max_message_bytes: parse(lookup, "MTA_MAX_MESSAGE_BYTES", 26_214_400)?,
             max_queue_age,
             concurrency: parse(lookup, "MTA_CONCURRENCY", 32usize)?.max(1),
-            warmup_schedule: parse_warmup(
-                &non_empty(lookup, "MTA_WARMUP_SCHEDULE")
-                    .unwrap_or_else(|| DEFAULT_WARMUP.to_owned()),
-            )?,
+            warmup: warmup(lookup)?,
+            warmup_soft_pools,
             suppress_days: parse(lookup, "MTA_SUPPRESS_DAYS", 30u32)?,
             tlsrpt_from,
             nats,
@@ -334,7 +380,9 @@ mod tests {
         assert_eq!(config.pool_passwords.len(), 2);
         assert_eq!(config.submission_addr.port(), 2587);
         assert_eq!(config.max_queue_age, Duration::from_hours(5 * 24));
-        assert_eq!(config.warmup_schedule.first(), Some(&50));
+        assert_eq!(config.warmup.schedule.first(), Some(&50));
+        assert_eq!(config.warmup.advance_percent, 50);
+        assert_eq!(config.warmup_soft_pools, Vec::<String>::new());
         assert_eq!(config.events_subject, "mail.sending-events");
         assert!(config.tlsrpt_from.is_none());
         assert_eq!(config.delivery_port, 25);
@@ -368,5 +416,28 @@ mod tests {
         assert_eq!(parse_warmup("off"), Ok(vec![]));
         assert_eq!(parse_warmup("10, 20"), Ok(vec![10, 20]));
         assert!(parse_warmup("10,0").is_err());
+    }
+
+    #[test]
+    fn reads_the_advance_share_and_the_soft_pools() {
+        let mut vars = minimal();
+        vars.push(("MTA_WARMUP_ADVANCE_PERCENT", "40"));
+        vars.push(("MTA_WARMUP_SOFT_POOLS", " System "));
+        let config = env(&vars).expect("config");
+        assert_eq!(config.warmup.advance_percent, 40);
+        assert_eq!(config.warmup_soft_pools, vec!["system"]);
+
+        for bad in ["0", "101", "half"] {
+            let mut vars = minimal();
+            vars.push(("MTA_WARMUP_ADVANCE_PERCENT", bad));
+            assert!(env(&vars).is_err(), "{bad}");
+        }
+        let mut vars = minimal();
+        vars.push(("MTA_WARMUP_SOFT_POOLS", "bulk"));
+        assert!(env(&vars).is_err());
+
+        let off =
+            warmup(&|name| (name == "MTA_WARMUP_SCHEDULE").then(|| "off".to_owned())).expect("off");
+        assert!(off.is_off());
     }
 }

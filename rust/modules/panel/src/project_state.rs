@@ -8,7 +8,7 @@
 //!   (anonymous id to user id, the first link wins), groups and the project's
 //!   group types (at most `MAX_GROUP_TYPES`, in the order they were taken);
 //! - the erased ids every query excludes until the Iceberg rows are rewritten;
-//! - the live view (sessions seen in the last five minutes).
+//! - the live view (sessions seen in the last 30 minutes).
 //!
 //! On the Kubernetes editions ([`PanelProjectState`]'s production adapter)
 //! people, links, groups, group types and erased ids are tenant tables,
@@ -199,10 +199,21 @@ pub struct LiveSession {
     pub pageviews: u64,
 }
 
-/// `live()`'s answer.
+/// `live()`'s answer (`PanelLive`). The counts cover every session kept in
+/// the window, not only the ones answered.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Live {
+    /// Distinct visitors with activity in the last five minutes.
     pub visitors: u64,
+    /// Distinct visitors with activity in the last 30 minutes.
+    #[serde(rename = "visitors30m")]
+    pub visitors_30m: u64,
+    /// Distinct visitors in each of the last 30 minutes, oldest first: a
+    /// session counts in every minute from its start to its last activity.
+    #[serde(rename = "perMinute")]
+    pub per_minute: Vec<u64>,
+    /// The sessions with activity in the last 30 minutes, latest first (at
+    /// most 500).
     pub sessions: Vec<LiveSession>,
 }
 
@@ -344,7 +355,8 @@ pub trait PanelProjectState: Send + Sync {
         input: &'a PeopleOpsInput,
     ) -> BoxFuture<'a, Result<(), PortError>>;
 
-    /// `touchLive(touches)`: keeps sessions seen in the last five minutes.
+    /// `touchLive(touches)`: keeps sessions seen in the last 30 minutes
+    /// (the newest 2000).
     fn touch_live<'a>(
         &'a self,
         project: ProjectRef<'a>,
@@ -377,7 +389,9 @@ pub trait PanelProjectState: Send + Sync {
         email: &'a str,
     ) -> BoxFuture<'a, Result<Vec<Person>, PortError>>;
 
-    /// `live()`: the sessions seen in the last five minutes.
+    /// `live()`: visitors in the last five and 30 minutes, visitors per
+    /// minute over the last 30 (over every kept session) and the sessions
+    /// seen in the last 30 minutes, latest first (at most 500).
     fn live<'a>(&'a self, project: ProjectRef<'a>) -> BoxFuture<'a, Result<Live, PortError>>;
 
     /// `erase(input)`: removes the profile and links at once and adds the
@@ -536,6 +550,14 @@ mod tests {
         .expect("a live session");
         assert_eq!(session.touch.country.as_deref(), Some("NL"));
         assert_eq!(session.pageviews, 3);
+        let live: Live = serde_json::from_value(json!({
+            "visitors": 1, "visitors30m": 2, "perMinute": [0, 2, 1], "sessions": []
+        }))
+        .expect("a live answer");
+        assert_eq!(
+            (live.visitors, live.visitors_30m, live.per_minute),
+            (1, 2, vec![0, 2, 1])
+        );
         let erasure: Erasure =
             serde_json::from_value(json!({ "userId": null, "erasedIds": ["a_1"] }))
                 .expect("an erasure");

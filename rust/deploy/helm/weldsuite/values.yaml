@@ -521,6 +521,17 @@ config:
 #                                connect its own Mollie account by OAuth. Its redirect URI is
 #                                https://app.<domain>/api/commerce-payments/connection/mollie/callback.
 #                                Unset: a workspace connects with its own API key instead
+#   APNS_KEY_ID / APNS_TEAM_ID / APNS_PRIVATE_KEY  WeldChat's call ring on iPhones: an APNs auth
+#                                key of the Apple team that owns the WeldChat app (its key id, the
+#                                team id and the .p8 PEM), for Apple's VoIP push that makes CallKit
+#                                ring on the lock screen; all three or none (optional; unset: an
+#                                iPhone gets the ordinary "Incoming call" notification, no CallKit
+#                                ring. Android's ring needs none of them)
+#   CALL_RING_SECRET             WeldChat: signs the ring token an incoming-call push carries, with
+#                                which the lock-screen or CallKit Decline ends the ring at
+#                                /public/chat-calls/decline without a session; any random value
+#                                (`openssl rand -hex 32`) (optional; unset: no token is sent and that
+#                                route answers 401, so a Decline needs the app and its session)
 # Or leave existingSecret empty and set `values` to let the chart create the
 # Secret (fine for a test cluster, not for production: the values end up in
 # the Helm release).
@@ -1205,10 +1216,19 @@ mta:
   maxQueueAge: 5d
   # Parallel outbound connections per node.
   concurrency: 32
-  # Per-IP daily caps on warm-up day 1, 2, … (comma separated), unlimited
+  # The warm-up's per-IP daily caps, one per step (comma separated), no cap
   # after the last; "off" for an address with a history. Empty: the MTA's
-  # schedule (50 on day one up to 50,000 on day eleven).
+  # schedule (50 up to 50,000 in eleven steps).
   warmupSchedule: ""
+  # An IP moves up one step only after a UTC day on which it sent at least
+  # this share (percent) of its cap; quieter days don't move it. Hetzner
+  # runbook, "Mail", step 4.
+  warmupAdvancePercent: 50
+  # Pools whose mail goes out over the cap (logged once a day and counted in
+  # weldsuite_mta_warmup_capped_total) instead of waiting for the next UTC
+  # day, e.g. [system] while its sign-in codes can pass the system address's
+  # cap. Empty: every pool is held at the cap.
+  warmupSoftPools: []
   # A hard-bounced recipient is refused at submission for this many days.
   suppressDays: 30
   # Point the server, consume and the cron jobs at the MTA: SMTP_URL (pool

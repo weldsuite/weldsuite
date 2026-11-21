@@ -16,9 +16,12 @@ The package ID here is `com.weldsuite.weldchat`.
 ## Credentials
 
 `subflows/login.yaml` signs in with `MAESTRO_TEST_EMAIL` /
-`MAESTRO_TEST_PASSWORD` (a user on the **test** environment, two-step
-verification off). Export them, or keep them in a gitignored `.env.e2e` and
-load it before running.
+`MAESTRO_TEST_PASSWORD`: a WeldID account on the **EU test cluster**
+(`app.test.weldsuite.eu`, the server development and preview builds start on),
+with a password, two-step verification off, and a member of a workspace there.
+WeldChat 2.0 signs in on WeldID's own page in a Chrome tab, so the subflow
+fills WeldID's form, not the app's. Export them, or keep them in a gitignored
+`.env.e2e` and load it before running.
 
 ## Test data
 

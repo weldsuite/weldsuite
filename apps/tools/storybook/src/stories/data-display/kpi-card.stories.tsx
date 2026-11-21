@@ -61,3 +61,24 @@ export const Interactive: Story = {
     </a>
   ),
 };
+
+/**
+ * `fit="container"`: columns follow the grid's own width, not the window's,
+ * so the same tiles read well in a 400px side panel and on a full page.
+ */
+export const FitContainer: Story = {
+  render: () => (
+    <div className="flex flex-col gap-6">
+      {[360, 760].map((width) => (
+        <div key={width} style={{ width }} className="rounded-lg border p-3">
+          <KpiGrid fit="container">
+            <KpiCard label="Revenue" value="€ 48,200" hint="+12.5% vs last month" />
+            <KpiCard label="Open tickets" value={23} hint="−3% vs last month" />
+            <KpiCard label="Win rate" value="31%" />
+            <KpiCard label="Churn" value="2.1%" tone="danger" />
+          </KpiGrid>
+        </div>
+      ))}
+    </div>
+  ),
+};

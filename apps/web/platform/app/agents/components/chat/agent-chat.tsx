@@ -28,6 +28,10 @@ import {
   humanizeToolName,
 } from '@/components/weldagent/chat/chat-message';
 import { QuestionCard } from '@/components/weldagent/chat/question-card';
+import {
+  ChatVisualActionsProvider,
+  usePrefillComposer,
+} from '@/components/weldagent/visuals/visual-actions-context';
 import { ApprovalBar } from './approval-bar';
 import { approvalStateOf, type ApprovalState } from './approval-state';
 import { ChatSkeleton } from './chat-skeleton';
@@ -140,6 +144,8 @@ export function AgentChat({
   const loadOlderPage = useLoadOlderMessages();
 
   const [input, setInput] = useState('');
+  // "Ask about this" on a visual puts the follow-up in the composer.
+  const { ask: askAboutVisual, composerRef } = usePrefillComposer(setInput);
   const [pendingUser, setPendingUser] = useState<string | null>(null);
   const [awaitingAfterId, setAwaitingAfterId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -370,52 +376,54 @@ export function AgentChat({
             </div>
           )}
           {!empty && !loadingChat && (
-            <div ref={contentRef} className="space-y-6 py-6">
-              {hasOlder && (
-                <div className="flex justify-center">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 text-xs text-muted-foreground"
-                    disabled={loadingOlder}
-                    onClick={() => void loadOlder()}
-                  >
-                    {loadingOlder ? t.chat.loadingOlder : t.chat.loadOlder}
-                  </Button>
-                </div>
-              )}
-              {thread.map((item) => {
-                if (item.kind === 'assistant') {
-                  return (
-                    <AssistantTurn
-                      key={item.id}
-                      item={item}
-                      approvalState={approvalState}
-                      questionActive={!busy}
-                      onAnswer={(text) => void send(text)}
-                      onOpenRoutines={onOpenRoutines}
-                      pendingAnswer={item.id === lastId && question ? pendingUser : null}
-                    />
-                  );
-                }
-                // An answer to a question card is shown on the card itself.
-                if (item.answersQuestion) return null;
-                return <UserMessage key={item.id}>{item.content}</UserMessage>;
-              })}
-              {pendingUser && !question && (
-                <div className="animate-in fade-in duration-150">
-                  <UserMessage>{pendingUser}</UserMessage>
-                </div>
-              )}
-              {isWaiting && <TypingIndicator label={stillWorking ? t.chat.stillWorking : null} />}
-              <div ref={scrollEndRef} />
-            </div>
+            <ChatVisualActionsProvider ask={busy ? undefined : askAboutVisual}>
+              <div ref={contentRef} className="space-y-6 py-6">
+                {hasOlder && (
+                  <div className="flex justify-center">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs text-muted-foreground"
+                      disabled={loadingOlder}
+                      onClick={() => void loadOlder()}
+                    >
+                      {loadingOlder ? t.chat.loadingOlder : t.chat.loadOlder}
+                    </Button>
+                  </div>
+                )}
+                {thread.map((item) => {
+                  if (item.kind === 'assistant') {
+                    return (
+                      <AssistantTurn
+                        key={item.id}
+                        item={item}
+                        approvalState={approvalState}
+                        questionActive={!busy}
+                        onAnswer={(text) => void send(text)}
+                        onOpenRoutines={onOpenRoutines}
+                        pendingAnswer={item.id === lastId && question ? pendingUser : null}
+                      />
+                    );
+                  }
+                  // An answer to a question card is shown on the card itself.
+                  if (item.answersQuestion) return null;
+                  return <UserMessage key={item.id}>{item.content}</UserMessage>;
+                })}
+                {pendingUser && !question && (
+                  <div className="animate-in fade-in duration-150">
+                    <UserMessage>{pendingUser}</UserMessage>
+                  </div>
+                )}
+                {isWaiting && <TypingIndicator label={stillWorking ? t.chat.stillWorking : null} />}
+                <div ref={scrollEndRef} />
+              </div>
+            </ChatVisualActionsProvider>
           )}
         </div>
       </div>
 
       <div className="shrink-0 px-4 pb-4 pt-2 sm:px-6">
-        <div className="mx-auto w-full max-w-3xl">
+        <div ref={composerRef} className="mx-auto w-full max-w-3xl">
           {error && <p className="mb-2 px-1 text-sm text-destructive animate-in fade-in">{error}</p>}
           <ApprovalBar agentId={agentId} />
           <AgentComposer

@@ -167,6 +167,19 @@ export const en = {
     rename: 'Rename',
   },
 
+  // Charts, figures, tables and record cards in an agent's reply.
+  visuals: {
+    kinds: { chart: 'Chart', stats: 'Figures', table: 'Table', records: 'Records' },
+    expand: 'Expand',
+    close: 'Close',
+    share: 'Share data',
+    other: 'Other',
+    showAllRows: 'Show all {count} rows',
+    askPrompt: 'Tell me more about “{label}” in “{title}”.',
+    askPromptValue: 'Tell me more about “{label}” ({value}) in “{title}”.',
+    csv: { label: 'Label', value: 'Value', change: 'Change (%)', type: 'Type', status: 'Status', details: 'Details', id: 'Id' },
+  },
+
   activity: {
     title: 'Activity',
     emptyTitle: 'Nothing yet',

@@ -25,7 +25,7 @@ use crate::agents::get_agent;
 use crate::approvals::persist_assistant_message;
 use crate::routines::complete_routine_run;
 use crate::runs::{RunCompletion, complete_agent_run, create_agent_run, mark_run_running};
-use crate::tools::{EventSink, ToolContext};
+use crate::tools::{EventSink, ToolContext, reply_to_summary_text};
 
 /// `metadata.kind` of an assistant message posted by a routine run
 /// (`ROUTINE_RESULT_KIND`).
@@ -60,6 +60,22 @@ pub struct RunEnv {
     /// The install's sandbox, where a turn's sandbox and web tools run
     /// ([`turn_sandbox`]). `None` without one.
     pub sandboxes: Option<weldsuite_sandbox::Sandboxes>,
+    /// Outbound HTTP for push notifications (Expo): a room reply's "replied
+    /// to you" and mentions, the ticket tools' team notices. Without it they
+    /// go out in-app only. Conformance builds have none.
+    pub push_http: Option<weldsuite_ports::OutboundHttp>,
+}
+
+impl RunEnv {
+    /// Where a run's notifications go out: in-app over realtime, push over
+    /// [`RunEnv::push_http`].
+    pub fn notifier(&self) -> weldsuite_notifications::Notifier {
+        weldsuite_notifications::Notifier {
+            realtime: self.realtime.clone(),
+            http: self.push_http.clone(),
+            ..weldsuite_notifications::Notifier::default()
+        }
+    }
 }
 
 /// The sandbox of one turn ([`SandboxAccess::for_turn`]) for the session
@@ -87,6 +103,7 @@ impl std::fmt::Debug for RunEnv {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RunEnv")
             .field("sandbox", &self.sandbox)
+            .field("push_http", &self.push_http.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -244,6 +261,7 @@ pub fn tool_context(
         max_agent_hops: 2,
         master: env.master.clone(),
         realtime: env.realtime.clone(),
+        push_http: env.push_http.clone(),
         ai: ai.cloned(),
     }
 }
@@ -426,7 +444,11 @@ pub async fn run_agent(ai: Option<&Ai>, params: RunParams) -> Result<RunOutcome,
                             "success": t["state"] == "result" })
                 })
                 .collect();
-            let summary: String = done.text.chars().take(2000).collect();
+            // Visual markers read as one line each, before the cut (`replyToPlainText` in TypeScript).
+            let summary: String = reply_to_summary_text(&done.text)
+                .chars()
+                .take(2000)
+                .collect();
             complete_agent_run(
                 db,
                 &run_id,
@@ -476,7 +498,10 @@ pub async fn run_agent(ai: Option<&Ai>, params: RunParams) -> Result<RunOutcome,
         } else {
             "failed"
         };
-        let summary: String = outcome.text.chars().take(2000).collect();
+        let summary: String = reply_to_summary_text(&outcome.text)
+            .chars()
+            .take(2000)
+            .collect();
         complete_routine_run(
             db,
             routine_run_id,

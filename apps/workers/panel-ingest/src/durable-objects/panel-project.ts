@@ -6,7 +6,7 @@
  *   people      the profiles (`$email`, `$name`, custom properties)
  *   identities  anonymous id → user id links
  *   erased      ids erased but not yet rewritten out of Iceberg (queries exclude them)
- *   live        sessions seen in the last five minutes, for the live view
+ *   live        sessions seen in the last 30 minutes, for the live view
  *   groups      group profiles (a company, an account), and `group_types`:
  *               the at most five group types the project collects
  *
@@ -27,26 +27,36 @@
  */
 
 import { DurableObject } from 'cloudflare:workers';
-import type {
-  PanelErasure,
-  PanelGroup,
-  PanelGroupOp,
-  PanelGroupOpsResult,
-  PanelGroupsPage,
-  PanelLiveSession,
-  PanelLiveTouch,
-  PanelPeopleOp,
-  PanelPeoplePage,
-  PanelPerson,
-  PanelProjectObjectApi,
-  PanelPropertyValue,
+import {
+  LIVE_WINDOW_MS,
+  liveCounts,
+  type PanelErasure,
+  type PanelGroup,
+  type PanelGroupOp,
+  type PanelGroupOpsResult,
+  type PanelGroupsPage,
+  type PanelLive,
+  type PanelLiveSession,
+  type PanelLiveTouch,
+  type PanelPeopleOp,
+  type PanelPeoplePage,
+  type PanelPerson,
+  type PanelProjectObjectApi,
+  type PanelPropertyValue,
 } from '@weldsuite/panel-domain/project-object';
 import type { PanelGroupRecord, PanelIdentityRecord, PanelPersonRecord } from '@weldsuite/panel-domain/tables';
 import { GROUP_TYPE, MAX_GROUP_KEY, MAX_GROUP_TYPES } from '@weldsuite/panel-domain/wire';
 import type { Env } from '../env';
 import { warnOnce } from '../lib/warn';
 
-const LIVE_WINDOW_MS = 5 * 60 * 1000;
+/**
+ * How often the alarm drops sessions that left the live window
+ * (`LIVE_WINDOW_MS`, 30 minutes). Every five minutes rather than once per
+ * window: a quiet project's table is then empty at most five minutes after
+ * its last session left the window instead of up to 30, and an active project
+ * costs the same alarms as it did with the five-minute window.
+ */
+const LIVE_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
 const MAX_LIVE_SESSIONS = 2000;
 const LIVE_SESSIONS_RETURNED = 500;
 const MAX_PROFILE_PROPERTIES = 200;
@@ -408,14 +418,14 @@ export class PanelProject extends DurableObject<Env> implements PanelProjectObje
   }
 
   private async scheduleLiveCleanup(): Promise<void> {
-    if ((await this.ctx.storage.getAlarm()) === null) await this.ctx.storage.setAlarm(Date.now() + LIVE_WINDOW_MS + 1000);
+    if ((await this.ctx.storage.getAlarm()) === null) await this.ctx.storage.setAlarm(Date.now() + LIVE_CLEANUP_INTERVAL_MS + 1000);
   }
 
-  /** Drops sessions older than five minutes; goes on while any is left. */
+  /** Every five minutes: drops sessions that left the 30-minute window; goes on while any is left. */
   async alarm(): Promise<void> {
     this.run('DELETE FROM live WHERE ts < ?', new Date(Date.now() - LIVE_WINDOW_MS).toISOString());
     const left = this.all<{ n: number }>('SELECT COUNT(*) AS n FROM live')[0]?.n ?? 0;
-    if (left > 0) await this.ctx.storage.setAlarm(Date.now() + LIVE_WINDOW_MS);
+    if (left > 0) await this.ctx.storage.setAlarm(Date.now() + LIVE_CLEANUP_INTERVAL_MS);
   }
 
   // --- panel-api side -----------------------------------------------------
@@ -471,24 +481,23 @@ export class PanelProject extends DurableObject<Env> implements PanelProjectObje
     return rows.map((row) => this.toPerson(row));
   }
 
-  async live(): Promise<{ visitors: number; sessions: PanelLiveSession[] }> {
-    const since = new Date(Date.now() - LIVE_WINDOW_MS).toISOString();
-    const visitors = this.all<{ n: number }>('SELECT COUNT(DISTINCT distinct_id) AS n FROM live WHERE ts >= ?', since)[0]?.n ?? 0;
-    const rows = this.all<LiveRow>('SELECT * FROM live WHERE ts >= ? ORDER BY ts DESC LIMIT ?', since, LIVE_SESSIONS_RETURNED);
-    return {
-      visitors,
-      sessions: rows.map((row) => ({
-        sessionId: row.session_id,
-        distinctId: row.distinct_id,
-        path: row.path,
-        title: row.title,
-        country: row.country,
-        deviceType: row.device_type,
-        ts: row.ts,
-        startedAt: row.started_at,
-        pageviews: row.pageviews,
-      })),
-    };
+  /** The counts are over every session in the window (at most 2000); the 500 latest are answered. */
+  async live(): Promise<PanelLive> {
+    const now = Date.now();
+    const since = new Date(now - LIVE_WINDOW_MS).toISOString();
+    const rows = this.all<LiveRow>('SELECT * FROM live WHERE ts >= ? ORDER BY ts DESC', since);
+    const sessions: PanelLiveSession[] = rows.map((row) => ({
+      sessionId: row.session_id,
+      distinctId: row.distinct_id,
+      path: row.path,
+      title: row.title,
+      country: row.country,
+      deviceType: row.device_type,
+      ts: row.ts,
+      startedAt: row.started_at,
+      pageviews: row.pageviews,
+    }));
+    return { ...liveCounts(sessions, now), sessions: sessions.slice(0, LIVE_SESSIONS_RETURNED) };
   }
 
   async erase(input: { workspaceId: string; projectId: string; userIdOrAnonId: string }): Promise<PanelErasure> {

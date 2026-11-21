@@ -276,7 +276,7 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
             "workflow-polls" => workflow_polls(config).await,
             "merge-digest-sweep" => merge_digest_sweep(config).await,
             "forms-reminders" | "forms-digest" => forms_sweep(config, job).await,
-            "weldagent-routines" => weldagent_routines(config).await,
+            "weldagent-routines" => Box::pin(weldagent_routines(config)).await,
             "sandbox-cleanup" => sandbox_cleanup(config).await,
             "billing-renewals" => Box::pin(billing_renewals(config)).await,
             "panel-usage" => Box::pin(panel_usage(config)).await,
@@ -674,6 +674,10 @@ async fn merge_digest_sweep(config: Config) -> Result<(), Box<dyn std::error::Er
         master: Some(master.clone()),
         cache: infra.cache.clone(),
         realtime: infra.realtime.clone(),
+        // Expo push for the WeldChat posts' mentions; none in conformance.
+        push_http: (!cfg!(feature = "conformance"))
+            .then(crate::routes::shared_outbound)
+            .flatten(),
         // The digest sends no mail.
         mail: weldsuite_mail_domain::outbound::OutboundBindings::default(),
         // Nor writes release notes.
@@ -747,6 +751,11 @@ async fn weldagent_routines(config: Config) -> Result<(), Box<dyn std::error::Er
                 master: Some(master.clone()),
                 sandbox: sandboxes.is_some(),
                 sandboxes,
+                // Expo push for what the tools notify; none in conformance
+                // builds.
+                push_http: (!cfg!(feature = "conformance"))
+                    .then(crate::routes::shared_outbound)
+                    .flatten(),
                 ..weldsuite_agent::run::RunEnv::default()
             },
         )

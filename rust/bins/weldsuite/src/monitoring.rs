@@ -18,6 +18,7 @@
 //! | `weldsuite_job_runs_total` | `job`, `outcome` (`ok`, `error`) | durable jobs in `serve` (`weldsuite_ports::run_job`), the webhook retry sweep in `consume` |
 //! | `weldsuite_job_duration_seconds` | `job` | as above |
 //! | `weldsuite_mta_messages_total` | `pool`, `outcome` (`delivered`, `deferred`, `bounced`) | `mta` (`weldsuite_mta::monitoring`) |
+//! | `weldsuite_mta_warmup_capped_total` | `pool`, `decision` (`held`, `sent`) | `mta`: recipients over their IP's warm-up cap, held for the next UTC day or sent anyway (a soft pool) |
 //!
 //! `route` is the route's template (axum's `MatchedPath`, e.g.
 //! `/api/crm/contacts/{id}`), never the path a client sent: `static` for the

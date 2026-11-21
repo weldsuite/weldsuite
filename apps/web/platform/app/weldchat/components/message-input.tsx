@@ -19,7 +19,14 @@ import { MergeAlsoPostToggle, MergeSharePicker, useWeldMergeComposer } from './w
 import type { MergeShareResult } from '@/hooks/queries/use-weldmerge-across-queries';
 import { parseMergeSearch, shareMessage } from '../lib/weldmerge-card';
 import { useAppApiClient } from '@/lib/api/use-app-api';
-import { FOCUS_INPUT_EVENT, useChatContext, type FocusInputDetail, type ReplyTo } from './chat-context';
+import {
+  COMPOSE_INPUT_EVENT,
+  FOCUS_INPUT_EVENT,
+  useChatContext,
+  type ComposeInputDetail,
+  type FocusInputDetail,
+  type ReplyTo,
+} from './chat-context';
 import { THREAD_SUGGESTION_DEPTH, stashThreadDraft, takeThreadDraft } from './reply-chain';
 import { ClipRecorder } from './clip-recorder';
 import { TypingIndicator } from './typing-indicator';
@@ -298,6 +305,24 @@ export function MessageInput({
     };
     window.addEventListener(FOCUS_INPUT_EVENT, handler);
     return () => window.removeEventListener(FOCUS_INPUT_EVENT, handler);
+  }, [parentId]);
+
+  // Text handed to this composer (a follow-up about an agent's visual): added
+  // after what is typed, not sent.
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<ComposeInputDetail>).detail;
+      const editor = editorRef.current;
+      if (!detail || !editor || detail.parentId !== (parentId ?? null)) return;
+      const typed = editorToContent(editor).trimEnd();
+      const next = typed ? `${typed} ${detail.content}` : detail.content;
+      loadContentIntoEditor(editor, next, membersMap.current, knownFilesRef.current);
+      setContent(next);
+      editor.focus();
+      placeCaretAtEnd(editor);
+    };
+    window.addEventListener(COMPOSE_INPUT_EVENT, handler);
+    return () => window.removeEventListener(COMPOSE_INPUT_EVENT, handler);
   }, [parentId]);
 
   const clearInput = useCallback(() => {

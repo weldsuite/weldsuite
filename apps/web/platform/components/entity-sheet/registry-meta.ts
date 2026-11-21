@@ -1,3 +1,4 @@
+import { recordPagePath } from '@weldsuite/app-api-client/schemas/record-links';
 import type { EntitySheetRegistry, EntitySheetType } from './types';
 
 /**
@@ -44,27 +45,9 @@ export function hasEntitySheetRenderer(
  * page and is viewed exclusively through its entity-sheet panel. `lead` and
  * `opportunity` lost their `/weldcrm/*` detail routes, and helpdesk tickets
  * never had a live one — callers must treat a `null` result as "no full page;
- * stay in the sheet."
+ * stay in the sheet." The map is shared with the mobile apps
+ * (`recordPagePath` in `@weldsuite/app-api-client/schemas/record-links`).
  */
 export function pageHrefForEntity(type: EntitySheetType, id: string): string | null {
-  switch (type) {
-    case 'article':
-      return `/welddesk/help-center/articles/${id}`;
-    case 'invoice':
-      return `/weldbooks/invoices/${id}`;
-    case 'bill':
-      return `/weldbooks/bills/${id}`;
-    case 'project':
-      return `/weldflow/project/${id}`;
-    case 'task':
-      return `/weldflow/task/${id}`;
-    case 'domain':
-      return `/weldhost/domains/${id}`;
-    case 'sheet':
-      return `/weldsheets/${id}`;
-    case 'board':
-      return `/weldboard/${id}`;
-    default:
-      return null;
-  }
+  return recordPagePath(type, id);
 }

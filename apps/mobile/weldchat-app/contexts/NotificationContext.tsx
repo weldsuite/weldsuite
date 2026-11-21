@@ -447,7 +447,11 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
               void notifUtils!.setBadgeCount(data.unreadCount);
             }
             // Foreground push: WS may be down after background — still ring.
-            const incoming = incomingCallPayloadFromNotificationData(data);
+            // Not for another server's call (WeldSuite cloud ringing a token a
+            // 1.x install registered there): this app can't join it.
+            const incoming = isNotificationForThisServer(data)
+              ? incomingCallPayloadFromNotificationData(data)
+              : null;
             if (incoming) presentIncomingCallFromPush(incoming);
           },
           (response: { notification: { request: { content: { data?: Record<string, unknown> } } } }) => {

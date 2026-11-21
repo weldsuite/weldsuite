@@ -14,6 +14,12 @@
 import { and, desc, eq, inArray, isNull, or } from 'drizzle-orm';
 import type { Database } from '@weldsuite/worker-kit/db';
 import { schema } from '@weldsuite/worker-kit/db';
+import {
+  extractVisuals,
+  readVisualsMetadata,
+  visualSummaryLine,
+  visualToPlainText,
+} from '@weldsuite/app-api-client/schemas/chat-visuals';
 import type { WeldAgentEnv as Env } from './env';
 import { runAgentOnce } from './executor';
 import { approvalsNotice, pendingApprovalsOf } from './approval-labels';
@@ -274,6 +280,7 @@ async function loadRoomContext(
       authorName: chatMessages.authorName,
       authorType: chatMessages.authorType,
       content: chatMessages.content,
+      metadata: chatMessages.metadata,
     })
     .from(chatMessages)
     .where(and(eq(chatMessages.channelId, channelId), isNull(chatMessages.deletedAt), scope))
@@ -283,10 +290,41 @@ async function loadRoomContext(
   return rows
     .reverse()
     .filter((r) => r.id !== excludeMessageId)
-    .map((r) => ({
-      role: (r.authorType === 'agent' ? 'assistant' : 'user') as 'user' | 'assistant',
-      content: `[${r.authorName}]: ${r.content}`,
-    }));
+    .map((r) => {
+      // Visuals an agent showed, with their numbers, so "what about March?" can be answered.
+      const visuals = readVisualsMetadata(r.metadata).map((v) => visualToPlainText(v, { detail: 'data' }));
+      const content = [r.content, ...visuals].filter(Boolean).join('\n\n');
+      return {
+        role: (r.authorType === 'agent' ? 'assistant' : 'user') as 'user' | 'assistant',
+        content: `[${r.authorName}]: ${content}`,
+      };
+    });
+}
+
+/**
+ * The room message for an agent's reply. Actions it parked for approval ride
+ * on it (`metadata.approvals`) so the room can show Approve / Reject; visuals
+ * it showed too (`metadata.visuals`), drawn under the text, so `content`
+ * stays plain text for the mobile app, notifications and search. With no
+ * text of its own, it says what is waiting or names what it showed. Empty
+ * text means there is nothing to post.
+ */
+export function roomReplyMessage(
+  replyText: string | null | undefined,
+  approvals: ReturnType<typeof pendingApprovalsOf>,
+): { text: string; metadata: Record<string, unknown> } {
+  const shown = extractVisuals(replyText || '');
+  const text =
+    shown.text.trim() ||
+    (approvals.length > 0 ? approvalsNotice(approvals) : '') ||
+    shown.visuals.map(visualSummaryLine).join('\n');
+  return {
+    text,
+    metadata: {
+      ...(approvals.length > 0 ? { approvals } : {}),
+      ...(shown.visuals.length > 0 ? { visuals: shown.visuals } : {}),
+    },
+  };
 }
 
 /** The reply a failed turn leaves in the room, so the asker is not left waiting. */
@@ -436,9 +474,7 @@ async function replyAsAgent(params: {
 
   // Actions the agent parked for approval ride on its reply, so the room can
   // show Approve / Reject under it; with nothing else to say, it says that.
-  const approvals = pendingApprovalsOf(result.toolInvocations);
-  const text = (result.text || '').trim() || (approvals.length > 0 ? approvalsNotice(approvals) : '');
-  const metadata = approvals.length > 0 ? { approvals } : {};
+  const { text, metadata } = roomReplyMessage(result.text, pendingApprovalsOf(result.toolInvocations));
   const posted = text ? await post(text, metadata) : null;
   await completeAgentRun(db, {
     runId,

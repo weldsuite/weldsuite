@@ -8,7 +8,7 @@ screenshots_todo:
   - file: weldpanel-overview-filters.png
     shows: The Overview with a country filter applied, the date range picker and the Compare with previous period switch
   - file: weldpanel-live.png
-    shows: The Live page with Visitors right now, the Pages, Countries and Devices lists and the Active sessions table
+    shows: The Live page with the world map, the visitors in the last 30 and 5 minutes, the country, page and device lists and the sessions list
 ---
 
 The **Overview** shows your site's traffic: who came, from where, and what they looked at. **Live** shows who is there right now. {% .lead %}
@@ -57,11 +57,13 @@ When you pick a period longer than your plan keeps events, the badge says **Shor
 
 ## Live view
 
-The Overview shows how many people are online now. Click it, or open **Live** under **Behaviour**, to see:
+The Overview shows how many people are online now. Click it, or open **Live** under **Behaviour**, to see the last 30 minutes on your site:
 
-- **Visitors right now**: visitors active in the last five minutes.
-- **Pages**, **Countries** and **Devices** of those visitors.
-- **Active sessions**: each visitor, the page they are on, their country, how long they have been on the site (**On site for**) and how many pages they saw (**Pages seen**).
+- **The map**: a dot on each country your visitors are in, bigger for more visitors. Point at a country to see how many. Drag to move the map; zoom with the **+** and **−** buttons at the bottom right, by pinching, with ⌘ or Ctrl and scroll, or by double-clicking. The square button under them shows the whole world again.
+- **Active visitors**: everyone active in the last 30 minutes, and **Right now**: those active in the last 5 minutes. The Overview's "online now" number is the **Right now** one.
+- **Time on site**: how long the visits of the last 30 minutes have lasted so far, on average, and **Pages per visit**: how many pages they saw, on average.
+- **Active visitors by country**, **by page** and **by device**: the top one with its share, then the full list.
+- **Sessions in the last 30 minutes**: each visitor, the page they are on (or left from), their country, how long the visit has lasted (**On site for**), when they last did something (**Last active**) and how many pages they saw (**Pages seen**). Use **Filter** to narrow it to a country, page or device, or search for a visitor or page.
 
 The view updates by itself every few seconds.
 

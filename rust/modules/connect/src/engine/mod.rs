@@ -91,6 +91,10 @@ pub struct EngineDeps {
     pub realtime: Option<Arc<dyn DynRealtimePublisher>>,
     /// Third-party HTTP (`http_request`, `webhook`, the providers).
     pub http: Option<OutboundHttp>,
+    /// The push (Expo) of the notifications the WeldSuite actions send (chat
+    /// mentions, task assignments, the inbox's team notices); `None`
+    /// notifies in-app only. Conformance builds have none.
+    pub push_http: Option<OutboundHttp>,
     /// `env.EXECUTE_WORKFLOW`, for `workflow_complete` chains.
     pub runs: Option<Arc<dyn WorkflowRuns>>,
     /// The worker's env values the actions read.
@@ -122,6 +126,7 @@ impl std::fmt::Debug for EngineDeps {
         f.debug_struct("EngineDeps")
             .field("realtime", &self.realtime.is_some())
             .field("http", &self.http.is_some())
+            .field("push_http", &self.push_http.is_some())
             .field("runs", &self.runs.is_some())
             .field("ai", &self.ai.is_some())
             .finish_non_exhaustive()

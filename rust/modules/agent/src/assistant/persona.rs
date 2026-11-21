@@ -20,19 +20,26 @@ use weldsuite_flow_domain::day_bounds::workspace_timezone;
 
 use crate::Caller;
 use crate::tools::{
-    SHEET_SCOPED_TOOL_IDS, ToolContext, ToolRowScope, ToolSpec, execute_tool, platform_tools,
-    sheet_call_allowed, sheet_not_allowed, tool_defs,
+    SHEET_SCOPED_TOOL_IDS, ToolContext, ToolRowScope, ToolSpec, VISUAL_TOOL_IDS, execute_tool,
+    platform_tools, sheet_call_allowed, sheet_not_allowed, shown_visual_marker, tool_defs,
 };
+
+/// When and how the persona shows a visual (`SHOWING_DATA`, visual-tools).
+const SHOWING_DATA: &str = "SHOWING DATA\n\
+- When the answer is numbers to compare, a trend, a few key figures or a short list of records, show it with \
+show_chart, show_stats, show_table or show_records instead of writing it out. \
+Call it where the visual belongs in your answer, then add at most a sentence or two on what stands out.\n\
+- Only show data your lookups returned or the user gave you. For a single number or a yes/no, just answer in text.";
 
 /// Stands in for the agent id the tools attribute work to.
 pub(super) const PERSONA_AGENT_ID: &str = "agt_weldagent_default";
 
-/// Model requests one reply may take: a few lookups, then the answer.
-pub(super) const MAX_STEPS: usize = 6;
+/// Model requests one reply may take: a few lookups, a visual, then the answer.
+pub(super) const MAX_STEPS: usize = 8;
 
 /// With a spreadsheet to work on: look at its tabs and cells, write, check,
 /// answer (`PERSONA_SHEET_MAX_STEPS`).
-pub(super) const SHEET_MAX_STEPS: usize = 10;
+pub(super) const SHEET_MAX_STEPS: usize = 11;
 
 /// The spreadsheet open next to the chat (`context.sheet`, `AiOpenSheet`).
 #[derive(Debug, Clone, Default)]
@@ -313,6 +320,10 @@ When there are none, say they have no open tasks assigned to them; do not talk a
         ));
     }
 
+    if has("agent.show_chart") {
+        sections.push(SHOWING_DATA.to_owned());
+    }
+
     if let Some(extra) = extra_system.filter(|extra| !extra.is_empty()) {
         sections.push(extra.to_owned());
     }
@@ -347,6 +358,11 @@ pub(super) async fn build(
     }
     let mut tools = read_tools.clone();
     tools.extend(sheet_tools.iter().copied());
+    tools.extend(
+        platform_tools()
+            .iter()
+            .filter(|tool| VISUAL_TOOL_IDS.contains(&tool.id)),
+    );
     // The keys the persona's tools need that this person holds, checked
     // deny-aware like any route (`personaPermissions`).
     let mut held: Vec<String> = Vec::new();
@@ -383,6 +399,7 @@ pub(super) async fn build(
         max_agent_hops: 2,
         master: None,
         realtime: None,
+        push_http: None,
         ai: None,
     };
     let with_sheets = !sheet_tools.is_empty();
@@ -428,8 +445,9 @@ impl Persona {
     }
 
     /// Run one tool the model asked for. A tool that fails answers the model
-    /// with an error, it does not end the reply.
-    async fn run_tool(&self, call: &ToolCall) -> Part {
+    /// with an error, it does not end the reply. The second value is the
+    /// marker of the visual a display tool showed.
+    async fn run_tool(&self, call: &ToolCall) -> (Part, Option<String>) {
         let outside_sheets = self
             .tools
             .iter()
@@ -438,11 +456,15 @@ impl Persona {
                 SHEET_SCOPED_TOOL_IDS.contains(&tool.id)
                     && !sheet_call_allowed(&self.sheet_ids, &call.arguments)
             });
+        let mut shown = None;
         let (content, is_error) = if outside_sheets {
             (sheet_not_allowed().to_string(), false)
         } else if self.tools.iter().any(|tool| tool.name == call.name) {
             match execute_tool(&self.ctx, &call.name, &call.arguments).await {
-                Ok(value) => (value.to_string(), false),
+                Ok(value) => {
+                    shown = shown_visual_marker(&call.name, &call.arguments, &value);
+                    (value.to_string(), false)
+                }
                 Err(error @ crate::tools::ToolError::InvalidArguments(_)) => (
                     serde_json::json!({ "error": error.message() }).to_string(),
                     true,
@@ -461,26 +483,32 @@ impl Persona {
                 true,
             )
         };
-        Part::ToolResult {
-            call_id: call.id.clone(),
-            content,
-            is_error,
-        }
+        (
+            Part::ToolResult {
+                call_id: call.id.clone(),
+                content,
+                is_error,
+            },
+            shown,
+        )
     }
 
     /// The model's tool calls and what the tools answered, as the next two
-    /// messages of the conversation.
-    async fn after_tools(&self, text: &str, calls: &[ToolCall]) -> [Message; 2] {
+    /// messages of the conversation, and the markers of the visuals shown.
+    async fn after_tools(&self, text: &str, calls: &[ToolCall]) -> ([Message; 2], Vec<String>) {
         let mut asked = Vec::new();
         if !text.is_empty() {
             asked.push(Part::Text(text.to_owned()));
         }
         asked.extend(calls.iter().cloned().map(Part::ToolCall));
         let mut answers = Vec::with_capacity(calls.len());
+        let mut shown = Vec::new();
         for call in calls {
-            answers.push(self.run_tool(call).await);
+            let (answer, visual) = self.run_tool(call).await;
+            answers.push(answer);
+            shown.extend(visual);
         }
-        [
+        let messages = [
             Message {
                 role: Role::Assistant,
                 content: asked,
@@ -489,7 +517,8 @@ impl Persona {
                 role: Role::Tool,
                 content: answers,
             },
-        ]
+        ];
+        (messages, shown)
     }
 }
 
@@ -520,6 +549,7 @@ pub(super) async fn run(
 ) -> Result<Reply, AiError> {
     let mut usage = Usage::default();
     let mut credits = 0;
+    let mut shown: Vec<String> = Vec::new();
     for step in 1..=persona.max_steps {
         let answer = ai
             .chat(call, persona.request(&messages, temperature, max_tokens))
@@ -527,21 +557,36 @@ pub(super) async fn run(
         add(&mut usage, answer.usage);
         credits += answer.credits;
         if answer.tool_calls.is_empty() || step == persona.max_steps {
+            let text = if answer.tool_calls.is_empty() {
+                answer.text
+            } else {
+                String::new()
+            };
             return Ok(Reply {
-                text: if answer.tool_calls.is_empty() {
-                    answer.text
-                } else {
-                    String::new()
-                },
+                text: with_visuals(&shown, text),
                 finish_reason: answer.finish_reason,
                 usage,
                 credits,
                 served: answer.served,
             });
         }
-        messages.extend(persona.after_tools(&answer.text, &answer.tool_calls).await);
+        let (next, visuals) = persona.after_tools(&answer.text, &answer.tool_calls).await;
+        messages.extend(next);
+        shown.extend(visuals);
     }
     Err(AiError::Unavailable)
+}
+
+/// A reply with the visuals it showed (their markers) before its text.
+fn with_visuals(shown: &[String], text: String) -> String {
+    if shown.is_empty() {
+        return text;
+    }
+    let mut parts = shown.to_vec();
+    if !text.trim().is_empty() {
+        parts.push(text);
+    }
+    parts.join("\n\n")
 }
 
 /// The text of a finished reply, never empty (`personaReplyText`).
@@ -616,7 +661,18 @@ pub(super) async fn stream(
         if gone || answer.tool_calls.is_empty() || step == persona.max_steps {
             break;
         }
-        messages.extend(persona.after_tools(&answer.text, &answer.tool_calls).await);
+        let (next, visuals) = persona.after_tools(&answer.text, &answer.tool_calls).await;
+        messages.extend(next);
+        for marker in visuals {
+            if separate && !gone {
+                gone = out.send("\n\n".to_owned()).await.is_err();
+            }
+            if !gone {
+                gone = out.send(marker).await.is_err();
+            }
+            emitted = true;
+            separate = true;
+        }
     }
     if !emitted && !gone {
         let _ = out.send(FALLBACK_TEXT.to_owned()).await;

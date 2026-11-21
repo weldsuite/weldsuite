@@ -373,6 +373,11 @@ fn connect(router: Router<AppState>, state: &AppState) -> Router<AppState> {
                 tenants: tenant_databases(state),
                 realtime: state.infra.realtime.clone(),
                 http: shared_outbound(),
+                // Expo push for the actions' notifications (chat mentions,
+                // task assignments, inbox notices); none in conformance builds.
+                push_http: (!cfg!(feature = "conformance"))
+                    .then(shared_outbound)
+                    .flatten(),
                 runs: Some(Arc::new(weldsuite_connect::JobsWorkflowRuns { jobs })),
                 env: Arc::new(weldsuite_connect::engine::env_from_process()),
                 events: state.infra.events.clone(),
@@ -445,6 +450,9 @@ fn workflow_actions_state(state: &AppState) -> weldsuite_connect::WorkflowAction
     weldsuite_connect::WorkflowActionsState {
         events: state.infra.events.clone(),
         realtime: state.infra.realtime.clone(),
+        // Expo push for the chat mentions and task assignments; none in
+        // conformance builds.
+        push_http: (!conformance).then(shared_outbound).flatten(),
         master: (!conformance).then(|| state.workspaces.master().clone()),
         tenants: Some(connect_tenants(state)),
         env: Arc::new(env),
@@ -940,6 +948,9 @@ pub(crate) fn agent_state(state: &AppState) -> weldsuite_agent::AgentState {
         .to_owned(),
         master: (!conformance).then(|| state.workspaces.master().clone()),
         realtime: state.infra.realtime.clone(),
+        // Expo push for room replies ("replied to you", mentions) and the
+        // ticket tools' notices; conformance builds send none.
+        push_http: (!conformance).then(shared_outbound).flatten(),
     }
 }
 
@@ -988,6 +999,8 @@ pub(crate) fn merge_state(state: &AppState) -> weldsuite_merge::MergeState {
         cache: (!conformance).then(|| upload_token_cache(state)),
         // WeldChat posts (R1b): conformance records the publishes.
         realtime: state.infra.realtime.clone(),
+        // Expo push for the WeldChat posts' mentions; none in conformance.
+        push_http: (!conformance).then(shared_outbound).flatten(),
         // A release's notes by email: WeldMail's relay and ledgers.
         mail: deployment_outbound(state),
         // A release's notes, written by the install's AI.
@@ -3037,7 +3050,7 @@ fn chat(router: Router<AppState>, state: &AppState) -> Router<AppState> {
                 realtime: state.infra.realtime.clone(),
                 notifier: weldsuite_notifications::Notifier {
                     realtime: state.infra.realtime.clone(),
-                    presence: None,
+                    presence: chat.presence.clone(),
                     mail: None,
                     http: chat.http.clone(),
                     apns: weldsuite_notifications::ApnsConfig::from_values(
@@ -3085,6 +3098,24 @@ fn chat(router: Router<AppState>, state: &AppState) -> Router<AppState> {
             weldsuite_chat::sections(chat.clone(), gate),
         )
         .nest("/chat-status", weldsuite_chat::status(chat, gate))
+}
+
+/// Live presence (`RealtimePublisher#getPresence`): the realtime gateway's
+/// state in Valkey, which every pod writes, so a socket on any pod counts;
+/// a workspace named by either id is read from its hub, as
+/// `/internal/presence` does. None without Valkey (no gateway, nobody is
+/// connected), and none in conformance builds: those read the test's
+/// `REALTIME` binding through the request, and a worker without the binding
+/// reads nobody.
+fn live_presence(state: &AppState) -> Option<weldsuite_ports::PresenceReader> {
+    if cfg!(feature = "conformance") {
+        return None;
+    }
+    let realtime = state.infra.realtime.clone()?;
+    let directory = Arc::new(weldsuite_realtime::DbDirectory::new(Arc::clone(
+        &state.workspaces,
+    )));
+    Some(weldsuite_realtime::GatewayPresence::new(realtime, directory).reader())
 }
 
 /// WeldChat's handle on the app: events, realtime, files, jobs, its env.
@@ -3138,7 +3169,7 @@ fn chat_state(state: &AppState) -> weldsuite_chat::ChatState {
             })
             .flatten()
             .map(|client| weldsuite_ports::OutboundHttp(Arc::new(client))),
-        presence: None,
+        presence: live_presence(state),
         env: Arc::clone(env),
         video: video_rooms(),
         leave_meetings: mounts("meet").then(|| meeting_sessions_leaver(state)),

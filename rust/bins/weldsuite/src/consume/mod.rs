@@ -611,6 +611,11 @@ fn handlers(
                             realtime: services.realtime.clone(),
                             sandbox: services.sandboxes.is_some(),
                             sandboxes: services.sandboxes.clone(),
+                            // Expo push for what the tools notify; none in
+                            // conformance builds.
+                            push_http: (!cfg!(feature = "conformance"))
+                                .then(crate::routes::shared_outbound)
+                                .flatten(),
                         },
                     ),
                 };
