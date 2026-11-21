@@ -311,7 +311,7 @@ pub(crate) async fn remove(
 
 /// People a teamspace can be shared with.
 pub(crate) async fn teammates(caller: Caller) -> Response {
-    match access::list_teammates(&caller.db).await {
+    match access::list_teammates(&caller.db, caller.master.as_ref()).await {
         Ok(rows) => all(rows),
         Err(error) => error.respond("Failed to list teammates"),
     }
@@ -324,7 +324,7 @@ pub(crate) async fn members(caller: Caller, Path(id): Path<String>) -> Response 
         if access.is_personal() {
             return Ok(Vec::new());
         }
-        access::list_space_members(&caller.db, &id).await
+        access::list_space_members(&caller.db, caller.master.as_ref(), &id).await
     }
     .await;
     match result {

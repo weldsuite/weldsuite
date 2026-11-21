@@ -44,12 +44,14 @@ export interface ProvisioningEnv {
   FIELD_ENCRYPTION_AAD_WRITES?: string;
 }
 
-/** Initial member to insert after migration (typically the org creator) */
+/**
+ * Initial member to insert after migration (typically the org creator). No
+ * picture: avatars are the account's (master `users.image_url`, ADR SEC-020).
+ */
 export interface InitialMember {
   userId: string;
   email?: string;
   name?: string;
-  picture?: string;
   clerkMembershipId?: string;
 }
 
@@ -614,7 +616,6 @@ export class DatabaseProvisioningService {
           userId: initialMember.userId,
           email: initialMember.email,
           name: initialMember.name,
-          picture: initialMember.picture,
           role: 'OWNER',
           status: 'ACTIVE',
           clerkMembershipId: initialMember.clerkMembershipId,

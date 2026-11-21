@@ -168,19 +168,20 @@ pub(crate) fn to_meeting_attendees(input: Vec<Attendee>) -> Vec<Attendee> {
 
 /// `withOrganizerAttendee(db, attendees, organizerId)`: the organizer first
 /// (role organizer, accepted) unless already on the list, resolved from
-/// `workspace_members`; without a member row the list is left as sent.
+/// `workspace_members`; without a member row the list is left as sent. The
+/// avatar is the account picture (`master`), not the member row's copy.
 pub(crate) async fn with_organizer(
     db: &PgPool,
+    master: Option<&PgPool>,
     attendees: Vec<Attendee>,
     organizer_id: &str,
 ) -> Result<Vec<Attendee>, sqlx::Error> {
-    let member: Option<(String, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
-        "select id, name, email, picture from workspace_members where user_id = $1 limit 1",
-    )
-    .bind(organizer_id)
-    .fetch_optional(db)
-    .await?;
-    let Some((member_id, name, email, picture)) = member else {
+    let member: Option<(String, Option<String>, Option<String>)> =
+        sqlx::query_as("select id, name, email from workspace_members where user_id = $1 limit 1")
+            .bind(organizer_id)
+            .fetch_optional(db)
+            .await?;
+    let Some((member_id, name, email)) = member else {
         return Ok(attendees);
     };
     let email = email.map(|e| e.trim().to_lowercase()).unwrap_or_default();
@@ -212,7 +213,7 @@ pub(crate) async fn with_organizer(
     organizer.insert("status".into(), json!("accepted"));
     organizer.insert("role".into(), json!("organizer"));
     organizer.insert("workspaceMemberId".into(), json!(member_id));
-    if let Some(picture) = picture.filter(|p| !p.is_empty()) {
+    if let Some(picture) = weldsuite_db::load_account_picture(master, organizer_id).await {
         organizer.insert("avatar".into(), json!(picture));
     }
     let mut out = vec![organizer];

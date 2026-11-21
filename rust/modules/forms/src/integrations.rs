@@ -88,7 +88,7 @@ pub(crate) async fn list_integrations(ctx: &Ctx, form_id: &str) -> FormsResult<V
         .iter()
         .map(|row| text(row, "createdByUserId").to_owned())
         .collect();
-    let refs = member_refs(&ctx.db, &ids).await?;
+    let refs = member_refs(ctx, &ids).await?;
     Ok(rows
         .iter()
         .map(|row| {
@@ -118,7 +118,7 @@ pub(crate) async fn get_integration(ctx: &Ctx, form_id: &str, id: &str) -> Forms
 /// `presentIntegration(ctx, row)`.
 pub(crate) async fn present_integration(ctx: &Ctx, row: &Value) -> FormsResult<Value> {
     let user = text(row, "createdByUserId").to_owned();
-    let mut refs = member_refs(&ctx.db, std::slice::from_ref(&user)).await?;
+    let mut refs = member_refs(ctx, std::slice::from_ref(&user)).await?;
     Ok(to_integration(
         row,
         &refs.remove(&user).unwrap_or_else(|| bare_ref(&user)),

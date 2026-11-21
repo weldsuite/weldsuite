@@ -44,6 +44,12 @@ import { generateId } from '@weldsuite/worker-kit/id';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import {
+  accountPicture,
+  loadAccountPicture,
+  loadAccountPictures,
+  type AccountPictureEnv,
+} from '@weldsuite/worker-kit/account-pictures';
+import {
   MeetingBillingUnavailableError,
   getMeetingAiPricing,
   getMeetingBalance,
@@ -225,26 +231,32 @@ interface MeetingLastSession {
   }>;
 }
 
-/** Workspace members by user id, for the `organizer` on every list item (one query). */
+/**
+ * Workspace members by user id, for the `organizer` on every list item: the
+ * name from the member row, the avatar from the account (one query each).
+ */
 async function loadOrganizers(
+  env: AccountPictureEnv,
   db: Database,
   organizerIds: string[],
 ): Promise<Map<string, MeetingOrganizer>> {
   const out = new Map<string, MeetingOrganizer>();
   if (organizerIds.length === 0) return out;
   const { workspaceMembers } = schema;
-  const members = await db
-    .select({
-      userId: workspaceMembers.userId,
-      name: workspaceMembers.name,
-      email: workspaceMembers.email,
-      avatar: workspaceMembers.picture,
-    })
-    .from(workspaceMembers)
-    .where(inArray(workspaceMembers.userId, organizerIds));
+  const [members, pictures] = await Promise.all([
+    db
+      .select({
+        userId: workspaceMembers.userId,
+        name: workspaceMembers.name,
+        email: workspaceMembers.email,
+      })
+      .from(workspaceMembers)
+      .where(inArray(workspaceMembers.userId, organizerIds)),
+    loadAccountPictures(env, organizerIds),
+  ]);
   for (const m of members) {
     if (!out.has(m.userId)) {
-      out.set(m.userId, { userId: m.userId, name: m.name || m.email || '', avatar: m.avatar ?? null });
+      out.set(m.userId, { userId: m.userId, name: m.name || m.email || '', avatar: accountPicture(pictures, m.userId) });
     }
   }
   return out;
@@ -296,9 +308,9 @@ async function loadLastSessions(
 }
 
 /** List items: the meeting row plus `organizer` and, with `?include=lastSession`, `lastSession`. */
-async function decorateMeetings(db: Database, rows: MeetingRow[], include: Set<string>) {
+async function decorateMeetings(env: AccountPictureEnv, db: Database, rows: MeetingRow[], include: Set<string>) {
   const [organizers, lastSessions] = await Promise.all([
-    loadOrganizers(db, [...new Set(rows.map((r) => r.organizerId))]),
+    loadOrganizers(env, db, [...new Set(rows.map((r) => r.organizerId))]),
     include.has('lastSession')
       ? loadLastSessions(db, rows.map((r) => r.id))
       : Promise.resolve(null),
@@ -341,7 +353,7 @@ app.get('/', requirePermission('meetings:read'), async (c) => {
     const nextCursor = hasMore && data.length > 0 ? data.at(-1)!.id : null;
     const totalCount = Number(countRes[0]?.count ?? 0);
     const include = new Set((q.include ?? '').split(',').map((s) => s.trim()).filter(Boolean));
-    const items = await decorateMeetings(db, data, include);
+    const items = await decorateMeetings(c.env, db, data, include);
     return list(c, items, cursorPagination(totalCount, hasMore, nextCursor));
   } catch (err) {
     console.error('[app-api/meetings] list failed:', err);
@@ -542,11 +554,14 @@ app.post(
       const db = c.get('tenantDb');
       const { workspaceMembers } = schema;
 
-      const [member] = await db
-        .select({ name: workspaceMembers.name, email: workspaceMembers.email, picture: workspaceMembers.picture })
-        .from(workspaceMembers)
-        .where(eq(workspaceMembers.userId, userId))
-        .limit(1);
+      const [[member], picture] = await Promise.all([
+        db
+          .select({ name: workspaceMembers.name, email: workspaceMembers.email })
+          .from(workspaceMembers)
+          .where(eq(workspaceMembers.userId, userId))
+          .limit(1),
+        loadAccountPicture(c.env, userId),
+      ]);
 
       const result = await startInstantMeeting(db, c.env, c.executionCtx, {
         userId,
@@ -554,7 +569,7 @@ app.post(
         user: {
           name: member?.name ?? 'Unknown',
           email: member?.email ?? undefined,
-          picture: member?.picture ?? undefined,
+          picture: picture ?? undefined,
         },
         input,
       });
@@ -1112,10 +1127,11 @@ function pickWritableMeetingFields(
 /**
  * Put the organizer first in the attendee list (role organizer, accepted) unless
  * they are already on it, resolved from workspace_members the way
- * start-instant does. Without a member row there is nothing to show, so the
- * list is left as sent.
+ * start-instant does (the avatar from their account). Without a member row
+ * there is nothing to show, so the list is left as sent.
  */
 async function withOrganizerAttendee(
+  env: AccountPictureEnv,
   db: Database,
   attendees: MeetingAttendee[],
   organizerId: string,
@@ -1126,7 +1142,6 @@ async function withOrganizerAttendee(
       id: workspaceMembers.id,
       name: workspaceMembers.name,
       email: workspaceMembers.email,
-      picture: workspaceMembers.picture,
     })
     .from(workspaceMembers)
     .where(eq(workspaceMembers.userId, organizerId))
@@ -1142,6 +1157,7 @@ async function withOrganizerAttendee(
     );
   }
 
+  const picture = await loadAccountPicture(env, organizerId);
   const organizer: MeetingAttendee = {
     userId: organizerId,
     email,
@@ -1149,7 +1165,7 @@ async function withOrganizerAttendee(
     status: 'accepted',
     role: 'organizer',
     workspaceMemberId: member.id,
-    ...(member.picture ? { avatar: member.picture } : {}),
+    ...(picture ? { avatar: picture } : {}),
   };
   return [organizer, ...attendees];
 }
@@ -1186,7 +1202,7 @@ app.post('/', requirePermission('meetings:create'), zValidator('json', createMee
   try {
     const resolvedAttendees = data.attendees ? await resolveAttendeeWrites(c, db, data.attendees, []) : undefined;
     const writable = pickWritableMeetingFields(data, resolvedAttendees);
-    const attendees = await withOrganizerAttendee(db, writable.attendees ?? [], organizerId);
+    const attendees = await withOrganizerAttendee(c.env, db, writable.attendees ?? [], organizerId);
     // Server-owned values come last, so no client key can override them.
     await db.insert(t).values({
       ...writable,

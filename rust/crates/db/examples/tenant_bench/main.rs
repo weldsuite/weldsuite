@@ -4,7 +4,7 @@
 //! cargo run --release -p weldsuite-db --example tenant_bench -- <command> --key=value ...
 //!
 //! s3       --direct=URL --pooled=URL [--clients=40] [--iterations=300]
-//!          [--cache=100] [--persistent=true] [--distinct=250]
+//!          [--cache=100] [--persistent=true] [--distinct=250] [--orm=false]
 //! s4-setup --direct=URL --pooled-base=URL [--tenants=2000] [--parallel=8]
 //! s4       --master=URL --admin=URL [--tenants=2000] [--active=300]
 //!          [--dist=uniform|zipf] [--cold=0.05] [--rotate=5] [--think-ms=100]
@@ -18,6 +18,7 @@
 //! include it.
 
 mod args;
+mod orm;
 mod s3;
 mod s4;
 mod stats;

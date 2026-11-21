@@ -58,7 +58,7 @@ export function toIntegration(row: IntegrationRow, createdBy: FormIntegration['c
 
 export async function listIntegrations(ctx: WorkspaceCtx, formId: string): Promise<FormIntegration[]> {
   const rows = await ctx.db.select().from(formIntegrations).where(eq(formIntegrations.formId, formId)).orderBy(asc(formIntegrations.createdAt));
-  const refs = await memberRefs(ctx.db, rows.map((r) => r.createdByUserId));
+  const refs = await memberRefs(ctx, rows.map((r) => r.createdByUserId));
   return rows.map((r) => toIntegration(r, refs.get(r.createdByUserId)!));
 }
 
@@ -73,7 +73,7 @@ export async function getIntegration(ctx: WorkspaceCtx, formId: string, id: stri
 }
 
 export async function presentIntegration(ctx: WorkspaceCtx, row: IntegrationRow): Promise<FormIntegration> {
-  return toIntegration(row, (await memberRefs(ctx.db, [row.createdByUserId])).get(row.createdByUserId)!);
+  return toIntegration(row, (await memberRefs(ctx, [row.createdByUserId])).get(row.createdByUserId)!);
 }
 
 // ── Checking the settings against the form ───────────────────────────────────

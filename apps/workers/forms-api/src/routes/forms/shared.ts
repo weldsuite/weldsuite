@@ -46,6 +46,6 @@ export async function loadForm(c: Ctx, id: string, need?: FormNeed | readonly Fo
 /** The detail DTO of a (possibly just changed) form row. */
 export async function detailOf(loaded: Loaded, form: FormRow = loaded.form): Promise<FormDetail> {
   const { ctx } = loaded;
-  const [owner, moderation] = await Promise.all([memberRef(ctx.db, form.ownerUserId), moderationOf(ctx, form)]);
+  const [owner, moderation] = await Promise.all([memberRef(ctx, form.ownerUserId), moderationOf(ctx, form)]);
   return toDetail(ctx, form, { owner, relation: loaded.relation, grants: loaded.grants, moderation });
 }

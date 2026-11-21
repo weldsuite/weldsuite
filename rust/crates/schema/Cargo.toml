@@ -1,0 +1,32 @@
+[package]
+name = "weldsuite-schema"
+description = "The master and tenant schemas as SeaORM entities, one per table, with each table's DDL; generated from the Drizzle schema by `pnpm rust:schema` until the flip"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[features]
+# `tenant::rows_json` and `master::rows_json`: every entity queried, for spike S7.
+all-tables = []
+
+[dependencies]
+sea-orm = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+time = { workspace = true, features = ["formatting", "macros"] }
+
+[dev-dependencies]
+weldsuite-db = { workspace = true }
+sea-query-sqlx = { workspace = true }
+sqlx = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[[example]]
+name = "size_all"
+required-features = ["all-tables"]
+
+[lints]
+workspace = true

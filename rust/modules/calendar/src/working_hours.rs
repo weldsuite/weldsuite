@@ -4,7 +4,7 @@
 //! catalog.
 
 use axum::body::Bytes;
-use axum::extract::Path;
+use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
 use serde_json::{Map, Value, json};
@@ -13,7 +13,7 @@ use weldsuite_kit::validation::{Issues, Presence};
 use weldsuite_kit::{ApiError, Data, generate_id};
 
 use crate::js::truthy;
-use crate::{Caller, Outcome, Refusal, now, validate};
+use crate::{CalendarState, Caller, Outcome, Refusal, now, validate};
 
 const DAYS: [&str; 7] = [
     "monday",
@@ -163,14 +163,14 @@ fn org_required(caller: &Caller) -> Outcome<()> {
     }
 }
 
-pub(crate) async fn team(caller: Caller) -> Response {
+pub(crate) async fn team(State(state): State<CalendarState>, caller: Caller) -> Response {
     if let Err(refused) = org_required(&caller) {
         return refused.respond("Failed to fetch team working hours");
     }
     let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
         "select jsonb_build_object(
              'id', m.id, 'userId', m.user_id, 'name', m.name, 'email', m.email,
-             'picture', m.picture, 'workingHours', p.working_hours)
+             'picture', null, 'workingHours', p.working_hours)
          from workspace_members m
          left join user_preferences p on m.user_id = p.user_id and p.deleted_at is null
          where m.status = 'ACTIVE' and m.deleted_at is null
@@ -179,7 +179,13 @@ pub(crate) async fn team(caller: Caller) -> Response {
     .fetch_all(&caller.db)
     .await;
     match rows {
-        Ok(rows) => Data(rows).into_response(),
+        Ok(mut rows) => {
+            // Avatars are account pictures, not the member row's copy.
+            let master = caller.master(&state);
+            weldsuite_db::overlay_account_pictures(master.as_ref(), &mut rows, "userId", "picture")
+                .await;
+            Data(rows).into_response()
+        }
         Err(error) => Refusal::from(error).respond("Failed to fetch team working hours"),
     }
 }

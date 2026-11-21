@@ -7,12 +7,21 @@
  * These also drive the Rust backend in conformance mode (rust/modules/pass).
  */
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { and, eq } from 'drizzle-orm';
-import { weldpassRoutes } from './index';
-import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
-import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { users } from '@weldsuite/db/schema/master';
+import { conformanceMasterDb, createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+
+// A teammate's picture is their account picture (master `users`).
+const holder = vi.hoisted(() => ({ master: null as unknown }));
+vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@weldsuite/worker-kit/db')>()),
+  getMasterDb: () => conformanceMasterDb(holder.master),
+}));
+
+import { weldpassRoutes } from './index';
 
 const ROOT_KEY = 'f'.repeat(64);
 const BASE = '/api/weldpass';
@@ -23,11 +32,19 @@ const PIA = 'user_pia';
 const QUIN = 'user_quin';
 const BOSS = 'user_boss';
 
+const OWEN_PICTURE = 'https://img.clerk.test/owen.png';
+
 let db: Database;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- pglite drizzle stands in for neon-http
+let master: any;
 
 beforeAll(async () => {
   db = (await createPgliteDb()).db;
+  master = (await createMasterPgliteDb()).db;
+  holder.master = master;
+  await master.insert(users).values({ id: OWEN, email: 'owen@example.com', imageUrl: OWEN_PICTURE }).onConflictDoNothing();
   await db.insert(schema.workspaceMembers).values([
+    // The member row's picture is a stale copy: responses carry the account picture.
     { id: 'wm_owen', userId: OWEN, name: 'Owen', email: 'owen@example.com', picture: 'https://img.test/o.png' },
     { id: 'wm_pia', userId: PIA, name: 'Pia', email: 'pia@example.com' },
     { id: 'wm_quin', userId: QUIN, name: 'Quin', email: 'quin@example.com', status: 'SUSPENDED' },
@@ -42,7 +59,14 @@ function as(
   env: Record<string, string | undefined> = { WELDPASS_ROOT_KEY: ROOT_KEY },
 ) {
   const { request } = createTestApp(BASE, weldpassRoutes, {
-    context: { userId, permissions: permissions(...grants), tenantDb: db, clerkOrgId: 'org_vaults', orgId: 'org_vaults' },
+    context: {
+      userId,
+      permissions: permissions(...grants),
+      tenantDb: db,
+      masterDb: master,
+      clerkOrgId: 'org_vaults',
+      orgId: 'org_vaults',
+    },
     env,
   });
   return {
@@ -167,8 +191,10 @@ describe('vault members', () => {
   it('lists teammates who can be added: active and internal only', async () => {
     const res = await as(OWEN).get('/teammates');
     expect(res.status).toBe(200);
-    const teammates = await data<Array<{ userId: string }>>(res);
+    const teammates = await data<Array<{ userId: string; picture: string | null }>>(res);
     expect(teammates.map((t) => t.userId)).toEqual([BOSS, OWEN, PIA]);
+    // Account pictures, never the member row's copy.
+    expect(teammates.map((t) => t.picture)).toEqual([null, OWEN_PICTURE, null]);
     expect((await as(OWEN, ['secrets:read']).get('/teammates')).status).toBe(403);
   });
 

@@ -62,7 +62,7 @@ employeesRoutes.get(
   '/available-members',
   requirePermission('employees:create', 'employees:update'),
   zValidator('query', listHrAvailableMembersQuerySchema),
-  async (c) => success(c, await listAvailableMembers(db(c), c.req.valid('query'))),
+  async (c) => success(c, await listAvailableMembers(c.env, db(c), c.req.valid('query'))),
 );
 
 employeesRoutes.get('/:employeeId', requirePermission('employees:read'), async (c) => {
@@ -121,6 +121,7 @@ employeesRoutes.post(
     }
 
     const employee = await createEmployeeFromMember(database, input, {
+      env: c.env,
       createdBy: actor(c),
       sensitive,
       keyring: keyringFromEnv(c.env),

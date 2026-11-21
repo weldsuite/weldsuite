@@ -148,7 +148,7 @@ conversationsRoutes.get('/', async (c) => {
   const db = c.get('tenantDb');
   try {
     const { rows } = await listDeskConversationsForPrincipal(db, c.get('principal'), { limit: 25 });
-    const authors = await resolveAuthors(db, rows.map((r) => r.assigneeId));
+    const authors = await resolveAuthors(c.env, db, rows.map((r) => r.assigneeId));
     return success(c, rows.map((row) => toPublicConversation(row, authors)));
   } catch (err) {
     console.error('[widget-api] list conversations failed:', err);
@@ -218,7 +218,7 @@ conversationsRoutes.get('/:id', async (c) => {
     const result = await accessibleConversation(db, c.get('principal'), id, true);
     if (!result) return error.notFound(c, 'Conversation', id);
     const visible = result.messages.filter(isPublicMessage);
-    const authors = await resolveAuthors(db, [
+    const authors = await resolveAuthors(c.env, db, [
       result.conversation.assigneeId,
       ...visible.filter((m) => m.authorType === 'agent').map((m) => m.authorId),
     ]);
@@ -288,7 +288,7 @@ conversationsRoutes.post('/:id/messages', zValidator('json', sendSchema), async 
       ]),
     );
 
-    const authors = await resolveAuthors(db, [conversation.assigneeId]);
+    const authors = await resolveAuthors(c.env, db, [conversation.assigneeId]);
     return success(
       c,
       {
@@ -322,7 +322,7 @@ conversationsRoutes.post('/:id/rating', zValidator('json', rateSchema), async (c
       comment: data.comment,
     });
 
-    const authors = await resolveAuthors(db, [conversation.assigneeId]);
+    const authors = await resolveAuthors(c.env, db, [conversation.assigneeId]);
     c.executionCtx.waitUntil(publishVisitorEvent(c.env, orgId, conversation, message, authors));
 
     return success(

@@ -306,6 +306,12 @@ impl RequestParts {
         self.cache.clone().or_else(|| state.cache.clone())
     }
 
+    /// The request's master database (account pictures): the app's behind
+    /// `workspace_db`, the test's in conformance.
+    pub(crate) fn request_master(&self) -> Option<&PgPool> {
+        self.master.as_ref()
+    }
+
     pub(crate) fn master(&self, state: &MeetState) -> Option<PgPool> {
         if self.conformance() {
             return self.master.clone();
@@ -391,6 +397,11 @@ impl RequestParts {
 }
 
 impl Caller {
+    /// The request's master database (account pictures).
+    pub(crate) fn request_master(&self) -> Option<&PgPool> {
+        self.parts.request_master()
+    }
+
     /// `publishEntityEvent({ c, entityType, action, entityId, data })`.
     pub(crate) fn publish(&self, state: &MeetState, event: EventName, id: &str, data: &Value) {
         publish_entity_event(&state.events, &self.events, event, id, data);

@@ -1124,7 +1124,8 @@ pub(crate) async fn session(
             } else {
                 "view"
             };
-            let (name, picture) = member_profile(&caller.db, &caller.user_id).await?;
+            let (name, picture) =
+                member_profile(&caller.db, caller.master.as_ref(), &caller.user_id).await?;
             let color = color_for(&caller.user_id);
             let mut admission = sheet.room_meta(&org);
             if let Value::Object(fields) = &mut admission {

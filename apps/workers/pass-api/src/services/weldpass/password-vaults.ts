@@ -21,6 +21,7 @@
 import { and, asc, count, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { withAccountPictures, type AccountPictureEnv } from '@weldsuite/worker-kit/account-pictures';
 import type { WeldPassVaultRole } from '@weldsuite/app-api-client/schemas/weldpass-passwords';
 import { createVaultKey, unwrapVaultKey, type RootKeyring } from './envelope';
 import { VaultNotFoundError } from './vault';
@@ -372,17 +373,18 @@ const shareable = and(
   isNull(workspaceMembers.deletedAt),
 );
 
-export async function listTeammates(db: Database): Promise<Teammate[]> {
-  return db
+/** `picture` is each teammate's account picture. */
+export async function listTeammates(env: AccountPictureEnv, db: Database): Promise<Teammate[]> {
+  const rows = await db
     .select({
       userId: workspaceMembers.userId,
       name: workspaceMembers.name,
       email: workspaceMembers.email,
-      picture: workspaceMembers.picture,
     })
     .from(workspaceMembers)
     .where(shareable)
     .orderBy(asc(workspaceMembers.name), asc(workspaceMembers.email));
+  return withAccountPictures(env, rows);
 }
 
 /**
@@ -400,14 +402,14 @@ export async function firstNonTeammate(db: Database, userIds: string[]): Promise
   return userIds.find((userId) => !found.has(userId)) ?? null;
 }
 
-export async function listVaultMembers(db: Database, vaultId: string): Promise<VaultMember[]> {
-  return db
+/** `picture` is each member's account picture. */
+export async function listVaultMembers(env: AccountPictureEnv, db: Database, vaultId: string): Promise<VaultMember[]> {
+  const rows = await db
     .select({
       userId: members.userId,
       role: members.role,
       name: workspaceMembers.name,
       email: workspaceMembers.email,
-      picture: workspaceMembers.picture,
       addedBy: members.addedBy,
       createdAt: members.createdAt,
     })
@@ -415,6 +417,17 @@ export async function listVaultMembers(db: Database, vaultId: string): Promise<V
     .leftJoin(workspaceMembers, eq(workspaceMembers.userId, members.userId))
     .where(eq(members.vaultId, vaultId))
     .orderBy(asc(workspaceMembers.name), asc(members.createdAt));
+  const withPictures = await withAccountPictures(env, rows);
+  // Keep the response's field order: picture sits after email.
+  return withPictures.map(({ userId, role, name, email, picture, addedBy, createdAt }) => ({
+    userId,
+    role,
+    name,
+    email,
+    picture,
+    addedBy,
+    createdAt,
+  }));
 }
 
 /**

@@ -1312,7 +1312,8 @@ pub(crate) async fn session(
             let org = caller.org()?.to_owned();
             let (board, role) = find_live_board(&caller, &id).await?;
             let mode = caller.session_mode(role);
-            let (name, picture) = member_profile(&caller.db, &user_id).await?;
+            let (name, picture) =
+                member_profile(&caller.db, caller.master.as_ref(), &user_id).await?;
             let color = color_for(&user_id);
             let mut admission = board.room_meta(&org);
             if let Value::Object(fields) = &mut admission {

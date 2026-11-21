@@ -612,7 +612,9 @@ async fn publish_to_rooms(deps: &InboxDeps<'_>, events: &[InboxEvent]) -> Result
         })
         .collect();
     ids.extend(conversations.values().map(|c| c["assigneeId"].as_str()));
-    let authors = webchat::resolve_authors(deps.db, &ids)
+    // Avatars are account pictures, read from the master database when the
+    // deps carry it.
+    let authors = webchat::resolve_authors(deps.db, deps.due.map(|(master, _)| master), &ids)
         .await
         .map_err(|e| e.to_string())?;
 

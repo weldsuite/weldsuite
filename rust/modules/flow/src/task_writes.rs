@@ -859,7 +859,7 @@ async fn create_with(
             project_id: project_id.clone(),
         },
     );
-    let enriched = enrich(state, db, vec![created.row]).await?;
+    let enriched = enrich(state, db, caller.request_master(), vec![created.row]).await?;
     Ok(Created(enriched.into_iter().next().unwrap_or(Value::Null)).into_response())
 }
 

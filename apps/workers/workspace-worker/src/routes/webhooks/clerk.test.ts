@@ -11,7 +11,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { Webhook } from 'svix';
-import { workspaceDatabaseMoves, workspaces } from '@weldsuite/db/schema/master';
+import { users, workspaceDatabaseMoves, workspaces } from '@weldsuite/db/schema/master';
 
 const holder = vi.hoisted(() => ({
   masterDb: null as unknown,
@@ -197,5 +197,58 @@ describe('organization.deleted and database moves', () => {
     expect(res.status).toBe(500);
     expect(res.json).toMatchObject({ code: 'DATABASE_MOVE_ACTIVE' });
     expect(deleteWorkspaceDatabase).not.toHaveBeenCalled();
+  });
+});
+
+/** Deliver a signed `user.updated` event for a user with no workspaces. */
+async function deliverUserUpdated(user: { id: string; first_name: string | null; image_url: string | null }) {
+  const body = JSON.stringify({
+    type: 'user.updated',
+    data: {
+      ...user,
+      last_name: null,
+      primary_email_address_id: 'idn_1',
+      email_addresses: [{ id: 'idn_1', email_address: `${user.id}@acme.test` }],
+    },
+  });
+  const id = `msg_${Math.random().toString(36).slice(2)}`;
+  const timestamp = new Date();
+  const signature = new Webhook(WEBHOOK_SECRET).sign(id, timestamp, body);
+  const res = await clerkWebhookRoutes.request(
+    '/',
+    {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'svix-id': id,
+        'svix-timestamp': String(Math.floor(timestamp.getTime() / 1000)),
+        'svix-signature': signature,
+      },
+      body,
+    },
+    env(),
+  );
+  return res.status;
+}
+
+async function account(userId: string) {
+  const [row] = await world.masterDb.select().from(users).where(eq(users.id, userId));
+  return row;
+}
+
+describe('user.updated keeps the account picture', () => {
+  it('creates the account row when user.created never arrived, and follows a new picture', async () => {
+    const userId = `user_pic_${Math.random().toString(36).slice(2)}`;
+    expect(await account(userId)).toBeUndefined();
+
+    expect(await deliverUserUpdated({ id: userId, first_name: 'Pia', image_url: 'https://img.clerk.test/pia-1.png' })).toBe(200);
+    expect(await account(userId)).toMatchObject({
+      email: `${userId}@acme.test`,
+      firstName: 'Pia',
+      imageUrl: 'https://img.clerk.test/pia-1.png',
+    });
+
+    expect(await deliverUserUpdated({ id: userId, first_name: 'Pia', image_url: 'https://img.clerk.test/pia-2.png' })).toBe(200);
+    expect((await account(userId))?.imageUrl).toBe('https://img.clerk.test/pia-2.png');
   });
 });

@@ -63,7 +63,14 @@ async fn folder_sharing(caller: &Caller, opened: &OpenedFolder) -> Result<Value,
         general_access: DriveGeneralAccess::parse(text(row, "generalAccess").unwrap_or_default()),
         parent_id: text(row, "parentId"),
     };
-    Ok(describe_sharing(&caller.db, &opened.access, target, opened.role).await?)
+    Ok(describe_sharing(
+        &caller.db,
+        caller.request_master(),
+        &opened.access,
+        target,
+        opened.role,
+    )
+    .await?)
 }
 
 pub(crate) async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {

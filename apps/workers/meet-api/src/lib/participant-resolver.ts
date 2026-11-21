@@ -15,15 +15,17 @@ import { findOrCreatePersonByEmail } from '@weldsuite/db/lib/person-resolver';
 import { generateInitialsAvatarSvg } from '@weldsuite/db/lib/mail-contacts';
 import { schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { loadAccountPicture, type AccountPictureEnv } from '@weldsuite/worker-kit/account-pictures';
 
 export interface ResolvedParticipantLink {
   workspaceMemberId?: string;
   personId?: string;
+  /** A member's account picture, or a guest person's avatar. */
   avatarUrl?: string;
   displayName?: string;
 }
 
-interface ResolverEnv {
+interface ResolverEnv extends AccountPictureEnv {
   STORAGE?: R2Bucket;
   R2_PUBLIC_URL?: string;
 }
@@ -61,7 +63,6 @@ export async function resolveParticipantLink(
         .select({
           id: workspaceMembers.id,
           name: workspaceMembers.name,
-          picture: workspaceMembers.picture,
         })
         .from(workspaceMembers)
         .where(eq(workspaceMembers.userId, userId))
@@ -69,7 +70,7 @@ export async function resolveParticipantLink(
       if (byUserId) {
         return {
           workspaceMemberId: byUserId.id,
-          avatarUrl: byUserId.picture ?? undefined,
+          avatarUrl: (await loadAccountPicture(env, userId)) ?? undefined,
           displayName: byUserId.name ?? undefined,
         };
       }
@@ -81,8 +82,8 @@ export async function resolveParticipantLink(
       const [byEmail] = await tenantDb
         .select({
           id: workspaceMembers.id,
+          userId: workspaceMembers.userId,
           name: workspaceMembers.name,
-          picture: workspaceMembers.picture,
         })
         .from(workspaceMembers)
         .where(sql`LOWER(${workspaceMembers.email}) = ${email}`)
@@ -90,7 +91,7 @@ export async function resolveParticipantLink(
       if (byEmail) {
         return {
           workspaceMemberId: byEmail.id,
-          avatarUrl: byEmail.picture ?? undefined,
+          avatarUrl: (await loadAccountPicture(env, byEmail.userId)) ?? undefined,
           displayName: byEmail.name ?? undefined,
         };
       }

@@ -18,6 +18,7 @@ import {
   Loader2,
   AlertTriangle,
   Ban,
+  MailX,
   Paperclip,
   Eye,
   Copy,
@@ -94,6 +95,8 @@ import {
   useSnoozeEmail,
   useUnsnoozeEmail,
 } from '@/hooks/queries/use-mail-queries';
+import { useSenderUnsubscribe } from '../hooks/use-sender-unsubscribe';
+import { UnsubscribeSenderButton } from './unsubscribe-sender-button';
 import { isSystemLabel } from '../lib/label-config';
 import { hasLabel, userLabelsOf, withLabel, withoutLabel } from '../lib/message-labels';
 import { SNOOZE_PRESETS } from '../lib/snooze-presets';
@@ -163,6 +166,11 @@ function fromDisplayString(from: string | MailTypes.EmailAddress | undefined): s
   if (!from) return '';
   if (typeof from === 'string') return from;
   return from.name ? `${from.name} <${from.email}>` : from.email;
+}
+
+// The sender's address of a message, as the header shows it.
+function senderAddressOf(msg: EmailMessage): string {
+  return msg.fromEmail || extractEmail(fromDisplayString(msg.from));
 }
 
 // Generate consistent label color based on label name
@@ -1331,6 +1339,9 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     };
   }, [message, localThread]);
 
+  // The header's sender as a mailing list this mailbox can unsubscribe from.
+  const senderUnsubscribe = useSenderUnsubscribe(accountId, senderAddressOf(newestMessage));
+
   // Our own address on this mailbox — excluded from reply-all recipients.
   const { data: accountsData } = useMailAccounts();
   const accountEmail = useMemo(
@@ -1780,6 +1791,14 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
         toast.error(t.mail.messageDetail.failedToUpdateSpamStatus);
       }
     }
+  };
+
+  // Gmail's "Report spam and unsubscribe", offered only when WeldMail can do the
+  // unsubscribing itself (one-click or an unsubscribe email), never a web page.
+  // Spam either way: the user asked for both, and the hook reports a failed unsubscribe.
+  const handleReportSpamAndUnsubscribe = async () => {
+    await senderUnsubscribe.unsubscribeInPlace();
+    await handleMarkAsSpam();
   };
 
   // The opened message's sender: the one the user is looking at when they block.
@@ -2544,6 +2563,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                     />
                   )}
                 </span>
+                <UnsubscribeSenderButton subscription={senderUnsubscribe.subscription} />
               </div>
             </div>
             <div className="flex items-center gap-0.5 text-muted-foreground flex-shrink-0">
@@ -2633,6 +2653,11 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                       <><AlertTriangle className="mr-0.5 h-4 w-4" /> {t.mail.messageDetail.markAsSpamAction}</>
                     )}
                   </DropdownMenuItem>
+                  {!isInSpamFolder && senderUnsubscribe.canUnsubscribeInPlace && (
+                    <DropdownMenuItem onClick={handleReportSpamAndUnsubscribe} disabled={senderUnsubscribe.isPending}>
+                      <MailX className="mr-0.5 h-4 w-4" /> {t.mail.messageDetail.reportSpamAndUnsubscribe}
+                    </DropdownMenuItem>
+                  )}
                   {senderEmail && (
                     <DropdownMenuItem onClick={handleBlockSender} disabled={blockSenderMutation.isPending}>
                       <Ban className="mr-0.5 h-4 w-4" /> {t.mail.messageDetail.blockSender}

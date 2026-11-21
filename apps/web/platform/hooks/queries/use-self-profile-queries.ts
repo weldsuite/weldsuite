@@ -4,14 +4,15 @@
  *
  * One cache entry for the whole app: the profile settings page reads and
  * writes it, and every place that shows the current user's avatar reads its
- * `picture` (through `useCurrentUserAvatar`). That is the column the avatar
- * upload writes (`workspace_members.picture`) and the one the APIs hand to
- * everyone else, so the user sees the same picture their teammates see, and a
- * new upload shows up everywhere at once.
+ * `picture` (through `useCurrentUserAvatar`). That is the person's account
+ * picture (master `users.image_url`, ADR SEC-020): what the avatar upload
+ * sets and what every API hands to everyone else, so the user sees the same
+ * picture their teammates see, and a new upload shows up everywhere at once.
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+import { useUser } from '@/lib/auth';
 import { teamKeys } from '@/hooks/queries/use-team-queries';
 
 /** Shape returned by GET|PUT /api/settings/profile. */
@@ -85,6 +86,7 @@ export function useUpdateSelfProfile() {
 export function useUploadSelfAvatar() {
   const { getClient } = useAppApiClient();
   const queryClient = useQueryClient();
+  const { user } = useUser();
   return useMutation({
     mutationFn: async (input: UploadSelfAvatarInput) => {
       const client = await getClient();
@@ -99,6 +101,9 @@ export function useUploadSelfAvatar() {
       // Teammate lists, pickers and panels read pictures from the member
       // directory; refetch them so the new avatar replaces the old one there too.
       void invalidateMemberDirectories(queryClient);
+      // The upload set the sign-in provider's picture too: re-read the
+      // signed-in user so anything still drawing `user.imageUrl` follows.
+      void user?.reload().catch(() => {});
     },
   });
 }

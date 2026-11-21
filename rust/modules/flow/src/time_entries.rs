@@ -554,41 +554,36 @@ async fn list_entries(caller: &Caller, f: Filters) -> Reply {
         Some(caller.user_id.clone())
     };
     let result = async {
-        let rows: Vec<(
-            Value,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-        )> = sqlx::query_as(concat!(
-            "select ",
-            time_entry_json!("t"),
-            ", wm.name, wm.email, wm.picture, tk.title from time_entries t",
-            " left join workspace_members wm on t.user_id = wm.user_id",
-            " left join tasks tk on t.task_id = tk.id",
-            " where t.deleted_at is null",
-            " and ($1::text is null or t.user_id = $1)",
-            " and ($2::text is null or t.project_id = $2)",
-            " and ($3::text is null or t.task_id = $3)",
-            " and ($4::text is null or t.status = $4)",
-            " and ($5::bool is null or t.billable = $5)",
-            " and ($6::text is null or t.date >= $6::date)",
-            " and ($7::text is null or t.date <= $7::date)",
-            " and ($10::text is null or t.merge_issue_id = $10)",
-            " order by t.date desc, t.created_at desc limit $8 offset $9"
-        ))
-        .bind(&user)
-        .bind(present(&f.project_id))
-        .bind(present(&f.task_id))
-        .bind(present(&f.status))
-        .bind(f.billable)
-        .bind(present(&f.from_date))
-        .bind(present(&f.to_date))
-        .bind(limit)
-        .bind(offset)
-        .bind(present(&f.merge_issue_id))
-        .fetch_all(&caller.db)
-        .await?;
+        let rows: Vec<(Value, Option<String>, Option<String>, Option<String>)> =
+            sqlx::query_as(concat!(
+                "select ",
+                time_entry_json!("t"),
+                ", wm.name, wm.email, tk.title from time_entries t",
+                " left join workspace_members wm on t.user_id = wm.user_id",
+                " left join tasks tk on t.task_id = tk.id",
+                " where t.deleted_at is null",
+                " and ($1::text is null or t.user_id = $1)",
+                " and ($2::text is null or t.project_id = $2)",
+                " and ($3::text is null or t.task_id = $3)",
+                " and ($4::text is null or t.status = $4)",
+                " and ($5::bool is null or t.billable = $5)",
+                " and ($6::text is null or t.date >= $6::date)",
+                " and ($7::text is null or t.date <= $7::date)",
+                " and ($10::text is null or t.merge_issue_id = $10)",
+                " order by t.date desc, t.created_at desc limit $8 offset $9"
+            ))
+            .bind(&user)
+            .bind(present(&f.project_id))
+            .bind(present(&f.task_id))
+            .bind(present(&f.status))
+            .bind(f.billable)
+            .bind(present(&f.from_date))
+            .bind(present(&f.to_date))
+            .bind(limit)
+            .bind(offset)
+            .bind(present(&f.merge_issue_id))
+            .fetch_all(&caller.db)
+            .await?;
         let total: i32 = sqlx::query_scalar(concat!(
             "select count(*)::int from time_entries t where t.deleted_at is null",
             " and ($1::text is null or t.user_id = $1)",
@@ -610,11 +605,22 @@ async fn list_entries(caller: &Caller, f: Filters) -> Reply {
         .bind(present(&f.merge_issue_id))
         .fetch_one(&caller.db)
         .await?;
+        // Avatars are account pictures, not the member row's copy.
+        let pictures = weldsuite_db::AccountPictures::load(
+            caller.request_master(),
+            rows.iter().filter_map(|(row, ..)| row["user_id"].as_str()),
+        )
+        .await;
         let rows: Vec<Value> = rows
             .into_iter()
-            .map(|(row, name, email, avatar, task_title)| {
+            .map(|(row, name, email, task_title)| {
                 let mut row = js_row(row);
                 let user_id = row["userId"].clone();
+                let avatar = user_id
+                    .as_str()
+                    .and_then(|id| pictures.get(id))
+                    .unwrap_or_default()
+                    .to_owned();
                 let task_id = row["taskId"]
                     .as_str()
                     .filter(|t| !t.is_empty())
@@ -629,7 +635,7 @@ async fn list_entries(caller: &Caller, f: Filters) -> Reply {
                             "id": user_id,
                             "name": display,
                             "email": email.unwrap_or_default(),
-                            "avatar": avatar.unwrap_or_default(),
+                            "avatar": avatar,
                         }),
                     );
                     if let (Some(task_id), Some(title)) =
@@ -738,13 +744,7 @@ impl Roster {
     }
 }
 
-type MemberRow = (
-    String,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-);
+type MemberRow = (String, Option<String>, Option<String>, Option<String>);
 type TotalRow = (String, Option<bool>, f64, i32);
 
 async fn team_summary(caller: Caller, RawQuery(raw): RawQuery) -> Response {
@@ -792,7 +792,7 @@ async fn summarise(caller: &Caller, project_id: &str, f: &Filters) -> Reply {
         return Err(Refusal::not_found("Project", project_id));
     };
     let members: Vec<MemberRow> = sqlx::query_as(
-        "select pm.user_id, pm.role, wm.name, wm.email, wm.picture from project_members pm
+        "select pm.user_id, pm.role, wm.name, wm.email from project_members pm
          left join workspace_members wm on pm.user_id = wm.user_id
          where pm.project_id = $1 and pm.is_active = true and pm.deleted_at is null",
     )
@@ -836,8 +836,15 @@ async fn summarise(caller: &Caller, project_id: &str, f: &Filters) -> Reply {
 
     // The roster first (zero-hour members included), then anyone with hours
     // who has since left the project.
+    // Avatars are account pictures, not the member row's copy: one lookup
+    // for the roster and everyone with hours.
+    let mut everyone: Vec<&str> = members.iter().map(|(user, ..)| user.as_str()).collect();
+    everyone.extend(totals.iter().map(|(user, ..)| user.as_str()));
+    let pictures = weldsuite_db::AccountPictures::load(caller.request_master(), everyone).await;
+    let avatar_of = |user: &str| pictures.get(user).map(str::to_owned);
     let mut roster = Roster::default();
-    for (user, role, name, email, avatar) in members {
+    for (user, role, name, email) in members {
+        let avatar = avatar_of(&user);
         roster.set(Bucket::blank(&user, name, email, avatar, role, true));
     }
     let mut off_roster: Vec<String> = Vec::new();
@@ -847,19 +854,26 @@ async fn summarise(caller: &Caller, project_id: &str, f: &Filters) -> Reply {
         }
     }
     if !off_roster.is_empty() {
-        let former: Vec<(String, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
-            "select user_id, name, email, picture from workspace_members where user_id = any($1)",
+        let former: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
+            "select user_id, name, email from workspace_members where user_id = any($1)",
         )
         .bind(&off_roster)
         .fetch_all(db)
         .await?;
-        let directory: HashMap<String, (Option<String>, Option<String>, Option<String>)> = former
+        let directory: HashMap<String, (Option<String>, Option<String>)> = former
             .into_iter()
-            .map(|(user, name, email, avatar)| (user, (name, email, avatar)))
+            .map(|(user, name, email)| (user, (name, email)))
             .collect();
         for user in &off_roster {
-            let (name, email, avatar) = directory.get(user).cloned().unwrap_or_default();
-            roster.set(Bucket::blank(user, name, email, avatar, None, false));
+            let (name, email) = directory.get(user).cloned().unwrap_or_default();
+            roster.set(Bucket::blank(
+                user,
+                name,
+                email,
+                avatar_of(user),
+                None,
+                false,
+            ));
         }
     }
     // `addTotalsToBuckets`.

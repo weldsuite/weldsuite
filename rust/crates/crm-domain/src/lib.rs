@@ -114,6 +114,19 @@ impl DomainError {
     }
 }
 
+/// An ORM failure is a database failure; the route answers its 500 with the message.
+impl From<sea_orm::DbErr> for DomainError {
+    fn from(error: sea_orm::DbErr) -> Self {
+        Self::Other(error.to_string())
+    }
+}
+
+impl From<serde_json::Error> for DomainError {
+    fn from(error: serde_json::Error) -> Self {
+        Self::Other(error.to_string())
+    }
+}
+
 impl From<sqlx::Error> for DomainError {
     fn from(error: sqlx::Error) -> Self {
         Self::Database(error)
