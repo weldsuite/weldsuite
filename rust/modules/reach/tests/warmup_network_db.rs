@@ -8,6 +8,11 @@
 //! The pool spans every workspace, so the cases own the pool tables and run
 //! one after the other in a single test.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+
 use std::sync::{Arc, Mutex};
 
 use serde_json::{Value, json};

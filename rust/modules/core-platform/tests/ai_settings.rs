@@ -13,6 +13,11 @@
 //! ciphertext fails to open, events carry no key, and overrides are refused
 //! for fixed features and for disabled providers.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+
 use std::collections::BTreeMap;
 use std::sync::Arc;
 

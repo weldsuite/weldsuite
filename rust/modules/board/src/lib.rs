@@ -26,6 +26,11 @@
 //! `/internal/boards/*` (the `BoardsInternal` entrypoint for the agent tools
 //! and the MCP server, whose callers are not ported).
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
+
 mod agent;
 mod ai;
 mod links;

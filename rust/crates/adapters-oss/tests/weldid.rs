@@ -3,6 +3,11 @@
 //! half against a real Postgres when `WELDSUITE_TEST_DATABASE_URL` points at a
 //! throwaway database (otherwise that test returns early).
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+
 use std::sync::{Arc, Mutex};
 
 use aws_lc_rs::rand::SystemRandom;

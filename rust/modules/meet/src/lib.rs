@@ -18,6 +18,11 @@
 //! Paths, bodies, status codes, messages and entity events are the
 //! TypeScript worker's; its tests run against this crate in the `meet`
 //! conformance suite (`rust/conformance/suites.json`).
+
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
 // Route handlers follow the worker's handlers step by step, row tuples are
 // sqlx's, names follow the worker's, and a PATCH field can be absent or null.
 #![allow(

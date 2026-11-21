@@ -27,9 +27,9 @@ pub const STATEMENT_BREAKPOINT: &str = "--> statement-breakpoint";
 /// Which migrations: the master database's or the tenant databases'.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Folder {
-    /// `packages/core/db/drizzle/master-migrations`.
+    /// `rust/migrations/master`.
     Master,
-    /// `packages/core/db/drizzle/tenant-migrations`.
+    /// `rust/migrations/tenant`.
     Tenant,
     /// `packages/core/db/drizzle/personal-migrations`: the shared personal
     /// database of personal-api (ADR DATA-011), migrated by

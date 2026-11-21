@@ -6,6 +6,10 @@
 //! tenant schema when `WELDSUITE_TEST_TENANT_URL` is set (built by
 //! `scripts/rust-test-db.ts`) and, for the keys, the master registry at
 //! `WELDSUITE_TEST_MASTER_URL`; a test returns early without them.
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
 
 // Each test is a scenario, read top to bottom.
 #![allow(clippy::too_many_lines, clippy::unwrap_used)]

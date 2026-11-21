@@ -3,6 +3,10 @@
 //! `scripts/rust-test-db.ts`; returns early without it): a paid order becomes
 //! a finalised invoice with its payment recorded, and a partial refund a
 //! credit note scaled to the refunded amount, both once.
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
 
 use serde_json::Value;
 use weldsuite_books_domain::http::BooksState;

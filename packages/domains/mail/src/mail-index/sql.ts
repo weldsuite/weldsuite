@@ -60,7 +60,7 @@ export const MAIL_INDEX_MIGRATIONS: readonly MailIndexMigration[] = [
 
 /**
  * Inbound event upsert: ports `mail_correspondents_track_inbound()`
- * (packages/core/db/drizzle/tenant-migrations/0214_outbound_mail_guard.sql)
+ * (rust/migrations/tenant/0214_outbound_mail_guard.sql)
  * statement-for-statement. Outbound columns are never touched here, matching
  * the trigger (it only sets the inbound columns and `replied_after_first_contact`).
  * `replied_after_first_contact` reads the *pre*-update row (SQLite's bare

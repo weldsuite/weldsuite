@@ -6,6 +6,11 @@
 //! Runs when `WELDSUITE_TEST_TENANT_URL` is set (`scripts/rust-test-db.ts`),
 //! on a copy of `connector_connections` in a throwaway schema.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 

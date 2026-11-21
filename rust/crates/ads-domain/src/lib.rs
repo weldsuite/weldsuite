@@ -7,6 +7,11 @@
 //! plain HTTP client on Kubernetes and the harness's outbound bridge in
 //! conformance builds, so the calls both backends make are compared.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
+
 pub mod campaigns;
 pub mod meta;
 pub mod sync;

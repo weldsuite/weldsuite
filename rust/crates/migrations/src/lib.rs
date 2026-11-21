@@ -1,10 +1,11 @@
 //! The database migrations of the Kubernetes editions (`weldsuite migrate`).
 //!
-//! The Drizzle schema in `packages/core/db` stays the one definition of the
-//! tables, and its generated SQL (`packages/core/db/drizzle/{master,tenant}-migrations`)
-//! the one list of migrations. `build.rs` embeds that SQL in the binary, in
-//! journal order, so the image carries exactly the migrations its code was
-//! built against and needs no Node and no files at run time (OPS-013).
+//! The entities in `weldsuite-schema` are the one definition of the tables,
+//! and the SQL generated from them (`rust/migrations/{master,tenant}`, in
+//! Drizzle's file format, ADR DATA-019) the one list of migrations. `build.rs`
+//! embeds that SQL in the binary, in journal order, so the image carries
+//! exactly the migrations its code was built against and needs no Node and
+//! no files at run time (OPS-013).
 //!
 //! The runner is the TypeScript one's twin, so a database migrated by either
 //! is up to date for the other:
@@ -21,6 +22,11 @@
 //!
 //! [`migrate_database`] is the library entry the `DatabaseProvisioner`
 //! adapter calls to bring a new tenant database to the journal level.
+
+#![allow(
+    clippy::disallowed_methods,
+    reason = "the migration runner applies SQL by nature (ADR DATA-019)"
+)]
 
 mod apply;
 mod journal;

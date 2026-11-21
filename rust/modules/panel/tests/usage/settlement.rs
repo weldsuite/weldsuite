@@ -9,6 +9,11 @@
 //! returns early. The tests share the database, and one of them sets the
 //! global price list, so they run one at a time.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+
 use std::sync::{Arc, LazyLock};
 
 use serde_json::{Value, json};

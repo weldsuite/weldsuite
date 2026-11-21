@@ -6,6 +6,10 @@
 //! The permission refusals run without a database. The rest runs on the real
 //! tenant schema when `WELDSUITE_TEST_TENANT_URL` is set (built by
 //! `scripts/rust-test-db.ts`) and returns early otherwise.
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
 
 // Each test is a scenario, read top to bottom.
 #![allow(clippy::too_many_lines)]

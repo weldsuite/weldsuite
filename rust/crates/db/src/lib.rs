@@ -7,9 +7,15 @@
 //! over TCP with a pool per database instead of the Workers' per-request
 //! Neon HTTP client.
 //!
-//! The SQL is written by hand against the Drizzle schema in
-//! `packages/core/db/src/schema/`, which stays the one definition of the
-//! tables; migrations stay with Drizzle too.
+//! The tables are the SeaORM entities in `weldsuite-schema` (ADR DATA-019).
+//! New queries go through them: [`orm`] puts SeaORM on a pool, and
+//! [`OrmConn`] lets ORM statements join a transaction `atomically_with`
+//! opened. The SQL here predates the entities.
+
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
 
 pub mod account_pictures;
 mod atomically;

@@ -34,6 +34,11 @@
 //! to compare it with and so no conformance suite: those routes have their
 //! own tests in `tests/`.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
+
 #[macro_use]
 #[rustfmt::skip]
 mod tables;

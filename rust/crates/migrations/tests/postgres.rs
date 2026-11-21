@@ -10,6 +10,11 @@
 //! `__drizzle_migrations` rows, either runner finishing what the other
 //! started) was checked by running both; see the module docs of `apply.rs`.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use sqlx::{Connection, PgConnection};

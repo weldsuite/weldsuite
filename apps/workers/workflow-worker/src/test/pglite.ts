@@ -53,7 +53,7 @@ export async function createPgliteDb(): Promise<PgliteHandle> {
     const here = path.dirname(url.fileURLToPath(import.meta.url));
     const migrationsDir = path.resolve(
       here,
-      '../../../../../packages/core/db/drizzle/tenant-migrations',
+      '../../../../../rust/migrations/tenant',
     );
     const files = (await fs.readdir(migrationsDir))
       .filter((f) => f.endsWith('.sql'))

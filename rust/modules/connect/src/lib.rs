@@ -18,6 +18,10 @@
 //! TypeScript worker's; its tests run against this crate in the `connect`
 //! conformance suites (`rust/conformance/suites.json`).
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
 // Handlers mirror the TypeScript routes one for one; the long ones stay whole.
 #![allow(
     clippy::too_many_lines,

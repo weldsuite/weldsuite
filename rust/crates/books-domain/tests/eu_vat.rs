@@ -4,6 +4,10 @@
 //! outbound HTTP port is absent, so an uncached number reads as VIES down).
 //!
 //! Runs when `WELDSUITE_TEST_TENANT_URL` is set; otherwise it returns early.
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
 
 use weldsuite_books_domain::tax::TaxError;
 use weldsuite_books_domain::tax::eu_vat::{

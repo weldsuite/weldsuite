@@ -1,6 +1,6 @@
 [package]
 name = "weldsuite-schema"
-description = "The master and tenant schemas as SeaORM entities, one per table, with each table's DDL; generated from the Drizzle schema by `pnpm rust:schema` until the flip"
+description = "The master and tenant schemas as SeaORM entities, one per table, with each table's DDL: the source the migrations are generated from (ADR DATA-019)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

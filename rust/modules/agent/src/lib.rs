@@ -18,6 +18,10 @@
 //!
 //! Paths, bodies, status codes and messages are the TypeScript worker's.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
 // The `Err` of the helpers below is the response a handler returns as it is.
 #![allow(clippy::result_large_err)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::assert_is_empty))]

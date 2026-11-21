@@ -8,6 +8,11 @@
 //! Runs when `WELDSUITE_TEST_MASTER_URL` is set; otherwise every test
 //! returns early.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+
 use std::sync::{Arc, Mutex};
 
 use serde_json::{Map, Value, json};

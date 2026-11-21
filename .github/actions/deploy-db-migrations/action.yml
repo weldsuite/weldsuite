@@ -1,8 +1,12 @@
 name: Deploy database migrations
 description: >-
-  Applies the master, personal and tenant Postgres migrations. Expects this
-  repo checked out at the workspace root. Secrets come in as inputs because a
-  composite action cannot read the `secrets` context.
+  Applies the master, personal and tenant Postgres migrations to Global's
+  databases. Switched off since ADR DATA-019: the deploy plan's `migrations`
+  output is always "false" (.github/scripts/deploy-plan.mjs), and Global's
+  databases get the newer migrations from `weldsuite migrate` when they move
+  into the EU install. Expects this repo checked out at the workspace root.
+  Secrets come in as inputs because a composite action cannot read the
+  `secrets` context.
 
 inputs:
   master-database-url:

@@ -10,6 +10,10 @@
 //! it (outbound HTTP for DNS-over-HTTPS, the SMTP transport). Refusals are
 //! [`ReachError`]s, which each route turns into the standard error envelope.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
 // JavaScript numbers (millisecond clocks, ratios, `Math.round`) are
 // mirrored on purpose, and the ported functions keep the TypeScript shape.
 #![allow(

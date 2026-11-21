@@ -7,13 +7,12 @@
   "scripts": {
     "lint": "eslint .",
     "type-check": "tsc --noEmit",
-    "db:generate": "drizzle-kit generate && node scripts/prune-snapshots.mjs",
-    "db:generate:master": "drizzle-kit generate --config=drizzle.master.config.ts && node scripts/prune-snapshots.mjs",
+    "db:generate": "tsx ../../../scripts/db-generate.ts tenant",
+    "db:generate:master": "tsx ../../../scripts/db-generate.ts master",
     "db:generate:personal": "drizzle-kit generate --config=drizzle.personal.config.ts && node scripts/prune-snapshots.mjs",
     "db:prune-snapshots": "node scripts/prune-snapshots.mjs",
     "db:migrate:master": "drizzle-kit migrate --config=drizzle.master.config.ts",
     "db:migrate:personal": "drizzle-kit migrate --config=drizzle.personal.config.ts",
-    "db:studio": "drizzle-kit studio",
     "seed:ai-gateway-credits": "tsx scripts/seed-ai-gateway-credits.ts",
     "test": "vitest run",
     "test:watch": "vitest"
@@ -57,8 +56,6 @@
     "./schema/*": "./src/schema/*.ts",
     "./lib": "./src/lib/index.ts",
     "./lib/*": "./src/lib/*.ts",
-    "./migrations": "./drizzle/tenant-migrations",
-    "./migrations/master": "./drizzle/master-migrations",
     "./migrations/personal": "./drizzle/personal-migrations"
   }
 }

@@ -6,6 +6,11 @@
 //! loses its clocks. The behaviour itself is compared with TypeScript by the
 //! `desk: SLA` conformance suite and `sla_parity.rs`.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+
 use serde_json::{Map, json};
 use sqlx::PgPool;
 use weldsuite_desk_domain::sla::{self, ConversationRef, Metric};

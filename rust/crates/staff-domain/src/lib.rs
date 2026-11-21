@@ -17,6 +17,11 @@
 //! master transaction together with its audit row, and can be planned
 //! without writing (`dry_run`).
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
+
 pub mod access;
 pub mod audit;
 pub mod staff;

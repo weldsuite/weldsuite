@@ -9696,7 +9696,9 @@
             "channel": "workspace:org_test",
             "payload": {
               "data": {
+                "approvalStatus": null,
                 "assigneeId": null,
+                "catalogItemId": null,
                 "channel": "api",
                 "contactId": null,
                 "conversationNumber": 1,
@@ -9717,6 +9719,7 @@
                 "name": "Datadog",
                 "parentConversationId": null,
                 "priority": null,
+                "problemId": null,
                 "ratedAt": null,
                 "rating": null,
                 "ratingComment": null,
@@ -9881,7 +9884,9 @@
             "channel": "workspace:org_test",
             "payload": {
               "data": {
+                "approvalStatus": null,
                 "assigneeId": null,
+                "catalogItemId": null,
                 "channel": "api",
                 "contactId": null,
                 "conversationNumber": 1,
@@ -9902,6 +9907,7 @@
                 "name": "Datadog",
                 "parentConversationId": null,
                 "priority": null,
+                "problemId": null,
                 "ratedAt": null,
                 "rating": null,
                 "ratingComment": null,
@@ -10008,7 +10014,9 @@
             "channel": "workspace:org_test",
             "payload": {
               "data": {
+                "approvalStatus": null,
                 "assigneeId": null,
+                "catalogItemId": null,
                 "channel": "api",
                 "contactId": null,
                 "conversationNumber": 2,
@@ -10029,6 +10037,7 @@
                 "name": "Cy",
                 "parentConversationId": null,
                 "priority": null,
+                "problemId": null,
                 "ratedAt": null,
                 "rating": null,
                 "ratingComment": null,
@@ -10193,7 +10202,9 @@
             "channel": "workspace:org_test",
             "payload": {
               "data": {
+                "approvalStatus": null,
                 "assigneeId": "user_approver",
+                "catalogItemId": null,
                 "channel": "api",
                 "contactId": null,
                 "conversationNumber": 1,
@@ -10214,6 +10225,7 @@
                 "name": "Datadog",
                 "parentConversationId": null,
                 "priority": null,
+                "problemId": null,
                 "ratedAt": null,
                 "rating": null,
                 "ratingComment": null,
@@ -10363,7 +10375,9 @@
             "channel": "workspace:org_test",
             "payload": {
               "data": {
+                "approvalStatus": null,
                 "assigneeId": "user_approver",
+                "catalogItemId": null,
                 "channel": "api",
                 "contactId": null,
                 "conversationNumber": 1,
@@ -10385,6 +10399,7 @@
                 "name": "Datadog",
                 "parentConversationId": null,
                 "priority": null,
+                "problemId": null,
                 "ratedAt": null,
                 "rating": null,
                 "ratingComment": null,
@@ -10478,7 +10493,9 @@
             "channel": "workspace:org_test",
             "payload": {
               "data": {
+                "approvalStatus": null,
                 "assigneeId": "user_approver",
+                "catalogItemId": null,
                 "channel": "api",
                 "contactId": null,
                 "conversationNumber": 1,
@@ -10500,6 +10517,7 @@
                 "name": "Datadog",
                 "parentConversationId": null,
                 "priority": null,
+                "problemId": null,
                 "ratedAt": null,
                 "rating": null,
                 "ratingComment": null,
@@ -10594,7 +10612,9 @@
             "channel": "workspace:org_test",
             "payload": {
               "data": {
+                "approvalStatus": null,
                 "assigneeId": "user_approver",
+                "catalogItemId": null,
                 "channel": "api",
                 "contactId": null,
                 "conversationNumber": 1,
@@ -10616,6 +10636,7 @@
                 "name": "Datadog",
                 "parentConversationId": null,
                 "priority": "urgent",
+                "problemId": null,
                 "ratedAt": null,
                 "rating": null,
                 "ratingComment": null,
@@ -10735,7 +10756,9 @@
             "channel": "workspace:org_test",
             "payload": {
               "data": {
+                "approvalStatus": null,
                 "assigneeId": "user_approver",
+                "catalogItemId": null,
                 "channel": "api",
                 "contactId": null,
                 "conversationNumber": 1,
@@ -10756,6 +10779,7 @@
                 "name": "Datadog",
                 "parentConversationId": null,
                 "priority": "urgent",
+                "problemId": null,
                 "ratedAt": null,
                 "rating": null,
                 "ratingComment": null,
@@ -10861,7 +10885,9 @@
             "channel": "workspace:org_test",
             "payload": {
               "data": {
+                "approvalStatus": null,
                 "assigneeId": null,
+                "catalogItemId": null,
                 "channel": "api",
                 "contactId": null,
                 "conversationNumber": 2,
@@ -10882,6 +10908,7 @@
                 "name": "Cy",
                 "parentConversationId": null,
                 "priority": null,
+                "problemId": null,
                 "ratedAt": null,
                 "rating": null,
                 "ratingComment": null,
@@ -10990,7 +11017,9 @@
             "channel": "workspace:org_test",
             "payload": {
               "data": {
+                "approvalStatus": null,
                 "assigneeId": "user_approver",
+                "catalogItemId": null,
                 "channel": "api",
                 "contactId": null,
                 "conversationNumber": 1,
@@ -11011,6 +11040,7 @@
                 "name": "Datadog",
                 "parentConversationId": null,
                 "priority": "urgent",
+                "problemId": null,
                 "ratedAt": null,
                 "rating": null,
                 "ratingComment": null,
@@ -11193,7 +11223,9 @@
             "channel": "workspace:org_test",
             "payload": {
               "data": {
+                "approvalStatus": null,
                 "assigneeId": "user_approver",
+                "catalogItemId": null,
                 "channel": "api",
                 "contactId": null,
                 "conversationNumber": 1,
@@ -11215,6 +11247,7 @@
                 "name": "Datadog",
                 "parentConversationId": null,
                 "priority": null,
+                "problemId": null,
                 "ratedAt": null,
                 "rating": null,
                 "ratingComment": null,
@@ -12307,7 +12340,9 @@
             "channel": "workspace:org_test",
             "payload": {
               "data": {
+                "approvalStatus": null,
                 "assigneeId": null,
+                "catalogItemId": null,
                 "channel": "api",
                 "contactId": null,
                 "conversationNumber": 1,
@@ -12328,6 +12363,7 @@
                 "name": null,
                 "parentConversationId": null,
                 "priority": "urgent",
+                "problemId": null,
                 "ratedAt": null,
                 "rating": null,
                 "ratingComment": null,
@@ -12562,7 +12598,9 @@
             "channel": "workspace:org_test",
             "payload": {
               "data": {
+                "approvalStatus": null,
                 "assigneeId": null,
+                "catalogItemId": null,
                 "channel": "api",
                 "contactId": null,
                 "conversationNumber": 1,
@@ -12583,6 +12621,7 @@
                 "name": null,
                 "parentConversationId": null,
                 "priority": "urgent",
+                "problemId": null,
                 "ratedAt": null,
                 "rating": null,
                 "ratingComment": null,
@@ -12662,7 +12701,9 @@
             "channel": "workspace:org_test",
             "payload": {
               "data": {
+                "approvalStatus": null,
                 "assigneeId": null,
+                "catalogItemId": null,
                 "channel": "api",
                 "contactId": null,
                 "conversationNumber": 1,
@@ -12683,6 +12724,7 @@
                 "name": null,
                 "parentConversationId": null,
                 "priority": "urgent",
+                "problemId": null,
                 "ratedAt": null,
                 "rating": null,
                 "ratingComment": null,
@@ -12833,7 +12875,9 @@
             "channel": "workspace:org_test",
             "payload": {
               "data": {
+                "approvalStatus": null,
                 "assigneeId": null,
+                "catalogItemId": null,
                 "channel": "api",
                 "contactId": null,
                 "conversationNumber": 2,
@@ -12854,6 +12898,7 @@
                 "name": null,
                 "parentConversationId": null,
                 "priority": "high",
+                "problemId": null,
                 "ratedAt": null,
                 "rating": null,
                 "ratingComment": null,
@@ -13088,7 +13133,9 @@
             "channel": "workspace:org_test",
             "payload": {
               "data": {
+                "approvalStatus": null,
                 "assigneeId": null,
+                "catalogItemId": null,
                 "channel": "api",
                 "contactId": null,
                 "conversationNumber": 3,
@@ -13109,6 +13156,7 @@
                 "name": null,
                 "parentConversationId": null,
                 "priority": "high",
+                "problemId": null,
                 "ratedAt": null,
                 "rating": null,
                 "ratingComment": null,
@@ -13373,7 +13421,9 @@
             "channel": "workspace:org_test",
             "payload": {
               "data": {
+                "approvalStatus": null,
                 "assigneeId": null,
+                "catalogItemId": null,
                 "channel": "api",
                 "contactId": null,
                 "conversationNumber": 4,
@@ -13394,6 +13444,7 @@
                 "name": null,
                 "parentConversationId": null,
                 "priority": null,
+                "problemId": null,
                 "ratedAt": null,
                 "rating": null,
                 "ratingComment": null,
@@ -14656,7 +14707,9 @@
             "channel": "workspace:org_test",
             "payload": {
               "data": {
+                "approvalStatus": null,
                 "assigneeId": null,
+                "catalogItemId": null,
                 "channel": "api",
                 "contactId": null,
                 "conversationNumber": 1,
@@ -14677,6 +14730,7 @@
                 "name": null,
                 "parentConversationId": null,
                 "priority": "medium",
+                "problemId": null,
                 "ratedAt": null,
                 "rating": null,
                 "ratingComment": null,
@@ -14911,7 +14965,9 @@
             "channel": "workspace:org_test",
             "payload": {
               "data": {
+                "approvalStatus": null,
                 "assigneeId": null,
+                "catalogItemId": null,
                 "channel": "api",
                 "contactId": null,
                 "conversationNumber": 2,
@@ -14932,6 +14988,7 @@
                 "name": null,
                 "parentConversationId": null,
                 "priority": "medium",
+                "problemId": null,
                 "ratedAt": null,
                 "rating": null,
                 "ratingComment": null,
@@ -15166,7 +15223,9 @@
             "channel": "workspace:org_test",
             "payload": {
               "data": {
+                "approvalStatus": null,
                 "assigneeId": null,
+                "catalogItemId": null,
                 "channel": "api",
                 "contactId": null,
                 "conversationNumber": 1,
@@ -15187,6 +15246,7 @@
                 "name": null,
                 "parentConversationId": null,
                 "priority": "urgent",
+                "problemId": null,
                 "ratedAt": null,
                 "rating": null,
                 "ratingComment": null,
@@ -15355,7 +15415,9 @@
             "channel": "workspace:org_test",
             "payload": {
               "data": {
+                "approvalStatus": null,
                 "assigneeId": null,
+                "catalogItemId": null,
                 "channel": "api",
                 "contactId": null,
                 "conversationNumber": 1,
@@ -15376,6 +15438,7 @@
                 "name": null,
                 "parentConversationId": null,
                 "priority": "urgent",
+                "problemId": null,
                 "ratedAt": null,
                 "rating": null,
                 "ratingComment": null,
@@ -15515,7 +15578,9 @@
             "channel": "workspace:org_test",
             "payload": {
               "data": {
+                "approvalStatus": null,
                 "assigneeId": null,
+                "catalogItemId": null,
                 "channel": "api",
                 "contactId": null,
                 "conversationNumber": 1,
@@ -15536,6 +15601,7 @@
                 "name": null,
                 "parentConversationId": null,
                 "priority": "urgent",
+                "problemId": null,
                 "ratedAt": null,
                 "rating": null,
                 "ratingComment": null,
@@ -15615,7 +15681,9 @@
             "channel": "workspace:org_test",
             "payload": {
               "data": {
+                "approvalStatus": null,
                 "assigneeId": null,
+                "catalogItemId": null,
                 "channel": "api",
                 "contactId": null,
                 "conversationNumber": 1,
@@ -15636,6 +15704,7 @@
                 "name": null,
                 "parentConversationId": null,
                 "priority": "urgent",
+                "problemId": null,
                 "ratedAt": null,
                 "rating": null,
                 "ratingComment": null,
@@ -15786,7 +15855,9 @@
             "channel": "workspace:org_test",
             "payload": {
               "data": {
+                "approvalStatus": null,
                 "assigneeId": null,
+                "catalogItemId": null,
                 "channel": "api",
                 "contactId": null,
                 "conversationNumber": 1,
@@ -15807,6 +15878,7 @@
                 "name": null,
                 "parentConversationId": null,
                 "priority": "medium",
+                "problemId": null,
                 "ratedAt": null,
                 "rating": null,
                 "ratingComment": null,
@@ -16033,7 +16105,9 @@
             "channel": "workspace:org_test",
             "payload": {
               "data": {
+                "approvalStatus": null,
                 "assigneeId": null,
+                "catalogItemId": null,
                 "channel": "api",
                 "contactId": null,
                 "conversationNumber": 2,
@@ -16054,6 +16128,7 @@
                 "name": null,
                 "parentConversationId": null,
                 "priority": "high",
+                "problemId": null,
                 "ratedAt": null,
                 "rating": null,
                 "ratingComment": null,
@@ -16222,7 +16297,9 @@
             "channel": "workspace:org_test",
             "payload": {
               "data": {
+                "approvalStatus": null,
                 "assigneeId": null,
+                "catalogItemId": null,
                 "channel": "api",
                 "contactId": null,
                 "conversationNumber": 3,
@@ -16243,6 +16320,7 @@
                 "name": null,
                 "parentConversationId": null,
                 "priority": "high",
+                "problemId": null,
                 "ratedAt": null,
                 "rating": null,
                 "ratingComment": null,
@@ -16477,7 +16555,9 @@
             "channel": "workspace:org_test",
             "payload": {
               "data": {
+                "approvalStatus": null,
                 "assigneeId": null,
+                "catalogItemId": null,
                 "channel": "api",
                 "contactId": null,
                 "conversationNumber": 4,
@@ -16498,6 +16578,7 @@
                 "name": null,
                 "parentConversationId": null,
                 "priority": "urgent",
+                "problemId": null,
                 "ratedAt": null,
                 "rating": null,
                 "ratingComment": null,
@@ -16732,7 +16813,9 @@
             "channel": "workspace:org_test",
             "payload": {
               "data": {
+                "approvalStatus": null,
                 "assigneeId": null,
+                "catalogItemId": null,
                 "channel": "api",
                 "contactId": null,
                 "conversationNumber": 5,
@@ -16753,6 +16836,7 @@
                 "name": null,
                 "parentConversationId": null,
                 "priority": "high",
+                "problemId": null,
                 "ratedAt": null,
                 "rating": null,
                 "ratingComment": null,
@@ -16957,7 +17041,9 @@
             "channel": "workspace:org_test",
             "payload": {
               "data": {
+                "approvalStatus": null,
                 "assigneeId": null,
+                "catalogItemId": null,
                 "channel": "api",
                 "contactId": null,
                 "conversationNumber": 6,
@@ -16978,6 +17064,7 @@
                 "name": null,
                 "parentConversationId": null,
                 "priority": "low",
+                "problemId": null,
                 "ratedAt": null,
                 "rating": null,
                 "ratingComment": null,
@@ -17171,7 +17258,9 @@
             "channel": "workspace:org_test",
             "payload": {
               "data": {
+                "approvalStatus": null,
                 "assigneeId": null,
+                "catalogItemId": null,
                 "channel": "api",
                 "contactId": null,
                 "conversationNumber": 7,
@@ -17192,6 +17281,7 @@
                 "name": null,
                 "parentConversationId": null,
                 "priority": "urgent",
+                "problemId": null,
                 "ratedAt": null,
                 "rating": null,
                 "ratingComment": null,

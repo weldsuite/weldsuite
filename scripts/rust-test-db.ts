@@ -1,6 +1,6 @@
 /**
- * Build a master and a tenant database from the journaled Drizzle migrations
- * (packages/core/db/drizzle/{master,tenant}-migrations), for the Rust tests
+ * Build a master and a tenant database from the journaled migrations
+ * (rust/migrations/{master,tenant}), for the Rust tests
  * that check their SQL against the real schema and for the kind smoke test.
  *
  *   tsx scripts/rust-test-db.ts --master postgres://… --tenant postgres://…
@@ -17,14 +17,14 @@ import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const migrationsRoot = path.join(repo, 'packages', 'core', 'db', 'drizzle');
+const migrationsRoot = path.join(repo, 'rust', 'migrations');
 
 function argument(name: string): string | undefined {
   const index = process.argv.indexOf(`--${name}`);
   return index >= 0 ? process.argv[index + 1] : undefined;
 }
 
-async function migrate(url: string, folder: 'master-migrations' | 'tenant-migrations'): Promise<number> {
+async function migrate(url: string, folder: 'master' | 'tenant'): Promise<number> {
   const dir = path.join(migrationsRoot, folder);
   const journal = JSON.parse(readFileSync(path.join(dir, 'meta', '_journal.json'), 'utf8')) as {
     entries: Array<{ idx: number; tag: string }>;
@@ -62,8 +62,8 @@ async function main(): Promise<void> {
     console.error('usage: tsx scripts/rust-test-db.ts --master <url> --tenant <url>');
     process.exit(2);
   }
-  if (master) console.log(`master: ${await migrate(master, 'master-migrations')} migrations`);
-  if (tenant) console.log(`tenant: ${await migrate(tenant, 'tenant-migrations')} migrations`);
+  if (master) console.log(`master: ${await migrate(master, 'master')} migrations`);
+  if (tenant) console.log(`tenant: ${await migrate(tenant, 'tenant')} migrations`);
 }
 
 void main();
