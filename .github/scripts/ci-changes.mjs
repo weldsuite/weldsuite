@@ -138,6 +138,16 @@ const RUST_PATHS = [
 const RUST_PACKAGES = ['packages/core/realtime', 'apps/tools/collab-rooms'];
 
 /**
+ * The master and tenant migrations (ADR DATA-019). They lived in @weldsuite/db
+ * until the schema moved to Rust, and the TypeScript tests that apply the
+ * journal still depend on that package: worker-kit's pglite harness,
+ * workspace-worker, migrate-databases and the backfill tests. A changed
+ * migration counts as a change to it, so those suites run.
+ */
+const MIGRATIONS_DIR = 'rust/migrations/';
+const MIGRATIONS_PACKAGE = 'packages/core/db';
+
+/**
  * Under rust/, but read by no Rust build or test (no `include_str!`, no test
  * reads them): the deploy configuration (the "deploy" area, and the image
  * area for the chart), the image's Dockerfile and helpers (the image area),
@@ -365,6 +375,7 @@ function decideAreas(files) {
     if (rust) on('rust', file);
     else if (isInert(file)) continue;
     if (file.startsWith('apps/workers/')) on('workers', file);
+    if (file.startsWith(MIGRATIONS_DIR) && packages.has(MIGRATIONS_PACKAGE)) changed.add(MIGRATIONS_PACKAGE);
     const dir = packageOf(file, dirs);
     if (dir) changed.add(dir);
     else if (!rust) return allAreas(`${file} is outside every package and not known to be inert`);

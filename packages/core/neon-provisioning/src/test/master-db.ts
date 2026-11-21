@@ -28,7 +28,7 @@ export async function createMasterTestDb(): Promise<MasterTestDb> {
   const db = drizzle(client, { schema: masterSchema });
 
   const here = path.dirname(fileURLToPath(import.meta.url));
-  // src/test → packages/core/db
+  // src/test → the repository root
   const migrationsDir = path.resolve(here, '../../../../../rust/migrations/master');
   const journal = JSON.parse(
     await readFile(path.join(migrationsDir, 'meta/_journal.json'), 'utf8'),

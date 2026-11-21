@@ -22,7 +22,7 @@
  *     a table that gains one: drizzle-kit would ask whether that is a rename.
  *     A rename isn't additive anyway; add, backfill and drop in steps, or write
  *     it as a --custom migration;
- *   - dropping a table, column or type, changing a column's type (widening a
+ *   - dropping a table, column, type or enum value, changing a column's type (widening a
  *     varchar aside) or SET NOT NULL, without --allow-drop;
  *   - CONCURRENTLY, which can't run in the migration's transaction.
  *
@@ -49,7 +49,7 @@ type Snapshot = Record<string, unknown> & {
   id: string;
   prevId: string;
   tables: Record<string, { columns: Record<string, { type: string; notNull: boolean }> }>;
-  enums: Record<string, unknown>;
+  enums: Record<string, { values: string[] }>;
   views: Record<string, unknown>;
 };
 
@@ -186,11 +186,25 @@ function destructiveColumnChanges(key: string, before: Table, after: Table): str
   return found;
 }
 
+/**
+ * Values gone from a kept enum. drizzle-kit rebuilds the type for that (cast
+ * to text, drop, create, cast back): the previous version may still write the
+ * value, and a row holding it fails the cast back.
+ */
+function droppedEnumValues(prev: Snapshot, next: Snapshot): string[] {
+  return Object.entries(next.enums).flatMap(([key, type]) =>
+    (prev.enums[key]?.values ?? [])
+      .filter((value) => !type.values.includes(value))
+      .map((value) => `drops value '${value}' from type ${key}`),
+  );
+}
+
 /** The changes that can break the previous version or lose data, by table and column. */
 function destructiveChanges(prev: Snapshot, next: Snapshot): string[] {
   const found = [
     ...addedAndGone(prev.tables, next.tables).gone.map((key) => `drops table ${key}`),
     ...addedAndGone(prev.enums, next.enums).gone.map((key) => `drops type ${key}`),
+    ...droppedEnumValues(prev, next),
   ];
   for (const [key, table] of Object.entries(next.tables)) {
     const before = prev.tables[key];
