@@ -7,7 +7,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAppApi } from '@/lib/api/use-app-api';
 import { isFeatureAvailable } from '@/lib/edition';
-import type { CrmSettings, UpdateCrmSettingsInput } from '@weldsuite/app-api-client/schemas/crm-settings';
+import type { UpdateCrmSettingsInput } from '@weldsuite/app-api-client/schemas/crm-settings';
 
 export const crmSettingsKeys = {
   all: ['crm-settings'] as const,
@@ -35,4 +35,4 @@ export function useUpdateCrmSettings() {
   });
 }
 
-export type { CrmSettings };
+export type { CrmSettings } from '@weldsuite/app-api-client/schemas/crm-settings';
