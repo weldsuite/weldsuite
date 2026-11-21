@@ -1,9 +1,10 @@
 /**
  * Which picture to show for a person in the platform.
  *
- * A member's avatar is `workspace_members.picture`: what the profile settings
- * page uploads to, and what every API hands out for authors, assignees and
- * participants. Two sources used to disagree with it:
+ * A member's avatar is their account picture (master `users.image_url`, ADR
+ * SEC-020): what the profile settings page uploads to, and what every API
+ * hands out as `picture` for authors, assignees and participants. Two sources
+ * used to disagree with it:
  *
  * - the signed-in user's own avatar was read from the sign-in provider
  *   (`useUser().user.imageUrl`), which an upload in settings never changes;

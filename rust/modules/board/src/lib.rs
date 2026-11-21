@@ -176,8 +176,9 @@ pub(crate) struct Caller {
     links: Option<OutboundHttp>,
     /// `workspaces.id`: the AI actions' wallet and settings.
     pub(crate) workspace_id: String,
-    /// The request's own AI and master database (conformance).
+    /// The request's own AI (conformance).
     ai: Option<weldsuite_ai::Ai>,
+    /// The master database: account pictures, and the AI wallet in conformance.
     master: Option<PgPool>,
 }
 

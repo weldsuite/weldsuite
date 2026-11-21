@@ -2,16 +2,25 @@
  * Per-person sharing on /api/files, /api/folders and /api/drive against
  * pglite: a restricted file shared with one teammate shows up under their
  * Shared with me, a member it was not shared with cannot open it, and the
- * roles decide who may change it.
+ * roles decide who may change it. The Share dialog shows each person's
+ * account picture (master `users.image_url`), not the member row's copy.
  */
 
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { conformanceMasterDb, createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { users } from '@weldsuite/db/schema/master';
+
+const holder = vi.hoisted(() => ({ master: null as unknown }));
+vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@weldsuite/worker-kit/db')>();
+  return { ...actual, getMasterDb: () => conformanceMasterDb(holder.master) };
+});
+
 import { filesRoutes } from './index';
 import { foldersRoutes } from '../folders';
 import { driveRoutes } from '../drive';
-import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
-import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
-import { schema, type Database } from '@weldsuite/worker-kit/db';
 
 const ANN = 'user_ann';
 const BOB = 'user_bob';
@@ -24,10 +33,16 @@ const DRIVE_PERMISSIONS = [
 ];
 
 let db: Database;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- pglite drizzle stands in for neon-http
+let master: any;
+
+const ANN_PICTURE = 'https://img.clerk.test/ann.png';
+const BOB_PICTURE = 'https://img.clerk.test/bob.png';
 
 function as(userId: string, { admin = false } = {}) {
   const context = {
     tenantDb: db,
+    masterDb: master,
     userId,
     // `*` resolves as the admin role in the test harness.
     permissions: admin ? permissions('*') : permissions(...DRIVE_PERMISSIONS),
@@ -68,6 +83,8 @@ async function seedMember(userId: string, role = 'MEMBER', status = 'ACTIVE') {
     userId,
     email: `${userId}@test.dev`,
     name: userId.replace('user_', ''),
+    // A stale per-workspace copy: the Share dialog never shows it.
+    picture: `https://stale.test/${userId}.png`,
     role,
     status,
     createdAt: now,
@@ -93,6 +110,13 @@ const carol = () => as(CAROL);
 
 beforeAll(async () => {
   db = (await createPgliteDb()).db;
+  master = (await createMasterPgliteDb()).db;
+  holder.master = master;
+  await master.delete(users);
+  await master.insert(users).values([
+    { id: ANN, email: 'ann@test.dev', imageUrl: ANN_PICTURE },
+    { id: BOB, email: 'bob@test.dev', imageUrl: BOB_PICTURE },
+  ]);
   await seedMember(ANN);
   await seedMember(BOB);
   await seedMember(CAROL);
@@ -149,15 +173,15 @@ describe('sharing a restricted file with one teammate', () => {
 
   it('lists the owner and the teammate in its sharing', async () => {
     const sharing = await json<{
-      owner: { userId: string };
+      owner: { userId: string; picture: string | null };
       generalAccess: string;
       accessRole: string;
-      shares: { userId: string; role: string }[];
+      shares: { userId: string; role: string; picture: string | null }[];
     }>(await ann().get(`/api/files/${file.id}/shares`));
-    expect(sharing.owner.userId).toBe(ANN);
+    expect(sharing.owner).toMatchObject({ userId: ANN, picture: ANN_PICTURE });
     expect(sharing.generalAccess).toBe('restricted');
     expect(sharing.accessRole).toBe('owner');
-    expect(sharing.shares).toEqual([expect.objectContaining({ userId: BOB, role: 'viewer' })]);
+    expect(sharing.shares).toEqual([expect.objectContaining({ userId: BOB, role: 'viewer', picture: BOB_PICTURE })]);
   });
 
   it('lets an editor change it', async () => {

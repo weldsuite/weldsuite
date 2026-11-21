@@ -438,6 +438,20 @@ async fn provisioning_the_sync_and_the_sweeps() {
             removed: false,
         },
     );
+    // The owner's account, with a picture uploaded in WeldSuite (ADR SEC-020).
+    // The workspace was inserted directly, so the sync would otherwise be the
+    // first to write the row.
+    let uploaded =
+        format!("https://storage.test/workspaces/{org}/avatars/{user}_1767225600000.png");
+    sqlx::query(
+        "insert into users (id, email, image_url) values ($1, 'owner@job.test', $2)
+         on conflict (id) do update set image_url = excluded.image_url",
+    )
+    .bind(&user)
+    .bind(&uploaded)
+    .execute(&master)
+    .await
+    .expect("uploaded picture");
     let report = sync.run().await.expect("sync");
     assert_eq!(
         report,
@@ -464,6 +478,13 @@ async fn provisioning_the_sync_and_the_sweeps() {
             .expect("owner");
     // The owner stays OWNER whatever role the provider has.
     assert_eq!(owner, ("OWNER".to_owned(), Some("Olga Petrova".to_owned())));
+    // The picture uploaded in WeldSuite wins over the provider's avatar.
+    let picture: Option<String> = sqlx::query_scalar("select image_url from users where id = $1")
+        .bind(&user)
+        .fetch_one(&master)
+        .await
+        .expect("picture");
+    assert_eq!(picture.as_deref(), Some(uploaded.as_str()));
     let mate_row: (String, String) =
         sqlx::query_as("select role, status from workspace_members where user_id = $1")
             .bind(&mate)
@@ -693,6 +714,9 @@ fn sync_identity(org: &str, owner: &str, mate: &str, suffix: u32) -> Arc<MemoryI
     };
     let mut renamed = profile(owner, "owner@job.test", "Olga");
     renamed.last_name = Some("Petrova".to_owned());
+    // The provider has its own avatar for the owner, who uploaded another in
+    // WeldSuite: the upload has to survive the sync.
+    renamed.image_url = Some("https://provider.test/olga.png".to_owned());
     Arc::new(
         MemoryIdentity::new()
             .with_organization(Organization {

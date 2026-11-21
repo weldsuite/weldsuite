@@ -44,10 +44,10 @@ async function filesOf(ctx: Pick<WorkspaceCtx, 'db'>, responseIds: string[]): Pr
   return byResponse;
 }
 
-async function dtos(ctx: Pick<WorkspaceCtx, 'db'>, rows: ResponseRow[], versionNumbers: Map<string, number>): Promise<FormResponseDto[]> {
+async function dtos(ctx: Pick<WorkspaceCtx, 'db' | 'env'>, rows: ResponseRow[], versionNumbers: Map<string, number>): Promise<FormResponseDto[]> {
   const [files, refs] = await Promise.all([
     filesOf(ctx, rows.map((r) => r.id)),
-    memberRefs(ctx.db, rows.map((r) => r.respondentUserId).filter((id): id is string => Boolean(id))),
+    memberRefs(ctx, rows.map((r) => r.respondentUserId).filter((id): id is string => Boolean(id))),
   ]);
   const now = Date.now();
   return rows.map((row) =>
@@ -66,7 +66,7 @@ export interface ResponsePage {
   next: string | null;
 }
 
-export async function listResponses(ctx: Pick<WorkspaceCtx, 'db'>, formId: string, query: ListFormResponsesQuery): Promise<ResponsePage> {
+export async function listResponses(ctx: Pick<WorkspaceCtx, 'db' | 'env'>, formId: string, query: ListFormResponsesQuery): Promise<ResponsePage> {
   const versions = await loadVersions(ctx.db, formId);
   const where = responseConditions(formId, query, latestFields(versions));
   const limit = query.limit ?? DEFAULT_LIMIT;
@@ -84,7 +84,7 @@ export async function listResponses(ctx: Pick<WorkspaceCtx, 'db'>, formId: strin
   };
 }
 
-export async function getResponse(ctx: Pick<WorkspaceCtx, 'db'>, formId: string, responseId: string): Promise<FormResponseDetail> {
+export async function getResponse(ctx: Pick<WorkspaceCtx, 'db' | 'env'>, formId: string, responseId: string): Promise<FormResponseDetail> {
   const [row] = await ctx.db.select().from(formResponses).where(and(eq(formResponses.id, responseId), eq(formResponses.formId, formId))).limit(1);
   if (!row) throw notFound('Response');
   const versions = await loadVersions(ctx.db, formId);
@@ -196,7 +196,7 @@ export async function findResponseFile(ctx: Pick<WorkspaceCtx, 'db'>, formId: st
 
 /** Responses linked to a CRM person, newest first, only on `formIds` (the forms the member may see). */
 export async function listPersonResponses(
-  ctx: Pick<WorkspaceCtx, 'db'>,
+  ctx: Pick<WorkspaceCtx, 'db' | 'env'>,
   personId: string,
   formIds: string[],
   paging: { cursor?: string; limit?: number },

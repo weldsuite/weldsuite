@@ -64,6 +64,7 @@ import type { Env, Variables } from '../../types';
 import { error, noContent, success, list, cursorPagination } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { getMasterDb, schema, type Database } from '@weldsuite/worker-kit/db';
+import { loadAccountPicture, withAccountPictures } from '@weldsuite/worker-kit/account-pictures';
 import { revokeMemberApiKeys } from '../../services/api-keys';
 import * as membersService from '../../services/team/members';
 import type { Visibility } from '../../services/team/members';
@@ -284,7 +285,7 @@ app.get('/me', async (c) => {
       .limit(1);
 
     if (!row) return error.notFound(c, 'Member', userId);
-    return success(c, row);
+    return success(c, { ...row, picture: await loadAccountPicture(c.env, row.userId) });
   } catch (err) {
     console.error('[app-api/team-members] /me failed:', err);
     return error.internal(c, 'Failed to fetch current member');
@@ -326,7 +327,8 @@ app.get('/', async (c) => {
 
   try {
     const result = await membersService.listMembers(db, params);
-    const projected = result.data.map((member) =>
+    const withPictures = await withAccountPictures(c.env, result.data);
+    const projected = withPictures.map((member) =>
       membersService.projectMemberFields(member as Record<string, unknown>, visibility, viewerUserId),
     );
     return list(c, projected, cursorPagination(result.totalCount, result.hasMore, result.cursor));
@@ -929,8 +931,9 @@ app.get('/:id', async (c) => {
   try {
     const member = await membersService.getMember(db, memberId);
     if (!member) return error.notFound(c, 'Member', memberId);
+    const [withPicture] = await withAccountPictures(c.env, [member]);
     const projected = membersService.projectMemberFields(
-      member as Record<string, unknown>,
+      withPicture as Record<string, unknown>,
       visibility,
       viewerUserId,
     );
@@ -1323,7 +1326,7 @@ app.get('/user/:userId/profile', async (c) => {
   const subjectUserId = c.req.param('userId');
 
   try {
-    const profile = await profileService.getMemberProfile(db, subjectUserId, {
+    const profile = await profileService.getMemberProfile(db, c.env, subjectUserId, {
       userId: viewerUserId,
       isAdmin: viewerIsAdmin(c),
     });
@@ -1345,6 +1348,7 @@ app.patch('/user/:userId/profile', zValidator('json', updateMemberProfileInput),
   try {
     const profile = await profileService.updateMemberProfile(
       db,
+      c.env,
       subjectUserId,
       { userId: viewerUserId, isAdmin: viewerIsAdmin(c) },
       patch,

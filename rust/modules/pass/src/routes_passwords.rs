@@ -279,7 +279,14 @@ pub(crate) async fn delete_vault(caller: Caller, Path(params): Params) -> Respon
 // ── Members ────────────────────────────────────────────────────────────────
 
 pub(crate) async fn teammates(caller: Caller) -> Response {
-    answer(async { Ok(ok(Value::Array(vaults::list_teammates(&caller.db).await?))) }.await)
+    answer(
+        async {
+            Ok(ok(Value::Array(
+                vaults::list_teammates(&caller.db, caller.master.as_ref()).await?,
+            )))
+        }
+        .await,
+    )
 }
 
 pub(crate) async fn list_members(caller: Caller, Path(params): Params) -> Response {
@@ -290,7 +297,8 @@ pub(crate) async fn list_members(caller: Caller, Path(params): Params) -> Respon
                 return Ok(ok(json!([])));
             }
             Ok(ok(Value::Array(
-                vaults::list_vault_members(&caller.db, &access.vault.id).await?,
+                vaults::list_vault_members(&caller.db, caller.master.as_ref(), &access.vault.id)
+                    .await?,
             )))
         }
         .await,
@@ -340,7 +348,14 @@ pub(crate) async fn add_member(
             )
             .await;
             Ok(ok_or_created(
-                Value::Array(vaults::list_vault_members(&caller.db, &access.vault.id).await?),
+                Value::Array(
+                    vaults::list_vault_members(
+                        &caller.db,
+                        caller.master.as_ref(),
+                        &access.vault.id,
+                    )
+                    .await?,
+                ),
                 added,
             ))
         }
@@ -375,7 +390,8 @@ pub(crate) async fn set_member_role(
             )
             .await;
             Ok(ok(Value::Array(
-                vaults::list_vault_members(&caller.db, &access.vault.id).await?,
+                vaults::list_vault_members(&caller.db, caller.master.as_ref(), &access.vault.id)
+                    .await?,
             )))
         }
         .await,

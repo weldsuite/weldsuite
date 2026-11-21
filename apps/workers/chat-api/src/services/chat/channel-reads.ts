@@ -17,6 +17,12 @@
 import { and, desc, eq, gte, inArray, isNull, lt } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+import {
+  accountPicture,
+  loadAccountPicture,
+  loadAccountPictures,
+  type AccountPictureEnv,
+} from '@weldsuite/worker-kit/account-pictures';
 
 const { chatChannelMembers, chatMessages, chatMessageReads, workspaceMembers } = schema;
 
@@ -178,6 +184,7 @@ export interface ReadReceipt {
  */
 export async function getChannelReadReceipts(
   db: Database,
+  env: AccountPictureEnv,
   channelId: string,
 ): Promise<Record<string, ReadReceipt[]>> {
   const receipts = await db
@@ -186,20 +193,21 @@ export async function getChannelReadReceipts(
       userId: chatMessageReads.userId,
       readAt: chatMessageReads.readAt,
       userName: workspaceMembers.name,
-      userAvatar: workspaceMembers.picture,
     })
     .from(chatMessageReads)
     .leftJoin(workspaceMembers, eq(chatMessageReads.userId, workspaceMembers.userId))
     .where(eq(chatMessageReads.channelId, channelId))
     .orderBy(desc(chatMessageReads.readAt));
 
+  // Readers show their account picture, looked up once for the whole channel.
+  const pictures = await loadAccountPictures(env, receipts.map((r) => r.userId));
   const grouped: Record<string, ReadReceipt[]> = {};
   for (const r of receipts) {
     if (!grouped[r.messageId]) grouped[r.messageId] = [];
     grouped[r.messageId].push({
       userId: r.userId,
       userName: r.userName,
-      userAvatar: r.userAvatar,
+      userAvatar: accountPicture(pictures, r.userId),
       readAt: r.readAt,
     });
   }
@@ -209,12 +217,16 @@ export async function getChannelReadReceipts(
 /** Display name + avatar for a read-receipt broadcast. */
 export async function getReaderProfile(
   db: Database,
+  env: AccountPictureEnv,
   userId: string,
 ): Promise<{ name: string; avatar?: string }> {
-  const [row] = await db
-    .select({ name: workspaceMembers.name, picture: workspaceMembers.picture })
-    .from(workspaceMembers)
-    .where(eq(workspaceMembers.userId, userId))
-    .limit(1);
-  return { name: row?.name ?? '', avatar: row?.picture ?? undefined };
+  const [[row], picture] = await Promise.all([
+    db
+      .select({ name: workspaceMembers.name })
+      .from(workspaceMembers)
+      .where(eq(workspaceMembers.userId, userId))
+      .limit(1),
+    loadAccountPicture(env, userId),
+  ]);
+  return { name: row?.name ?? '', avatar: picture ?? undefined };
 }

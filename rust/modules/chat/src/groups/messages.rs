@@ -657,6 +657,7 @@ async fn pin(
         if notify {
             match post_pin_notice(
                 &caller.db,
+                caller.master(),
                 &Caller::realtime(&state),
                 &channel,
                 &id,

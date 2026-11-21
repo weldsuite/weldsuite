@@ -6,6 +6,7 @@
   "private": true,
   "exports": {
     ".": "./src/index.ts",
+    "./account-pictures": "./src/account-pictures.ts",
     "./app": "./src/app.ts",
     "./app-access": "./src/app-access.ts",
     "./app-url": "./src/app-url.ts",

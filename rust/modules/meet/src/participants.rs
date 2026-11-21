@@ -28,19 +28,24 @@ pub(crate) struct Input<'a> {
     pub(crate) user_id: Option<&'a str>,
 }
 
-/// Where a new person's initials avatar goes (`STORAGE` and `R2_PUBLIC_URL`).
+/// Where a new person's initials avatar goes (`STORAGE` and `R2_PUBLIC_URL`),
+/// and where a member's account picture comes from (`master`).
 #[derive(Clone)]
 pub(crate) struct AvatarStore {
     pub(crate) bucket: Option<Arc<dyn DynFileStore>>,
     pub(crate) public_url: Option<String>,
+    pub(crate) master: Option<PgPool>,
 }
 
-type MemberRow = (String, Option<String>, Option<String>);
+/// The member's row id, user id and name.
+type MemberRow = (String, String, Option<String>);
 
-fn member_link((id, name, picture): MemberRow) -> Link {
+/// A member's link: their avatar is the account picture, not the member
+/// row's copy.
+async fn member_link(avatars: &AvatarStore, (id, user_id, name): MemberRow) -> Link {
     Link {
         workspace_member_id: Some(id),
-        avatar_url: picture,
+        avatar_url: weldsuite_db::load_account_picture(avatars.master.as_ref(), &user_id).await,
         display_name: name,
         person_id: None,
     }
@@ -74,24 +79,24 @@ async fn try_resolve(
 
     if let Some(user_id) = user_id.filter(|u| !u.is_empty() && !u.starts_with("guest:")) {
         let member: Option<MemberRow> = sqlx::query_as(
-            "select id, name, picture from workspace_members where user_id = $1 limit 1",
+            "select id, user_id, name from workspace_members where user_id = $1 limit 1",
         )
         .bind(user_id)
         .fetch_optional(db)
         .await?;
         if let Some(member) = member {
-            return Ok(member_link(member));
+            return Ok(member_link(avatars, member).await);
         }
     }
     if let Some(email) = email.as_deref().filter(|e| !e.is_empty()) {
         let member: Option<MemberRow> = sqlx::query_as(
-            "select id, name, picture from workspace_members where lower(email) = $1 limit 1",
+            "select id, user_id, name from workspace_members where lower(email) = $1 limit 1",
         )
         .bind(email)
         .fetch_optional(db)
         .await?;
         if let Some(member) = member {
-            return Ok(member_link(member));
+            return Ok(member_link(avatars, member).await);
         }
     }
     let Some(email) = email.filter(|e| !e.is_empty()) else {

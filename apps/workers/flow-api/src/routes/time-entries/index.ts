@@ -49,6 +49,7 @@ import { timeEntryAnalyticsPayload } from '../../lib/weldflow-analytics-payload'
 import { canManageProject, canWriteProject } from '../../lib/project-access';
 import { applyTimeEntryReview, reviewDenial, type TimeEntryReviewStatus } from '../../services/time-entry-review';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { accountPicture, loadAccountPictures } from '@weldsuite/worker-kit/account-pictures';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.timeEntries;
@@ -333,7 +334,6 @@ app.get('/', requirePermission('time:read'), zValidator('query', listFiltersSche
           ...getTableColumns(t),
           userName: schema.workspaceMembers.name,
           userEmail: schema.workspaceMembers.email,
-          userAvatar: schema.workspaceMembers.picture,
           taskTitle: schema.tasks.title,
         })
         .from(t)
@@ -347,14 +347,16 @@ app.get('/', requirePermission('time:read'), zValidator('query', listFiltersSche
     ]);
 
     // Reshape the joined columns into the nested `user` / `task` objects the
-    // timesheet grid reads (`entry.user?.name`, `entry.task?.title`).
-    const rows = rawRows.map(({ userName, userEmail, userAvatar, taskTitle, ...entry }) => ({
+    // timesheet grid reads (`entry.user?.name`, `entry.task?.title`). The
+    // avatar is the author's account picture.
+    const pictures = await loadAccountPictures(c.env, rawRows.map((r) => r.userId));
+    const rows = rawRows.map(({ userName, userEmail, taskTitle, ...entry }) => ({
       ...entry,
       user: {
         id: entry.userId,
         name: userName ?? userEmail ?? entry.userId,
         email: userEmail ?? '',
-        avatar: userAvatar ?? '',
+        avatar: accountPicture(pictures, entry.userId) ?? '',
       },
       task: entry.taskId && taskTitle ? { id: entry.taskId, title: taskTitle } : undefined,
     }));
@@ -447,7 +449,6 @@ app.get(
             role: projectMembers.role,
             name: workspaceMembers.name,
             email: workspaceMembers.email,
-            avatar: workspaceMembers.picture,
           })
           .from(projectMembers)
           .leftJoin(workspaceMembers, eq(projectMembers.userId, workspaceMembers.userId))
@@ -513,7 +514,7 @@ app.get(
 
       const blank = (
         userId: string,
-        info?: { name?: string | null; email?: string | null; avatar?: string | null; role?: string | null },
+        info?: { name?: string | null; email?: string | null; role?: string | null },
         isActiveMember = true,
       ) => {
         const name = info?.name ?? info?.email ?? userId;
@@ -521,7 +522,8 @@ app.get(
           userId,
           name,
           email: info?.email ?? '',
-          avatar: info?.avatar ?? '',
+          // Filled from the account pictures once every row is known.
+          avatar: '',
           initials: name.slice(0, 2).toUpperCase(),
           role: info?.role ?? null,
           isActiveMember,
@@ -544,13 +546,15 @@ app.get(
             userId: workspaceMembers.userId,
             name: workspaceMembers.name,
             email: workspaceMembers.email,
-            avatar: workspaceMembers.picture,
           })
           .from(workspaceMembers)
           .where(inArray(workspaceMembers.userId, offRoster));
         const directory = new Map(formerMembers.map((m) => [m.userId, m]));
         for (const id of offRoster) byUser.set(id, blank(id, directory.get(id), false));
       }
+
+      const pictures = await loadAccountPictures(c.env, byUser.keys());
+      for (const [id, bucket] of byUser) bucket.avatar = accountPicture(pictures, id) ?? '';
 
       addTotalsToBuckets(byUser, totals);
 

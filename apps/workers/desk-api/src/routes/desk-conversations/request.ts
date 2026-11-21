@@ -156,7 +156,7 @@ app.put('/:id/catalog-item', requirePermission('conversations:update'), zValidat
       await publishDeskLinkChanges(c, [change]);
       // A new type can route it elsewhere (a team the item set itself stays).
       await rerouteAfterAttributes(c, attributes.message, async (next, event) =>
-        publishDeskChange(c, next, event, await loadAuthor(db, next.assigneeId)),
+        publishDeskChange(c, next, event, await loadAuthor(c.env, db, next.assigneeId)),
       );
     }
 

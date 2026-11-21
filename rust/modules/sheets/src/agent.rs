@@ -87,6 +87,8 @@ async fn caller_for(scope: &AgentScope<'_>) -> Result<Caller, String> {
         clerk_org_id: Some(scope.clerk_org_id.to_owned()),
         files: None,
         collab: None,
+        // Agent tools return no avatars, so no account pictures to look up.
+        master: None,
     })
 }
 

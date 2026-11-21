@@ -151,6 +151,7 @@ app.get('/', requirePermission('tasks:read'), zValidator('query', myTasksFilters
 
     // Enrich with assignee display fields, then re-attach the project summary.
     const enriched = await enrichTasksWithAssignees(
+      c.env,
       db,
       rows.map((r) => r.task),
     );
@@ -159,7 +160,7 @@ app.get('/', requirePermission('tasks:read'), zValidator('query', myTasksFilters
       const project = projectByTaskId.get(task.id);
       return { ...task, project: project?.id ? project : null };
     });
-    if (q.includeSubtasks) await attachSubtaskTreeAcrossProjects(db, data);
+    if (q.includeSubtasks) await attachSubtaskTreeAcrossProjects(c.env, db, data);
 
     // Offset-based: cursor is always null, hasMore drives the next page fetch.
     return list(c, data, cursorPagination(totalCount, hasMore, null));

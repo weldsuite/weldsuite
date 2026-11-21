@@ -524,7 +524,7 @@ pub(crate) async fn create_invitations(
             message: input.message.clone(),
         })
         .collect();
-    let sender = member_ref(&ctx.db, user_id).await?;
+    let sender = member_ref(ctx, user_id).await?;
     let settings = settings_of(form);
     let sent = send_invitation_mails(
         ctx,
@@ -826,7 +826,7 @@ async fn remind_batch(
                 message: opt_text(row, "message"),
             })
             .collect();
-        let sender = member_ref(&ctx.db, sender).await?;
+        let sender = member_ref(ctx, sender).await?;
         let sent = send_invitation_mails(
             ctx,
             &guard,

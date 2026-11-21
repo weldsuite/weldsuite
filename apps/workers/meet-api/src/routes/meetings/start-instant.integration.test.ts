@@ -12,28 +12,47 @@
 
 import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
-import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { users } from '@weldsuite/db/schema/master';
+import { conformanceMasterDb, createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import type { MeetingSessionParticipant } from '@weldsuite/db/schema/meeting-sessions';
+
+// The host joins with their account picture (master `users`), never the
+// stale copy on their workspace member row.
+const holder = vi.hoisted(() => ({ master: null as unknown }));
+vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@weldsuite/worker-kit/db')>()),
+  getMasterDb: () => conformanceMasterDb(holder.master),
+}));
+
 import { meetingsRoutes } from './index';
 import { RTK_ENV, RTK_PRESETS_SEEDED, fakeKv, fakeRealtime, fakeRtkApi } from '../../test/fakes';
 
 const USER = 'user_instant_one_call';
+const ACCOUNT_PICTURE = 'https://img.clerk.test/ina.png';
 const rtk = fakeRtkApi();
 
 let db: Database;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- pglite drizzle stands in for neon-http
+let master: any;
 
 beforeAll(async () => {
   vi.stubGlobal('fetch', rtk.fetch);
   db = (await createPgliteDb()).db;
+  master = (await createMasterPgliteDb()).db;
+  holder.master = master;
+  await master
+    .insert(users)
+    .values({ id: USER, email: 'instant@example.com', imageUrl: ACCOUNT_PICTURE })
+    .onConflictDoNothing();
   await db.insert(schema.workspaceMembers).values({
     id: 'wm_instant',
     userId: USER,
     email: 'instant@example.com',
     name: 'Ina Stant',
-    picture: 'https://cdn.example.com/ina.png',
+    picture: 'https://stale.test/ina.png',
   });
 }, 60_000);
 
@@ -85,7 +104,7 @@ async function seedSession(cfAppId: string, participants: MeetingSessionParticip
 
 function app(realtime = fakeRealtime(), perms = ['meetings:create']) {
   const test = createTestApp('/api/meetings', meetingsRoutes, {
-    context: { permissions: permissions(...perms), userId: USER, tenantDb: db },
+    context: { permissions: permissions(...perms), userId: USER, tenantDb: db, masterDb: master },
     env: { ...RTK_ENV, WORKSPACE_CACHE: fakeKv(RTK_PRESETS_SEEDED), REALTIME: realtime.binding },
   });
   const pending: Promise<unknown>[] = [];
@@ -142,9 +161,10 @@ describe('POST /api/meetings/start-instant', () => {
         name: 'Ina Stant',
         preset_name: 'group_call_host_v4',
         custom_participant_id: USER,
-        picture: 'https://cdn.example.com/ina.png',
+        picture: ACCOUNT_PICTURE,
       },
     ]);
+    expect(session?.participants?.[0]?.userAvatar).toBe(ACCOUNT_PICTURE);
   });
 
   it('defaults the title and validates the body', async () => {

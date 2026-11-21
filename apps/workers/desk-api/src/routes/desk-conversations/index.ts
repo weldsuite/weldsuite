@@ -40,6 +40,7 @@ import { eq } from 'drizzle-orm';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { loadAccountPicture, type AccountPictureEnv } from '@weldsuite/worker-kit/account-pictures';
 import { sendDeskEmailReply } from '../../lib/desk-email';
 import { withoutTrailingSlash } from '../../lib/url';
 import { notifyAssigned } from '../../lib/notify';
@@ -50,16 +51,24 @@ import { deskTranslationRoutes } from './translation';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-export async function loadAuthor(db: Variables['tenantDb'], userId: string | null | undefined) {
+/** The agent's display info: first name from the member row, avatar from their account. */
+export async function loadAuthor(
+  env: AccountPictureEnv,
+  db: Variables['tenantDb'],
+  userId: string | null | undefined,
+) {
   const authors = new Map<string, DeskAuthorInfo>();
   if (!userId) return authors;
   try {
-    const [member] = await db
-      .select({ name: schema.workspaceMembers.name, picture: schema.workspaceMembers.picture })
-      .from(schema.workspaceMembers)
-      .where(eq(schema.workspaceMembers.userId, userId))
-      .limit(1);
-    if (member) authors.set(userId, deskAuthorFromMember(member));
+    const [[member], picture] = await Promise.all([
+      db
+        .select({ name: schema.workspaceMembers.name })
+        .from(schema.workspaceMembers)
+        .where(eq(schema.workspaceMembers.userId, userId))
+        .limit(1),
+      loadAccountPicture(env, userId),
+    ]);
+    if (member) authors.set(userId, deskAuthorFromMember({ name: member.name, picture }));
   } catch (err) {
     console.error('[app-api/desk-conversations] author lookup failed:', err);
   }
@@ -293,7 +302,7 @@ app.post('/:id/reply', requirePermission('conversations:update'), zValidator('js
       data: message as unknown as Record<string, unknown>,
     });
     markDeskSlaDue(c, slaCheckAt);
-    const authors = await loadAuthor(db, userId);
+    const authors = await loadAuthor(c.env, db, userId);
     c.executionCtx.waitUntil(publishDeskChange(c, conversation, message, authors));
     if (conversation.channel === 'email' && data.kind === 'message') {
       try {
@@ -364,7 +373,7 @@ app.post('/:id/manage', requirePermission('conversations:update'), zValidator('j
       data: message as unknown as Record<string, unknown>,
     });
     markDeskSlaDue(c, slaCheckAt);
-    const authors = await loadAuthor(db, conversation.assigneeId);
+    const authors = await loadAuthor(c.env, db, conversation.assigneeId);
     c.executionCtx.waitUntil(publishDeskChange(c, conversation, message, authors));
     if (eventType === 'assigned') {
       notifyAssigned(c, {
@@ -387,7 +396,7 @@ app.post('/:id/manage', requirePermission('conversations:update'), zValidator('j
         publishEntityEvent({ c, entityType: 'desk_conversation', action: 'state_changed', entityId: child.conversation.id, data: child.conversation as unknown as Record<string, unknown> });
         publishEntityEvent({ c, entityType: 'desk_message', action: 'created', entityId: child.message.id, data: child.message as unknown as Record<string, unknown> });
         markDeskSlaDue(c, child.slaCheckAt);
-        const childAuthors = await loadAuthor(db, child.conversation.assigneeId);
+        const childAuthors = await loadAuthor(c.env, db, child.conversation.assigneeId);
         c.executionCtx.waitUntil(publishDeskChange(c, child.conversation, child.message, childAuthors));
       }
     }
@@ -440,7 +449,7 @@ app.patch('/:id', requirePermission('conversations:update'), zValidator('json', 
       markDeskSlaDue(c, slaCheckAt);
       // A new type or tags can route it elsewhere (a team it set itself stays).
       const routed = await rerouteAfterAttributes(c, message, async (next, event) =>
-        publishDeskChange(c, next, event, await loadAuthor(db, next.assigneeId)),
+        publishDeskChange(c, next, event, await loadAuthor(c.env, db, next.assigneeId)),
       );
       if (routed) return success(c, { conversation: { ...routed.conversation, customFields }, message });
     }

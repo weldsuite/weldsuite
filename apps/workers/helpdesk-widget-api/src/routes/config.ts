@@ -1,32 +1,41 @@
 import { Hono } from 'hono';
-import { and, isNotNull, sql } from 'drizzle-orm';
+import { and, asc, isNull, sql } from 'drizzle-orm';
 import type { Env, Variables } from '../index';
 import { success } from '../lib/response';
 import { schema } from '../db';
 import { officeHoursAvailability } from '../lib/office-hours';
+import { accountPicture, loadAccountPictures } from '../lib/account-pictures';
 
 export const configRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-/** Up to three teammate faces for the messenger header ("the team"). */
-async function loadTeam(c: { get: (key: 'tenantDb') => Variables['tenantDb'] }) {
+/** Members looked at for the header; the first three with an account picture are shown. */
+const TEAM_CANDIDATES = 50;
+
+/**
+ * Up to three teammate faces for the messenger header ("the team"): active
+ * internal members, oldest first, whose account has a picture.
+ */
+async function loadTeam(c: { env: Env; get: (key: 'tenantDb') => Variables['tenantDb'] }) {
   try {
     const { workspaceMembers } = schema;
     const rows = await c
       .get('tenantDb')
-      .select({ name: workspaceMembers.name, picture: workspaceMembers.picture })
+      .select({ userId: workspaceMembers.userId, name: workspaceMembers.name })
       .from(workspaceMembers)
       .where(
         and(
-          isNotNull(workspaceMembers.picture),
+          isNull(workspaceMembers.deletedAt),
           sql`upper(${workspaceMembers.status}) = 'ACTIVE'`,
           sql`upper(${workspaceMembers.memberType}) = 'INTERNAL'`,
         ),
       )
-      .limit(3);
-    return rows.map((row) => ({
-      name: row.name?.trim().split(/\s+/)[0] || 'Support',
-      avatar: row.picture,
-    }));
+      .orderBy(asc(workspaceMembers.createdAt), asc(workspaceMembers.id))
+      .limit(TEAM_CANDIDATES);
+    const pictures = await loadAccountPictures(c.env, rows.map((row) => row.userId));
+    return rows
+      .map((row) => ({ name: row.name?.trim().split(/\s+/)[0] || 'Support', avatar: accountPicture(pictures, row.userId) }))
+      .filter((member): member is { name: string; avatar: string } => member.avatar !== null)
+      .slice(0, 3);
   } catch (err) {
     console.error('[widget-api] team lookup failed:', err);
     return [];

@@ -5,18 +5,31 @@
  * omits it — tests no longer need to pass an explicit `organizerId`.
  */
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { meetingsRoutes } from './index';
-import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
-import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { users } from '@weldsuite/db/schema/master';
+import { conformanceMasterDb, createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 
+// Avatars are account pictures (master `users`), never `workspace_members.picture`.
+const holder = vi.hoisted(() => ({ master: null as unknown }));
+vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@weldsuite/worker-kit/db')>()),
+  getMasterDb: () => conformanceMasterDb(holder.master),
+}));
+
+import { meetingsRoutes } from './index';
+
 let db: Database;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- pglite drizzle stands in for neon-http
+let master: any;
 
 beforeAll(async () => {
   const handle = await createPgliteDb();
   db = handle.db;
+  master = (await createMasterPgliteDb()).db;
+  holder.master = master;
 }, 60_000);
 
 describe('/api/meetings · pglite integration', () => {
@@ -777,18 +790,23 @@ describe('/api/meetings · pglite integration', () => {
     const organizerId = 'user_org_attendee';
 
     beforeAll(async () => {
+      await master
+        .insert(users)
+        .values({ id: organizerId, email: 'organizer@example.com', imageUrl: 'https://img.clerk.test/olivia.png' })
+        .onConflictDoNothing();
       await db.insert(schema.workspaceMembers).values({
         id: 'wm_org_attendee',
         userId: organizerId,
         email: 'Organizer@Example.com',
         name: 'Olivia Organizer',
-        picture: 'https://cdn.example.com/olivia.png',
+        // A stale per-workspace copy the attendee entry must not use.
+        picture: 'https://stale.test/olivia.png',
       });
     });
 
     function create(body: unknown) {
       return createTestApp('/api/meetings', meetingsRoutes, {
-        context: { permissions: permissions('meetings:create'), userId: organizerId, tenantDb: db },
+        context: { permissions: permissions('meetings:create'), userId: organizerId, tenantDb: db, masterDb: master },
       }).request('/api/meetings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -805,7 +823,7 @@ describe('/api/meetings · pglite integration', () => {
       return row?.attendees ?? [];
     }
 
-    it('puts the organizer first, resolved from workspace_members', async () => {
+    it('puts the organizer first, resolved from workspace_members with their account picture', async () => {
       const res = await create({ title: 'With guests', attendees: [{ email: 'guest@example.com', name: 'Guest' }] });
       const { data } = (await res.json()) as { data: { id: string } };
       const attendees = await attendeesOf(data.id);
@@ -814,7 +832,7 @@ describe('/api/meetings · pglite integration', () => {
         userId: organizerId,
         email: 'organizer@example.com',
         name: 'Olivia Organizer',
-        avatar: 'https://cdn.example.com/olivia.png',
+        avatar: 'https://img.clerk.test/olivia.png',
         status: 'accepted',
         role: 'organizer',
         workspaceMemberId: 'wm_org_attendee',
@@ -903,12 +921,17 @@ describe('/api/meetings · pglite integration', () => {
     };
 
     beforeAll(async () => {
+      await master
+        .insert(users)
+        .values({ id: organizerId, email: 'list-org@example.com', imageUrl: 'https://img.clerk.test/lena.png' })
+        .onConflictDoNothing();
       await db.insert(schema.workspaceMembers).values({
         id: 'wm_list_org',
         userId: organizerId,
         email: 'list-org@example.com',
         name: 'Lena Lister',
-        picture: 'https://cdn.example.com/lena.png',
+        // A stale per-workspace copy the list must not use.
+        picture: 'https://stale.test/lena.png',
       });
       const now = Date.now();
       const base = { organizerId, title: 'List meeting' };
@@ -973,20 +996,20 @@ describe('/api/meetings · pglite integration', () => {
 
     async function list(query = '', userId = organizerId) {
       const res = await createTestApp('/api/meetings', meetingsRoutes, {
-        context: { permissions: permissions('meetings:read'), userId, tenantDb: db },
+        context: { permissions: permissions('meetings:read'), userId, tenantDb: db, masterDb: master },
       }).request(`/api/meetings${query}`);
       expect(res.status).toBe(200);
       return ((await res.json()) as { data: Item[] }).data;
     }
 
-    it('adds the organizer (member name and avatar) to every item', async () => {
+    it('adds the organizer (member name, account avatar) to every item', async () => {
       const items = await list();
       expect(items.length).toBeGreaterThan(0);
       for (const item of items) {
         expect(item.organizer).toEqual({
           userId: organizerId,
           name: 'Lena Lister',
-          avatar: 'https://cdn.example.com/lena.png',
+          avatar: 'https://img.clerk.test/lena.png',
         });
         expect(item).not.toHaveProperty('lastSession');
       }

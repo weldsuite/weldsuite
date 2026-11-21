@@ -19,6 +19,7 @@ import type { Database } from '@weldsuite/worker-kit/db';
 import {
   REALTIME_URL,
   WIDGET,
+  account,
   addWidget,
   at,
   get,
@@ -224,44 +225,53 @@ describe('GET /api/config: team', () => {
   const members = tenantSchema.workspaceMembers;
   const team = async () => (await config()).team;
   const face = (n: number) => `https://img.widget.test/t${n}.png`;
+  /** The teammate's account picture (master `users`): what the header shows. */
+  const withFace = (userId: string, n: number) => account(masterDb, userId, face(n));
 
   /** Rows are inserted in the order the team is expected in (and by id, name and creation time too). */
-  it('is empty while no teammate has a picture', async () => {
+  it('is empty while no teammate has an account picture, whatever their member row holds', async () => {
+    await account(masterDb, 'user_t0b', null);
     await tenantDb.insert(members).values([
-      member('user_t0a', { name: 'No Picture' }),
-      member('user_t0b', { name: 'Also None', picture: null }),
+      // A picture on the member row is a stale copy, never shown.
+      member('user_t0a', { name: 'No Account', picture: 'https://stale.widget.test/t0a.png' }),
+      member('user_t0b', { name: 'Also None', picture: 'https://stale.widget.test/t0b.png' }),
     ]);
     expect(await team()).toEqual([]);
   });
 
   it('shows an active internal teammate by first name', async () => {
+    await withFace('user_t1', 1);
     await tenantDb
       .insert(members)
-      .values(member('user_t1', { name: 'Ann Lee-Smith', picture: face(1), createdAt: at(1), updatedAt: at(1) }));
+      .values(member('user_t1', { name: 'Ann Lee-Smith', createdAt: at(1), updatedAt: at(1) }));
     expect(await team()).toEqual([{ name: 'Ann', avatar: face(1) }]);
   });
 
   it('leaves out pending, suspended, guest and employee members', async () => {
+    for (const [userId, n] of [['user_x_pending', 90], ['user_x_suspended', 91], ['user_x_guest', 92], ['user_x_employee', 93]] as const) {
+      await withFace(userId, n);
+    }
     await tenantDb.insert(members).values([
-      member('user_x_pending', { name: 'Pending Pat', picture: face(90), status: 'PENDING', createdAt: at(2) }),
-      member('user_x_suspended', { name: 'Suspended Sam', picture: face(91), status: 'SUSPENDED', createdAt: at(2) }),
-      member('user_x_guest', { name: 'Guest Gail', picture: face(92), memberType: 'EXTERNAL_GUEST', createdAt: at(2) }),
-      member('user_x_employee', { name: 'Employee Eli', picture: face(93), memberType: 'EMPLOYEE', createdAt: at(2) }),
+      member('user_x_pending', { name: 'Pending Pat', status: 'PENDING', createdAt: at(2) }),
+      member('user_x_suspended', { name: 'Suspended Sam', status: 'SUSPENDED', createdAt: at(2) }),
+      member('user_x_guest', { name: 'Guest Gail', memberType: 'EXTERNAL_GUEST', createdAt: at(2) }),
+      member('user_x_employee', { name: 'Employee Eli', memberType: 'EMPLOYEE', createdAt: at(2) }),
     ]);
     expect(await team()).toEqual([{ name: 'Ann', avatar: face(1) }]);
   });
 
   it('reads status and member type without regard to case, and keeps the first name as written', async () => {
+    await withFace('user_t2', 2);
+    await withFace('user_t3', 3);
     await tenantDb.insert(members).values([
       member('user_t2', {
         name: 'bob   marley',
-        picture: face(2),
         status: 'active',
         memberType: 'internal',
         createdAt: at(3),
         updatedAt: at(3),
       }),
-      member('user_t3', { name: null, picture: face(3), createdAt: at(4), updatedAt: at(4) }),
+      member('user_t3', { name: null, createdAt: at(4), updatedAt: at(4) }),
     ]);
     expect(await team()).toEqual([
       { name: 'Ann', avatar: face(1) },
@@ -271,9 +281,10 @@ describe('GET /api/config: team', () => {
   });
 
   it('shows at most three teammates', async () => {
+    await withFace('user_t4', 4);
     await tenantDb
       .insert(members)
-      .values(member('user_t4', { name: 'Dan Four', picture: face(4), createdAt: at(5), updatedAt: at(5) }));
+      .values(member('user_t4', { name: 'Dan Four', createdAt: at(5), updatedAt: at(5) }));
     expect(await team()).toEqual([
       { name: 'Ann', avatar: face(1) },
       { name: 'bob', avatar: face(2) },
@@ -283,9 +294,10 @@ describe('GET /api/config: team', () => {
 
   it('calls a teammate with a blank name Support', async () => {
     await tenantDb.delete(members).where(inArray(members.userId, ['user_t1', 'user_t2']));
+    await withFace('user_t5', 5);
     await tenantDb
       .insert(members)
-      .values(member('user_t5', { name: '   ', picture: face(5), createdAt: at(6), updatedAt: at(6) }));
+      .values(member('user_t5', { name: '   ', createdAt: at(6), updatedAt: at(6) }));
     expect(await team()).toEqual([
       { name: 'Support', avatar: face(3) },
       { name: 'Dan', avatar: face(4) },

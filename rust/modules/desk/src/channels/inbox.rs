@@ -404,8 +404,12 @@ async fn update_attributes(
             crate::routing::reroute_after_attributes(&state, caller, message).await
         {
             for step in &routed.steps {
-                let authors =
-                    load_author(&caller.db, step.conversation["assigneeId"].as_str()).await;
+                let authors = load_author(
+                    &caller.db,
+                    caller.master.as_ref().map(|master| &master.0),
+                    step.conversation["assigneeId"].as_str(),
+                )
+                .await;
                 publish_change(
                     &state,
                     &caller.clerk_org_id,
@@ -642,20 +646,25 @@ async fn upload(
 
 // ── realtime ──────────────────────────────────────────────────────────────────
 
-/// `loadAuthor(db, userId)`: the member's first name and picture.
-pub(super) async fn load_author(db: &PgPool, user_id: Option<&str>) -> HashMap<String, Author> {
+/// `loadAuthor(db, userId)`: the member's first name and account picture
+/// (`master`), not the member row's copy.
+pub(super) async fn load_author(
+    db: &PgPool,
+    master: Option<&PgPool>,
+    user_id: Option<&str>,
+) -> HashMap<String, Author> {
     let mut authors = HashMap::new();
     let Some(user_id) = user_id.filter(|u| !u.is_empty()) else {
         return authors;
     };
-    #[allow(clippy::type_complexity)] // name and picture
-    let member: Result<Option<(Option<String>, Option<String>)>, sqlx::Error> =
-        sqlx::query_as("select name, picture from workspace_members where user_id = $1 limit 1")
+    let member: Result<Option<Option<String>>, sqlx::Error> =
+        sqlx::query_scalar("select name from workspace_members where user_id = $1 limit 1")
             .bind(user_id)
             .fetch_optional(db)
             .await;
     match member {
-        Ok(Some((name, picture))) => {
+        Ok(Some(name)) => {
+            let picture = weldsuite_db::load_account_picture(master, user_id).await;
             authors.insert(
                 user_id.to_owned(),
                 webchat::author_from_member(name.as_deref(), picture.as_deref()),
@@ -957,7 +966,12 @@ async fn reply(
         &conversation,
         &message,
     );
-    let authors = load_author(&caller.db, Some(&caller.user_id)).await;
+    let authors = load_author(
+        &caller.db,
+        caller.master.as_ref().map(|master| &master.0),
+        Some(&caller.user_id),
+    )
+    .await;
     publish_change(
         &state,
         &caller.clerk_org_id,
@@ -1376,7 +1390,12 @@ async fn manage(
     };
     if children.is_empty() {
         publish_events(&ctx, &state, event, &conversation, &message);
-        let authors = load_author(&caller.db, conversation["assigneeId"].as_str()).await;
+        let authors = load_author(
+            &caller.db,
+            caller.master.as_ref().map(|master| &master.0),
+            conversation["assigneeId"].as_str(),
+        )
+        .await;
         publish_change(
             &state,
             &caller.clerk_org_id,

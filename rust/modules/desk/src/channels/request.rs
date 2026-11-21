@@ -273,7 +273,12 @@ async fn attach(
             crate::routing::reroute_after_attributes(&state, caller, &change.message).await
         {
             for step in &routed.steps {
-                let authors = load_author(db, step.conversation["assigneeId"].as_str()).await;
+                let authors = load_author(
+                    db,
+                    caller.master.as_ref().map(|master| &master.0),
+                    step.conversation["assigneeId"].as_str(),
+                )
+                .await;
                 publish_change(
                     &state,
                     &caller.clerk_org_id,

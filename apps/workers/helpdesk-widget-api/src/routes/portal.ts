@@ -353,6 +353,7 @@ function toPortalMessage(message: ReturnType<typeof toPublicMessage>): DeskPorta
 }
 
 async function requestDetail(
+  env: Env,
   db: Database,
   conversation: DeskConversation,
   messages: DeskMessage[],
@@ -363,7 +364,7 @@ async function requestDetail(
     ? ((await deskCatalogItemNames(db, [conversation.catalogItemId])).get(conversation.catalogItemId) ?? null)
     : null;
   const visible = messages.filter(isPublicMessage);
-  const authors = await resolveAuthors(db, visible.filter((m) => m.authorType === 'agent').map((m) => m.authorId));
+  const authors = await resolveAuthors(env, db, visible.filter((m) => m.authorType === 'agent').map((m) => m.authorId));
   return {
     ...toDeskPortalSummary(conversation, type, itemName),
     fields: await getDeskPortalRequestFields(db, conversation, type),
@@ -425,7 +426,7 @@ signedIn.post('/requests', zValidator('json', deskPortalCreateRequestSchema), as
     });
     markDeskSlaDue(c.env, (p) => c.executionCtx.waitUntil(p), c.get('clerkOrgId'), slaCheckAt);
     announceVisitorMessage(c, conversation, message, { isNew: true, teamAlreadyWaiting: false });
-    return success(c, await requestDetail(db, conversation, [message]), 201);
+    return success(c, await requestDetail(c.env, db, conversation, [message]), 201);
   } catch (err) {
     if (err instanceof DeskPortalRequestRejectedError) {
       return error.badRequest(c, err.message, { field: err.field });
@@ -493,7 +494,7 @@ signedIn.post('/catalog/:id/requests', zValidator('json', deskPortalCatalogReque
         fulfilDeskCatalogRequest(ctx, { db, conversation, item }).then(() => undefined),
       );
     }
-    return success(c, await requestDetail(db, conversation, [message]), 201);
+    return success(c, await requestDetail(c.env, db, conversation, [message]), 201);
   } catch (err) {
     if (err instanceof DeskPortalRequestRejectedError) {
       return error.badRequest(c, err.message, { field: err.field });
@@ -516,7 +517,7 @@ signedIn.get('/requests/:id', async (c) => {
   try {
     const result = await accessible(c, id, true);
     if (!result) return error.notFound(c, 'Request', id);
-    return success(c, await requestDetail(c.get('tenantDb'), result.conversation, result.messages));
+    return success(c, await requestDetail(c.env, c.get('tenantDb'), result.conversation, result.messages));
   } catch (err) {
     console.error('[widget-api/portal] get request failed:', err);
     return error.internal(c, 'Failed to load the request');

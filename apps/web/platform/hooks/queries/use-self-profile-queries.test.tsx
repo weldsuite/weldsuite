@@ -12,6 +12,12 @@ vi.mock('@/lib/api/use-app-api', () => ({
   }),
 }));
 
+/** The signed-in user: an upload re-reads it so its `imageUrl` follows. */
+const reloadMock = vi.fn(async () => undefined);
+vi.mock('@/lib/auth', () => ({
+  useUser: () => ({ user: { reload: reloadMock } }),
+}));
+
 import {
   selfProfileKeys,
   useSelfProfile,
@@ -97,6 +103,8 @@ describe('useUploadSelfAvatar', () => {
       'https://cdn.test/avatars/ada_2.png',
     );
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['settings', 'members'] });
+    // The upload set the account picture: the signed-in user is re-read too.
+    expect(reloadMock).toHaveBeenCalledTimes(1);
   });
 
   it('leaves the cache alone when the API returns no picture', async () => {
@@ -113,6 +121,7 @@ describe('useUploadSelfAvatar', () => {
     expect(imageUrl).toBeNull();
     expect(queryClient.getQueryData<SelfProfile>(selfProfileKeys.profile)?.picture).toBe(profile.picture);
     expect(invalidate).not.toHaveBeenCalled();
+    expect(reloadMock).not.toHaveBeenCalled();
   });
 
   it('keeps an unloaded profile unloaded', async () => {

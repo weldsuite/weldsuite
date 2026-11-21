@@ -18,13 +18,13 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { eq, and, isNull } from 'drizzle-orm';
+import { eq, and, isNull, sql } from 'drizzle-orm';
 import type { Env } from '../index';
 import { getMasterDb } from '../db';
 import { generateId } from '../lib/id';
 import { provisionWorkspaceDatabase } from '../services/provisioning';
 import { provisionMailDomain } from '../services/mail-provisioning';
-import { workspaces, plans } from '@weldsuite/db/schema/master';
+import { workspaces, plans, users } from '@weldsuite/db/schema/master';
 import { m2mAuth } from '../middleware/m2m-auth';
 import { syncClerkSeatLimit, isClerkSlugError } from '../lib/clerk';
 import { SLUG_REGEX, isReservedWorkspaceSlug, slugifyWorkspaceName, withRandomSuffix } from '../lib/slug';
@@ -45,6 +45,11 @@ export const onboardSchema = z.object({
   initialMember: z.object({
     email: z.string().optional(),
     name: z.string().optional(),
+    /**
+     * The creator's account picture (Clerk `image_url`). Recorded on the
+     * master `users` row when it has none yet (recordAccount), never on the
+     * tenant member row: avatars are read from the account.
+     */
     picture: z.string().optional(),
   }).optional(),
   // Force creation of a brand-new Clerk org instead of reusing the caller's
@@ -260,7 +265,6 @@ async function provisionDatabaseForWorkspace(
     userId: data.clerkUserId,
     email: data.initialMember.email,
     name: data.initialMember.name,
-    picture: data.initialMember.picture,
   } : { userId: data.clerkUserId };
 
   const provisionResult = await provisionWorkspaceDatabase(env, masterDb, workspaceId, data.workspaceName, {
@@ -286,6 +290,34 @@ async function provisionDatabaseForWorkspace(
 }
 
 /**
+ * Make sure the creator's master `users` row (their account) exists and has a
+ * picture: `users.image_url` is the avatar every API shows for them. Normally
+ * Clerk's user.created / user.updated webhooks write it; this covers a missed
+ * event. An existing picture is kept. Non-fatal: onboarding goes on without it.
+ */
+async function recordAccount(masterDb: ReturnType<typeof getMasterDb>, data: OnboardData): Promise<void> {
+  const picture = data.initialMember?.picture || null;
+  if (!picture) return;
+  try {
+    await masterDb
+      .insert(users)
+      .values({
+        id: data.clerkUserId,
+        email: data.initialMember?.email || '',
+        firstName: data.firstName || null,
+        lastName: data.lastName || null,
+        imageUrl: picture,
+      })
+      .onConflictDoUpdate({
+        target: users.id,
+        set: { imageUrl: sql`coalesce(${users.imageUrl}, ${picture})` },
+      });
+  } catch (err) {
+    console.warn('[Onboard] Could not record the account row (non-blocking):', err);
+  }
+}
+
+/**
  * Upsert workspace row, provision database, and set up billing.
  * Shared by both the new-org and existing-org code paths.
  */
@@ -296,6 +328,8 @@ async function upsertAndProvision(
   clerkOrgId: string,
   clerkOrgSlug: string,
 ): Promise<OnboardResult> {
+  await recordAccount(masterDb, data);
+
   // Upsert workspace row
   let workspaceId: string;
   const [existing] = await masterDb
