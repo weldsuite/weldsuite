@@ -8,7 +8,6 @@ import { and, desc, eq, ilike, isNull, sql, type SQL } from 'drizzle-orm';
 import { atomically } from '@weldsuite/worker-kit/atomically';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
-import { loadAccountPicture, type AccountPictureEnv } from '@weldsuite/worker-kit/account-pictures';
 import * as filesService from '@weldsuite/core-domain/files';
 import { WELDSHEET_MIME_TYPE } from '@weldsuite/app-api-client/schemas/sheets';
 import type { DriveFileRef } from '@weldsuite/core-domain/drive-access';
@@ -324,25 +323,8 @@ export async function recordCheckpoint(
   return getSheet(db, sheetId);
 }
 
-/**
- * Display name (from the member row) and picture (from their account) of a
- * workspace member, for the room's peer list.
- */
-export async function memberProfile(
-  env: AccountPictureEnv,
-  db: Database,
-  userId: string,
-): Promise<{ name: string | null; picture: string | null }> {
-  const [[row], picture] = await Promise.all([
-    db
-      .select({ name: schema.workspaceMembers.name, email: schema.workspaceMembers.email })
-      .from(schema.workspaceMembers)
-      .where(and(eq(schema.workspaceMembers.userId, userId), isNull(schema.workspaceMembers.deletedAt)))
-      .limit(1),
-    loadAccountPicture(env, userId),
-  ]);
-  return { name: row?.name || row?.email || null, picture };
-}
+/** Display name and account picture of a workspace member, for the room's peer list. */
+export { loadMemberProfile as memberProfile } from '@weldsuite/worker-kit/account-pictures';
 
 function escapeLike(text: string): string {
   return text.replace(/[\\%_]/g, (ch) => `\\${ch}`);

@@ -19,11 +19,15 @@ vi.mock('./db', async (importOriginal) => {
   };
 });
 
+import { schema } from './db';
+import { createPgliteDb } from './testing/pglite';
 import {
   accountPicture,
   loadAccountPicture,
   loadAccountPictures,
+  loadMemberProfile,
   tryLoadAccountPictures,
+  tryLoadAccountPicturesFrom,
   withAccountPictures,
 } from './account-pictures';
 
@@ -103,5 +107,40 @@ describe('helpers', () => {
       { userId: 'user_unknown', name: 'Ghost', picture: null },
       { userId: null, name: 'Invite', picture: null },
     ]);
+  });
+});
+
+describe('tryLoadAccountPicturesFrom', () => {
+  it('reads the handle it is given, and treats a handle that cannot open as a failed lookup', async () => {
+    const found = await tryLoadAccountPicturesFrom(() => holder.master as never, ['user_alice']);
+    expect(found?.get('user_alice')).toBe('https://img.clerk.test/alice.png');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const open = vi.fn(() => {
+      throw new Error('no connection string');
+    });
+    expect(await tryLoadAccountPicturesFrom(open, ['user_alice'])).toBeNull();
+    warn.mockRestore();
+    // Nothing to look up: the handle is never opened.
+    open.mockClear();
+    expect((await tryLoadAccountPicturesFrom(open, [null, ''])).size).toBe(0);
+    expect(open).not.toHaveBeenCalled();
+  });
+});
+
+describe('loadMemberProfile', () => {
+  it('takes the name from the member row (else its email) and the picture from the account', async () => {
+    const { db } = await createPgliteDb();
+    const now = new Date('2026-01-01T10:00:00.000Z');
+    await db.delete(schema.workspaceMembers);
+    await db.insert(schema.workspaceMembers).values([
+      { id: 'mbr_ap_alice', userId: 'user_alice', email: 'alice@acme.test', name: 'Alice', picture: 'https://stale.test/a.png', role: 'MEMBER', status: 'ACTIVE', createdAt: now, updatedAt: now },
+      { id: 'mbr_ap_bob', userId: 'user_bob', email: 'bob@acme.test', name: null, role: 'MEMBER', status: 'ACTIVE', createdAt: now, updatedAt: now },
+      { id: 'mbr_ap_gone', userId: 'user_carol', email: 'carol@acme.test', name: 'Carol', role: 'MEMBER', status: 'ACTIVE', createdAt: now, updatedAt: now, deletedAt: now },
+    ] as (typeof schema.workspaceMembers.$inferInsert)[]);
+
+    expect(await loadMemberProfile(env, db, 'user_alice')).toEqual({ name: 'Alice', picture: 'https://img.clerk.test/alice.png' });
+    expect(await loadMemberProfile(env, db, 'user_bob')).toEqual({ name: 'bob@acme.test', picture: null });
+    // A removed member has no name; the picture is still the account's (none here).
+    expect(await loadMemberProfile(env, db, 'user_carol')).toEqual({ name: null, picture: null });
   });
 });

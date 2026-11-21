@@ -438,15 +438,20 @@ async fn provisioning_the_sync_and_the_sweeps() {
             removed: false,
         },
     );
-    // The owner's picture, uploaded in WeldSuite (ADR SEC-020).
+    // The owner's account, with a picture uploaded in WeldSuite (ADR SEC-020).
+    // The workspace was inserted directly, so the sync would otherwise be the
+    // first to write the row.
     let uploaded =
         format!("https://storage.test/workspaces/{org}/avatars/{user}_1767225600000.png");
-    sqlx::query("update users set image_url = $2 where id = $1")
-        .bind(&user)
-        .bind(&uploaded)
-        .execute(&master)
-        .await
-        .expect("uploaded picture");
+    sqlx::query(
+        "insert into users (id, email, image_url) values ($1, 'owner@job.test', $2)
+         on conflict (id) do update set image_url = excluded.image_url",
+    )
+    .bind(&user)
+    .bind(&uploaded)
+    .execute(&master)
+    .await
+    .expect("uploaded picture");
     let report = sync.run().await.expect("sync");
     assert_eq!(
         report,

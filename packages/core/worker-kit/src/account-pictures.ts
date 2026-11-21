@@ -7,7 +7,7 @@
  * `workspace_members.picture` is not an avatar source: it was a per-workspace
  * copy that drifted from the account (empty for members added before the copy
  * was filled, stale after a photo change). Every API that returns a person's
- * picture resolves it here instead, by user id.
+ * picture resolves it here instead, by user id (ADR SEC-020).
  *
  * The lookup is one `select … where id in (…)` on the master database per
  * call, so batch: collect the user ids of a whole response, then resolve them
@@ -15,10 +15,10 @@
  * draw initials) rather than failing the response it decorates.
  */
 
-import { inArray } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { users } from '@weldsuite/db/schema/master';
-import { getMasterDb } from './db';
-import type { DbEnv } from './env';
+import { getMasterDb, schema, type AnyMasterDatabase } from './db';
+import type { Database, DbEnv } from './env';
 
 export type AccountPictureEnv = Pick<DbEnv, 'DATABASE_URL_MASTER'>;
 
@@ -26,6 +26,31 @@ export type AccountPictureEnv = Pick<DbEnv, 'DATABASE_URL_MASTER'>;
 export type AccountPictures = ReadonlyMap<string, string | null>;
 
 const EMPTY: AccountPictures = new Map();
+
+/**
+ * The account pictures of the given users from a master database handle, or
+ * null when the lookup failed. `openMaster` is called only when there is
+ * something to look up, and a failure to open counts as a failed lookup. For a
+ * worker that opens the master database its own way (e.g. through Hyperdrive);
+ * the others use {@link tryLoadAccountPictures}.
+ */
+export async function tryLoadAccountPicturesFrom(
+  openMaster: () => AnyMasterDatabase,
+  userIds: Iterable<string | null | undefined>,
+): Promise<AccountPictures | null> {
+  const ids = [...new Set([...userIds].filter((id): id is string => typeof id === 'string' && id.length > 0))];
+  if (ids.length === 0) return EMPTY;
+  try {
+    const rows = await openMaster()
+      .select({ id: users.id, imageUrl: users.imageUrl })
+      .from(users)
+      .where(inArray(users.id, ids));
+    return new Map(rows.map((row) => [row.id, row.imageUrl || null]));
+  } catch (err) {
+    console.warn('[worker-kit/account-pictures] lookup failed:', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
 
 /**
  * Account pictures of the given users, or null when the lookup failed. Use it
@@ -36,18 +61,7 @@ export async function tryLoadAccountPictures(
   env: AccountPictureEnv,
   userIds: Iterable<string | null | undefined>,
 ): Promise<AccountPictures | null> {
-  const ids = [...new Set([...userIds].filter((id): id is string => typeof id === 'string' && id.length > 0))];
-  if (ids.length === 0) return EMPTY;
-  try {
-    const rows = await getMasterDb(env)
-      .select({ id: users.id, imageUrl: users.imageUrl })
-      .from(users)
-      .where(inArray(users.id, ids));
-    return new Map(rows.map((row) => [row.id, row.imageUrl || null]));
-  } catch (err) {
-    console.warn('[worker-kit/account-pictures] lookup failed:', err instanceof Error ? err.message : err);
-    return null;
-  }
+  return tryLoadAccountPicturesFrom(() => getMasterDb(env), userIds);
 }
 
 /** Account pictures of the given users. Ids without an account are absent from the map. */
@@ -83,4 +97,27 @@ export async function withAccountPictures<T extends { userId?: string | null }>(
 ): Promise<Array<T & { picture: string | null }>> {
   const pictures = await loadAccountPictures(env, rows.map((row) => row.userId));
   return rows.map((row) => ({ ...row, picture: accountPicture(pictures, row.userId) }));
+}
+
+/**
+ * A workspace member's display name (the member row's name, else its email)
+ * and account picture, e.g. for a live room's peer list. A removed member, or
+ * someone without a member row, has no name; the picture is still the
+ * account's.
+ */
+export async function loadMemberProfile(
+  env: AccountPictureEnv,
+  db: Database,
+  userId: string,
+): Promise<{ name: string | null; picture: string | null }> {
+  const { workspaceMembers } = schema;
+  const [[row], picture] = await Promise.all([
+    db
+      .select({ name: workspaceMembers.name, email: workspaceMembers.email })
+      .from(workspaceMembers)
+      .where(and(eq(workspaceMembers.userId, userId), isNull(workspaceMembers.deletedAt)))
+      .limit(1),
+    loadAccountPicture(env, userId),
+  ]);
+  return { name: row?.name || row?.email || null, picture };
 }
