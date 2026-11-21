@@ -344,6 +344,9 @@ describe('GET /api/panel/live', () => {
     const body = await data<PanelLiveDto>(res);
     expect(body.projectId).toBe(PROJECT);
     expect(body.visitors).toBe(2);
+    expect(body.visitors30m).toBe(2);
+    // Both sessions ran from 09:58 to 10:00, a minute before the object's now.
+    expect(body.perMinute).toEqual([...Array<number>(27).fill(0), 2, 2, 2]);
     expect(body.sessions.map((s) => s.distinctId)).toEqual(['ada@example.com', 'anon_9']);
   });
 

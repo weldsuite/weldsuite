@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import type { Meta, StoryObj } from '@storybook/react';
 import { fn } from '@storybook/test';
-import { Settings, PhoneCall } from 'lucide-react';
+import { ChevronLeft, Settings, PhoneCall } from 'lucide-react';
 
 import {
   ListToolbar,
@@ -260,6 +260,43 @@ export const WithListTable: Story = {
           data={filtered}
           onRowClick={fn()}
           emptyMessage="No calls match the current filters."
+        />
+      </div>
+    );
+  },
+};
+
+/**
+ * A detail page's toolbar: a back button first (`leading`), the app's own
+ * filter pills (`filterSlot`, here a stand-in), search and a picker on the right.
+ */
+export const DetailPageToolbar: Story = {
+  name: 'Detail page: back button and own filters',
+  render: () => {
+    const [search, setSearch] = useState('');
+    return (
+      <div className="border rounded-md">
+        <ListToolbar
+          leading={
+            <Button variant="outline" size="icon" className="h-8 w-8 text-muted-foreground shadow-none" aria-label="Back" onClick={fn()}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+          }
+          filterSlot={
+            <div className="flex h-8 items-center rounded-md border border-border bg-muted/50 px-2 text-sm">
+              <span className="text-muted-foreground">Device</span>
+              <span className="mx-2 h-4 w-px bg-border" />
+              <span>Desktop</span>
+            </div>
+          }
+          search={search}
+          onSearchChange={setSearch}
+          searchPlaceholder="Search elements..."
+          actionButtons={
+            <Button variant="outline" size="sm" className="h-8">
+              Last 30 days
+            </Button>
+          }
         />
       </div>
     );

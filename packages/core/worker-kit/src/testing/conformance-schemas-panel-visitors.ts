@@ -196,6 +196,8 @@ const liveSchema = z
   .object({
     projectId: z.string(),
     visitors: z.number().int().min(0),
+    visitors30m: z.number().int().min(0),
+    perMinute: z.array(z.number().int().min(0)).length(30),
     sessions: z.array(
       z
         .object({

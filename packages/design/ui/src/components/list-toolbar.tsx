@@ -27,6 +27,12 @@ export interface ListToolbarProps {
   onFiltersChange?: (filters: ActiveFilter[]) => void;
   /** Upper bound on concurrent filters. Defaults to 5. */
   maxFilters?: number;
+  /**
+   * Renders instead of the built-in filter pills, for an app that brings its
+   * own (the platform's translated `FilterPills`). `filterConfigs` is then
+   * not needed.
+   */
+  filterSlot?: React.ReactNode;
 
   // ─── Search ────────────────────────────────────────────────────────────
   /** Controlled search text. When undefined the search UI is hidden. */
@@ -35,6 +41,8 @@ export interface ListToolbarProps {
   searchPlaceholder?: string;
 
   // ─── Slots ─────────────────────────────────────────────────────────────
+  /** Rendered first, before the filters and on small screens too: a back button. */
+  leading?: React.ReactNode;
   /** Extra buttons rendered on the left (next to filter pills). */
   leftActionButtons?: React.ReactNode;
   /** Extra buttons rendered on the right, before the Create button. */
@@ -60,9 +68,11 @@ export function ListToolbar({
   filters = [],
   onFiltersChange,
   maxFilters = 5,
+  filterSlot,
   search,
   onSearchChange,
   searchPlaceholder = 'Search...',
+  leading,
   leftActionButtons,
   actionButtons,
   createButton,
@@ -88,16 +98,20 @@ export function ListToolbar({
         className,
       )}
     >
-      <div className="hidden md:flex items-center gap-2">
-        {showFilters ? (
-          <FilterPills
-            filters={filters}
-            filterConfigs={filterConfigs!}
-            maxFilters={maxFilters}
-            onFiltersChange={onFiltersChange!}
-          />
-        ) : null}
-        {leftActionButtons}
+      <div className="flex items-center gap-2">
+        {leading}
+        <div className="hidden md:flex items-center gap-2">
+          {filterSlot ??
+            (showFilters ? (
+              <FilterPills
+                filters={filters}
+                filterConfigs={filterConfigs!}
+                maxFilters={maxFilters}
+                onFiltersChange={onFiltersChange!}
+              />
+            ) : null)}
+          {leftActionButtons}
+        </div>
       </div>
 
       {/* Mobile: search always visible */}

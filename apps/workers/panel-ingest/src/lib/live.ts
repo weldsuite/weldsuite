@@ -7,11 +7,12 @@
  * - a session keeps its page path changes in order (the object counts a new
  *   path as a page view) and only refreshes its time while the path stays;
  * - the first batch after a quiet spell is sent at once, later ones wait for
- *   the first batch past the interval (no timer: a stale live entry is gone
- *   after five minutes anyway, and the visitor's next batch comes seconds later).
+ *   the first batch past the interval (no timer: a stale live entry leaves
+ *   the "last five minutes" count anyway, and the visitor's next batch comes
+ *   seconds later).
  *
- * Nothing here is stored beyond the isolate's memory and the object's five
- * minute window.
+ * Nothing here is stored beyond the isolate's memory and the object's
+ * 30-minute window.
  */
 
 import type { PanelEventRow } from '@weldsuite/panel-domain/event-row';

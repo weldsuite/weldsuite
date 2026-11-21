@@ -563,6 +563,15 @@ export interface PanelLiveDto {
   projectId: string;
   /** Visitors with activity in the last five minutes. */
   visitors: number;
+  /** Visitors with activity in the last 30 minutes. */
+  visitors30m: number;
+  /**
+   * Visitors on the site in each of the last 30 minutes, oldest first (index
+   * 29 is the minute up to now). A session counts in every minute from its
+   * start to its last activity.
+   */
+  perMinute: number[];
+  /** Sessions with activity in the last 30 minutes, latest first (at most 500); `ts` tells the recent ones apart. */
   sessions: PanelLiveSessionDto[];
 }
 
