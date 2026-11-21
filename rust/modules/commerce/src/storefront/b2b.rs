@@ -95,7 +95,7 @@ pub(crate) async fn approvals(
                 "requestedBy": by.map(|p| json!({ "personId": p.id, "name": p.display() })),
             }));
         }
-        Ok::<_, sqlx::Error>(out)
+        Ok::<_, weldsuite_commerce_domain::Error>(out)
     }
     .await;
     match found {
@@ -245,7 +245,9 @@ pub(crate) async fn buyers(
     };
     let list = async {
         let mut conn = principal.db.acquire().await?;
-        accounts::buyers(&mut conn, Some(&company), None).await
+        Ok::<_, weldsuite_commerce_domain::Error>(
+            accounts::buyers(&mut conn, Some(&company), None).await?,
+        )
     }
     .await;
     match list {
@@ -418,7 +420,11 @@ pub(crate) fn buyer_event(buyer: &Value) -> Value {
 }
 
 /// A buyer of the shopper's company, or a 404.
-async fn own_buyer(principal: &Principal, company: &str, id: &str) -> Result<bool, sqlx::Error> {
+async fn own_buyer(
+    principal: &Principal,
+    company: &str,
+    id: &str,
+) -> Result<bool, weldsuite_commerce_domain::Error> {
     let mut conn = principal.db.acquire().await?;
     let found = accounts::buyer(&mut conn, id).await?;
     Ok(found.is_some_and(|b| b["companyId"].as_str() == Some(company)))

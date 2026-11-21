@@ -15,16 +15,30 @@
 //! Until the cart has a destination country no VAT is calculated: `taxTotal`
 //! is zero and `vatTreatment` null (a gross price is then the total; a net
 //! price has VAT added once the destination is known).
+//!
+//! The statements are the SeaORM entities' (ADR DATA-019), on the caller's
+//! connection or transaction through [`db::on`].
 
 use std::collections::HashMap;
 
-use sea_orm::DbErr;
+use sea_orm::ActiveValue::Set;
+use sea_orm::prelude::BigDecimal;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ColumnTrait, DbErr, EntityTrait, JoinType, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect, RelationDef,
+};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, PgPool};
+use time::Duration;
 use weldsuite_kit::{generate_id, id::ALPHANUMERIC, id::random_string};
 use weldsuite_ports::OutboundHttp;
+use weldsuite_schema::tenant::{
+    cart_items, carts, commerce_channels, commerce_shipping_rates, product_variants, products,
+};
 
+use crate::db;
 use crate::discount::Problem;
 use crate::error::Error;
 use crate::money::{self, Cents};
@@ -34,7 +48,7 @@ use crate::prices::{self, Target};
 use crate::vat::{self, Buyer, Taxation};
 
 /// A cart expires this long after its last change.
-const EXPIRY: &str = "30 days";
+const EXPIRY: Duration = Duration::days(30);
 /// Lines in one cart.
 pub const MAX_LINES: i64 = 100;
 /// Quantity of one line.
@@ -145,45 +159,37 @@ fn text(value: &Value, key: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// `value`, or `fallback` when it is empty.
+fn or_default(value: String, fallback: &str) -> String {
+    if value.is_empty() {
+        fallback.to_owned()
+    } else {
+        value
+    }
+}
+
 /// The live channel `id`, whatever its status.
 ///
 /// # Errors
 /// A failed statement.
-pub async fn load_channel(
-    conn: &mut PgConnection,
-    id: &str,
-) -> Result<Option<Channel>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('id', c.id, 'name', c.name, 'audience', c.audience, \
-           'status', c.status, 'currency', c.currency, 'pricesIncludeTax', c.prices_include_tax, \
-           'sellingCountries', c.selling_countries, 'guestCheckout', c.guest_checkout, \
-           'paymentMethods', c.payment_methods) \
-         from commerce_channels c where c.id = $1 and c.deleted_at is null",
-    )
-    .bind(id)
-    .fetch_optional(&mut *conn)
-    .await?;
+pub async fn load_channel(conn: &mut PgConnection, id: &str) -> Result<Option<Channel>, DbErr> {
+    let row = commerce_channels::Entity::find_by_id(id)
+        .filter(commerce_channels::Column::DeletedAt.is_null())
+        .one(&db::on(conn))
+        .await?;
     Ok(row.map(|row| Channel {
-        id: text(&row, "id").unwrap_or_default(),
-        name: text(&row, "name").unwrap_or_default(),
-        audience: text(&row, "audience").unwrap_or_else(|| "b2c".to_owned()),
-        status: text(&row, "status").unwrap_or_default(),
-        currency: text(&row, "currency")
-            .unwrap_or_else(|| "EUR".to_owned())
-            .to_ascii_uppercase(),
-        prices_include_tax: row
-            .get("pricesIncludeTax")
-            .and_then(Value::as_bool)
-            .unwrap_or(true),
-        selling_countries: strings(row.get("sellingCountries"))
+        audience: or_default(row.audience, "b2c"),
+        currency: or_default(row.currency, "EUR").to_ascii_uppercase(),
+        prices_include_tax: row.prices_include_tax,
+        selling_countries: strings(Some(&row.selling_countries))
             .into_iter()
             .map(|c| c.to_ascii_uppercase())
             .collect(),
-        guest_checkout: row
-            .get("guestCheckout")
-            .and_then(Value::as_bool)
-            .unwrap_or(true),
-        payment_methods: strings(row.get("paymentMethods")),
+        guest_checkout: row.guest_checkout,
+        payment_methods: strings(Some(&row.payment_methods)),
+        id: row.id,
+        name: row.name,
+        status: row.status,
     }))
 }
 
@@ -213,21 +219,41 @@ fn new_token() -> String {
 
 // ── reading a cart ──────────────────────────────────────────────────────────
 
-const TS: &str = "'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'";
+/// The fields of a cart row the code below reads, as the entity serialises
+/// them (timestamps as `toISOString()`).
+const CART_FIELDS: [&str; 15] = [
+    "id",
+    "status",
+    "email",
+    "billingAddress",
+    "shippingAddress",
+    "shippingRateId",
+    "discountCode",
+    "buyerVatNumber",
+    "customerReference",
+    "note",
+    "orderId",
+    "idempotencyKey",
+    "expiresAt",
+    "createdAt",
+    "updatedAt",
+];
 
-fn cart_select(lock: bool) -> String {
-    format!(
-        "select jsonb_build_object('id', c.id, 'status', c.status, 'email', c.email, \
-           'billingAddress', c.billing_address, 'shippingAddress', c.shipping_address, \
-           'shippingRateId', c.shipping_rate_id, 'discountCode', c.discount_code, \
-           'buyerVatNumber', c.buyer_vat_number, 'customerReference', c.customer_reference, \
-           'note', c.note, 'orderId', c.order_id, 'idempotencyKey', c.idempotency_key, \
-           'expired', (c.expires_at is not null and c.expires_at < now() at time zone 'utc'), \
-           'expiresAt', to_char(c.expires_at, {TS}), 'createdAt', to_char(c.created_at, {TS}), \
-           'updatedAt', to_char(c.updated_at, {TS})) \
-         from carts c where c.token_hash = $1 and c.channel_id = $2{}",
-        if lock { " for update of c" } else { "" }
-    )
+/// A cart row as JSON: [`CART_FIELDS`] and whether it has `expired`.
+fn cart_json(cart: &carts::Model) -> Value {
+    let row = serde_json::to_value(cart).unwrap_or_default();
+    let mut out: Map<String, Value> = CART_FIELDS
+        .iter()
+        .map(|key| {
+            (
+                (*key).to_owned(),
+                row.get(*key).cloned().unwrap_or(Value::Null),
+            )
+        })
+        .collect();
+    let expired = cart.expires_at.is_some_and(|at| at < db::now());
+    out.insert("expired".to_owned(), Value::Bool(expired));
+    Value::Object(out)
 }
 
 /// The cart of `token` on the channel, as a JSON row; `lock` holds it until
@@ -240,23 +266,47 @@ pub async fn find(
     channel_id: &str,
     token: &str,
     lock: bool,
-) -> Result<Option<Value>, sqlx::Error> {
-    sqlx::query_scalar(sqlx::AssertSqlSafe(cart_select(lock)))
-        .bind(token_hash(token))
-        .bind(channel_id)
-        .fetch_optional(&mut *conn)
-        .await
+) -> Result<Option<Value>, DbErr> {
+    let mut query = carts::Entity::find()
+        .filter(carts::Column::TokenHash.eq(token_hash(token)))
+        .filter(carts::Column::ChannelId.eq(channel_id));
+    if lock {
+        query = query.lock_exclusive();
+    }
+    let cart = query.one(&db::on(conn)).await?;
+    Ok(cart.as_ref().map(cart_json))
 }
 
-async fn items_of(conn: &mut PgConnection, cart_id: &str) -> Result<Vec<Value>, sqlx::Error> {
-    sqlx::query_scalar(
-        "select jsonb_build_object('id', i.id, 'productId', i.product_id, 'variantId', i.variant_id, \
-           'sku', i.sku, 'name', i.name, 'quantity', i.quantity) \
-         from cart_items i where i.cart_id = $1 order by i.created_at asc, i.id asc",
-    )
-    .bind(cart_id)
-    .fetch_all(&mut *conn)
-    .await
+/// The cart `id` on the channel, as [`find`] gives it; an error when it is
+/// gone.
+async fn find_by_id(conn: &mut PgConnection, channel_id: &str, id: &str) -> Result<Value, DbErr> {
+    let cart = carts::Entity::find_by_id(id)
+        .filter(carts::Column::ChannelId.eq(channel_id))
+        .require_one(&db::on(conn))
+        .await?;
+    Ok(cart_json(&cart))
+}
+
+async fn items_of(conn: &mut PgConnection, cart_id: &str) -> Result<Vec<Value>, DbErr> {
+    let items = cart_items::Entity::find()
+        .filter(cart_items::Column::CartId.eq(cart_id))
+        .order_by_asc(cart_items::Column::CreatedAt)
+        .order_by_asc(cart_items::Column::Id)
+        .all(&db::on(conn))
+        .await?;
+    Ok(items
+        .into_iter()
+        .map(|item| {
+            json!({
+                "id": item.id,
+                "productId": item.product_id,
+                "variantId": item.variant_id,
+                "sku": item.sku,
+                "name": item.name,
+                "quantity": item.quantity,
+            })
+        })
+        .collect())
 }
 
 /// A cart that can still change: open (or in checkout) and not expired.
@@ -401,53 +451,158 @@ impl Rate {
     }
 }
 
-async fn rates(conn: &mut PgConnection, channel: &Channel) -> Result<Vec<Rate>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('id', r.id, 'name', r.name, 'price', r.price::text, \
-           'threshold', r.free_shipping_threshold::text, 'countries', r.countries) \
-         from commerce_shipping_rates r \
-         where r.channel_id = $1 and r.deleted_at is null and r.active = true \
-           and upper(r.currency) = upper($2) \
-         order by r.position asc, r.id asc",
-    )
-    .bind(&channel.id)
-    .bind(&channel.currency)
-    .fetch_all(&mut *conn)
-    .await?;
+/// A `numeric` amount as `money::parse` reads Postgres's text of it: none
+/// below zero.
+fn amount(value: &BigDecimal) -> Option<Cents> {
+    Some(db::cents(value)).filter(|cents| *cents >= 0)
+}
+
+/// `lower(column) = lower($value)`.
+fn lower_eq(column: impl ColumnTrait, value: &str) -> Expr {
+    // The trait by path: in scope it would shadow `Ord::min` and `max`.
+    sea_orm::sea_query::ExprTrait::eq(Func::lower(column.into_expr()), Func::lower(value))
+}
+
+/// `upper(column) = upper($value)`.
+fn upper_eq(column: impl ColumnTrait, value: &str) -> Expr {
+    sea_orm::sea_query::ExprTrait::eq(Func::upper(column.into_expr()), Func::upper(value))
+}
+
+async fn rates(conn: &mut PgConnection, channel: &Channel) -> Result<Vec<Rate>, DbErr> {
+    let rows = commerce_shipping_rates::Entity::find()
+        .filter(commerce_shipping_rates::Column::ChannelId.eq(channel.id.as_str()))
+        .filter(commerce_shipping_rates::Column::DeletedAt.is_null())
+        .filter(commerce_shipping_rates::Column::Active.eq(true))
+        .filter(upper_eq(
+            commerce_shipping_rates::Column::Currency,
+            &channel.currency,
+        ))
+        .order_by_asc(commerce_shipping_rates::Column::Position)
+        .order_by_asc(commerce_shipping_rates::Column::Id)
+        .all(&db::on(conn))
+        .await?;
     Ok(rows
-        .iter()
+        .into_iter()
         .filter_map(|row| {
             Some(Rate {
-                id: text(row, "id")?,
-                name: text(row, "name").unwrap_or_default(),
-                price: row
-                    .get("price")
-                    .and_then(Value::as_str)
-                    .and_then(money::parse)?,
-                threshold: row
-                    .get("threshold")
-                    .and_then(Value::as_str)
-                    .and_then(money::parse),
-                countries: strings(row.get("countries"))
+                price: amount(&row.price)?,
+                threshold: row.free_shipping_threshold.as_ref().and_then(amount),
+                countries: strings(Some(&row.countries))
                     .into_iter()
                     .map(|c| c.to_ascii_uppercase())
                     .collect(),
+                id: Some(row.id).filter(|id| !id.is_empty())?,
+                name: row.name,
             })
         })
         .collect())
 }
 
-const PRODUCTS_SQL: &str = "select jsonb_build_object('id', p.id, 'name', p.name, 'sku', p.sku, \
-       'status', p.status, 'visibility', p.visibility, 'imageUrl', p.featured_image_url, \
-       'vatCategory', p.vat_category, 'track', p.track_inventory, 'qty', p.inventory_quantity, \
-       'backorder', p.allow_backorder, 'requiresShipping', p.requires_shipping) \
-     from products p where p.id = any($1) and p.deleted_at is null";
+/// `id, name, sku, status, visibility, featured_image_url, vat_category,
+/// track_inventory, inventory_quantity, allow_backorder, requires_shipping`.
+type ProductRow = (
+    String,
+    String,
+    Option<String>,
+    String,
+    Option<String>,
+    Option<String>,
+    String,
+    Option<bool>,
+    Option<i32>,
+    Option<bool>,
+    Option<bool>,
+);
 
-const VARIANTS_SQL: &str = "select jsonb_build_object('id', v.id, 'productId', v.product_id, \
-       'name', v.name, 'sku', v.sku, 'status', v.status, 'imageUrl', v.image_url, \
-       'vatCategory', v.vat_category, 'track', v.track_inventory, 'qty', v.inventory_quantity, \
-       'backorder', v.allow_backorder, 'requiresShipping', v.requires_shipping) \
-     from product_variants v where v.id = any($1) and v.deleted_at is null";
+/// `id, product_id, name, sku, status, image_url, vat_category,
+/// track_inventory, inventory_quantity, allow_backorder, requires_shipping`.
+type VariantRow = (
+    String,
+    String,
+    String,
+    Option<String>,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<bool>,
+    Option<i32>,
+    Option<bool>,
+    Option<bool>,
+);
+
+/// The live products of `ids` as the JSON rows [`settle`] reads.
+async fn product_rows(conn: &mut PgConnection, ids: &[String]) -> Result<Vec<Value>, DbErr> {
+    let rows: Vec<ProductRow> = products::Entity::find()
+        .select_only()
+        .columns([
+            products::Column::Id,
+            products::Column::Name,
+            products::Column::Sku,
+            products::Column::Status,
+            products::Column::Visibility,
+            products::Column::FeaturedImageUrl,
+            products::Column::VatCategory,
+            products::Column::TrackInventory,
+            products::Column::InventoryQuantity,
+            products::Column::AllowBackorder,
+            products::Column::RequiresShipping,
+        ])
+        .filter(products::Column::Id.is_in(ids.iter().map(String::as_str)))
+        .filter(products::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&db::on(conn))
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(
+            |(id, name, sku, status, visibility, image, vat, track, qty, backorder, shipping)| {
+                json!({
+                    "id": id, "name": name, "sku": sku, "status": status,
+                    "visibility": visibility, "imageUrl": image, "vatCategory": vat,
+                    "track": track, "qty": qty, "backorder": backorder,
+                    "requiresShipping": shipping,
+                })
+            },
+        )
+        .collect())
+}
+
+/// The live variants of `ids` as the JSON rows [`settle`] reads.
+async fn variant_rows(conn: &mut PgConnection, ids: &[String]) -> Result<Vec<Value>, DbErr> {
+    let rows: Vec<VariantRow> = product_variants::Entity::find()
+        .select_only()
+        .columns([
+            product_variants::Column::Id,
+            product_variants::Column::ProductId,
+            product_variants::Column::Name,
+            product_variants::Column::Sku,
+            product_variants::Column::Status,
+            product_variants::Column::ImageUrl,
+            product_variants::Column::VatCategory,
+            product_variants::Column::TrackInventory,
+            product_variants::Column::InventoryQuantity,
+            product_variants::Column::AllowBackorder,
+            product_variants::Column::RequiresShipping,
+        ])
+        .filter(product_variants::Column::Id.is_in(ids.iter().map(String::as_str)))
+        .filter(product_variants::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&db::on(conn))
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(
+            |(id, product, name, sku, status, image, vat, track, qty, backorder, shipping)| {
+                json!({
+                    "id": id, "productId": product, "name": name, "sku": sku,
+                    "status": status, "imageUrl": image, "vatCategory": vat,
+                    "track": track, "qty": qty, "backorder": backorder,
+                    "requiresShipping": shipping,
+                })
+            },
+        )
+        .collect())
+}
 
 fn by_id(rows: &[Value]) -> HashMap<String, &Value> {
     rows.iter()
@@ -460,20 +615,14 @@ async fn settle(
     conn: &mut PgConnection,
     channel: &Channel,
     items: &[Value],
-) -> Result<Vec<QLine>, sqlx::Error> {
+) -> Result<Vec<QLine>, Refusal> {
     let product_ids: Vec<String> = items.iter().filter_map(|i| text(i, "productId")).collect();
     let variant_ids: Vec<String> = items.iter().filter_map(|i| text(i, "variantId")).collect();
-    let products: Vec<Value> = sqlx::query_scalar(PRODUCTS_SQL)
-        .bind(&product_ids)
-        .fetch_all(&mut *conn)
-        .await?;
-    let variants: Vec<Value> = if variant_ids.is_empty() {
+    let products = product_rows(conn, &product_ids).await?;
+    let variants = if variant_ids.is_empty() {
         Vec::new()
     } else {
-        sqlx::query_scalar(VARIANTS_SQL)
-            .bind(&variant_ids)
-            .fetch_all(&mut *conn)
-            .await?
+        variant_rows(conn, &variant_ids).await?
     };
     let (products, variants) = (by_id(&products), by_id(&variants));
     let targets: Vec<Target> = items
@@ -797,33 +946,37 @@ pub async fn quote(
     })
 }
 
+/// The snapshot's columns of a cart row, as [`persist`] and
+/// [`complete_cart`] write them.
+fn snapshot_row(s: &Snapshot) -> carts::ActiveModel {
+    carts::ActiveModel {
+        subtotal: Set(db::decimal(s.subtotal)),
+        discount_total: Set(db::decimal(s.discount_total)),
+        shipping_total: Set(db::decimal(s.shipping_total)),
+        tax_total: Set(db::decimal(s.tax_total)),
+        total: Set(db::decimal(s.total)),
+        vat_treatment: Set(s.vat_treatment.clone()),
+        vat_quote: Set(Some(s.vat_quote.clone())),
+        discount_id: Set(s.discount_id.clone()),
+        destination_country: Set(s.destination.clone()),
+        shipping_rate_id: Set(s.shipping_rate_id.clone()),
+        ..Default::default()
+    }
+}
+
 /// Write the quote's snapshot to the cart and push its expiry out.
-async fn persist(conn: &mut PgConnection, ctx: &Ctx<'_>, quote: &Quote) -> Result<(), sqlx::Error> {
-    let s = &quote.snapshot;
-    sqlx::query(sqlx::AssertSqlSafe(format!(
-        "update carts set currency = $2, prices_include_tax = $3, subtotal = $4::numeric, \
-           discount_total = $5::numeric, shipping_total = $6::numeric, tax_total = $7::numeric, \
-           total = $8::numeric, vat_treatment = $9, vat_quote = $10, discount_id = $11, \
-           destination_country = $12, shipping_rate_id = $13, \
-           updated_at = now() at time zone 'utc', \
-           expires_at = (now() at time zone 'utc') + interval '{EXPIRY}' \
-         where id = $1"
-    )))
-    .bind(&quote.cart_id)
-    .bind(&ctx.channel.currency)
-    .bind(ctx.channel.prices_include_tax)
-    .bind(money::format(s.subtotal))
-    .bind(money::format(s.discount_total))
-    .bind(money::format(s.shipping_total))
-    .bind(money::format(s.tax_total))
-    .bind(money::format(s.total))
-    .bind(&s.vat_treatment)
-    .bind(&s.vat_quote)
-    .bind(&s.discount_id)
-    .bind(&s.destination)
-    .bind(&s.shipping_rate_id)
-    .execute(&mut *conn)
-    .await?;
+async fn persist(conn: &mut PgConnection, ctx: &Ctx<'_>, quote: &Quote) -> Result<(), DbErr> {
+    let now = db::now();
+    let mut row = snapshot_row(&quote.snapshot);
+    row.currency = Set(ctx.channel.currency.clone());
+    row.prices_include_tax = Set(ctx.channel.prices_include_tax);
+    row.updated_at = Set(now);
+    row.expires_at = Set(Some(now + EXPIRY));
+    carts::Entity::update_many()
+        .set(row)
+        .filter(carts::Column::Id.eq(quote.cart_id.as_str()))
+        .exec(&db::on(conn))
+        .await?;
     Ok(())
 }
 
@@ -833,26 +986,12 @@ async fn settle_and_save(
     ctx: &Ctx<'_>,
     cart_id: &str,
 ) -> Result<Quote, Refusal> {
-    let row: Value = sqlx::query_scalar(sqlx::AssertSqlSafe(cart_select(false).replace(
-        "c.token_hash = $1 and c.channel_id = $2",
-        "c.id = $1 and c.channel_id = $2",
-    )))
-    .bind(cart_id)
-    .bind(&ctx.channel.id)
-    .fetch_one(&mut *conn)
-    .await?;
+    let row = find_by_id(conn, &ctx.channel.id, cart_id).await?;
     let items = items_of(conn, cart_id).await?;
     let quote = quote(conn, ctx, &row, &items).await?;
     persist(conn, ctx, &quote).await?;
     // The persisted row carries the new expiry and update time.
-    let row: Value = sqlx::query_scalar(sqlx::AssertSqlSafe(cart_select(false).replace(
-        "c.token_hash = $1 and c.channel_id = $2",
-        "c.id = $1 and c.channel_id = $2",
-    )))
-    .bind(cart_id)
-    .bind(&ctx.channel.id)
-    .fetch_one(&mut *conn)
-    .await?;
+    let row = find_by_id(conn, &ctx.channel.id, cart_id).await?;
     let mut quote = quote;
     for key in ["expiresAt", "updatedAt"] {
         quote.json[key] = row.get(key).cloned().unwrap_or(Value::Null);
@@ -918,12 +1057,13 @@ async fn add_line(
     let mut product_id = input.product_id.clone();
     let mut variant_id = input.variant_id.clone();
     if let Some(variant) = &variant_id {
-        let owner: Option<String> = sqlx::query_scalar(
-            "select product_id from product_variants where id = $1 and deleted_at is null",
-        )
-        .bind(variant)
-        .fetch_optional(&mut *conn)
-        .await?;
+        let owner: Option<String> = product_variants::Entity::find_by_id(variant.as_str())
+            .filter(product_variants::Column::DeletedAt.is_null())
+            .select_only()
+            .column(product_variants::Column::ProductId)
+            .into_tuple()
+            .one(&db::on(conn))
+            .await?;
         let owner = owner.ok_or_else(|| Refusal::NotSellable("Variant not found".to_owned()))?;
         if product_id.as_ref().is_some_and(|p| *p != owner) {
             return Err(invalid(
@@ -934,14 +1074,17 @@ async fn add_line(
         product_id = Some(owner);
     }
     let product_id = product_id.unwrap_or_default();
-    let has_variants: Option<bool> = sqlx::query_scalar(
-        "select coalesce(has_variants, false) from products where id = $1 and deleted_at is null",
-    )
-    .bind(&product_id)
-    .fetch_optional(&mut *conn)
-    .await?;
-    let has_variants =
-        has_variants.ok_or_else(|| Refusal::NotSellable("Product not found".to_owned()))?;
+    let has_variants: Option<Option<bool>> = products::Entity::find_by_id(product_id.as_str())
+        .filter(products::Column::DeletedAt.is_null())
+        .select_only()
+        .column(products::Column::HasVariants)
+        .into_tuple()
+        .one(&db::on(conn))
+        .await?;
+    // `coalesce(has_variants, false)`
+    let has_variants = has_variants
+        .ok_or_else(|| Refusal::NotSellable("Product not found".to_owned()))?
+        .unwrap_or(false);
     if has_variants && variant_id.is_none() {
         return Err(invalid(
             &format!("{path}variantId"),
@@ -975,48 +1118,53 @@ async fn add_line(
         }
         _ => {}
     }
-    let existing: Option<(String, i32)> = sqlx::query_as(
-        "select id, quantity from cart_items where cart_id = $1 and product_id = $2 \
-           and variant_id is not distinct from $3 limit 1",
-    )
-    .bind(cart_id)
-    .bind(&product_id)
-    .bind(&variant_id)
-    .fetch_optional(&mut *conn)
-    .await?;
+    let existing: Option<(String, i32)> = cart_items::Entity::find()
+        .select_only()
+        .columns([cart_items::Column::Id, cart_items::Column::Quantity])
+        .filter(cart_items::Column::CartId.eq(cart_id))
+        .filter(cart_items::Column::ProductId.eq(product_id.as_str()))
+        // `variant_id is not distinct from $3`
+        .filter(match &variant_id {
+            Some(variant) => cart_items::Column::VariantId.eq(variant.as_str()),
+            None => cart_items::Column::VariantId.is_null(),
+        })
+        .limit(1)
+        .into_tuple()
+        .one(&db::on(conn))
+        .await?;
     if let Some((id, quantity)) = existing {
         let raised = (i64::from(quantity) + input.quantity).min(MAX_QUANTITY);
-        sqlx::query(
-            "update cart_items set quantity = $2, unit_price = $3::numeric, \
-               updated_at = now() at time zone 'utc' where id = $1",
-        )
-        .bind(&id)
-        .bind(i32::try_from(raised).unwrap_or(i32::MAX))
-        .bind(money::format(line.unit_price))
-        .execute(&mut *conn)
-        .await?;
+        cart_items::Entity::update_many()
+            .set(cart_items::ActiveModel {
+                quantity: Set(i32::try_from(raised).unwrap_or(i32::MAX)),
+                unit_price: Set(Some(db::decimal(line.unit_price))),
+                updated_at: Set(db::now()),
+                ..Default::default()
+            })
+            .filter(cart_items::Column::Id.eq(id))
+            .exec(&db::on(conn))
+            .await?;
         return Ok(());
     }
-    let lines: i64 = sqlx::query_scalar("select count(*) from cart_items where cart_id = $1")
-        .bind(cart_id)
-        .fetch_one(&mut *conn)
+    let lines = cart_items::Entity::find()
+        .filter(cart_items::Column::CartId.eq(cart_id))
+        .count(&db::on(conn))
         .await?;
-    if lines >= MAX_LINES {
+    if lines >= MAX_LINES.unsigned_abs() {
         return Err(Refusal::TooLarge);
     }
-    sqlx::query(
-        "insert into cart_items (id, cart_id, product_id, variant_id, sku, name, quantity, unit_price) \
-         values ($1, $2, $3, $4, $5, $6, $7, $8::numeric)",
-    )
-    .bind(generate_id("citm"))
-    .bind(cart_id)
-    .bind(&product_id)
-    .bind(&variant_id)
-    .bind(line.sku.as_deref().map(|s| s.chars().take(100).collect::<String>()))
-    .bind(line.name.chars().take(255).collect::<String>())
-    .bind(i32::try_from(input.quantity).unwrap_or(i32::MAX))
-    .bind(money::format(line.unit_price))
-    .execute(&mut *conn)
+    cart_items::Entity::insert(cart_items::ActiveModel {
+        id: Set(generate_id("citm")),
+        cart_id: Set(cart_id.to_owned()),
+        product_id: Set(product_id),
+        variant_id: Set(variant_id),
+        sku: Set(line.sku.as_deref().map(|s| s.chars().take(100).collect())),
+        name: Set(Some(line.name.chars().take(255).collect())),
+        quantity: Set(i32::try_from(input.quantity).unwrap_or(i32::MAX)),
+        unit_price: Set(Some(db::decimal(line.unit_price))),
+        ..Default::default()
+    })
+    .exec_without_returning(&db::on(conn))
     .await?;
     Ok(())
 }
@@ -1037,6 +1185,31 @@ impl ItemRow {
     }
 }
 
+/// Make an open cart of `token` on the channel; it expires [`EXPIRY`] from
+/// now.
+async fn insert_cart(
+    conn: &mut PgConnection,
+    ctx: &Ctx<'_>,
+    id: &str,
+    token: &str,
+    email: Option<&str>,
+) -> Result<(), DbErr> {
+    carts::Entity::insert(carts::ActiveModel {
+        id: Set(id.to_owned()),
+        token_hash: Set(token_hash(token)),
+        channel_id: Set(ctx.channel.id.clone()),
+        status: Set("open".to_owned()),
+        currency: Set(ctx.channel.currency.clone()),
+        prices_include_tax: Set(ctx.channel.prices_include_tax),
+        email: Set(email.map(str::to_owned)),
+        expires_at: Set(Some(db::now() + EXPIRY)),
+        ..Default::default()
+    })
+    .exec_without_returning(&db::on(conn))
+    .await?;
+    Ok(())
+}
+
 /// A new cart, with its first lines. Returns the cart and its token.
 ///
 /// # Errors
@@ -1049,19 +1222,7 @@ pub async fn create(
     let token = new_token();
     let id = generate_id("cart");
     let mut tx = ctx.db.begin().await?;
-    sqlx::query(sqlx::AssertSqlSafe(format!(
-        "insert into carts (id, token_hash, channel_id, status, currency, prices_include_tax, \
-           email, expires_at) \
-         values ($1, $2, $3, 'open', $4, $5, $6, (now() at time zone 'utc') + interval '{EXPIRY}')"
-    )))
-    .bind(&id)
-    .bind(token_hash(&token))
-    .bind(&ctx.channel.id)
-    .bind(&ctx.channel.currency)
-    .bind(ctx.channel.prices_include_tax)
-    .bind(email)
-    .execute(&mut *tx)
-    .await?;
+    insert_cart(&mut tx, ctx, &id, &token, email).await?;
     for (index, item) in items.iter().enumerate() {
         add_line(&mut tx, ctx, &id, item, &format!("items.{index}.")).await?;
     }
@@ -1080,26 +1241,46 @@ pub struct Attach<'a> {
     pub buyer_id: Option<&'a str>,
 }
 
-const ATTACH_SQL: &str = "update carts set person_id = $3, company_id = $4, buyer_id = $5, \
-       email = coalesce(nullif(email, ''), $6), updated_at = now() at time zone 'utc' \
-     where token_hash = $1 and channel_id = $2 and status in ('open', 'checkout')";
+/// The shopper's columns of a cart row.
+fn shopper_row(who: &Attach<'_>) -> carts::ActiveModel {
+    carts::ActiveModel {
+        person_id: Set(Some(who.person_id.to_owned())),
+        company_id: Set(who.company_id.map(str::to_owned)),
+        buyer_id: Set(who.buyer_id.map(str::to_owned)),
+        ..Default::default()
+    }
+}
+
+/// `coalesce(nullif(email, ''), $email)`: a cart keeps the email it has.
+fn email_or(email: &str) -> Expr {
+    Func::coalesce([
+        Expr::from(
+            Func::cust("nullif")
+                .arg(Expr::col(carts::Column::Email))
+                .arg(""),
+        ),
+        Expr::val(email),
+    ])
+    .into()
+}
 
 /// Attach the open cart of `token` to the shopper. `false` when there is
 /// no such open cart (a guest cart stays a guest cart).
 ///
 /// # Errors
 /// A failed statement.
-pub async fn attach(ctx: &Ctx<'_>, token: &str, who: &Attach<'_>) -> Result<bool, sqlx::Error> {
-    let changed = sqlx::query(ATTACH_SQL)
-        .bind(token_hash(token))
-        .bind(&ctx.channel.id)
-        .bind(who.person_id)
-        .bind(who.company_id)
-        .bind(who.buyer_id)
-        .bind(who.email)
-        .execute(ctx.db)
+pub async fn attach(ctx: &Ctx<'_>, token: &str, who: &Attach<'_>) -> Result<bool, DbErr> {
+    let mut row = shopper_row(who);
+    row.updated_at = Set(db::now());
+    let changed = carts::Entity::update_many()
+        .set(row)
+        .col_expr(carts::Column::Email, email_or(who.email))
+        .filter(carts::Column::TokenHash.eq(token_hash(token)))
+        .filter(carts::Column::ChannelId.eq(ctx.channel.id.as_str()))
+        .filter(carts::Column::Status.is_in(["open", "checkout"]))
+        .exec(&weldsuite_db::orm(ctx.db))
         .await?
-        .rows_affected();
+        .rows_affected;
     Ok(changed > 0)
 }
 
@@ -1135,26 +1316,46 @@ pub struct Filled {
     pub problems: Vec<LineProblem>,
 }
 
+/// `product_variants.product_id = products.id` (the entities declare no
+/// relations).
+fn variant_product() -> RelationDef {
+    product_variants::Entity::belongs_to(products::Entity)
+        .from(product_variants::Column::ProductId)
+        .to(products::Column::Id)
+        .into()
+}
+
 async fn resolve_sku(
     conn: &mut PgConnection,
     sku: &str,
-) -> Result<Option<(String, Option<String>)>, sqlx::Error> {
-    let variant: Option<(String, String)> = sqlx::query_as(
-        "select v.product_id, v.id from product_variants v join products p on p.id = v.product_id \
-         where lower(v.sku) = lower($1) and v.deleted_at is null and p.deleted_at is null limit 1",
-    )
-    .bind(sku)
-    .fetch_optional(&mut *conn)
-    .await?;
+) -> Result<Option<(String, Option<String>)>, DbErr> {
+    let variant: Option<(String, String)> = product_variants::Entity::find()
+        .join(JoinType::InnerJoin, variant_product())
+        .select_only()
+        .columns([
+            product_variants::Column::ProductId,
+            product_variants::Column::Id,
+        ])
+        // `lower(v.sku) = lower($1)`
+        .filter(lower_eq(product_variants::Column::Sku, sku))
+        .filter(product_variants::Column::DeletedAt.is_null())
+        .filter(products::Column::DeletedAt.is_null())
+        .limit(1)
+        .into_tuple()
+        .one(&db::on(conn))
+        .await?;
     if let Some((product, variant)) = variant {
         return Ok(Some((product, Some(variant))));
     }
-    let product: Option<String> = sqlx::query_scalar(
-        "select id from products where lower(sku) = lower($1) and deleted_at is null limit 1",
-    )
-    .bind(sku)
-    .fetch_optional(&mut *conn)
-    .await?;
+    let product: Option<String> = products::Entity::find()
+        .select_only()
+        .column(products::Column::Id)
+        .filter(lower_eq(products::Column::Sku, sku))
+        .filter(products::Column::DeletedAt.is_null())
+        .limit(1)
+        .into_tuple()
+        .one(&db::on(conn))
+        .await?;
     Ok(product.map(|id| (id, None)))
 }
 
@@ -1177,33 +1378,16 @@ pub async fn fill(
     } else {
         let token = new_token();
         let id = generate_id("cart");
-        sqlx::query(sqlx::AssertSqlSafe(format!(
-            "insert into carts (id, token_hash, channel_id, status, currency, prices_include_tax, \
-               email, expires_at) \
-             values ($1, $2, $3, 'open', $4, $5, $6, (now() at time zone 'utc') + interval '{EXPIRY}')"
-        )))
-        .bind(&id)
-        .bind(token_hash(&token))
-        .bind(&ctx.channel.id)
-        .bind(&ctx.channel.currency)
-        .bind(ctx.channel.prices_include_tax)
-        .bind(who.map(|w| w.email))
-        .execute(&mut *tx)
-        .await?;
+        insert_cart(&mut tx, ctx, &id, &token, who.map(|w| w.email)).await?;
         (id, Some(token))
     };
     if let Some(who) = who {
-        sqlx::query(
-            "update carts set person_id = $2, company_id = $3, buyer_id = $4, \
-               email = coalesce(nullif(email, ''), $5) where id = $1",
-        )
-        .bind(&cart_id)
-        .bind(who.person_id)
-        .bind(who.company_id)
-        .bind(who.buyer_id)
-        .bind(who.email)
-        .execute(&mut *tx)
-        .await?;
+        carts::Entity::update_many()
+            .set(shopper_row(who))
+            .col_expr(carts::Column::Email, email_or(who.email))
+            .filter(carts::Column::Id.eq(cart_id.as_str()))
+            .exec(&db::on(&mut tx))
+            .await?;
     }
     let mut problems: Vec<LineProblem> = Vec::new();
     let mut added: Vec<(Wanted, String, Option<String>)> = Vec::new();
@@ -1330,23 +1514,26 @@ pub async fn set_quantity(
     let mut tx = ctx.db.begin().await?;
     let id = lock_open(&mut tx, ctx, token).await?;
     let changed = if quantity == 0 {
-        sqlx::query("delete from cart_items where id = $1 and cart_id = $2")
-            .bind(line_id)
-            .bind(&id)
-            .execute(&mut *tx)
+        cart_items::Entity::delete_many()
+            .filter(cart_items::Column::Id.eq(line_id))
+            .filter(cart_items::Column::CartId.eq(id.as_str()))
+            .exec(&db::on(&mut tx))
             .await?
+            .rows_affected
     } else {
-        sqlx::query(
-            "update cart_items set quantity = $3, updated_at = now() at time zone 'utc' \
-             where id = $1 and cart_id = $2",
-        )
-        .bind(line_id)
-        .bind(&id)
-        .bind(i32::try_from(quantity).unwrap_or(i32::MAX))
-        .execute(&mut *tx)
-        .await?
+        cart_items::Entity::update_many()
+            .set(cart_items::ActiveModel {
+                quantity: Set(i32::try_from(quantity).unwrap_or(i32::MAX)),
+                updated_at: Set(db::now()),
+                ..Default::default()
+            })
+            .filter(cart_items::Column::Id.eq(line_id))
+            .filter(cart_items::Column::CartId.eq(id.as_str()))
+            .exec(&db::on(&mut tx))
+            .await?
+            .rows_affected
     };
-    if changed.rows_affected() == 0 {
+    if changed == 0 {
         return Err(Refusal::Validation(vec![(
             "lineId".to_owned(),
             "The cart has no such line".to_owned(),
@@ -1375,43 +1562,42 @@ pub struct Patch {
 pub async fn patch(ctx: &Ctx<'_>, token: &str, patch: &Patch) -> Result<Quote, Refusal> {
     let mut tx = ctx.db.begin().await?;
     let id = lock_open(&mut tx, ctx, token).await?;
-    for (column, value) in [
-        ("email", patch.email.as_ref()),
-        ("buyer_vat_number", patch.buyer_vat_number.as_ref()),
-        ("customer_reference", patch.customer_reference.as_ref()),
-        ("note", patch.note.as_ref()),
-    ] {
-        if let Some(value) = value {
-            sqlx::query(sqlx::AssertSqlSafe(format!(
-                "update carts set {column} = $2 where id = $1"
-            )))
-            .bind(&id)
-            .bind(value)
-            .execute(&mut *tx)
-            .await?;
-        }
+    // The fields sent, in one statement (none: no statement).
+    let mut row = carts::ActiveModel::default();
+    if let Some(value) = &patch.email {
+        row.email = Set(value.clone());
     }
-    for (column, value) in [
-        ("shipping_address", patch.shipping_address.as_ref()),
-        ("billing_address", patch.billing_address.as_ref()),
-    ] {
-        if let Some(value) = value {
-            sqlx::query(sqlx::AssertSqlSafe(format!(
-                "update carts set {column} = $2 where id = $1"
-            )))
-            .bind(&id)
-            .bind(value)
-            .execute(&mut *tx)
-            .await?;
-        }
+    if let Some(value) = &patch.buyer_vat_number {
+        row.buyer_vat_number = Set(value.clone());
     }
+    if let Some(value) = &patch.customer_reference {
+        row.customer_reference = Set(value.clone());
+    }
+    if let Some(value) = &patch.note {
+        row.note = Set(value.clone());
+    }
+    if let Some(value) = &patch.shipping_address {
+        row.shipping_address = Set(value.clone());
+    }
+    if let Some(value) = &patch.billing_address {
+        row.billing_address = Set(value.clone());
+    }
+    carts::Entity::update_many()
+        .set(row)
+        .filter(carts::Column::Id.eq(id.as_str()))
+        .exec(&db::on(&mut tx))
+        .await?;
     // Only countries the channel sells to: the shipping address, or the
     // billing address when the cart has no shipping address.
-    let addresses: (Option<Value>, Option<Value>) =
-        sqlx::query_as("select shipping_address, billing_address from carts where id = $1")
-            .bind(&id)
-            .fetch_one(&mut *tx)
-            .await?;
+    let addresses: (Option<Value>, Option<Value>) = carts::Entity::find_by_id(id.as_str())
+        .select_only()
+        .columns([
+            carts::Column::ShippingAddress,
+            carts::Column::BillingAddress,
+        ])
+        .into_tuple()
+        .require_one(&db::on(&mut tx))
+        .await?;
     let destination = country(addresses.0.as_ref()).or_else(|| country(addresses.1.as_ref()));
     if let Some(dest) = destination
         && !ctx.channel.selling_countries.contains(&dest)
@@ -1472,13 +1658,13 @@ pub async fn shipping_rates(ctx: &Ctx<'_>, token: &str) -> Result<Vec<Offer>, Re
 pub async fn set_rate(ctx: &Ctx<'_>, token: &str, rate_id: &str) -> Result<Quote, Refusal> {
     let mut tx = ctx.db.begin().await?;
     let id = lock_open(&mut tx, ctx, token).await?;
-    let cart: Value = sqlx::query_scalar(
-        "select jsonb_build_object('shippingAddress', shipping_address) from carts where id = $1",
-    )
-    .bind(&id)
-    .fetch_one(&mut *tx)
-    .await?;
-    let dest = country(cart.get("shippingAddress")).ok_or(Refusal::RateNotAvailable)?;
+    let address: Option<Value> = carts::Entity::find_by_id(id.as_str())
+        .select_only()
+        .column(carts::Column::ShippingAddress)
+        .into_tuple()
+        .require_one(&db::on(&mut tx))
+        .await?;
+    let dest = country(address.as_ref()).ok_or(Refusal::RateNotAvailable)?;
     let offered = rates(&mut tx, ctx.channel)
         .await?
         .into_iter()
@@ -1486,10 +1672,13 @@ pub async fn set_rate(ctx: &Ctx<'_>, token: &str, rate_id: &str) -> Result<Quote
     if !offered {
         return Err(Refusal::RateNotAvailable);
     }
-    sqlx::query("update carts set shipping_rate_id = $2 where id = $1")
-        .bind(&id)
-        .bind(rate_id)
-        .execute(&mut *tx)
+    carts::Entity::update_many()
+        .set(carts::ActiveModel {
+            shipping_rate_id: Set(Some(rate_id.to_owned())),
+            ..Default::default()
+        })
+        .filter(carts::Column::Id.eq(id.as_str()))
+        .exec(&db::on(&mut tx))
         .await?;
     let quote = settle_and_save(&mut tx, ctx, &id).await?;
     tx.commit().await?;
@@ -1508,10 +1697,14 @@ pub async fn set_discount(
 ) -> Result<Quote, Refusal> {
     let mut tx = ctx.db.begin().await?;
     let id = lock_open(&mut tx, ctx, token).await?;
-    sqlx::query("update carts set discount_code = $2, discount_id = null where id = $1")
-        .bind(&id)
-        .bind(code)
-        .execute(&mut *tx)
+    carts::Entity::update_many()
+        .set(carts::ActiveModel {
+            discount_code: Set(code.map(str::to_owned)),
+            discount_id: Set(None),
+            ..Default::default()
+        })
+        .filter(carts::Column::Id.eq(id.as_str()))
+        .exec(&db::on(&mut tx))
         .await?;
     let quote = settle_and_save(&mut tx, ctx, &id).await?;
     if code.is_some()
@@ -1531,35 +1724,21 @@ pub(crate) async fn complete_cart(
     idempotency_key: Option<&str>,
     quote: &Quote,
 ) -> Result<(), Refusal> {
-    let s = &quote.snapshot;
-    let done = sqlx::query(
-        "update carts set status = 'completed', order_id = $2, idempotency_key = $3, \
-           completed_at = now() at time zone 'utc', updated_at = now() at time zone 'utc', \
-           subtotal = $4::numeric, discount_total = $5::numeric, shipping_total = $6::numeric, \
-           tax_total = $7::numeric, total = $8::numeric, vat_treatment = $9, vat_quote = $10, \
-           discount_id = $11, destination_country = $12, shipping_rate_id = $13 \
-         where id = $1",
-    )
-    .bind(cart_id)
-    .bind(order_id)
-    .bind(idempotency_key)
-    .bind(money::format(s.subtotal))
-    .bind(money::format(s.discount_total))
-    .bind(money::format(s.shipping_total))
-    .bind(money::format(s.tax_total))
-    .bind(money::format(s.total))
-    .bind(&s.vat_treatment)
-    .bind(&s.vat_quote)
-    .bind(&s.discount_id)
-    .bind(&s.destination)
-    .bind(&s.shipping_rate_id)
-    .execute(&mut *conn)
-    .await;
+    let now = db::now();
+    let mut row = snapshot_row(&quote.snapshot);
+    row.status = Set("completed".to_owned());
+    row.order_id = Set(Some(order_id.to_owned()));
+    row.idempotency_key = Set(idempotency_key.map(str::to_owned));
+    row.completed_at = Set(Some(now));
+    row.updated_at = Set(now);
+    let done = carts::Entity::update_many()
+        .set(row)
+        .filter(carts::Column::Id.eq(cart_id))
+        .exec(&db::on(conn))
+        .await;
     match done {
         Ok(_) => Ok(()),
-        Err(sqlx::Error::Database(error)) if error.is_unique_violation() => {
-            Err(Refusal::IdempotencyKeyReused)
-        }
+        Err(error) if db::is_unique_violation(&error) => Err(Refusal::IdempotencyKeyReused),
         Err(error) => Err(error.into()),
     }
 }

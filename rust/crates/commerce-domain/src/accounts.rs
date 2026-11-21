@@ -9,12 +9,24 @@
 //!
 //! Every function runs on the caller's connection (inside the caller's
 //! transaction where it writes more than one row); none sends anything or
-//! publishes an event.
+//! publishes an event. The statements are the SeaORM entities' (ADR
+//! DATA-019), joined to the caller's transaction through [`db::on`].
 
+use sea_orm::ActiveValue::Set;
+use sea_orm::prelude::BigDecimal;
+use sea_orm::sea_query::{Expr, Func, OnConflict};
+use sea_orm::{
+    ColumnTrait, DbErr, EntityTrait, FromQueryResult, JoinType, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect, QueryTrait, RelationDef, Select,
+};
 use serde_json::{Value, json};
 use sqlx::PgConnection;
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{
+    commerce_buyers, commerce_company_settings, companies, people, person_companies,
+};
 
+use crate::db;
 use crate::error::Error;
 use crate::money::{self, Cents};
 
@@ -22,8 +34,6 @@ use crate::money::{self, Cents};
 pub const ROLES: [&str; 3] = ["buyer", "approver", "admin"];
 /// The statuses a buyer may be set to.
 pub const STATUSES: [&str; 3] = ["invited", "active", "disabled"];
-
-const TS: &str = "'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'";
 
 // ── people ──────────────────────────────────────────────────────────────────
 
@@ -49,42 +59,59 @@ impl Person {
     }
 }
 
+/// `id, email, first_name, last_name, mobile_phone, direct_phone`.
 type PersonRow = (
     String,
     Option<String>,
     Option<String>,
     Option<String>,
     Option<String>,
+    Option<String>,
 );
 
-fn person_of(row: PersonRow) -> Person {
+fn person_of((id, email, first_name, last_name, mobile, direct): PersonRow) -> Person {
     Person {
-        id: row.0,
-        email: row.1.unwrap_or_default(),
-        first_name: row.2,
-        last_name: row.3,
-        phone: row.4,
+        id,
+        email: email.unwrap_or_default(),
+        first_name,
+        last_name,
+        // `coalesce(mobile_phone, direct_phone)`
+        phone: mobile.or(direct),
     }
 }
 
-const PERSON_COLUMNS: &str =
-    "id, email, first_name, last_name, coalesce(mobile_phone, direct_phone)";
+/// The live people, as the columns of a [`PersonRow`].
+fn people_rows() -> Select<people::Entity> {
+    people::Entity::find()
+        .select_only()
+        .columns([
+            people::Column::Id,
+            people::Column::Email,
+            people::Column::FirstName,
+            people::Column::LastName,
+            people::Column::MobilePhone,
+            people::Column::DirectPhone,
+        ])
+        .filter(people::Column::DeletedAt.is_null())
+}
 
 /// The person with this email (the oldest, when there are several).
 ///
 /// # Errors
 /// A failed statement.
-pub async fn find_person(
-    conn: &mut PgConnection,
-    email: &str,
-) -> Result<Option<Person>, sqlx::Error> {
-    let row: Option<PersonRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "select {PERSON_COLUMNS} from people where lower(email) = lower($1) \
-           and deleted_at is null order by created_at asc, id asc limit 1"
-    )))
-    .bind(email)
-    .fetch_optional(&mut *conn)
-    .await?;
+pub async fn find_person(conn: &mut PgConnection, email: &str) -> Result<Option<Person>, DbErr> {
+    let row: Option<PersonRow> = people_rows()
+        // `lower(email) = lower($1)`
+        .filter(sea_orm::sea_query::ExprTrait::eq(
+            Func::lower(people::Column::Email.into_expr()),
+            Func::lower(email),
+        ))
+        .order_by_asc(people::Column::CreatedAt)
+        .order_by_asc(people::Column::Id)
+        .limit(1)
+        .into_tuple()
+        .one(&db::on(conn))
+        .await?;
     Ok(row.map(person_of))
 }
 
@@ -92,13 +119,12 @@ pub async fn find_person(
 ///
 /// # Errors
 /// A failed statement.
-pub async fn person(conn: &mut PgConnection, id: &str) -> Result<Option<Person>, sqlx::Error> {
-    let row: Option<PersonRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "select {PERSON_COLUMNS} from people where id = $1 and deleted_at is null"
-    )))
-    .bind(id)
-    .fetch_optional(&mut *conn)
-    .await?;
+pub async fn person(conn: &mut PgConnection, id: &str) -> Result<Option<Person>, DbErr> {
+    let row: Option<PersonRow> = people_rows()
+        .filter(people::Column::Id.eq(id))
+        .into_tuple()
+        .one(&db::on(conn))
+        .await?;
     Ok(row.map(person_of))
 }
 
@@ -129,27 +155,31 @@ pub async fn find_or_create_person(
     first_name: Option<&str>,
     last_name: Option<&str>,
     owner: &str,
-) -> Result<Person, sqlx::Error> {
-    sqlx::query("select pg_advisory_xact_lock(hashtext($1))")
-        .bind(format!("weldcommerce:person:{}", email.to_lowercase()))
-        .execute(&mut *conn)
-        .await?;
+) -> Result<Person, DbErr> {
+    db::advisory_lock(
+        conn,
+        &format!("weldcommerce:person:{}", email.to_lowercase()),
+    )
+    .await?;
     if let Some(found) = find_person(conn, email).await? {
         return Ok(found);
     }
     let id = generate_id("per");
     let name = display(first_name, last_name, email);
-    sqlx::query(
-        "insert into people (id, display_name, full_name, first_name, last_name, email, in_crm, \
-           source, owner_id) values ($1, $2, $2, $3, $4, $5, false, 'weldcommerce', $6)",
-    )
-    .bind(&id)
-    .bind(&name)
-    .bind(first_name.filter(|n| !n.trim().is_empty()))
-    .bind(last_name.filter(|n| !n.trim().is_empty()))
-    .bind(email)
-    .bind(owner)
-    .execute(&mut *conn)
+    let given = |name: Option<&str>| name.filter(|n| !n.trim().is_empty()).map(str::to_owned);
+    people::Entity::insert(people::ActiveModel {
+        id: Set(id.clone()),
+        display_name: Set(name.clone()),
+        full_name: Set(Some(name)),
+        first_name: Set(given(first_name)),
+        last_name: Set(given(last_name)),
+        email: Set(Some(email.to_owned())),
+        in_crm: Set(false),
+        source: Set(Some("weldcommerce".to_owned())),
+        owner_id: Set(Some(owner.to_owned())),
+        ..Default::default()
+    })
+    .exec_without_returning(&db::on(conn))
     .await?;
     Ok(Person {
         id,
@@ -180,7 +210,7 @@ pub async fn update_profile(
     conn: &mut PgConnection,
     id: &str,
     profile: &Profile,
-) -> Result<Option<Person>, sqlx::Error> {
+) -> Result<Option<Person>, DbErr> {
     let Some(current) = person(conn, id).await? else {
         return Ok(None);
     };
@@ -197,33 +227,79 @@ pub async fn update_profile(
         .clone()
         .unwrap_or_else(|| current.phone.clone());
     let name = display(first.as_deref(), last.as_deref(), &current.email);
-    sqlx::query(
-        "update people set first_name = $2, last_name = $3, full_name = $4, display_name = $4, \
-           mobile_phone = $5, updated_at = now() at time zone 'utc' where id = $1",
-    )
-    .bind(id)
-    .bind(&first)
-    .bind(&last)
-    .bind(&name)
-    .bind(&phone)
-    .execute(&mut *conn)
-    .await?;
+    people::Entity::update_many()
+        .set(people::ActiveModel {
+            first_name: Set(first),
+            last_name: Set(last),
+            full_name: Set(Some(name.clone())),
+            display_name: Set(name),
+            mobile_phone: Set(phone),
+            updated_at: Set(db::now()),
+            ..Default::default()
+        })
+        .filter(people::Column::Id.eq(id))
+        .exec(&db::on(conn))
+        .await?;
     person(conn, id).await
 }
 
 // ── buyers ──────────────────────────────────────────────────────────────────
 
-fn buyer_select() -> String {
-    format!(
-        "select jsonb_build_object('id', b.id, 'personId', b.person_id, 'companyId', b.company_id, \
-           'name', p.display_name, 'email', p.email, 'role', b.role, \
-           'spendLimit', b.spend_limit::text, 'spendLimitCurrency', b.spend_limit_currency, \
-           'status', b.status, 'invitedAt', to_char(b.invited_at, {TS}), \
-           'acceptedAt', to_char(b.accepted_at, {TS}), \
-           'createdAt', to_char(b.created_at, {TS}), 'updatedAt', to_char(b.updated_at, {TS})) \
-         from commerce_buyers b join people p on p.id = b.person_id \
-         where b.deleted_at is null"
-    )
+/// `commerce_buyers.person_id = people.id` (the entities declare no
+/// relations).
+fn buyer_person() -> RelationDef {
+    commerce_buyers::Entity::belongs_to(people::Entity)
+        .from(commerce_buyers::Column::PersonId)
+        .to(people::Column::Id)
+        .into()
+}
+
+/// `commerce_buyers.company_id = companies.id`.
+fn buyer_company() -> RelationDef {
+    commerce_buyers::Entity::belongs_to(companies::Entity)
+        .from(commerce_buyers::Column::CompanyId)
+        .to(companies::Column::Id)
+        .into()
+}
+
+/// A buyer row with its person's name and email.
+#[derive(Debug, FromQueryResult)]
+struct BuyerRow {
+    #[sea_orm(nested)]
+    buyer: commerce_buyers::Model,
+    person_name: String,
+    person_email: Option<String>,
+}
+
+/// The live buyers joined to their person.
+fn buyer_rows() -> Select<commerce_buyers::Entity> {
+    commerce_buyers::Entity::find()
+        .join(JoinType::InnerJoin, buyer_person())
+        .column_as(people::Column::DisplayName, "person_name")
+        .column_as(people::Column::Email, "person_email")
+        .filter(commerce_buyers::Column::DeletedAt.is_null())
+}
+
+/// The `Buyer` of the API.
+fn buyer_json(row: &BuyerRow) -> Value {
+    // The entity's JSON: numeric as `"100.00"`, timestamps as `toISOString()`.
+    let buyer = serde_json::to_value(&row.buyer).unwrap_or_default();
+    let field = |key: &str| buyer.get(key).cloned().unwrap_or(Value::Null);
+    json!({
+        "id": field("id"),
+        "personId": field("personId"),
+        "companyId": field("companyId"),
+        "name": row.person_name,
+        "email": row.person_email,
+        "role": field("role"),
+        "spendLimit": field("spendLimit"),
+        "spendLimitCurrency": field("spendLimitCurrency"),
+        "status": field("status"),
+        "invitedAt": field("invitedAt"),
+        "acceptedAt": field("acceptedAt"),
+        "createdAt": field("createdAt"),
+        "updatedAt": field("updatedAt"),
+    })
 }
 
 /// The buyers, newest last; filtered by company and/or person.
@@ -234,44 +310,54 @@ pub async fn buyers(
     conn: &mut PgConnection,
     company_id: Option<&str>,
     person_id: Option<&str>,
-) -> Result<Vec<Value>, sqlx::Error> {
-    sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "{} and ($1::text is null or b.company_id = $1) and ($2::text is null or b.person_id = $2) \
-         order by b.created_at asc, b.id asc",
-        buyer_select()
-    )))
-    .bind(company_id)
-    .bind(person_id)
-    .fetch_all(&mut *conn)
-    .await
+) -> Result<Vec<Value>, DbErr> {
+    let rows = buyer_rows()
+        .apply_if(company_id, |query, company| {
+            query.filter(commerce_buyers::Column::CompanyId.eq(company))
+        })
+        .apply_if(person_id, |query, person| {
+            query.filter(commerce_buyers::Column::PersonId.eq(person))
+        })
+        .order_by_asc(commerce_buyers::Column::CreatedAt)
+        .order_by_asc(commerce_buyers::Column::Id)
+        .into_model::<BuyerRow>()
+        .all(&db::on(conn))
+        .await?;
+    Ok(rows.iter().map(buyer_json).collect())
 }
 
 /// One buyer.
 ///
 /// # Errors
 /// A failed statement.
-pub async fn buyer(conn: &mut PgConnection, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "{} and b.id = $1",
-        buyer_select()
-    )))
-    .bind(id)
-    .fetch_optional(&mut *conn)
-    .await
+pub async fn buyer(conn: &mut PgConnection, id: &str) -> Result<Option<Value>, DbErr> {
+    let row = buyer_rows()
+        .filter(commerce_buyers::Column::Id.eq(id))
+        .into_model::<BuyerRow>()
+        .one(&db::on(conn))
+        .await?;
+    Ok(row.as_ref().map(buyer_json))
 }
 
-/// A buyer of a company by id, as stored (no join).
+/// A live buyer by id, as stored (no join), locked until the transaction
+/// ends: `(company_id, person_id, role, status)`.
 async fn buyer_row(
     conn: &mut PgConnection,
     id: &str,
-) -> Result<Option<(String, String, String, String)>, sqlx::Error> {
-    sqlx::query_as(
-        "select company_id, person_id, role, status from commerce_buyers \
-         where id = $1 and deleted_at is null for update",
-    )
-    .bind(id)
-    .fetch_optional(&mut *conn)
-    .await
+) -> Result<Option<(String, String, String, String)>, DbErr> {
+    commerce_buyers::Entity::find_by_id(id)
+        .filter(commerce_buyers::Column::DeletedAt.is_null())
+        .select_only()
+        .columns([
+            commerce_buyers::Column::CompanyId,
+            commerce_buyers::Column::PersonId,
+            commerce_buyers::Column::Role,
+            commerce_buyers::Column::Status,
+        ])
+        .lock_exclusive()
+        .into_tuple()
+        .one(&db::on(conn))
+        .await
 }
 
 /// A buyer to add to a company.
@@ -298,14 +384,7 @@ pub async fn create_buyer(conn: &mut PgConnection, new: &NewBuyer<'_>) -> Result
     if !ROLES.contains(&new.role) {
         return Err(Error::invalid("role", "Must be buyer, approver or admin"));
     }
-    let company: Option<String> =
-        sqlx::query_scalar("select id from companies where id = $1 and deleted_at is null")
-            .bind(new.company_id)
-            .fetch_optional(&mut *conn)
-            .await?;
-    if company.is_none() {
-        return Err(Error::not_found("Company", new.company_id));
-    }
+    ensure_company(conn, new.company_id).await?;
     let person = find_or_create_person(
         conn,
         new.email,
@@ -314,51 +393,62 @@ pub async fn create_buyer(conn: &mut PgConnection, new: &NewBuyer<'_>) -> Result
         new.invited_by,
     )
     .await?;
-    let exists: bool = sqlx::query_scalar(
-        "select exists (select 1 from commerce_buyers where person_id = $1 and company_id = $2 \
-           and deleted_at is null)",
-    )
-    .bind(&person.id)
-    .bind(new.company_id)
-    .fetch_one(&mut *conn)
-    .await?;
+    let exists = commerce_buyers::Entity::find()
+        .filter(commerce_buyers::Column::PersonId.eq(person.id.as_str()))
+        .filter(commerce_buyers::Column::CompanyId.eq(new.company_id))
+        .filter(commerce_buyers::Column::DeletedAt.is_null())
+        .count(&db::on(conn))
+        .await?
+        > 0;
     if exists {
         return Err(Error::BuyerExists);
     }
-    let linked: bool = sqlx::query_scalar(
-        "select exists (select 1 from person_companies where person_id = $1 and company_id = $2 \
-           and ended_at is null)",
-    )
-    .bind(&person.id)
-    .bind(new.company_id)
-    .fetch_one(&mut *conn)
-    .await?;
+    let linked = person_companies::Entity::find()
+        .filter(person_companies::Column::PersonId.eq(person.id.as_str()))
+        .filter(person_companies::Column::CompanyId.eq(new.company_id))
+        .filter(person_companies::Column::EndedAt.is_null())
+        .count(&db::on(conn))
+        .await?
+        > 0;
     if !linked {
-        sqlx::query(
-            "insert into person_companies (id, person_id, company_id, is_primary, started_at) \
-             values ($1, $2, $3, not exists (select 1 from person_companies \
-               where person_id = $2 and is_primary and ended_at is null), now() at time zone 'utc')",
-        )
-        .bind(generate_id("pc"))
-        .bind(&person.id)
-        .bind(new.company_id)
-        .execute(&mut *conn)
+        // The first current company link is the person's primary one. The
+        // person's advisory lock (`find_or_create_person`) is held until
+        // the transaction ends, so no other link is made in between.
+        let has_primary = person_companies::Entity::find()
+            .filter(person_companies::Column::PersonId.eq(person.id.as_str()))
+            .filter(person_companies::Column::IsPrimary.eq(true))
+            .filter(person_companies::Column::EndedAt.is_null())
+            .count(&db::on(conn))
+            .await?
+            > 0;
+        person_companies::Entity::insert(person_companies::ActiveModel {
+            id: Set(generate_id("pc")),
+            person_id: Set(person.id.clone()),
+            company_id: Set(new.company_id.to_owned()),
+            is_primary: Set(!has_primary),
+            started_at: Set(Some(db::now())),
+            ..Default::default()
+        })
+        .exec_without_returning(&db::on(conn))
         .await?;
     }
     let id = generate_id("cbuy");
-    sqlx::query(
-        "insert into commerce_buyers (id, person_id, company_id, role, spend_limit, \
-           spend_limit_currency, status, invited_by, invited_at) \
-         values ($1, $2, $3, $4, $5::numeric, $6, 'invited', $7, now() at time zone 'utc')",
-    )
-    .bind(&id)
-    .bind(&person.id)
-    .bind(new.company_id)
-    .bind(new.role)
-    .bind(new.spend_limit.map(money::format))
-    .bind(new.spend_limit.and(new.spend_limit_currency))
-    .bind(new.invited_by)
-    .execute(&mut *conn)
+    commerce_buyers::Entity::insert(commerce_buyers::ActiveModel {
+        id: Set(id.clone()),
+        person_id: Set(person.id.clone()),
+        company_id: Set(new.company_id.to_owned()),
+        role: Set(new.role.to_owned()),
+        spend_limit: Set(new.spend_limit.map(db::decimal)),
+        spend_limit_currency: Set(new
+            .spend_limit
+            .and(new.spend_limit_currency)
+            .map(str::to_owned)),
+        status: Set("invited".to_owned()),
+        invited_by: Set(Some(new.invited_by.to_owned())),
+        invited_at: Set(Some(db::now())),
+        ..Default::default()
+    })
+    .exec_without_returning(&db::on(conn))
     .await?;
     buyer(conn, &id)
         .await?
@@ -404,15 +494,15 @@ async fn other_admins(
     conn: &mut PgConnection,
     company_id: &str,
     except: &str,
-) -> Result<i64, sqlx::Error> {
-    sqlx::query_scalar(
-        "select count(*) from commerce_buyers where company_id = $1 and id <> $2 \
-           and role = 'admin' and status <> 'disabled' and deleted_at is null",
-    )
-    .bind(company_id)
-    .bind(except)
-    .fetch_one(&mut *conn)
-    .await
+) -> Result<u64, DbErr> {
+    commerce_buyers::Entity::find()
+        .filter(commerce_buyers::Column::CompanyId.eq(company_id))
+        .filter(commerce_buyers::Column::Id.ne(except))
+        .filter(commerce_buyers::Column::Role.eq("admin"))
+        .filter(commerce_buyers::Column::Status.ne("disabled"))
+        .filter(commerce_buyers::Column::DeletedAt.is_null())
+        .count(&db::on(conn))
+        .await
 }
 
 /// Change a buyer. With `keep_an_admin` (the storefront), the last admin of
@@ -453,34 +543,35 @@ pub async fn update_buyer(
     if let Some(Some((amount, currency))) = &patch.spend_limit {
         check_limit(Some(*amount), Some(currency))?;
     }
-    sqlx::query(
-        "update commerce_buyers set role = $2, status = $3, \
-           spend_limit = case when $4 then $5::numeric else spend_limit end, \
-           spend_limit_currency = case when $4 then $6 else spend_limit_currency end, \
-           accepted_at = case when $3 = 'active' and accepted_at is null \
-             then now() at time zone 'utc' else accepted_at end, \
-           updated_at = now() at time zone 'utc' where id = $1",
-    )
-    .bind(id)
-    .bind(new_role)
-    .bind(new_status)
-    .bind(patch.spend_limit.is_some())
-    .bind(
-        patch
-            .spend_limit
+    let now = db::now();
+    let mut row = commerce_buyers::ActiveModel {
+        role: Set(new_role.to_owned()),
+        status: Set(new_status.to_owned()),
+        updated_at: Set(now),
+        ..Default::default()
+    };
+    if let Some(limit) = &patch.spend_limit {
+        row.spend_limit = Set(limit.as_ref().map(|(amount, _)| db::decimal(*amount)));
+        row.spend_limit_currency = Set(limit
             .as_ref()
-            .and_then(|limit| limit.as_ref())
-            .map(|(amount, _)| money::format(*amount)),
-    )
-    .bind(
-        patch
-            .spend_limit
-            .as_ref()
-            .and_then(|limit| limit.as_ref())
-            .map(|(_, currency)| currency.to_ascii_uppercase()),
-    )
-    .execute(&mut *conn)
-    .await?;
+            .map(|(_, currency)| currency.to_ascii_uppercase()));
+    }
+    let mut update = commerce_buyers::Entity::update_many().set(row);
+    if new_status == "active" {
+        // Accepted now, unless it was accepted before.
+        update = update.col_expr(
+            commerce_buyers::Column::AcceptedAt,
+            Func::coalesce([
+                Expr::col(commerce_buyers::Column::AcceptedAt),
+                Expr::val(now),
+            ])
+            .into(),
+        );
+    }
+    update
+        .filter(commerce_buyers::Column::Id.eq(id))
+        .exec(&db::on(conn))
+        .await?;
     buyer(conn, id)
         .await?
         .ok_or_else(|| Error::not_found("Buyer", id))
@@ -508,13 +599,16 @@ pub async fn delete_buyer(
     {
         return Err(Error::LastAdmin);
     }
-    sqlx::query(
-        "update commerce_buyers set deleted_at = now() at time zone 'utc', \
-           updated_at = now() at time zone 'utc' where id = $1",
-    )
-    .bind(id)
-    .execute(&mut *conn)
-    .await?;
+    let now = db::now();
+    commerce_buyers::Entity::update_many()
+        .set(commerce_buyers::ActiveModel {
+            deleted_at: Set(Some(now)),
+            updated_at: Set(now),
+            ..Default::default()
+        })
+        .filter(commerce_buyers::Column::Id.eq(id))
+        .exec(&db::on(conn))
+        .await?;
     Ok(before)
 }
 
@@ -529,12 +623,14 @@ pub struct Membership {
     pub currency: Option<String>,
 }
 
+/// `b.id, b.company_id, c.display_name, b.role, b.spend_limit,
+/// b.spend_limit_currency`.
 type MembershipRow = (
     String,
     String,
-    Option<String>,
     String,
-    Option<String>,
+    String,
+    Option<BigDecimal>,
     Option<String>,
 );
 
@@ -546,26 +642,35 @@ type MembershipRow = (
 pub async fn memberships(
     conn: &mut PgConnection,
     person_id: &str,
-) -> Result<Vec<Membership>, sqlx::Error> {
-    let rows: Vec<MembershipRow> = sqlx::query_as(
-        "select b.id, b.company_id, c.display_name, b.role, b.spend_limit::text, \
-               b.spend_limit_currency \
-             from commerce_buyers b join companies c on c.id = b.company_id \
-             where b.person_id = $1 and b.status = 'active' and b.deleted_at is null \
-               and c.deleted_at is null order by c.display_name asc, b.id asc",
-    )
-    .bind(person_id)
-    .fetch_all(&mut *conn)
-    .await?;
+) -> Result<Vec<Membership>, DbErr> {
+    let rows: Vec<MembershipRow> = commerce_buyers::Entity::find()
+        .join(JoinType::InnerJoin, buyer_company())
+        .select_only()
+        .column(commerce_buyers::Column::Id)
+        .column(commerce_buyers::Column::CompanyId)
+        .column(companies::Column::DisplayName)
+        .column(commerce_buyers::Column::Role)
+        .column(commerce_buyers::Column::SpendLimit)
+        .column(commerce_buyers::Column::SpendLimitCurrency)
+        .filter(commerce_buyers::Column::PersonId.eq(person_id))
+        .filter(commerce_buyers::Column::Status.eq("active"))
+        .filter(commerce_buyers::Column::DeletedAt.is_null())
+        .filter(companies::Column::DeletedAt.is_null())
+        .order_by_asc(companies::Column::DisplayName)
+        .order_by_asc(commerce_buyers::Column::Id)
+        .into_tuple()
+        .all(&db::on(conn))
+        .await?;
     Ok(rows
         .into_iter()
         .map(
             |(buyer_id, company_id, name, role, limit, currency)| Membership {
                 buyer_id,
                 company_id,
-                name: name.unwrap_or_default(),
+                name,
                 role,
-                spend_limit: limit.as_deref().and_then(money::parse),
+                // As `money::parse` read the column's text: none below zero.
+                spend_limit: limit.as_ref().map(db::cents).filter(|cents| *cents >= 0),
                 currency,
             },
         )
@@ -580,15 +685,21 @@ pub async fn memberships(
 pub async fn accept_invitations(
     conn: &mut PgConnection,
     person_id: &str,
-) -> Result<Vec<String>, sqlx::Error> {
-    sqlx::query_scalar(
-        "update commerce_buyers set status = 'active', accepted_at = now() at time zone 'utc', \
-           updated_at = now() at time zone 'utc' \
-         where person_id = $1 and status = 'invited' and deleted_at is null returning id",
-    )
-    .bind(person_id)
-    .fetch_all(&mut *conn)
-    .await
+) -> Result<Vec<String>, DbErr> {
+    let now = db::now();
+    let accepted = commerce_buyers::Entity::update_many()
+        .set(commerce_buyers::ActiveModel {
+            status: Set("active".to_owned()),
+            accepted_at: Set(Some(now)),
+            updated_at: Set(now),
+            ..Default::default()
+        })
+        .filter(commerce_buyers::Column::PersonId.eq(person_id))
+        .filter(commerce_buyers::Column::Status.eq("invited"))
+        .filter(commerce_buyers::Column::DeletedAt.is_null())
+        .exec_with_returning(&db::on(conn))
+        .await?;
+    Ok(accepted.into_iter().map(|buyer| buyer.id).collect())
 }
 
 /// The buyer rows that may approve for `company_id` (approvers and admins,
@@ -599,20 +710,27 @@ pub async fn accept_invitations(
 pub async fn approvers(
     conn: &mut PgConnection,
     company_id: &str,
-) -> Result<Vec<(String, String, Option<String>)>, sqlx::Error> {
-    let rows: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
-        "select p.id, p.email, p.display_name from commerce_buyers b \
-         join people p on p.id = b.person_id \
-         where b.company_id = $1 and b.role in ('approver', 'admin') and b.status = 'active' \
-           and b.deleted_at is null and p.deleted_at is null and p.email is not null \
-         order by b.created_at asc, b.id asc",
-    )
-    .bind(company_id)
-    .fetch_all(&mut *conn)
-    .await?;
+) -> Result<Vec<(String, String, Option<String>)>, DbErr> {
+    let rows: Vec<(String, Option<String>, String)> = commerce_buyers::Entity::find()
+        .join(JoinType::InnerJoin, buyer_person())
+        .select_only()
+        .column(people::Column::Id)
+        .column(people::Column::Email)
+        .column(people::Column::DisplayName)
+        .filter(commerce_buyers::Column::CompanyId.eq(company_id))
+        .filter(commerce_buyers::Column::Role.is_in(["approver", "admin"]))
+        .filter(commerce_buyers::Column::Status.eq("active"))
+        .filter(commerce_buyers::Column::DeletedAt.is_null())
+        .filter(people::Column::DeletedAt.is_null())
+        .filter(people::Column::Email.is_not_null())
+        .order_by_asc(commerce_buyers::Column::CreatedAt)
+        .order_by_asc(commerce_buyers::Column::Id)
+        .into_tuple()
+        .all(&db::on(conn))
+        .await?;
     Ok(rows
         .into_iter()
-        .map(|(id, email, name)| (id, email.unwrap_or_default(), name))
+        .map(|(id, email, name)| (id, email.unwrap_or_default(), Some(name)))
         .collect())
 }
 
@@ -624,27 +742,34 @@ pub async fn approvers(
 /// [`Error::NotFound`] for a company that is gone.
 pub async fn company_settings(conn: &mut PgConnection, company_id: &str) -> Result<Value, Error> {
     ensure_company(conn, company_id).await?;
-    let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(
-        "select approval_threshold::text, approval_threshold_currency \
-         from commerce_company_settings where company_id = $1",
-    )
-    .bind(company_id)
-    .fetch_optional(&mut *conn)
-    .await?;
+    let row: Option<(Option<BigDecimal>, Option<String>)> =
+        commerce_company_settings::Entity::find()
+            .select_only()
+            .columns([
+                commerce_company_settings::Column::ApprovalThreshold,
+                commerce_company_settings::Column::ApprovalThresholdCurrency,
+            ])
+            .filter(commerce_company_settings::Column::CompanyId.eq(company_id))
+            .into_tuple()
+            .one(&db::on(conn))
+            .await?;
     let (threshold, currency) = row.unwrap_or((None, None));
     Ok(json!({
         "companyId": company_id,
-        "approvalThreshold": threshold,
+        // `numeric(18, 2)` as Postgres prints it: `"100.00"`.
+        "approvalThreshold": threshold.as_ref().map(|t| money::format(db::cents(t))),
         "approvalThresholdCurrency": currency,
     }))
 }
 
 async fn ensure_company(conn: &mut PgConnection, company_id: &str) -> Result<(), Error> {
-    let found: Option<String> =
-        sqlx::query_scalar("select id from companies where id = $1 and deleted_at is null")
-            .bind(company_id)
-            .fetch_optional(&mut *conn)
-            .await?;
+    let found: Option<String> = companies::Entity::find_by_id(company_id)
+        .filter(companies::Column::DeletedAt.is_null())
+        .select_only()
+        .column(companies::Column::Id)
+        .into_tuple()
+        .one(&db::on(conn))
+        .await?;
     found
         .map(|_| ())
         .ok_or_else(|| Error::not_found("Company", company_id))
@@ -674,22 +799,25 @@ pub async fn set_company_settings(
             ));
         }
     }
-    sqlx::query(
-        "insert into commerce_company_settings (id, company_id, approval_threshold, \
-           approval_threshold_currency) values ($1, $2, $3::numeric, $4) \
-         on conflict (company_id) do update set approval_threshold = excluded.approval_threshold, \
-           approval_threshold_currency = excluded.approval_threshold_currency, \
-           updated_at = now() at time zone 'utc'",
-    )
-    .bind(generate_id("ccs"))
-    .bind(company_id)
-    .bind(threshold.as_ref().map(|(amount, _)| money::format(*amount)))
-    .bind(
-        threshold
+    commerce_company_settings::Entity::insert(commerce_company_settings::ActiveModel {
+        id: Set(generate_id("ccs")),
+        company_id: Set(company_id.to_owned()),
+        approval_threshold: Set(threshold.as_ref().map(|(amount, _)| db::decimal(*amount))),
+        approval_threshold_currency: Set(threshold
             .as_ref()
-            .map(|(_, currency)| currency.to_ascii_uppercase()),
+            .map(|(_, currency)| currency.to_ascii_uppercase())),
+        ..Default::default()
+    })
+    .on_conflict(
+        OnConflict::column(commerce_company_settings::Column::CompanyId)
+            .update_columns([
+                commerce_company_settings::Column::ApprovalThreshold,
+                commerce_company_settings::Column::ApprovalThresholdCurrency,
+            ])
+            .value(commerce_company_settings::Column::UpdatedAt, db::now())
+            .to_owned(),
     )
-    .execute(&mut *conn)
+    .exec_without_returning(&db::on(conn))
     .await?;
     company_settings(conn, company_id).await
 }
