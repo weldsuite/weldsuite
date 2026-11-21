@@ -564,14 +564,22 @@ export function modifiedAtOf(record: Record<string, unknown>): string | null {
   ]);
 }
 
+/** Moneybird sales invoice `state` → WeldBooks invoice status. */
 const INVOICE_STATUS: Record<string, string> = {
   draft: 'draft',
+  // Sends itself on a later date: not sent yet.
+  scheduled: 'draft',
   open: 'sent',
+  // Sent, waiting for the direct debit to be collected.
+  pending_payment: 'sent',
+  // Moneybird sends reminders once an invoice is past due.
+  reminded: 'overdue',
   late: 'overdue',
   paid: 'paid',
   uncollectible: 'uncollectible',
 };
 
+/** Moneybird purchase invoice / receipt `state` → WeldBooks bill status. */
 const BILL_STATUS: Record<string, string> = {
   new: 'draft',
   saved: 'draft',
@@ -580,6 +588,27 @@ const BILL_STATUS: Record<string, string> = {
   late: 'overdue',
   paid: 'paid',
 };
+
+/** Invoice statuses WeldBooks knows (books-api `invoiceStatusSchema`). */
+const KNOWN_INVOICE_STATUSES = new Set(['draft', 'sent', 'paid', 'overdue', 'partial', 'cancelled', 'uncollectible', 'finalized']);
+/** Bill statuses WeldBooks knows. */
+const KNOWN_BILL_STATUSES = new Set(['draft', 'approved', 'partial', 'overdue', 'paid', 'cancelled']);
+
+/**
+ * Field mappings may not give an invoice or bill a status WeldBooks doesn't
+ * know. Moneybird connections are seeded with `state → status` as-is, which
+ * would write Moneybird's own states (`open`, `late`, `reminded`, …); the
+ * mapper's status stands then.
+ */
+export function keepKnownDocumentStatus(
+  mapped: MappedRecord,
+  values: Record<string, unknown>,
+): Record<string, unknown> {
+  if (mapped.entity !== 'invoice' && mapped.entity !== 'bill') return values;
+  const known = mapped.entity === 'invoice' ? KNOWN_INVOICE_STATUSES : KNOWN_BILL_STATUSES;
+  if (typeof values.status === 'string' && known.has(values.status)) return values;
+  return { ...values, status: mapped.values.status };
+}
 
 function parseDate(value: string | null): Date | null {
   if (!value) return null;
@@ -601,18 +630,58 @@ function quantityString(value: string | null): string {
   return Number.isFinite(parsed) && parsed !== 0 ? String(parsed) : '1';
 }
 
+/** `decimalString`'s parsing as a number; null when missing or not a number. */
+function decimalNumber(source: Record<string, unknown>, paths: string[]): number | null {
+  const raw = pickString(source, paths);
+  if (raw === null) return null;
+  const parsed = Number(raw.replace(',', '.').replace(/[^0-9.-]/g, ''));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
+ * VAT percentage per Moneybird tax rate id. Lines name their rate by
+ * `tax_rate_id` only; the invoice's `tax_totals` give the tax and the taxable
+ * amount per rate, so the percentage is the one over the other.
+ */
+function taxRatesFromTotals(record: Record<string, unknown>): Map<string, number> {
+  const rates = new Map<string, number>();
+  for (const row of firstRecordArray(record.tax_totals)) {
+    const id = pickString(row, ['tax_rate_id']);
+    const taxable = decimalNumber(row, ['taxable_amount']);
+    const tax = decimalNumber(row, ['tax_amount']);
+    if (!id || taxable === null || tax === null || taxable === 0) continue;
+    rates.set(id, Number(((tax / taxable) * 100).toFixed(2)));
+  }
+  return rates;
+}
+
+/** Moneybird `prices_are_incl_tax`: line prices include VAT. */
+function pricesIncludeTax(record: Record<string, unknown>): boolean {
+  return record.prices_are_incl_tax === true || record.prices_are_incl_tax === 'true';
+}
+
 function mapDocumentLines(record: Record<string, unknown>): MappedDocumentLine[] {
   const raw = firstRecordArray(record.details, record.line_items);
+  const rates = taxRatesFromTotals(record);
+  const inclusive = pricesIncludeTax(record);
   return raw.map((item, index) => {
     const quantity = quantityString(pickString(item, ['amount', 'quantity']));
-    const unitPrice = decimalString(pickString(item, ['price', 'unit_price']));
+    const rateId = pickString(item, ['tax_rate_id']);
+    const derivedRate = rateId ? rates.get(rateId) ?? null : null;
+    const price = decimalString(pickString(item, ['price', 'unit_price']));
+    // WeldBooks unit prices exclude VAT; back it out of an incl-VAT price.
+    const unitPrice = inclusive && derivedRate !== null
+      ? (Number(price) / (1 + derivedRate / 100)).toFixed(4)
+      : price;
     const lineExcl = decimalString(
       pickString(item, ['total_price_excl_tax_with_discount', 'total_price_excl_tax', 'total']),
       String((Number(quantity) || 1) * (Number(unitPrice) || 0)),
     );
+    const explicitTax = pickString(item, ['tax_amount', 'tax']);
+    const derivedTax = derivedRate === null ? null : ((Number(lineExcl) * derivedRate) / 100).toFixed(2);
     const lineIncl = decimalString(
       pickString(item, ['total_price_incl_tax_with_discount', 'total_price_incl_tax']),
-      lineExcl,
+      derivedTax === null ? lineExcl : (Number(lineExcl) + Number(derivedTax)).toFixed(2),
     );
     return {
       externalProductId: pickString(item, ['product_id']) && pickString(item, ['product_id']) !== '0'
@@ -621,13 +690,59 @@ function mapDocumentLines(record: Record<string, unknown>): MappedDocumentLine[]
       description: pickString(item, ['description', 'name'], 2000) ?? 'Item',
       quantity,
       unitPrice,
-      taxRate: pickString(item, ['tax_rate', 'tax']),
-      taxAmount: pickString(item, ['tax_amount', 'tax']),
+      taxRate: pickString(item, ['tax_rate', 'tax']) ?? (derivedRate === null ? null : derivedRate.toFixed(2)),
+      taxAmount: explicitTax ?? derivedTax,
       lineTotal: lineExcl,
       lineTotalWithTax: lineIncl,
       sortOrder: index,
     };
   });
+}
+
+/**
+ * Document VAT: the sum of Moneybird's `tax_totals`, else a total the record
+ * carries itself, else the difference between the totals incl. and excl. VAT.
+ */
+function documentTaxTotal(record: Record<string, unknown>, subtotal: string, total: string): string {
+  const totals = firstRecordArray(record.tax_totals);
+  if (totals.length > 0) {
+    return totals.reduce((sum, row) => sum + (decimalNumber(row, ['tax_amount']) ?? 0), 0).toFixed(2);
+  }
+  const explicit = pickString(record, ['total_tax', 'tax_total']);
+  if (explicit) return decimalString(explicit);
+  const hasBoth = pickString(record, ['total_price_incl_tax', 'total']) !== null
+    && pickString(record, ['total_price_excl_tax', 'subtotal']) !== null;
+  return hasBoth ? (Number(total) - Number(subtotal)).toFixed(2) : '0';
+}
+
+/**
+ * Paid so far and still due. Sales invoices carry `total_paid` /
+ * `total_unpaid`; purchase invoices and receipts only their `payments`.
+ * A paid document is paid in full whatever the parts add up to.
+ */
+function paidAmounts(
+  record: Record<string, unknown>,
+  total: string,
+  paid: boolean,
+): { amountPaid: string; balanceDue: string } {
+  if (paid) return { amountPaid: total, balanceDue: '0' };
+  const totalPaid = decimalNumber(record, ['total_paid']);
+  if (totalPaid !== null) {
+    const unpaid = decimalNumber(record, ['total_unpaid']);
+    return { amountPaid: totalPaid.toFixed(2), balanceDue: (unpaid ?? Number(total) - totalPaid).toFixed(2) };
+  }
+  const payments = firstRecordArray(record.payments);
+  if (payments.length > 0) {
+    const sum = payments.reduce((acc, payment) => acc + (decimalNumber(payment, ['price']) ?? 0), 0);
+    return { amountPaid: sum.toFixed(2), balanceDue: (Number(total) - sum).toFixed(2) };
+  }
+  return { amountPaid: '0', balanceDue: total };
+}
+
+/** An open document with part of it paid is `partial`. */
+function withPartialPayment(status: string, amounts: { amountPaid: string; balanceDue: string }): string {
+  if (status !== 'sent' && status !== 'overdue' && status !== 'approved') return status;
+  return Number(amounts.amountPaid) !== 0 && Number(amounts.balanceDue) !== 0 ? 'partial' : status;
 }
 
 function nestedContactRecord(record: Record<string, unknown>): Record<string, unknown> | null {
@@ -707,7 +822,9 @@ function mapInvoice(record: Record<string, unknown>, externalId: string): Mapped
     ?? pickString(record, ['contact.company_name', 'contact_name']);
   const subtotal = decimalString(pickString(record, ['total_price_excl_tax', 'subtotal']));
   const total = decimalString(pickString(record, ['total_price_incl_tax', 'total']));
-  const taxTotal = decimalString(pickString(record, ['total_tax', 'tax_total']));
+  const taxTotal = documentTaxTotal(record, subtotal, total);
+  const amounts = paidAmounts(record, total, paidAt !== null || state === 'paid');
+  const status = withPartialPayment(INVOICE_STATUS[state] ?? 'draft', amounts);
 
   return {
     entity: 'invoice',
@@ -720,19 +837,19 @@ function mapInvoice(record: Record<string, unknown>, externalId: string): Mapped
     values: compact({
       invoiceNumber,
       type: 'standard',
-      status: INVOICE_STATUS[state] ?? 'draft',
+      status,
       contactName: contactName ? contactName.slice(0, 255) : null,
       contactEmail: pickString(nested ?? record, ['email', 'send_invoices_to_email'], 255),
       issueDate,
       dueDate,
       paidAt,
-      sentAt: state !== 'draft' ? issueDate : null,
+      sentAt: status !== 'draft' ? issueDate : null,
       currency: pickString(record, ['currency'], 3) ?? 'EUR',
       subtotal,
       taxTotal,
       total,
-      amountPaid: paidAt ? total : '0',
-      balanceDue: paidAt ? '0' : total,
+      amountPaid: amounts.amountPaid,
+      balanceDue: amounts.balanceDue,
       reference: pickString(record, ['reference'], 255),
       notes: pickString(record, ['notes']),
       journalEntryId: null,
@@ -752,7 +869,8 @@ function mapBill(record: Record<string, unknown>, externalId: string): MappedBil
     ?? pickString(record, ['contact.company_name', 'contact_name']);
   const subtotal = decimalString(pickString(record, ['total_price_excl_tax', 'subtotal']));
   const total = decimalString(pickString(record, ['total_price_incl_tax', 'total']));
-  const taxTotal = decimalString(pickString(record, ['total_tax', 'tax_total']));
+  const taxTotal = documentTaxTotal(record, subtotal, total);
+  const amounts = paidAmounts(record, total, paidAt !== null || state === 'paid');
 
   return {
     entity: 'bill',
@@ -765,7 +883,7 @@ function mapBill(record: Record<string, unknown>, externalId: string): MappedBil
     values: compact({
       billNumber,
       type: 'standard',
-      status: BILL_STATUS[state] ?? 'draft',
+      status: withPartialPayment(BILL_STATUS[state] ?? 'draft', amounts),
       contactName: contactName ? contactName.slice(0, 255) : null,
       issueDate,
       dueDate,
@@ -774,8 +892,8 @@ function mapBill(record: Record<string, unknown>, externalId: string): MappedBil
       subtotal,
       taxTotal,
       total,
-      amountPaid: paidAt ? total : '0',
-      balanceDue: paidAt ? '0' : total,
+      amountPaid: amounts.amountPaid,
+      balanceDue: amounts.balanceDue,
       reference: pickString(record, ['reference'], 255),
       notes: pickString(record, ['notes']),
       journalEntryId: null,

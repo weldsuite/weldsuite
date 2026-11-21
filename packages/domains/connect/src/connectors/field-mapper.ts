@@ -52,7 +52,9 @@ function applyTransform(
       if (!value) return value;
       const date = new Date(asText(value));
       if (Number.isNaN(date.getTime())) return value;
-      return date.toISOString();
+      // A Date, as the mappers give: Drizzle writes a timestamp column with
+      // `toISOString()` and throws on a string.
+      return date;
     }
     default:
       return value;

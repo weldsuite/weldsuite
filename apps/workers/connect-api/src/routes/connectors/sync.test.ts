@@ -12,6 +12,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
 import { asc, eq } from 'drizzle-orm';
+import { getDefaultConnectorFieldMappings } from '@weldsuite/connectors';
 import { conformanceTenantDb, createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
@@ -211,16 +212,42 @@ function moneybird(url: URL, method: string): Response {
         due_date: '2026-03-15',
         paid_at: '2026-03-05',
         currency: 'EUR',
+        prices_are_incl_tax: false,
         total_price_excl_tax: '100.0',
         total_price_incl_tax: '121.0',
+        total_paid: '121.0',
+        total_unpaid: '0.0',
         reference: 'PO-77',
+        // Moneybird names a line's VAT by id only; the percentage comes from tax_totals.
         details: [
-          { description: 'Consulting', amount: '2 uur', price: '50.0', total_price_excl_tax_with_discount: '100.0', total_price_incl_tax_with_discount: '121.0', product_id: null },
+          { description: 'Consulting', amount: '2 uur', price: '50.0', tax_rate_id: 'tr_21', total_price_excl_tax_with_discount: '100.0', product_id: null },
         ],
+        tax_totals: [{ tax_rate_id: 'tr_21', taxable_amount: '100.0', taxable_amount_base: '100.0', tax_amount: '21.0', tax_amount_base: '21.0' }],
         attachments: [],
         updated_at: '2026-03-05T10:00:00.000Z',
       },
       { id: 'si2', invoice_id: '2026-002', contact_id: 'c-unknown', state: 'open', invoice_date: '2026-03-02', updated_at: '2026-03-06T10:00:00.000Z' },
+      {
+        // Reminded, with part of it paid: Moneybird's own state is not a WeldBooks status.
+        id: 'si3',
+        invoice_id: '2026-003',
+        contact_id: 'c1',
+        state: 'reminded',
+        invoice_date: '2026-02-01',
+        due_date: '2026-02-15',
+        currency: 'EUR',
+        prices_are_incl_tax: true,
+        total_price_excl_tax: '200.0',
+        total_price_incl_tax: '242.0',
+        total_paid: '100.0',
+        total_unpaid: '142.0',
+        details: [
+          { description: 'Support', amount: '1', price: '242.0', tax_rate_id: 'tr_21', total_price_excl_tax_with_discount: '200.0', product_id: null },
+        ],
+        tax_totals: [{ tax_rate_id: 'tr_21', taxable_amount: '200.0', taxable_amount_base: '200.0', tax_amount: '42.0', tax_amount_base: '42.0' }],
+        attachments: [],
+        updated_at: '2026-03-04T10:00:00.000Z',
+      },
     ]);
   }
   if (path === 'financial_accounts') {
@@ -330,6 +357,22 @@ beforeAll(async () => {
     connection({ id: 'ccn_syncpaused001', provider: 'woocommerce', status: 'paused', credentials: { storeUrl: 'https://shop.example', consumerKey: 'ck_1', consumerSecret: 'cs_1' } }),
     connection({ id: 'ccn_syncout000001', provider: 'shopify', credentials: { shopDomain: 'acme', accessToken: 'shpat_1' }, direction: 'outbound', enabledSyncs: ['products'] }),
   ]);
+  // A Moneybird connection is seeded with the default invoice field mappings,
+  // `state → status` as-is among them.
+  await db.insert(schema.integrationFieldMappings).values(
+    getDefaultConnectorFieldMappings('invoice', 'moneybird').map((m, i) => ({
+      id: `ifm_syncmb000000${i}`,
+      connectionId: 'ccn_syncmb0000001',
+      entityType: 'invoice',
+      externalFieldPath: m.externalFieldPath,
+      internalFieldPath: m.internalFieldPath,
+      direction: m.direction,
+      transformType: m.transformType,
+      isRequired: m.isRequired ?? false,
+      isDefault: true,
+      position: i,
+    })),
+  );
 }, 60_000);
 
 function app(...granted: string[]) {
@@ -546,10 +589,16 @@ describe('POST /connections/:id/sync', () => {
     const [company] = await db.select().from(schema.companies).where(eq(schema.companies.id, party!.companyId!));
     expect(company).toMatchObject({ name: 'Acme BV', email: 'info@acme.example', vatNumber: 'NL123456789B01', registrationNumber: '12345678', source: 'moneybird' });
     const [invoice] = await db.select().from(schema.invoices).where(eq(schema.invoices.invoiceNumber, '2026-001'));
-    expect(invoice).toMatchObject({ status: 'paid', entityId: 'ent_books0000001', contactId: party!.id, counterpartyId: party!.id, subtotal: '100.00', total: '121.00', amountPaid: '121.00', balanceDue: '0.00', reference: 'PO-77', contactName: 'Acme BV', contactEmail: 'info@acme.example' });
+    expect(invoice).toMatchObject({ status: 'paid', entityId: 'ent_books0000001', contactId: party!.id, counterpartyId: party!.id, subtotal: '100.00', taxTotal: '21.00', total: '121.00', amountPaid: '121.00', balanceDue: '0.00', reference: 'PO-77', contactName: 'Acme BV', contactEmail: 'info@acme.example' });
     expect(invoice!.issueDate.toISOString()).toBe('2026-03-01T00:00:00.000Z');
     const lines = await db.select().from(schema.invoiceItems).where(eq(schema.invoiceItems.invoiceId, invoice!.id));
-    expect(lines.map((l) => [l.description, l.quantity, l.unitPrice, l.lineTotal, l.lineTotalWithTax])).toEqual([['Consulting', '2.0000', '50.0000', '100.00', '121.00']]);
+    expect(lines.map((l) => [l.description, l.quantity, l.unitPrice, l.taxRate, l.taxAmount, l.lineTotal, l.lineTotalWithTax])).toEqual([['Consulting', '2.0000', '50.0000', '21.0000', '21.00', '100.00', '121.00']]);
+    // The seeded `state → status` mapping would write `reminded`; the part payment makes it partial.
+    const [reminded] = await db.select().from(schema.invoices).where(eq(schema.invoices.invoiceNumber, '2026-003'));
+    expect(reminded).toMatchObject({ status: 'partial', subtotal: '200.00', taxTotal: '42.00', total: '242.00', amountPaid: '100.00', balanceDue: '142.00' });
+    const remindedLines = await db.select().from(schema.invoiceItems).where(eq(schema.invoiceItems.invoiceId, reminded!.id));
+    // An incl-VAT price comes in without the VAT.
+    expect(remindedLines.map((l) => [l.unitPrice, l.taxRate, l.taxAmount, l.lineTotal, l.lineTotalWithTax])).toEqual([['200.0000', '21.0000', '42.00', '200.00', '242.00']]);
     const accounts = await db.select().from(schema.bankAccounts).orderBy(asc(schema.bankAccounts.name));
     expect(accounts.map((a) => [a.name, a.iban, a.isActive, a.metadata])).toEqual([
       ['Moneybird account fa_archived', null, false, { stubFromMutation: true, moneybirdFinancialAccountId: 'fa_archived' }],
@@ -565,7 +614,7 @@ describe('POST /connections/:id/sync', () => {
       ['moneybird-contacts', 'success', 1, 0, null],
       ['moneybird-financial-accounts', 'success', 1, 0, null],
       ['moneybird-financial-mutations', 'success', 2, 0, null],
-      ['moneybird-sales-invoices', 'partial', 1, 1, '1 record(s) failed to import'],
+      ['moneybird-sales-invoices', 'partial', 2, 1, '1 record(s) failed to import'],
     ]);
     expect(mbRuns.find((r) => r.syncName === 'moneybird-sales-invoices')!.errorSamples).toEqual([
       { externalId: 'si2', message: 'Invoice/bill contact is not mapped — sync contacts first' },

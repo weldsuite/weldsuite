@@ -23,6 +23,7 @@ import { promoteAccountingRole } from '@weldsuite/books-domain/accounting-roles'
 import {
   externalIdOf,
   isDeletedRecord,
+  keepKnownDocumentStatus,
   mapConnectorRecord,
   type MappedBankAccount,
   type MappedBankTransaction,
@@ -149,7 +150,7 @@ function applyMappingsToRecord(
   if (!('values' in mapped) || !mapped.values) return mapped;
   return {
     ...mapped,
-    values: applyInboundFieldMappings(record, mapped.values, mappings),
+    values: keepKnownDocumentStatus(mapped, applyInboundFieldMappings(record, mapped.values, mappings)),
   } as MappedRecord;
 }
 
