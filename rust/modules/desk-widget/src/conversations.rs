@@ -243,6 +243,8 @@ async fn identify(
 
 /// `GET /api/conversations`: the visitor's history, 25 at most.
 async fn list(
+    State(state): State<WidgetState>,
+    ctx: Ctx,
     Extension(widget): Extension<Widget>,
     Extension(caller): Extension<Visitor>,
 ) -> Response {
@@ -251,7 +253,8 @@ async fn list(
         let rows = webchat::list_for_principal(db, &caller.principal, 25).await?;
         let assignees: Vec<Option<&str>> =
             rows.iter().map(|row| row["assigneeId"].as_str()).collect();
-        let authors = resolve_authors(db, &assignees).await?;
+        let master = ctx.master(&state);
+        let authors = resolve_authors(db, master.as_ref(), &assignees).await?;
         Ok::<_, sqlx::Error>(
             rows.iter()
                 .map(|row| public_conversation(row, &authors))
@@ -426,6 +429,8 @@ fn spawn_visitor_message(
 
 /// `GET /api/conversations/:id`: the conversation and its public messages.
 async fn conversation(
+    State(state): State<WidgetState>,
+    ctx: Ctx,
     Extension(widget): Extension<Widget>,
     Extension(caller): Extension<Visitor>,
     Path(id): Path<String>,
@@ -444,7 +449,8 @@ async fn conversation(
                 .filter(|m| m["authorType"] == "agent")
                 .map(|m| m["authorId"].as_str()),
         );
-        let authors = resolve_authors(db, &ids).await?;
+        let master = ctx.master(&state);
+        let authors = resolve_authors(db, master.as_ref(), &ids).await?;
         Ok::<_, sqlx::Error>(Some(json!({
             "conversation": public_conversation(&conversation, &authors),
             "messages": visible.iter().map(|m| public_message(m, &authors)).collect::<Vec<_>>(),
@@ -682,7 +688,13 @@ async fn send(
             team_already_waiting,
         },
     );
-    match resolve_authors(db, &[conversation["assigneeId"].as_str()]).await {
+    match resolve_authors(
+        db,
+        ctx.master(&state).as_ref(),
+        &[conversation["assigneeId"].as_str()],
+    )
+    .await
+    {
         Ok(authors) => success(
             StatusCode::CREATED,
             json!({
@@ -762,7 +774,13 @@ async fn rate(
                 return internal("Failed to save rating");
             }
         };
-    let authors = match resolve_authors(db, &[conversation["assigneeId"].as_str()]).await {
+    let authors = match resolve_authors(
+        db,
+        ctx.master(&state).as_ref(),
+        &[conversation["assigneeId"].as_str()],
+    )
+    .await
+    {
         Ok(authors) => authors,
         Err(error) => {
             tracing::error!(%error, "[widget-api] rate conversation failed");

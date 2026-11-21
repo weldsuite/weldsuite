@@ -74,6 +74,7 @@ function checkDestination(c: FoldersContext, access: DriveAccessIndex, parentId:
 function folderSharing(c: FoldersContext, { row, access, role }: OpenedFolder) {
   return describeSharing(
     c.get('tenantDb'),
+    c.env,
     access,
     { kind: 'folder', id: row.id, ownerId: row.createdById, generalAccess: row.generalAccess, parentId: row.parentId },
     role,

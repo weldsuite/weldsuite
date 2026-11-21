@@ -11,6 +11,7 @@
 //! `packages/core/db/src/schema/`, which stays the one definition of the
 //! tables; migrations stay with Drizzle too.
 
+pub mod account_pictures;
 mod atomically;
 mod crypto;
 pub mod due_index;
@@ -21,6 +22,7 @@ mod restrictions;
 mod rows;
 mod workspaces;
 
+pub use account_pictures::{AccountPictures, load_account_picture, overlay_account_pictures};
 pub use atomically::{TransactionFuture, atomically, atomically_with};
 pub use crypto::{
     DecryptError, EncryptError, Keyring, aad_writes_enabled, decrypt_field,

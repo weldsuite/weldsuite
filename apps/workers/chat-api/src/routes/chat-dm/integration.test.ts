@@ -1,23 +1,42 @@
 /**
  * DB-backed integration tests for /api/chat-dm (WeldChat): DMs are only ever
- * created for real workspace members, and the list carries the caller's mute flag.
+ * created for real workspace members, the list carries the caller's mute flag,
+ * and every member shows their account picture (master `users.image_url`),
+ * never the workspace member row's copy.
  */
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { chatDmRoutes } from './index';
-import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
-import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { users } from '@weldsuite/db/schema/master';
+import { conformanceMasterDb, createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 
+const holder = vi.hoisted(() => ({ master: null as unknown }));
+vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@weldsuite/worker-kit/db')>()),
+  getMasterDb: () => conformanceMasterDb(holder.master),
+}));
+
+import { chatDmRoutes } from './index';
+
 let db: Database;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- pglite drizzle stands in for neon-http
+let master: any;
 
 const ALICE = 'user_dm_alice';
 const BOB = 'user_dm_bob';
+const ALICE_PICTURE = 'https://img.clerk.test/dm-alice.png';
+const BOB_PICTURE = 'https://img.clerk.test/dm-bob.png';
 
 function app() {
   return createTestApp('/api/chat-dm', chatDmRoutes, {
-    context: { userId: ALICE, permissions: permissions('messages:read', 'messages:create'), tenantDb: db },
+    context: {
+      userId: ALICE,
+      permissions: permissions('messages:read', 'messages:create'),
+      tenantDb: db,
+      masterDb: master,
+    },
   });
 }
 
@@ -31,11 +50,21 @@ type DmListItem = { id: string; isMuted: boolean };
 beforeAll(async () => {
   const handle = await createPgliteDb();
   db = handle.db;
+  master = (await createMasterPgliteDb()).db;
+  holder.master = master;
   const now = new Date();
+  // Bob's member row holds a stale copy of a picture; only his account's counts.
   await db.insert(schema.workspaceMembers).values([
     { id: 'wm_dm_alice', userId: ALICE, email: 'alice@example.com', name: 'Alice', role: 'MEMBER', createdAt: now, updatedAt: now },
-    { id: 'wm_dm_bob', userId: BOB, email: 'bob@example.com', name: 'Bob', role: 'MEMBER', createdAt: now, updatedAt: now },
+    { id: 'wm_dm_bob', userId: BOB, email: 'bob@example.com', name: 'Bob', picture: 'https://stale.example.com/bob.png', role: 'MEMBER', createdAt: now, updatedAt: now },
   ] as (typeof schema.workspaceMembers.$inferInsert)[]);
+  await master
+    .insert(users)
+    .values([
+      { id: ALICE, email: 'alice@example.com', imageUrl: ALICE_PICTURE },
+      { id: BOB, email: 'bob@example.com', imageUrl: BOB_PICTURE },
+    ])
+    .onConflictDoNothing();
 }, 60_000);
 
 describe('/api/chat-dm · workspace membership', () => {
@@ -91,5 +120,29 @@ describe('/api/chat-dm · workspace membership', () => {
       .set({ isMuted: true })
       .where(eq(schema.chatChannelMembers.channelId, bobDm.id));
     expect((await fetchList()).find((d) => d.id === bobDm.id)?.isMuted).toBe(true);
+  });
+});
+
+describe('/api/chat-dm · avatars', () => {
+  type Member = { userId: string; picture: string | null };
+  const pictureOf = (members: Member[], userId: string) => members.find((m) => m.userId === userId)?.picture;
+
+  it('GET /:targetUserId gives every member their account picture', async () => {
+    const res = await app().request(`/api/chat-dm/${BOB}`);
+    expect([200, 201]).toContain(res.status);
+    const dm = ((await res.json()) as { data: { members: Member[]; otherMembers: Member[] } }).data;
+    expect(pictureOf(dm.members, ALICE)).toBe(ALICE_PICTURE);
+    expect(pictureOf(dm.otherMembers, BOB)).toBe(BOB_PICTURE);
+  });
+
+  it('GET / shows the account picture, not the stale member-row copy', async () => {
+    await app().request(`/api/chat-dm/${BOB}`);
+    const list = ((await (await app().request('/api/chat-dm')).json()) as {
+      data: Array<{ members: Member[]; otherMembers: Member[] }>;
+    }).data;
+    const withBob = list.find((dm) => dm.otherMembers.some((m) => m.userId === BOB));
+    expect(withBob).toBeDefined();
+    expect(pictureOf(withBob!.otherMembers, BOB)).toBe(BOB_PICTURE);
+    expect(pictureOf(withBob!.members, ALICE)).toBe(ALICE_PICTURE);
   });
 });

@@ -243,19 +243,22 @@ pub(crate) async fn insert_doc(
 /// Display name and picture of a workspace member (`memberProfile`).
 pub(crate) async fn member_profile(
     db: &PgPool,
+    master: Option<&PgPool>,
     user_id: &str,
 ) -> Result<(Option<String>, Option<String>), sqlx::Error> {
-    let row: Option<(Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
-        "select name, email, picture from workspace_members
+    let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+        "select name, email from workspace_members
          where user_id = $1 and deleted_at is null limit 1",
     )
     .bind(user_id)
     .fetch_optional(db)
     .await?;
-    let (name, email, picture) = row.unwrap_or_default();
+    let (name, email) = row.unwrap_or_default();
     let name = name
         .filter(|name| !name.is_empty())
         .or(email.filter(|email| !email.is_empty()));
+    // The avatar is the account picture, not the member row's copy.
+    let picture = weldsuite_db::load_account_picture(master, user_id).await;
     Ok((name, picture))
 }
 

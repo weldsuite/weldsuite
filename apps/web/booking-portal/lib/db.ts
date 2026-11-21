@@ -2,7 +2,7 @@ import { eq, sql } from 'drizzle-orm';
 import postgres from 'postgres';
 import { drizzle, type PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { masterDb } from '@weldsuite/db/lib/master';
-import { workspaces } from '@weldsuite/db/schema/master';
+import { users, workspaces } from '@weldsuite/db/schema/master';
 import { getTenantDbByWorkspaceId } from '@weldsuite/db/lib/tenant';
 import * as personalSchema from '@weldsuite/db/schema/personal';
 
@@ -39,6 +39,25 @@ export type PersonalPortalDb = PostgresJsDatabase<typeof personalSchema>;
 
 export function getPersonalDb(): PersonalPortalDb {
   return drizzle({ client: getPersonalSql(), schema: personalSchema });
+}
+
+/**
+ * A person's avatar: their account picture (master `users.image_url`), never
+ * the workspace member row's copy. Null when there is none or the lookup fails,
+ * so a booking still goes through without it.
+ */
+export async function getAccountPicture(userId: string): Promise<string | null> {
+  try {
+    const [row] = await masterDb
+      .select({ imageUrl: users.imageUrl })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    return row?.imageUrl || null;
+  } catch (err) {
+    console.warn('[booking-portal] account picture lookup failed:', err instanceof Error ? err.message : err);
+    return null;
+  }
 }
 
 /** Workspace slugs: lowercase letters, digits and dashes (see workspace-worker onboard). */

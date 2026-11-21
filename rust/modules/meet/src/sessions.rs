@@ -114,6 +114,7 @@ pub(crate) fn avatars(state: &MeetState, caller: &Caller) -> AvatarStore {
     AvatarStore {
         bucket: caller.parts.public_bucket(state),
         public_url: caller.parts.env("R2_PUBLIC_URL"),
+        master: caller.request_master().cloned(),
     }
 }
 
@@ -341,12 +342,15 @@ async fn member_display(
         let picture = text(&parsed, "picture").map(str::to_owned);
         return Ok((name, picture));
     }
-    let author: Option<(Option<String>, Option<String>)> =
-        sqlx::query_as("select name, picture from workspace_members where user_id = $1 limit 1")
+    let name: Option<Option<String>> =
+        sqlx::query_scalar("select name from workspace_members where user_id = $1 limit 1")
             .bind(&caller.user_id)
             .fetch_optional(&caller.db)
             .await?;
-    let (name, picture) = author.unwrap_or((None, None));
+    let name = name.flatten();
+    // The avatar is the account picture, not the member row's copy.
+    let picture =
+        weldsuite_db::load_account_picture(caller.request_master(), &caller.user_id).await;
     let name = name.unwrap_or_else(|| "Unknown".to_owned());
     if let Some(cache) = cache {
         let mut value = Map::new();
@@ -773,13 +777,13 @@ async fn join_session(
         )
         .into_response());
     }
-    let author: Option<(Option<String>, Option<String>)> =
-        sqlx::query_as("select name, picture from workspace_members where user_id = $1 limit 1")
+    let author_name: Option<Option<String>> =
+        sqlx::query_scalar("select name from workspace_members where user_id = $1 limit 1")
             .bind(&caller.user_id)
             .fetch_optional(db)
             .await
             .map_err(|e| e.to_string())?;
-    let (author_name, author_picture) = author.unwrap_or((None, None));
+    let author_name = author_name.flatten();
     let user_name = author_name.unwrap_or_else(|| "Unknown".to_owned());
     let link = participants::resolve(
         db,
@@ -792,7 +796,8 @@ async fn join_session(
         },
     )
     .await;
-    let avatar = link.avatar_url.clone().or(author_picture);
+    // A member's link carries their account picture.
+    let avatar = link.avatar_url.clone();
     let env = lifecycle_env(state, caller);
     let joined = env
         .video

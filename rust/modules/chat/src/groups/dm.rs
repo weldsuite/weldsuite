@@ -46,9 +46,22 @@ where
         .route("/{id}/pin", patch(pin).route_layer(update()))
 }
 
-/// The members of a DM with their names (`fullMembers`); `with_reads` adds
-/// role and read cursor.
+/// The members of a DM with their names and account pictures (`fullMembers`);
+/// `with_reads` adds role and read cursor.
 async fn full_members(
+    caller: &Caller,
+    channel_id: &str,
+    with_reads: bool,
+) -> Result<Vec<Value>, sqlx::Error> {
+    let mut members = member_rows(caller, channel_id, with_reads).await?;
+    weldsuite_db::overlay_account_pictures(caller.master(), &mut members, "userId", "picture")
+        .await;
+    Ok(members)
+}
+
+/// [`full_members`] with `picture` still null: avatars are account pictures,
+/// resolved by the caller (one lookup for a whole list).
+async fn member_rows(
     caller: &Caller,
     channel_id: &str,
     with_reads: bool,
@@ -60,7 +73,7 @@ async fn full_members(
                     'lastReadAt', chat_channel_members.last_read_at,
                     'lastReadMessageId', chat_channel_members.last_read_message_id,
                     'name', workspace_members.name, 'email', workspace_members.email,
-                    'picture', workspace_members.picture)
+                    'picture', null)
              from chat_channel_members
              left join workspace_members on chat_channel_members.user_id = workspace_members.user_id
              where chat_channel_members.channel_id = $1",
@@ -72,7 +85,7 @@ async fn full_members(
         sqlx::query_scalar(
             "select jsonb_build_object('userId', chat_channel_members.user_id,
                     'name', workspace_members.name, 'email', workspace_members.email,
-                    'picture', workspace_members.picture)
+                    'picture', null)
              from chat_channel_members
              left join workspace_members on chat_channel_members.user_id = workspace_members.user_id
              where chat_channel_members.channel_id = $1",
@@ -116,10 +129,23 @@ async fn list(caller: Caller) -> Response {
         .bind(&ids)
         .fetch_all(&caller.db)
         .await?;
-        let mut result = Vec::with_capacity(channels.len());
+        let mut rosters = Vec::with_capacity(channels.len());
         for channel in channels.into_iter().map(weldsuite_db::js_row) {
             let id = channel["id"].as_str().unwrap_or_default().to_owned();
-            let members = full_members(&caller, &id, true).await?;
+            let members = member_rows(&caller, &id, true).await?;
+            rosters.push((channel, id, members));
+        }
+        // One account-picture lookup for every DM's members.
+        let pictures = weldsuite_db::AccountPictures::load(
+            caller.master(),
+            rosters.iter().flat_map(|(_, _, members)| {
+                weldsuite_db::account_pictures::user_ids(members, "userId")
+            }),
+        )
+        .await;
+        let mut result = Vec::with_capacity(rosters.len());
+        for (channel, id, mut members) in rosters {
+            pictures.apply_all(members.iter_mut(), "userId", "picture");
             let current = members
                 .iter()
                 .find(|m| m["userId"].as_str() == Some(caller.user_id.as_str()));

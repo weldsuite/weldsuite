@@ -29,6 +29,7 @@ import { schema } from '@weldsuite/worker-kit/db';
 import type { Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { success, error, list, cursorPagination } from '@weldsuite/worker-kit/response';
+import { loadAccountPicture } from '@weldsuite/worker-kit/account-pictures';
 import {
   publishChatCallStarted,
   publishChatCallParticipantJoined,
@@ -59,6 +60,28 @@ import { consumePreparedJoin, readPreparedJoin, storePreparedJoin } from '../../
 import { declineRingingCall } from '../../services/chat/decline-call';
 import { cancelRingOnAnswer } from '../../services/chat/call-ring';
 import { listCallHistory } from '../../services/chat/call-history';
+
+/**
+ * The caller as a call shows them: their workspace name and their account
+ * picture (master `users.image_url`, never the workspace member copy).
+ * A one-element array, the shape of the member query it replaced.
+ */
+async function callerIdentity(
+  db: Database,
+  env: Env,
+  userId: string,
+): Promise<[{ name: string | null; picture: string | null }]> {
+  const { workspaceMembers } = schema;
+  const [[row], picture] = await Promise.all([
+    db
+      .select({ name: workspaceMembers.name })
+      .from(workspaceMembers)
+      .where(eq(workspaceMembers.userId, userId))
+      .limit(1),
+    loadAccountPicture(env, userId),
+  ]);
+  return [{ name: row?.name ?? null, picture }];
+}
 
 // ============================================================================
 // Schemas
@@ -562,7 +585,7 @@ app.post('/', requirePermission('channels:create'), zValidator('json', startCall
 
   try {
     const db = c.get('tenantDb');
-    const { chatCalls, chatChannels, chatChannelMembers, chatMessages, workspaceMembers } = schema;
+    const { chatCalls, chatChannels, chatChannelMembers, chatMessages } = schema;
 
     // Verify user is a member of the channel
     const [membership] = await db
@@ -626,11 +649,7 @@ app.post('/', requirePermission('channels:create'), zValidator('json', startCall
     }
 
     // Get initiator info
-    const [author] = await db
-      .select({ name: workspaceMembers.name, picture: workspaceMembers.picture })
-      .from(workspaceMembers)
-      .where(eq(workspaceMembers.userId, userId))
-      .limit(1);
+    const [author] = await callerIdentity(db, c.env, userId);
 
     const callId = generateId('call');
     const now = new Date();
@@ -719,7 +738,7 @@ app.post('/start-and-join', requirePermission('channels:create'), zValidator('js
 
   try {
     const db = c.get('tenantDb');
-    const { chatCalls, chatChannels, chatChannelMembers, workspaceMembers } = schema;
+    const { chatCalls, chatChannels, chatChannelMembers } = schema;
 
     // Run membership check + channel permissions + active call check + user info
     // + the DM's persistent room + the RealtimeKit presets in parallel
@@ -739,11 +758,7 @@ app.post('/start-and-join', requirePermission('channels:create'), zValidator('js
         .from(chatCalls)
         .where(and(eq(chatCalls.channelId, data.channelId), or(eq(chatCalls.status, 'ringing'), eq(chatCalls.status, 'active'))))
         .limit(1),
-      db
-        .select({ name: workspaceMembers.name, picture: workspaceMembers.picture })
-        .from(workspaceMembers)
-        .where(eq(workspaceMembers.userId, userId))
-        .limit(1),
+      callerIdentity(db, c.env, userId),
       // Read for every channel (it is one KV get); only a DM uses it.
       getDmCallRoom(c.env.WORKSPACE_CACHE, orgId, data.channelId),
       presetsReady(c.env),
@@ -832,11 +847,11 @@ app.post('/:callId/prepare', requirePermission('channels:read'), async (c) => {
 
   try {
     const db = c.get('tenantDb');
-    const { chatCalls, workspaceMembers } = schema;
+    const { chatCalls } = schema;
 
     const [callResult, authorResult, prepared] = await Promise.all([
       db.select().from(chatCalls).where(eq(chatCalls.id, callId)).limit(1),
-      db.select({ name: workspaceMembers.name, picture: workspaceMembers.picture }).from(workspaceMembers).where(eq(workspaceMembers.userId, userId)).limit(1),
+      callerIdentity(db, c.env, userId),
       readPreparedJoin(c.env.WORKSPACE_CACHE, callId, userId),
       presetsReady(c.env),
     ]);
@@ -892,13 +907,13 @@ app.post('/:callId/join', requirePermission('channels:read'), async (c) => {
 
   try {
     const db = c.get('tenantDb');
-    const { chatCalls, workspaceMembers } = schema;
+    const { chatCalls } = schema;
 
     // Fetch call + user info + a participant prepared while it rang + the
     // RealtimeKit presets, in parallel
     const [callResult, authorResult, prepared] = await Promise.all([
       db.select().from(chatCalls).where(eq(chatCalls.id, callId)).limit(1),
-      db.select({ name: workspaceMembers.name, picture: workspaceMembers.picture }).from(workspaceMembers).where(eq(workspaceMembers.userId, userId)).limit(1),
+      callerIdentity(db, c.env, userId),
       readPreparedJoin(c.env.WORKSPACE_CACHE, callId, userId),
       presetsReady(c.env),
     ]);
@@ -1270,7 +1285,7 @@ app.get('/history', requirePermission('channels:read'), zValidator('query', call
   const { limit, cursor } = c.req.valid('query');
 
   try {
-    const page = await listCallHistory(c.get('tenantDb'), c.get('userId'), { limit, cursor });
+    const page = await listCallHistory(c.get('tenantDb'), c.env, c.get('userId'), { limit, cursor });
     return list(c, page.items, cursorPagination(page.totalCount, page.hasMore, page.cursor));
   } catch (err) {
     console.error('[Chat:Calls] Failed to list call history:', err);

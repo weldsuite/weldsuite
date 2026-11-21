@@ -159,6 +159,8 @@ pub(crate) struct Caller {
     pub(crate) clerk_org_id: Option<String>,
     files: Option<FileStores>,
     collab: Option<RequestCollab>,
+    /// The master database (account pictures), when the request has one.
+    pub(crate) master: Option<PgPool>,
 }
 
 impl Caller {
@@ -296,6 +298,10 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
                     clerk_org_id: tenant.clerk_org_id.clone(),
                     files: parts.extensions.get::<FileStores>().cloned(),
                     collab: parts.extensions.get::<RequestCollab>().cloned(),
+                    master: parts
+                        .extensions
+                        .get::<weldsuite_db::MasterDb>()
+                        .map(|master| master.0.clone()),
                 })
             } else {
                 tracing::error!("sheets: a route without the session, tenant or permission layer");

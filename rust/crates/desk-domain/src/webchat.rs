@@ -1035,9 +1035,11 @@ pub fn author_from_member(name: Option<&str>, picture: Option<&str>) -> Author {
 }
 
 /// `resolveAuthors(db, userIds)`: the display name and avatar of each
-/// teammate among `user_ids`, by user id.
+/// teammate among `user_ids`, by user id. The avatar is the account picture
+/// (`master`), not the member row's copy.
 pub async fn resolve_authors(
     db: &PgPool,
+    master: Option<&PgPool>,
     user_ids: &[Option<&str>],
 ) -> Result<HashMap<String, Author>, sqlx::Error> {
     let mut ids: Vec<String> = Vec::new();
@@ -1050,17 +1052,16 @@ pub async fn resolve_authors(
     if ids.is_empty() {
         return Ok(authors);
     }
-    let rows: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
-        "select user_id, name, picture from workspace_members where user_id = any($1)",
-    )
-    .bind(&ids)
-    .fetch_all(db)
-    .await?;
-    for (user_id, name, picture) in rows {
-        authors.insert(
-            user_id,
-            author_from_member(name.as_deref(), picture.as_deref()),
-        );
+    let rows: Vec<(String, Option<String>)> =
+        sqlx::query_as("select user_id, name from workspace_members where user_id = any($1)")
+            .bind(&ids)
+            .fetch_all(db)
+            .await?;
+    let pictures =
+        weldsuite_db::AccountPictures::load(master, rows.iter().map(|(user_id, _)| user_id)).await;
+    for (user_id, name) in rows {
+        let author = author_from_member(name.as_deref(), pictures.get(&user_id));
+        authors.insert(user_id, author);
     }
     Ok(authors)
 }

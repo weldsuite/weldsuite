@@ -14,7 +14,7 @@ import {
   calendars,
 } from '@weldsuite/db/schema';
 
-import { getTenantDbBySlug } from '@/lib/db';
+import { getAccountPicture, getTenantDbBySlug } from '@/lib/db';
 import { generateId } from '@/lib/id';
 import {
   sendBookingCancellationEmail,
@@ -252,6 +252,8 @@ export async function createBooking(input: CreateBookingInput): Promise<BookingR
     // A video page without a link of its own meets in WeldMeet: every booking
     // gets its own meeting, created with the event.
     const wantsMeeting = needsWeldMeetMeeting(bookingPage.locationType, bookingPage.locationValue);
+    // Looked up before the transaction: it reads the master DB, not the tenant.
+    const hostPicture = wantsMeeting ? await getAccountPicture(bookingPage.ownerId) : null;
     const eventTitle = `Meeting with ${data.bookerName}`;
 
     // Re-verify the slot under the same rules as the picker *inside* a
@@ -270,6 +272,7 @@ export async function createBooking(input: CreateBookingInput): Promise<BookingR
             title: eventTitle,
             eventId,
             hostUserId: bookingPage.ownerId,
+            hostPicture,
             // The meeting portal resolves the tenant by Clerk organization id.
             workspaceId: tenant.workspace.clerkOrgId ?? tenant.workspace.id,
             portalUrl: process.env.MEETING_PORTAL_URL,

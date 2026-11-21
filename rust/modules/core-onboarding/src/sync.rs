@@ -11,7 +11,7 @@
 //!
 //! | Dirty | Reconcile (webhook it stands for) |
 //! |---|---|
-//! | user | profile → `users` and the member rows' name and picture (`user.created`/`updated`); gone → deactivated, memberships removed (`user.deleted`); and each of the user's memberships, below (an accepted invitation shows up as the user verifying their email) |
+//! | user | profile → `users` and the member rows' name (`user.created`/`updated`); gone → deactivated, memberships removed (`user.deleted`); and each of the user's memberships, below (an accepted invitation shows up as the user verifying their email) |
 //! | organization | name and slug → `workspaces` (`organization.updated`); gone → the workspace is deleted and its database torn down (`organization.deleted`) |
 //! | membership | a member → `user_workspaces` and the tenant member, OWNER kept (`organizationMembership.created`/`updated`); a pending invitee → the PENDING member row (`organizationInvitation.created`); neither → removed (`organizationMembership.deleted`, `organizationInvitation.revoked`) |
 //!
@@ -233,7 +233,11 @@ impl IdentitySync {
                      on conflict (id) do update
                         set email = case when excluded.email <> '' then excluded.email else users.email end,
                             first_name = excluded.first_name, last_name = excluded.last_name,
-                            image_url = excluded.image_url, updated_at = now()",
+                            -- The provider's picture when it has one; a picture
+                            -- uploaded in WeldSuite (`PUT /settings/profile/avatar`)
+                            -- is not on the provider and must not be wiped.
+                            image_url = coalesce(nullif(excluded.image_url, ''), users.image_url),
+                            updated_at = now()",
                 )
                 .bind(user_id)
                 .bind(&email)
@@ -249,8 +253,7 @@ impl IdentitySync {
                     .filter(|part| !part.is_empty())
                     .collect::<Vec<_>>()
                     .join(" ");
-                self.update_member_names(user_id, &full_name, profile.image_url.as_deref())
-                    .await;
+                self.update_member_names(user_id, &full_name).await;
                 match self.identity.user_memberships(user_id, 100).await {
                     Ok(memberships) => Ok(memberships
                         .into_iter()
@@ -267,11 +270,11 @@ impl IdentitySync {
         }
     }
 
-    /// `handleUserUpdated`'s tenant half: only values the provider has
-    /// (early events carry empty names), best effort per workspace.
-    async fn update_member_names(&self, user_id: &str, name: &str, picture: Option<&str>) {
-        let picture = picture.filter(|p| !p.is_empty());
-        if name.is_empty() && picture.is_none() {
+    /// `handleUserUpdated`'s tenant half: the name, only when the provider has
+    /// one (early events carry empty names), best effort per workspace. The
+    /// picture stays on the account (`users.image_url`): members keep no copy.
+    async fn update_member_names(&self, user_id: &str, name: &str) {
+        if name.is_empty() {
             return;
         }
         for (workspace, org) in self.workspaces_of(user_id).await {
@@ -279,14 +282,11 @@ impl IdentitySync {
                 continue;
             };
             let _ = sqlx::query(
-                "update workspace_members
-                    set name = case when $2 <> '' then $2 else name end,
-                        picture = coalesce($3, picture), updated_at = now()
+                "update workspace_members set name = $2, updated_at = now()
                   where user_id = $1 and deleted_at is null",
             )
             .bind(user_id)
             .bind(name)
-            .bind(picture)
             .execute(&tenant)
             .await;
         }
@@ -517,7 +517,6 @@ impl IdentitySync {
             user_id,
             email: &membership.user.identifier,
             name: Some(name).filter(|n| !n.is_empty()),
-            picture: membership.user.image_url.as_deref(),
             role: display_role(&membership.role),
             membership_id: &membership.id,
         };
@@ -639,12 +638,12 @@ fn display_role(role: &str) -> &'static str {
     }
 }
 
-/// What a membership says about its member.
+/// What a membership says about its member. No picture: avatars are the
+/// account's (master `users.image_url`), members keep no copy.
 struct MemberIdentity<'a> {
     user_id: &'a str,
     email: &'a str,
     name: Option<String>,
-    picture: Option<&'a str>,
     role: &'static str,
     membership_id: &'a str,
 }
@@ -683,14 +682,13 @@ async fn sync_tenant_member(
     if let Some(existing) = existing {
         sqlx::query(
             "update workspace_members
-                set email = $2, name = coalesce($3, name), picture = coalesce($4, picture),
-                    role = $5, status = 'ACTIVE', clerk_membership_id = $6, updated_at = now()
+                set email = $2, name = coalesce($3, name),
+                    role = $4, status = 'ACTIVE', clerk_membership_id = $5, updated_at = now()
               where id = $1",
         )
         .bind(&existing.id)
         .bind(identity.email)
         .bind(&identity.name)
-        .bind(identity.picture)
         .bind(preserved_role(&existing, identity.role))
         .bind(identity.membership_id)
         .execute(tenant)
@@ -715,15 +713,14 @@ async fn sync_tenant_member(
     if let Some(pending) = pending {
         sqlx::query(
             "update workspace_members
-                set user_id = $2, name = coalesce($3, name), picture = coalesce($4, picture),
-                    role = $5, status = 'ACTIVE', clerk_membership_id = $6,
+                set user_id = $2, name = coalesce($3, name),
+                    role = $4, status = 'ACTIVE', clerk_membership_id = $5,
                     accepted_at = coalesce(accepted_at, now()), updated_at = now()
               where id = $1",
         )
         .bind(&pending.id)
         .bind(identity.user_id)
         .bind(&identity.name)
-        .bind(identity.picture)
         .bind(preserved_role(&pending, identity.role))
         .bind(identity.membership_id)
         .execute(tenant)
@@ -737,14 +734,13 @@ async fn sync_tenant_member(
     let role = if count == 0 { "OWNER" } else { identity.role };
     sqlx::query(
         "insert into workspace_members
-           (id, user_id, email, name, picture, role, status, clerk_membership_id)
-         values ($1, $2, $3, $4, $5, $6, 'ACTIVE', $7)",
+           (id, user_id, email, name, role, status, clerk_membership_id)
+         values ($1, $2, $3, $4, $5, 'ACTIVE', $6)",
     )
     .bind(weldsuite_kit::generate_id("mbr"))
     .bind(identity.user_id)
     .bind(identity.email)
     .bind(&identity.name)
-    .bind(identity.picture)
     .bind(role)
     .bind(identity.membership_id)
     .execute(tenant)

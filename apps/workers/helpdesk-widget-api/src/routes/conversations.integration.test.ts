@@ -40,6 +40,7 @@ import {
   get,
   getAs,
   json,
+  account,
   member,
   seedWorkspaces,
   startSession,
@@ -238,11 +239,13 @@ beforeAll(async () => {
   const seeded = ['vis_owner', 'vis_writer', 'vis_other', 'vis_sort', 'vis_many', 'vis_attach', 'vis_nobody'];
   await tenantDb.insert(deskVisitors).values(seeded.map((id) => visitorRow(id)));
   for (const id of seeded) tokens[id] = await visitorToken(id);
+  await account(masterDb, 'user_ann', ANN_FACE);
 
   // Ann is the one teammate the team is told through: the others cannot be
   // notified (a viewer, a guest, a member who has not accepted).
   await tenantDb.insert(workspaceMembers).values([
-    member('user_ann', { name: 'Ann Agent', picture: ANN_FACE }),
+    // Her avatar is her account picture; the member row holds a stale copy.
+    member('user_ann', { name: 'Ann Agent', picture: 'https://stale.widget.test/ann.png' }),
     member('user_viewer', { name: 'Vic Viewer', role: 'VIEWER' }),
     member('user_guest', { name: 'Gail Guest', memberType: 'EXTERNAL_GUEST' }),
     member('user_pending', { name: 'Pat Pending', status: 'PENDING' }),

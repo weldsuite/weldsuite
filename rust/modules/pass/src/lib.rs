@@ -355,6 +355,8 @@ pub(crate) struct Caller {
     pub(crate) client: Option<String>,
     env: Option<RequestEnv>,
     http: Option<PassHttp>,
+    /// The master database (account pictures), when the request has one.
+    pub(crate) master: Option<PgPool>,
 }
 
 impl Caller {
@@ -414,6 +416,10 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
                     .map(str::to_owned),
                 env: parts.extensions.get::<RequestEnv>().cloned(),
                 http: parts.extensions.get::<PassHttp>().cloned(),
+                master: parts
+                    .extensions
+                    .get::<weldsuite_db::MasterDb>()
+                    .map(|master| master.0.clone()),
             })
         } else {
             tracing::error!("pass: a route without the session or tenant layer");

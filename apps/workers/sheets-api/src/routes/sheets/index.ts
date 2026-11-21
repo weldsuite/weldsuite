@@ -460,7 +460,7 @@ app.post('/:id/session', requirePermission('sheets:read'), async (c) => {
   const { sheet, role } = found;
 
   const mode = await sessionMode(c, role);
-  const profile = await memberProfile(c.get('tenantDb'), userId);
+  const profile = await memberProfile(c.env, c.get('tenantDb'), userId);
   const color = colorFor(userId);
   const ticket = await roomFor(c, clerkOrgId, sheet).admit({
     ...roomMeta(sheet, clerkOrgId),

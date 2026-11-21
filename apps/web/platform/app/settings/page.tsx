@@ -12,6 +12,7 @@ import {
   type WorkingHours,
 } from '@/hooks/queries/use-settings-queries';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+import { useUser } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n/provider';
 import { toast } from 'sonner';
 import { getBrowserTimezone } from '@/lib/timezones';
@@ -52,6 +53,7 @@ export default function SettingsProfilePage() {
   });
   const [profileChanged, setProfileChanged] = React.useState(false);
   const { getClient } = useAppApiClient();
+  const { user } = useUser();
   const { t } = useI18n();
   const ts = t.settings.profile;
 
@@ -147,6 +149,9 @@ export default function SettingsProfilePage() {
       });
       if (data?.imageUrl) {
         setProfileData(prev => ({ ...prev, avatar: data.imageUrl }));
+        // The upload set the account picture: re-read the signed-in user so the
+        // header avatar shows it too.
+        void user?.reload().catch(() => {});
         toast.success(ts.messages.avatarSuccess);
       } else {
         toast.error(ts.messages.avatarFailed);

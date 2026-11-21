@@ -13,6 +13,7 @@ import { and, desc, eq, ilike, inArray, isNull, notExists, sql, type SQL } from 
 import { atomically } from '@weldsuite/worker-kit/atomically';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { loadAccountPicture, type AccountPictureEnv } from '@weldsuite/worker-kit/account-pictures';
 import * as filesService from '@weldsuite/core-domain/files';
 import { WELDBOARD_MIME_TYPE, type BoardTemplateCategory } from '@weldsuite/app-api-client/schemas/boards';
 import type { DriveFileRef } from '@weldsuite/core-domain/drive-access';
@@ -467,14 +468,24 @@ export async function recordCheckpoint(
   return getLiveBoard(db, boardId);
 }
 
-/** Display name and picture of a workspace member, for the room's peer list. */
-export async function memberProfile(db: Database, userId: string): Promise<{ name: string | null; picture: string | null }> {
-  const [row] = await db
-    .select({ name: schema.workspaceMembers.name, email: schema.workspaceMembers.email, picture: schema.workspaceMembers.picture })
-    .from(schema.workspaceMembers)
-    .where(and(eq(schema.workspaceMembers.userId, userId), isNull(schema.workspaceMembers.deletedAt)))
-    .limit(1);
-  return { name: row?.name || row?.email || null, picture: row?.picture ?? null };
+/**
+ * Display name (from the member row) and picture (from their account) of a
+ * workspace member, for the room's peer list.
+ */
+export async function memberProfile(
+  env: AccountPictureEnv,
+  db: Database,
+  userId: string,
+): Promise<{ name: string | null; picture: string | null }> {
+  const [[row], picture] = await Promise.all([
+    db
+      .select({ name: schema.workspaceMembers.name, email: schema.workspaceMembers.email })
+      .from(schema.workspaceMembers)
+      .where(and(eq(schema.workspaceMembers.userId, userId), isNull(schema.workspaceMembers.deletedAt)))
+      .limit(1),
+    loadAccountPicture(env, userId),
+  ]);
+  return { name: row?.name || row?.email || null, picture };
 }
 
 /** Whether a project exists and is not deleted. */

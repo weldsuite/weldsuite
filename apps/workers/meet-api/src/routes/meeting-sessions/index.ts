@@ -32,6 +32,7 @@ import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { loadAccountPicture } from '@weldsuite/worker-kit/account-pictures';
 import {
   createMeeting as createRtkMeeting,
   addParticipant,
@@ -78,8 +79,9 @@ function stripServerOwned(data: Record<string, unknown>): Record<string, unknown
 // ============================================================================
 
 /**
- * Read a workspace member's display info, preferring KV cache to avoid a
- * tenant-DB roundtrip on every join. 1h TTL, write-through.
+ * Read a workspace member's display info (name from the member row, picture
+ * from their account), preferring KV cache to avoid the database roundtrips on
+ * every join. 1h TTL, write-through.
  */
 async function getMemberDisplayCached(
   c: Context<{ Bindings: Env; Variables: Variables }>,
@@ -97,13 +99,16 @@ async function getMemberDisplayCached(
 
   const db = c.get('tenantDb');
   const { workspaceMembers } = schema;
-  const [author] = await db
-    .select({ name: workspaceMembers.name, picture: workspaceMembers.picture })
-    .from(workspaceMembers)
-    .where(eq(workspaceMembers.userId, userId))
-    .limit(1);
+  const [[author], picture] = await Promise.all([
+    db
+      .select({ name: workspaceMembers.name })
+      .from(workspaceMembers)
+      .where(eq(workspaceMembers.userId, userId))
+      .limit(1),
+    loadAccountPicture(c.env, userId),
+  ]);
 
-  const result = { name: author?.name ?? 'Unknown', picture: author?.picture ?? undefined };
+  const result = { name: author?.name ?? 'Unknown', picture: picture ?? undefined };
   c.executionCtx.waitUntil(
     c.env.WORKSPACE_CACHE?.put(cacheKey, JSON.stringify(result), { expirationTtl: 3600 }) ??
       Promise.resolve(),
@@ -529,15 +534,16 @@ app.post('/:id/join', requirePermission('sessions:read'), async (c) => {
     }
 
     const [author] = await db
-      .select({ name: workspaceMembers.name, picture: workspaceMembers.picture })
+      .select({ name: workspaceMembers.name })
       .from(workspaceMembers)
       .where(eq(workspaceMembers.userId, userId))
       .limit(1);
 
     const userName = author?.name ?? 'Unknown';
 
+    // A member's link carries their account picture.
     const link = await resolveParticipantLink(db, c.env, orgId, { userId, name: userName });
-    const avatar = link.avatarUrl ?? author?.picture ?? undefined;
+    const avatar = link.avatarUrl;
 
     // Authenticated platform joiners are trusted members — they skip the
     // waiting room (the waiting room is enforced only for unauthenticated

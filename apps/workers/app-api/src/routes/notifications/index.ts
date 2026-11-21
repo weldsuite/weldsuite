@@ -16,6 +16,7 @@ import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
+import { accountPicture, loadAccountPictures, type AccountPictures } from '@weldsuite/worker-kit/account-pictures';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.notifications;
@@ -66,18 +67,25 @@ app.get('/', requirePermission('general:read'), async (c) => {
           .map((r) => r.actorId as string),
       ),
     );
-    let actorMap = new Map<string, { name: string | null; picture: string | null }>();
+    // The avatar is the actor's account picture, not their workspace member row.
+    let actorNames = new Map<string, string | null>();
+    let actorPictures: AccountPictures = new Map();
     if (actorIds.length > 0) {
       const m = schema.workspaceMembers;
-      const members = await db
-        .select({ userId: m.userId, name: m.name, picture: m.picture })
-        .from(m)
-        .where(inArray(m.userId, actorIds));
-      actorMap = new Map(members.map((mem) => [mem.userId, { name: mem.name, picture: mem.picture }]));
+      const [members, pictures] = await Promise.all([
+        db.select({ userId: m.userId, name: m.name }).from(m).where(inArray(m.userId, actorIds)),
+        loadAccountPictures(c.env, actorIds),
+      ]);
+      actorNames = new Map(members.map((mem) => [mem.userId, mem.name]));
+      actorPictures = pictures;
     }
     const enriched = data.map((r) => {
-      const actor = r.actorType === 'user' && r.actorId ? actorMap.get(r.actorId) : undefined;
-      return { ...r, actorName: actor?.name ?? null, actorAvatar: actor?.picture ?? null };
+      const actorId = r.actorType === 'user' && r.actorId ? r.actorId : null;
+      return {
+        ...r,
+        actorName: actorId ? actorNames.get(actorId) ?? null : null,
+        actorAvatar: accountPicture(actorPictures, actorId),
+      };
     });
 
     return list(c, enriched, cursorPagination(totalCount, hasMore, nextCursor));

@@ -229,13 +229,13 @@ app.delete(VAULT, requirePermission('passwords:use'), async (c) => {
 
 /** Who a vault can be shared with. Names and emails only. */
 app.get('/teammates', requirePermission('passwords:use'), async (c) => {
-  return success(c, await listTeammates(c.get('tenantDb')));
+  return success(c, await listTeammates(c.env, c.get('tenantDb')));
 });
 
 app.get(`${VAULT}/members`, requirePermission('passwords:use'), async (c) => {
   const { db, vault } = await vaultFor(c);
   if (vault.kind === 'personal') return success(c, []);
-  return success(c, await listVaultMembers(db, vault.id));
+  return success(c, await listVaultMembers(c.env, db, vault.id));
 });
 
 app.post(
@@ -261,7 +261,7 @@ app.post(
       metadata: { role: body.role },
     });
 
-    return success(c, await listVaultMembers(db, vault.id), created ? 201 : 200);
+    return success(c, await listVaultMembers(c.env, db, vault.id), created ? 201 : 200);
   },
 );
 
@@ -284,7 +284,7 @@ app.patch(
       metadata: { from: previous, to: role },
     });
 
-    return success(c, await listVaultMembers(db, vault.id));
+    return success(c, await listVaultMembers(c.env, db, vault.id));
   },
 );
 

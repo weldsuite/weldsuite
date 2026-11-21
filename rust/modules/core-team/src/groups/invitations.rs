@@ -413,9 +413,9 @@ async fn activate_pending_member(
     let stamp = now();
     let updated: Option<String> = sqlx::query_scalar(
         "update workspace_members
-         set user_id = $3, name = coalesce($4, name), picture = coalesce($5, picture),
-             role = $6, status = 'ACTIVE', clerk_membership_id = $7,
-             accepted_at = coalesce(accepted_at, $8::timestamptz), updated_at = $8::timestamptz
+         set user_id = $3, name = coalesce($4, name),
+             role = $5, status = 'ACTIVE', clerk_membership_id = $6,
+             accepted_at = coalesce(accepted_at, $7::timestamptz), updated_at = $7::timestamptz
          where id = $1 and user_id = $2
          returning id",
     )
@@ -423,7 +423,7 @@ async fn activate_pending_member(
     .bind(pending["userId"].as_str())
     .bind(user_id)
     .bind(name)
-    .bind(membership.user.image_url.as_deref())
+    // No picture: avatars are the account's (master `users.image_url`).
     .bind(role)
     .bind(&membership.id)
     .bind(stamp)

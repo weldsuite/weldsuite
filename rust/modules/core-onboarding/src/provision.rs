@@ -378,14 +378,14 @@ async fn insert_initial_member(
         return Ok(false);
     }
     sqlx::query(
-        "insert into workspace_members (id, user_id, email, name, picture, role, status, accepted_at)
-         values ($1, $2, $3, $4, $5, 'OWNER', 'ACTIVE', now())",
+        // No picture: avatars are the account's (master `users.image_url`).
+        "insert into workspace_members (id, user_id, email, name, role, status, accepted_at)
+         values ($1, $2, $3, $4, 'OWNER', 'ACTIVE', now())",
     )
     .bind(weldsuite_kit::generate_id("mbr"))
     .bind(user_id)
     .bind(member.and_then(|m| m.email.as_deref()))
     .bind(member.and_then(|m| m.name.as_deref()))
-    .bind(member.and_then(|m| m.picture.as_deref()))
     .execute(tenant)
     .await?;
     Ok(true)

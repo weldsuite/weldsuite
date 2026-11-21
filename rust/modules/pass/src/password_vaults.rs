@@ -371,16 +371,19 @@ pub(crate) async fn delete_vault(db: &PgPool, vault_id: &str) -> PassResult<()> 
     Ok(())
 }
 
-/// `listTeammates`: active, internal workspace members.
-pub(crate) async fn list_teammates(db: &PgPool) -> PassResult<Vec<Value>> {
-    Ok(sqlx::query_scalar(
+/// `listTeammates`: active, internal workspace members, with their account
+/// pictures (`master`).
+pub(crate) async fn list_teammates(db: &PgPool, master: Option<&PgPool>) -> PassResult<Vec<Value>> {
+    let mut rows: Vec<Value> = sqlx::query_scalar(
         "select jsonb_build_object('userId', w.user_id, 'name', w.name, 'email', w.email, \
-         'picture', w.picture) from workspace_members w \
+         'picture', null) from workspace_members w \
          where w.status = 'ACTIVE' and w.member_type = 'INTERNAL' and w.deleted_at is null \
          order by w.name asc, w.email asc",
     )
     .fetch_all(db)
-    .await?)
+    .await?;
+    weldsuite_db::overlay_account_pictures(master, &mut rows, "userId", "picture").await;
+    Ok(rows)
 }
 
 /// `firstNonTeammate`: the first of `user_ids` a vault cannot be shared
@@ -402,21 +405,28 @@ pub(crate) async fn first_non_teammate(
     Ok(user_ids.iter().find(|id| !found.contains(id)).cloned())
 }
 
-/// `listVaultMembers`: by name, then when they joined.
-pub(crate) async fn list_vault_members(db: &PgPool, vault_id: &str) -> PassResult<Vec<Value>> {
+/// `listVaultMembers`: by name, then when they joined, with their account
+/// pictures (`master`).
+pub(crate) async fn list_vault_members(
+    db: &PgPool,
+    master: Option<&PgPool>,
+    vault_id: &str,
+) -> PassResult<Vec<Value>> {
     let rows: Vec<Value> = sqlx::query_scalar(
         "select jsonb_build_object('userId', m.user_id, 'role', m.role, 'name', w.name, \
-         'email', w.email, 'picture', w.picture, 'addedBy', m.added_by, 'createdAt', m.created_at) \
+         'email', w.email, 'picture', null, 'addedBy', m.added_by, 'createdAt', m.created_at) \
          from weldpass_vault_members m left join workspace_members w on w.user_id = m.user_id \
          where m.vault_id = $1 order by w.name asc, m.created_at asc",
     )
     .bind(vault_id)
     .fetch_all(db)
     .await?;
-    Ok(rows
+    let mut rows: Vec<Value> = rows
         .into_iter()
         .map(|row| dated(row, &["createdAt"]))
-        .collect())
+        .collect();
+    weldsuite_db::overlay_account_pictures(master, &mut rows, "userId", "picture").await;
+    Ok(rows)
 }
 
 /// `addVaultMember`: a teammate of this workspace, or their new role if

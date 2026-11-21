@@ -391,25 +391,32 @@ pub async fn add_everyone_to_space(
 
 // ── Members ────────────────────────────────────────────────────────────────
 
-/// People a teamspace can be shared with (`listTeammates`).
-pub async fn list_teammates(db: &PgPool) -> Result<Vec<Value>, KnowError> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('userId', user_id, 'name', name, 'email', email, 'picture', picture)
+/// People a teamspace can be shared with (`listTeammates`), with their
+/// account pictures (`master`).
+pub async fn list_teammates(db: &PgPool, master: Option<&PgPool>) -> Result<Vec<Value>, KnowError> {
+    let mut rows: Vec<Value> = sqlx::query_scalar(
+        "select jsonb_build_object('userId', user_id, 'name', name, 'email', email, 'picture', null)
          from workspace_members
          where status = 'ACTIVE' and member_type = 'INTERNAL' and deleted_at is null
          order by name asc, email asc",
     )
     .fetch_all(db)
     .await?;
+    weldsuite_db::overlay_account_pictures(master, &mut rows, "userId", "picture").await;
     Ok(rows)
 }
 
-/// A teamspace's active members with their names (`listSpaceMembers`).
-pub async fn list_space_members(db: &PgPool, space_id: &str) -> Result<Vec<Value>, KnowError> {
+/// A teamspace's active members with their names (`listSpaceMembers`) and
+/// account pictures (`master`).
+pub async fn list_space_members(
+    db: &PgPool,
+    master: Option<&PgPool>,
+    space_id: &str,
+) -> Result<Vec<Value>, KnowError> {
     let rows: Vec<Value> = sqlx::query_scalar(
         "select jsonb_build_object(
                   'userId', m.user_id, 'role', m.role, 'name', wm.name, 'email', wm.email,
-                  'picture', wm.picture, 'addedBy', m.added_by, 'createdAt', m.created_at)
+                  'picture', null, 'addedBy', m.added_by, 'createdAt', m.created_at)
          from knowledge_space_members m
          left join workspace_members wm on wm.user_id = m.user_id
          where m.space_id = $1 and m.left_at is null
@@ -418,7 +425,9 @@ pub async fn list_space_members(db: &PgPool, space_id: &str) -> Result<Vec<Value
     .bind(space_id)
     .fetch_all(db)
     .await?;
-    Ok(rows.into_iter().map(js_row).collect())
+    let mut rows: Vec<Value> = rows.into_iter().map(js_row).collect();
+    weldsuite_db::overlay_account_pictures(master, &mut rows, "userId", "picture").await;
+    Ok(rows)
 }
 
 /// Add a teammate (or bring back someone who left), or change their role if

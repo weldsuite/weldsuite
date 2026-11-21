@@ -15,27 +15,43 @@ use weldsuite_kit::validation::js_trim;
 use crate::auth::Widget;
 use crate::{Ctx, WidgetState, office_hours, success};
 
-/// A member's `name` and `picture`.
-type Face = (Option<String>, Option<String>);
+/// A member's user id and `name`.
+type Face = (String, Option<String>);
 
-/// `loadTeam(c)`: up to three active internal teammates with a picture, by
-/// first name. A failure is logged and leaves the team empty.
-async fn team(db: &PgPool) -> Vec<Value> {
+/// Members looked at for the header (`TEAM_CANDIDATES`); the first three with
+/// an account picture are shown.
+const TEAM_CANDIDATES: i64 = 50;
+
+/// `loadTeam(c)`: up to three active internal teammates, oldest first, whose
+/// account has a picture (`master`), by first name. A failure is logged and
+/// leaves the team empty.
+async fn team(db: &PgPool, master: Option<&PgPool>) -> Vec<Value> {
     let rows: Result<Vec<Face>, sqlx::Error> = sqlx::query_as(
-        "select name, picture from workspace_members
-         where picture is not null and upper(status) = 'ACTIVE' and upper(member_type) = 'INTERNAL'
-         limit 3",
+        "select user_id, name from workspace_members
+         where upper(status) = 'ACTIVE' and upper(member_type) = 'INTERNAL'
+           and deleted_at is null
+         order by created_at asc, id asc
+         limit $1",
     )
+    .bind(TEAM_CANDIDATES)
     .fetch_all(db)
     .await;
     match rows {
-        Ok(rows) => rows
-            .into_iter()
-            .map(|(name, picture)| {
-                let author = author_from_member(name.as_deref(), picture.as_deref());
-                json!({ "name": author.name, "avatar": author.avatar })
-            })
-            .collect(),
+        Ok(rows) => {
+            let pictures = weldsuite_db::AccountPictures::load(
+                master,
+                rows.iter().map(|(user_id, _)| user_id),
+            )
+            .await;
+            rows.into_iter()
+                .filter_map(|(user_id, name)| {
+                    let picture = pictures.get(&user_id)?;
+                    let author = author_from_member(name.as_deref(), Some(picture));
+                    Some(json!({ "name": author.name, "avatar": author.avatar }))
+                })
+                .take(3)
+                .collect()
+        }
         Err(error) => {
             tracing::error!(%error, "[widget-api] team lookup failed");
             Vec::new()
@@ -60,7 +76,7 @@ pub(crate) async fn get_config(
 ) -> Response {
     let config = &widget.config;
     let branding = &config["branding"];
-    let team = team(&widget.db).await;
+    let team = team(&widget.db, ctx.master(&state).as_ref()).await;
     let away = config["away_message"]
         .as_str()
         .map(js_trim)

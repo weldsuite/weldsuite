@@ -28,6 +28,7 @@
 import { and, eq, inArray, isNotNull, isNull, ne, or, type SQL } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { accountPicture, loadAccountPictures, type AccountPictureEnv } from '@weldsuite/worker-kit/account-pictures';
 import type { DriveGeneralAccess, DriveShareRole } from '@weldsuite/db/schema';
 
 const { files, folders, driveShares, workspaceMembers } = schema;
@@ -352,6 +353,7 @@ export interface DriveShareEntry {
   createdAt: Date;
   name: string | null;
   email: string | null;
+  /** The person's account picture (master `users.image_url`), not a member-row copy. */
   picture: string | null;
 }
 
@@ -368,11 +370,13 @@ const shareColumns = {
   createdAt: driveShares.createdAt,
   name: workspaceMembers.name,
   email: workspaceMembers.email,
-  picture: workspaceMembers.picture,
 };
 
-/** The people an item is shared with directly, oldest first. */
-export async function listItemShares(db: Database, item: DriveItemRef): Promise<DriveShareEntry[]> {
+/** A share row before its picture is resolved from the account. */
+type ShareRow = Omit<DriveShareEntry, 'picture'>;
+
+/** The people an item is shared with directly, oldest first. Pictures come from describeSharing. */
+export async function listItemShares(db: Database, item: DriveItemRef): Promise<ShareRow[]> {
   return db
     .select(shareColumns)
     .from(driveShares)
@@ -396,8 +400,11 @@ export function ancestorFolderIds(index: DriveAccessIndex, parentId: string | nu
   return ids;
 }
 
-/** The people who reach an item through a share on a folder above it. */
-export async function listInheritedShares(db: Database, folderIds: string[]): Promise<InheritedDriveShare[]> {
+/** The people who reach an item through a share on a folder above it. Pictures come from describeSharing. */
+export async function listInheritedShares(
+  db: Database,
+  folderIds: string[],
+): Promise<Array<Omit<InheritedDriveShare, 'picture'>>> {
   if (folderIds.length === 0) return [];
   const rows = await db
     .select({ ...shareColumns, folderId: driveShares.folderId, folderName: folders.name })
@@ -467,18 +474,23 @@ export interface DriveItemSharing {
   inherited: InheritedDriveShare[];
 }
 
-async function memberPerson(db: Database, userId: string): Promise<DriveSharePerson> {
+async function memberPerson(db: Database, userId: string): Promise<Omit<DriveSharePerson, 'picture'>> {
   const [member] = await db
-    .select({ name: workspaceMembers.name, email: workspaceMembers.email, picture: workspaceMembers.picture })
+    .select({ name: workspaceMembers.name, email: workspaceMembers.email })
     .from(workspaceMembers)
     .where(and(eq(workspaceMembers.userId, userId), isNull(workspaceMembers.deletedAt)))
     .limit(1);
-  return { userId, name: member?.name ?? null, email: member?.email ?? null, picture: member?.picture ?? null };
+  return { userId, name: member?.name ?? null, email: member?.email ?? null };
 }
 
-/** Who an item is open to, for a caller whose role on it is `accessRole`. */
+/**
+ * Who an item is open to, for a caller whose role on it is `accessRole`.
+ * Every person's picture is their account picture, resolved in one batch
+ * (@weldsuite/worker-kit/account-pictures).
+ */
 export async function describeSharing(
   db: Database,
+  env: AccountPictureEnv,
   index: DriveAccessIndex,
   target: DriveSharingTarget,
   accessRole: DriveRole,
@@ -488,13 +500,18 @@ export async function describeSharing(
     listInheritedShares(db, ancestorFolderIds(index, target.parentId)),
     target.ownerId ? memberPerson(db, target.ownerId) : Promise.resolve(null),
   ]);
+  const pictures = await loadAccountPictures(env, [
+    owner?.userId,
+    ...shares.map((share) => share.userId),
+    ...inherited.map((share) => share.userId),
+  ]);
   return {
-    owner,
+    owner: owner ? { ...owner, picture: accountPicture(pictures, owner.userId) } : null,
     generalAccess: target.generalAccess,
     effectiveGeneralAccess: effectiveGeneralAccess(index, target.generalAccess, target.parentId),
     accessRole,
-    shares,
-    inherited,
+    shares: shares.map((share) => ({ ...share, picture: accountPicture(pictures, share.userId) })),
+    inherited: inherited.map((share) => ({ ...share, picture: accountPicture(pictures, share.userId) })),
   };
 }
 

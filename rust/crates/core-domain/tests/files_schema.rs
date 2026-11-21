@@ -176,6 +176,7 @@ async fn files_folders_and_shares_on_the_migrated_schema() {
     .expect("index");
     let sharing = describe_sharing(
         &db,
+        None,
         &index,
         SharingTarget {
             item: DriveItem::Folder(&folder_id),

@@ -239,6 +239,8 @@ pub(crate) struct Caller {
     files: Option<FileStores>,
     /// What the storage routes read from the request (conformance builds).
     pub(crate) storage: storage::Overrides,
+    /// The master database (account pictures), when the request has one.
+    master: Option<PgPool>,
 }
 
 impl Caller {
@@ -274,6 +276,12 @@ impl Caller {
             event = event.with_changes(changes);
         }
         state.events.publish(&self.events, event);
+    }
+
+    /// The master database (account pictures): the request's, when there is
+    /// one (the app's behind `workspace_db`, the test's in conformance).
+    pub(crate) fn master(&self) -> Option<&PgPool> {
+        self.master.as_ref()
     }
 
     /// The request's buckets (conformance mode), else the app's.
@@ -379,6 +387,10 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
                 env: parts.extensions.get::<RequestEnv>().cloned(),
                 files: parts.extensions.get::<FileStores>().cloned(),
                 storage: storage::Overrides::from_parts(parts),
+                master: parts
+                    .extensions
+                    .get::<weldsuite_db::MasterDb>()
+                    .map(|master| master.0.clone()),
             })
         } else {
             tracing::error!("core-files: a route without the session or tenant layer");

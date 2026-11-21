@@ -1,9 +1,18 @@
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
-import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { conformanceMasterDb, createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import type { Database } from '@weldsuite/worker-kit';
 import { docs, files, folders, workspaceMembers } from '@weldsuite/db/schema';
+import { users } from '@weldsuite/db/schema/master';
+
+// A peer's picture is their account picture (master `users`).
+const holder = vi.hoisted(() => ({ master: null as unknown }));
+vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@weldsuite/worker-kit/db')>()),
+  getMasterDb: () => conformanceMasterDb(holder.master),
+}));
+
 import { WELDDOC_MIME_TYPE, type DocSession, type DocSummary } from '@weldsuite/app-api-client/schemas/docs';
 import { DocModel, applyOp } from '@weldsuite/docs-engine';
 import type { Env, Variables } from '../../types';
@@ -19,13 +28,22 @@ const ALL = ['docs:read', 'docs:create', 'docs:update', 'docs:delete'];
 const ALICE = 'user_alice';
 const BOB = 'user_bob';
 
+const ALICE_PICTURE = 'https://img.clerk.test/alice.png';
+
 let db: Database;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- pglite drizzle stands in for neon-http
+let master: any;
 let bucket: FakeBucket;
 let rooms: ReturnType<typeof fakeRoomNamespace>;
 
 function app(options: { userId?: string; keys?: string[] } = {}) {
   return createTestApp<Env, Variables>('/api/docs', docRoutes, {
-    context: { tenantDb: db, permissions: permissions(...(options.keys ?? ALL)), userId: options.userId ?? ALICE },
+    context: {
+      tenantDb: db,
+      masterDb: master,
+      permissions: permissions(...(options.keys ?? ALL)),
+      userId: options.userId ?? ALICE,
+    },
     env: { PRIVATE_STORAGE: bucket.asBinding(), DOC_ROOM: rooms.binding, ...engineBinding },
   });
 }
@@ -46,6 +64,9 @@ const storedKey = (doc: DocSummary) => `workspaces/org_test_default/docs/${doc.i
 
 beforeAll(async () => {
   db = (await createPgliteDb()).db;
+  master = (await createMasterPgliteDb()).db;
+  holder.master = master;
+  await master.insert(users).values({ id: ALICE, email: 'alice@example.com', imageUrl: ALICE_PICTURE }).onConflictDoNothing();
 }, 60_000);
 
 beforeEach(async () => {
@@ -194,8 +215,9 @@ describe('/api/docs', () => {
     expect(file!.deletedAt).not.toBeNull();
   });
 
-  it('opens a session in the document room with the member profile', async () => {
-    await db.insert(workspaceMembers).values({ id: 'wm_alice', userId: ALICE, name: 'Alice Jansen', picture: 'https://img/alice.png' });
+  it('opens a session in the document room with the member name and account picture', async () => {
+    // The member row's picture is a stale copy: the room gets the account picture.
+    await db.insert(workspaceMembers).values({ id: 'wm_alice', userId: ALICE, name: 'Alice Jansen', picture: 'https://stale.test/alice.png' });
     const doc = await create({ name: 'Shared' });
     const res = await app().request(`/api/docs/${doc.id}/session`, { method: 'POST' });
     expect(res.status).toBe(200);
@@ -211,7 +233,7 @@ describe('/api/docs', () => {
           snapshotKey: storedKey(doc),
           userId: ALICE,
           name: 'Alice Jansen',
-          picture: 'https://img/alice.png',
+          picture: ALICE_PICTURE,
           color: session.color,
           canEdit: true,
         }),

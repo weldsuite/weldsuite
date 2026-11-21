@@ -711,7 +711,7 @@ async fn get_access(caller: Caller, Path(id): Path<String>) -> Response {
 
 async fn run_get_access(caller: &Caller, id: &str) -> TeamResult<Response> {
     require_visible(caller, id).await?;
-    let list = le::get_entity_access_list(&caller.db, id)
+    let list = le::get_entity_access_list(&caller.db, caller.request_master(), id)
         .await
         .map_err(|error| failure(&error))?;
     Ok(ok(to_json(&list)))
@@ -741,7 +741,7 @@ async fn run_set_restricted(
         .await
         .map_err(|error| failure(&error))?;
     publish_entity_updated(state, caller, id, false).await?;
-    let list = le::get_entity_access_list(&caller.db, id)
+    let list = le::get_entity_access_list(&caller.db, caller.request_master(), id)
         .await
         .map_err(|error| failure(&error))?;
     Ok(ok(to_json(&list)))
@@ -838,7 +838,7 @@ async fn run_set_member(
         &set.member.id,
         &json!({ "entityId": id, "userId": user_id, "roleId": set.member.role_id }),
     );
-    let list = le::get_entity_access_list(&caller.db, id)
+    let list = le::get_entity_access_list(&caller.db, caller.request_master(), id)
         .await
         .map_err(|error| failure(&error))?;
     // `success(c, undefined)` serializes as `{}`.

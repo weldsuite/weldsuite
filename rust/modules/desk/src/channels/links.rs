@@ -85,7 +85,12 @@ pub(super) async fn publish_changes(ctx: &Ctx, state: &DeskState, changes: &[App
         };
         let key = who.unwrap_or_default().to_owned();
         if !authors.contains_key(&key) {
-            let loaded = inbox::load_author(&caller.db, who).await;
+            let loaded = inbox::load_author(
+                &caller.db,
+                caller.master.as_ref().map(|master| &master.0),
+                who,
+            )
+            .await;
             authors.insert(key.clone(), loaded);
         }
         realtime.extend(inbox::change_messages(

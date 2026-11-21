@@ -405,7 +405,7 @@ app.get('/:id/access', requirePermission('legal_entities:manage'), async (c) => 
   const id = c.req.param('id');
   if (!(await seesEntity(c, id))) return error.notFound(c, 'Legal entity');
   try {
-    return success(c, await getEntityAccessList(c.get('tenantDb'), id));
+    return success(c, await getEntityAccessList(c.get('tenantDb'), c.env, id));
   } catch (err) {
     return failure(c, err);
   }
@@ -417,7 +417,7 @@ app.patch('/:id/access', requirePermission('legal_entities:manage'), zValidator(
   try {
     await setEntityRestricted(c.get('tenantDb'), id, c.req.valid('json').restricted);
     await publishEntityUpdated(c, id);
-    return success(c, await getEntityAccessList(c.get('tenantDb'), id));
+    return success(c, await getEntityAccessList(c.get('tenantDb'), c.env, id));
   } catch (err) {
     return failure(c, err);
   }
@@ -448,7 +448,7 @@ app.put(
         entityId: member.id,
         data: { entityId: id, userId, roleId: member.roleId ?? null },
       });
-      const list = await getEntityAccessList(c.get('tenantDb'), id);
+      const list = await getEntityAccessList(c.get('tenantDb'), c.env, id);
       return success(c, list.members.find((m) => m.userId === userId), created ? 201 : 200);
     } catch (err) {
       return failure(c, err);
