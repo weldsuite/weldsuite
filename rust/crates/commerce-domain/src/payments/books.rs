@@ -13,12 +13,22 @@
 //! `/api/orders/:id/invoice` route runs it again. All of this is idempotent:
 //! an order with an invoice already is not invoiced twice.
 
-use serde_json::Value;
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::{BinOper, Expr, ExprTrait, Func, Query};
+use sea_orm::{
+    ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+    QueryTrait, RuntimeErr,
+};
 use sqlx::PgPool;
+use time::PrimitiveDateTime;
+use weldsuite_db::orm;
 use weldsuite_kit::generate_id;
 use weldsuite_ports::BoxFuture;
+use weldsuite_schema::tenant::{
+    commerce_payments, commerce_refunds, commerce_settings, orders, parties, people,
+};
 
-use super::{cents, text};
+use crate::db;
 use crate::money::{self, Cents};
 
 /// The invoice of an order.
@@ -100,46 +110,61 @@ pub trait Invoicing: Send + Sync {
     ) -> BoxFuture<'a, Result<CreditNoteRef, String>>;
 }
 
+/// A failed statement in words, as the messages kept on the order put it:
+/// sqlx's own text when sqlx ran the statement.
+fn says(error: &DbErr) -> String {
+    match error {
+        DbErr::Conn(RuntimeErr::SqlxError(inner))
+        | DbErr::Exec(RuntimeErr::SqlxError(inner))
+        | DbErr::Query(RuntimeErr::SqlxError(inner)) => inner.to_string(),
+        other => other.to_string(),
+    }
+}
+
 /// The seller's entity (see `vat`).
 ///
 /// # Errors
 /// A failed statement.
-pub async fn seller_entity(db: &PgPool) -> Result<Option<String>, sqlx::Error> {
-    let mut conn = db.acquire().await?;
-    crate::vat::seller_entity_id(&mut conn).await
+pub async fn seller_entity(db: &PgPool) -> Result<Option<String>, DbErr> {
+    let mut conn = db.acquire().await.map_err(db::from_sqlx)?;
+    crate::vat::seller_entity_id(&mut conn)
+        .await
+        .map_err(db::from_sqlx)
 }
 
 /// `commerce_settings.auto_invoice` (on when there is no row).
-async fn auto_invoice(db: &PgPool) -> Result<bool, sqlx::Error> {
-    let on: Option<bool> = sqlx::query_scalar("select auto_invoice from commerce_settings limit 1")
-        .fetch_optional(db)
+async fn auto_invoice(db: &PgPool) -> Result<bool, DbErr> {
+    let on: Option<bool> = commerce_settings::Entity::find()
+        .select_only()
+        .column(commerce_settings::Column::AutoInvoice)
+        .into_tuple()
+        .one(&orm(db))
         .await?;
     Ok(on.unwrap_or(true))
 }
 
 async fn set_error(db: &PgPool, order_id: &str, error: Option<&str>) {
-    let result = match error {
-        Some(error) => {
-            sqlx::query(
-                "update orders set metadata = jsonb_set(coalesce(metadata, '{}'::jsonb), \
-                   '{invoiceError}', to_jsonb($2::text)) where id = $1",
+    let update = orders::Entity::update_many().filter(orders::Column::Id.eq(order_id));
+    let update = match error {
+        Some(error) => update.col_expr(
+            orders::Column::Metadata,
+            Expr::cust_with_values(
+                "jsonb_set(coalesce(\"metadata\", '{}'::jsonb), '{invoiceError}', to_jsonb($1::text))",
+                [error.chars().take(500).collect::<String>()],
+            ),
+        ),
+        // `metadata - 'invoiceError'` where `metadata ? 'invoiceError'`.
+        None => update
+            .col_expr(
+                orders::Column::Metadata,
+                Expr::col(orders::Column::Metadata).sub("invoiceError"),
             )
-            .bind(order_id)
-            .bind(error.chars().take(500).collect::<String>())
-            .execute(db)
-            .await
-        }
-        None => {
-            sqlx::query(
-                "update orders set metadata = metadata - 'invoiceError' \
-                 where id = $1 and metadata ? 'invoiceError'",
-            )
-            .bind(order_id)
-            .execute(db)
-            .await
-        }
+            .filter(
+                Expr::col((orders::Entity, orders::Column::Metadata))
+                    .binary(BinOper::Custom("?"), "invoiceError"),
+            ),
     };
-    if let Err(failure) = result {
+    if let Err(failure) = update.exec(&orm(db)).await {
         tracing::error!(%failure, order_id, "[commerce] could not record the invoicing outcome");
     }
 }
@@ -157,21 +182,31 @@ async fn set_error(db: &PgPool, order_id: &str, error: Option<&str>) {
     reason = "look up, then create, person and party"
 )]
 pub async fn ensure_customer(actor: Actor<'_>, order_id: &str) -> Result<(), String> {
-    let failed = |error: sqlx::Error| format!("The customer could not be prepared: {error}");
-    let mut tx = actor.db.begin().await.map_err(failed)?;
+    let failed = |error: DbErr| format!("The customer could not be prepared: {}", says(&error));
+    let mut tx = actor
+        .db
+        .begin()
+        .await
+        .map_err(|error| failed(db::from_sqlx(error)))?;
     let order: Option<(
         Option<String>,
         Option<String>,
         Option<String>,
         Option<String>,
-    )> = sqlx::query_as(
-        "select counterparty_id, person_id, customer_name, customer_email \
-             from orders where id = $1 and deleted_at is null for update",
-    )
-    .bind(order_id)
-    .fetch_optional(&mut *tx)
-    .await
-    .map_err(failed)?;
+    )> = orders::Entity::find_by_id(order_id)
+        .filter(orders::Column::DeletedAt.is_null())
+        .select_only()
+        .columns([
+            orders::Column::CounterpartyId,
+            orders::Column::PersonId,
+            orders::Column::CustomerName,
+            orders::Column::CustomerEmail,
+        ])
+        .lock_exclusive()
+        .into_tuple()
+        .one(&db::on(&mut tx))
+        .await
+        .map_err(failed)?;
     let Some((counterparty, person, name, email)) = order else {
         return Err("The order was not found".to_owned());
     };
@@ -184,14 +219,19 @@ pub async fn ensure_customer(actor: Actor<'_>, order_id: &str) -> Result<(), Str
             let Some(email) = email.as_deref().filter(|e| !e.trim().is_empty()) else {
                 return Err("The order has no customer to invoice: no email address".to_owned());
             };
-            let found: Option<String> = sqlx::query_scalar(
-                "select id from people where lower(email) = lower($1) and deleted_at is null \
-                 order by created_at asc limit 1",
-            )
-            .bind(email)
-            .fetch_optional(&mut *tx)
-            .await
-            .map_err(failed)?;
+            let found: Option<String> = people::Entity::find()
+                .select_only()
+                .column(people::Column::Id)
+                .filter(
+                    Func::lower(Expr::col((people::Entity, people::Column::Email)))
+                        .eq(Func::lower(Expr::val(email))),
+                )
+                .filter(people::Column::DeletedAt.is_null())
+                .order_by_asc(people::Column::CreatedAt)
+                .into_tuple()
+                .one(&db::on(&mut tx))
+                .await
+                .map_err(failed)?;
             match found {
                 Some(id) => id,
                 None => {
@@ -200,15 +240,17 @@ pub async fn ensure_customer(actor: Actor<'_>, order_id: &str) -> Result<(), Str
                         .as_deref()
                         .filter(|n| !n.trim().is_empty())
                         .unwrap_or(email);
-                    sqlx::query(
-                        "insert into people (id, display_name, full_name, email, in_crm, source, owner_id) \
-                         values ($1, $2, $2, $3, false, 'weldcommerce', $4)",
-                    )
-                    .bind(&id)
-                    .bind(display)
-                    .bind(email)
-                    .bind(actor.user_id)
-                    .execute(&mut *tx)
+                    people::Entity::insert(people::ActiveModel {
+                        id: Set(id.clone()),
+                        display_name: Set(display.to_owned()),
+                        full_name: Set(Some(display.to_owned())),
+                        email: Set(Some(email.to_owned())),
+                        in_crm: Set(false),
+                        source: Set(Some("weldcommerce".to_owned())),
+                        owner_id: Set(Some(actor.user_id.to_owned())),
+                        ..Default::default()
+                    })
+                    .exec_without_returning(&db::on(&mut tx))
                     .await
                     .map_err(failed)?;
                     id
@@ -216,65 +258,103 @@ pub async fn ensure_customer(actor: Actor<'_>, order_id: &str) -> Result<(), Str
             }
         }
     };
-    let party: Option<String> = sqlx::query_scalar(
-        "select id from parties where person_id = $1 and deleted_at is null limit 1",
-    )
-    .bind(&person)
-    .fetch_optional(&mut *tx)
-    .await
-    .map_err(failed)?;
+    let party: Option<String> = parties::Entity::find()
+        .select_only()
+        .column(parties::Column::Id)
+        .filter(parties::Column::PersonId.eq(person.as_str()))
+        .filter(parties::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&db::on(&mut tx))
+        .await
+        .map_err(failed)?;
     let party = match party {
         Some(party) => party,
         None => {
             let id = generate_id("party");
-            sqlx::query(
-                "insert into parties (id, kind, person_id, role, display_name, billing_address, \
-                   archived_at, owner_id) \
-                 select $1, 'person', p.id, 'customer', p.display_name, p.primary_address, \
-                   p.archived_at, $3 from people p where p.id = $2",
-            )
-            .bind(&id)
-            .bind(&person)
-            .bind(actor.user_id)
-            .execute(&mut *tx)
-            .await
-            .map_err(failed)?;
+            // `insert … select` from the person, so the address is copied as
+            // stored (and no person means no party).
+            let person_row = people::Entity::find_by_id(person.as_str())
+                .select_only()
+                .expr(Expr::val(id.as_str()))
+                .expr(Expr::val("person"))
+                .column(people::Column::Id)
+                .expr(Expr::val("customer"))
+                .column(people::Column::DisplayName)
+                .column(people::Column::PrimaryAddress)
+                .column(people::Column::ArchivedAt)
+                .expr(Expr::val(actor.user_id))
+                .into_query();
+            let insert = Query::insert()
+                .into_table(parties::Entity)
+                .columns([
+                    parties::Column::Id,
+                    parties::Column::Kind,
+                    parties::Column::PersonId,
+                    parties::Column::Role,
+                    parties::Column::DisplayName,
+                    parties::Column::BillingAddress,
+                    parties::Column::ArchivedAt,
+                    parties::Column::OwnerId,
+                ])
+                .select_from(person_row)
+                .map_err(|error| failed(DbErr::Custom(error.to_string())))?
+                .to_owned();
+            db::on(&mut tx).execute(&insert).await.map_err(failed)?;
             id
         }
     };
-    sqlx::query(
-        "update orders set person_id = $2, counterparty_id = $3, \
-           updated_at = now() at time zone 'utc' where id = $1",
-    )
-    .bind(order_id)
-    .bind(&person)
-    .bind(&party)
-    .execute(&mut *tx)
-    .await
-    .map_err(failed)?;
-    tx.commit().await.map_err(failed)
+    orders::Entity::update_many()
+        .col_expr(orders::Column::PersonId, Expr::value(person.as_str()))
+        .col_expr(orders::Column::CounterpartyId, Expr::value(party.as_str()))
+        .col_expr(orders::Column::UpdatedAt, Expr::value(db::now()))
+        .filter(orders::Column::Id.eq(order_id))
+        .exec(&db::on(&mut tx))
+        .await
+        .map_err(failed)?;
+    tx.commit()
+        .await
+        .map_err(|error| failed(db::from_sqlx(error)))
+}
+
+/// A `timestamp` as Postgres writes it into JSON: `2026-11-21T10:00:00`,
+/// then the microseconds without trailing zeros (none when zero).
+fn json_time(at: PrimitiveDateTime) -> String {
+    let base = format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}",
+        at.year(),
+        u8::from(at.month()),
+        at.day(),
+        at.hour(),
+        at.minute(),
+        at.second()
+    );
+    let micros = at.microsecond();
+    if micros == 0 {
+        return base;
+    }
+    let fraction = format!("{micros:06}");
+    format!("{base}.{}", fraction.trim_end_matches('0'))
 }
 
 /// What the order's paid payments come to, as the payment to record.
-async fn paid_facts(db: &PgPool, order_id: &str) -> Result<Option<PaymentFacts>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select {} from commerce_payments where order_id = $1 and status = 'paid' \
-         order by paid_at asc, id asc",
-        super::PAYMENT_ROW
-    )))
-    .bind(order_id)
-    .fetch_all(db)
-    .await?;
+async fn paid_facts(db: &PgPool, order_id: &str) -> Result<Option<PaymentFacts>, DbErr> {
+    let rows = commerce_payments::Entity::find()
+        .filter(commerce_payments::Column::OrderId.eq(order_id))
+        .filter(commerce_payments::Column::Status.eq("paid"))
+        .order_by_asc(commerce_payments::Column::PaidAt)
+        .order_by_asc(commerce_payments::Column::Id)
+        .all(&orm(db))
+        .await?;
     let Some(last) = rows.last() else {
         return Ok(None);
     };
-    let amount: Cents = rows.iter().map(|row| cents(row, "amount")).sum();
+    let amount: Cents = rows.iter().map(|row| db::cents(&row.amount)).sum();
     Ok(Some(PaymentFacts {
         amount,
-        currency: text(last, "currency").unwrap_or("EUR").to_owned(),
-        method: text(last, "method").map(str::to_owned),
-        reference: text(last, "providerPaymentId").map(str::to_owned),
-        paid_at: text(last, "paidAt").map(|t| format!("{t}Z")),
+        currency: last.currency.clone(),
+        method: last.method.clone(),
+        reference: last.provider_payment_id.clone(),
+        paid_at: last.paid_at.map(|at| format!("{}Z", json_time(at))),
     }))
 }
 
@@ -296,20 +376,20 @@ pub async fn invoice_order(
         if !force
             && !auto_invoice(actor.db)
                 .await
-                .map_err(|e| format!("settings: {e}"))?
+                .map_err(|e| format!("settings: {}", says(&e)))?
         {
             return Ok(None);
         }
         let entity = seller_entity(actor.db)
             .await
-            .map_err(|e| format!("seller entity: {e}"))?
+            .map_err(|e| format!("seller entity: {}", says(&e)))?
             .ok_or_else(|| "No seller entity is set up in WeldBooks".to_owned())?;
         ensure_customer(actor, order_id).await?;
         let payment = if paid {
             Some(
                 paid_facts(actor.db, order_id)
                     .await
-                    .map_err(|e| format!("payments: {e}"))?
+                    .map_err(|e| format!("payments: {}", says(&e)))?
                     .ok_or_else(|| "The order has no paid payment".to_owned())?,
             )
         } else {
@@ -352,25 +432,21 @@ pub async fn credit_refund(
     refund_id: &str,
     force: bool,
 ) -> Result<Option<CreditNoteRef>, String> {
-    let refund: Option<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select {} from commerce_refunds where id = $1",
-        super::REFUND_ROW
-    )))
-    .bind(refund_id)
-    .fetch_optional(actor.db)
-    .await
-    .map_err(|e| format!("refund: {e}"))?;
+    let refund = commerce_refunds::Entity::find_by_id(refund_id)
+        .one(&orm(actor.db))
+        .await
+        .map_err(|e| format!("refund: {}", says(&e)))?;
     let Some(refund) = refund else {
         return Ok(None);
     };
-    if text(&refund, "status") != Some("refunded") || text(&refund, "creditNoteId").is_some() {
+    if refund.status != "refunded" || refund.credit_note_id.is_some() {
         return Ok(None);
     }
-    let order_id = text(&refund, "orderId").unwrap_or_default().to_owned();
+    let order_id = refund.order_id;
     if !force
         && !auto_invoice(actor.db)
             .await
-            .map_err(|e| format!("settings: {e}"))?
+            .map_err(|e| format!("settings: {}", says(&e)))?
     {
         return Ok(None);
     }
@@ -380,11 +456,8 @@ pub async fn credit_refund(
         .ok_or_else(|| "The order has no invoice".to_owned())?;
     let entity = seller_entity(actor.db)
         .await
-        .map_err(|e| format!("seller entity: {e}"))?
+        .map_err(|e| format!("seller entity: {}", says(&e)))?
         .ok_or_else(|| "No seller entity is set up in WeldBooks".to_owned())?;
-    let currency = text(&refund, "currency").unwrap_or("EUR").to_owned();
-    let reason = text(&refund, "reason").map(str::to_owned);
-    let reference = text(&refund, "providerRefundId").map(str::to_owned);
     let made = books
         .credit_note(&CreditNoteRequest {
             actor,
@@ -392,23 +465,24 @@ pub async fn credit_refund(
             refund_id,
             invoice_id: &invoice.id,
             entity_id: &entity,
-            amount: cents(&refund, "amount"),
-            currency: &currency,
-            reason: reason.as_deref(),
-            reference: reference.as_deref(),
+            amount: db::cents(&refund.amount),
+            currency: &refund.currency,
+            reason: refund.reason.as_deref(),
+            reference: refund.provider_refund_id.as_deref(),
         })
         .await;
     match made {
         Ok(note) => {
-            sqlx::query(
-                "update commerce_refunds set credit_note_id = $2, \
-                   updated_at = now() at time zone 'utc' where id = $1",
-            )
-            .bind(refund_id)
-            .bind(&note.id)
-            .execute(actor.db)
-            .await
-            .map_err(|e| format!("refund: {e}"))?;
+            commerce_refunds::Entity::update_many()
+                .col_expr(
+                    commerce_refunds::Column::CreditNoteId,
+                    Expr::value(note.id.as_str()),
+                )
+                .col_expr(commerce_refunds::Column::UpdatedAt, Expr::value(db::now()))
+                .filter(commerce_refunds::Column::Id.eq(refund_id))
+                .exec(&orm(actor.db))
+                .await
+                .map_err(|e| format!("refund: {}", says(&e)))?;
             set_error(actor.db, &order_id, None).await;
             Ok(Some(note))
         }

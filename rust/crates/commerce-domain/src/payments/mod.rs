@@ -26,10 +26,13 @@ pub mod connection;
 pub mod provider;
 pub mod service;
 
-use serde_json::Value;
+use sea_orm::prelude::BigDecimal;
+use serde_json::{Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_db::{Keyring, PgPool};
 use weldsuite_mollie::connect::ConnectApp;
 use weldsuite_ports::OutboundHttp;
+use weldsuite_schema::tenant::{commerce_payments, commerce_refunds};
 
 use crate::money::Cents;
 
@@ -110,22 +113,77 @@ impl std::fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-/// The columns of a `commerce_payments` row as the API reads them (camelCase;
-/// timestamps as Postgres writes them).
-pub(crate) const PAYMENT_ROW: &str = "jsonb_build_object('id', id, 'orderId', order_id, \
-    'connectionId', connection_id, 'provider', provider, 'providerPaymentId', provider_payment_id, \
-    'status', status, 'amount', amount::text, 'amountRefunded', amount_refunded::text, \
-    'currency', currency, 'method', method, 'checkoutUrl', checkout_url, \
-    'redirectUrl', redirect_url, 'testmode', testmode, 'failureReason', failure_reason, \
-    'createdAt', created_at, 'paidAt', paid_at, 'failedAt', failed_at, \
-    'expiredAt', expired_at, 'canceledAt', canceled_at, 'expiresAt', expires_at)";
+/// `Date#toISOString()` of a UTC `timestamp`, as Drizzle hands it out (and
+/// as `to_char(…, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')` writes it):
+/// `2026-11-21T10:00:00.123Z`, the milliseconds truncated.
+pub(crate) fn iso(at: PrimitiveDateTime) -> String {
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
+        at.year(),
+        u8::from(at.month()),
+        at.day(),
+        at.hour(),
+        at.minute(),
+        at.second(),
+        at.millisecond()
+    )
+}
 
-/// The columns of a `commerce_refunds` row.
-pub(crate) const REFUND_ROW: &str = "jsonb_build_object('id', id, 'orderId', order_id, \
-    'paymentId', payment_id, 'provider', provider, 'providerRefundId', provider_refund_id, \
-    'status', status, 'amount', amount::text, 'currency', currency, 'reason', reason, \
-    'creditNoteId', credit_note_id, 'createdAt', created_at, 'refundedAt', refunded_at, \
-    'failedAt', failed_at)";
+fn iso_or_null(at: Option<PrimitiveDateTime>) -> Value {
+    at.map_or(Value::Null, |at| Value::String(iso(at)))
+}
+
+/// A `numeric(…, 2)` amount as Postgres prints it (`12.50`).
+fn amount_text(amount: &BigDecimal) -> String {
+    amount.with_scale(2).to_plain_string()
+}
+
+/// A `commerce_payments` row as the API reads it: camelCase, money as
+/// two-decimal strings, timestamps as Drizzle's `toISOString()`; not its
+/// provider data, idempotency key or `updatedAt`.
+pub(crate) fn payment_row(row: &commerce_payments::Model) -> Value {
+    json!({
+        "id": row.id,
+        "orderId": row.order_id,
+        "connectionId": row.connection_id,
+        "provider": row.provider,
+        "providerPaymentId": row.provider_payment_id,
+        "status": row.status,
+        "amount": amount_text(&row.amount),
+        "amountRefunded": amount_text(&row.amount_refunded),
+        "currency": row.currency,
+        "method": row.method,
+        "checkoutUrl": row.checkout_url,
+        "redirectUrl": row.redirect_url,
+        "testmode": row.testmode,
+        "failureReason": row.failure_reason,
+        "createdAt": iso(row.created_at),
+        "paidAt": iso_or_null(row.paid_at),
+        "failedAt": iso_or_null(row.failed_at),
+        "expiredAt": iso_or_null(row.expired_at),
+        "canceledAt": iso_or_null(row.canceled_at),
+        "expiresAt": iso_or_null(row.expires_at),
+    })
+}
+
+/// A `commerce_refunds` row as the API reads it (see [`payment_row`]).
+pub(crate) fn refund_row(row: &commerce_refunds::Model) -> Value {
+    json!({
+        "id": row.id,
+        "orderId": row.order_id,
+        "paymentId": row.payment_id,
+        "provider": row.provider,
+        "providerRefundId": row.provider_refund_id,
+        "status": row.status,
+        "amount": amount_text(&row.amount),
+        "currency": row.currency,
+        "reason": row.reason,
+        "creditNoteId": row.credit_note_id,
+        "createdAt": iso(row.created_at),
+        "refundedAt": iso_or_null(row.refunded_at),
+        "failedAt": iso_or_null(row.failed_at),
+    })
+}
 
 /// A text property of a row.
 pub(crate) fn text<'a>(row: &'a Value, key: &str) -> Option<&'a str> {

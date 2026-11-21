@@ -11,33 +11,52 @@
 //! Every function takes the pool and holds a connection for one statement
 //! only: the Mollie calls in between hold none.
 
-use serde_json::Value;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter};
+use serde_json::{Value, json};
 use sqlx::PgPool;
-use weldsuite_db::{decrypt_field, encrypt_field};
+use time::Duration;
+use weldsuite_db::{decrypt_field, encrypt_field, orm};
 use weldsuite_mollie::Mollie;
 use weldsuite_mollie::connect::Tokens;
+use weldsuite_schema::tenant::commerce_payment_connections as connections;
 
 use super::provider::{MollieProvider, ProviderError};
 use super::{Env, Error};
+use crate::db;
+
+/// The live connection of Mollie (at most one).
+async fn live_row(db: &PgPool) -> Result<Option<connections::Model>, DbErr> {
+    connections::Entity::find()
+        .filter(connections::Column::Provider.eq("mollie"))
+        .filter(connections::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await
+}
 
 /// A connection as the API shows it: no credentials.
-pub const PUBLIC_ROW: &str = "jsonb_build_object('id', id, 'provider', provider, \
-    'authMethod', auth_method, 'status', status, 'testmode', testmode, \
-    'profileId', profile_id, 'profileName', profile_name, \
-    'organizationId', organization_id, 'organizationName', organization_name, \
-    'connectedAt', connected_at, 'lastError', last_error)";
+fn public_row(row: &connections::Model) -> Value {
+    json!({
+        "id": row.id,
+        "provider": row.provider,
+        "authMethod": row.auth_method,
+        "status": row.status,
+        "testmode": row.testmode,
+        "profileId": row.profile_id,
+        "profileName": row.profile_name,
+        "organizationId": row.organization_id,
+        "organizationName": row.organization_name,
+        "connectedAt": row.connected_at.map(super::iso),
+        "lastError": row.last_error,
+    })
+}
 
 /// The live connection row of Mollie, without credentials.
 ///
 /// # Errors
 /// A failed statement.
-pub async fn row(db: &PgPool) -> Result<Option<Value>, sqlx::Error> {
-    sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select {PUBLIC_ROW} from commerce_payment_connections \
-         where provider = 'mollie' and deleted_at is null limit 1"
-    )))
-    .fetch_optional(db)
-    .await
+pub async fn row(db: &PgPool) -> Result<Option<Value>, DbErr> {
+    Ok(live_row(db).await?.as_ref().map(public_row))
 }
 
 /// A client on the connection's credentials.
@@ -69,40 +88,20 @@ struct Stored {
     stale: bool,
 }
 
-type StoredRow = (
-    String,
-    String,
-    String,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    bool,
-    Option<String>,
-    bool,
-);
-
-async fn stored(db: &PgPool) -> Result<Option<Stored>, sqlx::Error> {
-    let row: Option<StoredRow> = sqlx::query_as(
-        "select id, auth_method, status, access_token_encrypted, refresh_token_encrypted, \
-           api_key_encrypted, testmode, profile_id, \
-           (token_expires_at is null or token_expires_at < (now() at time zone 'utc') + interval '120 seconds') \
-         from commerce_payment_connections where provider = 'mollie' and deleted_at is null limit 1",
-    )
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(
-        |(id, auth_method, status, access, refresh, api_key, testmode, profile_id, stale)| Stored {
-            id,
-            auth_method,
-            status,
-            access,
-            refresh,
-            api_key,
-            testmode,
-            profile_id,
-            stale,
-        },
-    ))
+async fn stored(db: &PgPool) -> Result<Option<Stored>, DbErr> {
+    // An access token that expires within two minutes is refreshed first.
+    let soon = db::now() + Duration::seconds(120);
+    Ok(live_row(db).await?.map(|row| Stored {
+        stale: row.token_expires_at.is_none_or(|at| at < soon),
+        id: row.id,
+        auth_method: row.auth_method,
+        status: row.status,
+        access: row.access_token_encrypted,
+        refresh: row.refresh_token_encrypted,
+        api_key: row.api_key_encrypted,
+        testmode: row.testmode,
+        profile_id: row.profile_id,
+    }))
 }
 
 fn open(env: &Env<'_>, value: Option<&str>, what: &str) -> Result<String, Error> {
@@ -191,20 +190,35 @@ pub async fn persist_tokens(env: &Env<'_>, id: &str, tokens: &Tokens) -> Result<
         .map(|token| encrypt_field(token, env.keyring))
         .transpose()
         .map_err(|error| Error::Credentials(format!("tokens cannot be encrypted: {error:?}")))?;
-    sqlx::query(
-        "update commerce_payment_connections set access_token_encrypted = $2, \
-           refresh_token_encrypted = coalesce($3, refresh_token_encrypted), \
-           token_expires_at = (now() at time zone 'utc') + make_interval(secs => $4::double precision), \
-           scope = coalesce($5, scope), status = 'connected', last_error = null, \
-           updated_at = (now() at time zone 'utc') where id = $1",
-    )
-    .bind(id)
-    .bind(access)
-    .bind(refresh)
-    .bind(i32::try_from(tokens.expires_in).unwrap_or(3600))
-    .bind(tokens.scope.as_deref())
-    .execute(env.db)
-    .await?;
+    let expires_in = i32::try_from(tokens.expires_in).unwrap_or(3600);
+    let now = db::now();
+    let mut update = connections::Entity::update_many()
+        .col_expr(
+            connections::Column::AccessTokenEncrypted,
+            Expr::value(access),
+        )
+        .col_expr(
+            connections::Column::TokenExpiresAt,
+            Expr::value(now + Duration::seconds(i64::from(expires_in))),
+        )
+        .col_expr(connections::Column::Status, Expr::value("connected"))
+        .col_expr(
+            connections::Column::LastError,
+            Expr::value(Option::<String>::None),
+        )
+        .col_expr(connections::Column::UpdatedAt, Expr::value(now))
+        .filter(connections::Column::Id.eq(id));
+    // A refresh that brings no new refresh token or scope keeps the stored ones.
+    if let Some(refresh) = refresh {
+        update = update.col_expr(
+            connections::Column::RefreshTokenEncrypted,
+            Expr::value(refresh),
+        );
+    }
+    if let Some(scope) = tokens.scope.as_deref() {
+        update = update.col_expr(connections::Column::Scope, Expr::value(scope));
+    }
+    update.exec(&orm(env.db)).await?;
     Ok(())
 }
 
@@ -212,15 +226,17 @@ pub async fn persist_tokens(env: &Env<'_>, id: &str, tokens: &Tokens) -> Result<
 ///
 /// # Errors
 /// A failed statement.
-pub async fn mark_needs_reauth(db: &PgPool, id: &str, why: &str) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update commerce_payment_connections set status = 'needs_reauth', last_error = $2, \
-           updated_at = (now() at time zone 'utc') where id = $1",
-    )
-    .bind(id)
-    .bind(why.chars().take(500).collect::<String>())
-    .execute(db)
-    .await?;
+pub async fn mark_needs_reauth(db: &PgPool, id: &str, why: &str) -> Result<(), DbErr> {
+    connections::Entity::update_many()
+        .col_expr(connections::Column::Status, Expr::value("needs_reauth"))
+        .col_expr(
+            connections::Column::LastError,
+            Expr::value(why.chars().take(500).collect::<String>()),
+        )
+        .col_expr(connections::Column::UpdatedAt, Expr::value(db::now()))
+        .filter(connections::Column::Id.eq(id))
+        .exec(&orm(db))
+        .await?;
     Ok(())
 }
 
