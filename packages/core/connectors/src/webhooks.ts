@@ -40,31 +40,103 @@ export const SHOPIFY_WEBHOOK_TOPICS: ConnectorWebhookTopic[] = [
   { provider: 'shopify', topic: 'customers/delete', settingKey: 'customers', kind: 'delete' },
 ];
 
+/** The sync a payment event is registered under, per setting key that wants it. */
+const MONEYBIRD_PAYMENT_SYNC = {
+  invoices: 'moneybird-sales-invoices',
+  bills: 'moneybird-purchase-invoices',
+  bankTransactions: 'moneybird-financial-mutations',
+} as const;
+
+/** Moneybird events whose entity is not the record to import (see `MONEYBIRD_WEBHOOK_TOPICS`). */
+export function isRoutedMoneybirdTopic(topic: string): boolean {
+  return topic.startsWith('document_') || topic.startsWith('payment_') || topic.startsWith('financial_statement_');
+}
+
+function moneybirdTopics(
+  settingKey: ConnectorSyncSettingKey,
+  syncName: string,
+  topics: Array<[topic: string, kind: ConnectorWebhookKind]>,
+): ConnectorWebhookTopic[] {
+  return topics.map(([topic, kind]) => ({ provider: 'moneybird', topic, settingKey, kind, syncName }));
+}
+
+/**
+ * Moneybird's own event names (developer.moneybird.com/webhooks/events).
+ * Purchase invoices and receipts are `document_*` events, a bank line only
+ * comes with its `financial_statement_*`, and payments are `payment_*` for
+ * any kind of invoice: those three are routed by `moneybird-webhooks.ts`
+ * (connect-domain), which reads the actual document, invoice or statement
+ * lines; the `syncName` here only places them for registering.
+ */
 export const MONEYBIRD_WEBHOOK_TOPICS: ConnectorWebhookTopic[] = [
-  { provider: 'moneybird', topic: 'contact_created', settingKey: 'contacts', kind: 'create', syncName: 'moneybird-contacts' },
-  { provider: 'moneybird', topic: 'contact_updated', settingKey: 'contacts', kind: 'update', syncName: 'moneybird-contacts' },
-  { provider: 'moneybird', topic: 'contact_destroyed', settingKey: 'contacts', kind: 'delete', syncName: 'moneybird-contacts' },
-  { provider: 'moneybird', topic: 'sales_invoice_created', settingKey: 'invoices', kind: 'create', syncName: 'moneybird-sales-invoices' },
-  { provider: 'moneybird', topic: 'sales_invoice_updated', settingKey: 'invoices', kind: 'update', syncName: 'moneybird-sales-invoices' },
-  { provider: 'moneybird', topic: 'sales_invoice_destroyed', settingKey: 'invoices', kind: 'delete', syncName: 'moneybird-sales-invoices' },
-  { provider: 'moneybird', topic: 'sales_invoice_state_changed_to_open', settingKey: 'invoices', kind: 'update', syncName: 'moneybird-sales-invoices' },
-  { provider: 'moneybird', topic: 'sales_invoice_state_changed_to_late', settingKey: 'invoices', kind: 'update', syncName: 'moneybird-sales-invoices' },
-  { provider: 'moneybird', topic: 'sales_invoice_state_changed_to_paid', settingKey: 'invoices', kind: 'update', syncName: 'moneybird-sales-invoices' },
-  { provider: 'moneybird', topic: 'sales_invoice_state_changed_to_uncollectible', settingKey: 'invoices', kind: 'update', syncName: 'moneybird-sales-invoices' },
-  { provider: 'moneybird', topic: 'product_created', settingKey: 'products', kind: 'create', syncName: 'moneybird-products' },
-  { provider: 'moneybird', topic: 'product_updated', settingKey: 'products', kind: 'update', syncName: 'moneybird-products' },
-  { provider: 'moneybird', topic: 'product_destroyed', settingKey: 'products', kind: 'delete', syncName: 'moneybird-products' },
-  { provider: 'moneybird', topic: 'purchase_invoice_created', settingKey: 'bills', kind: 'create', syncName: 'moneybird-purchase-invoices' },
-  { provider: 'moneybird', topic: 'purchase_invoice_updated', settingKey: 'bills', kind: 'update', syncName: 'moneybird-purchase-invoices' },
-  { provider: 'moneybird', topic: 'purchase_invoice_destroyed', settingKey: 'bills', kind: 'delete', syncName: 'moneybird-purchase-invoices' },
-  { provider: 'moneybird', topic: 'receipt_created', settingKey: 'bills', kind: 'create', syncName: 'moneybird-receipts' },
-  { provider: 'moneybird', topic: 'receipt_updated', settingKey: 'bills', kind: 'update', syncName: 'moneybird-receipts' },
-  { provider: 'moneybird', topic: 'receipt_destroyed', settingKey: 'bills', kind: 'delete', syncName: 'moneybird-receipts' },
-  { provider: 'moneybird', topic: 'financial_account_created', settingKey: 'bankAccounts', kind: 'create', syncName: 'moneybird-financial-accounts' },
-  { provider: 'moneybird', topic: 'financial_account_renamed', settingKey: 'bankAccounts', kind: 'update', syncName: 'moneybird-financial-accounts' },
-  { provider: 'moneybird', topic: 'financial_account_activated', settingKey: 'bankAccounts', kind: 'update', syncName: 'moneybird-financial-accounts' },
-  { provider: 'moneybird', topic: 'financial_account_deactivated', settingKey: 'bankAccounts', kind: 'update', syncName: 'moneybird-financial-accounts' },
-  { provider: 'moneybird', topic: 'financial_account_destroyed', settingKey: 'bankAccounts', kind: 'delete', syncName: 'moneybird-financial-accounts' },
+  ...moneybirdTopics('contacts', 'moneybird-contacts', [
+    ['contact_created', 'create'],
+    ['contact_created_from_checkout_order', 'create'],
+    ['contact_changed', 'update'],
+    ['contact_activated', 'update'],
+    ['contact_archived', 'update'],
+    ['contact_merged', 'update'],
+    ['contact_tax_number_validated', 'update'],
+    ['contact_destroyed', 'delete'],
+  ]),
+  ...moneybirdTopics('invoices', 'moneybird-sales-invoices', [
+    ['sales_invoice_created', 'create'],
+    ['sales_invoice_created_based_on_estimate', 'create'],
+    ['sales_invoice_created_based_on_recurring', 'create'],
+    ['sales_invoice_created_based_on_subscription', 'create'],
+    ['sales_invoice_created_from_checkout_order', 'create'],
+    ['sales_invoice_created_from_payment_request', 'create'],
+    ['sales_invoice_created_from_original', 'create'],
+    ['sales_invoice_updated', 'update'],
+    ['sales_invoice_merged', 'update'],
+    ['sales_invoice_marked_as_uncollectible', 'update'],
+    ['sales_invoice_revert_uncollectible', 'update'],
+    ['sales_invoice_state_changed_to_draft', 'update'],
+    ['sales_invoice_state_changed_to_scheduled', 'update'],
+    ['sales_invoice_state_changed_to_open', 'update'],
+    ['sales_invoice_state_changed_to_pending_payment', 'update'],
+    ['sales_invoice_state_changed_to_reminded', 'update'],
+    ['sales_invoice_state_changed_to_late', 'update'],
+    ['sales_invoice_state_changed_to_paid', 'update'],
+    ['sales_invoice_state_changed_to_uncollectible', 'update'],
+    ['sales_invoice_destroyed', 'delete'],
+  ]),
+  ...moneybirdTopics('products', 'moneybird-products', [
+    ['product_created', 'create'],
+    ['product_updated', 'update'],
+    ['product_activated', 'update'],
+    ['product_deactivated', 'update'],
+    ['product_destroyed', 'delete'],
+  ]),
+  ...moneybirdTopics('bills', 'moneybird-purchase-invoices', [
+    ['document_saved', 'create'],
+    ['document_saved_from_email', 'create'],
+    ['document_saved_from_si', 'create'],
+    ['document_created_from_original', 'create'],
+    ['document_recurred', 'create'],
+    ['document_updated', 'update'],
+    ['document_destroyed', 'delete'],
+  ]),
+  ...moneybirdTopics('bankAccounts', 'moneybird-financial-accounts', [
+    ['financial_account_created', 'create'],
+    ['financial_account_renamed', 'update'],
+    ['financial_account_activated', 'update'],
+    ['financial_account_deactivated', 'update'],
+    ['financial_account_destroyed', 'delete'],
+  ]),
+  ...moneybirdTopics('bankTransactions', 'moneybird-financial-mutations', [
+    ['financial_statement_created', 'create'],
+    ['financial_statement_updated', 'update'],
+    ['financial_statement_destroyed', 'delete'],
+  ]),
+  // A payment changes what is paid on a sales invoice or a document, and links a bank line.
+  ...(['invoices', 'bills', 'bankTransactions'] as const).flatMap((settingKey) =>
+    moneybirdTopics(settingKey, MONEYBIRD_PAYMENT_SYNC[settingKey], [
+      ['payment_registered', 'update'],
+      ['payment_destroyed', 'update'],
+      ['payment_linked_to_financial_mutation', 'update'],
+    ]),
+  ),
 ];
 
 export const PICQER_WEBHOOK_TOPICS: ConnectorWebhookTopic[] = [
@@ -155,9 +227,10 @@ const MONEYBIRD_TOPIC_PREFIXES: ReadonlyArray<{
   { prefix: 'contact_', settingKey: 'contacts', syncName: 'moneybird-contacts' },
   { prefix: 'sales_invoice_', settingKey: 'invoices', syncName: 'moneybird-sales-invoices' },
   { prefix: 'product_', settingKey: 'products', syncName: 'moneybird-products' },
-  { prefix: 'purchase_invoice_', settingKey: 'bills', syncName: 'moneybird-purchase-invoices' },
-  { prefix: 'receipt_', settingKey: 'bills', syncName: 'moneybird-receipts' },
+  { prefix: 'document_', settingKey: 'bills', syncName: 'moneybird-purchase-invoices' },
   { prefix: 'financial_account_', settingKey: 'bankAccounts', syncName: 'moneybird-financial-accounts' },
+  { prefix: 'financial_statement_', settingKey: 'bankTransactions', syncName: 'moneybird-financial-mutations' },
+  { prefix: 'payment_', settingKey: 'invoices', syncName: 'moneybird-sales-invoices' },
 ];
 
 export function matchWebhookTopic(provider: string, topic: string): ConnectorWebhookTopic | undefined {

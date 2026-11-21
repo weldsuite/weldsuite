@@ -90,7 +90,7 @@ describe('MoneybirdClient', () => {
       secret: 'unused',
       topics: [
         { provider: 'moneybird', topic: 'contact_created', settingKey: 'contacts', kind: 'create' },
-        { provider: 'moneybird', topic: 'contact_updated', settingKey: 'contacts', kind: 'update' },
+        { provider: 'moneybird', topic: 'contact_changed', settingKey: 'contacts', kind: 'update' },
       ],
     });
     expect(created).toHaveLength(1);

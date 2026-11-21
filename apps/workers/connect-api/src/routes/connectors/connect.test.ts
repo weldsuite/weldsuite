@@ -13,7 +13,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
-import { hmacSha256Base64, signWooCommerceAuthUserId } from '@weldsuite/connectors';
+import { hmacSha256Base64, hmacSha256Hex, signWooCommerceAuthUserId } from '@weldsuite/connectors';
 import { conformanceTenantDb, createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { createMemoryKv } from '@weldsuite/worker-kit/testing/d1';
@@ -40,6 +40,54 @@ const json = (body: unknown, status = 200, headers: Record<string, string> = {})
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...headers } });
 
 let hookSeq = 0;
+/** The events of the last Moneybird webhook registered. */
+let moneybirdWebhookEvents: string[] = [];
+
+const HOOK_SALES_INVOICE = {
+  id: 'si_hook',
+  invoice_id: '2026-H01',
+  contact_id: 'c_hook',
+  state: 'open',
+  invoice_date: '2026-04-01',
+  due_date: '2026-04-15',
+  currency: 'EUR',
+  prices_are_incl_tax: false,
+  total_price_excl_tax: '100.0',
+  total_price_incl_tax: '121.0',
+  total_paid: '50.0',
+  total_unpaid: '71.0',
+  details: [{ description: 'Support', amount: '1', price: '100.0', tax_rate_id: 'tr_21', total_price_excl_tax_with_discount: '100.0' }],
+  tax_totals: [{ tax_rate_id: 'tr_21', taxable_amount: '100.0', tax_amount: '21.0' }],
+  attachments: [],
+  updated_at: '2026-04-03T10:00:00.000Z',
+};
+
+const HOOK_RECEIPT = {
+  id: 'doc_r1',
+  reference: 'R-77',
+  contact_id: 'c_hook',
+  state: 'open',
+  date: '2026-04-02',
+  currency: 'EUR',
+  total_price_excl_tax: '10.0',
+  total_price_incl_tax: '12.1',
+  details: [{ description: 'Parking', amount: '1', price: '10.0' }],
+  payments: [],
+  attachments: [],
+  updated_at: '2026-04-02T10:00:00.000Z',
+};
+
+/** The administration webhooks are delivered for (`ccn_hookmb0000001`). */
+function hookedMoneybird(path: string, method: string, body: string | null): Response {
+  if (path === 'sales_invoices/si_hook' && method === 'GET') return json(HOOK_SALES_INVOICE);
+  if (path === 'documents/receipts/doc_r1' && method === 'GET') return json(HOOK_RECEIPT);
+  if (path === 'financial_mutations/synchronization' && method === 'POST') {
+    const { ids } = JSON.parse(body ?? '{}') as { ids?: string[] };
+    const known = [{ id: 'fm_1', financial_account_id: 'fa_hook', amount: '50.0', date: '2026-04-03', message: 'Payment 2026-H01', contra_account_name: 'Hook BV', state: 'processed', updated_at: '2026-04-03T10:00:00.000Z' }];
+    return json(known.filter((m) => ids?.includes(m.id)));
+  }
+  return json({ error: 'record not found' }, 404);
+}
 
 function provider(url: URL, method: string, token: string | null, body: string | null): Response {
   const host = url.hostname;
@@ -92,7 +140,11 @@ function provider(url: URL, method: string, token: string | null, body: string |
       if (token === 'Bearer mb-at-one') return json([{ id: 111, name: 'Solo BV', language: 'nl', currency: 'EUR' }]);
       return json([{ id: 211, name: 'Alpha BV' }, { id: '212', name: 'Beta BV', currency: 'EUR' }]);
     }
-    if (path.endsWith('/webhooks.json') && method === 'POST') return json({ id: 'mbwh_1', url: 'https://hooks.example/x', secret: 'mb-webhook-secret', enabled_events: ['contact_created'] });
+    if (path.startsWith('/api/v2/311/')) return hookedMoneybird(path.replace('/api/v2/311/', '').replace(/\.json$/, ''), method, body);
+    if (path.endsWith('/webhooks.json') && method === 'POST') {
+      moneybirdWebhookEvents = (JSON.parse(body ?? '{}') as { enabled_events?: string[] }).enabled_events ?? [];
+      return json({ id: 'mbwh_1', url: 'https://hooks.example/x', secret: 'mb-webhook-secret', enabled_events: ['contact_created'] });
+    }
     if (path.endsWith('/financial_mutations/synchronization.json')) return json([]);
     return json([]);
   }
@@ -143,6 +195,7 @@ beforeAll(async () => {
     { id: 'ccn_patchst000001', provider: 'stripe', displayName: 'Stripe (Oauth Co)', status: 'active', credentials: { stripeUserId: 'acct_oauth' }, externalAccountId: 'acct_oauth', createdAt: at, updatedAt: at },
     { id: 'ccn_patchsk000001', provider: 'stripe', displayName: 'Stripe (Key Co)', status: 'active', credentials: { apiKey: 'rk_live_old' }, externalAccountId: 'acct_key_old', webhookRegistrations: [{ id: 'we_9', topic: 'invoice.paid', deliveryUrl: 'https://hooks.example/y' }], createdAt: at, updatedAt: at },
     { id: 'ccn_hookwoo000001', provider: 'woocommerce', displayName: 'Hooked shop', status: 'active', credentials: { storeUrl: 'https://good-shop.example/hooked', consumerKey: 'ck_h', consumerSecret: 'cs_h' }, externalAccountId: 'https://good-shop.example/hooked', webhookSecret: 'hook-secret', enabledSyncs: ['products', 'orders'], createdAt: at, updatedAt: at },
+    { id: 'ccn_hookmb0000001', provider: 'moneybird', displayName: 'Hooked books', status: 'active', credentials: { accessToken: 'mb-at-hook', administrationId: '311', entityId: 'ent_books0000001' }, externalAccountId: '311', webhookSecret: 'mb-hook-secret', enabledSyncs: ['contacts', 'invoices', 'bills', 'bankTransactions'], createdAt: at, updatedAt: at },
   ] as (typeof schema.connectorConnections.$inferInsert)[]);
   await kv.put('stripeacct:acct_oauth', JSON.stringify([{ workspaceId: 'ws_test_default', connectionId: 'ccn_patchst000001' }]));
 }, 60_000);
@@ -280,6 +333,17 @@ describe('POST /authorize and the OAuth callback', () => {
     const stored = await row(result.connection.id as string);
     expect(stored.credentials).toEqual({ accessToken: 'mb-at-one', refreshToken: 'mb-rt-one', administrationId: '111', entityId: 'ent_books0000001' });
     expect(stored.webhookSecret).toBe('mb-webhook-secret');
+    // Moneybird's own event names for contacts.
+    expect(moneybirdWebhookEvents).toEqual([
+      'contact_created',
+      'contact_created_from_checkout_order',
+      'contact_changed',
+      'contact_activated',
+      'contact_archived',
+      'contact_merged',
+      'contact_tax_number_validated',
+      'contact_destroyed',
+    ]);
     // A state is used once.
     const again = await app()('/api/connectors/oauth/callback', post({ provider: 'moneybird', code: 'one-admin', state: url.searchParams.get('state') }));
     expect(again.status).toBe(400);
@@ -441,5 +505,95 @@ describe('POST /api/integrations/connections/:id/connector-event', () => {
     const broken = await deliver('{not json', { 'X-WC-Webhook-Topic': 'product.updated', 'X-WC-Webhook-Signature': await hmacSha256Base64('hook-secret', '{not json') });
     expect(broken.status).toBe(400);
     expect((await internalApp()('/api/integrations/connections/ccn_missing000001/connector-event', { method: 'POST', headers: { 'X-Internal-Secret': SECRET, 'X-Workspace-Id': 'org_test_default' }, body })).status).toBe(404);
+  });
+});
+
+describe('POST /api/integrations/connections/:id/connector-event · Moneybird', () => {
+  const deliver = async (action: string, extra: Record<string, unknown>) => {
+    const body = JSON.stringify({ administration_id: '311', webhook_id: 'mbwh_hook', action, ...extra });
+    const t = Math.floor(Date.now() / 1000);
+    const signature = `t=${t},v1=${await hmacSha256Hex('mb-hook-secret', `${t}.${body}`)}`;
+    const res = await internalApp()('/api/integrations/connections/ccn_hookmb0000001/connector-event', {
+      method: 'POST',
+      headers: { 'X-Internal-Secret': SECRET, 'X-Workspace-Id': 'org_test_default', 'Content-Type': 'application/json', 'Moneybird-Signature': signature },
+      body,
+    });
+    return { status: res.status, body: (await res.json()) as { data: { message: string } } };
+  };
+  const runs = async () =>
+    (await db.select().from(schema.connectorSyncRuns).where(eq(schema.connectorSyncRuns.connectionId, 'ccn_hookmb0000001')))
+      .map((r) => [r.syncName, r.status, r.recordsCreated])
+      .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+
+  it('imports contacts, payments, documents and statement lines from their own events', async () => {
+    // contact_changed: the entity is the contact.
+    const contact = await deliver('contact_changed', {
+      entity_type: 'Contact',
+      entity_id: 'c_hook',
+      entity: { id: 'c_hook', company_name: 'Hook BV', email: 'hook@example.test', updated_at: '2026-04-01T09:00:00.000Z' },
+    });
+    expect(contact).toEqual({ status: 200, body: { data: { message: 'ingested' } } });
+
+    // A payment: the sales invoice it paid and the bank line it was linked to are read back.
+    const payment = await deliver('payment_registered', {
+      entity_type: 'Payment',
+      entity_id: 'pay_1',
+      entity: { id: 'pay_1', invoice_type: 'SalesInvoice', invoice_id: 'si_hook', financial_mutation_id: 'fm_1', price: '50.0' },
+    });
+    expect(payment.body).toEqual({ data: { message: 'ingested' } });
+    const [invoice] = await db.select().from(schema.invoices).where(eq(schema.invoices.invoiceNumber, '2026-H01'));
+    expect(invoice).toMatchObject({ status: 'partial', taxTotal: '21.00', total: '121.00', amountPaid: '50.00', balanceDue: '71.00' });
+    const [paid] = await db.select().from(schema.bankTransactions).where(eq(schema.bankTransactions.externalId, 'fm_1'));
+    expect(paid).toMatchObject({ amount: '50.00', status: 'reconciled', description: 'Payment 2026-H01' });
+
+    // A document the payload doesn't type: read back as a purchase invoice (404), then as a receipt.
+    const saved = await deliver('document_saved', { entity_type: 'Document', entity_id: 'doc_r1', entity: { id: 'doc_r1' } });
+    expect(saved.body).toEqual({ data: { message: 'ingested' } });
+    const [bill] = await db.select().from(schema.bills).where(eq(schema.bills.billNumber, 'R-77'));
+    expect(bill).toMatchObject({ status: 'approved', total: '12.10', taxTotal: '2.10' });
+    const [billMapping] = await db
+      .select()
+      .from(schema.integrationEntityMappings)
+      .where(eq(schema.integrationEntityMappings.internalEntityId, bill!.id));
+    expect(billMapping).toMatchObject({ externalEntityType: 'moneybird_receipt', externalEntityId: 'doc_r1' });
+
+    // A statement: its lines are the bank lines, on the statement's account.
+    const statement = await deliver('financial_statement_created', {
+      entity_type: 'FinancialStatement',
+      entity_id: 'fs_1',
+      entity: {
+        id: 'fs_1',
+        financial_account_id: 'fa_hook',
+        reference: 'Import 4',
+        financial_mutations: [{ id: 'fm_2', amount: '-12.5', date: '2026-04-04', message: 'Bank fee', state: 'unprocessed', updated_at: '2026-04-04T08:00:00.000Z' }],
+      },
+    });
+    expect(statement.body).toEqual({ data: { message: 'ingested' } });
+    const [fee] = await db.select().from(schema.bankTransactions).where(eq(schema.bankTransactions.externalId, 'fm_2'));
+    expect(fee).toMatchObject({ amount: '-12.50', status: 'unreconciled', bankAccountId: paid!.bankAccountId });
+
+    // What WeldBooks sent to Moneybird itself is left alone.
+    const external = await deliver('payment_registered', {
+      entity_type: 'Payment',
+      entity: { id: 'pay_2', invoice_type: 'ExternalSalesInvoice', invoice_id: 'mb_ext_1', financial_mutation_id: 'fm_1' },
+    });
+    expect(external.body).toEqual({ data: { message: 'nothing to import for payment_registered' } });
+
+    // Deleted: removed under the kind WeldBooks has it as.
+    const destroyed = await deliver('document_destroyed', { entity_type: 'Document', entity_id: 'doc_r1', entity: { id: 'doc_r1' } });
+    expect(destroyed.body).toEqual({ data: { message: 'ingested' } });
+    const [gone] = await db.select().from(schema.bills).where(eq(schema.bills.id, bill!.id));
+    expect(gone!.deletedAt).not.toBeNull();
+
+    // One run per sync a delivery fed; the delete ran for both kinds of document.
+    expect(await runs()).toEqual([
+      ['moneybird-contacts', 'success', 1],
+      ['moneybird-financial-mutations', 'success', 1],
+      ['moneybird-financial-mutations', 'success', 1],
+      ['moneybird-purchase-invoices', 'success', 0],
+      ['moneybird-receipts', 'success', 0],
+      ['moneybird-receipts', 'success', 1],
+      ['moneybird-sales-invoices', 'success', 1],
+    ]);
   });
 });
