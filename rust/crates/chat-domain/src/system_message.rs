@@ -40,6 +40,9 @@ pub struct SystemMessageContext<'a> {
     pub author_name: &'a str,
     /// Who caused the post: only the mention notifications name them.
     pub invoker_user_id: &'a str,
+    /// Outbound HTTP for the mention notifications' push (Expo); `None`
+    /// notifies in-app only. Conformance builds pass none.
+    pub push_http: Option<weldsuite_ports::OutboundHttp>,
 }
 
 /// What is posted (`PostSystemChatMessageInput`).
@@ -189,6 +192,7 @@ pub async fn post_system_chat_message(
     // `notifyMentionedUsers`.
     let notifier = weldsuite_notifications::Notifier {
         realtime: ctx.realtime.clone(),
+        http: ctx.push_http.clone(),
         ..weldsuite_notifications::Notifier::default()
     };
     for mentioned in all_mentions.iter().filter(|m| is_notifiable_mention(m)) {

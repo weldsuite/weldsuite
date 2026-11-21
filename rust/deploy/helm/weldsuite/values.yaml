@@ -516,6 +516,17 @@ config:
 #   MOLLIE_API_KEY               Mollie's live_… (or test_…) API key: buying credits
 #                                (config.credits.mollie; optional, unset: no top-up) and
 #                                plan billing (config.billing, required with it)
+#   APNS_KEY_ID / APNS_TEAM_ID / APNS_PRIVATE_KEY  WeldChat's call ring on iPhones: an APNs auth
+#                                key of the Apple team that owns the WeldChat app (its key id, the
+#                                team id and the .p8 PEM), for Apple's VoIP push that makes CallKit
+#                                ring on the lock screen; all three or none (optional; unset: an
+#                                iPhone gets the ordinary "Incoming call" notification, no CallKit
+#                                ring. Android's ring needs none of them)
+#   CALL_RING_SECRET             WeldChat: signs the ring token an incoming-call push carries, with
+#                                which the lock-screen or CallKit Decline ends the ring at
+#                                /public/chat-calls/decline without a session; any random value
+#                                (`openssl rand -hex 32`) (optional; unset: no token is sent and that
+#                                route answers 401, so a Decline needs the app and its session)
 # Or leave existingSecret empty and set `values` to let the chart create the
 # Secret (fine for a test cluster, not for production: the values end up in
 # the Helm release).

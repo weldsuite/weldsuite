@@ -4,7 +4,7 @@
 
 - [x] EAS project id `04074d63-4e69-4cf0-b8a6-f695f7a3dfad`
 - [x] `updates.url` synced to `https://u.expo.dev/04074d63-4e69-4cf0-b8a6-f695f7a3dfad`
-- [x] Production `eas.json` env: `EXPO_PUBLIC_APP_API_URL`, `EXPO_PUBLIC_REALTIME_URL`, Clerk live key
+- [x] Production `eas.json` env: `EXPO_PUBLIC_EU_SERVER_URL=https://app.weldsuite.eu` (2.0: WeldSuite EU and self-hosted only, WeldID sign-in, no Clerk; the server's `/config.json` names the API, realtime and video hosts)
 - [x] Android notification channels `chat` + `incoming_call` (client + orchestrator)
 - [x] `expo-notifications` plugin
 - [x] iOS `UIBackgroundModes`: `remote-notification`, `audio`

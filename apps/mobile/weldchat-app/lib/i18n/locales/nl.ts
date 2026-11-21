@@ -20,6 +20,13 @@ export const nl: Translations = {
     subtitle: 'Teamcommunicatie voor je werkruimte',
   },
 
+  noWorkspace: {
+    title: 'Geen werkruimte gevonden',
+    description: 'Je hebt een WeldSuite-werkruimte nodig om WeldChat te gebruiken. Maak er een aan op het web om te beginnen.',
+    create: 'Werkruimte aanmaken',
+    otherAccount: 'Inloggen met een ander account',
+  },
+
   tabs: {
     home: 'Home',
     directMessages: 'Directe berichten',

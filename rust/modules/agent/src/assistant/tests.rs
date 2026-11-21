@@ -91,6 +91,7 @@ fn app_as(tenant: PgPool, ai: Option<Ai>, permissions: &[&str], user: &str) -> R
         master: None,
         realtime: None,
         sandboxes: None,
+        push_http: None,
     };
     let gate = std::sync::Arc::new(PermissionGate::new(|_| Ok(NoQueries)));
     let resolved = ResolvedPermissions {

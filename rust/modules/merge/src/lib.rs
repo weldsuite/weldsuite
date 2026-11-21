@@ -120,6 +120,10 @@ pub struct MergeState {
     /// Realtime (`env.REALTIME`): the WeldChat posts' broadcasts and unread
     /// pings. None publishes nothing.
     pub realtime: Option<Arc<dyn weldsuite_ports::DynRealtimePublisher>>,
+    /// Outbound HTTP for the push of the WeldChat posts' mention
+    /// notifications (Expo); None notifies in-app only. Conformance builds
+    /// have none.
+    pub push_http: Option<OutboundHttp>,
     /// Customer mail (`SEND_EMAIL`) and the outbound guard's ledgers, for a
     /// release's notes sent by email. A request's `RequestOutbound`
     /// (conformance) wins.

@@ -18,6 +18,14 @@ export const en = {
     subtitle: 'Team communication for your workspace',
   },
 
+  // Signed in, but not a member of any workspace on this server.
+  noWorkspace: {
+    title: 'No workspace found',
+    description: 'You need a WeldSuite workspace to use WeldChat. Create one on the web to get started.',
+    create: 'Create workspace',
+    otherAccount: 'Sign in with a different account',
+  },
+
   // Tab bar titles are also the screen headers, so they must stay in step.
   tabs: {
     home: 'Home',

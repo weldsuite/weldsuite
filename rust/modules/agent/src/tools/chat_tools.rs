@@ -167,7 +167,7 @@ async fn create_group(ctx: &ToolContext, args: &Value) -> Result<Value, ToolErro
         let agent = json!({ "id": ctx.agent_id, "name": own });
         let posted = post_agent_text(
             &ctx.db,
-            ctx.realtime.clone(),
+            &ctx.notifier(),
             &ctx.workspace_id,
             &channel_id,
             &agent,
@@ -191,6 +191,7 @@ async fn create_group(ctx: &ToolContext, args: &Value) -> Result<Value, ToolErro
                     realtime: ctx.realtime.clone(),
                     sandbox: ctx.sandbox,
                     sandboxes: None,
+                    push_http: ctx.push_http.clone(),
                 },
                 org_id: ctx.workspace_id.clone(),
                 invoker_user_id: ctx.actor_user_id.clone(),

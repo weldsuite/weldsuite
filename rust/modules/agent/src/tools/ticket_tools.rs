@@ -16,7 +16,6 @@ use weldsuite_desk_domain::inbox::{
 use weldsuite_desk_domain::list::{ListQuery, list};
 use weldsuite_events::{EntityEvent, EventType};
 use weldsuite_kit::validation::Field;
-use weldsuite_notifications::Notifier;
 use weldsuite_ports::BoxFuture;
 
 use super::{ToolContext, ToolError, ToolSpec};
@@ -167,10 +166,8 @@ async fn tickets_create(ctx: &ToolContext, args: &Value) -> Result<Value, ToolEr
     };
     let (workspace_id, clerk_org_id) = workspace_ids(ctx).await;
     let emitter = AgentEmitter { ctx };
-    let notifier = Notifier {
-        realtime: ctx.realtime.clone(),
-        ..Notifier::default()
-    };
+    // In-app over realtime, push to the team's phones over `push_http`.
+    let notifier = ctx.notifier();
     let deps = InboxDeps {
         db: &ctx.db,
         clerk_org_id: &clerk_org_id,

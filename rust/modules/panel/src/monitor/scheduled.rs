@@ -78,6 +78,9 @@ pub struct ScheduleDeps {
     pub mail: Option<Arc<dyn DynSystemMail>>,
     /// Slack webhooks and the customers' stores: public addresses only.
     pub http: Option<OutboundHttp>,
+    /// The push (Expo) of the mention notifications a WeldChat delivery
+    /// sends; `None` notifies in-app only.
+    pub push_http: Option<OutboundHttp>,
     pub realtime: Option<Arc<dyn DynRealtimePublisher>>,
     /// The query cache (`WORKSPACE_CACHE`).
     pub cache: Option<Arc<dyn DynCache>>,
@@ -289,6 +292,7 @@ async fn run_schedule_item(
             keyring: deps.keyring.clone(),
             mail: deps.mail.clone(),
             http: deps.http.clone(),
+            push_http: deps.push_http.clone(),
             realtime: deps.realtime.clone(),
             events: deps.events.clone(),
             senders,

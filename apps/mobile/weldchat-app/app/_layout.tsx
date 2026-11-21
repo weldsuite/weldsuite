@@ -1,4 +1,5 @@
 import { useOrganizationList } from '@weldsuite/mobile-platform/auth';
+import { platformUrl } from '@weldsuite/mobile-platform/api';
 import { onClearServerData } from '@weldsuite/mobile-platform/runtime';
 import { DefaultTheme, ThemeProvider as NavigationThemeProvider } from 'expo-router/react-navigation';
 import { Observe, ObserveRoot, useObserve } from 'expo-observe';
@@ -26,7 +27,7 @@ import { Button } from '@weldsuite/mobile-ui/components/Button';
 import { EmptyState } from '@weldsuite/mobile-ui/components/EmptyState';
 
 import { BRAND } from '@/lib/brand';
-import { I18nProvider, usePersistedLanguage } from '@/lib/i18n';
+import { I18nProvider, useI18n, usePersistedLanguage } from '@/lib/i18n';
 import { NotificationProvider } from '@/contexts/NotificationContext';
 import { CallProvider } from '@/contexts/CallContext';
 import { IncomingCallModal } from '@/components/call/IncomingCallModal';
@@ -49,6 +50,7 @@ function AuthGuard({ children }: Readonly<{ children: React.ReactNode }>) {
   const router = useRouter();
   const segments = useSegments();
   const { colors } = useTheme();
+  const { t } = useI18n();
   const { setActive, userMemberships, isLoaded: isOrgListLoaded } = useOrganizationList({
     userMemberships: { infinite: true },
   });
@@ -82,7 +84,9 @@ function AuthGuard({ children }: Readonly<{ children: React.ReactNode }>) {
       return;
     }
 
-    // Org list loaded, data is an array, but empty — truly no workspace
+    // Org list loaded, data is an array, but empty — truly no workspace. (On
+    // WeldID the list is read from the server after sign-in; until that read
+    // is back `data` is undefined, never an empty array.)
     if (userMemberships?.data?.length === 0) {
       setOrgReady(true);
     }
@@ -100,7 +104,7 @@ function AuthGuard({ children }: Readonly<{ children: React.ReactNode }>) {
     setAppApiTokenGetter(null);
   }
 
-  // Hide the native splash as soon as Clerk has resolved auth. The AuthGuard
+  // Hide the native splash as soon as the session has resolved auth. The AuthGuard
   // renders its own loading spinner below, so org selection (which can race or
   // fail) must NOT keep the native splash up — otherwise the app appears to
   // "fail to start". A hard timeout is a last-resort safety net.
@@ -146,18 +150,19 @@ function AuthGuard({ children }: Readonly<{ children: React.ReactNode }>) {
     );
   }
 
-  // User signed in but has no organizations
+  // Signed in, but a member of no workspace on this server: create one in the
+  // server's own web app (WeldSuite EU, or the self-hosted install).
   if (user && !organizationId) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background, paddingHorizontal: 32 }}>
         <EmptyState
-          title="No Workspace Found"
-          description="You need a WeldSuite workspace to use WeldChat. Create one on the web to get started."
+          title={t.noWorkspace.title}
+          description={t.noWorkspace.description}
         />
         <View style={{ marginTop: 8, width: '100%', maxWidth: 320, gap: 12 }}>
-          <Button title="Create Workspace" onPress={() => Linking.openURL('https://app.weldsuite.org')} />
+          <Button title={t.noWorkspace.create} onPress={() => void Linking.openURL(platformUrl())} />
           <TouchableOpacity style={{ paddingVertical: 8, alignItems: 'center' }} onPress={() => signOut()}>
-            <Text style={{ color: BRAND, fontSize: 15 }}>Sign in with a different account</Text>
+            <Text style={{ color: BRAND, fontSize: 15 }}>{t.noWorkspace.otherAccount}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -168,15 +173,16 @@ function AuthGuard({ children }: Readonly<{ children: React.ReactNode }>) {
 }
 
 const workspaceApi = {
-  // app-api has no single "current workspace" endpoint; returning a failure
-  // lets WorkspaceProvider fall back to the active Clerk org (the source of
-  // truth for which workspace is current).
+  // The API has no single "current workspace" endpoint; returning a failure
+  // lets WorkspaceProvider fall back to the session's active workspace (the
+  // source of truth for which workspace is current).
   getCurrentWorkspace: () => Promise.resolve({ success: false as const }),
   getUserWorkspaces: async () => {
     try {
       const { data: workspaces } = await appApi.workspaces.list();
       // WorkspaceProvider expects WorkspaceWithMembership[]. WorkspaceSummary.id
-      // is the Clerk org id (what setActive/switchWorkspace expects).
+      // is what setActive/switchWorkspace expects: `workspaces.id` on WeldID
+      // (membership mode), the organization id where the token names one.
       const mapped = (workspaces ?? []).map((w) => ({
         id: w.id,
         clerkOrgId: w.id,
@@ -351,8 +357,9 @@ function RootLayout() {
         <SafeAreaProvider>
           <KeyboardProvider>
             <ErrorBoundary>
-              {/* Which server (WeldSuite cloud, EU, self-hosted) and who signs people
-                  in there: Clerk on cloud, the server's OIDC provider elsewhere. */}
+              {/* Which server (WeldSuite EU or self-hosted; WeldChat has left
+                  WeldSuite cloud) and its sign-in: WeldID on EU, the server's
+                  OIDC provider on a self-hosted install. */}
               <ServerAuthRoot app={APP} build={BUILD} language={language} accentColor={BRAND} onFailed={hideAppSplash}>
                 <AuthenticatedApp />
               </ServerAuthRoot>
