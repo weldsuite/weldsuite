@@ -358,6 +358,13 @@ function systemIcon(lowerText: string): LucideIcon | null {
   return null;
 }
 
+/**
+ * Room above a message, call or pin that starts a group (avatar and name),
+ * so one person's group stands apart from the next; rows inside a group sit
+ * close (`pt-0.5`).
+ */
+const GROUP_START_PADDING = 'pt-3.5';
+
 /** A message's author name. Hovering the avatar underlines it too: both open the same profile. */
 const AUTHOR_NAME_CLASS =
   'h-auto px-0 py-0 font-semibold text-sm hover:underline group-has-[[data-author-avatar]:hover]/message:underline focus:outline-none focus-visible:underline hover:bg-transparent';
@@ -470,7 +477,7 @@ function NoticeRow({
       {...rowProps}
       className={cn(
         'group group/message relative border-l-2 border-l-transparent px-2 pb-0.5 transition-colors hover:bg-muted/50 md:px-4',
-        compact ? 'pt-0.5' : 'pt-2',
+        compact ? 'pt-0.5' : GROUP_START_PADDING,
       )}
     >
       <div className="flex items-start gap-2 md:gap-3">
@@ -806,7 +813,7 @@ export function MessageItem({
         // Rows touch, so their hover areas join up: a message that starts a
         // group carries the space above it, one under it in a group sits close.
         'group group/message relative px-2 md:px-4 pb-0.5 hover:bg-muted/50 transition-colors border-l-2 border-l-transparent',
-        compact ? 'pt-0.5' : 'pt-2',
+        compact ? 'pt-0.5' : GROUP_START_PADDING,
         isMentioned && 'bg-yellow-50/60 dark:bg-yellow-900/10 border-l-yellow-400 dark:border-l-yellow-500',
         message._optimistic && 'opacity-60',
       )}
