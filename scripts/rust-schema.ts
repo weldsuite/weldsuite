@@ -353,10 +353,11 @@ const strList = (items: string[]) => items.map(str).join(', ');
 const some = (value: string) => `Some(${str(value)})`;
 
 /** A snapshot default as `DdlDefault`: SQL text, or a number or boolean literal. */
-function ddlDefault(value: unknown): string {
+function ddlDefault(value: unknown, where: string): string {
   if (typeof value === 'boolean') return `Some(DdlDefault::Bool(${value}))`;
   if (typeof value === 'number') return `Some(DdlDefault::Number(${str(String(value))}))`;
-  return `Some(DdlDefault::Sql(${str(String(value))}))`;
+  if (typeof value === 'string') return `Some(DdlDefault::Sql(${str(value)}))`;
+  throw new Error(`${where}: a default of type ${typeof value} has no DdlDefault yet`);
 }
 
 /**
@@ -366,7 +367,7 @@ function ddlDefault(value: unknown): string {
  */
 function ddlColumn(c: any, column: RustColumn | undefined): string | null {
   const sqlType = column && c.type !== column.renderedSqlType ? some(c.type) : 'None';
-  const fallback = c.default === undefined ? 'None' : ddlDefault(c.default);
+  const fallback = c.default === undefined ? 'None' : ddlDefault(c.default, `column ${c.name}`);
   const generated = c.generated ? some(c.generated.as) : 'None';
   const defaultFn = column?.defaultFn ?? false;
   const onUpdate = column?.onUpdate ?? false;
