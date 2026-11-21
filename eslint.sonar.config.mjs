@@ -187,6 +187,7 @@ export default [
       '**/public/**',
       '**/.tanstack/**',
       'packages/core/db/drizzle/**',
+      'rust/migrations/**',
       'graphify-out/**',
       '**/ios/**',
       '**/android/**',

@@ -8,6 +8,11 @@
 //! result is checked, so a statement bound on the wrong backend shows up as
 //! a wrong answer, not only as an error.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "the benchmark measures hand-written SQL"
+)]
+
 use std::error::Error;
 use std::str::FromStr;
 use std::time::Instant;

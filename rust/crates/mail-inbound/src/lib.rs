@@ -30,6 +30,11 @@
 //! (MAIL-008 is not part of the Kubernetes editions), and the mailbox
 //! Durable Object modes (MAIL-010 keeps the Postgres store).
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
+
 pub mod auto_label;
 pub mod catch_all;
 pub mod consumer;

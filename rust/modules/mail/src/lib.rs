@@ -9,6 +9,10 @@
 //! Mail AI (`/api/mail-ai`, `services/mail/ai.ts`) and the outbound abuse
 //! review ([`review`]) run on `weldsuite-ai` (ADR AI-012).
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
 #![allow(clippy::result_large_err)] // the handlers return the response a check ends with
 
 mod ai;

@@ -32,9 +32,17 @@ section you need rather than all of it.
   AGPL-3.0-only); say why in the PR.
 - Bumping the toolchain is its own PR: `rust-toolchain.toml` and
   `rust-version` in `Cargo.toml` together.
-- Migrations are the same journaled Drizzle SQL the TypeScript runners apply,
-  embedded in the binary. EU production deploys every green `main` build, so
-  keep them additive.
+- **The schema is the entities in `crates/schema`** (ADR DATA-019). A schema
+  change edits them; the migration is generated into `migrations/` with
+  `pnpm db:generate --name <slug>` (`db:generate:master`), and only with a
+  person's approval. Migrations are embedded in the binary. EU production
+  deploys every green `main` build, so keep them additive.
+- **New queries go through the SeaORM entities** (`weldsuite_db::orm`,
+  `OrmConn` inside `atomically_with`; README "Queries"). Raw `sqlx::query*`
+  is a clippy error except in the crates listed in
+  `crates/schema/tests/raw_sql.rs`, which only shrinks: never add a crate or a
+  crate-level `allow`. SQL that stays SQL gets
+  `#[allow(clippy::disallowed_methods, reason = "…")]` on its function.
 
 ## Commands
 

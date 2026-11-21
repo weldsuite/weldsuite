@@ -8,6 +8,11 @@
 //! `WELDSUITE_TEST_TENANT_URL`; skips without them. Each run makes its own
 //! streams and deletes them afterwards.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 

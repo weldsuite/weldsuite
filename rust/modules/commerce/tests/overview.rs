@@ -9,6 +9,11 @@
 //! database is shared: rows are created with fresh ids and nothing is
 //! truncated or assumed empty.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+
 use std::sync::Arc;
 
 use axum::Router;

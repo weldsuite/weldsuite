@@ -7,6 +7,11 @@
 //! are set; otherwise every test returns early. The tests share one tenant
 //! database, so the ones that write its singletons run in one test.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 

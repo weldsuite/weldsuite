@@ -8,6 +8,11 @@
 //! by `scripts/rust-test-db.ts`) and skip without it. Regenerate the
 //! fixtures with `pnpm rust:reach-engine-fixtures`.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+
 use std::collections::HashMap;
 use std::sync::Mutex;
 

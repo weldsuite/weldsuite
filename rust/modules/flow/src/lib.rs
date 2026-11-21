@@ -11,6 +11,11 @@
 //! TypeScript worker's; its tests run against this crate in the `flow`
 //! conformance suites (`rust/conformance/suites.json`).
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
+
 #[macro_use]
 mod rows;
 pub mod github_outbound;

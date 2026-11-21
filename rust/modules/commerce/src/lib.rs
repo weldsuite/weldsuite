@@ -9,6 +9,11 @@
 //! Phase 0 serves the module overview (`/api/commerce/overview`). The
 //! catalogue, orders, storefront and payments follow in later phases.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
+
 mod overview;
 
 use std::sync::Arc;

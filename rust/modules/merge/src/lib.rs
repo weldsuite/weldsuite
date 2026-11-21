@@ -18,6 +18,10 @@
 //! TypeScript worker's; its tests run against this crate in the `merge`
 //! conformance suite (`rust/conformance/suites.json`).
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
 // The services mirror the worker's one for one, so some read long.
 #![allow(clippy::too_many_lines)]
 

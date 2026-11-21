@@ -20,6 +20,11 @@
 //! center's server calls it, over a service binding, and the help center
 //! has no Kubernetes deployment.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
+
 mod attachments;
 mod auth;
 mod config;

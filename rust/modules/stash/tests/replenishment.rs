@@ -14,6 +14,11 @@
 //! run plans (and prunes) every plan, so the database tests take [`ONE`]
 //! and assert only on their own rows.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+
 use std::sync::Arc;
 
 use axum::Router;

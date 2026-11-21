@@ -247,7 +247,7 @@ writeFileSync(path.join(here, '../src/schemas_gen.rs'), schemasOut);
 // Tables
 // ---------------------------------------------------------------------------
 
-const snapshotDir = path.join(repo, 'packages/core/db/drizzle/tenant-migrations/meta');
+const snapshotDir = path.join(repo, 'rust/migrations/tenant/meta');
 const latest = readdirSync(snapshotDir)
   .filter((f) => f.endsWith('_snapshot.json'))
   .sort((a, b) => Number.parseInt(a, 10) - Number.parseInt(b, 10))

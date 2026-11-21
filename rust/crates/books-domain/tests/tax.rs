@@ -7,6 +7,11 @@
 //!
 //! Runs when `WELDSUITE_TEST_TENANT_URL` is set; otherwise it returns early.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "test fixtures are written in SQL"
+)]
+
 use serde_json::json;
 use weldsuite_books_domain::tax::{
     Direction, DocumentTaxItem, SupplyArgs, TaxArgs, TaxError, calculate_document_tax,

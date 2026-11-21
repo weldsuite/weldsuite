@@ -41,7 +41,7 @@ const CORE_WORKERS = [
   'mail-inbound-worker',
   'personal-api',
   'realtime-worker',
-  'workspace-worker',
+  // workspace-worker is left out: it bundles the tenant journal (see `migrations` below).
   'workflow-worker',
   'mcp-server',
   'agent-runtime',
@@ -94,7 +94,16 @@ const START_APPS = [
 ];
 
 /** filters.yml keys passed through as plain "true"/"false" outputs. */
-const FLAGS = ['migrations', 'd1_connector_migrations', 'd1_schedule_migrations', 'hosted_apps'];
+const FLAGS = ['d1_connector_migrations', 'd1_schedule_migrations', 'hosted_apps'];
+
+// Global's Postgres migrations (the deploy-db-migrations action) and
+// workspace-worker, which bundles the tenant journal, are switched off. Since
+// ADR DATA-019's flip the master and tenant migrations live in rust/migrations
+// and are generated from the Rust entities. Global's databases stay at the
+// last Drizzle migration, which suits its frozen workers, and get the rest from
+// `weldsuite migrate` when they move into the EU install (ADR OPS-025). The
+// `migrations` output stays, always "false", for the private deploy workflow
+// that gates on it.
 
 function parseList(name) {
   const raw = process.env[name];
@@ -170,6 +179,7 @@ const startApps = START_APPS.filter((a) => {
 }).map(pick);
 
 const output = {
+  migrations: 'false',
   ...Object.fromEntries(FLAGS.map((f) => [f, String(changed(f))])),
   run_d1_migrations: String(runD1),
   d1_connector: String(d1Connector),

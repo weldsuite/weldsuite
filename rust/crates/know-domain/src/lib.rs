@@ -4,6 +4,11 @@
 //! [`access`] is who may see, read, write and manage which space; a
 //! workspace API key (no user) reaches open teamspaces only.
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "not converted to the ORM yet (ADR DATA-019)"
+)]
+
 pub mod access;
 pub mod pages;
 
