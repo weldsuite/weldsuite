@@ -4,7 +4,8 @@
 //!
 //! The code and session machinery is the portal kit's
 //! (`weldsuite_kit::portal::signin`), the one the project portal runs on:
-//! 5 code requests per address per 15 minutes, 8 attempts per code, codes
+//! 5 code requests per address and 20 per client address (the browser's, or
+//! the shopper's a private key names) per 15 minutes, 8 attempts per code, codes
 //! live 15 minutes, sessions 30 days, hashed in the cache. A code and a
 //! session belong to one channel (the cache scope is `<workspace>:<channel>`,
 //! and the session record names its channel and workspace, both checked on
@@ -32,17 +33,17 @@ use weldsuite_commerce_domain::accounts::{self, Membership, Person, Profile};
 use weldsuite_commerce_domain::money;
 use weldsuite_events::publish_entity_event;
 use weldsuite_kit::portal::rate_limit::{
-    CacheRateLimitCounters, RateLimitCounters, RateLimitOutcome,
+    CacheRateLimitCounters, RateLimitCounters, RateLimitOutcome, consume_rate_limit,
 };
 use weldsuite_kit::portal::signin::{
-    Challenge, Namespace, SessionRecord, SignIn, Verdict, attempts_left, consume_email_request,
-    consume_workspace_request, create_session_prefixed, end_session, normalize_email,
-    read_header_token, read_session, session_expires_at, store_challenge, store_session,
-    verify_code,
+    Challenge, Namespace, REQUEST_WINDOW_SECONDS, SessionRecord, SignIn, Verdict, attempts_left,
+    consume_email_request, consume_workspace_request, create_session_prefixed, end_session,
+    normalize_email, read_header_token, read_session, session_expires_at, store_challenge,
+    store_session, verify_code,
 };
 use weldsuite_kit::portal::tokens::{PortalKv, kv_get_json};
 
-use super::{Principal, body_object, data, fail, internal, validation};
+use super::{Principal, body_object, data, fail, internal, limit, validation};
 use crate::mail;
 
 /// The storefront's cache keys: `shopper:code:…`, `shopper:sess:…`.
@@ -284,6 +285,28 @@ pub(crate) async fn request_code(
         ns: NAMESPACE,
         workspace_id: &scope,
     };
+    // The caller's own budget comes first, so one caller spraying made-up
+    // addresses cannot use up the channel's.
+    let client = limit::sign_in_client(
+        &headers,
+        principal.state.trusted_proxies,
+        principal.key_kind == "publishable",
+    );
+    if let Some(client) = client {
+        let outcome = consume_rate_limit(
+            limiter.as_ref(),
+            &scope,
+            &format!("ip:{client}"),
+            limit::SIGN_IN_CODE_LIMIT,
+            REQUEST_WINDOW_SECONDS,
+        )
+        .await;
+        match outcome {
+            RateLimitOutcome::Allowed => {}
+            RateLimitOutcome::Limited => return limited(),
+            RateLimitOutcome::Unavailable => return unavailable(),
+        }
+    }
     for outcome in [
         consume_email_request(&env, &email).await,
         consume_workspace_request(&env).await,

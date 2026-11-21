@@ -222,6 +222,13 @@ function invoiceVat(flags: Set<string>): 'charged' | 'reverse' | 'outside' {
   return 'charged';
 }
 
+/** The buyer-invitation role a case's flags pick. */
+function buyerRole(f: ReadonlySet<string>): 'admin' | 'approver' | 'buyer' {
+  if (f.has('role_admin')) return 'admin';
+  if (f.has('role_approver')) return 'approver';
+  return 'buyer';
+}
+
 const SPECS: Spec[] = [
   {
     id: 'sign.request',
@@ -536,7 +543,7 @@ const SPECS: Spec[] = [
       shopName: S('shop_name'),
       companyName: S('company_name'),
       inviterName: f.has('inviter') ? S('inviter_name') : null,
-      role: f.has('role_admin') ? 'admin' : f.has('role_approver') ? 'approver' : 'buyer',
+      role: buyerRole(f),
       shopUrl: f.has('url') ? S('shop_url') : null,
     }),
   },

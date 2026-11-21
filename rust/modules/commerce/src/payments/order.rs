@@ -222,14 +222,33 @@ async fn invoice(
 ) -> Response {
     const FAILED: &str = "Failed to create the invoice";
     let result = async {
-        let status: Option<String> = sqlx::query_scalar(
-            "select coalesce(payment_status, 'pending') from orders \
-             where id = $1 and deleted_at is null",
+        let row: Option<(String, String)> = sqlx::query_as(
+            "select coalesce(payment_status, 'pending'), coalesce(approval_status, 'not_required') \
+             from orders where id = $1 and deleted_at is null",
         )
         .bind(&id)
         .fetch_optional(&caller.db)
         .await?;
-        let status = status.ok_or_else(|| Refusal::not_found("Order", &id))?;
+        let (status, approval) = row.ok_or_else(|| Refusal::not_found("Order", &id))?;
+        // An order waiting for approval is held from invoicing (as from
+        // WeldStash); a rejected one was cancelled.
+        match approval.as_str() {
+            "pending" => {
+                return Err(Refusal::from(ApiError::new(
+                    StatusCode::CONFLICT,
+                    "APPROVAL_PENDING",
+                    "The order is waiting for approval and cannot move on yet",
+                )));
+            }
+            "rejected" => {
+                return Err(Refusal::from(ApiError::new(
+                    StatusCode::CONFLICT,
+                    "ORDER_NOT_INVOICEABLE",
+                    "A rejected order is not invoiced",
+                )));
+            }
+            _ => {}
+        }
         let paid = weldsuite_commerce_domain::status::is_paid(&status);
         if !paid && status != "on_invoice" {
             return Err(Refusal::from(ApiError::new(

@@ -55,6 +55,31 @@ pub(crate) fn shopper(headers: &HeaderMap, trusted_proxies: usize) -> String {
         .map_or_else(|| proxy_client(headers, trusted_proxies), str::to_owned)
 }
 
+/// Sign-in code requests per client address per channel, per 15 minutes.
+pub(crate) const SIGN_IN_CODE_LIMIT: u32 = 20;
+
+/// The client a sign-in code request is counted against: the browser's
+/// address for a publishable key, the shopper's own (`X-Shopper-Ip`) for a
+/// private key. None when it is not known (a private key's server sent no
+/// shopper address, or no ingress put one in front), so that one shared
+/// counter cannot lock a whole shop out of sign-in.
+pub(crate) fn sign_in_client(
+    headers: &HeaderMap,
+    trusted_proxies: usize,
+    publishable: bool,
+) -> Option<String> {
+    if publishable {
+        Some(proxy_client(headers, trusted_proxies)).filter(|client| client != "unknown")
+    } else {
+        headers
+            .get("x-shopper-ip")
+            .and_then(|v| v.to_str().ok())
+            .map(str::trim)
+            .filter(|ip| address_like(ip))
+            .map(str::to_owned)
+    }
+}
+
 /// The class of a request: the counter's name and its limit.
 pub(crate) fn class(method: &Method, path: &str) -> (&'static str, i64) {
     if matches!(*method, Method::GET | Method::HEAD) {
@@ -110,6 +135,30 @@ mod tests {
         assert_eq!(shopper(&headers, 1), "1.2.3.4");
         headers.insert("x-shopper-ip", HeaderValue::from_static("nonsense!"));
         assert_eq!(shopper(&headers, 1), "9.9.9.9");
+    }
+
+    #[test]
+    fn the_sign_in_client_is_the_browser_or_the_named_shopper() {
+        let mut headers = HeaderMap::new();
+        assert_eq!(sign_in_client(&headers, 1, true), None);
+        assert_eq!(sign_in_client(&headers, 1, false), None);
+        headers.insert("x-forwarded-for", HeaderValue::from_static("9.9.9.9"));
+        assert_eq!(
+            sign_in_client(&headers, 1, true).as_deref(),
+            Some("9.9.9.9")
+        );
+        // A private key's server address is not the shopper's.
+        assert_eq!(sign_in_client(&headers, 1, false), None);
+        headers.insert("x-shopper-ip", HeaderValue::from_static("1.2.3.4"));
+        assert_eq!(
+            sign_in_client(&headers, 1, false).as_deref(),
+            Some("1.2.3.4")
+        );
+        // A browser cannot name another address.
+        assert_eq!(
+            sign_in_client(&headers, 1, true).as_deref(),
+            Some("9.9.9.9")
+        );
     }
 
     #[tokio::test]

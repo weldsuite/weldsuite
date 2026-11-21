@@ -226,6 +226,47 @@ async fn a_code_is_mailed_checked_counted_and_limited() {
 }
 
 #[tokio::test]
+async fn one_caller_cannot_use_up_the_channels_code_budget() {
+    let Some(ctx) = setup().await else { return };
+    let app = ctx.storefront();
+    let (key, _, _) = ctx.shop("publishable", &["https://shop.example"]).await;
+    let ask = |email: String, ip: &'static str| {
+        let app = &app;
+        let key = &key;
+        async move {
+            app.call(
+                "POST",
+                "/auth/code",
+                key,
+                &[("x-forwarded-for", ip)],
+                Some(json!({ "email": email })),
+            )
+            .await
+        }
+    };
+
+    // 20 code requests from one address, each for another made-up address.
+    for _ in 0..20 {
+        let email = format!("{}@example.com", fresh("spray"));
+        let reply = ask(email, "9.9.9.9").await;
+        assert_eq!(reply.status, StatusCode::ACCEPTED, "{}", reply.body);
+    }
+    let email = format!("{}@example.com", fresh("spray"));
+    let reply = ask(email.clone(), "9.9.9.9").await;
+    assert_eq!(
+        (reply.status, reply.code()),
+        (StatusCode::TOO_MANY_REQUESTS, "RATE_LIMITED")
+    );
+    assert_eq!(ctx.mails_to(&email).len(), 0, "no mail went out");
+
+    // Another shopper of the same shop still gets a code.
+    let other = format!("{}@example.com", fresh("other"));
+    let reply = ask(other.clone(), "8.8.8.8").await;
+    assert_eq!(reply.status, StatusCode::ACCEPTED, "{}", reply.body);
+    assert_eq!(ctx.mails_to(&other).len(), 1);
+}
+
+#[tokio::test]
 async fn a_session_belongs_to_one_channel_and_ends_on_sign_out() {
     let Some(ctx) = setup().await else { return };
     let app = ctx.storefront();

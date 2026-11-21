@@ -230,6 +230,14 @@ async fn an_order_above_the_buyers_limit_waits_for_an_approver() {
         (status, body["error"]["code"].as_str()),
         (StatusCode::CONFLICT, Some("ORDER_NOT_PAYABLE"))
     );
+    // Nor is it invoiced before the decision, not even by staff.
+    let (status, body) = staff
+        .post(&format!("/orders/{id}/invoice"), &json!({}))
+        .await;
+    assert_eq!(
+        (status, body["error"]["code"].as_str()),
+        (StatusCode::CONFLICT, Some("APPROVAL_PENDING"))
+    );
     // The staff order shows the approval, the list filters on it.
     let (_, body) = staff.get(&format!("/orders/{id}")).await;
     assert_eq!(body["data"]["approvalStatus"], "pending");
