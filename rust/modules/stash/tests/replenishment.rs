@@ -45,8 +45,8 @@ const ALL: &[&str] = &[
     "inventory:read",
     "inventory:update",
     "inventory:manage",
-    "orders:read",
-    "orders:create",
+    "purchase_orders:read",
+    "purchase_orders:create",
 ];
 
 /// One database test at a time: they share the settings row and the plans.

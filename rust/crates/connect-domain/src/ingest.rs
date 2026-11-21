@@ -12,6 +12,8 @@ use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use weldsuite_books_domain::roles::{PromoteTo, promote_accounting_role};
 use weldsuite_books_domain::table::Table;
+use weldsuite_commerce_domain::channels::{Connector, ensure_connector};
+use weldsuite_commerce_domain::orders::write::{Import, ImportLine, import};
 use weldsuite_db::PgPool;
 use weldsuite_events::{EntityEvent, EntityEventPublisher, EventContext, EventSource, EventType};
 use weldsuite_kit::generate_id;
@@ -131,6 +133,12 @@ impl From<sqlx::Error> for Failure {
             sqlx::Error::Database(db) => db.message().to_owned(),
             other => other.to_string(),
         })
+    }
+}
+
+impl From<weldsuite_commerce_domain::DbErr> for Failure {
+    fn from(error: weldsuite_commerce_domain::DbErr) -> Self {
+        Self(weldsuite_commerce_domain::db::message_of(&error))
     }
 }
 
@@ -571,240 +579,141 @@ fn catalog_target(
     }
 }
 
-/// An `order_items` row as `syncOrderItems` reads it.
-struct StoredItem {
-    id: String,
-    product_id: Option<String>,
-    variant_id: Option<String>,
-    sku: Option<String>,
-    properties: Option<Value>,
-}
-
-impl StoredItem {
-    /// `storedLineId(item)`: the provider line it was imported from.
-    fn line_id(&self) -> Option<&str> {
-        self.properties
-            .as_ref()?
-            .get("externalLineId")?
-            .as_str()
-            .filter(|id| !id.is_empty())
-    }
-}
-
-/// `matchOrderItem(...)`: by the provider's line id, else (an item imported
-/// before line ids were kept, which has none) by `(variant_id, product_id,
-/// sku)`, the first such item in creation order. Each item is matched once.
-fn match_order_item<'a>(
-    line: &OrderLine,
-    product_id: Option<&str>,
-    existing: &'a [StoredItem],
-    claimed: &[String],
-) -> Option<&'a StoredItem> {
-    let free = || existing.iter().filter(|item| !claimed.contains(&item.id));
-    line.external_line_id
-        .as_deref()
-        .and_then(|id| free().find(|item| item.line_id() == Some(id)))
-        // The mapper reads no variant, so an incoming line's variant is null.
-        .or_else(|| {
-            free().find(|item| {
-                item.line_id().is_none()
-                    && item.variant_id.is_none()
-                    && item.product_id.as_deref() == product_id
-                    && item.sku == line.sku
-            })
-        })
-}
-
-/// `syncOrderItems(...)`: bring an imported order's items in line with the
-/// provider's lines without replacing them, so their ids stay put (WeldStash
-/// pick lists point at them, and WeldStash owns `fulfilled_quantity`, which
-/// this never writes). Matched items are updated in place and stamped with
-/// the line id, new lines inserted, and a line the provider dropped is
-/// deleted only while nothing was fulfilled from it and no pick list holds
-/// it. The order's `itemCount` / `totalQuantity` then follow what is stored.
-async fn sync_order_items(
+/// An order from a store, written through `orders::write::import`
+/// (ADR COM-010: the only way an order and its items change): the header as
+/// mapped, the items brought in line with the store's lines without
+/// replacing them, the buyer's party as counterparty once. The order, its
+/// items and the mapping commit together.
+async fn ingest_order(
     args: &IngestArgs<'_>,
-    order_id: &str,
-    lines: &[OrderLine],
-    written: &Map<String, Value>,
-) -> Outcome<()> {
-    type Row = (
-        String,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<Value>,
-    );
-    let rows: Vec<Row> = sqlx::query_as(
-        "select id, product_id, variant_id, sku, properties from order_items
-         where order_id = $1 order by created_at asc, id asc",
+    line_items: &[OrderLine],
+    values: &Map<String, Value>,
+    record: &Value,
+    external_id: &str,
+) -> Outcome<Upserted> {
+    let checksum = record_checksum(record);
+    let mapping = find_mapping(
+        args.db,
+        args.connection_id,
+        args.external_type(),
+        external_id,
     )
-    .bind(order_id)
-    .fetch_all(args.db)
     .await?;
-    let existing: Vec<StoredItem> = rows
-        .into_iter()
-        .map(|(id, product_id, variant_id, sku, properties)| StoredItem {
-            id,
-            product_id,
-            variant_id,
-            sku,
-            properties,
-        })
-        .collect();
-
+    if let Some(mapping) = &mapping
+        && mapping.checksum.as_deref() == Some(checksum.as_str())
+    {
+        return Ok(Upserted {
+            action: Action::Skipped,
+            internal_id: mapping.internal_id.clone(),
+        });
+    }
+    check_dates(values)?;
+    // The order this store order is: its mapping, else an order already
+    // there with the same external id that no other connection imported
+    // (two stores of one provider may both have an order 1001), else a new one.
+    let mut found = mapping.as_ref().map(|m| m.internal_id.clone());
+    if found.is_none()
+        && let Some(external) = dedup_value(values, "externalOrderId")
+    {
+        found = sqlx::query_scalar(
+            "select o.id from orders o
+              where o.external_order_id = $1::text and o.deleted_at is null
+                and not exists (select 1 from integration_entity_mappings m
+                                 where m.internal_entity_id = o.id and m.connection_id <> $2)
+              order by o.created_at asc, o.id asc limit 1",
+        )
+        .bind(
+            external
+                .as_str()
+                .map_or_else(|| external.to_string(), str::to_owned),
+        )
+        .bind(args.connection_id)
+        .fetch_optional(args.db)
+        .await?;
+    }
     let product_type = format!("{}_product", args.provider);
-    let mut claimed: Vec<String> = Vec::new();
-    for line in lines {
+    let mut lines = Vec::with_capacity(line_items.len());
+    for line in line_items {
         let product_id = match &line.external_product_id {
             Some(id) => find_mapping(args.db, args.connection_id, &product_type, id)
                 .await?
                 .map(|m| m.internal_id),
             None => None,
         };
-        let mut values = Map::new();
-        values.insert("sku".to_owned(), json!(line.sku));
-        values.insert("name".to_owned(), json!(line.name));
-        values.insert("imageUrl".to_owned(), json!(line.image_url));
-        values.insert(
-            "quantity".to_owned(),
-            crate::js::number_value(line.quantity),
-        );
-        values.insert("unitPrice".to_owned(), json!(line.unit_price));
-        values.insert("total".to_owned(), json!(line.total));
-        if let Some(found) = match_order_item(line, product_id.as_deref(), &existing, &claimed) {
-            claimed.push(found.id.clone());
-            values.insert(
-                "productId".to_owned(),
-                json!(product_id.or_else(|| found.product_id.clone())),
-            );
-            let properties = match &line.external_line_id {
-                Some(line_id) => {
-                    let mut kept = found
-                        .properties
-                        .as_ref()
-                        .and_then(Value::as_object)
-                        .cloned()
-                        .unwrap_or_default();
-                    kept.insert("externalLineId".to_owned(), json!(line_id));
-                    Value::Object(kept)
-                }
-                None => found.properties.clone().unwrap_or(Value::Null),
-            };
-            values.insert("properties".to_owned(), properties);
-            patch(args.db, &tables::ORDER_ITEMS, &found.id, &values).await?;
-            continue;
-        }
-        values.insert("id".to_owned(), json!(generate_id("oitm")));
-        values.insert("orderId".to_owned(), json!(order_id));
-        values.insert("productId".to_owned(), json!(product_id));
-        values.insert(
-            "properties".to_owned(),
-            line.external_line_id
-                .as_ref()
-                .map_or(Value::Null, |id| json!({ "externalLineId": id })),
-        );
-        insert(args.db, &tables::ORDER_ITEMS, &values).await?;
+        lines.push(ImportLine {
+            external_line_id: line.external_line_id.clone(),
+            product_id,
+            sku: line.sku.clone(),
+            name: line.name.clone(),
+            quantity: line.quantity,
+            unit_price: line.unit_price.clone(),
+            total: line.total.clone(),
+            image_url: line.image_url.clone(),
+        });
     }
-
-    let vanished: Vec<String> = existing
-        .iter()
-        .filter(|item| !claimed.contains(&item.id))
-        .map(|item| item.id.clone())
-        .collect();
-    if !vanished.is_empty() {
-        let removed: Vec<String> = sqlx::query_scalar(
-            "delete from order_items t
-             where t.id = any($1) and coalesce(t.fulfilled_quantity, 0) = 0
-               and not exists (select 1 from pick_list_items p where p.order_item_id = t.id)
-             returning t.id",
-        )
-        .bind(&vanished)
-        .fetch_all(args.db)
-        .await?;
-        let kept = vanished.len() - removed.len();
-        if kept > 0 {
-            tracing::warn!(
-                order_id,
-                kept,
-                "[connectors/ingest] kept items the store no longer lists (fulfilled or on a pick list)"
-            );
-        }
-    }
-
-    let (item_count, total_quantity): (i64, i64) = sqlx::query_as(
-        "select count(*), coalesce(sum(quantity), 0)::bigint from order_items where order_id = $1",
+    let existing = found.is_some();
+    let order_id = found.unwrap_or_else(|| generate_id("ord"));
+    let mut tx = args.db.begin().await?;
+    // The order belongs to its store connection's sales channel (ADR COM-011).
+    let store_name = args
+        .display_name
+        .or(args.store_url)
+        .map_or_else(|| provider_label(args.provider), str::to_owned);
+    let channel = ensure_connector(
+        &mut tx,
+        &Connector {
+            connection_id: args.connection_id,
+            provider: args.provider,
+            name: &store_name,
+            currency: values
+                .get("currency")
+                .and_then(Value::as_str)
+                .unwrap_or("EUR"),
+        },
     )
-    .bind(order_id)
-    .fetch_one(args.db)
     .await?;
-    let differs =
-        |key: &str, stored: i64| written.get(key).and_then(Value::as_f64) != Some(stored as f64);
-    if differs("itemCount", item_count) || differs("totalQuantity", total_quantity) {
-        let mut counts = Map::new();
-        counts.insert("itemCount".to_owned(), json!(item_count));
-        counts.insert("totalQuantity".to_owned(), json!(total_quantity));
-        patch(args.db, &tables::ORDERS, order_id, &counts).await?;
-    }
-    Ok(())
-}
-
-/// `personPartyId(...)`: the buying person's party (`kind = person`),
-/// created the way WeldCRM creates a person's wrapping party when there is
-/// none yet. `None` when the person is gone.
-async fn person_party_id(args: &IngestArgs<'_>, person_id: &str) -> Outcome<Option<String>> {
-    let existing: Option<String> = sqlx::query_scalar(
-        "select id from parties where person_id = $1 and deleted_at is null limit 1",
+    let mut header = values.clone();
+    header.insert("channelId".to_owned(), json!(channel.id));
+    import(
+        &mut tx,
+        &Import {
+            id: &order_id,
+            existing,
+            header,
+            lines: &lines,
+            person_id: values.get("personId").and_then(Value::as_str),
+            owner_id: args.owner_id,
+        },
     )
-    .bind(person_id)
-    .fetch_optional(args.db)
     .await?;
-    if existing.is_some() {
-        return Ok(existing);
-    }
-    let created: Option<String> = sqlx::query_scalar(
-        "insert into parties (id, kind, person_id, role, display_name, billing_address,
-           archived_at, owner_id, created_at, updated_at)
-         select $1, 'person', p.id, 'customer', p.display_name, p.primary_address,
-           p.archived_at, $3, $4::timestamp, $4::timestamp
-         from people p where p.id = $2 and p.deleted_at is null
-         returning id",
-    )
-    .bind(generate_id("party"))
-    .bind(person_id)
-    .bind(args.owner_id)
-    .bind(now_iso())
-    .fetch_optional(args.db)
-    .await?;
-    Ok(created)
-}
-
-/// `linkOrderCounterparty(...)`: an imported order whose buyer is known gets
-/// that person's party as its counterparty, which WeldBooks invoices. Only
-/// while it has none: a counterparty someone chose stays.
-async fn link_order_counterparty(
-    args: &IngestArgs<'_>,
-    order_id: &str,
-    person_id: &str,
-) -> Outcome<()> {
-    let current: Option<Option<String>> =
-        sqlx::query_scalar("select counterparty_id from orders where id = $1 limit 1")
-            .bind(order_id)
-            .fetch_optional(args.db)
+    match &mapping {
+        Some(mapping) => touch_mapping(&mut *tx, &mapping.id, Some(checksum.as_str())).await?,
+        None => {
+            insert_mapping(
+                &mut *tx,
+                args.connection_id,
+                args.external_type(),
+                external_id,
+                "order",
+                &order_id,
+                &checksum,
+            )
             .await?;
-    // No order, or one that already has a counterparty.
-    if !matches!(current, Some(None)) {
-        return Ok(());
+        }
     }
-    let Some(party_id) = person_party_id(args, person_id).await? else {
-        return Ok(());
-    };
-    sqlx::query("update orders set counterparty_id = $1 where id = $2 and counterparty_id is null")
-        .bind(party_id)
-        .bind(order_id)
-        .execute(args.db)
-        .await?;
-    Ok(())
+    tx.commit().await?;
+    // A store's channel, made here with its first order, publishes no
+    // `commerce_channel` event: a sync answers with the same events as the
+    // TypeScript ingest, which has no channels (the "connect: integrations"
+    // conformance suite). The channels list reads it fresh when opened.
+    Ok(Upserted {
+        action: if existing {
+            Action::Updated
+        } else {
+            Action::Created
+        },
+        internal_id: order_id,
+    })
 }
 
 fn variant_fields(variant: &ProductVariant) -> Map<String, Value> {
@@ -1084,6 +993,12 @@ async fn ingest_catalog_record(
     {
         values.insert("personId".to_owned(), json!(found.internal_id));
     }
+    if let Mapped::Order { line_items, .. } = &mapped {
+        let outcome = ingest_order(args, line_items, &values, record, external_id).await?;
+        tally(result, outcome.action);
+        publish_upsert(args, entity_type, &outcome).await;
+        return Ok(());
+    }
     let checksum = record_checksum(record);
     let outcome = upsert_by_mapping(
         args.db,
@@ -1100,14 +1015,6 @@ async fn ingest_catalog_record(
         &checksum,
     )
     .await?;
-    if let Mapped::Order { line_items, .. } = &mapped
-        && outcome.action != Action::Skipped
-    {
-        sync_order_items(args, &outcome.internal_id, line_items, &values).await?;
-        if let Some(person_id) = values.get("personId").and_then(Value::as_str) {
-            link_order_counterparty(args, &outcome.internal_id, person_id).await?;
-        }
-    }
     if let Mapped::Product {
         external_url,
         values: product_values,

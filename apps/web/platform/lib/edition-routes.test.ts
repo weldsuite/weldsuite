@@ -175,6 +175,8 @@ describe('route availability', () => {
     // A link into one, with a workspace prefix and a query.
     expect(isHrefOffered('/w/acme/settings/integrations/moneybird?connected=1')).toBe(true);
     for (const path of others) expect(isRouteOffered(path), path).toBe(false);
+    // A longer name is another integration, not a connector's page.
+    expect(routeRequirement('/settings/integrations/shopifyx')).toEqual({ modules: ['connect'], feature: 'integration-sync' });
     // Still WeldConnect's: hidden where connect isn't served.
     setRuntimeConfig({ backend: 'rust', modules: ['core'] });
     for (const path of connectors) expect(isRouteOffered(path), path).toBe(false);

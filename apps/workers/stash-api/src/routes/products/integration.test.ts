@@ -146,6 +146,29 @@ describe('/api/products · pglite integration', () => {
     expect(row?.taxClass).toBeNull();
   });
 
+  it('stores the EU VAT category (standard by default) and refuses an unknown one', async () => {
+    const { request } = createTestApp('/api/products', productsRoutes, {
+      context: { permissions: permissions('products:create'), tenantDb: db },
+    });
+    const post = (body: Record<string, unknown>) =>
+      request('/api/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    const reduced = await post({ name: 'Book', slug: 'vat-book-1', vatCategory: 'reduced' });
+    expect(reduced.status).toBe(201);
+    const { data: book } = (await reduced.json()) as { data: { id: string } };
+    const [row] = await db.select().from(schema.products).where(eq(schema.products.id, book.id)).limit(1);
+    expect(row?.vatCategory).toBe('reduced');
+    const plain = await post({ name: 'Plain', slug: 'vat-plain-1' });
+    const { data: other } = (await plain.json()) as { data: { id: string } };
+    const [stored] = await db.select().from(schema.products).where(eq(schema.products.id, other.id)).limit(1);
+    expect(stored?.vatCategory).toBe('standard');
+    const refused = await post({ name: 'Bad', slug: 'vat-bad-1', vatCategory: 'cheap' });
+    expect(refused.status).toBe(400);
+  });
+
   it('accepts a Stripe and an Avalara provider code', async () => {
     const { request } = createTestApp('/api/products', productsRoutes, {
       context: { permissions: permissions('products:create'), tenantDb: db },

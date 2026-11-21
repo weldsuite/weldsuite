@@ -226,7 +226,7 @@ pub struct ProductVariant {
 pub struct OrderLine {
     /// The provider's own id for the line (WooCommerce and Shopify `id`,
     /// Picqer `idorder_product`). Ingest keeps it in
-    /// `order_items.properties.externalLineId`, so a re-import updates the
+    /// `order_items.external_line_id`, so a re-import updates the
     /// same item instead of replacing it.
     pub external_line_id: Option<String>,
     pub external_product_id: Option<String>,

@@ -17,6 +17,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { toast } from 'sonner';
 import { getTranslations } from '@/lib/i18n';
+import { isVatCategory } from '@/app/weldcommerce/lib/vat';
 import {
   CURRENCY_CODE,
   formSchemaOptions,
@@ -27,6 +28,7 @@ import {
 import { useProductDefaults } from '../../lib/use-product-defaults';
 import { ProductImagesField, type ProductImage } from './product-images-field';
 import { ProductTaxFields } from './product-tax-fields';
+import { VatCategorySelect } from '@/app/weldcommerce/products/components/vat-category-select';
 import {
   hasInvalidCustomCode,
   initialTaxState,
@@ -54,13 +56,17 @@ export function ProductDialog({
   open,
   onOpenChange,
   product,
+  showVatCategory = false,
 }: Readonly<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
   product?: WeldstashProduct;
+  /** WeldCommerce sells the product: the EU VAT category is asked too (WeldStash leaves it alone). */
+  showVatCategory?: boolean;
 }>) {
   const t = getTranslations('weldstash');
   const tc = getTranslations('common');
+  const tw = getTranslations('commerce');
   const isEdit = !!product;
   const create = useCreateWeldstashProduct();
   const update = useUpdateWeldstashProduct();
@@ -84,8 +90,9 @@ export function ProductDialog({
           trackInventory: product.trackInventory ?? undefined,
           featuredImageUrl: product.featuredImageUrl ?? undefined,
           images: product.images ?? undefined,
+          vatCategory: isVatCategory(product.vatCategory) ? product.vatCategory : undefined,
         }
-      : { name: '', price: 0, status: 'active', currency: defaults.currency ?? undefined },
+      : { name: '', price: 0, status: 'active', currency: defaults.currency ?? undefined, vatCategory: showVatCategory ? 'standard' : undefined },
   });
   const { errors } = form.formState;
 
@@ -249,6 +256,17 @@ export function ProductDialog({
             value={images}
             onChange={(next) => form.setValue('images', next, { shouldDirty: true })}
           />
+          {showVatCategory ? (
+            <div className="grid gap-1.5">
+              <Label htmlFor="vatCategory">{tw.products.vat.label}</Label>
+              <VatCategorySelect
+                id="vatCategory"
+                value={form.watch('vatCategory') ?? 'standard'}
+                onChange={(category) => form.setValue('vatCategory', category ?? 'standard', { shouldDirty: true })}
+              />
+              <p className="text-xs text-muted-foreground">{tw.products.vat.hint}</p>
+            </div>
+          ) : null}
           {defaults.salesTax ? (
             <ProductTaxFields state={tax} onChange={setTax} showErrors={taxChecked} />
           ) : null}

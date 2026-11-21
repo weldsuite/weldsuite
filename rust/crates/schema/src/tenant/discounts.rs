@@ -238,6 +238,19 @@ pub const DDL: Table = Table {
             method: "btree",
             filter: None,
         },
+        Index {
+            name: "discounts_code_uidx",
+            columns: &[IndexColumn {
+                expression: "lower(trim(\"code\"))",
+                is_expression: true,
+                asc: true,
+            }],
+            unique: true,
+            method: "btree",
+            filter: Some(
+                "\"discounts\".\"code\" IS NOT NULL AND \"discounts\".\"deleted_at\" IS NULL AND \"discounts\".\"status\" <> 'archived'",
+            ),
+        },
     ],
     foreign_keys: &[],
     uniques: &[],

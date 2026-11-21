@@ -1800,6 +1800,55 @@
       "when": 1795080543108,
       "tag": "0256_weldstash_replenishment",
       "breakpoints": true
+    },
+    {
+      "idx": 257,
+      "version": "7",
+      "when": 1795266536467,
+      "tag": "0257_weldcommerce_orders_discounts",
+      "breakpoints": true
+    },
+    {
+      "idx": 258,
+      "version": "7",
+      "when": 1795266904785,
+      "tag": "0258_weldstash_purchase_orders_permission",
+      "breakpoints": true
+    },
+    {
+      "idx": 259,
+      "version": "7",
+      "when": 1795268985538,
+      "tag": "0259_weldcommerce_vat_category",
+      "breakpoints": true
+    },
+    {
+      "idx": 260,
+      "version": "7",
+      "when": 1795270182003,
+      "tag": "0260_weldcommerce_channels_carts_prices",
+      "breakpoints": true
+    },
+    {
+      "idx": 261,
+      "version": "7",
+      "when": 1795270261467,
+      "tag": "0261_weldcommerce_payments",
+      "breakpoints": true
+    },
+    {
+      "idx": 262,
+      "version": "7",
+      "when": 1795270276168,
+      "tag": "0262_weldcommerce_buyers_approvals",
+      "breakpoints": true
+    },
+    {
+      "idx": 263,
+      "version": "7",
+      "when": 1795272116018,
+      "tag": "0263_weldcommerce_native_order_numbers",
+      "breakpoints": true
     }
   ]
 }

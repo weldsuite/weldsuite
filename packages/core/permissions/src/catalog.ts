@@ -211,7 +211,10 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
   // a literal `*`, so without these keys the routes are grantable to nobody
   // but Owner.
   objectPermissions('inventory',     'Inventory',            ['read', 'create', 'update', 'delete', 'manage']),
+  // Sales orders (WeldCommerce; WeldStash fulfils them). WeldStash's purchase
+  // orders to suppliers have their own object, `purchase_orders`.
   objectPermissions('orders',        'Orders'),
+  objectPermissions('purchase_orders', 'Purchase Orders'),
   objectPermissions('picklists',     'Pick Lists'),
   objectPermissions('locations',     'Locations'),
   objectPermissions('warehouses',    'Warehouses',           ['read', 'create', 'update', 'delete', 'manage']),
@@ -251,6 +254,10 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
   objectPermissions('lists',         'Lists'),
   objectPermissions('discounts',     'Discounts'),
   objectPermissions('categories',    'Categories'),
+  // WeldCommerce settings: order numbering and the default currency.
+  objectPermissions('commerce_settings', 'Commerce settings', ['read', 'update']),
+  // WeldCommerce sales channels, their storefront keys and shipping rates.
+  objectPermissions('commerce_channels', 'Sales channels', ['read', 'create', 'update', 'delete']),
   objectPermissions('websites',      'Websites',             ['read', 'create', 'update', 'delete', 'manage']),
 
   // ── Accounting (WeldBooks) ────────────────────────────────────────────
@@ -1019,6 +1026,7 @@ const LEGACY_MEMBER_PERMISSIONS: string[] = [
   'weldstash:products:read', 'weldstash:products:create', 'weldstash:products:update',
   'weldstash:inventory:read', 'weldstash:inventory:update',
   'weldstash:orders:read', 'weldstash:orders:create', 'weldstash:orders:update',
+  'weldstash:purchase_orders:read', 'weldstash:purchase_orders:create', 'weldstash:purchase_orders:update',
   'weldstash:picklists:read', 'weldstash:picklists:create', 'weldstash:picklists:update',
   'weldstash:locations:read',
   'weldstash:warehouses:read',

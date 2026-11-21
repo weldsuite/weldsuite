@@ -145,6 +145,10 @@ export const navigation = {
       },
       weldcommerce: {
         overview: 'Overzicht',
+        products: 'Producten',
+        categories: 'Categorieën',
+        orders: 'Orders',
+        discounts: 'Kortingen',
       },
       weldstash: {
         overview: 'Overzicht',

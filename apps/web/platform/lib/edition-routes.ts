@@ -58,6 +58,7 @@ const ROUTE_REQUIREMENTS: ReadonlyArray<readonly [prefix: string, requirement: E
   ['/settings/integrations/mcp-servers', { modules: ['agent'] }],
   // WeldConnect's store and accounting connectors: `/api/connectors`, their
   // webhooks, the catch-up and the Moneybird push run on both backends.
+  // Shopify and WooCommerce also feed WeldCommerce's order hub.
   ['/settings/integrations/woocommerce', { modules: ['connect'] }],
   ['/settings/integrations/shopify', { modules: ['connect'] }],
   ['/settings/integrations/moneybird', { modules: ['connect'] }],

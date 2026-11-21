@@ -13,6 +13,7 @@ pub mod bank_feed_connection_index;
 pub mod billing_accounts;
 pub mod billing_invoices;
 pub mod billing_payments;
+pub mod commerce_connection_registry;
 pub mod credit_packages;
 pub mod credit_transactions;
 pub mod database_pool;
@@ -59,6 +60,7 @@ pub mod reach_routes;
 pub mod reach_warmup_mailboxes;
 pub mod reach_warmup_messages;
 pub mod sign_link_registry;
+pub mod storefront_key_registry;
 pub mod system_settings;
 pub mod telephony_number_pricing;
 pub mod telephony_service_rates;
@@ -104,6 +106,9 @@ pub fn tables() -> Vec<crate::snapshot::TableSchema> {
         crate::snapshot::table::<billing_accounts::Entity>(&billing_accounts::DDL),
         crate::snapshot::table::<billing_invoices::Entity>(&billing_invoices::DDL),
         crate::snapshot::table::<billing_payments::Entity>(&billing_payments::DDL),
+        crate::snapshot::table::<commerce_connection_registry::Entity>(
+            &commerce_connection_registry::DDL,
+        ),
         crate::snapshot::table::<credit_packages::Entity>(&credit_packages::DDL),
         crate::snapshot::table::<credit_transactions::Entity>(&credit_transactions::DDL),
         crate::snapshot::table::<database_pool::Entity>(&database_pool::DDL),
@@ -155,6 +160,7 @@ pub fn tables() -> Vec<crate::snapshot::TableSchema> {
         crate::snapshot::table::<reach_warmup_mailboxes::Entity>(&reach_warmup_mailboxes::DDL),
         crate::snapshot::table::<reach_warmup_messages::Entity>(&reach_warmup_messages::DDL),
         crate::snapshot::table::<sign_link_registry::Entity>(&sign_link_registry::DDL),
+        crate::snapshot::table::<storefront_key_registry::Entity>(&storefront_key_registry::DDL),
         crate::snapshot::table::<system_settings::Entity>(&system_settings::DDL),
         crate::snapshot::table::<telephony_number_pricing::Entity>(&telephony_number_pricing::DDL),
         crate::snapshot::table::<telephony_service_rates::Entity>(&telephony_service_rates::DDL),
@@ -233,6 +239,9 @@ pub async fn rows_json<C: sea_orm::ConnectionTrait>(
         "billing_accounts" => json(Box::pin(billing_accounts::Entity::find().all(db)).await?),
         "billing_invoices" => json(Box::pin(billing_invoices::Entity::find().all(db)).await?),
         "billing_payments" => json(Box::pin(billing_payments::Entity::find().all(db)).await?),
+        "commerce_connection_registry" => {
+            json(Box::pin(commerce_connection_registry::Entity::find().all(db)).await?)
+        }
         "credit_packages" => json(Box::pin(credit_packages::Entity::find().all(db)).await?),
         "credit_transactions" => json(Box::pin(credit_transactions::Entity::find().all(db)).await?),
         "database_pool" => json(Box::pin(database_pool::Entity::find().all(db)).await?),
@@ -324,6 +333,9 @@ pub async fn rows_json<C: sea_orm::ConnectionTrait>(
             json(Box::pin(reach_warmup_messages::Entity::find().all(db)).await?)
         }
         "sign_link_registry" => json(Box::pin(sign_link_registry::Entity::find().all(db)).await?),
+        "storefront_key_registry" => {
+            json(Box::pin(storefront_key_registry::Entity::find().all(db)).await?)
+        }
         "system_settings" => json(Box::pin(system_settings::Entity::find().all(db)).await?),
         "telephony_number_pricing" => {
             json(Box::pin(telephony_number_pricing::Entity::find().all(db)).await?)

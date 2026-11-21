@@ -62,3 +62,29 @@ describe('useSettingsSidebarItems WeldStash entry', () => {
     expect(appTitles()).not.toContain('WeldStash');
   });
 });
+
+describe('useSettingsSidebarItems WeldCommerce entry', () => {
+  beforeEach(() => {
+    env.apps = [
+      { appCode: 'weldcommerce', status: 'active' },
+      { appCode: 'weldmail', status: 'active' },
+    ];
+  });
+
+  it('lists the WeldCommerce settings on the Rust editions, where the module exists', () => {
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'commerce', 'mail'], unavailableFeatures: [] } as never);
+    expect(appTitles()).toContain('WeldCommerce');
+  });
+
+  it('leaves WeldCommerce out on Global, which hides the module, but keeps the other installed apps', () => {
+    const titles = appTitles();
+    expect(titles).not.toContain('WeldCommerce');
+    expect(titles).toContain('WeldMail');
+  });
+
+  it('leaves WeldCommerce out when the app is not installed', () => {
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'commerce', 'mail'], unavailableFeatures: [] } as never);
+    env.apps = [{ appCode: 'weldmail', status: 'active' }];
+    expect(appTitles()).not.toContain('WeldCommerce');
+  });
+});
