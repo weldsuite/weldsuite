@@ -33,8 +33,8 @@ function formatCreationDate(iso: string | null | undefined, locale: string): str
  * and the name on one row, and under it one line on who started it and when.
  */
 const INTRO_CLASS = 'px-[10px] pt-8 pb-4 md:px-[18px]';
-const INTRO_ROW_CLASS = 'flex items-center gap-3';
-const INTRO_TILE_CLASS = 'flex size-10 shrink-0 items-center justify-center rounded-[12px] bg-muted';
+const INTRO_ROW_CLASS = 'flex items-center gap-2.5';
+const INTRO_TILE_CLASS = 'flex size-8 shrink-0 items-center justify-center rounded-[10px] bg-muted';
 const INTRO_TITLE_CLASS = 'min-w-0 truncate text-xl font-semibold';
 const INTRO_TEXT_CLASS = 'mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground';
 
@@ -98,7 +98,7 @@ export function ChannelEmptyState({ channel }: Readonly<ChannelEmptyStateProps>)
         <div className={INTRO_ROW_CLASS}>
           {isGroupDm ? (
             <div className={INTRO_TILE_CLASS}>
-              <MessageCircle className="size-5 text-muted-foreground" />
+              <MessageCircle className="size-4 text-muted-foreground" />
             </div>
           ) : (
             // Their current picture (yours in a DM with yourself), as everywhere else.
@@ -106,8 +106,8 @@ export function ChannelEmptyState({ channel }: Readonly<ChannelEmptyStateProps>)
               userId={other?.userId ?? channel?.createdBy}
               name={displayName}
               picture={other?.picture}
-              className="size-10"
-              fallbackClassName="text-base font-medium"
+              className="size-8"
+              fallbackClassName="text-sm font-medium"
               fallback={(displayName || '?')[0].toUpperCase()}
             />
           )}
@@ -140,7 +140,7 @@ export function ChannelEmptyState({ channel }: Readonly<ChannelEmptyStateProps>)
     <div className={INTRO_CLASS}>
       <div className={INTRO_ROW_CLASS}>
         <div className={INTRO_TILE_CLASS}>
-          <Icon className="size-5 text-muted-foreground" />
+          <Icon className="size-4 text-muted-foreground" />
         </div>
         <h1 className={INTRO_TITLE_CLASS}>{channel?.name}</h1>
       </div>
