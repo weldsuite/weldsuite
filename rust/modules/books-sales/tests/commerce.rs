@@ -226,6 +226,23 @@ async fn a_paid_order_is_invoiced_once_and_a_partial_refund_credited() {
     .await
     .expect("note row");
     assert_eq!(note["type"], "credit_note");
+    // The customer sees the order's reference on the note; the refund tag
+    // stays in the internal notes.
+    let (invoice_ref, note_ref, note_internal): (Option<String>, Option<String>, Option<String>) =
+        sqlx::query_as(
+            "select i.reference, n.reference, n.internal_notes from invoices i, invoices n              where i.id = $1 and n.id = $2",
+        )
+        .bind(&invoice.id)
+        .bind(&credit.id)
+        .fetch_one(&db)
+        .await
+        .expect("references");
+    assert_eq!(note_ref, invoice_ref);
+    assert!(
+        note_internal
+            .as_deref()
+            .is_some_and(|notes| notes.contains("WeldCommerce refund cref_books_test"))
+    );
     assert_eq!(note["total"], "10.00");
     assert_eq!(note["taxTotal"], "1.74");
     assert_eq!(note["subtotal"], "8.26");

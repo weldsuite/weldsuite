@@ -212,11 +212,15 @@ impl CommerceInvoicing {
             .await
             .map_err(failed)?
             .ok_or_else(|| "The invoice was not found".to_owned())?;
-        // One credit note per refund, tagged with it: a retry after a
-        // failure part-way resumes from the note it made.
-        let tag = format!("refund:{}", request.refund_id);
+        // One credit note per refund, tagged with it in its internal notes
+        // (never printed; `reference` keeps the order number the customer
+        // sees): a retry after a failure part-way resumes from that note.
+        let tag = format!("WeldCommerce refund {}", request.refund_id);
         let earlier: Option<(String, String)> = sqlx::query_as(
-            "select id, status from invoices              where credit_note_for_invoice_id = $1 and reference = $2 and deleted_at is null              order by created_at desc limit 1",
+            "select id, status from invoices \
+             where credit_note_for_invoice_id = $1 and deleted_at is null \
+               and position($2 in coalesce(internal_notes, '')) > 0 \
+             order by created_at desc limit 1",
         )
         .bind(request.invoice_id)
         .bind(&tag)
@@ -231,7 +235,9 @@ impl CommerceInvoicing {
                 // it again from the invoice rather than scale it twice.
                 if let Some((draft, _)) = earlier {
                     sqlx::query(
-                        "update invoices set deleted_at = now() at time zone 'utc',                            updated_at = now() at time zone 'utc'                          where id = $1 and status = 'draft'",
+                        "update invoices set deleted_at = now() at time zone 'utc', \
+                           updated_at = now() at time zone 'utc' \
+                         where id = $1 and status = 'draft'",
                     )
                     .bind(&draft)
                     .execute(db)
@@ -311,12 +317,16 @@ impl CommerceInvoicing {
             .as_str()
             .ok_or_else(|| "The credit note could not be made".to_owned())?
             .to_owned();
-        sqlx::query("update invoices set reference = $2 where id = $1")
-            .bind(&note_id)
-            .bind(tag)
-            .execute(db)
-            .await
-            .map_err(failed)?;
+        sqlx::query(
+            "update invoices \
+             set internal_notes = concat_ws(E'\\n', nullif(internal_notes, ''), $2::text) \
+             where id = $1",
+        )
+        .bind(&note_id)
+        .bind(tag)
+        .execute(db)
+        .await
+        .map_err(failed)?;
         let invoice_total = cents_of(invoice.get("total"));
         if request.amount > 0 && request.amount < invoice_total {
             scale_draft(db, &note_id, request.amount, invoice_total).await?;

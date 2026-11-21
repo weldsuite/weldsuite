@@ -112,6 +112,8 @@ fn paid(id: &str, workspace: &str, checkout: &str, status: PaymentStatus) -> Pay
         details: weldsuite_core_platform::topup::mollie::MethodDetails::default(),
         paid_at: None,
         failure_reason: None,
+        expires_at: None,
+        raw: Value::Null,
     }
 }
 
