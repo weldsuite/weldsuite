@@ -15,6 +15,7 @@ import {
   composerIconButtonClass,
 } from '@weldsuite/ui/components/composer';
 import { EmojiPicker } from './emoji-picker';
+import { channelOffersThreads } from '../lib/message-menu-rules';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { useSendMessage, useEditMessage, useWorkspaceMembers, useChannel, useChannelMembers } from '@/hooks/queries/use-weldchat-queries';
@@ -385,7 +386,8 @@ export function MessageInput({
     !editingMessage &&
     !!threadRootId &&
     (replyTo?.depth ?? 0) >= THREAD_SUGGESTION_DEPTH &&
-    channelData?.data?.threadsEnabled !== false &&
+    // Not in a DM, where threads aren't offered.
+    channelOffersThreads(channelData?.data) &&
     !dismissedThreadSuggestions.has(threadRootId);
 
   const continueInThread = useCallback(() => {
