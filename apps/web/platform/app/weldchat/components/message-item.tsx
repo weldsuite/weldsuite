@@ -1,4 +1,4 @@
-import { useState, useMemo, type ReactNode } from 'react';
+import { useRef, useState, useMemo, type ReactNode } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useAuth } from '@/lib/auth';
 import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
@@ -668,6 +668,7 @@ export function MessageItem({
 }: Readonly<MessageItemProps>) {
   const [isHovered, setIsHovered] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const rowRef = useRef<HTMLDivElement>(null);
   const { userId } = useAuth();
   const { t, format } = useI18n();
   const { openUserProfile, openAgentProfile, openThread } = useChatContext();
@@ -726,6 +727,7 @@ export function MessageItem({
   return (
     <MessageContextMenu message={message} channelId={resolvedChannelId} readBy={readBy}>
     <div
+      ref={rowRef}
       data-message-id={message.id}
       data-testid="chat-message"
       className={cn(
@@ -905,7 +907,11 @@ export function MessageItem({
           readBy={readBy}
           onOpenChange={(open) => {
             setMenuOpen(open);
-            if (!open) setIsHovered(false);
+            // A menu closed: keep the bar while the pointer is still on the
+            // message (the emoji button clicked again to close its menu), hide
+            // it when the pointer is elsewhere (a reaction picked in the
+            // menu, which hangs outside the row).
+            if (!open) setIsHovered(rowRef.current?.matches(':hover') ?? false);
           }}
         />
       )}
