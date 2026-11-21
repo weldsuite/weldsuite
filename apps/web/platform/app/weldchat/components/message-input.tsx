@@ -1289,11 +1289,12 @@ export function MessageInput({
                           size="icon"
                           onMouseDown={(e) => { e.preventDefault(); applyFormat(command); }}
                           aria-pressed={activeFormats.has(command)}
+                          // Hovered and switched on look the same (as the row below's
+                          // toggles do), so pointing at a format previews its "on".
                           className={cn(
-                            "size-7 rounded-md transition-colors",
-                            activeFormats.has(command)
-                              ? "bg-gray-200 text-gray-800 dark:bg-accent dark:text-foreground"
-                              : "text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-muted-foreground dark:hover:bg-accent dark:hover:text-foreground"
+                            composerIconButtonClass,
+                            "size-7 rounded-md",
+                            activeFormats.has(command) && "bg-gray-100 text-gray-700 dark:bg-accent dark:text-foreground"
                           )}
                           title={title}
                         >
