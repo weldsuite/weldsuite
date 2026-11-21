@@ -251,17 +251,18 @@ function ThreadIndicator({
   children: ReactNode;
 }>) {
   const last = lastReplyLabel(lastReplyAt);
-  const className = 'group/thread mt-1 flex w-fit items-center gap-1.5 text-xs';
+  // The count reads at message size; the time is small, like a message's.
+  const className = 'group/thread mt-1 flex w-fit items-center gap-1.5 text-sm';
   const content = (
     <>
       {/* The line from the message down to its replies. */}
       <span
         aria-hidden
-        className="-mt-1.5 h-2.5 w-3 shrink-0 rounded-bl-[6px] border-b-[1.5px] border-l-[1.5px] border-muted-foreground/40 transition-colors group-hover/thread:border-muted-foreground/70"
+        className="-mt-2 h-3 w-3.5 shrink-0 rounded-bl-[7px] border-b-[1.5px] border-l-[1.5px] border-muted-foreground/40 transition-colors group-hover/thread:border-muted-foreground/70"
       />
       <span className="font-medium text-primary group-hover/thread:underline">{children}</span>
       {last && (
-        <span className="text-muted-foreground" title={formatFullTime(lastReplyAt ?? undefined)}>
+        <span className="text-xs text-muted-foreground" title={formatFullTime(lastReplyAt ?? undefined)}>
           · {last}
         </span>
       )}
