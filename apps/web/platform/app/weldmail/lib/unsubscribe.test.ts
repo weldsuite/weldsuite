@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { MailSubscription } from '@weldsuite/app-api-client';
 import { en } from '@weldsuite/i18n/locales/en';
 import { nl } from '@weldsuite/i18n/locales/nl';
@@ -7,11 +7,15 @@ import {
   confirmDescriptionFor,
   findSenderSubscription,
   isLinkOnly,
+  notifyUnsubscribed,
   senderLabel,
   unsubscribeNotice,
   unsubscribesInPlace,
   type SubscriptionLabels,
 } from './unsubscribe';
+
+const toast = vi.hoisted(() => ({ success: vi.fn(), info: vi.fn() }));
+vi.mock('sonner', () => ({ toast }));
 
 const labels: SubscriptionLabels = en.mail.subscriptions;
 
@@ -129,6 +133,36 @@ describe('unsubscribeNotice', () => {
 
   it('does not offer the page again for a link-only sender (it opened in the click)', () => {
     expect(unsubscribeNotice(labels, linkOnly, { method: 'link', url: 'https://shop.example/u/1' }).openUrl).toBeNull();
+  });
+});
+
+describe('notifyUnsubscribed', () => {
+  beforeEach(() => {
+    toast.success.mockReset();
+    toast.info.mockReset();
+  });
+
+  it('toasts a finished unsubscribe', () => {
+    notifyUnsubscribed(labels, oneClick, { method: 'one_click', url: null });
+    expect(toast.success).toHaveBeenCalledWith('Unsubscribed from Shop');
+  });
+
+  it('offers to open the page when WeldMail could not finish it', () => {
+    const open = vi.fn();
+    vi.stubGlobal('open', open);
+    notifyUnsubscribed(labels, oneClick, { method: 'link', url: 'https://shop.example/u/1' });
+
+    const [message, options] = toast.info.mock.calls[0];
+    expect(message).toBe('Finish unsubscribing on the page of Shop');
+    expect(options.action.label).toBe('Open page');
+    options.action.onClick();
+    expect(open).toHaveBeenCalledWith('https://shop.example/u/1', '_blank', 'noopener,noreferrer');
+    vi.unstubAllGlobals();
+  });
+
+  it('only notes it for a link-only sender, whose page already opened', () => {
+    notifyUnsubscribed(labels, linkOnly, { method: 'link', url: 'https://shop.example/u/1' });
+    expect(toast.info).toHaveBeenCalledWith('Finish unsubscribing on the page of Shop');
   });
 });
 

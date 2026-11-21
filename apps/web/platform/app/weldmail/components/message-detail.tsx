@@ -94,10 +94,8 @@ import {
   useToggleMailImportant,
   useSnoozeEmail,
   useUnsnoozeEmail,
-  useSenderMailSubscription,
-  useUnsubscribeMailSubscription,
 } from '@/hooks/queries/use-mail-queries';
-import { notifyUnsubscribed, senderLabel, unsubscribesInPlace } from '../lib/unsubscribe';
+import { useSenderUnsubscribe } from '../hooks/use-sender-unsubscribe';
 import { UnsubscribeSenderButton } from './unsubscribe-sender-button';
 import { isSystemLabel } from '../lib/label-config';
 import { hasLabel, userLabelsOf, withLabel, withoutLabel } from '../lib/message-labels';
@@ -121,7 +119,7 @@ import { CustomerDetailPanel } from './customer-detail-panel';
 import { CalendarInviteCard } from './calendar-invite-card';
 import { useCancelScheduledEmail } from './cancel-scheduled-dialog';
 import { TaskDialog } from '@/app/weldcrm/task-dialog';
-import { interpolate, useI18n } from '@/lib/i18n/provider';
+import { useI18n } from '@/lib/i18n/provider';
 import { isFeatureAvailable } from '@/lib/edition';
 import { useAiCreditsToast } from '@/hooks/use-ai-credits-toast';
 import { copyText } from '@/lib/clipboard';
@@ -168,6 +166,11 @@ function fromDisplayString(from: string | MailTypes.EmailAddress | undefined): s
   if (!from) return '';
   if (typeof from === 'string') return from;
   return from.name ? `${from.name} <${from.email}>` : from.email;
+}
+
+// The sender's address of a message, as the header shows it.
+function senderAddressOf(msg: EmailMessage): string {
+  return msg.fromEmail || extractEmail(fromDisplayString(msg.from));
 }
 
 // Generate consistent label color based on label name
@@ -1337,9 +1340,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   }, [message, localThread]);
 
   // The header's sender as a mailing list this mailbox can unsubscribe from.
-  const headerSenderEmail = newestMessage.fromEmail || extractEmail(fromDisplayString(newestMessage.from));
-  const { data: senderSubscription } = useSenderMailSubscription(accountId, headerSenderEmail);
-  const unsubscribeMutation = useUnsubscribeMailSubscription();
+  const senderUnsubscribe = useSenderUnsubscribe(accountId, senderAddressOf(newestMessage));
 
   // Our own address on this mailbox — excluded from reply-all recipients.
   const { data: accountsData } = useMailAccounts();
@@ -1792,21 +1793,11 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     }
   };
 
-  // Gmail's "Report spam and unsubscribe". Offered only when WeldMail can do the
+  // Gmail's "Report spam and unsubscribe", offered only when WeldMail can do the
   // unsubscribing itself (one-click or an unsubscribe email), never a web page.
-  const canReportSpamAndUnsubscribe =
-    !isInSpamFolder && senderSubscription?.status === 'active' && unsubscribesInPlace(senderSubscription);
-
+  // Spam either way: the user asked for both, and the hook reports a failed unsubscribe.
   const handleReportSpamAndUnsubscribe = async () => {
-    const sub = senderSubscription;
-    if (!sub) return;
-    try {
-      const res = await unsubscribeMutation.mutateAsync(sub.id);
-      notifyUnsubscribed(t.mail.subscriptions, sub, res.data);
-    } catch {
-      toast.error(interpolate(t.mail.subscriptions.failed, { sender: senderLabel(sub) }));
-    }
-    // Spam either way: the user asked for both, and a failed unsubscribe is reported above.
+    await senderUnsubscribe.unsubscribeInPlace();
     await handleMarkAsSpam();
   };
 
@@ -2572,7 +2563,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                     />
                   )}
                 </span>
-                <UnsubscribeSenderButton subscription={senderSubscription} />
+                <UnsubscribeSenderButton subscription={senderUnsubscribe.subscription} />
               </div>
             </div>
             <div className="flex items-center gap-0.5 text-muted-foreground flex-shrink-0">
@@ -2662,8 +2653,8 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                       <><AlertTriangle className="mr-0.5 h-4 w-4" /> {t.mail.messageDetail.markAsSpamAction}</>
                     )}
                   </DropdownMenuItem>
-                  {canReportSpamAndUnsubscribe && (
-                    <DropdownMenuItem onClick={handleReportSpamAndUnsubscribe} disabled={unsubscribeMutation.isPending}>
+                  {!isInSpamFolder && senderUnsubscribe.canUnsubscribeInPlace && (
+                    <DropdownMenuItem onClick={handleReportSpamAndUnsubscribe} disabled={senderUnsubscribe.isPending}>
                       <MailX className="mr-0.5 h-4 w-4" /> {t.mail.messageDetail.reportSpamAndUnsubscribe}
                     </DropdownMenuItem>
                   )}

@@ -10,22 +10,31 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
+import type { DataResponse, MailSubscription } from '@weldsuite/app-api-client';
 import {
   mailKeys,
   useInfiniteMailLabelThreads,
   useMailMessagesByCounterparty,
+  useSenderMailSubscription,
+  useUnsubscribeMailSubscription,
 } from './use-mail-queries';
 
 const threadsMock = vi.fn();
 const listMock = vi.fn();
+const subscriptionsListMock = vi.fn();
+const unsubscribeMock = vi.fn();
 
 vi.mock('@/lib/api/use-app-api', () => ({
   useAppApi: () => ({
     mailLabels: { threads: (...args: unknown[]) => threadsMock(...args) },
     mailMessages: { list: (...args: unknown[]) => listMock(...args) },
+    mailSubscriptions: {
+      list: (...args: unknown[]) => subscriptionsListMock(...args),
+      unsubscribe: (...args: unknown[]) => unsubscribeMock(...args),
+    },
   }),
 }));
 
@@ -164,5 +173,101 @@ describe('useMailMessagesByCounterparty', () => {
     const client = newClient();
     renderHook(() => useMailMessagesByCounterparty(undefined), { wrapper: createWrapper(client) });
     expect(listMock).not.toHaveBeenCalled();
+  });
+});
+
+function subscription(id: string, senderEmail: string, overrides: Partial<MailSubscription> = {}): MailSubscription {
+  return {
+    id,
+    accountId: 'macc_1',
+    senderEmail,
+    senderName: null,
+    senderDomain: senderEmail.split('@')[1] ?? null,
+    listId: null,
+    unsubscribeUrl: 'https://list.example/u',
+    unsubscribeMailto: null,
+    oneClick: true,
+    messageCount: 1,
+    lastSubject: null,
+    firstReceivedAt: '2026-11-01T00:00:00.000Z',
+    lastReceivedAt: '2026-11-20T00:00:00.000Z',
+    status: 'active',
+    unsubscribeMethod: null,
+    unsubscribedAt: null,
+    unsubscribedBy: null,
+    createdAt: '2026-11-01T00:00:00.000Z',
+    updatedAt: '2026-11-20T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
+describe('useSenderMailSubscription', () => {
+  const shop = subscription('msub_shop', 'news@shop.example');
+  const other = subscription('msub_other', 'hi@other.example');
+
+  beforeEach(() => {
+    subscriptionsListMock.mockReset();
+    subscriptionsListMock.mockResolvedValue({ data: [shop, other] });
+  });
+
+  it("picks the sender's row out of the mailbox list, ignoring case and spaces", async () => {
+    const { result } = renderHook(() => useSenderMailSubscription('macc_1', ' NEWS@Shop.example '), {
+      wrapper: createWrapper(newClient()),
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toEqual(shop);
+    expect(subscriptionsListMock).toHaveBeenCalledWith({ accountId: 'macc_1' });
+  });
+
+  it('is null for a sender that is not a mailing list', async () => {
+    const { result } = renderHook(() => useSenderMailSubscription('macc_1', 'friend@example.com'), {
+      wrapper: createWrapper(newClient()),
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toBeNull();
+  });
+
+  it('does not fetch without a mailbox or a sender', () => {
+    renderHook(() => useSenderMailSubscription(undefined, 'news@shop.example'), { wrapper: createWrapper(newClient()) });
+    renderHook(() => useSenderMailSubscription('macc_1', '  '), { wrapper: createWrapper(newClient()) });
+    expect(subscriptionsListMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('useUnsubscribeMailSubscription', () => {
+  beforeEach(() => unsubscribeMock.mockReset());
+
+  it('flips the cached row to unsubscribed at once', async () => {
+    const shop = subscription('msub_shop', 'news@shop.example');
+    const other = subscription('msub_other', 'hi@other.example');
+    const client = newClient();
+    const key = mailKeys.subscriptions('macc_1');
+    client.setQueryData<DataResponse<MailSubscription[]>>(key, { data: [shop, other] });
+    unsubscribeMock.mockResolvedValue({
+      data: { subscription: { ...shop, status: 'unsubscribed' }, method: 'one_click', url: null },
+    });
+
+    const { result } = renderHook(() => useUnsubscribeMailSubscription(), { wrapper: createWrapper(client) });
+    await act(() => result.current.mutateAsync('msub_shop'));
+
+    expect(unsubscribeMock).toHaveBeenCalledWith('msub_shop');
+    const cached = client.getQueryData<DataResponse<MailSubscription[]>>(key);
+    expect(cached?.data.map((s) => [s.id, s.status])).toEqual([
+      ['msub_shop', 'unsubscribed'],
+      ['msub_other', 'active'],
+    ]);
+    expect(client.getQueryState(key)?.isInvalidated).toBe(true);
+  });
+
+  it('leaves an unloaded list alone', async () => {
+    const client = newClient();
+    unsubscribeMock.mockResolvedValue({
+      data: { subscription: subscription('msub_shop', 'news@shop.example', { status: 'unsubscribed' }), method: 'mailto', url: null },
+    });
+
+    const { result } = renderHook(() => useUnsubscribeMailSubscription(), { wrapper: createWrapper(client) });
+    await act(() => result.current.mutateAsync('msub_shop'));
+
+    expect(client.getQueryData(mailKeys.subscriptions('macc_1'))).toBeUndefined();
   });
 });

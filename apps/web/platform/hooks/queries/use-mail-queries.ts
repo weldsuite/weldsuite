@@ -1132,7 +1132,7 @@ export function useUnsubscribeMailSubscription() {
       qc.setQueryData<DataResponse<MailSubscription[]>>(key, (prev) =>
         prev ? { ...prev, data: prev.data.map((s) => (s.id === updated.id ? updated : s)) } : prev,
       );
-      qc.invalidateQueries({ queryKey: key });
+      void qc.invalidateQueries({ queryKey: key });
     },
   });
 }
