@@ -81,12 +81,12 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let person = query_set(query, "personId");
     let found = async {
         let mut conn = caller.db.acquire().await?;
-        accounts::buyers(&mut conn, company.as_deref(), person.as_deref()).await
+        Ok::<_, Refusal>(accounts::buyers(&mut conn, company.as_deref(), person.as_deref()).await?)
     }
     .await;
     match found {
         Ok(list) => Data(Value::Array(list)).into_response(),
-        Err(error) => Refusal::from(error).respond(FAILED),
+        Err(error) => error.respond(FAILED),
     }
 }
 
@@ -340,7 +340,7 @@ async fn invite(
     const FAILED: &str = "Failed to invite buyer";
     let found = async {
         let mut conn = caller.db.acquire().await?;
-        accounts::buyer(&mut conn, &id).await
+        Ok::<_, Refusal>(accounts::buyer(&mut conn, &id).await?)
     }
     .await;
     match found {
@@ -358,7 +358,7 @@ async fn invite(
             StatusCode::NO_CONTENT.into_response()
         }
         Ok(None) => Refusal::not_found("Buyer", &id).respond(FAILED),
-        Err(error) => Refusal::from(error).respond(FAILED),
+        Err(error) => error.respond(FAILED),
     }
 }
 

@@ -423,7 +423,7 @@ pub(crate) async fn verify(Extension(principal): Extension<Principal>, body: Byt
             accounts::find_or_create_person(&mut tx, &email, None, None, "storefront").await?;
         let accepted = accounts::accept_invitations(&mut tx, &person.id).await?;
         tx.commit().await?;
-        Ok::<_, sqlx::Error>((person, accepted))
+        Ok::<_, weldsuite_commerce_domain::Error>((person, accepted))
     }
     .await;
     let (person, accepted) = match accepted {
@@ -546,7 +546,9 @@ pub(crate) async fn patch(
     }
     let updated = async {
         let mut conn = principal.db.acquire().await?;
-        accounts::update_profile(&mut conn, &loaded.person.id, &profile).await
+        Ok::<_, weldsuite_commerce_domain::Error>(
+            accounts::update_profile(&mut conn, &loaded.person.id, &profile).await?,
+        )
     }
     .await;
     match updated {
