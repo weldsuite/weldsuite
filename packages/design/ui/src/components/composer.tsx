@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Loader2 } from "lucide-react"
+import { Loader2, X } from "lucide-react"
 
 import { cn } from "../lib/utils"
 
@@ -29,6 +29,54 @@ function ComposerFrame({
       )}
       {...props}
     />
+  )
+}
+
+/**
+ * A strip above the field about the next message: what it replies to, that
+ * it edits an earlier one, a suggestion. 36px tall for one line, inset like
+ * the field, its corners following the box's. `onDismiss` adds a close
+ * button named `dismissLabel`.
+ */
+function ComposerNotice({
+  icon,
+  actions,
+  onDismiss,
+  dismissLabel,
+  className,
+  children,
+  ...props
+}: React.ComponentProps<"div"> & {
+  icon?: React.ReactNode
+  /** Buttons before the close button. */
+  actions?: React.ReactNode
+  onDismiss?: () => void
+  dismissLabel?: string
+}) {
+  return (
+    <div
+      data-slot="composer-notice"
+      className={cn(
+        "mb-1 flex min-h-9 items-center gap-2 rounded-[10px] bg-gray-100 py-1.5 pr-1.5 pl-3 text-[13px] leading-5 text-foreground dark:bg-secondary/60 [&>svg]:size-3.5 [&>svg]:shrink-0 [&>svg]:text-muted-foreground",
+        className
+      )}
+      {...props}
+    >
+      {icon}
+      <div className="min-w-0 flex-1">{children}</div>
+      {actions}
+      {onDismiss && (
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label={dismissLabel}
+          title={dismissLabel}
+          className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-gray-200 hover:text-foreground dark:hover:bg-accent"
+        >
+          <X className="size-3.5" aria-hidden="true" />
+        </button>
+      )}
+    </div>
   )
 }
 
@@ -106,4 +154,11 @@ function ComposerSendButton({
   )
 }
 
-export { ComposerFrame, ComposerActions, ComposerSendButton, composerFieldClass, composerIconButtonClass }
+export {
+  ComposerFrame,
+  ComposerNotice,
+  ComposerActions,
+  ComposerSendButton,
+  composerFieldClass,
+  composerIconButtonClass,
+}

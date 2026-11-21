@@ -178,6 +178,8 @@ export const weldchat = {
       threadSuggestion: 'Looks like a conversation. Continue it in a thread?',
       createThread: 'Create thread',
       dismissThreadSuggestion: 'Dismiss',
+      cancelReply: 'Cancel reply',
+      cancelEditing: 'Cancel editing',
     },
     channelEmptyState: {
       channelCreated: 'created this channel',

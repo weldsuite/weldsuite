@@ -177,6 +177,8 @@ export const weldchat = {
       threadSuggestion: 'Dit lijkt een gesprek. Verder in een thread?',
       createThread: 'Thread starten',
       dismissThreadSuggestion: 'Sluiten',
+      cancelReply: 'Antwoord annuleren',
+      cancelEditing: 'Bewerken annuleren',
     },
     channelEmptyState: {
       channelCreated: 'heeft dit kanaal aangemaakt',
