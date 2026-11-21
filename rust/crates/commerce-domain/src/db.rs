@@ -124,7 +124,10 @@ mod tests {
         for amount in [0, 1, 99, 100, 123_456, -250] {
             assert_eq!(cents(&decimal(amount)), amount);
         }
-        assert_eq!(cents(&BigDecimal::from_str("12.5").unwrap()), 1250);
+        assert_eq!(
+            BigDecimal::from_str("12.5").ok().as_ref().map(cents),
+            Some(1250)
+        );
     }
 
     #[test]
