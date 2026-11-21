@@ -13,12 +13,8 @@
 //!
 //! Paths, bodies, status codes, messages and entity events are the
 //! TypeScript worker's; its tests run against this crate in the `know`
-//! conformance suite (`rust/conformance/suites.json`).
-
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
+//! conformance suite (`rust/conformance/suites.json`). Queries go through
+//! the SeaORM entities of `weldsuite-schema` (ADR DATA-019).
 
 mod access;
 mod favorites;
@@ -37,14 +33,14 @@ use http::HeaderMap;
 use http::header::CONTENT_TYPE;
 use http::request::Parts;
 use serde_json::{Map, Value};
-use time::OffsetDateTime;
+use time::PrimitiveDateTime;
 use weldsuite_auth::AuthContext;
 use weldsuite_catalogs::entity_events::EventName;
 use weldsuite_catalogs::permission_keys::{
     KNOWLEDGE_CREATE, KNOWLEDGE_DELETE, KNOWLEDGE_MANAGE, KNOWLEDGE_READ, KNOWLEDGE_UPDATE,
 };
 use weldsuite_db::{PgPool, Tenant};
-use weldsuite_events::{EntityEventPublisher, EventContext, iso_timestamp, publish_entity_event};
+use weldsuite_events::{EntityEventPublisher, EventContext, publish_entity_event};
 use weldsuite_kit::ApiError;
 use weldsuite_kit::validation::{Issues, json_body};
 use weldsuite_permissions::{PermissionGate, PermissionQueries, Permissions};
@@ -221,8 +217,8 @@ impl From<KnowError> for Refusal {
     }
 }
 
-impl From<sqlx::Error> for Refusal {
-    fn from(error: sqlx::Error) -> Self {
+impl From<sea_orm::DbErr> for Refusal {
+    fn from(error: sea_orm::DbErr) -> Self {
         Self::Know(KnowError::Database(error))
     }
 }
@@ -259,15 +255,20 @@ impl Refusal {
     }
 }
 
-/// `new Date()` as Drizzle writes it to a `timestamp` column: UTC with
-/// milliseconds. Bound as text and cast with `::timestamp`.
-pub(crate) fn now() -> String {
-    iso_timestamp(OffsetDateTime::now_utc())
+/// `new Date()` as Drizzle writes it to a `timestamp` column: UTC, to the
+/// millisecond.
+pub(crate) fn now() -> PrimitiveDateTime {
+    weldsuite_db::utc_now()
 }
 
 /// `new Date(Date.now() - minutes)`, as [`now`] writes it.
-pub(crate) fn minutes_ago(minutes: i64) -> String {
-    iso_timestamp(OffsetDateTime::now_utc() - time::Duration::minutes(minutes))
+pub(crate) fn minutes_ago(minutes: i64) -> PrimitiveDateTime {
+    weldsuite_db::utc_minutes_ago(minutes)
+}
+
+/// An entity's model as Drizzle returned the row (its serde shape).
+pub(crate) fn row<T: serde::Serialize>(model: T) -> Value {
+    serde_json::to_value(model).unwrap_or(Value::Null)
 }
 
 /// `zValidator('json', schema)`: the body read by `read`, or the 400 (bad

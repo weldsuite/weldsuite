@@ -816,6 +816,26 @@ yet …")]`) and are listed in `crates/schema/tests/raw_sql.rs`:
 Until a crate is converted, a query a change touches anyway moves to the ORM
 when that is easy; a new route in an old crate uses the ORM.
 
+Converting a crate (one module per PR, `modules/know` with `crates/know-domain`
+was the first):
+
+| SQL | SeaORM |
+|---|---|
+| `select to_jsonb(t) …` + `js_row` | `Entity::find…().one/all`, then `serde_json::to_value(model)`: the entity serializes as Drizzle did |
+| `jsonb_build_object(…)` of some columns | a `#[derive(FromQueryResult, Serialize)]` struct with `#[serde(rename_all = "camelCase")]` and `weldsuite_schema::js::*` on its timestamps, `.select_only().columns([…]).into_model()` |
+| `insert …` | `Entity::insert(ActiveModel { …, ..Default::default() })`; `.exec_with_returning` for `returning`, `.exec_without_returning` otherwise |
+| `on conflict do nothing` | `.on_conflict(OnConflict::new().do_nothing().to_owned())`: no target, so any unique index refuses the row (`on_conflict_do_nothing()` targets the primary key only) |
+| `update … set col = case when $set then $v else col end` | `update_many()` with a `col_expr` only for the fields the body sent |
+| `coalesce(max(x), -1)` | `.select_only().column_as(Column::X.max(), "max").into_tuple::<Option<i32>>()` |
+| `x = any($1)` | `Column::X.is_in(list)`, with the list checked non-empty as before |
+| `not exists (select …)` on a not-null column | `Column::X.not_in_subquery(Query::select()…)` |
+| a join | `Entity::belongs_to(Other).from(…).to(…).into()` with `.join(JoinType::…, relation)` |
+| `$1::timestamp` bound as text | a `PrimitiveDateTime` from `weldsuite_db::utc_now()` (UTC, milliseconds, as Drizzle wrote it) |
+
+A domain error that held `sqlx::Error` holds `sea_orm::DbErr`; callers that
+turned it into their own 500 keep the same response. The module's conformance
+suites are the check that nothing changed.
+
 ## Migrations
 
 The schema is the entities in `crates/schema` (ADR DATA-019). To change it,

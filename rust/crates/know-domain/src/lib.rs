@@ -2,12 +2,8 @@
 //! (`modules/external-api`): `@weldsuite/know-domain`.
 //!
 //! [`access`] is who may see, read, write and manage which space; a
-//! workspace API key (no user) reaches open teamspaces only.
-
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
+//! workspace API key (no user) reaches open teamspaces only. Queries go
+//! through the SeaORM entities of `weldsuite-schema` (ADR DATA-019).
 
 pub mod access;
 pub mod pages;
@@ -20,15 +16,13 @@ use weldsuite_kit::ApiError;
 #[derive(Debug)]
 pub enum KnowError {
     /// 404: `<resource> with ID '<id>' not found`.
-    NotFound {
-        resource: &'static str,
-        id: String,
-    },
+    NotFound { resource: &'static str, id: String },
     /// 403 with the message.
     Forbidden(&'static str),
     /// 409 with the message.
     Conflict(&'static str),
-    Database(sqlx::Error),
+    /// A query failed: the route's 500.
+    Database(sea_orm::DbErr),
 }
 
 impl KnowError {
@@ -58,8 +52,13 @@ impl KnowError {
     }
 }
 
-impl From<sqlx::Error> for KnowError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<sea_orm::DbErr> for KnowError {
+    fn from(error: sea_orm::DbErr) -> Self {
         Self::Database(error)
     }
+}
+
+/// An entity's model as Drizzle returned the row (its serde shape).
+pub(crate) fn row<T: serde::Serialize>(model: T) -> serde_json::Value {
+    serde_json::to_value(model).unwrap_or(serde_json::Value::Null)
 }

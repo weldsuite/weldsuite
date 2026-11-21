@@ -8875,8 +8875,9 @@ version = "0.0.0"
 dependencies = [
  "axum",
  "http",
+ "sea-orm",
+ "serde",
  "serde_json",
- "sqlx",
  "time",
  "tracing",
  "weldsuite-auth",
@@ -8886,6 +8887,7 @@ dependencies = [
  "weldsuite-kit",
  "weldsuite-know-domain",
  "weldsuite-permissions",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -8893,11 +8895,14 @@ name = "weldsuite-know-domain"
 version = "0.0.0"
 dependencies = [
  "axum",
+ "sea-orm",
+ "serde",
  "serde_json",
- "sqlx",
+ "time",
  "tracing",
  "weldsuite-db",
  "weldsuite-kit",
+ "weldsuite-schema",
 ]
 
 [[package]]
