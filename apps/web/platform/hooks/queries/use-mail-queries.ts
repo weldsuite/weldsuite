@@ -31,6 +31,7 @@ import {
   sampleThread,
   setSampleMailAccount,
 } from '@/app/weldmail/lib/sample-mail';
+import { findSenderSubscription } from '@/app/weldmail/lib/unsubscribe';
 import type {
   AssignMailAccountUsersInput,
   CreateMailAccountInput,
@@ -45,6 +46,8 @@ import type {
   ReserveWeldMailAddressInput,
   SnoozeMessageInput,
   ListMailMessagesQuery,
+  DataResponse,
+  MailSubscription,
 } from '@weldsuite/app-api-client';
 
 // =============================================================================
@@ -1088,6 +1091,23 @@ export function useMailSubscriptions(accountId?: string) {
   });
 }
 
+/**
+ * The open email's sender as a subscription of this mailbox, or null. Reads
+ * the mailbox's subscription list (shared cache with the Subscriptions page),
+ * so opening emails one after another makes no extra requests.
+ */
+export function useSenderMailSubscription(accountId?: string, senderEmail?: string | null) {
+  const { mailSubscriptions } = useAppApi();
+  const email = senderEmail?.trim().toLowerCase() || undefined;
+  return useQuery({
+    queryKey: mailKeys.subscriptions(accountId),
+    queryFn: () => mailSubscriptions.list({ accountId: accountId! }),
+    enabled: !!accountId && !!email,
+    staleTime: 60_000,
+    select: (res) => findSenderSubscription(res.data, email) ?? null,
+  });
+}
+
 export function useScanMailSubscriptions() {
   const { mailSubscriptions } = useAppApi();
   const qc = useQueryClient();
@@ -1105,7 +1125,14 @@ export function useUnsubscribeMailSubscription() {
   return useMutation({
     mutationFn: (id: string) => mailSubscriptions.unsubscribe(id),
     onSuccess: (res) => {
-      qc.invalidateQueries({ queryKey: mailKeys.subscriptions(res.data.subscription.accountId) });
+      const updated = res.data.subscription;
+      const key = mailKeys.subscriptions(updated.accountId);
+      // Flip the row at once, so an Unsubscribe button turns into "Unsubscribed"
+      // without waiting for the refetch.
+      qc.setQueryData<DataResponse<MailSubscription[]>>(key, (prev) =>
+        prev ? { ...prev, data: prev.data.map((s) => (s.id === updated.id ? updated : s)) } : prev,
+      );
+      qc.invalidateQueries({ queryKey: key });
     },
   });
 }

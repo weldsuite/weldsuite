@@ -535,7 +535,28 @@ export async function listSubscriptions(account: TenantMailAccount): Promise<Ten
   return data.map(toTenantSubscription);
 }
 
+/** How long the message screen reuses a mailbox's subscription list. */
+const SUBSCRIPTION_CACHE_MS = 60_000;
+const subscriptionCache = new Map<string, { at: number; items: Promise<TenantSubscription[]> }>();
+
+/**
+ * `listSubscriptions`, kept for a minute per mailbox, so opening emails one
+ * after another does not refetch the list for every Unsubscribe button.
+ */
+export function listSubscriptionsCached(account: TenantMailAccount): Promise<TenantSubscription[]> {
+  const hit = subscriptionCache.get(account.id);
+  if (hit && Date.now() - hit.at < SUBSCRIPTION_CACHE_MS) return hit.items;
+  const entry = { at: Date.now(), items: listSubscriptions(account) };
+  subscriptionCache.set(account.id, entry);
+  // A failed load must not be served from the cache.
+  entry.items.catch(() => {
+    if (subscriptionCache.get(account.id) === entry) subscriptionCache.delete(account.id);
+  });
+  return entry.items;
+}
+
 export async function scanSubscriptions(account: TenantMailAccount): Promise<{ scanned: number; subscriptions: number }> {
+  subscriptionCache.delete(account.id);
   const { data } = isPersonalAccount(account)
     ? await personalApi.mailSubscriptions.scan(account.id)
     : await appApi.mailSubscriptions.scan({ accountId: account.id });
@@ -546,6 +567,7 @@ export async function unsubscribeFromSender(
   account: TenantMailAccount,
   subscriptionId: string,
 ): Promise<{ method: SubscriptionMethod; url: string | null }> {
+  subscriptionCache.delete(account.id);
   const { data } = isPersonalAccount(account)
     ? await personalApi.mailSubscriptions.unsubscribe(subscriptionId)
     : await appApi.mailSubscriptions.unsubscribe(subscriptionId);

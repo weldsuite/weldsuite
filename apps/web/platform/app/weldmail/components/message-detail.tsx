@@ -18,6 +18,7 @@ import {
   Loader2,
   AlertTriangle,
   Ban,
+  MailX,
   Paperclip,
   Eye,
   Copy,
@@ -93,7 +94,11 @@ import {
   useToggleMailImportant,
   useSnoozeEmail,
   useUnsnoozeEmail,
+  useSenderMailSubscription,
+  useUnsubscribeMailSubscription,
 } from '@/hooks/queries/use-mail-queries';
+import { notifyUnsubscribed, senderLabel, unsubscribesInPlace } from '../lib/unsubscribe';
+import { UnsubscribeSenderButton } from './unsubscribe-sender-button';
 import { isSystemLabel } from '../lib/label-config';
 import { hasLabel, userLabelsOf, withLabel, withoutLabel } from '../lib/message-labels';
 import { SNOOZE_PRESETS } from '../lib/snooze-presets';
@@ -116,7 +121,7 @@ import { CustomerDetailPanel } from './customer-detail-panel';
 import { CalendarInviteCard } from './calendar-invite-card';
 import { useCancelScheduledEmail } from './cancel-scheduled-dialog';
 import { TaskDialog } from '@/app/weldcrm/task-dialog';
-import { useI18n } from '@/lib/i18n/provider';
+import { interpolate, useI18n } from '@/lib/i18n/provider';
 import { isFeatureAvailable } from '@/lib/edition';
 import { useAiCreditsToast } from '@/hooks/use-ai-credits-toast';
 import { copyText } from '@/lib/clipboard';
@@ -1331,6 +1336,11 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     };
   }, [message, localThread]);
 
+  // The header's sender as a mailing list this mailbox can unsubscribe from.
+  const headerSenderEmail = newestMessage.fromEmail || extractEmail(fromDisplayString(newestMessage.from));
+  const { data: senderSubscription } = useSenderMailSubscription(accountId, headerSenderEmail);
+  const unsubscribeMutation = useUnsubscribeMailSubscription();
+
   // Our own address on this mailbox — excluded from reply-all recipients.
   const { data: accountsData } = useMailAccounts();
   const accountEmail = useMemo(
@@ -1780,6 +1790,24 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
         toast.error(t.mail.messageDetail.failedToUpdateSpamStatus);
       }
     }
+  };
+
+  // Gmail's "Report spam and unsubscribe". Offered only when WeldMail can do the
+  // unsubscribing itself (one-click or an unsubscribe email), never a web page.
+  const canReportSpamAndUnsubscribe =
+    !isInSpamFolder && senderSubscription?.status === 'active' && unsubscribesInPlace(senderSubscription);
+
+  const handleReportSpamAndUnsubscribe = async () => {
+    const sub = senderSubscription;
+    if (!sub) return;
+    try {
+      const res = await unsubscribeMutation.mutateAsync(sub.id);
+      notifyUnsubscribed(t.mail.subscriptions, sub, res.data);
+    } catch {
+      toast.error(interpolate(t.mail.subscriptions.failed, { sender: senderLabel(sub) }));
+    }
+    // Spam either way: the user asked for both, and a failed unsubscribe is reported above.
+    await handleMarkAsSpam();
   };
 
   // The opened message's sender: the one the user is looking at when they block.
@@ -2544,6 +2572,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                     />
                   )}
                 </span>
+                <UnsubscribeSenderButton subscription={senderSubscription} />
               </div>
             </div>
             <div className="flex items-center gap-0.5 text-muted-foreground flex-shrink-0">
@@ -2633,6 +2662,11 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                       <><AlertTriangle className="mr-0.5 h-4 w-4" /> {t.mail.messageDetail.markAsSpamAction}</>
                     )}
                   </DropdownMenuItem>
+                  {canReportSpamAndUnsubscribe && (
+                    <DropdownMenuItem onClick={handleReportSpamAndUnsubscribe} disabled={unsubscribeMutation.isPending}>
+                      <MailX className="mr-0.5 h-4 w-4" /> {t.mail.messageDetail.reportSpamAndUnsubscribe}
+                    </DropdownMenuItem>
+                  )}
                   {senderEmail && (
                     <DropdownMenuItem onClick={handleBlockSender} disabled={blockSenderMutation.isPending}>
                       <Ban className="mr-0.5 h-4 w-4" /> {t.mail.messageDetail.blockSender}
