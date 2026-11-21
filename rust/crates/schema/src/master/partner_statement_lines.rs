@@ -7,8 +7,8 @@ use sea_orm::entity::prelude::*;
 
 #[allow(unused_imports)]
 use crate::ddl::{
-    Check, Column as DdlColumn, ForeignKey, Index, IndexColumn, PrimaryKey as DdlPrimaryKey, Table,
-    Unique,
+    Check, Column as DdlColumn, Default as DdlDefault, ForeignKey, Index, IndexColumn,
+    PrimaryKey as DdlPrimaryKey, Table, Unique,
 };
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
@@ -85,129 +85,33 @@ pub enum Relation {}
 
 impl ActiveModelBehavior for ActiveModel {}
 
-/// The table as the migrations define it.
+/// What the entity doesn't say about the table: defaults, indexes, constraints.
 pub const DDL: Table = Table {
     name: "partner_statement_lines",
     columns: &[
         DdlColumn {
-            name: "id",
-            sql_type: "varchar(30)",
-            not_null: true,
-            primary_key: true,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "statement_id",
-            sql_type: "varchar(30)",
-            not_null: true,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "workspace_id",
-            sql_type: "varchar(255)",
-            not_null: true,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "workspace_name",
-            sql_type: "varchar(255)",
-            not_null: true,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "days_active",
-            sql_type: "integer",
-            not_null: true,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "days_in_period",
-            sql_type: "integer",
-            not_null: true,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
             name: "seats_billed",
-            sql_type: "integer",
-            not_null: true,
-            primary_key: false,
-            default: Some("0"),
+            sql_type: None,
+            default: Some(DdlDefault::Number("0")),
             generated: None,
-        },
-        DdlColumn {
-            name: "resale",
-            sql_type: "numeric(12, 2)",
-            not_null: true,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "share_amount",
-            sql_type: "numeric(12, 2)",
-            not_null: true,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "floor_amount",
-            sql_type: "numeric(12, 2)",
-            not_null: true,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "credit_floor_amount",
-            sql_type: "numeric(12, 2)",
-            not_null: true,
-            primary_key: false,
-            default: None,
-            generated: None,
+            default_fn: false,
+            on_update: false,
         },
         DdlColumn {
             name: "extra_credits_amount",
-            sql_type: "numeric(12, 2)",
-            not_null: true,
-            primary_key: false,
-            default: Some("'0'"),
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'0'")),
             generated: None,
-        },
-        DdlColumn {
-            name: "due",
-            sql_type: "numeric(12, 2)",
-            not_null: true,
-            primary_key: false,
-            default: None,
-            generated: None,
-        },
-        DdlColumn {
-            name: "margin",
-            sql_type: "numeric(12, 2)",
-            not_null: true,
-            primary_key: false,
-            default: None,
-            generated: None,
+            default_fn: false,
+            on_update: false,
         },
         DdlColumn {
             name: "breakdown",
-            sql_type: "jsonb",
-            not_null: true,
-            primary_key: false,
-            default: Some("'[]'::jsonb"),
+            sql_type: None,
+            default: Some(DdlDefault::Sql("'[]'::jsonb")),
             generated: None,
+            default_fn: false,
+            on_update: false,
         },
     ],
     primary_key: None,

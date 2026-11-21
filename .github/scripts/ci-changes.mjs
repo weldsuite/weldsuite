@@ -123,6 +123,8 @@ const RUST_PATHS = [
   'rust/',
   'scripts/rust-',
   'packages/core/db/drizzle/',
+  // rust/crates/schema is generated from the Drizzle schema (pnpm rust:schema, ADR DATA-019).
+  'packages/core/db/src/schema/',
   // The WeldForms engine's fixtures are also run by rust/modules/forms (ADR FORMS-003).
   'packages/core/forms-engine/',
   'apps/workers/docs-api/src/room/',
