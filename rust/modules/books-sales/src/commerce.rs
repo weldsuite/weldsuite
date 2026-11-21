@@ -212,36 +212,48 @@ impl CommerceInvoicing {
             .await
             .map_err(failed)?
             .ok_or_else(|| "The invoice was not found".to_owned())?;
-        let made = create_credit_note(&caller, &self.state, request.invoice_id)
-            .await
-            .map_err(|e| e.message())?;
-        let note_id = made["id"]
-            .as_str()
-            .ok_or_else(|| "The credit note could not be made".to_owned())?
-            .to_owned();
-        let invoice_total = cents_of(invoice.get("total"));
-        if request.amount > 0 && request.amount < invoice_total {
-            scale_draft(db, &note_id, request.amount, invoice_total).await?;
-        }
-        let rt = runtime(&caller, &self.state);
-        finalize_invoice(
-            db,
-            &note_id,
-            FinalizeOptions {
-                user_id: Some(request.actor.user_id.to_owned()),
-                mark_sent: false,
-                runtime: &rt,
-                http: rt.http.as_ref(),
-            },
+        // One credit note per refund, tagged with it: a retry after a
+        // failure part-way resumes from the note it made.
+        let tag = format!("refund:{}", request.refund_id);
+        let earlier: Option<(String, String)> = sqlx::query_as(
+            "select id, status from invoices              where credit_note_for_invoice_id = $1 and reference = $2 and deleted_at is null              order by created_at desc limit 1",
         )
+        .bind(request.invoice_id)
+        .bind(&tag)
+        .fetch_optional(db)
         .await
-        .map_err(|e| e.message())?;
-        // The money going back out of the books.
+        .map_err(failed)?;
+        let note_id = match earlier {
+            // Finalised already: at most the payment out is missing.
+            Some((id, status)) if status != "draft" => id,
+            earlier => {
+                // A draft left by a failed run may be scaled already: make
+                // it again from the invoice rather than scale it twice.
+                if let Some((draft, _)) = earlier {
+                    sqlx::query(
+                        "update invoices set deleted_at = now() at time zone 'utc',                            updated_at = now() at time zone 'utc'                          where id = $1 and status = 'draft'",
+                    )
+                    .bind(&draft)
+                    .execute(db)
+                    .await
+                    .map_err(failed)?;
+                }
+                self.make_credit_note(&caller, request, &invoice, &tag)
+                    .await?
+            }
+        };
+        // The money going back out of the books, once.
         let note = load_invoice(db, &note_id)
             .await
             .map_err(failed)?
             .ok_or_else(|| "The credit note was not found".to_owned())?;
-        let amount = as_f64(request.amount);
+        if cents_of(note.get("amountPaid")) >= request.amount {
+            return Ok(CreditNoteRef {
+                number: owned(&note, "invoiceNumber").unwrap_or_default(),
+                id: note_id,
+            });
+        }
+        let amount = as_f64(request.amount - cents_of(note.get("amountPaid")));
         let result = record_payment(
             db,
             caller.http(&self.state).as_ref(),
@@ -280,6 +292,49 @@ impl CommerceInvoicing {
             number: owned(&note, "invoiceNumber").unwrap_or_default(),
             id: note_id,
         })
+    }
+
+    /// A new credit note for `request`: tagged right away, scaled down to a
+    /// partial refund, then finalised. Its id.
+    async fn make_credit_note(
+        &self,
+        caller: &Caller,
+        request: &CreditNoteRequest<'_>,
+        invoice: &Value,
+        tag: &str,
+    ) -> Result<String, String> {
+        let db = request.actor.db;
+        let made = create_credit_note(caller, &self.state, request.invoice_id)
+            .await
+            .map_err(|e| e.message())?;
+        let note_id = made["id"]
+            .as_str()
+            .ok_or_else(|| "The credit note could not be made".to_owned())?
+            .to_owned();
+        sqlx::query("update invoices set reference = $2 where id = $1")
+            .bind(&note_id)
+            .bind(tag)
+            .execute(db)
+            .await
+            .map_err(failed)?;
+        let invoice_total = cents_of(invoice.get("total"));
+        if request.amount > 0 && request.amount < invoice_total {
+            scale_draft(db, &note_id, request.amount, invoice_total).await?;
+        }
+        let rt = runtime(caller, &self.state);
+        finalize_invoice(
+            db,
+            &note_id,
+            FinalizeOptions {
+                user_id: Some(request.actor.user_id.to_owned()),
+                mark_sent: false,
+                runtime: &rt,
+                http: rt.http.as_ref(),
+            },
+        )
+        .await
+        .map_err(|e| e.message())?;
+        Ok(note_id)
     }
 }
 

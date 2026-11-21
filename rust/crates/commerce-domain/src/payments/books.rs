@@ -72,6 +72,9 @@ pub struct InvoiceRequest<'a> {
 pub struct CreditNoteRequest<'a> {
     pub actor: Actor<'a>,
     pub order_id: &'a str,
+    /// The refund the credit note is for; it tags the note, so a retry
+    /// resumes from the note it made instead of making a second one.
+    pub refund_id: &'a str,
     pub invoice_id: &'a str,
     pub entity_id: &'a str,
     pub amount: Cents,
@@ -386,6 +389,7 @@ pub async fn credit_refund(
         .credit_note(&CreditNoteRequest {
             actor,
             order_id: &order_id,
+            refund_id,
             invoice_id: &invoice.id,
             entity_id: &entity,
             amount: cents(&refund, "amount"),

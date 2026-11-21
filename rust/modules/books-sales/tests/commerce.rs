@@ -120,6 +120,8 @@ async fn order(db: &PgPool) -> String {
     id
 }
 
+// One scenario, read top to bottom: invoice, payment, credit note, retries.
+#[allow(clippy::too_many_lines)]
 #[tokio::test]
 async fn a_paid_order_is_invoiced_once_and_a_partial_refund_credited() {
     let Ok(url) = std::env::var("WELDSUITE_TEST_TENANT_URL") else {
@@ -183,19 +185,37 @@ async fn a_paid_order_is_invoiced_once_and_a_partial_refund_credited() {
     assert_eq!(payments, 1);
 
     // A partial refund: a credit note for 10.00, its VAT in proportion.
-    let credit = books
-        .credit_note(&CreditNoteRequest {
-            actor,
-            order_id: &order,
-            invoice_id: &invoice.id,
-            entity_id: &entity,
-            amount: 1000,
-            currency: "EUR",
-            reason: Some("Return"),
-            reference: Some("re_books"),
-        })
-        .await
-        .expect("credit note");
+    let refund = CreditNoteRequest {
+        actor,
+        order_id: &order,
+        refund_id: "cref_books_test",
+        invoice_id: &invoice.id,
+        entity_id: &entity,
+        amount: 1000,
+        currency: "EUR",
+        reason: Some("Return"),
+        reference: Some("re_books"),
+    };
+    let credit = books.credit_note(&refund).await.expect("credit note");
+    // Again for the same refund (a retry after a failure part-way): the same
+    // note, its payment out recorded once.
+    let again = books.credit_note(&refund).await.expect("credit note again");
+    assert_eq!(again.id, credit.id);
+    let notes: i64 = sqlx::query_scalar(
+        "select count(*) from invoices where credit_note_for_invoice_id = $1 and deleted_at is null",
+    )
+    .bind(&invoice.id)
+    .fetch_one(&db)
+    .await
+    .expect("notes");
+    assert_eq!(notes, 1);
+    let outs: i64 =
+        sqlx::query_scalar("select count(*) from payment_allocations where invoice_id = $1")
+            .bind(&credit.id)
+            .fetch_one(&db)
+            .await
+            .expect("note allocations");
+    assert_eq!(outs, 1);
     let note: Value = sqlx::query_scalar(
         "select jsonb_build_object('type', type, 'total', total::text, 'taxTotal', tax_total::text, \
            'subtotal', subtotal::text, 'for', credit_note_for_invoice_id, 'journal', journal_entry_id) \
