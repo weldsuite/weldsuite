@@ -251,8 +251,9 @@ function ThreadIndicator({
   children: ReactNode;
 }>) {
   const last = lastReplyLabel(lastReplyAt);
-  // The count reads at message size; the time is small, like a message's.
-  const className = 'group/thread mt-1 flex w-fit items-center gap-1.5 text-sm';
+  // The count sits between message text (14px) and a timestamp (12px); the
+  // time is small, like a message's.
+  const className = 'group/thread mt-1 flex w-fit items-center gap-1.5 text-[13px]';
   const content = (
     <>
       {/* The line from the message down to its replies. */}
