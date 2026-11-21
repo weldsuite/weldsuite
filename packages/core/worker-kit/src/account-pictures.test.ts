@@ -33,6 +33,9 @@ import {
 
 const env = { DATABASE_URL_MASTER: 'postgres://test' };
 
+/** The tenant database `loadMemberProfile` reads member rows from. */
+let tenantDb: Awaited<ReturnType<typeof createPgliteDb>>['db'];
+
 beforeAll(async () => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- pglite drizzle stands in for neon-http
   const master: any = (await createMasterPgliteDb()).db;
@@ -43,7 +46,9 @@ beforeAll(async () => {
     { id: 'user_bob', email: 'bob@acme.test', imageUrl: null },
     { id: 'user_carol', email: 'carol@acme.test', imageUrl: '' },
   ]);
-});
+  // Building a tenant schema from the migrations takes longer than a test's 5 s.
+  tenantDb = (await createPgliteDb()).db;
+}, 60_000);
 
 afterEach(() => {
   holder.fail = false;
@@ -122,14 +127,14 @@ describe('tryLoadAccountPicturesFrom', () => {
     warn.mockRestore();
     // Nothing to look up: the handle is never opened.
     open.mockClear();
-    expect((await tryLoadAccountPicturesFrom(open, [null, ''])).size).toBe(0);
+    expect((await tryLoadAccountPicturesFrom(open, [null, '']))?.size).toBe(0);
     expect(open).not.toHaveBeenCalled();
   });
 });
 
 describe('loadMemberProfile', () => {
   it('takes the name from the member row (else its email) and the picture from the account', async () => {
-    const { db } = await createPgliteDb();
+    const db = tenantDb;
     const now = new Date('2026-01-01T10:00:00.000Z');
     await db.delete(schema.workspaceMembers);
     await db.insert(schema.workspaceMembers).values([
