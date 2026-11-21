@@ -19,7 +19,7 @@ import { openDb, resetTables } from './helpers';
 import { seedConnection } from './seed';
 
 const MIGRATION = new URL(
-  '../../../../../packages/core/db/drizzle/tenant-migrations/0244_weldmerge_adopt_github.sql',
+  '../../../../../rust/migrations/tenant/0244_weldmerge_adopt_github.sql',
   import.meta.url,
 );
 
@@ -34,7 +34,7 @@ beforeEach(async () => {
 });
 
 const FOREIGN_KEYS = new URL(
-  '../../../../../packages/core/db/drizzle/tenant-migrations/0245_weldmerge_github_fk.sql',
+  '../../../../../rust/migrations/tenant/0245_weldmerge_github_fk.sql',
   import.meta.url,
 );
 

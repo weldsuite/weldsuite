@@ -29,7 +29,7 @@ export async function createMasterTestDb(): Promise<MasterTestDb> {
 
   const here = path.dirname(fileURLToPath(import.meta.url));
   // src/test → packages/core/db
-  const migrationsDir = path.resolve(here, '../../../db/drizzle/master-migrations');
+  const migrationsDir = path.resolve(here, '../../../../../rust/migrations/master');
   const journal = JSON.parse(
     await readFile(path.join(migrationsDir, 'meta/_journal.json'), 'utf8'),
   ) as { entries: Array<{ idx: number; tag: string }> };

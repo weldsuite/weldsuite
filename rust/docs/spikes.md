@@ -8,7 +8,8 @@ the verdict and what changed because of it.
 The tool for S3 and S4 is `crates/db/examples/tenant_bench` (an example of
 `weldsuite-db`, so CI compiles it and the image never contains it). The ORM
 spikes (S5 to S8) use the tests of `crates/schema`, its generator
-`scripts/rust-schema.ts` and `tenant_bench s3 --orm=true`.
+`scripts/rust-schema.ts` (deleted at the flip, when the entities became the
+source; it is in git history) and `tenant_bench s3 --orm=true`.
 
 ## Shared setup (S3 and S4, run 2026-10-29)
 
@@ -422,7 +423,6 @@ tenant and master databases):
 
 ```bash
 pnpm exec tsx scripts/rust-test-db.ts --master $M --tenant $T
-pnpm exec tsx scripts/rust-schema.ts                       # the entities (S6)
 
 # S5 and part of S7
 WELDSUITE_TEST_TENANT_URL=$T cargo test -p weldsuite-schema --test orm

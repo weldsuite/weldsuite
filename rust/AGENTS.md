@@ -32,9 +32,11 @@ section you need rather than all of it.
   AGPL-3.0-only); say why in the PR.
 - Bumping the toolchain is its own PR: `rust-toolchain.toml` and
   `rust-version` in `Cargo.toml` together.
-- Migrations are the same journaled Drizzle SQL the TypeScript runners apply,
-  embedded in the binary. EU production deploys every green `main` build, so
-  keep them additive.
+- **The schema is the entities in `crates/schema`** (ADR DATA-019). A schema
+  change edits them; the migration is generated into `migrations/` with
+  `pnpm db:generate --name <slug>` (`db:generate:master`), and only with a
+  person's approval. Migrations are embedded in the binary. EU production
+  deploys every green `main` build, so keep them additive.
 
 ## Commands
 
